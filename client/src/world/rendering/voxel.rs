@@ -56,7 +56,7 @@ impl VoxelShape {
 
                 shape
             }
-            BlockId::OakLog | BlockId::SpruceLog => {
+            BlockId::OakLog | BlockId::SpruceLog | BlockId::Cactus => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[0].texture += "Top";
                 shape.faces[1].texture += "Top";
