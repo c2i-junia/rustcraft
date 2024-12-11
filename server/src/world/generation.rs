@@ -32,6 +32,16 @@ fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId
     );
 }
 
+fn generate_cactus(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, cactus: BlockId) {
+    let cactus_height = 1 + rand::random::<u8>() % 3;
+    for dy in 0..cactus_height {
+        chunk.map.insert(
+            IVec3::new(x, y + dy as i32, z),
+            BlockData::new(cactus, false, BlockDirection::Front),
+        );
+    }
+}
+
 pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
     if temperature > 0.7 {
         if humidity > 0.5 {
@@ -230,6 +240,15 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                                     block_pos.with_y(block_pos.y + 1),
                                     BlockData::new(BlockId::Poppy, false, BlockDirection::Front),
                                 );
+                            }
+                        }
+                        BiomeType::Desert => {
+                            let cactus_chance = rand::random::<f32>();
+                            if cactus_chance < 0.02 {
+                                let above_surface_pos = IVec3::new(dx, terrain_height + 1, dz);
+                                if !chunk.map.contains_key(&above_surface_pos) {
+                                    generate_cactus(&mut chunk, dx, dy + 1, dz, BlockId::Cactus);
+                                }
                             }
                         }
                         BiomeType::IcePlain => {
