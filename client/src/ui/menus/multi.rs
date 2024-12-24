@@ -9,20 +9,17 @@ use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        BuildChildren, Button, ButtonBundle, Changed, Commands, Component, DespawnRecursiveExt,
-        Entity, ImageBundle, NodeBundle, Query, Res, StateScoped, TextBundle, With, Without,
+        BuildChildren, Button, Changed, Commands, Component, DespawnRecursiveExt, Entity, Query,
+        Res, StateScoped, With, Without,
     },
-    text::{Text, TextSection, TextStyle},
     ui::{
-        AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection,
-        GridPlacement, GridTrack, Interaction, JustifyContent, Overflow, Style, UiImage, UiRect,
-        Val,
+        AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection, GridTrack,
+        Interaction, JustifyContent, Node, Overflow, UiRect, Val,
     },
     utils::hashbrown::HashMap,
 };
 use bevy_simple_text_input::{
-    TextInputBundle, TextInputInactive, TextInputPlaceholder, TextInputSettings,
-    TextInputTextStyle, TextInputValue,
+    TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
 };
 use ron::{from_str, ser::PrettyConfig};
 use shared::world::get_game_folder;
@@ -66,24 +63,36 @@ pub fn multiplayer_menu_setup(
     let background_image = load_background_image(&asset_server);
     let button_background_image = load_button_background_large_image(&asset_server);
 
-    let txt_style = text_style(font.clone(), 20.0, TEXT_COLOR);
-    let txt_style_inactive = text_style(font.clone(), 20.0, Color::srgb(0.3, 0.3, 0.3));
+    let txt_font = TextFont {
+        font: font.clone(),
+        font_size: 20.0,
+        ..default()
+    };
 
-    let btn_style = Style {
+    let txt_color = TextColor(TEXT_COLOR);
+    // let txt_font_inactive = TextFont {
+    //     font,
+    //     font_size: 20.0,
+    //     ..default()
+    // };
+
+    // let txt_color_inactive = TextColor(Color::srgb(0.3, 0.3, 0.3));
+
+    let btn_style = Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
         border: UiRect::all(Val::Px(2.)),
         height: Val::Px(40.0),
-        ..Default::default()
+        ..default()
     };
 
     commands
         .spawn((
             StateScoped(MenuState::Multi),
-            NodeBundle {
-                style: Style {
+            (
+                Node {
                     width: Val::Vw(100.0),
                     height: Val::Vh(100.0),
                     align_items: AlignItems::Center,
@@ -91,158 +100,144 @@ pub fn multiplayer_menu_setup(
                     flex_direction: FlexDirection::Column,
                     padding: UiRect::horizontal(Val::Percent(20.)),
                     row_gap: Val::Percent(2.),
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
-            },
-            UiImage::new(background_image),
+                BackgroundColor(Color::NONE),
+            ),
+            ImageNode::new(background_image),
         ))
         .with_children(|root| {
-            root.spawn(TextBundle {
-                text: Text::from_section("Server list", txt_style.clone()),
-                style: Style {
+            root.spawn((
+                Text::new("Server list"),
+                txt_font.clone(),
+                txt_color.clone(),
+                Node {
                     border: UiRect::all(Val::Px(1.)),
                     flex_direction: FlexDirection::Column,
                     align_content: AlignContent::Center,
                     display: Display::Flex,
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
-            });
+            ));
 
-            root.spawn(NodeBundle {
-                border_color: BorderColor(BACKGROUND_COLOR),
-                style: Style {
-                    width: Val::Percent(100.),
-                    height: Val::Percent(50.),
+            root.spawn((
+                BorderColor(BACKGROUND_COLOR),
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(50.0),
                     flex_direction: FlexDirection::Column,
                     overflow: Overflow::clip_y(),
-                    border: UiRect::all(Val::Px(2.)),
-                    ..Default::default()
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
                 },
-                ..Default::default()
-            })
+            ))
             .with_children(|w| {
                 w.spawn((
-                    NodeBundle {
-                        style: Style {
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Center,
-                            padding: UiRect::all(Val::Px(10.)),
-                            row_gap: Val::Px(10.),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                    ScrollingList { position: 0. },
+                    (Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        padding: UiRect::all(Val::Px(10.0)),
+                        row_gap: Val::Px(10.0),
+                        ..default()
+                    },),
+                    ScrollingList { position: 0.0 },
                     ServerList {
                         servers: HashMap::new(),
                     },
                 ));
             });
 
-            root.spawn(NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.),
-                    display: Display::Grid,
-                    grid_template_columns: vec![GridTrack::flex(1.), GridTrack::flex(1.)],
-                    row_gap: Val::Px(5.),
-                    column_gap: Val::Px(5.),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .with_children(|wrapper| {
-                wrapper.spawn((
-                    NodeBundle {
-                        border_color: BorderColor(BACKGROUND_COLOR),
-                        background_color: BackgroundColor(Color::BLACK),
-                        style: {
-                            let mut style = btn_style.clone();
-                            style.grid_column = GridPlacement::span(2);
-                            style
-                        },
-                        ..Default::default()
-                    },
-                    ServerNameInput,
-                    TextInputBundle {
-                        settings: TextInputSettings {
-                            retain_on_submit: true,
-                            mask_character: None,
-                        },
-                        placeholder: TextInputPlaceholder {
-                            value: "Server name".into(),
-                            text_style: Some(txt_style_inactive.clone()),
-                        },
-                        inactive: TextInputInactive(true),
-                        text_style: TextInputTextStyle(txt_style.clone()),
-                        ..Default::default()
-                    },
-                ));
-
-                wrapper.spawn((
-                    NodeBundle {
-                        border_color: BorderColor(BACKGROUND_COLOR),
-                        background_color: BackgroundColor(Color::BLACK),
-                        style: btn_style.clone(),
-                        ..Default::default()
-                    },
-                    TextInputBundle {
-                        settings: TextInputSettings {
-                            retain_on_submit: true,
-                            mask_character: None,
-                        },
-                        placeholder: TextInputPlaceholder {
-                            value: "Server IP".into(),
-                            text_style: Some(txt_style_inactive.clone()),
-                        },
-                        inactive: TextInputInactive(true),
-                        text_style: TextInputTextStyle(txt_style.clone()),
-                        ..Default::default()
-                    },
-                    ServerIpInput,
-                ));
-
-                wrapper
-                    .spawn((
-                        ButtonBundle {
-                            border_color: BorderColor(Color::BLACK),
-                            background_color: BackgroundColor(BACKGROUND_COLOR),
-                            style: btn_style.clone(),
-                            image: UiImage::new(button_background_image.clone()),
-                            ..Default::default()
-                        },
-                        MultiplayerButtonAction::Add,
-                    ))
-                    .with_children(|btn| {
-                        btn.spawn(TextBundle {
-                            text: Text::from_section("Add server", txt_style.clone()),
-                            ..Default::default()
-                        });
-                    });
-
-                wrapper
-                    .spawn((
-                        ButtonBundle {
-                            border_color: BorderColor(Color::BLACK),
-                            background_color: BackgroundColor(BACKGROUND_COLOR),
-                            style: {
-                                let mut style = btn_style.clone();
-                                style.grid_column = GridPlacement::span(2);
-                                style
+            root.spawn((Node {
+                width: Val::Percent(100.0),
+                display: Display::Grid,
+                grid_template_columns: vec![GridTrack::flex(1.0), GridTrack::flex(1.0)],
+                row_gap: Val::Px(5.0),
+                column_gap: Val::Px(5.0),
+                ..default()
+            },))
+                .with_children(|wrapper| {
+                    wrapper.spawn((
+                        (
+                            BorderColor(BACKGROUND_COLOR),
+                            BackgroundColor(Color::BLACK),
+                            btn_style.clone(),
+                        ),
+                        ServerNameInput,
+                        (
+                            TextInputSettings {
+                                retain_on_submit: true,
+                                mask_character: None,
                             },
-                            image: UiImage::new(button_background_image.clone()),
-                            ..Default::default()
-                        },
-                        MenuButtonAction::BackToMainMenu,
-                    ))
-                    .with_children(|btn| {
-                        btn.spawn(TextBundle {
-                            text: Text::from_section("Back to menu", txt_style.clone()),
-                            ..Default::default()
+                            TextInputPlaceholder {
+                                value: "Server name".into(),
+                                // text_style: Some(txt_color_inactive.0.into()), // TODO: check this
+                                ..default()
+                            },
+                            TextInputInactive(true),
+                            txt_font.clone(),
+                        ),
+                    ));
+
+                    wrapper.spawn((
+                        (
+                            BorderColor(BACKGROUND_COLOR),
+                            BackgroundColor(Color::BLACK),
+                            btn_style.clone(),
+                        ),
+                        (
+                            TextInputSettings {
+                                retain_on_submit: true,
+                                mask_character: None,
+                            },
+                            TextInputPlaceholder {
+                                value: "Server IP".into(),
+                                // text_style: Some(txt_color_inactive.0.into()),
+                                ..default()
+                            },
+                            TextInputInactive(true),
+                            txt_font.clone(),
+                        ),
+                        ServerIpInput,
+                    ));
+
+                    wrapper
+                        .spawn((
+                            (
+                                Button,
+                                BorderColor(Color::BLACK),
+                                BackgroundColor(BACKGROUND_COLOR),
+                                btn_style.clone(),
+                                ImageNode::new(button_background_image.clone()),
+                            ),
+                            MultiplayerButtonAction::Add,
+                        ))
+                        .with_children(|btn| {
+                            btn.spawn((
+                                Text::new("Add server"),
+                                txt_font.clone(),
+                                txt_color.clone(),
+                            ));
                         });
-                    });
-            });
+
+                    wrapper
+                        .spawn((
+                            (
+                                Button,
+                                BorderColor(Color::BLACK),
+                                BackgroundColor(BACKGROUND_COLOR),
+                                btn_style.clone(),
+                                ImageNode::new(button_background_image.clone()),
+                            ),
+                            MenuButtonAction::BackToMainMenu,
+                        ))
+                        .with_children(|btn| {
+                            btn.spawn((
+                                Text::new("Back to menu"),
+                                txt_font.clone(),
+                                txt_color.clone(),
+                            ));
+                        });
+                });
         });
 }
 
@@ -257,25 +252,25 @@ pub fn add_server_item(
 ) {
     info!("Adding server to list : name = {:?}, ip = {:?}", name, ip);
 
-    let btn_style = Style {
+    let btn_style = Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
         border: UiRect::all(Val::Px(2.)),
         height: Val::Percent(80.),
-        ..Default::default()
+        ..default()
     };
 
-    let img_style = Style {
+    let img_style = Node {
         height: Val::Percent(100.),
-        ..Default::default()
+        ..default()
     };
 
     let server = commands
-        .spawn(NodeBundle {
-            border_color: BorderColor(BACKGROUND_COLOR),
-            style: Style {
+        .spawn((
+            BorderColor(BACKGROUND_COLOR),
+            Node {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
                 column_gap: Val::Px(5.),
@@ -283,85 +278,66 @@ pub fn add_server_item(
                 height: Val::Vh(10.),
                 padding: UiRect::horizontal(Val::Percent(2.)),
                 border: UiRect::all(Val::Px(2.)),
-                ..Default::default()
+                ..default()
             },
-            ..Default::default()
-        })
+        ))
         .id();
 
     let play_btn = commands
         .spawn((
             MultiplayerButtonAction::Connect(server),
-            ButtonBundle {
-                style: btn_style.clone(),
-                ..Default::default()
-            },
+            (Button, btn_style.clone()),
         ))
         .with_children(|btn| {
             let icon = asset_server.load("./graphics/play.png");
-            btn.spawn(ImageBundle {
-                image: UiImage::new(icon),
-                style: img_style.clone(),
-                ..Default::default()
-            });
+            btn.spawn((ImageNode::new(icon), img_style.clone()));
         })
         .id();
 
     let delete_btn = commands
         .spawn((
             MultiplayerButtonAction::Delete(server),
-            ButtonBundle {
-                style: btn_style.clone(),
-                ..Default::default()
-            },
+            (Button, btn_style.clone()),
         ))
         .with_children(|btn| {
             let icon = asset_server.load("./graphics/trash.png");
-            btn.spawn(ImageBundle {
-                image: UiImage::new(icon),
-                style: img_style.clone(),
-                ..Default::default()
-            });
+            btn.spawn((ImageNode::new(icon), img_style.clone()));
         })
         .id();
 
     let txt = commands
-        .spawn(TextBundle {
-            text: Text {
-                sections: vec![
-                    TextSection {
-                        value: name.clone() + "\n",
-                        style: TextStyle {
-                            font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                            font_size: 20.,
-                            color: Color::WHITE,
-                        },
-                    },
-                    TextSection {
-                        value: ip.clone(),
-                        style: TextStyle {
-                            font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                            font_size: 15.,
-                            color: Color::srgb(0.4, 0.4, 0.4),
-                        },
-                    },
-                ],
-                ..Default::default()
+        .spawn(((
+            Text::new(format!("{}\n", name)),
+            TextFont {
+                font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
+                font_size: 20.,
+                ..default()
             },
-            style: Style {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                ..Default::default()
-            },
-            ..Default::default()
-        })
+            TextColor(Color::WHITE),
+        ),))
         .id();
+
+    commands.spawn((
+        Text::new(ip.clone()),
+        TextFont {
+            font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
+            font_size: 15.,
+            ..default()
+        },
+        TextColor(Color::srgb(0.4, 0.4, 0.4)),
+    ));
+
+    // (Node {
+    //             display: Display::Flex,
+    //             flex_direction: FlexDirection::Column,
+    //             ..default()
+    //         }),
 
     commands
         .entity(server)
-        .push_children(&[play_btn, delete_btn, txt]);
+        .add_children(&[play_btn, delete_btn, txt]);
 
-    commands.entity(list_entity).push_children(&[server]);
+    commands.entity(list_entity).add_children(&[server]);
 
     list.servers.insert(
         server,

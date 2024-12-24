@@ -72,13 +72,15 @@ fn check_player_collision(
     false
 }
 
+#[derive(Component)]
+pub struct PlayerMaterialHandle {
+    pub handle: Handle<StandardMaterial>,
+}
+
 // System to move the player based on keyboard input
 pub fn player_movement_system(
     queries: (
-        Query<
-            (&mut Transform, &mut Player, &mut Handle<StandardMaterial>),
-            With<CurrentPlayerMarker>,
-        >,
+        Query<(&mut Transform, &mut Player, &mut PlayerMaterialHandle), With<CurrentPlayerMarker>>,
         Query<&Transform, (With<Camera>, With<CameraController>, Without<Player>)>,
     ),
     resources: (
@@ -112,7 +114,15 @@ pub fn player_movement_system(
         mut client,
     ) = resources;
 
-    let (mut player_transform, mut player, material_handle_mut_ref) = player_query.single_mut();
+    let res = player_query.get_single_mut();
+    // return early if player is not spawned
+    if res.is_err() {
+        debug!("player not found");
+        return;
+    }
+
+    let (mut player_transform, mut player, material_handle) = player_query.single_mut();
+
     let camera_transform = camera_query.single();
 
     if *ui_mode == UIMode::Closed {
@@ -199,7 +209,7 @@ pub fn player_movement_system(
         }
     }
 
-    let material_handle = &*material_handle_mut_ref;
+    let material_handle = &material_handle.handle;
     match *view_mode {
         ViewMode::FirstPerson => {
             // make player transparent
@@ -221,10 +231,10 @@ pub fn player_movement_system(
     // flying mode
     if player.is_flying && *ui_mode == UIMode::Closed {
         if is_action_pressed(GameAction::FlyUp, &keyboard_input, &key_map) {
-            player_transform.translation.y += speed * 2.0 * time.delta_seconds();
+            player_transform.translation.y += speed * 2.0 * time.delta_secs();
         }
         if is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map) {
-            player_transform.translation.y -= speed * 2.0 * time.delta_seconds();
+            player_transform.translation.y -= speed * 2.0 * time.delta_secs();
         }
     }
 
@@ -259,7 +269,7 @@ pub fn player_movement_system(
 
         // Déplacement sur l'axe X
         let new_pos_x = player_transform.translation
-            + Vec3::new(direction.x, 0.0, 0.0) * speed * time.delta_seconds();
+            + Vec3::new(direction.x, 0.0, 0.0) * speed * time.delta_secs();
 
         if player.is_flying || !check_player_collision(new_pos_x, &player, &world_map) {
             player_transform.translation.x = new_pos_x.x;
@@ -267,7 +277,7 @@ pub fn player_movement_system(
 
         // Déplacement sur l'axe Z
         let new_pos_z = player_transform.translation
-            + Vec3::new(0.0, 0.0, direction.z) * speed * time.delta_seconds();
+            + Vec3::new(0.0, 0.0, direction.z) * speed * time.delta_secs();
 
         if player.is_flying || !check_player_collision(new_pos_z, &player, &world_map) {
             player_transform.translation.z = new_pos_z.z;
@@ -282,14 +292,14 @@ pub fn player_movement_system(
             player.on_ground = false;
         } else if !player.on_ground {
             // Apply gravity when the player is in the air
-            player.vertical_velocity += GRAVITY * time.delta_seconds();
+            player.vertical_velocity += GRAVITY * time.delta_secs();
         }
     }
 
     // apply gravity and verify vertical collisions
     let mut new_y = player_transform.translation.y;
     if first_chunk_received.0 {
-        new_y = player_transform.translation.y + player.vertical_velocity * time.delta_seconds();
+        new_y = player_transform.translation.y + player.vertical_velocity * time.delta_secs();
     }
 
     // Vérifier uniquement les collisions verticales (sol et plafond)

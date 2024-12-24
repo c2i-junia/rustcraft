@@ -1,4 +1,7 @@
 use bevy::prelude::*;
+use bevy_renet::netcode::{
+    ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeTransportError,
+};
 use bevy_renet::{renet::RenetClient, RenetClientPlugin};
 use rand::Rng;
 use shared::{get_shared_renet_config, GameServerConfig};
@@ -10,11 +13,7 @@ use crate::player::{CurrentPlayerMarker, Player};
 use crate::world::render_distance::RenderDistance;
 use crate::world::time::ClientTime;
 use crate::world::WorldRenderRequestUpdateEvent;
-use bevy_renet::renet::transport::{
-    ClientAuthentication, NetcodeClientTransport, NetcodeTransportError,
-};
 use bevy_renet::renet::DefaultChannel;
-use bevy_renet::transport::NetcodeClientPlugin;
 use bincode::Options;
 use shared::messages::{
     AuthRegisterRequest, ChatConversation, ClientToServerMessage, PlayerId, PlayerSpawnEvent,
@@ -182,7 +181,7 @@ pub fn init_server_connection(
 ) {
     let addr = target.address.unwrap();
     let id = current_player_id.into_inner().id;
-    commands.add(move |world: &mut World| {
+    commands.queue(move |world: &mut World| {
         world.remove_resource::<RenetClient>();
         world.remove_resource::<NetcodeClientTransport>();
         world.remove_resource::<CachedChatConversation>();

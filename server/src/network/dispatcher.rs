@@ -104,13 +104,11 @@ fn server_update_system(
                     }
 
                     // let new_session_token = generate_session_token();
-                    lobby
-                        .players
-                        .insert(client_id.raw(), auth_req.username.clone());
+                    lobby.players.insert(client_id, auth_req.username.clone());
                     debug!("New lobby : {:?}", lobby);
 
                     let spawn_message = PlayerSpawnEvent {
-                        id: client_id.raw(),
+                        id: client_id,
                         name: auth_req.username,
                         position: Vec3::new(0.0, 80.0, 0.0),
                     };
@@ -118,7 +116,7 @@ fn server_update_system(
                     // TODO: add cleanup system if no heartbeat
                     let msg = &(AuthRegisterResponse {
                         username: spawn_message.name.clone(),
-                        session_token: client_id.raw() as u128,
+                        session_token: client_id as u128,
                         spawn_event: spawn_message.clone(),
                     });
                     let auth_response_payload = bincode::options().serialize(msg).unwrap();
@@ -209,7 +207,7 @@ fn server_update_system(
                     });
                 }
                 ClientToServerMessage::SetPlayerPosition { position } => {
-                    world_map.player_positions.insert(client_id.raw(), position);
+                    world_map.player_positions.insert(client_id, position);
                 }
             }
         }

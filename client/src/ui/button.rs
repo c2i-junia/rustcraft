@@ -45,11 +45,11 @@ pub fn button_system(
     mut interaction_query: Query<
         (
             &Interaction,
-            &mut UiImage,
+            &mut ImageNode,
             &mut BackgroundColor,
             Option<&SelectedOption>,
-            &Style,
             &Node,
+            &ComputedNode,
         ),
         With<Button>,
     >,

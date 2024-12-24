@@ -62,11 +62,7 @@ pub fn menu_plugin(app: &mut App) {
 
 /// Tag component for scrolling UI lists
 fn menu_setup(mut menu_state: ResMut<NextState<MenuState>>, mut commands: Commands) {
-    commands.spawn((
-        Camera2dBundle::default(),
-        MenuCamera,
-        StateScoped(GameState::Menu),
-    ));
+    commands.spawn((Camera2d, MenuCamera, StateScoped(GameState::Menu)));
     menu_state.set(MenuState::Main);
 }
 
@@ -99,8 +95,8 @@ fn menu_action(
 
 pub fn mouse_scroll(
     mut mouse_wheel_events: EventReader<MouseWheel>,
-    mut query_list: Query<(&mut ScrollingList, &mut Style, &Parent, &Node)>,
-    query_node: Query<&Node>,
+    mut query_list: Query<(&mut ScrollingList, &mut Node, &Parent, &ComputedNode)>,
+    query_node: Query<&ComputedNode>,
 ) {
     for mouse_wheel_event in mouse_wheel_events.read() {
         debug!("MouseEvent");

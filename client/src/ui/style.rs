@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::ui::{AlignItems, FlexDirection, JustifyContent, Style, UiRect, Val};
+use bevy::ui::{AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val};
 
 // Common styles for buttons
 pub const NORMAL_BUTTON: Color = Color::srgb(0.3, 0.3, 0.3);
@@ -15,8 +15,8 @@ pub const BACKGROUND_COLOR: Color = Color::srgb(0.5, 0.5, 0.5);
 pub const TEXT_COLOR: Color = Color::WHITE;
 
 // Button styles
-pub fn big_button_style() -> Style {
-    Style {
+pub fn big_button_style() -> Node {
+    Node {
         width: Val::Px(400.0),
         height: Val::Px(60.0),
         margin: UiRect::all(Val::Px(20.0)),
@@ -26,8 +26,8 @@ pub fn big_button_style() -> Style {
     }
 }
 
-// pub fn long_button_style() -> Style {
-//     Style {
+// pub fn long_button_style() -> Node {
+//     Node {
 //         width: Val::Percent(80.0), // Wider than the standard button
 //         height: Val::Px(65.0),
 //         margin: UiRect::all(Val::Px(20.0)),
@@ -37,7 +37,7 @@ pub fn big_button_style() -> Style {
 //     }
 // }
 
-// pub fn grid_button_style(grid_span: usize) -> Style {
+// pub fn grid_button_style(grid_span: usize) -> Node {
 //     let mut style = big_button_style();
 
 //     // Convert `usize` to `u16` safely
@@ -48,17 +48,17 @@ pub fn big_button_style() -> Style {
 // }
 
 // Text styles
-pub fn text_style(font: Handle<Font>, font_size: f32, color: Color) -> TextStyle {
-    TextStyle {
+pub fn text_font(font: Handle<Font>, font_size: f32) -> TextFont {
+    TextFont {
         font,
         font_size,
-        color,
+        ..Default::default()
     }
 }
 
 // Styles for Nodes or Containers
-// pub fn container_style(flex_direction: FlexDirection) -> Style {
-//     Style {
+// pub fn container_style(flex_direction: FlexDirection) -> Node {
+//     Node {
 //         flex_direction,
 //         align_items: AlignItems::Center,
 //         justify_content: JustifyContent::Center,
@@ -68,8 +68,8 @@ pub fn text_style(font: Handle<Font>, font_size: f32, color: Color) -> TextStyle
 //     }
 // }
 
-pub fn background_image_style() -> Style {
-    Style {
+pub fn background_image_style() -> Node {
+    Node {
         width: Val::Percent(100.0),
         height: Val::Percent(100.0),
         align_items: AlignItems::Center,

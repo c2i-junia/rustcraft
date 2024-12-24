@@ -1,18 +1,14 @@
 use bevy::{
-    asset::{AssetServer, Handle},
+    asset::AssetServer,
     color::{palettes::css, Color},
     input::ButtonInput,
-    prelude::{
-        BuildChildren, ButtonBundle, Changed, Children, Commands, Component, DespawnRecursiveExt,
-        Entity, ImageBundle, KeyCode, NodeBundle, Query, Res, ResMut, StateScoped, TextBundle,
-        Visibility,
-    },
-    text::{Font, Text, TextStyle},
+    prelude::*,
     ui::{
         AlignItems, BackgroundColor, BorderColor, BorderRadius, Display, FlexDirection,
-        FocusPolicy, Interaction, JustifyContent, Overflow, PositionType, RepeatedGridTrack, Style,
-        UiImage, UiRect, Val, ZIndex,
+        FocusPolicy, Interaction, JustifyContent, Node, Overflow, PositionType, RepeatedGridTrack,
+        UiRect, Val,
     },
+    utils::default,
 };
 use shared::GameFolderPaths;
 
@@ -48,8 +44,8 @@ pub fn controls_menu_setup(
     commands
         .spawn((
             StateScoped(MenuState::SettingsControls),
-            NodeBundle {
-                style: Style {
+            (
+                Node {
                     padding: UiRect::horizontal(Val::Vw(15.)),
                     top: Val::Px(0.),
                     display: Display::Flex,
@@ -58,186 +54,169 @@ pub fn controls_menu_setup(
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
                     row_gap: Val::Px(10.),
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
-            },
-            UiImage::new(background_image),
+                BackgroundColor(Color::NONE),
+            ),
+            ImageNode::new(background_image),
         ))
         .with_children(|root| {
             let placeholder = root
                 .spawn((
-                    ButtonBundle {
-                        z_index: ZIndex::Global(3),
-                        style: Style {
+                    (
+                        Button,
+                        GlobalZIndex(3),
+                        Node {
                             position_type: PositionType::Absolute,
                             top: Val::Px(10.),
                             left: Val::Px(10.),
                             padding: UiRect::all(Val::Px(5.)),
-                            ..Default::default()
+                            ..default()
                         },
-                        ..Default::default()
-                    },
+                    ),
                     MenuButtonAction::BackToSettings,
                 ))
                 .with_children(|btn| {
-                    btn.spawn(TextBundle {
-                        text: Text::from_section(
-                            "Back",
-                            TextStyle {
-                                font: font.clone(),
-                                font_size: 21.,
-                                color: Color::WHITE,
-                            },
-                        ),
-                        ..Default::default()
-                    });
+                    btn.spawn((
+                        Text::new("Back"),
+                        TextFont {
+                            font: font.clone(),
+                            font_size: 21.,
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                    ));
                 })
                 .id();
 
-            root.spawn(NodeBundle {
-                style: Style {
-                    overflow: Overflow::clip_y(),
-                    height: Val::Vh(100.),
-                    width: Val::Vw(60.),
-                    flex_direction: FlexDirection::Column,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .with_children(|wrapper| {
-                wrapper
-                    .spawn((
-                        NodeBundle {
-                            style: Style {
+            root.spawn((Node {
+                overflow: Overflow::clip_y(),
+                height: Val::Vh(100.),
+                width: Val::Vw(60.),
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },))
+                .with_children(|wrapper| {
+                    wrapper
+                        .spawn((
+                            (Node {
                                 flex_direction: FlexDirection::Column,
                                 align_items: AlignItems::Center,
                                 width: Val::Percent(100.),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        },
-                        ScrollingList { position: 0. },
-                    ))
-                    .with_children(|list| {
-                        list.spawn(TextBundle {
-                            text: Text::from_section(
-                                "Keyboard Controls",
-                                TextStyle {
+                                ..default()
+                            },),
+                            ScrollingList { position: 0. },
+                        ))
+                        .with_children(|list| {
+                            list.spawn((
+                                Text::new("Keyboard Controls"),
+                                TextFont {
                                     font: font.clone(),
                                     font_size: 36.,
-                                    color: Color::WHITE,
+                                    ..default()
                                 },
-                            ),
-                            style: Style {
-                                margin: UiRect::vertical(Val::Px(20.)),
-                                ..Default::default()
-                            },
-                            ..Default::default()
-                        });
-                        for (action, keys) in &key_map.map {
-                            list.spawn((
-                                ButtonBundle {
-                                    border_color: BorderColor(Color::srgb(0.3, 0.3, 0.3)),
-                                    style: Style {
-                                        display: Display::Grid,
-                                        width: Val::Percent(100.),
-                                        height: Val::Auto,
-                                        align_items: AlignItems::Center,
-                                        justify_content: JustifyContent::Center,
-                                        grid_template_columns: vec![
-                                            RepeatedGridTrack::flex(2, 1.),
-                                            RepeatedGridTrack::px(1, 40.),
-                                        ],
-                                        border: UiRect::bottom(Val::Px(2.5)),
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
+                                TextColor(Color::WHITE),
+                                Node {
+                                    margin: UiRect::vertical(Val::Px(20.)),
+                                    ..default()
                                 },
-                                EditControlButton(*action),
-                            ))
-                            .with_children(|line| {
-                                line.spawn(TextBundle {
-                                    text: Text::from_section(
-                                        format!("{:?}", action),
-                                        TextStyle {
-                                            font: font.clone(),
-                                            font_size: 24.,
-                                            color: Color::WHITE,
+                            ));
+                            for (action, keys) in &key_map.map {
+                                list.spawn((
+                                    (
+                                        Button,
+                                        BorderColor(Color::srgb(0.3, 0.3, 0.3)),
+                                        Node {
+                                            display: Display::Grid,
+                                            width: Val::Percent(100.),
+                                            height: Val::Auto,
+                                            align_items: AlignItems::Center,
+                                            justify_content: JustifyContent::Center,
+                                            grid_template_columns: vec![
+                                                RepeatedGridTrack::flex(2, 1.),
+                                                RepeatedGridTrack::px(1, 40.),
+                                            ],
+                                            border: UiRect::bottom(Val::Px(2.5)),
+                                            ..default()
                                         },
                                     ),
-                                    style: Style {
-                                        margin: UiRect::all(Val::Px(10.)),
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
-                                });
+                                    EditControlButton(*action),
+                                ))
+                                .with_children(|line| {
+                                    line.spawn((
+                                        Text::new(format!("{:?}", action)),
+                                        TextFont {
+                                            font: font.clone(),
+                                            font_size: 24.,
+                                            ..default()
+                                        },
+                                        TextColor(Color::WHITE),
+                                        Node {
+                                            margin: UiRect::all(Val::Px(10.)),
+                                            ..default()
+                                        },
+                                    ));
 
-                                let mut component = line.spawn(NodeBundle {
-                                    style: Style {
+                                    let mut component = line.spawn(Node {
                                         flex_direction: FlexDirection::RowReverse,
                                         column_gap: Val::Px(15.),
                                         margin: UiRect::horizontal(Val::Px(10.)),
-                                        ..Default::default()
-                                    },
-                                    ..Default::default()
-                                });
+                                        ..default()
+                                    });
 
-                                let id = component.id();
+                                    let id = component.id();
 
-                                update_input_component(
-                                    &mut component.commands(),
-                                    id,
-                                    keys,
-                                    &assets,
-                                    &paths,
-                                );
+                                    update_input_component(
+                                        &mut component.commands(),
+                                        id,
+                                        keys,
+                                        &assets,
+                                        &paths,
+                                    );
 
-                                line.spawn((
-                                    ButtonBundle {
-                                        border_radius: BorderRadius::all(Val::Percent(25.)),
-                                        focus_policy: FocusPolicy::Pass,
-                                        style: Style {
-                                            align_items: AlignItems::Center,
-                                            justify_content: JustifyContent::Center,
-                                            width: Val::Percent(80.),
-                                            padding: UiRect::all(Val::Px(5.)),
-                                            ..Default::default()
-                                        },
-                                        ..Default::default()
-                                    },
-                                    ClearButton(*action, id),
-                                ))
-                                .with_children(|btn| {
-                                    btn.spawn(ImageBundle {
-                                        image: UiImage::new(trash_icon.clone()),
-                                        style: Style {
-                                            width: Val::Percent(100.),
-                                            ..Default::default()
-                                        },
-                                        ..Default::default()
+                                    line.spawn((
+                                        (
+                                            Button,
+                                            BorderRadius::all(Val::Percent(25.)),
+                                            FocusPolicy::Pass,
+                                            Node {
+                                                align_items: AlignItems::Center,
+                                                justify_content: JustifyContent::Center,
+                                                width: Val::Percent(80.),
+                                                padding: UiRect::all(Val::Px(5.)),
+                                                ..default()
+                                            },
+                                        ),
+                                        ClearButton(*action, id),
+                                    ))
+                                    .with_children(|btn| {
+                                        btn.spawn((
+                                            ImageNode::new(trash_icon.clone()),
+                                            Node {
+                                                width: Val::Percent(100.),
+                                                ..default()
+                                            },
+                                        ));
                                     });
                                 });
-                            });
-                        }
-                    });
-            });
+                            }
+                        });
+                });
 
             root.spawn((
-                NodeBundle {
-                    visibility: Visibility::Hidden,
-                    focus_policy: FocusPolicy::Block,
-                    z_index: ZIndex::Global(2),
-                    style: Style {
+                (
+                    Node {
                         position_type: PositionType::Absolute,
                         width: Val::Vw(100.),
                         height: Val::Vh(100.),
                         align_items: AlignItems::Center,
                         justify_content: JustifyContent::Center,
-                        ..Default::default()
+                        ..default()
                     },
-                    ..Default::default()
-                },
+                    Visibility::Hidden,
+                    FocusPolicy::Block,
+                    GlobalZIndex(2),
+                ),
                 ActionRecorder {
                     action: GameAction::Escape,
                     entity: placeholder,
@@ -245,36 +224,33 @@ pub fn controls_menu_setup(
             ))
             .with_children(|wrapper| {
                 wrapper
-                    .spawn(NodeBundle {
-                        background_color: BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
-                        border_color: BorderColor(Color::Srgba(css::BLUE_VIOLET)),
-                        style: Style {
+                    .spawn((
+                        BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
+                        BorderColor(Color::Srgba(css::BLUE_VIOLET)),
+                        Node {
                             border: UiRect::all(Val::Px(2.5)),
                             min_width: Val::Vw(50.),
                             align_items: AlignItems::Center,
                             justify_content: JustifyContent::Center,
                             padding: UiRect::all(Val::Px(10.)),
-                            ..Default::default()
+                            ..default()
                         },
-                        ..Default::default()
-                    })
+                    ))
                     .with_children(|dialog| {
-                        dialog.spawn(TextBundle {
-                            text: Text::from_section(
-                                "Press any key...",
-                                TextStyle {
-                                    font: font.clone(),
-                                    font_size: 21.,
-                                    color: Color::WHITE,
-                                },
-                            ),
-                            style: Style {
+                        dialog.spawn((
+                            Text::new("Press any key..."),
+                            TextFont {
+                                font: font.clone(),
+                                font_size: 21.,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            Node {
                                 margin: UiRect::all(Val::Px(25.)),
                                 width: Val::Auto,
-                                ..Default::default()
+                                ..default()
                             },
-                            ..Default::default()
-                        });
+                        ));
                     });
             });
         });
@@ -293,45 +269,42 @@ pub fn update_input_component(
     // List all possible binds, and add them as text elements
     for key in binds {
         let child = commands
-            .spawn(NodeBundle {
-                background_color: BackgroundColor(Color::Srgba(css::BLUE_VIOLET)),
-                border_radius: BorderRadius::all(Val::Px(10.)),
-                style: Style {
+            .spawn(((
+                BackgroundColor(Color::Srgba(css::BLUE_VIOLET)),
+                BorderRadius::all(Val::Px(10.)),
+                Node {
                     padding: UiRect::horizontal(Val::Px(10.)),
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
-            })
+            ),))
             .with_children(|k| {
-                k.spawn(TextBundle {
-                    text: Text::from_section(
-                        {
-                            // Formats keybindings
-                            let mut output = format!("{:?}", key).replace("Key", "");
-                            if output.starts_with("Arrow") {
-                                if output.ends_with("Left") {
-                                    output = "←".into()
-                                }
-                                if output.ends_with("Right") {
-                                    output = "→".into()
-                                }
-                                if output.ends_with("Up") {
-                                    output = "↑".into()
-                                }
-                                if output.ends_with("Down") {
-                                    output = "↓".into()
-                                }
+                k.spawn((
+                    Text::new({
+                        // Formats keybindings
+                        let mut output = format!("{:?}", key).replace("Key", "");
+                        if output.starts_with("Arrow") {
+                            if output.ends_with("Left") {
+                                output = "←".into()
                             }
-                            output
-                        },
-                        TextStyle {
-                            font: font.clone(),
-                            font_size: 21.,
-                            color: Color::WHITE,
-                        },
-                    ),
-                    ..Default::default()
-                });
+                            if output.ends_with("Right") {
+                                output = "→".into()
+                            }
+                            if output.ends_with("Up") {
+                                output = "↑".into()
+                            }
+                            if output.ends_with("Down") {
+                                output = "↓".into()
+                            }
+                        }
+                        output
+                    }),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 21.,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
             })
             .id();
 
@@ -341,7 +314,7 @@ pub fn update_input_component(
 
 pub fn controls_update_system(
     queries: (
-        Query<(&Interaction, &EditControlButton, &Children, &mut Style), Changed<Interaction>>,
+        Query<(&Interaction, &EditControlButton, &Children, &mut Node), Changed<Interaction>>,
         Query<(&Interaction, &ClearButton, &mut BackgroundColor), Changed<Interaction>>,
         Query<(&mut ActionRecorder, &mut Visibility)>,
     ),

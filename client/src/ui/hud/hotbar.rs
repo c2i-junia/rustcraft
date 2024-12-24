@@ -1,7 +1,7 @@
 use bevy::{prelude::*, ui::FocusPolicy};
 
 use crate::{
-    constants::{HOTBAR_BORDER, HOTBAR_CELL_SIZE, HOTBAR_PADDING, MAX_HOTBAR_SLOTS, TEXTURE_SIZE},
+    constants::{HOTBAR_BORDER, HOTBAR_CELL_SIZE, HOTBAR_PADDING, MAX_HOTBAR_SLOTS},
     ui::hud::InventoryCell,
     world::MaterialResource,
     GameState,
@@ -19,24 +19,23 @@ pub fn setup_hotbar(
 ) {
     let img = materials_resource.items.texture.clone().unwrap();
 
-    let atlas_element = TextureAtlas {
-        layout: layouts.add(TextureAtlasLayout::from_grid(
-            UVec2::splat(TEXTURE_SIZE),
-            materials_resource.items.uvs.len() as u32,
-            1,
-            None,
-            None,
-        )),
-        index: 0,
-    };
+    // let atlas_element = TextureAtlas {
+    //     layout: layouts.add(TextureAtlasLayout::from_grid(
+    //         UVec2::splat(TEXTURE_SIZE),
+    //         materials_resource.items.uvs.len() as u32,
+    //         1,
+    //         None,
+    //         None,
+    //     )),
+    //     index: 0,
+    // };
 
     commands
         .spawn((
             Hotbar { selected: 0 },
             StateScoped(GameState::Game),
-            NodeBundle {
-                background_color: BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3)),
-                style: Style {
+            (
+                Node {
                     display: Display::Flex,
                     flex_direction: FlexDirection::Row,
                     position_type: PositionType::Absolute,
@@ -45,63 +44,59 @@ pub fn setup_hotbar(
                     padding: UiRect::ZERO,
                     border: UiRect::ZERO,
                     margin: UiRect::all(Val::Auto),
-                    ..Default::default()
+                    ..default()
                 },
-                z_index: ZIndex::Global(1),
-                ..Default::default()
-            },
+                BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3)),
+                GlobalZIndex(1),
+            ),
         ))
         .with_children(|bar| {
             for i in 0..MAX_HOTBAR_SLOTS {
                 bar.spawn((
                     InventoryCell { id: i },
-                    ButtonBundle {
-                        border_color: BorderColor(Color::srgb(0.3, 0.3, 0.3)),
-                        focus_policy: FocusPolicy::Block,
-                        style: Style {
+                    (
+                        Button,
+                        BorderColor(Color::srgb(0.3, 0.3, 0.3)),
+                        FocusPolicy::Block,
+                        Node {
                             width: Val::Px(HOTBAR_CELL_SIZE),
                             height: Val::Px(HOTBAR_CELL_SIZE),
                             margin: UiRect::ZERO,
                             position_type: PositionType::Relative,
                             padding: UiRect::all(Val::Px(HOTBAR_PADDING)),
                             border: UiRect::all(Val::Px(HOTBAR_BORDER)),
-                            ..Default::default()
+                            ..default()
                         },
-                        ..Default::default()
-                    },
+                    ),
                 ))
                 .with_children(|btn| {
-                    btn.spawn(TextBundle {
-                        text: Text::from_section(
-                            "Test",
-                            TextStyle {
-                                font_size: 15.,
-                                ..Default::default()
-                            },
-                        ),
-                        style: Style {
-                            position_type: PositionType::Absolute,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    });
                     btn.spawn((
-                        ImageBundle {
-                            z_index: ZIndex::Local(-1),
-                            style: Style {
+                        Text::new("Test"),
+                        TextFont {
+                            font_size: 15.,
+                            ..default()
+                        },
+                        Node {
+                            position_type: PositionType::Absolute,
+                            ..default()
+                        },
+                    ));
+                    btn.spawn((
+                        (
+                            GlobalZIndex(-1), // FIXME: local maybe?
+                            Node {
                                 width: Val::Px(
                                     HOTBAR_CELL_SIZE - 2. * (HOTBAR_PADDING + HOTBAR_BORDER),
                                 ),
                                 position_type: PositionType::Relative,
                                 ..Default::default()
                             },
-                            image: UiImage {
-                                texture: img.clone_weak(),
+                            ImageNode {
+                                image: img.clone_weak(),
                                 ..default()
                             },
-                            ..Default::default()
-                        },
-                        atlas_element.clone(),
+                        ),
+                        // atlas_element.clone(),
                     ));
                 });
             }

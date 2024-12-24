@@ -5,7 +5,6 @@ use std::sync::Arc;
 use bevy::{
     asset::Assets,
     math::IVec3,
-    pbr::PbrBundle,
     prelude::*,
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
@@ -54,12 +53,10 @@ fn update_chunk(
         let new_entity = commands
             .spawn((
                 StateScoped(GameState::Game),
-                PbrBundle {
-                    mesh: meshes.add(new_mesh),
-                    material: texture.clone(),
-                    transform: chunk_t,
-                    ..Default::default()
-                },
+                Mesh3d(meshes.add(new_mesh)),
+                MeshMaterial3d(texture.clone()),
+                GlobalTransform::from(chunk_t),
+                Transform::from(chunk_t),
                 RaycastMesh::<BlockRaycastSet>::default(),
             ))
             .id();

@@ -4,14 +4,10 @@ use bevy::{
     color::{Alpha, Color},
     core::Name,
     input::ButtonInput,
-    prelude::{
-        BuildChildren, ButtonBundle, Commands, Component, KeyCode, NextState, NodeBundle, Query,
-        Res, ResMut, StateScoped, TextBundle, Visibility, With,
-    },
-    text::{Text, TextStyle},
+    prelude::*,
     ui::{
         AlignItems, BackgroundColor, BorderColor, Display, FlexDirection, FocusPolicy, Interaction,
-        JustifyContent, Style, UiRect, Val, ZIndex,
+        JustifyContent, Node, UiRect, Val,
     },
 };
 use bevy_renet::renet::RenetClient;
@@ -42,9 +38,9 @@ pub fn setup_pause_menu(
             UiDialog,
             Name::new("PauseMenu"),
             StateScoped(GameState::Game),
-            NodeBundle {
-                background_color: BackgroundColor(Color::BLACK.with_alpha(0.6)),
-                style: Style {
+            BackgroundColor(Color::BLACK.with_alpha(0.6)),
+            (
+                Node {
                     width: Val::Vw(100.),
                     height: Val::Vh(100.),
                     display: Display::Flex,
@@ -52,23 +48,19 @@ pub fn setup_pause_menu(
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 },
-                focus_policy: FocusPolicy::Block,
-                visibility: Visibility::Hidden,
-                z_index: ZIndex::Global(5),
-                ..Default::default()
-            },
+                FocusPolicy::Block,
+                Visibility::Hidden,
+            ),
+            GlobalZIndex(5),
         ))
         .with_children(|root| {
-            root.spawn(NodeBundle {
-                style: Style {
-                    display: Display::Flex,
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::SpaceAround,
-                    height: Val::Vh(40.),
-                    min_width: Val::Vw(40.),
-                    ..Default::default()
-                },
+            root.spawn(Node {
+                display: Display::Flex,
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceAround,
+                height: Val::Vh(40.),
+                min_width: Val::Vw(40.),
                 ..Default::default()
             })
             .with_children(|wrapper| {
@@ -80,10 +72,9 @@ pub fn setup_pause_menu(
                     wrapper
                         .spawn((
                             action,
-                            ButtonBundle {
-                                background_color: BackgroundColor(Color::srgb(0.3, 0.3, 0.3)),
-                                border_color: BorderColor(Color::BLACK),
-                                style: Style {
+                            (
+                                Button,
+                                Node {
                                     width: Val::Percent(100.),
                                     border: UiRect::all(Val::Px(3.)),
                                     display: Display::Flex,
@@ -93,21 +84,20 @@ pub fn setup_pause_menu(
                                     padding: UiRect::all(Val::Px(7.)),
                                     ..Default::default()
                                 },
-                                ..Default::default()
-                            },
+                                BackgroundColor(Color::srgb(0.3, 0.3, 0.3)),
+                                BorderColor(Color::BLACK),
+                            ),
                         ))
                         .with_children(|btn| {
-                            btn.spawn(TextBundle {
-                                text: Text::from_section(
-                                    msg,
-                                    TextStyle {
-                                        font: assets.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                                        font_size: 20.,
-                                        color: Color::WHITE,
-                                    },
-                                ),
-                                ..Default::default()
-                            });
+                            btn.spawn((
+                                Text::new(msg),
+                                TextFont {
+                                    font: assets.load("./fonts/RustCraftRegular-Bmg3.otf"),
+                                    font_size: 20.,
+                                    font_smoothing: default(),
+                                },
+                                TextColor(Color::WHITE),
+                            ));
                         });
                 }
             });

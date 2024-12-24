@@ -23,28 +23,24 @@ fn splash_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     commands
         .spawn((
-            NodeBundle {
-                style: Style {
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    ..default()
-                },
+            (Node {
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
                 ..default()
-            },
+            }),
             StateScoped(GameState::Splash),
         ))
         .with_children(|parent| {
-            parent.spawn(ImageBundle {
-                style: Style {
+            parent.spawn((
+                Node {
                     // This will set the logo to be 200px wide, and auto adjust its height
                     width: Val::Px(200.0),
                     ..default()
                 },
-                image: UiImage::new(icon),
-                ..default()
-            });
+                ImageNode::new(icon),
+            ));
         });
     // Insert the timer as a resource
     commands.insert_resource(SplashTimer(Timer::from_seconds(1.0, TimerMode::Once)));

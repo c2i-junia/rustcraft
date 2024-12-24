@@ -20,21 +20,21 @@ pub fn setup_chunk_ghost(
         ChunkGhost,
         StateScoped(GameState::Game),
         NotShadowCaster,
-        PbrBundle {
-            mesh: meshes.add(create_repeated_wireframe_mesh(
-                CHUNK_SIZE as f32,
-                (CHUNK_SIZE as f32) * 16.0,
-                CHUNK_SIZE as u32,
-                Vec3::ZERO,
-            )),
-            material: materials.add(StandardMaterial {
-                base_color: Color::srgb(1.0, 1.0, 1.0),
-                unlit: true,
-                ..default()
-            }),
-            visibility: Visibility::Visible,
+        Transform::default(),
+        GlobalTransform::default(),
+        Visibility::Visible,
+        InheritedVisibility::default(),
+        Mesh3d::from(meshes.add(create_repeated_wireframe_mesh(
+            CHUNK_SIZE as f32,
+            (CHUNK_SIZE as f32) * 16.0,
+            CHUNK_SIZE as u32,
+            Vec3::ZERO,
+        ))),
+        MeshMaterial3d::from(materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 1.0, 1.0),
+            unlit: true,
             ..default()
-        },
+        })),
     ));
 }
 

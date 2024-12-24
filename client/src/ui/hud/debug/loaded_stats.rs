@@ -12,23 +12,25 @@ pub struct TimeText;
 pub struct ChunksNumberText;
 
 pub fn total_blocks_text_update_system(
-    mut query_blocks: Query<&mut Text, With<BlocksNumberText>>,
-    mut query_chunks: Query<&mut Text, (With<ChunksNumberText>, Without<BlocksNumberText>)>,
+    query_blocks: Query<Entity, With<BlocksNumberText>>,
+    query_chunks: Query<Entity, (With<ChunksNumberText>, Without<BlocksNumberText>)>,
+    mut writer: TextUiWriter,
     world_map: Res<ClientWorldMap>,
 ) {
-    for mut text in query_blocks.iter_mut() {
-        text.sections[0].value = format!("Loaded blocks: {}", world_map.total_blocks_count);
+    for entity in query_blocks.iter() {
+        *writer.text(entity, 0) = format!("Loaded blocks: {}", world_map.total_blocks_count);
     }
-    for mut text in query_chunks.iter_mut() {
-        text.sections[0].value = format!("Loaded chunks: {}", world_map.map.len());
+    for entity in query_chunks.iter() {
+        *writer.text(entity, 0) = format!("Loaded chunks: {}", world_map.map.len());
     }
 }
 
 pub fn time_text_update_system(
-    mut query: Query<&mut Text, With<TimeText>>,
+    query: Query<Entity, With<TimeText>>,
+    mut writer: TextUiWriter,
     time_resource: Res<ClientTime>,
 ) {
-    for mut text in query.iter_mut() {
-        text.sections[0].value = format!("Time: {}", time_resource.0);
+    for entity in query.iter() {
+        *writer.text(entity, 0) = format!("Time: {}", time_resource.0);
     }
 }

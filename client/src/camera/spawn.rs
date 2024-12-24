@@ -28,20 +28,21 @@ impl Default for CameraController {
 
 pub fn spawn_camera(mut commands: Commands) {
     commands
-        .spawn(Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
+        .spawn((
+            Camera3d::default(),
+            Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
                 .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
-            projection: Projection::Perspective(PerspectiveProjection {
+            GlobalTransform::default(),
+            PerspectiveProjection {
                 fov: f32::to_radians(60.0),
                 ..Default::default()
-            }),
-            ..Default::default()
-        })
-        .insert(CameraController::default()) // Ajoute le CameraController
+            },
+        ))
+        .insert(CameraController::default())
         .insert({
-            let mut raycast_source = RaycastSource::<BlockRaycastSet>::default(); // Initialisation par défaut
-            raycast_source.cast_method = RaycastMethod::Transform; // Utilise la transformation de la caméra pour lancer le rayon
-            raycast_source // Retourne l'objet
+            let mut raycast_source = RaycastSource::<BlockRaycastSet>::default();
+            raycast_source.cast_method = RaycastMethod::Transform;
+            raycast_source
         })
         .insert(AtmosphereCamera::default())
         .insert(StateScoped(GameState::Game));

@@ -9,21 +9,19 @@ use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        BuildChildren, Button, ButtonBundle, Changed, Commands, Component, DespawnRecursiveExt,
-        Entity, EventWriter, ImageBundle, NextState, NodeBundle, Query, Res, ResMut, StateScoped,
-        Text, TextBundle, With,
+        BuildChildren, Button, Changed, Commands, Component, DespawnRecursiveExt, Entity,
+        EventWriter, NextState, Query, Res, ResMut, StateScoped, Text, With,
     },
-    text::{TextSection, TextStyle},
     ui::{
         AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection,
-        GridPlacement, GridTrack, Interaction, JustifyContent, Overflow, Style, UiImage, UiRect,
-        Val,
+        GridPlacement, GridTrack, Interaction, JustifyContent, Node, Overflow, UiRect, Val,
     },
     utils::hashbrown::HashMap,
 };
+use bevy_simple_text_input::TextInputTextColor;
+use bevy_simple_text_input::TextInputTextFont;
 use bevy_simple_text_input::{
-    TextInputBundle, TextInputInactive, TextInputPlaceholder, TextInputSettings,
-    TextInputTextStyle, TextInputValue,
+    TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
 };
 use shared::world::get_game_folder;
 use shared::GameFolderPaths;
@@ -66,19 +64,23 @@ pub fn solo_menu_setup(
     let font = load_font(&assets_server);
     let button_background_image = load_button_background_large_image(&assets_server);
 
-    let txt_style = TextStyle {
+    let txt_font = TextFont {
         font: font.clone(),
         font_size: 20.,
-        color: Color::WHITE,
+        ..default()
     };
 
-    let txt_style_inactive = TextStyle {
-        font,
-        font_size: 20.,
-        color: Color::srgb(0.3, 0.3, 0.3),
-    };
+    let txt_color = TextColor(Color::WHITE);
 
-    let btn_style = Style {
+    // let txt_font_inactive = TextFont {
+    //     font,
+    //     font_size: 20.,
+    //     ..default()
+    // };
+
+    // let txt_color_inactive = TextColor(Color::srgb(0.3, 0.3, 0.3));
+
+    let btn_style = Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
         justify_content: JustifyContent::Center,
@@ -91,37 +93,34 @@ pub fn solo_menu_setup(
     commands
         .spawn((
             StateScoped(MenuState::Solo),
-            NodeBundle {
-                style: Style {
-                    width: Val::Vw(100.0),
-                    height: Val::Vh(100.0),
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::horizontal(Val::Percent(20.)),
-                    row_gap: Val::Percent(2.),
-                    ..Default::default()
-                },
+            (Node {
+                width: Val::Vw(100.0),
+                height: Val::Vh(100.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::horizontal(Val::Percent(20.)),
+                row_gap: Val::Percent(2.),
                 ..Default::default()
-            },
-            UiImage::new(background_image),
+            },),
+            ImageNode::new(background_image),
         ))
         .with_children(|root| {
-            root.spawn(TextBundle {
-                text: Text::from_section("World list", txt_style.clone()),
-                style: Style {
+            root.spawn((
+                Text::new("World list"),
+                txt_color.clone(),
+                txt_font.clone(),
+                Node {
                     border: UiRect::all(Val::Px(1.)),
                     flex_direction: FlexDirection::Column,
                     align_content: AlignContent::Center,
                     display: Display::Flex,
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
-            });
+            ));
 
-            root.spawn(NodeBundle {
-                border_color: BorderColor(BACKGROUND_COLOR),
-                style: Style {
+            root.spawn((
+                Node {
                     width: Val::Percent(100.),
                     height: Val::Percent(50.),
                     flex_direction: FlexDirection::Column,
@@ -129,20 +128,17 @@ pub fn solo_menu_setup(
                     border: UiRect::all(Val::Px(2.)),
                     ..Default::default()
                 },
-                ..Default::default()
-            })
+                BorderColor(BACKGROUND_COLOR),
+            ))
             .with_children(|w| {
                 w.spawn((
-                    NodeBundle {
-                        style: Style {
-                            flex_direction: FlexDirection::Column,
-                            align_items: AlignItems::Center,
-                            padding: UiRect::all(Val::Px(10.)),
-                            row_gap: Val::Px(10.),
-                            ..Default::default()
-                        },
+                    (Node {
+                        flex_direction: FlexDirection::Column,
+                        align_items: AlignItems::Center,
+                        padding: UiRect::all(Val::Px(10.)),
+                        row_gap: Val::Px(10.),
                         ..Default::default()
-                    },
+                    },),
                     ScrollingList { position: 0. },
                     WorldList {
                         worlds: HashMap::new(),
@@ -150,89 +146,89 @@ pub fn solo_menu_setup(
                 ));
             });
 
-            root.spawn(NodeBundle {
-                style: Style {
-                    width: Val::Percent(100.),
-                    display: Display::Grid,
-                    grid_template_columns: vec![GridTrack::flex(1.), GridTrack::flex(1.)],
-                    row_gap: Val::Px(5.),
-                    column_gap: Val::Px(5.),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .with_children(|wrapper| {
-                wrapper.spawn((
-                    NodeBundle {
-                        border_color: BorderColor(BACKGROUND_COLOR),
-                        background_color: BackgroundColor(Color::BLACK),
-                        style: {
-                            let mut style = btn_style.clone();
-                            style.grid_column = GridPlacement::span(2);
-                            style
-                        },
-                        ..Default::default()
-                    },
-                    WorldNameInput,
-                    TextInputBundle {
-                        settings: TextInputSettings {
-                            retain_on_submit: true,
-                            mask_character: None,
-                        },
-                        placeholder: TextInputPlaceholder {
-                            value: "World name".into(),
-                            text_style: Some(txt_style_inactive.clone()),
-                        },
-                        inactive: TextInputInactive(true),
-                        text_style: TextInputTextStyle(txt_style.clone()),
-                        ..Default::default()
-                    },
-                ));
-
-                wrapper
-                    .spawn((
-                        ButtonBundle {
-                            border_color: BorderColor(Color::BLACK),
-                            background_color: BackgroundColor(BACKGROUND_COLOR),
-                            style: {
-                                let mut style = btn_style.clone();
-                                style.grid_column = GridPlacement::span(2);
-                                style
+            root.spawn((Node {
+                width: Val::Percent(100.),
+                display: Display::Grid,
+                grid_template_columns: vec![GridTrack::flex(1.), GridTrack::flex(1.)],
+                row_gap: Val::Px(5.),
+                column_gap: Val::Px(5.),
+                ..default()
+            },))
+                .with_children(|wrapper| {
+                    let node = {
+                        let mut style = btn_style.clone();
+                        style.grid_column = GridPlacement::span(2);
+                        style
+                    };
+                    wrapper.spawn((
+                        (
+                            BorderColor(BACKGROUND_COLOR),
+                            BackgroundColor(Color::BLACK),
+                            node,
+                        ),
+                        WorldNameInput,
+                        (
+                            TextInputSettings {
+                                retain_on_submit: true,
+                                mask_character: None,
                             },
-                            image: UiImage::new(button_background_image.clone()),
-                            ..Default::default()
-                        },
-                        MultiplayerButtonAction::Add,
-                    ))
-                    .with_children(|btn| {
-                        btn.spawn(TextBundle {
-                            text: Text::from_section("Create world", txt_style.clone()),
-                            ..Default::default()
-                        });
-                    });
-
-                wrapper
-                    .spawn((
-                        ButtonBundle {
-                            border_color: BorderColor(Color::BLACK),
-                            background_color: BackgroundColor(BACKGROUND_COLOR),
-                            style: {
-                                let mut style = btn_style.clone();
-                                style.grid_column = GridPlacement::span(2);
-                                style
+                            TextInputPlaceholder {
+                                value: "World name".into(),
+                                // text_style: Some(txt_style_inactive.clone()),
+                                ..default()
                             },
-                            image: UiImage::new(button_background_image.clone()),
-                            ..Default::default()
-                        },
-                        MenuButtonAction::BackToMainMenu,
-                    ))
-                    .with_children(|btn| {
-                        btn.spawn(TextBundle {
-                            text: Text::from_section("Back to menu", txt_style.clone()),
-                            ..Default::default()
+                            TextInputInactive(true),
+                            TextInputTextFont(txt_font.clone()),
+                            TextInputTextColor(txt_color.clone()),
+                        ),
+                    ));
+
+                    wrapper
+                        .spawn((
+                            (
+                                Button,
+                                BorderColor(Color::BLACK),
+                                BackgroundColor(BACKGROUND_COLOR),
+                                {
+                                    let mut style = btn_style.clone();
+                                    style.grid_column = GridPlacement::span(2);
+                                    style
+                                },
+                                ImageNode::new(button_background_image.clone()),
+                            ),
+                            MultiplayerButtonAction::Add,
+                        ))
+                        .with_children(|btn| {
+                            btn.spawn((
+                                Text::new("Create world"),
+                                txt_font.clone(),
+                                txt_color.clone(),
+                            ));
                         });
-                    });
-            });
+
+                    wrapper
+                        .spawn((
+                            (
+                                Button,
+                                BorderColor(Color::BLACK),
+                                BackgroundColor(BACKGROUND_COLOR),
+                                {
+                                    let mut style = btn_style.clone();
+                                    style.grid_column = GridPlacement::span(2);
+                                    style
+                                },
+                                ImageNode::new(button_background_image.clone()),
+                            ),
+                            MenuButtonAction::BackToMainMenu,
+                        ))
+                        .with_children(|btn| {
+                            btn.spawn((
+                                Text::new("Back to menu"),
+                                txt_font.clone(),
+                                txt_color.clone(),
+                            ));
+                        });
+                });
         });
 }
 
@@ -290,25 +286,25 @@ fn add_world_item(
     // udpate the name of the world_map
     world_map.name = name.clone();
 
-    let btn_style = Style {
+    let btn_style = Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
         border: UiRect::all(Val::Px(2.)),
         height: Val::Percent(80.),
-        ..Default::default()
+        ..default()
     };
 
-    let img_style = Style {
+    let img_style = Node {
         height: Val::Percent(100.),
-        ..Default::default()
+        ..default()
     };
 
     let world = commands
-        .spawn(NodeBundle {
-            border_color: BorderColor(BACKGROUND_COLOR),
-            style: Style {
+        .spawn((
+            BorderColor(BACKGROUND_COLOR),
+            Node {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
                 column_gap: Val::Px(5.),
@@ -316,75 +312,57 @@ fn add_world_item(
                 height: Val::Vh(10.),
                 padding: UiRect::horizontal(Val::Percent(2.)),
                 border: UiRect::all(Val::Px(2.)),
-                ..Default::default()
+                ..default()
             },
-            ..Default::default()
-        })
+        ))
         .id();
 
     let play_btn = commands
         .spawn((
             MultiplayerButtonAction::Load(world),
-            ButtonBundle {
-                style: btn_style.clone(),
-                ..Default::default()
-            },
+            (Button, btn_style.clone()),
         ))
         .with_children(|btn| {
             let icon = asset_server.load(format!("{}/graphics/play.png", base_path));
-            btn.spawn(ImageBundle {
-                image: UiImage::new(icon),
-                style: img_style.clone(),
-                ..Default::default()
-            });
+            btn.spawn((ImageNode::new(icon), img_style.clone()));
         })
         .id();
 
     let delete_btn = commands
         .spawn((
             MultiplayerButtonAction::Delete(world),
-            ButtonBundle {
-                style: btn_style.clone(),
-                ..Default::default()
-            },
+            (Button, btn_style.clone()),
         ))
         .with_children(|btn| {
             let icon = asset_server.load(format!("{}/graphics/trash.png", base_path));
-            btn.spawn(ImageBundle {
-                image: UiImage::new(icon),
-                style: img_style.clone(),
-                ..Default::default()
-            });
+            btn.spawn((ImageNode::new(icon), img_style.clone()));
         })
         .id();
 
     let txt = commands
-        .spawn(TextBundle {
-            text: Text {
-                sections: vec![TextSection {
-                    value: name.clone() + "\n",
-                    style: TextStyle {
-                        font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                        font_size: 20.,
-                        color: Color::WHITE,
-                    },
-                }],
-                ..Default::default()
-            },
-            style: Style {
+        .spawn((
+            (
+                Text::new(format!("{}\n", name)),
+                TextFont {
+                    font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
+                    font_size: 20.,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ),
+            Node {
                 display: Display::Flex,
                 flex_direction: FlexDirection::Column,
-                ..Default::default()
+                ..default()
             },
-            ..Default::default()
-        })
+        ))
         .id();
 
     commands
         .entity(world)
-        .push_children(&[play_btn, delete_btn, txt]);
+        .add_children(&[play_btn, delete_btn, txt]);
 
-    commands.entity(list_entity).push_children(&[world]);
+    commands.entity(list_entity).add_children(&[world]);
 
     list.worlds.insert(world, WorldItem { name: name.clone() });
 }

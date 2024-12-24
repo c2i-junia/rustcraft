@@ -4,12 +4,12 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-bevy_ecs = { version = "0.14", default-features=false}
+bevy_ecs = { version = "0.15", default-features=false}
 log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] }
 serde = { version = "1.0.210", features = ["derive"] }
-bevy_renet = { version = "0.0.12", features = ["serde", "transport"] }
-bevy = "0.14.2"
+bevy = "0.15"
 rand = "0.8"
+bevy_renet = { git = "https://github.com/lucaspoffo/renet", package = "bevy_renet" }
 
 [lints]
 workspace = true

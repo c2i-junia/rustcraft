@@ -4,9 +4,11 @@ use bevy::{
     prelude::*,
 };
 use bevy_app::ScheduleRunnerPlugin;
-use bevy_renet::renet::transport::NetcodeServerTransport;
-use bevy_renet::renet::RenetServer;
-use bevy_renet::RenetServerPlugin;
+use bevy_renet::{netcode::NetcodeServerTransport, RenetServerPlugin};
+use bevy_renet::{
+    netcode::{NetcodeServerPlugin, ServerAuthentication, ServerConfig},
+    renet::RenetServer,
+};
 use serde::{Deserialize, Serialize};
 use shared::{get_shared_renet_config, messages::PlayerId, GameFolderPaths, GameServerConfig};
 use std::fmt::Debug;
@@ -15,8 +17,6 @@ use std::{collections::HashMap, net::IpAddr};
 
 use crate::world::load_from_file::{load_world_map, load_world_seed, load_world_time};
 
-use bevy_renet::renet::transport::{ServerAuthentication, ServerConfig};
-use bevy_renet::transport::NetcodeServerPlugin;
 use std::net::{SocketAddr, UdpSocket};
 
 #[derive(Resource, Serialize, Deserialize, Debug, Clone)]

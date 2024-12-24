@@ -21,6 +21,7 @@
                 "${workspaceFolder}/appdata/client-1",
                 "--assets-folder-path",
                 "${workspaceFolder}/data",
+                "--special-flag"
             ],
             "cwd": "${workspaceFolder}",
         },

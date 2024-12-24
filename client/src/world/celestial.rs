@@ -34,7 +34,7 @@ pub fn setup_main_lighting(
     let celestial_root = commands
         .spawn((
             CelestialRoot,
-            SpatialBundle::default(),
+            // SpatialBundle::default(),
             StateScoped(GameState::Game),
         ))
         .id();
@@ -44,31 +44,31 @@ pub fn setup_main_lighting(
     let sun_light = commands
         .spawn((
             SunLight,
-            DirectionalLightBundle {
-                directional_light: DirectionalLight {
+            (
+                DirectionalLight {
                     illuminance: 5000.,
                     shadows_enabled: true,
-                    ..Default::default()
+                    ..default()
                 },
-                transform: light_transform,
-                ..Default::default()
-            },
+                light_transform,
+            ),
         ))
         .with_children(|parent| {
             parent.spawn((
-                PbrBundle {
-                    mesh: meshes.add(Rectangle::new(CELESTIAL_SIZE, CELESTIAL_SIZE)),
-                    material: material_resource
-                        .global_materials
-                        .get(&GlobalMaterial::Sun)
-                        .expect("Sun material not found !")
-                        .clone(),
-                    transform: Transform {
+                (
+                    Mesh3d(meshes.add(Rectangle::new(CELESTIAL_SIZE, CELESTIAL_SIZE))),
+                    MeshMaterial3d(
+                        material_resource
+                            .global_materials
+                            .get(&GlobalMaterial::Sun)
+                            .expect("Sun material not found !")
+                            .clone(),
+                    ),
+                    Transform {
                         translation: Vec3::new(0., 0., CELESTIAL_DISTANCE),
-                        ..Default::default()
+                        ..default()
                     },
-                    ..Default::default()
-                },
+                ),
                 NotShadowCaster,
                 NotShadowReceiver,
             ));
@@ -79,33 +79,32 @@ pub fn setup_main_lighting(
     let moon_light = commands
         .spawn((
             MoonLight,
-            DirectionalLightBundle {
-                directional_light: DirectionalLight {
+            (
+                DirectionalLight {
                     illuminance: 500.,
                     color: Color::Srgba(Srgba::hex("c9d2de").unwrap()),
                     shadows_enabled: true,
-
-                    ..Default::default()
+                    ..default()
                 },
-                transform: light_transform,
-                ..Default::default()
-            },
+                light_transform,
+            ),
         ))
         .with_children(|parent| {
             parent.spawn((
-                PbrBundle {
-                    mesh: meshes.add(Rectangle::new(CELESTIAL_SIZE, CELESTIAL_SIZE)),
-                    material: material_resource
-                        .global_materials
-                        .get(&GlobalMaterial::Moon)
-                        .expect("Moon material not found !")
-                        .clone(),
-                    transform: Transform {
+                (
+                    Mesh3d(meshes.add(Rectangle::new(CELESTIAL_SIZE, CELESTIAL_SIZE))),
+                    MeshMaterial3d(
+                        material_resource
+                            .global_materials
+                            .get(&GlobalMaterial::Moon)
+                            .expect("Moon material not found !")
+                            .clone(),
+                    ),
+                    Transform {
                         translation: Vec3::new(0., 0., CELESTIAL_DISTANCE),
                         ..Default::default()
                     },
-                    ..Default::default()
-                },
+                ),
                 NotShadowCaster,
                 NotShadowReceiver,
             ));
@@ -114,7 +113,7 @@ pub fn setup_main_lighting(
 
     commands
         .entity(celestial_root)
-        .push_children(&[sun_light, moon_light]);
+        .add_children(&[sun_light, moon_light]);
 
     commands.entity(player.single()).add_child(celestial_root);
 }
@@ -135,8 +134,8 @@ pub fn update_celestial_bodies(
         // However, this approach should be avoided if this system might ever run in parallel or be accessed
         // from multiple threads simultaneously.
 
-        // Update local time with delta_seconds
-        LOCAL_TIME += time.delta_seconds();
+        // Update local time with delta_secs
+        LOCAL_TIME += time.delta_secs();
 
         // Synchronize with the server time every second
         if LOCAL_TIME - LAST_SYNC >= 1.0 {
