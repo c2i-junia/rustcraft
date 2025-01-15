@@ -1,6 +1,7 @@
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::world::materials::MaterialResource;
+use crate::world::GlobalMaterial;
 use crate::KeyMap;
 use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
@@ -26,8 +27,11 @@ pub fn toggle_wireframe_system(
     {
         settings.is_enabled = true;
         config.global = true;
-        let handle = material_resource.blocks.material.clone().unwrap();
-        let material = materials.get_mut(&handle).unwrap();
+        let handle = material_resource
+            .global_materials
+            .get(&GlobalMaterial::Blocks)
+            .unwrap();
+        let material = materials.get_mut(handle).unwrap();
         material.alpha_mode = AlphaMode::Blend;
         material.base_color.set_alpha(0.3);
         return;
@@ -40,8 +44,11 @@ pub fn toggle_wireframe_system(
     ) {
         settings.is_enabled = false;
         config.global = false;
-        let handle = material_resource.blocks.material.clone().unwrap();
-        let material = materials.get_mut(&handle).unwrap();
+        let handle = material_resource
+            .global_materials
+            .get(&GlobalMaterial::Blocks)
+            .unwrap();
+        let material = materials.get_mut(handle).unwrap();
         material.alpha_mode = AlphaMode::Opaque;
         material.base_color.set_alpha(1.0);
     }

@@ -12,23 +12,8 @@ pub struct Hotbar {
     pub selected: u32,
 }
 
-pub fn setup_hotbar(
-    mut commands: Commands,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
-    materials_resource: Res<MaterialResource>,
-) {
-    let img = materials_resource.items.texture.clone().unwrap();
-
-    // let atlas_element = TextureAtlas {
-    //     layout: layouts.add(TextureAtlasLayout::from_grid(
-    //         UVec2::splat(TEXTURE_SIZE),
-    //         materials_resource.items.uvs.len() as u32,
-    //         1,
-    //         None,
-    //         None,
-    //     )),
-    //     index: 0,
-    // };
+pub fn setup_hotbar(mut commands: Commands, materials_resource: Res<MaterialResource>) {
+    let atlas = materials_resource.items.as_ref().unwrap();
 
     commands
         .spawn((
@@ -81,23 +66,30 @@ pub fn setup_hotbar(
                             ..default()
                         },
                     ));
-                    btn.spawn((
-                        (
-                            GlobalZIndex(-1), // FIXME: local maybe?
-                            Node {
-                                width: Val::Px(
-                                    HOTBAR_CELL_SIZE - 2. * (HOTBAR_PADDING + HOTBAR_BORDER),
-                                ),
-                                position_type: PositionType::Relative,
-                                ..Default::default()
-                            },
-                            ImageNode {
-                                image: img.clone_weak(),
-                                ..default()
-                            },
+                    btn.spawn(((
+                        GlobalZIndex(-1), // FIXME: local maybe?
+                        Node {
+                            width: Val::Px(
+                                HOTBAR_CELL_SIZE - 2. * (HOTBAR_PADDING + HOTBAR_BORDER),
+                            ),
+                            position_type: PositionType::Relative,
+                            ..Default::default()
+                        },
+                        ImageNode::from_atlas_image(
+                            atlas.texture.clone_weak(),
+                            atlas
+                                .sources
+                                .handle(
+                                    atlas.layout.clone_weak(),
+                                    if let Some(handle) = atlas.handles.get("test").as_ref() {
+                                        handle.id()
+                                    } else {
+                                        AssetId::default()
+                                    },
+                                )
+                                .unwrap_or_default(),
                         ),
-                        // atlas_element.clone(),
-                    ));
+                    ),));
                 });
             }
         });

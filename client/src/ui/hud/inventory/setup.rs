@@ -1,30 +1,14 @@
 use super::UiDialog;
 use crate::constants::{
     HOTBAR_BORDER, HOTBAR_CELL_SIZE, HOTBAR_PADDING, MAX_HOTBAR_SLOTS, MAX_INVENTORY_SLOTS,
-    TEXTURE_SIZE,
 };
 use crate::ui::hud::{FloatingStack, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::world::MaterialResource;
 use crate::GameState;
 use bevy::{prelude::*, ui::FocusPolicy};
 
-pub fn setup_inventory(
-    mut commands: Commands,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
-    materials_resource: Res<MaterialResource>,
-) {
-    let img = materials_resource.items.texture.clone().unwrap();
-
-    let atlas = TextureAtlas {
-        layout: layouts.add(TextureAtlasLayout::from_grid(
-            UVec2::splat(TEXTURE_SIZE),
-            materials_resource.items.uvs.len() as u32,
-            1,
-            None,
-            None,
-        )),
-        index: 0,
-    };
+pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialResource>) {
+    let atlas = materials_resource.items.as_ref().unwrap();
 
     // Inventory root: root container for the inventory
     let root = commands
@@ -126,7 +110,20 @@ pub fn setup_inventory(
                             },
                         ));
                         btn.spawn((
-                            ImageNode::new(img.clone_weak()),
+                            ImageNode::from_atlas_image(
+                                atlas.texture.clone_weak(),
+                                atlas
+                                    .sources
+                                    .handle(
+                                        atlas.layout.clone_weak(),
+                                        if let Some(handle) = atlas.handles.get("test").as_ref() {
+                                            handle.id()
+                                        } else {
+                                            AssetId::default()
+                                        },
+                                    )
+                                    .unwrap_or_default(),
+                            ),
                             Node {
                                 width: Val::Px(
                                     HOTBAR_CELL_SIZE - 2. * (HOTBAR_PADDING + HOTBAR_BORDER),
@@ -157,7 +154,20 @@ pub fn setup_inventory(
         .with_children(|btn| {
             btn.spawn(Text::new(""));
             btn.spawn((
-                ImageNode::new(img.clone_weak()),
+                ImageNode::from_atlas_image(
+                    atlas.texture.clone_weak(),
+                    atlas
+                        .sources
+                        .handle(
+                            atlas.layout.clone_weak(),
+                            if let Some(handle) = atlas.handles.get("test").as_ref() {
+                                handle.id()
+                            } else {
+                                AssetId::default()
+                            },
+                        )
+                        .unwrap_or_default(),
+                ),
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Percent(0.),

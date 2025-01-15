@@ -177,9 +177,10 @@ pub fn solo_menu_setup(
                                 // text_style: Some(txt_style_inactive.clone()),
                                 ..default()
                             },
-                            TextInputInactive(true),
+                            TextInputInactive(false),
                             TextInputTextFont(txt_font.clone()),
                             TextInputTextColor(txt_color.clone()),
+                            TextInputValue("Test".to_string()),
                         ),
                     ));
 
@@ -410,6 +411,7 @@ pub fn solo_action(
         if *interaction == Interaction::Pressed {
             match *menu_button_action {
                 MultiplayerButtonAction::Add => {
+                    debug!("Interactions !");
                     if !name_query.is_empty() {
                         let mut name = name_query.single_mut();
 
@@ -431,6 +433,7 @@ pub fn solo_action(
                         );
 
                         name.0 = "".into();
+                        debug!("Creating world");
                     }
                 }
                 MultiplayerButtonAction::Load(world_entity) => {

@@ -252,19 +252,21 @@ pub fn update_inventory_cell(
     materials: &MaterialResource,
     text_writer: &mut TextUiWriter,
 ) {
-    // // Set content
-    // if let Some(fstack) = stack {
-    //     *text_writer.text(txt, 0) = format!("{:?}", fstack.nb);
-    //     atlas.index = (materials
-    //         .items
-    //         .uvs
-    //         .get(&format!("{:?}", fstack.item_id))
-    //         .unwrap()
-    //         .u0
-    //         * materials.items.uvs.len() as f32) as usize;
-    //     *visibility = Visibility::Inherited;
-    // } else {
-    //     *text_writer.text(txt, 0) = "".to_string();
-    //     *visibility = Visibility::Hidden;
-    // };
+    let items_atlas = materials.items.as_ref().unwrap();
+
+    // Set content
+    if let Some(fstack) = stack {
+        *text_writer.text(txt, 0) = format!("{:?}", fstack.nb);
+        *atlas = items_atlas
+            .sources
+            .handle(
+                items_atlas.layout.clone_weak(),
+                items_atlas.handles.get("test").as_ref().unwrap().id(),
+            )
+            .unwrap();
+        *visibility = Visibility::Inherited;
+    } else {
+        *text_writer.text(txt, 0) = "".to_string();
+        *visibility = Visibility::Hidden;
+    };
 }

@@ -16,6 +16,7 @@ use std::collections::HashMap;
 pub enum GlobalMaterial {
     Sun,
     Moon,
+    Blocks,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug)]
