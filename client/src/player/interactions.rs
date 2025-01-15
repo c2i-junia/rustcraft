@@ -51,13 +51,14 @@ pub fn handle_block_interactions(
 
     // Handle left-click for breaking blocks
     if mouse_input.just_pressed(MouseButton::Left) {
+        debug!("Left click : {}", raycast_source.intersections().len());
         // Check if there are any intersections with a block
         if let Some((_, intersection)) = raycast_source.intersections().first() {
             // Check if block is close enough to the player
             if (intersection.position() - p_transform.single_mut().translation).norm()
                 < INTERACTION_DISTANCE
             {
-                let block_pos = intersection.position() - intersection.normal() * (CUBE_SIZE / 2.);
+                let block_pos = intersection.position() - intersection.normal() / 10.;
                 let global_block_coords = IVec3::new(
                     block_pos.x.floor() as i32,
                     block_pos.y.floor() as i32,

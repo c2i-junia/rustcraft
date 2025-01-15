@@ -13,11 +13,10 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonInput;
 use bevy::log::debug;
 use bevy::prelude::{
-    Entity, EventReader, ImageNode, KeyCode, MouseButton, Node, Query, Res, ResMut, Text,
-    TextUiWriter, Val, Visibility, Window, With, Without,
+    EventReader, ImageNode, KeyCode, MouseButton, Node, Query, Res, ResMut, Text, Val, Visibility,
+    Window, With, Without,
 };
 use bevy::sprite::TextureAtlas;
-use bevy::text::TextSpan;
 use bevy::ui::{BorderColor, Interaction};
 use bevy::window::PrimaryWindow;
 use shared::world::{ItemId, ItemStack};

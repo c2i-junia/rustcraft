@@ -90,6 +90,8 @@ pub fn setup_chat(
                     ..default()
                 },),
                 (
+                    TextInput,
+                    TextInputValue("".into()),
                     TextInputPlaceholder {
                         value: "Send a message...".to_string(),
                         ..default()
@@ -122,7 +124,6 @@ pub fn render_chat(
             (
                 Entity,
                 &mut BackgroundColor,
-                &mut Text,
                 &mut Visibility,
                 &MessageAnimator,
             ),
@@ -134,109 +135,105 @@ pub fn render_chat(
     mut commands: Commands,
     _paths: Res<GameFolderPaths>,
 ) {
-    // let (cached_conv, asset_server, mut client, keyboard_input, key_map) = resources;
-    // let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
+    let (cached_conv, asset_server, mut client, keyboard_input, key_map) = resources;
+    let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
+    let (entity_check, mut inactive, mut value) = text_query.single_mut();
 
-    // let (entity_check, mut inactive, mut value) = text_query.single_mut();
-    // let mut visibility = visibility_query.single_mut();
-    // let (parent, children) = parent_query.single();
+    let mut visibility = visibility_query.single_mut();
+    let (parent, children) = parent_query.single();
 
-    // if is_action_just_released(
-    //     crate::input::data::GameAction::OpenChat,
-    //     &keyboard_input,
-    //     &key_map,
-    // ) {
-    //     inactive.0 = false;
-    //     *visibility = Visibility::Visible;
-    // }
+    if is_action_just_released(
+        crate::input::data::GameAction::OpenChat,
+        &keyboard_input,
+        &key_map,
+    ) {
+        inactive.0 = false;
+        *visibility = Visibility::Visible;
+    }
 
-    // if *visibility == Visibility::Visible
-    //     && is_action_just_pressed(
-    //         crate::input::data::GameAction::Escape,
-    //         &keyboard_input,
-    //         &key_map,
-    //     )
-    // {
-    //     *visibility = Visibility::Hidden;
-    //     *value = TextInputValue("".to_string());
-    //     *inactive = TextInputInactive(true);
-    // }
+    if *visibility == Visibility::Visible
+        && is_action_just_pressed(
+            crate::input::data::GameAction::Escape,
+            &keyboard_input,
+            &key_map,
+        )
+    {
+        *visibility = Visibility::Hidden;
+        *value = TextInputValue("".to_string());
+        *inactive = TextInputInactive(true);
+    }
 
-    // let current_ts = std::time::SystemTime::now()
-    //     .duration_since(std::time::UNIX_EPOCH)
-    //     .unwrap()
-    //     .as_millis() as u64;
-    // for (entity, mut bg, mut text, mut vis, animator) in animation_query.iter_mut() {
-    //     let diff = current_ts - animator.created_ts;
+    let current_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
 
-    //     // Additionnally, if chat is shown, cancel animation
-    //     if diff > ANIMATION_BEGIN_FADE + ANIMATION_HIDE || *visibility == Visibility::Visible {
-    //         // Remove animator to reduce load, reset style, and hide element
-    //         commands.entity(entity).remove::<MessageAnimator>();
-    //         *vis = Visibility::Inherited;
-    //         *bg = BackgroundColor(Color::BLACK.with_alpha(0.));
-    //         // text.sections[0].style.color = Color::WHITE;
-    //     } else if diff > ANIMATION_BEGIN_FADE {
-    //         // Animate linear fade
-    //         let alpha = 1. - ((diff - ANIMATION_BEGIN_FADE) as f32 / ANIMATION_HIDE as f32);
-    //         *bg = BackgroundColor(CHAT_COLOR.with_alpha(0.6 * alpha));
-    //         // text.sections[0].style.color = Color::WHITE.with_alpha(alpha);
-    //     }
-    // }
+    for (entity, mut bg, mut vis, animator) in animation_query.iter_mut() {
+        let diff = current_ts - animator.created_ts;
+        // Additionnally, if chat is shown, cancel animation
+        if diff > ANIMATION_BEGIN_FADE + ANIMATION_HIDE || *visibility == Visibility::Visible {
+            // Remove animator to reduce load, reset style, and hide element
+            commands.entity(entity).remove::<MessageAnimator>();
+            *vis = Visibility::Inherited;
+            *bg = BackgroundColor(Color::BLACK.with_alpha(0.));
+            // text.sections[0].style.color = Color::WHITE;
+        } else if diff > ANIMATION_BEGIN_FADE {
+            // Animate linear fade
+            let alpha = 1. - ((diff - ANIMATION_BEGIN_FADE) as f32 / ANIMATION_HIDE as f32);
+            *bg = BackgroundColor(CHAT_COLOR.with_alpha(0.6 * alpha));
+            // text.sections[0].style.color = Color::WHITE.with_alpha(alpha);
+        }
+    }
 
-    // if let Some(conv) = &cached_conv.data {
-    //     for message in &conv.messages {
-    //         // If message too old, don't render
-    //         if message.date <= *last_render_ts {
-    //             continue;
-    //         }
+    if let Some(conv) = &cached_conv.data {
+        for message in &conv.messages {
+            // If message too old, don't render
+            if message.date <= *last_render_ts {
+                continue;
+            }
+            *last_render_ts = message.date;
+            let msg = commands
+                .spawn((
+                    MessageAnimator {
+                        created_ts: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                    },
+                    (
+                        Text::new(format!("<{}> : {}", message.author_name, message.content)),
+                        TextFont {
+                            font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
+                            font_size: 17.,
+                            ..default()
+                        },
+                        TextColor(Color::WHITE),
+                        Visibility::Visible,
+                        BackgroundColor(CHAT_COLOR),
+                    ),
+                ))
+                .id();
+            commands.entity(parent).add_children(&[msg]);
+        }
+        // Prevents too much messages from building up on screen
+        if children.len() > CHAT_MAX_MESSAGES {
+            for i in children.len()..CHAT_MAX_MESSAGES {
+                commands.entity(parent).remove_children(&[children[i]]);
+                commands.entity(children[i]).despawn();
+            }
+        }
+    }
 
-    //         *last_render_ts = message.date;
+    if event.is_empty() {
+        return;
+    }
 
-    //         let msg = commands
-    //             .spawn((
-    //                 MessageAnimator {
-    //                     created_ts: std::time::SystemTime::now()
-    //                         .duration_since(std::time::UNIX_EPOCH)
-    //                         .unwrap()
-    //                         .as_millis() as u64,
-    //                 },
-    //                 (
-    //                     Text::new(format!("<{}> : {}", message.author_name, message.content)),
-    //                     TextFont {
-    //                         font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-    //                         font_size: 17.,
-    //                         ..default()
-    //                     },
-    //                     TextColor(Color::WHITE),
-    //                     Visibility::Visible,
-    //                     BackgroundColor(CHAT_COLOR),
-    //                 ),
-    //             ))
-    //             .id();
+    *visibility = Visibility::Hidden;
+    *inactive = TextInputInactive(true);
 
-    //         commands.entity(parent).add_children(&[msg]);
-    //     }
-
-    //     // Prevents too much messages from building up on screen
-    //     if children.len() > CHAT_MAX_MESSAGES {
-    //         for i in children.len()..CHAT_MAX_MESSAGES {
-    //             commands.entity(parent).remove_children(&[children[i]]);
-    //             commands.entity(children[i]).despawn();
-    //         }
-    //     }
-    // }
-
-    // if event.is_empty() {
-    //     return;
-    // }
-
-    // *visibility = Visibility::Hidden;
-    // *inactive = TextInputInactive(true);
-
-    // for message in event.read() {
-    //     if entity_check == message.entity {
-    //         send_chat_message(&mut client, &message.value);
-    //     }
-    // }
+    for message in event.read() {
+        if entity_check == message.entity {
+            send_chat_message(&mut client, &message.value);
+        }
+    }
 }

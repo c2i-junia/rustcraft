@@ -18,6 +18,7 @@ use bevy::{
     },
     utils::hashbrown::HashMap,
 };
+use bevy_simple_text_input::TextInput;
 use bevy_simple_text_input::TextInputTextColor;
 use bevy_simple_text_input::TextInputTextFont;
 use bevy_simple_text_input::{
@@ -168,6 +169,7 @@ pub fn solo_menu_setup(
                         ),
                         WorldNameInput,
                         (
+                            TextInput,
                             TextInputSettings {
                                 retain_on_submit: true,
                                 mask_character: None,
@@ -180,7 +182,7 @@ pub fn solo_menu_setup(
                             TextInputInactive(false),
                             TextInputTextFont(txt_font.clone()),
                             TextInputTextColor(txt_color.clone()),
-                            TextInputValue("Test".to_string()),
+                            TextInputValue("".to_string()),
                         ),
                     ));
 

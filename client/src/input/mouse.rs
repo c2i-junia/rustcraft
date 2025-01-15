@@ -11,7 +11,7 @@ pub fn handle_mouse_system(
     let is_playing = *ui_mode == UIMode::Closed;
 
     window.cursor_options.grab_mode = if is_playing {
-        CursorGrabMode::Confined
+        CursorGrabMode::Locked
     } else {
         CursorGrabMode::None
     };

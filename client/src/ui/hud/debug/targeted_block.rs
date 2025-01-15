@@ -1,9 +1,6 @@
 use crate::player::CurrentPlayerMarker;
 use crate::world::ClientWorldMap;
-use crate::{
-    camera::BlockRaycastSet,
-    constants::{CUBE_SIZE, INTERACTION_DISTANCE},
-};
+use crate::{camera::BlockRaycastSet, constants::INTERACTION_DISTANCE};
 use bevy::prelude::*;
 use bevy_mod_raycast::prelude::RaycastSource;
 
@@ -14,9 +11,7 @@ pub struct BlockText;
 pub fn block_text_update_system(
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     world_map: Res<ClientWorldMap>,
-    query: Query<Entity, With<BlockText>>,
-    mut writer: TextUiWriter,
-    mut text_colors: Query<&mut TextColor>,
+    mut query: Query<(&mut Text, &mut TextColor), With<BlockText>>,
     raycast_source: Query<&RaycastSource<BlockRaycastSet>>, // Raycast to get current "selected" block
 ) {
     let raycast_source = raycast_source.single();
@@ -26,7 +21,7 @@ pub fn block_text_update_system(
     if let Some((_entity, intersection)) = raycast_source.intersections().first() {
         // Check if block is close enough to the player
         if (intersection.position() - player.single().translation).length() < INTERACTION_DISTANCE {
-            let block_pos = intersection.position() - intersection.normal() * (CUBE_SIZE / 2.0);
+            let block_pos = intersection.position() - intersection.normal() / 10.0;
             let vec = IVec3::new(
                 block_pos.x.round() as i32,
                 block_pos.y.round() as i32,
@@ -43,13 +38,9 @@ pub fn block_text_update_system(
         }
     }
 
-    for entity in query.iter() {
+    for (mut text, mut color) in query.iter_mut() {
         // Update the text content
-        *writer.text(entity, 1) = txt.clone();
-
-        // Update the text color
-        if let Ok(mut color) = text_colors.get_mut(entity) {
-            color.0 = col;
-        }
+        **text = txt.clone();
+        **color = col;
     }
 }

@@ -19,7 +19,7 @@ use bevy::{
     utils::hashbrown::HashMap,
 };
 use bevy_simple_text_input::{
-    TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
+    TextInput, TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
 };
 use ron::{from_str, ser::PrettyConfig};
 use shared::world::get_game_folder;
@@ -164,6 +164,7 @@ pub fn multiplayer_menu_setup(
                         ),
                         ServerNameInput,
                         (
+                            TextInput,
                             TextInputSettings {
                                 retain_on_submit: true,
                                 mask_character: None,
@@ -185,6 +186,7 @@ pub fn multiplayer_menu_setup(
                             btn_style.clone(),
                         ),
                         (
+                            TextInput,
                             TextInputSettings {
                                 retain_on_submit: true,
                                 mask_character: None,
