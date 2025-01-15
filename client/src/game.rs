@@ -139,7 +139,7 @@ pub fn game_plugin(app: &mut App) {
                 render_distance_update_system,
                 player_movement_system,
                 (handle_block_interactions, camera_control_system).chain(),
-                // fps_text_update_system,
+                fps_text_update_system,
                 coords_text_update_system,
                 total_blocks_text_update_system,
                 // block_text_update_system,

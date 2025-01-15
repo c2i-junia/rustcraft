@@ -261,7 +261,12 @@ pub fn update_inventory_cell(
             .sources
             .handle(
                 items_atlas.layout.clone_weak(),
-                items_atlas.handles.get("test").as_ref().unwrap().id(),
+                items_atlas
+                    .handles
+                    .get(&format!("{:?}", fstack.item_id))
+                    .as_ref()
+                    .unwrap()
+                    .id(),
             )
             .unwrap();
         *visibility = Visibility::Inherited;
