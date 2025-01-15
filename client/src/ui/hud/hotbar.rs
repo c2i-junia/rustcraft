@@ -57,17 +57,15 @@ pub fn setup_hotbar(mut commands: Commands, materials_resource: Res<MaterialReso
                 .with_children(|btn| {
                     btn.spawn((
                         Text::new("Test"),
-                        TextFont {
-                            font_size: 15.,
-                            ..default()
-                        },
+                        TextColor(Color::WHITE),
+                        TextFont::from_font_size(15.0),
                         Node {
                             position_type: PositionType::Absolute,
                             ..default()
                         },
+                        ZIndex(1),
                     ));
                     btn.spawn(((
-                        GlobalZIndex(-1), // FIXME: local maybe?
                         Node {
                             width: Val::Px(
                                 HOTBAR_CELL_SIZE - 2. * (HOTBAR_PADDING + HOTBAR_BORDER),
@@ -81,7 +79,7 @@ pub fn setup_hotbar(mut commands: Commands, materials_resource: Res<MaterialReso
                                 .sources
                                 .handle(
                                     atlas.layout.clone_weak(),
-                                    if let Some(handle) = atlas.handles.get("test").as_ref() {
+                                    if let Some(handle) = atlas.handles.get("Dirt").as_ref() {
                                         handle.id()
                                     } else {
                                         AssetId::default()

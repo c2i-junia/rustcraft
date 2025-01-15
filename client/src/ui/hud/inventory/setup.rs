@@ -100,14 +100,12 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                     .with_children(|btn| {
                         btn.spawn((
                             Text::new("Test"),
-                            TextFont {
-                                font_size: 15.,
-                                ..default()
-                            },
+                            TextFont::from_font_size(15.0),
                             Node {
                                 position_type: PositionType::Absolute,
                                 ..default()
                             },
+                            ZIndex(1),
                         ));
                         btn.spawn((
                             ImageNode::from_atlas_image(
@@ -116,7 +114,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                                     .sources
                                     .handle(
                                         atlas.layout.clone_weak(),
-                                        if let Some(handle) = atlas.handles.get("test").as_ref() {
+                                        if let Some(handle) = atlas.handles.get("Dirt").as_ref() {
                                             handle.id()
                                         } else {
                                             AssetId::default()
@@ -131,7 +129,6 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                                 position_type: PositionType::Relative,
                                 ..default()
                             },
-                            // atlas.clone(), // FIXME: check this
                         ));
                     });
             }
@@ -152,7 +149,16 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
             ),
         ))
         .with_children(|btn| {
-            btn.spawn(Text::new(""));
+            btn.spawn((
+                Text::new("Test"),
+                TextColor(Color::WHITE),
+                TextFont::from_font_size(15.0),
+                Node {
+                    position_type: PositionType::Absolute,
+                    ..default()
+                },
+                ZIndex(1),
+            ));
             btn.spawn((
                 ImageNode::from_atlas_image(
                     atlas.texture.clone_weak(),
@@ -160,7 +166,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                         .sources
                         .handle(
                             atlas.layout.clone_weak(),
-                            if let Some(handle) = atlas.handles.get("test").as_ref() {
+                            if let Some(handle) = atlas.handles.get("Dirt").as_ref() {
                                 handle.id()
                             } else {
                                 AssetId::default()
@@ -176,7 +182,6 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                     top: Val::Percent(0.),
                     ..default()
                 },
-                // atlas.clone(), //FIXME: check this
             ));
         })
         .id();

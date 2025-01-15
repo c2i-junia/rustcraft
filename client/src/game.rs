@@ -128,7 +128,7 @@ pub fn game_plugin(app: &mut App) {
             (
                 render_pause_menu,
                 render_chat,
-                // render_inventory_hotbar,
+                render_inventory_hotbar,
                 set_ui_mode,
             )
                 .run_if(in_state(GameState::Game)),

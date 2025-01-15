@@ -146,10 +146,10 @@ pub fn setup_materials(
                 )
             })
             .collect();
-        info!("Block textures loaded");
+        info!("Ite textures loaded");
     } else {
         warn!(
-            "Block textures could not be loaded. This could crash the game : {:?}",
+            "Item textures could not be loaded. This could crash the game : {:?}",
             items_path.display()
         );
     }
@@ -184,10 +184,6 @@ pub fn create_all_atlases(
                 }),
             );
             material_resource.blocks = Some(blocks);
-            debug!(
-                "Uv sources : {:?}",
-                material_resource.blocks.as_ref().unwrap()
-            );
         } else {
             loading.textures_loaded = false;
         }
@@ -199,7 +195,7 @@ pub fn create_all_atlases(
             &mut images,
             &mut texture_atlases,
             None,
-            Some(ImageSampler::linear()),
+            Some(ImageSampler::nearest()),
         ) {
             material_resource.items = Some(items);
         } else {
@@ -260,8 +256,6 @@ fn build_texture_atlas<T: GameElementId>(
 
         uvs.insert(i.1.clone(), uv_coords);
     }
-
-    debug!("Total atlas size : {size:?}");
 
     // Create the atlas
     Some(AtlasWrapper {
