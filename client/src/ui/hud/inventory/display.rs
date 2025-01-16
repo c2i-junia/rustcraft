@@ -52,7 +52,7 @@ pub fn render_inventory_hotbar(
     let mut vis = visibility_query.single_mut();
 
     if is_action_just_pressed(GameAction::ToggleInventory, &keyboard_input, &key_map)
-        && ((*vis == Visibility::Hidden) ^ (*ui_mode == UIMode::Opened))
+        && ((*vis == Visibility::Hidden) ^ (*ui_mode != UIMode::Closed))
     {
         *vis = match *vis {
             Visibility::Hidden => Visibility::Visible,
