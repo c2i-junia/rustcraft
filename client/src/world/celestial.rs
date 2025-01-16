@@ -34,8 +34,8 @@ pub fn setup_main_lighting(
     let celestial_root = commands
         .spawn((
             CelestialRoot,
-            // SpatialBundle::default(),
             StateScoped(GameState::Game),
+            Transform::default(),
         ))
         .id();
 
@@ -148,7 +148,7 @@ pub fn update_celestial_bodies(
         let angle = normalized_time * 2.0 * PI;
 
         // Apply the rotation to celestial bodies
-        for mut tr in &mut query {
+        for mut tr in query.iter_mut() {
             tr.rotation = Quat::from_rotation_x(angle);
         }
     }
