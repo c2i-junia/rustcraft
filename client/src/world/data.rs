@@ -36,7 +36,7 @@ pub struct ClientWorldMap {
     pub total_chunks_count: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct RaycastResponse {
     pub block: BlockData,
     pub position: IVec3,

@@ -3,9 +3,6 @@ use bevy_atmosphere::prelude::AtmosphereCamera;
 
 use crate::GameState;
 
-#[derive(TypePath)]
-pub struct BlockRaycastSet;
-
 #[derive(Component)]
 pub struct CameraController {
     pub distance: f32,
