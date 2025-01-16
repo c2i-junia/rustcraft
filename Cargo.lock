@@ -916,27 +916,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_mod_raycast"
-version = "0.19.0"
-source = "git+https://github.com/NthTensor/bevy_mod_raycast.git?branch=main#8416f6ec9008a0736f65b5788a3f85c05288efd2"
-dependencies = [
- "bevy_app",
- "bevy_asset",
- "bevy_color",
- "bevy_derive",
- "bevy_ecs",
- "bevy_gizmos",
- "bevy_math",
- "bevy_reflect",
- "bevy_render",
- "bevy_sprite",
- "bevy_transform",
- "bevy_utils",
- "bevy_window",
- "crossbeam-channel",
-]
-
-[[package]]
 name = "bevy_pbr"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1682,7 +1661,6 @@ version = "0.0.0"
 dependencies = [
  "bevy",
  "bevy_atmosphere",
- "bevy_mod_raycast",
  "bevy_renet",
  "bevy_simple_text_input",
  "bincode",

@@ -5,8 +5,8 @@ use crate::player::inventory::*;
 use crate::player::spawn::Player;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
-use crate::world::ClientWorldMap;
 use crate::world::WorldRenderRequestUpdateEvent;
+use crate::world::{raycast, ClientWorldMap};
 use bevy::math::NormedVectorSpace;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
@@ -44,7 +44,7 @@ pub fn handle_block_interactions(
     let camera_transform = camera_query.single();
     let player_transform = p_transform.single();
 
-    let maybe_block = world_map.raycast(camera_transform, player_transform, *view_mode);
+    let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
 
     // Handle left-click for breaking blocks
     if mouse_input.just_pressed(MouseButton::Left) {
