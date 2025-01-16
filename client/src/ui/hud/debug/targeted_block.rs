@@ -1,8 +1,7 @@
+use crate::constants::INTERACTION_DISTANCE;
 use crate::player::CurrentPlayerMarker;
 use crate::world::ClientWorldMap;
-use crate::{camera::BlockRaycastSet, constants::INTERACTION_DISTANCE};
 use bevy::prelude::*;
-use bevy_mod_raycast::prelude::RaycastSource;
 
 #[derive(Component)]
 pub struct BlockText;
@@ -12,29 +11,22 @@ pub fn block_text_update_system(
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     world_map: Res<ClientWorldMap>,
     mut query: Query<(&mut Text, &mut TextColor), With<BlockText>>,
-    raycast_source: Query<&RaycastSource<BlockRaycastSet>>, // Raycast to get current "selected" block
+    camera_query: Query<&Transform, With<Camera>>,
 ) {
-    let raycast_source = raycast_source.single();
     let mut col = Color::srgb(1.0, 1.0, 1.0);
     let mut txt = "<none>".to_string();
 
-    if let Some((_entity, intersection)) = raycast_source.intersections().first() {
+    let camera_transform = camera_query.single();
+
+    let maybe_block = world_map.raycast(camera_transform, INTERACTION_DISTANCE);
+
+    if let Some(res) = maybe_block {
+        let pos = res.position;
         // Check if block is close enough to the player
-        if (intersection.position() - player.single().translation).length() < INTERACTION_DISTANCE {
-            let block_pos = intersection.position() - intersection.normal() / 10.0;
-            let vec = IVec3::new(
-                block_pos.x.round() as i32,
-                block_pos.y.round() as i32,
-                block_pos.z.round() as i32,
-            );
-            if let Some(block) = world_map.get_block_by_coordinates(&vec) {
-                col = Color::WHITE;
-                txt = format!(
-                    "{:?} | pos = {}",
-                    block,
-                    intersection.position().xyz().round()
-                );
-            }
+        let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
+        if (block_pos - player.single().translation).length() < INTERACTION_DISTANCE {
+            col = Color::WHITE;
+            txt = format!("{:?} pos = ({}, {}, {})", res.block, pos.x, pos.y, pos.z);
         }
     }
 

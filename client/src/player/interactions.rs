@@ -1,4 +1,3 @@
-use crate::camera::*;
 use crate::constants::{CUBE_SIZE, INTERACTION_DISTANCE};
 use crate::network::api::send_network_action;
 use crate::network::api::NetworkAction;
@@ -10,7 +9,6 @@ use crate::world::ClientWorldMap;
 use crate::world::WorldRenderRequestUpdateEvent;
 use bevy::math::NormedVectorSpace;
 use bevy::prelude::*;
-use bevy_mod_raycast::prelude::*;
 use bevy_renet::renet::RenetClient;
 use shared::world::{BlockData, ItemStack, ItemType};
 
@@ -26,7 +24,7 @@ pub fn handle_block_interactions(
     queries: (
         Query<&Player, With<CurrentPlayerMarker>>,
         Query<&mut Transform, With<CurrentPlayerMarker>>,
-        Query<&RaycastSource<BlockRaycastSet>>,
+        Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
         Query<&Hotbar>,
     ),
     resources: (
@@ -38,7 +36,7 @@ pub fn handle_block_interactions(
     ),
     mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
 ) {
-    let (player_query, mut p_transform, raycast_source, hotbar) = queries;
+    let (player_query, mut p_transform, camera_query, hotbar) = queries;
     let (mut world_map, mouse_input, ui_mode, mut inventory, mut client) = resources;
 
     let player = player_query.single().clone();
@@ -47,26 +45,20 @@ pub fn handle_block_interactions(
         return;
     }
 
-    let raycast_source = raycast_source.single();
+    let camera_transform = camera_query.single();
+
+    let maybe_block = world_map.raycast(camera_transform, INTERACTION_DISTANCE);
 
     // Handle left-click for breaking blocks
     if mouse_input.just_pressed(MouseButton::Left) {
-        debug!("Left click : {}", raycast_source.intersections().len());
         // Check if there are any intersections with a block
-        if let Some((_, intersection)) = raycast_source.intersections().first() {
+        if let Some(res) = maybe_block {
+            let pos = res.position;
+            let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
             // Check if block is close enough to the player
-            if (intersection.position() - p_transform.single_mut().translation).norm()
-                < INTERACTION_DISTANCE
-            {
-                let block_pos = intersection.position() - intersection.normal() / 10.;
-                let global_block_coords = IVec3::new(
-                    block_pos.x.floor() as i32,
-                    block_pos.y.floor() as i32,
-                    block_pos.z.floor() as i32,
-                );
-
+            if (block_pos - p_transform.single_mut().translation).norm() < INTERACTION_DISTANCE {
                 // Remove the hit block
-                let block = world_map.remove_block_by_coordinates(&global_block_coords);
+                let block = world_map.remove_block_by_coordinates(&pos);
 
                 if let Some(block) = block {
                     // add the block to the player's inventory
@@ -80,15 +72,13 @@ pub fn handle_block_interactions(
                         });
                     }
 
-                    ev_render.send(WorldRenderRequestUpdateEvent::BlockToReload(
-                        global_block_coords,
-                    ));
+                    ev_render.send(WorldRenderRequestUpdateEvent::BlockToReload(pos));
 
                     // Send the bloc to the serveur to delete it
                     send_network_action(
                         &mut client,
                         NetworkAction::BlockInteraction {
-                            position: global_block_coords,
+                            position: pos,
                             block_type: None, // None signify suppression
                         },
                     );
@@ -99,27 +89,21 @@ pub fn handle_block_interactions(
 
     // Handle right-click for placing blocks
     if mouse_input.just_pressed(MouseButton::Right) {
-        if let Some((_entity, intersection)) = raycast_source.intersections().first() {
-            let block_pos = intersection.position() - intersection.normal() * (CUBE_SIZE / 2.);
-            let global_block_coords = IVec3::new(
-                block_pos.x.floor() as i32,
-                block_pos.y.floor() as i32,
-                block_pos.z.floor() as i32,
-            );
-
-            // Get the normal of the face where the block will be placed
-            let normal = intersection.normal(); // This is already a Vec3, no need to unwrap
-                                                // Calculate the block position by adding a small offset to the intersection point
-            let mut position = global_block_coords.as_vec3() + normal * 0.51;
-            // Snap the position to the grid
-            position = snap_to_grid(position);
+        if let Some(res) = maybe_block {
+            let face = res.face;
+            let collision_pos = res.position;
 
             // Difference vector between player position and block center
-            let distance = position + (Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE) / 2.)
+            let distance = (Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE) / 2.)
                 - p_transform.single_mut().translation;
 
             // Check if target space is close enough to the player
-            if (intersection.position() - p_transform.single_mut().translation).norm()
+            let block_pos = Vec3::new(
+                (collision_pos.x + face.x) as f32,
+                (collision_pos.y + face.y) as f32,
+                (collision_pos.z + face.z) as f32,
+            );
+            if (block_pos - p_transform.single_mut().translation).norm()
                 <= INTERACTION_DISTANCE
                 // Guarantees a block cannot be placed too close to the player (which would be unable to move because of constant collision)
                 && (distance.x.abs() > (CUBE_SIZE + player.width) / 2. || distance.z.abs() > (CUBE_SIZE + player.width ) / 2. || distance.y.abs() > (CUBE_SIZE + player.height) / 2.)

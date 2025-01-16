@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use bevy_atmosphere::prelude::AtmosphereCamera;
-use bevy_mod_raycast::prelude::*;
 
 use crate::GameState;
 
@@ -39,11 +38,6 @@ pub fn spawn_camera(mut commands: Commands) {
             },
         ))
         .insert(CameraController::default())
-        .insert({
-            let mut raycast_source = RaycastSource::<BlockRaycastSet>::default();
-            raycast_source.cast_method = RaycastMethod::Transform;
-            raycast_source
-        })
         .insert(AtmosphereCamera::default())
         .insert(StateScoped(GameState::Game));
 }

@@ -18,7 +18,6 @@ use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::world::celestial::setup_main_lighting;
-use bevy_mod_raycast::deferred::DeferredRaycastingPlugin;
 
 use crate::ui::hud::debug::*;
 use crate::ui::hud::hotbar::*;
@@ -51,7 +50,6 @@ pub struct PreLoadingCompletion {
 // display the current settings for 5 seconds before returning to the menu
 pub fn game_plugin(app: &mut App) {
     app.add_plugins(FrameTimeDiagnosticsPlugin)
-        .add_plugins(DeferredRaycastingPlugin::<BlockRaycastSet>::default()) // Ajout du plugin raycasting
         .add_plugins(WireframePlugin)
         .add_plugins(bevy_simple_text_input::TextInputPlugin)
         .add_plugins(AtmospherePlugin)

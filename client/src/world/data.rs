@@ -34,6 +34,12 @@ pub struct ClientWorldMap {
     pub total_chunks_count: u64,
 }
 
+pub struct RaycastResponse {
+    pub block: BlockData,
+    pub position: IVec3,
+    pub face: IVec3,
+}
+
 impl ClientWorldMap {
     pub fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
         let x: i32 = position.x;
@@ -84,6 +90,58 @@ impl ClientWorldMap {
         let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
         chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
+    }
+
+    pub fn raycast(
+        &self,
+        camera_transform: &Transform,
+        max_distance: f32,
+    ) -> Option<RaycastResponse> {
+        let camera_position = camera_transform.translation;
+        let camera_rotation = camera_transform.rotation;
+
+        let direction = camera_rotation
+            .mul_vec3(Vec3::new(0.0, 0.0, -1.0))
+            .normalize();
+
+        let mut current_position = camera_position;
+
+        let step = 0.1; // Step size for raycasting
+
+        for _ in 0..(max_distance / step) as i32 {
+            current_position += direction * step;
+            let pos_ivec3 = IVec3::new(
+                current_position.x.floor() as i32,
+                current_position.y.floor() as i32,
+                current_position.z.floor() as i32,
+            );
+            if let Some(block) = self.get_block_by_coordinates(&pos_ivec3) {
+                // Now we need to determine which face of the block we hit
+                let face = Vec3::new(
+                    current_position.x - pos_ivec3.x as f32,
+                    current_position.y - pos_ivec3.y as f32,
+                    current_position.z - pos_ivec3.z as f32,
+                );
+
+                let mut block_face = IVec3::ZERO;
+
+                if face.x.abs() > face.y.abs() && face.x.abs() > face.z.abs() {
+                    block_face.x = if face.x > 0.0 { 1 } else { -1 };
+                } else if face.y.abs() > face.x.abs() && face.y.abs() > face.z.abs() {
+                    block_face.y = if face.y > 0.0 { 1 } else { -1 };
+                } else {
+                    block_face.z = if face.z > 0.0 { 1 } else { -1 };
+                }
+
+                return Some(RaycastResponse {
+                    block: *block,
+                    position: pos_ivec3,
+                    face: block_face,
+                });
+            }
+        }
+
+        None
     }
 }
 

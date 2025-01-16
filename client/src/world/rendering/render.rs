@@ -8,14 +8,12 @@ use bevy::{
     prelude::*,
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
-use bevy_mod_raycast::deferred::RaycastMesh;
 use shared::{
     world::{global_block_to_chunk_pos, SIX_OFFSETS},
     CHUNK_SIZE,
 };
 
 use crate::{
-    camera::BlockRaycastSet,
     world::{self, MaterialResource, QueuedEvents, WorldRenderRequestUpdateEvent},
     GameState,
 };
@@ -60,7 +58,6 @@ fn update_chunk(
                 MeshMaterial3d(texture.clone()),
                 GlobalTransform::from(chunk_t),
                 chunk_t,
-                RaycastMesh::<BlockRaycastSet>::default(),
             ))
             .id();
 
