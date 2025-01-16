@@ -5,8 +5,8 @@ use crate::player::inventory::*;
 use crate::player::spawn::Player;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
-use crate::world::WorldRenderRequestUpdateEvent;
 use crate::world::{raycast, ClientWorldMap};
+use crate::world::{FaceDirectionExt, WorldRenderRequestUpdateEvent};
 use bevy::math::NormedVectorSpace;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
@@ -46,10 +46,9 @@ pub fn handle_block_interactions(
 
     let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
 
-    // Handle left-click for breaking blocks
-    if mouse_input.just_pressed(MouseButton::Left) {
-        // Check if there are any intersections with a block
-        if let Some(res) = maybe_block {
+    if let Some(res) = maybe_block {
+        // Handle left-click for breaking blocks
+        if mouse_input.just_pressed(MouseButton::Left) {
             let pos = res.position;
             let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
             // Check if block is close enough to the player
@@ -82,28 +81,37 @@ pub fn handle_block_interactions(
                 }
             }
         }
-    }
 
-    // Handle right-click for placing blocks
-    if mouse_input.just_pressed(MouseButton::Right) {
-        if let Some(res) = maybe_block {
-            let face = res.face;
+        // Handle right-click for placing blocks
+        if mouse_input.just_pressed(MouseButton::Right) {
+            let face_dir = res.face;
             let collision_pos = res.position;
 
-            // Difference vector between player position and block center
-            let distance = (Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE) / 2.)
-                - p_transform.single_mut().translation;
-
+            let face = face_dir.to_ivec3();
             // Check if target space is close enough to the player
-            let block_pos = Vec3::new(
+            let block_to_create_pos = Vec3::new(
                 (collision_pos.x + face.x) as f32,
                 (collision_pos.y + face.y) as f32,
                 (collision_pos.z + face.z) as f32,
             );
-            if (block_pos - p_transform.single_mut().translation).norm()
+
+            let unit_cube = Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
+            let player_position = p_transform.single_mut().translation;
+
+            let target_cube_center = block_to_create_pos + (unit_cube / 2.);
+
+            // Difference vector between player position and block center
+            let distance = (target_cube_center - player_position).abs();
+
+            debug!("Distance: {:?}", distance);
+            debug!("Block position: {:?}", block_to_create_pos);
+            debug!("Player position: {:?}", player_position);
+            debug!("Target cube center: {:?}", target_cube_center);
+
+            if (block_to_create_pos - p_transform.single_mut().translation).norm()
                 <= INTERACTION_DISTANCE
                 // Guarantees a block cannot be placed too close to the player (which would be unable to move because of constant collision)
-                && (distance.x.abs() > (CUBE_SIZE + player.width) / 2. || distance.z.abs() > (CUBE_SIZE + player.width ) / 2. || distance.y.abs() > (CUBE_SIZE + player.height) / 2.)
+                && (distance.x> (CUBE_SIZE + player.width) / 2. || distance.z > (CUBE_SIZE + player.width ) / 2. || distance.y > (CUBE_SIZE + player.height) / 2.)
             {
                 // Try to get item currently selected in player hotbar
                 if let Some(&item) = inventory.inner.get(&hotbar.single().selected) {
@@ -111,8 +119,11 @@ pub fn handle_block_interactions(
 
                     // Check if the item has a block counterpart
                     if let ItemType::Block(block_id) = item.item_type {
-                        let block_pos =
-                            IVec3::new(block_pos.x as i32, block_pos.y as i32, block_pos.z as i32);
+                        let block_pos = IVec3::new(
+                            block_to_create_pos.x as i32,
+                            block_to_create_pos.y as i32,
+                            block_to_create_pos.z as i32,
+                        );
                         let block =
                             BlockData::new(block_id, false, shared::world::BlockDirection::Front);
 

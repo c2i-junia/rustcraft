@@ -5,10 +5,37 @@ use bevy::prelude::*;
 use shared::world::BlockData;
 
 #[derive(Debug, Clone, Copy)]
+pub enum FaceDirection {
+    PlusX,
+    MinusX,
+    PlusY,
+    MinusY,
+    PlusZ,
+    MinusZ,
+}
+
+pub trait FaceDirectionExt {
+    fn to_ivec3(&self) -> IVec3;
+}
+
+impl FaceDirectionExt for FaceDirection {
+    fn to_ivec3(&self) -> IVec3 {
+        match self {
+            FaceDirection::PlusX => IVec3::new(1, 0, 0),
+            FaceDirection::MinusX => IVec3::new(-1, 0, 0),
+            FaceDirection::PlusY => IVec3::new(0, 1, 0),
+            FaceDirection::MinusY => IVec3::new(0, -1, 0),
+            FaceDirection::PlusZ => IVec3::new(0, 0, 1),
+            FaceDirection::MinusZ => IVec3::new(0, 0, -1),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct RaycastResponse {
     pub block: BlockData,
     pub position: IVec3,
-    pub face: IVec3,
+    pub face: FaceDirection,
 }
 
 pub fn raycast(
@@ -83,30 +110,50 @@ fn raycast_from_source_position_and_direction(
         );
         if let Some(block) = world_map.get_block_by_coordinates(&pos_ivec3) {
             // Now we need to determine which face of the block we hit
-            let face = Vec3::new(
-                previous_position.x - pos_ivec3.x as f32,
-                previous_position.y - pos_ivec3.y as f32,
-                previous_position.z - pos_ivec3.z as f32,
-            );
 
-            let mut block_face = IVec3::ZERO;
-
-            if face.x.abs() > face.y.abs() && face.x.abs() > face.z.abs() {
-                block_face.x = if face.x > 0.0 { 1 } else { -1 };
-            } else if face.y.abs() > face.x.abs() && face.y.abs() > face.z.abs() {
-                block_face.y = if face.y > 0.0 { 1 } else { -1 };
-            } else {
-                block_face.z = if face.z > 0.0 { 1 } else { -1 };
-            }
+            let face = determine_hit_face(previous_position, current_position);
 
             return Some(RaycastResponse {
                 block: *block,
                 position: pos_ivec3,
-                face: block_face,
+                face,
             });
         }
         previous_position = current_position;
     }
 
     None
+}
+
+fn determine_hit_face(step_outside: Vec3, step_inside: Vec3) -> FaceDirection {
+    let step_outside = IVec3::new(
+        step_outside.x as i32,
+        step_outside.y as i32,
+        step_outside.z as i32,
+    );
+    let step_inside = IVec3::new(
+        step_inside.x as i32,
+        step_inside.y as i32,
+        step_inside.z as i32,
+    );
+
+    let diff = step_inside - step_outside;
+
+    if diff.x.abs() > diff.y.abs() && diff.x.abs() > diff.z.abs() {
+        if diff.x > 0 {
+            FaceDirection::MinusX
+        } else {
+            FaceDirection::PlusX
+        }
+    } else if diff.y.abs() > diff.x.abs() && diff.y.abs() > diff.z.abs() {
+        if diff.y > 0 {
+            FaceDirection::MinusY
+        } else {
+            FaceDirection::PlusY
+        }
+    } else if diff.z > 0 {
+        FaceDirection::MinusZ
+    } else {
+        FaceDirection::PlusZ
+    }
 }
