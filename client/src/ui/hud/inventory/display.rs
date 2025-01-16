@@ -1,4 +1,4 @@
-use super::{add_item_floating_stack, remove_item_floating_stack};
+use super::{add_item_floating_stack, remove_item_floating_stack, UIMode};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -39,17 +39,21 @@ pub fn render_inventory_hotbar(
         Query<&Window, With<PrimaryWindow>>,
         Query<&mut Hotbar>,
     ),
-    (keyboard_input, mouse_input, key_map, mut inventory, materials): (
+    (keyboard_input, mouse_input, key_map, mut inventory, materials, ui_mode): (
         Res<ButtonInput<KeyCode>>,
         Res<ButtonInput<MouseButton>>,
         Res<KeyMap>,
         ResMut<Inventory>,
         Res<MaterialResource>,
+        Res<UIMode>,
     ),
     mut scroll: EventReader<MouseWheel>,
 ) {
     let mut vis = visibility_query.single_mut();
-    if is_action_just_pressed(GameAction::ToggleInventory, &keyboard_input, &key_map) {
+
+    if is_action_just_pressed(GameAction::ToggleInventory, &keyboard_input, &key_map)
+        && ((*vis == Visibility::Hidden) ^ (*ui_mode == UIMode::Opened))
+    {
         *vis = match *vis {
             Visibility::Hidden => Visibility::Visible,
             _ => Visibility::Hidden,

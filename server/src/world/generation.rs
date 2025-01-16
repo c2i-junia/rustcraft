@@ -269,32 +269,28 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                     match biome_type {
                         BiomeType::Forest => {
                             // High probability for trees in Forest
-                            if tree_chance < 0.06 {
-                                if !chunk.map.contains_key(&above_surface_pos) {
-                                    generate_tree(
-                                        &mut chunk,
-                                        dx,
-                                        dy + 1,
-                                        dz,
-                                        BlockId::OakLog,
-                                        BlockId::OakLeaves,
-                                    );
-                                }
+                            if tree_chance < 0.06 && !chunk.map.contains_key(&above_surface_pos) {
+                                generate_tree(
+                                    &mut chunk,
+                                    dx,
+                                    dy + 1,
+                                    dz,
+                                    BlockId::OakLog,
+                                    BlockId::OakLeaves,
+                                );
                             }
                         }
                         BiomeType::FlowerPlains | BiomeType::MediumMountain => {
                             // Medium probability for trees in Flower Plains and Medium Mountain
-                            if tree_chance < 0.02 {
-                                if !chunk.map.contains_key(&above_surface_pos) {
-                                    generate_tree(
-                                        &mut chunk,
-                                        dx,
-                                        dy + 1,
-                                        dz,
-                                        BlockId::OakLog,
-                                        BlockId::OakLeaves,
-                                    );
-                                }
+                            if tree_chance < 0.02 && !chunk.map.contains_key(&above_surface_pos) {
+                                generate_tree(
+                                    &mut chunk,
+                                    dx,
+                                    dy + 1,
+                                    dz,
+                                    BlockId::OakLog,
+                                    BlockId::OakLeaves,
+                                );
                             }
                         }
                         _ => {}
@@ -303,10 +299,8 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                     // Add cactus in Desert
                     if biome_type == BiomeType::Desert {
                         let cactus_chance = rand::random::<f32>();
-                        if cactus_chance < 0.01 {
-                            if !chunk.map.contains_key(&above_surface_pos) {
-                                generate_cactus(&mut chunk, dx, dy + 1, dz, BlockId::Cactus);
-                            }
+                        if cactus_chance < 0.01 && !chunk.map.contains_key(&above_surface_pos) {
+                            generate_cactus(&mut chunk, dx, dy + 1, dz, BlockId::Cactus);
                         }
                     }
                 }

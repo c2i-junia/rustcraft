@@ -109,7 +109,7 @@ pub fn solo_menu_setup(
         .with_children(|root| {
             root.spawn((
                 Text::new("World list"),
-                txt_color.clone(),
+                txt_color,
                 txt_font.clone(),
                 Node {
                     border: UiRect::all(Val::Px(1.)),
@@ -181,7 +181,7 @@ pub fn solo_menu_setup(
                             },
                             TextInputInactive(false),
                             TextInputTextFont(txt_font.clone()),
-                            TextInputTextColor(txt_color.clone()),
+                            TextInputTextColor(txt_color),
                             TextInputValue("".to_string()),
                         ),
                     ));
@@ -202,11 +202,7 @@ pub fn solo_menu_setup(
                             MultiplayerButtonAction::Add,
                         ))
                         .with_children(|btn| {
-                            btn.spawn((
-                                Text::new("Create world"),
-                                txt_font.clone(),
-                                txt_color.clone(),
-                            ));
+                            btn.spawn((Text::new("Create world"), txt_font.clone(), txt_color));
                         });
 
                     wrapper
@@ -225,11 +221,7 @@ pub fn solo_menu_setup(
                             MenuButtonAction::BackToMainMenu,
                         ))
                         .with_children(|btn| {
-                            btn.spawn((
-                                Text::new("Back to menu"),
-                                txt_font.clone(),
-                                txt_color.clone(),
-                            ));
+                            btn.spawn((Text::new("Back to menu"), txt_font.clone(), txt_color));
                         });
                 });
         });

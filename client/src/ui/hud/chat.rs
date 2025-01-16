@@ -8,6 +8,8 @@ use bevy_renet::renet::RenetClient;
 use bevy_simple_text_input::*;
 use shared::GameFolderPaths;
 
+use super::UIMode;
+
 #[derive(Component)]
 pub struct ChatRoot;
 
@@ -115,6 +117,7 @@ pub fn render_chat(
         ResMut<RenetClient>,
         Res<ButtonInput<KeyCode>>,
         Res<KeyMap>,
+        Res<UIMode>,
     ),
     queries: (
         Query<(Entity, &mut TextInputInactive, &mut TextInputValue), With<ChatInput>>,
@@ -135,7 +138,7 @@ pub fn render_chat(
     mut commands: Commands,
     _paths: Res<GameFolderPaths>,
 ) {
-    let (cached_conv, asset_server, mut client, keyboard_input, key_map) = resources;
+    let (cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;
     let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
     let (entity_check, mut inactive, mut value) = text_query.single_mut();
 
@@ -146,7 +149,8 @@ pub fn render_chat(
         crate::input::data::GameAction::OpenChat,
         &keyboard_input,
         &key_map,
-    ) {
+    ) && *ui_mode == UIMode::Closed
+    {
         inactive.0 = false;
         *visibility = Visibility::Visible;
     }

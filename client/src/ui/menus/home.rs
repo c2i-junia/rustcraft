@@ -54,7 +54,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         (
                             Button,
                             big_button_style(), // Use large button style
-                            BackgroundColor(NORMAL_BUTTON.into()),
+                            BackgroundColor(NORMAL_BUTTON),
                             ImageNode::new(button_background_image.clone()),
                         ),
                         action,
@@ -63,7 +63,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                         parent.spawn((
                             Text::new(label),
                             button_text_font.clone(),
-                            button_text_color.clone(),
+                            button_text_color,
                         ));
                     });
             }

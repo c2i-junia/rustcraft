@@ -188,8 +188,8 @@ fn render_face(
 
     local_uvs.extend(face.uvs.iter().map(|uv| {
         [
-            (uv[0] + uv_coords.u0).min(uv_coords.u1),
-            (uv[1] + uv_coords.v0).min(uv_coords.v1),
+            (uv[0] + uv_coords.u0 + 0.001).min(uv_coords.u1 - 0.001),
+            (uv[1] + uv_coords.v0 + 0.001).min(uv_coords.v1 - 0.001),
         ]
     }));
 }

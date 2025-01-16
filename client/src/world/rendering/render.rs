@@ -59,7 +59,7 @@ fn update_chunk(
                 Mesh3d(meshes.add(new_mesh)),
                 MeshMaterial3d(texture.clone()),
                 GlobalTransform::from(chunk_t),
-                Transform::from(chunk_t),
+                chunk_t,
                 RaycastMesh::<BlockRaycastSet>::default(),
             ))
             .id();

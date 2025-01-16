@@ -81,10 +81,10 @@ pub enum BlockTransparency {
 
 impl BlockId {
     pub fn has_hitbox(&self) -> bool {
-        match *self {
-            BlockId::Dandelion | BlockId::Poppy | BlockId::TallGrass => false,
-            _ => true,
-        }
+        !matches!(
+            *self,
+            BlockId::Dandelion | BlockId::Poppy | BlockId::TallGrass
+        )
     }
 
     pub fn is_biome_colored() -> bool {

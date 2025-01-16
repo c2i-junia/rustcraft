@@ -110,7 +110,7 @@ pub fn multiplayer_menu_setup(
             root.spawn((
                 Text::new("Server list"),
                 txt_font.clone(),
-                txt_color.clone(),
+                txt_color,
                 Node {
                     border: UiRect::all(Val::Px(1.)),
                     flex_direction: FlexDirection::Column,
@@ -214,11 +214,7 @@ pub fn multiplayer_menu_setup(
                             MultiplayerButtonAction::Add,
                         ))
                         .with_children(|btn| {
-                            btn.spawn((
-                                Text::new("Add server"),
-                                txt_font.clone(),
-                                txt_color.clone(),
-                            ));
+                            btn.spawn((Text::new("Add server"), txt_font.clone(), txt_color));
                         });
 
                     wrapper
@@ -233,11 +229,7 @@ pub fn multiplayer_menu_setup(
                             MenuButtonAction::BackToMainMenu,
                         ))
                         .with_children(|btn| {
-                            btn.spawn((
-                                Text::new("Back to menu"),
-                                txt_font.clone(),
-                                txt_color.clone(),
-                            ));
+                            btn.spawn((Text::new("Back to menu"), txt_font.clone(), txt_color));
                         });
                 });
         });

@@ -18,9 +18,8 @@ pub fn camera_control_system(
     let window = windows.single();
 
     // if the window is not focused, ignore camera movement
-    if !window.focused || *ui_mode == UIMode::Opened {
+    if !window.focused || *ui_mode != UIMode::Closed {
         mouse_motion_events.clear();
-        return;
     }
 
     let mut delta = Vec2::ZERO;

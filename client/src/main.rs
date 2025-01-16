@@ -87,7 +87,7 @@ fn main() {
     };
 
     let game_folder_path = args.game_folder_path.clone();
-    let special_flag = args.special_flag.clone();
+    let special_flag = args.special_flag;
 
     println!(
         "Using {} for textures",
@@ -118,9 +118,7 @@ fn main() {
         assets_folder_path,
     };
 
-    let special_flag = SpecialFlag {
-        special_flag: special_flag.clone(),
-    };
+    let special_flag = SpecialFlag { special_flag };
 
     let mut app = App::new();
     app.add_plugins(

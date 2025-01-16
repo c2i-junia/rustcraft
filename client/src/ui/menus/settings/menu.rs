@@ -67,11 +67,7 @@ pub fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer
                                 action,
                             ))
                             .with_children(|parent| {
-                                parent.spawn((
-                                    Text::new(text),
-                                    button_font.clone(),
-                                    button_color.clone(),
-                                ));
+                                parent.spawn((Text::new(text), button_font.clone(), button_color));
                             });
                     }
                 });
