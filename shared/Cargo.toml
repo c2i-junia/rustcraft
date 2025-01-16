@@ -9,7 +9,7 @@ log = { version = "*", features = ["max_level_debug", "release_max_level_warn"] 
 serde = { version = "1.0.210", features = ["derive"] }
 bevy = "0.15"
 rand = "0.8"
-bevy_renet = { git = "https://github.com/lucaspoffo/renet", package = "bevy_renet" }
+bevy_renet = "1.0.0"
 
 [lints]
 workspace = true
