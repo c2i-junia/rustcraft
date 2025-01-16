@@ -1,4 +1,12 @@
-FROM rust:1.84-slim as builder
+FROM debian:bookworm-slim as builder
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    git \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -10,6 +18,8 @@ RUN apt-get update && apt-get install -y \
     libasound2-dev \
     libudev-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN cargo install just
 
@@ -23,9 +33,9 @@ COPY . .
 RUN just generate-release-folder-server
 
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     libssl-dev \
     libasound2 \
     libudev1 \
