@@ -12,6 +12,8 @@ use shared::world::to_local_pos;
 use shared::CHUNK_SIZE;
 use std::collections::HashMap;
 
+use crate::player::ViewMode;
+
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub enum GlobalMaterial {
     Sun,
@@ -34,6 +36,7 @@ pub struct ClientWorldMap {
     pub total_chunks_count: u64,
 }
 
+#[derive(Debug)]
 pub struct RaycastResponse {
     pub block: BlockData,
     pub position: IVec3,
@@ -95,8 +98,18 @@ impl ClientWorldMap {
     pub fn raycast(
         &self,
         camera_transform: &Transform,
-        max_distance: f32,
+        player_transform: &Transform,
+        view_mode: ViewMode,
     ) -> Option<RaycastResponse> {
+        match view_mode {
+            ViewMode::FirstPerson => self.first_person_raycast(camera_transform),
+            ViewMode::ThirdPerson => self.third_person_raycast(camera_transform, player_transform),
+        }
+    }
+
+    fn first_person_raycast(&self, camera_transform: &Transform) -> Option<RaycastResponse> {
+        let max_distance = 10.0; // Maximum distance for raycasting
+
         let camera_position = camera_transform.translation;
         let camera_rotation = camera_transform.rotation;
 
@@ -105,6 +118,65 @@ impl ClientWorldMap {
             .normalize();
 
         let mut current_position = camera_position;
+
+        let step = 0.1; // Step size for raycasting
+
+        for _ in 0..(max_distance / step) as i32 {
+            current_position += direction * step;
+            let pos_ivec3 = IVec3::new(
+                current_position.x.floor() as i32,
+                current_position.y.floor() as i32,
+                current_position.z.floor() as i32,
+            );
+            if let Some(block) = self.get_block_by_coordinates(&pos_ivec3) {
+                // Now we need to determine which face of the block we hit
+                let face = Vec3::new(
+                    current_position.x - pos_ivec3.x as f32,
+                    current_position.y - pos_ivec3.y as f32,
+                    current_position.z - pos_ivec3.z as f32,
+                );
+
+                let mut block_face = IVec3::ZERO;
+
+                if face.x.abs() > face.y.abs() && face.x.abs() > face.z.abs() {
+                    block_face.x = if face.x > 0.0 { 1 } else { -1 };
+                } else if face.y.abs() > face.x.abs() && face.y.abs() > face.z.abs() {
+                    block_face.y = if face.y > 0.0 { 1 } else { -1 };
+                } else {
+                    block_face.z = if face.z > 0.0 { 1 } else { -1 };
+                }
+
+                return Some(RaycastResponse {
+                    block: *block,
+                    position: pos_ivec3,
+                    face: block_face,
+                });
+            }
+        }
+
+        None
+    }
+
+    fn third_person_raycast(
+        &self,
+        camera_transform: &Transform,
+        player_transform: &Transform,
+    ) -> Option<RaycastResponse> {
+        // the raycast is done from the camera position to the player position
+
+        let max_distance = 10.0; // Maximum distance for raycasting
+
+        let player_position = player_transform.translation;
+
+        let camera_rotation = camera_transform.rotation;
+
+        let camera_direction = camera_rotation
+            .mul_vec3(Vec3::new(0.0, 0.0, -1.0))
+            .normalize();
+
+        let direction = camera_direction;
+
+        let mut current_position = player_position;
 
         let step = 0.1; // Step size for raycasting
 

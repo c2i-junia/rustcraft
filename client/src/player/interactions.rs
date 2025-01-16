@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
 use shared::world::{BlockData, ItemStack, ItemType};
 
-use super::CurrentPlayerMarker;
+use super::{CurrentPlayerMarker, ViewMode};
 
 // Helper function to snap a Vec3 position to the grid
 fn snap_to_grid(position: Vec3) -> Vec3 {
@@ -33,11 +33,12 @@ pub fn handle_block_interactions(
         Res<UIMode>,
         ResMut<Inventory>,
         ResMut<RenetClient>,
+        Res<ViewMode>,
     ),
     mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
 ) {
     let (player_query, mut p_transform, camera_query, hotbar) = queries;
-    let (mut world_map, mouse_input, ui_mode, mut inventory, mut client) = resources;
+    let (mut world_map, mouse_input, ui_mode, mut inventory, mut client, view_mode) = resources;
 
     let player = player_query.single().clone();
 
@@ -46,8 +47,10 @@ pub fn handle_block_interactions(
     }
 
     let camera_transform = camera_query.single();
+    let player_transform = p_transform.single();
+    let view_mode = view_mode.clone();
 
-    let maybe_block = world_map.raycast(camera_transform, INTERACTION_DISTANCE);
+    let maybe_block = world_map.raycast(camera_transform, player_transform, view_mode);
 
     // Handle left-click for breaking blocks
     if mouse_input.just_pressed(MouseButton::Left) {

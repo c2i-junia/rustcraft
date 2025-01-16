@@ -1,5 +1,5 @@
 use crate::constants::INTERACTION_DISTANCE;
-use crate::player::CurrentPlayerMarker;
+use crate::player::{CurrentPlayerMarker, ViewMode};
 use crate::world::ClientWorldMap;
 use bevy::prelude::*;
 
@@ -12,13 +12,16 @@ pub fn block_text_update_system(
     world_map: Res<ClientWorldMap>,
     mut query: Query<(&mut Text, &mut TextColor), With<BlockText>>,
     camera_query: Query<&Transform, With<Camera>>,
+    view_mode_query: Res<ViewMode>,
 ) {
     let mut col = Color::srgb(1.0, 1.0, 1.0);
     let mut txt = "<none>".to_string();
 
     let camera_transform = camera_query.single();
+    let player_transform = player.single();
+    let view_mode = view_mode_query.clone();
 
-    let maybe_block = world_map.raycast(camera_transform, INTERACTION_DISTANCE);
+    let maybe_block = world_map.raycast(camera_transform, player_transform, view_mode);
 
     if let Some(res) = maybe_block {
         let pos = res.position;
