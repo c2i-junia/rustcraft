@@ -23,9 +23,9 @@ COPY . .
 RUN just generate-release-folder-server
 
 
-FROM rust:1.84-slim
+FROM debian:bullseye-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libasound2 \
     libudev1 \
