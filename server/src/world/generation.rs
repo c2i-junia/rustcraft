@@ -32,6 +32,42 @@ fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId
     );
 }
 
+fn generate_big_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId, leaves: BlockId) {
+    // create trunk
+    let trunk_height = 4 + rand::random::<u8>() % 3; // random height between 4 and 7
+    for dy in 0..trunk_height {
+        chunk.map.insert(
+            IVec3::new(x, y + dy as i32, z),
+            BlockData::new(trunk, false, BlockDirection::Front),
+        );
+    }
+
+    // place the leaves
+    let leaf_start_y = y + trunk_height as i32 - 2;
+    for layer in 0..2 {
+        let current_y = leaf_start_y + layer as i32;
+        for offset_x in -2..=2 {
+            for offset_z in -2..=2 {
+                if !(offset_x  == 0 && offset_z == 0) {
+                    if !((offset_x as i32).abs() == 2 && (offset_z as i32).abs() == 2) {
+                        chunk.map.insert(
+                            IVec3::new(x + offset_x, current_y, z + offset_z),
+                            BlockData::new(leaves, false, BlockDirection::Front),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // add one leaf block at the top of the trunk
+    chunk.map.insert(
+        IVec3::new(x, leaf_start_y + 3, z),
+        BlockData::new(leaves, false, BlockDirection::Front),
+    );
+}
+
+
 fn generate_cactus(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, cactus: BlockId) {
     let cactus_height = 2 + rand::random::<u8>() % 2;
     for dy in 0..cactus_height {
@@ -270,14 +306,25 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                         BiomeType::Forest => {
                             // High probability for trees in Forest
                             if tree_chance < 0.06 && !chunk.map.contains_key(&above_surface_pos) {
-                                generate_tree(
-                                    &mut chunk,
-                                    dx,
-                                    dy + 1,
-                                    dz,
-                                    BlockId::OakLog,
-                                    BlockId::OakLeaves,
-                                );
+                                if tree_chance < 0.01 {
+                                    generate_big_tree(
+                                        &mut chunk,
+                                        dx,
+                                        dy + 1,
+                                        dz,
+                                        BlockId::OakLog,
+                                        BlockId::OakLeaves,
+                                    );
+                                } else {
+                                    generate_tree(
+                                        &mut chunk,
+                                        dx,
+                                        dy + 1,
+                                        dz,
+                                        BlockId::OakLog,
+                                        BlockId::OakLeaves,
+                                    );
+                                }
                             }
                         }
                         BiomeType::FlowerPlains | BiomeType::MediumMountain => {
