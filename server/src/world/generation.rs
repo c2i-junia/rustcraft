@@ -62,7 +62,7 @@ fn generate_big_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: Blo
 
     // add one leaf block at the top of the trunk
     chunk.map.insert(
-        IVec3::new(x, leaf_start_y + 3, z),
+        IVec3::new(x, leaf_start_y + 2, z),
         BlockData::new(leaves, false, BlockDirection::Front),
     );
 }
