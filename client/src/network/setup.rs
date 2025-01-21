@@ -18,7 +18,8 @@ use crate::PlayerNameSupplied;
 use bevy_renet::renet::DefaultChannel;
 use bincode::Options;
 use shared::messages::{
-    AuthRegisterRequest, ChatConversation, ClientToServerMessage, PlayerId, PlayerSpawnEvent,
+    AuthRegisterRequest, ChatConversation, ClientToServerMessage, ItemStackUpdateEvent, PlayerId,
+    PlayerSpawnEvent,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -163,6 +164,7 @@ fn poll_reliable_unordered_messages(
     render_distance: Res<RenderDistance>,
     ev_player_spawn: &mut EventWriter<PlayerSpawnEvent>,
     ev_mob_update: &mut EventWriter<MobUpdateEvent>,
+    ev_item_stacks_update: &mut EventWriter<ItemStackUpdateEvent>,
 ) {
     update_world_from_network(
         client,
@@ -174,6 +176,7 @@ fn poll_reliable_unordered_messages(
         render_distance,
         ev_player_spawn,
         ev_mob_update,
+        ev_item_stacks_update,
     );
 }
 
@@ -188,6 +191,7 @@ pub fn poll_network_messages(
     render_distance: Res<RenderDistance>,
     mut ev_player_spawn: EventWriter<PlayerSpawnEvent>,
     mut ev_mob_update: EventWriter<MobUpdateEvent>,
+    mut ev_item_stacks_update: EventWriter<ItemStackUpdateEvent>,
 ) {
     poll_reliable_ordered_messages(&mut client, &mut chat_state);
     poll_reliable_unordered_messages(
@@ -200,6 +204,7 @@ pub fn poll_network_messages(
         render_distance,
         &mut ev_player_spawn,
         &mut ev_mob_update,
+        &mut ev_item_stacks_update,
     );
 }
 

@@ -4,6 +4,7 @@ use crate::world::global_block_to_chunk_pos;
 use crate::world::to_local_pos;
 use crate::world::BlockId;
 use crate::CHUNK_SIZE;
+use bevy::math::bounding::Aabb3d;
 use bevy::math::IVec3;
 use bevy::math::Vec3;
 use bevy::prelude::Resource;
@@ -15,6 +16,15 @@ use super::BlockData;
 use super::ItemId;
 use super::ItemType;
 use super::ServerMob;
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct ServerItemStack {
+    pub id: u128,
+    pub despawned: bool,
+    pub stack: ItemStack,
+    pub pos: Vec3,
+    pub timestamp: u64,
+}
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug)]
 pub struct ServerChunk {
@@ -30,13 +40,14 @@ pub struct ServerWorldMap {
     pub chunks_to_update: Vec<IVec3>,
     pub player_positions: HashMap<PlayerId, Vec3>,
     pub mobs: Vec<ServerMob>,
+    pub item_stacks: Vec<ServerItemStack>,
     pub time: u64,
 }
 
 #[derive(Resource, Clone, Serialize, Deserialize)]
 pub struct WorldSeed(pub u32);
 
-#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy, Default)]
 pub struct ItemStack {
     pub item_id: ItemId,
     pub item_type: ItemType,
@@ -117,8 +128,15 @@ pub fn get_biome_data(biome_type: BiomeType) -> Biome {
     }
 }
 
-impl ServerWorldMap {
-    pub fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
+pub trait WorldMap {
+    fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData>;
+    fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData>;
+    fn set_block(&mut self, position: &IVec3, block: BlockData);
+    fn check_map_collision(&self, hitbox: &Aabb3d) -> bool;
+}
+
+impl WorldMap for ServerWorldMap {
+    fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
         let x: i32 = position.x;
         let y: i32 = position.y;
         let z: i32 = position.z;
@@ -137,7 +155,7 @@ impl ServerWorldMap {
         }
     }
 
-    pub fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData> {
+    fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData> {
         let block: &BlockData = self.get_block_by_coordinates(global_block_pos)?;
         let kind: BlockData = *block;
 
@@ -158,7 +176,7 @@ impl ServerWorldMap {
         Some(kind)
     }
 
-    pub fn set_block(&mut self, position: &IVec3, block: BlockData) {
+    fn set_block(&mut self, position: &IVec3, block: BlockData) {
         let x: i32 = position.x;
         let y: i32 = position.y;
         let z: i32 = position.z;
@@ -172,6 +190,20 @@ impl ServerWorldMap {
 
         chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
         self.chunks_to_update.push(IVec3::new(cx, cy, cz));
+    }
+
+    fn check_map_collision(&self, hitbox: &Aabb3d) -> bool {
+        // Check all blocks inside the hitbox
+        for x in (hitbox.min.x.round() as i32)..(hitbox.max.x.round() as i32) {
+            for y in (hitbox.min.y.round() as i32)..(hitbox.max.y.round() as i32) {
+                for z in (hitbox.min.z.round() as i32)..(hitbox.max.z.round() as i32) {
+                    if self.map.contains_key(&IVec3::new(x, y, z)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 

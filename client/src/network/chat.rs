@@ -1,16 +1,10 @@
-use crate::network::api::{send_network_action, NetworkAction};
 use bevy::prelude::*;
-use bevy_renet::renet::RenetClient;
 use shared::messages::ChatConversation;
 
 #[derive(Resource, Default, Debug)]
 pub struct CachedChatConversation {
     pub last_update: u64,
     pub data: Option<ChatConversation>,
-}
-
-pub fn send_chat_message(client: &mut ResMut<RenetClient>, msg: &str) {
-    send_network_action(client, NetworkAction::ChatMessage(msg.into()));
 }
 
 pub fn update_cached_chat_state(

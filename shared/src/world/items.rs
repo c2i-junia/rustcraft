@@ -94,6 +94,12 @@ pub enum ArmorType {
 pub enum ItemType {
     Generic,
     Block(BlockId),
-    Tool { durability: i16 },
+    Tool { durability: u16 },
     Armor(ArmorType),
+}
+
+impl Default for ItemType {
+    fn default() -> Self {
+        ItemType::Block(BlockId::Dirt)
+    }
 }

@@ -6,7 +6,10 @@ use bevy::prelude::*;
 use bevy_renet::renet::{DefaultChannel, RenetClient};
 use bincode::Options;
 use shared::{
-    messages::{mob::MobUpdateEvent, PlayerSpawnEvent, ServerToClientMessage},
+    messages::{
+        mob::MobUpdateEvent, ClientToServerMessage, ItemStackUpdateEvent, PlayerSpawnEvent,
+        ServerToClientMessage,
+    },
     world::{block_to_chunk_coord, chunk_in_radius},
 };
 
@@ -16,7 +19,7 @@ use crate::world::time::ClientTime;
 use crate::world::RenderDistance;
 use crate::world::WorldRenderRequestUpdateEvent;
 
-use super::api::send_network_action;
+use super::SendGameMessageExtension;
 
 pub fn update_world_from_network(
     client: &mut ResMut<RenetClient>,
@@ -28,6 +31,7 @@ pub fn update_world_from_network(
     render_distance: Res<RenderDistance>,
     ev_player_spawn: &mut EventWriter<PlayerSpawnEvent>,
     ev_mob_update: &mut EventWriter<MobUpdateEvent>,
+    ev_item_stacks_update: &mut EventWriter<ItemStackUpdateEvent>,
 ) {
     let (player_pos, current_player) = players.get(current_player_entity.single()).unwrap();
     let current_player_id = current_player.id;
@@ -94,6 +98,8 @@ pub fn update_world_from_network(
                     ev_mob_update.send(MobUpdateEvent { mob });
                 }
 
+                ev_item_stacks_update.send_batch(world_update.item_stacks);
+
                 // get current time
                 client_time.0 = world_update.time;
             }
@@ -116,12 +122,9 @@ pub fn request_world_update(
     render_distance: &RenderDistance,
     player_chunk_pos: IVec3,
 ) {
-    send_network_action(
-        client,
-        super::api::NetworkAction::WorldUpdateRequest {
-            requested_chunks,
-            player_chunk_pos,
-            render_distance: render_distance.distance,
-        },
-    );
+    client.send_game_message(ClientToServerMessage::WorldUpdateRequest {
+        player_chunk_position: player_chunk_pos,
+        requested_chunks,
+        render_distance: render_distance.distance,
+    });
 }

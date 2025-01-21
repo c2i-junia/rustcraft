@@ -159,26 +159,23 @@ fn server_update_system(
                     });
                     ev_chat.send(ChatMessageEvent);
                 }
-                ClientToServerMessage::Exit(order) => {
-                    debug!("Received shutdown order... {:?}", order);
+                ClientToServerMessage::Exit => {
+                    debug!("Received shutdown order...");
                     // TODO: add permission checks
                     if config.is_solo {
                         info!("Server is going down...");
                         ev_app_exit.send(AppExit::Success);
                     } else {
                         server.disconnect(client_id);
-                        lobby.players.remove(&(order.session_token as u64));
+                        lobby.players.remove(&client_id);
                         info!("Player {:?} disconnected", client_id);
                     }
                 }
                 ClientToServerMessage::PlayerInputs(_inputs) => {
                     // debug!("Not implemented yet: {:?}", inputs);
                 }
-                ClientToServerMessage::SaveWorldRequest(save_req) => {
-                    debug!(
-                        "Save request received from client with session token: {}",
-                        save_req.session_token
-                    );
+                ClientToServerMessage::SaveWorldRequest => {
+                    debug!("Save request received from client with session token");
 
                     ev_save_request.send(SaveRequestEvent);
                 }

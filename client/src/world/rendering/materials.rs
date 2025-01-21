@@ -197,6 +197,16 @@ pub fn create_all_atlases(
             None,
             Some(ImageSampler::nearest()),
         ) {
+            material_resource.global_materials.insert(
+                GlobalMaterial::Items,
+                materials.add(StandardMaterial {
+                    base_color_texture: Some(items.texture.clone_weak()),
+                    perceptual_roughness: BASE_ROUGHNESS,
+                    reflectance: BASE_SPECULAR_HIGHLIGHT,
+                    alpha_mode: AlphaMode::Blend,
+                    ..default()
+                }),
+            );
             material_resource.items = Some(items);
         } else {
             loading.textures_loaded = false;

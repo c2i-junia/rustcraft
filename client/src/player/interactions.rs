@@ -1,18 +1,18 @@
 use crate::constants::{CUBE_SIZE, INTERACTION_DISTANCE};
 use crate::mob::{MobMarker, TargetedMob, TargetedMobData};
-use crate::network::api::send_network_action;
-use crate::network::api::NetworkAction;
+use crate::network::SendGameMessageExtension;
 use crate::player::inventory::*;
 use crate::player::spawn::Player;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
 use crate::world::{raycast, ClientWorldMap};
 use crate::world::{FaceDirectionExt, WorldRenderRequestUpdateEvent};
-use bevy::color::palettes::css;
+use bevy::color::palettes::css::{self, WHITE};
 use bevy::math::NormedVectorSpace;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
-use shared::world::{BlockData, ItemStack, ItemType};
+use shared::messages::ClientToServerMessage;
+use shared::world::{BlockData, ItemStack, ItemType, WorldMap};
 
 use super::{CurrentPlayerMarker, ViewMode};
 
@@ -37,6 +37,7 @@ pub fn handle_block_interactions(
     mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
     mut ray_cast: MeshRayCast,
     mut commands: Commands,
+    mut gizmos: Gizmos,
 ) {
     let (player_query, mut p_transform, camera_query, hotbar, mob_query) = queries;
     let (
@@ -80,14 +81,7 @@ pub fn handle_block_interactions(
     }
 
     if mouse_input.just_pressed(MouseButton::Left) && targeted_mob.target.is_some() {
-        // Attack the targeted
-
-        // send_network_action(
-        //     &mut client,
-        //     NetworkAction::MobInteraction {
-        //         mob_id: targeted_mob.id.unwrap(),
-        //     },
-        // );
+        // TODO: Attack the targeted
 
         let target = targeted_mob.target.as_ref().unwrap();
 
@@ -99,6 +93,14 @@ pub fn handle_block_interactions(
     }
 
     if let Some(res) = maybe_block {
+        // Draw gizmos for the bounding box
+        let center = (res.bbox.max + res.bbox.min) / 2.0;
+        let hsize = res.bbox.max - res.bbox.min;
+        gizmos.cuboid(
+            Transform::from_translation(center.into()).with_scale(hsize.into()),
+            WHITE,
+        );
+
         // Handle left-click for breaking blocks
         if mouse_input.pressed(MouseButton::Left) {
             let pos = res.position;
@@ -121,14 +123,10 @@ pub fn handle_block_interactions(
                             });
                         }
 
-                        // Send the block to the server to delete it
-                        send_network_action(
-                            &mut client,
-                            NetworkAction::BlockInteraction {
-                                position: pos,
-                                block_type: None, // None signify suppression
-                            },
-                        );
+                        client.send_game_message(ClientToServerMessage::BlockInteraction {
+                            position: pos,
+                            block_type: None,
+                        });
                     }
                 }
             }
@@ -183,14 +181,10 @@ pub fn handle_block_interactions(
 
                         ev_render.send(WorldRenderRequestUpdateEvent::BlockToReload(block_pos));
 
-                        // Send to server the bloc to add
-                        send_network_action(
-                            &mut client,
-                            NetworkAction::BlockInteraction {
-                                position: block_pos,
-                                block_type: Some(block), // Some signify adding
-                            },
-                        );
+                        client.send_game_message(ClientToServerMessage::BlockInteraction {
+                            position: block_pos,
+                            block_type: Some(block),
+                        });
                     }
                 }
             }

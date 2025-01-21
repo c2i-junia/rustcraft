@@ -1,6 +1,7 @@
 use crate::input::keyboard::is_action_just_pressed;
 use crate::input::keyboard::is_action_just_released;
-use crate::network::{send_chat_message, CachedChatConversation};
+use crate::network::CachedChatConversation;
+use crate::network::SendGameMessageExtension;
 use crate::ui::hud::UiDialog;
 use crate::KeyMap;
 use bevy::prelude::*;
@@ -237,7 +238,11 @@ pub fn render_chat(
 
     for message in event.read() {
         if entity_check == message.entity {
-            send_chat_message(&mut client, &message.value);
+            client.send_game_message(shared::messages::ClientToServerMessage::ChatMessage(
+                shared::messages::ChatMessageRequest {
+                    content: message.value.clone(),
+                },
+            ));
         }
     }
 }

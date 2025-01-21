@@ -1,8 +1,8 @@
 use crate::player::ViewMode;
 
 use super::ClientWorldMap;
-use bevy::prelude::*;
-use shared::world::BlockData;
+use bevy::{math::bounding::Aabb3d, prelude::*};
+use shared::world::{BlockData, WorldMap};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FaceDirection {
@@ -36,6 +36,7 @@ pub struct RaycastResponse {
     pub block: BlockData,
     pub position: IVec3,
     pub face: FaceDirection,
+    pub bbox: Aabb3d,
 }
 
 pub fn raycast(
@@ -97,26 +98,35 @@ fn raycast_from_source_position_and_direction(
 
     let mut current_position = source_position;
 
-    let step = 0.1; // Step size for raycasting
+    let step = 0.05; // Step size for raycasting
 
     let mut previous_position = current_position;
 
     for _ in 0..(max_distance / step) as i32 {
         current_position += direction * step;
         let pos_ivec3 = IVec3::new(
-            current_position.x.floor() as i32,
-            current_position.y.floor() as i32,
-            current_position.z.floor() as i32,
+            current_position.x.round() as i32,
+            current_position.y.round() as i32,
+            current_position.z.round() as i32,
         );
         if let Some(block) = world_map.get_block_by_coordinates(&pos_ivec3) {
-            // Now we need to determine which face of the block we hit
+            let bbox = block.id.get_interaction_box(&pos_ivec3);
+            let pos = current_position.into();
 
+            // Check if our hit is outside of the interaction box
+            if bbox.closest_point(pos) != pos {
+                // If it is, ignore the hit
+                continue;
+            }
+
+            // Now we need to determine which face of the block we hit
             let face = determine_hit_face(previous_position, current_position);
 
             return Some(RaycastResponse {
                 block: *block,
                 position: pos_ivec3,
                 face,
+                bbox,
             });
         }
         previous_position = current_position;

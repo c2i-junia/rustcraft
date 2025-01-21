@@ -1,4 +1,3 @@
-pub mod api;
 mod chat;
 mod cleanup;
 pub mod extensions;

@@ -7,7 +7,7 @@ use bevy::{
     prelude::*,
     render::mesh::{Indices, PrimitiveTopology},
 };
-use shared::world::{to_global_pos, BlockDirection, BlockId, BlockTransparency};
+use shared::world::{to_global_pos, BlockDirection, BlockId, BlockTransparency, WorldMap};
 
 use super::voxel::{Face, FaceDirection, VoxelShape};
 

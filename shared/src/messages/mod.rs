@@ -2,7 +2,6 @@ mod auth;
 mod chat;
 pub mod mob;
 pub mod player;
-mod system;
 mod world;
 
 use crate::world::BlockData;
@@ -12,7 +11,6 @@ pub use chat::*;
 use mob::MobUpdateEvent;
 pub use player::*;
 use serde::{Deserialize, Serialize};
-pub use system::*;
 pub use world::*;
 
 pub type PlayerId = u64;
@@ -21,14 +19,14 @@ pub type PlayerId = u64;
 pub enum ClientToServerMessage {
     AuthRegisterRequest(AuthRegisterRequest),
     ChatMessage(ChatMessageRequest),
-    Exit(ExitOrder),
+    Exit,
     PlayerInputs(PlayerInputs),
     WorldUpdateRequest {
         player_chunk_position: IVec3,
         render_distance: u32,
         requested_chunks: Vec<IVec3>,
     },
-    SaveWorldRequest(SaveWorldRequest),
+    SaveWorldRequest,
     BlockInteraction {
         position: IVec3,
         block_type: Option<BlockData>,

@@ -1,5 +1,6 @@
 mod camera;
 mod constants;
+mod entities;
 mod game;
 mod input;
 mod mob;

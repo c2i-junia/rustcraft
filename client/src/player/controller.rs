@@ -11,16 +11,16 @@ use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
 use crate::KeyMap;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
-use shared::world::{block_to_chunk_coord, chunk_in_radius};
+use shared::world::{block_to_chunk_coord, chunk_in_radius, WorldMap};
 
 use super::CurrentPlayerMarker;
 use crate::world::FirstChunkReceived;
 
 fn is_block_at_position(position: Vec3, world_map: &ClientWorldMap) -> bool {
     if let Some(block) = world_map.get_block_by_coordinates(&IVec3::new(
-        position.x.floor() as i32,
-        position.y.floor() as i32,
-        position.z.floor() as i32,
+        position.x.round() as i32,
+        position.y.round() as i32,
+        position.z.round() as i32,
     )) {
         block.id.has_hitbox()
     } else {

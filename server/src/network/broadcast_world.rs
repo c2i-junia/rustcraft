@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
 use bevy_renet::renet::{ClientId, DefaultChannel, RenetServer};
 use bincode::Options;
-use shared::messages::{ServerToClientMessage, WorldUpdate};
+use shared::messages::{ItemStackUpdateEvent, ServerToClientMessage, WorldUpdate};
 use shared::world::{chunk_in_radius, ServerChunk, ServerWorldMap};
 use std::collections::HashMap;
 
@@ -71,10 +71,22 @@ pub fn send_world_update(
                 },
                 time: world_map.time,
                 mobs: world_map.mobs.clone(),
+                item_stacks: world_map
+                    .item_stacks
+                    .iter()
+                    .map(|stack| ItemStackUpdateEvent {
+                        id: stack.id,
+                        data: if stack.despawned {
+                            None
+                        } else {
+                            Some((stack.stack, stack.pos))
+                        },
+                    })
+                    .collect(),
             }))
             .unwrap();
 
-        debug!(
+        info!(
             "Broadcasting world state, number of chunks = {}, payload size: {}",
             chunks_to_update_count,
             format_bytes(payload.len() as u64)
@@ -87,14 +99,13 @@ pub fn broadcast_world_state(
     mut server: ResMut<RenetServer>,
     ticker: Res<ServerTime>,
     mut world_map: ResMut<ServerWorldMap>,
-    time: Res<ServerTime>,
 ) {
     if ticker.0 % (2 * TICKS_PER_SECOND) != 0 {
         return;
     }
 
     // Update time value in the "ServerWorldMap" ressource
-    world_map.time = time.0;
+    world_map.time = ticker.0;
 
     trace!("Broadcast world update");
     let payload = bincode::options()
@@ -122,5 +133,17 @@ fn to_network(world_map: &mut ServerWorldMap, tick: u64) -> WorldUpdate {
         },
         time: world_map.time,
         mobs: world_map.mobs.clone(),
+        item_stacks: world_map
+            .item_stacks
+            .iter()
+            .map(|stack| ItemStackUpdateEvent {
+                id: stack.id,
+                data: if stack.despawned {
+                    None
+                } else {
+                    Some((stack.stack, stack.pos))
+                },
+            })
+            .collect(),
     }
 }

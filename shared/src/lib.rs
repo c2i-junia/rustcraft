@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use bevy::prelude::Resource;
+use bevy::{math::Vec3, prelude::Resource};
 use bevy_renet::renet::{ChannelConfig, ConnectionConfig, SendType};
 
 pub mod messages;
@@ -25,6 +25,11 @@ pub struct GameServerConfig {
 
 pub const PROTOCOL_ID: u64 = 0;
 pub const CHUNK_SIZE: i32 = 16;
+pub const HALF_BLOCK: Vec3 = Vec3 {
+    x: 0.5,
+    y: 0.5,
+    z: 0.5,
+};
 
 fn get_customized_default_channels() -> Vec<ChannelConfig> {
     let memory = 128 * 1024 * 1024;

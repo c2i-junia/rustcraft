@@ -10,7 +10,7 @@ use bevy::{
 };
 use shared::{
     world::{global_block_to_chunk_pos, SIX_OFFSETS},
-    CHUNK_SIZE,
+    CHUNK_SIZE, HALF_BLOCK,
 };
 
 use crate::{
@@ -45,10 +45,11 @@ fn update_chunk(
     }
 
     if chunk.entity.is_none() {
+        // Offset the chunk's position by half a block so that blocks are centered
         let chunk_t = Transform::from_xyz(
-            (chunk_pos.x * CHUNK_SIZE) as f32,
-            (chunk_pos.y * CHUNK_SIZE) as f32,
-            (chunk_pos.z * CHUNK_SIZE) as f32,
+            (chunk_pos.x * CHUNK_SIZE) as f32 - HALF_BLOCK.x,
+            (chunk_pos.y * CHUNK_SIZE) as f32 - HALF_BLOCK.y,
+            (chunk_pos.z * CHUNK_SIZE) as f32 - HALF_BLOCK.z,
         );
 
         let new_entity = commands

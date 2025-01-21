@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
+use crate::HALF_BLOCK;
+
 use super::{GameElementId, ItemId};
+use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -168,6 +171,16 @@ impl BlockId {
             Self::Dandelion | Self::Poppy | Self::TallGrass => BlockTransparency::Decoration,
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves => BlockTransparency::Transparent,
             _ => BlockTransparency::Solid,
+        }
+    }
+
+    pub fn get_interaction_box(&self, position: &IVec3) -> Aabb3d {
+        let pos = Vec3::new(position.x as f32, position.y as f32, position.z as f32);
+        match *self {
+            Self::Dandelion | Self::Poppy | Self::TallGrass => {
+                Aabb3d::new(pos - Vec3::new(0f32, 0.25, 0f32), HALF_BLOCK / 2.0)
+            }
+            _ => Aabb3d::new(pos, HALF_BLOCK),
         }
     }
 }

@@ -1,5 +1,7 @@
+use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use shared::world::BlockData;
+use shared::world::WorldMap;
 use std::collections::HashSet;
 use std::hash::Hash;
 
@@ -17,6 +19,7 @@ pub enum GlobalMaterial {
     Sun,
     Moon,
     Blocks,
+    Items,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Debug)]
@@ -34,8 +37,8 @@ pub struct ClientWorldMap {
     pub total_chunks_count: u64,
 }
 
-impl ClientWorldMap {
-    pub fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
+impl WorldMap for ClientWorldMap {
+    fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
         let x: i32 = position.x;
         let y: i32 = position.y;
         let z: i32 = position.z;
@@ -54,6 +57,54 @@ impl ClientWorldMap {
         }
     }
 
+    fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData> {
+        let block: &BlockData = self.get_block_by_coordinates(global_block_pos)?;
+        let kind: BlockData = *block;
+
+        let chunk_pos: IVec3 = global_block_to_chunk_pos(global_block_pos);
+
+        let chunk_map: &mut ClientChunk =
+            self.map
+                .get_mut(&IVec3::new(chunk_pos.x, chunk_pos.y, chunk_pos.z))?;
+
+        let local_block_pos: IVec3 = to_local_pos(global_block_pos);
+
+        chunk_map.map.remove(&local_block_pos);
+
+        Some(kind)
+    }
+
+    fn set_block(&mut self, position: &IVec3, block: BlockData) {
+        let x: i32 = position.x;
+        let y: i32 = position.y;
+        let z: i32 = position.z;
+        let cx: i32 = block_to_chunk_coord(x);
+        let cy: i32 = block_to_chunk_coord(y);
+        let cz: i32 = block_to_chunk_coord(z);
+        let chunk: &mut ClientChunk = self.map.entry(IVec3::new(cx, cy, cz)).or_default();
+        let sub_x: i32 = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        let sub_y: i32 = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+        let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+        chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
+    }
+
+    fn check_map_collision(&self, hitbox: &Aabb3d) -> bool {
+        // Check all blocks inside the hitbox
+        for x in (hitbox.min.x.round() as i32)..(hitbox.max.x.round() as i32) {
+            for y in (hitbox.min.y.round() as i32)..(hitbox.max.y.round() as i32) {
+                for z in (hitbox.min.z.round() as i32)..(hitbox.max.z.round() as i32) {
+                    if self.map.contains_key(&IVec3::new(x, y, z)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+impl ClientWorldMap {
     pub fn try_to_break_block(&mut self, position: &IVec3) -> Option<(BlockData, bool)> {
         let block: &BlockData = self.get_block_by_coordinates(position)?;
         let kind: BlockData = *block;
@@ -81,38 +132,6 @@ impl ClientWorldMap {
         }
 
         Some((kind, true))
-    }
-
-    // pub fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData> {
-    //     let block: &BlockData = self.get_block_by_coordinates(global_block_pos)?;
-    //     let kind: BlockData = *block;
-
-    //     let chunk_pos: IVec3 = global_block_to_chunk_pos(global_block_pos);
-
-    //     let chunk_map: &mut ClientChunk =
-    //         self.map
-    //             .get_mut(&IVec3::new(chunk_pos.x, chunk_pos.y, chunk_pos.z))?;
-
-    //     let local_block_pos: IVec3 = to_local_pos(global_block_pos);
-
-    //     chunk_map.map.remove(&local_block_pos);
-
-    //     Some(kind)
-    // }
-
-    pub fn set_block(&mut self, position: &IVec3, block: BlockData) {
-        let x: i32 = position.x;
-        let y: i32 = position.y;
-        let z: i32 = position.z;
-        let cx: i32 = block_to_chunk_coord(x);
-        let cy: i32 = block_to_chunk_coord(y);
-        let cz: i32 = block_to_chunk_coord(z);
-        let chunk: &mut ClientChunk = self.map.entry(IVec3::new(cx, cy, cz)).or_default();
-        let sub_x: i32 = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-        let sub_y: i32 = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-        let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-
-        chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
     }
 }
 
