@@ -1,4 +1,5 @@
 use std::f32::consts::PI;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::{collections::HashMap, time::Instant};
 
 use crate::world::{ClientChunk, ClientWorldMap};
@@ -25,21 +26,42 @@ impl UvCoords {
     }
 }
 
+#[derive(Default)]
+pub struct MeshCreator {
+    pub vertices: Vec<[f32; 3]>,
+    pub indices: Vec<u32>,
+    pub normals: Vec<[f32; 3]>,
+    pub uvs: Vec<[f32; 2]>,
+    pub colors: Vec<[f32; 4]>,
+    pub indices_offset: u32,
+}
+
+fn build_mesh(creator: &MeshCreator) -> Mesh {
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, creator.vertices.clone());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, creator.normals.clone());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, creator.uvs.clone());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, creator.colors.clone());
+    mesh.insert_indices(Indices::U32(creator.indices.clone()));
+    mesh
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ChunkMeshResponse {
+    pub solid_mesh: Option<Mesh>,
+    pub liquid_mesh: Option<Mesh>,
+}
+
 pub(crate) fn generate_chunk_mesh(
     world_map: &ClientWorldMap,
     chunk: &ClientChunk,
     chunk_pos: &IVec3,
     uv_map: &HashMap<String, UvCoords>,
-) -> Mesh {
+) -> ChunkMeshResponse {
     let start = Instant::now();
 
-    let mut vertices: Vec<[f32; 3]> = Vec::new();
-    let mut indices: Vec<u32> = Vec::new();
-    let mut normals = Vec::new();
-    let mut uvs = Vec::new();
-    let mut colors = Vec::new();
-
-    let mut indices_offset = 0;
+    let mut solid_mesh_creator = MeshCreator::default();
+    let mut liquid_mesh_creator = MeshCreator::default();
 
     for (local_block_pos, block) in chunk.map.iter() {
         let x = local_block_pos.x as f32;
@@ -59,7 +81,13 @@ pub(crate) fn generate_chunk_mesh(
         let mut local_uvs: Vec<[f32; 2]> = vec![];
         let mut local_colors: Vec<[f32; 4]> = vec![];
 
-        let voxel = VoxelShape::create_from_block(block);
+        let indices_offset = if visibility == BlockTransparency::Liquid {
+            &mut liquid_mesh_creator.indices_offset
+        } else {
+            &mut solid_mesh_creator.indices_offset
+        };
+
+        let voxel: VoxelShape = VoxelShape::create_from_block(block);
 
         for face in voxel.faces.iter() {
             let uv_coords: &UvCoords;
@@ -72,6 +100,11 @@ pub(crate) fn generate_chunk_mesh(
 
             let color_multiplier = 1.0 - block.breaking_progress as f32 / 60.0;
 
+            let alpha = match visibility {
+                BlockTransparency::Liquid => 0.5,
+                _ => 1.0,
+            };
+
             if should_render_face(world_map, global_block_pos, &face.direction, &visibility) {
                 render_face(
                     &mut local_vertices,
@@ -79,10 +112,11 @@ pub(crate) fn generate_chunk_mesh(
                     &mut local_normals,
                     &mut local_uvs,
                     &mut local_colors,
-                    &mut indices_offset,
+                    indices_offset,
                     face,
                     uv_coords,
                     color_multiplier,
+                    alpha,
                 );
             }
         }
@@ -99,26 +133,60 @@ pub(crate) fn generate_chunk_mesh(
             })
             .collect();
 
-        vertices.extend(local_vertices);
-        indices.extend(local_indices);
-        normals.extend(local_normals);
-        uvs.extend(local_uvs);
-        colors.extend(local_colors);
+        if visibility == BlockTransparency::Liquid {
+            liquid_mesh_creator.vertices.extend(local_vertices);
+            liquid_mesh_creator.indices.extend(local_indices);
+            liquid_mesh_creator.normals.extend(local_normals);
+            liquid_mesh_creator.uvs.extend(local_uvs);
+            liquid_mesh_creator.colors.extend(local_colors);
+        } else {
+            solid_mesh_creator.vertices.extend(local_vertices);
+            solid_mesh_creator.indices.extend(local_indices);
+            solid_mesh_creator.normals.extend(local_normals);
+            solid_mesh_creator.uvs.extend(local_uvs);
+            solid_mesh_creator.colors.extend(local_colors);
+        }
     }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vertices.to_vec());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-    mesh.insert_indices(Indices::U32(indices));
+    let mut solid_mesh = build_mesh(&solid_mesh_creator);
+    let mut liquid_mesh = build_mesh(&liquid_mesh_creator);
 
     trace!("Render time : {:?}", Instant::now() - start);
 
-    if let Err(e) = mesh.generate_tangents() {
-        warn!("Error while generating tangents for the mesh : {:?}", e);
+    let should_return_solid = solid_mesh_creator.vertices.len() > 0;
+    if should_return_solid {
+        debug!("Attempting to generate tangents for the mesh SOLID",);
+        if let Err(e) = catch_unwind(AssertUnwindSafe(|| solid_mesh.generate_tangents())) {
+            warn!(
+                "Error while generating tangents for the mesh SOLID : {:?} | {:?}",
+                e, solid_mesh
+            );
+        }
+    };
+
+    let should_return_liquid = liquid_mesh_creator.vertices.len() > 0;
+    if should_return_liquid {
+        debug!("Attempting to generate tangents for the mesh LIQUID",);
+        if let Err(e) = catch_unwind(AssertUnwindSafe(|| liquid_mesh.generate_tangents())) {
+            warn!(
+                "Error while generating tangents for the mesh LIQUID : {:?} | {:?}",
+                e, liquid_mesh
+            );
+        }
+    };
+
+    ChunkMeshResponse {
+        solid_mesh: if should_return_solid {
+            Some(solid_mesh)
+        } else {
+            None
+        },
+        liquid_mesh: if should_return_liquid {
+            Some(liquid_mesh)
+        } else {
+            None
+        },
     }
-    mesh
 }
 
 pub(crate) fn is_block_surrounded(
@@ -180,6 +248,7 @@ fn render_face(
     face: &Face,
     uv_coords: &UvCoords,
     color_multiplier: f32,
+    alpha: f32,
 ) {
     local_vertices.extend(face.vertices.iter());
 
@@ -195,7 +264,7 @@ fn render_face(
             color[0] * color_multiplier,
             color[1] * color_multiplier,
             color[2] * color_multiplier,
-            color[3],
+            alpha,
         ]);
     }
 

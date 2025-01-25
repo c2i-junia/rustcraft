@@ -87,6 +87,7 @@ pub fn game_plugin(app: &mut App) {
         .init_resource::<CurrentPlayerProfile>()
         .init_resource::<ParticleAssets>()
         .init_resource::<FoxFeetTargets>()
+        .init_resource::<Animations>()
         .init_resource::<TargetedMob>()
         .insert_resource(Time::<Fixed>::from_hz(20.0))
         .add_event::<WorldRenderRequestUpdateEvent>()

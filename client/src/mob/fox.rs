@@ -9,7 +9,7 @@ use super::{MobMarker, MobRoot, TargetedMob};
 
 const FOX_PATH: &str = "models/animated/Fox.glb";
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct Animations {
     animations: Vec<AnimationNodeIndex>,
     graph: Handle<AnimationGraph>,

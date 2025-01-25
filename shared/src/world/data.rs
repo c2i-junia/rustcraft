@@ -1,5 +1,4 @@
 use crate::messages::PlayerId;
-use crate::players::Inventory;
 use crate::world::block_to_chunk_coord;
 use crate::world::global_block_to_chunk_pos;
 use crate::world::to_local_pos;

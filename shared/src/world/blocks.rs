@@ -41,6 +41,7 @@ pub enum BlockId {
     Snow,
     SpruceLeaves,
     SpruceLog,
+    Water,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,7 +89,7 @@ impl BlockId {
     pub fn has_hitbox(&self) -> bool {
         !matches!(
             *self,
-            BlockId::Dandelion | BlockId::Poppy | BlockId::TallGrass
+            BlockId::Dandelion | BlockId::Poppy | BlockId::TallGrass | BlockId::Water
         )
     }
 
@@ -155,6 +156,7 @@ impl BlockId {
             BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
+            BlockId::Water => vec![],
             _ => vec![],
         }
     }
@@ -170,6 +172,7 @@ impl BlockId {
         match *self {
             Self::Dandelion | Self::Poppy | Self::TallGrass => BlockTransparency::Decoration,
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves => BlockTransparency::Transparent,
+            Self::Water => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
         }
     }

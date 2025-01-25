@@ -227,7 +227,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
             for dy in 0..CHUNK_SIZE {
                 let y = CHUNK_SIZE * cy + dy;
 
-                if y > terrain_height {
+                if y > terrain_height && y > 70 {
                     break;
                 }
 
@@ -239,6 +239,8 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                     biome.sub_surface_block
                 } else if y == terrain_height {
                     biome.surface_block
+                } else if y <= 70 {
+                    BlockId::Water
                 } else {
                     panic!();
                 };
@@ -251,7 +253,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                 );
 
                 // Add flora in biomes
-                if y == terrain_height && terrain_height >= 1 {
+                if y == terrain_height && terrain_height > 70 {
                     let above_surface_pos = IVec3::new(dx, terrain_height + 1, dz);
 
                     // Add flowers
