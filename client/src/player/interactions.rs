@@ -62,22 +62,22 @@ pub fn handle_block_interactions(
 
     let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
 
-    // bounce_ray(ray, &mut ray_cast);
+    bounce_ray(ray, &mut ray_cast);
 
-    // if let Some((entity, _)) = ray_cast.cast_ray(ray, &RayCastSettings::default()).first() {
-    //     let mob = mob_query.get(*entity);
-    //     if let Ok(mob) = mob {
-    //         targeted_mob.target = Some(TargetedMobData {
-    //             entity: *entity,
-    //             id: mob.id,
-    //             name: mob.name.clone(),
-    //         });
-    //     } else {
-    //         targeted_mob.target = None;
-    //     }
-    // } else {
-    //     targeted_mob.target = None;
-    // }
+    if let Some((entity, _)) = ray_cast.cast_ray(ray, &RayCastSettings::default()).first() {
+        let mob = mob_query.get(*entity);
+        if let Ok(mob) = mob {
+            targeted_mob.target = Some(TargetedMobData {
+                entity: *entity,
+                id: mob.id,
+                name: mob.name.clone(),
+            });
+        } else {
+            targeted_mob.target = None;
+        }
+    } else {
+        targeted_mob.target = None;
+    }
 
     if mouse_input.just_pressed(MouseButton::Left) && targeted_mob.target.is_some() {
         // TODO: Attack the targeted
@@ -195,7 +195,6 @@ const MAX_BOUNCES: usize = 1;
 
 // Bounces a ray off of surfaces `MAX_BOUNCES` times.
 fn bounce_ray(mut ray: Ray3d, ray_cast: &mut MeshRayCast) {
-    return;
     let color = Color::from(css::GREEN);
 
     let mut intersections = Vec::with_capacity(MAX_BOUNCES + 1);

@@ -14,6 +14,12 @@ pub struct Inventory {
     pub inner: HashMap<u32, ItemStack>,
 }
 
+impl Default for Inventory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Inventory {
     pub fn new() -> Self {
         Self {
