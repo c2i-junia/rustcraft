@@ -153,7 +153,7 @@ pub(crate) fn generate_chunk_mesh(
 
     trace!("Render time : {:?}", Instant::now() - start);
 
-    let should_return_solid = solid_mesh_creator.vertices.len() > 0;
+    let should_return_solid = !solid_mesh_creator.vertices.is_empty();
     if should_return_solid {
         debug!("Attempting to generate tangents for the mesh SOLID",);
         if let Err(e) = catch_unwind(AssertUnwindSafe(|| solid_mesh.generate_tangents())) {
@@ -164,7 +164,7 @@ pub(crate) fn generate_chunk_mesh(
         }
     };
 
-    let should_return_liquid = liquid_mesh_creator.vertices.len() > 0;
+    let should_return_liquid = !liquid_mesh_creator.vertices.is_empty();
     if should_return_liquid {
         debug!("Attempting to generate tangents for the mesh LIQUID",);
         if let Err(e) = catch_unwind(AssertUnwindSafe(|| liquid_mesh.generate_tangents())) {
