@@ -4,11 +4,13 @@ use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
 use bevy_renet::renet::RenetServer;
+use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{ItemStackUpdateEvent, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{
     world_position_to_chunk_position, ServerChunk, ServerChunkWorldMap, ServerWorldMap,
 };
+use shared::CHUNK_SIZE;
 use std::collections::HashMap;
 
 pub const BROADCAST_RENDER_DISTANCE: i32 = 1;
@@ -29,36 +31,43 @@ pub fn broadcast_world_state(
     let players = &mut world_map.players;
     let chunks = &mut world_map.chunks;
 
-    for c in get_all_active_chunks(players, BROADCAST_RENDER_DISTANCE) {
-        let chunk = chunks.map.get(&c);
+    for client in server.clients_id().iter_mut() {
+        let player = players.get_mut(client);
+        let player = match player {
+            Some(p) => p.clone(),
+            None => continue,
+        };
 
-        if chunk.is_none() {
+        for (id, mob) in mobs.iter() {
+            if mob.position.distance(player.position)
+                < (BROADCAST_RENDER_DISTANCE * CHUNK_SIZE) as f32
+            {
+                server.send_game_message(
+                    *client,
+                    ServerToClientMessage::MobUpdate(MobUpdateEvent {
+                        id: *id,
+                        mob: mob.clone(),
+                    }),
+                );
+            }
+        }
+
+        let msg = WorldUpdate {
+            tick: time.0,
+            time: ts,
+            new_map: get_world_map_chunks_to_send(chunks, players, &player),
+            mobs: mobs.clone(),
+            item_stacks: get_items_stacks(),
+            player_events: vec![],
+        };
+
+        if msg.new_map.is_empty() {
             continue;
         }
 
-        for client in server.clients_id().iter_mut() {
-            let player = players.get_mut(client);
-            let player = match player {
-                Some(p) => p.clone(),
-                None => continue,
-            };
-            let msg = WorldUpdate {
-                tick: time.0,
-                time: ts,
-                new_map: get_world_map_chunks_to_send(chunks, players, &player),
-                mobs: mobs.clone(),
-                item_stacks: get_items_stacks(),
-                player_events: vec![],
-            };
+        let message = ServerToClientMessage::WorldUpdate(msg);
 
-            if msg.new_map.is_empty() {
-                continue;
-            }
-
-            let message = ServerToClientMessage::WorldUpdate(msg);
-
-            server.send_game_message(*client, message);
-        }
+        server.send_game_message(*client, message);
     }
 }
 

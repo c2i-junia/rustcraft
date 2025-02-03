@@ -1,5 +1,7 @@
+pub mod behavior;
+
 use bevy::prelude::*;
-use shared::world::{ServerMob, ServerWorldMap};
+use shared::world::{MobAction, MobKind, MobTarget, ServerMob, ServerWorldMap};
 use ulid::Ulid;
 
 use crate::init::ServerTime;
@@ -9,7 +11,7 @@ fn create_new_mob_id() -> u128 {
 }
 
 pub fn manage_mob_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
-    if time.0 == 300 {
+    if time.0 == 100 {
         debug!("Should spawn mob");
 
         let id = create_new_mob_id();
@@ -17,13 +19,15 @@ pub fn manage_mob_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: R
         let position = Vec3::new(0.0, 90.0, 0.0);
 
         let mob = ServerMob {
-            id,
-            kind: shared::world::MobKind::Fox,
+            kind: MobKind::Fox,
             position,
+            target: MobTarget::Player(*world_map.players.keys().next().unwrap()),
+            action: MobAction::Walk,
+            rotation: Quat::IDENTITY,
         };
 
         info!("Spawning new mob on server: {:?}", mob);
 
-        world_map.mobs.push(mob);
+        world_map.mobs.insert(id, mob);
     }
 }

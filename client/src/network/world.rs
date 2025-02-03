@@ -49,9 +49,9 @@ pub fn update_world_from_network(
                     ev_render.send(WorldRenderRequestUpdateEvent::ChunkToReload(pos));
                 }
 
-                for mob in world_update.mobs {
+                for (id, mob) in world_update.mobs {
                     debug!("ServerMob received: {:?}", mob);
-                    ev_mob_update.send(MobUpdateEvent { mob });
+                    ev_mob_update.send(MobUpdateEvent { id, mob });
                 }
 
                 ev_item_stacks_update.send_batch(world_update.item_stacks);
@@ -65,7 +65,7 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::MobUpdate(update_event) => {
                 info!("Received mob update event {:?}", update_event);
-                // this is not currently used
+                ev_mob_update.send(update_event);
             }
             ServerToClientMessage::PlayerUpdate(update) => {
                 ev_player_update.send(update);
