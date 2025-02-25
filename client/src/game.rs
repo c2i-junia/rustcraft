@@ -176,7 +176,6 @@ pub fn game_plugin(app: &mut App) {
             (
                 setup_fox_once_loaded,
                 simulate_particles,
-                add_mob_markers,
                 update_targetted_mob_color,
                 stack_update_system,
             )

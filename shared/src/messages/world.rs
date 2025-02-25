@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::world::{ItemStack, ServerChunk, ServerMob};
+use crate::world::{ItemStack, MobId, ServerChunk, ServerMob};
 use bevy::{
     math::{IVec3, Vec3},
     prelude::Event,
@@ -16,7 +16,7 @@ pub struct WorldUpdate {
     pub tick: u64,
     pub time: u64,
     pub new_map: HashMap<IVec3, ServerChunk>,
-    pub mobs: Vec<ServerMob>,
+    pub mobs: HashMap<MobId, ServerMob>,
     pub item_stacks: Vec<ItemStackUpdateEvent>,
     pub player_events: Vec<PlayerUpdateEvent>,
 }

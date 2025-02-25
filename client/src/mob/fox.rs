@@ -138,15 +138,15 @@ pub fn setup_fox_once_loaded(
     }
 }
 
-pub fn add_mob_markers(mut commands: Commands, query: Query<(&MobMarker, &Children)>) {
-    // NOTE: This is arguably a ridiculous solution, this iterates on all mobs every frame to recursively add the Mob component to all children of a mob.
-    // Optimize later to only run once when the Mob is spawned.
-    for (mob, children) in query.iter() {
-        for child in children.iter() {
-            commands.entity(*child).insert_if_new(mob.clone());
-        }
-    }
-}
+// pub fn add_mob_markers(mut commands: Commands, query: Query<(&MobMarker, &Children)>) {
+//     // NOTE: This is arguably a ridiculous solution, this iterates on all mobs every frame to recursively add the Mob component to all children of a mob.
+//     // Optimize later to only run once when the Mob is spawned.
+//     for (mob, children) in query.iter() {
+//         for child in children.iter() {
+//             commands.entity(*child).insert_if_new(mob.clone());
+//         }
+//     }
+// }
 
 pub fn simulate_particles(
     mut commands: Commands,

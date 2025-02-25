@@ -1,4 +1,5 @@
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
+use crate::mob::behavior::mob_behavior_system;
 use crate::network::broadcast_chat::*;
 use crate::network::cleanup::cleanup_player_from_world;
 use crate::world;
@@ -42,6 +43,8 @@ pub fn register_systems(app: &mut App) {
     app.add_systems(Update, background_world_generation_system);
 
     app.add_systems(PostUpdate, update_server_time);
+
+    app.add_systems(FixedUpdate, mob_behavior_system);
 }
 
 fn server_update_system(

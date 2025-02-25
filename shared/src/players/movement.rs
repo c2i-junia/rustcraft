@@ -59,10 +59,10 @@ pub fn simulate_player_movement(
         direction += right;
     }
     if action.is_pressed(NetworkAction::JumpOrFlyUp) {
-        direction += Vec3::new(0.0, 1.0, 0.0);
+        direction += Vec3::Y;
     }
     if action.is_pressed(NetworkAction::SneakOrFlyDown) {
-        direction -= Vec3::new(0.0, 1.0, 0.0);
+        direction -= Vec3::Y;
     }
 
     // Handle jumping (if on the ground) and gravity, only if not flying
