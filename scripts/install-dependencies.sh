@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 
 set -xe
 
 # check if cargo is installed
-if ! command -v cargo &> /dev/null; then
-  echo -e "\033[1;31m[ERROR]\033[0m Cargo is not installed. Please install Rust from https://rustup.rs."
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "\033[1;31m[ERROR]\033[0m Cargo is not installed. Please install Rust from https://rustup.rs."
   exit 1
 fi
 
