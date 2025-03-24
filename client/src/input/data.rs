@@ -18,6 +18,7 @@ pub enum GameAction {
     FlyUp,
     FlyDown,
     ToggleBlockWireframeDebugMode,
+    ToggleRaycastDebugMode,
     ToggleInventory,
     OpenChat,
     RenderDistanceMinus,

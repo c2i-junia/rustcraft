@@ -148,6 +148,16 @@ pub fn toggle_chunk_debug_mode_system(
     }
 }
 
+pub fn toggle_raycast_debug_mode_system(
+    mut debug_options: ResMut<DebugOptions>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
+) {
+    if is_action_just_pressed(GameAction::ToggleRaycastDebugMode, &keyboard_input, &key_map) {
+        debug_options.toggle_raycast_debug_mode();
+    }
+}
+
 pub fn chunk_force_reload_system(
     mut world_map: ResMut<ClientWorldMap>,
     keyboard_input: Res<ButtonInput<KeyCode>>,

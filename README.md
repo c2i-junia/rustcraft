@@ -87,6 +87,7 @@ paru -S rustcraft
 |                   | Toggle Perspective    | F5                          |
 |                   | Toggle Chunk Debug    | F4                          |
 |                   | Toggle Block Debug    | F6                          |
+|                   | Toggle Raycast Debug  | F7                          |
 |                   | Decrease Render Distance | O                        |
 |                   | Increase Render Distance | P                        |
 |                   | Exit Game             | Escape                      |
