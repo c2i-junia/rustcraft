@@ -9,8 +9,8 @@ use crate::player::{CurrentPlayerMarker, ViewMode};
 
 pub fn raycast_debug_update_system(
     mut gizmos: Gizmos,
-    mut world_map: ResMut<ClientWorldMap>,
-    mut p_transform: Query<&mut Transform, With<CurrentPlayerMarker>>,
+    world_map: ResMut<ClientWorldMap>,
+    p_transform: Query<&mut Transform, With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
     view_mode: Res<ViewMode>,
     debug_options: Res<DebugOptions>,
