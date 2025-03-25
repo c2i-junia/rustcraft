@@ -72,6 +72,9 @@ pub enum BiomeType {
     Desert,
     IcePlain,
     FlowerPlains,
+    ShallowOcean,
+    Ocean,
+    DeepOcean,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -133,6 +136,27 @@ pub fn get_biome_data(biome_type: BiomeType) -> Biome {
             height_variation: 1,
             surface_block: BlockId::Grass,
             sub_surface_block: BlockId::Dirt,
+        },
+        BiomeType::ShallowOcean => Biome {
+            biome_type: BiomeType::ShallowOcean,
+            base_height: 60,
+            height_variation: 1,
+            surface_block: BlockId::Sand,
+            sub_surface_block: BlockId::Sand,
+        },
+        BiomeType::Ocean => Biome {
+            biome_type: BiomeType::DeepOcean,
+            base_height: 55,
+            height_variation: 2,
+            surface_block: BlockId::Sand,
+            sub_surface_block: BlockId::Sand,
+        },
+        BiomeType::DeepOcean => Biome {
+            biome_type: BiomeType::DeepOcean,
+            base_height: 50,
+            height_variation: 3,
+            surface_block: BlockId::Sand,
+            sub_surface_block: BlockId::Sand,
         },
     }
 }
