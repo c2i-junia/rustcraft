@@ -150,22 +150,32 @@ fn generate_cactus(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, cactus: Bloc
 }
 
 pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
+    let ocean_percentage: f64 = 0.33;
+    if humidity > (1.0 - (ocean_percentage / 3.0)) {
+        return BiomeType::DeepOcean;
+    }
+    if humidity > (1.0 - 2.0 * (ocean_percentage / 3.0)) {
+        return BiomeType::Ocean;
+    }
+    if humidity > (1.0 - ocean_percentage) {
+        return BiomeType::ShallowOcean;
+    }
     if temperature > 0.6 {
-        if humidity > 0.5 {
+        if humidity > (1.0 - ocean_percentage) / 2.0 {
             BiomeType::Forest
         } else {
             BiomeType::Desert
         }
     } else if temperature > 0.3 {
-        if humidity > 0.7 {
+        if humidity > 2.0 * (1.0 - ocean_percentage) / 3.0 {
             BiomeType::FlowerPlains
-        } else if humidity > 0.5 {
+        } else if humidity > (1.0 - ocean_percentage) / 3.0 {
             BiomeType::Plains
         } else {
             BiomeType::MediumMountain
         }
     } else if temperature >= 0.0 {
-        if humidity > 0.5 {
+        if humidity > (1.0 - ocean_percentage) / 2.0 {
             BiomeType::IcePlain
         } else {
             BiomeType::HighMountainGrass
@@ -295,7 +305,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
             for dy in 0..CHUNK_SIZE {
                 let y = CHUNK_SIZE * cy + dy;
 
-                if y > terrain_height && y > 70 {
+                if y > terrain_height && y > 62 {
                     break;
                 }
 
@@ -307,7 +317,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                     biome.sub_surface_block
                 } else if y == terrain_height {
                     biome.surface_block
-                } else if y <= 70 {
+                } else if y <= 62 {
                     BlockId::Water
                 } else {
                     panic!();
@@ -321,7 +331,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                 );
 
                 // Add flora in biomes
-                if y == terrain_height && terrain_height > 70 {
+                if y == terrain_height && terrain_height > 62 {
                     let above_surface_pos = IVec3::new(dx, terrain_height + 1, dz);
 
                     // Add flowers

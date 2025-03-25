@@ -56,7 +56,8 @@ pub fn menu_plugin(app: &mut App) {
         // Common systems to all screens that handles buttons behavior
         .add_systems(
             Update,
-            (menu_action, button_system, mouse_scroll).run_if(in_state(GameState::Menu)),
+            (menu_action, escape_button, button_system, mouse_scroll)
+                .run_if(in_state(GameState::Menu)),
         )
         .add_systems(OnEnter(MenuState::SettingsControls), controls_menu_setup);
 }
@@ -90,6 +91,27 @@ fn menu_action(
                 MenuButtonAction::Multi => menu_state.set(MenuState::Multi),
                 MenuButtonAction::SettingsControls => menu_state.set(MenuState::SettingsControls),
             }
+        }
+    }
+}
+
+fn escape_button(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut app_exit_events: EventWriter<AppExit>,
+    menu_state: ResMut<State<MenuState>>,
+    mut next_menu_state: ResMut<NextState<MenuState>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        match menu_state.get() {
+            MenuState::Main => {
+                app_exit_events.send(AppExit::Success);
+            }
+            MenuState::Solo | MenuState::Multi | MenuState::Settings => {
+                next_menu_state.set(MenuState::Main)
+            }
+            // todo: decide how we want to bypass keyboard set dialog
+            // MenuState::SettingsControls => next_menu_state.set(MenuState::Settings),
+            _ => (),
         }
     }
 }

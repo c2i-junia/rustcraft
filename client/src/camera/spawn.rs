@@ -36,19 +36,21 @@ impl From<Quat> for CameraController {
     }
 }
 
+#[allow(deprecated)]
 pub fn spawn_camera(mut commands: Commands) {
     commands
         .spawn((
-            Camera3d::default(),
-            Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
-                .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
-            GlobalTransform::default(),
-            PerspectiveProjection {
-                fov: f32::to_radians(60.0),
+            Camera3dBundle {
+                projection: Projection::Perspective(PerspectiveProjection {
+                    fov: f32::to_radians(60.0),
+                    ..Default::default()
+                }),
+                transform: Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
+                    .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
                 ..Default::default()
             },
-        ))
-        .insert(CameraController::default())
-        .insert(AtmosphereCamera::default())
-        .insert(StateScoped(GameState::Game));
+            CameraController::default(),
+            AtmosphereCamera::default(),
+            StateScoped(GameState::Game),
+        ));
 }
