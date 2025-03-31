@@ -153,7 +153,11 @@ pub fn toggle_raycast_debug_mode_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
 ) {
-    if is_action_just_pressed(GameAction::ToggleRaycastDebugMode, &keyboard_input, &key_map) {
+    if is_action_just_pressed(
+        GameAction::ToggleRaycastDebugMode,
+        &keyboard_input,
+        &key_map,
+    ) {
         debug_options.toggle_raycast_debug_mode();
     }
 }

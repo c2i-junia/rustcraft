@@ -4,8 +4,8 @@ use crate::world::raycast;
 use crate::world::ClientWorldMap;
 
 use super::DebugOptions;
-use crate::world::raycast::FaceDirectionExt;
 use crate::player::{CurrentPlayerMarker, ViewMode};
+use crate::world::raycast::FaceDirectionExt;
 
 pub fn raycast_debug_update_system(
     mut gizmos: Gizmos,
@@ -14,9 +14,8 @@ pub fn raycast_debug_update_system(
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
     view_mode: Res<ViewMode>,
     debug_options: Res<DebugOptions>,
-
-){
-    if !debug_options.is_raycast_debug_mode_enabled{
+) {
+    if !debug_options.is_raycast_debug_mode_enabled {
         return;
     }
 
@@ -33,4 +32,3 @@ pub fn raycast_debug_update_system(
         gizmos.line(start, end, Color::srgb(1.0, 0.0, 0.0));
     }
 }
-

@@ -107,7 +107,6 @@ pub fn get_bindings(game_folder_path: &String) -> KeyMap {
             map.insert(GameAction::ToggleFlyMode, vec![KeyCode::KeyF]);
             map.insert(GameAction::FlyUp, vec![KeyCode::Space]);
             map.insert(GameAction::FlyDown, vec![KeyCode::ShiftLeft]);
-            
             map.insert(GameAction::ToggleInventory, vec![KeyCode::KeyE]);
             map.insert(GameAction::OpenChat, vec![KeyCode::KeyT]);
             map.insert(GameAction::RenderDistanceMinus, vec![KeyCode::KeyO]);
