@@ -1,0 +1,94 @@
+----------------------------------------------------------------------------------------------------
+Version: 0.8    
+Date: 13.12.2024    
+
+  Changes: 
+    - Updated project build system.
+    - Implemented multiplayer functionality.
+    - Improved grass block texture.
+    - Added tall grass that can now generate in most biomes. 
+    - Added cacti generation in Desert biomes. 
+    - Combined the world save file and world seed file into a single file.
+    - Automatically generate a default world name when none is provided.
+    - Added in-game time.
+    - Changed the reticle to a cross shape.
+    - Fixed an issue where players spawned below the map.
+    - Players can now walk through flowers.
+    - Improved menu visuals: added a new background and updated the menu title.
+    - Added a pixelated font.
+    - Added support for choosing texture packs via a CLI flag.
+
+----------------------------------------------------------------------------------------------------
+Version: 0.7   
+Date: 25.11.2024    
+
+  Changes: 
+    - Added biomes with 6 types: Plains, Forest, Medium Mountain, High Mountain, Desert, and Ice Plain. Biomes are determined using Perlin noise (temperature and humidity).
+    - Added tree spawning in Forest biomes.
+    - Added flowers (poppies and dandelions) in Plains and Forest biomes.
+    - You can now connect to a server (multiplayer gameplay not functional yet).
+    - Added textures for items and blocks using an atlas system.
+    - Refactored the meshing system to support complex shapes (e.g., stairs and slabs).
+    - Added vertex coloring for grass blocks.
+
+----------------------------------------------------------------------------------------------------
+Version: 0.6   
+Date: 18.11.2024    
+
+  Changes: 
+    - World generation is now entirely handled on the server. The client spawns the server in a separate thread, and the server is responsible for saving and loading worlds.
+    - Added a menu to choose which world save to load, or to specify a name for creating a new world.
+    - Added keybinding customization in the settings menu.
+    - Implemented multithreaded meshing and multithreaded world generation.
+
+----------------------------------------------------------------------------------------------------
+Version: 0.5   
+Date: 01.10.2024    
+
+  Changes: 
+    - Added hotbar
+    - Added splash screen
+    - Added main menu
+    - Enabled dynamic render distance adjustment
+    - Added world save and load functionality
+    - Added sky 
+
+--------------------------------------------------------------------------------------------------
+Version: 0.4    
+Date: 28.09.2024    
+
+  Changes: 
+    - Added block textures
+    - Implemented day/night cycle
+    - Set maximum block breaking distance
+    - Added inventory UI
+    - Optimized chunk loading
+    - Optimized block rendering
+
+---------------------------------------------------------------------------------------------------
+Version: 0.3    
+Date: 25.09.2024    
+
+  Changes: 
+    - Added stone and bedrock blocks
+    - Added a basic inventory system
+    - Added F3 debug menu
+    - Added chunk system with infinite generation
+
+---------------------------------------------------------------------------------------------------
+Version: 0.2    
+Date: 22.09.2024    
+
+  Changes: 
+    - Added block destruction and creation
+    - Set up first-person view
+    - Implemented random block height generation using Perlin Noise
+    - Added global light source
+
+---------------------------------------------------------------------------------------------------
+Version: 0.1    
+Date: 21.09.2024    
+
+  Changes: 
+    - Added gravity
+    - Player creation with movement on a platform

@@ -1,0 +1,46 @@
+This project is distributed under two different licenses:
+
+1. The code and all original assets created by the authors of this project are licensed under the MIT License.
+2. Some textures used in this project are derived from the resource pack "Pixel Perfection" by XSSheep. These textures are licensed under the Creative Commons Attribution-Share Alike 4.0 International License (CC BY-SA 4.0).
+3. The fonts used in this project are in the Public Domain.
+
+Details for each license are provided below.
+
+---
+
+MIT License
+
+Copyright (c) 2024 C2I (Club Informatique ISEN)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Creative Commons Attribution-Share Alike 4.0 International License (CC BY-SA 4.0)
+
+Some textures used in this project are derived from the resource pack "Pixel Perfection" by XSSheep. These textures are licensed under the CC BY-SA 4.0 license.
+
+For more information, visit: https://creativecommons.org/licenses/by-sa/4.0/
+
+---
+
+Public Domain - MineCraft Font
+
+The fonts used in this project, are in the Public Domain. These fonts were downloaded from the following source:
+https://www.fontspace.com/minecraft-font-f28180

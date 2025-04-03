@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'client'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=client",
+                    "--package=client",
+                ],
+                "filter": {
+                    "name": "client",
+                    "kind": "bin",
+                },
+            },
+            "args": [
+                "--game-folder-path",
+                "${workspaceFolder}/appdata/client-1",
+                "--assets-folder-path",
+                "${workspaceFolder}/data",
+                "--special-flag"
+            ],
+            "cwd": "${workspaceFolder}",
+        },
+    ],
+}

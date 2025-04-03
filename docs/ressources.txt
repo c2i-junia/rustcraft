@@ -1,0 +1,40 @@
+---- MINECRAFT ----
+How Minecraft ACTUALLY Works 💎⛏️  
+https://www.youtube.com/watch?v=YyVAaJqYAfE  
+-> Explains how Minecraft's world generation works.
+
+Making Minecraft from scratch in 48 hours (NO GAME ENGINE)  
+https://www.youtube.com/watch?v=4O0_-1NaWnY  
+-> A video of someone recreating Minecraft from scratch in C, without using a game engine.
+
+---- RUST ----
+Rust Book:  
+https://doc.rust-lang.org/book/
+
+Rust By Example:  
+https://doc.rust-lang.org/rust-by-example/
+
+Networking library:  
+https://github.com/naia-lib/naia
+
+---- BEVY ----
+Basic Bevy tutorial (creating a top-down 2D game):  
+https://youtube.com/playlist?list=PLVnntJRoP85JHGX7rGDu6LaF3fmDDbqyd&si=M3RiPJhjCbOV1dyq
+
+Bevy 3D game tutorial:  
+https://youtube.com/playlist?list=PLp0sjyxOq4ATFgiJ4HL8ok9Yp2h7Hz1Fb&si=HWNnS40J_gulogjP
+
+Foxtrot (Game made in Bevy):  
+https://github.com/janhohenheim/foxtrot
+
+Bevy Cheatbook:  
+https://bevy-cheatbook.github.io/introduction.html
+
+Best practices:  
+https://github.com/tbillington/bevy_best_practices/tree/main
+
+
+
+---- OTHER ----
+logo : 
+https://textcraft.net/

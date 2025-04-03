@@ -1,0 +1,127 @@
+name: Dev Build
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Linux dependencies
+      run: |
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libasound2-dev \
+          libudev-dev \
+          libx11-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libssl-dev \
+          libwayland-dev \
+          libdbus-1-dev \
+          cmake \
+          libfreetype6-dev \
+          libexpat1-dev \
+          zlib1g-dev \
+          mold
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+
+    - name: Add rustc-codegen-cranelift-preview
+      run: rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+
+    - name: Install just
+      run: cargo install just
+
+    - name: Install project dependencies
+      run: cargo fetch
+
+    - name: Generate SHORT_SHA
+      run: echo "SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+
+    - name: Generate release
+      run: python3 ./scripts/generate_release.py dev-${{ env.SHORT_SHA }} --no-compression
+      env:
+        PYTHONPATH: ${{ runner.workspace }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rustcraft-linux-dev-${{ env.SHORT_SHA }}-x86_64
+        path: rustcraft-*-linux-x86_64/*
+        retention-days: 7
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Windows dependencies
+      run: |
+        choco install -y llvm
+        choco install -y cmake
+        choco install -y python3
+        choco install -y mingw
+        choco install -y git
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+
+    - name: Add rustc-codegen-cranelift-preview
+      run: rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+
+    - name: Install just
+      run: cargo install just
+
+    - name: Install project dependencies
+      run: cargo fetch
+
+    - name: Generate SHORT_SHA
+      shell: pwsh
+      run: |
+        $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+        Write-Output "SHORT_SHA=$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
+
+    - name: Generate release
+      run: python scripts/generate_release.py dev-${{ env.SHORT_SHA }} --no-compression
+      env:
+        PYTHONPATH: ${{ runner.workspace }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: rustcraft-windows-dev-${{ env.SHORT_SHA }}-x86_64
+        path: rustcraft-*-windows-x86_64/*
+        retention-days: 7

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: 
+      - '**'
+  pull_request:
+    branches: 
+      - '**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Refresh and install system dependencies
+      run: |
+        sudo rm -rf /var/lib/apt/lists/*
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libasound2-dev \
+          libudev-dev \
+          libx11-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libgl1-mesa-dev \
+          libegl1-mesa-dev \
+          libssl-dev \
+          libwayland-dev \
+          libdbus-1-dev \
+          cmake \
+          libfreetype6-dev \
+          libexpat1-dev \
+          zlib1g-dev
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+
+    - name: Build the project
+      run: RUSTFLAGS="-D warnings" cargo build --all-targets --release
+
+  format:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Check code formatting
+      run: cargo fmt --all -- --check

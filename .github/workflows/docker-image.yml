@@ -1,0 +1,39 @@
+name: Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate commit hash
+      id: commit_hash
+      run: echo "hash=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+
+    - name: Build Docker image
+      run: |
+        docker build \
+          --file Dockerfile \
+          --tag ghcr.io/${{ github.repository }}/rustcraft-server:dev-${{ env.hash }} .
+
+    - name: Push Docker image
+      run: |
+        docker push ghcr.io/${{ github.repository }}/rustcraft-server:dev-${{ env.hash }}
