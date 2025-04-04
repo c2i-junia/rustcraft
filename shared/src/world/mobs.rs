@@ -33,4 +33,9 @@ pub struct ServerMob {
     pub action: MobAction,
     pub position: Vec3,
     pub rotation: Quat,
+    pub height: f32,
+    pub width: f32,
+    pub on_ground: bool,
+    pub velocity: Vec3,
+    pub deepth: f32,
 }
