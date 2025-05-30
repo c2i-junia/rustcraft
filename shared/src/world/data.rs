@@ -168,6 +168,7 @@ pub trait WorldMap {
     fn check_collision_box(&self, hitbox: &Aabb3d) -> bool;
     fn check_collision_point(&self, point: &Vec3) -> bool;
     fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3>;
+    fn get_heigh_ground(&self, position: Vec3) -> i32;
 }
 
 impl WorldMap for ServerChunkWorldMap {
@@ -274,6 +275,18 @@ impl WorldMap for ServerChunkWorldMap {
             }
         }
         chunks
+    }
+
+    fn get_heigh_ground(&self, position: Vec3) -> i32 {
+        for y in (0..256).rev() {
+            if self
+                .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
+                .is_some()
+            {
+                return y;
+            }
+        }
+        return 0;
     }
 }
 

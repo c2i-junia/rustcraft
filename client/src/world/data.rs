@@ -135,6 +135,18 @@ impl WorldMap for ClientWorldMap {
         }
         chunks
     }
+
+    fn get_heigh_ground(&self, position: Vec3) -> i32 {
+        for y in (0..256).rev() {
+            if self
+                .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
+                .is_some()
+            {
+                return y;
+            }
+        }
+        return 0;
+    }
 }
 
 impl ClientWorldMap {
