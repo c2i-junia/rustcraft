@@ -145,7 +145,7 @@ impl WorldMap for ClientWorldMap {
                 return y;
             }
         }
-        return 0;
+        0
     }
 }
 
@@ -169,12 +169,11 @@ impl ClientWorldMap {
         data.breaking_progress += 1;
 
         // info!("Block breaking progress: {}", data.breaking_progress);
-        if kind.id.get_break_time() != 100 {
-            if data.breaking_progress >= 6 * kind.id.get_break_time() {
+        if kind.id.get_break_time() != 100
+            && data.breaking_progress >= 6 * kind.id.get_break_time() {
                 chunk_map.map.remove(&local_block_pos);
                 return Some((kind, true));
             }
-        }
         Some((kind, false))
     }
 }

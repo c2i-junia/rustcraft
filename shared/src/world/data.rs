@@ -286,7 +286,7 @@ impl WorldMap for ServerChunkWorldMap {
                 return y;
             }
         }
-        return 0;
+        0
     }
 }
 

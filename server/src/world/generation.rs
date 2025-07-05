@@ -19,15 +19,11 @@ fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId
         let current_y = leaf_start_y + layer;
         for offset_x in -2i32..=2i32 {
             for offset_z in -2i32..=2i32 {
-                if (offset_x.abs() + offset_z.abs()) < 3 - layer {
-                    chunk.map.insert(
-                        IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, false, BlockDirection::Front),
-                    );
-                } else if (offset_x.abs() + offset_z.abs()) == 3 - layer
+                let cond1 = (offset_x.abs() + offset_z.abs()) < 3 - layer;
+                let cond2 = (offset_x.abs() + offset_z.abs()) == 3 - layer
                     && rand::random::<f32>() < 0.2
-                    && layer < 2
-                {
+                    && layer < 2;
+                if cond1 || cond2 {
                     chunk.map.insert(
                         IVec3::new(x + offset_x, current_y, z + offset_z),
                         BlockData::new(leaves, false, BlockDirection::Front),
@@ -120,15 +116,11 @@ fn generate_big_tree(
         let current_y = leaf_start_y + layer + 2;
         for offset_x in -2i32..=2i32 {
             for offset_z in -2i32..=2i32 {
-                if (offset_x.abs() + offset_z.abs()) < 3 - layer {
-                    chunk.map.insert(
-                        IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, false, BlockDirection::Front),
-                    );
-                } else if (offset_x.abs() + offset_z.abs()) == 3 - layer
+                let cond1 = (offset_x.abs() + offset_z.abs()) < 3 - layer;
+                let cond2 = (offset_x.abs() + offset_z.abs()) == 3 - layer
                     && rand::random::<f32>() < 0.2
-                    && layer < 2
-                {
+                    && layer < 2;
+                if cond1 || cond2 {
                     chunk.map.insert(
                         IVec3::new(x + offset_x, current_y, z + offset_z),
                         BlockData::new(leaves, false, BlockDirection::Front),

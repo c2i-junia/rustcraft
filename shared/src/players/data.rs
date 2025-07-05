@@ -34,8 +34,7 @@ impl Inventory {
         for i in 0..MAX_INVENTORY_SLOTS {
             let item_option = self.inner.get(&i);
 
-            if item_option.is_some() {
-                let existing_item = item_option.expect("Error : empty item");
+            if let Some(existing_item) = item_option {
                 // If not item of right type or stack already full : pass
                 if existing_item.item_id != stack.item_id
                     || existing_item.nb >= stack.item_id.get_max_stack()

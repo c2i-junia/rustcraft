@@ -95,7 +95,7 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: Strin
     app.insert_resource(ServerLobby::default());
     app.insert_resource(GameFolderPaths {
         game_folder_path: game_folder_path.clone(),
-        assets_folder_path: format!("{}/data", game_folder_path),
+        assets_folder_path: format!("{game_folder_path}/data"),
     });
 
     let world_name = &config.world_name.clone();

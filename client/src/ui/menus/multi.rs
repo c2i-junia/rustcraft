@@ -301,7 +301,7 @@ pub fn add_server_item(
 
     let txt = commands
         .spawn(((
-            Text::new(format!("{}\n", name)),
+            Text::new(format!("{name}\n")),
             TextFont {
                 font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
                 font_size: 20.,

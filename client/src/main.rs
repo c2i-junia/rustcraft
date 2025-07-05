@@ -114,18 +114,16 @@ fn main() {
     );
 
     println!(
-        "Starting application with game folder: {}",
-        game_folder_path
+        "Starting application with game folder: {game_folder_path}"
     );
 
     let assets_folder_path = args
         .assets_folder_path
         .clone()
-        .unwrap_or(format!("{}/data", game_folder_path));
+        .unwrap_or(format!("{game_folder_path}/data"));
 
     println!(
-        "Starting application with assets folder: {:?}",
-        assets_folder_path
+        "Starting application with assets folder: {assets_folder_path:?}"
     );
 
     let game_folder_paths = GameFolderPaths {

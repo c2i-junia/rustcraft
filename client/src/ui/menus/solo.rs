@@ -318,7 +318,7 @@ fn add_world_item(
             (Button, btn_style.clone()),
         ))
         .with_children(|btn| {
-            let icon = asset_server.load(format!("{}/graphics/play.png", base_path));
+            let icon = asset_server.load(format!("{base_path}/graphics/play.png"));
             btn.spawn((ImageNode::new(icon), img_style.clone()));
         })
         .id();
@@ -329,7 +329,7 @@ fn add_world_item(
             (Button, btn_style.clone()),
         ))
         .with_children(|btn| {
-            let icon = asset_server.load(format!("{}/graphics/trash.png", base_path));
+            let icon = asset_server.load(format!("{base_path}/graphics/trash.png"));
             btn.spawn((ImageNode::new(icon), img_style.clone()));
         })
         .id();
@@ -337,7 +337,7 @@ fn add_world_item(
     let txt = commands
         .spawn((
             (
-                Text::new(format!("{}\n", name)),
+                Text::new(format!("{name}\n")),
                 TextFont {
                     font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
                     font_size: 20.,
@@ -366,7 +366,7 @@ fn generate_new_world_name(world_list: &WorldList) -> String {
     let mut index = 1;
 
     loop {
-        let candidate = format!("new_world_{}", index);
+        let candidate = format!("new_world_{index}");
         if !world_list
             .worlds
             .values()

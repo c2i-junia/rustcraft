@@ -228,7 +228,7 @@ fn server_update_system(
 }
 
 fn update_server_time(mut time: ResMut<ServerTime>) {
-    if (time.0 % (5 * TICKS_PER_SECOND)) == 0 {
+    if time.0.is_multiple_of(5 * TICKS_PER_SECOND) {
         debug!("Server time: {}", time.0);
     }
     time.0 += 1;

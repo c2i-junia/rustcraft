@@ -47,7 +47,7 @@ impl CurrentPlayerProfile {
         let id: u64 = rng.gen();
         Self {
             id,
-            name: format!("Player-{}", id),
+            name: format!("Player-{id}"),
         }
     }
 }
@@ -250,7 +250,7 @@ pub fn establish_authenticated_connection_to_server(
                 info!("Connected! {:?}", target);
             }
             _ => {
-                panic!("Unexpected message: {:?}", message);
+                panic!("Unexpected message: {message:?}");
             }
         }
     }

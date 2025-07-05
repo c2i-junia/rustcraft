@@ -144,7 +144,7 @@ pub fn controls_menu_setup(
                                 ))
                                 .with_children(|line| {
                                     line.spawn((
-                                        Text::new(format!("{:?}", action)),
+                                        Text::new(format!("{action:?}")),
                                         TextFont {
                                             font: font.clone(),
                                             font_size: 24.,
@@ -281,7 +281,7 @@ pub fn update_input_component(
                 k.spawn((
                     Text::new({
                         // Formats keybindings
-                        let mut output = format!("{:?}", key).replace("Key", "");
+                        let mut output = format!("{key:?}").replace("Key", "");
                         if output.starts_with("Arrow") {
                             if output.ends_with("Left") {
                                 output = "←".into()

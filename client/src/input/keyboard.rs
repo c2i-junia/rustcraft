@@ -66,7 +66,7 @@ pub fn get_action_keys(action: GameAction, key_map: &KeyMap) -> Vec<KeyCode> {
 pub fn get_bindings(game_folder_path: &String) -> KeyMap {
     let game_folder_path_struct = GameFolderPaths {
         game_folder_path: game_folder_path.clone(),
-        assets_folder_path: format!("{}/data", game_folder_path),
+        assets_folder_path: format!("{game_folder_path}/data"),
     };
     let binds_path: PathBuf = get_game_folder(Some(&game_folder_path_struct)).join(BINDS_PATH);
 

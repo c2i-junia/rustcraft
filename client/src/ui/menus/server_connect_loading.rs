@@ -65,7 +65,7 @@ pub fn update_server_connect_loading_screen(
 ) {
     *main_counter += 1;
 
-    if *main_counter % 20 == 0 {
+    if (*main_counter).is_multiple_of(20) {
         for mut text in loading_text_query.iter_mut() {
             text.0 = format!(
                 "Connecting to server{}",

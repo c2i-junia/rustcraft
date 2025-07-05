@@ -14,6 +14,6 @@ pub fn format_bytes(bytes: u64) -> String {
     if unit == &"bytes" {
         format!("{} {}", size as u64, unit)
     } else {
-        format!("{:.1} {}", size, unit)
+        format!("{size:.1} {unit}")
     }
 }

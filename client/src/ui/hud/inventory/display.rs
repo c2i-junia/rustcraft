@@ -218,7 +218,7 @@ pub fn render_inventory_hotbar(
             // Else if hovering a stack : cut hovered stack in half (rounded up), and push it to floating stack
             else if stack_exists {
                 let stack = stack.unwrap();
-                let nb = (stack.nb + 1) / 2;
+                let nb = stack.nb.div_ceil(2);
                 // Get removed nb of items removed from inventory -> adds them into the floating stack
                 add_item_floating_stack(
                     &mut floating_stack,
