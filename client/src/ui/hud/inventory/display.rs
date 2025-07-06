@@ -7,7 +7,8 @@ use crate::ui::hud::{FloatingStack, InventoryCell, InventoryRoot};
 use crate::world::MaterialResource;
 use crate::KeyMap;
 use bevy::color::Color;
-use bevy::hierarchy::Children;
+use bevy::ecs::hierarchy::Children;
+use bevy::image::TextureAtlas;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonInput;
 use bevy::log::debug;
@@ -15,7 +16,6 @@ use bevy::prelude::{
     EventReader, ImageNode, KeyCode, MouseButton, Node, Query, Res, ResMut, Text, Val, Visibility,
     Window, With, Without,
 };
-use bevy::sprite::TextureAtlas;
 use bevy::ui::{BorderColor, Interaction};
 use bevy::window::PrimaryWindow;
 use shared::players::Inventory;
@@ -49,7 +49,7 @@ pub fn render_inventory_hotbar(
     ),
     mut scroll: EventReader<MouseWheel>,
 ) {
-    let mut vis = visibility_query.single_mut();
+    let mut vis = visibility_query.single_mut().unwrap();
 
     if is_action_just_pressed(GameAction::ToggleInventory, &keyboard_input, &key_map)
         && ((*vis == Visibility::Hidden) ^ (*ui_mode != UIMode::Closed))
@@ -80,12 +80,12 @@ pub fn render_inventory_hotbar(
         });
     }
 
-    let (mut style, mut floating_stack, children) = floating_stack_query.single_mut();
+    let (mut style, mut floating_stack, children) = floating_stack_query.single_mut().unwrap();
     let mut txt = text_query.get_mut(children[0]).unwrap();
     let (mut stack_img, mut stack_vis) = atlas_query.get_mut(children[1]).unwrap();
 
     // Change selected stack via scrolling
-    let mut stack_scrolling = hotbar_query.single().selected as i32;
+    let mut stack_scrolling = hotbar_query.single().unwrap().selected as i32;
 
     for sc in scroll.read() {
         match sc.unit {
@@ -99,7 +99,8 @@ pub fn render_inventory_hotbar(
     }
 
     // Add scrolling
-    hotbar_query.single_mut().selected = stack_scrolling.rem_euclid(MAX_HOTBAR_SLOTS as i32) as u32;
+    hotbar_query.single_mut().unwrap().selected =
+        stack_scrolling.rem_euclid(MAX_HOTBAR_SLOTS as i32) as u32;
     if let Some(atlas) = &mut stack_img.texture_atlas {
         update_inventory_cell(
             &floating_stack.items,
@@ -110,7 +111,7 @@ pub fn render_inventory_hotbar(
         );
     }
 
-    if let Some(c_pos) = window_query.single().cursor_position() {
+    if let Some(c_pos) = window_query.single().unwrap().cursor_position() {
         style.top = Val::Px(c_pos.y);
         style.left = Val::Px(c_pos.x);
     }
@@ -130,7 +131,7 @@ pub fn render_inventory_hotbar(
             update_inventory_cell(&stack, &mut txt, &mut stack_vis, atlas, &materials);
         }
         // Show selected stack in hotbar
-        if *vis != Visibility::Visible && hotbar_query.single().selected == cell.id {
+        if *vis != Visibility::Visible && hotbar_query.single().unwrap().selected == cell.id {
             border_color.0 = Color::WHITE;
             continue;
         }

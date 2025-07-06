@@ -1,8 +1,8 @@
 use bevy::{
     math::Vec3,
     prelude::{Component, Resource, Transform},
-    utils::HashMap,
 };
+use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{

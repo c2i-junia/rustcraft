@@ -24,7 +24,7 @@ pub fn observe_on_step(
     mut commands: Commands,
     transforms: Query<&GlobalTransform>,
 ) {
-    let translation = transforms.get(trigger.entity()).unwrap().translation();
+    let translation = transforms.get(trigger.target()).unwrap().translation();
     let mut rng = thread_rng();
     // Spawn a bunch of particles.
     for _ in 0..14 {

@@ -79,7 +79,7 @@ pub fn stack_update_system(
         } else {
             for (entity, marker, _) in stacks.iter() {
                 if marker.id == ev.id {
-                    commands.entity(entity).despawn_recursive();
+                    commands.entity(entity).despawn();
                     continue 'ev_loop;
                 }
             }
@@ -89,11 +89,12 @@ pub fn stack_update_system(
     for (e, _, mut transform) in stacks.iter_mut() {
         if player_pos
             .single()
+            .unwrap()
             .translation
             .distance(transform.translation)
             > distance.distance as f32 * CHUNK_SIZE as f32
         {
-            commands.entity(e).despawn_recursive();
+            commands.entity(e).despawn();
         } else {
             transform.rotate_local_y(1.0 * time.delta_secs());
         }

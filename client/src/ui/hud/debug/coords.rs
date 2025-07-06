@@ -10,7 +10,7 @@ pub fn coords_text_update_system(
     query: Query<Entity, With<CoordsText>>,
     mut writer: TextUiWriter,
 ) {
-    let coords = player.single();
+    let coords = player.single().unwrap();
     let player_chunk = IVec3::new(
         block_to_chunk_coord(coords.translation.x as i32),
         block_to_chunk_coord(coords.translation.y as i32),

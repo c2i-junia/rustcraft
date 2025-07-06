@@ -141,10 +141,10 @@ pub fn render_chat(
 ) {
     let (cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;
     let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
-    let (entity_check, mut inactive, mut value) = text_query.single_mut();
+    let (entity_check, mut inactive, mut value) = text_query.single_mut().unwrap();
 
-    let mut visibility = visibility_query.single_mut();
-    let (parent, children) = parent_query.single();
+    let mut visibility = visibility_query.single_mut().unwrap();
+    let (parent, children) = parent_query.single().unwrap();
 
     if is_action_just_released(
         crate::input::data::GameAction::OpenChat,

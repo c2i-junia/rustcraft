@@ -133,7 +133,7 @@ pub fn toggle_hud_system(
     let keys = get_action_keys(GameAction::ToggleFps, &key_map);
     for key in keys {
         if kbd.just_pressed(key) {
-            let mut vis = q.single_mut();
+            let mut vis = q.single_mut().unwrap();
             *vis = match *vis {
                 Visibility::Hidden => Visibility::Visible,
                 _ => Visibility::Hidden,

@@ -14,7 +14,7 @@ pub fn spawn_mobs_system(
     player_pos: Query<&Transform, With<CurrentPlayerMarker>>,
     render_distance: Res<RenderDistance>,
 ) {
-    let player_pos = player_pos.single().translation;
+    let player_pos = player_pos.single().unwrap().translation;
 
     'event_loop: for event in ev_update.read() {
         let id = event.id;
@@ -40,7 +40,7 @@ pub fn spawn_mobs_system(
     // Despawn entities which are too far away
     for (entity, _, transform) in mobs.iter() {
         if transform.translation.distance(player_pos) > render_distance.distance as f32 * 5.0 {
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
         }
     }
 }
