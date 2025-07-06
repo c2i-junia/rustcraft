@@ -4,13 +4,16 @@ use bevy_inspector_egui::bevy_egui::EguiContext;
 pub fn inspector_ui(world: &mut World) {
     let Ok(egui_context) = world
         .query_filtered::<&mut EguiContext, With<PrimaryWindow>>()
-        .get_single(world)
+        .single(world)
     else {
         return;
     };
     let mut egui_context = egui_context.clone();
 
-    let window = world.query::<&Window>().get_single(world).unwrap();
+    let window = world
+        .query::<&Window>()
+        .single(world)
+        .expect("No window found");
     let width = window.width();
 
     let time = world.get_resource::<Time>().unwrap();

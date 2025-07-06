@@ -4,19 +4,18 @@ use crate::network::{TargetServer, TargetServerState};
 use crate::ui::assets::*;
 use crate::ui::style::*;
 use crate::GameState;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        BuildChildren, Button, Changed, Commands, Component, DespawnRecursiveExt, Entity, Query,
-        Res, StateScoped, With, Without,
+        Button, Changed, Commands, Component, Entity, Query, Res, StateScoped, With, Without,
     },
     ui::{
         AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection, GridTrack,
         Interaction, JustifyContent, Node, Overflow, UiRect, Val,
     },
-    utils::hashbrown::HashMap,
 };
 use bevy_simple_text_input::{
     TextInput, TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
@@ -348,7 +347,7 @@ pub fn load_server_list(
     mut list_query: Query<(&mut ServerList, Entity)>,
     paths: Res<GameFolderPaths>,
 ) {
-    let (mut list, list_entity) = list_query.single_mut();
+    let (mut list, list_entity) = list_query.single_mut().unwrap();
 
     let game_folder_path: PathBuf = get_game_folder(Some(&paths)).join(SERVER_LIST_SAVE_NAME);
     let path: &Path = game_folder_path.as_path();
@@ -416,7 +415,7 @@ pub fn load_server_list(
 }
 
 pub fn save_server_list(list: Query<&ServerList>, game_folder_path: Res<GameFolderPaths>) {
-    let list = list.get_single();
+    let list = list.single();
     let list = match list {
         Ok(v) => v,
         Err(_) => {
@@ -484,15 +483,15 @@ pub fn multiplayer_action(
         return;
     }
 
-    let (entity, mut list) = list_query.single_mut();
+    let (entity, mut list) = list_query.single_mut().unwrap();
 
     for (interaction, menu_button_action) in &interaction_query {
         if *interaction == Interaction::Pressed {
             match *menu_button_action {
                 MultiplayerButtonAction::Add => {
                     if !name_query.is_empty() && !ip_query.is_empty() {
-                        let name = name_query.single();
-                        let ip = ip_query.single();
+                        let name = name_query.single().unwrap();
+                        let ip = ip_query.single().unwrap();
 
                         add_server_item(
                             name.0.clone(),
@@ -518,7 +517,7 @@ pub fn multiplayer_action(
                 MultiplayerButtonAction::Delete(serv_entity) => {
                     debug!("Old list : {:?}", list.servers);
                     commands.entity(entity).remove_children(&[serv_entity]);
-                    commands.entity(serv_entity).despawn_recursive();
+                    commands.entity(serv_entity).despawn();
                     list.servers.remove(&serv_entity);
                     debug!("New list : {:?}", list.servers);
                 }

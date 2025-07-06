@@ -15,7 +15,7 @@ pub fn camera_control_system(
     view_mode: Res<ViewMode>,
     ui_mode: Res<UIMode>,
 ) {
-    let window = windows.single();
+    let window = windows.single().unwrap();
 
     // if the window is not focused, ignore camera movement
     if !window.focused || *ui_mode != UIMode::Closed {
@@ -36,7 +36,7 @@ pub fn camera_control_system(
             controller.distance = 0.0;
 
             // place the camera at the player's head height (e.g. 1.8 units)
-            let player_transform = player_query.single();
+            let player_transform = player_query.single().unwrap();
             let player_position = player_transform.translation;
 
             // apply mouse sensitivity and adjust camera angle
@@ -74,7 +74,7 @@ pub fn camera_control_system(
                 .angle_y
                 .clamp(-89.0f32.to_radians(), 89.0f32.to_radians());
 
-            let player_transform = player_query.single();
+            let player_transform = player_query.single().unwrap();
             let player_position = player_transform.translation;
 
             // calculate the new camera position

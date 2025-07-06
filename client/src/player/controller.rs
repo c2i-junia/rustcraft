@@ -50,18 +50,18 @@ pub fn player_movement_system(
         return;
     }
 
-    let camera = camera.single();
+    let camera = camera.single().unwrap();
     let camera_orientation = camera.rotation;
     frame_inputs.0.camera = camera_orientation;
 
-    let res = player_query.get_single_mut();
+    let res = player_query.single_mut();
     // Return early if the player has not been spawned yet
     if res.is_err() {
         debug!("player not found");
         return;
     }
 
-    let (mut player, mut player_transform) = player_query.single_mut();
+    let (mut player, mut player_transform) = player_query.single_mut().unwrap();
 
     if *ui_mode == UIMode::Closed
         && is_action_just_pressed(GameAction::ToggleFlyMode, &keyboard_input, &key_map)
@@ -114,7 +114,7 @@ pub fn first_and_third_person_view_system(
         view_mode.toggle();
     }
 
-    let material_handle = player_query.get_single_mut();
+    let material_handle = player_query.single_mut();
     // Return early if the player has not been spawned yet
     if material_handle.is_err() {
         debug!("player not found");
@@ -173,11 +173,11 @@ pub fn chunk_force_reload_system(
         for (pos, chunk) in world_map.map.iter_mut() {
             // Despawn the chunk's entity
             if let Some(e) = chunk.entity {
-                commands.entity(e).despawn_recursive();
+                commands.entity(e).despawn();
                 chunk.entity = None;
             }
             // Request a render for this chunk
-            ev_writer.send(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
+            ev_writer.write(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
         }
     }
 }

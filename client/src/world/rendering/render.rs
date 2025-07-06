@@ -47,7 +47,7 @@ fn update_chunk(
         .unwrap();
 
     if chunk.entity.is_some() {
-        commands.entity(chunk.entity.unwrap()).despawn_recursive();
+        commands.entity(chunk.entity.unwrap()).despawn();
         chunk.entity = None;
     }
 
@@ -139,7 +139,10 @@ pub fn world_render_system(
             }
         }
 
-        let player_pos = player_pos.single().translation;
+        let player_pos = player_pos
+            .single()
+            .expect("Player should exist")
+            .translation;
         let player_pos = global_block_to_chunk_pos(&IVec3::new(
             player_pos.x as i32,
             player_pos.y as i32,

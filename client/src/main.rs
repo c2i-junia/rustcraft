@@ -144,6 +144,8 @@ fn main() {
             })
             .set(AssetPlugin {
                 file_path: "../data".to_string(),
+                // TODO: Remove unapproved_path_mode once the asset loading system has been improved
+                unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
                 ..Default::default()
             })
             .set(WindowPlugin {
@@ -156,9 +158,11 @@ fn main() {
             }),
     );
 
-    app.add_plugins(EguiPlugin)
-        .add_plugins(DefaultInspectorConfigPlugin)
-        .add_systems(Update, inspector_ui);
+    app.add_plugins(EguiPlugin {
+        enable_multipass_for_primary_context: false,
+    })
+    .add_plugins(DefaultInspectorConfigPlugin)
+    .add_systems(Update, inspector_ui);
 
     app.add_event::<LoadWorldEvent>();
     network::add_base_netcode(&mut app);

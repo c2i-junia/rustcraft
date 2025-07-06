@@ -49,14 +49,14 @@ pub fn handle_block_interactions(
         mut targeted_mob,
     ) = resources;
 
-    let player = player_query.single().clone();
+    let player = player_query.single().unwrap().clone();
 
     if *ui_mode == UIMode::Opened {
         return;
     }
 
-    let camera_transform = camera_query.single();
-    let player_transform = p_transform.single();
+    let camera_transform = camera_query.single().unwrap();
+    let player_transform = p_transform.single().unwrap();
 
     let ray = Ray3d::new(camera_transform.translation, camera_transform.forward());
 
@@ -64,7 +64,10 @@ pub fn handle_block_interactions(
 
     bounce_ray(ray, &mut ray_cast);
 
-    if let Some((entity, _)) = ray_cast.cast_ray(ray, &RayCastSettings::default()).first() {
+    if let Some((entity, _)) = ray_cast
+        .cast_ray(ray, &MeshRayCastSettings::default())
+        .first()
+    {
         let mob = mob_query.get(*entity);
         if let Ok(mob) = mob {
             targeted_mob.target = Some(TargetedMobData {
@@ -84,7 +87,7 @@ pub fn handle_block_interactions(
 
         let target = targeted_mob.target.as_ref().unwrap();
 
-        commands.entity(target.entity).despawn_recursive();
+        commands.entity(target.entity).despawn();
 
         targeted_mob.target = None;
 
@@ -105,12 +108,14 @@ pub fn handle_block_interactions(
             let pos = res.position;
             let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
             // Check if block is close enough to the player
-            if (block_pos - p_transform.single_mut().translation).norm() < INTERACTION_DISTANCE {
+            if (block_pos - p_transform.single_mut().unwrap().translation).norm()
+                < INTERACTION_DISTANCE
+            {
                 // Remove the hit block
                 let res = world_map.try_to_break_block(&pos);
 
                 if let Some((block, destroyed)) = res {
-                    ev_render.send(WorldRenderRequestUpdateEvent::BlockToReload(pos));
+                    ev_render.write(WorldRenderRequestUpdateEvent::BlockToReload(pos));
 
                     if destroyed {
                         // If block has corresponding item, add it to inventory
@@ -145,7 +150,7 @@ pub fn handle_block_interactions(
             );
 
             let unit_cube = Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-            let player_position = p_transform.single_mut().translation;
+            let player_position = p_transform.single_mut().unwrap().translation;
 
             let target_cube_center = block_to_create_pos + (unit_cube / 2.);
 
@@ -157,14 +162,14 @@ pub fn handle_block_interactions(
             debug!("Player position: {:?}", player_position);
             debug!("Target cube center: {:?}", target_cube_center);
 
-            if (block_to_create_pos - p_transform.single_mut().translation).norm()
+            if (block_to_create_pos - p_transform.single_mut().unwrap().translation).norm()
                 <= INTERACTION_DISTANCE
                 // Guarantees a block cannot be placed too close to the player (which would be unable to move because of constant collision)
                 && (distance.x> (CUBE_SIZE + player.width) / 2. || distance.z > (CUBE_SIZE + player.width ) / 2. || distance.y > (CUBE_SIZE + player.height) / 2.)
             {
                 // Try to get item currently selected in player hotbar
-                if let Some(&item) = inventory.inner.get(&hotbar.single().selected) {
-                    inventory.remove_item_from_stack(hotbar.single().selected, 1);
+                if let Some(&item) = inventory.inner.get(&hotbar.single().unwrap().selected) {
+                    inventory.remove_item_from_stack(hotbar.single().unwrap().selected, 1);
 
                     // Check if the item has a block counterpart
                     if let ItemType::Block(block_id) = item.item_type {
@@ -178,7 +183,7 @@ pub fn handle_block_interactions(
 
                         world_map.set_block(&block_pos, block);
 
-                        ev_render.send(WorldRenderRequestUpdateEvent::BlockToReload(block_pos));
+                        ev_render.write(WorldRenderRequestUpdateEvent::BlockToReload(block_pos));
 
                         client.send_game_message(ClientToServerMessage::BlockInteraction {
                             position: block_pos,
@@ -202,7 +207,10 @@ fn bounce_ray(mut ray: Ray3d, ray_cast: &mut MeshRayCast) {
 
     for i in 0..MAX_BOUNCES {
         // Cast the ray and get the first hit
-        let Some((_, hit)) = ray_cast.cast_ray(ray, &RayCastSettings::default()).first() else {
+        let Some((_, hit)) = ray_cast
+            .cast_ray(ray, &MeshRayCastSettings::default())
+            .first()
+        else {
             break;
         };
 

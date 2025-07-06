@@ -80,7 +80,7 @@ fn menu_action(
         if *interaction == Interaction::Pressed {
             match menu_button_action {
                 MenuButtonAction::Quit => {
-                    app_exit_events.send(AppExit::Success);
+                    app_exit_events.write(AppExit::Success);
                 }
                 MenuButtonAction::Solo => menu_state.set(MenuState::Solo),
                 MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
@@ -104,7 +104,7 @@ fn escape_button(
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
             MenuState::Main => {
-                app_exit_events.send(AppExit::Success);
+                app_exit_events.write(AppExit::Success);
             }
             MenuState::Solo | MenuState::Multi | MenuState::Settings => {
                 next_menu_state.set(MenuState::Main)
@@ -118,14 +118,14 @@ fn escape_button(
 
 pub fn mouse_scroll(
     mut mouse_wheel_events: EventReader<MouseWheel>,
-    mut query_list: Query<(&mut ScrollingList, &mut Node, &Parent, &ComputedNode)>,
+    mut query_list: Query<(&mut ScrollingList, &mut Node, &ChildOf, &ComputedNode)>,
     query_node: Query<&ComputedNode>,
 ) {
     for mouse_wheel_event in mouse_wheel_events.read() {
         debug!("MouseEvent");
-        for (mut scrolling_list, mut style, parent, list_node) in &mut query_list {
+        for (mut scrolling_list, mut style, child_of, list_node) in &mut query_list {
             let items_height = list_node.size().y;
-            let container_height = query_node.get(parent.get()).unwrap().size().y;
+            let container_height = query_node.get(child_of.parent()).unwrap().size().y;
 
             let max_scroll = (items_height - container_height).max(0.) + 30.;
 

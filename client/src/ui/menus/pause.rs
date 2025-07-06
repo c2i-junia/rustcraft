@@ -2,7 +2,6 @@ use crate::network::save::send_save_request_to_server;
 use bevy::{
     asset::AssetServer,
     color::{Alpha, Color},
-    core::Name,
     input::ButtonInput,
     prelude::*,
     ui::{
@@ -95,6 +94,7 @@ pub fn setup_pause_menu(
                                     font: assets.load("./fonts/RustCraftRegular-Bmg3.otf"),
                                     font_size: 20.,
                                     font_smoothing: default(),
+                                    ..default()
                                 },
                                 TextColor(Color::WHITE),
                             ));
@@ -115,7 +115,7 @@ pub fn render_pause_menu(
     mut client: ResMut<RenetClient>,
 ) {
     let (mut button, mut visibility) = queries;
-    let mut vis = visibility.single_mut();
+    let mut vis = visibility.single_mut().unwrap();
 
     if is_action_just_pressed(crate::input::data::GameAction::Escape, &input, &key_map) {
         *vis = match *vis {

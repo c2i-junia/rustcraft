@@ -6,7 +6,7 @@ pub fn handle_mouse_system(
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     ui_mode: Res<UIMode>,
 ) {
-    let mut window = windows.single_mut();
+    let mut window = windows.single_mut().unwrap();
 
     let is_playing = *ui_mode == UIMode::Closed;
 

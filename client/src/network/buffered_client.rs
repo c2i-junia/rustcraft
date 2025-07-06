@@ -1,4 +1,4 @@
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{platform::collections::HashSet, prelude::*};
 use shared::messages::PlayerFrameInput;
 
 #[derive(Debug, Default, Resource)]

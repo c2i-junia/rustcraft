@@ -46,29 +46,29 @@ pub fn update_world_from_network(
                     };
 
                     world.map.insert(pos, chunk.clone());
-                    ev_render.send(WorldRenderRequestUpdateEvent::ChunkToReload(pos));
+                    ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(pos));
                 }
 
                 for (id, mob) in world_update.mobs {
                     debug!("ServerMob received: {:?}", mob);
-                    ev_mob_update.send(MobUpdateEvent { id, mob });
+                    ev_mob_update.write(MobUpdateEvent { id, mob });
                 }
 
-                ev_item_stacks_update.send_batch(world_update.item_stacks);
+                ev_item_stacks_update.write_batch(world_update.item_stacks);
 
                 // get current time
                 // client_time.0 = world_update.time;
             }
             ServerToClientMessage::PlayerSpawn(spawn_event) => {
                 info!("Received SINGLE spawn event {:?}", spawn_event);
-                ev_player_spawn.send(spawn_event);
+                ev_player_spawn.write(spawn_event);
             }
             ServerToClientMessage::MobUpdate(update_event) => {
                 info!("Received mob update event {:?}", update_event);
-                ev_mob_update.send(update_event);
+                ev_mob_update.write(update_event);
             }
             ServerToClientMessage::PlayerUpdate(update) => {
-                ev_player_update.send(update);
+                ev_player_update.write(update);
             }
             ServerToClientMessage::AuthRegisterResponse(_) => {}
             ServerToClientMessage::ChatConversation(_) => {}

@@ -245,7 +245,7 @@ pub fn establish_authenticated_connection_to_server(
                 // TODO: handle clock sync using the timestamp_ms field
                 // it will become very important if the lantency is high
                 for player in message.players {
-                    ev_spawn.send(player);
+                    ev_spawn.write(player);
                 }
                 info!("Connected! {:?}", target);
             }

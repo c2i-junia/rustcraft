@@ -19,8 +19,8 @@ pub fn raycast_debug_update_system(
         return;
     }
 
-    let camera_transform = camera_query.single();
-    let player_transform = p_transform.single();
+    let camera_transform = camera_query.single().unwrap();
+    let player_transform = p_transform.single().unwrap();
 
     let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
 

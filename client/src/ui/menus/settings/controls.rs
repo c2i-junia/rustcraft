@@ -263,7 +263,7 @@ pub fn update_input_component(
     assets: &AssetServer,
     _paths: &Res<GameFolderPaths>,
 ) {
-    commands.entity(entity).despawn_descendants();
+    commands.entity(entity).despawn_related::<Children>();
     let font: Handle<Font> = assets.load("./fonts/RustCraftRegular-Bmg3.otf");
 
     // List all possible binds, and add them as text elements
@@ -329,7 +329,7 @@ pub fn controls_update_system(
         return;
     }
 
-    let (mut recorder, mut vis) = visibility_query.single_mut();
+    let (mut recorder, mut vis) = visibility_query.single_mut().unwrap();
 
     if *vis == Visibility::Visible {
         if let Some(btn) = input.get_just_pressed().next() {

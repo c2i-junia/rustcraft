@@ -53,8 +53,8 @@ pub struct PreLoadingCompletion {
 }
 
 pub fn game_plugin(app: &mut App) {
-    app.add_plugins(FrameTimeDiagnosticsPlugin)
-        .add_plugins(WireframePlugin)
+    app.add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(WireframePlugin::default())
         .add_plugins(bevy_simple_text_input::TextInputPlugin)
         .add_plugins(AtmospherePlugin)
         .insert_resource(WorldSeed(0))
@@ -63,6 +63,7 @@ pub fn game_plugin(app: &mut App) {
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 400.0,
+            ..default()
         })
         .insert_resource(PreLoadingCompletion {
             textures_loaded: false,

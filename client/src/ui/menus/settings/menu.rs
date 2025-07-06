@@ -7,7 +7,7 @@ use bevy::ui::BackgroundColor;
 use bevy::utils::default;
 use bevy::{
     asset::AssetServer,
-    prelude::{BuildChildren, Commands, Res, StateScoped},
+    prelude::{Commands, Res, StateScoped},
     ui::{AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val},
 };
 

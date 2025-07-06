@@ -88,7 +88,7 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: Strin
     );
 
     app.add_plugins(RenetServerPlugin);
-    app.add_plugins(FrameTimeDiagnosticsPlugin);
+    app.add_plugins(FrameTimeDiagnosticsPlugin::default());
     app.add_plugins(LogDiagnosticsPlugin::default());
     app.add_plugins(bevy::log::LogPlugin::default());
 

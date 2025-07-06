@@ -1,4 +1,5 @@
-use bevy::{prelude::*, utils::HashSet};
+use bevy::prelude::*;
+use bevy_platform::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::PlayerId;

@@ -3,20 +3,20 @@ use crate::ui::assets::*;
 use crate::ui::style::*;
 use crate::world::ClientWorldMap;
 use crate::{constants::SAVE_PATH, GameState, LoadWorldEvent};
+use bevy::platform::collections::HashMap;
 use bevy::prelude::Resource;
 use bevy::prelude::*;
 use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        BuildChildren, Button, Changed, Commands, Component, DespawnRecursiveExt, Entity,
-        EventWriter, NextState, Query, Res, ResMut, StateScoped, Text, With,
+        Button, Changed, Commands, Component, Entity, EventWriter, NextState, Query, Res, ResMut,
+        StateScoped, Text, With,
     },
     ui::{
         AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection,
         GridPlacement, GridTrack, Interaction, JustifyContent, Node, Overflow, UiRect, Val,
     },
-    utils::hashbrown::HashMap,
 };
 use bevy_simple_text_input::TextInput;
 use bevy_simple_text_input::TextInputTextColor;
@@ -234,7 +234,7 @@ pub fn list_worlds(
     mut world_map: ResMut<ClientWorldMap>,
     game_paths: Res<GameFolderPaths>,
 ) {
-    let (mut list, list_entity) = list_query.single_mut();
+    let (mut list, list_entity) = list_query.single_mut().unwrap();
 
     // create save folder if it not exist
     let save_path: PathBuf = get_game_folder(Some(&game_paths)).join(SAVE_PATH);
@@ -399,7 +399,7 @@ pub fn solo_action(
         return;
     }
 
-    let (entity, mut list) = list_query.single_mut();
+    let (entity, mut list) = list_query.single_mut().unwrap();
 
     for (interaction, menu_button_action) in &interaction_query {
         if *interaction == Interaction::Pressed {
@@ -407,7 +407,7 @@ pub fn solo_action(
                 MultiplayerButtonAction::Add => {
                     debug!("Interactions !");
                     if !name_query.is_empty() {
-                        let mut name = name_query.single_mut();
+                        let mut name = name_query.single_mut().unwrap();
 
                         // if no name, create default one
                         let new_name = if name.0.is_empty() {
@@ -435,7 +435,7 @@ pub fn solo_action(
                         // update ressource name
                         selected_world.name = Some(world.name.clone());
 
-                        load_event.send(LoadWorldEvent {
+                        load_event.write(LoadWorldEvent {
                             world_name: world.name.clone(),
                         });
                         game_state.set(GameState::PreGameLoading);
@@ -450,7 +450,7 @@ pub fn solo_action(
                         list.worlds.remove(&world_entity);
                     }
                     commands.entity(entity).remove_children(&[world_entity]);
-                    commands.entity(world_entity).despawn_recursive();
+                    commands.entity(world_entity).despawn();
                 }
             }
         }

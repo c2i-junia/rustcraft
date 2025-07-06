@@ -180,14 +180,14 @@ fn server_update_system(
                         content: chat_msg.content,
                         timestamp: current_timestamp,
                     });
-                    ev_chat.send(ChatMessageEvent);
+                    ev_chat.write(ChatMessageEvent);
                 }
                 ClientToServerMessage::Exit => {
                     debug!("Received shutdown order...");
                     // TODO: add permission checks
                     if config.is_solo {
                         info!("Server is going down...");
-                        ev_app_exit.send(AppExit::Success);
+                        ev_app_exit.write(AppExit::Success);
                     } else {
                         server.disconnect(client_id);
                         lobby.players.remove(&client_id);
@@ -197,7 +197,7 @@ fn server_update_system(
                 ClientToServerMessage::PlayerInputs(inputs) => {
                     // info!("Received {} player inputs", inputs.len());
                     for input in inputs.iter() {
-                        ev_player_inputs.send(PlayerInputsEvent {
+                        ev_player_inputs.write(PlayerInputsEvent {
                             client_id,
                             input: input.clone(),
                         });
@@ -206,7 +206,7 @@ fn server_update_system(
                 ClientToServerMessage::SaveWorldRequest => {
                     debug!("Save request received from client with session token");
 
-                    ev_save_request.send(SaveRequestEvent);
+                    ev_save_request.write(SaveRequestEvent);
                 }
                 ClientToServerMessage::BlockInteraction {
                     position,
@@ -217,7 +217,7 @@ fn server_update_system(
                         position, block_type
                     );
 
-                    ev_block_interaction.send(BlockInteractionEvent {
+                    ev_block_interaction.write(BlockInteractionEvent {
                         position,
                         block_type,
                     });

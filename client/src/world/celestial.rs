@@ -115,7 +115,9 @@ pub fn setup_main_lighting(
         .entity(celestial_root)
         .add_children(&[sun_light, moon_light]);
 
-    commands.entity(player.single()).add_child(celestial_root);
+    commands
+        .entity(player.single().expect("Player should exist"))
+        .add_child(celestial_root);
 }
 
 pub fn update_celestial_bodies(

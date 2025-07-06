@@ -5,12 +5,11 @@ edition = "2021"
 
 [dependencies]
 shared = { path = "../shared" }
-bevy_app = { version = "0.15", default-features=false }
-bevy_core = { version = "0.15", default-features=false }
-bevy_ecs = { version = "0.15", default-features=false }
-bevy_log = { version = "0.15", default-features=false }
-bevy = { version = "0.15", default-features = false, features = ["serialize"]}
-bevy_renet = "1.0.0"
+bevy_app = { version = "0.16", default-features=false }
+bevy_ecs = { version = "0.16", default-features=false }
+bevy_log = { version = "0.16", default-features=false }
+bevy = { version = "0.16", default-features = false, features = ["serialize"]}
+bevy_renet = { git = "https://github.com/lucaspoffo/renet", package = "bevy_renet" }
 bincode = { version = "1.3.3" }
 serde = { version = "1.0.210", features = ["derive"] }
 rand = "0.8.5"
