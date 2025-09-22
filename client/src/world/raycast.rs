@@ -1,8 +1,15 @@
 use crate::player::ViewMode;
 
 use super::ClientWorldMap;
-use bevy::{math::bounding::Aabb3d, prelude::*};
-use shared::world::{BlockData, WorldMap};
+use bevy::{
+    color::palettes::css::{BLACK, GREEN, ORANGE, RED},
+    math::bounding::Aabb3d,
+    prelude::*,
+};
+use shared::{
+    world::{BlockData, WorldMap},
+    HALF_BLOCK,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum FaceDirection {
@@ -89,81 +96,99 @@ fn third_person_raycast(
     raycast_from_source_position_and_direction(world_map, current_position, direction)
 }
 
+// Amanatides-Woo fast traversal algorithm
+// Tweaked to include block-specific interaction boxes
 fn raycast_from_source_position_and_direction(
     world_map: &ClientWorldMap,
-    source_position: Vec3,
+    origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
-    let max_distance = 10.0; // Maximum distance for raycasting
+    let dir_inv = 1. / direction;
 
-    let mut current_position = source_position;
+    let step = dir_inv.signum().as_ivec3();
+    let delta = dir_inv.abs();
 
-    let step = 0.05; // Step size for raycasting
+    let mut axis = 0;
 
-    let mut previous_position = current_position;
+    let mut voxel = origin.as_ivec3();
 
-    for _ in 0..(max_distance / step) as i32 {
-        current_position += direction * step;
-        let pos_ivec3 = IVec3::new(
-            current_position.x.round() as i32,
-            current_position.y.round() as i32,
-            current_position.z.round() as i32,
-        );
-        if let Some(block) = world_map.get_block_by_coordinates(&pos_ivec3) {
-            let bbox = block.id.get_interaction_box(&pos_ivec3);
-            let pos = current_position.into();
-
-            // Check if our hit is outside of the interaction box
-            if bbox.closest_point(pos) != pos {
-                // If it is, ignore the hit
-                continue;
-            }
-
-            // Now we need to determine which face of the block we hit
-            let face = determine_hit_face(previous_position, current_position);
-
-            return Some(RaycastResponse {
-                block: *block,
-                position: pos_ivec3,
-                face,
-                bbox,
-            });
+    // Calculate tMax (distance to first voxel boundary)
+    // Needed so that the player's position inside a voxel doesn't mess up the ray projection
+    let mut t = Vec3::ZERO;
+    for i in 0..3 {
+        t[i] = if step[i] != 0 {
+            let next_boundary = voxel[i] + if step[i] > 0 { 1 } else { 0 };
+            (next_boundary as f32 - origin[i]) / direction[i]
+        } else {
+            f32::INFINITY
         }
-        previous_position = current_position;
     }
 
+    // Total Euclidean distance
+    let mut distance = 0.0;
+
+    // Actual raycast loop
+    while distance < 10.0 {
+        if let Some(block) = world_map.get_block_by_coordinates(&voxel) {
+            return Some(RaycastResponse {
+                block: block.clone(),
+                position: voxel,
+                face: match (axis, step[axis]) {
+                    (0, -1) => FaceDirection::PlusX,
+                    (0, 1) => FaceDirection::MinusX,
+                    (1, -1) => FaceDirection::PlusY,
+                    (1, 1) => FaceDirection::MinusY,
+                    (2, -1) => FaceDirection::PlusZ,
+                    (2, 1) => FaceDirection::MinusZ,
+                    _ => unreachable!(),
+                },
+                bbox: Aabb3d::new(voxel.as_vec3() + HALF_BLOCK, HALF_BLOCK),
+            });
+        }
+
+        // Choose new step direction
+        if t.x < t.y {
+            if t.x < t.z {
+                axis = 0;
+            } else {
+                axis = 2;
+            }
+        } else {
+            if t.y < t.z {
+                axis = 1;
+            } else {
+                axis = 2;
+            }
+        }
+
+        // Update the ray's position
+        distance += t[axis];
+        t[axis] += delta[axis];
+        voxel[axis] += step[axis];
+    }
     None
 }
 
-fn determine_hit_face(step_outside: Vec3, step_inside: Vec3) -> FaceDirection {
-    let step_outside = IVec3::new(
-        step_outside.x as i32,
-        step_outside.y as i32,
-        step_outside.z as i32,
-    );
-    let step_inside = IVec3::new(
-        step_inside.x as i32,
-        step_inside.y as i32,
-        step_inside.z as i32,
-    );
+// Computes the collision between an AABB and a raycasting ray
+fn aabb_ray_hit(aabb: &Aabb3d, origin: &Vec3, inv_dir: &Vec3) -> Option<(f32, f32)> {
+    let mut tmin: f32 = 0.;
+    let mut tmax: f32 = f32::INFINITY;
 
-    let diff = step_inside - step_outside;
+    // Looping over all axes
+    for axis in 0..3 {
+        let t1 = (aabb.min[axis] - origin[axis]) * inv_dir[axis];
+        let t2 = (aabb.max[axis] - origin[axis]) * inv_dir[axis];
 
-    if diff.x.abs() > diff.y.abs() && diff.x.abs() > diff.z.abs() {
-        if diff.x > 0 {
-            FaceDirection::MinusX
-        } else {
-            FaceDirection::PlusX
-        }
-    } else if diff.y.abs() > diff.x.abs() && diff.y.abs() > diff.z.abs() {
-        if diff.y > 0 {
-            FaceDirection::MinusY
-        } else {
-            FaceDirection::PlusY
-        }
-    } else if diff.z > 0 {
-        FaceDirection::MinusZ
-    } else {
-        FaceDirection::PlusZ
+        let dmin = t1.min(t2);
+        let dmax = t1.max(t2);
+
+        tmin = dmin.max(tmin);
+        tmax = dmax.min(tmax);
     }
+
+    if tmax >= tmin {
+        Some((tmin, tmax))
+    } else {
+        None
+    } /* miss */
 }

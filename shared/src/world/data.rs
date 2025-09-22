@@ -165,10 +165,64 @@ pub trait WorldMap {
     fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData>;
     fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData>;
     fn set_block(&mut self, position: &IVec3, block: BlockData);
-    fn check_collision_box(&self, hitbox: &Aabb3d) -> bool;
-    fn check_collision_point(&self, point: &Vec3) -> bool;
-    fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3>;
-    fn get_heigh_ground(&self, position: Vec3) -> i32;
+
+    fn get_heigh_ground(&self, position: Vec3) -> i32 {
+        for y in (0..256).rev() {
+            if self
+                .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
+                .is_some()
+            {
+                return y;
+            }
+        }
+        0
+    }
+
+    fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
+        // Check all blocks inside the hitbox
+        for x in (hitbox.min.x as i32)..=(hitbox.max.x as i32) {
+            for y in (hitbox.min.y as i32)..=(hitbox.max.y as i32) {
+                for z in (hitbox.min.z as i32)..=(hitbox.max.z as i32) {
+                    if let Some(block) = self.get_block_by_coordinates(&IVec3::new(x, y, z)) {
+                        if block.id.has_hitbox() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn check_collision_point(&self, point: &Vec3) -> bool {
+        if let Some(block) = self.get_block_by_coordinates(&IVec3::new(
+            point.x as i32,
+            point.y as i32,
+            point.z as i32,
+        )) {
+            block.id.has_hitbox()
+        } else {
+            false
+        }
+    }
+
+    fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3> {
+        let mut chunks = Vec::new();
+        let x = position.x as i32;
+        let y = position.y as i32;
+        let z = position.z as i32;
+        let cx = block_to_chunk_coord(x);
+        let cy = block_to_chunk_coord(y);
+        let cz = block_to_chunk_coord(z);
+        for i in -radius..=radius {
+            for j in -radius..=radius {
+                for k in -radius..=radius {
+                    chunks.push(IVec3::new(cx + i, cy + j, cz + k));
+                }
+            }
+        }
+        chunks
+    }
 }
 
 impl WorldMap for ServerChunkWorldMap {
@@ -229,64 +283,6 @@ impl WorldMap for ServerChunkWorldMap {
 
         chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
         self.chunks_to_update.push(IVec3::new(cx, cy, cz));
-    }
-
-    fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
-        // Check all blocks inside the hitbox
-        for x in (hitbox.min.x.round() as i32)..=(hitbox.max.x.round() as i32) {
-            for y in (hitbox.min.y.round() as i32)..=(hitbox.max.y.round() as i32) {
-                for z in (hitbox.min.z.round() as i32)..=(hitbox.max.z.round() as i32) {
-                    if let Some(block) = self.get_block_by_coordinates(&IVec3::new(x, y, z)) {
-                        if block.id.has_hitbox() {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    fn check_collision_point(&self, point: &Vec3) -> bool {
-        if let Some(block) = self.get_block_by_coordinates(&IVec3::new(
-            point.x.round() as i32,
-            point.y.round() as i32,
-            point.z.round() as i32,
-        )) {
-            block.id.has_hitbox()
-        } else {
-            false
-        }
-    }
-
-    fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3> {
-        let mut chunks = Vec::new();
-        let x = position.x as i32;
-        let y = position.y as i32;
-        let z = position.z as i32;
-        let cx = block_to_chunk_coord(x);
-        let cy = block_to_chunk_coord(y);
-        let cz = block_to_chunk_coord(z);
-        for i in -radius..=radius {
-            for j in -radius..=radius {
-                for k in -radius..=radius {
-                    chunks.push(IVec3::new(cx + i, cy + j, cz + k));
-                }
-            }
-        }
-        chunks
-    }
-
-    fn get_heigh_ground(&self, position: Vec3) -> i32 {
-        for y in (0..256).rev() {
-            if self
-                .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
-                .is_some()
-            {
-                return y;
-            }
-        }
-        0
     }
 }
 

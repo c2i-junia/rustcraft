@@ -89,64 +89,6 @@ impl WorldMap for ClientWorldMap {
 
         chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
     }
-
-    fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
-        // Check all blocks inside the hitbox
-        for x in (hitbox.min.x.round() as i32)..=(hitbox.max.x.round() as i32) {
-            for y in (hitbox.min.y.round() as i32)..=(hitbox.max.y.round() as i32) {
-                for z in (hitbox.min.z.round() as i32)..=(hitbox.max.z.round() as i32) {
-                    if let Some(block) = self.get_block_by_coordinates(&IVec3::new(x, y, z)) {
-                        if block.id.has_hitbox() {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    fn check_collision_point(&self, point: &Vec3) -> bool {
-        if let Some(block) = self.get_block_by_coordinates(&IVec3::new(
-            point.x.round() as i32,
-            point.y.round() as i32,
-            point.z.round() as i32,
-        )) {
-            block.id.has_hitbox()
-        } else {
-            false
-        }
-    }
-
-    fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3> {
-        let mut chunks: Vec<IVec3> = Vec::new();
-        let x: i32 = position.x.round() as i32;
-        let y: i32 = position.y.round() as i32;
-        let z: i32 = position.z.round() as i32;
-        let cx: i32 = block_to_chunk_coord(x);
-        let cy: i32 = block_to_chunk_coord(y);
-        let cz: i32 = block_to_chunk_coord(z);
-        for dx in -radius..=radius {
-            for dy in -radius..=radius {
-                for dz in -radius..=radius {
-                    chunks.push(IVec3::new(cx + dx, cy + dy, cz + dz));
-                }
-            }
-        }
-        chunks
-    }
-
-    fn get_heigh_ground(&self, position: Vec3) -> i32 {
-        for y in (0..256).rev() {
-            if self
-                .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
-                .is_some()
-            {
-                return y;
-            }
-        }
-        0
-    }
 }
 
 impl ClientWorldMap {

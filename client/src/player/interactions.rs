@@ -150,16 +150,18 @@ pub fn handle_block_interactions(
             );
 
             let unit_cube = Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-            let player_position = p_transform.single_mut().unwrap().translation;
+            let player_transform = p_transform.single().unwrap();
 
             let target_cube_center = block_to_create_pos + (unit_cube / 2.);
 
-            // Difference vector between player position and block center
-            let distance = (target_cube_center - player_position).abs();
+            // Directed vector : player -> interacted block
+            let delta = player_transform.translation - target_cube_center;
+            let distance = delta.abs();
 
-            debug!("Distance: {:?}", distance);
+            debug!("Delta: {:?}", delta);
+            debug!("Raycast hit face: {:?}", res.face);
             debug!("Block position: {:?}", block_to_create_pos);
-            debug!("Player position: {:?}", player_position);
+            debug!("Player position: {:?}", player_transform);
             debug!("Target cube center: {:?}", target_cube_center);
 
             if (block_to_create_pos - p_transform.single_mut().unwrap().translation).norm()

@@ -24,8 +24,6 @@ pub fn simulate_player_movement(
 
     let delta = action.delta_ms as f32 / 1000.0;
 
-    let mut is_jumping = false;
-
     let mut direction = Vec3::ZERO;
 
     if action.is_pressed(NetworkAction::ToggleFlyMode) {
@@ -34,9 +32,7 @@ pub fn simulate_player_movement(
 
     player.camera_transform.rotation = action.camera;
 
-    if action.is_pressed(NetworkAction::JumpOrFlyUp) {
-        is_jumping = true;
-    }
+    let is_jumping = action.is_pressed(NetworkAction::JumpOrFlyUp);
 
     // Calculate movement directions relative to the camera
     let mut forward = player.camera_transform.forward().xyz();
@@ -94,6 +90,9 @@ pub fn simulate_player_movement(
             player.position.y = new_y;
             player.on_ground = false;
         }
+    } else {
+        player.position.y = new_y;
+        player.on_ground = false;
     }
 
     let speed = if player.is_flying {
@@ -105,16 +104,24 @@ pub fn simulate_player_movement(
 
     // Attempt to move the player by the calculated direction
     let new_x = player.position.x + direction.x * speed;
-    let new_y = player.position.y + direction.y * speed;
     let new_z = player.position.z + direction.z * speed;
 
-    let new_vec = &Vec3::new(new_x, new_y, new_z);
-    if check_player_collision(new_vec, player, world_map) && !player.is_flying {
-        // If a block is detected in the new position, don't move the player
+    let new_vec_x = &player.position.with_x(new_x);
+    let new_vec_z = &player.position.with_z(new_z);
+
+    // If a block is detected in the new position, don't move the player on this axis
+    if check_player_collision(new_vec_x, player, world_map) && !player.is_flying {
     } else {
         player.position.x = new_x;
-        player.position.y = new_y;
+    }
+
+    if check_player_collision(new_vec_z, player, world_map) && !player.is_flying {
+    } else {
         player.position.z = new_z;
+    }
+
+    if player.is_flying {
+        player.position.y = player.position.y + direction.y * speed;
     }
 
     // If the player is below the world, reset their position
