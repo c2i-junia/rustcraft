@@ -10,7 +10,7 @@ use bevy::{
 };
 use shared::{
     world::{global_block_to_chunk_pos, SIX_OFFSETS},
-    CHUNK_SIZE, HALF_BLOCK,
+    CHUNK_SIZE,
 };
 
 use crate::{

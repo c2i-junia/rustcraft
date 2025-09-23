@@ -180,9 +180,10 @@ pub trait WorldMap {
 
     fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
         // Check all blocks inside the hitbox
-        for x in (hitbox.min.x as i32)..=(hitbox.max.x as i32) {
-            for y in (hitbox.min.y as i32)..=(hitbox.max.y as i32) {
-                for z in (hitbox.min.z as i32)..=(hitbox.max.z as i32) {
+        // Manual flooring is needed for negative coordinates
+        for x in (hitbox.min.x.floor() as i32)..=(hitbox.max.x.floor() as i32) {
+            for y in (hitbox.min.y.floor() as i32)..=(hitbox.max.y.floor() as i32) {
+                for z in (hitbox.min.z.floor() as i32)..=(hitbox.max.z.floor() as i32) {
                     if let Some(block) = self.get_block_by_coordinates(&IVec3::new(x, y, z)) {
                         if block.id.has_hitbox() {
                             return true;
@@ -196,9 +197,9 @@ pub trait WorldMap {
 
     fn check_collision_point(&self, point: &Vec3) -> bool {
         if let Some(block) = self.get_block_by_coordinates(&IVec3::new(
-            point.x as i32,
-            point.y as i32,
-            point.z as i32,
+            point.x.floor() as i32,
+            point.y.floor() as i32,
+            point.z.floor() as i32,
         )) {
             block.id.has_hitbox()
         } else {

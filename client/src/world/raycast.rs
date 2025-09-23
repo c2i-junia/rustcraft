@@ -1,11 +1,7 @@
 use crate::player::ViewMode;
 
 use super::ClientWorldMap;
-use bevy::{
-    color::palettes::css::{BLACK, GREEN, ORANGE, RED},
-    math::bounding::Aabb3d,
-    prelude::*,
-};
+use bevy::{math::bounding::Aabb3d, prelude::*};
 use shared::{
     world::{BlockData, WorldMap},
     HALF_BLOCK,
@@ -110,7 +106,9 @@ fn raycast_from_source_position_and_direction(
 
     let mut axis = 0;
 
-    let mut voxel = origin.as_ivec3();
+    // Origin, constrained to its voxel (integer) position
+    // Explicit flooring needed for negative coordinates
+    let mut voxel = origin.floor().as_ivec3();
 
     // Calculate tMax (distance to first voxel boundary)
     // Needed so that the player's position inside a voxel doesn't mess up the ray projection
@@ -128,7 +126,7 @@ fn raycast_from_source_position_and_direction(
     let mut distance = 0.0;
 
     // Actual raycast loop
-    while distance < 10.0 {
+    while distance < 20.0 {
         if let Some(block) = world_map.get_block_by_coordinates(&voxel) {
             return Some(RaycastResponse {
                 block: block.clone(),
@@ -170,6 +168,7 @@ fn raycast_from_source_position_and_direction(
 }
 
 // Computes the collision between an AABB and a raycasting ray
+#[allow(dead_code)]
 fn aabb_ray_hit(aabb: &Aabb3d, origin: &Vec3, inv_dir: &Vec3) -> Option<(f32, f32)> {
     let mut tmin: f32 = 0.;
     let mut tmax: f32 = f32::INFINITY;

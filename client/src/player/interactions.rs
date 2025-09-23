@@ -5,7 +5,7 @@ use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
 use crate::world::{raycast, ClientWorldMap};
 use crate::world::{FaceDirectionExt, WorldRenderRequestUpdateEvent};
-use bevy::color::palettes::css::{self, WHITE};
+use bevy::color::palettes::css::{self, BLUE, WHITE};
 use bevy::math::NormedVectorSpace;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;

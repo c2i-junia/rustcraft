@@ -65,7 +65,7 @@ pub fn simulate_player_movement(
     if !player.is_flying {
         if player.on_ground && is_jumping {
             // Player can jump only when grounded
-            player.velocity.y = JUMP_VELOCITY * delta;
+            player.velocity.y += JUMP_VELOCITY * delta;
             player.on_ground = false;
         } else if !player.on_ground {
             // Apply gravity when the player is in the air
@@ -76,12 +76,6 @@ pub fn simulate_player_movement(
     let new_y = player.position.y + player.velocity.y;
     let new_vec = &Vec3::new(player.position.x, new_y, player.position.z);
 
-    let max_velocity = 0.9;
-
-    if player.velocity.y > max_velocity {
-        player.velocity.y = max_velocity;
-    }
-
     if !player.is_flying {
         if check_player_collision(new_vec, player, world_map) {
             player.on_ground = true;
@@ -91,6 +85,7 @@ pub fn simulate_player_movement(
             player.on_ground = false;
         }
     } else {
+        player.velocity.y = 0.0;
         player.position.y = new_y;
         player.on_ground = false;
     }
