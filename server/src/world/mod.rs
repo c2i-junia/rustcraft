@@ -1,6 +1,6 @@
 pub mod background_generation;
 pub mod broadcast_world;
-mod data;
+pub(crate) mod data;
 pub mod generation;
 pub mod load_from_file;
 pub mod save;

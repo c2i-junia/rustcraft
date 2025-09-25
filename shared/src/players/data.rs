@@ -121,7 +121,7 @@ impl Inventory {
     }
 }
 
-#[derive(Component, Clone, Serialize, Deserialize, Debug)]
+#[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Player {
     pub id: PlayerId,
     pub name: String,

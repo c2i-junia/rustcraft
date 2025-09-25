@@ -124,11 +124,7 @@ pub(crate) fn generate_chunk_mesh(
             .iter()
             .map(|v| {
                 let v = rotate_vertices(v, &block.direction);
-                [
-                    v[0] + x,
-                    if block.flipped { 1. - v[1] } else { v[1] } + y,
-                    v[2] + z,
-                ]
+                [v[0] + x, v[1] + y, v[2] + z]
             })
             .collect();
 

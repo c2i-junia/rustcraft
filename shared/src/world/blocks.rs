@@ -56,16 +56,14 @@ pub enum BlockDirection {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockData {
     pub id: BlockId,
-    pub flipped: bool,
     pub direction: BlockDirection,
     pub breaking_progress: u8,
 }
 
 impl BlockData {
-    pub fn new(id: BlockId, flipped: bool, direction: BlockDirection) -> Self {
+    pub fn new(id: BlockId, direction: BlockDirection) -> Self {
         BlockData {
             id,
-            flipped,
             direction,
             breaking_progress: 0,
         }

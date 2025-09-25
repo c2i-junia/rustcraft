@@ -1,21 +1,16 @@
 use crate::messages::PlayerId;
 use crate::players::Player;
-use crate::world::block_to_chunk_coord;
-use crate::world::global_block_to_chunk_pos;
-use crate::world::to_local_pos;
-use crate::world::BlockId;
+use crate::world::{block_to_chunk_coord, global_block_to_chunk_pos, to_local_pos, BlockId};
 use crate::CHUNK_SIZE;
-use bevy::math::bounding::Aabb3d;
-use bevy::prelude::*;
+
+use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
+use bevy_ecs::resource::Resource;
+use bevy_log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use super::BlockData;
-use super::ItemId;
-use super::ItemType;
-use super::MobId;
-use super::ServerMob;
+use super::{BlockData, ItemId, ItemType, MobId, ServerMob};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ServerItemStack {
@@ -53,7 +48,7 @@ pub struct ServerChunkWorldMap {
     pub chunks_to_update: Vec<IVec3>,
 }
 
-#[derive(Resource, Clone, Copy, Serialize, Deserialize)]
+#[derive(Resource, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct WorldSeed(pub u32);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Copy, Default)]

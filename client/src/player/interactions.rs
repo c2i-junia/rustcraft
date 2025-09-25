@@ -5,7 +5,7 @@ use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
 use crate::world::{raycast, ClientWorldMap};
 use crate::world::{FaceDirectionExt, WorldRenderRequestUpdateEvent};
-use bevy::color::palettes::css::{self, BLUE, WHITE};
+use bevy::color::palettes::css::{self, WHITE};
 use bevy::math::NormedVectorSpace;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
@@ -180,8 +180,7 @@ pub fn handle_block_interactions(
                             block_to_create_pos.y as i32,
                             block_to_create_pos.z as i32,
                         );
-                        let block =
-                            BlockData::new(block_id, false, shared::world::BlockDirection::Front);
+                        let block = BlockData::new(block_id, shared::world::BlockDirection::Front);
 
                         world_map.set_block(&block_pos, block);
 

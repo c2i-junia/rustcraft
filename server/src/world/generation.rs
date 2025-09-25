@@ -9,7 +9,7 @@ fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId
     for dy in 0..trunk_height {
         chunk.map.insert(
             IVec3::new(x, y + dy as i32, z),
-            BlockData::new(trunk, false, BlockDirection::Front),
+            BlockData::new(trunk, BlockDirection::Front),
         );
     }
 
@@ -26,7 +26,7 @@ fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId
                 if cond1 || cond2 {
                     chunk.map.insert(
                         IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, false, BlockDirection::Front),
+                        BlockData::new(leaves, BlockDirection::Front),
                     );
                 }
             }
@@ -34,7 +34,7 @@ fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId
     }
     chunk.map.insert(
         IVec3::new(x, y + trunk_height as i32 - 1, z),
-        BlockData::new(trunk, false, BlockDirection::Front),
+        BlockData::new(trunk, BlockDirection::Front),
     );
 
     // add one leaf block at the top of the trunk
@@ -59,25 +59,25 @@ fn generate_big_tree(
         for dx in 0..prof {
             chunk.map.insert(
                 IVec3::new(branch_x + dx as i32, branch_y, branch_z + 1),
-                BlockData::new(leaves, false, BlockDirection::Front),
+                BlockData::new(leaves, BlockDirection::Front),
             );
             chunk.map.insert(
                 IVec3::new(branch_x + dx as i32, branch_y, branch_z - 1),
-                BlockData::new(leaves, false, BlockDirection::Front),
+                BlockData::new(leaves, BlockDirection::Front),
             );
             chunk.map.insert(
                 IVec3::new(branch_x + dx as i32, branch_y + 1, branch_z),
-                BlockData::new(leaves, false, BlockDirection::Front),
+                BlockData::new(leaves, BlockDirection::Front),
             );
 
             chunk.map.insert(
                 IVec3::new(branch_x + dx as i32, branch_y, branch_z),
-                BlockData::new(trunk, false, BlockDirection::Front),
+                BlockData::new(trunk, BlockDirection::Front),
             );
         }
         chunk.map.insert(
             IVec3::new(branch_x + prof as i32, branch_y, branch_z),
-            BlockData::new(leaves, false, BlockDirection::Front),
+            BlockData::new(leaves, BlockDirection::Front),
         );
     }
     // create trunk
@@ -85,7 +85,7 @@ fn generate_big_tree(
     for dy in 0..trunk_height {
         chunk.map.insert(
             IVec3::new(x, y + dy as i32, z),
-            BlockData::new(trunk, false, BlockDirection::Front),
+            BlockData::new(trunk, BlockDirection::Front),
         );
     }
 
@@ -98,7 +98,7 @@ fn generate_big_tree(
                 if !(offset_x == 0 && offset_z == 0 || offset_x.abs() == 2 && offset_z.abs() == 2) {
                     chunk.map.insert(
                         IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, false, BlockDirection::Front),
+                        BlockData::new(leaves, BlockDirection::Front),
                     );
                 }
             }
@@ -108,7 +108,7 @@ fn generate_big_tree(
     // add one leaf block at the top of the trunk
     chunk.map.insert(
         IVec3::new(x, leaf_start_y + 2, z),
-        BlockData::new(leaves, false, BlockDirection::Front),
+        BlockData::new(leaves, BlockDirection::Front),
     );
 
     // Add random leaves above the top leaf
@@ -123,7 +123,7 @@ fn generate_big_tree(
                 if cond1 || cond2 {
                     chunk.map.insert(
                         IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, false, BlockDirection::Front),
+                        BlockData::new(leaves, BlockDirection::Front),
                     );
                 }
             }
@@ -136,7 +136,7 @@ fn generate_cactus(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, cactus: Bloc
     for dy in 0..cactus_height {
         chunk.map.insert(
             IVec3::new(x, y + dy as i32, z),
-            BlockData::new(cactus, false, BlockDirection::Front),
+            BlockData::new(cactus, BlockDirection::Front),
         );
     }
 }
@@ -317,10 +317,9 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
 
                 let block_pos = IVec3::new(dx, dy, dz);
 
-                chunk.map.insert(
-                    block_pos,
-                    BlockData::new(block, false, BlockDirection::Front),
-                );
+                chunk
+                    .map
+                    .insert(block_pos, BlockData::new(block, BlockDirection::Front));
 
                 // Add flora in biomes
                 if y == terrain_height && terrain_height > 62 {
@@ -340,7 +339,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
 
                                 chunk.map.insert(
                                     block_pos.with_y(block_pos.y + 1),
-                                    BlockData::new(flower_type, false, BlockDirection::Front),
+                                    BlockData::new(flower_type, BlockDirection::Front),
                                 );
                             }
                         }
@@ -355,7 +354,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
 
                                 chunk.map.insert(
                                     block_pos.with_y(block_pos.y + 1),
-                                    BlockData::new(flower_type, false, BlockDirection::Front),
+                                    BlockData::new(flower_type, BlockDirection::Front),
                                 );
                             }
                         }
@@ -371,7 +370,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
                         if tall_grass_chance < 0.10 {
                             chunk.map.insert(
                                 block_pos.with_y(block_pos.y + 1),
-                                BlockData::new(BlockId::TallGrass, false, BlockDirection::Front),
+                                BlockData::new(BlockId::TallGrass, BlockDirection::Front),
                             );
                         }
                     }

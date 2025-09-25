@@ -11,7 +11,7 @@ fn create_new_mob_id() -> u128 {
 }
 
 pub fn manage_mob_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
-    if time.0 == 100 {
+    if time.0 == 100 && !world_map.players.is_empty() {
         debug!("Should spawn mob");
 
         let id = create_new_mob_id();

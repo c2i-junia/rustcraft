@@ -1,6 +1,9 @@
-use crate::network::{
-    cleanup::cleanup_all_players_from_world,
-    dispatcher::{self, setup_resources_and_events},
+use crate::{
+    network::{
+        cleanup::cleanup_all_players_from_world,
+        dispatcher::{self, setup_resources_and_events},
+    },
+    world::{data::SAVE_PATH, load_from_file::load_world_data},
 };
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
@@ -14,14 +17,14 @@ use bevy_renet::{
 };
 use serde::{Deserialize, Serialize};
 use shared::{
-    get_shared_renet_config, messages::PlayerId, GameFolderPaths, GameServerConfig,
-    TICKS_PER_SECOND,
+    get_shared_renet_config,
+    messages::PlayerId,
+    world::{get_game_folder, ServerChunkWorldMap, ServerWorldMap},
+    GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, net::IpAddr};
-
-use crate::world::load_from_file::{load_world_map, load_world_seed, load_world_time};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -87,16 +90,18 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: Strin
         ))),
     );
 
+    let game_folder_paths = GameFolderPaths {
+        game_folder_path: game_folder_path.clone(),
+        assets_folder_path: format!("{game_folder_path}/data"),
+    };
+
     app.add_plugins(RenetServerPlugin);
     app.add_plugins(FrameTimeDiagnosticsPlugin::default());
     app.add_plugins(LogDiagnosticsPlugin::default());
     app.add_plugins(bevy::log::LogPlugin::default());
 
     app.insert_resource(ServerLobby::default());
-    app.insert_resource(GameFolderPaths {
-        game_folder_path: game_folder_path.clone(),
-        assets_folder_path: format!("{game_folder_path}/data"),
-    });
+    app.insert_resource(game_folder_paths.clone());
 
     let world_name = &config.world_name.clone();
 
@@ -109,39 +114,53 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: Strin
     setup_resources_and_events(&mut app);
 
     // Load world from files
-    let mut world_map = match load_world_map(world_name, &app) {
-        Ok(world) => world,
-        Err(e) => {
-            error!("Error loading world: {}. Generating a new one.", e);
-            panic!();
-        }
-    };
+    let world_data =
+        match load_world_data(world_name, app.world().get_resource::<GameFolderPaths>()) {
+            Ok(data) => data,
+            Err(err) => {
+                error!(
+                    "Failed to load world {} & failed to create a default world : {}",
+                    world_name, err
+                );
+                panic!()
+            }
+        };
 
-    let world_seed = match load_world_seed(world_name, &app) {
-        Ok(seed) => {
-            info!("World seed loaded successfully: {}", seed.0);
-            seed
-        }
-        Err(e) => {
-            error!("Error loading seed: {}. Generating a new one.", e);
-            panic!();
-        }
-    };
-
-    let server_time = match load_world_time(world_name, &app) {
-        Ok(time) => time,
-        Err(e) => {
-            error!("Error loading time: {}. Defaulting to 0.", e);
-            0
-        }
+    let mut world_map = ServerWorldMap {
+        name: world_data.name,
+        chunks: ServerChunkWorldMap {
+            map: world_data.map,
+            chunks_to_update: Vec::new(),
+        },
+        players: HashMap::new(),
+        mobs: world_data.mobs,
+        item_stacks: world_data.item_stacks,
+        time: world_data.time,
     };
 
     cleanup_all_players_from_world(&mut world_map);
 
     // Insert world_map and seed into ressources
     app.insert_resource(world_map);
-    app.insert_resource(world_seed);
-    app.insert_resource(ServerTime(server_time));
+    app.insert_resource(world_data.seed);
+    app.insert_resource(ServerTime(world_data.time));
+
+    // Create save folder if does not already exist
+    let save_folder = format!(
+        "{}{}/players/",
+        get_game_folder(Some(&game_folder_paths))
+            .join(SAVE_PATH)
+            .display(),
+        world_name
+    );
+
+    if let Err(err) = std::fs::create_dir_all(save_folder) {
+        error!(
+            "Could not create save directory for map {} : {}",
+            world_name, err
+        );
+        panic!();
+    }
 
     dispatcher::register_systems(&mut app);
 

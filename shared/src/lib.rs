@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use bevy::prelude::*;
+use bevy_ecs::resource::Resource;
+use bevy_log::debug;
 use bevy_renet::renet::{ChannelConfig, ConnectionConfig, SendType};
 use bincode::Options;
 

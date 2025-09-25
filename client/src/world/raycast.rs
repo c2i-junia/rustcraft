@@ -129,7 +129,7 @@ fn raycast_from_source_position_and_direction(
     while distance < 20.0 {
         if let Some(block) = world_map.get_block_by_coordinates(&voxel) {
             return Some(RaycastResponse {
-                block: block.clone(),
+                block: *block,
                 position: voxel,
                 face: match (axis, step[axis]) {
                     (0, -1) => FaceDirection::PlusX,
@@ -151,12 +151,10 @@ fn raycast_from_source_position_and_direction(
             } else {
                 axis = 2;
             }
+        } else if t.y < t.z {
+            axis = 1;
         } else {
-            if t.y < t.z {
-                axis = 1;
-            } else {
-                axis = 2;
-            }
+            axis = 2;
         }
 
         // Update the ray's position

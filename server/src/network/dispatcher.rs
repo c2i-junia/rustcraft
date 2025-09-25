@@ -5,6 +5,7 @@ use crate::network::cleanup::cleanup_player_from_world;
 use crate::world;
 use crate::world::background_generation::background_world_generation_system;
 use crate::world::broadcast_world::broadcast_world_state;
+use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
 use crate::world::BlockInteractionEvent;
@@ -16,7 +17,7 @@ use shared::messages::{
 };
 use shared::players::Player;
 use shared::world::ServerWorldMap;
-use shared::{GameServerConfig, TICKS_PER_SECOND};
+use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
 
 use super::extensions::SendGameMessageExtension;
 
@@ -72,6 +73,7 @@ fn server_update_system(
     config: Res<GameServerConfig>,
     mut world_map: ResMut<ServerWorldMap>,
     time: Res<ServerTime>,
+    game_folder_paths: Res<GameFolderPaths>,
 ) {
     for event in server_events.read() {
         debug!("event received");
@@ -82,7 +84,7 @@ fn server_update_system(
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 info!("Player {} disconnected: {}", client_id, reason);
                 lobby.players.remove(client_id);
-                cleanup_player_from_world(&mut world_map, client_id);
+                cleanup_player_from_world(&mut world_map, client_id, &mut ev_save_request);
             }
         }
     }
@@ -103,26 +105,27 @@ fn server_update_system(
                         .insert(client_id, LobbyPlayer::new(auth_req.username.clone()));
                     debug!("New lobby : {:?}", lobby);
 
-                    let maybe_existing_player = world_map.players.get(&client_id);
+                    // Load player data if it doesn't already exist
+                    let position = if let Some(player) = world_map.players.get(&client_id) {
+                        player.position
+                    } else {
+                        let data =
+                            load_player_data(&world_map.name, &client_id, &game_folder_paths);
 
-                    let new_position = match maybe_existing_player {
-                        Some(existing_player) => existing_player.position,
-                        None => Vec3::new(0.0, 80.0, 0.0),
+                        world_map.players.insert(
+                            client_id,
+                            Player {
+                                id: client_id,
+                                is_flying: data.is_flying,
+                                position: data.position,
+                                camera_transform: data.camera_transform,
+                                name: auth_req.username.clone(),
+                                ..default()
+                            },
+                        );
+
+                        data.position
                     };
-
-                    let camera_transform = match maybe_existing_player {
-                        Some(existing_player) => existing_player.camera_transform,
-                        None => Transform::default(),
-                    };
-
-                    let player_data = Player::new(
-                        client_id,
-                        auth_req.username.clone(),
-                        new_position,
-                        camera_transform,
-                    );
-
-                    world_map.players.insert(client_id, player_data);
 
                     let timestamp_ms: u64 = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -155,7 +158,7 @@ fn server_update_system(
                         let spawn_message = PlayerSpawnEvent {
                             id: *id,
                             name: player.name.clone(),
-                            position: Vec3::new(0.0, 80.0, 0.0),
+                            position,
                             camera_transform: Transform::default(),
                         };
 
@@ -206,7 +209,7 @@ fn server_update_system(
                 ClientToServerMessage::SaveWorldRequest => {
                     debug!("Save request received from client with session token");
 
-                    ev_save_request.write(SaveRequestEvent);
+                    ev_save_request.write(SaveRequestEvent::World);
                 }
                 ClientToServerMessage::BlockInteraction {
                     position,

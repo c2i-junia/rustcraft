@@ -4744,6 +4744,7 @@ version = "0.0.0"
 dependencies = [
  "bevy",
  "bevy_ecs",
+ "bevy_log",
  "bevy_platform",
  "bevy_renet",
  "bincode",

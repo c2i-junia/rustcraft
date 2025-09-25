@@ -18,7 +18,7 @@ pub fn simulate_player_movement(
     // let's check if the 9 chunks around the player are loaded
     let chunks = world_map.get_surrounding_chunks(player.position, 1);
     if chunks.len() < 9 {
-        debug!("Not enough chunks loaded, skipping movement simulation");
+        log::debug!("Not enough chunks loaded, skipping movement simulation");
         return;
     }
 
@@ -116,7 +116,7 @@ pub fn simulate_player_movement(
     }
 
     if player.is_flying {
-        player.position.y = player.position.y + direction.y * speed;
+        player.position.y += direction.y * speed;
     }
 
     // If the player is below the world, reset their position
