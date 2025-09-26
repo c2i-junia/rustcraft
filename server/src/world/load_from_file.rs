@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use ron::de::from_str;
-use shared::messages::PlayerId;
+use shared::messages::{PlayerId, PlayerSave};
 use shared::world::data::WorldSeed;
 use shared::world::get_game_folder;
 use shared::GameFolderPaths;
@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::world::data::SAVE_PATH;
-use crate::world::save::{PlayerSave, WorldData};
+use crate::world::save::WorldData;
 use std::path::PathBuf;
 
 pub fn load_world_data(

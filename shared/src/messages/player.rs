@@ -15,12 +15,18 @@ pub enum NetworkAction {
     ToggleFlyMode,
 }
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Debug, Clone)]
+pub struct PlayerSave {
+    pub position: Vec3,
+    pub camera_transform: Transform,
+    pub is_flying: bool,
+}
+
 #[derive(Event, Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PlayerSpawnEvent {
     pub id: PlayerId,
     pub name: String,
-    pub position: Vec3,
-    pub camera_transform: Transform,
+    pub data: PlayerSave,
 }
 
 #[derive(Event, Serialize, Deserialize, PartialEq, Debug, Clone)]

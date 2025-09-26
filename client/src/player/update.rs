@@ -56,12 +56,14 @@ pub fn spawn_players_system(
             }
         }
         let is_current_player = event.id == current_id;
-        let player = Player::new(
-            event.id,
-            event.name.clone(),
-            event.position,
-            Transform::default(),
-        );
+        let player = Player {
+            id: event.id,
+            name: event.name.clone(),
+            position: event.data.position,
+            camera_transform: event.data.camera_transform,
+            is_flying: event.data.is_flying,
+            ..default()
+        };
 
         let color = if is_current_player {
             Color::srgba(1.0, 0.0, 0.0, 1.0)
@@ -105,10 +107,13 @@ pub fn spawn_players_system(
 
             info!("aaa ---");
             for (transform, controller) in camera_query.iter_mut() {
-                *transform.into_inner() = event.camera_transform;
-                *controller.into_inner() = event.camera_transform.rotation.into();
+                *transform.into_inner() = event.data.camera_transform;
+                *controller.into_inner() = event.data.camera_transform.rotation.into();
 
-                info!("Setting camera transform: {:?}", event.camera_transform);
+                info!(
+                    "Setting camera transform: {:?}",
+                    event.data.camera_transform
+                );
             }
             info!("bbb ---");
         }

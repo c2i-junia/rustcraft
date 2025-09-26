@@ -12,7 +12,7 @@ use crate::world::BlockInteractionEvent;
 use bevy::prelude::*;
 use bevy_renet::renet::{RenetServer, ServerEvent};
 use shared::messages::{
-    AuthRegisterResponse, ChatConversation, ClientToServerMessage, FullChatMessage,
+    AuthRegisterResponse, ChatConversation, ClientToServerMessage, FullChatMessage, PlayerSave,
     PlayerSpawnEvent, ServerToClientMessage,
 };
 use shared::players::Player;
@@ -30,11 +30,14 @@ pub fn setup_resources_and_events(app: &mut App) {
 }
 
 pub fn register_systems(app: &mut App) {
-    app.add_systems(Update, server_update_system);
+    // Chaining the two so that saves are always done on the same frame as the request
+    app.add_systems(
+        Update,
+        (server_update_system, world::save::save_world_system).chain(),
+    );
 
     app.add_systems(Update, broadcast_world_state);
 
-    app.add_systems(Update, world::save::save_world_system);
     app.add_systems(Update, world::handle_block_interactions);
 
     app.add_systems(Update, crate::mob::manage_mob_spawning_system);
@@ -106,8 +109,9 @@ fn server_update_system(
                     debug!("New lobby : {:?}", lobby);
 
                     // Load player data if it doesn't already exist
-                    let position = if let Some(player) = world_map.players.get(&client_id) {
-                        player.position
+                    let registered_player = if let Some(player) = world_map.players.get(&client_id)
+                    {
+                        player
                     } else {
                         let data =
                             load_player_data(&world_map.name, &client_id, &game_folder_paths);
@@ -124,7 +128,7 @@ fn server_update_system(
                             },
                         );
 
-                        data.position
+                        world_map.players.get(&client_id).unwrap()
                     };
 
                     let timestamp_ms: u64 = std::time::SystemTime::now()
@@ -138,8 +142,11 @@ fn server_update_system(
                         .map(|(id, player)| PlayerSpawnEvent {
                             id: *id,
                             name: player.name.clone(),
-                            position: player.position,
-                            camera_transform: player.camera_transform,
+                            data: PlayerSave {
+                                position: player.position,
+                                camera_transform: player.camera_transform,
+                                is_flying: player.is_flying,
+                            },
                         })
                         .collect();
 
@@ -154,12 +161,16 @@ fn server_update_system(
 
                     server.send_game_message(client_id, auth_res.into());
 
+                    // Send message to all players that a new one spawned
                     for (id, player) in lobby.players.iter() {
                         let spawn_message = PlayerSpawnEvent {
                             id: *id,
                             name: player.name.clone(),
-                            position,
-                            camera_transform: Transform::default(),
+                            data: PlayerSave {
+                                position: registered_player.position,
+                                camera_transform: registered_player.camera_transform,
+                                is_flying: registered_player.is_flying,
+                            },
                         };
 
                         let spawn_message_wrapped =
@@ -187,6 +198,10 @@ fn server_update_system(
                 }
                 ClientToServerMessage::Exit => {
                     debug!("Received shutdown order...");
+
+                    // Save player data on exit
+                    ev_save_request.write(SaveRequestEvent::Player(client_id));
+
                     // TODO: add permission checks
                     if config.is_solo {
                         info!("Server is going down...");
@@ -209,7 +224,13 @@ fn server_update_system(
                 ClientToServerMessage::SaveWorldRequest => {
                     debug!("Save request received from client with session token");
 
-                    ev_save_request.write(SaveRequestEvent::World);
+                    // TODO : Check for permissions on multiplayer mode (server admin)
+
+                    // If in solo mode, save both world and player data
+                    if config.is_solo {
+                        ev_save_request.write(SaveRequestEvent::World);
+                        ev_save_request.write(SaveRequestEvent::Player(client_id));
+                    }
                 }
                 ClientToServerMessage::BlockInteraction {
                     position,

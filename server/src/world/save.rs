@@ -23,13 +23,6 @@ pub enum SaveRequestEvent {
 use crate::world::data::SAVE_PATH;
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
-pub struct PlayerSave {
-    pub position: Vec3,
-    pub camera_transform: Transform,
-    pub is_flying: bool,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct WorldData {
     pub map: HashMap<IVec3, ServerChunk>,
     pub mobs: HashMap<MobId, ServerMob>,

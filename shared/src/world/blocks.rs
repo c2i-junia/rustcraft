@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZero};
+use std::collections::HashMap;
 
 use crate::HALF_BLOCK;
 
