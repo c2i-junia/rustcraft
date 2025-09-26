@@ -106,16 +106,21 @@ pub fn handle_block_interactions(
         // Handle left-click for breaking blocks
         if mouse_input.pressed(MouseButton::Left) {
             let pos = res.position;
-            let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
+            let block_pos = pos.as_vec3();
             // Check if block is close enough to the player
             if (block_pos - p_transform.single_mut().unwrap().translation).norm()
                 < INTERACTION_DISTANCE
             {
+                let previous_breaking_lvl = res.block.get_breaking_level();
+
                 // Remove the hit block
                 let res = world_map.try_to_break_block(&pos);
 
                 if let Some((block, destroyed)) = res {
-                    ev_render.write(WorldRenderRequestUpdateEvent::BlockToReload(pos));
+                    // Update only if the block is destroyed, or its breaking level changes
+                    if destroyed || block.get_breaking_level() != previous_breaking_lvl {
+                        ev_render.write(WorldRenderRequestUpdateEvent::BlockToReload(pos));
+                    }
 
                     if destroyed {
                         // If block has corresponding item, add it to inventory

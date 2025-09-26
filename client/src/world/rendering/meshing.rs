@@ -97,8 +97,6 @@ pub(crate) fn generate_chunk_mesh(
                 uv_coords = uv_map.get("_Default").unwrap();
             }
 
-            let color_multiplier = 1.0 - block.breaking_progress as f32 / 60.0;
-
             let alpha = match visibility {
                 BlockTransparency::Liquid => 0.5,
                 _ => 1.0,
@@ -114,9 +112,31 @@ pub(crate) fn generate_chunk_mesh(
                     indices_offset,
                     face,
                     uv_coords,
-                    color_multiplier,
+                    1.0,
                     alpha,
                 );
+
+                if block.breaking_progress > 0 {
+                    // Overlay the current breaking progress based on the state of the current block (10 different states)
+                    let breaking_progress = block.get_breaking_level();
+
+                    info!("Breaking progress : {breaking_progress}");
+
+                    render_face(
+                        &mut local_vertices,
+                        &mut local_indices,
+                        &mut local_normals,
+                        &mut local_uvs,
+                        &mut local_colors,
+                        indices_offset,
+                        face,
+                        uv_map
+                            .get(&format!("DestroyStage{breaking_progress}"))
+                            .unwrap(),
+                        1.0,
+                        alpha,
+                    );
+                }
             }
         }
 

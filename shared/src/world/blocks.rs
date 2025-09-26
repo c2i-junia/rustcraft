@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZero};
 
 use crate::HALF_BLOCK;
 
@@ -68,6 +68,10 @@ impl BlockData {
             breaking_progress: 0,
         }
     }
+
+    pub fn get_breaking_level(&self) -> u8 {
+        ((self.breaking_progress as u16 * 10) / self.id.get_break_time() as u16) as u8
+    }
 }
 
 pub enum BlockTags {
@@ -96,7 +100,7 @@ impl BlockId {
     }
 
     pub fn get_break_time(&self) -> u8 {
-        match *self {
+        6 * match *self {
             Self::Dirt => 5,
             Self::Debug => 7,
             Self::Grass => 6,
@@ -108,9 +112,9 @@ impl BlockId {
             Self::Cactus => 4,
             Self::Ice => 5,
             Self::Glass => 3,
-            Self::Dandelion => 0,
-            Self::Poppy => 0,
-            Self::TallGrass => 0,
+            Self::Dandelion => 1,
+            Self::Poppy => 1,
+            Self::TallGrass => 1,
             Self::Cobblestone => 2,
             Self::Snow => 9,
             Self::SpruceLeaves => 2,

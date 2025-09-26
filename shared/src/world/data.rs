@@ -157,6 +157,7 @@ pub fn get_biome_data(biome_type: BiomeType) -> Biome {
 }
 
 pub trait WorldMap {
+    fn get_block_mut_by_coordinates(&mut self, position: &IVec3) -> Option<&mut BlockData>;
     fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData>;
     fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData>;
     fn set_block(&mut self, position: &IVec3, block: BlockData);
@@ -222,6 +223,25 @@ pub trait WorldMap {
 }
 
 impl WorldMap for ServerChunkWorldMap {
+    fn get_block_mut_by_coordinates(&mut self, position: &IVec3) -> Option<&mut BlockData> {
+        let x: i32 = position.x;
+        let y: i32 = position.y;
+        let z: i32 = position.z;
+        let cx: i32 = block_to_chunk_coord(x);
+        let cy: i32 = block_to_chunk_coord(y);
+        let cz: i32 = block_to_chunk_coord(z);
+        let chunk = self.map.get_mut(&IVec3::new(cx, cy, cz));
+        match chunk {
+            Some(chunk) => {
+                let sub_x: i32 = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                let sub_y: i32 = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                chunk.map.get_mut(&IVec3::new(sub_x, sub_y, sub_z))
+            }
+            None => None,
+        }
+    }
+
     fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
         let x: i32 = position.x;
         let y: i32 = position.y;

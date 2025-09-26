@@ -57,6 +57,25 @@ impl WorldMap for ClientWorldMap {
         }
     }
 
+    fn get_block_mut_by_coordinates(&mut self, position: &IVec3) -> Option<&mut BlockData> {
+        let x: i32 = position.x;
+        let y: i32 = position.y;
+        let z: i32 = position.z;
+        let cx: i32 = block_to_chunk_coord(x);
+        let cy: i32 = block_to_chunk_coord(y);
+        let cz: i32 = block_to_chunk_coord(z);
+        let chunk = self.map.get_mut(&IVec3::new(cx, cy, cz));
+        match chunk {
+            Some(chunk) => {
+                let sub_x: i32 = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                let sub_y: i32 = ((y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+                chunk.map.get_mut(&IVec3::new(sub_x, sub_y, sub_z))
+            }
+            None => None,
+        }
+    }
+
     fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData> {
         let block: &BlockData = self.get_block_by_coordinates(global_block_pos)?;
         let kind: BlockData = *block;
@@ -92,9 +111,6 @@ impl WorldMap for ClientWorldMap {
 
 impl ClientWorldMap {
     pub fn try_to_break_block(&mut self, position: &IVec3) -> Option<(BlockData, bool)> {
-        let block: &BlockData = self.get_block_by_coordinates(position)?;
-        let kind: BlockData = *block;
-
         let chunk_pos: IVec3 = global_block_to_chunk_pos(position);
 
         let chunk_map: &mut ClientChunk =
@@ -103,19 +119,17 @@ impl ClientWorldMap {
 
         let local_block_pos: IVec3 = to_local_pos(position);
 
-        let mut block = chunk_map.map.get_mut(&local_block_pos);
+        let block = chunk_map.map.get_mut(&local_block_pos)?;
+        block.breaking_progress += 1;
 
-        let data = block.take()?;
+        // Return block state after being modified
+        let res = block.clone();
 
-        data.breaking_progress += 1;
-
-        // info!("Block breaking progress: {}", data.breaking_progress);
-        if kind.id.get_break_time() != 100 && data.breaking_progress >= 6 * kind.id.get_break_time()
-        {
+        if block.breaking_progress >= block.id.get_break_time() {
             chunk_map.map.remove(&local_block_pos);
-            return Some((kind, true));
+            return Some((res, true));
         }
-        Some((kind, false))
+        Some((res, false))
     }
 }
 
