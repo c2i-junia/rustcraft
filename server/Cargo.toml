@@ -9,7 +9,7 @@ bevy_app = { version = "0.16", default-features=false }
 bevy_ecs = { version = "0.16", default-features=false }
 bevy_log = { version = "0.16" }
 bevy = { version = "0.16", features = ["serialize"]}
-bevy_renet = { git = "https://github.com/lucaspoffo/renet", package = "bevy_renet" }
+bevy_renet = "2.0.0"
 bincode = { version = "1.3.3" }
 serde = { version = "1.0.210", features = ["derive"] }
 rand = "0.8.5"
