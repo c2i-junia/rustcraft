@@ -213,7 +213,6 @@ fn server_update_system(
                     }
                 }
                 ClientToServerMessage::PlayerInputs(inputs) => {
-                    // info!("Received {} player inputs", inputs.len());
                     for input in inputs.iter() {
                         ev_player_inputs.write(PlayerInputsEvent {
                             client_id,

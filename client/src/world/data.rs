@@ -3,10 +3,10 @@ use shared::world::BlockData;
 use shared::world::WorldMap;
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::time::Instant;
 
 use bevy::math::IVec3;
 use bevy::prelude::Resource;
-use serde::{Deserialize, Serialize};
 use shared::world::block_to_chunk_coord;
 use shared::world::global_block_to_chunk_pos;
 use shared::world::to_local_pos;
@@ -22,14 +22,24 @@ pub enum GlobalMaterial {
     Items,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize, Debug)]
+#[derive(Clone, Debug)]
 pub struct ClientChunk {
     pub map: HashMap<IVec3, BlockData>, // Maps block positions within a chunk to block IDs
-    #[serde(skip)]
     pub entity: Option<Entity>,
+    pub last_mesh_ts: Instant, // When was the last time a mesh was created for this chunk ?
 }
 
-#[derive(Resource, Default, Clone, Serialize, Deserialize)]
+impl Default for ClientChunk {
+    fn default() -> Self {
+        Self {
+            map: HashMap::new(),
+            entity: None,
+            last_mesh_ts: Instant::now(),
+        }
+    }
+}
+
+#[derive(Resource, Default, Clone)]
 pub struct ClientWorldMap {
     pub name: String,
     pub map: HashMap<IVec3, crate::world::ClientChunk>, // Maps global chunk positions to chunks
@@ -123,7 +133,7 @@ impl ClientWorldMap {
         block.breaking_progress += 1;
 
         // Return block state after being modified
-        let res = block.clone();
+        let res = *block;
 
         if block.breaking_progress >= block.id.get_break_time() {
             chunk_map.map.remove(&local_block_pos);

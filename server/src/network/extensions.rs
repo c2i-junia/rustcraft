@@ -55,7 +55,6 @@ impl SendGameMessageExtension for RenetServer {
             );
             match msg {
                 Ok(msg) => {
-                    // info!("Received message: {:?}", msg);
                     return Some(Ok(msg));
                 }
                 Err(e) => {

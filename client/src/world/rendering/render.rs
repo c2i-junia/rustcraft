@@ -1,6 +1,6 @@
 use crate::{player::CurrentPlayerMarker, world::FirstChunkReceived};
-use std::collections::HashSet;
 use std::sync::Arc;
+use std::{collections::HashSet, time::Instant};
 
 use bevy::{
     asset::Assets,
@@ -18,24 +18,32 @@ use crate::{
     GameState,
 };
 
-use crate::world::ClientWorldMap;
+use crate::world::{ClientChunk, ClientWorldMap};
 
 use super::meshing::ChunkMeshResponse;
 
+#[derive(Debug)]
+pub struct MeshingTask {
+    pub chunk_pos: IVec3,
+    pub mesh_request_ts: Instant,
+    pub thread: Task<ChunkMeshResponse>,
+}
+
 #[derive(Debug, Default, Resource)]
 pub struct QueuedMeshes {
-    pub meshes: Vec<Task<(IVec3, ChunkMeshResponse)>>,
+    pub meshes: Vec<MeshingTask>,
 }
 
 fn update_chunk(
+    chunk: &mut ClientChunk,
     chunk_pos: &IVec3,
     material_resource: &MaterialResource,
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
-    world_map: &mut ClientWorldMap,
     new_meshes: ChunkMeshResponse,
 ) {
-    let chunk = world_map.map.get_mut(chunk_pos).unwrap();
+    // If the
+
     let solid_texture = material_resource
         .global_materials
         .get(&world::GlobalMaterial::Blocks)
@@ -63,7 +71,6 @@ fn update_chunk(
             .spawn((chunk_t, Visibility::Visible))
             .with_children(|root| {
                 if let Some(new_solid_mesh) = new_meshes.solid_mesh {
-                    // info!("Solid mesh added");
                     root.spawn((
                         StateScoped(GameState::Game),
                         Mesh3d(meshes.add(new_solid_mesh)),
@@ -72,7 +79,6 @@ fn update_chunk(
                 }
 
                 if let Some(new_liquid_mesh) = new_meshes.liquid_mesh {
-                    // info!("Liquid mesh added");
                     root.spawn((
                         StateScoped(GameState::Game),
                         Mesh3d(meshes.add(new_liquid_mesh)),
@@ -82,8 +88,7 @@ fn update_chunk(
             })
             .id();
 
-        let ch = world_map.map.get_mut(chunk_pos).unwrap();
-        ch.entity = Some(new_entity);
+        chunk.entity = Some(new_entity);
     }
     // debug!("ClientChunk updated : len={}", chunk.map.len());
 }
@@ -168,13 +173,14 @@ pub fn world_render_system(
                 let uvs_clone = Arc::clone(&uvs);
                 let ch = chunk.clone();
                 let t = pool.spawn(async move {
-                    (
-                        pos,
-                        world::meshing::generate_chunk_mesh(&map_clone, &ch, &pos, &uvs_clone),
-                    )
+                    world::meshing::generate_chunk_mesh(&map_clone, &ch, &pos, &uvs_clone)
                 });
 
-                queued_meshes.meshes.push(t);
+                queued_meshes.meshes.push(MeshingTask {
+                    chunk_pos: pos,
+                    mesh_request_ts: Instant::now(),
+                    thread: t,
+                });
             }
         }
         first_chunk_received.0 = true;
@@ -182,22 +188,34 @@ pub fn world_render_system(
 
     // Iterate through queued meshes to see if they are completed
     queued_meshes.meshes.retain_mut(|task| {
-        // If completed, then use the mesh to update the chunk and delete it from the meshing queue
-        if let Some((chunk_pos, new_meshs)) = block_on(future::poll_once(task)) {
-            // Update the corresponding chunk
-            if world_map.map.contains_key(&chunk_pos) {
+        let MeshingTask {
+            chunk_pos,
+            mesh_request_ts,
+            thread,
+        } = task;
+
+        if let Some(chunk) = world_map.map.get_mut(chunk_pos) {
+            // If a later mesh has been completed before, we can drop this task
+            if *mesh_request_ts < chunk.last_mesh_ts {
+                false
+            }
+            // If completed, use the mesh to update the chunk and delete it from the meshing queue
+            else if let Some(new_meshes) = block_on(future::poll_once(thread)) {
+                // Update the corresponding chunk
                 update_chunk(
-                    &chunk_pos,
+                    chunk,
+                    chunk_pos,
                     &material_resource,
                     &mut commands,
                     &mut meshes,
-                    &mut world_map,
-                    new_meshs.clone(),
+                    new_meshes,
                 );
+                false
+            } else {
+                // Else, keep the task until it is done
+                true
             }
-            false
         } else {
-            // Else, keep the task until it is done
             true
         }
     });

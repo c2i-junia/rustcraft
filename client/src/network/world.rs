@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::world::ClientChunk;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
@@ -43,6 +45,7 @@ pub fn update_world_from_network(
                                 None
                             }
                         },
+                        last_mesh_ts: Instant::now(),
                     };
 
                     world.map.insert(pos, chunk.clone());

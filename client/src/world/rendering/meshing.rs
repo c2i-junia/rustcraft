@@ -120,8 +120,6 @@ pub(crate) fn generate_chunk_mesh(
                     // Overlay the current breaking progress based on the state of the current block (10 different states)
                     let breaking_progress = block.get_breaking_level();
 
-                    info!("Breaking progress : {breaking_progress}");
-
                     render_face(
                         &mut local_vertices,
                         &mut local_indices,
