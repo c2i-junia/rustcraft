@@ -65,12 +65,18 @@ pub fn simulate_player_movement(
     if !player.is_flying {
         if player.on_ground && is_jumping {
             // Player can jump only when grounded
-            player.velocity.y += JUMP_VELOCITY * delta;
+            player.velocity.y = JUMP_VELOCITY * delta;
             player.on_ground = false;
         } else if !player.on_ground {
             // Apply gravity when the player is in the air
             player.velocity.y += GRAVITY * delta;
         }
+    }
+
+    let max_velocity = 0.9;
+
+    if player.velocity.y > max_velocity {
+        player.velocity.y = max_velocity;
     }
 
     let new_y = player.position.y + player.velocity.y;

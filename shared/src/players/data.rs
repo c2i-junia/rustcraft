@@ -121,7 +121,7 @@ impl Inventory {
     }
 }
 
-#[derive(Component, Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Component, Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
     pub id: PlayerId,
     pub name: String,
@@ -155,5 +155,22 @@ impl Player {
     pub fn toggle_fly_mode(&mut self) {
         self.is_flying = !self.is_flying;
         self.velocity = Vec3::ZERO;
+    }
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: "Default".into(),
+            position: Vec3::ZERO,
+            camera_transform: Transform::default(),
+            velocity: Vec3::ZERO,
+            on_ground: true,
+            is_flying: false,
+            height: 1.8,
+            width: 0.8,
+            last_input_processed: 0,
+        }
     }
 }

@@ -5,7 +5,7 @@ use crate::{
 };
 use bevy::prelude::*;
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Reflect)]
 pub struct RenderDistance {
     pub distance: u32,
 }

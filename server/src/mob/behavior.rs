@@ -15,7 +15,13 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
         let target = match mob.target {
             MobTarget::Position(pos) => pos,
             MobTarget::None => continue,
-            MobTarget::Player(id) => world_map.players.get(&id).unwrap().position,
+            MobTarget::Player(id) => {
+                if let Some(player) = world_map.players.get(&id) {
+                    player.position
+                } else {
+                    mob.position
+                }
+            }
             MobTarget::Mob(id) => world_map.mobs.get(&id).unwrap().position,
         };
 

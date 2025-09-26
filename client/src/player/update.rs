@@ -146,9 +146,13 @@ pub fn update_players_system(
     world_map: Res<ClientWorldMap>,
 ) {
     let my_id = client.session_token.unwrap();
+
+    // Read all updates
     for event in ev_player_update.read() {
+        // Get the player associated with the event
         for (mut player, mut transform) in players.iter_mut() {
             if player.id == event.id && event.id == my_id {
+                // Get the local input matching this update event
                 let matching_input = unacknowledged_inputs
                     .0
                     .iter()
@@ -184,9 +188,6 @@ pub fn update_players_system(
                             remaining_inputs.len()
                         );
                     }
-                    //  else {
-                    //     debug!("Player position matches: {:?}", player.position);
-                    // }
                 } else {
                     debug!(
                         "No matching input found for last ack time: {} | {:?}",
