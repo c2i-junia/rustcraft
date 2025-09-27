@@ -153,12 +153,11 @@ pub fn game_plugin(app: &mut App) {
             Update,
             (
                 render_distance_update_system,
-                player_movement_system,
                 first_and_third_person_view_system,
                 toggle_chunk_debug_mode_system,
                 toggle_raycast_debug_mode_system,
                 chunk_force_reload_system,
-                (handle_block_interactions, camera_control_system).chain(),
+                (player_movement_system, camera_control_system).chain(),
                 fps_text_update_system,
                 coords_text_update_system,
                 total_blocks_text_update_system,
@@ -171,7 +170,6 @@ pub fn game_plugin(app: &mut App) {
                 handle_mouse_system,
                 update_celestial_bodies,
             )
-                .chain()
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(
@@ -210,7 +208,8 @@ pub fn game_plugin(app: &mut App) {
         )
         .add_systems(
             FixedUpdate,
-            upload_player_inputs_system.run_if(in_state(GameState::Game)),
+            (upload_player_inputs_system, handle_block_interactions)
+                .run_if(in_state(GameState::Game)),
         )
         .add_systems(
             FixedPostUpdate,

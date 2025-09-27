@@ -6,7 +6,7 @@ use crate::{
     },
     world::WorldMap,
 };
-use bevy::prelude::*;
+use bevy::{math::NormedVectorSpace, prelude::*};
 
 use super::Player;
 
@@ -35,11 +35,19 @@ pub fn simulate_player_movement(
     let is_jumping = action.is_pressed(NetworkAction::JumpOrFlyUp);
 
     // Calculate movement directions relative to the camera
-    let mut forward = player.camera_transform.forward().xyz();
-    forward.y = 0.0;
+    let forward = player
+        .camera_transform
+        .forward()
+        .xyz()
+        .with_y(0.0)
+        .normalize();
 
-    let mut right = player.camera_transform.right().xyz();
-    right.y = 0.0;
+    let right = player
+        .camera_transform
+        .right()
+        .xyz()
+        .with_y(0.0)
+        .normalize();
 
     // Adjust direction based on key presses
     if action.is_pressed(NetworkAction::MoveBackward) {
@@ -54,6 +62,12 @@ pub fn simulate_player_movement(
     if action.is_pressed(NetworkAction::MoveRight) {
         direction += right;
     }
+
+    // Normalize direction to prevent faster movement with diagonals
+    if direction != Vec3::ZERO {
+        direction = direction.normalize();
+    }
+
     if action.is_pressed(NetworkAction::JumpOrFlyUp) {
         direction += Vec3::Y;
     }

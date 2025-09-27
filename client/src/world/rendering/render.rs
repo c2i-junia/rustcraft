@@ -119,6 +119,8 @@ pub fn world_render_system(
 
     if !events.is_empty() {
         let start = std::time::Instant::now();
+
+        // Clone map only once, then share it as read-only across all meshing threads
         let map_ptr = Arc::new(world_map.clone());
         let delta = start.elapsed();
         info!("cloning map for render, took {:?}", delta);
