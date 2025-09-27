@@ -12,6 +12,14 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
     let mut mobs = world_map.mobs.clone();
 
     for (_mob_id, mob) in mobs.iter_mut() {
+        //log::info!("Mob is at position: {:?}", mob.position);
+        if (mob.position.x.is_nan() || mob.position.y.is_nan() || mob.position.z.is_nan())
+            || (mob.velocity.x.is_nan() || mob.velocity.y.is_nan() || mob.velocity.z.is_nan())
+        {
+            //log::error!("Mob has NaN position or velocity");
+            // TODO: FIX mob position
+            return;
+        }
         let target = match mob.target {
             MobTarget::Position(pos) => pos,
             MobTarget::None => continue,
@@ -38,6 +46,11 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
         if mob.velocity.y > max_velocity {
             mob.velocity.y = max_velocity;
         }
+        //log::debug!("New vec: {:?}", new_vec);
+        //log::debug!(
+        //    "Mob AABB: {:?}",
+        //    Aabb3d::new(*new_vec, Vec3::new(mob.width, mob.height, mob.deepth) / 2.0)
+        //);
         if world_map.chunks.check_collision_box(&Aabb3d::new(
             *new_vec,
             Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,

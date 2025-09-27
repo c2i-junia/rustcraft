@@ -58,7 +58,6 @@ pub fn broadcast_world_state(
             new_map: get_world_map_chunks_to_send(chunks, players, &player),
             mobs: mobs.clone(),
             item_stacks: get_items_stacks(),
-            player_events: vec![],
         };
 
         if msg.new_map.is_empty() {
@@ -69,6 +68,9 @@ pub fn broadcast_world_state(
 
         server.send_game_message(*client, message);
     }
+
+    // Clear the list of chunks that needed updates after broadcasting to all clients
+    chunks.chunks_to_update.clear();
 }
 
 fn get_world_map_chunks_to_send(
@@ -80,6 +82,17 @@ fn get_world_map_chunks_to_send(
     let mut map: HashMap<IVec3, ServerChunk> = HashMap::new();
 
     let active_chunks = get_all_active_chunks(players, BROADCAST_RENDER_DISTANCE);
+
+    // First, handle chunks that need to be updated (re-sent due to modifications)
+    for &chunk_pos in &chunks.chunks_to_update {
+        if active_chunks.contains(&chunk_pos) {
+            if let Some(chunk) = chunks.map.get_mut(&chunk_pos) {
+                // Clear sent_to_clients list so the chunk will be re-sent to all players
+                chunk.sent_to_clients.clear();
+            }
+        }
+    }
+
     for c in active_chunks {
         if map.len() >= 10 {
             break;

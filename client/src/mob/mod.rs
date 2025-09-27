@@ -26,7 +26,7 @@ pub struct TargetedMobData {
     #[allow(dead_code)]
     pub name: String,
     pub id: u128,
-    pub entity: Entity,
+    //pub entity: Entity,
 }
 
 #[derive(Debug, Resource, Clone, Default)]

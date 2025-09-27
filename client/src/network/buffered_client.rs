@@ -1,5 +1,5 @@
 use bevy::{platform::collections::HashSet, prelude::*};
-use shared::messages::PlayerFrameInput;
+use shared::{messages::PlayerFrameInput, players::ViewMode};
 
 #[derive(Debug, Default, Resource)]
 pub struct PlayerTickInputsBuffer {
@@ -19,8 +19,10 @@ impl CurrentFrameInputsExt for CurrentFrameInputs {
             time_ms: new_time,
             delta_ms: new_delta,
             inputs: HashSet::default(),
-            camera: Quat::default(),
+            camera: Transform::default(),
             position: Vec3::default(),
+            hotbar_slot: 0,
+            view_mode: ViewMode::default(),
         };
     }
 }

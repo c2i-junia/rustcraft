@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy_atmosphere::prelude::*;
 use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{ItemStackUpdateEvent, PlayerSpawnEvent, PlayerUpdateEvent};
-use shared::players::Inventory;
+use shared::players::{Inventory, ViewMode};
 use shared::TICKS_PER_SECOND;
 use time::time_update_system;
 

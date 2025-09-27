@@ -1,8 +1,10 @@
-use crate::player::ViewMode;
+use bevy::{
+    math::{bounding::Aabb3d, IVec3, Vec3},
+    transform::components::Transform,
+};
 
-use super::ClientWorldMap;
-use bevy::{math::bounding::Aabb3d, prelude::*};
-use shared::{
+use crate::{
+    players::ViewMode,
     world::{BlockData, WorldMap},
     HALF_BLOCK,
 };
@@ -43,21 +45,19 @@ pub struct RaycastResponse {
 }
 
 pub fn raycast(
-    world_map: &ClientWorldMap,
+    world_map: &impl WorldMap,
     camera_transform: &Transform,
-    player_transform: &Transform,
+    player_position: &Vec3,
     view_mode: ViewMode,
 ) -> Option<RaycastResponse> {
     match view_mode {
         ViewMode::FirstPerson => first_person_raycast(world_map, camera_transform),
-        ViewMode::ThirdPerson => {
-            third_person_raycast(world_map, camera_transform, player_transform)
-        }
+        ViewMode::ThirdPerson => third_person_raycast(world_map, camera_transform, player_position),
     }
 }
 
 fn first_person_raycast(
-    world_map: &ClientWorldMap,
+    world_map: &impl WorldMap,
     camera_transform: &Transform,
 ) -> Option<RaycastResponse> {
     let camera_position = camera_transform.translation;
@@ -73,12 +73,10 @@ fn first_person_raycast(
 }
 
 fn third_person_raycast(
-    world_map: &ClientWorldMap,
+    world_map: &impl WorldMap,
     camera_transform: &Transform,
-    player_transform: &Transform,
+    player_position: &Vec3,
 ) -> Option<RaycastResponse> {
-    let player_position = player_transform.translation;
-
     let camera_rotation = camera_transform.rotation;
 
     let camera_direction = camera_rotation
@@ -87,15 +85,15 @@ fn third_person_raycast(
 
     let direction = camera_direction;
 
-    let current_position = player_position;
+    let current_position = *player_position;
 
     raycast_from_source_position_and_direction(world_map, current_position, direction)
 }
 
 // Amanatides-Woo fast traversal algorithm
 // Tweaked to include block-specific interaction boxes
-fn raycast_from_source_position_and_direction(
-    world_map: &ClientWorldMap,
+pub fn raycast_from_source_position_and_direction(
+    world_map: &impl WorldMap,
     origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
@@ -167,7 +165,7 @@ fn raycast_from_source_position_and_direction(
 
 // Computes the collision between an AABB and a raycasting ray
 #[allow(dead_code)]
-fn aabb_ray_hit(aabb: &Aabb3d, origin: &Vec3, inv_dir: &Vec3) -> Option<(f32, f32)> {
+pub fn aabb_ray_hit(aabb: &Aabb3d, origin: &Vec3, inv_dir: &Vec3) -> Option<(f32, f32)> {
     let mut tmin: f32 = 0.;
     let mut tmax: f32 = f32::INFINITY;
 

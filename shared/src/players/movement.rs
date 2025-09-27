@@ -30,7 +30,7 @@ pub fn simulate_player_movement(
         player.is_flying = !player.is_flying;
     }
 
-    player.camera_transform.rotation = action.camera;
+    player.camera_transform = action.camera;
 
     let is_jumping = action.is_pressed(NetworkAction::JumpOrFlyUp);
 

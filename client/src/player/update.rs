@@ -9,26 +9,11 @@ use bevy::color::palettes::css::ORANGE;
 use bevy::prelude::*;
 use shared::{
     messages::{PlayerSpawnEvent, PlayerUpdateEvent},
-    players::{movement::simulate_player_movement, Player},
+    players::{simulation::simulate_player_actions, Inventory, Player},
 };
 
 #[derive(Component)]
 pub struct CurrentPlayerMarker {}
-
-#[derive(Debug, PartialEq, Clone, Copy, Resource)]
-pub enum ViewMode {
-    FirstPerson,
-    ThirdPerson,
-}
-
-impl ViewMode {
-    pub fn toggle(&mut self) {
-        *self = match *self {
-            ViewMode::FirstPerson => ViewMode::ThirdPerson,
-            ViewMode::ThirdPerson => ViewMode::FirstPerson,
-        };
-    }
-}
 
 pub const PLAYER_LABEL_FONT_SIZE: f32 = 24.0;
 
@@ -148,15 +133,21 @@ pub fn update_players_system(
     mut ev_player_update: EventReader<PlayerUpdateEvent>,
     mut unacknowledged_inputs: ResMut<UnacknowledgedInputs>,
     client: Res<TargetServer>,
-    world_map: Res<ClientWorldMap>,
+    world_map: ResMut<ClientWorldMap>,
+    mut inventory: ResMut<Inventory>,
 ) {
     let my_id = client.session_token.unwrap();
+
+    let world_map = world_map.into_inner();
 
     // Read all updates
     for event in ev_player_update.read() {
         // Get the player associated with the event
         for (mut player, mut transform) in players.iter_mut() {
             if player.id == event.id && event.id == my_id {
+                player.inventory = event.inventory.clone();
+                inventory.inner = event.inventory.inner.clone();
+
                 // Get the local input matching this update event
                 let matching_input = unacknowledged_inputs
                     .0
@@ -184,7 +175,7 @@ pub fn update_players_system(
 
                         for input in remaining_inputs.iter() {
                             // debug!("Reapplying input: {:?}", input);
-                            simulate_player_movement(&mut player, world_map.as_ref(), input);
+                            simulate_player_actions(&mut player, world_map, input);
                         }
 
                         debug!(

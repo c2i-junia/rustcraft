@@ -5,7 +5,8 @@ use crate::CHUNK_SIZE;
 
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 use bevy_ecs::resource::Resource;
-use bevy_log::{info, warn};
+use bevy_log::info;
+use bevy_log::warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -51,7 +52,7 @@ pub struct ServerChunkWorldMap {
 #[derive(Resource, Clone, Copy, Serialize, Deserialize, Default)]
 pub struct WorldSeed(pub u32);
 
-#[derive(Debug, Clone, Serialize, Deserialize, Copy, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy, Default, PartialEq)]
 pub struct ItemStack {
     pub item_id: ItemId,
     pub item_type: ItemType,
@@ -162,7 +163,7 @@ pub trait WorldMap {
     fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData>;
     fn set_block(&mut self, position: &IVec3, block: BlockData);
 
-    fn get_heigh_ground(&self, position: Vec3) -> i32 {
+    fn get_height_ground(&self, position: Vec3) -> i32 {
         for y in (0..256).rev() {
             if self
                 .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
@@ -220,6 +221,8 @@ pub trait WorldMap {
         }
         chunks
     }
+
+    fn mark_block_for_update(&mut self, position: &IVec3);
 }
 
 impl WorldMap for ServerChunkWorldMap {
@@ -302,6 +305,16 @@ impl WorldMap for ServerChunkWorldMap {
         let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
         chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
+        self.chunks_to_update.push(IVec3::new(cx, cy, cz));
+    }
+
+    fn mark_block_for_update(&mut self, position: &IVec3) {
+        let x: i32 = position.x;
+        let y: i32 = position.y;
+        let z: i32 = position.z;
+        let cx: i32 = block_to_chunk_coord(x);
+        let cy: i32 = block_to_chunk_coord(y);
+        let cz: i32 = block_to_chunk_coord(z);
         self.chunks_to_update.push(IVec3::new(cx, cy, cz));
     }
 }
