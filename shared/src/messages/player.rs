@@ -3,6 +3,7 @@ use bevy_platform::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
+use crate::players::{Inventory, ViewMode};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -13,6 +14,8 @@ pub enum NetworkAction {
     JumpOrFlyUp,
     SneakOrFlyDown,
     ToggleFlyMode,
+    LeftClick,
+    RightClick,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Debug, Clone)]
@@ -35,6 +38,7 @@ pub struct PlayerUpdateEvent {
     pub position: Vec3,
     pub orientation: Quat,
     pub last_ack_time: u64,
+    pub inventory: Inventory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -42,7 +46,9 @@ pub struct PlayerFrameInput {
     pub time_ms: u64,
     pub delta_ms: u64,
     pub inputs: HashSet<NetworkAction>,
-    pub camera: Quat,
+    pub camera: Transform,
+    pub hotbar_slot: u32,
+    pub view_mode: ViewMode,
     #[serde(skip)]
     pub position: Vec3,
 }

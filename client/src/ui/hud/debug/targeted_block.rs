@@ -1,7 +1,9 @@
 use crate::constants::INTERACTION_DISTANCE;
-use crate::player::{CurrentPlayerMarker, ViewMode};
-use crate::world::{raycast, ClientWorldMap};
+use crate::player::CurrentPlayerMarker;
+use crate::world::ClientWorldMap;
 use bevy::prelude::*;
+use shared::players::ViewMode;
+use shared::world::raycast;
 
 #[derive(Component)]
 pub struct BlockText;
@@ -19,8 +21,11 @@ pub fn block_text_update_system(
 
     let camera_transform = camera_query.single().unwrap();
     let player_transform = player.single().unwrap();
+    let player_translation = &player_transform.translation;
 
-    let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
+    let world_map = world_map.into_inner();
+
+    let maybe_block = raycast::raycast(world_map, camera_transform, player_translation, *view_mode);
 
     if let Some(res) = maybe_block {
         let pos = res.position;

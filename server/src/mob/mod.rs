@@ -16,15 +16,15 @@ pub fn manage_mob_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: R
 
         let id = create_new_mob_id();
         info!(
-            "Heigt : {}",
+            "Height: {}",
             world_map
                 .chunks
-                .get_heigh_ground(Vec3::new(0.0, 0.0, 0.0))
+                .get_height_ground(Vec3::new(0.0, 0.0, 0.0))
                 .to_string()
         );
         let position = Vec3::new(
             0.0,
-            world_map.chunks.get_heigh_ground(Vec3::new(0.0, 0.0, 0.0)) as f32 + 2.0,
+            world_map.chunks.get_height_ground(Vec3::new(0.0, 0.0, 0.0)) as f32 + 2.0,
             0.0,
         );
 

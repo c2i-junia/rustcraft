@@ -132,13 +132,7 @@ pub fn world_render_system(
         // Using a set so same chunks are not reloaded multiple times
         // Accumulate chunks to render
         for event in &events {
-            let target_chunk_pos = match event {
-                WorldRenderRequestUpdateEvent::ChunkToReload(pos) => pos,
-                WorldRenderRequestUpdateEvent::BlockToReload(pos) => {
-                    // Temporary shortcut
-                    &global_block_to_chunk_pos(pos)
-                }
-            };
+            let WorldRenderRequestUpdateEvent::ChunkToReload(target_chunk_pos) = event;
 
             chunks_to_reload.insert(*target_chunk_pos);
             for offset in &SIX_OFFSETS {

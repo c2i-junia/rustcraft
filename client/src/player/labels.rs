@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use shared::players::ViewMode;
 
-use super::{ViewMode, PLAYER_LABEL_FONT_SIZE};
+use super::PLAYER_LABEL_FONT_SIZE;
 
 #[derive(Component, Debug)]
 pub struct PlayerLabel {

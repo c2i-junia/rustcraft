@@ -11,7 +11,7 @@ use crate::{
     MAX_INVENTORY_SLOTS,
 };
 
-#[derive(Debug, Resource, Clone)]
+#[derive(Debug, Resource, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Inventory {
     pub inner: HashMap<u32, ItemStack>,
 }
@@ -130,7 +130,7 @@ pub struct Player {
     pub velocity: Vec3,
     pub on_ground: bool,
     pub is_flying: bool,
-    // pub inventory: HashMap<RegistryId, items::Item>,
+    pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
     pub last_input_processed: u64,
@@ -146,6 +146,7 @@ impl Player {
             velocity: Vec3::ZERO,
             on_ground: true,
             is_flying: false,
+            inventory: Inventory::new(),
             height: 1.8,
             width: 0.8,
             last_input_processed: 0,
@@ -168,9 +169,26 @@ impl Default for Player {
             velocity: Vec3::ZERO,
             on_ground: true,
             is_flying: false,
+            inventory: Inventory::new(),
             height: 1.8,
             width: 0.8,
             last_input_processed: 0,
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, Resource, Serialize, Deserialize, Default)]
+pub enum ViewMode {
+    #[default]
+    FirstPerson,
+    ThirdPerson,
+}
+
+impl ViewMode {
+    pub fn toggle(&mut self) {
+        *self = match *self {
+            ViewMode::FirstPerson => ViewMode::ThirdPerson,
+            ViewMode::ThirdPerson => ViewMode::FirstPerson,
+        };
     }
 }

@@ -3,15 +3,15 @@ use crate::input::keyboard::*;
 use crate::network::buffered_client::{
     CurrentFrameInputs, CurrentFrameInputsExt, PlayerTickInputsBuffer, SyncTime, SyncTimeExt,
 };
-use crate::player::ViewMode;
 use crate::ui::hud::debug::DebugOptions;
+use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
 use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
 use crate::KeyMap;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::movement::simulate_player_movement;
-use shared::players::Player;
+use shared::players::{Player, ViewMode};
 
 use super::CurrentPlayerMarker;
 
@@ -40,19 +40,22 @@ pub fn player_movement_system(
         Res<UIMode>,
         Res<KeyMap>,
         ResMut<CurrentFrameInputs>,
+        Res<ViewMode>,
     ),
     world_map: Res<ClientWorldMap>,
+    hotbar: Query<&Hotbar>,
 ) {
     let mut player_query = queries;
-    let (keyboard_input, ui_mode, key_map, mut frame_inputs) = resources;
+    let (keyboard_input, ui_mode, key_map, mut frame_inputs, view_mode) = resources;
 
     if frame_inputs.0.delta_ms == 0 {
         return;
     }
 
     let camera = camera.single().unwrap();
-    let camera_orientation = camera.rotation;
-    frame_inputs.0.camera = camera_orientation;
+    frame_inputs.0.camera = *camera;
+    frame_inputs.0.hotbar_slot = hotbar.single().unwrap().selected;
+    frame_inputs.0.view_mode = *view_mode;
 
     let res = player_query.single_mut();
     // Return early if the player has not been spawned yet

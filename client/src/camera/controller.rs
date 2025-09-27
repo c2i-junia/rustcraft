@@ -2,6 +2,7 @@ use crate::camera::CameraController;
 use crate::player::*;
 use crate::ui::hud::UIMode;
 use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
+use shared::players::ViewMode;
 
 // System to control the camera based on mouse movement
 pub fn camera_control_system(

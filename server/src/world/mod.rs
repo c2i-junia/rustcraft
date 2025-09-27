@@ -32,6 +32,7 @@ pub fn handle_block_interactions(
                 debug!("Block added at {:?}: {:?}", event.position, block);
             }
             None => {
+                debug!("Getting block by coordinates at {:?}", event.position);
                 for (id, nb) in world_map
                     .chunks
                     .get_block_by_coordinates(&event.position)

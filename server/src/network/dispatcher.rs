@@ -58,19 +58,10 @@ fn server_update_system(
         ResMut<ChatConversation>,
         ResMut<ServerLobby>,
     ),
-    (
-        mut ev_chat,
-        mut ev_app_exit,
-        // mut ev_world_update_request,
-        mut ev_save_request,
-        mut ev_block_interaction,
-        mut ev_player_inputs,
-    ): (
+    (mut ev_chat, mut ev_app_exit, mut ev_save_request, mut ev_player_inputs): (
         EventWriter<ChatMessageEvent>,
         EventWriter<AppExit>,
-        // EventWriter<WorldUpdateRequestEvent>,
         EventWriter<SaveRequestEvent>,
-        EventWriter<BlockInteractionEvent>,
         EventWriter<PlayerInputsEvent>,
     ),
     config: Res<GameServerConfig>,
@@ -230,20 +221,6 @@ fn server_update_system(
                         ev_save_request.write(SaveRequestEvent::World);
                         ev_save_request.write(SaveRequestEvent::Player(client_id));
                     }
-                }
-                ClientToServerMessage::BlockInteraction {
-                    position,
-                    block_type,
-                } => {
-                    debug!(
-                        "Block interaction received at {:?}: {:?}",
-                        position, block_type
-                    );
-
-                    ev_block_interaction.write(BlockInteractionEvent {
-                        position,
-                        block_type,
-                    });
                 }
             }
         }

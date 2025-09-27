@@ -5,7 +5,7 @@ use bevy::{
 use bevy_renet::renet::{ClientId, RenetServer};
 use shared::{
     messages::{NetworkAction, PlayerFrameInput, PlayerUpdateEvent},
-    players::movement::simulate_player_movement,
+    players::simulation::simulate_player_actions,
     world::{ServerWorldMap, WorldSeed},
 };
 
@@ -46,27 +46,9 @@ pub fn handle_player_inputs_system(
     }
 
     for ev in events.read() {
-        // info!(
-        //     "Processing player inputs for client_id: {} at t={}",
-        //     ev.client_id, ev.input.time_ms
-        // );
         let player = players.get_mut(&ev.client_id).unwrap();
-        // info!(
-        //     "Received player inputs: {:?} at t={}",
-        //     ev.input.inputs, ev.input.time_ms
-        // );
 
-        // let initial = player.position;
-
-        simulate_player_movement(player, chunks, &ev.input.clone());
-
-        // let end = player.position;
-        // if initial != end {
-        //     info!(
-        //         "Player moved: {:?} -> {:?} | {:?}",
-        //         initial, end, ev.input.position
-        //     );
-        // }
+        simulate_player_actions(player, chunks, &ev.input.clone());
 
         player.last_input_processed = ev.input.time_ms;
     }
@@ -78,8 +60,8 @@ pub fn handle_player_inputs_system(
                 position: player.position,
                 orientation: player.camera_transform.rotation,
                 last_ack_time: player.last_input_processed,
+                inventory: player.inventory.clone(),
             },
         ));
-        // info!("Server last ack time: {:?}", player.last_input_processed);
     }
 }

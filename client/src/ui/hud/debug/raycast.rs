@@ -1,11 +1,11 @@
 use bevy::prelude::*;
+use shared::players::ViewMode;
+use shared::world::{raycast, FaceDirectionExt};
 
-use crate::world::raycast;
 use crate::world::ClientWorldMap;
 
 use super::DebugOptions;
-use crate::player::{CurrentPlayerMarker, ViewMode};
-use crate::world::raycast::FaceDirectionExt;
+use crate::player::CurrentPlayerMarker;
 
 pub fn raycast_debug_update_system(
     mut gizmos: Gizmos,
@@ -21,8 +21,11 @@ pub fn raycast_debug_update_system(
 
     let camera_transform = camera_query.single().unwrap();
     let player_transform = p_transform.single().unwrap();
+    let player_translation = &player_transform.translation;
 
-    let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
+    let world_map = world_map.into_inner();
+
+    let maybe_block = raycast::raycast(world_map, camera_transform, player_translation, *view_mode);
 
     if let Some(raycast_response) = maybe_block {
         let normal = raycast_response.face.to_ivec3().as_vec3();

@@ -100,7 +100,6 @@ pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
             map.insert(GameAction::RenderDistanceMinus, vec![KeyCode::KeyO]);
             map.insert(GameAction::RenderDistancePlus, vec![KeyCode::KeyP]);
             map.insert(GameAction::ReloadChunks, vec![KeyCode::KeyR]);
-            map.insert(GameAction::DebugGetBlock, vec![KeyCode::KeyI]);
             map
         },
     };

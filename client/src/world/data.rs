@@ -117,29 +117,9 @@ impl WorldMap for ClientWorldMap {
 
         chunk.map.insert(IVec3::new(sub_x, sub_y, sub_z), block);
     }
-}
 
-impl ClientWorldMap {
-    pub fn try_to_break_block(&mut self, position: &IVec3) -> Option<(BlockData, bool)> {
-        let chunk_pos: IVec3 = global_block_to_chunk_pos(position);
-
-        let chunk_map: &mut ClientChunk =
-            self.map
-                .get_mut(&IVec3::new(chunk_pos.x, chunk_pos.y, chunk_pos.z))?;
-
-        let local_block_pos: IVec3 = to_local_pos(position);
-
-        let block = chunk_map.map.get_mut(&local_block_pos)?;
-        block.breaking_progress += 1;
-
-        // Return block state after being modified
-        let res = *block;
-
-        if block.breaking_progress >= block.id.get_break_time() {
-            chunk_map.map.remove(&local_block_pos);
-            return Some((res, true));
-        }
-        Some((res, false))
+    fn mark_block_for_update(&mut self, _block_pos: &IVec3) {
+        // Useless in client
     }
 }
 
@@ -151,5 +131,4 @@ pub struct QueuedEvents {
 #[derive(Event, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub enum WorldRenderRequestUpdateEvent {
     ChunkToReload(IVec3),
-    BlockToReload(IVec3),
 }

@@ -1,19 +1,14 @@
-use crate::constants::{CUBE_SIZE, INTERACTION_DISTANCE};
 use crate::mob::{MobMarker, TargetedMob, TargetedMobData};
-use crate::network::SendGameMessageExtension;
-use crate::ui::hud::hotbar::Hotbar;
+use crate::network::buffered_client::CurrentFrameInputs;
 use crate::ui::hud::UIMode;
-use crate::world::{raycast, ClientWorldMap};
-use crate::world::{FaceDirectionExt, WorldRenderRequestUpdateEvent};
-use bevy::color::palettes::css::{self, WHITE};
-use bevy::math::NormedVectorSpace;
+use crate::world::ClientWorldMap;
+use bevy::color::palettes::css::{GREEN, WHITE};
 use bevy::prelude::*;
-use bevy_renet::renet::RenetClient;
-use shared::messages::ClientToServerMessage;
-use shared::players::{Inventory, Player};
-use shared::world::{BlockData, ItemStack, ItemType, WorldMap};
+use shared::messages::NetworkAction;
+use shared::players::{Player, ViewMode};
+use shared::world::raycast;
 
-use super::{CurrentPlayerMarker, ViewMode};
+use super::CurrentPlayerMarker;
 
 // Function to handle block placement and breaking
 pub fn handle_block_interactions(
@@ -21,35 +16,22 @@ pub fn handle_block_interactions(
         Query<&Player, With<CurrentPlayerMarker>>,
         Query<&mut Transform, With<CurrentPlayerMarker>>,
         Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
-        Query<&Hotbar>,
         Query<&MobMarker>,
     ),
     resources: (
         ResMut<ClientWorldMap>,
         Res<ButtonInput<MouseButton>>,
         Res<UIMode>,
-        ResMut<Inventory>,
-        ResMut<RenetClient>,
         Res<ViewMode>,
         ResMut<TargetedMob>,
+        ResMut<CurrentFrameInputs>,
     ),
-    mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
     mut ray_cast: MeshRayCast,
-    mut commands: Commands,
     mut gizmos: Gizmos,
 ) {
-    let (player_query, mut p_transform, camera_query, hotbar, mob_query) = queries;
-    let (
-        mut world_map,
-        mouse_input,
-        ui_mode,
-        mut inventory,
-        mut client,
-        view_mode,
-        mut targeted_mob,
-    ) = resources;
-
-    let player = player_query.single().unwrap().clone();
+    let (_player_query, p_transform, camera_query, mob_query) = queries;
+    let (world_map, mouse_input, ui_mode, view_mode, mut targeted_mob, mut frame_inputs) =
+        resources;
 
     if *ui_mode == UIMode::Opened {
         return;
@@ -57,10 +39,13 @@ pub fn handle_block_interactions(
 
     let camera_transform = camera_query.single().unwrap();
     let player_transform = p_transform.single().unwrap();
+    let player_translation = &player_transform.translation;
 
     let ray = Ray3d::new(camera_transform.translation, camera_transform.forward());
 
-    let maybe_block = raycast(&world_map, camera_transform, player_transform, *view_mode);
+    let world_map = world_map.into_inner();
+
+    let maybe_block = raycast::raycast(world_map, camera_transform, player_translation, *view_mode);
 
     bounce_ray(ray, &mut ray_cast);
 
@@ -71,7 +56,7 @@ pub fn handle_block_interactions(
         let mob = mob_query.get(*entity);
         if let Ok(mob) = mob {
             targeted_mob.target = Some(TargetedMobData {
-                entity: *entity,
+                // entity: *entity,
                 id: mob.id,
                 name: mob.name.clone(),
             });
@@ -84,10 +69,6 @@ pub fn handle_block_interactions(
 
     if mouse_input.just_pressed(MouseButton::Left) && targeted_mob.target.is_some() {
         // TODO: Attack the targeted
-
-        let target = targeted_mob.target.as_ref().unwrap();
-
-        commands.entity(target.entity).despawn();
 
         targeted_mob.target = None;
 
@@ -105,99 +86,12 @@ pub fn handle_block_interactions(
 
         // Handle left-click for breaking blocks
         if mouse_input.pressed(MouseButton::Left) {
-            let pos = res.position;
-            let block_pos = pos.as_vec3();
-            // Check if block is close enough to the player
-            if (block_pos - p_transform.single_mut().unwrap().translation).norm()
-                < INTERACTION_DISTANCE
-            {
-                let previous_breaking_lvl = res.block.get_breaking_level();
-
-                // Remove the hit block
-                let res = world_map.try_to_break_block(&pos);
-
-                if let Some((block, destroyed)) = res {
-                    // Update only if the block is destroyed, or its breaking level changes
-                    if destroyed || block.get_breaking_level() != previous_breaking_lvl {
-                        ev_render.write(WorldRenderRequestUpdateEvent::BlockToReload(pos));
-                    }
-
-                    if destroyed {
-                        // If block has corresponding item, add it to inventory
-                        for (item_id, nb) in block.id.get_drops(1) {
-                            inventory.add_item_to_inventory(ItemStack {
-                                item_id,
-                                item_type: item_id.get_default_type(),
-                                nb,
-                            });
-                        }
-
-                        client.send_game_message(ClientToServerMessage::BlockInteraction {
-                            position: pos,
-                            block_type: None,
-                        });
-                    }
-                }
-            }
+            frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
         }
 
         // Handle right-click for placing blocks
-        if mouse_input.just_pressed(MouseButton::Right) {
-            let face_dir = res.face;
-            let collision_pos = res.position;
-
-            let face = face_dir.to_ivec3();
-            // Check if target space is close enough to the player
-            let block_to_create_pos = Vec3::new(
-                (collision_pos.x + face.x) as f32,
-                (collision_pos.y + face.y) as f32,
-                (collision_pos.z + face.z) as f32,
-            );
-
-            let unit_cube = Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-            let player_transform = p_transform.single().unwrap();
-
-            let target_cube_center = block_to_create_pos + (unit_cube / 2.);
-
-            // Directed vector : player -> interacted block
-            let delta = player_transform.translation - target_cube_center;
-            let distance = delta.abs();
-
-            debug!("Delta: {:?}", delta);
-            debug!("Raycast hit face: {:?}", res.face);
-            debug!("Block position: {:?}", block_to_create_pos);
-            debug!("Player position: {:?}", player_transform);
-            debug!("Target cube center: {:?}", target_cube_center);
-
-            if (block_to_create_pos - p_transform.single_mut().unwrap().translation).norm()
-                <= INTERACTION_DISTANCE
-                // Guarantees a block cannot be placed too close to the player (which would be unable to move because of constant collision)
-                && (distance.x> (CUBE_SIZE + player.width) / 2. || distance.z > (CUBE_SIZE + player.width ) / 2. || distance.y > (CUBE_SIZE + player.height) / 2.)
-            {
-                // Try to get item currently selected in player hotbar
-                if let Some(&item) = inventory.inner.get(&hotbar.single().unwrap().selected) {
-                    inventory.remove_item_from_stack(hotbar.single().unwrap().selected, 1);
-
-                    // Check if the item has a block counterpart
-                    if let ItemType::Block(block_id) = item.item_type {
-                        let block_pos = IVec3::new(
-                            block_to_create_pos.x as i32,
-                            block_to_create_pos.y as i32,
-                            block_to_create_pos.z as i32,
-                        );
-                        let block = BlockData::new(block_id, shared::world::BlockDirection::Front);
-
-                        world_map.set_block(&block_pos, block);
-
-                        ev_render.write(WorldRenderRequestUpdateEvent::BlockToReload(block_pos));
-
-                        client.send_game_message(ClientToServerMessage::BlockInteraction {
-                            position: block_pos,
-                            block_type: Some(block),
-                        });
-                    }
-                }
-            }
+        if mouse_input.pressed(MouseButton::Right) {
+            frame_inputs.0.inputs.insert(NetworkAction::RightClick);
         }
     }
 }
@@ -206,7 +100,7 @@ const MAX_BOUNCES: usize = 1;
 
 // Bounces a ray off of surfaces `MAX_BOUNCES` times.
 fn bounce_ray(mut ray: Ray3d, ray_cast: &mut MeshRayCast) {
-    let color = Color::from(css::GREEN);
+    let color = Color::from(GREEN);
 
     let mut intersections = Vec::with_capacity(MAX_BOUNCES + 1);
     intersections.push((ray.origin, Color::srgb(30.0, 0.0, 0.0)));
