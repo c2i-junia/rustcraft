@@ -5,6 +5,7 @@ use crate::world::ClientWorldMap;
 use bevy::color::palettes::css::{GREEN, WHITE};
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
+use shared::players::blocks::simulate_player_block_interactions;
 use shared::players::{Player, ViewMode};
 use shared::world::raycast;
 
@@ -13,7 +14,7 @@ use super::CurrentPlayerMarker;
 // Function to handle block placement and breaking
 pub fn handle_block_interactions(
     queries: (
-        Query<&Player, With<CurrentPlayerMarker>>,
+        Query<&mut Player, With<CurrentPlayerMarker>>,
         Query<&mut Transform, With<CurrentPlayerMarker>>,
         Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
         Query<&MobMarker>,
@@ -29,9 +30,11 @@ pub fn handle_block_interactions(
     mut ray_cast: MeshRayCast,
     mut gizmos: Gizmos,
 ) {
-    let (_player_query, p_transform, camera_query, mob_query) = queries;
+    let (mut player_query, p_transform, camera_query, mob_query) = queries;
     let (world_map, mouse_input, ui_mode, view_mode, mut targeted_mob, mut frame_inputs) =
         resources;
+
+    let mut player = player_query.single_mut().unwrap();
 
     if *ui_mode == UIMode::Opened {
         return;
@@ -93,6 +96,8 @@ pub fn handle_block_interactions(
         if mouse_input.pressed(MouseButton::Right) {
             frame_inputs.0.inputs.insert(NetworkAction::RightClick);
         }
+
+        simulate_player_block_interactions(&mut player, world_map, &frame_inputs.0);
     }
 }
 

@@ -157,7 +157,12 @@ pub fn game_plugin(app: &mut App) {
                 toggle_chunk_debug_mode_system,
                 toggle_raycast_debug_mode_system,
                 chunk_force_reload_system,
-                (player_movement_system, camera_control_system).chain(),
+                (
+                    handle_block_interactions,
+                    player_movement_system,
+                    camera_control_system,
+                )
+                    .chain(),
                 fps_text_update_system,
                 coords_text_update_system,
                 total_blocks_text_update_system,
@@ -208,8 +213,7 @@ pub fn game_plugin(app: &mut App) {
         )
         .add_systems(
             FixedUpdate,
-            (upload_player_inputs_system, handle_block_interactions)
-                .run_if(in_state(GameState::Game)),
+            (upload_player_inputs_system).run_if(in_state(GameState::Game)),
         )
         .add_systems(
             FixedPostUpdate,
