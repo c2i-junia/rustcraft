@@ -116,8 +116,8 @@ pub fn launch_local_server_system(
         debug!("Obtained UDP socket: {}", addr);
 
         let world_name_clone = world_name.clone();
-        let game_folder_path = paths.clone().game_folder_path;
-        //
+        let cloned_paths = paths.clone();
+
         thread::spawn(move || {
             server::init(
                 socket,
@@ -125,7 +125,7 @@ pub fn launch_local_server_system(
                     world_name: world_name_clone,
                     is_solo: true,
                 },
-                game_folder_path,
+                cloned_paths,
             );
         });
 

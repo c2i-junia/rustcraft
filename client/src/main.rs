@@ -24,7 +24,7 @@ use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
 use input::{data::GameAction, keyboard::get_bindings};
 use menus::solo::SelectedWorld;
 use serde::{Deserialize, Serialize};
-use shared::{GameFolderPaths, SpecialFlag};
+use shared::{get_game_folder_paths, SpecialFlag};
 use std::collections::BTreeMap;
 use ui::{
     hud::debug::inspector::inspector_ui,
@@ -38,8 +38,8 @@ struct Args {
     #[arg(long, help = "Use custom textures instead of base textures")]
     use_custom_textures: bool,
 
-    #[arg(short, long, default_value = "../")]
-    game_folder_path: String,
+    #[arg(short, long)]
+    game_folder_path: Option<String>,
 
     #[arg(
         short,
@@ -101,7 +101,6 @@ fn main() {
         TEXTURE_PATH_BASE
     };
 
-    let game_folder_path = args.game_folder_path.clone();
     let special_flag = args.special_flag;
 
     println!(
@@ -113,19 +112,12 @@ fn main() {
         }
     );
 
-    println!("Starting application with game folder: {game_folder_path}");
+    let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
 
-    let assets_folder_path = args
-        .assets_folder_path
-        .clone()
-        .unwrap_or(format!("{game_folder_path}/data"));
-
-    println!("Starting application with assets folder: {assets_folder_path:?}");
-
-    let game_folder_paths = GameFolderPaths {
-        game_folder_path: game_folder_path.clone(),
-        assets_folder_path,
-    };
+    println!(
+        "Starting application with game folder: {}",
+        game_folder_paths.game_folder_path.display()
+    );
 
     let special_flag = SpecialFlag { special_flag };
 
@@ -166,7 +158,7 @@ fn main() {
 
     app.add_event::<LoadWorldEvent>();
     network::add_base_netcode(&mut app);
-    app.insert_resource(get_bindings(&game_folder_path.clone()))
+    app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(SelectedWorld::default())
         // Declare the game state, whose starting value is determined by the `Default` trait
         .insert_resource(ClientWorldMap { ..default() })

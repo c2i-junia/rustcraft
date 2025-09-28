@@ -21,7 +21,6 @@ use bevy_simple_text_input::{
     TextInput, TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
 };
 use ron::{from_str, ser::PrettyConfig};
-use shared::world::get_game_folder;
 use shared::GameFolderPaths;
 use std::{
     fs,
@@ -349,7 +348,7 @@ pub fn load_server_list(
 ) {
     let (mut list, list_entity) = list_query.single_mut().unwrap();
 
-    let game_folder_path: PathBuf = get_game_folder(Some(&paths)).join(SERVER_LIST_SAVE_NAME);
+    let game_folder_path: PathBuf = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
     let path: &Path = game_folder_path.as_path();
 
     // If no server list save, returns
@@ -433,7 +432,9 @@ pub fn save_server_list(list: Query<&ServerList>, game_folder_path: Res<GameFold
     };
 
     // Chemin complet du fichier de sauvegarde
-    let save_path: PathBuf = get_game_folder(Some(&game_folder_path)).join(SERVER_LIST_SAVE_NAME);
+    let save_path: PathBuf = game_folder_path
+        .game_folder_path
+        .join(SERVER_LIST_SAVE_NAME);
 
     // Config de sérialisation RON
     let pretty_config = PrettyConfig::new()

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use shared::{
     get_shared_renet_config,
     messages::PlayerId,
-    world::{get_game_folder, ServerChunkWorldMap, ServerWorldMap},
+    world::{ServerChunkWorldMap, ServerWorldMap},
     GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
@@ -82,18 +82,13 @@ pub fn add_netcode_network(app: &mut App, socket: UdpSocket) {
     app.insert_resource(transport);
 }
 
-pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: String) {
+pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_paths: GameFolderPaths) {
     let mut app = App::new();
     app.add_plugins(
         MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
             1.0 / TICKS_PER_SECOND as f64,
         ))),
     );
-
-    let game_folder_paths = GameFolderPaths {
-        game_folder_path: game_folder_path.clone(),
-        assets_folder_path: format!("{game_folder_path}/data"),
-    };
 
     app.add_plugins(RenetServerPlugin);
     app.add_plugins(FrameTimeDiagnosticsPlugin::default());
@@ -114,17 +109,16 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: Strin
     setup_resources_and_events(&mut app);
 
     // Load world from files
-    let world_data =
-        match load_world_data(world_name, app.world().get_resource::<GameFolderPaths>()) {
-            Ok(data) => data,
-            Err(err) => {
-                error!(
-                    "Failed to load world {} & failed to create a default world : {}",
-                    world_name, err
-                );
-                panic!()
-            }
-        };
+    let world_data = match load_world_data(world_name, &game_folder_paths) {
+        Ok(data) => data,
+        Err(err) => {
+            error!(
+                "Failed to load world {} & failed to create a default world : {}",
+                world_name, err
+            );
+            panic!()
+        }
+    };
 
     let mut world_map = ServerWorldMap {
         name: world_data.name,
@@ -148,9 +142,7 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_path: Strin
     // Create save folder if does not already exist
     let save_folder = format!(
         "{}{}/players/",
-        get_game_folder(Some(&game_folder_paths))
-            .join(SAVE_PATH)
-            .display(),
+        game_folder_paths.game_folder_path.join(SAVE_PATH).display(),
         world_name
     );
 

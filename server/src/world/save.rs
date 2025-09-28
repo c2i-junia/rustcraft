@@ -3,7 +3,6 @@ use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
-use shared::world::get_game_folder;
 use shared::world::MobId;
 use shared::world::ServerChunk;
 use shared::world::ServerItemStack;
@@ -49,9 +48,7 @@ pub fn save_world_system(
                 // define save file path
                 let save_file_path = format!(
                     "{}{}/players/{}.ron",
-                    get_game_folder(Some(&game_folder_path))
-                        .join(SAVE_PATH)
-                        .display(),
+                    game_folder_path.game_folder_path.join(SAVE_PATH).display(),
                     world_map.name,
                     id
                 );
@@ -82,9 +79,7 @@ pub fn save_world_system(
         // define save file path
         let save_file_path = format!(
             "{}{}/world.ron",
-            get_game_folder(Some(&game_folder_path))
-                .join(SAVE_PATH)
-                .display(),
+            game_folder_path.game_folder_path.join(SAVE_PATH).display(),
             world_map.name
         );
 

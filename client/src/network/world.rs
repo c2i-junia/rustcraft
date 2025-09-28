@@ -67,7 +67,7 @@ pub fn update_world_from_network(
                 ev_player_spawn.write(spawn_event);
             }
             ServerToClientMessage::MobUpdate(update_event) => {
-                info!("Received mob update event {:?}", update_event);
+                // info!("Received mob update event {:?}", update_event);
                 ev_mob_update.write(update_event);
             }
             ServerToClientMessage::PlayerUpdate(update) => {

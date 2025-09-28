@@ -5,7 +5,7 @@ use crate::CHUNK_SIZE;
 
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 use bevy_ecs::resource::Resource;
-use bevy_log::warn;
+use bevy_log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -238,7 +238,10 @@ impl WorldMap for ServerChunkWorldMap {
                 let sub_z: i32 = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
                 chunk.map.get_mut(&IVec3::new(sub_x, sub_y, sub_z))
             }
-            None => None,
+            None => {
+                warn!("Chunk not found for block at {:?} (mut)", position);
+                None
+            }
         }
     }
 
@@ -265,6 +268,7 @@ impl WorldMap for ServerChunkWorldMap {
     }
 
     fn remove_block_by_coordinates(&mut self, global_block_pos: &IVec3) -> Option<BlockData> {
+        info!("Trying to remove block at pos {:?}", global_block_pos);
         let block: &BlockData = self.get_block_by_coordinates(global_block_pos)?;
         let kind: BlockData = *block;
 

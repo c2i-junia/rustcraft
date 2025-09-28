@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use bevy_ecs::resource::Resource;
 use bevy_log::debug;
@@ -17,8 +17,8 @@ use utils::format_bytes;
 
 #[derive(Resource, Debug, Clone)]
 pub struct GameFolderPaths {
-    pub game_folder_path: String,
-    pub assets_folder_path: String,
+    pub game_folder_path: PathBuf,
+    pub assets_folder_path: PathBuf,
 }
 
 #[derive(Resource, Debug, Clone)]
@@ -117,6 +117,38 @@ pub fn payload_to_game_message<T: serde::de::DeserializeOwned>(
 ) -> Result<T, bincode::Error> {
     let decompressed_payload = lz4::block::decompress(payload, None)?;
     bincode::options().deserialize(&decompressed_payload)
+}
+
+pub fn get_game_folder_paths(
+    game_folder_path: Option<String>,
+    assets_folder_path: Option<String>,
+) -> GameFolderPaths {
+    let mut paths = default_game_folder_paths();
+
+    if let Some(game_data) = game_folder_path {
+        paths.game_folder_path = game_data.into();
+    }
+    if let Some(game_assets) = assets_folder_path {
+        paths.assets_folder_path = game_assets.into();
+    }
+
+    paths
+}
+
+#[cfg(target_os = "windows")]
+pub fn default_game_folder_paths() -> GameFolderPaths {
+    GameFolderPaths {
+        game_folder_path: "%AppData/rustcraft".into(),
+        assets_folder_path: "%AppData/rustcraft/data".into(),
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn default_game_folder_paths() -> GameFolderPaths {
+    GameFolderPaths {
+        game_folder_path: "$HOME/.local/share/rustcraft".into(),
+        assets_folder_path: "$HOME/.config/rustcraft".into(),
+    }
 }
 
 pub trait ChannelResolvableExt {

@@ -5,8 +5,8 @@ use bevy::{
     prelude::{KeyCode, Res},
 };
 use ron::{from_str, ser::PrettyConfig};
-use shared::world::get_game_folder;
 use shared::GameFolderPaths;
+use std::path::Path;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -63,22 +63,10 @@ pub fn get_action_keys(action: GameAction, key_map: &KeyMap) -> Vec<KeyCode> {
     key_map.map.get(&action).unwrap().to_vec()
 }
 
-pub fn get_bindings(game_folder_path: &String) -> KeyMap {
-    let game_folder_path_struct = GameFolderPaths {
-        game_folder_path: game_folder_path.clone(),
-        assets_folder_path: format!("{game_folder_path}/data"),
-    };
-    let binds_path: PathBuf = get_game_folder(Some(&game_folder_path_struct)).join(BINDS_PATH);
+pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
+    let binds_path: PathBuf = Path::new(&game_folder_paths.assets_folder_path).join(BINDS_PATH);
 
-    // Try to get & serialize existing binds
-    if let Ok(content) = fs::read_to_string(binds_path.as_path()) {
-        if let Ok(key_map) = from_str::<KeyMap>(&content) {
-            return key_map;
-        }
-    }
-
-    // If binds cannot be loaded, get default ones
-    KeyMap {
+    let mut binds = KeyMap {
         map: {
             let mut map = BTreeMap::new();
             map.insert(
@@ -115,11 +103,24 @@ pub fn get_bindings(game_folder_path: &String) -> KeyMap {
             map.insert(GameAction::DebugGetBlock, vec![KeyCode::KeyI]);
             map
         },
+    };
+
+    // Try to get & serialize existing binds
+    if let Ok(content) = fs::read_to_string(binds_path.as_path()) {
+        if let Ok(key_map) = from_str::<KeyMap>(&content) {
+            for (k, v) in key_map.map.iter() {
+                binds.map.insert(*k, v.clone());
+            }
+        }
     }
+
+    binds
+
+    // Get default binds
 }
 
 pub fn save_keybindings(key_map: Res<KeyMap>, game_folder_path: Res<GameFolderPaths>) {
-    let binds_path: PathBuf = get_game_folder(Some(&game_folder_path)).join(BINDS_PATH);
+    let binds_path = game_folder_path.game_folder_path.join(BINDS_PATH);
 
     let pretty_config = PrettyConfig::new()
         .with_depth_limit(3)

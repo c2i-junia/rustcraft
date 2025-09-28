@@ -24,7 +24,6 @@ use bevy_simple_text_input::TextInputTextFont;
 use bevy_simple_text_input::{
     TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
 };
-use shared::world::get_game_folder;
 use shared::GameFolderPaths;
 use std::io;
 use std::{
@@ -237,7 +236,7 @@ pub fn list_worlds(
     let (mut list, list_entity) = list_query.single_mut().unwrap();
 
     // create save folder if it not exist
-    let save_path: PathBuf = get_game_folder(Some(&game_paths)).join(SAVE_PATH);
+    let save_path: PathBuf = game_paths.game_folder_path.join(SAVE_PATH);
     let path: &Path = save_path.as_path();
     info!("Looking for worlds in : {}", path.display());
 
@@ -286,7 +285,7 @@ fn add_world_item(
         name, list_entity
     );
 
-    let base_path = &paths.assets_folder_path;
+    let base_path = paths.assets_folder_path.display();
 
     // udpate the name of the world_map
     world_map.name = name.clone();
@@ -472,7 +471,8 @@ pub fn delete_save_files(
     game_folder_path: &Res<GameFolderPaths>,
 ) -> Result<(), io::Error> {
     // Delete the entire world directory
-    let world_dir = get_game_folder(Some(game_folder_path))
+    let world_dir = game_folder_path
+        .game_folder_path
         .join(SAVE_PATH)
         .join(world_name);
 

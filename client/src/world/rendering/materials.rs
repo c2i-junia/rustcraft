@@ -5,8 +5,8 @@ use crate::TexturePath;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::Face;
-use shared::world::{get_game_folder, BlockId, GameElementId, ItemId};
-use shared::{GameFolderPaths, SpecialFlag};
+use shared::world::{BlockId, GameElementId, ItemId};
+use shared::GameFolderPaths;
 use std::collections::HashMap;
 use std::fs;
 use std::marker::PhantomData;
@@ -55,7 +55,6 @@ pub fn setup_materials(
     mut item_atlas_handles: ResMut<AtlasHandles<ItemId>>,
     texture_path: Res<TexturePath>,
     paths: Res<GameFolderPaths>,
-    special_flag: Res<SpecialFlag>,
 ) {
     let sun_material = materials.add(StandardMaterial {
         base_color: Color::srgb(1., 0.95, 0.1),
@@ -80,29 +79,20 @@ pub fn setup_materials(
         .global_materials
         .insert(GlobalMaterial::Moon, moon_material);
 
-    let (blocks_path, items_path) = if !special_flag.special_flag {
-        (
-            get_game_folder(Some(&paths))
-                .join("data/")
-                .join(&texture_path.path)
-                .join("blocks/"),
-            get_game_folder(Some(&paths))
-                .join("data/")
-                .join(&texture_path.path)
-                .join("items/"),
-        )
-    } else {
-        (
-            get_game_folder(Some(&paths))
-                .join(paths.assets_folder_path.clone())
-                .join(&texture_path.path)
-                .join("blocks/"),
-            get_game_folder(Some(&paths))
-                .join(paths.assets_folder_path.clone())
-                .join(&texture_path.path)
-                .join("items/"),
-        )
-    };
+    let blocks_path = paths
+        .assets_folder_path
+        .join(&texture_path.path)
+        .join("blocks/");
+    let items_path = paths
+        .assets_folder_path
+        .join(&texture_path.path)
+        .join("items/");
+
+    info!(
+        "Block textures : {}, items textures : {}",
+        blocks_path.display(),
+        items_path.display()
+    );
 
     if let Ok(dir) = fs::read_dir(blocks_path.clone()) {
         block_atlas_handles.handles = dir

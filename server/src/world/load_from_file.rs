@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use ron::de::from_str;
 use shared::messages::{PlayerId, PlayerSave};
 use shared::world::data::WorldSeed;
-use shared::world::get_game_folder;
 use shared::GameFolderPaths;
 use std::fs;
 use std::path::Path;
@@ -13,9 +12,10 @@ use std::path::PathBuf;
 
 pub fn load_world_data(
     file_name: &str,
-    game_folder_paths: Option<&GameFolderPaths>,
+    game_folder_paths: &GameFolderPaths,
 ) -> Result<WorldData, Box<dyn std::error::Error>> {
-    let file_path: PathBuf = get_game_folder(game_folder_paths)
+    let file_path: PathBuf = game_folder_paths
+        .game_folder_path
         .join(SAVE_PATH)
         .join(format!("{file_name}/world.ron"));
     let path: &Path = file_path.as_path();
@@ -46,7 +46,8 @@ pub fn load_player_data(
     player_id: &PlayerId,
     game_folder_paths: &GameFolderPaths,
 ) -> PlayerSave {
-    let file_path: PathBuf = get_game_folder(Some(game_folder_paths))
+    let file_path: PathBuf = game_folder_paths
+        .game_folder_path
         .join(SAVE_PATH)
         .join(format!("{world_name}/players/{player_id}.ron"));
     let path: &Path = file_path.as_path();
