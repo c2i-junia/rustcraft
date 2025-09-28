@@ -6,7 +6,7 @@ use crate::{
     },
     world::WorldMap,
 };
-use bevy::{math::NormedVectorSpace, prelude::*};
+use bevy::prelude::*;
 
 use super::Player;
 

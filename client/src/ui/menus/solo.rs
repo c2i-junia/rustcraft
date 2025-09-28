@@ -239,6 +239,8 @@ pub fn list_worlds(
     // create save folder if it not exist
     let save_path: PathBuf = get_game_folder(Some(&game_paths)).join(SAVE_PATH);
     let path: &Path = save_path.as_path();
+    info!("Looking for worlds in : {}", path.display());
+
     if !fs::exists(path).unwrap() && fs::create_dir_all(path).is_ok() {
         info!("Successfully created the saves folder : {}", path.display());
     }
@@ -246,20 +248,28 @@ pub fn list_worlds(
     let paths = fs::read_dir(path).unwrap();
 
     for path in paths {
-        let path_str = path.unwrap().file_name().into_string().unwrap();
+        let dir_entry = path.unwrap();
+        let path_str = dir_entry.file_name().into_string().unwrap();
+        let full_path = dir_entry.path();
 
-        if path_str.ends_with(".ron") {
-            add_world_item(
-                path_str.replace(".ron", ""),
-                &mut commands,
-                &assets,
-                &mut list,
-                list_entity,
-                &mut world_map,
-                &game_paths,
-            );
+        // Check if it's a directory and contains world.ron
+        if full_path.is_dir() {
+            let world_ron_path = full_path.join("world.ron");
+            if world_ron_path.exists() {
+                add_world_item(
+                    path_str,
+                    &mut commands,
+                    &assets,
+                    &mut list,
+                    list_entity,
+                    &mut world_map,
+                    &game_paths,
+                );
+            }
         }
     }
+
+    info!("Found {} worlds", list.worlds.len());
 }
 
 fn add_world_item(
@@ -461,19 +471,27 @@ pub fn delete_save_files(
     world_name: &str,
     game_folder_path: &Res<GameFolderPaths>,
 ) -> Result<(), io::Error> {
-    // Delete `world_save.ron`
-    match fs::remove_file(format!(
-        "{}{}.ron",
-        get_game_folder(Some(game_folder_path))
-            .join(SAVE_PATH)
-            .display(),
-        world_name
-    )) {
-        Ok(_) => info!("Successfully deleted world"),
+    // Delete the entire world directory
+    let world_dir = get_game_folder(Some(game_folder_path))
+        .join(SAVE_PATH)
+        .join(world_name);
+
+    match fs::remove_dir_all(&world_dir) {
+        Ok(_) => info!(
+            "Successfully deleted world directory: {}",
+            world_dir.display()
+        ),
         Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
-            error!("world_save.ron not found, skipping.")
+            error!(
+                "World directory not found, skipping: {}",
+                world_dir.display()
+            )
         }
-        Err(e) => error!("Failed to delete world: {}", e),
+        Err(e) => error!(
+            "Failed to delete world directory {}: {}",
+            world_dir.display(),
+            e
+        ),
     }
 
     Ok(())
