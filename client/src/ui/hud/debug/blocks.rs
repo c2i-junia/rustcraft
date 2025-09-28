@@ -49,7 +49,7 @@ pub fn toggle_wireframe_system(
             .get(&GlobalMaterial::Blocks)
             .unwrap();
         let material = materials.get_mut(handle).unwrap();
-        material.alpha_mode = AlphaMode::Opaque;
+        material.alpha_mode = AlphaMode::AlphaToCoverage;
         material.base_color.set_alpha(1.0);
     }
 }

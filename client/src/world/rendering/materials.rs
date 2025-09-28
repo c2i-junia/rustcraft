@@ -169,7 +169,7 @@ pub fn create_all_atlases(
                     base_color_texture: Some(blocks.texture.clone_weak()),
                     perceptual_roughness: BASE_ROUGHNESS,
                     reflectance: BASE_SPECULAR_HIGHLIGHT,
-                    alpha_mode: AlphaMode::Mask(0.5),
+                    alpha_mode: AlphaMode::AlphaToCoverage,
                     ..default()
                 }),
             );
@@ -180,7 +180,7 @@ pub fn create_all_atlases(
                     base_color_texture: Some(blocks.texture.clone_weak()),
                     perceptual_roughness: BASE_ROUGHNESS,
                     reflectance: BASE_SPECULAR_HIGHLIGHT,
-                    alpha_mode: AlphaMode::Blend,
+                    alpha_mode: AlphaMode::AlphaToCoverage,
                     ..default()
                 }),
             );
