@@ -18,7 +18,6 @@ pub enum GlobalMaterial {
     Sun,
     Moon,
     Blocks,
-    Liquids,
     Items,
 }
 

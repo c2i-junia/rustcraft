@@ -48,7 +48,6 @@ fn build_mesh(creator: &MeshCreator) -> Mesh {
 #[derive(Debug, Default, Clone)]
 pub struct ChunkMeshResponse {
     pub solid_mesh: Option<Mesh>,
-    pub liquid_mesh: Option<Mesh>,
 }
 
 pub(crate) fn generate_chunk_mesh(
@@ -60,7 +59,6 @@ pub(crate) fn generate_chunk_mesh(
     let start = Instant::now();
 
     let mut solid_mesh_creator = MeshCreator::default();
-    let mut liquid_mesh_creator = MeshCreator::default();
 
     for (local_block_pos, block) in chunk.map.iter() {
         let x = local_block_pos.x as f32;
@@ -79,12 +77,6 @@ pub(crate) fn generate_chunk_mesh(
         let mut local_normals: Vec<[f32; 3]> = vec![];
         let mut local_uvs: Vec<[f32; 2]> = vec![];
         let mut local_colors: Vec<[f32; 4]> = vec![];
-
-        let indices_offset = if visibility == BlockTransparency::Liquid {
-            &mut liquid_mesh_creator.indices_offset
-        } else {
-            &mut solid_mesh_creator.indices_offset
-        };
 
         let voxel: VoxelShape = VoxelShape::create_from_block(block);
 
@@ -109,7 +101,7 @@ pub(crate) fn generate_chunk_mesh(
                     &mut local_normals,
                     &mut local_uvs,
                     &mut local_colors,
-                    indices_offset,
+                    &mut solid_mesh_creator.indices_offset,
                     face,
                     uv_coords,
                     1.0,
@@ -126,7 +118,7 @@ pub(crate) fn generate_chunk_mesh(
                         &mut local_normals,
                         &mut local_uvs,
                         &mut local_colors,
-                        indices_offset,
+                        &mut solid_mesh_creator.indices_offset,
                         face,
                         uv_map
                             .get(&format!("DestroyStage{breaking_progress}"))
@@ -146,23 +138,14 @@ pub(crate) fn generate_chunk_mesh(
             })
             .collect();
 
-        if visibility == BlockTransparency::Liquid {
-            liquid_mesh_creator.vertices.extend(local_vertices);
-            liquid_mesh_creator.indices.extend(local_indices);
-            liquid_mesh_creator.normals.extend(local_normals);
-            liquid_mesh_creator.uvs.extend(local_uvs);
-            liquid_mesh_creator.colors.extend(local_colors);
-        } else {
-            solid_mesh_creator.vertices.extend(local_vertices);
-            solid_mesh_creator.indices.extend(local_indices);
-            solid_mesh_creator.normals.extend(local_normals);
-            solid_mesh_creator.uvs.extend(local_uvs);
-            solid_mesh_creator.colors.extend(local_colors);
-        }
+        solid_mesh_creator.vertices.extend(local_vertices);
+        solid_mesh_creator.indices.extend(local_indices);
+        solid_mesh_creator.normals.extend(local_normals);
+        solid_mesh_creator.uvs.extend(local_uvs);
+        solid_mesh_creator.colors.extend(local_colors);
     }
 
     let mut solid_mesh = build_mesh(&solid_mesh_creator);
-    let mut liquid_mesh = build_mesh(&liquid_mesh_creator);
 
     trace!("Render time : {:?}", Instant::now() - start);
 
@@ -176,24 +159,9 @@ pub(crate) fn generate_chunk_mesh(
         }
     };
 
-    let should_return_liquid = !liquid_mesh_creator.vertices.is_empty();
-    if should_return_liquid {
-        if let Err(e) = liquid_mesh.generate_tangents() {
-            warn!(
-                "Error while generating tangents for the mesh LIQUID : {:?} | {:?}",
-                e, liquid_mesh
-            );
-        }
-    };
-
     ChunkMeshResponse {
         solid_mesh: if should_return_solid {
             Some(solid_mesh)
-        } else {
-            None
-        },
-        liquid_mesh: if should_return_liquid {
-            Some(liquid_mesh)
         } else {
             None
         },

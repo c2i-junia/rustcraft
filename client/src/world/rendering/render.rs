@@ -49,11 +49,6 @@ fn update_chunk(
         .get(&world::GlobalMaterial::Blocks)
         .unwrap();
 
-    let liquid_texture = material_resource
-        .global_materials
-        .get(&world::GlobalMaterial::Liquids)
-        .unwrap();
-
     if chunk.entity.is_some() {
         commands.entity(chunk.entity.unwrap()).despawn();
         chunk.entity = None;
@@ -75,14 +70,6 @@ fn update_chunk(
                         StateScoped(GameState::Game),
                         Mesh3d(meshes.add(new_solid_mesh)),
                         MeshMaterial3d(solid_texture.clone()),
-                    ));
-                }
-
-                if let Some(new_liquid_mesh) = new_meshes.liquid_mesh {
-                    root.spawn((
-                        StateScoped(GameState::Game),
-                        Mesh3d(meshes.add(new_liquid_mesh)),
-                        MeshMaterial3d(liquid_texture.clone()),
                     ));
                 }
             })

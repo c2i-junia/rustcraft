@@ -173,17 +173,6 @@ pub fn create_all_atlases(
                     ..default()
                 }),
             );
-            //PAS SUR
-            material_resource.global_materials.insert(
-                GlobalMaterial::Liquids,
-                materials.add(StandardMaterial {
-                    base_color_texture: Some(blocks.texture.clone_weak()),
-                    perceptual_roughness: BASE_ROUGHNESS,
-                    reflectance: BASE_SPECULAR_HIGHLIGHT,
-                    alpha_mode: AlphaMode::AlphaToCoverage,
-                    ..default()
-                }),
-            );
 
             material_resource.blocks = Some(blocks);
         } else {
