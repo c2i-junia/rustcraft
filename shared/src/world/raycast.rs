@@ -5,7 +5,7 @@ use bevy::{
 
 use crate::{
     players::ViewMode,
-    world::{BlockData, WorldMap},
+    world::{BlockData, BlockHitbox, WorldMap},
     HALF_BLOCK,
 };
 
@@ -97,10 +97,10 @@ pub fn raycast_from_source_position_and_direction(
     origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
-    let dir_inv = 1. / direction;
+    let inv_dir = 1. / direction;
 
-    let step = dir_inv.signum().as_ivec3();
-    let delta = dir_inv.abs();
+    let step = inv_dir.signum().as_ivec3();
+    let delta = inv_dir.abs();
 
     let mut axis = 0;
 
@@ -126,20 +126,40 @@ pub fn raycast_from_source_position_and_direction(
     // Actual raycast loop
     while distance < 20.0 {
         if let Some(block) = world_map.get_block_by_coordinates(&voxel) {
-            return Some(RaycastResponse {
-                block: *block,
-                position: voxel,
-                face: match (axis, step[axis]) {
-                    (0, -1) => FaceDirection::PlusX,
-                    (0, 1) => FaceDirection::MinusX,
-                    (1, -1) => FaceDirection::PlusY,
-                    (1, 1) => FaceDirection::MinusY,
-                    (2, -1) => FaceDirection::PlusZ,
-                    (2, 1) => FaceDirection::MinusZ,
-                    _ => unreachable!(),
-                },
-                bbox: Aabb3d::new(voxel.as_vec3() + HALF_BLOCK, HALF_BLOCK),
-            });
+            match block.id.get_ray_hitbox() {
+                BlockHitbox::FullBlock => {
+                    return Some(RaycastResponse {
+                        block: *block,
+                        position: voxel,
+                        face: match (axis, step[axis]) {
+                            (0, -1) => FaceDirection::PlusX,
+                            (0, 1) => FaceDirection::MinusX,
+                            (1, -1) => FaceDirection::PlusY,
+                            (1, 1) => FaceDirection::MinusY,
+                            (2, -1) => FaceDirection::PlusZ,
+                            (2, 1) => FaceDirection::MinusZ,
+                            _ => unreachable!(),
+                        },
+                        bbox: Aabb3d::new(voxel.as_vec3() + HALF_BLOCK, HALF_BLOCK),
+                    })
+                }
+                BlockHitbox::Aabb(hitbox) => {
+                    let hitbox = Aabb3d {
+                        min: hitbox.min + voxel.as_vec3a(),
+                        max: hitbox.max + voxel.as_vec3a(),
+                    };
+                    if let Some((pos, face)) = aabb_ray_hit(&hitbox, &origin, &direction, &inv_dir)
+                    {
+                        return Some(RaycastResponse {
+                            block: *block,
+                            position: pos.floor().as_ivec3(),
+                            face,
+                            bbox: hitbox,
+                        });
+                    }
+                }
+                BlockHitbox::None => {}
+            }
         }
 
         // Choose new step direction
@@ -164,26 +184,52 @@ pub fn raycast_from_source_position_and_direction(
 }
 
 // Computes the collision between an AABB and a raycasting ray
-#[allow(dead_code)]
-pub fn aabb_ray_hit(aabb: &Aabb3d, origin: &Vec3, inv_dir: &Vec3) -> Option<(f32, f32)> {
-    let mut tmin: f32 = 0.;
-    let mut tmax: f32 = f32::INFINITY;
+pub fn aabb_ray_hit(
+    aabb: &Aabb3d,
+    origin: &Vec3,
+    dir: &Vec3,
+    inv_dir: &Vec3,
+) -> Option<(Vec3, FaceDirection)> {
+    let t1 = (Vec3::from(aabb.min) - origin) * inv_dir;
+    let t2 = (Vec3::from(aabb.max) - origin) * inv_dir;
 
-    // Looping over all axes
-    for axis in 0..3 {
-        let t1 = (aabb.min[axis] - origin[axis]) * inv_dir[axis];
-        let t2 = (aabb.max[axis] - origin[axis]) * inv_dir[axis];
+    let tmin = t1.min(t2);
+    let tmax = t1.max(t2);
 
-        let dmin = t1.min(t2);
-        let dmax = t1.max(t2);
+    let t_enter = tmin.max_element();
+    let t_exit = tmax.min_element();
 
-        tmin = dmin.max(tmin);
-        tmax = dmax.min(tmax);
+    if t_enter > t_exit || t_exit < 0.0 {
+        return None;
     }
 
-    if tmax >= tmin {
-        Some((tmin, tmax))
-    } else {
-        None
-    } /* miss */
+    let t = if t_enter >= 0.0 { t_enter } else { t_exit };
+    let hit_pos = origin + dir * t;
+
+    // Determine which face was hit by checking which axis produced t_enter
+    let epsilon = 1e-5;
+
+    let mut face = FaceDirection::PlusY;
+
+    if (t_enter - tmin.x).abs() < epsilon {
+        if dir.x > 0.0 {
+            face = FaceDirection::MinusX;
+        } else {
+            face = FaceDirection::PlusX;
+        }
+    } else if (t_enter - tmin.y).abs() < epsilon {
+        if dir.y > 0.0 {
+            face = FaceDirection::MinusY;
+        } else {
+            face = FaceDirection::PlusY;
+        }
+    } else if (t_enter - tmin.z).abs() < epsilon {
+        if dir.z > 0.0 {
+            face = FaceDirection::MinusZ;
+        } else {
+            face = FaceDirection::PlusZ;
+        }
+    }
+
+    Some((hit_pos, face))
 }

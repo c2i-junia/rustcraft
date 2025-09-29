@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::HALF_BLOCK;
 
 use super::{GameElementId, ItemId};
-use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
+use bevy::math::{bounding::Aabb3d, IVec3, Vec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -87,12 +87,29 @@ pub enum BlockTransparency {
     Decoration,
 }
 
+pub enum BlockHitbox {
+    FullBlock,
+    Aabb(Aabb3d),
+    None,
+}
+
 impl BlockId {
-    pub fn has_hitbox(&self) -> bool {
-        !matches!(
-            *self,
-            BlockId::Dandelion | BlockId::Poppy | BlockId::TallGrass | BlockId::Water
-        )
+    pub fn get_hitbox(&self) -> BlockHitbox {
+        match *self {
+            Self::Water | Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::None,
+            _ => BlockHitbox::FullBlock,
+        }
+    }
+
+    pub fn get_ray_hitbox(&self) -> BlockHitbox {
+        match *self {
+            Self::Water => BlockHitbox::None,
+            Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::Aabb(Aabb3d::new(
+                Vec3A::splat(0.5).with_y(0.3),
+                Vec3A::splat(0.3),
+            )),
+            _ => BlockHitbox::FullBlock,
+        }
     }
 
     pub fn is_biome_colored() -> bool {

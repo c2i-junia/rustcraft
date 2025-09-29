@@ -1,6 +1,8 @@
 use crate::messages::PlayerId;
 use crate::players::Player;
-use crate::world::{block_to_chunk_coord, global_block_to_chunk_pos, to_local_pos, BlockId};
+use crate::world::{
+    block_to_chunk_coord, global_block_to_chunk_pos, to_local_pos, BlockHitbox, BlockId,
+};
 use crate::CHUNK_SIZE;
 
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
@@ -182,26 +184,23 @@ pub trait WorldMap {
             for y in (hitbox.min.y.floor() as i32)..=(hitbox.max.y.floor() as i32) {
                 for z in (hitbox.min.z.floor() as i32)..=(hitbox.max.z.floor() as i32) {
                     if let Some(block) = self.get_block_by_coordinates(&IVec3::new(x, y, z)) {
-                        if block.id.has_hitbox() {
-                            return true;
+                        match block.id.get_hitbox() {
+                            BlockHitbox::FullBlock => return true,
+                            BlockHitbox::None => continue,
+                            BlockHitbox::Aabb(block_hitbox) => {
+                                let min = hitbox.min.max(block_hitbox.min);
+                                let max = hitbox.max.min(block_hitbox.max);
+
+                                if min == max.min(min) {
+                                    return true;
+                                }
+                            }
                         }
                     }
                 }
             }
         }
         false
-    }
-
-    fn check_collision_point(&self, point: &Vec3) -> bool {
-        if let Some(block) = self.get_block_by_coordinates(&IVec3::new(
-            point.x.floor() as i32,
-            point.y.floor() as i32,
-            point.z.floor() as i32,
-        )) {
-            block.id.has_hitbox()
-        } else {
-            false
-        }
     }
 
     fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3> {
