@@ -5,7 +5,7 @@ use bevy::{
 use bevy_renet::renet::{ClientId, RenetServer};
 use shared::{
     messages::{NetworkAction, PlayerFrameInput, PlayerUpdateEvent},
-    players::simulation::simulate_player_actions,
+    players::{simulation::simulate_player_actions, blocks::CallerType},
     world::{ServerWorldMap, WorldSeed},
 };
 
@@ -48,7 +48,7 @@ pub fn handle_player_inputs_system(
     for ev in events.read() {
         let player = players.get_mut(&ev.client_id).unwrap();
 
-        simulate_player_actions(player, chunks, &ev.input.clone());
+        simulate_player_actions(player, chunks, &ev.input.clone(), CallerType::Server);
 
         player.last_input_processed = ev.input.time_ms;
     }

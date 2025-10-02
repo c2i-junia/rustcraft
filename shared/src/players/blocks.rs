@@ -6,6 +6,21 @@ use crate::{
 use bevy::math::{NormedVectorSpace, Vec3};
 use bevy_log::info;
 
+#[derive(Debug, Clone, Copy)]
+pub enum CallerType {
+    Client,
+    Server,
+}
+
+impl CallerType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CallerType::Client => "[CLIENT]",
+            CallerType::Server => "[SERVER]",
+        }
+    }
+}
+
 const INTERACTION_DISTANCE: f32 = 5.0;
 const CUBE_SIZE: f32 = 1.0;
 
@@ -13,15 +28,16 @@ pub fn simulate_player_block_interactions(
     player: &mut Player,
     world_map: &mut impl WorldMap,
     action: &PlayerFrameInput,
+    caller_type: CallerType,
 ) {
     // TODO: make sure that only one interaction is processed per game tick (instead of per frame like now)
     for network_action in &action.inputs {
         match network_action {
             NetworkAction::LeftClick => {
-                handle_block_breaking(player, world_map, action);
+                handle_block_breaking(player, world_map, action, caller_type);
             }
             NetworkAction::RightClick => {
-                handle_block_placement(player, world_map, action);
+                handle_block_placement(player, world_map, action, caller_type);
             }
             _ => {}
         }
@@ -32,6 +48,7 @@ fn handle_block_breaking(
     player: &mut Player,
     world_map: &mut impl WorldMap,
     action: &PlayerFrameInput,
+    caller_type: CallerType,
 ) {
     let block_position = raycast::raycast(
         world_map,
@@ -41,14 +58,16 @@ fn handle_block_breaking(
     );
 
     log::debug!(
-        "Player {} is trying to break block is at {:?}",
+        "{} Player {} is trying to break block is at {:?}",
+        caller_type.as_str(),
         player.id,
         block_position,
     );
 
     if block_position.is_none() {
         log::info!(
-            "Player {} tried to break a block but no valid block was found",
+            "{} Player {} tried to break a block but no valid block was found",
+            caller_type.as_str(),
             player.id,
         );
         return;
@@ -58,7 +77,8 @@ fn handle_block_breaking(
 
     let distance = (block_pos.as_vec3() + Vec3::splat(0.5) - player.position).norm();
     log::debug!(
-        "Calculated distance to block center: {:.2} (block pos: {:?}, player pos: {:?})",
+        "{} Calculated distance to block center: {:.2} (block pos: {:?}, player pos: {:?})",
+        caller_type.as_str(),
         distance,
         block_pos,
         player.position
@@ -67,7 +87,8 @@ fn handle_block_breaking(
     // Validate interaction distance
     if distance > INTERACTION_DISTANCE {
         log::warn!(
-            "Player {} tried to break block at {:?} but it's too far (distance: {:.2})",
+            "{} Player {} tried to break block at {:?} but it's too far (distance: {:.2})",
+            caller_type.as_str(),
             player.id,
             block_pos,
             distance
@@ -78,7 +99,8 @@ fn handle_block_breaking(
     let block = world_map.get_block_mut_by_coordinates(&block_pos);
     if block.is_none() {
         log::info!(
-            "Player {} tried to break a block at {:?}, but no block was found",
+            "{} Player {} tried to break a block at {:?}, but no block was found",
+            caller_type.as_str(),
             player.id,
             block_pos
         );
@@ -96,8 +118,11 @@ fn handle_block_breaking(
 
     if destroyed {
         info!(
-            "Player {} broke block {:?} at position {:?}",
-            player.id, block_id, block_pos
+            "{} Player {} broke block {:?} at position {:?}",
+            caller_type.as_str(),
+            player.id,
+            block_id,
+            block_pos
         );
 
         world_map.remove_block_by_coordinates(&block_pos);
@@ -109,15 +134,24 @@ fn handle_block_breaking(
                 nb,
             });
             info!(
-                "Player {} received drop {:?} x{} from breaking block {:?}",
-                player.id, item_id, nb, block_id
+                "{} Player {} received drop {:?} x{} from breaking block {:?}",
+                caller_type.as_str(),
+                player.id,
+                item_id,
+                nb,
+                block_id
             );
         }
     } else {
         world_map.mark_block_for_update(&block_pos);
         info!(
-            "Player {} is breaking block {:?} at position {:?} (progress: {}/{})",
-            player.id, block_id, block_pos, breaking_progress, break_time
+            "{} Player {} is breaking block {:?} at position {:?} (progress: {}/{})",
+            caller_type.as_str(),
+            player.id,
+            block_id,
+            block_pos,
+            breaking_progress,
+            break_time
         );
     }
 }
@@ -126,6 +160,7 @@ fn handle_block_placement(
     player: &mut Player,
     world_map: &mut impl WorldMap,
     action: &PlayerFrameInput,
+    caller_type: CallerType,
 ) {
     let raycast_response = raycast::raycast(
         world_map,
@@ -135,14 +170,16 @@ fn handle_block_placement(
     );
 
     log::debug!(
-        "Player {} is trying to place block is at {:?}",
+        "{} Player {} is trying to place block is at {:?}",
+        caller_type.as_str(),
         player.id,
         raycast_response,
     );
 
     if raycast_response.is_none() {
         log::info!(
-            "Player {} tried to place a block but no valid block was found",
+            "{} Player {} tried to place a block but no valid block was found",
+            caller_type.as_str(),
             player.id,
         );
         return;
@@ -154,7 +191,8 @@ fn handle_block_placement(
     let face_direction = raycast_response.face;
 
     log::debug!(
-        "Player {} is trying to place block at {:?} on face {:?}",
+        "{} Player {} is trying to place block at {:?} on face {:?}",
+        caller_type.as_str(),
         player.id,
         collision_pos,
         face_direction
@@ -179,7 +217,8 @@ fn handle_block_placement(
     // Validate interaction distance
     if distance > INTERACTION_DISTANCE {
         log::warn!(
-            "Player {} tried to place block at {:?} but it's too far (distance: {:.2})",
+            "{} Player {} tried to place block at {:?} but it's too far (distance: {:.2})",
+            caller_type.as_str(),
             player.id,
             collision_pos,
             distance
@@ -193,7 +232,8 @@ fn handle_block_placement(
         .is_some()
     {
         log::warn!(
-            "Player {} tried to place block at {:?} but a block already exists there",
+            "{} Player {} tried to place block at {:?} but a block already exists there",
+            caller_type.as_str(),
             player.id,
             block_to_create_pos
         );
@@ -204,7 +244,8 @@ fn handle_block_placement(
     let distance = delta.abs();
 
     log::debug!(
-        "Calculated distance to target cube center: {:?} (block pos: {:?}, player pos: {:?})",
+        "{} Calculated distance to target cube center: {:?} (block pos: {:?}, player pos: {:?})",
+        caller_type.as_str(),
         distance,
         block_to_create_pos,
         player.position
@@ -216,7 +257,8 @@ fn handle_block_placement(
         || distance.y > (CUBE_SIZE + player.height) / 2.)
     {
         log::warn!(
-            "Player {} tried to place block at {:?} but it would collide with player",
+            "{} Player {} tried to place block at {:?} but it would collide with player",
+            caller_type.as_str(),
             player.id,
             block_to_create_pos
         );
@@ -228,7 +270,8 @@ fn handle_block_placement(
     // Validate hotbar slot
     if inventory_slot >= crate::MAX_INVENTORY_SLOTS {
         log::warn!(
-            "Player {} tried to place block from invalid inventory slot {}",
+            "{} Player {} tried to place block from invalid inventory slot {}",
+            caller_type.as_str(),
             player.id,
             inventory_slot
         );
@@ -247,21 +290,24 @@ fn handle_block_placement(
             world_map.set_block(&block_to_create_pos, block);
 
             log::info!(
-                "Player {} placed block {:?} at position {:?}",
+                "{} Player {} placed block {:?} at position {:?}",
+                caller_type.as_str(),
                 player.id,
                 block_id,
                 block_to_create_pos
             );
         } else {
             log::warn!(
-                "Player {} tried to place item {:?} but it's not a block",
+                "{} Player {} tried to place item {:?} but it's not a block",
+                caller_type.as_str(),
                 player.id,
                 item.item_type
             );
         }
     } else {
         log::warn!(
-            "Player {} tried to place block from empty inventory slot {}",
+            "{} Player {} tried to place block from empty inventory slot {}",
+            caller_type.as_str(),
             player.id,
             inventory_slot
         );

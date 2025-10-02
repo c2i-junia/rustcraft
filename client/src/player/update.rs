@@ -9,7 +9,7 @@ use bevy::color::palettes::css::ORANGE;
 use bevy::prelude::*;
 use shared::{
     messages::{PlayerSpawnEvent, PlayerUpdateEvent},
-    players::{simulation::simulate_player_actions, Inventory, Player},
+    players::{simulation::simulate_player_actions, blocks::CallerType, Inventory, Player},
 };
 
 #[derive(Component)]
@@ -175,7 +175,7 @@ pub fn update_players_system(
 
                         for input in remaining_inputs.iter() {
                             // debug!("Reapplying input: {:?}", input);
-                            simulate_player_actions(&mut player, world_map, input);
+                            simulate_player_actions(&mut player, world_map, input, CallerType::Client);
                         }
 
                         debug!(

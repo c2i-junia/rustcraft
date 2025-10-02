@@ -5,7 +5,7 @@ use crate::world::ClientWorldMap;
 use bevy::color::palettes::css::{GREEN, WHITE};
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
-use shared::players::blocks::simulate_player_block_interactions;
+use shared::players::blocks::{simulate_player_block_interactions, CallerType};
 use shared::players::{Player, ViewMode};
 use shared::world::raycast;
 
@@ -97,7 +97,12 @@ pub fn handle_block_interactions(
             frame_inputs.0.inputs.insert(NetworkAction::RightClick);
         }
 
-        simulate_player_block_interactions(&mut player, world_map, &frame_inputs.0);
+        simulate_player_block_interactions(
+            &mut player,
+            world_map,
+            &frame_inputs.0,
+            CallerType::Client,
+        );
     }
 }
 
