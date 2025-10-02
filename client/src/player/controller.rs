@@ -15,6 +15,22 @@ use shared::players::{Player, ViewMode};
 
 use super::CurrentPlayerMarker;
 
+pub fn update_frame_inputs_system(
+    camera: Query<&Transform, With<Camera>>,
+    hotbar: Query<&Hotbar>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+    view_mode: Res<ViewMode>,
+) {
+    if frame_inputs.0.delta_ms == 0 {
+        return;
+    }
+
+    let camera = camera.single().unwrap();
+    frame_inputs.0.camera = *camera;
+    frame_inputs.0.hotbar_slot = hotbar.single().unwrap().selected;
+    frame_inputs.0.view_mode = *view_mode;
+}
+
 #[derive(Component)]
 pub struct PlayerMaterialHandle {
     pub handle: Handle<StandardMaterial>,
@@ -34,28 +50,20 @@ pub fn pre_input_update_system(
 
 pub fn player_movement_system(
     queries: Query<(&mut Player, &mut Transform), (With<CurrentPlayerMarker>, Without<Camera>)>,
-    camera: Query<&Transform, With<Camera>>,
     resources: (
         Res<ButtonInput<KeyCode>>,
         Res<UIMode>,
         Res<KeyMap>,
         ResMut<CurrentFrameInputs>,
-        Res<ViewMode>,
     ),
     world_map: Res<ClientWorldMap>,
-    hotbar: Query<&Hotbar>,
 ) {
     let mut player_query = queries;
-    let (keyboard_input, ui_mode, key_map, mut frame_inputs, view_mode) = resources;
+    let (keyboard_input, ui_mode, key_map, mut frame_inputs) = resources;
 
     if frame_inputs.0.delta_ms == 0 {
         return;
     }
-
-    let camera = camera.single().unwrap();
-    frame_inputs.0.camera = *camera;
-    frame_inputs.0.hotbar_slot = hotbar.single().unwrap().selected;
-    frame_inputs.0.view_mode = *view_mode;
 
     let res = player_query.single_mut();
     // Return early if the player has not been spawned yet

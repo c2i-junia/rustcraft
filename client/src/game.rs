@@ -158,6 +158,7 @@ pub fn game_plugin(app: &mut App) {
                 toggle_raycast_debug_mode_system,
                 chunk_force_reload_system,
                 (
+                    update_frame_inputs_system,
                     handle_block_interactions,
                     player_movement_system,
                     camera_control_system,

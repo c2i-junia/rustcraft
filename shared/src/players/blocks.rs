@@ -66,9 +66,12 @@ fn handle_block_breaking(
 
     if block_position.is_none() {
         log::info!(
-            "{} Player {} tried to break a block but no valid block was found",
+            "{} Player {} tried to break a block but no valid block was found | [Camera: {:?}, Player Pos: {:?}, ViewMode: {:?}]",
             caller_type.as_str(),
             player.id,
+            action.camera,
+            player.position,
+            action.view_mode
         );
         return;
     }
@@ -178,9 +181,12 @@ fn handle_block_placement(
 
     if raycast_response.is_none() {
         log::info!(
-            "{} Player {} tried to place a block but no valid block was found",
+            "{} Player {} tried to place a block but no valid block was found | [Camera: {:?}, Player Pos: {:?}, ViewMode: {:?}]",
             caller_type.as_str(),
             player.id,
+            action.camera,
+            player.position,
+            action.view_mode
         );
         return;
     }
