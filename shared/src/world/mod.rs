@@ -3,6 +3,8 @@ pub mod data;
 pub mod items;
 pub mod mobs;
 pub mod raycast;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod utils;
 
 pub use blocks::*;

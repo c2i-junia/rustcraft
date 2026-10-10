@@ -225,3 +225,156 @@ impl BlockId {
 }
 
 impl GameElementId for BlockId {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL_BLOCKS: [BlockId; 20] = [
+        BlockId::Dirt,
+        BlockId::Debug,
+        BlockId::Grass,
+        BlockId::Stone,
+        BlockId::OakLog,
+        BlockId::OakPlanks,
+        BlockId::OakLeaves,
+        BlockId::Sand,
+        BlockId::Cactus,
+        BlockId::Ice,
+        BlockId::Glass,
+        BlockId::Bedrock,
+        BlockId::Dandelion,
+        BlockId::Poppy,
+        BlockId::TallGrass,
+        BlockId::Cobblestone,
+        BlockId::Snow,
+        BlockId::SpruceLeaves,
+        BlockId::SpruceLog,
+        BlockId::Water,
+    ];
+
+    /// Blocks that fall through to the `_ => 100` arm of `get_break_time`.
+    const FALLBACK_BREAK_TIME_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
+
+    /// Fails to compile when a `BlockId` variant is added without updating `ALL_BLOCKS`.
+    #[allow(dead_code)]
+    fn all_blocks_is_exhaustive(id: BlockId) {
+        match id {
+            BlockId::Dirt
+            | BlockId::Debug
+            | BlockId::Grass
+            | BlockId::Stone
+            | BlockId::OakLog
+            | BlockId::OakPlanks
+            | BlockId::OakLeaves
+            | BlockId::Sand
+            | BlockId::Cactus
+            | BlockId::Ice
+            | BlockId::Glass
+            | BlockId::Bedrock
+            | BlockId::Dandelion
+            | BlockId::Poppy
+            | BlockId::TallGrass
+            | BlockId::Cobblestone
+            | BlockId::Snow
+            | BlockId::SpruceLeaves
+            | BlockId::SpruceLog
+            | BlockId::Water => {}
+        }
+    }
+
+    fn regular_blocks() -> impl Iterator<Item = BlockId> {
+        ALL_BLOCKS
+            .into_iter()
+            .filter(|id| !FALLBACK_BREAK_TIME_BLOCKS.contains(id))
+    }
+
+    #[test]
+    fn get_break_time_of_regular_blocks() {
+        assert_eq!(BlockId::Dirt.get_break_time(), 30);
+        assert_eq!(BlockId::Stone.get_break_time(), 60);
+        assert_eq!(BlockId::Dandelion.get_break_time(), 6);
+        for id in regular_blocks() {
+            assert!(id.get_break_time() > 0, "{id:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "known bug: get_break_time computes 6 * 100 = 600 in u8 for Bedrock and Water (overflow panic in debug, wraps in release)"]
+    fn get_break_time_does_not_panic_for_any_block() {
+        for id in ALL_BLOCKS {
+            let _ = id.get_break_time();
+        }
+    }
+
+    #[test]
+    fn get_breaking_level_stays_within_zero_to_ten() {
+        for id in regular_blocks() {
+            let break_time = id.get_break_time();
+            for progress in 0..=break_time {
+                let mut block = BlockData::new(id, BlockDirection::Front);
+                block.breaking_progress = progress;
+                assert!(block.get_breaking_level() <= 10, "{id:?} at {progress}");
+            }
+        }
+    }
+
+    #[test]
+    fn get_breaking_level_of_untouched_and_fully_broken_block() {
+        let mut block = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        assert_eq!(block.get_breaking_level(), 0);
+        block.breaking_progress = block.id.get_break_time() / 2;
+        assert_eq!(block.get_breaking_level(), 5);
+        block.breaking_progress = block.id.get_break_time();
+        assert_eq!(block.get_breaking_level(), 10);
+    }
+
+    #[test]
+    #[ignore = "known bug: get_breaking_level divides by get_break_time, which overflows for Bedrock and Water"]
+    fn get_breaking_level_does_not_panic_for_any_block() {
+        for id in ALL_BLOCKS {
+            let block = BlockData::new(id, BlockDirection::Front);
+            assert!(block.get_breaking_level() <= 10, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn get_drops_of_single_entry_tables() {
+        assert_eq!(
+            BlockId::Stone.get_drops(1),
+            HashMap::from([(ItemId::Cobblestone, 1)])
+        );
+        assert_eq!(
+            BlockId::Grass.get_drops(1),
+            HashMap::from([(ItemId::Dirt, 1)])
+        );
+        assert_eq!(
+            BlockId::Snow.get_drops(1),
+            HashMap::from([(ItemId::Snowball, 4)])
+        );
+    }
+
+    #[test]
+    fn get_drops_accumulates_over_several_drops() {
+        assert_eq!(
+            BlockId::Sand.get_drops(3),
+            HashMap::from([(ItemId::Sand, 3)])
+        );
+    }
+
+    #[test]
+    fn get_drops_is_empty_without_drop_table_or_drops() {
+        assert!(BlockId::Water.get_drops(1).is_empty());
+        assert!(BlockId::Glass.get_drops(1).is_empty());
+        assert!(BlockId::Stone.get_drops(0).is_empty());
+    }
+
+    #[test]
+    #[ignore = "known bug: Poppy drops a Dandelion item instead of a Poppy"]
+    fn poppy_drops_a_poppy() {
+        assert_eq!(
+            BlockId::Poppy.get_drops(1),
+            HashMap::from([(ItemId::Poppy, 1)])
+        );
+    }
+}

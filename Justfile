@@ -56,3 +56,7 @@ generate-release-folder-server:
     # copy paste binaries 
     cp target/release/server release/bin/rustcraft-server
 
+check:
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test --workspace

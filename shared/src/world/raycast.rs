@@ -9,7 +9,7 @@ use crate::{
     HALF_BLOCK,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FaceDirection {
     PlusX,
     MinusX,
@@ -232,4 +232,129 @@ pub fn aabb_ray_hit(
     }
 
     Some((hit_pos, face))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::{test_support::TestWorld, BlockId};
+
+    const ORIGIN: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+
+    fn world_with_block(position: IVec3, id: BlockId) -> TestWorld {
+        let mut world = TestWorld::default();
+        world.fill_box(position, position, id);
+        world
+    }
+
+    #[test]
+    fn axis_aligned_rays_hit_the_block_in_front_with_the_facing_face() {
+        let cases = [
+            (Vec3::X, IVec3::new(3, 0, 0), FaceDirection::MinusX),
+            (Vec3::NEG_X, IVec3::new(-3, 0, 0), FaceDirection::PlusX),
+            (Vec3::Y, IVec3::new(0, 3, 0), FaceDirection::MinusY),
+            (Vec3::NEG_Y, IVec3::new(0, -3, 0), FaceDirection::PlusY),
+            (Vec3::Z, IVec3::new(0, 0, 3), FaceDirection::MinusZ),
+            (Vec3::NEG_Z, IVec3::new(0, 0, -3), FaceDirection::PlusZ),
+        ];
+        for (direction, block_pos, face) in cases {
+            let world = world_with_block(block_pos, BlockId::Stone);
+            let hit = raycast_from_source_position_and_direction(&world, ORIGIN, direction)
+                .unwrap_or_else(|| panic!("no hit along {direction:?}"));
+            assert_eq!(hit.position, block_pos, "direction {direction:?}");
+            assert_eq!(hit.face, face, "direction {direction:?}");
+            assert_eq!(hit.block.id, BlockId::Stone);
+        }
+    }
+
+    #[test]
+    fn ray_returns_the_nearest_of_two_blocks() {
+        let mut world = world_with_block(IVec3::new(2, 0, 0), BlockId::Dirt);
+        world.fill_box(IVec3::new(4, 0, 0), IVec3::new(4, 0, 0), BlockId::Stone);
+        let hit = raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).unwrap();
+        assert_eq!(hit.position, IVec3::new(2, 0, 0));
+        assert_eq!(hit.block.id, BlockId::Dirt);
+    }
+
+    #[test]
+    fn ray_misses_when_nothing_is_in_the_way() {
+        let world = world_with_block(IVec3::new(0, 3, 0), BlockId::Stone);
+        assert!(raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).is_none());
+        assert!(
+            raycast_from_source_position_and_direction(&TestWorld::default(), ORIGIN, Vec3::X)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn ray_does_not_hit_a_block_behind_the_origin() {
+        let world = world_with_block(IVec3::new(-3, 0, 0), BlockId::Stone);
+        assert!(raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).is_none());
+    }
+
+    #[test]
+    fn water_is_transparent_to_rays() {
+        let mut world = world_with_block(IVec3::new(2, 0, 0), BlockId::Water);
+        world.fill_box(IVec3::new(4, 0, 0), IVec3::new(4, 0, 0), BlockId::Stone);
+        let hit = raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).unwrap();
+        assert_eq!(hit.position, IVec3::new(4, 0, 0));
+    }
+
+    #[test]
+    fn diagonal_ray_hits_the_block_it_points_at() {
+        // From the centre of (0,0,0) along (2,1,0): reaches the centre of (4,2,0)
+        // without passing through any voxel corner.
+        let target = IVec3::new(4, 2, 0);
+        let world = world_with_block(target, BlockId::Stone);
+        let direction = Vec3::new(2.0, 1.0, 0.0).normalize();
+        let hit = raycast_from_source_position_and_direction(&world, ORIGIN, direction).unwrap();
+        assert_eq!(hit.position, target);
+        assert_eq!(hit.face, FaceDirection::MinusX);
+    }
+
+    #[test]
+    fn ray_from_negative_coordinates_hits_the_block_in_front() {
+        let origin = Vec3::new(-10.5, -10.5, -10.5);
+        let target = IVec3::new(-8, -11, -11);
+        let world = world_with_block(target, BlockId::Stone);
+        let hit = raycast_from_source_position_and_direction(&world, origin, Vec3::X).unwrap();
+        assert_eq!(hit.position, IVec3::new(-8, -11, -11));
+    }
+
+    #[test]
+    fn ray_hits_a_block_one_to_six_blocks_away() {
+        for n in 1..=6 {
+            let target = IVec3::new(n, 0, 0);
+            let world = world_with_block(target, BlockId::Stone);
+            let hit = raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X);
+            assert_eq!(hit.map(|h| h.position), Some(target), "n = {n}");
+        }
+    }
+
+    #[test]
+    #[ignore = "known bug: `distance` accumulates the cumulative t of each step, so the real reach is far below 20 blocks"]
+    fn ray_hits_a_block_up_to_nineteen_blocks_away() {
+        for n in 1..=19 {
+            let target = IVec3::new(n, 0, 0);
+            let world = world_with_block(target, BlockId::Stone);
+            let hit = raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X);
+            assert_eq!(hit.map(|h| h.position), Some(target), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn flower_hitbox_is_hit_through_its_aabb() {
+        let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Poppy);
+        let origin = Vec3::new(0.5, 0.3, 0.5);
+        let hit = raycast_from_source_position_and_direction(&world, origin, Vec3::X).unwrap();
+        assert_eq!(hit.position, IVec3::new(2, 0, 0));
+        assert_eq!(hit.face, FaceDirection::MinusX);
+    }
+
+    #[test]
+    fn flower_hitbox_is_missed_above_its_aabb() {
+        let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Poppy);
+        let origin = Vec3::new(0.5, 0.9, 0.5);
+        assert!(raycast_from_source_position_and_direction(&world, origin, Vec3::X).is_none());
+    }
 }
