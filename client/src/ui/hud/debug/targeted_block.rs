@@ -19,8 +19,12 @@ pub fn block_text_update_system(
     let mut col = Color::srgb(1.0, 1.0, 1.0);
     let mut txt = "<none>".to_string();
 
-    let camera_transform = camera_query.single().unwrap();
-    let player_transform = player.single().unwrap();
+    let Ok(camera_transform) = camera_query.single() else {
+        return;
+    };
+    let Ok(player_transform) = player.single() else {
+        return;
+    };
     let player_translation = &player_transform.translation;
 
     let world_map = world_map.into_inner();
@@ -31,7 +35,7 @@ pub fn block_text_update_system(
         let pos = res.position;
         // Check if block is close enough to the player
         let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
-        if (block_pos - player.single().unwrap().translation).length() < INTERACTION_DISTANCE {
+        if (block_pos - *player_translation).length() < INTERACTION_DISTANCE {
             col = Color::WHITE;
             txt = format!("{:?} pos = ({}, {}, {})", res.block, pos.x, pos.y, pos.z);
         }

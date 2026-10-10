@@ -57,7 +57,7 @@ pub trait SyncTimeExt {
 
 impl SyncTimeExt for SyncTime {
     fn delta(&self) -> u64 {
-        self.curr_time_ms - self.last_time_ms
+        self.curr_time_ms.saturating_sub(self.last_time_ms)
     }
 
     fn advance(&mut self) {
@@ -66,5 +66,28 @@ impl SyncTimeExt for SyncTime {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delta_is_the_time_elapsed_between_two_ticks() {
+        let time = SyncTime {
+            last_time_ms: 1_000,
+            curr_time_ms: 1_016,
+        };
+        assert_eq!(time.delta(), 16);
+    }
+
+    #[test]
+    fn delta_is_zero_when_the_clock_steps_back() {
+        let time = SyncTime {
+            last_time_ms: 2_000,
+            curr_time_ms: 1_000,
+        };
+        assert_eq!(time.delta(), 0);
     }
 }

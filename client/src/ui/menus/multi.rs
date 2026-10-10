@@ -25,8 +25,15 @@ use shared::GameFolderPaths;
 use std::{
     fs,
     io::Write,
+    net::SocketAddr,
     path::{Path, PathBuf},
 };
+
+/// Parses the address of a server as typed by the user: an IP address and a port, such as
+/// `127.0.0.1:8000`. Host names are not resolved.
+fn parse_server_address(text: &str) -> Option<SocketAddr> {
+    text.parse().ok()
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ServerItem {
@@ -490,9 +497,11 @@ pub fn multiplayer_action(
         if *interaction == Interaction::Pressed {
             match *menu_button_action {
                 MultiplayerButtonAction::Add => {
-                    if !name_query.is_empty() && !ip_query.is_empty() {
-                        let name = name_query.single().unwrap();
-                        let ip = ip_query.single().unwrap();
+                    if let (Ok(name), Ok(ip)) = (name_query.single(), ip_query.single()) {
+                        if parse_server_address(&ip.0).is_none() {
+                            warn!("Not adding server {:?}: invalid address {:?}", name.0, ip.0);
+                            continue;
+                        }
 
                         add_server_item(
                             name.0.clone(),
@@ -509,7 +518,15 @@ pub fn multiplayer_action(
                     if let Some(srv) = list.servers.get(&serv_entity) {
                         info!("Server : name={}, ip={}", srv.name, srv.ip);
 
-                        target_server.address = Some(srv.ip.parse().unwrap());
+                        let Some(address) = parse_server_address(&srv.ip) else {
+                            warn!(
+                                "Not connecting to {:?}: invalid address {:?}",
+                                srv.name, srv.ip
+                            );
+                            continue;
+                        };
+
+                        target_server.address = Some(address);
                         target_server.state = TargetServerState::Initial;
                         game_state.set(GameState::PreGameLoading);
                         menu_state.set(MenuState::Disabled);
@@ -524,5 +541,25 @@ pub fn multiplayer_action(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_an_ip_address_with_a_port() {
+        assert_eq!(
+            parse_server_address("127.0.0.1:8000"),
+            Some("127.0.0.1:8000".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn rejects_host_names_and_incomplete_addresses() {
+        assert_eq!(parse_server_address("localhost:8000"), None);
+        assert_eq!(parse_server_address(""), None);
+        assert_eq!(parse_server_address("1.2.3.4"), None);
     }
 }

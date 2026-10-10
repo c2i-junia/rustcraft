@@ -294,6 +294,17 @@ fn messages_before_authentication_are_ignored() {
 }
 
 #[test]
+fn solo_server_stops_on_exit_from_a_client_that_never_authenticated() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID + 2);
+    client.wait_connected();
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
 fn duplicate_username_is_disconnected_without_blocking_others() {
     let mut server = TestServer::start(WORLD_NAME);
     let mut first = TestClient::connect(server.addr, PLAYER_ID);

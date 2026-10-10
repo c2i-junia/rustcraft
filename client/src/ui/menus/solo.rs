@@ -28,7 +28,7 @@ use shared::GameFolderPaths;
 use std::io;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::{self, Path, PathBuf},
 };
 
 pub struct WorldItem {
@@ -235,40 +235,87 @@ pub fn list_worlds(
 ) {
     let (mut list, list_entity) = list_query.single_mut().unwrap();
 
-    // create save folder if it not exist
     let save_path: PathBuf = game_paths.game_folder_path.join(SAVE_PATH);
-    let path: &Path = save_path.as_path();
-    info!("Looking for worlds in : {}", path.display());
+    info!("Looking for worlds in : {}", save_path.display());
 
-    if !fs::exists(path).unwrap() && fs::create_dir_all(path).is_ok() {
-        info!("Successfully created the saves folder : {}", path.display());
-    }
-
-    let paths = fs::read_dir(path).unwrap();
-
-    for path in paths {
-        let dir_entry = path.unwrap();
-        let path_str = dir_entry.file_name().into_string().unwrap();
-        let full_path = dir_entry.path();
-
-        // Check if it's a directory and contains world.ron
-        if full_path.is_dir() {
-            let world_ron_path = full_path.join("world.ron");
-            if world_ron_path.exists() {
-                add_world_item(
-                    path_str,
-                    &mut commands,
-                    &assets,
-                    &mut list,
-                    list_entity,
-                    &mut world_map,
-                    &game_paths,
-                );
-            }
-        }
+    for name in saved_world_names(&save_path) {
+        add_world_item(
+            name,
+            &mut commands,
+            &assets,
+            &mut list,
+            list_entity,
+            &mut world_map,
+            &game_paths,
+        );
     }
 
     info!("Found {} worlds", list.worlds.len());
+}
+
+/// The names of the saved worlds: the folders of `saves_path` that hold a `world.ron`.
+/// The saves folder is created when it does not exist. A saves folder that cannot be created
+/// or read gives no worlds, and entries that cannot be read or are not valid UTF-8 are skipped.
+fn saved_world_names(saves_path: &Path) -> Vec<String> {
+    match fs::exists(saves_path) {
+        Ok(true) => {}
+        Ok(false) => match fs::create_dir_all(saves_path) {
+            Ok(()) => info!(
+                "Successfully created the saves folder : {}",
+                saves_path.display()
+            ),
+            Err(err) => {
+                error!(
+                    "Could not create the saves folder {}: {err}",
+                    saves_path.display()
+                );
+                return Vec::new();
+            }
+        },
+        Err(err) => {
+            error!(
+                "Could not access the saves folder {}: {err}",
+                saves_path.display()
+            );
+            return Vec::new();
+        }
+    }
+
+    let entries = match fs::read_dir(saves_path) {
+        Ok(entries) => entries,
+        Err(err) => {
+            error!(
+                "Could not read the saves folder {}: {err}",
+                saves_path.display()
+            );
+            return Vec::new();
+        }
+    };
+
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                error!("Could not read an entry of the saves folder: {err}");
+                continue;
+            }
+        };
+        let Ok(name) = entry.file_name().into_string() else {
+            warn!(
+                "Skipping a world whose name is not valid UTF-8: {:?}",
+                entry.path()
+            );
+            continue;
+        };
+
+        // Check if it's a directory and contains world.ron
+        let world_path = entry.path();
+        if world_path.is_dir() && world_path.join("world.ron").exists() {
+            names.push(name);
+        }
+    }
+    names
 }
 
 fn add_world_item(
@@ -371,6 +418,27 @@ fn add_world_item(
     list.worlds.insert(world, WorldItem { name: name.clone() });
 }
 
+const MAX_WORLD_NAME_LENGTH: usize = 32;
+
+/// A world name becomes a folder name under the saves folder, so it must be a single plain
+/// path component: letters, digits, spaces, `_` and `-`, 1 to 32 characters.
+fn is_valid_world_name(name: &str) -> bool {
+    (1..=MAX_WORLD_NAME_LENGTH).contains(&name.chars().count())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '-'))
+}
+
+/// Worlds that already exist on disk may have any name, but deleting one must stay inside the
+/// saves folder: the name has to be a single normal path component.
+fn is_single_path_component(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(path::Component::Normal(component)), None) if component == name
+    )
+}
+
 fn generate_new_world_name(world_list: &WorldList) -> String {
     let mut index = 1;
 
@@ -425,6 +493,15 @@ pub fn solo_action(
                             name.0.clone()
                         };
 
+                        if !is_valid_world_name(&new_name) {
+                            warn!("Not creating world {new_name:?}: invalid name");
+                            continue;
+                        }
+                        if list.worlds.values().any(|world| world.name == new_name) {
+                            warn!("Not creating world {new_name:?}: it already exists");
+                            continue;
+                        }
+
                         add_world_item(
                             new_name,
                             &mut commands,
@@ -455,6 +532,7 @@ pub fn solo_action(
                     if let Some(world) = list.worlds.get(&world_entity) {
                         if let Err(e) = delete_save_files(&world.name, &paths) {
                             error!("Error while deleting save files: {}", e);
+                            continue;
                         }
                         list.worlds.remove(&world_entity);
                     }
@@ -468,8 +546,15 @@ pub fn solo_action(
 
 pub fn delete_save_files(
     world_name: &str,
-    game_folder_path: &Res<GameFolderPaths>,
+    game_folder_path: &GameFolderPaths,
 ) -> Result<(), io::Error> {
+    if !is_single_path_component(world_name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid world name {world_name:?}"),
+        ));
+    }
+
     // Delete the entire world directory
     let world_dir = game_folder_path
         .game_folder_path
@@ -495,4 +580,153 @@ pub fn delete_save_files(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An empty folder of its own in the temp folder, removed at the end of the test.
+    struct TempFolder(PathBuf);
+
+    impl TempFolder {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("rustcraft-solo-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempFolder {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn make_world(saves: &Path, name: impl AsRef<std::ffi::OsStr>) {
+        let world = saves.join(name.as_ref());
+        fs::create_dir_all(&world).unwrap();
+        fs::write(world.join("world.ron"), "").unwrap();
+    }
+
+    #[test]
+    fn world_names_are_a_single_plain_component() {
+        for valid in ["a", "My World", "new_world_1", "a-b", &"x".repeat(32)] {
+            assert!(is_valid_world_name(valid), "{valid:?} should be valid");
+        }
+        for invalid in [
+            "",
+            ".",
+            "..",
+            "/",
+            "a/b",
+            "..\\x",
+            "/etc",
+            "C:\\x",
+            "a.b",
+            "é",
+            &"x".repeat(33),
+        ] {
+            assert!(
+                !is_valid_world_name(invalid),
+                "{invalid:?} should be invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn existing_worlds_can_be_deleted_whatever_their_name_if_it_is_one_component() {
+        for name in ["a", "world.v2", "é", "a b", "..x", "x.."] {
+            assert!(
+                is_single_path_component(name),
+                "{name:?} should be accepted"
+            );
+        }
+        for name in ["", ".", "..", "/", "a/b", "a/", "/etc", "../x"] {
+            assert!(
+                !is_single_path_component(name),
+                "{name:?} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_world_with_a_name_outside_the_creation_rule_is_deleted() {
+        let folder = TempFolder::new("delete-legacy");
+        let paths = GameFolderPaths {
+            game_folder_path: folder.0.clone(),
+            assets_folder_path: folder.0.join("assets"),
+        };
+        let saves = folder.0.join(SAVE_PATH);
+        make_world(&saves, "world.v2");
+
+        delete_save_files("world.v2", &paths).unwrap();
+        assert!(!saves.join("world.v2").exists());
+    }
+
+    #[test]
+    fn deleting_refuses_names_that_leave_the_saves_folder() {
+        let folder = TempFolder::new("delete");
+        let paths = GameFolderPaths {
+            game_folder_path: folder.0.join("game"),
+            assets_folder_path: folder.0.join("assets"),
+        };
+        let saves = paths.game_folder_path.join(SAVE_PATH);
+        make_world(&saves, "keep");
+        make_world(&saves, "gone");
+        let outside = folder.0.join("game/outside");
+        fs::create_dir_all(&outside).unwrap();
+
+        for name in ["..", "../outside", "/", ""] {
+            assert!(delete_save_files(name, &paths).is_err());
+        }
+        assert!(outside.is_dir() && saves.join("keep").is_dir());
+
+        delete_save_files("gone", &paths).unwrap();
+        assert!(!saves.join("gone").exists() && saves.join("keep").is_dir());
+    }
+
+    #[test]
+    fn lists_the_folders_that_hold_a_world() {
+        let folder = TempFolder::new("list");
+        make_world(&folder.0, "alpha");
+        fs::create_dir(folder.0.join("empty")).unwrap();
+        fs::write(folder.0.join("file"), "").unwrap();
+
+        assert_eq!(saved_world_names(&folder.0), vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn a_missing_saves_folder_is_created_and_has_no_worlds() {
+        let folder = TempFolder::new("missing");
+        let saves = folder.0.join("saves");
+
+        assert!(saved_world_names(&saves).is_empty());
+        assert!(saves.is_dir());
+    }
+
+    #[test]
+    fn an_unreadable_saves_folder_has_no_worlds() {
+        let folder = TempFolder::new("unreadable");
+        let not_a_folder = folder.0.join("saves");
+        fs::write(&not_a_folder, "").unwrap();
+
+        assert!(saved_world_names(&not_a_folder).is_empty());
+        // Below a file, the folder cannot be created either.
+        assert!(saved_world_names(&not_a_folder.join("saves")).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_world_whose_name_is_not_utf8_is_skipped() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let folder = TempFolder::new("non-utf8");
+        make_world(&folder.0, "alpha");
+        make_world(&folder.0, std::ffi::OsStr::from_bytes(b"bad\xff"));
+
+        assert_eq!(saved_world_names(&folder.0), vec!["alpha".to_string()]);
+    }
 }

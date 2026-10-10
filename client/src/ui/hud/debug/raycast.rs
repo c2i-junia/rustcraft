@@ -19,8 +19,12 @@ pub fn raycast_debug_update_system(
         return;
     }
 
-    let camera_transform = camera_query.single().unwrap();
-    let player_transform = p_transform.single().unwrap();
+    let Ok(camera_transform) = camera_query.single() else {
+        return;
+    };
+    let Ok(player_transform) = p_transform.single() else {
+        return;
+    };
     let player_translation = &player_transform.translation;
 
     let world_map = world_map.into_inner();

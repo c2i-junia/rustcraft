@@ -43,8 +43,12 @@ pub fn chunk_ghost_update_system(
     player_query: Query<&Transform, (With<CurrentPlayerMarker>, Without<ChunkGhost>)>,
     debug_options: Res<DebugOptions>,
 ) {
-    let mut ghost = ghost_query.single_mut().unwrap();
-    let player = player_query.single().unwrap();
+    let Ok(mut ghost) = ghost_query.single_mut() else {
+        return;
+    };
+    let Ok(player) = player_query.single() else {
+        return;
+    };
 
     let mut chunk = shared::world::block_vec3_to_chunk_v3_coord(player.translation);
     chunk.y = 0.0;

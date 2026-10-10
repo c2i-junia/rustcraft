@@ -196,15 +196,18 @@ pub fn update_players_system(
                     );
                     player.position = event.position;
                     if !unacknowledged_inputs.0.is_empty() && event.last_ack_time != 0 {
+                        // The server acknowledged an input we do not know: resync on its
+                        // position and forget the inputs it cannot have taken into account.
                         warn!(
-                            "Unacknowledged inputs: {:?}",
+                            "No matching input for last ack time {}, resyncing on the server position. Unacknowledged inputs: {:?}",
+                            event.last_ack_time,
                             unacknowledged_inputs
                                 .0
                                 .iter()
                                 .map(|input| input.time_ms)
                                 .collect::<Vec<_>>()
                         );
-                        panic!("No matching input found for last ack time but there are unacknowledged inputs {:?}", event.last_ack_time);
+                        unacknowledged_inputs.0.clear();
                     }
                 }
 
@@ -225,5 +228,64 @@ pub fn update_players_system(
                 *transform = Transform::from_translation(event.position);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::messages::PlayerFrameInput;
+
+    const PLAYER_ID: u64 = 1;
+
+    fn input(time_ms: u64) -> PlayerFrameInput {
+        PlayerFrameInput {
+            time_ms,
+            ..default()
+        }
+    }
+
+    fn app_with_player() -> (App, Entity) {
+        let mut app = App::new();
+        app.add_event::<PlayerUpdateEvent>()
+            .init_resource::<ClientWorldMap>()
+            .insert_resource(Inventory::new())
+            .insert_resource(UnacknowledgedInputs(vec![input(10), input(20)]))
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: Some(PLAYER_ID),
+                state: TargetServerState::FullyReady,
+            })
+            .add_systems(Update, update_players_system);
+        let player = app
+            .world_mut()
+            .spawn((
+                Player::new(PLAYER_ID, "me".into(), Vec3::ZERO, Transform::default()),
+                Transform::default(),
+            ))
+            .id();
+        (app, player)
+    }
+
+    #[test]
+    fn an_ack_matching_no_pending_input_resyncs_on_the_server_position() {
+        let (mut app, player) = app_with_player();
+        let server_position = Vec3::new(1.0, 2.0, 3.0);
+
+        app.world_mut().send_event(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            position: server_position,
+            orientation: Quat::IDENTITY,
+            last_ack_time: 15,
+            inventory: Inventory::new(),
+        });
+        app.update();
+
+        assert_eq!(
+            app.world().get::<Player>(player).unwrap().position,
+            server_position
+        );
+        assert!(app.world().resource::<UnacknowledgedInputs>().0.is_empty());
     }
 }
