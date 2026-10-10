@@ -15,7 +15,6 @@ use shared::messages::{
     AuthRegisterResponse, ChatConversation, ClientToServerMessage, FullChatMessage, PlayerSave,
     PlayerSpawnEvent, ServerToClientMessage,
 };
-use shared::players::Player;
 use shared::world::ServerWorldMap;
 use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
 
@@ -78,7 +77,12 @@ fn server_update_system(
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 info!("Player {} disconnected: {}", client_id, reason);
                 lobby.players.remove(client_id);
-                cleanup_player_from_world(&mut world_map, client_id, &mut ev_save_request);
+                cleanup_player_from_world(
+                    &mut world_map,
+                    client_id,
+                    &game_folder_paths,
+                    &mut ev_save_request,
+                );
             }
         }
     }
@@ -117,20 +121,22 @@ fn server_update_system(
                     {
                         player
                     } else {
-                        let data =
-                            load_player_data(&world_map.name, &client_id, &game_folder_paths);
+                        let player = match load_player_data(
+                            &world_map.name,
+                            &client_id,
+                            &auth_req.username,
+                            &game_folder_paths,
+                        ) {
+                            Ok(player) => player,
+                            Err(err) => {
+                                error!("Refusing player {client_id}: {err}");
+                                lobby.players.remove(&client_id);
+                                server.disconnect(client_id);
+                                break;
+                            }
+                        };
 
-                        world_map.players.insert(
-                            client_id,
-                            Player {
-                                id: client_id,
-                                is_flying: data.is_flying,
-                                position: data.position,
-                                camera_transform: data.camera_transform,
-                                name: auth_req.username.clone(),
-                                ..default()
-                            },
-                        );
+                        world_map.players.insert(client_id, player);
 
                         world_map.players.get(&client_id).unwrap()
                     };

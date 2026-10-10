@@ -89,7 +89,11 @@ pub fn render_inventory_hotbar(
         );
     }
 
-    if let Some(c_pos) = window_query.single().unwrap().cursor_position() {
+    if let Some(c_pos) = window_query
+        .single()
+        .ok()
+        .and_then(|window| window.cursor_position())
+    {
         style.top = Val::Px(c_pos.y);
         style.left = Val::Px(c_pos.x);
     }

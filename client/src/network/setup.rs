@@ -20,11 +20,13 @@ use shared::messages::{
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::thread::JoinHandle;
 use std::{net::UdpSocket, thread, time::SystemTime};
 
 use crate::world::ClientWorldMap;
 use shared::GameFolderPaths;
 
+use super::cleanup::close_session_on_app_exit;
 use super::SendGameMessageExtension;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,6 +89,14 @@ pub fn add_base_netcode(app: &mut App) {
 
     // Setup the transport layer
     app.add_plugins(NetcodeClientPlugin);
+    // The netcode plugin disconnects the transport on `AppExit` in `Last`: the session must
+    // be closed before that.
+    app.add_systems(
+        Last,
+        close_session_on_app_exit
+            .run_if(on_event::<AppExit>)
+            .before(NetcodeClientPlugin::disconnect_on_exit),
+    );
 
     // TODO: change username
     app.insert_resource(TargetServer {
@@ -97,7 +107,12 @@ pub fn add_base_netcode(app: &mut App) {
     });
 }
 
+/// The thread of the embedded solo server, kept to wait for it when the app exits.
+#[derive(Resource)]
+pub struct LocalServerHandle(pub Option<JoinHandle<()>>);
+
 pub fn launch_local_server_system(
+    mut commands: Commands,
     mut target: ResMut<TargetServer>,
     selected_world: Res<SelectedWorld>,
     paths: Res<GameFolderPaths>,
@@ -118,16 +133,19 @@ pub fn launch_local_server_system(
         let world_name_clone = world_name.clone();
         let cloned_paths = paths.clone();
 
-        thread::spawn(move || {
-            server::init(
+        let handle = thread::spawn(move || {
+            if let Err(err) = server::init(
                 socket,
                 GameServerConfig {
                     world_name: world_name_clone,
                     is_solo: true,
                 },
                 cloned_paths,
-            );
+            ) {
+                error!("Local server did not start: {err}");
+            }
         });
+        commands.insert_resource(LocalServerHandle(Some(handle)));
 
         target.address = Some(addr);
     } else {

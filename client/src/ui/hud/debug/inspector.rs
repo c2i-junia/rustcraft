@@ -10,10 +10,10 @@ pub fn inspector_ui(world: &mut World) {
     };
     let mut egui_context = egui_context.clone();
 
-    let window = world
-        .query::<&Window>()
-        .single(world)
-        .expect("No window found");
+    // The window is already gone on the frame the app is closing
+    let Ok(window) = world.query::<&Window>().single(world) else {
+        return;
+    };
     let width = window.width();
 
     let time = world.get_resource::<Time>().unwrap();

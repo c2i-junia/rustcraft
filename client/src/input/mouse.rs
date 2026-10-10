@@ -6,7 +6,10 @@ pub fn handle_mouse_system(
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     ui_mode: Res<UIMode>,
 ) {
-    let mut window = windows.single_mut().unwrap();
+    // The window is already gone on the frame the app is closing
+    let Ok(mut window) = windows.single_mut() else {
+        return;
+    };
 
     let is_playing = *ui_mode == UIMode::Closed;
 
