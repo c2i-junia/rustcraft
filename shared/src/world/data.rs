@@ -15,15 +15,6 @@ use std::fmt::Debug;
 
 use super::{BlockData, ItemId, ItemType, MobId, ServerMob};
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone)]
-pub struct ServerItemStack {
-    pub id: u128,
-    pub despawned: bool,
-    pub stack: ItemStack,
-    pub pos: Vec3,
-    pub timestamp: u64,
-}
-
 #[derive(Clone, Default, Serialize, Deserialize, Debug)]
 pub struct ServerChunk {
     pub map: HashMap<IVec3, BlockData>,
@@ -41,7 +32,6 @@ pub struct ServerWorldMap {
     pub chunks: ServerChunkWorldMap,
     pub players: HashMap<PlayerId, Player>,
     pub mobs: HashMap<MobId, ServerMob>,
-    pub item_stacks: Vec<ServerItemStack>,
     pub time: u64,
 }
 

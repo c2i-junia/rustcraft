@@ -55,10 +55,6 @@ pub const SIX_OFFSETS: [IVec3; 6] = [
     IVec3::new(0, 0, -1),
 ];
 
-pub fn chunk_in_radius(player_pos: &IVec3, chunk_pos: &IVec3, radius: i32) -> bool {
-    (player_pos.x - chunk_pos.x).abs() <= radius && (player_pos.z - chunk_pos.z).abs() <= radius
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

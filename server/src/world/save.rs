@@ -5,7 +5,6 @@ use shared::messages::PlayerId;
 use shared::players::Player;
 use shared::world::MobId;
 use shared::world::ServerChunk;
-use shared::world::ServerItemStack;
 use shared::world::ServerMob;
 use shared::world::ServerWorldMap;
 use shared::world::WorldSeed;
@@ -28,7 +27,6 @@ pub struct WorldData {
     pub seed: WorldSeed,
     pub name: String,
     pub time: u64,
-    pub item_stacks: Vec<ServerItemStack>,
 }
 
 pub fn save_world_system(
@@ -55,7 +53,6 @@ pub fn save_world_system(
         let world_data = WorldData {
             map: world_map.chunks.map.clone(),
             mobs: world_map.mobs.clone(),
-            item_stacks: world_map.item_stacks.clone(),
             name: world_map.name.clone(),
             seed: *world_seed,
             time: time.0,

@@ -15,14 +15,11 @@ pub enum MobTarget {
     None,
     Position(Vec3),
     Player(PlayerId),
-    Mob(MobId),
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum MobAction {
-    Idle,
     Walk,
-    Attack,
     Flee,
 }
 

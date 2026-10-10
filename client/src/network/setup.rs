@@ -14,8 +14,7 @@ use crate::world::time::ClientTime;
 use crate::world::WorldRenderRequestUpdateEvent;
 use crate::{GameState, PlayerNameSupplied};
 use shared::messages::{
-    AuthRegisterRequest, ItemStackUpdateEvent, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent,
-    ServerToClientMessage,
+    AuthRegisterRequest, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -170,7 +169,6 @@ pub fn poll_network_messages(
     mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
     mut ev_player_spawn: EventWriter<PlayerSpawnEvent>,
     mut ev_mob_update: EventWriter<MobUpdateEvent>,
-    mut ev_item_stacks_update: EventWriter<ItemStackUpdateEvent>,
     mut ev_player_update: EventWriter<PlayerUpdateEvent>,
 ) {
     // poll_reliable_ordered_messages(&mut client, &mut chat_state);
@@ -180,7 +178,6 @@ pub fn poll_network_messages(
         &mut ev_render,
         &mut ev_player_spawn,
         &mut ev_mob_update,
-        &mut ev_item_stacks_update,
         &mut ev_player_update,
     );
 }

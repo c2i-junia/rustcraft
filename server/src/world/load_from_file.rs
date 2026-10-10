@@ -210,4 +210,21 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(file).unwrap(), "this is not ron");
     }
+
+    #[test]
+    fn a_world_saved_with_item_stacks_still_loads() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let world_dir = tmp.path().join(SAVE_PATH).join(WORLD);
+        fs::write(
+            world_dir.join("world.ron"),
+            r#"(map: {}, mobs: {}, seed: (42), name: "world", time: 3, item_stacks: [])"#,
+        )
+        .unwrap();
+
+        let data = load_world_data(WORLD, &paths).unwrap();
+
+        assert_eq!(data.seed.0, 42);
+        assert_eq!(data.time, 3);
+    }
 }

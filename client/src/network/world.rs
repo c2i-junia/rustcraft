@@ -4,8 +4,7 @@ use crate::world::ClientChunk;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
 use shared::messages::{
-    mob::MobUpdateEvent, ItemStackUpdateEvent, PlayerSpawnEvent, PlayerUpdateEvent,
-    ServerToClientMessage,
+    mob::MobUpdateEvent, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };
 use shared::STC_AUTH_CHANNEL;
 
@@ -21,7 +20,6 @@ pub fn update_world_from_network(
     ev_render: &mut EventWriter<WorldRenderRequestUpdateEvent>,
     ev_player_spawn: &mut EventWriter<PlayerSpawnEvent>,
     ev_mob_update: &mut EventWriter<MobUpdateEvent>,
-    ev_item_stacks_update: &mut EventWriter<ItemStackUpdateEvent>,
     ev_player_update: &mut EventWriter<PlayerUpdateEvent>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
@@ -56,8 +54,6 @@ pub fn update_world_from_network(
                     debug!("ServerMob received: {:?}", mob);
                     ev_mob_update.write(MobUpdateEvent { id, mob });
                 }
-
-                ev_item_stacks_update.write_batch(world_update.item_stacks);
 
                 // get current time
                 // client_time.0 = world_update.time;

@@ -21,11 +21,6 @@ pub struct GameFolderPaths {
     pub assets_folder_path: PathBuf,
 }
 
-#[derive(Resource, Debug, Clone)]
-pub struct SpecialFlag {
-    pub special_flag: bool,
-}
-
 #[derive(Resource)]
 pub struct GameServerConfig {
     pub world_name: String,

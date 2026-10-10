@@ -3,12 +3,10 @@ use crate::mob::behavior::mob_behavior_system;
 use crate::network::broadcast_chat::*;
 use crate::network::cleanup::cleanup_player_from_world;
 use crate::world;
-use crate::world::background_generation::background_world_generation_system;
 use crate::world::broadcast_world::broadcast_world_state;
 use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
-use crate::world::BlockInteractionEvent;
 use bevy::prelude::*;
 use bevy_renet::renet::{RenetServer, ServerEvent};
 use shared::messages::{
@@ -22,7 +20,6 @@ use super::extensions::SendGameMessageExtension;
 
 pub fn setup_resources_and_events(app: &mut App) {
     app.add_event::<SaveRequestEvent>()
-        .add_event::<BlockInteractionEvent>()
         .add_event::<PlayerInputsEvent>();
 
     setup_chat_resources(app);
@@ -37,13 +34,9 @@ pub fn register_systems(app: &mut App) {
 
     app.add_systems(Update, broadcast_world_state);
 
-    app.add_systems(Update, world::handle_block_interactions);
-
     app.add_systems(Update, crate::mob::manage_mob_spawning_system);
 
     app.add_systems(Update, handle_player_inputs_system);
-
-    app.add_systems(Update, background_world_generation_system);
 
     app.add_systems(PostUpdate, update_server_time);
 
@@ -95,8 +88,9 @@ fn server_update_system(
             let is_solo_exit = config.is_solo && matches!(message, ClientToServerMessage::Exit);
             if !is_auth_request && !is_solo_exit && !lobby.players.contains_key(&client_id) {
                 warn!(
-                    "Ignoring message from unauthenticated client {}: {:?}",
-                    client_id, message
+                    "Ignoring {} message from unauthenticated client {}",
+                    message_kind(&message),
+                    client_id
                 );
                 continue;
             }
@@ -248,6 +242,17 @@ fn server_update_system(
                 }
             }
         }
+    }
+}
+
+/// Name of the variant of `message`, to log what a client sent without dumping its payload.
+fn message_kind(message: &ClientToServerMessage) -> &'static str {
+    match message {
+        ClientToServerMessage::AuthRegisterRequest(_) => "AuthRegisterRequest",
+        ClientToServerMessage::ChatMessage(_) => "ChatMessage",
+        ClientToServerMessage::Exit => "Exit",
+        ClientToServerMessage::PlayerInputs(_) => "PlayerInputs",
+        ClientToServerMessage::SaveWorldRequest => "SaveWorldRequest",
     }
 }
 
