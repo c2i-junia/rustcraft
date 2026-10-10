@@ -71,31 +71,11 @@ impl ItemId {
 
 impl GameElementId for ItemId {}
 
-/// Temporary struct for deserialization purposes
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TempBlock {
-    pub id: String,
-    pub drops: Vec<(u16, String)>,
-    pub break_time: f32,
-    pub uvs: [f32; 4],
-}
-
-/// Type of armor piece
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
-pub enum ArmorType {
-    Helmet,
-    Chestplate,
-    Leggings,
-    Boots,
-}
-
 /// Type of item
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum ItemType {
     Generic,
     Block(BlockId),
-    Tool { durability: u16 },
-    Armor(ArmorType),
 }
 
 impl Default for ItemType {

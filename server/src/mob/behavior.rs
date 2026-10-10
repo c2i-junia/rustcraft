@@ -12,9 +12,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
     let mut mobs = world_map.mobs.clone();
 
     for (_mob_id, mob) in mobs.iter_mut() {
-        //log::info!("Mob is at position: {:?}", mob.position);
         if !mob.position.is_finite() || !mob.velocity.is_finite() {
-            //log::error!("Mob has a non-finite position or velocity");
             // TODO: FIX mob position
             continue;
         }
@@ -27,12 +25,6 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                     continue;
                 };
                 player.position
-            }
-            MobTarget::Mob(id) => {
-                let Some(target_mob) = world_map.mobs.get(&id) else {
-                    continue;
-                };
-                target_mob.position
             }
         };
 
@@ -48,11 +40,6 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
         if mob.velocity.y > MAX_UPWARD_VELOCITY {
             mob.velocity.y = MAX_UPWARD_VELOCITY;
         }
-        //log::debug!("New vec: {:?}", new_vec);
-        //log::debug!(
-        //    "Mob AABB: {:?}",
-        //    Aabb3d::new(*new_vec, Vec3::new(mob.width, mob.height, mob.deepth) / 2.0)
-        //);
         if world_map.chunks.check_collision_box(&Aabb3d::new(
             *new_vec,
             Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
@@ -65,7 +52,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
         }
 
         match mob.action {
-            MobAction::Walk | MobAction::Attack => {
+            MobAction::Walk => {
                 let speed = SPEED * delta;
                 let new_x = mob.position.x + dir.x * speed;
                 let new_z = mob.position.z + dir.z * speed;
@@ -132,7 +119,6 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                     mob.rotation = Quat::from_rotation_y(atan2(-dir.x, -dir.z));
                 }
             }
-            _ => {}
         }
     }
 

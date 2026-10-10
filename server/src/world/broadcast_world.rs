@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
 use bevy_renet::renet::RenetServer;
 use shared::messages::mob::MobUpdateEvent;
-use shared::messages::{ItemStackUpdateEvent, PlayerId, ServerToClientMessage, WorldUpdate};
+use shared::messages::{PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{
     world_position_to_chunk_position, ServerChunk, ServerChunkWorldMap, ServerWorldMap,
@@ -57,7 +57,6 @@ pub fn broadcast_world_state(
             time: ts,
             new_map: get_world_map_chunks_to_send(chunks, players, &player),
             mobs: mobs.clone(),
-            item_stacks: get_items_stacks(),
         };
 
         if msg.new_map.is_empty() {
@@ -112,23 +111,6 @@ fn get_world_map_chunks_to_send(
     }
 
     map
-}
-
-fn get_items_stacks() -> Vec<ItemStackUpdateEvent> {
-    // TODO: Update later by requiring less data (does not need to borrow a full ServerWorldMap)
-    vec![]
-    // world_map
-    //     .item_stacks
-    //     .iter()
-    //     .map(|stack| ItemStackUpdateEvent {
-    //         id: stack.id,
-    //         data: if stack.despawned {
-    //             None
-    //         } else {
-    //             Some((stack.stack, stack.pos))
-    //         },
-    //     })
-    //     .collect()
 }
 
 pub fn get_all_active_chunks(players: &HashMap<PlayerId, Player>, radius: i32) -> Vec<IVec3> {

@@ -1,15 +1,10 @@
 use std::net::Ipv4Addr;
 use std::process::ExitCode;
 
-use crate::init::acquire_socket_by_port;
-use bevy::log::error;
+use bevy::log::{error, tracing_subscriber::EnvFilter};
 use clap::Parser;
+use server::acquire_socket_by_port;
 use shared::{get_game_folder_paths, GameServerConfig};
-
-mod init;
-mod mob;
-mod network;
-mod world;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -26,9 +21,14 @@ struct Args {
 
 fn main() -> ExitCode {
     let args = Args::parse();
+    bevy::log::tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
     let socket = acquire_socket_by_port(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), args.port);
 
-    match init::init(
+    match server::init(
         socket,
         GameServerConfig {
             world_name: args.world,

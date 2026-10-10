@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-use crate::HALF_BLOCK;
-
 use super::{GameElementId, ItemId};
-use bevy::math::{bounding::Aabb3d, IVec3, Vec3, Vec3A};
+use bevy::math::{bounding::Aabb3d, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -78,11 +76,6 @@ impl BlockData {
     }
 }
 
-pub enum BlockTags {
-    Solid,
-    Stone,
-}
-
 #[derive(PartialEq, Eq, Debug)]
 pub enum BlockTransparency {
     Transparent,
@@ -116,10 +109,6 @@ impl BlockId {
         }
     }
 
-    pub fn is_biome_colored() -> bool {
-        false
-    }
-
     /// Number of mining steps needed to break the block by hand, `None` if it cannot be broken.
     pub fn get_break_time(&self) -> Option<u8> {
         let steps: u8 = match *self {
@@ -144,13 +133,6 @@ impl BlockId {
             Self::Bedrock | Self::Water => return None,
         };
         Some(6 * steps)
-    }
-
-    pub fn get_color(&self) -> [f32; 4] {
-        match *self {
-            Self::Grass => [0.1, 1.0, 0.25, 1.],
-            _ => [1., 1., 1., 1.],
-        }
     }
 
     pub fn get_drops(&self, nb_drops: u32) -> HashMap<ItemId, u32> {
@@ -203,29 +185,12 @@ impl BlockId {
         }
     }
 
-    pub fn get_tags(&self) -> Vec<BlockTags> {
-        match *self {
-            BlockId::Stone => vec![BlockTags::Stone, BlockTags::Solid],
-            _ => vec![BlockTags::Solid],
-        }
-    }
-
     pub fn get_visibility(&self) -> BlockTransparency {
         match *self {
             Self::Dandelion | Self::Poppy | Self::TallGrass => BlockTransparency::Decoration,
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves => BlockTransparency::Transparent,
             Self::Water => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
-        }
-    }
-
-    pub fn get_interaction_box(&self, position: &IVec3) -> Aabb3d {
-        let pos = Vec3::new(position.x as f32, position.y as f32, position.z as f32);
-        match *self {
-            Self::Dandelion | Self::Poppy | Self::TallGrass => {
-                Aabb3d::new(pos - Vec3::new(0f32, 0.25, 0f32), HALF_BLOCK / 2.0)
-            }
-            _ => Aabb3d::new(pos, HALF_BLOCK),
         }
     }
 }
@@ -263,7 +228,6 @@ mod tests {
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
 
     /// Fails to compile when a `BlockId` variant is added without updating `ALL_BLOCKS`.
-    #[allow(dead_code)]
     fn all_blocks_is_exhaustive(id: BlockId) {
         match id {
             BlockId::Dirt
@@ -292,6 +256,7 @@ mod tests {
     fn regular_blocks() -> impl Iterator<Item = BlockId> {
         ALL_BLOCKS
             .into_iter()
+            .inspect(|id| all_blocks_is_exhaustive(*id))
             .filter(|id| !UNBREAKABLE_BLOCKS.contains(id))
     }
 

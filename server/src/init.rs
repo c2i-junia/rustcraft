@@ -5,10 +5,7 @@ use crate::{
     },
     world::{data::SAVE_PATH, load_from_file::load_world_data},
 };
-use bevy::{
-    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    prelude::*,
-};
+use bevy::prelude::*;
 use bevy_app::ScheduleRunnerPlugin;
 use bevy_renet::{netcode::NetcodeServerTransport, RenetServerPlugin};
 use bevy_renet::{
@@ -49,7 +46,6 @@ pub struct ServerLobby {
     pub players: HashMap<PlayerId, LobbyPlayer>,
 }
 
-#[allow(dead_code)]
 pub fn acquire_local_ephemeral_udp_socket(ip: IpAddr) -> UdpSocket {
     acquire_socket_by_port(ip, 0)
 }
@@ -84,6 +80,9 @@ pub fn add_netcode_network(app: &mut App, socket: UdpSocket) {
 
 /// Runs the server until it exits. Fails without starting when the saved world cannot be
 /// loaded: a fresh world generated over it would destroy the save.
+///
+/// Installs no logger: the caller owns that, as the server may be embedded in a process that
+/// already has one.
 pub fn init(
     socket: UdpSocket,
     config: GameServerConfig,
@@ -97,9 +96,6 @@ pub fn init(
     );
 
     app.add_plugins(RenetServerPlugin);
-    app.add_plugins(FrameTimeDiagnosticsPlugin::default());
-    app.add_plugins(LogDiagnosticsPlugin::default());
-    app.add_plugins(bevy::log::LogPlugin::default());
 
     app.insert_resource(ServerLobby::default());
     app.insert_resource(game_folder_paths.clone());
@@ -128,7 +124,6 @@ pub fn init(
         },
         players: HashMap::new(),
         mobs: world_data.mobs,
-        item_stacks: world_data.item_stacks,
         time: world_data.time,
     };
 

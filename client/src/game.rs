@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::entities::stack::stack_update_system;
 use crate::mob::*;
 use crate::network::buffered_client::{CurrentFrameInputs, PlayerTickInputsBuffer, SyncTime};
 use crate::ui::hud::chat::{render_chat, setup_chat};
@@ -8,7 +7,7 @@ use crate::ui::menus::{setup_server_connect_loading_screen, update_server_connec
 use bevy::prelude::*;
 use bevy_atmosphere::prelude::*;
 use shared::messages::mob::MobUpdateEvent;
-use shared::messages::{ItemStackUpdateEvent, PlayerSpawnEvent, PlayerUpdateEvent};
+use shared::messages::{PlayerSpawnEvent, PlayerUpdateEvent};
 use shared::players::{Inventory, ViewMode};
 use shared::TICKS_PER_SECOND;
 use time::time_update_system;
@@ -101,7 +100,6 @@ pub fn game_plugin(app: &mut App) {
         .add_event::<PlayerSpawnEvent>()
         .add_event::<PlayerUpdateEvent>()
         .add_event::<MobUpdateEvent>()
-        .add_event::<ItemStackUpdateEvent>()
         .add_systems(
             OnEnter(GameState::PreGameLoading),
             (
@@ -185,7 +183,6 @@ pub fn game_plugin(app: &mut App) {
                 setup_fox_once_loaded,
                 simulate_particles,
                 update_targetted_mob_color,
-                stack_update_system,
             )
                 .run_if(in_state(GameState::Game)),
         )

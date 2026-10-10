@@ -152,11 +152,6 @@ impl Player {
             last_input_processed: 0,
         }
     }
-
-    pub fn toggle_fly_mode(&mut self) {
-        self.is_flying = !self.is_flying;
-        self.velocity = Vec3::ZERO;
-    }
 }
 
 impl Default for Player {

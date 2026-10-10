@@ -1,6 +1,5 @@
 mod camera;
 mod constants;
-mod entities;
 mod game;
 mod input;
 mod mob;
@@ -24,7 +23,7 @@ use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
 use input::{data::GameAction, keyboard::get_bindings};
 use menus::solo::SelectedWorld;
 use serde::{Deserialize, Serialize};
-use shared::{get_game_folder_paths, SpecialFlag};
+use shared::get_game_folder_paths;
 use std::collections::BTreeMap;
 use ui::{
     hud::debug::inspector::inspector_ui,
@@ -47,9 +46,6 @@ struct Args {
         help = "Allows overriding of the asset folder path, defaults to <game_folder_path>/data"
     )]
     assets_folder_path: Option<String>,
-
-    #[arg(long)]
-    special_flag: bool,
 
     #[arg(short, long, help = "Player name to use for the game")]
     player_name: Option<String>,
@@ -101,8 +97,6 @@ fn main() {
         TEXTURE_PATH_BASE
     };
 
-    let special_flag = args.special_flag;
-
     println!(
         "Using {} for textures",
         if args.use_custom_textures {
@@ -118,8 +112,6 @@ fn main() {
         "Starting application with game folder: {}",
         game_folder_paths.game_folder_path.display()
     );
-
-    let special_flag = SpecialFlag { special_flag };
 
     let mut app = App::new();
     app.add_plugins(
@@ -166,7 +158,6 @@ fn main() {
             path: texture_path.to_string(),
         })
         .insert_resource(game_folder_paths)
-        .insert_resource(special_flag)
         .insert_resource(PlayerNameSupplied {
             name: args.player_name.unwrap_or_else(|| "Player".to_string()),
         })

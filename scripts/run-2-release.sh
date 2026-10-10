@@ -9,5 +9,4 @@ cargo run \
 -- \
 --game-folder-path $PWD/appdata/client-2 \
 --assets-folder-path $PWD/data \
---special-flag \
 --player-name PlayerTwo
