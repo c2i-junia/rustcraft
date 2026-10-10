@@ -2,19 +2,17 @@ name: CI
 
 on:
   push:
-    branches: 
-      - '**'
+    branches:
+      - main
   pull_request:
-    branches: 
-      - '**'
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Refresh and install system dependencies
       run: |
@@ -38,30 +36,23 @@ jobs:
           cmake \
           libfreetype6-dev \
           libexpat1-dev \
-          zlib1g-dev
+          zlib1g-dev \
+          mold \
+          clang
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@nightly
       with:
-        toolchain: nightly
-        override: true
+        components: rustfmt, clippy, rustc-codegen-cranelift-preview
 
-    - name: Build the project
-      run: RUSTFLAGS="-D warnings" cargo build --all-targets --release
-
-  format:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-        components: rustfmt
+    - name: Cache build artifacts
+      uses: Swatinem/rust-cache@v2
 
     - name: Check code formatting
       run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: Run tests
+      run: cargo test --workspace

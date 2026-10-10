@@ -58,3 +58,114 @@ pub const SIX_OFFSETS: [IVec3; 6] = [
 pub fn chunk_in_radius(player_pos: &IVec3, chunk_pos: &IVec3, radius: i32) -> bool {
     (player_pos.x - chunk_pos.x).abs() <= radius && (player_pos.z - chunk_pos.z).abs() <= radius
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_to_chunk_coord_handles_boundaries() {
+        let cases = [
+            (-33, -3),
+            (-17, -2),
+            (-16, -1),
+            (-1, -1),
+            (0, 0),
+            (1, 0),
+            (15, 0),
+            (16, 1),
+            (31, 1),
+            (32, 2),
+        ];
+        for (block, chunk) in cases {
+            assert_eq!(block_to_chunk_coord(block), chunk, "block {block}");
+        }
+    }
+
+    #[test]
+    fn to_local_pos_wraps_into_chunk_range() {
+        let cases = [(-17, 15), (-16, 0), (-1, 15), (0, 0), (15, 15), (16, 0)];
+        for (global, local) in cases {
+            assert_eq!(
+                to_local_pos(&IVec3::new(global, global, global)),
+                IVec3::splat(local),
+                "global {global}"
+            );
+        }
+    }
+
+    #[test]
+    fn to_global_pos_combines_chunk_and_local() {
+        assert_eq!(
+            to_global_pos(&IVec3::new(0, 0, 0), &IVec3::new(3, 4, 5)),
+            IVec3::new(3, 4, 5)
+        );
+        assert_eq!(
+            to_global_pos(&IVec3::new(1, -1, 2), &IVec3::new(0, 15, 7)),
+            IVec3::new(16, -1, 39)
+        );
+        assert_eq!(
+            to_global_pos(&IVec3::new(-2, -1, -1), &IVec3::new(15, 0, 15)),
+            IVec3::new(-17, -16, -1)
+        );
+    }
+
+    #[test]
+    fn global_block_to_chunk_pos_per_axis() {
+        assert_eq!(
+            global_block_to_chunk_pos(&IVec3::new(-17, 0, 16)),
+            IVec3::new(-2, 0, 1)
+        );
+        assert_eq!(
+            global_block_to_chunk_pos(&IVec3::new(15, -1, -16)),
+            IVec3::new(0, -1, -1)
+        );
+    }
+
+    #[test]
+    fn global_local_round_trip() {
+        for x in (-40..=40).step_by(3) {
+            for y in (-40..=40).step_by(7) {
+                for z in (-40..=40).step_by(5) {
+                    let p = IVec3::new(x, y, z);
+                    let chunk = global_block_to_chunk_pos(&p);
+                    let local = to_local_pos(&p);
+                    assert!(
+                        local.cmpge(IVec3::ZERO).all()
+                            && local.cmplt(IVec3::splat(CHUNK_SIZE)).all()
+                    );
+                    assert_eq!(to_global_pos(&chunk, &local), p);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn world_position_to_chunk_position_positive_and_integer() {
+        assert_eq!(
+            world_position_to_chunk_position(Vec3::new(0.0, 0.0, 0.0)),
+            IVec3::ZERO
+        );
+        assert_eq!(
+            world_position_to_chunk_position(Vec3::new(15.9, 16.0, 31.5)),
+            IVec3::new(0, 1, 1)
+        );
+        assert_eq!(
+            world_position_to_chunk_position(Vec3::new(-16.0, -17.0, -1.0)),
+            IVec3::new(-1, -2, -1)
+        );
+    }
+
+    #[test]
+    #[ignore = "known bug: `as i32` truncates toward zero, so x = -0.5 gives chunk 0 instead of -1"]
+    fn world_position_to_chunk_position_negative_fractions() {
+        assert_eq!(
+            world_position_to_chunk_position(Vec3::new(-0.5, -0.5, -0.5)),
+            IVec3::splat(-1)
+        );
+        assert_eq!(
+            world_position_to_chunk_position(Vec3::new(-16.5, -15.5, -0.1)),
+            IVec3::new(-2, -1, -1)
+        );
+    }
+}

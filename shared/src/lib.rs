@@ -173,3 +173,64 @@ impl ChannelResolvableExt for ServerToClientMessage {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::messages::{ChatConversation, ChatMessageRequest, FullChatMessage};
+
+    #[test]
+    fn client_to_server_message_round_trips() {
+        let message = ClientToServerMessage::ChatMessage(ChatMessageRequest {
+            content: "hello".into(),
+        });
+        let payload = game_message_to_payload(message.clone());
+        let decoded: ClientToServerMessage = payload_to_game_message(&payload).unwrap();
+        assert_eq!(decoded, message);
+    }
+
+    #[test]
+    fn server_to_client_message_round_trips() {
+        let conversation = ChatConversation {
+            messages: vec![FullChatMessage {
+                content: "hi".into(),
+                author: "steve".into(),
+                timestamp: 42,
+            }],
+        };
+        let payload = game_message_to_payload(ServerToClientMessage::ChatConversation(
+            conversation.clone(),
+        ));
+        let decoded: ServerToClientMessage = payload_to_game_message(&payload).unwrap();
+        match decoded {
+            ServerToClientMessage::ChatConversation(decoded) => assert_eq!(decoded, conversation),
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decoding_an_empty_slice_is_an_error() {
+        assert!(payload_to_game_message::<ClientToServerMessage>(&[]).is_err());
+    }
+
+    #[test]
+    fn decoding_garbage_bytes_is_an_error() {
+        // Last case: valid lz4 framing around bytes that are not a valid message.
+        let valid_lz4_invalid_message = lz4::block::compress(&[0xff; 8], None, true).unwrap();
+        let garbage: [&[u8]; 3] = [
+            &[1, 2, 3],
+            &[0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04],
+            &valid_lz4_invalid_message,
+        ];
+        for bytes in garbage {
+            assert!(
+                payload_to_game_message::<ClientToServerMessage>(bytes).is_err(),
+                "{bytes:?}"
+            );
+            assert!(
+                payload_to_game_message::<ServerToClientMessage>(bytes).is_err(),
+                "{bytes:?}"
+            );
+        }
+    }
+}

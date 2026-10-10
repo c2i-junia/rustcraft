@@ -31,3 +31,6 @@ path = "src/main.rs"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3"

@@ -192,3 +192,133 @@ impl ViewMode {
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stack(item_id: ItemId, nb: u32) -> ItemStack {
+        ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb,
+        }
+    }
+
+    fn max_stack() -> u32 {
+        ItemId::Dirt.get_max_stack()
+    }
+
+    #[test]
+    fn add_to_empty_inventory_uses_first_slot() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 5));
+        assert_eq!(inventory.inner.len(), 1);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn add_stacks_onto_existing_partial_stack() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 5));
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 7));
+        assert_eq!(inventory.inner.len(), 1);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 12));
+    }
+
+    #[test]
+    fn add_different_item_goes_to_next_slot() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 5));
+        inventory.add_item_to_inventory(stack(ItemId::Sand, 2));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 5));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Sand, 2));
+    }
+
+    #[test]
+    fn add_overflowing_stack_spills_into_next_slot() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, max_stack() - 4));
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        assert_eq!(inventory.inner.len(), 2);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, max_stack()));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 6));
+    }
+
+    #[test]
+    fn add_more_than_a_stack_to_empty_inventory_spills_into_next_slot() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, max_stack() + 36));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, max_stack()));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 36));
+    }
+
+    #[test]
+    fn add_skips_full_stack_of_same_item() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, max_stack()));
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 1));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, max_stack()));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 1));
+    }
+
+    #[test]
+    fn filling_every_slot_then_adding_more_changes_nothing() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, max_stack() * MAX_INVENTORY_SLOTS));
+        assert_eq!(inventory.inner.len(), MAX_INVENTORY_SLOTS as usize);
+        for slot in 0..MAX_INVENTORY_SLOTS {
+            assert_eq!(inventory.inner[&slot], stack(ItemId::Dirt, max_stack()));
+        }
+
+        let full = inventory.clone();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        inventory.add_item_to_inventory(stack(ItemId::Sand, 10));
+        assert_eq!(inventory, full);
+    }
+
+    #[test]
+    fn add_item_to_stack_caps_at_max_stack() {
+        let mut inventory = Inventory::new();
+        assert_eq!(
+            inventory.add_item_to_stack(3, 60, ItemId::Dirt, ItemId::Dirt.get_default_type()),
+            60
+        );
+        assert_eq!(
+            inventory.add_item_to_stack(3, 10, ItemId::Dirt, ItemId::Dirt.get_default_type()),
+            4
+        );
+        assert_eq!(inventory.inner[&3], stack(ItemId::Dirt, max_stack()));
+    }
+
+    #[test]
+    fn remove_partial_leaves_remainder() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        assert_eq!(inventory.remove_item_from_stack(0, 4), 4);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 6));
+    }
+
+    #[test]
+    fn remove_total_empties_the_slot() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        assert_eq!(inventory.remove_item_from_stack(0, 10), 10);
+        assert!(!inventory.inner.contains_key(&0));
+    }
+
+    #[test]
+    fn remove_more_than_present_returns_only_what_was_there() {
+        let mut inventory = Inventory::new();
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        assert_eq!(inventory.remove_item_from_stack(0, 25), 10);
+        assert!(!inventory.inner.contains_key(&0));
+    }
+
+    #[test]
+    fn remove_from_empty_slot_returns_zero() {
+        let mut inventory = Inventory::new();
+        assert_eq!(inventory.remove_item_from_stack(5, 3), 0);
+        assert!(inventory.inner.is_empty());
+    }
+}

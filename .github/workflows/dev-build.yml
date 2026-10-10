@@ -11,7 +11,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Install Linux dependencies
       run: |
@@ -44,10 +44,7 @@ jobs:
         python-version: '3.x'
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
+      uses: dtolnay/rust-toolchain@nightly
 
     - name: Add rustc-codegen-cranelift-preview
       run: rustup component add rustc-codegen-cranelift-preview --toolchain nightly
@@ -78,7 +75,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Install Windows dependencies
       run: |
@@ -94,10 +91,7 @@ jobs:
         python-version: '3.x'
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
+      uses: dtolnay/rust-toolchain@nightly
 
     - name: Add rustc-codegen-cranelift-preview
       run: rustup component add rustc-codegen-cranelift-preview --toolchain nightly
