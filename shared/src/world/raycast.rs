@@ -120,7 +120,8 @@ pub fn raycast_from_source_position_and_direction(
     // Needed so that the player's position inside a voxel doesn't mess up the ray projection
     let mut t = Vec3::ZERO;
     for i in 0..3 {
-        t[i] = if step[i] != 0 {
+        // `-0.0` has a negative sign but no direction: dividing by it would give NaN
+        t[i] = if direction[i] != 0.0 {
             let next_boundary = voxel[i] + if step[i] > 0 { 1 } else { 0 };
             (next_boundary as f32 - origin[i]) / direction[i]
         } else {
@@ -403,5 +404,17 @@ mod tests {
         let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Poppy);
         let origin = Vec3::new(0.5, 0.9, 0.5);
         assert!(raycast_from_source_position_and_direction(&world, origin, Vec3::X).is_none());
+    }
+
+    #[test]
+    fn rays_with_zero_components_from_an_integer_boundary_hit_the_block_in_front() {
+        let block_pos = IVec3::new(3, 0, 0);
+        let world = world_with_block(block_pos, BlockId::Stone);
+        for direction in [Vec3::X, Vec3::new(1.0, -0.0, -0.0)] {
+            let hit = raycast_from_source_position_and_direction(&world, Vec3::ZERO, direction)
+                .unwrap_or_else(|| panic!("no hit along {direction:?}"));
+            assert_eq!(hit.position, block_pos, "direction {direction:?}");
+            assert_eq!(hit.face, FaceDirection::MinusX, "direction {direction:?}");
+        }
     }
 }

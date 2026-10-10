@@ -2,9 +2,9 @@ use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{
         collision::check_player_collision,
-        constants::{FLY_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY, SPEED},
+        constants::{FLY_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
     },
-    world::WorldMap,
+    world::{world_position_to_chunk_position, WorldMap},
 };
 use bevy::prelude::*;
 
@@ -18,10 +18,11 @@ pub fn simulate_player_movement(
     world_map: &impl WorldMap,
     action: &PlayerFrameInput,
 ) {
-    // let's check if the 9 chunks around the player are loaded
-    let chunks = world_map.get_surrounding_chunks(player.position, 1);
-    if chunks.len() < 9 {
-        log::debug!("Not enough chunks loaded, skipping movement simulation");
+    // Hold the player still until the terrain it stands in and the terrain below it have arrived,
+    // otherwise it would fall through chunks that are only missing, not empty.
+    let chunk = world_position_to_chunk_position(player.position);
+    if !world_map.is_chunk_loaded(&chunk) || !world_map.is_chunk_loaded(&(chunk - IVec3::Y)) {
+        log::debug!("Chunk {chunk} or the one below is not loaded, skipping movement simulation");
         return;
     }
 
@@ -38,19 +39,20 @@ pub fn simulate_player_movement(
     let is_jumping = action.is_pressed(NetworkAction::JumpOrFlyUp);
 
     // Calculate movement directions relative to the camera
+    // Looking exactly up or down leaves no horizontal component: no horizontal movement then
     let forward = player
         .camera_transform
         .forward()
         .xyz()
         .with_y(0.0)
-        .normalize();
+        .normalize_or_zero();
 
     let right = player
         .camera_transform
         .right()
         .xyz()
         .with_y(0.0)
-        .normalize();
+        .normalize_or_zero();
 
     // Adjust direction based on key presses
     if action.is_pressed(NetworkAction::MoveBackward) {
@@ -82,7 +84,7 @@ pub fn simulate_player_movement(
     if !player.is_flying {
         if player.on_ground && is_jumping {
             // Player can jump only when grounded
-            player.velocity.y = JUMP_VELOCITY * delta;
+            player.velocity.y = JUMP_VELOCITY;
             player.on_ground = false;
         } else if !player.on_ground {
             // Apply gravity when the player is in the air
@@ -90,13 +92,11 @@ pub fn simulate_player_movement(
         }
     }
 
-    let max_velocity = 0.9;
-
-    if player.velocity.y > max_velocity {
-        player.velocity.y = max_velocity;
+    if player.velocity.y > MAX_UPWARD_VELOCITY {
+        player.velocity.y = MAX_UPWARD_VELOCITY;
     }
 
-    let new_y = player.position.y + player.velocity.y;
+    let new_y = player.position.y + player.velocity.y * delta;
     let new_vec = &Vec3::new(player.position.x, new_y, player.position.z);
 
     if !player.is_flying {
@@ -165,7 +165,7 @@ mod tests {
     use super::*;
     use crate::{
         messages::PlayerId,
-        world::{test_support::TestWorld, BlockId},
+        world::{test_support::TestWorld, world_position_to_chunk_position, BlockId},
     };
 
     /// Top surface of the test floor.
@@ -305,6 +305,28 @@ mod tests {
         assert!(player.position.y > 100.0);
     }
 
+    /// Apex height above the standing position reached by a jump at the given frame time.
+    fn jump_apex(world: &TestWorld, delta_ms: u64) -> f32 {
+        let mut player = standing_player();
+        let start_y = player.position.y;
+        let mut jump = frame(&[NetworkAction::JumpOrFlyUp]);
+        jump.delta_ms = delta_ms;
+        let mut idle = frame(&[]);
+        idle.delta_ms = delta_ms;
+        simulate_player_movement(&mut player, world, &jump);
+        let mut peak = player.position.y;
+        for _ in 0..3000 {
+            simulate_player_movement(&mut player, world, &idle);
+            peak = peak.max(player.position.y);
+        }
+        assert!(
+            (player.position.y - start_y).abs() < 0.25,
+            "did not land again at {delta_ms} ms: y = {}",
+            player.position.y
+        );
+        peak - start_y
+    }
+
     #[test]
     fn jump_leaves_the_ground_and_lands_again() {
         let world = flat_world();
@@ -315,36 +337,68 @@ mod tests {
         assert!(!player.on_ground);
         assert!(player.position.y > start_y);
 
-        let mut peak = player.position.y;
-        for _ in 0..500 {
-            simulate_player_movement(&mut player, &world, &frame(&[]));
-            peak = peak.max(player.position.y);
-        }
-        assert!(peak > start_y + 0.5, "peak {peak} too low");
-        assert!((player.position.y - start_y).abs() < 0.05);
+        // 6.56 blocks is the apex at 16 ms measured on the per-frame integration that preceded
+        // the frame-rate independent one (the new one gives 6.83: it is derived for 1/60 s frames).
+        let apex = jump_apex(&world, 16);
+        assert!((apex - 6.56).abs() < 6.56 * 0.05, "apex {apex}");
     }
 
     #[test]
-    #[ignore = "known bug: jump velocity and gravity are scaled by delta, so jump height depends on frame time"]
     fn jump_height_does_not_depend_on_frame_time() {
         let world = flat_world();
-        let peak_with_delta = |delta_ms: u64| {
-            let mut player = standing_player();
-            let start_y = player.position.y;
-            let mut jump = frame(&[NetworkAction::JumpOrFlyUp]);
-            jump.delta_ms = delta_ms;
-            let mut idle = frame(&[]);
-            idle.delta_ms = delta_ms;
-            simulate_player_movement(&mut player, &world, &jump);
-            let mut peak = player.position.y;
-            for _ in 0..2000 {
-                simulate_player_movement(&mut player, &world, &idle);
-                peak = peak.max(player.position.y);
+        let reference = jump_apex(&world, 16);
+        for delta_ms in [7, 33] {
+            let apex = jump_apex(&world, delta_ms);
+            assert!(
+                (apex - reference).abs() < reference * 0.1,
+                "{delta_ms} ms: {apex}, 16 ms: {reference}"
+            );
+        }
+    }
+
+    #[test]
+    fn player_does_not_move_while_its_chunk_is_not_loaded() {
+        let mut world = flat_world();
+        let mut player = standing_player();
+        player.position.y = 100.0;
+        let chunk = world_position_to_chunk_position(player.position);
+        world.unloaded_chunks.insert(chunk);
+        let start = player.position;
+        simulate(&mut player, &world, &[NetworkAction::MoveForward], 20);
+        assert_eq!(player.position, start);
+    }
+
+    #[test]
+    fn player_does_not_move_while_the_chunk_below_is_not_loaded() {
+        let mut world = flat_world();
+        let mut player = standing_player();
+        player.position.y = 100.0;
+        let chunk = world_position_to_chunk_position(player.position);
+        world.unloaded_chunks.insert(chunk - IVec3::Y);
+        let start = player.position;
+        simulate(&mut player, &world, &[], 20);
+        assert_eq!(player.position, start);
+
+        world.unloaded_chunks.clear();
+        simulate(&mut player, &world, &[], 20);
+        assert!(player.position.y < start.y);
+    }
+
+    #[test]
+    fn looking_straight_up_or_down_keeps_the_position_finite() {
+        let world = flat_world();
+        for direction in [Vec3::Y, Vec3::NEG_Y] {
+            for up in [Vec3::Z, Vec3::NEG_Z, Vec3::X] {
+                let mut player = standing_player();
+                let mut input = frame(&[NetworkAction::MoveForward, NetworkAction::MoveLeft]);
+                input.camera = Transform::default().looking_to(direction, up);
+                simulate_player_movement(&mut player, &world, &input);
+                assert!(
+                    player.position.is_finite(),
+                    "looking {direction:?} (up {up:?}): {:?}",
+                    player.position
+                );
             }
-            peak - start_y
-        };
-        let slow = peak_with_delta(32);
-        let fast = peak_with_delta(8);
-        assert!((slow - fast).abs() < 0.05, "32 ms: {slow}, 8 ms: {fast}");
+        }
     }
 }

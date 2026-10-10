@@ -472,3 +472,39 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
     );
     assert_eq!(std::fs::read_to_string(world_file).unwrap(), "not a world");
 }
+
+#[test]
+fn new_player_falls_onto_the_terrain_instead_of_through_it() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut client, "faller");
+
+    // 40 frames of 100 ms in one batch: far more than the fall from the y = 80 spawn
+    let last_time_ms = 40;
+    let frames = (1..=last_time_ms)
+        .map(|time_ms| PlayerFrameInput {
+            time_ms,
+            delta_ms: 100,
+            ..Default::default()
+        })
+        .collect();
+    client.send(ClientToServerMessage::PlayerInputs(frames));
+    let id = client.id;
+    let position = client.wait_for("PlayerUpdate acknowledging the last frame", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == last_time_ms => {
+            Some(u.position)
+        }
+        _ => None,
+    });
+
+    // The terrain surface is around y = 62-70; falling through it ended around y = 28
+    assert!(
+        (55.0..80.0).contains(&position.y),
+        "player ended at y = {}",
+        position.y
+    );
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+}

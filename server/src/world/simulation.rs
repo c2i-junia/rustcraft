@@ -4,9 +4,9 @@ use bevy::{
 };
 use bevy_renet::renet::{ClientId, RenetServer};
 use shared::{
-    messages::{NetworkAction, PlayerFrameInput, PlayerUpdateEvent},
-    players::{blocks::CallerType, simulation::simulate_player_actions},
-    world::{ServerWorldMap, WorldSeed},
+    messages::{NetworkAction, PlayerFrameInput, PlayerId, PlayerUpdateEvent},
+    players::{blocks::CallerType, simulation::simulate_player_actions, Player},
+    world::{ServerChunkWorldMap, ServerWorldMap, WorldSeed},
 };
 
 use crate::{network::extensions::SendGameMessageExtension, world::generation::generate_chunk};
@@ -19,6 +19,20 @@ pub struct PlayerInputsEvent {
     pub input: PlayerFrameInput,
 }
 
+/// Generates the chunks within one chunk of every player.
+fn generate_missing_chunks(
+    players: &std::collections::HashMap<PlayerId, Player>,
+    chunks: &mut ServerChunkWorldMap,
+    seed: u32,
+) {
+    for c in get_all_active_chunks(players, 1) {
+        chunks.map.entry(c).or_insert_with(|| {
+            info!("Generated chunk: {:?}", c);
+            generate_chunk(c, seed)
+        });
+    }
+}
+
 pub fn handle_player_inputs_system(
     mut events: EventReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
@@ -29,16 +43,7 @@ pub fn handle_player_inputs_system(
     let players = &mut world_map.players;
     let chunks = &mut world_map.chunks;
 
-    let active_chunks = get_all_active_chunks(players, 1);
-    for c in active_chunks {
-        let chunk = chunks.map.get(&c);
-
-        if chunk.is_none() {
-            let chunk = generate_chunk(c, seed.0);
-            info!("Generated chunk: {:?}", c);
-            chunks.map.insert(c, chunk);
-        }
-    }
+    generate_missing_chunks(players, chunks, seed.0);
 
     let mut player_actions = HashMap::<u64, HashSet<NetworkAction>>::new();
     for client_id in players.keys() {
@@ -54,6 +59,10 @@ pub fn handle_player_inputs_system(
         simulate_player_actions(player, chunks, &ev.input.clone(), CallerType::Server);
 
         player.last_input_processed = ev.input.time_ms;
+
+        // The simulation holds a player still while its chunk or the one below is missing, and
+        // a falling player can cross a chunk within one batch of inputs
+        generate_missing_chunks(players, chunks, seed.0);
     }
 
     for player in players.values() {

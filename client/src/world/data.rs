@@ -47,6 +47,10 @@ pub struct ClientWorldMap {
 }
 
 impl WorldMap for ClientWorldMap {
+    fn is_chunk_loaded(&self, chunk_pos: &IVec3) -> bool {
+        self.map.contains_key(chunk_pos)
+    }
+
     fn get_block_by_coordinates(&self, position: &IVec3) -> Option<&BlockData> {
         let x: i32 = position.x;
         let y: i32 = position.y;
