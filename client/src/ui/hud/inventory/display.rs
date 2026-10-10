@@ -62,6 +62,11 @@ pub fn render_inventory_hotbar(
     let mut txt = text_query.get_mut(children[0]).unwrap();
     let (mut stack_img, mut stack_vis) = atlas_query.get_mut(children[1]).unwrap();
 
+    // Scrolling only changes the selected slot during gameplay
+    if *ui_mode != UIMode::Closed {
+        scroll.clear();
+    }
+
     // Change selected stack via scrolling
     let mut stack_scrolling = hotbar_query.single().unwrap().selected as i32;
 
@@ -235,6 +240,7 @@ pub fn update_inventory_cell(
                 items_atlas
                     .handles
                     .get(&format!("{:?}", fstack.item_id))
+                    .or_else(|| items_atlas.handles.get("_Default"))
                     .as_ref()
                     .unwrap()
                     .id(),

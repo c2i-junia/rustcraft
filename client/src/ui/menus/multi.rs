@@ -316,15 +316,17 @@ pub fn add_server_item(
         ),))
         .id();
 
-    commands.spawn((
-        Text::new(ip.clone()),
-        TextFont {
-            font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-            font_size: 15.,
-            ..default()
-        },
-        TextColor(Color::srgb(0.4, 0.4, 0.4)),
-    ));
+    let ip_txt = commands
+        .spawn((
+            Text::new(ip.clone()),
+            TextFont {
+                font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
+                font_size: 15.,
+                ..default()
+            },
+            TextColor(Color::srgb(0.4, 0.4, 0.4)),
+        ))
+        .id();
 
     // (Node {
     //             display: Display::Flex,
@@ -334,7 +336,7 @@ pub fn add_server_item(
 
     commands
         .entity(server)
-        .add_children(&[play_btn, delete_btn, txt]);
+        .add_children(&[play_btn, delete_btn, txt, ip_txt]);
 
     commands.entity(list_entity).add_children(&[server]);
 

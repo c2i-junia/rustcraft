@@ -74,29 +74,30 @@ pub fn player_movement_system(
 
     let (mut player, mut player_transform) = player_query.single_mut().unwrap();
 
-    if *ui_mode == UIMode::Closed
-        && is_action_just_pressed(GameAction::ToggleFlyMode, &keyboard_input, &key_map)
-    {
-        frame_inputs.0.inputs.insert(NetworkAction::ToggleFlyMode);
-    }
+    // Gameplay keys are ignored while a dialog is open or something is being typed
+    if *ui_mode == UIMode::Closed {
+        if is_action_just_pressed(GameAction::ToggleFlyMode, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::ToggleFlyMode);
+        }
 
-    if is_action_pressed(GameAction::MoveBackward, &keyboard_input, &key_map) {
-        frame_inputs.0.inputs.insert(NetworkAction::MoveBackward);
-    }
-    if is_action_pressed(GameAction::MoveForward, &keyboard_input, &key_map) {
-        frame_inputs.0.inputs.insert(NetworkAction::MoveForward);
-    }
-    if is_action_pressed(GameAction::MoveLeft, &keyboard_input, &key_map) {
-        frame_inputs.0.inputs.insert(NetworkAction::MoveLeft);
-    }
-    if is_action_pressed(GameAction::MoveRight, &keyboard_input, &key_map) {
-        frame_inputs.0.inputs.insert(NetworkAction::MoveRight);
-    }
-    if is_action_pressed(GameAction::Jump, &keyboard_input, &key_map) {
-        frame_inputs.0.inputs.insert(NetworkAction::JumpOrFlyUp);
-    }
-    if is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map) {
-        frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
+        if is_action_pressed(GameAction::MoveBackward, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::MoveBackward);
+        }
+        if is_action_pressed(GameAction::MoveForward, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::MoveForward);
+        }
+        if is_action_pressed(GameAction::MoveLeft, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::MoveLeft);
+        }
+        if is_action_pressed(GameAction::MoveRight, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::MoveRight);
+        }
+        if is_action_pressed(GameAction::Jump, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::JumpOrFlyUp);
+        }
+        if is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map) {
+            frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
+        }
     }
 
     simulate_player_movement(&mut player, world_map.as_ref(), &frame_inputs.0);
@@ -179,8 +180,11 @@ pub fn chunk_force_reload_system(
     key_map: Res<KeyMap>,
     mut ev_writer: EventWriter<WorldRenderRequestUpdateEvent>,
     mut commands: Commands,
+    ui_mode: Res<UIMode>,
 ) {
-    if is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map) {
+    if *ui_mode == UIMode::Closed
+        && is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map)
+    {
         for (pos, chunk) in world_map.map.iter_mut() {
             // Despawn the chunk's entity
             if let Some(e) = chunk.entity {
