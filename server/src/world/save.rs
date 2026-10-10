@@ -45,22 +45,7 @@ pub fn save_world_system(
 
         if let SaveRequestEvent::Player(id) = ev {
             if let Some(player) = world_map.players.get(id) {
-                // define save file path
-                let save_file_path = format!(
-                    "{}{}/players/{}.ron",
-                    game_folder_path.game_folder_path.join(SAVE_PATH).display(),
-                    world_map.name,
-                    id
-                );
-
-                if let Err(err) = save_player_data(player, &save_file_path) {
-                    error!(
-                        "[{}] Could not save data for player {} : {}",
-                        world_map.name, id, err
-                    );
-                } else {
-                    info!("[{}] Player {} data saved successfully", world_map.name, id);
-                }
+                save_player(&world_map.name, player, &game_folder_path);
             }
         }
     }
@@ -92,6 +77,28 @@ pub fn save_world_system(
     }
 }
 
+/// Writes `player` into the save folder of the world `world_name`.
+pub fn save_player(world_name: &str, player: &Player, game_folder_path: &GameFolderPaths) {
+    let save_file_path = format!(
+        "{}{}/players/{}.ron",
+        game_folder_path.game_folder_path.join(SAVE_PATH).display(),
+        world_name,
+        player.id
+    );
+
+    if let Err(err) = save_player_data(player, &save_file_path) {
+        error!(
+            "[{}] Could not save data for player {} : {}",
+            world_name, player.id, err
+        );
+    } else {
+        info!(
+            "[{}] Player {} data saved successfully",
+            world_name, player.id
+        );
+    }
+}
+
 pub fn save_world_data(
     world_data: &WorldData,
     file_path: &str,
@@ -104,9 +111,7 @@ pub fn save_world_data(
 
     // serialize combined data (map + seed)
     let serialized = ron::ser::to_string_pretty(world_data, pretty_config)?;
-    let path = Path::new(file_path);
-    let mut file = File::create(path)?;
-    file.write_all(serialized.as_bytes())?;
+    write_atomically(Path::new(file_path), serialized.as_bytes())?;
     info!("World data saved to {}", file_path);
     Ok(())
 }
@@ -123,9 +128,68 @@ pub fn save_player_data(
 
     // Serialize Complete player data
     let serialized = ron::ser::to_string_pretty(player, pretty_config)?;
-    let path = Path::new(&file_path);
-    let mut file = File::create(path)?;
-    file.write_all(serialized.as_bytes())?;
+    write_atomically(Path::new(file_path), serialized.as_bytes())?;
 
     Ok(())
+}
+
+/// Writes `contents` to `<path>.tmp`, syncs it, then renames it over `path`, so a crash
+/// leaves either the old file or the new one, never a truncated one.
+fn write_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut tmp_name = path.as_os_str().to_owned();
+    tmp_name.push(".tmp");
+    let tmp_path = Path::new(&tmp_name);
+
+    let mut file = File::create(tmp_path)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    std::fs::rename(tmp_path, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_atomically_creates_then_replaces_the_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("data.ron");
+
+        write_atomically(&path, b"first").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"first");
+
+        write_atomically(&path, b"second, longer").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second, longer");
+        assert!(!tmp.path().join("data.ron.tmp").exists());
+    }
+
+    #[test]
+    fn failed_write_leaves_the_previous_file_untouched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("data.ron");
+        write_atomically(&path, b"precious").unwrap();
+
+        // A directory squatting on the temporary name makes the new write fail early.
+        std::fs::create_dir(tmp.path().join("data.ron.tmp")).unwrap();
+        assert!(write_atomically(&path, b"lost").is_err());
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"precious");
+    }
+
+    #[test]
+    fn save_world_data_writes_a_parseable_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("world.ron");
+        let world = WorldData {
+            name: "w".into(),
+            time: 99,
+            ..Default::default()
+        };
+
+        save_world_data(&world, path.to_str().unwrap()).unwrap();
+
+        let loaded: WorldData = ron::de::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(loaded.name, "w");
+        assert_eq!(loaded.time, 99);
+    }
 }

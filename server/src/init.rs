@@ -82,7 +82,13 @@ pub fn add_netcode_network(app: &mut App, socket: UdpSocket) {
     app.insert_resource(transport);
 }
 
-pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_paths: GameFolderPaths) {
+/// Runs the server until it exits. Fails without starting when the saved world cannot be
+/// loaded: a fresh world generated over it would destroy the save.
+pub fn init(
+    socket: UdpSocket,
+    config: GameServerConfig,
+    game_folder_paths: GameFolderPaths,
+) -> Result<(), String> {
     let mut app = App::new();
     app.add_plugins(
         MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
@@ -111,13 +117,7 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_paths: Game
     // Load world from files
     let world_data = match load_world_data(world_name, &game_folder_paths) {
         Ok(data) => data,
-        Err(err) => {
-            error!(
-                "Failed to load world {} & failed to create a default world : {}",
-                world_name, err
-            );
-            panic!()
-        }
+        Err(err) => return Err(format!("Failed to load world {world_name}: {err}")),
     };
 
     let mut world_map = ServerWorldMap {
@@ -157,4 +157,5 @@ pub fn init(socket: UdpSocket, config: GameServerConfig, game_folder_paths: Game
     dispatcher::register_systems(&mut app);
 
     app.run();
+    Ok(())
 }

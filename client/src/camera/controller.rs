@@ -16,7 +16,10 @@ pub fn camera_control_system(
     view_mode: Res<ViewMode>,
     ui_mode: Res<UIMode>,
 ) {
-    let window = windows.single().unwrap();
+    // The window is already gone on the frame the app is closing
+    let Ok(window) = windows.single() else {
+        return;
+    };
 
     // if the window is not focused, ignore camera movement
     if !window.focused || *ui_mode != UIMode::Closed {

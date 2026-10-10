@@ -1,12 +1,14 @@
 //! End-to-end test of a solo session: a real server thread driven over loopback UDP by a
 //! renet client set up the same way as `client/src/network/setup.rs`.
 
+use bevy::math::Vec3;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::renet::RenetClient;
 use shared::messages::{
-    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, PlayerFrameInput,
-    ServerToClientMessage,
+    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, NetworkAction,
+    PlayerFrameInput, ServerToClientMessage,
 };
+use shared::players::Player;
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
     ChannelResolvableExt, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
@@ -30,7 +32,11 @@ struct TestServer {
 impl TestServer {
     /// Starts a solo server on an ephemeral loopback port, saving into a temporary folder.
     fn start(world_name: &str) -> Self {
-        let tmp = tempfile::tempdir().unwrap();
+        Self::start_in(tempfile::tempdir().unwrap(), world_name)
+    }
+
+    /// Same, saving into `tmp`, which may already hold the saves of an earlier server.
+    fn start_in(tmp: tempfile::TempDir, world_name: &str) -> Self {
         let paths = GameFolderPaths {
             game_folder_path: tmp.path().to_path_buf(),
             assets_folder_path: tmp.path().join("assets"),
@@ -41,7 +47,7 @@ impl TestServer {
             world_name: world_name.to_string(),
             is_solo: true,
         };
-        let handle = thread::spawn(move || server::init(socket, config, paths));
+        let handle = thread::spawn(move || server::init(socket, config, paths).unwrap());
         Self {
             tmp,
             addr,
@@ -323,4 +329,135 @@ fn duplicate_username_is_disconnected_without_blocking_others() {
     first.send(ClientToServerMessage::Exit);
     first.send_packets();
     server.join_after_exit();
+}
+
+/// Flies the player forward and up, then returns the position the server acknowledged.
+fn fly_away(client: &mut TestClient, first_time_ms: u64) -> Vec3 {
+    let frame = |time_ms, actions: &[NetworkAction]| PlayerFrameInput {
+        time_ms,
+        delta_ms: 100,
+        inputs: actions.iter().cloned().collect(),
+        ..Default::default()
+    };
+    let last_time_ms = first_time_ms + 5;
+    let mut frames = vec![frame(first_time_ms, &[NetworkAction::ToggleFlyMode])];
+    for time_ms in first_time_ms + 1..=last_time_ms {
+        frames.push(frame(
+            time_ms,
+            &[NetworkAction::MoveForward, NetworkAction::JumpOrFlyUp],
+        ));
+    }
+    client.send(ClientToServerMessage::PlayerInputs(frames));
+
+    let id = client.id;
+    client.wait_for(
+        "PlayerUpdate acknowledging the last flight input",
+        |m| match m {
+            ServerToClientMessage::PlayerUpdate(u)
+                if u.id == id && u.last_ack_time == last_time_ms =>
+            {
+                Some(u.position)
+            }
+            _ => None,
+        },
+    )
+}
+
+fn authenticate(client: &mut TestClient, username: &str) {
+    client.wait_connected();
+    client.send(auth_request(username));
+    client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
+        _ => None,
+    });
+}
+
+#[test]
+fn player_is_saved_when_it_disconnects_without_exit() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut leaver = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut leaver, "leaver");
+    let position = fly_away(&mut leaver, 1);
+
+    // The connection just goes away: no `Exit` message.
+    leaver.transport.disconnect();
+
+    let player_file = server
+        .world_dir()
+        .join("players")
+        .join(format!("{}.ron", PLAYER_ID));
+    let start = Instant::now();
+    while !player_file.is_file() {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "player file not written within {WAIT_TIMEOUT:?} of the disconnection"
+        );
+        thread::sleep(PUMP_INTERVAL);
+    }
+    let saved: Player = ron::de::from_str(&std::fs::read_to_string(&player_file).unwrap()).unwrap();
+    assert_eq!(saved.position, position);
+
+    // Another client stops the solo server.
+    let mut closer = TestClient::connect(server.addr, PLAYER_ID + 1);
+    authenticate(&mut closer, "closer");
+    closer.send(ClientToServerMessage::Exit);
+    closer.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
+fn reconnecting_player_gets_back_its_saved_state() {
+    let mut first = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(first.addr, PLAYER_ID);
+    authenticate(&mut client, "returning");
+    let position = fly_away(&mut client, 1);
+    assert_ne!(position, Vec3::new(0., 80., 0.), "the player did not move");
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    first.join_after_exit();
+
+    let second = TestServer::start_in(first.tmp, WORLD_NAME);
+    let mut client = TestClient::connect(second.addr, PLAYER_ID);
+    client.wait_connected();
+    client.send(auth_request("returning"));
+    let id = client.id;
+    let spawn = client.wait_for("PlayerSpawn for our id", |m| match m {
+        ServerToClientMessage::PlayerSpawn(s) if s.id == id => Some(s.clone()),
+        _ => None,
+    });
+    assert_eq!(spawn.data.position, position);
+    assert!(spawn.data.is_flying);
+
+    let mut second = second;
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    second.join_after_exit();
+}
+
+#[test]
+fn corrupt_world_file_stops_the_server_without_touching_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let world_dir = tmp.path().join("saves").join(WORLD_NAME);
+    std::fs::create_dir_all(&world_dir).unwrap();
+    let world_file = world_dir.join("world.ron");
+    std::fs::write(&world_file, "not a world").unwrap();
+
+    let paths = GameFolderPaths {
+        game_folder_path: tmp.path().to_path_buf(),
+        assets_folder_path: tmp.path().join("assets"),
+    };
+    let socket = server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    let config = GameServerConfig {
+        world_name: WORLD_NAME.to_string(),
+        is_solo: true,
+    };
+
+    let err = server::init(socket, config, paths).unwrap_err();
+
+    assert!(
+        err.contains("world.ron"),
+        "error does not name the file: {err}"
+    );
+    assert_eq!(std::fs::read_to_string(world_file).unwrap(), "not a world");
 }
