@@ -90,6 +90,9 @@ fn third_person_raycast(
     raycast_from_source_position_and_direction(world_map, current_position, direction)
 }
 
+/// Maximum distance, in ray parameter units (blocks for a normalized direction), a ray travels.
+const MAX_RAY_DISTANCE: f32 = 20.0;
+
 // Amanatides-Woo fast traversal algorithm
 // Tweaked to include block-specific interaction boxes
 pub fn raycast_from_source_position_and_direction(
@@ -97,6 +100,11 @@ pub fn raycast_from_source_position_and_direction(
     origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
+    // The camera comes from the network: reject anything that cannot define a ray
+    if !origin.is_finite() || !direction.is_finite() || direction == Vec3::ZERO {
+        return None;
+    }
+
     let inv_dir = 1. / direction;
 
     let step = inv_dir.signum().as_ivec3();
@@ -120,11 +128,11 @@ pub fn raycast_from_source_position_and_direction(
         }
     }
 
-    // Total Euclidean distance
+    // Ray parameter of the last voxel boundary crossed
     let mut distance = 0.0;
 
     // Actual raycast loop
-    while distance < 20.0 {
+    while distance < MAX_RAY_DISTANCE {
         if let Some(block) = world_map.get_block_by_coordinates(&voxel) {
             match block.id.get_ray_hitbox() {
                 BlockHitbox::FullBlock => {
@@ -138,7 +146,7 @@ pub fn raycast_from_source_position_and_direction(
                             (1, 1) => FaceDirection::MinusY,
                             (2, -1) => FaceDirection::PlusZ,
                             (2, 1) => FaceDirection::MinusZ,
-                            _ => unreachable!(),
+                            _ => return None,
                         },
                         bbox: Aabb3d::new(voxel.as_vec3() + HALF_BLOCK, HALF_BLOCK),
                     })
@@ -176,7 +184,7 @@ pub fn raycast_from_source_position_and_direction(
         }
 
         // Update the ray's position
-        distance += t[axis];
+        distance = t[axis];
         t[axis] += delta[axis];
         voxel[axis] += step[axis];
     }
@@ -238,6 +246,7 @@ pub fn aabb_ray_hit(
 mod tests {
     use super::*;
     use crate::world::{test_support::TestWorld, BlockId};
+    use bevy::math::Quat;
 
     const ORIGIN: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 
@@ -332,13 +341,51 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: `distance` accumulates the cumulative t of each step, so the real reach is far below 20 blocks"]
     fn ray_hits_a_block_up_to_nineteen_blocks_away() {
         for n in 1..=19 {
             let target = IVec3::new(n, 0, 0);
             let world = world_with_block(target, BlockId::Stone);
             let hit = raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X);
             assert_eq!(hit.map(|h| h.position), Some(target), "n = {n}");
+        }
+    }
+
+    #[test]
+    fn ray_does_not_reach_beyond_the_maximum_distance() {
+        let target = IVec3::new(MAX_RAY_DISTANCE as i32 + 2, 0, 0);
+        let world = world_with_block(target, BlockId::Stone);
+        assert!(raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).is_none());
+    }
+
+    #[test]
+    fn rays_with_a_non_finite_origin_or_degenerate_direction_hit_nothing() {
+        let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Stone);
+        let cases = [
+            (ORIGIN, Vec3::ZERO),
+            (ORIGIN, Vec3::NAN),
+            (ORIGIN, Vec3::new(f32::INFINITY, 0.0, 0.0)),
+            (Vec3::NAN, Vec3::X),
+            (Vec3::new(0.5, f32::INFINITY, 0.5), Vec3::X),
+        ];
+        for (origin, direction) in cases {
+            assert!(
+                raycast_from_source_position_and_direction(&world, origin, direction).is_none(),
+                "origin {origin:?}, direction {direction:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn camera_with_a_degenerate_rotation_hits_nothing() {
+        let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Stone);
+        for rotation in [Quat::from_xyzw(0.0, 0.0, 0.0, 0.0), Quat::NAN] {
+            let camera = Transform::from_translation(ORIGIN).with_rotation(rotation);
+            for view_mode in [ViewMode::FirstPerson, ViewMode::ThirdPerson] {
+                assert!(
+                    raycast(&world, &camera, &ORIGIN, view_mode).is_none(),
+                    "{rotation:?} in {view_mode:?}"
+                );
+            }
         }
     }
 

@@ -69,8 +69,12 @@ impl BlockData {
         }
     }
 
+    /// Breaking stage from 0 to 10; always 0 for an unbreakable block.
     pub fn get_breaking_level(&self) -> u8 {
-        ((self.breaking_progress as u16 * 10) / self.id.get_break_time() as u16) as u8
+        match self.id.get_break_time() {
+            Some(break_time) => ((self.breaking_progress as u16 * 10) / break_time as u16) as u8,
+            None => 0,
+        }
     }
 }
 
@@ -116,8 +120,9 @@ impl BlockId {
         false
     }
 
-    pub fn get_break_time(&self) -> u8 {
-        6 * match *self {
+    /// Number of mining steps needed to break the block by hand, `None` if it cannot be broken.
+    pub fn get_break_time(&self) -> Option<u8> {
+        let steps: u8 = match *self {
             Self::Dirt => 5,
             Self::Debug => 7,
             Self::Grass => 6,
@@ -136,8 +141,9 @@ impl BlockId {
             Self::Snow => 9,
             Self::SpruceLeaves => 2,
             Self::SpruceLog => 10,
-            _ => 100,
-        }
+            Self::Bedrock | Self::Water => return None,
+        };
+        Some(6 * steps)
     }
 
     pub fn get_color(&self) -> [f32; 4] {
@@ -253,8 +259,8 @@ mod tests {
         BlockId::Water,
     ];
 
-    /// Blocks that fall through to the `_ => 100` arm of `get_break_time`.
-    const FALLBACK_BREAK_TIME_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
+    /// Blocks that cannot be broken by hand.
+    const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
 
     /// Fails to compile when a `BlockId` variant is added without updating `ALL_BLOCKS`.
     #[allow(dead_code)]
@@ -286,21 +292,20 @@ mod tests {
     fn regular_blocks() -> impl Iterator<Item = BlockId> {
         ALL_BLOCKS
             .into_iter()
-            .filter(|id| !FALLBACK_BREAK_TIME_BLOCKS.contains(id))
+            .filter(|id| !UNBREAKABLE_BLOCKS.contains(id))
     }
 
     #[test]
     fn get_break_time_of_regular_blocks() {
-        assert_eq!(BlockId::Dirt.get_break_time(), 30);
-        assert_eq!(BlockId::Stone.get_break_time(), 60);
-        assert_eq!(BlockId::Dandelion.get_break_time(), 6);
+        assert_eq!(BlockId::Dirt.get_break_time(), Some(30));
+        assert_eq!(BlockId::Stone.get_break_time(), Some(60));
+        assert_eq!(BlockId::Dandelion.get_break_time(), Some(6));
         for id in regular_blocks() {
-            assert!(id.get_break_time() > 0, "{id:?}");
+            assert!(id.get_break_time().is_some_and(|t| t > 0), "{id:?}");
         }
     }
 
     #[test]
-    #[ignore = "known bug: get_break_time computes 6 * 100 = 600 in u8 for Bedrock and Water (overflow panic in debug, wraps in release)"]
     fn get_break_time_does_not_panic_for_any_block() {
         for id in ALL_BLOCKS {
             let _ = id.get_break_time();
@@ -308,9 +313,16 @@ mod tests {
     }
 
     #[test]
+    fn bedrock_and_water_are_unbreakable() {
+        for id in UNBREAKABLE_BLOCKS {
+            assert_eq!(id.get_break_time(), None, "{id:?}");
+        }
+    }
+
+    #[test]
     fn get_breaking_level_stays_within_zero_to_ten() {
         for id in regular_blocks() {
-            let break_time = id.get_break_time();
+            let break_time = id.get_break_time().unwrap();
             for progress in 0..=break_time {
                 let mut block = BlockData::new(id, BlockDirection::Front);
                 block.breaking_progress = progress;
@@ -323,14 +335,13 @@ mod tests {
     fn get_breaking_level_of_untouched_and_fully_broken_block() {
         let mut block = BlockData::new(BlockId::Stone, BlockDirection::Front);
         assert_eq!(block.get_breaking_level(), 0);
-        block.breaking_progress = block.id.get_break_time() / 2;
+        block.breaking_progress = block.id.get_break_time().unwrap() / 2;
         assert_eq!(block.get_breaking_level(), 5);
-        block.breaking_progress = block.id.get_break_time();
+        block.breaking_progress = block.id.get_break_time().unwrap();
         assert_eq!(block.get_breaking_level(), 10);
     }
 
     #[test]
-    #[ignore = "known bug: get_breaking_level divides by get_break_time, which overflows for Bedrock and Water"]
     fn get_breaking_level_does_not_panic_for_any_block() {
         for id in ALL_BLOCKS {
             let block = BlockData::new(id, BlockDirection::Front);

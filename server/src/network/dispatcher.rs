@@ -85,13 +85,26 @@ fn server_update_system(
 
     for client_id in server.clients_id() {
         while let Some(Ok(message)) = server.receive_game_message(client_id) {
+            let is_auth_request = matches!(message, ClientToServerMessage::AuthRegisterRequest(_));
+            if !is_auth_request && !lobby.players.contains_key(&client_id) {
+                warn!(
+                    "Ignoring message from unauthenticated client {}: {:?}",
+                    client_id, message
+                );
+                continue;
+            }
+
             match message {
                 ClientToServerMessage::AuthRegisterRequest(auth_req) => {
                     info!("Auth request received {:?}", auth_req);
 
                     if lobby.players.values().any(|v| v.name == auth_req.username) {
-                        debug!("Username already in map: {}", &auth_req.username);
-                        return;
+                        warn!(
+                            "Username already in use: {}, disconnecting client {}",
+                            &auth_req.username, client_id
+                        );
+                        server.disconnect(client_id);
+                        break;
                     }
 
                     lobby
@@ -178,7 +191,9 @@ fn server_update_system(
                         .unwrap()
                         .as_millis() as u64;
 
-                    let current_author = lobby.players.get(&client_id).unwrap();
+                    let Some(current_author) = lobby.players.get(&client_id) else {
+                        continue;
+                    };
 
                     chat_conversation.messages.push(FullChatMessage {
                         author: current_author.name.clone(),

@@ -46,7 +46,10 @@ pub fn handle_player_inputs_system(
     }
 
     for ev in events.read() {
-        let player = players.get_mut(&ev.client_id).unwrap();
+        let Some(player) = players.get_mut(&ev.client_id) else {
+            warn!("Ignoring inputs from unknown player {}", ev.client_id);
+            continue;
+        };
 
         simulate_player_actions(player, chunks, &ev.input.clone(), CallerType::Server);
 
