@@ -12,7 +12,7 @@ use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
 use crate::world::time::ClientTime;
 use crate::world::WorldRenderRequestUpdateEvent;
-use crate::PlayerNameSupplied;
+use crate::{GameState, PlayerNameSupplied};
 use shared::messages::{
     AuthRegisterRequest, ItemStackUpdateEvent, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent,
     ServerToClientMessage,
@@ -116,9 +116,18 @@ pub fn launch_local_server_system(
     mut target: ResMut<TargetServer>,
     selected_world: Res<SelectedWorld>,
     paths: Res<GameFolderPaths>,
+    local_server: Option<Res<LocalServerHandle>>,
+    mut game_state: ResMut<NextState<GameState>>,
 ) {
     if target.address.is_some() {
         debug!("Skipping launch local server");
+        return;
+    }
+
+    // Two servers on the same save folder would corrupt it.
+    if local_server.is_some_and(|local_server| local_server.0.is_some()) {
+        error!("The previous local server is still running, not starting another one");
+        game_state.set(GameState::Menu);
         return;
     }
 
@@ -180,8 +189,13 @@ pub fn init_server_connection(
     mut commands: Commands,
     target: Res<TargetServer>,
     current_player_id: Res<CurrentPlayerProfile>,
+    mut game_state: ResMut<NextState<GameState>>,
 ) {
-    let addr = target.address.unwrap();
+    let Some(addr) = target.address else {
+        error!("No server to connect to, back to the menu");
+        game_state.set(GameState::Menu);
+        return;
+    };
     let id = current_player_id.into_inner().id;
     commands.queue(move |world: &mut World| {
         world.remove_resource::<RenetClient>();

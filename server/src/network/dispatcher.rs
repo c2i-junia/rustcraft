@@ -90,7 +90,10 @@ fn server_update_system(
     for client_id in server.clients_id() {
         while let Some(Ok(message)) = server.receive_game_message(client_id) {
             let is_auth_request = matches!(message, ClientToServerMessage::AuthRegisterRequest(_));
-            if !is_auth_request && !lobby.players.contains_key(&client_id) {
+            // In solo mode the only client is the local player: it must be able to stop its
+            // server even before the authentication went through (cancelled connection).
+            let is_solo_exit = config.is_solo && matches!(message, ClientToServerMessage::Exit);
+            if !is_auth_request && !is_solo_exit && !lobby.players.contains_key(&client_id) {
                 warn!(
                     "Ignoring message from unauthenticated client {}: {:?}",
                     client_id, message

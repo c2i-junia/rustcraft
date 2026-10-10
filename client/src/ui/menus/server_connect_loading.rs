@@ -1,7 +1,4 @@
-use crate::{
-    network::{TargetServer, TargetServerState},
-    GameState,
-};
+use crate::GameState;
 use bevy::{color::palettes::tailwind::YELLOW_500, prelude::*};
 
 #[derive(Component)]
@@ -11,8 +8,6 @@ pub struct CancelButtonMarker;
 pub struct LoadingTextMarker;
 
 pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn((Camera2d, StateScoped(GameState::PreGameLoading)));
-
     let root_bundle = (
         Node {
             width: Val::Percent(100.),
@@ -58,7 +53,6 @@ pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server:
 pub fn update_server_connect_loading_screen(
     interaction_query: Query<&Interaction, (Changed<Interaction>, With<CancelButtonMarker>)>,
     mut game_state: ResMut<NextState<GameState>>,
-    mut target: ResMut<TargetServer>,
     mut loading_text_query: Query<&mut Text, With<LoadingTextMarker>>,
     mut main_counter: Local<u64>,
     mut dot_counter: Local<u64>,
@@ -79,10 +73,6 @@ pub fn update_server_connect_loading_screen(
         if *interaction == Interaction::Pressed {
             info!("Cancel button clicked");
             game_state.set(GameState::Menu);
-            target.address = None;
-            target.username = None;
-            target.session_token = None;
-            target.state = TargetServerState::Initial;
         }
     }
 }

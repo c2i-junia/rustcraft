@@ -39,10 +39,10 @@ use crate::ui::hud::inventory::*;
 use shared::world::{BlockId, ItemId, WorldSeed};
 
 use crate::network::{
-    establish_authenticated_connection_to_server, init_server_connection,
-    launch_local_server_system, network_failure_handler, poll_network_messages,
-    terminate_server_connection, upload_player_inputs_system, CurrentPlayerProfile, TargetServer,
-    TargetServerState, UnacknowledgedInputs,
+    establish_authenticated_connection_to_server, finish_stopping_local_server,
+    init_server_connection, launch_local_server_system, network_failure_handler,
+    poll_network_messages, terminate_server_connection, upload_player_inputs_system,
+    CurrentPlayerProfile, TargetServer, TargetServerState, UnacknowledgedInputs,
 };
 
 use crate::GameState;
@@ -57,6 +57,7 @@ pub fn game_plugin(app: &mut App) {
         .add_plugins(WireframePlugin::default())
         .add_plugins(bevy_simple_text_input::TextInputPlugin)
         .add_plugins(AtmospherePlugin)
+        .add_plugins(camera_plugin)
         .insert_resource(WorldSeed(0))
         .insert_resource(ClientTime(0))
         .insert_resource(FirstChunkReceived(false))
@@ -108,7 +109,6 @@ pub fn game_plugin(app: &mut App) {
                 init_server_connection,
                 setup_materials,
                 setup_server_connect_loading_screen,
-                spawn_camera,
             )
                 .chain(),
         )
@@ -217,12 +217,24 @@ pub fn game_plugin(app: &mut App) {
             (upload_player_inputs_system).run_if(in_state(GameState::Game)),
         )
         .add_systems(
+            Update,
+            finish_stopping_local_server.run_if(in_state(GameState::Menu)),
+        )
+        .add_systems(
             FixedPostUpdate,
             time_update_system.run_if(in_state(GameState::Game)),
         )
         .add_systems(
             OnExit(GameState::Game),
             (clear_resources, terminate_server_connection).chain(),
+        )
+        // Cancelling the loading screen never enters the game.
+        .add_systems(
+            OnTransition {
+                exited: GameState::PreGameLoading,
+                entered: GameState::Menu,
+            },
+            terminate_server_connection,
         );
 }
 

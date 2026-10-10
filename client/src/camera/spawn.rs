@@ -36,8 +36,22 @@ impl From<Quat> for CameraController {
     }
 }
 
-#[allow(deprecated)]
-pub fn spawn_camera(mut commands: Commands) {
+/// The camera is created when the connection starts, because the loading screen positions it
+/// from the saved player, and lives until the game is left (`StateScoped`). Cancelling the
+/// loading screen goes straight back to the menu without ever entering the game, so the
+/// camera has to be despawned on that transition too.
+pub fn camera_plugin(app: &mut App) {
+    app.add_systems(OnEnter(GameState::PreGameLoading), spawn_camera)
+        .add_systems(
+            OnTransition {
+                exited: GameState::PreGameLoading,
+                entered: GameState::Menu,
+            },
+            despawn_camera,
+        );
+}
+
+fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Projection::Perspective(PerspectiveProjection {
@@ -50,4 +64,63 @@ pub fn spawn_camera(mut commands: Commands) {
         AtmosphereCamera::default(),
         StateScoped(GameState::Game),
     ));
+}
+
+fn despawn_camera(mut commands: Commands, cameras: Query<Entity, With<CameraController>>) {
+    for camera in &cameras {
+        commands.entity(camera).despawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::state::app::StatesPlugin;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .init_state::<GameState>()
+            .enable_state_scoped_entities::<GameState>()
+            .add_plugins(camera_plugin);
+        app.update();
+        app
+    }
+
+    fn go_to(app: &mut App, state: GameState) {
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(state);
+        app.update();
+    }
+
+    fn cameras(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<(), With<CameraController>>()
+            .iter(app.world())
+            .count()
+    }
+
+    #[test]
+    fn cancelling_the_connection_and_retrying_leaves_one_camera() {
+        let mut app = app();
+        go_to(&mut app, GameState::PreGameLoading);
+        assert_eq!(cameras(&mut app), 1);
+
+        go_to(&mut app, GameState::Menu);
+        assert_eq!(cameras(&mut app), 0);
+
+        go_to(&mut app, GameState::PreGameLoading);
+        go_to(&mut app, GameState::Game);
+        assert_eq!(cameras(&mut app), 1);
+    }
+
+    #[test]
+    fn leaving_the_game_removes_the_camera() {
+        let mut app = app();
+        go_to(&mut app, GameState::PreGameLoading);
+        go_to(&mut app, GameState::Game);
+        go_to(&mut app, GameState::Menu);
+        assert_eq!(cameras(&mut app), 0);
+    }
 }
