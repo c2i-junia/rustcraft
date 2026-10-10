@@ -6,7 +6,6 @@ use bevy::{
 };
 use ron::{from_str, ser::PrettyConfig};
 use shared::GameFolderPaths;
-use std::path::Path;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -64,7 +63,7 @@ pub fn get_action_keys(action: GameAction, key_map: &KeyMap) -> Vec<KeyCode> {
 }
 
 pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
-    let binds_path: PathBuf = Path::new(&game_folder_paths.assets_folder_path).join(BINDS_PATH);
+    let binds_path: PathBuf = game_folder_paths.game_folder_path.join(BINDS_PATH);
 
     let mut binds = KeyMap {
         map: {
@@ -142,5 +141,35 @@ pub fn save_keybindings(key_map: Res<KeyMap>, game_folder_path: Res<GameFolderPa
         }
     } else {
         error!("Failed to serialize keybindings");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_bindings_are_loaded_back_from_the_game_folder() {
+        let dir =
+            std::env::temp_dir().join(format!("rustcraft-keybindings-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let paths = GameFolderPaths {
+            game_folder_path: dir.clone(),
+            // Nothing is saved there: bindings must not be read from it
+            assets_folder_path: dir.join("assets"),
+        };
+
+        let mut key_map = get_bindings(&paths);
+        key_map.map.insert(GameAction::Jump, vec![KeyCode::KeyJ]);
+
+        let mut app = App::new();
+        app.insert_resource(key_map)
+            .insert_resource(paths.clone())
+            .add_systems(Update, save_keybindings);
+        app.update();
+
+        let reloaded = get_bindings(&paths);
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(reloaded.map[&GameAction::Jump], vec![KeyCode::KeyJ]);
     }
 }

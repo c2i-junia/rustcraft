@@ -221,11 +221,11 @@ pub fn render_chat(
             commands.entity(parent).add_children(&[msg]);
         }
         // Prevents too much messages from building up on screen
-        if children.len() > CHAT_MAX_MESSAGES {
-            for i in children.len()..CHAT_MAX_MESSAGES {
-                commands.entity(parent).remove_children(&[children[i]]);
-                commands.entity(children[i]).despawn();
-            }
+        // The oldest messages come first
+        let too_many = children.len().saturating_sub(CHAT_MAX_MESSAGES);
+        for &child in &children[..too_many] {
+            commands.entity(parent).remove_children(&[child]);
+            commands.entity(child).despawn();
         }
     }
 

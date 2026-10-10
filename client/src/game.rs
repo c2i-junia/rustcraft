@@ -141,29 +141,30 @@ pub fn game_plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(
             Update,
+            // UIMode is recomputed first so that its readers see the same value this frame
             (
-                render_pause_menu,
-                render_chat,
-                render_inventory_hotbar,
                 set_ui_mode,
+                (render_pause_menu, render_chat, render_inventory_hotbar),
             )
+                .chain()
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(
             Update,
             (
-                render_distance_update_system,
-                first_and_third_person_view_system,
+                render_distance_update_system.after(set_ui_mode),
+                first_and_third_person_view_system.after(set_ui_mode),
                 toggle_chunk_debug_mode_system,
                 toggle_raycast_debug_mode_system,
-                chunk_force_reload_system,
+                chunk_force_reload_system.after(set_ui_mode),
                 (
                     update_frame_inputs_system,
                     handle_block_interactions,
                     player_movement_system,
                     camera_control_system,
                 )
-                    .chain(),
+                    .chain()
+                    .after(set_ui_mode),
                 fps_text_update_system,
                 coords_text_update_system,
                 total_blocks_text_update_system,
@@ -173,7 +174,7 @@ pub fn game_plugin(app: &mut App) {
                 chunk_ghost_update_system,
                 raycast_debug_update_system,
                 toggle_wireframe_system,
-                handle_mouse_system,
+                handle_mouse_system.after(set_ui_mode),
                 update_celestial_bodies,
             )
                 .run_if(in_state(GameState::Game)),

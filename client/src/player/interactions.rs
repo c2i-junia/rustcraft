@@ -36,7 +36,7 @@ pub fn handle_block_interactions(
 
     let mut player = player_query.single_mut().unwrap();
 
-    if *ui_mode == UIMode::Opened {
+    if *ui_mode != UIMode::Closed {
         return;
     }
 

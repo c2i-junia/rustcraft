@@ -14,7 +14,7 @@ use shared::GameFolderPaths;
 
 use crate::{input::keyboard::is_action_just_pressed, GameState, KeyMap};
 
-use crate::ui::hud::UiDialog;
+use crate::ui::hud::{InventoryRoot, UIMode, UiDialog};
 
 #[derive(Component)]
 pub struct PauseMenu;
@@ -106,21 +106,29 @@ pub fn setup_pause_menu(
 
 pub fn render_pause_menu(
     queries: (
-        Query<(&PauseButtonAction, &mut BorderColor, &Interaction)>,
+        Query<(&PauseButtonAction, &mut BorderColor, Ref<Interaction>)>,
         Query<&mut Visibility, With<PauseMenu>>,
+        Query<&mut Visibility, (With<InventoryRoot>, Without<PauseMenu>)>,
     ),
     input: Res<ButtonInput<KeyCode>>,
+    ui_mode: Res<UIMode>,
     mut game_state: ResMut<NextState<GameState>>,
     key_map: Res<KeyMap>,
     mut client: ResMut<RenetClient>,
 ) {
-    let (mut button, mut visibility) = queries;
+    let (mut button, mut visibility, mut inventory) = queries;
     let mut vis = visibility.single_mut().unwrap();
 
     if is_action_just_pressed(crate::input::data::GameAction::Escape, &input, &key_map) {
-        *vis = match *vis {
-            Visibility::Visible | Visibility::Inherited => Visibility::Hidden,
-            Visibility::Hidden => Visibility::Visible,
+        if *vis == Visibility::Hidden {
+            if *ui_mode == UIMode::Closed {
+                *vis = Visibility::Visible;
+            } else if let Ok(mut inventory) = inventory.single_mut() {
+                // Escape closes the inventory; the chat closes itself
+                *inventory = Visibility::Hidden;
+            }
+        } else {
+            *vis = Visibility::Hidden;
         }
     }
 
@@ -130,6 +138,8 @@ pub fn render_pause_menu(
 
     for (action, mut bcolor, interaction) in button.iter_mut() {
         match *interaction {
+            // Act once per click, not on every frame the button stays pressed
+            Interaction::Pressed if !interaction.is_changed() => {}
             Interaction::Pressed => match *action {
                 PauseButtonAction::Menu => {
                     game_state.set(GameState::Menu);
@@ -148,5 +158,66 @@ pub fn render_pause_menu(
                 bcolor.0 = Color::BLACK;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::data::GameAction;
+    use bevy::state::app::StatesPlugin;
+    use shared::get_shared_renet_config;
+    use std::collections::BTreeMap;
+
+    fn app(ui_mode: UIMode) -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .init_state::<GameState>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(RenetClient::new(get_shared_renet_config()))
+            .insert_resource(KeyMap {
+                map: BTreeMap::from([(GameAction::Escape, vec![KeyCode::Escape])]),
+            })
+            .insert_resource(ui_mode)
+            .add_systems(Update, render_pause_menu);
+        app.world_mut().spawn((PauseMenu, Visibility::Hidden));
+        app.world_mut().spawn((InventoryRoot, Visibility::Visible));
+        app
+    }
+
+    fn press_escape(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+    }
+
+    fn visibility_of<C: Component>(app: &mut App) -> Visibility {
+        *app.world_mut()
+            .query_filtered::<&Visibility, With<C>>()
+            .single(app.world())
+            .unwrap()
+    }
+
+    #[test]
+    fn escape_opens_the_pause_menu_during_gameplay() {
+        let mut app = app(UIMode::Closed);
+        press_escape(&mut app);
+        assert_eq!(visibility_of::<PauseMenu>(&mut app), Visibility::Visible);
+    }
+
+    #[test]
+    fn escape_closes_the_inventory_instead_of_opening_the_pause_menu() {
+        let mut app = app(UIMode::Opened);
+        press_escape(&mut app);
+        assert_eq!(visibility_of::<PauseMenu>(&mut app), Visibility::Hidden);
+        assert_eq!(visibility_of::<InventoryRoot>(&mut app), Visibility::Hidden);
+    }
+
+    #[test]
+    fn escape_while_typing_does_not_open_the_pause_menu() {
+        let mut app = app(UIMode::Typing);
+        press_escape(&mut app);
+        assert_eq!(visibility_of::<PauseMenu>(&mut app), Visibility::Hidden);
     }
 }

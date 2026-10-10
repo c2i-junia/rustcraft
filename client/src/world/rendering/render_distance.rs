@@ -1,6 +1,7 @@
 use crate::{
     constants::DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS,
     input::{data::GameAction, keyboard::is_action_just_pressed},
+    ui::hud::UIMode,
     KeyMap,
 };
 use bevy::prelude::*;
@@ -14,9 +15,14 @@ pub fn render_distance_update_system(
     mut render_distance: ResMut<RenderDistance>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
+    ui_mode: Res<UIMode>,
 ) {
     if render_distance.distance == 0 {
         render_distance.distance = DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS;
+    }
+
+    if *ui_mode != UIMode::Closed {
+        return;
     }
 
     if is_action_just_pressed(GameAction::RenderDistanceMinus, &keyboard_input, &key_map) {

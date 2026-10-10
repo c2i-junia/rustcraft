@@ -39,7 +39,8 @@ pub fn controls_menu_setup(
 ) {
     let background_image = load_background_image(&assets);
     let font = load_font(&assets);
-    let trash_icon = assets.load("./trash.png");
+    let base_path = paths.assets_folder_path.display();
+    let trash_icon = assets.load(format!("{base_path}/graphics/trash.png"));
 
     commands
         .spawn((
