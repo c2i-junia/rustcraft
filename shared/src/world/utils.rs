@@ -12,17 +12,17 @@ pub fn block_to_chunk_coord(x: i32) -> i32 {
 
 pub fn block_vec3_to_chunk_v3_coord(v: Vec3) -> Vec3 {
     Vec3::new(
-        block_to_chunk_coord(v.x as i32) as f32,
-        block_to_chunk_coord(v.y as i32) as f32,
-        block_to_chunk_coord(v.z as i32) as f32,
+        block_to_chunk_coord(v.x.floor() as i32) as f32,
+        block_to_chunk_coord(v.y.floor() as i32) as f32,
+        block_to_chunk_coord(v.z.floor() as i32) as f32,
     )
 }
 
 pub fn world_position_to_chunk_position(v: Vec3) -> IVec3 {
     IVec3::new(
-        block_to_chunk_coord(v.x as i32),
-        block_to_chunk_coord(v.y as i32),
-        block_to_chunk_coord(v.z as i32),
+        block_to_chunk_coord(v.x.floor() as i32),
+        block_to_chunk_coord(v.y.floor() as i32),
+        block_to_chunk_coord(v.z.floor() as i32),
     )
 }
 
@@ -157,7 +157,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: `as i32` truncates toward zero, so x = -0.5 gives chunk 0 instead of -1"]
     fn world_position_to_chunk_position_negative_fractions() {
         assert_eq!(
             world_position_to_chunk_position(Vec3::new(-0.5, -0.5, -0.5)),

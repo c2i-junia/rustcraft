@@ -4,7 +4,7 @@ use bevy::{
 };
 use bevy_ecs::system::{Res, ResMut};
 use shared::{
-    players::constants::{GRAVITY, JUMP_VELOCITY, SPEED},
+    players::constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
     world::{MobAction, MobTarget, ServerWorldMap, WorldMap},
 };
 
@@ -43,11 +43,10 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
             mob.velocity.y += GRAVITY * delta;
         }
 
-        let new_y = mob.position.y + mob.velocity.y;
+        let new_y = mob.position.y + mob.velocity.y * delta;
         let new_vec = &Vec3::new(mob.position.x, new_y, mob.position.z);
-        let max_velocity = 0.9;
-        if mob.velocity.y > max_velocity {
-            mob.velocity.y = max_velocity;
+        if mob.velocity.y > MAX_UPWARD_VELOCITY {
+            mob.velocity.y = MAX_UPWARD_VELOCITY;
         }
         //log::debug!("New vec: {:?}", new_vec);
         //log::debug!(
@@ -83,7 +82,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                 }
                 // If it can't move, try to jump (only if on ground and if it moved before)
                 else if mob.on_ground && mob.velocity.x != 0.0 && mob.velocity.z != 0.0 {
-                    mob.velocity.y += JUMP_VELOCITY * delta;
+                    mob.velocity.y += JUMP_VELOCITY;
                     mob.on_ground = false;
                     mob.velocity.x = 0.0;
                     mob.velocity.z = 0.0;
@@ -113,7 +112,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                         mob.velocity.z = dir.z * speed;
                     //Try to jump (can improve this)
                     } else {
-                        mob.velocity.y += JUMP_VELOCITY * delta;
+                        mob.velocity.y += JUMP_VELOCITY;
                         mob.on_ground = false;
                         mob.velocity.x = 0.0;
                         mob.velocity.z = 0.0;

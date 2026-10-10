@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::math::IVec3;
 
@@ -8,6 +8,8 @@ use crate::world::{BlockData, BlockDirection, BlockId, WorldMap};
 #[derive(Default)]
 pub(crate) struct TestWorld {
     pub blocks: HashMap<IVec3, BlockData>,
+    /// Chunks (in chunk coordinates) reported as not loaded. Every other chunk counts as loaded.
+    pub unloaded_chunks: HashSet<IVec3>,
 }
 
 impl TestWorld {
@@ -27,6 +29,10 @@ impl TestWorld {
 }
 
 impl WorldMap for TestWorld {
+    fn is_chunk_loaded(&self, chunk_pos: &IVec3) -> bool {
+        !self.unloaded_chunks.contains(chunk_pos)
+    }
+
     fn get_block_mut_by_coordinates(&mut self, position: &IVec3) -> Option<&mut BlockData> {
         self.blocks.get_mut(position)
     }

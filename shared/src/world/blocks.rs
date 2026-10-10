@@ -194,7 +194,7 @@ impl BlockId {
             BlockId::OakPlanks => vec![(1, ItemId::OakPlanks, 1)],
             BlockId::Ice => vec![(1, ItemId::Ice, 1)],
             BlockId::Dandelion => vec![(1, ItemId::Dandelion, 1)],
-            BlockId::Poppy => vec![(1, ItemId::Dandelion, 1)],
+            BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
             BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
@@ -381,7 +381,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: Poppy drops a Dandelion item instead of a Poppy"]
     fn poppy_drops_a_poppy() {
         assert_eq!(
             BlockId::Poppy.get_drops(1),

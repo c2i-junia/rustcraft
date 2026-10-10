@@ -168,7 +168,11 @@ pub trait WorldMap {
     fn get_height_ground(&self, position: Vec3) -> i32 {
         for y in (0..256).rev() {
             if self
-                .get_block_by_coordinates(&IVec3::new(position.x as i32, y, position.z as i32))
+                .get_block_by_coordinates(&IVec3::new(
+                    position.x.floor() as i32,
+                    y,
+                    position.z.floor() as i32,
+                ))
                 .is_some()
             {
                 return y;
@@ -205,9 +209,9 @@ pub trait WorldMap {
 
     fn get_surrounding_chunks(&self, position: Vec3, radius: i32) -> Vec<IVec3> {
         let mut chunks = Vec::new();
-        let x = position.x as i32;
-        let y = position.y as i32;
-        let z = position.z as i32;
+        let x = position.x.floor() as i32;
+        let y = position.y.floor() as i32;
+        let z = position.z.floor() as i32;
         let cx = block_to_chunk_coord(x);
         let cy = block_to_chunk_coord(y);
         let cz = block_to_chunk_coord(z);
@@ -222,9 +226,16 @@ pub trait WorldMap {
     }
 
     fn mark_block_for_update(&mut self, position: &IVec3);
+
+    /// Whether the chunk at `chunk_pos` (in chunk coordinates) is present in this map.
+    fn is_chunk_loaded(&self, chunk_pos: &IVec3) -> bool;
 }
 
 impl WorldMap for ServerChunkWorldMap {
+    fn is_chunk_loaded(&self, chunk_pos: &IVec3) -> bool {
+        self.map.contains_key(chunk_pos)
+    }
+
     fn get_block_mut_by_coordinates(&mut self, position: &IVec3) -> Option<&mut BlockData> {
         let x: i32 = position.x;
         let y: i32 = position.y;
