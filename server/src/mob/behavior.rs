@@ -13,28 +13,31 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
 
     for (_mob_id, mob) in mobs.iter_mut() {
         //log::info!("Mob is at position: {:?}", mob.position);
-        if (mob.position.x.is_nan() || mob.position.y.is_nan() || mob.position.z.is_nan())
-            || (mob.velocity.x.is_nan() || mob.velocity.y.is_nan() || mob.velocity.z.is_nan())
-        {
-            //log::error!("Mob has NaN position or velocity");
+        if !mob.position.is_finite() || !mob.velocity.is_finite() {
+            //log::error!("Mob has a non-finite position or velocity");
             // TODO: FIX mob position
-            return;
+            continue;
         }
         let target = match mob.target {
             MobTarget::Position(pos) => pos,
             MobTarget::None => continue,
             MobTarget::Player(id) => {
-                if let Some(player) = world_map.players.get(&id) {
-                    player.position
-                } else {
-                    mob.position
-                }
+                // A mob does not chase a player that is not connected
+                let Some(player) = world_map.players.get(&id) else {
+                    continue;
+                };
+                player.position
             }
-            MobTarget::Mob(id) => world_map.mobs.get(&id).unwrap().position,
+            MobTarget::Mob(id) => {
+                let Some(target_mob) = world_map.mobs.get(&id) else {
+                    continue;
+                };
+                target_mob.position
+            }
         };
 
         // same gravity management as the player
-        let dir = (target - mob.position).normalize();
+        let dir = (target - mob.position).normalize_or_zero();
         let delta = delta.delta_secs();
         if !mob.on_ground {
             mob.velocity.y += GRAVITY * delta;
@@ -135,4 +138,72 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
     }
 
     world_map.mobs = mobs;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::math::Vec3;
+    use bevy::prelude::World;
+    use shared::world::{MobKind, ServerMob};
+    use std::time::Duration;
+
+    fn mob_at(position: Vec3, target: MobTarget) -> ServerMob {
+        ServerMob {
+            kind: MobKind::Fox,
+            target,
+            action: MobAction::Walk,
+            position,
+            rotation: Quat::IDENTITY,
+            height: 1.0,
+            width: 1.0,
+            on_ground: false,
+            velocity: Vec3::ZERO,
+            deepth: 1.0,
+        }
+    }
+
+    fn run_behavior(mobs: Vec<ServerMob>) -> ServerWorldMap {
+        let mut world = World::new();
+        let mut map = ServerWorldMap::default();
+        map.mobs = mobs
+            .into_iter()
+            .enumerate()
+            .map(|(i, m)| (i as u128, m))
+            .collect();
+        world.insert_resource(map);
+        let mut time = Time::<Fixed>::default();
+        time.advance_by(Duration::from_millis(15));
+        world.insert_resource(time);
+        world.run_system_once(mob_behavior_system).unwrap();
+        world.remove_resource::<ServerWorldMap>().unwrap()
+    }
+
+    #[test]
+    fn a_mob_with_a_nan_position_does_not_stop_the_other_mobs() {
+        let broken = mob_at(Vec3::NAN, MobTarget::Position(Vec3::ZERO));
+        let healthy_position = Vec3::new(0.0, 50.0, 0.0);
+        let healthy = mob_at(healthy_position, MobTarget::Position(Vec3::X * 10.0));
+        // The healthy mob comes second: the NaN one used to end the whole loop.
+        let map = run_behavior(vec![broken, healthy]);
+        assert_ne!(map.mobs[&1].position, healthy_position);
+        assert!(map.mobs[&1].position.is_finite());
+    }
+
+    #[test]
+    fn a_mob_targeting_an_absent_player_is_left_alone() {
+        let position = Vec3::new(0.0, 50.0, 0.0);
+        let map = run_behavior(vec![mob_at(position, MobTarget::Player(99))]);
+        assert_eq!(map.mobs[&0].position, position);
+        assert_eq!(map.mobs[&0].velocity, Vec3::ZERO);
+    }
+
+    #[test]
+    fn a_mob_on_its_target_keeps_a_finite_state() {
+        let position = Vec3::new(0.0, 50.0, 0.0);
+        let map = run_behavior(vec![mob_at(position, MobTarget::Position(position))]);
+        assert!(map.mobs[&0].position.is_finite());
+        assert!(map.mobs[&0].rotation.is_finite());
+    }
 }

@@ -111,13 +111,23 @@ fn handle_block_breaking(
     }
     let block = block.unwrap();
 
+    let Some(break_time) = block.id.get_break_time() else {
+        log::debug!(
+            "{} Player {} tried to break unbreakable block {:?} at {:?}",
+            caller_type.as_str(),
+            player.id,
+            block.id,
+            block_pos
+        );
+        return;
+    };
+
     // Try to break the block
     block.breaking_progress += 1;
 
-    let destroyed = block.breaking_progress >= block.id.get_break_time();
+    let destroyed = block.breaking_progress >= break_time;
     let block_id = block.id;
     let breaking_progress = block.breaking_progress;
-    let break_time = block.id.get_break_time();
 
     if destroyed {
         info!(
@@ -317,5 +327,52 @@ fn handle_block_placement(
             player.id,
             inventory_slot
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::{test_support::TestWorld, BlockId};
+    use bevy::math::IVec3;
+    use bevy::prelude::Transform;
+
+    const TARGET: IVec3 = IVec3::new(0, 0, -3);
+
+    /// A player at the centre of block (0,0,0), looking down -Z at `TARGET`, left-clicking.
+    fn left_click_on(id: BlockId) -> (Player, TestWorld, PlayerFrameInput) {
+        let position = Vec3::splat(0.5);
+        let camera = Transform::from_translation(position);
+        let player = Player::new(1, "tester".to_string(), position, camera);
+        let mut world = TestWorld::default();
+        world.fill_box(TARGET, TARGET, id);
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::LeftClick].into(),
+            camera,
+            ..Default::default()
+        };
+        (player, world, input)
+    }
+
+    #[test]
+    fn breaking_a_regular_block_takes_its_break_time() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Dandelion);
+        let steps = BlockId::Dandelion.get_break_time().unwrap();
+        for _ in 1..steps {
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+            assert!(world.blocks.contains_key(&TARGET));
+        }
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        assert!(!world.blocks.contains_key(&TARGET));
+    }
+
+    #[test]
+    fn mining_bedrock_does_nothing() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Bedrock);
+        for _ in 0..1000 {
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        }
+        assert_eq!(world.blocks[&TARGET].id, BlockId::Bedrock);
+        assert_eq!(world.blocks[&TARGET].breaking_progress, 0);
     }
 }

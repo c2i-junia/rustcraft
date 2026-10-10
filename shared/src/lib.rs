@@ -112,9 +112,28 @@ pub fn game_message_to_payload<T: serde::Serialize>(message: T) -> Vec<u8> {
     output
 }
 
+/// Largest decompressed message accepted from the network.
+pub const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+
 pub fn payload_to_game_message<T: serde::de::DeserializeOwned>(
     payload: &[u8],
 ) -> Result<T, bincode::Error> {
+    // lz4 trusts the 4-byte little-endian size prefix to size its allocation: check it first
+    let Some(prefix) = payload.first_chunk::<4>() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "payload shorter than its size prefix",
+        )
+        .into());
+    };
+    let announced_size = u32::from_le_bytes(*prefix) as usize;
+    if announced_size > MAX_DECOMPRESSED_MESSAGE_SIZE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("announced decompressed size {announced_size} is too large"),
+        )
+        .into());
+    }
     let decompressed_payload = lz4::block::decompress(payload, None)?;
     bincode::options().deserialize(&decompressed_payload)
 }
@@ -211,6 +230,34 @@ mod tests {
     #[test]
     fn decoding_an_empty_slice_is_an_error() {
         assert!(payload_to_game_message::<ClientToServerMessage>(&[]).is_err());
+    }
+
+    #[test]
+    fn decoding_a_forged_size_prefix_is_rejected_before_allocating() {
+        for announced in [
+            MAX_DECOMPRESSED_MESSAGE_SIZE as u32 + 1,
+            i32::MAX as u32,
+            u32::MAX,
+        ] {
+            let mut payload = announced.to_le_bytes().to_vec();
+            payload.extend_from_slice(&[0x10, 0x00]);
+            let error = payload_to_game_message::<ClientToServerMessage>(&payload).unwrap_err();
+            assert!(
+                error.to_string().contains("too large"),
+                "{announced}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn decoding_a_prefix_at_the_limit_is_not_rejected_for_its_size() {
+        let mut payload = (MAX_DECOMPRESSED_MESSAGE_SIZE as u32)
+            .to_le_bytes()
+            .to_vec();
+        payload.extend_from_slice(&[0x10, 0x00]);
+        // The body is truncated, so decoding still fails, but not on the size check.
+        let error = payload_to_game_message::<ClientToServerMessage>(&payload).unwrap_err();
+        assert!(!error.to_string().contains("too large"), "{error}");
     }
 
     #[test]

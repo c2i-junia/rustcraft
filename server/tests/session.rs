@@ -4,7 +4,8 @@
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::renet::RenetClient;
 use shared::messages::{
-    AuthRegisterRequest, ClientToServerMessage, PlayerFrameInput, ServerToClientMessage,
+    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, PlayerFrameInput,
+    ServerToClientMessage,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -112,7 +113,8 @@ impl TestClient {
                     self.inbox.push(payload_to_game_message(&payload).unwrap());
                 }
             }
-            self.transport.send_packets(&mut self.client).unwrap();
+            // Fails only when the server disconnected us, which `update` reports next time.
+            let _ = self.transport.send_packets(&mut self.client);
         }
         thread::sleep(PUMP_INTERVAL);
     }
@@ -229,5 +231,96 @@ fn solo_session_from_auth_to_exit() {
     client.send(ClientToServerMessage::Exit);
     // Only send: the server disconnects us as it shuts down.
     client.send_packets();
+    server.join_after_exit();
+}
+
+fn auth_request(username: &str) -> ClientToServerMessage {
+    AuthRegisterRequest {
+        username: username.to_string(),
+    }
+    .into()
+}
+
+fn inputs_at(time_ms: u64) -> ClientToServerMessage {
+    ClientToServerMessage::PlayerInputs(vec![PlayerFrameInput {
+        time_ms,
+        delta_ms: 16,
+        ..Default::default()
+    }])
+}
+
+#[test]
+fn messages_before_authentication_are_ignored() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID + 1);
+    let id = client.id;
+    client.wait_connected();
+
+    // Neither of these may crash the server, nor be acted upon.
+    client.send(ClientToServerMessage::ChatMessage(ChatMessageRequest {
+        content: "hello before auth".to_string(),
+    }));
+    client.send(inputs_at(999));
+    client.send(auth_request("late"));
+    let auth = client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
+        _ => None,
+    });
+    assert_eq!(auth.username, "late");
+
+    // The server is alive and handles inputs sent after authenticating.
+    client.send(inputs_at(2000));
+    client.wait_for("PlayerUpdate acknowledging the input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == 2000 => Some(()),
+        _ => None,
+    });
+    assert!(
+        !client.inbox.iter().any(|m| matches!(
+            m,
+            ServerToClientMessage::PlayerUpdate(u) if u.last_ack_time == 999
+        )),
+        "the input sent before authentication was processed"
+    );
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
+fn duplicate_username_is_disconnected_without_blocking_others() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut first = TestClient::connect(server.addr, PLAYER_ID);
+    let first_id = first.id;
+    first.wait_connected();
+    first.send(auth_request("same"));
+    first.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
+        _ => None,
+    });
+
+    let mut second = TestClient::connect(server.addr, PLAYER_ID + 1);
+    second.wait_connected();
+    second.send(auth_request("same"));
+    let start = Instant::now();
+    while !second.client.is_disconnected() {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "duplicate client was not disconnected within {WAIT_TIMEOUT:?}"
+        );
+        second.pump();
+    }
+
+    // The first client is still served.
+    first.send(inputs_at(77));
+    first.wait_for("PlayerUpdate acknowledging the input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == first_id && u.last_ack_time == 77 => {
+            Some(())
+        }
+        _ => None,
+    });
+
+    first.send(ClientToServerMessage::Exit);
+    first.send_packets();
     server.join_after_exit();
 }

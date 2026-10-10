@@ -10,6 +10,9 @@ use bevy::prelude::*;
 
 use super::Player;
 
+/// Longest frame the simulation integrates, so a client cannot cover any distance in one input.
+pub const MAX_FRAME_DELTA_MS: u64 = 100;
+
 pub fn simulate_player_movement(
     player: &mut Player,
     world_map: &impl WorldMap,
@@ -22,7 +25,7 @@ pub fn simulate_player_movement(
         return;
     }
 
-    let delta = action.delta_ms as f32 / 1000.0;
+    let delta = action.delta_ms.min(MAX_FRAME_DELTA_MS) as f32 / 1000.0;
 
     let mut direction = Vec3::ZERO;
 
@@ -231,6 +234,22 @@ mod tests {
         assert!((player.position.z - (start.z - 4.0)).abs() < 1e-3);
         assert!((player.position.x - start.x).abs() < 1e-4);
         assert!((player.position.y - start.y).abs() < 0.05);
+    }
+
+    #[test]
+    fn frame_delta_is_clamped_to_the_maximum() {
+        let world = flat_world();
+        let walk = |delta_ms: u64| {
+            let mut player = standing_player();
+            let mut input = frame(&[NetworkAction::MoveForward]);
+            input.delta_ms = delta_ms;
+            simulate_player_movement(&mut player, &world, &input);
+            player.position
+        };
+        let at_limit = walk(MAX_FRAME_DELTA_MS);
+        assert_ne!(at_limit, standing_player().position);
+        assert_eq!(walk(MAX_FRAME_DELTA_MS + 1), at_limit);
+        assert_eq!(walk(u64::MAX), at_limit);
     }
 
     #[test]
