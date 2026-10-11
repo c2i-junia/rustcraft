@@ -12,6 +12,7 @@ use crate::world::ClientWorldMap;
 
 use crate::world::WorldRenderRequestUpdateEvent;
 
+use super::CachedChatConversation;
 use super::SendGameMessageExtension;
 
 pub fn update_world_from_network(
@@ -21,6 +22,7 @@ pub fn update_world_from_network(
     ev_player_spawn: &mut EventWriter<PlayerSpawnEvent>,
     ev_mob_update: &mut EventWriter<MobUpdateEvent>,
     ev_player_update: &mut EventWriter<PlayerUpdateEvent>,
+    chat: &mut ResMut<CachedChatConversation>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
         match msg {
@@ -63,7 +65,9 @@ pub fn update_world_from_network(
                 ev_player_update.write(update);
             }
             ServerToClientMessage::AuthRegisterResponse(_) => {}
-            ServerToClientMessage::ChatConversation(_) => {}
+            ServerToClientMessage::ChatMessage(message) => {
+                chat.unread.push(message);
+            }
         }
     }
 }

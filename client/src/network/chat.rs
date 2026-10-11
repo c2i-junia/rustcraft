@@ -1,23 +1,8 @@
 use bevy::prelude::*;
-use shared::messages::ChatConversation;
+use shared::messages::FullChatMessage;
 
+/// Chat messages received from the server and not displayed yet, oldest first.
 #[derive(Resource, Default, Debug)]
 pub struct CachedChatConversation {
-    pub _last_update: u64,
-    pub data: Option<ChatConversation>,
-}
-
-pub fn _update_cached_chat_state(
-    chat_state: &mut ResMut<CachedChatConversation>,
-    new_state: ChatConversation,
-) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-
-    chat_state._last_update = now;
-    chat_state.data = Some(new_state);
-
-    trace!("new CachedChatConversation: {:?}", &chat_state);
+    pub unread: Vec<FullChatMessage>,
 }

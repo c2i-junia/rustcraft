@@ -108,7 +108,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 pub fn render_chat(
     resources: (
-        Res<CachedChatConversation>,
+        ResMut<CachedChatConversation>,
         Res<AssetServer>,
         ResMut<RenetClient>,
         Res<ButtonInput<KeyCode>>,
@@ -129,11 +129,10 @@ pub fn render_chat(
             Without<ChatRoot>,
         >,
     ),
-    mut last_render_ts: Local<u64>,
     mut event: EventReader<TextInputSubmitEvent>,
     mut commands: Commands,
 ) {
-    let (cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;
+    let (mut cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;
     let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
     let (entity_check, mut inactive, mut value) = text_query.single_mut().unwrap();
 
@@ -182,43 +181,33 @@ pub fn render_chat(
         }
     }
 
-    if let Some(conv) = &cached_conv.data {
-        for message in &conv.messages {
-            // If message too old, don't render
-            if message.timestamp <= *last_render_ts {
-                continue;
-            }
-            *last_render_ts = message.timestamp;
-            let msg = commands
-                .spawn((
-                    MessageAnimator {
-                        created_ts: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64,
+    for message in cached_conv.unread.drain(..) {
+        let msg = commands
+            .spawn((
+                MessageAnimator {
+                    created_ts: current_ts,
+                },
+                (
+                    Text::new(format!("<{}> : {}", message.author, message.content)),
+                    TextFont {
+                        font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
+                        font_size: 17.,
+                        ..default()
                     },
-                    (
-                        Text::new(format!("<{}> : {}", message.author, message.content)),
-                        TextFont {
-                            font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                            font_size: 17.,
-                            ..default()
-                        },
-                        TextColor(Color::WHITE),
-                        Visibility::Visible,
-                        BackgroundColor(CHAT_COLOR),
-                    ),
-                ))
-                .id();
-            commands.entity(parent).add_children(&[msg]);
-        }
-        // Prevents too much messages from building up on screen
-        // The oldest messages come first
-        let too_many = children.len().saturating_sub(CHAT_MAX_MESSAGES);
-        for &child in &children[..too_many] {
-            commands.entity(parent).remove_children(&[child]);
-            commands.entity(child).despawn();
-        }
+                    TextColor(Color::WHITE),
+                    Visibility::Visible,
+                    BackgroundColor(CHAT_COLOR),
+                ),
+            ))
+            .id();
+        commands.entity(parent).add_children(&[msg]);
+    }
+    // Prevents too much messages from building up on screen
+    // The oldest messages come first
+    let too_many = children.len().saturating_sub(CHAT_MAX_MESSAGES);
+    for &child in &children[..too_many] {
+        commands.entity(parent).remove_children(&[child]);
+        commands.entity(child).despawn();
     }
 
     if event.is_empty() {
@@ -229,7 +218,7 @@ pub fn render_chat(
     *inactive = TextInputInactive(true);
 
     for message in event.read() {
-        if entity_check == message.entity {
+        if entity_check == message.entity && !message.value.trim().is_empty() {
             client.send_game_message(shared::messages::ClientToServerMessage::ChatMessage(
                 shared::messages::ChatMessageRequest {
                     content: message.value.clone(),

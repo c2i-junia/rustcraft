@@ -232,7 +232,7 @@ impl ChannelResolvableExt for ServerToClientMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::{ChatConversation, ChatMessageRequest, FullChatMessage};
+    use crate::messages::{ChatMessageRequest, FullChatMessage};
 
     #[test]
     fn client_to_server_message_round_trips() {
@@ -246,19 +246,16 @@ mod tests {
 
     #[test]
     fn server_to_client_message_round_trips() {
-        let conversation = ChatConversation {
-            messages: vec![FullChatMessage {
-                content: "hi".into(),
-                author: "steve".into(),
-                timestamp: 42,
-            }],
+        let chat_message = FullChatMessage {
+            content: "hi".into(),
+            author: "steve".into(),
+            timestamp: 42,
         };
-        let payload = game_message_to_payload(ServerToClientMessage::ChatConversation(
-            conversation.clone(),
-        ));
+        let payload =
+            game_message_to_payload(ServerToClientMessage::ChatMessage(chat_message.clone()));
         let decoded: ServerToClientMessage = payload_to_game_message(&payload).unwrap();
         match decoded {
-            ServerToClientMessage::ChatConversation(decoded) => assert_eq!(decoded, conversation),
+            ServerToClientMessage::ChatMessage(decoded) => assert_eq!(decoded, chat_message),
             other => panic!("unexpected variant: {other:?}"),
         }
     }
