@@ -25,12 +25,6 @@ pub fn upload_player_inputs_system(
         frames.push(input.clone());
         unacknowledged_inputs.0.push(input.clone());
     }
-    // for frame in frames.iter() {
-    //     debug!(
-    //         "Sending input: {:?} | {:?} | {:?}",
-    //         frame.time_ms, frame.inputs, frame.position
-    //     );
-    // }
     client.send_game_message(ClientToServerMessage::PlayerInputs(frames));
     inputs.buffer.clear();
 }

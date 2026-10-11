@@ -4,7 +4,6 @@ pub mod pause;
 pub mod server_connect_loading;
 pub mod settings;
 pub mod solo;
-pub mod splash;
 
 use bevy::prelude::*;
 pub use home::*;
@@ -110,7 +109,6 @@ fn escape_button(
                 next_menu_state.set(MenuState::Main)
             }
             // todo: decide how we want to bypass keyboard set dialog
-            // MenuState::SettingsControls => next_menu_state.set(MenuState::Settings),
             _ => (),
         }
     }

@@ -1,4 +1,4 @@
-use crate::{player::CurrentPlayerMarker, world::FirstChunkReceived};
+use crate::player::CurrentPlayerMarker;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 
@@ -29,7 +29,7 @@ pub struct MeshingTask {
     pub thread: Task<ChunkMeshResponse>,
 }
 
-#[derive(Debug, Default, Resource)]
+#[derive(Debug, Default)]
 pub struct QueuedMeshes {
     pub meshes: Vec<MeshingTask>,
 }
@@ -77,7 +77,6 @@ fn update_chunk(
 
         chunk.entity = Some(new_entity);
     }
-    // debug!("ClientChunk updated : len={}", chunk.map.len());
 }
 
 pub fn world_render_system(
@@ -88,7 +87,6 @@ pub fn world_render_system(
     mut queued_meshes: Local<QueuedMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
-    mut first_chunk_received: ResMut<FirstChunkReceived>,
     player_pos: Query<&Transform, With<CurrentPlayerMarker>>,
 ) {
     for event in ev_render.read() {
@@ -110,7 +108,7 @@ pub fn world_render_system(
         // Clone map only once, then share it as read-only across all meshing threads
         let map_ptr = Arc::new(world_map.clone());
         let delta = start.elapsed();
-        info!("cloning map for render, took {:?}", delta);
+        trace!("cloning map for render, took {:?}", delta);
 
         let uvs = Arc::new(material_resource.blocks.as_ref().unwrap().uvs.clone());
 
@@ -166,7 +164,6 @@ pub fn world_render_system(
                 });
             }
         }
-        first_chunk_received.0 = true;
     }
 
     // Iterate through queued meshes to see if they are completed

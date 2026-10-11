@@ -5,7 +5,7 @@ use std::time::Duration;
 use bevy::{animation::AnimationTargetId, color::palettes::css::WHITE, prelude::*};
 use rand::{thread_rng, Rng};
 
-use super::{MobMarker, MobRoot, TargetedMob};
+use super::MobRoot;
 
 const FOX_PATH: &str = "models/animated/Fox.glb";
 
@@ -63,21 +63,12 @@ pub fn setup_fox(
         graph: graph_handle,
     });
 
-    let name = "Fox".to_string();
-
     // Fox
     let fox = commands
         .spawn((
             SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(FOX_PATH))),
             Transform::from_translation(spawn_pos).with_scale(Vec3::splat(0.01)),
-            MobRoot {
-                name: name.clone(),
-                id,
-            },
-            MobMarker {
-                name: name.clone(),
-                id,
-            },
+            MobRoot { id },
         ))
         .id();
 
@@ -93,6 +84,7 @@ pub fn setup_fox_once_loaded(
     graphs: Res<Assets<AnimationGraph>>,
     mut clips: ResMut<Assets<AnimationClip>>,
     mut players: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>,
+    mut events_registered: Local<bool>,
 ) {
     fn get_clip<'a>(
         node: AnimationNodeIndex,
@@ -112,15 +104,20 @@ pub fn setup_fox_once_loaded(
 
         let graph = graphs.get(&animations.graph).unwrap();
 
-        // Send `OnStep` events once the fox feet hits the ground in the running animation.
-        let running_animation = get_clip(animations.animations[0], graph, &mut clips);
-        // You can determine the time an event should trigger if you know witch frame it occurs and
-        // the frame rate of the animation. Let's say we want to trigger an event at frame 15,
-        // and the animation has a frame rate of 24 fps, then time = 15 / 24 = 0.625.
-        running_animation.add_event_to_target(feet.front_left, 0.625, OnStep);
-        running_animation.add_event_to_target(feet.front_right, 0.5, OnStep);
-        running_animation.add_event_to_target(feet.back_left, 0.0, OnStep);
-        running_animation.add_event_to_target(feet.back_right, 0.125, OnStep);
+        // The clip is shared by all foxes, so its events must be added only once.
+        // Otherwise each new fox adds them again and every fox fires all of them.
+        if !*events_registered {
+            // Send `OnStep` events once the fox feet hits the ground in the running animation.
+            let running_animation = get_clip(animations.animations[0], graph, &mut clips);
+            // You can determine the time an event should trigger if you know witch frame it occurs and
+            // the frame rate of the animation. Let's say we want to trigger an event at frame 15,
+            // and the animation has a frame rate of 24 fps, then time = 15 / 24 = 0.625.
+            running_animation.add_event_to_target(feet.front_left, 0.625, OnStep);
+            running_animation.add_event_to_target(feet.front_right, 0.5, OnStep);
+            running_animation.add_event_to_target(feet.back_left, 0.0, OnStep);
+            running_animation.add_event_to_target(feet.back_right, 0.125, OnStep);
+            *events_registered = true;
+        }
 
         let mut transitions = AnimationTransitions::new();
 
@@ -137,16 +134,6 @@ pub fn setup_fox_once_loaded(
             .insert(transitions);
     }
 }
-
-// pub fn add_mob_markers(mut commands: Commands, query: Query<(&MobMarker, &Children)>) {
-//     // NOTE: This is arguably a ridiculous solution, this iterates on all mobs every frame to recursively add the Mob component to all children of a mob.
-//     // Optimize later to only run once when the Mob is spawned.
-//     for (mob, children) in query.iter() {
-//         for child in children.iter() {
-//             commands.entity(*child).insert_if_new(mob.clone());
-//         }
-//     }
-// }
 
 pub fn simulate_particles(
     mut commands: Commands,
@@ -275,30 +262,6 @@ impl Default for FoxFeetTargets {
             front_right: AnimationTargetId::from_iter(front_right_foot),
             back_left: AnimationTargetId::from_iter(back_left_foot),
             back_right: AnimationTargetId::from_iter(back_right_foot),
-        }
-    }
-}
-
-// TODO: only update the color of the targeted mob, not all mobs sharing the same material
-pub fn update_targetted_mob_color(
-    mut query: Query<(&mut MeshMaterial3d<StandardMaterial>, &MobMarker)>,
-    targeted_mob: Res<TargetedMob>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let target_id = match &targeted_mob.target {
-        Some(target) => target.id,
-        None => 0u128,
-    };
-
-    for (material, mob) in &mut query.iter_mut() {
-        if mob.id == target_id {
-            let handle = material.0.clone();
-            let material = materials.get_mut(&handle).unwrap();
-            material.base_color = Color::srgb(1.0, 0.0, 0.0);
-        } else {
-            let handle = material.0.clone();
-            let material = materials.get_mut(&handle).unwrap();
-            material.base_color = Color::srgb(1.0, 1.0, 1.0);
         }
     }
 }

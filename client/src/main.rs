@@ -25,10 +25,7 @@ use menus::solo::SelectedWorld;
 use serde::{Deserialize, Serialize};
 use shared::get_game_folder_paths;
 use std::collections::BTreeMap;
-use ui::{
-    hud::debug::inspector::inspector_ui,
-    menus::{self, splash},
-};
+use ui::{hud::debug::inspector::inspector_ui, menus};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -59,16 +56,10 @@ pub const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 // Enum that will be used as a global state for the game
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 pub enum GameState {
-    Splash,
     #[default]
     Menu,
     PreGameLoading,
     Game,
-}
-
-#[derive(Event)]
-pub struct LoadWorldEvent {
-    pub world_name: String,
 }
 
 #[derive(Resource, Serialize, Deserialize)]
@@ -97,21 +88,7 @@ fn main() {
         TEXTURE_PATH_BASE
     };
 
-    println!(
-        "Using {} for textures",
-        if args.use_custom_textures {
-            "custom textures"
-        } else {
-            "base textures"
-        }
-    );
-
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
-
-    println!(
-        "Starting application with game folder: {}",
-        game_folder_paths.game_folder_path.display()
-    );
 
     let mut app = App::new();
     app.add_plugins(
@@ -142,13 +119,26 @@ fn main() {
             }),
     );
 
+    // Logging is set up by the DefaultPlugins above, so these lines come after them
+    info!(
+        "Using {} for textures",
+        if args.use_custom_textures {
+            "custom textures"
+        } else {
+            "base textures"
+        }
+    );
+    info!(
+        "Starting application with game folder: {}",
+        game_folder_paths.game_folder_path.display()
+    );
+
     app.add_plugins(EguiPlugin {
         enable_multipass_for_primary_context: false,
     })
     .add_plugins(DefaultInspectorConfigPlugin)
     .add_systems(Update, inspector_ui);
 
-    app.add_event::<LoadWorldEvent>();
     network::add_base_netcode(&mut app);
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(SelectedWorld::default())
@@ -164,6 +154,6 @@ fn main() {
         .init_state::<GameState>()
         .enable_state_scoped_entities::<GameState>()
         // Adds the plugins for each state
-        .add_plugins((splash::splash_plugin, menus::menu_plugin, game::game_plugin))
+        .add_plugins((menus::menu_plugin, game::game_plugin))
         .run();
 }

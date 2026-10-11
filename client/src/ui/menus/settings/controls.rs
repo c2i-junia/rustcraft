@@ -172,7 +172,6 @@ pub fn controls_menu_setup(
                                         id,
                                         keys,
                                         &assets,
-                                        &paths,
                                     );
 
                                     line.spawn((
@@ -262,7 +261,6 @@ pub fn update_input_component(
     entity: Entity,
     binds: &Vec<KeyCode>,
     assets: &AssetServer,
-    _paths: &Res<GameFolderPaths>,
 ) {
     commands.entity(entity).despawn_related::<Children>();
     let font: Handle<Font> = assets.load("./fonts/RustCraftRegular-Bmg3.otf");
@@ -321,7 +319,6 @@ pub fn controls_update_system(
     ),
     mut commands: Commands,
     resources: (Res<AssetServer>, Res<ButtonInput<KeyCode>>, ResMut<KeyMap>),
-    paths: Res<GameFolderPaths>,
 ) {
     let (mut edit_query, mut clear_query, mut visibility_query) = queries;
     let (assets, input, mut key_map) = resources;
@@ -341,7 +338,6 @@ pub fn controls_update_system(
                 recorder.entity,
                 key_map.map.get(&recorder.action).unwrap(),
                 &assets,
-                &paths,
             );
             return;
         }
@@ -388,7 +384,6 @@ pub fn controls_update_system(
                     clear.1,
                     key_map.map.get(&clear.0).unwrap(),
                     &assets,
-                    &paths,
                 );
             }
             Interaction::Hovered => {

@@ -1,5 +1,5 @@
+use super::loaded_stats::ChunksNumberText;
 use super::loaded_stats::TimeText;
-use super::loaded_stats::{BlocksNumberText, ChunksNumberText};
 use super::targeted_block::BlockText;
 use super::{CoordsText, FpsText};
 use crate::input::data::GameAction;
@@ -66,24 +66,14 @@ pub fn setup_hud(mut commands: Commands) {
     let block_text = commands
         .spawn((
             BlockText,
-            (
-                (
-                    Text::new("Selected block : "),
-                    TextFont {
-                        font_size: 16.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.2, 0.2, 0.2)),
-                ),
-                // (
-                //     Text::new("<None>"),
-                //     TextFont {
-                //         font_size: 16.0,
-                //         ..default()
-                //     },
-                //     TextColor(Color::srgb(0.2, 0.2, 0.2)),
-                // ),
-            ),
+            ((
+                Text::new("Selected block : "),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(0.2, 0.2, 0.2)),
+            ),),
         ))
         .id();
     let default_text_bundle = || {
@@ -97,9 +87,6 @@ pub fn setup_hud(mut commands: Commands) {
         )
     };
     let coords_text = commands.spawn((CoordsText, default_text_bundle())).id();
-    let blocks_number_text = commands
-        .spawn((BlocksNumberText, default_text_bundle()))
-        .id();
     let chunks_number_text = commands
         .spawn((ChunksNumberText, default_text_bundle()))
         .id();
@@ -117,7 +104,6 @@ pub fn setup_hud(mut commands: Commands) {
     commands.entity(root).add_children(&[
         text_fps,
         coords_text,
-        blocks_number_text,
         chunks_number_text,
         block_text,
         time_text,

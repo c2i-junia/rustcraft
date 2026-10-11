@@ -14,10 +14,6 @@ pub struct ScrollingList {
     pub position: f32,
 }
 
-// Tag component used to mark which setting is currently selected
-#[derive(Component)]
-pub struct SelectedOption;
-
 // All actions that can be triggered from a button click
 #[derive(Component)]
 pub enum MenuButtonAction {
@@ -47,7 +43,6 @@ pub fn button_system(
             &Interaction,
             &mut ImageNode,
             &mut BackgroundColor,
-            Option<&SelectedOption>,
             &Node,
             &ComputedNode,
         ),
@@ -60,9 +55,7 @@ pub fn button_system(
     mut text_input_query: Query<(Entity, &mut TextInputInactive)>,
     asset_server: Res<AssetServer>, // Needed to load images
 ) {
-    for (interaction, mut ui_image, mut background_color, selected, style, node) in
-        &mut interaction_query
-    {
+    for (interaction, mut ui_image, mut background_color, style, node) in &mut interaction_query {
         // Get button real size
         let width = match style.width {
             Val::Px(width) => width,
@@ -92,10 +85,7 @@ pub fn button_system(
                 *ui_image = dark_image.clone().into(); // Switch to the "dark" image on hover
             }
             Interaction::None => {
-                *background_color = match selected {
-                    Some(_) => PRESSED_BUTTON.into(), // Selected buttons stay pressed
-                    None => NORMAL_BUTTON.into(),
-                };
+                *background_color = NORMAL_BUTTON.into();
                 *ui_image = normal_image.clone().into(); // Default back to the normal image
             }
         }

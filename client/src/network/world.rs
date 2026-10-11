@@ -23,9 +23,6 @@ pub fn update_world_from_network(
     ev_player_update: &mut EventWriter<PlayerUpdateEvent>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
-        // truncate the message to 1000 characters
-        // let debug_msg = format!("{:?}", msg).chars().take(1000).collect::<String>();
-        // info!("Received message: {}", debug_msg);
         match msg {
             ServerToClientMessage::WorldUpdate(world_update) => {
                 debug!(
@@ -54,16 +51,12 @@ pub fn update_world_from_network(
                     debug!("ServerMob received: {:?}", mob);
                     ev_mob_update.write(MobUpdateEvent { id, mob });
                 }
-
-                // get current time
-                // client_time.0 = world_update.time;
             }
             ServerToClientMessage::PlayerSpawn(spawn_event) => {
                 info!("Received SINGLE spawn event {:?}", spawn_event);
                 ev_player_spawn.write(spawn_event);
             }
             ServerToClientMessage::MobUpdate(update_event) => {
-                // info!("Received mob update event {:?}", update_event);
                 ev_mob_update.write(update_event);
             }
             ServerToClientMessage::PlayerUpdate(update) => {

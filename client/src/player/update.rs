@@ -60,6 +60,9 @@ pub fn spawn_players_system(
 
         let player_name = event.name.clone();
 
+        // One material shared by the mesh and the handle, so the first/third person
+        // system mutates the material the player is drawn with
+        let material = materials.add(color);
         let mut entity = commands.spawn((
             StateScoped(GameState::Game),
             Transform::from_translation(player.position),
@@ -69,10 +72,8 @@ pub fn spawn_players_system(
                 player.height,
                 player.width,
             )))),
-            MeshMaterial3d(materials.add(color)),
-            PlayerMaterialHandle {
-                handle: materials.add(color),
-            },
+            MeshMaterial3d(material.clone()),
+            PlayerMaterialHandle { handle: material },
             player.clone(),
             Name::new(player_name.clone()),
         ));
@@ -90,7 +91,6 @@ pub fn spawn_players_system(
             entity.insert(CurrentPlayerMarker {});
             info!("Inserted current player marker");
 
-            info!("aaa ---");
             for (transform, controller) in camera_query.iter_mut() {
                 *transform.into_inner() = event.data.camera_transform;
                 *controller.into_inner() = event.data.camera_transform.rotation.into();
@@ -100,7 +100,6 @@ pub fn spawn_players_system(
                     event.data.camera_transform
                 );
             }
-            info!("bbb ---");
         }
 
         let entity_id = entity.id();
@@ -174,7 +173,6 @@ pub fn update_players_system(
                             .collect::<Vec<_>>();
 
                         for input in remaining_inputs.iter() {
-                            // debug!("Reapplying input: {:?}", input);
                             simulate_player_actions(
                                 &mut player,
                                 world_map,

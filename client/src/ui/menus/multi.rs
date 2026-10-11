@@ -59,11 +59,7 @@ pub struct ServerIpInput;
 #[derive(Component)]
 pub struct ServerNameInput;
 
-pub fn multiplayer_menu_setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    _paths: Res<GameFolderPaths>,
-) {
+pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let font = load_font(&asset_server);
     let background_image = load_background_image(&asset_server);
     let button_background_image = load_button_background_large_image(&asset_server);
@@ -75,14 +71,6 @@ pub fn multiplayer_menu_setup(
     };
 
     let txt_color = TextColor(TEXT_COLOR);
-    // let txt_font_inactive = TextFont {
-    //     font,
-    //     font_size: 20.0,
-    //     ..default()
-    // };
-
-    // let txt_color_inactive = TextColor(Color::srgb(0.3, 0.3, 0.3));
-
     let btn_style = Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
@@ -176,7 +164,6 @@ pub fn multiplayer_menu_setup(
                             },
                             TextInputPlaceholder {
                                 value: "Server name".into(),
-                                // text_style: Some(txt_color_inactive.0.into()), // TODO: check this
                                 ..default()
                             },
                             TextInputInactive(true),
@@ -198,7 +185,6 @@ pub fn multiplayer_menu_setup(
                             },
                             TextInputPlaceholder {
                                 value: "Server IP".into(),
-                                // text_style: Some(txt_color_inactive.0.into()),
                                 ..default()
                             },
                             TextInputInactive(true),
@@ -247,7 +233,6 @@ pub fn add_server_item(
     asset_server: &Res<AssetServer>,
     list: &mut ServerList,
     list_entity: Entity,
-    _paths: &Res<GameFolderPaths>,
 ) {
     info!("Adding server to list : name = {:?}, ip = {:?}", name, ip);
 
@@ -328,12 +313,6 @@ pub fn add_server_item(
         ))
         .id();
 
-    // (Node {
-    //             display: Display::Flex,
-    //             flex_direction: FlexDirection::Column,
-    //             ..default()
-    //         }),
-
     commands
         .entity(server)
         .add_children(&[play_btn, delete_btn, txt, ip_txt]);
@@ -383,7 +362,6 @@ pub fn load_server_list(
             &assets,
             &mut list,
             list_entity,
-            &paths,
         );
         return;
     }
@@ -405,7 +383,6 @@ pub fn load_server_list(
             &assets,
             &mut list,
             list_entity,
-            &paths,
         );
     }
 
@@ -417,7 +394,6 @@ pub fn load_server_list(
             &assets,
             &mut list,
             list_entity,
-            &paths,
         );
     }
 }
@@ -486,7 +462,6 @@ pub fn multiplayer_action(
     mut target_server: ResMut<TargetServer>,
     mut game_state: ResMut<NextState<GameState>>,
     mut menu_state: ResMut<NextState<MenuState>>,
-    paths: Res<GameFolderPaths>,
 ) {
     let (interaction_query, name_query, ip_query, mut list_query) = queries;
     if list_query.is_empty() {
@@ -512,7 +487,6 @@ pub fn multiplayer_action(
                             &asset_server,
                             &mut list,
                             entity,
-                            &paths,
                         );
                     }
                 }
