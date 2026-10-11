@@ -3,11 +3,7 @@ use bevy::math::{IVec3, Vec3};
 use crate::CHUNK_SIZE;
 
 pub fn block_to_chunk_coord(x: i32) -> i32 {
-    if x >= 0 {
-        x / CHUNK_SIZE
-    } else {
-        (x - (CHUNK_SIZE - 1)) / CHUNK_SIZE
-    }
+    x.div_euclid(CHUNK_SIZE)
 }
 
 pub fn block_vec3_to_chunk_v3_coord(v: Vec3) -> Vec3 {
@@ -31,11 +27,7 @@ pub fn to_global_pos(chunk_pos: &IVec3, local_block_pos: &IVec3) -> IVec3 {
 }
 
 pub fn to_local_pos(global_block_pos: &IVec3) -> IVec3 {
-    IVec3 {
-        x: ((global_block_pos.x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
-        y: ((global_block_pos.y % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
-        z: ((global_block_pos.z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE,
-    }
+    global_block_pos.rem_euclid(IVec3::splat(CHUNK_SIZE))
 }
 
 pub fn global_block_to_chunk_pos(global_block_pos: &IVec3) -> IVec3 {

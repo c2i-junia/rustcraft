@@ -5,7 +5,7 @@ use bevy::{
 
 use crate::{
     players::ViewMode,
-    world::{BlockData, BlockHitbox, WorldMap},
+    world::{BlockData, BlockHitbox, ChunkMap},
     HALF_BLOCK,
 };
 
@@ -45,7 +45,7 @@ pub struct RaycastResponse {
 }
 
 pub fn raycast(
-    world_map: &impl WorldMap,
+    world_map: &ChunkMap,
     camera_transform: &Transform,
     player_position: &Vec3,
     view_mode: ViewMode,
@@ -57,7 +57,7 @@ pub fn raycast(
 }
 
 fn first_person_raycast(
-    world_map: &impl WorldMap,
+    world_map: &ChunkMap,
     camera_transform: &Transform,
 ) -> Option<RaycastResponse> {
     let camera_position = camera_transform.translation;
@@ -73,7 +73,7 @@ fn first_person_raycast(
 }
 
 fn third_person_raycast(
-    world_map: &impl WorldMap,
+    world_map: &ChunkMap,
     camera_transform: &Transform,
     player_position: &Vec3,
 ) -> Option<RaycastResponse> {
@@ -96,7 +96,7 @@ const MAX_RAY_DISTANCE: f32 = 20.0;
 // Amanatides-Woo fast traversal algorithm
 // Tweaked to include block-specific interaction boxes
 pub fn raycast_from_source_position_and_direction(
-    world_map: &impl WorldMap,
+    world_map: &ChunkMap,
     origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
@@ -134,7 +134,7 @@ pub fn raycast_from_source_position_and_direction(
 
     // Actual raycast loop
     while distance < MAX_RAY_DISTANCE {
-        if let Some(block) = world_map.get_block_by_coordinates(&voxel) {
+        if let Some(block) = world_map.get_block(voxel) {
             match block.id.get_ray_hitbox() {
                 BlockHitbox::FullBlock => {
                     return Some(RaycastResponse {
@@ -246,13 +246,18 @@ pub fn aabb_ray_hit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{test_support::TestWorld, BlockId};
+    use crate::world::BlockId;
     use bevy::math::Quat;
 
     const ORIGIN: Vec3 = Vec3::new(0.5, 0.5, 0.5);
 
-    fn world_with_block(position: IVec3, id: BlockId) -> TestWorld {
-        let mut world = TestWorld::default();
+    /// Every chunk the tests can reach is loaded, and empty but for the given block.
+    fn empty_world() -> ChunkMap {
+        ChunkMap::with_loaded_region(IVec3::splat(-48), IVec3::splat(48))
+    }
+
+    fn world_with_block(position: IVec3, id: BlockId) -> ChunkMap {
+        let mut world = empty_world();
         world.fill_box(position, position, id);
         world
     }
@@ -291,8 +296,7 @@ mod tests {
         let world = world_with_block(IVec3::new(0, 3, 0), BlockId::Stone);
         assert!(raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).is_none());
         assert!(
-            raycast_from_source_position_and_direction(&TestWorld::default(), ORIGIN, Vec3::X)
-                .is_none()
+            raycast_from_source_position_and_direction(&empty_world(), ORIGIN, Vec3::X).is_none()
         );
     }
 

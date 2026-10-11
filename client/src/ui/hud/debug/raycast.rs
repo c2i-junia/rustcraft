@@ -29,7 +29,12 @@ pub fn raycast_debug_update_system(
 
     let world_map = world_map.into_inner();
 
-    let maybe_block = raycast::raycast(world_map, camera_transform, player_translation, *view_mode);
+    let maybe_block = raycast::raycast(
+        &world_map.blocks,
+        camera_transform,
+        player_translation,
+        *view_mode,
+    );
 
     if let Some(raycast_response) = maybe_block {
         let normal = raycast_response.face.to_ivec3().as_vec3();

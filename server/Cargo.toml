@@ -31,4 +31,5 @@ path = "src/main.rs"
 workspace = true
 
 [dev-dependencies]
+shared = { path = "../shared", features = ["test-helpers"] }
 tempfile = "3"

@@ -1,13 +1,13 @@
 use bevy::math::{bounding::Aabb3d, Vec3};
 
-use crate::world::WorldMap;
+use crate::world::ChunkMap;
 
 use super::Player;
 
 pub fn check_player_collision(
     candidate_position: &Vec3,
     player: &Player,
-    world_map: &impl WorldMap,
+    world_map: &ChunkMap,
 ) -> bool {
     world_map.check_collision_box(&Aabb3d::new(
         *candidate_position,

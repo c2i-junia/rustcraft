@@ -41,7 +41,12 @@ pub fn handle_block_interactions(
 
     let world_map = world_map.into_inner();
 
-    let maybe_block = raycast::raycast(world_map, camera_transform, player_translation, *view_mode);
+    let maybe_block = raycast::raycast(
+        &world_map.blocks,
+        camera_transform,
+        player_translation,
+        *view_mode,
+    );
 
     if let Some(res) = maybe_block {
         // Draw gizmos for the bounding box
@@ -64,7 +69,7 @@ pub fn handle_block_interactions(
 
         simulate_player_block_interactions(
             &mut player,
-            world_map,
+            &mut world_map.blocks,
             &frame_inputs.0,
             CallerType::Client,
         );

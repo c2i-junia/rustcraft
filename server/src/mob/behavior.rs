@@ -5,8 +5,10 @@ use bevy::{
 use bevy_ecs::system::{Res, ResMut};
 use shared::{
     players::constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
-    world::{MobAction, MobTarget, ServerWorldMap, WorldMap},
+    world::{MobAction, MobTarget},
 };
+
+use crate::world::data::ServerWorldMap;
 
 pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Time<Fixed>>) {
     let mut mobs = world_map.mobs.clone();
@@ -143,7 +145,7 @@ mod tests {
     use bevy::math::IVec3;
     use bevy::math::Vec3;
     use bevy::prelude::World;
-    use shared::world::{BlockData, BlockDirection, BlockId, MobKind, ServerMob};
+    use shared::world::{BlockId, ChunkMap, MobKind, ServerMob};
     use std::time::Duration;
 
     fn mob_at(position: Vec3, target: MobTarget) -> ServerMob {
@@ -206,19 +208,15 @@ mod tests {
 
     /// Flat stone ground (top face at y = 1) with an optional wall of stone at x = -2.
     fn ground_world(with_wall: bool) -> ServerWorldMap {
-        let mut map = ServerWorldMap::default();
-        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
-        for x in -10..10 {
-            for z in -10..10 {
-                map.chunks.set_block(&IVec3::new(x, 0, z), stone);
-            }
-        }
+        let mut map = ServerWorldMap {
+            chunks: ChunkMap::with_loaded_region(IVec3::new(-10, 0, -10), IVec3::new(9, 3, 9)),
+            ..Default::default()
+        };
+        map.chunks
+            .fill_box(IVec3::new(-10, 0, -10), IVec3::new(9, 0, 9), BlockId::Stone);
         if with_wall {
-            for z in -10..10 {
-                for y in 1..4 {
-                    map.chunks.set_block(&IVec3::new(-2, y, z), stone);
-                }
-            }
+            map.chunks
+                .fill_box(IVec3::new(-2, 1, -10), IVec3::new(-2, 3, 9), BlockId::Stone);
         }
         map
     }

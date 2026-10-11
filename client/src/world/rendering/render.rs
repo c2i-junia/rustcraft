@@ -18,7 +18,7 @@ use crate::{
     GameState,
 };
 
-use crate::world::{ClientChunk, ClientWorldMap};
+use crate::world::{ChunkRender, ClientWorldMap};
 
 use super::meshing::ChunkMeshResponse;
 
@@ -35,7 +35,7 @@ pub struct QueuedMeshes {
 }
 
 fn update_chunk(
-    chunk: &mut ClientChunk,
+    chunk: &mut ChunkRender,
     chunk_pos: &IVec3,
     material_resource: &MaterialResource,
     commands: &mut Commands,
@@ -106,7 +106,7 @@ pub fn world_render_system(
         let start = std::time::Instant::now();
 
         // Clone map only once, then share it as read-only across all meshing threads
-        let map_ptr = Arc::new(world_map.clone());
+        let map_ptr = Arc::new(world_map.blocks.clone());
         let delta = start.elapsed();
         trace!("cloning map for render, took {:?}", delta);
 
@@ -143,9 +143,9 @@ pub fn world_render_system(
         });
 
         for pos in chunks_to_reload {
-            if let Some(chunk) = world_map.map.get(&pos) {
+            if let Some(chunk) = world_map.blocks.chunk(pos) {
                 // If chunk is empty, ignore it
-                if chunk.map.is_empty() {
+                if chunk.is_empty() {
                     continue;
                 }
 
@@ -174,7 +174,7 @@ pub fn world_render_system(
             thread,
         } = task;
 
-        if let Some(chunk) = world_map.map.get_mut(chunk_pos) {
+        if let Some(chunk) = world_map.render.get_mut(chunk_pos) {
             // If a later mesh has been completed before, we can drop this task
             if *mesh_request_ts < chunk.last_mesh_ts {
                 false

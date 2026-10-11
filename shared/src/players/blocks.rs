@@ -1,7 +1,10 @@
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::Player,
-    world::{raycast, BlockData, BlockDirection, FaceDirectionExt, ItemStack, ItemType, WorldMap},
+    world::{
+        global_block_to_chunk_pos, raycast, BlockData, BlockDirection, ChunkMap, FaceDirectionExt,
+        ItemStack, ItemType,
+    },
 };
 use bevy::math::{NormedVectorSpace, Vec3};
 use bevy_log::info;
@@ -26,7 +29,7 @@ const CUBE_SIZE: f32 = 1.0;
 
 pub fn simulate_player_block_interactions(
     player: &mut Player,
-    world_map: &mut impl WorldMap,
+    world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
@@ -46,7 +49,7 @@ pub fn simulate_player_block_interactions(
 
 fn handle_block_breaking(
     player: &mut Player,
-    world_map: &mut impl WorldMap,
+    world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
@@ -99,8 +102,7 @@ fn handle_block_breaking(
         return;
     }
 
-    let block = world_map.get_block_mut_by_coordinates(&block_pos);
-    if block.is_none() {
+    let Some(mut block) = world_map.get_block(block_pos).copied() else {
         log::info!(
             "{} Player {} tried to break a block at {:?}, but no block was found",
             caller_type.as_str(),
@@ -108,8 +110,7 @@ fn handle_block_breaking(
             block_pos
         );
         return;
-    }
-    let block = block.unwrap();
+    };
 
     let Some(break_time) = block.id.get_break_time() else {
         log::debug!(
@@ -138,7 +139,7 @@ fn handle_block_breaking(
             block_pos
         );
 
-        world_map.remove_block_by_coordinates(&block_pos);
+        world_map.remove_block(block_pos);
         // Add drops to player inventory
         for (item_id, nb) in block_id.get_drops(1) {
             player.inventory.add_item_to_inventory(ItemStack {
@@ -156,7 +157,7 @@ fn handle_block_breaking(
             );
         }
     } else {
-        world_map.mark_block_for_update(&block_pos);
+        world_map.set_block(block_pos, block);
         info!(
             "{} Player {} is breaking block {:?} at position {:?} (progress: {}/{})",
             caller_type.as_str(),
@@ -171,7 +172,7 @@ fn handle_block_breaking(
 
 fn handle_block_placement(
     player: &mut Player,
-    world_map: &mut impl WorldMap,
+    world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
@@ -243,12 +244,20 @@ fn handle_block_placement(
     }
 
     // Check if there's already a block at that position
-    if world_map
-        .get_block_by_coordinates(&block_to_create_pos)
-        .is_some()
-    {
+    if world_map.get_block(block_to_create_pos).is_some() {
         log::warn!(
             "{} Player {} tried to place block at {:?} but a block already exists there",
+            caller_type.as_str(),
+            player.id,
+            block_to_create_pos
+        );
+        return;
+    }
+
+    // A block is never placed into terrain that is not loaded, and must not use up the item then
+    if !world_map.is_chunk_loaded(global_block_to_chunk_pos(&block_to_create_pos)) {
+        log::warn!(
+            "{} Player {} tried to place block at {:?} but its chunk is not loaded",
             caller_type.as_str(),
             player.id,
             block_to_create_pos
@@ -303,7 +312,7 @@ fn handle_block_placement(
 
             // Place the block
             let block = BlockData::new(block_id, BlockDirection::Front);
-            world_map.set_block(&block_to_create_pos, block);
+            world_map.set_block(block_to_create_pos, block);
 
             log::info!(
                 "{} Player {} placed block {:?} at position {:?}",
@@ -333,19 +342,20 @@ fn handle_block_placement(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{test_support::TestWorld, BlockId};
+    use crate::world::{BlockId, ItemId};
     use bevy::math::IVec3;
     use bevy::prelude::Transform;
 
     const TARGET: IVec3 = IVec3::new(0, 0, -3);
 
     /// A player at the centre of block (0,0,0), looking down -Z at `TARGET`, left-clicking.
-    fn left_click_on(id: BlockId) -> (Player, TestWorld, PlayerFrameInput) {
+    fn left_click_on(id: BlockId) -> (Player, ChunkMap, PlayerFrameInput) {
         let position = Vec3::splat(0.5);
         let camera = Transform::from_translation(position);
         let player = Player::new(1, "tester".to_string(), position, camera);
-        let mut world = TestWorld::default();
+        let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
         world.fill_box(TARGET, TARGET, id);
+        world.take_changed_blocks();
         let input = PlayerFrameInput {
             inputs: [NetworkAction::LeftClick].into(),
             camera,
@@ -360,10 +370,22 @@ mod tests {
         let steps = BlockId::Dandelion.get_break_time().unwrap();
         for _ in 1..steps {
             simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
-            assert!(world.blocks.contains_key(&TARGET));
+            assert!(world.get_block(TARGET).is_some());
         }
         simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
-        assert!(!world.blocks.contains_key(&TARGET));
+        assert!(world.get_block(TARGET).is_none());
+        assert_eq!(world.take_changed_blocks(), vec![TARGET]);
+    }
+
+    #[test]
+    fn each_hit_stores_the_breaking_progress_and_records_the_change() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Stone);
+        assert!(BlockId::Stone.get_break_time().unwrap() > 2);
+        for expected in 1..=2 {
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+            assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, expected);
+            assert_eq!(world.take_changed_blocks(), vec![TARGET]);
+        }
     }
 
     #[test]
@@ -372,7 +394,51 @@ mod tests {
         for _ in 0..1000 {
             simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
         }
-        assert_eq!(world.blocks[&TARGET].id, BlockId::Bedrock);
-        assert_eq!(world.blocks[&TARGET].breaking_progress, 0);
+        assert_eq!(world.get_block(TARGET).unwrap().id, BlockId::Bedrock);
+        assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, 0);
+        assert!(world.take_changed_blocks().is_empty());
+    }
+
+    /// A player two blocks behind `TARGET`'s neighbour, holding dirt, right-clicking the face of
+    /// a block at z = -1 that looks toward block (0,0,0): the new block goes in the next chunk.
+    fn place_across_a_chunk_border(world: &mut ChunkMap) -> Player {
+        let position = Vec3::new(0.5, 0.5, 2.5);
+        let camera = Transform::from_translation(position);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player.inventory.inner.insert(
+            0,
+            ItemStack {
+                item_id: ItemId::Dirt,
+                item_type: ItemId::Dirt.get_default_type(),
+                nb: 1,
+            },
+        );
+        world.fill_box(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1), BlockId::Stone);
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(&mut player, world, &input, CallerType::Server);
+        player
+    }
+
+    #[test]
+    fn placing_a_block_across_a_chunk_border_uses_the_item() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        let player = place_across_a_chunk_border(&mut world);
+        assert_eq!(
+            world.get_block(IVec3::ZERO).map(|b| b.id),
+            Some(BlockId::Dirt)
+        );
+        assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn placing_a_block_into_an_unloaded_chunk_keeps_the_item() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1));
+        let player = place_across_a_chunk_border(&mut world);
+        assert_eq!(world.get_block(IVec3::ZERO), None);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
     }
 }

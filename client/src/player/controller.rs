@@ -100,7 +100,7 @@ pub fn player_movement_system(
         }
     }
 
-    simulate_player_movement(&mut player, world_map.as_ref(), &frame_inputs.0);
+    simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
 
     frame_inputs.0.position = player.position;
 
@@ -180,7 +180,7 @@ pub fn chunk_force_reload_system(
     if *ui_mode == UIMode::Closed
         && is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map)
     {
-        for (pos, chunk) in world_map.map.iter_mut() {
+        for (pos, chunk) in world_map.render.iter_mut() {
             // Despawn the chunk's entity
             if let Some(e) = chunk.entity {
                 commands.entity(e).despawn();

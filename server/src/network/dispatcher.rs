@@ -4,6 +4,7 @@ use crate::network::broadcast_chat::*;
 use crate::network::cleanup::cleanup_player_from_world;
 use crate::world;
 use crate::world::broadcast_world::broadcast_world_state;
+use crate::world::data::ServerWorldMap;
 use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
@@ -14,7 +15,6 @@ use shared::messages::{
     AuthRegisterResponse, ChatConversation, ClientToServerMessage, PlayerSave, PlayerSpawnEvent,
     ServerToClientMessage,
 };
-use shared::world::ServerWorldMap;
 use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
 
 use super::extensions::SendGameMessageExtension;

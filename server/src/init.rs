@@ -3,7 +3,10 @@ use crate::{
         cleanup::cleanup_all_players_from_world,
         dispatcher::{self, setup_resources_and_events},
     },
-    world::{data::SAVE_PATH, load_from_file::load_world_data},
+    world::{
+        data::{ServerWorldMap, SAVE_PATH},
+        load_from_file::load_world_data,
+    },
 };
 use bevy::prelude::*;
 use bevy_app::ScheduleRunnerPlugin;
@@ -11,10 +14,8 @@ use bevy_renet::netcode::{NetcodeServerPlugin, ServerAuthentication, ServerConfi
 use bevy_renet::{netcode::NetcodeServerTransport, RenetServer, RenetServerPlugin};
 use serde::{Deserialize, Serialize};
 use shared::{
-    get_shared_renet_config,
-    messages::PlayerId,
-    world::{ServerChunkWorldMap, ServerWorldMap},
-    GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
+    get_shared_renet_config, messages::PlayerId, world::ChunkMap, GameFolderPaths,
+    GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime};
@@ -113,15 +114,17 @@ pub fn init(
         Err(err) => return Err(format!("Failed to load world {world_name}: {err}")),
     };
 
+    let mut chunks = ChunkMap::default();
+    for (chunk_pos, chunk) in world_data.map {
+        chunks.insert_chunk(chunk_pos, chunk);
+    }
+
     let mut world_map = ServerWorldMap {
         name: world_data.name,
-        chunks: ServerChunkWorldMap {
-            map: world_data.map,
-            chunks_to_update: Vec::new(),
-        },
+        chunks,
+        sent_chunks: HashMap::new(),
         players: HashMap::new(),
         mobs: world_data.mobs,
-        time: world_data.time,
     };
 
     cleanup_all_players_from_world(&mut world_map);
