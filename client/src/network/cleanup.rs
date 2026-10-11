@@ -284,6 +284,11 @@ mod tests {
             let world_dir = self.game_folder.join("saves").join(&self.world_name);
             assert!(world_dir.join("world.ron").is_file(), "world not saved");
             assert!(
+                std::fs::read_dir(world_dir.join("chunks"))
+                    .is_ok_and(|mut chunks| chunks.next().is_some()),
+                "no chunk saved"
+            );
+            assert!(
                 world_dir.join(format!("players/{client_id}.ron")).is_file(),
                 "player not saved"
             );

@@ -24,6 +24,8 @@ const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PUMP_INTERVAL: Duration = Duration::from_millis(5);
 const PLAYER_ID: u64 = 42;
 const WORLD_NAME: &str = "session-test";
+/// A seed whose terrain is bare grass around the spawn column, at y = 64.
+const FLAT_SPAWN_SEED: u32 = 69;
 
 struct TestServer {
     tmp: tempfile::TempDir,
@@ -39,6 +41,18 @@ impl TestServer {
 
     /// Same, saving into `tmp`, which may already hold the saves of an earlier server.
     fn start_in(tmp: tempfile::TempDir, world_name: &str) -> Self {
+        // A new world gets a fixed seed: a random one may put a tree or the sea at the spawn
+        let world_dir = tmp.path().join("saves").join(world_name);
+        if !world_dir.join("world.ron").exists() {
+            std::fs::create_dir_all(&world_dir).unwrap();
+            std::fs::write(
+                world_dir.join("world.ron"),
+                format!(
+                    r#"(format_version: 1, name: "{world_name}", seed: ({FLAT_SPAWN_SEED}), time: 0, mobs: {{}})"#
+                ),
+            )
+            .unwrap();
+        }
         let paths = GameFolderPaths {
             game_folder_path: tmp.path().to_path_buf(),
             assets_folder_path: tmp.path().join("assets"),
@@ -59,6 +73,18 @@ impl TestServer {
 
     fn world_dir(&self) -> std::path::PathBuf {
         self.tmp.path().join("saves").join(WORLD_NAME)
+    }
+
+    /// The names of the files in `chunks/` of the world, sorted.
+    fn chunk_files(&self) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(self.world_dir().join("chunks")) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
     }
 
     /// Waits for the server thread to stop after an `Exit` message.
@@ -276,13 +302,18 @@ fn solo_session_from_auth_to_exit() {
     let world_dir = server.world_dir();
     let player_file = world_dir.join("players").join(format!("{}.ron", client.id));
     let start = Instant::now();
-    while !(world_dir.join("world.ron").is_file() && player_file.is_file()) {
+    while !(world_dir.join("world.ron").is_file()
+        && player_file.is_file()
+        && !server.chunk_files().is_empty())
+    {
         assert!(
             start.elapsed() < WAIT_TIMEOUT,
-            "world.ron and the player file were not saved within {WAIT_TIMEOUT:?}"
+            "world.ron, the chunk files and the player file were not saved within {WAIT_TIMEOUT:?}"
         );
         client.pump();
     }
+    let names = server.chunk_files();
+    assert!(names.iter().any(|name| name.ends_with(".bin")), "{names:?}");
 
     // 5. Exit
     client.send(ClientToServerMessage::Exit);
@@ -691,7 +722,13 @@ fn a_broken_block_reaches_every_client_as_updates_and_never_as_a_whole_chunk() {
     a.inbox.clear();
     b.inbox.clear();
     let mut sequence = Vec::new();
+    let breaking_started = Instant::now();
     for time_ms in 1000.. {
+        assert!(
+            breaking_started.elapsed() < WAIT_TIMEOUT,
+            "the block was not broken within {WAIT_TIMEOUT:?}: {} updates, camera {camera:?}, target {target}",
+            sequence.len()
+        );
         a.send(left_click_frame(time_ms, camera));
         let update = a.wait_for("a BlockUpdates for the target", |m| match m {
             ServerToClientMessage::BlockUpdates(batch) => batch
@@ -758,4 +795,75 @@ fn a_broken_block_reaches_every_client_as_updates_and_never_as_a_whole_chunk() {
     a.send(ClientToServerMessage::Exit);
     a.send_packets();
     server.join_after_exit();
+}
+
+#[test]
+fn a_block_broken_in_one_session_is_still_broken_after_a_restart() {
+    let mut first = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(first.addr, PLAYER_ID);
+    authenticate(&mut client, "miner");
+    let (camera, target) = land_and_aim_down(&mut client);
+    let target_chunk = shared::world::global_block_to_chunk_pos(&target);
+
+    let breaking_started = Instant::now();
+    for time_ms in 1000.. {
+        assert!(
+            breaking_started.elapsed() < WAIT_TIMEOUT,
+            "the block was not broken within {WAIT_TIMEOUT:?}: camera {camera:?}, target {target}"
+        );
+        client.send(left_click_frame(time_ms, camera));
+        let broken = client.wait_for("a BlockUpdates for the target", |m| match m {
+            ServerToClientMessage::BlockUpdates(batch) => batch
+                .iter()
+                .find(|u| u.position == target)
+                .map(|u| u.block.is_none()),
+            _ => None,
+        });
+        if broken {
+            break;
+        }
+    }
+
+    client.send(ClientToServerMessage::SaveWorldRequest);
+    client.send_packets();
+    let start = Instant::now();
+    while first.chunk_files().is_empty() {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "no chunk file was written");
+        client.pump();
+    }
+    assert!(first.world_dir().join("world.ron").is_file());
+
+    // The server stops: once its thread has ended, everything is on disk, nothing to wait for.
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    first.join_after_exit();
+    let chunk_file = format!(
+        "{}_{}_{}.bin",
+        target_chunk.x, target_chunk.y, target_chunk.z
+    );
+    assert!(first.chunk_files().contains(&chunk_file));
+    assert!(!first
+        .chunk_files()
+        .iter()
+        .any(|name| name.ends_with(".tmp")));
+
+    let mut second = TestServer::start_in(first.tmp, WORLD_NAME);
+    let mut client = TestClient::connect(second.addr, PLAYER_ID);
+    authenticate(&mut client, "miner");
+    let start = Instant::now();
+    while !client.world.is_chunk_loaded(target_chunk) {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the chunk of the target never arrived"
+        );
+        client.pump();
+    }
+    assert!(
+        client.world.get_block(target).is_none(),
+        "the block is back after the restart"
+    );
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    second.join_after_exit();
 }
