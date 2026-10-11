@@ -42,8 +42,6 @@ impl Default for ClientChunk {
 pub struct ClientWorldMap {
     pub name: String,
     pub map: HashMap<IVec3, crate::world::ClientChunk>, // Maps global chunk positions to chunks
-    pub total_blocks_count: u64,
-    pub total_chunks_count: u64,
 }
 
 impl WorldMap for ClientWorldMap {

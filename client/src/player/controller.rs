@@ -105,11 +105,6 @@ pub fn player_movement_system(
     frame_inputs.0.position = player.position;
 
     player_transform.translation = player.position;
-
-    // debug!(
-    //     "At t={}, player position: {:?}",
-    //     frame_inputs.0.time_ms, player.position
-    // );
 }
 
 pub fn first_and_third_person_view_system(

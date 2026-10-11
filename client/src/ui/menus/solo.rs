@@ -2,7 +2,7 @@ use super::{MenuButtonAction, MenuState, ScrollingList};
 use crate::ui::assets::*;
 use crate::ui::style::*;
 use crate::world::ClientWorldMap;
-use crate::{constants::SAVE_PATH, GameState, LoadWorldEvent};
+use crate::{constants::SAVE_PATH, GameState};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::Resource;
 use bevy::prelude::*;
@@ -10,8 +10,8 @@ use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        Button, Changed, Commands, Component, Entity, EventWriter, NextState, Query, Res, ResMut,
-        StateScoped, Text, With,
+        Button, Changed, Commands, Component, Entity, NextState, Query, Res, ResMut, StateScoped,
+        Text, With,
     },
     ui::{
         AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection,
@@ -41,7 +41,7 @@ pub struct WorldList {
 }
 
 #[derive(Component)]
-pub enum MultiplayerButtonAction {
+pub enum SoloButtonAction {
     Add,
     Load(Entity),
     Delete(Entity),
@@ -55,11 +55,7 @@ pub struct SelectedWorld {
     pub name: Option<String>,
 }
 
-pub fn solo_menu_setup(
-    mut commands: Commands,
-    assets_server: Res<AssetServer>,
-    _paths: Res<GameFolderPaths>,
-) {
+pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) {
     let background_image = load_background_image(&assets_server);
     let font = load_font(&assets_server);
     let button_background_image = load_button_background_large_image(&assets_server);
@@ -71,14 +67,6 @@ pub fn solo_menu_setup(
     };
 
     let txt_color = TextColor(Color::WHITE);
-
-    // let txt_font_inactive = TextFont {
-    //     font,
-    //     font_size: 20.,
-    //     ..default()
-    // };
-
-    // let txt_color_inactive = TextColor(Color::srgb(0.3, 0.3, 0.3));
 
     let btn_style = Node {
         display: Display::Flex,
@@ -175,7 +163,6 @@ pub fn solo_menu_setup(
                             },
                             TextInputPlaceholder {
                                 value: "World name".into(),
-                                // text_style: Some(txt_style_inactive.clone()),
                                 ..default()
                             },
                             TextInputInactive(false),
@@ -198,7 +185,7 @@ pub fn solo_menu_setup(
                                 },
                                 ImageNode::new(button_background_image.clone()),
                             ),
-                            MultiplayerButtonAction::Add,
+                            SoloButtonAction::Add,
                         ))
                         .with_children(|btn| {
                             btn.spawn((Text::new("Create world"), txt_font.clone(), txt_color));
@@ -369,10 +356,7 @@ fn add_world_item(
         .id();
 
     let play_btn = commands
-        .spawn((
-            MultiplayerButtonAction::Load(world),
-            (Button, btn_style.clone()),
-        ))
+        .spawn((SoloButtonAction::Load(world), (Button, btn_style.clone())))
         .with_children(|btn| {
             let icon = asset_server.load(format!("{base_path}/graphics/play.png"));
             btn.spawn((ImageNode::new(icon), img_style.clone()));
@@ -380,10 +364,7 @@ fn add_world_item(
         .id();
 
     let delete_btn = commands
-        .spawn((
-            MultiplayerButtonAction::Delete(world),
-            (Button, btn_style.clone()),
-        ))
+        .spawn((SoloButtonAction::Delete(world), (Button, btn_style.clone())))
         .with_children(|btn| {
             let icon = asset_server.load(format!("{base_path}/graphics/trash.png"));
             btn.spawn((ImageNode::new(icon), img_style.clone()));
@@ -457,7 +438,7 @@ fn generate_new_world_name(world_list: &WorldList) -> String {
 
 pub fn solo_action(
     (interaction_query, mut name_query, mut list_query): (
-        Query<(&Interaction, &MultiplayerButtonAction), (Changed<Interaction>, With<Button>)>,
+        Query<(&Interaction, &SoloButtonAction), (Changed<Interaction>, With<Button>)>,
         Query<&mut TextInputValue, With<WorldNameInput>>,
         Query<(Entity, &mut WorldList), With<WorldList>>,
     ),
@@ -469,7 +450,6 @@ pub fn solo_action(
         ResMut<SelectedWorld>,
     ),
     mut commands: Commands,
-    mut load_event: EventWriter<LoadWorldEvent>,
     paths: Res<GameFolderPaths>,
 ) {
     if list_query.is_empty() {
@@ -481,7 +461,7 @@ pub fn solo_action(
     for (interaction, menu_button_action) in &interaction_query {
         if *interaction == Interaction::Pressed {
             match *menu_button_action {
-                MultiplayerButtonAction::Add => {
+                SoloButtonAction::Add => {
                     debug!("Interactions !");
                     if !name_query.is_empty() {
                         let mut name = name_query.single_mut().unwrap();
@@ -516,19 +496,16 @@ pub fn solo_action(
                         debug!("Creating world");
                     }
                 }
-                MultiplayerButtonAction::Load(world_entity) => {
+                SoloButtonAction::Load(world_entity) => {
                     if let Some(world) = list.worlds.get(&world_entity) {
                         // update ressource name
                         selected_world.name = Some(world.name.clone());
 
-                        load_event.write(LoadWorldEvent {
-                            world_name: world.name.clone(),
-                        });
                         game_state.set(GameState::PreGameLoading);
                         menu_state.set(MenuState::Disabled);
                     }
                 }
-                MultiplayerButtonAction::Delete(world_entity) => {
+                SoloButtonAction::Delete(world_entity) => {
                     if let Some(world) = list.worlds.get(&world_entity) {
                         if let Err(e) = delete_save_files(&world.name, &paths) {
                             error!("Error while deleting save files: {}", e);

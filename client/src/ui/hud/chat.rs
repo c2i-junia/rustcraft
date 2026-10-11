@@ -7,7 +7,6 @@ use crate::KeyMap;
 use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
 use bevy_simple_text_input::*;
-use shared::GameFolderPaths;
 
 use super::UIMode;
 
@@ -33,11 +32,7 @@ const CHAT_MAX_MESSAGES: usize = 2;
 const ANIMATION_BEGIN_FADE: u64 = 5_000;
 const ANIMATION_HIDE: u64 = 2_000;
 
-pub fn setup_chat(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    _paths: Res<GameFolderPaths>,
-) {
+pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Name::new("ChatRoot"),
@@ -137,7 +132,6 @@ pub fn render_chat(
     mut last_render_ts: Local<u64>,
     mut event: EventReader<TextInputSubmitEvent>,
     mut commands: Commands,
-    _paths: Res<GameFolderPaths>,
 ) {
     let (cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;
     let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
@@ -181,12 +175,10 @@ pub fn render_chat(
             commands.entity(entity).remove::<MessageAnimator>();
             *vis = Visibility::Inherited;
             *bg = BackgroundColor(Color::BLACK.with_alpha(0.));
-            // text.sections[0].style.color = Color::WHITE;
         } else if diff > ANIMATION_BEGIN_FADE {
             // Animate linear fade
             let alpha = 1. - ((diff - ANIMATION_BEGIN_FADE) as f32 / ANIMATION_HIDE as f32);
             *bg = BackgroundColor(CHAT_COLOR.with_alpha(0.6 * alpha));
-            // text.sections[0].style.color = Color::WHITE.with_alpha(alpha);
         }
     }
 

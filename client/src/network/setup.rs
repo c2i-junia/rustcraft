@@ -163,15 +163,12 @@ pub fn launch_local_server_system(
 
 pub fn poll_network_messages(
     mut client: ResMut<RenetClient>,
-    // mut chat_state: ResMut<CachedChatConversation>,
-    // client_time: ResMut<ClientTime>,
     mut world: ResMut<ClientWorldMap>,
     mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
     mut ev_player_spawn: EventWriter<PlayerSpawnEvent>,
     mut ev_mob_update: EventWriter<MobUpdateEvent>,
     mut ev_player_update: EventWriter<PlayerUpdateEvent>,
 ) {
-    // poll_reliable_ordered_messages(&mut client, &mut chat_state);
     update_world_from_network(
         &mut client,
         &mut world,
@@ -242,7 +239,7 @@ pub fn establish_authenticated_connection_to_server(
     mut client_time: ResMut<ClientTime>,
 ) {
     if target.session_token.is_some() {
-        info!(
+        trace!(
             "Successfully acquired a session token as {}",
             &target.username.clone().unwrap()
         );

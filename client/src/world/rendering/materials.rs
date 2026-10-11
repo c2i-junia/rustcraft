@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 
 use super::meshing::UvCoords;
 
-#[derive(Resource, Debug)]
+#[derive(Debug)]
 pub struct AtlasWrapper {
     pub handles: HashMap<String, Handle<Image>>,
     pub texture: Handle<Image>,
@@ -32,7 +32,6 @@ pub struct MaterialResource {
 #[derive(Resource)]
 pub struct AtlasHandles<T> {
     pub handles: Vec<(Handle<Image>, String)>,
-    pub loaded: bool,
     /// Phantom to allow multiple instances of the struct
     _d: PhantomData<T>,
 }
@@ -41,7 +40,6 @@ impl<T> Default for AtlasHandles<T> {
     fn default() -> Self {
         Self {
             handles: Vec::new(),
-            loaded: false,
             _d: PhantomData {},
         }
     }
@@ -213,11 +211,6 @@ fn build_texture_atlas<T: GameElementId>(
     padding: Option<UVec2>,
     sampling: Option<ImageSampler>,
 ) -> Option<AtlasWrapper> {
-    if atlas_handles.loaded {
-        // Blocks if this atlas is loaded but game setup phase is not done yet
-        return None;
-    }
-
     let mut texture_atlas_builder = TextureAtlasBuilder::default();
     texture_atlas_builder.padding(padding.unwrap_or_default());
 

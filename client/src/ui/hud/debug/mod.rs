@@ -8,7 +8,7 @@ pub mod raycast;
 pub mod setup;
 pub mod targeted_block;
 
-use bevy::prelude::Resource;
+use bevy::prelude::{debug, Resource};
 pub use blocks::*;
 pub use chunks::*;
 pub use coords::*;
@@ -30,7 +30,7 @@ impl DebugOptions {
 
     pub fn toggle_raycast_debug_mode(&mut self) {
         self.is_raycast_debug_mode_enabled = !self.is_raycast_debug_mode_enabled;
-        println!(
+        debug!(
             "Raycast debug mode is now {}",
             self.is_raycast_debug_mode_enabled
         );

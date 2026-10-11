@@ -35,7 +35,7 @@ use crate::camera::*;
 use crate::input::*;
 use crate::player::*;
 use crate::ui::hud::inventory::*;
-use shared::world::{BlockId, ItemId, WorldSeed};
+use shared::world::{BlockId, ItemId};
 
 use crate::network::{
     establish_authenticated_connection_to_server, finish_stopping_local_server,
@@ -57,9 +57,7 @@ pub fn game_plugin(app: &mut App) {
         .add_plugins(bevy_simple_text_input::TextInputPlugin)
         .add_plugins(AtmospherePlugin)
         .add_plugins(camera_plugin)
-        .insert_resource(WorldSeed(0))
         .insert_resource(ClientTime(0))
-        .insert_resource(FirstChunkReceived(false))
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 400.0,
@@ -90,7 +88,6 @@ pub fn game_plugin(app: &mut App) {
         .init_resource::<ParticleAssets>()
         .init_resource::<FoxFeetTargets>()
         .init_resource::<Animations>()
-        .init_resource::<TargetedMob>()
         .init_resource::<PlayerTickInputsBuffer>()
         .init_resource::<CurrentFrameInputs>()
         .init_resource::<SyncTime>()
@@ -179,12 +176,7 @@ pub fn game_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (
-                setup_fox_once_loaded,
-                simulate_particles,
-                update_targetted_mob_color,
-            )
-                .run_if(in_state(GameState::Game)),
+            (setup_fox_once_loaded, simulate_particles).run_if(in_state(GameState::Game)),
         )
         .add_observer(observe_on_step)
         .add_systems(
@@ -238,8 +230,6 @@ pub fn game_plugin(app: &mut App) {
 
 fn clear_resources(mut world_map: ResMut<ClientWorldMap>) {
     world_map.map = HashMap::new();
-    world_map.total_blocks_count = 0;
-    world_map.total_chunks_count = 0;
     world_map.name = "".into();
 }
 

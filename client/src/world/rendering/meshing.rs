@@ -104,7 +104,6 @@ pub(crate) fn generate_chunk_mesh(
                     &mut solid_mesh_creator.indices_offset,
                     face,
                     uv_coords,
-                    1.0,
                     alpha,
                 );
 
@@ -123,7 +122,6 @@ pub(crate) fn generate_chunk_mesh(
                         uv_map
                             .get(&format!("DestroyStage{breaking_progress}"))
                             .unwrap(),
-                        1.0,
                         alpha,
                     );
                 }
@@ -226,7 +224,6 @@ fn render_face(
     indices_offset: &mut u32,
     face: &Face,
     uv_coords: &UvCoords,
-    color_multiplier: f32,
     alpha: f32,
 ) {
     local_vertices.extend(face.vertices.iter());
@@ -239,12 +236,7 @@ fn render_face(
     let colors = face.colors.iter();
     let mut new_colors = vec![];
     for color in colors {
-        new_colors.push([
-            color[0] * color_multiplier,
-            color[1] * color_multiplier,
-            color[2] * color_multiplier,
-            alpha,
-        ]);
+        new_colors.push([color[0], color[1], color[2], alpha]);
     }
 
     local_colors.extend(new_colors);
