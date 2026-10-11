@@ -27,6 +27,7 @@ pub enum ServerToClientMessage {
     AuthRegisterResponse(AuthRegisterResponse),
     ChatMessage(FullChatMessage),
     WorldUpdate(WorldUpdate),
+    BlockUpdates(Vec<BlockUpdate>),
     PlayerSpawn(PlayerSpawnEvent),
     MobUpdate(MobUpdateEvent),
     PlayerUpdate(PlayerUpdateEvent),

@@ -222,7 +222,9 @@ impl ChannelResolvableExt for ClientToServerMessage {
 impl ChannelResolvableExt for ServerToClientMessage {
     fn get_channel_id(&self) -> u8 {
         match self {
-            ServerToClientMessage::WorldUpdate(_) => STC_CHUNK_DATA_CHANNEL,
+            ServerToClientMessage::WorldUpdate(_) | ServerToClientMessage::BlockUpdates(_) => {
+                STC_CHUNK_DATA_CHANNEL
+            }
             ServerToClientMessage::AuthRegisterResponse(_) => STC_AUTH_CHANNEL,
             _ => STC_STANDARD_CHANNEL,
         }
@@ -256,6 +258,32 @@ mod tests {
         let decoded: ServerToClientMessage = payload_to_game_message(&payload).unwrap();
         match decoded {
             ServerToClientMessage::ChatMessage(decoded) => assert_eq!(decoded, chat_message),
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn block_updates_round_trip_on_the_world_channel() {
+        use crate::messages::BlockUpdate;
+        use crate::world::{BlockData, BlockDirection, BlockId};
+        use bevy::math::IVec3;
+
+        let updates = vec![
+            BlockUpdate {
+                position: IVec3::new(-3, 70, 12),
+                block: Some(BlockData::new(BlockId::Stone, BlockDirection::Front)),
+            },
+            BlockUpdate {
+                position: IVec3::new(4, 5, 6),
+                block: None,
+            },
+        ];
+        let message = ServerToClientMessage::BlockUpdates(updates.clone());
+        assert_eq!(message.get_channel_id(), STC_CHUNK_DATA_CHANNEL);
+
+        let payload = game_message_to_payload(message);
+        match payload_to_game_message::<ServerToClientMessage>(&payload).unwrap() {
+            ServerToClientMessage::BlockUpdates(decoded) => assert_eq!(decoded, updates),
             other => panic!("unexpected variant: {other:?}"),
         }
     }

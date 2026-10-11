@@ -62,6 +62,15 @@ impl ChunkMap {
         Some(removed)
     }
 
+    /// Records `pos` as changed without changing it, so that whoever drains the log reports its
+    /// current value. The server uses it when it refuses an interaction that a client may have
+    /// predicted. Does nothing when the chunk of `pos` is not loaded.
+    pub fn touch_block(&mut self, pos: IVec3) {
+        if self.is_chunk_loaded(global_block_to_chunk_pos(&pos)) {
+            self.changed.insert(pos);
+        }
+    }
+
     /// The positions of the blocks changed since the previous call, each once, sorted by
     /// `x`, then `y`, then `z`.
     pub fn take_changed_blocks(&mut self) -> Vec<IVec3> {
@@ -245,6 +254,29 @@ mod tests {
             },
         );
         assert_eq!(map.take_changed_blocks(), vec![pos]);
+    }
+
+    #[test]
+    fn touching_a_block_records_it_without_changing_it() {
+        let mut map = loaded(IVec3::ZERO, IVec3::splat(15));
+        let pos = IVec3::new(3, 4, 5);
+        map.set_block(pos, block(BlockId::Stone));
+        map.take_changed_blocks();
+
+        map.touch_block(pos);
+        map.touch_block(pos);
+        map.touch_block(IVec3::new(7, 7, 7));
+
+        assert_eq!(map.take_changed_blocks(), vec![pos, IVec3::new(7, 7, 7)]);
+        assert_eq!(map.get_block(pos), Some(&block(BlockId::Stone)));
+        assert_eq!(map.get_block(IVec3::new(7, 7, 7)), None);
+    }
+
+    #[test]
+    fn touching_an_unloaded_chunk_records_nothing() {
+        let mut map = loaded(IVec3::ZERO, IVec3::ZERO);
+        map.touch_block(IVec3::new(16, 0, 0));
+        assert!(map.take_changed_blocks().is_empty());
     }
 
     #[test]

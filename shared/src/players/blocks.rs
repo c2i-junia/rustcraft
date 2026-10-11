@@ -6,7 +6,7 @@ use crate::{
         ItemStack, ItemType,
     },
 };
-use bevy::math::{NormedVectorSpace, Vec3};
+use bevy::math::{IVec3, NormedVectorSpace, Vec3};
 use bevy_log::info;
 
 #[derive(Debug, Clone, Copy)]
@@ -44,6 +44,15 @@ pub fn simulate_player_block_interactions(
             }
             _ => {}
         }
+    }
+}
+
+/// Tells the server to re-state `pos` to the clients after it refused an interaction that a
+/// client may have predicted there: the prediction is corrected whatever it was. A client
+/// has nobody to correct it, so it does nothing.
+fn report_refused(world_map: &mut ChunkMap, pos: IVec3, caller_type: CallerType) {
+    if matches!(caller_type, CallerType::Server) {
+        world_map.touch_block(pos);
     }
 }
 
@@ -99,6 +108,7 @@ fn handle_block_breaking(
             block_pos,
             distance
         );
+        report_refused(world_map, block_pos, caller_type);
         return;
     }
 
@@ -109,6 +119,7 @@ fn handle_block_breaking(
             player.id,
             block_pos
         );
+        report_refused(world_map, block_pos, caller_type);
         return;
     };
 
@@ -120,6 +131,7 @@ fn handle_block_breaking(
             block.id,
             block_pos
         );
+        report_refused(world_map, block_pos, caller_type);
         return;
     };
 
@@ -240,6 +252,7 @@ fn handle_block_placement(
             collision_pos,
             distance
         );
+        report_refused(world_map, block_to_create_pos, caller_type);
         return;
     }
 
@@ -251,6 +264,7 @@ fn handle_block_placement(
             player.id,
             block_to_create_pos
         );
+        report_refused(world_map, block_to_create_pos, caller_type);
         return;
     }
 
@@ -287,6 +301,7 @@ fn handle_block_placement(
             player.id,
             block_to_create_pos
         );
+        report_refused(world_map, block_to_create_pos, caller_type);
         return;
     }
 
@@ -300,6 +315,7 @@ fn handle_block_placement(
             player.id,
             inventory_slot
         );
+        report_refused(world_map, block_to_create_pos, caller_type);
         return;
     }
 
@@ -328,6 +344,7 @@ fn handle_block_placement(
                 player.id,
                 item.item_type
             );
+            report_refused(world_map, block_to_create_pos, caller_type);
         }
     } else {
         log::warn!(
@@ -336,6 +353,7 @@ fn handle_block_placement(
             player.id,
             inventory_slot
         );
+        report_refused(world_map, block_to_create_pos, caller_type);
     }
 }
 
@@ -389,14 +407,37 @@ mod tests {
     }
 
     #[test]
-    fn mining_bedrock_does_nothing() {
+    fn mining_bedrock_changes_nothing_and_the_server_restates_it() {
         let (mut player, mut world, input) = left_click_on(BlockId::Bedrock);
         for _ in 0..1000 {
             simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
         }
         assert_eq!(world.get_block(TARGET).unwrap().id, BlockId::Bedrock);
         assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, 0);
+        // the server re-states the block to the clients that may have predicted otherwise
+        assert_eq!(world.take_changed_blocks(), vec![TARGET]);
+    }
+
+    #[test]
+    fn a_client_refusing_an_interaction_reports_nothing() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Bedrock);
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Client);
         assert!(world.take_changed_blocks().is_empty());
+    }
+
+    #[test]
+    fn breaking_a_block_that_is_too_far_reports_it() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Stone);
+        let far = IVec3::new(0, 0, -8);
+        world.fill_box(far, far, BlockId::Stone);
+        world.take_changed_blocks();
+        world.remove_block(TARGET);
+        world.take_changed_blocks();
+
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+
+        assert_eq!(world.get_block(far).unwrap().breaking_progress, 0);
+        assert_eq!(world.take_changed_blocks(), vec![far]);
     }
 
     /// A player two blocks behind `TARGET`'s neighbour, holding dirt, right-clicking the face of
@@ -432,6 +473,37 @@ mod tests {
             Some(BlockId::Dirt)
         );
         assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn placing_where_the_player_stands_reports_the_refused_position() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        // the player's feet are inside the cell the block would take
+        let position = Vec3::new(0.5, 0.5, 0.5);
+        let camera = Transform::from_translation(position + Vec3::new(0.0, 0.0, 2.0))
+            .looking_at(Vec3::new(0.5, 0.5, -0.5), Vec3::Y);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player.inventory.inner.insert(
+            0,
+            ItemStack {
+                item_id: ItemId::Dirt,
+                item_type: ItemId::Dirt.get_default_type(),
+                nb: 1,
+            },
+        );
+        world.fill_box(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1), BlockId::Stone);
+        world.take_changed_blocks();
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+
+        assert_eq!(world.get_block(IVec3::ZERO), None);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
+        assert_eq!(world.take_changed_blocks(), vec![IVec3::ZERO]);
     }
 
     #[test]

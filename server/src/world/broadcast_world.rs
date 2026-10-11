@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
 use bevy_renet::RenetServer;
 use shared::messages::mob::MobUpdateEvent;
-use shared::messages::{PlayerId, ServerToClientMessage, WorldUpdate};
+use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap};
 use shared::CHUNK_SIZE;
@@ -33,7 +33,7 @@ pub fn broadcast_world_state(
     let players = &world_map.players;
     let chunks = &mut world_map.chunks;
 
-    forget_changed_chunks(chunks, &mut world_map.sent_chunks);
+    let changed = chunks.take_changed_blocks();
 
     let active_chunks = get_all_active_chunks(players, BROADCAST_RENDER_DISTANCE);
 
@@ -58,14 +58,21 @@ pub fn broadcast_world_state(
             }
         }
 
+        let (block_updates, new_map) = client_world_messages(
+            chunks,
+            &changed,
+            &active_chunks,
+            world_map.sent_chunks.entry(player.id).or_default(),
+        );
+
+        if !block_updates.is_empty() {
+            server.send_game_message(*client, ServerToClientMessage::BlockUpdates(block_updates));
+        }
+
         let msg = WorldUpdate {
             tick: time.0,
             time: ts,
-            new_map: get_world_map_chunks_to_send(
-                chunks,
-                &active_chunks,
-                world_map.sent_chunks.entry(player.id).or_default(),
-            ),
+            new_map,
             mobs: mobs.clone(),
         };
 
@@ -79,20 +86,27 @@ pub fn broadcast_world_state(
     }
 }
 
-/// Makes every chunk that holds a block changed since the last call to be sent again to the
-/// clients that had it.
-fn forget_changed_chunks(
-    chunks: &mut ChunkMap,
-    sent_chunks: &mut HashMap<PlayerId, HashSet<IVec3>>,
-) {
-    let changed_chunks: HashSet<IVec3> = chunks
-        .take_changed_blocks()
+/// What one client must be sent: the current state of the changed blocks in the chunks it
+/// already has, then the chunks it does not have yet. The updates are computed before the new
+/// chunks are recorded in `sent`: a chunk sent now already holds the changes, and every chunk
+/// the client has gets its changes as updates, so the client never misses one and is never
+/// sent an update for a chunk it lacks.
+fn client_world_messages(
+    chunks: &ChunkMap,
+    changed: &[IVec3],
+    active_chunks: &[IVec3],
+    sent: &mut HashSet<IVec3>,
+) -> (Vec<BlockUpdate>, HashMap<IVec3, Chunk>) {
+    let updates = changed
         .iter()
-        .map(global_block_to_chunk_pos)
+        .filter(|pos| sent.contains(&global_block_to_chunk_pos(pos)))
+        .map(|&position| BlockUpdate {
+            position,
+            block: chunks.get_block(position).copied(),
+        })
         .collect();
-    for sent in sent_chunks.values_mut() {
-        sent.retain(|chunk_pos| !changed_chunks.contains(chunk_pos));
-    }
+    let new_chunks = get_world_map_chunks_to_send(chunks, active_chunks, sent);
+    (updates, new_chunks)
 }
 
 /// The chunks, nearest first, that a client has not received yet, at most
@@ -215,8 +229,26 @@ mod tests {
         assert!((10..20).all(|x| second.contains_key(&IVec3::new(x, 0, 0))));
     }
 
+    /// What a client holds: the chunks and updates it received, applied in order.
+    fn deliver(
+        client: &mut ChunkMap,
+        (updates, new_chunks): (Vec<BlockUpdate>, HashMap<IVec3, Chunk>),
+    ) {
+        for update in updates {
+            match update.block {
+                Some(block) => client.set_block(update.position, block),
+                None => {
+                    client.remove_block(update.position);
+                }
+            }
+        }
+        for (pos, chunk) in new_chunks {
+            client.insert_chunk(pos, chunk);
+        }
+    }
+
     #[test]
-    fn a_changed_chunk_is_sent_again_to_every_client_that_had_it() {
+    fn a_changed_block_is_sent_as_an_update_to_every_client_that_has_its_chunk() {
         let mut chunks = row_of_chunks(2);
         let active = active_row(2);
         let mut sent_chunks: HashMap<PlayerId, HashSet<IVec3>> = HashMap::new();
@@ -224,41 +256,176 @@ mod tests {
             get_world_map_chunks_to_send(&chunks, &active, sent_chunks.entry(client).or_default());
         }
 
-        chunks.set_block(IVec3::new(CHUNK_SIZE + 4, 2, 2), stone());
-        forget_changed_chunks(&mut chunks, &mut sent_chunks);
+        let pos = IVec3::new(CHUNK_SIZE + 4, 2, 2);
+        chunks.set_block(pos, stone());
+        let changed = chunks.take_changed_blocks();
 
         for client in [1, 2, 3] {
-            let resent = get_world_map_chunks_to_send(
+            let (updates, new_chunks) = client_world_messages(
                 &chunks,
+                &changed,
                 &active,
                 sent_chunks.entry(client).or_default(),
             );
             assert_eq!(
-                resent.keys().copied().collect::<Vec<_>>(),
-                vec![IVec3::X],
+                updates,
+                vec![BlockUpdate {
+                    position: pos,
+                    block: Some(stone())
+                }],
                 "client {client}"
             );
-            assert_eq!(resent[&IVec3::X].iter().count(), 1);
+            assert!(new_chunks.is_empty(), "client {client}");
         }
 
         // nothing changed since: nothing to send
-        forget_changed_chunks(&mut chunks, &mut sent_chunks);
-        assert!(
-            get_world_map_chunks_to_send(&chunks, &active, sent_chunks.entry(1).or_default())
-                .is_empty()
+        let changed = chunks.take_changed_blocks();
+        let (updates, new_chunks) = client_world_messages(
+            &chunks,
+            &changed,
+            &active,
+            sent_chunks.entry(1).or_default(),
+        );
+        assert!(updates.is_empty() && new_chunks.is_empty());
+    }
+
+    #[test]
+    fn a_removed_block_is_sent_as_air() {
+        let mut chunks = row_of_chunks(1);
+        let active = active_row(1);
+        let mut sent = HashSet::new();
+        get_world_map_chunks_to_send(&chunks, &active, &mut sent);
+        let pos = IVec3::new(1, 2, 3);
+        chunks.set_block(pos, stone());
+        chunks.take_changed_blocks();
+        chunks.remove_block(pos);
+
+        let changed = chunks.take_changed_blocks();
+        let (updates, _) = client_world_messages(&chunks, &changed, &active, &mut sent);
+
+        assert_eq!(
+            updates,
+            vec![BlockUpdate {
+                position: pos,
+                block: None
+            }]
         );
     }
 
     #[test]
-    fn a_block_change_on_a_chunk_border_resends_only_its_own_chunk() {
+    fn a_touched_block_is_restated_with_its_true_value() {
+        let mut chunks = row_of_chunks(1);
+        let active = active_row(1);
+        let mut sent = HashSet::new();
+        get_world_map_chunks_to_send(&chunks, &active, &mut sent);
+
+        chunks.touch_block(IVec3::new(5, 5, 5));
+        let changed = chunks.take_changed_blocks();
+        let (updates, _) = client_world_messages(&chunks, &changed, &active, &mut sent);
+
+        assert_eq!(
+            updates,
+            vec![BlockUpdate {
+                position: IVec3::new(5, 5, 5),
+                block: None
+            }]
+        );
+    }
+
+    #[test]
+    fn changes_in_chunks_the_client_lacks_are_not_sent_as_updates() {
         let mut chunks = row_of_chunks(2);
-        let mut sent_chunks: HashMap<PlayerId, HashSet<IVec3>> = HashMap::new();
-        get_world_map_chunks_to_send(&chunks, &active_row(2), sent_chunks.entry(1).or_default());
+        let mut sent = HashSet::from([IVec3::ZERO]);
+        chunks.set_block(IVec3::new(1, 0, 0), stone());
+        chunks.set_block(IVec3::new(CHUNK_SIZE + 1, 0, 0), stone());
 
-        chunks.set_block(IVec3::new(CHUNK_SIZE - 1, 0, 0), stone());
-        forget_changed_chunks(&mut chunks, &mut sent_chunks);
+        let changed = chunks.take_changed_blocks();
+        let (updates, new_chunks) =
+            client_world_messages(&chunks, &changed, &active_row(2), &mut sent);
 
-        assert_eq!(sent_chunks[&1], HashSet::from([IVec3::X]));
+        let positions: Vec<IVec3> = updates.iter().map(|u| u.position).collect();
+        assert_eq!(positions, vec![IVec3::new(1, 0, 0)]);
+        // the chunk it lacks comes whole, with the change in it
+        assert_eq!(
+            new_chunks.keys().copied().collect::<Vec<_>>(),
+            vec![IVec3::X]
+        );
+        assert_eq!(new_chunks[&IVec3::X].iter().count(), 1);
+    }
+
+    #[test]
+    fn a_chunk_held_back_by_the_limit_is_sent_whole_with_the_change_and_no_update() {
+        let mut chunks = row_of_chunks(12);
+        let active = active_row(12);
+        let mut sent = HashSet::new();
+        let first = get_world_map_chunks_to_send(&chunks, &active, &mut sent);
+        assert!(!first.contains_key(&IVec3::new(11, 0, 0)));
+
+        // chunk 11 is still waiting for its turn when one of its blocks changes
+        let pos = IVec3::new(11 * CHUNK_SIZE + 1, 2, 3);
+        chunks.set_block(pos, stone());
+        let changed = chunks.take_changed_blocks();
+        let (updates, new_chunks) = client_world_messages(&chunks, &changed, &active, &mut sent);
+
+        assert!(updates.is_empty());
+        assert_eq!(
+            new_chunks[&IVec3::new(11, 0, 0)].get(IVec3::new(1, 2, 3)),
+            Some(&stone())
+        );
+    }
+
+    #[test]
+    fn a_broadcast_without_clients_empties_the_change_log() {
+        let mut app = App::new();
+        app.insert_resource(RenetServer::new(shared::get_shared_renet_config()))
+            .insert_resource(ServerTime(0))
+            .insert_resource(ServerWorldMap {
+                chunks: row_of_chunks(1),
+                ..Default::default()
+            });
+        app.world_mut()
+            .resource_mut::<ServerWorldMap>()
+            .chunks
+            .set_block(IVec3::new(1, 2, 3), stone());
+
+        app.add_systems(Update, broadcast_world_state);
+        app.update();
+
+        let mut map = app.world_mut().resource_mut::<ServerWorldMap>();
+        assert!(map.chunks.take_changed_blocks().is_empty());
+    }
+
+    #[test]
+    fn a_client_ends_with_the_true_blocks_whatever_the_interleaving() {
+        // The client receives the chunk at the first broadcast; the block changes before,
+        // during, or after it, for every broadcast index.
+        for change_at in 0..4 {
+            let mut chunks = row_of_chunks(1);
+            let active = active_row(1);
+            let mut sent = HashSet::new();
+            let mut client = ChunkMap::default();
+            let pos = IVec3::new(2, 3, 4);
+
+            for broadcast in 0..4 {
+                if broadcast == change_at {
+                    chunks.set_block(pos, stone());
+                }
+                let changed = chunks.take_changed_blocks();
+                // the chunk is only sent at the second broadcast: it is not active before
+                let active_now: &[IVec3] = if broadcast >= 1 { &active } else { &[] };
+                deliver(
+                    &mut client,
+                    client_world_messages(&chunks, &changed, active_now, &mut sent),
+                );
+                if broadcast >= 1 {
+                    assert_eq!(
+                        client.get_block(pos),
+                        chunks.get_block(pos),
+                        "change at {change_at}, after broadcast {broadcast}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

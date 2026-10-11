@@ -182,7 +182,9 @@ pub fn game_plugin(app: &mut App) {
         .add_observer(network_failure_handler)
         .add_systems(
             PostUpdate,
-            (world_render_system).run_if(in_state(GameState::Game)),
+            (request_remesh_of_changed_blocks_system, world_render_system)
+                .chain()
+                .run_if(in_state(GameState::Game)),
         )
         .add_systems(
             Update,

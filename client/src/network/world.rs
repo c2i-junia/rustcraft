@@ -4,8 +4,9 @@ use crate::world::ChunkRender;
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
 use shared::messages::{
-    mob::MobUpdateEvent, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
+    mob::MobUpdateEvent, BlockUpdate, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };
+use shared::world::SIX_OFFSETS;
 use shared::STC_AUTH_CHANNEL;
 
 use crate::world::ClientWorldMap;
@@ -40,12 +41,27 @@ pub fn update_world_from_network(
                         .entry(pos)
                         .and_modify(|render| render.last_mesh_ts = Instant::now())
                         .or_insert_with(ChunkRender::new);
+                    // The new chunk, and the neighbours whose faces toward it may now be hidden
                     ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(pos));
+                    for offset in SIX_OFFSETS {
+                        ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(pos + offset));
+                    }
                 }
 
                 for (id, mob) in world_update.mobs {
                     debug!("ServerMob received: {:?}", mob);
                     ev_mob_update.write(MobUpdateEvent { id, mob });
+                }
+            }
+            ServerToClientMessage::BlockUpdates(updates) => {
+                for BlockUpdate { position, block } in updates {
+                    // The map ignores an update for a chunk it does not have.
+                    match block {
+                        Some(block) => world.blocks.set_block(position, block),
+                        None => {
+                            world.blocks.remove_block(position);
+                        }
+                    }
                 }
             }
             ServerToClientMessage::PlayerSpawn(spawn_event) => {
