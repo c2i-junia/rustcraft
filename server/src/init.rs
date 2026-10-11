@@ -81,6 +81,12 @@ pub fn add_netcode_network(app: &mut App, socket: UdpSocket) {
     app.insert_resource(transport);
 }
 
+/// One loop turn of the server is one tick: the fixed-step systems (`FixedUpdate`) run once per
+/// tick, with the tick duration as delta, instead of at Bevy's default 64 Hz.
+fn set_fixed_timestep(app: &mut App) {
+    app.insert_resource(Time::<Fixed>::from_hz(TICKS_PER_SECOND as f64));
+}
+
 /// Runs the server until it exits. Fails without starting when the saved world cannot be
 /// loaded: a fresh world generated over it would destroy the save.
 ///
@@ -97,6 +103,7 @@ pub fn init(
             1.0 / TICKS_PER_SECOND as f64,
         ))),
     );
+    set_fixed_timestep(&mut app);
 
     app.add_plugins(RenetServerPlugin);
 
@@ -164,4 +171,36 @@ pub fn init(
 
     app.run();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::time::TimeUpdateStrategy;
+
+    #[derive(Resource, Default)]
+    struct FixedRuns(Vec<Duration>);
+
+    #[test]
+    fn fixed_update_runs_once_per_tick_with_the_tick_duration() {
+        let tick = Duration::from_secs_f64(1.0 / TICKS_PER_SECOND as f64);
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(tick))
+            .init_resource::<FixedRuns>()
+            .add_systems(
+                FixedUpdate,
+                |time: Res<Time<Fixed>>, mut runs: ResMut<FixedRuns>| runs.0.push(time.delta()),
+            );
+        set_fixed_timestep(&mut app);
+
+        // the first update only starts the clock
+        for _ in 0..=TICKS_PER_SECOND {
+            app.update();
+        }
+
+        let runs = &app.world().resource::<FixedRuns>().0;
+        assert_eq!(runs.len() as u64, TICKS_PER_SECOND);
+        assert!(runs.iter().all(|delta| *delta == tick));
+    }
 }

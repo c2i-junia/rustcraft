@@ -1,7 +1,7 @@
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT};
 use crate::game::PreLoadingCompletion;
+use crate::state::TexturePath;
 use crate::world::GlobalMaterial;
-use crate::TexturePath;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::Face;

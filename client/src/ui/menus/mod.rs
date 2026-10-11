@@ -17,7 +17,7 @@ use multi::multiplayer_action;
 use settings::controls::{controls_menu_setup, controls_update_system};
 
 use crate::input::keyboard::save_keybindings;
-use crate::{GameState, MenuCamera};
+use crate::state::{GameState, MenuCamera};
 
 use super::button::*;
 
@@ -58,7 +58,12 @@ pub fn menu_plugin(app: &mut App) {
             (menu_action, escape_button, button_system, mouse_scroll)
                 .run_if(in_state(GameState::Menu)),
         )
-        .add_systems(OnEnter(MenuState::SettingsControls), controls_menu_setup);
+        .add_systems(OnEnter(MenuState::SettingsControls), controls_menu_setup)
+        // The loading screen is shown while connecting, between the menu and the game
+        .add_systems(
+            Update,
+            update_server_connect_loading_screen.run_if(in_state(GameState::PreGameLoading)),
+        );
 }
 
 /// Tag component for scrolling UI lists

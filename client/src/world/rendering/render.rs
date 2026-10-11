@@ -14,8 +14,8 @@ use shared::{
 };
 
 use crate::{
+    state::GameState,
     world::{self, MaterialResource, QueuedEvents, WorldRenderRequestUpdateEvent},
-    GameState,
 };
 
 use crate::world::{ChunkRender, ClientWorldMap};

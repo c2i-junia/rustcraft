@@ -1,4 +1,4 @@
-use crate::GameState;
+use crate::state::GameState;
 use bevy::{color::palettes::tailwind::YELLOW_500, prelude::*};
 
 #[derive(Component)]

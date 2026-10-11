@@ -14,7 +14,7 @@ use shared::GameFolderPaths;
 
 use crate::input::data::GameAction;
 use crate::menus::{MenuButtonAction, MenuState, ScrollingList};
-use crate::KeyMap;
+use crate::state::KeyMap;
 
 use crate::ui::assets::*;
 use crate::ui::style::{fill_image_node, NORMAL_BUTTON};

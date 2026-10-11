@@ -2,8 +2,8 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::input::keyboard::is_action_just_released;
 use crate::network::CachedChatConversation;
 use crate::network::SendGameMessageExtension;
+use crate::state::KeyMap;
 use crate::ui::hud::UiDialog;
-use crate::KeyMap;
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
 use bevy_simple_text_input::*;
@@ -36,7 +36,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Name::new("ChatRoot"),
-            DespawnOnExit(crate::GameState::Game),
+            DespawnOnExit(crate::state::GameState::Game),
             ChatRoot,
             UiDialog,
             (

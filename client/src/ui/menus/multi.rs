@@ -1,9 +1,9 @@
 use super::{MenuButtonAction, MenuState, ScrollingList};
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::{TargetServer, TargetServerState};
+use crate::state::GameState;
 use crate::ui::assets::*;
 use crate::ui::style::*;
-use crate::GameState;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::{

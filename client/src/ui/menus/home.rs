@@ -1,10 +1,10 @@
 use bevy::prelude::*;
 
+use crate::state::TEXT_COLOR;
 use crate::ui::assets::*;
 use crate::ui::style::{
     background_image_style, big_button_style, fill_image_node, text_font, NORMAL_BUTTON,
 };
-use crate::TEXT_COLOR;
 
 use super::{MenuButtonAction, MenuState};
 

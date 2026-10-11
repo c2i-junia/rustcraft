@@ -11,9 +11,9 @@ use shared::{get_shared_renet_config, GameServerConfig, STC_AUTH_CHANNEL};
 use crate::menus::solo::SelectedWorld;
 use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
+use crate::state::{GameState, PlayerNameSupplied};
 use crate::world::time::ClientTime;
 use crate::world::WorldRenderRequestUpdateEvent;
-use crate::{GameState, PlayerNameSupplied};
 use shared::messages::{
     AuthRegisterRequest, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };

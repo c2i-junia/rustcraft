@@ -1,4 +1,5 @@
-use crate::{constants::BINDS_PATH, input::data::GameAction, KeyMap};
+use crate::state::KeyMap;
+use crate::{constants::BINDS_PATH, input::data::GameAction};
 use bevy::prelude::*;
 use bevy::{
     input::ButtonInput,

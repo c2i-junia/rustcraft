@@ -1,6 +1,7 @@
+use crate::state::TEXT_COLOR;
+use crate::ui::assets::load_background_image;
 use crate::ui::assets::*;
 use crate::ui::style::fill_image_node;
-use crate::{ui::assets::load_background_image, TEXT_COLOR};
 use bevy::prelude::*;
 use bevy::text::{TextColor, TextFont};
 use bevy::ui::BackgroundColor;

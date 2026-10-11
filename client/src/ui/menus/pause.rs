@@ -11,7 +11,8 @@ use bevy::{
 };
 use bevy_renet::RenetClient;
 
-use crate::{input::keyboard::is_action_just_pressed, GameState, KeyMap};
+use crate::input::keyboard::is_action_just_pressed;
+use crate::state::{GameState, KeyMap};
 
 use crate::ui::hud::{InventoryRoot, UIMode, UiDialog};
 
