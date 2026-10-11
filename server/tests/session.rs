@@ -580,7 +580,7 @@ fn fly_away(client: &mut TestClient, first_time_ms: u64) -> Vec3 {
             ServerToClientMessage::PlayerUpdate(u)
                 if u.id == id && u.last_ack_time == last_time_ms =>
             {
-                Some(u.position)
+                Some(u.movement.position)
             }
             _ => None,
         },
@@ -705,7 +705,7 @@ fn new_player_falls_onto_the_terrain_instead_of_through_it() {
     let id = client.id;
     let position = client.wait_for("PlayerUpdate acknowledging the last frame", |m| match m {
         ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == last_time_ms => {
-            Some(u.position)
+            Some(u.movement.position)
         }
         _ => None,
     });
@@ -799,7 +799,7 @@ fn land_and_aim_down(client: &mut TestClient) -> (Transform, IVec3) {
     let id = client.id;
     let position = client.wait_for("PlayerUpdate acknowledging the landing", |m| match m {
         ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == last_time_ms => {
-            Some(u.position)
+            Some(u.movement.position)
         }
         _ => None,
     });

@@ -136,7 +136,33 @@ pub struct Player {
     pub last_input_processed: u64,
 }
 
+/// What the movement simulation carries over from one input to the next. The server sends it
+/// with each acknowledgement, so that a client resumes its prediction from the very same state.
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Copy, Default)]
+pub struct MovementState {
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub on_ground: bool,
+    pub is_flying: bool,
+}
+
 impl Player {
+    pub fn movement_state(&self) -> MovementState {
+        MovementState {
+            position: self.position,
+            velocity: self.velocity,
+            on_ground: self.on_ground,
+            is_flying: self.is_flying,
+        }
+    }
+
+    pub fn set_movement_state(&mut self, state: MovementState) {
+        self.position = state.position;
+        self.velocity = state.velocity;
+        self.on_ground = state.on_ground;
+        self.is_flying = state.is_flying;
+    }
+
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
         Self {
             id,

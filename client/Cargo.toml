@@ -22,3 +22,6 @@ egui = "0.34"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+shared = { path = "../shared", features = ["test-helpers"] }

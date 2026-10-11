@@ -45,7 +45,8 @@ pub fn player_plugin(app: &mut App) {
             (handle_block_interactions, player_movement_system)
                 .chain()
                 .in_set(GameSet::Simulation)
-                .run_if(in_state(GameState::Game)),
+                .run_if(in_state(GameState::Game))
+                .run_if(local_player_is_simulated),
         )
         .add_systems(
             Update,

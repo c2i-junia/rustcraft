@@ -3,7 +3,7 @@ use bevy_platform::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
-use crate::players::{Inventory, ViewMode};
+use crate::players::{Inventory, MovementState, ViewMode};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -35,7 +35,8 @@ pub struct PlayerSpawnEvent {
 #[derive(Message, Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PlayerUpdateEvent {
     pub id: PlayerId,
-    pub position: Vec3,
+    /// The state of the player once the server has simulated the input `last_ack_time`.
+    pub movement: MovementState,
     pub orientation: Quat,
     pub last_ack_time: u64,
     pub inventory: Inventory,
@@ -49,6 +50,7 @@ pub struct PlayerFrameInput {
     pub camera: Transform,
     pub hotbar_slot: u32,
     pub view_mode: ViewMode,
+    /// Client only: the state it predicted after this input.
     #[serde(skip)]
-    pub position: Vec3,
+    pub predicted: MovementState,
 }
