@@ -1,33 +1,13 @@
-use super::{MenuButtonAction, MenuState, ScrollingList};
+use super::list_screen::*;
+use super::MenuState;
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
-use crate::ui::assets::*;
-use crate::ui::style::*;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy::{
-    asset::AssetServer,
-    color::Color,
-    prelude::{
-        Button, Changed, Commands, Component, DespawnOnExit, Entity, Query, Res, With, Without,
-    },
-    ui::{
-        AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection, GridTrack,
-        Interaction, JustifyContent, Node, Overflow, UiRect, Val,
-    },
-};
-use bevy_simple_text_input::{
-    TextInput, TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
-};
+use bevy_simple_text_input::TextInputValue;
 use ron::{from_str, ser::PrettyConfig};
 use shared::GameFolderPaths;
-use std::{
-    fs,
-    io::Write,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-};
+use std::{fs, net::SocketAddr, path::Path};
 
 /// Parses the address of a server as typed by the user: an IP address and a port, such as
 /// `127.0.0.1:8000`. Host names are not resolved.
@@ -43,7 +23,8 @@ pub struct ServerItem {
 
 #[derive(Component, Default)]
 pub struct ServerList {
-    pub servers: HashMap<Entity, ServerItem>,
+    /// The servers in the order they are shown, which is the order they are saved in.
+    pub servers: Vec<(Entity, ServerItem)>,
 }
 
 #[derive(Component)]
@@ -60,172 +41,32 @@ pub struct ServerIpInput;
 pub struct ServerNameInput;
 
 pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let font = load_font(&asset_server);
-    let background_image = load_background_image(&asset_server);
-    let button_background_image = load_button_background_large_image(&asset_server);
-
-    let txt_font = TextFont {
-        font: font.clone().into(),
-        font_size: 20.0.into(),
-        ..default()
-    };
-
-    let txt_color = TextColor(TEXT_COLOR);
-    let btn_style = Node {
-        display: Display::Flex,
-        flex_direction: FlexDirection::Column,
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        border: UiRect::all(Val::Px(2.)),
-        height: Val::Px(40.0),
-        ..default()
-    };
-
+    let screen = spawn_list_screen(
+        &mut commands,
+        &asset_server,
+        &ListScreen {
+            menu: MenuState::Multi,
+            title: "Server list",
+            inputs: &[
+                InputField {
+                    placeholder: "Server name",
+                    ..default()
+                },
+                InputField {
+                    placeholder: "Server IP",
+                    ..default()
+                },
+            ],
+            add_label: "Add server",
+            stacked: false,
+        },
+    );
+    commands.entity(screen.list).insert(ServerList::default());
+    commands.entity(screen.inputs[0]).insert(ServerNameInput);
+    commands.entity(screen.inputs[1]).insert(ServerIpInput);
     commands
-        .spawn((
-            DespawnOnExit(MenuState::Multi),
-            (
-                Node {
-                    width: Val::Vw(100.0),
-                    height: Val::Vh(100.0),
-                    align_items: AlignItems::Center,
-                    justify_content: JustifyContent::Center,
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::horizontal(Val::Percent(20.)),
-                    row_gap: Val::Percent(2.),
-                    ..default()
-                },
-                BackgroundColor(Color::NONE),
-            ),
-            fill_image_node(background_image),
-        ))
-        .with_children(|root| {
-            root.spawn((
-                Text::new("Server list"),
-                txt_font.clone(),
-                txt_color,
-                Node {
-                    border: UiRect::all(Val::Px(1.)),
-                    flex_direction: FlexDirection::Column,
-                    align_content: AlignContent::Center,
-                    display: Display::Flex,
-                    ..default()
-                },
-            ));
-
-            root.spawn((
-                BorderColor::all(BACKGROUND_COLOR),
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(50.0),
-                    flex_direction: FlexDirection::Column,
-                    overflow: Overflow::clip_y(),
-                    border: UiRect::all(Val::Px(2.0)),
-                    ..default()
-                },
-            ))
-            .with_children(|w| {
-                w.spawn((
-                    (Node {
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        padding: UiRect::all(Val::Px(10.0)),
-                        row_gap: Val::Px(10.0),
-                        ..default()
-                    },),
-                    ScrollingList { position: 0.0 },
-                    ServerList {
-                        servers: HashMap::new(),
-                    },
-                ));
-            });
-
-            root.spawn((Node {
-                width: Val::Percent(100.0),
-                display: Display::Grid,
-                grid_template_columns: vec![GridTrack::flex(1.0), GridTrack::flex(1.0)],
-                row_gap: Val::Px(5.0),
-                column_gap: Val::Px(5.0),
-                ..default()
-            },))
-                .with_children(|wrapper| {
-                    wrapper.spawn((
-                        (
-                            BorderColor::all(BACKGROUND_COLOR),
-                            BackgroundColor(Color::BLACK),
-                            btn_style.clone(),
-                        ),
-                        ServerNameInput,
-                        (
-                            TextInput,
-                            TextInputSettings {
-                                retain_on_submit: true,
-                                mask_character: None,
-                                max_length: None,
-                            },
-                            TextInputPlaceholder {
-                                value: "Server name".into(),
-                                ..default()
-                            },
-                            TextInputInactive(true),
-                            txt_font.clone(),
-                        ),
-                    ));
-
-                    wrapper.spawn((
-                        (
-                            BorderColor::all(BACKGROUND_COLOR),
-                            BackgroundColor(Color::BLACK),
-                            btn_style.clone(),
-                        ),
-                        (
-                            TextInput,
-                            TextInputSettings {
-                                retain_on_submit: true,
-                                mask_character: None,
-                                max_length: None,
-                            },
-                            TextInputPlaceholder {
-                                value: "Server IP".into(),
-                                ..default()
-                            },
-                            TextInputInactive(true),
-                            txt_font.clone(),
-                        ),
-                        ServerIpInput,
-                    ));
-
-                    wrapper
-                        .spawn((
-                            (
-                                Button,
-                                BorderColor::all(Color::BLACK),
-                                BackgroundColor(BACKGROUND_COLOR),
-                                btn_style.clone(),
-                                fill_image_node(button_background_image.clone()),
-                            ),
-                            MultiplayerButtonAction::Add,
-                        ))
-                        .with_children(|btn| {
-                            btn.spawn((Text::new("Add server"), txt_font.clone(), txt_color));
-                        });
-
-                    wrapper
-                        .spawn((
-                            (
-                                Button,
-                                BorderColor::all(Color::BLACK),
-                                BackgroundColor(BACKGROUND_COLOR),
-                                btn_style.clone(),
-                                fill_image_node(button_background_image.clone()),
-                            ),
-                            MenuButtonAction::BackToMainMenu,
-                        ))
-                        .with_children(|btn| {
-                            btn.spawn((Text::new("Back to menu"), txt_font.clone(), txt_color));
-                        });
-                });
-        });
+        .entity(screen.add_button)
+        .insert(MultiplayerButtonAction::Add);
 }
 
 pub fn add_server_item(
@@ -238,100 +79,32 @@ pub fn add_server_item(
 ) {
     info!("Adding server to list : name = {:?}, ip = {:?}", name, ip);
 
-    let btn_style = Node {
-        display: Display::Flex,
-        flex_direction: FlexDirection::Column,
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        border: UiRect::all(Val::Px(2.)),
-        height: Val::Percent(80.),
-        ..default()
-    };
-
-    let img_style = Node {
-        height: Val::Percent(100.),
-        ..default()
-    };
-
-    let server = commands
-        .spawn((
-            BorderColor::all(BACKGROUND_COLOR),
-            Node {
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(5.),
-                width: Val::Percent(100.),
-                height: Val::Vh(10.),
-                padding: UiRect::horizontal(Val::Percent(2.)),
-                border: UiRect::all(Val::Px(2.)),
-                ..default()
-            },
-        ))
-        .id();
-
-    let play_btn = commands
-        .spawn((
-            MultiplayerButtonAction::Connect(server),
-            (Button, btn_style.clone()),
-        ))
-        .with_children(|btn| {
-            let icon = asset_server.load("./graphics/play.png");
-            btn.spawn((ImageNode::new(icon), img_style.clone()));
-        })
-        .id();
-
-    let delete_btn = commands
-        .spawn((
-            MultiplayerButtonAction::Delete(server),
-            (Button, btn_style.clone()),
-        ))
-        .with_children(|btn| {
-            let icon = asset_server.load("./graphics/trash.png");
-            btn.spawn((ImageNode::new(icon), img_style.clone()));
-        })
-        .id();
-
-    let txt = commands
-        .spawn(((
-            Text::new(name.clone()),
-            TextFont {
-                font: asset_server
-                    .load("./fonts/RustCraftRegular-Bmg3.otf")
-                    .into(),
-                font_size: 20.0.into(),
-                ..default()
-            },
-            TextColor(Color::WHITE),
-        ),))
-        .id();
-
-    let ip_txt = commands
-        .spawn((
-            Text::new(ip.clone()),
-            TextFont {
-                font: asset_server
-                    .load("./fonts/RustCraftRegular-Bmg3.otf")
-                    .into(),
-                font_size: 15.0.into(),
-                ..default()
-            },
-            TextColor(Color::srgb(0.4, 0.4, 0.4)),
-        ))
-        .id();
-
+    let row = spawn_row(commands, asset_server, list_entity, &name, Some(&ip));
     commands
-        .entity(server)
-        .add_children(&[play_btn, delete_btn, txt, ip_txt]);
+        .entity(row.play)
+        .insert(MultiplayerButtonAction::Connect(row.row));
+    commands
+        .entity(row.delete)
+        .insert(MultiplayerButtonAction::Delete(row.row));
+    list.servers.push((row.row, ServerItem { name, ip }));
+}
 
-    commands.entity(list_entity).add_children(&[server]);
+/// Reads the saved servers. An empty file is an empty list.
+fn read_servers(path: &Path) -> Result<Vec<ServerItem>, String> {
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    from_str(&text).map_err(|e| e.to_string())
+}
 
-    list.servers.insert(
-        server,
-        ServerItem {
-            name: name.clone(),
-            ip: ip.clone(),
-        },
-    );
+fn write_servers(path: &Path, servers: &[ServerItem]) -> Result<(), String> {
+    let pretty_config = PrettyConfig::new()
+        .with_depth_limit(3)
+        .with_separate_tuple_members(true)
+        .with_enumerate_arrays(true);
+    let data = ron::ser::to_string_pretty(&servers, pretty_config).map_err(|e| e.to_string())?;
+    fs::write(path, data).map_err(|e| e.to_string())
 }
 
 pub fn load_server_list(
@@ -340,59 +113,26 @@ pub fn load_server_list(
     mut list_query: Query<(&mut ServerList, Entity)>,
     paths: Res<GameFolderPaths>,
 ) {
-    let (mut list, list_entity) = list_query.single_mut().unwrap();
-
-    let game_folder_path: PathBuf = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
-    let path: &Path = game_folder_path.as_path();
-
-    // If no server list save, returns
-    if !fs::exists(path).unwrap() {
-        error!("No server list found at {:?}", path);
+    let Ok((mut list, list_entity)) = list_query.single_mut() else {
         return;
-    }
+    };
 
-    let txt = fs::read_to_string(path);
-    if txt.is_err() {
-        error!("Failed to read server list from {:?}", path);
-        return;
-    }
-    let txt = txt.unwrap();
+    let path = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
+    let servers = match read_servers(&path) {
+        Ok(servers) => servers,
+        Err(e) => {
+            error!("Failed to read the server list from {path:?}: {e}");
+            return;
+        }
+    };
 
-    // Check if the file is empty
-    if txt.trim().is_empty() {
-        error!("Server list file is empty at {:?}", path);
-        add_server_item(
-            "localhost".into(),
-            "127.0.0.1:8000".into(),
-            &mut commands,
-            &assets,
-            &mut list,
-            list_entity,
-        );
-        return;
-    }
-
-    let maybe_servers = from_str::<Vec<ServerItem>>(&txt);
-    if maybe_servers.is_err() {
-        error!("Failed to parse server list from {:?}", path);
-        return;
-    }
-    let servers = maybe_servers.unwrap();
-
-    // Check if localhost already exists, if not, create it
-    let localhost_exists = servers.iter().any(|srv| srv.ip == "127.0.0.1:8000");
-    if !localhost_exists {
-        add_server_item(
-            "localhost".into(),
-            "127.0.0.1:8000".into(),
-            &mut commands,
-            &assets,
-            &mut list,
-            list_entity,
-        );
-    }
-
-    for srv in servers {
+    // The local server is always offered, in first place, unless the list already has it.
+    let localhost = ServerItem {
+        name: "localhost".into(),
+        ip: "127.0.0.1:8000".into(),
+    };
+    let default = (!servers.iter().any(|srv| srv.ip == localhost.ip)).then_some(localhost);
+    for srv in default.into_iter().chain(servers) {
         add_server_item(
             srv.name,
             srv.ip,
@@ -405,122 +145,76 @@ pub fn load_server_list(
 }
 
 pub fn save_server_list(list: Query<&ServerList>, game_folder_path: Res<GameFolderPaths>) {
-    let list = list.single();
-    let list = match list {
-        Ok(v) => v,
-        Err(_) => {
-            let count = list.iter().count();
-            if count > 1 {
-                warn!(
-                    "save_server_list: Multiple ServerList components found ({})",
-                    count
-                );
-                return;
-            }
-            warn!("save_server_list: list is not single");
-            return;
-        }
+    let Ok(list) = list.single() else {
+        warn!("save_server_list: expected exactly one ServerList");
+        return;
     };
 
-    // Chemin complet du fichier de sauvegarde
-    let save_path: PathBuf = game_folder_path
+    let save_path = game_folder_path
         .game_folder_path
         .join(SERVER_LIST_SAVE_NAME);
-
-    // Config de sérialisation RON
-    let pretty_config = PrettyConfig::new()
-        .with_depth_limit(3)
-        .with_separate_tuple_members(true)
-        .with_enumerate_arrays(true);
-
-    // Convertit la liste des serveurs en une chaîne RON
-    let server_items: Vec<ServerItem> = list.servers.values().cloned().collect();
-    match ron::ser::to_string_pretty(&server_items, pretty_config) {
-        Ok(data) => {
-            // Crée le fichier de sauvegarde et écrit les données
-            match fs::File::create(&save_path) {
-                Ok(mut file) => {
-                    if file.write_all(data.as_bytes()).is_ok() {
-                        info!("Server list saved to {:?}", save_path);
-                    } else {
-                        error!("Failed to write server list to {:?}", save_path);
-                    }
-                }
-                Err(e) => error!(
-                    "Failed to create server list file at {:?}: {}",
-                    save_path, e
-                ),
-            }
-        }
-        Err(e) => error!("Failed to serialize server list: {}", e),
+    let servers: Vec<ServerItem> = list.servers.iter().map(|(_, srv)| srv.clone()).collect();
+    match write_servers(&save_path, &servers) {
+        Ok(()) => info!("Server list saved to {save_path:?}"),
+        Err(e) => error!("Failed to save the server list to {save_path:?}: {e}"),
     }
 }
 
 pub fn multiplayer_action(
-    queries: (
-        Query<(&Interaction, &MultiplayerButtonAction), (Changed<Interaction>, With<Button>)>,
-        Query<&TextInputValue, (With<ServerNameInput>, Without<ServerIpInput>)>,
-        Query<&TextInputValue, (With<ServerIpInput>, Without<ServerNameInput>)>,
-        Query<(Entity, &mut ServerList), With<ServerList>>,
-    ),
+    interactions: Query<
+        (&Interaction, &MultiplayerButtonAction),
+        (Changed<Interaction>, With<Button>),
+    >,
+    name_input: Query<&TextInputValue, (With<ServerNameInput>, Without<ServerIpInput>)>,
+    ip_input: Query<&TextInputValue, (With<ServerIpInput>, Without<ServerNameInput>)>,
+    mut list_query: Query<(Entity, &mut ServerList)>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut target_server: ResMut<TargetServer>,
     mut game_state: ResMut<NextState<GameState>>,
     mut menu_state: ResMut<NextState<MenuState>>,
 ) {
-    let (interaction_query, name_query, ip_query, mut list_query) = queries;
-    if list_query.is_empty() {
+    let Ok((entity, mut list)) = list_query.single_mut() else {
         return;
-    }
+    };
 
-    let (entity, mut list) = list_query.single_mut().unwrap();
-
-    for (interaction, menu_button_action) in &interaction_query {
-        if *interaction == Interaction::Pressed {
-            match *menu_button_action {
-                MultiplayerButtonAction::Add => {
-                    if let (Ok(name), Ok(ip)) = (name_query.single(), ip_query.single()) {
-                        if parse_server_address(&ip.0).is_none() {
-                            warn!("Not adding server {:?}: invalid address {:?}", name.0, ip.0);
-                            continue;
-                        }
-
-                        add_server_item(
-                            name.0.clone(),
-                            ip.0.clone(),
-                            &mut commands,
-                            &asset_server,
-                            &mut list,
-                            entity,
-                        );
-                    }
+    for (interaction, action) in &interactions {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+        match *action {
+            MultiplayerButtonAction::Add => {
+                let (Ok(name), Ok(ip)) = (name_input.single(), ip_input.single()) else {
+                    continue;
+                };
+                if parse_server_address(&ip.0).is_none() {
+                    warn!("Not adding server {:?}: invalid address {:?}", name.0, ip.0);
+                    continue;
                 }
-                MultiplayerButtonAction::Connect(serv_entity) => {
-                    if let Some(srv) = list.servers.get(&serv_entity) {
-                        info!("Server : name={}, ip={}", srv.name, srv.ip);
-
-                        let Some(address) = parse_server_address(&srv.ip) else {
-                            warn!(
-                                "Not connecting to {:?}: invalid address {:?}",
-                                srv.name, srv.ip
-                            );
-                            continue;
-                        };
-
-                        target_server.address = Some(address);
-                        target_server.state = TargetServerState::Initial;
-                        game_state.set(GameState::PreGameLoading);
-                        menu_state.set(MenuState::Disabled);
-                    }
-                }
-                MultiplayerButtonAction::Delete(serv_entity) => {
-                    debug!("Old list : {:?}", list.servers);
-                    commands.entity(entity).detach_children(&[serv_entity]);
-                    commands.entity(serv_entity).despawn();
-                    list.servers.remove(&serv_entity);
-                    debug!("New list : {:?}", list.servers);
-                }
+                let (name, ip) = (name.0.clone(), ip.0.clone());
+                add_server_item(name, ip, &mut commands, &asset_server, &mut list, entity);
+            }
+            MultiplayerButtonAction::Connect(serv_entity) => {
+                let Some((_, srv)) = list.servers.iter().find(|(e, _)| *e == serv_entity) else {
+                    continue;
+                };
+                info!("Server : name={}, ip={}", srv.name, srv.ip);
+                let Some(address) = parse_server_address(&srv.ip) else {
+                    warn!(
+                        "Not connecting to {:?}: invalid address {:?}",
+                        srv.name, srv.ip
+                    );
+                    continue;
+                };
+                target_server.address = Some(address);
+                target_server.state = TargetServerState::Initial;
+                game_state.set(GameState::PreGameLoading);
+                menu_state.set(MenuState::Disabled);
+            }
+            MultiplayerButtonAction::Delete(serv_entity) => {
+                commands.entity(entity).detach_children(&[serv_entity]);
+                commands.entity(serv_entity).despawn();
+                list.servers.retain(|(e, _)| *e != serv_entity);
             }
         }
     }
@@ -529,6 +223,9 @@ pub fn multiplayer_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::state::app::StatesPlugin;
+    use std::path::PathBuf;
 
     #[test]
     fn accepts_an_ip_address_with_a_port() {
@@ -543,5 +240,190 @@ mod tests {
         assert_eq!(parse_server_address("localhost:8000"), None);
         assert_eq!(parse_server_address(""), None);
         assert_eq!(parse_server_address("1.2.3.4"), None);
+    }
+
+    /// A minimal app that runs the real list systems against a server file in its own folder.
+    struct Menu {
+        app: App,
+        folder: PathBuf,
+    }
+
+    impl Menu {
+        fn new(name: &str, saved: &[(&str, &str)]) -> Self {
+            let folder =
+                std::env::temp_dir().join(format!("rustcraft-multi-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&folder);
+            fs::create_dir_all(&folder).unwrap();
+            let saved: Vec<ServerItem> = saved
+                .iter()
+                .map(|(name, ip)| ServerItem {
+                    name: name.to_string(),
+                    ip: ip.to_string(),
+                })
+                .collect();
+            write_servers(&folder.join(SERVER_LIST_SAVE_NAME), &saved).unwrap();
+
+            let mut app = App::new();
+            app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
+                .init_asset::<Font>()
+                .init_asset::<Image>()
+                .init_state::<GameState>()
+                .init_state::<MenuState>()
+                .insert_resource(TargetServer {
+                    address: None,
+                    username: None,
+                    session_token: None,
+                    state: TargetServerState::Initial,
+                })
+                .insert_resource(GameFolderPaths {
+                    game_folder_path: folder.clone(),
+                    assets_folder_path: folder.join("assets"),
+                });
+            let world = app.world_mut();
+            world.spawn(ServerList::default());
+            world.spawn((ServerNameInput, TextInputValue(String::new())));
+            world.spawn((ServerIpInput, TextInputValue(String::new())));
+            world.spawn((MultiplayerButtonAction::Add, Button, Interaction::None));
+            world.run_system_once(load_server_list).unwrap();
+            Self { app, folder }
+        }
+
+        /// The names in the order the list shows them.
+        fn shown(&mut self) -> Vec<String> {
+            let list = self
+                .app
+                .world_mut()
+                .query::<&ServerList>()
+                .single(self.app.world())
+                .unwrap();
+            list.servers
+                .iter()
+                .map(|(_, srv)| srv.name.clone())
+                .collect()
+        }
+
+        /// Saves the list with the real system and returns the names of the file.
+        fn saved(&mut self) -> Vec<String> {
+            self.app
+                .world_mut()
+                .run_system_once(save_server_list)
+                .unwrap();
+            let file = read_servers(&self.folder.join(SERVER_LIST_SAVE_NAME)).unwrap();
+            file.into_iter().map(|srv| srv.name).collect()
+        }
+
+        /// Presses a button of the list: the real action system handles it.
+        fn press(&mut self, button: Entity) {
+            let world = self.app.world_mut();
+            world.entity_mut(button).insert(Interaction::Pressed);
+            world.run_system_once(multiplayer_action).unwrap();
+            // A deleted row takes its buttons with it.
+            if let Ok(mut button) = world.get_entity_mut(button) {
+                button.insert(Interaction::None);
+            }
+        }
+
+        fn add(&mut self, name: &str, ip: &str) {
+            let world = self.app.world_mut();
+            for (mut value, is_name) in world
+                .query::<(&mut TextInputValue, Has<ServerNameInput>)>()
+                .iter_mut(world)
+            {
+                value.0 = if is_name { name } else { ip }.to_string();
+            }
+            let add = world
+                .query::<(Entity, &MultiplayerButtonAction)>()
+                .iter(world)
+                .find(|(_, action)| matches!(action, MultiplayerButtonAction::Add))
+                .unwrap()
+                .0;
+            self.press(add);
+        }
+
+        /// Deletes the server at `index` in the shown order.
+        fn delete(&mut self, index: usize) {
+            let world = self.app.world_mut();
+            let row = world.query::<&ServerList>().single(world).unwrap().servers[index].0;
+            let delete = world
+                .query::<(Entity, &MultiplayerButtonAction)>()
+                .iter(world)
+                .find(
+                    |(_, action)| matches!(action, MultiplayerButtonAction::Delete(r) if *r == row),
+                )
+                .unwrap()
+                .0;
+            self.press(delete);
+        }
+    }
+
+    impl Drop for Menu {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.folder);
+        }
+    }
+
+    #[test]
+    fn the_file_order_is_kept_on_load_and_save_and_new_servers_are_appended() {
+        let mut menu = Menu::new(
+            "order",
+            &[
+                ("zulu", "127.0.0.1:9001"),
+                ("alpha", "127.0.0.1:9002"),
+                ("localhost", "127.0.0.1:8000"),
+                ("mike", "127.0.0.1:9003"),
+            ],
+        );
+        let file = ["zulu", "alpha", "localhost", "mike"];
+        assert_eq!(menu.shown(), file);
+        assert_eq!(menu.saved(), file);
+
+        menu.add("bravo", "127.0.0.1:9004");
+        let appended = ["zulu", "alpha", "localhost", "mike", "bravo"];
+        assert_eq!(menu.shown(), appended);
+        assert_eq!(menu.saved(), appended);
+    }
+
+    #[test]
+    fn deleting_the_middle_server_keeps_the_order_of_the_others() {
+        let mut menu = Menu::new(
+            "delete",
+            &[
+                ("zulu", "127.0.0.1:8000"),
+                ("alpha", "127.0.0.1:9002"),
+                ("mike", "127.0.0.1:9003"),
+            ],
+        );
+        menu.delete(1);
+        assert_eq!(menu.shown(), ["zulu", "mike"]);
+        assert_eq!(menu.saved(), ["zulu", "mike"]);
+    }
+
+    #[test]
+    fn localhost_is_added_first_when_missing_and_only_once() {
+        let mut menu = Menu::new("default", &[("zulu", "127.0.0.1:9001")]);
+        assert_eq!(menu.shown(), ["localhost", "zulu"]);
+        assert_eq!(menu.saved(), ["localhost", "zulu"]);
+
+        // Loading what was saved does not add it a second time.
+        let mut again = Menu::new(
+            "default-again",
+            &[("localhost", "127.0.0.1:8000"), ("zulu", "1.2.3.4:5")],
+        );
+        assert_eq!(again.shown(), ["localhost", "zulu"]);
+        assert_eq!(again.saved(), ["localhost", "zulu"]);
+    }
+
+    #[test]
+    fn an_empty_or_missing_server_file_is_handled() {
+        let path = std::env::temp_dir().join(format!(
+            "rustcraft-servers-empty-{}.ron",
+            std::process::id()
+        ));
+        assert!(read_servers(&path).is_err());
+        fs::write(&path, " \n").unwrap();
+        assert!(read_servers(&path).unwrap().is_empty());
+        fs::write(&path, "not ron").unwrap();
+        assert!(read_servers(&path).is_err());
+        let _ = fs::remove_file(&path);
     }
 }

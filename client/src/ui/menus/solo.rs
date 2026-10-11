@@ -1,35 +1,16 @@
-use super::{MenuButtonAction, MenuState, ScrollingList};
+use super::list_screen::*;
+use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
-use crate::ui::assets::*;
-use crate::ui::style::*;
 use crate::world::ClientWorldMap;
 use bevy::platform::collections::HashMap;
-use bevy::prelude::Resource;
 use bevy::prelude::*;
-use bevy::{
-    asset::AssetServer,
-    color::Color,
-    prelude::{
-        Button, Changed, Commands, Component, DespawnOnExit, Entity, NextState, Query, Res, ResMut,
-        Text, With,
-    },
-    ui::{
-        AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection,
-        GridPlacement, GridTrack, Interaction, JustifyContent, Node, Overflow, UiRect, Val,
-    },
-};
-use bevy_simple_text_input::TextInput;
-use bevy_simple_text_input::TextInputTextColor;
-use bevy_simple_text_input::TextInputTextFont;
-use bevy_simple_text_input::{
-    TextInputInactive, TextInputPlaceholder, TextInputSettings, TextInputValue,
-};
+use bevy_simple_text_input::TextInputValue;
 use shared::GameFolderPaths;
 use std::io;
 use std::{
     fs,
-    path::{self, Path, PathBuf},
+    path::{self, Path},
 };
 
 pub struct WorldItem {
@@ -56,163 +37,27 @@ pub struct SelectedWorld {
     pub name: Option<String>,
 }
 
-pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) {
-    let background_image = load_background_image(&assets_server);
-    let font = load_font(&assets_server);
-    let button_background_image = load_button_background_large_image(&assets_server);
-
-    let txt_font = TextFont {
-        font: font.clone().into(),
-        font_size: 20.0.into(),
-        ..default()
-    };
-
-    let txt_color = TextColor(Color::WHITE);
-
-    let btn_style = Node {
-        display: Display::Flex,
-        flex_direction: FlexDirection::Column,
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        border: UiRect::all(Val::Px(2.)),
-        height: Val::Px(40.0),
-        ..Default::default()
-    };
-
+pub fn solo_menu_setup(mut commands: Commands, assets: Res<AssetServer>) {
+    let screen = spawn_list_screen(
+        &mut commands,
+        &assets,
+        &ListScreen {
+            menu: MenuState::Solo,
+            title: "World list",
+            inputs: &[InputField {
+                placeholder: "World name",
+                focused: true,
+                game_font: true,
+            }],
+            add_label: "Create world",
+            stacked: true,
+        },
+    );
+    commands.entity(screen.list).insert(WorldList::default());
+    commands.entity(screen.inputs[0]).insert(WorldNameInput);
     commands
-        .spawn((
-            DespawnOnExit(MenuState::Solo),
-            (Node {
-                width: Val::Vw(100.0),
-                height: Val::Vh(100.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::horizontal(Val::Percent(20.)),
-                row_gap: Val::Percent(2.),
-                ..Default::default()
-            },),
-            fill_image_node(background_image),
-        ))
-        .with_children(|root| {
-            root.spawn((
-                Text::new("World list"),
-                txt_color,
-                txt_font.clone(),
-                Node {
-                    border: UiRect::all(Val::Px(1.)),
-                    flex_direction: FlexDirection::Column,
-                    align_content: AlignContent::Center,
-                    display: Display::Flex,
-                    ..default()
-                },
-            ));
-
-            root.spawn((
-                Node {
-                    width: Val::Percent(100.),
-                    height: Val::Percent(50.),
-                    flex_direction: FlexDirection::Column,
-                    overflow: Overflow::clip_y(),
-                    border: UiRect::all(Val::Px(2.)),
-                    ..Default::default()
-                },
-                BorderColor::all(BACKGROUND_COLOR),
-            ))
-            .with_children(|w| {
-                w.spawn((
-                    (Node {
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        padding: UiRect::all(Val::Px(10.)),
-                        row_gap: Val::Px(10.),
-                        ..Default::default()
-                    },),
-                    ScrollingList { position: 0. },
-                    WorldList {
-                        worlds: HashMap::new(),
-                    },
-                ));
-            });
-
-            root.spawn((Node {
-                width: Val::Percent(100.),
-                display: Display::Grid,
-                grid_template_columns: vec![GridTrack::flex(1.), GridTrack::flex(1.)],
-                row_gap: Val::Px(5.),
-                column_gap: Val::Px(5.),
-                ..default()
-            },))
-                .with_children(|wrapper| {
-                    let node = {
-                        let mut style = btn_style.clone();
-                        style.grid_column = GridPlacement::span(2);
-                        style
-                    };
-                    wrapper.spawn((
-                        (
-                            BorderColor::all(BACKGROUND_COLOR),
-                            BackgroundColor(Color::BLACK),
-                            node,
-                        ),
-                        WorldNameInput,
-                        (
-                            TextInput,
-                            TextInputSettings {
-                                retain_on_submit: true,
-                                mask_character: None,
-                                max_length: None,
-                            },
-                            TextInputPlaceholder {
-                                value: "World name".into(),
-                                ..default()
-                            },
-                            TextInputInactive(false),
-                            TextInputTextFont(txt_font.clone()),
-                            TextInputTextColor(txt_color),
-                            TextInputValue("".to_string()),
-                        ),
-                    ));
-
-                    wrapper
-                        .spawn((
-                            (
-                                Button,
-                                BorderColor::all(Color::BLACK),
-                                BackgroundColor(BACKGROUND_COLOR),
-                                {
-                                    let mut style = btn_style.clone();
-                                    style.grid_column = GridPlacement::span(2);
-                                    style
-                                },
-                                fill_image_node(button_background_image.clone()),
-                            ),
-                            SoloButtonAction::Add,
-                        ))
-                        .with_children(|btn| {
-                            btn.spawn((Text::new("Create world"), txt_font.clone(), txt_color));
-                        });
-
-                    wrapper
-                        .spawn((
-                            (
-                                Button,
-                                BorderColor::all(Color::BLACK),
-                                BackgroundColor(BACKGROUND_COLOR),
-                                {
-                                    let mut style = btn_style.clone();
-                                    style.grid_column = GridPlacement::span(2);
-                                    style
-                                },
-                                fill_image_node(button_background_image.clone()),
-                            ),
-                            MenuButtonAction::BackToMainMenu,
-                        ))
-                        .with_children(|btn| {
-                            btn.spawn((Text::new("Back to menu"), txt_font.clone(), txt_color));
-                        });
-                });
-        });
+        .entity(screen.add_button)
+        .insert(SoloButtonAction::Add);
 }
 
 pub fn list_worlds(
@@ -222,9 +67,10 @@ pub fn list_worlds(
     mut world_map: ResMut<ClientWorldMap>,
     game_paths: Res<GameFolderPaths>,
 ) {
-    let (mut list, list_entity) = list_query.single_mut().unwrap();
-
-    let save_path: PathBuf = game_paths.game_folder_path.join(SAVE_PATH);
+    let Ok((mut list, list_entity)) = list_query.single_mut() else {
+        return;
+    };
+    let save_path = game_paths.game_folder_path.join(SAVE_PATH);
     info!("Looking for worlds in : {}", save_path.display());
 
     for name in saved_world_names(&save_path) {
@@ -235,172 +81,64 @@ pub fn list_worlds(
             &mut list,
             list_entity,
             &mut world_map,
-            &game_paths,
         );
     }
-
-    info!("Found {} worlds", list.worlds.len());
 }
 
 /// The names of the saved worlds: the folders of `saves_path` that hold a `world.ron`.
 /// The saves folder is created when it does not exist. A saves folder that cannot be created
 /// or read gives no worlds, and entries that cannot be read or are not valid UTF-8 are skipped.
 fn saved_world_names(saves_path: &Path) -> Vec<String> {
-    match fs::exists(saves_path) {
-        Ok(true) => {}
-        Ok(false) => match fs::create_dir_all(saves_path) {
-            Ok(()) => info!(
-                "Successfully created the saves folder : {}",
-                saves_path.display()
-            ),
-            Err(err) => {
-                error!(
-                    "Could not create the saves folder {}: {err}",
-                    saves_path.display()
-                );
-                return Vec::new();
-            }
-        },
-        Err(err) => {
-            error!(
-                "Could not access the saves folder {}: {err}",
-                saves_path.display()
-            );
-            return Vec::new();
-        }
-    }
-
-    let entries = match fs::read_dir(saves_path) {
-        Ok(entries) => entries,
-        Err(err) => {
-            error!(
-                "Could not read the saves folder {}: {err}",
-                saves_path.display()
-            );
-            return Vec::new();
-        }
+    let entries = fs::create_dir_all(saves_path).and_then(|()| fs::read_dir(saves_path));
+    let Ok(entries) = entries else {
+        error!("Could not read the saves folder {}", saves_path.display());
+        return Vec::new();
     };
 
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(err) => {
-                error!("Could not read an entry of the saves folder: {err}");
-                continue;
-            }
-        };
-        let Ok(name) = entry.file_name().into_string() else {
-            warn!(
-                "Skipping a world whose name is not valid UTF-8: {:?}",
-                entry.path()
-            );
-            continue;
-        };
-
-        // Check if it's a directory and contains world.ron
-        let world_path = entry.path();
-        if world_path.is_dir() && world_path.join("world.ron").exists() {
-            names.push(name);
-        }
-    }
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| {
+            let entry = entry
+                .inspect_err(|err| error!("Could not read an entry of the saves folder: {err}"))
+                .ok()?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .inspect_err(|_| {
+                    warn!(
+                        "Skipping a world whose name is not valid UTF-8: {:?}",
+                        entry.path()
+                    )
+                })
+                .ok()?;
+            entry.path().join("world.ron").exists().then_some(name)
+        })
+        .collect();
+    // The order of a directory listing is not stable: list the worlds alphabetically.
+    names.sort();
     names
 }
 
 fn add_world_item(
     name: String,
     commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
+    assets: &Res<AssetServer>,
     list: &mut WorldList,
     list_entity: Entity,
     world_map: &mut ClientWorldMap,
-    paths: &Res<GameFolderPaths>,
 ) {
-    info!(
-        "Adding world to list : name = {:?}, entity={:?}",
-        name, list_entity
-    );
-
-    let base_path = paths.assets_folder_path.display();
+    info!("Adding world to list : name = {name:?}");
 
     // udpate the name of the world_map
     world_map.name = name.clone();
 
-    let btn_style = Node {
-        display: Display::Flex,
-        flex_direction: FlexDirection::Column,
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        border: UiRect::all(Val::Px(2.)),
-        height: Val::Percent(80.),
-        ..default()
-    };
-
-    let img_style = Node {
-        height: Val::Percent(100.),
-        ..default()
-    };
-
-    let world = commands
-        .spawn((
-            BorderColor::all(BACKGROUND_COLOR),
-            Node {
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(5.),
-                width: Val::Percent(100.),
-                height: Val::Vh(10.),
-                padding: UiRect::horizontal(Val::Percent(2.)),
-                border: UiRect::all(Val::Px(2.)),
-                ..default()
-            },
-        ))
-        .id();
-
-    let play_btn = commands
-        .spawn((SoloButtonAction::Load(world), (Button, btn_style.clone())))
-        .with_children(|btn| {
-            let icon = asset_server.load(format!("{base_path}/graphics/play.png"));
-            btn.spawn((ImageNode::new(icon), img_style.clone()));
-        })
-        .id();
-
-    let delete_btn = commands
-        .spawn((SoloButtonAction::Delete(world), (Button, btn_style.clone())))
-        .with_children(|btn| {
-            let icon = asset_server.load(format!("{base_path}/graphics/trash.png"));
-            btn.spawn((ImageNode::new(icon), img_style.clone()));
-        })
-        .id();
-
-    let txt = commands
-        .spawn((
-            (
-                Text::new(name.clone()),
-                TextFont {
-                    font: asset_server
-                        .load("./fonts/RustCraftRegular-Bmg3.otf")
-                        .into(),
-                    font_size: 20.0.into(),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-            ),
-            Node {
-                display: Display::Flex,
-                flex_direction: FlexDirection::Column,
-                ..default()
-            },
-        ))
-        .id();
-
+    let row = spawn_row(commands, assets, list_entity, &name, None);
     commands
-        .entity(world)
-        .add_children(&[play_btn, delete_btn, txt]);
-
-    commands.entity(list_entity).add_children(&[world]);
-
-    list.worlds.insert(world, WorldItem { name: name.clone() });
+        .entity(row.play)
+        .insert(SoloButtonAction::Load(row.row));
+    commands
+        .entity(row.delete)
+        .insert(SoloButtonAction::Delete(row.row));
+    list.worlds.insert(row.row, WorldItem { name });
 }
 
 const MAX_WORLD_NAME_LENGTH: usize = 32;
@@ -425,101 +163,85 @@ fn is_single_path_component(name: &str) -> bool {
 }
 
 fn generate_new_world_name(world_list: &WorldList) -> String {
-    let mut index = 1;
-
-    loop {
-        let candidate = format!("new_world_{index}");
-        if !world_list
-            .worlds
-            .values()
-            .any(|world| world.name == candidate)
-        {
-            return candidate;
-        }
-        index += 1;
-    }
+    (1..)
+        .map(|index| format!("new_world_{index}"))
+        .find(|candidate| {
+            world_list
+                .worlds
+                .values()
+                .all(|world| &world.name != candidate)
+        })
+        .unwrap_or_default()
 }
 
 pub fn solo_action(
-    (interaction_query, mut name_query, mut list_query): (
-        Query<(&Interaction, &SoloButtonAction), (Changed<Interaction>, With<Button>)>,
-        Query<&mut TextInputValue, With<WorldNameInput>>,
-        Query<(Entity, &mut WorldList), With<WorldList>>,
-    ),
-    (asset_server, mut menu_state, mut game_state, mut world_map, mut selected_world): (
-        Res<AssetServer>,
-        ResMut<NextState<MenuState>>,
-        ResMut<NextState<GameState>>,
-        ResMut<ClientWorldMap>,
-        ResMut<SelectedWorld>,
-    ),
+    interactions: Query<(&Interaction, &SoloButtonAction), (Changed<Interaction>, With<Button>)>,
+    mut name_input: Query<&mut TextInputValue, With<WorldNameInput>>,
+    mut list_query: Query<(Entity, &mut WorldList)>,
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut menu_state: ResMut<NextState<MenuState>>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut world_map: ResMut<ClientWorldMap>,
+    mut selected_world: ResMut<SelectedWorld>,
     paths: Res<GameFolderPaths>,
 ) {
-    if list_query.is_empty() {
+    let Ok((entity, mut list)) = list_query.single_mut() else {
         return;
-    }
+    };
 
-    let (entity, mut list) = list_query.single_mut().unwrap();
+    for (interaction, action) in &interactions {
+        if *interaction != Interaction::Pressed {
+            continue;
+        }
+        match *action {
+            SoloButtonAction::Add => {
+                let Ok(mut name) = name_input.single_mut() else {
+                    continue;
+                };
+                // if no name, create default one
+                let new_name = if name.0.is_empty() {
+                    generate_new_world_name(&list)
+                } else {
+                    name.0.clone()
+                };
 
-    for (interaction, menu_button_action) in &interaction_query {
-        if *interaction == Interaction::Pressed {
-            match *menu_button_action {
-                SoloButtonAction::Add => {
-                    debug!("Interactions !");
-                    if !name_query.is_empty() {
-                        let mut name = name_query.single_mut().unwrap();
-
-                        // if no name, create default one
-                        let new_name = if name.0.is_empty() {
-                            generate_new_world_name(&list)
-                        } else {
-                            name.0.clone()
-                        };
-
-                        if !is_valid_world_name(&new_name) {
-                            warn!("Not creating world {new_name:?}: invalid name");
-                            continue;
-                        }
-                        if list.worlds.values().any(|world| world.name == new_name) {
-                            warn!("Not creating world {new_name:?}: it already exists");
-                            continue;
-                        }
-
-                        add_world_item(
-                            new_name,
-                            &mut commands,
-                            &asset_server,
-                            &mut list,
-                            entity,
-                            &mut world_map,
-                            &paths,
-                        );
-
-                        name.0 = "".into();
-                        debug!("Creating world");
-                    }
+                if !is_valid_world_name(&new_name) {
+                    warn!("Not creating world {new_name:?}: invalid name");
+                    continue;
                 }
-                SoloButtonAction::Load(world_entity) => {
-                    if let Some(world) = list.worlds.get(&world_entity) {
-                        // update ressource name
-                        selected_world.name = Some(world.name.clone());
+                if list.worlds.values().any(|world| world.name == new_name) {
+                    warn!("Not creating world {new_name:?}: it already exists");
+                    continue;
+                }
 
-                        game_state.set(GameState::PreGameLoading);
-                        menu_state.set(MenuState::Disabled);
-                    }
+                add_world_item(
+                    new_name,
+                    &mut commands,
+                    &asset_server,
+                    &mut list,
+                    entity,
+                    &mut world_map,
+                );
+                name.0 = "".into();
+            }
+            SoloButtonAction::Load(world_entity) => {
+                if let Some(world) = list.worlds.get(&world_entity) {
+                    selected_world.name = Some(world.name.clone());
+                    game_state.set(GameState::PreGameLoading);
+                    menu_state.set(MenuState::Disabled);
                 }
-                SoloButtonAction::Delete(world_entity) => {
-                    if let Some(world) = list.worlds.get(&world_entity) {
-                        if let Err(e) = delete_save_files(&world.name, &paths) {
-                            error!("Error while deleting save files: {}", e);
-                            continue;
-                        }
-                        list.worlds.remove(&world_entity);
+            }
+            SoloButtonAction::Delete(world_entity) => {
+                if let Some(world) = list.worlds.get(&world_entity) {
+                    if let Err(e) = delete_save_files(&world.name, &paths) {
+                        error!("Error while deleting save files: {}", e);
+                        continue;
                     }
-                    commands.entity(entity).detach_children(&[world_entity]);
-                    commands.entity(world_entity).despawn();
+                    list.worlds.remove(&world_entity);
                 }
+                commands.entity(entity).detach_children(&[world_entity]);
+                commands.entity(world_entity).despawn();
             }
         }
     }
@@ -543,29 +265,19 @@ pub fn delete_save_files(
         .join(world_name);
 
     match fs::remove_dir_all(&world_dir) {
-        Ok(_) => info!(
-            "Successfully deleted world directory: {}",
+        Ok(()) => info!("Deleted world directory: {}", world_dir.display()),
+        Err(e) => error!(
+            "Failed to delete world directory {}: {e}",
             world_dir.display()
         ),
-        Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
-            error!(
-                "World directory not found, skipping: {}",
-                world_dir.display()
-            )
-        }
-        Err(e) => error!(
-            "Failed to delete world directory {}: {}",
-            world_dir.display(),
-            e
-        ),
     }
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// An empty folder of its own in the temp folder, removed at the end of the test.
     struct TempFolder(PathBuf);
@@ -698,6 +410,19 @@ mod tests {
         fs::write(folder.0.join("file"), "").unwrap();
 
         assert_eq!(saved_world_names(&folder.0), vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn lists_the_worlds_alphabetically() {
+        let folder = TempFolder::new("sorted");
+        for name in ["delta", "alpha", "Charlie", "bravo"] {
+            make_world(&folder.0, name);
+        }
+
+        assert_eq!(
+            saved_world_names(&folder.0),
+            vec!["Charlie", "alpha", "bravo", "delta"]
+        );
     }
 
     #[test]
