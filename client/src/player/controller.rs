@@ -10,7 +10,7 @@ use crate::ui::hud::UIMode;
 use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
-use shared::players::movement::simulate_player_movement;
+use shared::players::movement::{is_terrain_loaded, simulate_player_movement};
 use shared::players::{Player, ViewMode};
 
 use super::CurrentPlayerMarker;
@@ -38,14 +38,24 @@ pub struct PlayerMaterialHandle {
 
 pub fn pre_input_update_system(
     mut frame_inputs: ResMut<CurrentFrameInputs>,
-    mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
     mut sync_time: ResMut<SyncTime>,
 ) {
     sync_time.advance();
-
-    let inputs_of_last_frame = frame_inputs.0.clone();
-    tick_buffer.buffer.push(inputs_of_last_frame);
     frame_inputs.reset(sync_time.curr_time_ms, sync_time.delta());
+}
+
+/// Whether the local player is simulated this frame: some time has passed since the last frame
+/// and its terrain has arrived. A frame that is not simulated is not sent either, so that the
+/// server only ever simulates the inputs the client predicted.
+pub fn local_player_is_simulated(
+    frame_inputs: Res<CurrentFrameInputs>,
+    player: Query<&Player, With<CurrentPlayerMarker>>,
+    world_map: Res<ClientWorldMap>,
+) -> bool {
+    frame_inputs.0.delta_ms != 0
+        && player
+            .single()
+            .is_ok_and(|player| is_terrain_loaded(player.position, &world_map.blocks))
 }
 
 pub fn player_movement_system(
@@ -55,11 +65,12 @@ pub fn player_movement_system(
         Res<UIMode>,
         Res<KeyMap>,
         ResMut<CurrentFrameInputs>,
+        ResMut<PlayerTickInputsBuffer>,
     ),
     world_map: Res<ClientWorldMap>,
 ) {
     let mut player_query = queries;
-    let (keyboard_input, ui_mode, key_map, mut frame_inputs) = resources;
+    let (keyboard_input, ui_mode, key_map, mut frame_inputs, mut tick_buffer) = resources;
 
     if frame_inputs.0.delta_ms == 0 {
         return;
@@ -102,7 +113,9 @@ pub fn player_movement_system(
 
     simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
 
-    frame_inputs.0.position = player.position;
+    // The frame is final: record what it predicts and queue it for the server
+    frame_inputs.0.predicted = player.movement_state();
+    tick_buffer.buffer.push(frame_inputs.0.clone());
 
     player_transform.translation = player.position;
 }

@@ -13,16 +13,24 @@ use super::Player;
 /// Longest frame the simulation integrates, so a client cannot cover any distance in one input.
 pub const MAX_FRAME_DELTA_MS: u64 = 100;
 
+/// Whether the terrain `position` is in and the terrain below it are in `world_map`. A player
+/// is not simulated without them: it would fall through chunks that are only missing, not empty.
+pub fn is_terrain_loaded(position: Vec3, world_map: &ChunkMap) -> bool {
+    let chunk = world_position_to_chunk_position(position);
+    world_map.is_chunk_loaded(chunk) && world_map.is_chunk_loaded(chunk - IVec3::Y)
+}
+
 pub fn simulate_player_movement(
     player: &mut Player,
     world_map: &ChunkMap,
     action: &PlayerFrameInput,
 ) {
-    // Hold the player still until the terrain it stands in and the terrain below it have arrived,
-    // otherwise it would fall through chunks that are only missing, not empty.
-    let chunk = world_position_to_chunk_position(player.position);
-    if !world_map.is_chunk_loaded(chunk) || !world_map.is_chunk_loaded(chunk - IVec3::Y) {
-        log::debug!("Chunk {chunk} or the one below is not loaded, skipping movement simulation");
+    // Hold the player still until its terrain has arrived
+    if !is_terrain_loaded(player.position, world_map) {
+        log::debug!(
+            "The chunk at {} or the one below is not loaded, skipping movement simulation",
+            player.position
+        );
         return;
     }
 

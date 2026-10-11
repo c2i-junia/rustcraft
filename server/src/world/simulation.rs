@@ -76,7 +76,7 @@ pub fn handle_player_inputs_system(
         server.broadcast_game_message(shared::messages::ServerToClientMessage::PlayerUpdate(
             PlayerUpdateEvent {
                 id: player.id,
-                position: player.position,
+                movement: player.movement_state(),
                 orientation: player.camera_transform.rotation,
                 last_ack_time: player.last_input_processed,
                 inventory: player.inventory.clone(),
