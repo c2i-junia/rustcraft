@@ -1,7 +1,8 @@
 //! End-to-end test of a solo session: a real server thread driven over loopback UDP by a
 //! renet client set up the same way as `client/src/network/setup.rs`.
 
-use bevy::math::Vec3;
+use bevy::math::{IVec3, Vec3};
+use bevy::prelude::Transform;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::RenetClient;
 use shared::messages::{
@@ -9,6 +10,7 @@ use shared::messages::{
     PlayerFrameInput, ServerToClientMessage,
 };
 use shared::players::Player;
+use shared::world::{raycast, BlockData, ChunkMap};
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
     ChannelResolvableExt, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
@@ -79,6 +81,11 @@ struct TestClient {
     client: RenetClient,
     transport: NetcodeClientTransport,
     inbox: Vec<ServerToClientMessage>,
+    /// The blocks this client knows, built like the game client does: from the chunks it
+    /// receives and the block updates applied on top.
+    world: ChunkMap,
+    /// Every chunk received, in order, one entry per time it was sent.
+    chunk_arrivals: Vec<IVec3>,
     last_pump: Instant,
 }
 
@@ -99,6 +106,8 @@ impl TestClient {
             client: RenetClient::new(get_shared_renet_config()),
             transport: NetcodeClientTransport::new(now, authentication, socket).unwrap(),
             inbox: Vec::new(),
+            world: ChunkMap::default(),
+            chunk_arrivals: Vec::new(),
             last_pump: Instant::now(),
         }
     }
@@ -116,13 +125,55 @@ impl TestClient {
                 STC_AUTH_CHANNEL,
             ] {
                 while let Some(payload) = self.client.receive_message(channel) {
-                    self.inbox.push(payload_to_game_message(&payload).unwrap());
+                    let message: ServerToClientMessage = payload_to_game_message(&payload).unwrap();
+                    self.apply_to_world(&message);
+                    self.inbox.push(message);
                 }
             }
             // Fails only when the server disconnected us, which `update` reports next time.
             let _ = self.transport.send_packets(&mut self.client);
         }
         thread::sleep(PUMP_INTERVAL);
+    }
+
+    fn apply_to_world(&mut self, message: &ServerToClientMessage) {
+        match message {
+            ServerToClientMessage::WorldUpdate(update) => {
+                for (pos, chunk) in &update.new_map {
+                    self.world.insert_chunk(*pos, chunk.clone());
+                    self.chunk_arrivals.push(*pos);
+                }
+            }
+            ServerToClientMessage::BlockUpdates(updates) => {
+                for update in updates {
+                    match update.block {
+                        Some(block) => self.world.set_block(update.position, block),
+                        None => {
+                            self.world.remove_block(update.position);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The block updates for `position` received and not yet taken from the inbox.
+    fn take_updates_for(&mut self, position: IVec3) -> Vec<Option<BlockData>> {
+        let mut updates = Vec::new();
+        self.inbox.retain(|message| {
+            let ServerToClientMessage::BlockUpdates(batch) = message else {
+                return true;
+            };
+            updates.extend(
+                batch
+                    .iter()
+                    .filter(|u| u.position == position)
+                    .map(|u| u.block),
+            );
+            false
+        });
+        updates
     }
 
     /// Flushes queued messages without reading, for the last message before a shutdown.
@@ -567,5 +618,144 @@ fn chat_message_reaches_every_client_and_empty_ones_are_dropped() {
 
     alice.send(ClientToServerMessage::Exit);
     alice.send_packets();
+    server.join_after_exit();
+}
+
+/// A player standing on the terrain at the spawn column, looking straight down. Returns the
+/// frames' camera, the player's position and the block the camera points at, once the client
+/// has received the chunk that holds it.
+fn land_and_aim_down(client: &mut TestClient) -> (Transform, IVec3) {
+    let last_time_ms = 40;
+    let frames = (1..=last_time_ms)
+        .map(|time_ms| PlayerFrameInput {
+            time_ms,
+            delta_ms: 100,
+            ..Default::default()
+        })
+        .collect();
+    client.send(ClientToServerMessage::PlayerInputs(frames));
+    let id = client.id;
+    let position = client.wait_for("PlayerUpdate acknowledging the landing", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == last_time_ms => {
+            Some(u.position)
+        }
+        _ => None,
+    });
+
+    let camera = Transform::from_translation(position).looking_to(Vec3::NEG_Y, Vec3::Z);
+    let start = Instant::now();
+    loop {
+        if let Some(hit) = raycast::raycast(&client.world, &camera, &position, Default::default()) {
+            return (camera, hit.position);
+        }
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the block under the player never arrived"
+        );
+        client.pump();
+    }
+}
+
+fn left_click_frame(time_ms: u64, camera: Transform) -> ClientToServerMessage {
+    ClientToServerMessage::PlayerInputs(vec![PlayerFrameInput {
+        time_ms,
+        delta_ms: 16,
+        inputs: [NetworkAction::LeftClick].into(),
+        camera,
+        ..Default::default()
+    }])
+}
+
+#[test]
+fn a_broken_block_reaches_every_client_as_updates_and_never_as_a_whole_chunk() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut a = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut a, "miner");
+    let mut b = TestClient::connect(server.addr, PLAYER_ID + 1);
+    authenticate(&mut b, "watcher");
+
+    let (camera, target) = land_and_aim_down(&mut a);
+    let target_chunk = shared::world::global_block_to_chunk_pos(&target);
+    let start = Instant::now();
+    while !b.world.is_chunk_loaded(target_chunk) {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the watcher never received the chunk of the target"
+        );
+        b.pump();
+    }
+    let block = *a.world.get_block(target).unwrap();
+    let break_time = block.id.get_break_time().expect("the target is breakable");
+
+    // One hit per message: each one is a tick of progress.
+    a.inbox.clear();
+    b.inbox.clear();
+    let mut sequence = Vec::new();
+    for time_ms in 1000.. {
+        a.send(left_click_frame(time_ms, camera));
+        let update = a.wait_for("a BlockUpdates for the target", |m| match m {
+            ServerToClientMessage::BlockUpdates(batch) => batch
+                .iter()
+                .find(|u| u.position == target)
+                .map(|u| (u.block, game_message_to_payload(m.clone()).len())),
+            _ => None,
+        });
+        sequence.push(update);
+        if update.0.is_none() {
+            break;
+        }
+    }
+
+    let progress: Vec<u8> = sequence
+        .iter()
+        .filter_map(|(block, _)| block.map(|b| b.breaking_progress))
+        .collect();
+    assert_eq!(progress, (1..break_time).collect::<Vec<u8>>());
+    assert_eq!(sequence.last().unwrap().0, None);
+    assert!(a.world.get_block(target).is_none());
+
+    // The watcher sees exactly the same states, in the same order.
+    let start = Instant::now();
+    let mut seen_by_b = b.take_updates_for(target);
+    while seen_by_b.last() != Some(&None) {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the watcher did not see the block break"
+        );
+        b.pump();
+        seen_by_b.extend(b.take_updates_for(target));
+    }
+    let seen_by_a: Vec<Option<BlockData>> = sequence.iter().map(|(block, _)| *block).collect();
+    assert_eq!(seen_by_b, seen_by_a);
+    assert!(b.world.get_block(target).is_none());
+
+    // No chunk was ever sent twice to either client, and none was re-sent after the change.
+    for client in [&a, &b] {
+        let mut arrivals = client.chunk_arrivals.clone();
+        arrivals.sort_by_key(|p| (p.x, p.y, p.z));
+        let total = arrivals.len();
+        arrivals.dedup();
+        assert_eq!(
+            arrivals.len(),
+            total,
+            "client {} got a chunk twice",
+            client.id
+        );
+    }
+
+    // Size of a progress update against the whole chunk the old protocol re-sent each tick.
+    let whole_chunk = ServerToClientMessage::WorldUpdate(shared::messages::WorldUpdate {
+        new_map: [(target_chunk, a.world.chunk(target_chunk).unwrap().clone())].into(),
+        ..Default::default()
+    });
+    let chunk_bytes = game_message_to_payload(whole_chunk).len();
+    let largest_update = sequence.iter().map(|(_, bytes)| *bytes).max().unwrap();
+    assert!(
+        largest_update < chunk_bytes,
+        "update of {largest_update} bytes against a chunk of {chunk_bytes} bytes"
+    );
+
+    a.send(ClientToServerMessage::Exit);
+    a.send_packets();
     server.join_after_exit();
 }

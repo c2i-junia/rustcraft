@@ -15,7 +15,7 @@ pub const SAVE_PATH: &str = "saves/";
 pub struct ServerWorldMap {
     pub name: String,
     pub chunks: ChunkMap,
-    /// For each connected client, the chunks it has received and that have not changed since.
+    /// For each connected client, the chunks it has received.
     pub sent_chunks: HashMap<PlayerId, HashSet<IVec3>>,
     pub players: HashMap<PlayerId, Player>,
     pub mobs: HashMap<MobId, ServerMob>,

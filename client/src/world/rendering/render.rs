@@ -9,7 +9,7 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::{
-    world::{global_block_to_chunk_pos, SIX_OFFSETS},
+    world::{global_block_to_chunk_pos, to_local_pos},
     CHUNK_SIZE,
 };
 
@@ -34,6 +34,8 @@ pub struct QueuedMeshes {
     pub meshes: Vec<MeshingTask>,
 }
 
+/// Shows `new_meshes` for the chunk: the chunk entity is kept and only its mesh replaced, so
+/// that the chunk never disappears for a frame. A chunk without any face has no entity.
 fn update_chunk(
     chunk: &mut ChunkRender,
     chunk_pos: &IVec3,
@@ -42,40 +44,81 @@ fn update_chunk(
     meshes: &mut Assets<Mesh>,
     new_meshes: ChunkMeshResponse,
 ) {
-    // If the
-
     let solid_texture = material_resource
         .global_materials
         .get(&world::GlobalMaterial::Blocks)
         .unwrap();
 
-    if chunk.entity.is_some() {
-        commands.entity(chunk.entity.unwrap()).despawn();
-        chunk.entity = None;
-    }
-
-    if chunk.entity.is_none() {
-        // Offset the chunk's position by half a block so that blocks are centered
-        let chunk_t = Transform::from_xyz(
-            (chunk_pos.x * CHUNK_SIZE) as f32,
-            (chunk_pos.y * CHUNK_SIZE) as f32,
-            (chunk_pos.z * CHUNK_SIZE) as f32,
-        );
-
-        let new_entity = commands
-            .spawn((chunk_t, Visibility::Visible))
-            .with_children(|root| {
-                if let Some(new_solid_mesh) = new_meshes.solid_mesh {
-                    root.spawn((
+    match (new_meshes.solid_mesh, chunk.entity) {
+        (Some(new_solid_mesh), Some(entity)) => {
+            commands
+                .entity(entity)
+                .insert(Mesh3d(meshes.add(new_solid_mesh)));
+        }
+        (Some(new_solid_mesh), None) => {
+            let chunk_t = Transform::from_xyz(
+                (chunk_pos.x * CHUNK_SIZE) as f32,
+                (chunk_pos.y * CHUNK_SIZE) as f32,
+                (chunk_pos.z * CHUNK_SIZE) as f32,
+            );
+            chunk.entity = Some(
+                commands
+                    .spawn((
+                        chunk_t,
+                        Visibility::Visible,
                         DespawnOnExit(GameState::Game),
                         Mesh3d(meshes.add(new_solid_mesh)),
                         MeshMaterial3d(solid_texture.clone()),
-                    ));
-                }
-            })
-            .id();
+                    ))
+                    .id(),
+            );
+        }
+        (None, Some(entity)) => {
+            commands.entity(entity).despawn();
+            chunk.entity = None;
+        }
+        (None, None) => {}
+    }
+}
 
-        chunk.entity = Some(new_entity);
+/// The chunk that holds the block at `block_pos`, then the neighbouring chunks whose meshes
+/// depend on it: the mesher only looks at the six face neighbours of a block, so a block on a
+/// chunk face touches one neighbour, on an edge two, on a corner three.
+fn chunks_touched_by_block(block_pos: IVec3) -> Vec<IVec3> {
+    let chunk_pos = global_block_to_chunk_pos(&block_pos);
+    let local = to_local_pos(&block_pos);
+    let mut touched = vec![chunk_pos];
+    for axis in 0..3 {
+        if local[axis] == 0 {
+            touched.push(chunk_pos - IVec3::AXES[axis]);
+        }
+        if local[axis] == CHUNK_SIZE - 1 {
+            touched.push(chunk_pos + IVec3::AXES[axis]);
+        }
+    }
+    touched
+}
+
+/// Orders `chunks` by increasing distance to the chunk `center`, so that the chunks the player
+/// sees are meshed first.
+fn sort_nearest_first(chunks: &mut [IVec3], center: IVec3) {
+    chunks.sort_by_key(|chunk| chunk.distance_squared(center));
+}
+
+/// Asks for a new mesh of every chunk that a block changed since the last call: by the server,
+/// or by this client's own prediction.
+pub fn request_remesh_of_changed_blocks_system(
+    mut world_map: ResMut<ClientWorldMap>,
+    mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
+) {
+    let chunks_to_remesh: HashSet<IVec3> = world_map
+        .blocks
+        .take_changed_blocks()
+        .into_iter()
+        .flat_map(chunks_touched_by_block)
+        .collect();
+    for chunk_pos in chunks_to_remesh {
+        ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(chunk_pos));
     }
 }
 
@@ -115,14 +158,9 @@ pub fn world_render_system(
         let mut chunks_to_reload: HashSet<IVec3> = HashSet::new();
 
         // Using a set so same chunks are not reloaded multiple times
-        // Accumulate chunks to render
         for event in &events {
             let WorldRenderRequestUpdateEvent::ChunkToReload(target_chunk_pos) = event;
-
             chunks_to_reload.insert(*target_chunk_pos);
-            for offset in &SIX_OFFSETS {
-                chunks_to_reload.insert(*target_chunk_pos + *offset);
-            }
         }
 
         let player_pos = player_pos
@@ -137,18 +175,10 @@ pub fn world_render_system(
 
         let mut chunks_to_reload = Vec::from_iter(chunks_to_reload);
 
-        chunks_to_reload.sort_by(|a, b| {
-            (a.distance_squared(player_pos) - b.distance_squared(player_pos))
-                .cmp(&a.distance_squared(player_pos))
-        });
+        sort_nearest_first(&mut chunks_to_reload, player_pos);
 
         for pos in chunks_to_reload {
             if let Some(chunk) = world_map.blocks.chunk(pos) {
-                // If chunk is empty, ignore it
-                if chunk.is_empty() {
-                    continue;
-                }
-
                 // Define variables to move to the thread
                 let map_clone = Arc::clone(&map_ptr);
                 let uvs_clone = Arc::clone(&uvs);
@@ -174,31 +204,197 @@ pub fn world_render_system(
             thread,
         } = task;
 
-        if let Some(chunk) = world_map.render.get_mut(chunk_pos) {
-            // If a later mesh has been completed before, we can drop this task
-            if *mesh_request_ts < chunk.last_mesh_ts {
-                false
-            }
-            // If completed, use the mesh to update the chunk and delete it from the meshing queue
-            else if let Some(new_meshes) = block_on(future::poll_once(thread)) {
-                // Update the corresponding chunk
-                update_chunk(
-                    chunk,
-                    chunk_pos,
-                    &material_resource,
-                    &mut commands,
-                    &mut meshes,
-                    new_meshes,
-                );
-                false
-            } else {
-                // Else, keep the task until it is done
-                true
-            }
-        } else {
-            true
+        let Some(chunk) = world_map.render.get_mut(chunk_pos) else {
+            // The chunk is gone: nobody wants this mesh
+            return false;
+        };
+        // A mesh requested before the one on display must not replace it
+        if !chunk.is_newer_than_displayed(*mesh_request_ts) {
+            return false;
         }
+        let Some(new_meshes) = block_on(future::poll_once(thread)) else {
+            // Keep the task until it is done
+            return true;
+        };
+        chunk.last_mesh_ts = *mesh_request_ts;
+        update_chunk(
+            chunk,
+            chunk_pos,
+            &material_resource,
+            &mut commands,
+            &mut meshes,
+            new_meshes,
+        );
+        false
     });
 
     queued_events.events.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::world::CommandQueue;
+    use bevy::mesh::PrimitiveTopology;
+
+    fn sorted(mut chunks: Vec<IVec3>) -> Vec<IVec3> {
+        chunks.sort_by_key(|c| (c.x, c.y, c.z));
+        chunks
+    }
+
+    #[test]
+    fn an_inner_block_touches_only_its_own_chunk() {
+        assert_eq!(
+            chunks_touched_by_block(IVec3::new(5, 6, 7)),
+            vec![IVec3::ZERO]
+        );
+        assert_eq!(
+            chunks_touched_by_block(IVec3::new(-5, 33, 20)),
+            vec![IVec3::new(-1, 2, 1)]
+        );
+    }
+
+    #[test]
+    fn a_block_on_a_chunk_face_touches_the_neighbour_on_that_side() {
+        let last = CHUNK_SIZE - 1;
+        assert_eq!(
+            chunks_touched_by_block(IVec3::new(0, 5, 5)),
+            vec![IVec3::ZERO, IVec3::new(-1, 0, 0)]
+        );
+        assert_eq!(
+            chunks_touched_by_block(IVec3::new(5, last, 5)),
+            vec![IVec3::ZERO, IVec3::new(0, 1, 0)]
+        );
+        assert_eq!(
+            chunks_touched_by_block(IVec3::new(5, 5, CHUNK_SIZE)),
+            vec![IVec3::new(0, 0, 1), IVec3::new(0, 0, 0)]
+        );
+    }
+
+    #[test]
+    fn a_block_on_an_edge_or_a_corner_touches_the_face_neighbours_only() {
+        let last = CHUNK_SIZE - 1;
+        assert_eq!(
+            sorted(chunks_touched_by_block(IVec3::new(0, last, 5))),
+            sorted(vec![IVec3::ZERO, IVec3::new(-1, 0, 0), IVec3::new(0, 1, 0)])
+        );
+        // the corner of the chunk (-1, -1, -1) that faces the origin
+        assert_eq!(
+            sorted(chunks_touched_by_block(IVec3::splat(-1))),
+            sorted(vec![
+                IVec3::splat(-1),
+                IVec3::new(0, -1, -1),
+                IVec3::new(-1, 0, -1),
+                IVec3::new(-1, -1, 0),
+            ])
+        );
+        // the far corner of chunk (0, 0, 0)
+        assert_eq!(
+            chunks_touched_by_block(IVec3::splat(last)).len(),
+            4,
+            "own chunk and three face neighbours, no diagonal one"
+        );
+    }
+
+    #[test]
+    fn chunks_are_sorted_nearest_first() {
+        let center = IVec3::new(2, 0, 0);
+        let mut chunks = vec![
+            IVec3::new(5, 0, 0),
+            IVec3::new(2, 0, 0),
+            IVec3::new(-3, 0, 0),
+            IVec3::new(3, 1, 0),
+            IVec3::new(1, 0, 0),
+        ];
+        sort_nearest_first(&mut chunks, center);
+        let distances: Vec<i32> = chunks.iter().map(|c| c.distance_squared(center)).collect();
+        assert_eq!(distances, vec![0, 1, 2, 9, 25]);
+        assert_eq!(chunks[0], center);
+    }
+
+    fn some_mesh() -> ChunkMeshResponse {
+        ChunkMeshResponse {
+            solid_mesh: Some(Mesh::new(
+                PrimitiveTopology::TriangleList,
+                Default::default(),
+            )),
+        }
+    }
+
+    /// Runs `update_chunk` on a fresh `chunk` state and applies its commands.
+    fn show(
+        world: &mut World,
+        meshes: &mut Assets<Mesh>,
+        chunk: &mut ChunkRender,
+        response: ChunkMeshResponse,
+    ) {
+        let mut materials = MaterialResource::default();
+        materials
+            .global_materials
+            .insert(world::GlobalMaterial::Blocks, Handle::default());
+        let mut queue = CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, world);
+        update_chunk(
+            chunk,
+            &IVec3::new(1, -2, 3),
+            &materials,
+            &mut commands,
+            meshes,
+            response,
+        );
+        queue.apply(world);
+    }
+
+    #[test]
+    fn a_new_mesh_replaces_the_mesh_of_the_same_entity() {
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut chunk = ChunkRender::new();
+
+        show(&mut world, &mut meshes, &mut chunk, some_mesh());
+        let entity = chunk.entity.expect("the chunk has an entity");
+        assert_eq!(
+            world.get::<Transform>(entity).unwrap().translation,
+            Vec3::new(16.0, -32.0, 48.0)
+        );
+        let first_mesh = world.get::<Mesh3d>(entity).unwrap().0.clone();
+
+        show(&mut world, &mut meshes, &mut chunk, some_mesh());
+
+        assert_eq!(chunk.entity, Some(entity));
+        assert_ne!(world.get::<Mesh3d>(entity).unwrap().0, first_mesh);
+        assert!(world
+            .get::<MeshMaterial3d<StandardMaterial>>(entity)
+            .is_some());
+        assert_eq!(world.query::<&Mesh3d>().iter(&world).count(), 1);
+    }
+
+    #[test]
+    fn a_chunk_without_faces_has_no_entity_and_gets_one_back_with_a_mesh() {
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut chunk = ChunkRender::new();
+        show(&mut world, &mut meshes, &mut chunk, some_mesh());
+        let entity = chunk.entity.unwrap();
+
+        show(
+            &mut world,
+            &mut meshes,
+            &mut chunk,
+            ChunkMeshResponse::default(),
+        );
+
+        assert_eq!(chunk.entity, None);
+        assert!(world.get_entity(entity).is_err());
+        show(
+            &mut world,
+            &mut meshes,
+            &mut chunk,
+            ChunkMeshResponse::default(),
+        );
+        assert_eq!(chunk.entity, None);
+
+        show(&mut world, &mut meshes, &mut chunk, some_mesh());
+        assert!(chunk.entity.is_some());
+    }
 }
