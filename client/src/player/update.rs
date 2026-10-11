@@ -79,8 +79,8 @@ pub fn spawn_players_system(
         ));
 
         let text_style = TextFont {
-            font: assets.load("fonts/FiraMono-Medium.ttf"),
-            font_size: PLAYER_LABEL_FONT_SIZE,
+            font: assets.load("fonts/FiraMono-Medium.ttf").into(),
+            font_size: PLAYER_LABEL_FONT_SIZE.into(),
             ..default()
         };
 

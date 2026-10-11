@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::window::ExitSystems;
 use bevy_renet::netcode::{
     ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeErrorEvent,
 };
@@ -89,11 +90,13 @@ pub fn add_base_netcode(app: &mut App) {
     // Setup the transport layer
     app.add_plugins(NetcodeClientPlugin);
     // The netcode plugin disconnects the transport on `AppExit` in `Last`: the session must
-    // be closed before that.
+    // be closed before that. The window plugin writes `AppExit` in `Last` too (`ExitSystems`),
+    // so the session must be closed after that, in the very frame the app exits.
     app.add_systems(
         Last,
         close_session_on_app_exit
             .run_if(on_message::<AppExit>)
+            .after(ExitSystems)
             .before(NetcodeClientPlugin::disconnect_on_exit),
     );
 

@@ -86,8 +86,8 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
                             btn.spawn((
                                 Text::new(msg),
                                 TextFont {
-                                    font: assets.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                                    font_size: 20.,
+                                    font: assets.load("./fonts/RustCraftRegular-Bmg3.otf").into(),
+                                    font_size: 20.0.into(),
                                     font_smoothing: default(),
                                     ..default()
                                 },

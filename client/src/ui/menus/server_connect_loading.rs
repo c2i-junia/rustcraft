@@ -25,8 +25,8 @@ pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server:
     let loading_text_bundle = (
         Text::new("Connecting to server"),
         TextFont {
-            font: asset_server.load("fonts/FiraSans-SemiBold.ttf"),
-            font_size: 67.0,
+            font: asset_server.load("fonts/FiraSans-SemiBold.ttf").into(),
+            font_size: 67.0.into(),
             ..default()
         },
         LoadingTextMarker,
@@ -35,8 +35,8 @@ pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server:
     let cancel_button_bundle = (
         Text::new("[Cancel]"),
         TextFont {
-            font: asset_server.load("fonts/FiraMono-Medium.ttf"),
-            font_size: 32.0,
+            font: asset_server.load("fonts/FiraMono-Medium.ttf").into(),
+            font_size: 32.0.into(),
             ..default()
         },
         TextColor(Color::from(YELLOW_500)),

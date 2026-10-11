@@ -55,7 +55,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
         .spawn((
             Text::new("Inventory"),
             TextFont {
-                font_size: 24.,
+                font_size: 24.0.into(),
                 ..default()
             },
             Node {

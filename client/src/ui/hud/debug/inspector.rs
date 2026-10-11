@@ -14,7 +14,7 @@ pub fn inspector_ui(world: &mut World, mut last_context: Local<Option<Entity>>) 
     let new_context = *last_context != Some(context_entity);
     *last_context = Some(context_entity);
 
-    // The window is already gone on the frame the app is closing
+    // The window can be missing while the app is closing
     let Ok(window) = world.query::<&Window>().single(world) else {
         return;
     };

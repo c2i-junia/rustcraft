@@ -17,7 +17,7 @@ use crate::menus::{MenuButtonAction, MenuState, ScrollingList};
 use crate::KeyMap;
 
 use crate::ui::assets::*;
-use crate::ui::style::NORMAL_BUTTON;
+use crate::ui::style::{fill_image_node, NORMAL_BUTTON};
 
 #[derive(Debug, Component, PartialEq, Eq)]
 pub struct ClearButton(GameAction, Entity);
@@ -59,7 +59,7 @@ pub fn controls_menu_setup(
                 },
                 BackgroundColor(Color::NONE),
             ),
-            ImageNode::new(background_image),
+            fill_image_node(background_image),
         ))
         .with_children(|root| {
             let placeholder = root
@@ -81,8 +81,8 @@ pub fn controls_menu_setup(
                     btn.spawn((
                         Text::new("Back"),
                         TextFont {
-                            font: font.clone(),
-                            font_size: 21.,
+                            font: font.clone().into(),
+                            font_size: 21.0.into(),
                             ..default()
                         },
                         TextColor(Color::WHITE),
@@ -112,8 +112,8 @@ pub fn controls_menu_setup(
                             list.spawn((
                                 Text::new("Keyboard Controls"),
                                 TextFont {
-                                    font: font.clone(),
-                                    font_size: 36.,
+                                    font: font.clone().into(),
+                                    font_size: 36.0.into(),
                                     ..default()
                                 },
                                 TextColor(Color::WHITE),
@@ -147,8 +147,8 @@ pub fn controls_menu_setup(
                                     line.spawn((
                                         Text::new(format!("{action:?}")),
                                         TextFont {
-                                            font: font.clone(),
-                                            font_size: 24.,
+                                            font: font.clone().into(),
+                                            font_size: 24.0.into(),
                                             ..default()
                                         },
                                         TextColor(Color::WHITE),
@@ -240,8 +240,8 @@ pub fn controls_menu_setup(
                         dialog.spawn((
                             Text::new("Press any key..."),
                             TextFont {
-                                font: font.clone(),
-                                font_size: 21.,
+                                font: font.clone().into(),
+                                font_size: 21.0.into(),
                                 ..default()
                             },
                             TextColor(Color::WHITE),
@@ -298,8 +298,8 @@ pub fn update_input_component(
                         output
                     }),
                     TextFont {
-                        font: font.clone(),
-                        font_size: 21.,
+                        font: font.clone().into(),
+                        font_size: 21.0.into(),
                         ..default()
                     },
                     TextColor(Color::WHITE),

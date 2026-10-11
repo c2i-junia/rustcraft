@@ -1,6 +1,6 @@
 use crate::ui::assets::*;
+use crate::ui::style::fill_image_node;
 use crate::{ui::assets::load_background_image, TEXT_COLOR};
-use bevy::prelude::ImageNode;
 use bevy::prelude::*;
 use bevy::text::{TextColor, TextFont};
 use bevy::ui::BackgroundColor;
@@ -27,8 +27,8 @@ pub fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer
     };
 
     let button_font = TextFont {
-        font: font.clone(),
-        font_size: 33.0,
+        font: font.clone().into(),
+        font_size: 33.0.into(),
         ..default()
     };
 
@@ -46,7 +46,7 @@ pub fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer
                 },
                 BackgroundColor(Color::NONE),
             ),
-            ImageNode::new(background_image),
+            fill_image_node(background_image),
             DespawnOnExit(MenuState::Settings),
         ))
         .with_children(|parent| {

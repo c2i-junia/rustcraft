@@ -61,8 +61,8 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
     let button_background_image = load_button_background_large_image(&assets_server);
 
     let txt_font = TextFont {
-        font: font.clone(),
-        font_size: 20.,
+        font: font.clone().into(),
+        font_size: 20.0.into(),
         ..default()
     };
 
@@ -91,7 +91,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                 row_gap: Val::Percent(2.),
                 ..Default::default()
             },),
-            ImageNode::new(background_image),
+            fill_image_node(background_image),
         ))
         .with_children(|root| {
             root.spawn((
@@ -184,7 +184,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                                     style.grid_column = GridPlacement::span(2);
                                     style
                                 },
-                                ImageNode::new(button_background_image.clone()),
+                                fill_image_node(button_background_image.clone()),
                             ),
                             SoloButtonAction::Add,
                         ))
@@ -203,7 +203,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                                     style.grid_column = GridPlacement::span(2);
                                     style
                                 },
-                                ImageNode::new(button_background_image.clone()),
+                                fill_image_node(button_background_image.clone()),
                             ),
                             MenuButtonAction::BackToMainMenu,
                         ))
@@ -375,10 +375,12 @@ fn add_world_item(
     let txt = commands
         .spawn((
             (
-                Text::new(format!("{name}\n")),
+                Text::new(name.clone()),
                 TextFont {
-                    font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                    font_size: 20.,
+                    font: asset_server
+                        .load("./fonts/RustCraftRegular-Bmg3.otf")
+                        .into(),
+                    font_size: 20.0.into(),
                     ..default()
                 },
                 TextColor(Color::WHITE),

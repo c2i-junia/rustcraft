@@ -65,8 +65,8 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
     let button_background_image = load_button_background_large_image(&asset_server);
 
     let txt_font = TextFont {
-        font: font.clone(),
-        font_size: 20.0,
+        font: font.clone().into(),
+        font_size: 20.0.into(),
         ..default()
     };
 
@@ -97,7 +97,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                 },
                 BackgroundColor(Color::NONE),
             ),
-            ImageNode::new(background_image),
+            fill_image_node(background_image),
         ))
         .with_children(|root| {
             root.spawn((
@@ -202,7 +202,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                                 BorderColor::all(Color::BLACK),
                                 BackgroundColor(BACKGROUND_COLOR),
                                 btn_style.clone(),
-                                ImageNode::new(button_background_image.clone()),
+                                fill_image_node(button_background_image.clone()),
                             ),
                             MultiplayerButtonAction::Add,
                         ))
@@ -217,7 +217,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                                 BorderColor::all(Color::BLACK),
                                 BackgroundColor(BACKGROUND_COLOR),
                                 btn_style.clone(),
-                                ImageNode::new(button_background_image.clone()),
+                                fill_image_node(button_background_image.clone()),
                             ),
                             MenuButtonAction::BackToMainMenu,
                         ))
@@ -293,10 +293,12 @@ pub fn add_server_item(
 
     let txt = commands
         .spawn(((
-            Text::new(format!("{name}\n")),
+            Text::new(name.clone()),
             TextFont {
-                font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                font_size: 20.,
+                font: asset_server
+                    .load("./fonts/RustCraftRegular-Bmg3.otf")
+                    .into(),
+                font_size: 20.0.into(),
                 ..default()
             },
             TextColor(Color::WHITE),
@@ -307,8 +309,10 @@ pub fn add_server_item(
         .spawn((
             Text::new(ip.clone()),
             TextFont {
-                font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                font_size: 15.,
+                font: asset_server
+                    .load("./fonts/RustCraftRegular-Bmg3.otf")
+                    .into(),
+                font_size: 15.0.into(),
                 ..default()
             },
             TextColor(Color::srgb(0.4, 0.4, 0.4)),

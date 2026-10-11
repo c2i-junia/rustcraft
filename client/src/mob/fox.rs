@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use bevy::{
     animation::{AnimationEvent, AnimationTargetId},
+    asset::AssetMut,
     color::palettes::css::WHITE,
     prelude::*,
 };
@@ -74,7 +75,7 @@ pub fn setup_fox(
     // Fox
     let fox = commands
         .spawn((
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(FOX_PATH))),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(FOX_PATH))),
             Transform::from_translation(spawn_pos).with_scale(Vec3::splat(0.01)),
             MobRoot { id },
         ))
@@ -101,7 +102,7 @@ pub fn setup_fox_once_loaded(
     ) -> &'a mut AnimationClip {
         let node = graph.get(node).unwrap();
         let clip = match &node.node_type {
-            AnimationNodeType::Clip(handle) => clips.get_mut(handle),
+            AnimationNodeType::Clip(handle) => clips.get_mut(handle).map(AssetMut::into_inner),
             _ => unreachable!(),
         };
         clip.unwrap()

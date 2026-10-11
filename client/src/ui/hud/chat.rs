@@ -95,8 +95,10 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
                         ..default()
                     },
                     TextInputTextFont(TextFont {
-                        font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                        font_size: 17.,
+                        font: asset_server
+                            .load("./fonts/RustCraftRegular-Bmg3.otf")
+                            .into(),
+                        font_size: 17.0.into(),
                         ..default()
                     }),
                     TextInputTextColor(TextColor(Color::WHITE)),
@@ -190,8 +192,10 @@ pub fn render_chat(
                 (
                     Text::new(format!("<{}> : {}", message.author, message.content)),
                     TextFont {
-                        font: asset_server.load("./fonts/RustCraftRegular-Bmg3.otf"),
-                        font_size: 17.,
+                        font: asset_server
+                            .load("./fonts/RustCraftRegular-Bmg3.otf")
+                            .into(),
+                        font_size: 17.0.into(),
                         ..default()
                     },
                     TextColor(Color::WHITE),

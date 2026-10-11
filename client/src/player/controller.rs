@@ -133,12 +133,12 @@ pub fn first_and_third_person_view_system(
     match *view_mode {
         ViewMode::FirstPerson => {
             // make player transparent
-            if let Some(material) = materials.get_mut(material_handle) {
+            if let Some(mut material) = materials.get_mut(material_handle) {
                 material.base_color = Color::srgba(0.0, 0.0, 0.0, 0.0);
             }
         }
         ViewMode::ThirdPerson => {
-            if let Some(material) = materials.get_mut(material_handle) {
+            if let Some(mut material) = materials.get_mut(material_handle) {
                 material.base_color = Color::srgba(1.0, 0.0, 0.0, 1.0);
             }
         }
