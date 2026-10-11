@@ -3,141 +3,108 @@ use noise::{NoiseFn, Perlin};
 use shared::{world::*, CHUNK_SIZE};
 use std::collections::HashMap;
 
-fn generate_tree(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, trunk: BlockId, leaves: BlockId) {
-    // create trunk
-    let trunk_height = 3 + rand::random::<u8>() % 3; // random height between 3 and 5
-    for dy in 0..trunk_height {
-        chunk.map.insert(
-            IVec3::new(x, y + dy as i32, z),
-            BlockData::new(trunk, BlockDirection::Front),
-        );
-    }
+/// Water fills every column up to this height; flora only grows on land above it.
+const SEA_LEVEL: i32 = 62;
+const TERRAIN_SCALE: f64 = 0.1;
+const BIOME_SCALE: f64 = 0.01;
 
-    // place the leaves
-    let leaf_start_y = y + trunk_height as i32 - 1;
-    for layer in 0..3 {
-        let current_y = leaf_start_y + layer;
-        for offset_x in -2i32..=2i32 {
-            for offset_z in -2i32..=2i32 {
-                let cond1 = (offset_x.abs() + offset_z.abs()) < 3 - layer;
-                let cond2 = (offset_x.abs() + offset_z.abs()) == 3 - layer
-                    && rand::random::<f32>() < 0.2
-                    && layer < 2;
-                if cond1 || cond2 {
-                    chunk.map.insert(
-                        IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, BlockDirection::Front),
-                    );
-                }
-            }
-        }
-    }
-    chunk.map.insert(
-        IVec3::new(x, y + trunk_height as i32 - 1, z),
-        BlockData::new(trunk, BlockDirection::Front),
-    );
+/// Largest horizontal distance between the column a structure is rooted in and any of its
+/// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
+/// at most 2 blocks long, and its tip carries one more leaf (`x + 1 + 2`). Generating a chunk
+/// therefore looks at the columns of the chunk plus this margin on each side.
+const STRUCTURE_MARGIN: i32 = 3;
 
-    // add one leaf block at the top of the trunk
+// Salts: each random decision of a column hashes `(seed, x, z, salt)` with its own salt.
+const SALT_FLOWER_ROLL: u64 = 1;
+const SALT_FLOWER_KIND: u64 = 2;
+const SALT_TALL_GRASS_ROLL: u64 = 3;
+const SALT_TREE_ROLL: u64 = 4;
+const SALT_TRUNK_HEIGHT: u64 = 5;
+const SALT_CACTUS_ROLL: u64 = 6;
+const SALT_CACTUS_HEIGHT: u64 = 7;
+/// Each of the two branches of a big tree uses 4 consecutive salts from here.
+const SALT_BRANCH: u64 = 0x100;
+/// One salt per leaf of the 5x5x3 crown, from here.
+const SALT_LEAF: u64 = 0x200;
+
+/// The `splitmix64` finaliser: a bijective mixing of 64 bits, good enough that consecutive
+/// inputs give unrelated outputs.
+fn splitmix64(value: u64) -> u64 {
+    let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
 }
 
-fn generate_big_tree(
-    chunk: &mut ServerChunk,
+/// The random decisions of one world column. Every value is a pure function of
+/// `(seed, x, z, salt)`, so a column decides the same thing whichever chunk asks.
+struct ColumnRandom {
+    seed: u32,
     x: i32,
-    y: i32,
     z: i32,
-    trunk: BlockId,
-    leaves: BlockId,
-) {
-    let trunk_height = 4 + rand::random::<u8>() % 3; // random height between 4 and 7
-    let leaf_start_y = y + trunk_height as i32 - 2;
-    // add branches
-    for _ in 1..3 {
-        let branch_x = x + rand::random::<i32>() % 2;
-        let branch_z = z + rand::random::<i32>() % 2;
-        let branch_y = std::cmp::max(leaf_start_y - 1 - rand::random::<i32>() % 2, 2);
-        let prof = rand::random::<u8>() % 2 + 1;
-        for dx in 0..prof {
-            chunk.map.insert(
-                IVec3::new(branch_x + dx as i32, branch_y, branch_z + 1),
-                BlockData::new(leaves, BlockDirection::Front),
-            );
-            chunk.map.insert(
-                IVec3::new(branch_x + dx as i32, branch_y, branch_z - 1),
-                BlockData::new(leaves, BlockDirection::Front),
-            );
-            chunk.map.insert(
-                IVec3::new(branch_x + dx as i32, branch_y + 1, branch_z),
-                BlockData::new(leaves, BlockDirection::Front),
-            );
+}
 
-            chunk.map.insert(
-                IVec3::new(branch_x + dx as i32, branch_y, branch_z),
-                BlockData::new(trunk, BlockDirection::Front),
-            );
-        }
-        chunk.map.insert(
-            IVec3::new(branch_x + prof as i32, branch_y, branch_z),
-            BlockData::new(leaves, BlockDirection::Front),
-        );
-    }
-    // create trunk
-
-    for dy in 0..trunk_height {
-        chunk.map.insert(
-            IVec3::new(x, y + dy as i32, z),
-            BlockData::new(trunk, BlockDirection::Front),
-        );
+impl ColumnRandom {
+    /// Folds the seed, the coordinates and the salt into one 64-bit hash, one `splitmix64`
+    /// round after each of them.
+    fn bits(&self, salt: u64) -> u64 {
+        let mut hash = splitmix64(self.seed as u64);
+        hash = splitmix64(hash ^ self.x as u32 as u64);
+        hash = splitmix64(hash ^ self.z as u32 as u64);
+        splitmix64(hash ^ salt)
     }
 
-    // place the leaves
-
-    for layer in 0..2 {
-        let current_y = leaf_start_y + layer;
-        for offset_x in -2i32..=2i32 {
-            for offset_z in -2i32..=2i32 {
-                if !(offset_x == 0 && offset_z == 0 || offset_x.abs() == 2 && offset_z.abs() == 2) {
-                    chunk.map.insert(
-                        IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, BlockDirection::Front),
-                    );
-                }
-            }
-        }
+    /// A number in `[0, 1)`.
+    fn unit(&self, salt: u64) -> f32 {
+        (self.bits(salt) >> 40) as f32 / (1u64 << 24) as f32
     }
 
-    // add one leaf block at the top of the trunk
-    chunk.map.insert(
-        IVec3::new(x, leaf_start_y + 2, z),
-        BlockData::new(leaves, BlockDirection::Front),
-    );
+    /// A number in `0..count`.
+    fn below(&self, salt: u64, count: u64) -> i32 {
+        ((self.bits(salt) >> 32) % count) as i32
+    }
 
-    // Add random leaves above the top leaf
-    for layer in 0..3 {
-        let current_y = leaf_start_y + layer + 2;
-        for offset_x in -2i32..=2i32 {
-            for offset_z in -2i32..=2i32 {
-                let cond1 = (offset_x.abs() + offset_z.abs()) < 3 - layer;
-                let cond2 = (offset_x.abs() + offset_z.abs()) == 3 - layer
-                    && rand::random::<f32>() < 0.2
-                    && layer < 2;
-                if cond1 || cond2 {
-                    chunk.map.insert(
-                        IVec3::new(x + offset_x, current_y, z + offset_z),
-                        BlockData::new(leaves, BlockDirection::Front),
-                    );
-                }
-            }
+    /// -1, 0, 0 or 1, like the remainder of a random integer divided by 2.
+    fn jitter(&self, salt: u64) -> i32 {
+        match self.below(salt, 4) {
+            0 => -1,
+            3 => 1,
+            _ => 0,
         }
     }
 }
 
-fn generate_cactus(chunk: &mut ServerChunk, x: i32, y: i32, z: i32, cactus: BlockId) {
-    let cactus_height = 2 + rand::random::<u8>() % 2;
-    for dy in 0..cactus_height {
-        chunk.map.insert(
-            IVec3::new(x, y + dy as i32, z),
-            BlockData::new(cactus, BlockDirection::Front),
-        );
+/// What can grow on a column, before it is expanded into blocks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Decoration {
+    Flower(BlockId),
+    TallGrass,
+    Tree,
+    BigTree,
+    Cactus,
+}
+
+/// Terrain of one world column: the noise is evaluated once per column and reused.
+struct Column {
+    x: i32,
+    z: i32,
+    height: i32,
+    biome_type: BiomeType,
+}
+
+struct Noises {
+    terrain: Perlin,
+    temperature: Perlin,
+    humidity: Perlin,
+}
+
+impl Noises {
+    fn new(seed: u32) -> Self {
+        Self {
+            terrain: Perlin::new(seed),
+            temperature: Perlin::new(seed.wrapping_add(1)),
+            humidity: Perlin::new(seed.wrapping_add(2)),
+        }
     }
 }
 
@@ -166,14 +133,10 @@ pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
         } else {
             BiomeType::MediumMountain
         }
-    } else if temperature >= 0.0 {
-        if humidity > (1.0 - ocean_percentage) / 2.0 {
-            BiomeType::IcePlain
-        } else {
-            BiomeType::HighMountainGrass
-        }
+    } else if humidity > (1.0 - ocean_percentage) / 2.0 {
+        BiomeType::IcePlain
     } else {
-        panic!();
+        BiomeType::HighMountainGrass
     }
 }
 
@@ -247,187 +210,675 @@ fn interpolated_height(
     interpolated_height.round() as i32
 }
 
-pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
-    let perlin = Perlin::new(seed);
-    let temp_perlin = Perlin::new(seed + 1);
-    let humidity_perlin = Perlin::new(seed + 2);
+fn terrain_column(noises: &Noises, x: i32, z: i32) -> Column {
+    let point = [x as f64 * BIOME_SCALE, z as f64 * BIOME_SCALE];
+    let temperature = (noises.temperature.get(point) + 1.0) / 2.0;
+    let humidity = (noises.humidity.get(point) + 1.0) / 2.0;
+    let height = interpolated_height(
+        x,
+        z,
+        BIOME_SCALE,
+        &noises.terrain,
+        &noises.temperature,
+        &noises.humidity,
+        TERRAIN_SCALE,
+    );
+    Column {
+        x,
+        z,
+        height,
+        biome_type: determine_biome(temperature, humidity),
+    }
+}
 
-    let scale = 0.1;
-    let biome_scale = 0.01;
-    let cx = chunk_pos.x;
-    let cy = chunk_pos.y;
-    let cz = chunk_pos.z;
+/// The block at height `y` of a terrain column, or `None` above the surface and the sea.
+fn terrain_block(y: i32, height: i32, biome: &Biome) -> Option<BlockId> {
+    if y > height && y > SEA_LEVEL {
+        None
+    } else if y == 0 {
+        Some(BlockId::Bedrock)
+    } else if y < height - 4 {
+        Some(BlockId::Stone)
+    } else if y < height {
+        Some(biome.sub_surface_block)
+    } else if y == height {
+        Some(biome.surface_block)
+    } else {
+        Some(BlockId::Water)
+    }
+}
+
+/// Which of two blocks claiming the same cell stays: the higher rank wins. Terrain (and any
+/// block not listed) beats every decoration, a trunk or a cactus beats leaves, leaves beat
+/// tall grass and tall grass beats flowers. Equal ranks keep the block placed first; columns
+/// are visited in world coordinate order, so that choice is the same in every chunk.
+fn precedence(block: BlockId) -> u8 {
+    match block {
+        BlockId::Dandelion | BlockId::Poppy => 1,
+        BlockId::TallGrass => 2,
+        BlockId::OakLeaves => 3,
+        BlockId::OakLog | BlockId::Cactus => 4,
+        _ => 5,
+    }
+}
+
+/// Writes `block` at a world position if it falls inside the chunk and does not displace a
+/// block of higher or equal rank.
+fn place(chunk: &mut ServerChunk, chunk_origin: IVec3, world_pos: IVec3, block: BlockId) {
+    let local = world_pos - chunk_origin;
+    if !(local.cmpge(IVec3::ZERO).all() && local.cmplt(IVec3::splat(CHUNK_SIZE)).all()) {
+        return;
+    }
+    let outranked = chunk
+        .map
+        .get(&local)
+        .is_some_and(|existing| precedence(existing.id) >= precedence(block));
+    if !outranked {
+        chunk
+            .map
+            .insert(local, BlockData::new(block, BlockDirection::Front));
+    }
+}
+
+fn random_of(seed: u32, column: &Column) -> ColumnRandom {
+    ColumnRandom {
+        seed,
+        x: column.x,
+        z: column.z,
+    }
+}
+
+/// Decides, from `(seed, x, z)` only, what is rooted on the column.
+fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration> {
+    let mut decorations = Vec::new();
+    if column.height <= SEA_LEVEL {
+        return decorations;
+    }
+    let biome_type = column.biome_type;
+
+    let flower_chance = match biome_type {
+        BiomeType::FlowerPlains => 0.1,
+        BiomeType::Plains | BiomeType::Forest | BiomeType::MediumMountain => 0.02,
+        _ => 0.0,
+    };
+    if random.unit(SALT_FLOWER_ROLL) < flower_chance {
+        let flower = if random.unit(SALT_FLOWER_KIND) < 0.5 {
+            BlockId::Dandelion
+        } else {
+            BlockId::Poppy
+        };
+        decorations.push(Decoration::Flower(flower));
+    }
+
+    let grassless = [
+        BiomeType::HighMountainGrass,
+        BiomeType::Desert,
+        BiomeType::IcePlain,
+    ];
+    if !grassless.contains(&biome_type) && random.unit(SALT_TALL_GRASS_ROLL) < 0.10 {
+        decorations.push(Decoration::TallGrass);
+    }
+
+    let tree_roll = random.unit(SALT_TREE_ROLL);
+    match biome_type {
+        BiomeType::Forest if tree_roll < 0.01 => decorations.push(Decoration::BigTree),
+        BiomeType::Forest if tree_roll < 0.06 => decorations.push(Decoration::Tree),
+        BiomeType::FlowerPlains | BiomeType::MediumMountain if tree_roll < 0.02 => {
+            decorations.push(Decoration::Tree)
+        }
+        _ => {}
+    }
+
+    if biome_type == BiomeType::Desert && random.unit(SALT_CACTUS_ROLL) < 0.01 {
+        decorations.push(Decoration::Cactus);
+    }
+    decorations
+}
+
+type Blocks = Vec<(IVec3, BlockId)>;
+
+/// A 5x5 crown of leaves, 3 layers high starting at `bottom`: a diamond with a few extra
+/// leaves jittered onto the edge of its two lower layers.
+fn crown_blocks(bottom: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
+    for layer in 0..3 {
+        for offset_x in -2i32..=2 {
+            for offset_z in -2i32..=2 {
+                let distance = offset_x.abs() + offset_z.abs();
+                let leaf_index = (layer * 5 + offset_x + 2) * 5 + offset_z + 2;
+                let jittered = distance == 3 - layer
+                    && layer < 2
+                    && random.unit(SALT_LEAF + leaf_index as u64) < 0.2;
+                if distance < 3 - layer || jittered {
+                    let pos = bottom + IVec3::new(offset_x, layer, offset_z);
+                    blocks.push((pos, BlockId::OakLeaves));
+                }
+            }
+        }
+    }
+}
+
+fn trunk_blocks(root: IVec3, trunk_height: i32, blocks: &mut Blocks) {
+    for dy in 0..trunk_height {
+        blocks.push((root + IVec3::Y * dy, BlockId::OakLog));
+    }
+}
+
+fn tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
+    let trunk_height = 3 + random.below(SALT_TRUNK_HEIGHT, 3); // 3 to 5
+    trunk_blocks(root, trunk_height, blocks);
+    crown_blocks(root + IVec3::Y * (trunk_height - 1), random, blocks);
+}
+
+fn big_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
+    let trunk_height = 4 + random.below(SALT_TRUNK_HEIGHT, 3); // 4 to 6
+    let leaf_start_y = root.y + trunk_height - 2;
+
+    for branch in 0..2u64 {
+        let salt = SALT_BRANCH + branch * 4;
+        let branch_x = root.x + random.jitter(salt);
+        let branch_z = root.z + random.jitter(salt + 1);
+        let branch_y = leaf_start_y - 1 - random.jitter(salt + 2);
+        let length = 1 + random.below(salt + 3, 2);
+        for x in branch_x..branch_x + length {
+            blocks.push((IVec3::new(x, branch_y, branch_z + 1), BlockId::OakLeaves));
+            blocks.push((IVec3::new(x, branch_y, branch_z - 1), BlockId::OakLeaves));
+            blocks.push((IVec3::new(x, branch_y + 1, branch_z), BlockId::OakLeaves));
+            blocks.push((IVec3::new(x, branch_y, branch_z), BlockId::OakLog));
+        }
+        let tip = IVec3::new(branch_x + length, branch_y, branch_z);
+        blocks.push((tip, BlockId::OakLeaves));
+    }
+
+    trunk_blocks(root, trunk_height, blocks);
+
+    // two flat rings of leaves around the top of the trunk, without their corners
+    for layer in 0..2 {
+        for offset_x in -2i32..=2 {
+            for offset_z in -2i32..=2 {
+                let is_axis = offset_x == 0 && offset_z == 0;
+                let is_corner = offset_x.abs() == 2 && offset_z.abs() == 2;
+                if !is_axis && !is_corner {
+                    let pos =
+                        IVec3::new(root.x + offset_x, leaf_start_y + layer, root.z + offset_z);
+                    blocks.push((pos, BlockId::OakLeaves));
+                }
+            }
+        }
+    }
+    crown_blocks(IVec3::new(root.x, leaf_start_y + 2, root.z), random, blocks);
+}
+
+fn cactus_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
+    let cactus_height = 2 + random.below(SALT_CACTUS_HEIGHT, 2);
+    for dy in 0..cactus_height {
+        blocks.push((root + IVec3::Y * dy, BlockId::Cactus));
+    }
+}
+
+/// Every block, in world coordinates, of everything rooted on the column. Chunk bounds and
+/// ranks are applied later by [`place`].
+fn column_blocks(seed: u32, column: &Column) -> Blocks {
+    let random = random_of(seed, column);
+    let root = IVec3::new(column.x, column.height + 1, column.z);
+    let mut blocks = Vec::new();
+    for decoration in column_decorations(column, &random) {
+        match decoration {
+            Decoration::Flower(flower) => blocks.push((root, flower)),
+            Decoration::TallGrass => blocks.push((root, BlockId::TallGrass)),
+            Decoration::Tree => tree_blocks(root, &random, &mut blocks),
+            Decoration::BigTree => big_tree_blocks(root, &random, &mut blocks),
+            Decoration::Cactus => cactus_blocks(root, &random, &mut blocks),
+        }
+    }
+    blocks
+}
+
+/// Generates a chunk. It is a pure function of its arguments: terrain comes from the noise,
+/// and decorations are decided per world column, so a structure rooted in a neighbouring
+/// column is cut at the chunk border the same way whichever chunk is generated first.
+pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
+    let noises = Noises::new(seed);
+    let chunk_origin = chunk_pos * CHUNK_SIZE;
 
     let mut chunk = ServerChunk {
         map: HashMap::new(),
         ts: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_millis() as u64,
         sent_to_clients: vec![],
     };
 
-    for dx in 0..CHUNK_SIZE {
-        for dz in 0..CHUNK_SIZE {
-            let x = CHUNK_SIZE * cx + dx;
-            let z = CHUNK_SIZE * cz + dz;
+    let chunk_range = 0..CHUNK_SIZE;
+    for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+        for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+            let column = terrain_column(&noises, chunk_origin.x + dx, chunk_origin.z + dz);
 
-            // calculate temperature and humidity
-            let temperature =
-                (temp_perlin.get([x as f64 * biome_scale, z as f64 * biome_scale]) + 1.0) / 2.0;
-            let humidity =
-                (humidity_perlin.get([x as f64 * biome_scale, z as f64 * biome_scale]) + 1.0) / 2.0;
-
-            // get biome regarding the two values
-            let biome_type = determine_biome(temperature, humidity);
-            let biome = get_biome_data(biome_type);
-
-            // get terrain height
-            let terrain_height = interpolated_height(
-                x,
-                z,
-                biome_scale,
-                &perlin,
-                &temp_perlin,
-                &humidity_perlin,
-                scale,
-            );
-
-            // generate blocs
-            for dy in 0..CHUNK_SIZE {
-                let y = CHUNK_SIZE * cy + dy;
-
-                if y > terrain_height && y > 62 {
-                    break;
+            if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
+                let biome = get_biome_data(column.biome_type);
+                for y in chunk_origin.y..chunk_origin.y + CHUNK_SIZE {
+                    if let Some(block) = terrain_block(y, column.height, &biome) {
+                        place(
+                            &mut chunk,
+                            chunk_origin,
+                            IVec3::new(column.x, y, column.z),
+                            block,
+                        );
+                    }
                 }
+            }
 
-                let block = if y == 0 {
-                    BlockId::Bedrock
-                } else if y < terrain_height - 4 {
-                    BlockId::Stone
-                } else if y < terrain_height {
-                    biome.sub_surface_block
-                } else if y == terrain_height {
-                    biome.surface_block
-                } else if y <= 62 {
-                    BlockId::Water
-                } else {
-                    panic!();
+            // decorations only grow upwards from the surface
+            if column.height + 1 < chunk_origin.y + CHUNK_SIZE {
+                for (pos, block) in column_blocks(seed, &column) {
+                    place(&mut chunk, chunk_origin, pos, block);
+                }
+            }
+        }
+    }
+    chunk
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ops::Range;
+
+    /// Height, biome and surface block of a world column, read back from the generated chunks.
+    fn probe(seed: u32, x: i32, z: i32) -> (i32, BiomeType, BlockId) {
+        let temperature = Perlin::new(seed + 1).get([x as f64 * 0.01, z as f64 * 0.01]);
+        let humidity = Perlin::new(seed + 2).get([x as f64 * 0.01, z as f64 * 0.01]);
+        let biome = determine_biome((temperature + 1.0) / 2.0, (humidity + 1.0) / 2.0);
+        let surface = get_biome_data(biome).surface_block;
+        let local = IVec3::new(x.rem_euclid(CHUNK_SIZE), 0, z.rem_euclid(CHUNK_SIZE));
+        let mut height = -1;
+        for cy in 0..8 {
+            let chunk_pos = IVec3::new(x.div_euclid(CHUNK_SIZE), cy, z.div_euclid(CHUNK_SIZE));
+            let chunk = generate_chunk(chunk_pos, seed);
+            for dy in 0..CHUNK_SIZE {
+                if chunk.map.get(&local.with_y(dy)).map(|b| b.id) == Some(surface) {
+                    height = cy * CHUNK_SIZE + dy;
+                }
+            }
+        }
+        (height, biome, surface)
+    }
+
+    #[test]
+    fn terrain_is_pinned_for_a_fixed_seed() {
+        // Values recorded from the generator before decorations became per-column.
+        let expected = [
+            ((0, 0), (64, BiomeType::FlowerPlains, BlockId::Grass)),
+            ((37, -91), (56, BiomeType::Ocean, BlockId::Sand)),
+            ((-120, 55), (64, BiomeType::Forest, BlockId::Grass)),
+            ((-5, -300), (63, BiomeType::FlowerPlains, BlockId::Grass)),
+            ((15, 16), (65, BiomeType::Plains, BlockId::Grass)),
+            ((-1500, -1463), (64, BiomeType::IcePlain, BlockId::Snow)),
+            ((-1500, -1278), (64, BiomeType::Forest, BlockId::Grass)),
+            (
+                (-1500, -1056),
+                (74, BiomeType::HighMountainGrass, BlockId::Grass),
+            ),
+            (
+                (-1500, -760),
+                (70, BiomeType::MediumMountain, BlockId::Grass),
+            ),
+            ((-1500, -723), (63, BiomeType::Desert, BlockId::Sand)),
+            ((-1463, -1352), (51, BiomeType::DeepOcean, BlockId::Sand)),
+        ];
+        for ((x, z), want) in expected {
+            assert_eq!(probe(42, x, z), want, "column ({x}, {z})");
+        }
+    }
+
+    /// Chunks around the surface (heights 50 to 80), with positive and negative coordinates.
+    fn sample_chunks() -> Vec<IVec3> {
+        let mut chunks = Vec::new();
+        for (cx, cz) in [(0, 0), (-1, -1), (2, -3), (-5, 4), (7, 7)] {
+            for cy in 2..=7 {
+                chunks.push(IVec3::new(cx, cy, cz));
+            }
+        }
+        chunks
+    }
+
+    #[test]
+    fn every_block_is_inside_its_chunk() {
+        for chunk_pos in sample_chunks() {
+            let chunk = generate_chunk(chunk_pos, 42);
+            for pos in chunk.map.keys() {
+                assert!(
+                    (0..CHUNK_SIZE).contains(&pos.x)
+                        && (0..CHUNK_SIZE).contains(&pos.y)
+                        && (0..CHUNK_SIZE).contains(&pos.z),
+                    "chunk {chunk_pos}: block at local {pos}"
+                );
+            }
+        }
+    }
+
+    fn sorted_blocks(chunk: &ServerChunk) -> Vec<(IVec3, BlockId)> {
+        let mut blocks: Vec<_> = chunk.map.iter().map(|(p, b)| (*p, b.id)).collect();
+        blocks.sort_by_key(|(p, _)| (p.x, p.y, p.z));
+        blocks
+    }
+
+    #[test]
+    fn same_inputs_give_the_same_chunk() {
+        for chunk_pos in sample_chunks() {
+            let first = generate_chunk(chunk_pos, 42);
+            let second = generate_chunk(chunk_pos, 42);
+            assert_eq!(
+                sorted_blocks(&first),
+                sorted_blocks(&second),
+                "chunk {chunk_pos}"
+            );
+        }
+    }
+
+    #[test]
+    fn another_seed_gives_another_chunk() {
+        let chunk_pos = IVec3::new(0, 4, 0);
+        let first = generate_chunk(chunk_pos, 42);
+        let second = generate_chunk(chunk_pos, 43);
+        assert_ne!(sorted_blocks(&first), sorted_blocks(&second));
+    }
+
+    #[test]
+    fn the_largest_seed_does_not_panic() {
+        for chunk_pos in sample_chunks() {
+            generate_chunk(chunk_pos, u32::MAX);
+        }
+    }
+
+    /// Finds, in a window of columns, the first one carrying a tree whose blocks satisfy `wanted`.
+    fn find_tree(
+        seed: u32,
+        xs: Range<i32>,
+        zs: Range<i32>,
+        wanted: impl Fn(&Blocks) -> bool,
+    ) -> Column {
+        let noises = Noises::new(seed);
+        let xs_window = xs.clone();
+        for x in xs {
+            for z in zs.clone() {
+                let column = terrain_column(&noises, x, z);
+                let has_tree = column_decorations(&column, &random_of(seed, &column))
+                    .iter()
+                    .any(|d| matches!(d, Decoration::Tree | Decoration::BigTree));
+                if has_tree && wanted(&column_blocks(seed, &column)) {
+                    return column;
+                }
+            }
+        }
+        panic!("no matching tree in x {xs_window:?}, z {zs:?}: widen the window");
+    }
+
+    fn touched_chunks(blocks: &Blocks) -> Vec<IVec3> {
+        let mut chunks: Vec<IVec3> = blocks
+            .iter()
+            .map(|(pos, _)| pos.div_euclid(IVec3::splat(CHUNK_SIZE)))
+            .collect();
+        chunks.sort_by_key(|c| (c.x, c.y, c.z));
+        chunks.dedup();
+        chunks
+    }
+
+    /// Generates every chunk the tree rooted on `column` touches, and
+    /// checks that the union holds all of its blocks.
+    fn assert_tree_is_complete(seed: u32, column: &Column) {
+        let blocks = column_blocks(seed, column);
+        let touched = touched_chunks(&blocks);
+        assert!(touched.len() >= 2, "the tree must straddle a border");
+        let chunks: HashMap<IVec3, ServerChunk> = touched
+            .iter()
+            .map(|&c| (c, generate_chunk(c, seed)))
+            .collect();
+
+        let mut exact_per_chunk: HashMap<IVec3, usize> = HashMap::new();
+        for (pos, block) in &blocks {
+            let chunk_pos = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
+            let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE));
+            let actual = chunks[&chunk_pos].map.get(&local).map(|b| b.id);
+            // a block of another structure or of the terrain may outrank a leaf, never the reverse
+            let actual = actual.unwrap_or_else(|| panic!("{pos} ({block:?}) is missing"));
+            assert!(
+                precedence(actual) >= precedence(*block),
+                "{pos}: {actual:?} instead of {block:?}"
+            );
+            if actual == *block {
+                *exact_per_chunk.entry(chunk_pos).or_default() += 1;
+            }
+            if *block == BlockId::OakLog && pos.x == column.x && pos.z == column.z {
+                assert_eq!(actual, BlockId::OakLog, "trunk block at {pos}");
+            }
+        }
+        for chunk_pos in touched {
+            assert!(
+                exact_per_chunk.get(&chunk_pos).copied().unwrap_or(0) > 0,
+                "nothing of the tree in {chunk_pos}"
+            );
+        }
+    }
+
+    fn spans_two_chunks(blocks: &Blocks, axis: usize) -> bool {
+        let coords: Vec<i32> = blocks
+            .iter()
+            .map(|(p, _)| p[axis].div_euclid(CHUNK_SIZE))
+            .collect();
+        coords.iter().min() != coords.iter().max()
+    }
+
+    #[test]
+    fn a_tree_across_a_horizontal_border_is_complete() {
+        for axis in [0, 2] {
+            let column = find_tree(42, -100..100, -100..100, |b| spans_two_chunks(b, axis));
+            assert_tree_is_complete(42, &column);
+        }
+    }
+
+    #[test]
+    fn a_tree_across_a_vertical_border_is_complete() {
+        // Such trees are rare (only high ground puts a root near a chunk plane): search wide.
+        let column = find_tree(42, -300..300, -300..300, |b| spans_two_chunks(b, 1));
+        assert_tree_is_complete(42, &column);
+    }
+
+    #[test]
+    fn a_tree_rooted_on_the_top_layer_of_a_chunk_belongs_to_the_chunk_above() {
+        let seed = 42;
+        let noises = Noises::new(seed);
+        let mut found = None;
+        'scan: for x in -100..100 {
+            for z in -100..100 {
+                let column = terrain_column(&noises, x, z);
+                let has_tree = column_decorations(&column, &random_of(seed, &column))
+                    .iter()
+                    .any(|d| matches!(d, Decoration::Tree | Decoration::BigTree));
+                if has_tree && column.height.rem_euclid(CHUNK_SIZE) == CHUNK_SIZE - 1 {
+                    found = Some(column);
+                    break 'scan;
+                }
+            }
+        }
+        let column = found.expect("a tree on a surface at the top of a chunk");
+        let root = IVec3::new(column.x, column.height + 1, column.z);
+        let chunk_of_root = root.div_euclid(IVec3::splat(CHUNK_SIZE));
+        let local = root.rem_euclid(IVec3::splat(CHUNK_SIZE));
+        assert_eq!(local.y, 0);
+
+        let above = generate_chunk(chunk_of_root, seed);
+        assert_eq!(above.map.get(&local).map(|b| b.id), Some(BlockId::OakLog));
+        let below = generate_chunk(chunk_of_root - IVec3::Y, seed);
+        assert!(below.map.values().all(|b| b.id != BlockId::OakLog));
+    }
+
+    #[test]
+    fn no_structure_reaches_further_than_the_margin() {
+        let seed = 7;
+        let mut widest = 0;
+        for x in 0..150 {
+            for z in 0..150 {
+                let column = Column {
+                    x,
+                    z,
+                    height: 70,
+                    biome_type: BiomeType::Forest,
                 };
+                for (pos, _) in column_blocks(seed, &column) {
+                    // the vertical culling in generate_chunk relies on this
+                    assert!(pos.y > column.height, "block below its root at {pos}");
+                    widest = widest.max((pos.x - x).abs()).max((pos.z - z).abs());
+                }
+            }
+        }
+        assert_eq!(widest, STRUCTURE_MARGIN);
+    }
 
-                let block_pos = IVec3::new(dx, dy, dz);
-
-                chunk
-                    .map
-                    .insert(block_pos, BlockData::new(block, BlockDirection::Front));
-
-                // Add flora in biomes
-                if y == terrain_height && terrain_height > 62 {
-                    let above_surface_pos = IVec3::new(dx, terrain_height + 1, dz);
-
-                    // Add flowers
-                    let flower_chance = rand::random::<f32>();
-                    match biome_type {
-                        BiomeType::FlowerPlains => {
-                            // High probability for flowers in Flower Plains
-                            if flower_chance < 0.1 {
-                                let flower_type = if rand::random::<f32>() < 0.5 {
-                                    BlockId::Dandelion
-                                } else {
-                                    BlockId::Poppy
-                                };
-
-                                chunk.map.insert(
-                                    block_pos.with_y(block_pos.y + 1),
-                                    BlockData::new(flower_type, BlockDirection::Front),
-                                );
-                            }
-                        }
-                        BiomeType::Plains | BiomeType::Forest | BiomeType::MediumMountain => {
-                            // Low probability for flowers in Plains, Forest, Medium Mountain
-                            if flower_chance < 0.02 {
-                                let flower_type = if rand::random::<f32>() < 0.5 {
-                                    BlockId::Dandelion
-                                } else {
-                                    BlockId::Poppy
-                                };
-
-                                chunk.map.insert(
-                                    block_pos.with_y(block_pos.y + 1),
-                                    BlockData::new(flower_type, BlockDirection::Front),
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    // Add tall grass
-                    if biome_type != BiomeType::HighMountainGrass
-                        && biome_type != BiomeType::Desert
-                        && biome_type != BiomeType::IcePlain
-                    {
-                        let tall_grass_chance = rand::random::<f32>();
-                        if tall_grass_chance < 0.10 {
-                            chunk.map.insert(
-                                block_pos.with_y(block_pos.y + 1),
-                                BlockData::new(BlockId::TallGrass, BlockDirection::Front),
+    #[test]
+    fn decorations_never_replace_terrain() {
+        for chunk_pos in sample_chunks() {
+            let chunk = generate_chunk(chunk_pos, 42);
+            let noises = Noises::new(42);
+            for dx in 0..CHUNK_SIZE {
+                for dz in 0..CHUNK_SIZE {
+                    let column = terrain_column(
+                        &noises,
+                        chunk_pos.x * CHUNK_SIZE + dx,
+                        chunk_pos.z * CHUNK_SIZE + dz,
+                    );
+                    let biome = get_biome_data(column.biome_type);
+                    for dy in 0..CHUNK_SIZE {
+                        let y = chunk_pos.y * CHUNK_SIZE + dy;
+                        if y <= column.height || y <= SEA_LEVEL {
+                            let actual = chunk.map.get(&IVec3::new(dx, dy, dz)).map(|b| b.id);
+                            assert_eq!(
+                                actual,
+                                terrain_block(y, column.height, &biome),
+                                "chunk {chunk_pos} local ({dx}, {dy}, {dz})"
                             );
-                        }
-                    }
-
-                    // Add trees
-                    let tree_chance = rand::random::<f32>();
-                    match biome_type {
-                        BiomeType::Forest => {
-                            // High probability for trees in Forest
-                            if tree_chance < 0.06 && !chunk.map.contains_key(&above_surface_pos) {
-                                if tree_chance < 0.01 {
-                                    generate_big_tree(
-                                        &mut chunk,
-                                        dx,
-                                        dy + 1,
-                                        dz,
-                                        BlockId::OakLog,
-                                        BlockId::OakLeaves,
-                                    );
-                                } else {
-                                    generate_tree(
-                                        &mut chunk,
-                                        dx,
-                                        dy + 1,
-                                        dz,
-                                        BlockId::OakLog,
-                                        BlockId::OakLeaves,
-                                    );
-                                }
-                            }
-                        }
-                        BiomeType::FlowerPlains | BiomeType::MediumMountain => {
-                            // Medium probability for trees in Flower Plains and Medium Mountain
-                            if tree_chance < 0.02 && !chunk.map.contains_key(&above_surface_pos) {
-                                generate_tree(
-                                    &mut chunk,
-                                    dx,
-                                    dy + 1,
-                                    dz,
-                                    BlockId::OakLog,
-                                    BlockId::OakLeaves,
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    // Add cactus in Desert
-                    if biome_type == BiomeType::Desert {
-                        let cactus_chance = rand::random::<f32>();
-                        if cactus_chance < 0.01 && !chunk.map.contains_key(&above_surface_pos) {
-                            generate_cactus(&mut chunk, dx, dy + 1, dz, BlockId::Cactus);
                         }
                     }
                 }
             }
         }
     }
-    chunk
+
+    #[test]
+    fn a_higher_rank_wins_whatever_the_order() {
+        let ranked = [
+            BlockId::Dandelion,
+            BlockId::TallGrass,
+            BlockId::OakLeaves,
+            BlockId::OakLog,
+            BlockId::Stone,
+        ];
+        let cell = IVec3::new(3, 4, 5);
+        for (i, low) in ranked.iter().enumerate() {
+            for high in &ranked[i + 1..] {
+                for order in [[low, high], [high, low]] {
+                    let mut chunk = ServerChunk {
+                        map: HashMap::new(),
+                        ts: 0,
+                        sent_to_clients: vec![],
+                    };
+                    for block in order {
+                        place(&mut chunk, IVec3::ZERO, cell, *block);
+                    }
+                    assert_eq!(chunk.map[&cell].id, *high, "{low:?} against {high:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn splitmix64_matches_the_reference_vector() {
+        // first output of the reference splitmix64 generator seeded with 0
+        assert_eq!(splitmix64(0), 0xE220_A839_7B1D_CDAF);
+    }
+
+    #[test]
+    fn column_random_depends_on_every_input_and_nothing_else() {
+        let base = ColumnRandom {
+            seed: 1,
+            x: 5,
+            z: -7,
+        };
+        let same = ColumnRandom {
+            seed: 1,
+            x: 5,
+            z: -7,
+        };
+        assert_eq!(base.bits(3), same.bits(3));
+        assert_ne!(base.bits(3), base.bits(4));
+        assert_ne!(
+            base.bits(3),
+            ColumnRandom {
+                seed: 2,
+                x: 5,
+                z: -7
+            }
+            .bits(3)
+        );
+        assert_ne!(
+            base.bits(3),
+            ColumnRandom {
+                seed: 1,
+                x: 6,
+                z: -7
+            }
+            .bits(3)
+        );
+        assert_ne!(
+            base.bits(3),
+            ColumnRandom {
+                seed: 1,
+                x: 5,
+                z: -6
+            }
+            .bits(3)
+        );
+        assert_ne!(
+            ColumnRandom {
+                seed: 1,
+                x: -1,
+                z: 0
+            }
+            .bits(3),
+            ColumnRandom {
+                seed: 1,
+                x: 1,
+                z: 0
+            }
+            .bits(3)
+        );
+        // swapped coordinates and a diagonal step must not collide
+        let swapped = ColumnRandom {
+            seed: 1,
+            x: -7,
+            z: 5,
+        };
+        let diagonal = ColumnRandom {
+            seed: 1,
+            x: 6,
+            z: -8,
+        };
+        assert_ne!(base.bits(3), swapped.bits(3));
+        assert_ne!(base.bits(3), diagonal.bits(3));
+    }
+
+    #[test]
+    fn column_random_is_roughly_uniform() {
+        let mut below_tenth = 0;
+        for x in -50..50 {
+            for z in -50..50 {
+                let random = ColumnRandom { seed: 9, x, z };
+                let value = random.unit(SALT_TREE_ROLL);
+                assert!((0.0..1.0).contains(&value));
+                below_tenth += (value < 0.1) as i32;
+                assert!((0..3).contains(&random.below(SALT_TRUNK_HEIGHT, 3)));
+            }
+        }
+        assert!((900..1100).contains(&below_tenth), "{below_tenth} of 10000");
+    }
 }

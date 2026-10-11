@@ -115,8 +115,19 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
             }
             MobAction::Flee => {
                 if mob.position.distance(target) < 15.0 {
-                    mob.position -= dir * delta;
-                    mob.rotation = Quat::from_rotation_y(atan2(-dir.x, -dir.z));
+                    // Flee on the horizontal plane only: gravity handles the vertical axis
+                    let away = Vec3::new(mob.position.x - target.x, 0.0, mob.position.z - target.z)
+                        .normalize_or_zero();
+                    let new_vec = &(mob.position + away * delta);
+                    if !world_map.chunks.check_collision_box(&Aabb3d::new(
+                        *new_vec,
+                        Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
+                    )) {
+                        mob.position = *new_vec;
+                    }
+                    if away != Vec3::ZERO {
+                        mob.rotation = Quat::from_rotation_y(atan2(away.x, away.z));
+                    }
                 }
             }
         }
@@ -129,9 +140,10 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+    use bevy::math::IVec3;
     use bevy::math::Vec3;
     use bevy::prelude::World;
-    use shared::world::{MobKind, ServerMob};
+    use shared::world::{BlockData, BlockDirection, BlockId, MobKind, ServerMob};
     use std::time::Duration;
 
     fn mob_at(position: Vec3, target: MobTarget) -> ServerMob {
@@ -190,5 +202,89 @@ mod tests {
         let map = run_behavior(vec![mob_at(position, MobTarget::Position(position))]);
         assert!(map.mobs[&0].position.is_finite());
         assert!(map.mobs[&0].rotation.is_finite());
+    }
+
+    /// Flat stone ground (top face at y = 1) with an optional wall of stone at x = -2.
+    fn ground_world(with_wall: bool) -> ServerWorldMap {
+        let mut map = ServerWorldMap::default();
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        for x in -10..10 {
+            for z in -10..10 {
+                map.chunks.set_block(&IVec3::new(x, 0, z), stone);
+            }
+        }
+        if with_wall {
+            for z in -10..10 {
+                for y in 1..4 {
+                    map.chunks.set_block(&IVec3::new(-2, y, z), stone);
+                }
+            }
+        }
+        map
+    }
+
+    fn fleeing_fox_at_origin(target: Vec3) -> ServerMob {
+        let mut fox = mob_at(Vec3::new(0.5, 1.5, 0.5), MobTarget::Position(target));
+        fox.action = MobAction::Flee;
+        fox.on_ground = true;
+        fox
+    }
+
+    fn run_ticks(mut map: ServerWorldMap, fox: ServerMob, ticks: usize) -> ServerWorldMap {
+        map.mobs.insert(0, fox);
+        let mut world = World::new();
+        world.insert_resource(map);
+        let mut time = Time::<Fixed>::default();
+        time.advance_by(Duration::from_millis(15));
+        world.insert_resource(time);
+        for _ in 0..ticks {
+            world.run_system_once(mob_behavior_system).unwrap();
+        }
+        world.remove_resource::<ServerWorldMap>().unwrap()
+    }
+
+    #[test]
+    fn a_fleeing_mob_does_not_sink_when_its_target_is_above() {
+        for target in [Vec3::new(0.5, 9.0, 0.5), Vec3::new(3.5, 8.0, 0.5)] {
+            let map = run_ticks(ground_world(false), fleeing_fox_at_origin(target), 330);
+            let fox = &map.mobs[&0];
+            assert!(
+                (fox.position.y - 1.5).abs() < 0.05,
+                "target {target}: y = {}",
+                fox.position.y
+            );
+        }
+    }
+
+    #[test]
+    fn a_fleeing_mob_does_not_enter_a_wall() {
+        let target = Vec3::new(5.5, 1.5, 0.5);
+        let map = run_ticks(ground_world(true), fleeing_fox_at_origin(target), 660);
+        let fox = map.mobs[&0].clone();
+        let hitbox = Aabb3d::new(
+            fox.position,
+            Vec3::new(fox.width, fox.height, fox.deepth) / 2.0,
+        );
+        assert!(
+            !map.chunks.check_collision_box(&hitbox),
+            "fox at {}",
+            fox.position
+        );
+        assert!(
+            fox.position.x < 0.4 && fox.position.x > -0.6,
+            "the fox should have run up to the wall and stopped: {}",
+            fox.position
+        );
+    }
+
+    #[test]
+    fn a_fleeing_mob_runs_away_horizontally_on_open_ground() {
+        let target = Vec3::new(3.5, 1.5, 4.5);
+        let map = run_ticks(ground_world(false), fleeing_fox_at_origin(target), 133);
+        let moved = map.mobs[&0].position - Vec3::new(0.5, 1.5, 0.5);
+        // about one block per second for two seconds, along the direction away from the target
+        let away = Vec3::new(-3.0, 0.0, -4.0).normalize();
+        assert!((moved.dot(away) - 2.0).abs() < 0.2, "moved {moved}");
+        assert!(moved.y.abs() < 0.05);
     }
 }
