@@ -4,8 +4,10 @@ use crate::{
         dispatcher::{self, setup_resources_and_events},
     },
     world::{
-        data::{ServerWorldMap, SAVE_PATH},
+        data::{world_dir, ServerWorldMap},
         load_from_file::load_world_data,
+        save::Autosave,
+        writer::WorldWriter,
     },
 };
 use bevy::prelude::*;
@@ -19,7 +21,10 @@ use shared::{
 };
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime};
-use std::{collections::HashMap, net::IpAddr};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+};
 
 use std::net::{SocketAddr, UdpSocket};
 
@@ -99,6 +104,8 @@ pub fn init(
     app.insert_resource(game_folder_paths.clone());
 
     let world_name = &config.world_name.clone();
+    // Every path of the world is built from this name: refuse one that is not a plain folder name
+    let world_dir = world_dir(&game_folder_paths, world_name)?;
 
     app.insert_resource(config);
 
@@ -120,11 +127,13 @@ pub fn init(
     }
 
     let mut world_map = ServerWorldMap {
-        name: world_data.name,
+        // the folder the world was loaded from, whatever name its file claims
+        name: world_name.clone(),
         chunks,
         sent_chunks: HashMap::new(),
         players: HashMap::new(),
         mobs: world_data.mobs,
+        dirty_chunks: HashSet::new(),
     };
 
     cleanup_all_players_from_world(&mut world_map);
@@ -135,19 +144,21 @@ pub fn init(
     app.insert_resource(ServerTime(world_data.time));
 
     // Create save folder if does not already exist
-    let save_folder = format!(
-        "{}{}/players/",
-        game_folder_paths.game_folder_path.join(SAVE_PATH).display(),
-        world_name
-    );
-
-    if let Err(err) = std::fs::create_dir_all(save_folder) {
+    if let Err(err) = std::fs::create_dir_all(world_dir.join("players")) {
         error!(
             "Could not create save directory for map {} : {}",
             world_name, err
         );
         panic!();
     }
+
+    // The writer is dropped with the app, which waits for the last save to be written
+    let writer = WorldWriter::spawn(world_dir)
+        .map_err(|err| format!("Could not start the world writer: {err}"))?;
+    app.insert_resource(writer);
+    app.insert_resource(Autosave {
+        last_save_tick: world_data.time,
+    });
 
     dispatcher::register_systems(&mut app);
 

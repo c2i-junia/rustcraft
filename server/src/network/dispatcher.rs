@@ -57,17 +57,20 @@ pub fn setup_resources_and_events(app: &mut App) {
 }
 
 pub fn register_systems(app: &mut App) {
-    // Chaining the two so that saves are always done on the same frame as the request
+    // Receive, simulate, broadcast (which drains the change log into the dirty chunks), then
+    // save: a save is done on the frame of its request and holds every change made until then
     app.add_systems(
         Update,
-        (server_update_system, world::save::save_world_system).chain(),
+        (
+            server_update_system,
+            handle_player_inputs_system,
+            broadcast_world_state,
+            world::save::save_world_system,
+        )
+            .chain(),
     );
 
-    app.add_systems(Update, broadcast_world_state);
-
     app.add_systems(Update, crate::mob::manage_mob_spawning_system);
-
-    app.add_systems(Update, handle_player_inputs_system);
 
     app.add_systems(PostUpdate, update_server_time);
 
@@ -307,4 +310,90 @@ fn update_server_time(mut time: ResMut<ServerTime>) {
         debug!("Server time: {}", time.0);
     }
     time.0 += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
+    use crate::world::simulation::PlayerInputsEvent;
+    use crate::world::writer::WorldWriter;
+    use bevy::time::TimePlugin;
+    use shared::messages::{NetworkAction, PlayerFrameInput};
+    use shared::players::Player;
+    use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap, WorldSeed};
+
+    /// The inputs that break a block and the exit arrive in the same frame: the block change
+    /// made by the inputs is in the saved chunk.
+    #[test]
+    fn a_block_broken_in_the_frame_of_the_exit_is_in_the_exit_save() {
+        let tmp = tempfile::tempdir().unwrap();
+        let leaves = BlockData::new(BlockId::OakLeaves, BlockDirection::Front);
+        let target = IVec3::ZERO;
+        let mut chunks = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        chunks.fill_box(IVec3::splat(-16), IVec3::new(15, -1, 15), BlockId::Stone);
+        chunks.set_block(target, leaves);
+        chunks.take_changed_blocks();
+        let player_position = Vec3::new(0.5, 1.0, 0.5);
+        let mut world_map = ServerWorldMap {
+            name: "w".into(),
+            chunks,
+            ..Default::default()
+        };
+        world_map.players.insert(
+            1,
+            Player::new(1, "p".into(), player_position, Transform::default()),
+        );
+
+        let mut app = App::new();
+        app.add_plugins(TimePlugin)
+            .insert_resource(RenetServer::new(shared::get_shared_renet_config()))
+            .insert_resource(ServerLobby::default())
+            .insert_resource(GameServerConfig {
+                world_name: "w".into(),
+                is_solo: true,
+            })
+            .insert_resource(GameFolderPaths {
+                game_folder_path: tmp.path().join("game"),
+                assets_folder_path: tmp.path().join("assets"),
+            })
+            .insert_resource(world_map)
+            .insert_resource(WorldSeed(1))
+            .insert_resource(crate::world::save::Autosave { last_save_tick: 0 })
+            .insert_resource(ServerTime(0))
+            .insert_resource(WorldWriter::spawn(tmp.path().into()).unwrap());
+        setup_resources_and_events(&mut app);
+        register_systems(&mut app);
+
+        let camera = Transform::from_translation(player_position).looking_to(Vec3::NEG_Y, Vec3::Z);
+        let hits = leaves.id.get_break_time().unwrap();
+        for time_ms in 1..=u64::from(hits) {
+            app.world_mut().write_message(PlayerInputsEvent {
+                client_id: 1,
+                input: PlayerFrameInput {
+                    time_ms,
+                    delta_ms: 16,
+                    inputs: [NetworkAction::LeftClick].into(),
+                    camera,
+                    ..Default::default()
+                },
+            });
+        }
+        app.world_mut().write_message(SaveRequestEvent::Player(1));
+
+        app.update();
+        drop(app.world_mut().remove_resource::<WorldWriter>());
+
+        assert!(app
+            .world()
+            .resource::<ServerWorldMap>()
+            .chunks
+            .get_block(target)
+            .is_none());
+        let saved = read_chunks(&tmp.path().join(CHUNKS_DIR)).unwrap();
+        let chunk = saved
+            .get(&IVec3::ZERO)
+            .expect("the chunk of the change was not saved");
+        assert!(chunk.get(target).is_none(), "the block is back in the save");
+    }
 }

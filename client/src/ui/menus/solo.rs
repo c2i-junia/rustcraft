@@ -647,6 +647,27 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_world_removes_its_chunk_files_and_players_too() {
+        let folder = TempFolder::new("delete-chunks");
+        let paths = GameFolderPaths {
+            game_folder_path: folder.0.clone(),
+            assets_folder_path: folder.0.join("assets"),
+        };
+        let saves = folder.0.join(SAVE_PATH);
+        make_world(&saves, "full");
+        fs::create_dir_all(saves.join("full/chunks")).unwrap();
+        fs::write(saves.join("full/chunks/-1_4_0.bin"), "x").unwrap();
+        fs::create_dir_all(saves.join("full/players")).unwrap();
+        fs::write(saves.join("full/players/7.ron"), "x").unwrap();
+        make_world(&saves, "other");
+
+        delete_save_files("full", &paths).unwrap();
+
+        assert!(!saves.join("full").exists());
+        assert!(saves.join("other/world.ron").is_file());
+    }
+
+    #[test]
     fn deleting_refuses_names_that_leave_the_saves_folder() {
         let folder = TempFolder::new("delete");
         let paths = GameFolderPaths {

@@ -34,6 +34,12 @@ pub fn broadcast_world_state(
     let chunks = &mut world_map.chunks;
 
     let changed = chunks.take_changed_blocks();
+    // The only drain of the change log is also what tells the save which chunks to write. A
+    // position the server only restated (`touch_block`) marks its chunk dirty too, which costs
+    // one needless chunk write and is not worth telling apart.
+    world_map
+        .dirty_chunks
+        .extend(changed.iter().map(global_block_to_chunk_pos));
 
     let active_chunks = get_all_active_chunks(players, BROADCAST_RENDER_DISTANCE);
 
@@ -371,6 +377,33 @@ mod tests {
         assert_eq!(
             new_chunks[&IVec3::new(11, 0, 0)].get(IVec3::new(1, 2, 3)),
             Some(&stone())
+        );
+    }
+
+    #[test]
+    fn a_broadcast_marks_the_chunks_of_the_changed_blocks_dirty() {
+        let mut app = App::new();
+        app.insert_resource(RenetServer::new(shared::get_shared_renet_config()))
+            .insert_resource(ServerTime(0))
+            .insert_resource(ServerWorldMap {
+                chunks: row_of_chunks(3),
+                ..Default::default()
+            });
+        {
+            let mut map = app.world_mut().resource_mut::<ServerWorldMap>();
+            map.chunks.set_block(IVec3::new(1, 2, 3), stone());
+            map.chunks
+                .set_block(IVec3::new(2 * CHUNK_SIZE + 1, 0, 0), stone());
+            assert!(map.dirty_chunks.is_empty());
+        }
+
+        app.add_systems(Update, broadcast_world_state);
+        app.update();
+
+        let map = app.world().resource::<ServerWorldMap>();
+        assert_eq!(
+            map.dirty_chunks,
+            HashSet::from([IVec3::ZERO, IVec3::new(2, 0, 0)])
         );
     }
 

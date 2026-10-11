@@ -1,15 +1,13 @@
 use crate::init::ServerTime;
+use crate::world::format::{write_atomically, WorldMeta};
+use crate::world::writer::{SaveJob, WorldWriter};
 use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
-use shared::world::Chunk;
-use shared::world::MobId;
-use shared::world::ServerMob;
 use shared::world::WorldSeed;
-use shared::GameFolderPaths;
-use std::collections::HashMap;
-use std::{fs::File, io::Write, path::Path};
+use shared::{GameFolderPaths, TICKS_PER_SECOND};
+use std::path::Path;
 
 #[derive(Message)]
 pub enum SaveRequestEvent {
@@ -19,22 +17,33 @@ pub enum SaveRequestEvent {
 
 use crate::world::data::{ServerWorldMap, SAVE_PATH};
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-pub struct WorldData {
-    pub map: HashMap<IVec3, Chunk>,
-    pub mobs: HashMap<MobId, ServerMob>,
-    pub seed: WorldSeed,
-    pub name: String,
-    pub time: u64,
+/// Game ticks between two autosaves: 60 seconds.
+pub const AUTOSAVE_INTERVAL_TICKS: u64 = 60 * TICKS_PER_SECOND;
+
+/// When the last save was queued, to space the autosaves.
+#[derive(Resource)]
+pub struct Autosave {
+    pub last_save_tick: u64,
 }
 
+/// Reacts to the save requests, and to the autosave coming due, by handing the metadata and
+/// the dirty chunks to the writer thread. The player files are written here, they are small.
+///
+/// Runs after the broadcast, which is what feeds `dirty_chunks` from the change log.
 pub fn save_world_system(
-    world_map: Res<ServerWorldMap>,
+    mut world_map: ResMut<ServerWorldMap>,
     world_seed: Res<WorldSeed>,
     game_folder_path: Res<GameFolderPaths>,
     time: Res<ServerTime>,
+    mut writer: ResMut<WorldWriter>,
+    mut autosave: ResMut<Autosave>,
     mut event: MessageReader<SaveRequestEvent>,
 ) {
+    // A chunk the writer could not write is dirty again, so that this save retries it
+    for chunk_pos in writer.take_failed_chunks() {
+        world_map.dirty_chunks.insert(chunk_pos);
+    }
+
     // Reads all events to prevent them from being queued forever and repeatedly request a save
     let mut save_requested = false;
     for ev in event.read() {
@@ -47,33 +56,46 @@ pub fn save_world_system(
         }
     }
 
-    // If a save was requested by the user
-    if save_requested {
-        let world_data = WorldData {
-            map: world_map
-                .chunks
-                .chunk_positions()
-                .filter_map(|pos| Some((pos, world_map.chunks.chunk(pos)?.clone())))
-                .collect(),
-            mobs: world_map.mobs.clone(),
-            name: world_map.name.clone(),
-            seed: *world_seed,
-            time: time.0,
-        };
+    let autosave_due = time.0.saturating_sub(autosave.last_save_tick) >= AUTOSAVE_INTERVAL_TICKS;
+    if save_requested || autosave_due {
+        autosave.last_save_tick = time.0;
+        queue_save(&mut world_map, *world_seed, time.0, &mut writer);
+    }
+}
 
-        // define save file path
-        let save_file_path = format!(
-            "{}{}/world.ron",
-            game_folder_path.game_folder_path.join(SAVE_PATH).display(),
+/// Hands the metadata and a copy of every dirty chunk to the writer. A chunk is dirty until it
+/// is handed over, so a second save queued while the first is being written does not copy it
+/// again unless it changed.
+fn queue_save(
+    world_map: &mut ServerWorldMap,
+    seed: WorldSeed,
+    tick: u64,
+    writer: &mut WorldWriter,
+) {
+    let dirty: Vec<IVec3> = world_map.dirty_chunks.drain().collect();
+    if dirty.is_empty() {
+        debug!(
+            "[{}] No chunk to save, writing the metadata only",
             world_map.name
         );
+    }
+    let chunks = dirty
+        .into_iter()
+        .filter_map(|pos| Some((pos, world_map.chunks.chunk(pos)?.clone())))
+        .collect();
+    let job = SaveJob {
+        meta: WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone()),
+        chunks,
+    };
 
-        // save seed and world data
-        if let Err(e) = save_world_data(&world_data, &save_file_path) {
-            error!("Failed to save world data: {}", e);
-        } else {
-            info!("World data saved successfully! Name: {}", world_map.name);
-        }
+    if let Err(job) = writer.submit(job) {
+        error!(
+            "[{}] The world writer is gone, nothing was saved",
+            world_map.name
+        );
+        world_map
+            .dirty_chunks
+            .extend(job.chunks.into_iter().map(|(pos, _)| pos));
     }
 }
 
@@ -99,23 +121,6 @@ pub fn save_player(world_name: &str, player: &Player, game_folder_path: &GameFol
     }
 }
 
-pub fn save_world_data(
-    world_data: &WorldData,
-    file_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // configure RON serialization: the fields and the chunks are listed one per line, but the
-    // cells of a chunk (4096 of them) are written on the line of their chunk, without indices
-    let pretty_config = PrettyConfig::new()
-        .with_depth_limit(2)
-        .with_separate_tuple_members(true);
-
-    // serialize combined data (map + seed)
-    let serialized = ron::ser::to_string_pretty(world_data, pretty_config)?;
-    write_atomically(Path::new(file_path), serialized.as_bytes())?;
-    info!("World data saved to {}", file_path);
-    Ok(())
-}
-
 pub fn save_player_data(
     player: &Player,
     file_path: &str,
@@ -133,86 +138,178 @@ pub fn save_player_data(
     Ok(())
 }
 
-/// Writes `contents` to `<path>.tmp`, syncs it, then renames it over `path`, so a crash
-/// leaves either the old file or the new one, never a truncated one.
-fn write_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let mut tmp_name = path.as_os_str().to_owned();
-    tmp_name.push(".tmp");
-    let tmp_path = Path::new(&tmp_name);
-
-    let mut file = File::create(tmp_path)?;
-    file.write_all(contents)?;
-    file.sync_all()?;
-    std::fs::rename(tmp_path, path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn write_atomically_creates_then_replaces_the_file() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("data.ron");
+    mod saving {
+        use super::*;
+        use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
+        use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
 
-        write_atomically(&path, b"first").unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"first");
+        fn stone() -> BlockData {
+            BlockData::new(BlockId::Stone, BlockDirection::Front)
+        }
 
-        write_atomically(&path, b"second, longer").unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"second, longer");
-        assert!(!tmp.path().join("data.ron.tmp").exists());
-    }
+        fn world_map(chunks: i32) -> ServerWorldMap {
+            ServerWorldMap {
+                name: "w".into(),
+                chunks: ChunkMap::with_loaded_region(
+                    IVec3::ZERO,
+                    IVec3::new(chunks * 16 - 1, 15, 15),
+                ),
+                ..Default::default()
+            }
+        }
 
-    #[test]
-    fn failed_write_leaves_the_previous_file_untouched() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("data.ron");
-        write_atomically(&path, b"precious").unwrap();
+        fn app(map: ServerWorldMap, writer: WorldWriter, tick: u64) -> App {
+            let mut app = App::new();
+            app.add_message::<SaveRequestEvent>()
+                .insert_resource(map)
+                .insert_resource(WorldSeed(1))
+                .insert_resource(ServerTime(tick))
+                .insert_resource(GameFolderPaths {
+                    game_folder_path: "unused".into(),
+                    assets_folder_path: "unused".into(),
+                })
+                .insert_resource(writer)
+                .insert_resource(Autosave { last_save_tick: 0 })
+                .add_systems(Update, save_world_system);
+            app
+        }
 
-        // A directory squatting on the temporary name makes the new write fail early.
-        std::fs::create_dir(tmp.path().join("data.ron.tmp")).unwrap();
-        assert!(write_atomically(&path, b"lost").is_err());
+        /// Stops the writer, which writes everything queued first.
+        fn flush(app: &mut App) {
+            drop(app.world_mut().remove_resource::<WorldWriter>());
+        }
 
-        assert_eq!(std::fs::read(&path).unwrap(), b"precious");
-    }
+        #[test]
+        fn only_the_dirty_chunks_are_copied_and_a_second_save_does_not_copy_them_again() {
+            let jobs = Arc::new(Mutex::new(Vec::new()));
+            let sink = jobs.clone();
+            let mut writer = WorldWriter::spawn_with(move |job| {
+                sink.lock().unwrap().push(job.chunks.len());
+                Vec::new()
+            })
+            .unwrap();
+            let mut map = world_map(3);
+            map.dirty_chunks.extend([IVec3::ZERO, IVec3::X]);
 
-    #[test]
-    fn save_world_data_writes_a_parseable_file() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("world.ron");
-        let world = WorldData {
-            name: "w".into(),
-            time: 99,
-            ..Default::default()
-        };
+            queue_save(&mut map, WorldSeed(1), 1, &mut writer);
+            queue_save(&mut map, WorldSeed(1), 2, &mut writer);
+            map.dirty_chunks.insert(IVec3::X);
+            queue_save(&mut map, WorldSeed(1), 3, &mut writer);
+            drop(writer);
 
-        save_world_data(&world, path.to_str().unwrap()).unwrap();
+            assert_eq!(*jobs.lock().unwrap(), vec![2, 0, 1]);
+            assert!(map.dirty_chunks.is_empty());
+        }
 
-        let loaded: WorldData = ron::de::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        assert_eq!(loaded.name, "w");
-        assert_eq!(loaded.time, 99);
-    }
+        #[test]
+        fn a_save_request_writes_the_dirty_chunks_and_the_metadata() {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut map = world_map(2);
+            map.chunks.set_block(IVec3::new(1, 2, 3), stone());
+            map.dirty_chunks.insert(IVec3::ZERO);
+            let mut app = app(map, WorldWriter::spawn(tmp.path().into()).unwrap(), 10);
+            app.world_mut().write_message(SaveRequestEvent::World);
 
-    #[test]
-    fn a_saved_chunk_takes_one_line_without_cell_comments() {
-        use shared::world::{BlockData, BlockDirection, BlockId, Chunk};
+            app.update();
+            flush(&mut app);
 
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("world.ron");
-        let mut chunk = Chunk::new();
-        chunk.set(
-            IVec3::new(1, 2, 3),
-            BlockData::new(BlockId::Stone, BlockDirection::Front),
-        );
-        let mut world = WorldData::default();
-        world.map.insert(IVec3::ZERO, chunk.clone());
+            let chunks = read_chunks(&tmp.path().join(CHUNKS_DIR)).unwrap();
+            assert_eq!(chunks.len(), 1);
+            assert_eq!(
+                chunks[&IVec3::ZERO].get(IVec3::new(1, 2, 3)),
+                Some(&stone())
+            );
+            let meta: WorldMeta =
+                ron::de::from_str(&std::fs::read_to_string(tmp.path().join("world.ron")).unwrap())
+                    .unwrap();
+            assert_eq!(
+                (meta.name.as_str(), meta.time, meta.format_version),
+                ("w", 10, 1)
+            );
+        }
 
-        save_world_data(&world, path.to_str().unwrap()).unwrap();
+        #[test]
+        fn nothing_is_written_between_requests_until_the_autosave_is_due() {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut map = world_map(1);
+            map.dirty_chunks.insert(IVec3::ZERO);
+            let writer = WorldWriter::spawn(tmp.path().into()).unwrap();
+            let mut app = app(map, writer, 100 + AUTOSAVE_INTERVAL_TICKS - 1);
+            app.world_mut().resource_mut::<Autosave>().last_save_tick = 100;
 
-        let text = std::fs::read_to_string(path).unwrap();
-        assert!(!text.contains("//"), "{}", &text[..200]);
-        assert!(text.lines().count() < 20, "{} lines", text.lines().count());
-        let loaded: WorldData = ron::de::from_str(&text).unwrap();
-        assert_eq!(loaded.map[&IVec3::ZERO], chunk);
+            app.update();
+            assert!(app
+                .world()
+                .resource::<ServerWorldMap>()
+                .dirty_chunks
+                .contains(&IVec3::ZERO));
+
+            app.world_mut().resource_mut::<ServerTime>().0 += 1;
+            app.update();
+            flush(&mut app);
+
+            assert!(app
+                .world()
+                .resource::<ServerWorldMap>()
+                .dirty_chunks
+                .is_empty());
+            assert_eq!(read_chunks(&tmp.path().join(CHUNKS_DIR)).unwrap().len(), 1);
+        }
+
+        #[test]
+        fn a_chunk_that_failed_to_write_is_written_by_the_next_save() {
+            let tmp = tempfile::tempdir().unwrap();
+            let chunks_dir = tmp.path().join(CHUNKS_DIR);
+            std::fs::create_dir_all(&chunks_dir).unwrap();
+            let squatter = chunks_dir.join("0_0_0.bin.tmp");
+            std::fs::create_dir(&squatter).unwrap();
+            let mut map = world_map(1);
+            map.dirty_chunks.insert(IVec3::ZERO);
+            let mut app = app(map, WorldWriter::spawn(tmp.path().into()).unwrap(), 10);
+            app.world_mut().write_message(SaveRequestEvent::World);
+            app.update();
+
+            // the writer reports the failure, the next update makes the chunk dirty again
+            let start = Instant::now();
+            while !app
+                .world()
+                .resource::<ServerWorldMap>()
+                .dirty_chunks
+                .contains(&IVec3::ZERO)
+            {
+                assert!(
+                    start.elapsed() < Duration::from_secs(10),
+                    "no failure reported"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+                app.update();
+            }
+            std::fs::remove_dir(&squatter).unwrap();
+            app.world_mut().write_message(SaveRequestEvent::World);
+            app.update();
+            flush(&mut app);
+
+            assert_eq!(read_chunks(&chunks_dir).unwrap().len(), 1);
+        }
+
+        #[test]
+        fn a_save_with_a_dead_writer_keeps_the_chunks_dirty() {
+            let writer = WorldWriter::spawn_with(|_| Vec::new()).unwrap();
+            let mut map = world_map(1);
+            map.dirty_chunks.insert(IVec3::ZERO);
+            // The thread ends once the sender is gone; a job queued after is given back
+            let mut writer = writer;
+            writer.close_for_test();
+
+            queue_save(&mut map, WorldSeed(1), 1, &mut writer);
+
+            assert!(map.dirty_chunks.contains(&IVec3::ZERO));
+        }
     }
 }

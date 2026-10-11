@@ -16,7 +16,7 @@ use shared::{
     CHUNK_SIZE,
 };
 
-use super::save::WorldData;
+use super::format::WorldData;
 
 #[derive(Deserialize)]
 pub(super) struct LegacyWorldData {
