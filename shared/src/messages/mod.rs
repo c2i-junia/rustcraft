@@ -25,7 +25,7 @@ pub enum ClientToServerMessage {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ServerToClientMessage {
     AuthRegisterResponse(AuthRegisterResponse),
-    ChatConversation(ChatConversation),
+    ChatMessage(FullChatMessage),
     WorldUpdate(WorldUpdate),
     PlayerSpawn(PlayerSpawnEvent),
     MobUpdate(MobUpdateEvent),

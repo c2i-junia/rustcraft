@@ -10,8 +10,8 @@ use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
 use bevy::prelude::*;
 use bevy_renet::renet::{RenetServer, ServerEvent};
 use shared::messages::{
-    AuthRegisterResponse, ChatConversation, ClientToServerMessage, FullChatMessage, PlayerSave,
-    PlayerSpawnEvent, ServerToClientMessage,
+    AuthRegisterResponse, ChatConversation, ClientToServerMessage, PlayerSave, PlayerSpawnEvent,
+    ServerToClientMessage,
 };
 use shared::world::ServerWorldMap;
 use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
@@ -50,8 +50,7 @@ fn server_update_system(
         ResMut<ChatConversation>,
         ResMut<ServerLobby>,
     ),
-    (mut ev_chat, mut ev_app_exit, mut ev_save_request, mut ev_player_inputs): (
-        EventWriter<ChatMessageEvent>,
+    (mut ev_app_exit, mut ev_save_request, mut ev_player_inputs): (
         EventWriter<AppExit>,
         EventWriter<SaveRequestEvent>,
         EventWriter<PlayerInputsEvent>,
@@ -168,6 +167,13 @@ fn server_update_system(
 
                     server.send_game_message(client_id, auth_res.into());
 
+                    for message in &chat_conversation.messages {
+                        server.send_game_message(
+                            client_id,
+                            ServerToClientMessage::ChatMessage(message.clone()),
+                        );
+                    }
+
                     // Send message to all players that a new one spawned
                     for (id, player) in lobby.players.iter() {
                         let spawn_message = PlayerSpawnEvent {
@@ -188,7 +194,6 @@ fn server_update_system(
                     }
                 }
                 ClientToServerMessage::ChatMessage(chat_msg) => {
-                    info!("Chat message received: {:?}", &chat_msg);
                     let current_timestamp: u64 = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
@@ -198,12 +203,22 @@ fn server_update_system(
                         continue;
                     };
 
-                    chat_conversation.messages.push(FullChatMessage {
-                        author: current_author.name.clone(),
-                        content: chat_msg.content,
-                        timestamp: current_timestamp,
-                    });
-                    ev_chat.write(ChatMessageEvent);
+                    let Some(message) = record_chat_message(
+                        &mut chat_conversation,
+                        &current_author.name,
+                        chat_msg.content,
+                        current_timestamp,
+                    ) else {
+                        warn!("Rejected chat message from client {}", client_id);
+                        continue;
+                    };
+                    // Only authenticated clients: the others are not in the lobby yet.
+                    for &id in lobby.players.keys() {
+                        server.send_game_message(
+                            id,
+                            ServerToClientMessage::ChatMessage(message.clone()),
+                        );
+                    }
                 }
                 ClientToServerMessage::Exit => {
                     debug!("Received shutdown order...");

@@ -168,6 +168,7 @@ pub fn poll_network_messages(
     mut ev_player_spawn: EventWriter<PlayerSpawnEvent>,
     mut ev_mob_update: EventWriter<MobUpdateEvent>,
     mut ev_player_update: EventWriter<PlayerUpdateEvent>,
+    mut chat: ResMut<CachedChatConversation>,
 ) {
     update_world_from_network(
         &mut client,
@@ -176,6 +177,7 @@ pub fn poll_network_messages(
         &mut ev_player_spawn,
         &mut ev_mob_update,
         &mut ev_player_update,
+        &mut chat,
     );
 }
 

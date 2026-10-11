@@ -5,7 +5,7 @@ use bevy::math::Vec3;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::renet::RenetClient;
 use shared::messages::{
-    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, NetworkAction,
+    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,
 };
 use shared::players::Player;
@@ -506,5 +506,66 @@ fn new_player_falls_onto_the_terrain_instead_of_through_it() {
 
     client.send(ClientToServerMessage::Exit);
     client.send_packets();
+    server.join_after_exit();
+}
+
+fn chat_message(content: &str) -> ClientToServerMessage {
+    ClientToServerMessage::ChatMessage(ChatMessageRequest {
+        content: content.to_string(),
+    })
+}
+
+fn received_chat(client: &mut TestClient, content: &str) -> FullChatMessage {
+    let content = content.to_string();
+    client.wait_for("ChatMessage", |m| match m {
+        ServerToClientMessage::ChatMessage(c) if c.content == content => Some(c.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn chat_message_reaches_every_client_and_empty_ones_are_dropped() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut alice, "alice");
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    authenticate(&mut bob, "bob");
+
+    // Rejected messages come first: the next accepted one proves they were not relayed.
+    alice.send(chat_message(""));
+    alice.send(chat_message("   "));
+    alice.send(chat_message(&"x".repeat(257)));
+    alice.send(chat_message("hello bob"));
+
+    for client in [&mut alice, &mut bob] {
+        let message = received_chat(client, "hello bob");
+        assert_eq!(message.author, "alice");
+        assert!(message.timestamp > 0);
+    }
+    for client in [&alice, &bob] {
+        let relayed = client
+            .inbox
+            .iter()
+            .filter(|m| matches!(m, ServerToClientMessage::ChatMessage(_)))
+            .count();
+        assert_eq!(relayed, 0, "a rejected message was relayed");
+    }
+
+    // A client authenticating later receives the stored history once.
+    let mut carol = TestClient::connect(server.addr, PLAYER_ID + 2);
+    authenticate(&mut carol, "carol");
+    let replayed = received_chat(&mut carol, "hello bob");
+    assert_eq!(replayed.author, "alice");
+    carol.send(chat_message("hi all"));
+    received_chat(&mut carol, "hi all");
+    assert!(
+        !carol.inbox.iter().any(
+            |m| matches!(m, ServerToClientMessage::ChatMessage(c) if c.content == "hello bob")
+        ),
+        "the history was sent twice"
+    );
+
+    alice.send(ClientToServerMessage::Exit);
+    alice.send_packets();
     server.join_after_exit();
 }
