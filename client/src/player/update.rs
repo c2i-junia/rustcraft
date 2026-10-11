@@ -175,7 +175,7 @@ pub fn update_players_system(
                         for input in remaining_inputs.iter() {
                             simulate_player_actions(
                                 &mut player,
-                                world_map,
+                                &mut world_map.blocks,
                                 input,
                                 CallerType::Client,
                             );

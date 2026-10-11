@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{PlayerSpawnEvent, PlayerUpdateEvent};
 use shared::players::{Inventory, ViewMode};
+use shared::world::ChunkMap;
 use shared::TICKS_PER_SECOND;
 use time::time_update_system;
 
@@ -228,7 +229,8 @@ pub fn game_plugin(app: &mut App) {
 }
 
 fn clear_resources(mut world_map: ResMut<ClientWorldMap>) {
-    world_map.map = HashMap::new();
+    world_map.blocks = ChunkMap::default();
+    world_map.render = HashMap::new();
     world_map.name = "".into();
 }
 

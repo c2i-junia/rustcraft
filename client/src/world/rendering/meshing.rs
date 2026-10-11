@@ -1,13 +1,12 @@
 use std::f32::consts::PI;
 use std::{collections::HashMap, time::Instant};
 
-use crate::world::{ClientChunk, ClientWorldMap};
 use bevy::{
     math::IVec3,
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use shared::world::{to_global_pos, BlockDirection, BlockId, BlockTransparency, WorldMap};
+use shared::world::{to_global_pos, BlockDirection, BlockId, BlockTransparency, Chunk, ChunkMap};
 
 use super::voxel::{Face, FaceDirection, VoxelShape};
 
@@ -51,8 +50,8 @@ pub struct ChunkMeshResponse {
 }
 
 pub(crate) fn generate_chunk_mesh(
-    world_map: &ClientWorldMap,
-    chunk: &ClientChunk,
+    world_map: &ChunkMap,
+    chunk: &Chunk,
     chunk_pos: &IVec3,
     uv_map: &HashMap<String, UvCoords>,
 ) -> ChunkMeshResponse {
@@ -60,12 +59,12 @@ pub(crate) fn generate_chunk_mesh(
 
     let mut solid_mesh_creator = MeshCreator::default();
 
-    for (local_block_pos, block) in chunk.map.iter() {
+    for (local_block_pos, block) in chunk.iter() {
         let x = local_block_pos.x as f32;
         let y = local_block_pos.y as f32;
         let z = local_block_pos.z as f32;
 
-        let global_block_pos = &to_global_pos(chunk_pos, local_block_pos);
+        let global_block_pos = &to_global_pos(chunk_pos, &local_block_pos);
         let visibility = block.id.get_visibility();
 
         if is_block_surrounded(world_map, global_block_pos, &visibility, &block.id) {
@@ -167,7 +166,7 @@ pub(crate) fn generate_chunk_mesh(
 }
 
 pub(crate) fn is_block_surrounded(
-    world_map: &ClientWorldMap,
+    world_map: &ChunkMap,
     global_block_pos: &IVec3,
     block_visibility: &BlockTransparency,
     block_id: &BlockId,
@@ -176,7 +175,7 @@ pub(crate) fn is_block_surrounded(
         let neighbor_pos = *global_block_pos + *offset;
 
         // Check if the block exists at the neighboring position
-        if let Some(block) = world_map.get_block_by_coordinates(&neighbor_pos) {
+        if let Some(block) = world_map.get_block(neighbor_pos) {
             let vis = block.id.get_visibility();
             match vis {
                 BlockTransparency::Solid => {}
@@ -252,7 +251,7 @@ fn render_face(
 }
 
 fn should_render_face(
-    world_map: &ClientWorldMap,
+    world_map: &ChunkMap,
     global_block_pos: &IVec3,
     direction: &FaceDirection,
     block_visibility: &BlockTransparency,
@@ -267,7 +266,7 @@ fn should_render_face(
         FaceDirection::Inset => return true,
     };
 
-    if let Some(block) = world_map.get_block_by_coordinates(&(*global_block_pos + offset)) {
+    if let Some(block) = world_map.get_block(*global_block_pos + offset) {
         let vis = block.id.get_visibility();
         match vis {
             BlockTransparency::Solid => false,

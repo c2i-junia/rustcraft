@@ -1,10 +1,11 @@
 pub mod behavior;
 
 use bevy::prelude::*;
-use shared::world::{MobAction, MobKind, MobTarget, ServerMob, ServerWorldMap, WorldMap};
+use shared::world::{MobAction, MobKind, MobTarget, ServerMob};
 use ulid::Ulid;
 
 use crate::init::ServerTime;
+use crate::world::data::ServerWorldMap;
 
 fn create_new_mob_id() -> u128 {
     Ulid::new().0

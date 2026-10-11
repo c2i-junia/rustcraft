@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use noise::{NoiseFn, Perlin};
 use shared::{world::*, CHUNK_SIZE};
-use std::collections::HashMap;
 
 /// Water fills every column up to this height; flora only grows on land above it.
 const SEA_LEVEL: i32 = 62;
@@ -264,19 +263,16 @@ fn precedence(block: BlockId) -> u8 {
 
 /// Writes `block` at a world position if it falls inside the chunk and does not displace a
 /// block of higher or equal rank.
-fn place(chunk: &mut ServerChunk, chunk_origin: IVec3, world_pos: IVec3, block: BlockId) {
+fn place(chunk: &mut Chunk, chunk_origin: IVec3, world_pos: IVec3, block: BlockId) {
     let local = world_pos - chunk_origin;
-    if !(local.cmpge(IVec3::ZERO).all() && local.cmplt(IVec3::splat(CHUNK_SIZE)).all()) {
+    if !Chunk::contains(local) {
         return;
     }
     let outranked = chunk
-        .map
-        .get(&local)
+        .get(local)
         .is_some_and(|existing| precedence(existing.id) >= precedence(block));
     if !outranked {
-        chunk
-            .map
-            .insert(local, BlockData::new(block, BlockDirection::Front));
+        chunk.set(local, BlockData::new(block, BlockDirection::Front));
     }
 }
 
@@ -436,18 +432,11 @@ fn column_blocks(seed: u32, column: &Column) -> Blocks {
 /// Generates a chunk. It is a pure function of its arguments: terrain comes from the noise,
 /// and decorations are decided per world column, so a structure rooted in a neighbouring
 /// column is cut at the chunk border the same way whichever chunk is generated first.
-pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
+pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> Chunk {
     let noises = Noises::new(seed);
     let chunk_origin = chunk_pos * CHUNK_SIZE;
 
-    let mut chunk = ServerChunk {
-        map: HashMap::new(),
-        ts: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64,
-        sent_to_clients: vec![],
-    };
+    let mut chunk = Chunk::new();
 
     let chunk_range = 0..CHUNK_SIZE;
     for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
@@ -482,6 +471,7 @@ pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> ServerChunk {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::ops::Range;
 
     /// Height, biome and surface block of a world column, read back from the generated chunks.
@@ -496,7 +486,7 @@ mod tests {
             let chunk_pos = IVec3::new(x.div_euclid(CHUNK_SIZE), cy, z.div_euclid(CHUNK_SIZE));
             let chunk = generate_chunk(chunk_pos, seed);
             for dy in 0..CHUNK_SIZE {
-                if chunk.map.get(&local.with_y(dy)).map(|b| b.id) == Some(surface) {
+                if chunk.get(local.with_y(dy)).map(|b| b.id) == Some(surface) {
                     height = cy * CHUNK_SIZE + dy;
                 }
             }
@@ -543,24 +533,28 @@ mod tests {
     }
 
     #[test]
-    fn every_block_is_inside_its_chunk() {
+    fn nothing_is_written_outside_the_chunk() {
+        // `Chunk` trips a debug assertion on an out-of-range write: generating must not.
         for chunk_pos in sample_chunks() {
-            let chunk = generate_chunk(chunk_pos, 42);
-            for pos in chunk.map.keys() {
-                assert!(
-                    (0..CHUNK_SIZE).contains(&pos.x)
-                        && (0..CHUNK_SIZE).contains(&pos.y)
-                        && (0..CHUNK_SIZE).contains(&pos.z),
-                    "chunk {chunk_pos}: block at local {pos}"
-                );
-            }
+            generate_chunk(chunk_pos, 42);
         }
+        let origin = IVec3::new(32, 64, -16);
+        let mut chunk = Chunk::new();
+        for outside in [
+            origin - IVec3::X,
+            origin - IVec3::Y,
+            origin - IVec3::Z,
+            origin + IVec3::splat(CHUNK_SIZE),
+            origin + IVec3::new(CHUNK_SIZE, 0, 0),
+            origin + IVec3::new(0, 0, CHUNK_SIZE),
+        ] {
+            place(&mut chunk, origin, outside, BlockId::Stone);
+        }
+        assert!(chunk.is_empty());
     }
 
-    fn sorted_blocks(chunk: &ServerChunk) -> Vec<(IVec3, BlockId)> {
-        let mut blocks: Vec<_> = chunk.map.iter().map(|(p, b)| (*p, b.id)).collect();
-        blocks.sort_by_key(|(p, _)| (p.x, p.y, p.z));
-        blocks
+    fn blocks(chunk: &Chunk) -> Vec<(IVec3, BlockId)> {
+        chunk.iter().map(|(p, b)| (p, b.id)).collect()
     }
 
     #[test]
@@ -568,11 +562,7 @@ mod tests {
         for chunk_pos in sample_chunks() {
             let first = generate_chunk(chunk_pos, 42);
             let second = generate_chunk(chunk_pos, 42);
-            assert_eq!(
-                sorted_blocks(&first),
-                sorted_blocks(&second),
-                "chunk {chunk_pos}"
-            );
+            assert_eq!(blocks(&first), blocks(&second), "chunk {chunk_pos}");
         }
     }
 
@@ -581,7 +571,7 @@ mod tests {
         let chunk_pos = IVec3::new(0, 4, 0);
         let first = generate_chunk(chunk_pos, 42);
         let second = generate_chunk(chunk_pos, 43);
-        assert_ne!(sorted_blocks(&first), sorted_blocks(&second));
+        assert_ne!(blocks(&first), blocks(&second));
     }
 
     #[test]
@@ -630,7 +620,7 @@ mod tests {
         let blocks = column_blocks(seed, column);
         let touched = touched_chunks(&blocks);
         assert!(touched.len() >= 2, "the tree must straddle a border");
-        let chunks: HashMap<IVec3, ServerChunk> = touched
+        let chunks: HashMap<IVec3, Chunk> = touched
             .iter()
             .map(|&c| (c, generate_chunk(c, seed)))
             .collect();
@@ -639,7 +629,7 @@ mod tests {
         for (pos, block) in &blocks {
             let chunk_pos = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
             let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE));
-            let actual = chunks[&chunk_pos].map.get(&local).map(|b| b.id);
+            let actual = chunks[&chunk_pos].get(local).map(|b| b.id);
             // a block of another structure or of the terrain may outrank a leaf, never the reverse
             let actual = actual.unwrap_or_else(|| panic!("{pos} ({block:?}) is missing"));
             assert!(
@@ -708,9 +698,9 @@ mod tests {
         assert_eq!(local.y, 0);
 
         let above = generate_chunk(chunk_of_root, seed);
-        assert_eq!(above.map.get(&local).map(|b| b.id), Some(BlockId::OakLog));
+        assert_eq!(above.get(local).map(|b| b.id), Some(BlockId::OakLog));
         let below = generate_chunk(chunk_of_root - IVec3::Y, seed);
-        assert!(below.map.values().all(|b| b.id != BlockId::OakLog));
+        assert!(below.iter().all(|(_, b)| b.id != BlockId::OakLog));
     }
 
     #[test]
@@ -751,7 +741,7 @@ mod tests {
                     for dy in 0..CHUNK_SIZE {
                         let y = chunk_pos.y * CHUNK_SIZE + dy;
                         if y <= column.height || y <= SEA_LEVEL {
-                            let actual = chunk.map.get(&IVec3::new(dx, dy, dz)).map(|b| b.id);
+                            let actual = chunk.get(IVec3::new(dx, dy, dz)).map(|b| b.id);
                             assert_eq!(
                                 actual,
                                 terrain_block(y, column.height, &biome),
@@ -777,15 +767,15 @@ mod tests {
         for (i, low) in ranked.iter().enumerate() {
             for high in &ranked[i + 1..] {
                 for order in [[low, high], [high, low]] {
-                    let mut chunk = ServerChunk {
-                        map: HashMap::new(),
-                        ts: 0,
-                        sent_to_clients: vec![],
-                    };
+                    let mut chunk = Chunk::new();
                     for block in order {
                         place(&mut chunk, IVec3::ZERO, cell, *block);
                     }
-                    assert_eq!(chunk.map[&cell].id, *high, "{low:?} against {high:?}");
+                    assert_eq!(
+                        chunk.get(cell).unwrap().id,
+                        *high,
+                        "{low:?} against {high:?}"
+                    );
                 }
             }
         }

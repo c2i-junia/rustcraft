@@ -14,7 +14,10 @@ pub fn total_blocks_text_update_system(
     world_map: Res<ClientWorldMap>,
 ) {
     for entity in query_chunks.iter() {
-        *writer.text(entity, 0) = format!("Loaded chunks: {}", world_map.map.len());
+        *writer.text(entity, 0) = format!(
+            "Loaded chunks: {}",
+            world_map.blocks.chunk_positions().count()
+        );
     }
 }
 

@@ -5,12 +5,12 @@ use crate::{
         movement::simulate_player_movement,
         Player,
     },
-    world::WorldMap,
+    world::ChunkMap,
 };
 
 pub fn simulate_player_actions(
     player: &mut Player,
-    world_map: &mut impl WorldMap,
+    world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) {

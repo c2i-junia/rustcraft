@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::world::{MobId, ServerChunk, ServerMob};
+use crate::world::{Chunk, MobId, ServerMob};
 use bevy::math::IVec3;
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +10,6 @@ use serde::{Deserialize, Serialize};
 pub struct WorldUpdate {
     pub tick: u64,
     pub time: u64,
-    pub new_map: HashMap<IVec3, ServerChunk>,
+    pub new_map: HashMap<IVec3, Chunk>,
     pub mobs: HashMap<MobId, ServerMob>,
 }

@@ -4,7 +4,7 @@ use crate::{
         collision::check_player_collision,
         constants::{FLY_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
     },
-    world::{world_position_to_chunk_position, WorldMap},
+    world::{world_position_to_chunk_position, ChunkMap},
 };
 use bevy::prelude::*;
 
@@ -15,13 +15,13 @@ pub const MAX_FRAME_DELTA_MS: u64 = 100;
 
 pub fn simulate_player_movement(
     player: &mut Player,
-    world_map: &impl WorldMap,
+    world_map: &ChunkMap,
     action: &PlayerFrameInput,
 ) {
     // Hold the player still until the terrain it stands in and the terrain below it have arrived,
     // otherwise it would fall through chunks that are only missing, not empty.
     let chunk = world_position_to_chunk_position(player.position);
-    if !world_map.is_chunk_loaded(&chunk) || !world_map.is_chunk_loaded(&(chunk - IVec3::Y)) {
+    if !world_map.is_chunk_loaded(chunk) || !world_map.is_chunk_loaded(chunk - IVec3::Y) {
         log::debug!("Chunk {chunk} or the one below is not loaded, skipping movement simulation");
         return;
     }
@@ -165,14 +165,21 @@ mod tests {
     use super::*;
     use crate::{
         messages::PlayerId,
-        world::{test_support::TestWorld, world_position_to_chunk_position, BlockId},
+        world::{world_position_to_chunk_position, BlockId, Chunk},
     };
 
     /// Top surface of the test floor.
     const FLOOR_TOP: f32 = 64.0;
 
-    fn flat_world() -> TestWorld {
-        let mut world = TestWorld::default();
+    /// Loaded chunks from y = 64 up, with nothing in them.
+    fn open_air() -> ChunkMap {
+        ChunkMap::with_loaded_region(IVec3::new(-16, 64, -16), IVec3::new(15, 127, 15))
+    }
+
+    /// A stone floor from y = 60 to y = 63, in chunks loaded up to y = 95.
+    fn flat_world() -> ChunkMap {
+        let mut world =
+            ChunkMap::with_loaded_region(IVec3::new(-40, 48, -40), IVec3::new(40, 95, 40));
         world.fill_box(
             IVec3::new(-40, 60, -40),
             IVec3::new(40, 63, 40),
@@ -201,7 +208,7 @@ mod tests {
         }
     }
 
-    fn simulate(player: &mut Player, world: &TestWorld, actions: &[NetworkAction], frames: u32) {
+    fn simulate(player: &mut Player, world: &ChunkMap, actions: &[NetworkAction], frames: u32) {
         let input = frame(actions);
         for _ in 0..frames {
             simulate_player_movement(player, world, &input);
@@ -287,7 +294,7 @@ mod tests {
 
     #[test]
     fn flying_player_ignores_gravity() {
-        let world = TestWorld::default();
+        let world = open_air();
         let mut player = standing_player();
         player.position.y = 100.0;
         player.is_flying = true;
@@ -297,7 +304,7 @@ mod tests {
 
     #[test]
     fn flying_player_moves_up_with_jump_input() {
-        let world = TestWorld::default();
+        let world = open_air();
         let mut player = standing_player();
         player.position.y = 100.0;
         player.is_flying = true;
@@ -306,7 +313,7 @@ mod tests {
     }
 
     /// Apex height above the standing position reached by a jump at the given frame time.
-    fn jump_apex(world: &TestWorld, delta_ms: u64) -> f32 {
+    fn jump_apex(world: &ChunkMap, delta_ms: u64) -> f32 {
         let mut player = standing_player();
         let start_y = player.position.y;
         let mut jump = frame(&[NetworkAction::JumpOrFlyUp]);
@@ -358,28 +365,33 @@ mod tests {
 
     #[test]
     fn player_does_not_move_while_its_chunk_is_not_loaded() {
+        // The floor is loaded up to y = 95: the chunk of a player at y = 100 is missing.
         let mut world = flat_world();
         let mut player = standing_player();
         player.position.y = 100.0;
         let chunk = world_position_to_chunk_position(player.position);
-        world.unloaded_chunks.insert(chunk);
+        assert!(!world.is_chunk_loaded(chunk));
         let start = player.position;
         simulate(&mut player, &world, &[NetworkAction::MoveForward], 20);
         assert_eq!(player.position, start);
+
+        world.insert_chunk(chunk, Chunk::new());
+        simulate(&mut player, &world, &[NetworkAction::MoveForward], 20);
+        assert_ne!(player.position, start);
     }
 
     #[test]
     fn player_does_not_move_while_the_chunk_below_is_not_loaded() {
-        let mut world = flat_world();
         let mut player = standing_player();
         player.position.y = 100.0;
         let chunk = world_position_to_chunk_position(player.position);
-        world.unloaded_chunks.insert(chunk - IVec3::Y);
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(-16, 96, -16), IVec3::splat(111));
+        assert!(world.is_chunk_loaded(chunk) && !world.is_chunk_loaded(chunk - IVec3::Y));
         let start = player.position;
         simulate(&mut player, &world, &[], 20);
         assert_eq!(player.position, start);
 
-        world.unloaded_chunks.clear();
+        world.insert_chunk(chunk - IVec3::Y, Chunk::new());
         simulate(&mut player, &world, &[], 20);
         assert!(player.position.y < start.y);
     }

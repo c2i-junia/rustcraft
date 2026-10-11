@@ -6,10 +6,13 @@ use bevy_renet::{renet::ClientId, RenetServer};
 use shared::{
     messages::{NetworkAction, PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{blocks::CallerType, simulation::simulate_player_actions, Player},
-    world::{ServerChunkWorldMap, ServerWorldMap, WorldSeed},
+    world::{ChunkMap, WorldSeed},
 };
 
-use crate::{network::extensions::SendGameMessageExtension, world::generation::generate_chunk};
+use crate::{
+    network::extensions::SendGameMessageExtension,
+    world::{data::ServerWorldMap, generation::generate_chunk},
+};
 
 use super::broadcast_world::get_all_active_chunks;
 
@@ -22,14 +25,14 @@ pub struct PlayerInputsEvent {
 /// Generates the chunks within one chunk of every player.
 fn generate_missing_chunks(
     players: &std::collections::HashMap<PlayerId, Player>,
-    chunks: &mut ServerChunkWorldMap,
+    chunks: &mut ChunkMap,
     seed: u32,
 ) {
     for c in get_all_active_chunks(players, 1) {
-        chunks.map.entry(c).or_insert_with(|| {
+        if !chunks.is_chunk_loaded(c) {
             info!("Generated chunk: {:?}", c);
-            generate_chunk(c, seed)
-        });
+            chunks.insert_chunk(c, generate_chunk(c, seed));
+        }
     }
 }
 

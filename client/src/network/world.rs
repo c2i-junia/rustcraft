@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::world::ClientChunk;
+use crate::world::ChunkRender;
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
 use shared::messages::{
@@ -33,19 +33,13 @@ pub fn update_world_from_network(
                 );
 
                 for (pos, chunk) in world_update.new_map {
-                    let chunk = ClientChunk {
-                        map: chunk.map,
-                        entity: {
-                            if let Some(c) = world.map.get(&pos) {
-                                c.entity
-                            } else {
-                                None
-                            }
-                        },
-                        last_mesh_ts: Instant::now(),
-                    };
-
-                    world.map.insert(pos, chunk.clone());
+                    world.blocks.insert_chunk(pos, chunk);
+                    // Meshes requested before this chunk arrived are outdated
+                    world
+                        .render
+                        .entry(pos)
+                        .and_modify(|render| render.last_mesh_ts = Instant::now())
+                        .or_insert_with(ChunkRender::new);
                     ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(pos));
                 }
 

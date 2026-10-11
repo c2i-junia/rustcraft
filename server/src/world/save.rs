@@ -3,10 +3,9 @@ use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
+use shared::world::Chunk;
 use shared::world::MobId;
-use shared::world::ServerChunk;
 use shared::world::ServerMob;
-use shared::world::ServerWorldMap;
 use shared::world::WorldSeed;
 use shared::GameFolderPaths;
 use std::collections::HashMap;
@@ -18,11 +17,11 @@ pub enum SaveRequestEvent {
     Player(PlayerId),
 }
 
-use crate::world::data::SAVE_PATH;
+use crate::world::data::{ServerWorldMap, SAVE_PATH};
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct WorldData {
-    pub map: HashMap<IVec3, ServerChunk>,
+    pub map: HashMap<IVec3, Chunk>,
     pub mobs: HashMap<MobId, ServerMob>,
     pub seed: WorldSeed,
     pub name: String,
@@ -51,7 +50,11 @@ pub fn save_world_system(
     // If a save was requested by the user
     if save_requested {
         let world_data = WorldData {
-            map: world_map.chunks.map.clone(),
+            map: world_map
+                .chunks
+                .chunk_positions()
+                .filter_map(|pos| Some((pos, world_map.chunks.chunk(pos)?.clone())))
+                .collect(),
             mobs: world_map.mobs.clone(),
             name: world_map.name.clone(),
             seed: *world_seed,
@@ -100,11 +103,11 @@ pub fn save_world_data(
     world_data: &WorldData,
     file_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // configure RON serialization
+    // configure RON serialization: the fields and the chunks are listed one per line, but the
+    // cells of a chunk (4096 of them) are written on the line of their chunk, without indices
     let pretty_config = PrettyConfig::new()
-        .with_depth_limit(3)
-        .with_separate_tuple_members(true)
-        .with_enumerate_arrays(true);
+        .with_depth_limit(2)
+        .with_separate_tuple_members(true);
 
     // serialize combined data (map + seed)
     let serialized = ron::ser::to_string_pretty(world_data, pretty_config)?;
@@ -188,5 +191,28 @@ mod tests {
         let loaded: WorldData = ron::de::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(loaded.name, "w");
         assert_eq!(loaded.time, 99);
+    }
+
+    #[test]
+    fn a_saved_chunk_takes_one_line_without_cell_comments() {
+        use shared::world::{BlockData, BlockDirection, BlockId, Chunk};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("world.ron");
+        let mut chunk = Chunk::new();
+        chunk.set(
+            IVec3::new(1, 2, 3),
+            BlockData::new(BlockId::Stone, BlockDirection::Front),
+        );
+        let mut world = WorldData::default();
+        world.map.insert(IVec3::ZERO, chunk.clone());
+
+        save_world_data(&world, path.to_str().unwrap()).unwrap();
+
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(!text.contains("//"), "{}", &text[..200]);
+        assert!(text.lines().count() < 20, "{} lines", text.lines().count());
+        let loaded: WorldData = ron::de::from_str(&text).unwrap();
+        assert_eq!(loaded.map[&IVec3::ZERO], chunk);
     }
 }
