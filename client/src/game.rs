@@ -73,6 +73,7 @@ pub fn game_plugin(app: &mut App) {
             // Controls the default color of all wireframes. Used as the default color for global wireframes.
             // Can be changed per mesh using the `WireframeColor` component.
             default_color: WHITE.into(),
+            ..default()
         })
         .insert_resource(MaterialResource { ..default() })
         .insert_resource(AtlasHandles::<BlockId>::default())

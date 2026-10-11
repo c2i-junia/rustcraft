@@ -6,7 +6,7 @@ pub fn handle_mouse_system(
     mut cursors: Query<&mut CursorOptions, With<PrimaryWindow>>,
     ui_mode: Res<UIMode>,
 ) {
-    // The window is already gone on the frame the app is closing
+    // The window can be missing while the app is closing
     let Ok(mut cursor) = cursors.single_mut() else {
         return;
     };

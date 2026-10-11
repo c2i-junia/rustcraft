@@ -27,9 +27,19 @@ pub fn big_button_style() -> Node {
 // Text styles
 pub fn text_font(font: Handle<Font>, font_size: f32) -> TextFont {
     TextFont {
-        font,
-        font_size,
+        font: font.into(),
+        font_size: font_size.into(),
         ..Default::default()
+    }
+}
+
+/// An image that fills its whole node, border included, as `ImageNode` did before Bevy 0.19
+/// (which now fits the image inside the content box, keeping its aspect ratio).
+pub fn fill_image_node(image: Handle<Image>) -> ImageNode {
+    ImageNode {
+        image_mode: NodeImageMode::Stretch,
+        visual_box: VisualBox::BorderBox,
+        ..ImageNode::new(image)
     }
 }
 

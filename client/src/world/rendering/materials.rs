@@ -230,7 +230,7 @@ fn build_texture_atlas<T: GameElementId>(
     let size = texture.size_f32();
     let texture = images.add(texture);
     // Update the sampling settings of the texture atlas
-    let image = images.get_mut(&texture).unwrap();
+    let mut image = images.get_mut(&texture).unwrap();
     image.sampler = sampling.unwrap_or_default();
 
     // Create UV references

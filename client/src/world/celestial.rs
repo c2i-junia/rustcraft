@@ -47,7 +47,7 @@ pub fn setup_main_lighting(
             (
                 DirectionalLight {
                     illuminance: 5000.,
-                    shadows_enabled: true,
+                    shadow_maps_enabled: true,
                     ..default()
                 },
                 light_transform,
@@ -83,7 +83,7 @@ pub fn setup_main_lighting(
                 DirectionalLight {
                     illuminance: 500.,
                     color: Color::Srgba(Srgba::hex("c9d2de").unwrap()),
-                    shadows_enabled: true,
+                    shadow_maps_enabled: true,
                     ..default()
                 },
                 light_transform,

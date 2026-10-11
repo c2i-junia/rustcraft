@@ -31,7 +31,7 @@ pub fn toggle_wireframe_system(
             .global_materials
             .get(&GlobalMaterial::Blocks)
             .unwrap();
-        let material = materials.get_mut(handle).unwrap();
+        let mut material = materials.get_mut(handle).unwrap();
         material.alpha_mode = AlphaMode::Blend;
         material.base_color.set_alpha(0.3);
         return;
@@ -48,7 +48,7 @@ pub fn toggle_wireframe_system(
             .global_materials
             .get(&GlobalMaterial::Blocks)
             .unwrap();
-        let material = materials.get_mut(handle).unwrap();
+        let mut material = materials.get_mut(handle).unwrap();
         material.alpha_mode = AlphaMode::AlphaToCoverage;
         material.base_color.set_alpha(1.0);
     }

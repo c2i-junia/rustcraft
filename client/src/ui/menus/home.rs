@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 
 use crate::ui::assets::*;
-use crate::ui::style::{background_image_style, big_button_style, text_font, NORMAL_BUTTON};
+use crate::ui::style::{
+    background_image_style, big_button_style, fill_image_node, text_font, NORMAL_BUTTON,
+};
 use crate::TEXT_COLOR;
 
 use super::{MenuButtonAction, MenuState};
@@ -24,7 +26,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 BackgroundColor(Color::NONE),
                 DespawnOnExit(MenuState::Main),
             ),
-            ImageNode::new(background_image), // Set the background image
+            fill_image_node(background_image), // Set the background image
         ))
         .with_children(|parent| {
             // Display the game title as an image
@@ -39,7 +41,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     height: Val::Px(image_height),
                     ..default()
                 },
-                ImageNode::new(title_image),
+                fill_image_node(title_image),
             ));
 
             // Add buttons for each action available in the menu
@@ -55,7 +57,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                             Button,
                             big_button_style(), // Use large button style
                             BackgroundColor(NORMAL_BUTTON),
-                            ImageNode::new(button_background_image.clone()),
+                            fill_image_node(button_background_image.clone()),
                         ),
                         action,
                     ))

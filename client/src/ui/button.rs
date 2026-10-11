@@ -78,15 +78,15 @@ pub fn button_system(
         match *interaction {
             Interaction::Pressed => {
                 *background_color = PRESSED_BUTTON.into();
-                *ui_image = normal_image.clone().into(); // Optional: Keep the "normal" image while pressed
+                *ui_image = fill_image_node(normal_image.clone()); // Optional: Keep the "normal" image while pressed
             }
             Interaction::Hovered => {
                 *background_color = HOVERED_BUTTON.into();
-                *ui_image = dark_image.clone().into(); // Switch to the "dark" image on hover
+                *ui_image = fill_image_node(dark_image.clone()); // Switch to the "dark" image on hover
             }
             Interaction::None => {
                 *background_color = NORMAL_BUTTON.into();
-                *ui_image = normal_image.clone().into(); // Default back to the normal image
+                *ui_image = fill_image_node(normal_image.clone()); // Default back to the normal image
             }
         }
     }

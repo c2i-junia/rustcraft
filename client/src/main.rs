@@ -99,11 +99,11 @@ fn main() {
             // Ensures that pixel-art textures will remain pixelated, and not become a blurry mess
             .set(ImagePlugin::default_nearest())
             .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(WgpuSettings {
+                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
                     // WARNING: This is a native-only feature. It will not work with WebGL or WebGPU
                     features: WgpuFeatures::POLYGON_MODE_LINE,
                     ..default()
-                }),
+                })),
                 ..default()
             })
             .set(AssetPlugin {

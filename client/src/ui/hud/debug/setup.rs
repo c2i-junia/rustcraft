@@ -47,7 +47,7 @@ pub fn setup_hud(mut commands: Commands) {
         .spawn((
             Text::new("FPS :"),
             TextFont {
-                font_size: 16.0,
+                font_size: 16.0.into(),
                 // if you want to use your game's font asset,
                 // uncomment this and provide the handle:
                 // font: my_font_handle
@@ -69,7 +69,7 @@ pub fn setup_hud(mut commands: Commands) {
             ((
                 Text::new("Selected block : "),
                 TextFont {
-                    font_size: 16.0,
+                    font_size: 16.0.into(),
                     ..default()
                 },
                 TextColor(Color::srgb(0.2, 0.2, 0.2)),
@@ -80,7 +80,7 @@ pub fn setup_hud(mut commands: Commands) {
         (
             Text::new("..."),
             TextFont {
-                font_size: 16.0,
+                font_size: 16.0.into(),
                 ..default()
             },
             TextColor(Color::WHITE),
@@ -96,7 +96,7 @@ pub fn setup_hud(mut commands: Commands) {
             Text::new("Time: N/A"),
             TextColor(Color::WHITE),
             TextFont {
-                font_size: 16.0,
+                font_size: 16.0.into(),
                 ..default()
             },
         ))
