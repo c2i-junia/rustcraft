@@ -50,9 +50,9 @@ impl SendGameMessageExtension for RenetServer {
         let payload = self.receive_message(client_id, channel);
         if let Some(payload) = payload {
             // debug!("Received payload: {:?}", payload);
-            let msg = shared::payload_to_game_message::<shared::messages::ClientToServerMessage>(
-                &payload,
-            );
+            let msg = shared::payload_to_game_message_limited::<
+                shared::messages::ClientToServerMessage,
+            >(&payload, shared::MAX_CLIENT_MESSAGE_SIZE);
             match msg {
                 Ok(msg) => {
                     return Some(Ok(msg));

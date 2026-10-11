@@ -64,10 +64,19 @@ impl FromWorld for CurrentPlayerProfile {
     fn from_world(world: &mut World) -> Self {
         let player_name = world.get_resource::<PlayerNameSupplied>();
         match player_name {
-            Some(player_name) => Self {
-                id: hash_string_to_u64(&player_name.name),
-                name: player_name.name.clone(),
-            },
+            Some(player_name) => {
+                if shared::sanitize_username(&player_name.name).is_none() {
+                    warn!(
+                        "The player name {:?} will be refused by servers: 1 to {} characters, no control character",
+                        player_name.name,
+                        shared::MAX_USERNAME_LENGTH
+                    );
+                }
+                Self {
+                    id: hash_string_to_u64(&player_name.name),
+                    name: player_name.name.clone(),
+                }
+            }
             None => CurrentPlayerProfile::new(),
         }
     }
@@ -248,6 +257,7 @@ pub fn establish_authenticated_connection_to_server(
     current_profile: Res<CurrentPlayerProfile>,
     mut ev_spawn: MessageWriter<PlayerSpawnEvent>,
     mut client_time: ResMut<ClientTime>,
+    mut refusal_logged: Local<bool>,
 ) {
     if target.session_token.is_some() {
         trace!(
@@ -272,6 +282,16 @@ pub fn establish_authenticated_connection_to_server(
         target.state = TargetServerState::Establishing;
     }
 
+    // The server drops a client whose name it refuses (invalid or already in use)
+    if target.state == TargetServerState::Establishing && client.is_disconnected() {
+        if !*refusal_logged {
+            warn!("The server closed the connection before authentication: is the player name valid and not already in use?");
+            *refusal_logged = true;
+        }
+    } else {
+        *refusal_logged = false;
+    }
+
     while let Some(Ok(message)) = client.receive_game_message_by_channel(STC_AUTH_CHANNEL) {
         match message {
             ServerToClientMessage::AuthRegisterResponse(message) => {
@@ -286,8 +306,11 @@ pub fn establish_authenticated_connection_to_server(
                 }
                 info!("Connected! {:?}", target);
             }
-            _ => {
-                panic!("Unexpected message: {message:?}");
+            other => {
+                // Only the variant name: the content comes from a server we do not trust
+                let debug = format!("{other:?}");
+                let kind = debug.split(['(', ' ']).next().unwrap_or_default();
+                warn!("Ignoring an unexpected {kind} message on the authentication channel");
             }
         }
     }

@@ -15,7 +15,7 @@ pub enum SaveRequestEvent {
     Player(PlayerId),
 }
 
-use crate::world::data::{ServerWorldMap, SAVE_PATH};
+use crate::world::data::{world_dir, ServerWorldMap};
 
 /// Game ticks between two autosaves: 60 seconds.
 pub const AUTOSAVE_INTERVAL_TICKS: u64 = 60 * TICKS_PER_SECOND;
@@ -57,6 +57,12 @@ pub fn save_world_system(
     }
 
     let autosave_due = time.0.saturating_sub(autosave.last_save_tick) >= AUTOSAVE_INTERVAL_TICKS;
+    if autosave_due {
+        // A crash must not revert the connected players to their state at join
+        for player in world_map.players.values() {
+            save_player(&world_map.name, player, &game_folder_path);
+        }
+    }
     if save_requested || autosave_due {
         autosave.last_save_tick = time.0;
         queue_save(&mut world_map, *world_seed, time.0, &mut writer);
@@ -101,12 +107,13 @@ fn queue_save(
 
 /// Writes `player` into the save folder of the world `world_name`.
 pub fn save_player(world_name: &str, player: &Player, game_folder_path: &GameFolderPaths) {
-    let save_file_path = format!(
-        "{}{}/players/{}.ron",
-        game_folder_path.game_folder_path.join(SAVE_PATH).display(),
-        world_name,
-        player.id
-    );
+    let save_file_path = match world_dir(game_folder_path, world_name) {
+        Ok(dir) => dir.join("players").join(format!("{}.ron", player.id)),
+        Err(err) => {
+            error!("Could not save data for player {}: {err}", player.id);
+            return;
+        }
+    };
 
     if let Err(err) = save_player_data(player, &save_file_path) {
         error!(
@@ -123,7 +130,7 @@ pub fn save_player(world_name: &str, player: &Player, game_folder_path: &GameFol
 
 pub fn save_player_data(
     player: &Player,
-    file_path: &str,
+    file_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // RON Serialization config
     let pretty_config = PrettyConfig::new()
@@ -133,7 +140,7 @@ pub fn save_player_data(
 
     // Serialize Complete player data
     let serialized = ron::ser::to_string_pretty(player, pretty_config)?;
-    write_atomically(Path::new(file_path), serialized.as_bytes())?;
+    write_atomically(file_path, serialized.as_bytes())?;
 
     Ok(())
 }
@@ -145,6 +152,7 @@ mod tests {
     mod saving {
         use super::*;
         use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
+        use crate::world::data::SAVE_PATH;
         use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
@@ -260,6 +268,37 @@ mod tests {
                 .dirty_chunks
                 .is_empty());
             assert_eq!(read_chunks(&tmp.path().join(CHUNKS_DIR)).unwrap().len(), 1);
+        }
+
+        #[test]
+        fn the_autosave_writes_the_connected_players_with_their_current_state() {
+            let tmp = tempfile::tempdir().unwrap();
+            let players_dir = tmp.path().join(SAVE_PATH).join("w").join("players");
+            std::fs::create_dir_all(&players_dir).unwrap();
+            let mut map = world_map(1);
+            let mut player = Player::new(7, "Zed".into(), Vec3::ZERO, Transform::default());
+            player.position = Vec3::new(12.0, 34.0, 56.0);
+            map.players.insert(7, player);
+            let writer = WorldWriter::spawn(tmp.path().join("unused")).unwrap();
+            let mut app = app(map, writer, AUTOSAVE_INTERVAL_TICKS - 1);
+            app.world_mut().insert_resource(GameFolderPaths {
+                game_folder_path: tmp.path().into(),
+                assets_folder_path: "unused".into(),
+            });
+
+            app.update();
+            assert!(
+                !players_dir.join("7.ron").exists(),
+                "autosave is not due yet"
+            );
+
+            app.world_mut().resource_mut::<ServerTime>().0 += 1;
+            app.update();
+
+            let saved: Player =
+                ron::de::from_str(&std::fs::read_to_string(players_dir.join("7.ron")).unwrap())
+                    .unwrap();
+            assert_eq!(saved.position, Vec3::new(12.0, 34.0, 56.0));
         }
 
         #[test]

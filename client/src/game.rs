@@ -12,15 +12,10 @@ use crate::network::{
     terminate_server_connection, TargetServer, TargetServerState,
 };
 use crate::player::player_plugin;
-use crate::state::{GameSet, GameState};
+use crate::state::{GameSet, GameState, PreLoadingCompletion};
 use crate::ui::hud::hud_plugin;
 use crate::ui::menus::setup_server_connect_loading_screen;
 use crate::world::{setup_materials, world_plugin, ClientWorldMap};
-
-#[derive(Resource)]
-pub struct PreLoadingCompletion {
-    pub textures_loaded: bool,
-}
 
 /// Assembles the domain plugins, and holds what spans several of them: the session lifecycle
 /// (entering and leaving the game).
@@ -82,7 +77,6 @@ pub fn game_plugin(app: &mut App) {
 fn clear_resources(mut world_map: ResMut<ClientWorldMap>) {
     world_map.blocks = ChunkMap::default();
     world_map.render = HashMap::new();
-    world_map.name = "".into();
 }
 
 fn check_pre_loading_complete(

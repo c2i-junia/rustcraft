@@ -98,7 +98,7 @@ pub fn get_biome_data(biome_type: BiomeType) -> Biome {
             sub_surface_block: BlockId::Sand,
         },
         BiomeType::Ocean => Biome {
-            biome_type: BiomeType::DeepOcean,
+            biome_type: BiomeType::Ocean,
             base_height: 55,
             height_variation: 2,
             surface_block: BlockId::Sand,

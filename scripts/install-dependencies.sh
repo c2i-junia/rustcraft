@@ -14,4 +14,4 @@ cargo install cargo-watch
 # install `just`
 cargo install just
 
-info "Setup complete! All dependencies have been installed and configured."
+echo "Setup complete! All dependencies have been installed and configured."

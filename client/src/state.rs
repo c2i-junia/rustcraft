@@ -49,6 +49,11 @@ pub struct KeyMap {
     pub map: BTreeMap<GameAction, Vec<KeyCode>>,
 }
 
+#[derive(Resource)]
+pub struct PreLoadingCompletion {
+    pub textures_loaded: bool,
+}
+
 #[derive(Resource, Debug)]
 pub struct TexturePath {
     pub path: String,

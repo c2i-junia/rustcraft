@@ -93,6 +93,21 @@ fn third_person_raycast(
 /// Maximum distance, in ray parameter units (blocks for a normalized direction), a ray travels.
 const MAX_RAY_DISTANCE: f32 = 20.0;
 
+/// Largest absolute coordinate accepted for a ray origin. It keeps every integer of the
+/// traversal (`voxel`, `voxel + 1`, and the few thousand steps of a ray) far from `i32`
+/// overflow, which a camera position sent by a client could otherwise trigger.
+const MAX_ORIGIN_COORDINATE: f32 = 1.0e9;
+
+/// Hard cap on the traversal steps, whatever the length of the direction vector.
+const MAX_RAY_STEPS_CAP: usize = 4096;
+
+/// Number of voxel boundaries a ray of `MAX_RAY_DISTANCE` can cross: at most `|d.i| * L + 1`
+/// per axis (about `3 L + 3` for a normalized direction), so the loop always ends.
+fn max_ray_steps(direction: Vec3) -> usize {
+    let steps = (direction.abs().element_sum() * MAX_RAY_DISTANCE).ceil() as usize;
+    steps.saturating_add(3).min(MAX_RAY_STEPS_CAP)
+}
+
 // Amanatides-Woo fast traversal algorithm
 // Tweaked to include block-specific interaction boxes
 pub fn raycast_from_source_position_and_direction(
@@ -101,7 +116,11 @@ pub fn raycast_from_source_position_and_direction(
     direction: Vec3,
 ) -> Option<RaycastResponse> {
     // The camera comes from the network: reject anything that cannot define a ray
-    if !origin.is_finite() || !direction.is_finite() || direction == Vec3::ZERO {
+    if !origin.is_finite()
+        || origin.abs().max_element() > MAX_ORIGIN_COORDINATE
+        || !direction.is_finite()
+        || direction == Vec3::ZERO
+    {
         return None;
     }
 
@@ -133,7 +152,10 @@ pub fn raycast_from_source_position_and_direction(
     let mut distance = 0.0;
 
     // Actual raycast loop
-    while distance < MAX_RAY_DISTANCE {
+    for _ in 0..max_ray_steps(direction) {
+        if distance >= MAX_RAY_DISTANCE {
+            break;
+        }
         if let Some(block) = world_map.get_block(voxel) {
             match block.id.get_ray_hitbox() {
                 BlockHitbox::FullBlock => {
@@ -378,6 +400,38 @@ mod tests {
                 "origin {origin:?}, direction {direction:?}"
             );
         }
+    }
+
+    #[test]
+    fn rays_with_a_huge_finite_origin_hit_nothing_and_return() {
+        let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Stone);
+        let started = std::time::Instant::now();
+        for axis in 0..3 {
+            for value in [3.0e9, -3.0e9, 1.0e30, -1.0e30, f32::MAX, f32::MIN] {
+                let mut origin = ORIGIN;
+                origin[axis] = value;
+                for direction in [Vec3::X, Vec3::NEG_Y, Vec3::ONE.normalize()] {
+                    assert!(
+                        raycast_from_source_position_and_direction(&world, origin, direction)
+                            .is_none(),
+                        "origin {origin:?}, direction {direction:?}"
+                    );
+                }
+            }
+        }
+        assert!(started.elapsed().as_secs() < 2);
+    }
+
+    #[test]
+    fn a_ray_that_hits_nothing_stops_within_the_step_bound() {
+        let world = empty_world();
+        let direction = Vec3::ONE.normalize();
+        assert!(max_ray_steps(direction) <= 3 * MAX_RAY_DISTANCE as usize + 3);
+        let started = std::time::Instant::now();
+        // An origin right at the accepted bound must not overflow either
+        let origin = Vec3::splat(MAX_ORIGIN_COORDINATE);
+        assert!(raycast_from_source_position_and_direction(&world, origin, direction).is_none());
+        assert!(started.elapsed().as_secs() < 2);
     }
 
     #[test]

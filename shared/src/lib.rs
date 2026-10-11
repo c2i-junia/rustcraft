@@ -110,8 +110,24 @@ pub fn game_message_to_payload<T: serde::Serialize>(message: T) -> Vec<u8> {
 /// Largest decompressed message accepted from the network.
 pub const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 
+/// Largest decompressed message accepted from a client, an unauthenticated one included.
+///
+/// The largest legitimate one is a batch of inputs: at most about 75 bytes each (two varint
+/// times, a transform of 40 bytes, a handful of actions), and a client sends one per rendered
+/// frame, so around 2000 after a two second stall at 1000 frames per second, that is about
+/// 150 KiB. 1 MiB leaves a margin of about seven. Chat and authentication messages are far smaller.
+pub const MAX_CLIENT_MESSAGE_SIZE: usize = 1024 * 1024;
+
 pub fn payload_to_game_message<T: serde::de::DeserializeOwned>(
     payload: &[u8],
+) -> Result<T, bincode::Error> {
+    payload_to_game_message_limited(payload, MAX_DECOMPRESSED_MESSAGE_SIZE)
+}
+
+/// Decodes a message whose decompressed size is at most `max_size`.
+pub fn payload_to_game_message_limited<T: serde::de::DeserializeOwned>(
+    payload: &[u8],
+    max_size: usize,
 ) -> Result<T, bincode::Error> {
     // lz4 trusts the 4-byte little-endian size prefix to size its allocation: check it first
     let Some(prefix) = payload.first_chunk::<4>() else {
@@ -122,7 +138,7 @@ pub fn payload_to_game_message<T: serde::de::DeserializeOwned>(
         .into());
     };
     let announced_size = u32::from_le_bytes(*prefix) as usize;
-    if announced_size > MAX_DECOMPRESSED_MESSAGE_SIZE {
+    if announced_size > max_size {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("announced decompressed size {announced_size} is too large"),
@@ -308,6 +324,51 @@ mod tests {
                 "{announced}: {error}"
             );
         }
+    }
+
+    #[test]
+    fn a_payload_over_the_client_limit_is_rejected_by_the_client_decoder() {
+        let mut payload = (MAX_CLIENT_MESSAGE_SIZE as u32 + 1).to_le_bytes().to_vec();
+        payload.extend_from_slice(&[0x10, 0x00]);
+        let error = payload_to_game_message_limited::<ClientToServerMessage>(
+            &payload,
+            MAX_CLIENT_MESSAGE_SIZE,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
+        // The limit for what the server sends is larger: not rejected for its size
+        let error = payload_to_game_message::<ClientToServerMessage>(&payload).unwrap_err();
+        assert!(!error.to_string().contains("too large"), "{error}");
+    }
+
+    #[test]
+    fn a_batch_of_inputs_far_above_any_real_one_fits_in_the_client_limit() {
+        use crate::messages::{NetworkAction::*, PlayerFrameInput};
+        let input = PlayerFrameInput {
+            time_ms: u64::MAX,
+            delta_ms: u64::MAX,
+            inputs: [
+                MoveForward,
+                MoveRight,
+                MoveBackward,
+                MoveLeft,
+                JumpOrFlyUp,
+                SneakOrFlyDown,
+                ToggleFlyMode,
+                LeftClick,
+                RightClick,
+            ]
+            .into(),
+            hotbar_slot: u32::MAX,
+            ..Default::default()
+        };
+        let batch = ClientToServerMessage::PlayerInputs(vec![input; 2000]);
+        let payload = game_message_to_payload(batch);
+        assert!(payload_to_game_message_limited::<ClientToServerMessage>(
+            &payload,
+            MAX_CLIENT_MESSAGE_SIZE
+        )
+        .is_ok());
     }
 
     #[test]

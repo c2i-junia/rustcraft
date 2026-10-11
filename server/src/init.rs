@@ -151,12 +151,12 @@ pub fn init(
     app.insert_resource(ServerTime(world_data.time));
 
     // Create save folder if does not already exist
-    if let Err(err) = std::fs::create_dir_all(world_dir.join("players")) {
-        error!(
-            "Could not create save directory for map {} : {}",
-            world_name, err
-        );
-        panic!();
+    let players_dir = world_dir.join("players");
+    if let Err(err) = std::fs::create_dir_all(&players_dir) {
+        return Err(format!(
+            "Could not create the save directory {} for world {world_name}: {err}",
+            players_dir.display()
+        ));
     }
 
     // The writer is dropped with the app, which waits for the last save to be written
@@ -202,5 +202,29 @@ mod tests {
         let runs = &app.world().resource::<FixedRuns>().0;
         assert_eq!(runs.len() as u64, TICKS_PER_SECOND);
         assert!(runs.iter().all(|delta| *delta == tick));
+    }
+
+    #[test]
+    fn a_save_folder_that_cannot_be_created_is_an_error_naming_the_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let world = tmp.path().join("saves").join("w");
+        std::fs::create_dir_all(&world).unwrap();
+        // `players` is a regular file, so the folder cannot be created
+        std::fs::write(world.join("players"), b"").unwrap();
+
+        let err = init(
+            UdpSocket::bind("127.0.0.1:0").unwrap(),
+            GameServerConfig {
+                world_name: "w".into(),
+                is_solo: true,
+            },
+            GameFolderPaths {
+                game_folder_path: tmp.path().into(),
+                assets_folder_path: tmp.path().into(),
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.contains("players"), "{err}");
     }
 }

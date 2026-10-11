@@ -296,7 +296,7 @@ mod tests {
         saved.is_flying = true;
         saved.inventory.inner.insert(0, dirt(12));
         saved.inventory.inner.insert(5, dirt(3));
-        save_player_data(&saved, player_file(&tmp, 7).to_str().unwrap()).unwrap();
+        save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
         let loaded = load_player_data(WORLD, &7, "new name", &paths).unwrap();
 

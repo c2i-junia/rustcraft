@@ -1,5 +1,5 @@
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT};
-use crate::game::PreLoadingCompletion;
+use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
 use crate::world::GlobalMaterial;
 use bevy::image::ImageSampler;

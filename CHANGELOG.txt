@@ -1,4 +1,20 @@
 ----------------------------------------------------------------------------------------------------
+Version: Unreleased
+Date: 11.10.2026
+
+  Changes: 
+    - Updated the game engine to Bevy 0.19.
+    - New save layout: one folder per world, with world.ron for the metadata, one file per chunk and one file per player. Worlds from older versions are converted on first load, the old file is kept as world.ron.legacy.
+    - The world and the connected players are saved automatically every 60 seconds.
+    - Block changes are now sent to the players as small updates instead of whole chunks.
+    - World generation is deterministic: a seed always gives the same world.
+    - Added a chat (T key).
+    - Fixed players spawning inside stone.
+    - Fixed the world not being saved when leaving the game.
+    - Fixed the fox sinking into the ground; it now stays on it.
+    - Fixed crashes when a client sent invalid data: usernames are checked (1 to 32 characters) and the number of inputs per tick is limited.
+
+----------------------------------------------------------------------------------------------------
 Version: 0.8    
 Date: 13.12.2024    
 

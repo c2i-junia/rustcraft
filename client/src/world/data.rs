@@ -41,7 +41,6 @@ impl ChunkRender {
 
 #[derive(Resource, Default)]
 pub struct ClientWorldMap {
-    pub name: String,
     pub blocks: ChunkMap,
     /// Maps global chunk positions to the render bookkeeping of the chunk
     pub render: HashMap<IVec3, ChunkRender>,

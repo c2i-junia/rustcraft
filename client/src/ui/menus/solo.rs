@@ -2,7 +2,6 @@ use super::list_screen::*;
 use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
-use crate::world::ClientWorldMap;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy_simple_text_input::TextInputValue;
@@ -64,7 +63,6 @@ pub fn list_worlds(
     mut commands: Commands,
     assets: Res<AssetServer>,
     mut list_query: Query<(&mut WorldList, Entity)>,
-    mut world_map: ResMut<ClientWorldMap>,
     game_paths: Res<GameFolderPaths>,
 ) {
     let Ok((mut list, list_entity)) = list_query.single_mut() else {
@@ -74,14 +72,7 @@ pub fn list_worlds(
     info!("Looking for worlds in : {}", save_path.display());
 
     for name in saved_world_names(&save_path) {
-        add_world_item(
-            name,
-            &mut commands,
-            &assets,
-            &mut list,
-            list_entity,
-            &mut world_map,
-        );
+        add_world_item(name, &mut commands, &assets, &mut list, list_entity);
     }
 }
 
@@ -124,12 +115,8 @@ fn add_world_item(
     assets: &Res<AssetServer>,
     list: &mut WorldList,
     list_entity: Entity,
-    world_map: &mut ClientWorldMap,
 ) {
     info!("Adding world to list : name = {name:?}");
-
-    // udpate the name of the world_map
-    world_map.name = name.clone();
 
     let row = spawn_row(commands, assets, list_entity, &name, None);
     commands
@@ -182,7 +169,6 @@ pub fn solo_action(
     asset_server: Res<AssetServer>,
     mut menu_state: ResMut<NextState<MenuState>>,
     mut game_state: ResMut<NextState<GameState>>,
-    mut world_map: ResMut<ClientWorldMap>,
     mut selected_world: ResMut<SelectedWorld>,
     paths: Res<GameFolderPaths>,
 ) {
@@ -215,14 +201,7 @@ pub fn solo_action(
                     continue;
                 }
 
-                add_world_item(
-                    new_name,
-                    &mut commands,
-                    &asset_server,
-                    &mut list,
-                    entity,
-                    &mut world_map,
-                );
+                add_world_item(new_name, &mut commands, &asset_server, &mut list, entity);
                 name.0 = "".into();
             }
             SoloButtonAction::Load(world_entity) => {

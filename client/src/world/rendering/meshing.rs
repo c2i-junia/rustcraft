@@ -107,22 +107,23 @@ pub(crate) fn generate_chunk_mesh(
                 );
 
                 if block.breaking_progress > 0 {
-                    // Overlay the current breaking progress based on the state of the current block (10 different states)
+                    // Overlay the current breaking progress (stages 0 to 9). A custom texture
+                    // folder may lack the texture: draw no cracks then.
                     let breaking_progress = block.get_breaking_level();
 
-                    render_face(
-                        &mut local_vertices,
-                        &mut local_indices,
-                        &mut local_normals,
-                        &mut local_uvs,
-                        &mut local_colors,
-                        &mut solid_mesh_creator.indices_offset,
-                        face,
-                        uv_map
-                            .get(&format!("DestroyStage{breaking_progress}"))
-                            .unwrap(),
-                        alpha,
-                    );
+                    if let Some(cracks) = uv_map.get(&format!("DestroyStage{breaking_progress}")) {
+                        render_face(
+                            &mut local_vertices,
+                            &mut local_indices,
+                            &mut local_normals,
+                            &mut local_uvs,
+                            &mut local_colors,
+                            &mut solid_mesh_creator.indices_offset,
+                            face,
+                            cracks,
+                            alpha,
+                        );
+                    }
                 }
             }
         }
@@ -275,5 +276,40 @@ fn should_render_face(
         }
     } else {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::world::BlockData;
+
+    fn cracked_stone_mesh(uv_map: &HashMap<String, UvCoords>, progress: u8) -> usize {
+        let mut chunk = Chunk::new();
+        let mut block = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        block.breaking_progress = progress;
+        chunk.set(IVec3::new(1, 1, 1), block);
+        let mut world = ChunkMap::default();
+        world.insert_chunk(IVec3::ZERO, chunk.clone());
+        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, uv_map)
+            .solid_mesh
+            .map_or(0, |mesh| mesh.count_vertices())
+    }
+
+    #[test]
+    fn a_missing_cracks_texture_draws_no_cracks_instead_of_panicking() {
+        let mut uv_map = HashMap::new();
+        uv_map.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
+        let plain = cracked_stone_mesh(&uv_map, 0);
+        // Mid-way, last hit and beyond the break time: the block is drawn without cracks
+        for progress in [30, 60, 200] {
+            assert_eq!(cracked_stone_mesh(&uv_map, progress), plain, "{progress}");
+        }
+
+        uv_map.insert(
+            "DestroyStage9".to_string(),
+            UvCoords::new(0.0, 0.1, 0.0, 0.1),
+        );
+        assert!(cracked_stone_mesh(&uv_map, 200) > plain);
     }
 }
