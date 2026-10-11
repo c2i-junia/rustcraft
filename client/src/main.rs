@@ -5,6 +5,7 @@ mod input;
 mod mob;
 mod network;
 mod player;
+mod state;
 mod ui;
 mod world;
 
@@ -23,11 +24,10 @@ use bevy_inspector_egui::{
 };
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
-use input::{data::GameAction, keyboard::get_bindings};
+use input::keyboard::get_bindings;
 use menus::solo::SelectedWorld;
-use serde::{Deserialize, Serialize};
 use shared::get_game_folder_paths;
-use std::collections::BTreeMap;
+use state::{GameState, PlayerNameSupplied, TexturePath};
 use ui::{hud::debug::inspector::inspector_ui, menus};
 
 #[derive(Parser, Debug)]
@@ -49,35 +49,6 @@ struct Args {
 
     #[arg(short, long, help = "Player name to use for the game")]
     player_name: Option<String>,
-}
-
-#[derive(Component)]
-pub struct MenuCamera;
-
-pub const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
-
-// Enum that will be used as a global state for the game
-#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
-pub enum GameState {
-    #[default]
-    Menu,
-    PreGameLoading,
-    Game,
-}
-
-#[derive(Resource, Serialize, Deserialize)]
-pub struct KeyMap {
-    pub map: BTreeMap<GameAction, Vec<KeyCode>>,
-}
-
-#[derive(Resource, Debug)]
-pub struct TexturePath {
-    pub path: String,
-}
-
-#[derive(Resource, Debug)]
-pub struct PlayerNameSupplied {
-    pub name: String,
 }
 
 fn main() {

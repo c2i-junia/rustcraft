@@ -1,8 +1,8 @@
 use super::UiDialog;
 use crate::constants::{HOTBAR_BORDER, HOTBAR_CELL_SIZE, HOTBAR_PADDING, MAX_HOTBAR_SLOTS};
+use crate::state::GameState;
 use crate::ui::hud::{FloatingStack, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::world::MaterialResource;
-use crate::GameState;
 use bevy::{prelude::*, ui::FocusPolicy};
 use shared::MAX_INVENTORY_SLOTS;
 

@@ -4,7 +4,7 @@ use super::targeted_block::BlockText;
 use super::{CoordsText, FpsText};
 use crate::input::data::GameAction;
 use crate::input::keyboard::get_action_keys;
-use crate::{GameState, KeyMap};
+use crate::state::{GameState, KeyMap};
 use bevy::prelude::*;
 
 /// Marker to find the container entity so we can show/hide the FPS counter

@@ -169,7 +169,7 @@ mod tests {
     use crate::menus::solo::SelectedWorld;
     use crate::network::add_base_netcode;
     use crate::network::launch_local_server_system;
-    use crate::GameState;
+    use crate::state::GameState;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::state::app::StatesPlugin;
     use bevy_renet::netcode::ClientAuthentication;

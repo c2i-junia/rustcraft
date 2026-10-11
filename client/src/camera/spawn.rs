@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 
-use crate::GameState;
+use super::camera_control_system;
+
+use crate::state::{GameSet, GameState};
 
 #[derive(Component)]
 pub struct CameraController {
@@ -42,6 +44,12 @@ impl From<Quat> for CameraController {
 /// camera has to be despawned on that transition too.
 pub fn camera_plugin(app: &mut App) {
     app.add_systems(OnEnter(GameState::PreGameLoading), spawn_camera)
+        .add_systems(
+            Update,
+            camera_control_system
+                .in_set(GameSet::Camera)
+                .run_if(in_state(GameState::Game)),
+        )
         .add_systems(
             OnTransition {
                 exited: GameState::PreGameLoading,
@@ -85,6 +93,10 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .init_state::<GameState>()
+            // What `camera_control_system` reads once the game state is reached
+            .add_message::<bevy::input::mouse::MouseMotion>()
+            .insert_resource(shared::players::ViewMode::FirstPerson)
+            .insert_resource(crate::ui::hud::UIMode::Closed)
             .add_plugins(camera_plugin);
         app.update();
         app

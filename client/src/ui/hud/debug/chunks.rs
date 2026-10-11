@@ -1,5 +1,5 @@
 use crate::player::CurrentPlayerMarker;
-use crate::GameState;
+use crate::state::GameState;
 use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
 use bevy::mesh::PrimitiveTopology;

@@ -2,8 +2,8 @@ use crate::{
     camera::CameraController,
     network::{CurrentPlayerProfile, TargetServer, TargetServerState, UnacknowledgedInputs},
     player::{PlayerLabel, PlayerMaterialHandle},
+    state::GameState,
     world::ClientWorldMap,
-    GameState,
 };
 use bevy::color::palettes::css::ORANGE;
 use bevy::prelude::*;

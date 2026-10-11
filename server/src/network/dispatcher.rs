@@ -1,23 +1,19 @@
-use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
+use crate::init::{ServerLobby, ServerTime};
 use crate::mob::behavior::mob_behavior_system;
 use crate::network::broadcast_chat::*;
-use crate::network::cleanup::cleanup_player_from_world;
 use crate::world;
 use crate::world::broadcast_world::broadcast_world_state;
 use crate::world::data::ServerWorldMap;
-use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
 use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
 use bevy_renet::{RenetServer, RenetServerEvent};
-use shared::messages::{
-    AuthRegisterResponse, ChatConversation, ClientToServerMessage, PlayerSave, PlayerSpawnEvent,
-    ServerToClientMessage,
-};
+use shared::messages::{ChatConversation, ClientToServerMessage};
 use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
 
 use super::extensions::SendGameMessageExtension;
+use super::handlers::{self, Clients};
 
 /// bevy_renet reports connections as observer events: this buffers them as a message so that
 /// `server_update_system` still reads them in `Update`. The event is copied field by field
@@ -56,18 +52,45 @@ pub fn setup_resources_and_events(app: &mut App) {
     setup_chat_resources(app);
 }
 
+/// The stages of a server tick, in this order. A save is done on the frame of its request and
+/// holds every change made until then, which is why the broadcast (it drains the change log
+/// into the dirty chunks) comes before it.
+///
+/// There is no stage for chunk generation: it happens in `handle_player_inputs_system`, before
+/// and after each batch of inputs, so that a falling player is never held on an ungenerated
+/// chunk.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ServerSet {
+    /// Connection events and client messages.
+    Receive,
+    /// The player inputs are applied to the world.
+    Simulate,
+    /// The world changes are sent to the clients.
+    Broadcast,
+    /// The world is handed to the writer.
+    Save,
+}
+
 pub fn register_systems(app: &mut App) {
-    // Receive, simulate, broadcast (which drains the change log into the dirty chunks), then
-    // save: a save is done on the frame of its request and holds every change made until then
-    app.add_systems(
+    app.configure_sets(
         Update,
         (
-            server_update_system,
-            handle_player_inputs_system,
-            broadcast_world_state,
-            world::save::save_world_system,
+            ServerSet::Receive,
+            ServerSet::Simulate,
+            ServerSet::Broadcast,
+            ServerSet::Save,
         )
             .chain(),
+    )
+    .add_systems(Update, server_update_system.in_set(ServerSet::Receive))
+    .add_systems(
+        Update,
+        handle_player_inputs_system.in_set(ServerSet::Simulate),
+    )
+    .add_systems(Update, broadcast_world_state.in_set(ServerSet::Broadcast))
+    .add_systems(
+        Update,
+        world::save::save_world_system.in_set(ServerSet::Save),
     );
 
     app.add_systems(Update, crate::mob::manage_mob_spawning_system);
@@ -98,14 +121,14 @@ fn server_update_system(
         debug!("event received");
         match event {
             ServerEventMessage::ClientConnected { client_id } => {
-                info!("Player {} connected.", client_id);
+                handlers::client_connected(*client_id);
             }
             ServerEventMessage::ClientDisconnected { client_id, reason } => {
-                info!("Player {} disconnected: {}", client_id, reason);
-                lobby.players.remove(client_id);
-                cleanup_player_from_world(
-                    &mut world_map,
+                handlers::client_disconnected(
                     client_id,
+                    reason,
+                    &mut lobby,
+                    &mut world_map,
                     &game_folder_paths,
                     &mut ev_save_request,
                 );
@@ -128,166 +151,43 @@ fn server_update_system(
                 continue;
             }
 
+            let clients = Clients {
+                server: &mut server,
+                lobby: &mut lobby,
+            };
             match message {
                 ClientToServerMessage::AuthRegisterRequest(auth_req) => {
-                    info!("Auth request received {:?}", auth_req);
-
-                    if lobby.players.values().any(|v| v.name == auth_req.username) {
-                        warn!(
-                            "Username already in use: {}, disconnecting client {}",
-                            &auth_req.username, client_id
-                        );
-                        server.disconnect(client_id);
+                    let flow = handlers::auth_register_request(
+                        clients,
+                        client_id,
+                        auth_req,
+                        &mut world_map,
+                        &chat_conversation,
+                        &time,
+                        &game_folder_paths,
+                    );
+                    // The client was refused: drop the rest of its messages
+                    if flow.is_break() {
                         break;
-                    }
-
-                    lobby
-                        .players
-                        .insert(client_id, LobbyPlayer::new(auth_req.username.clone()));
-                    debug!("New lobby : {:?}", lobby);
-
-                    // Load player data if it doesn't already exist
-                    let registered_player = if let Some(player) = world_map.players.get(&client_id)
-                    {
-                        player
-                    } else {
-                        let player = match load_player_data(
-                            &world_map.name,
-                            &client_id,
-                            &auth_req.username,
-                            &game_folder_paths,
-                        ) {
-                            Ok(player) => player,
-                            Err(err) => {
-                                error!("Refusing player {client_id}: {err}");
-                                lobby.players.remove(&client_id);
-                                server.disconnect(client_id);
-                                break;
-                            }
-                        };
-
-                        world_map.players.insert(client_id, player);
-
-                        world_map.players.get(&client_id).unwrap()
-                    };
-
-                    let timestamp_ms: u64 = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64;
-
-                    let all_player_spawn_events = world_map
-                        .players
-                        .iter()
-                        .map(|(id, player)| PlayerSpawnEvent {
-                            id: *id,
-                            name: player.name.clone(),
-                            data: PlayerSave {
-                                position: player.position,
-                                camera_transform: player.camera_transform,
-                                is_flying: player.is_flying,
-                            },
-                        })
-                        .collect();
-
-                    // TODO: add cleanup system if no heartbeat
-                    let auth_res = AuthRegisterResponse {
-                        username: auth_req.username,
-                        session_token: client_id,
-                        tick: time.0,
-                        timestamp_ms,
-                        players: all_player_spawn_events,
-                    };
-
-                    server.send_game_message(client_id, auth_res.into());
-
-                    for message in &chat_conversation.messages {
-                        server.send_game_message(
-                            client_id,
-                            ServerToClientMessage::ChatMessage(message.clone()),
-                        );
-                    }
-
-                    // Send message to all players that a new one spawned
-                    for (id, player) in lobby.players.iter() {
-                        let spawn_message = PlayerSpawnEvent {
-                            id: *id,
-                            name: player.name.clone(),
-                            data: PlayerSave {
-                                position: registered_player.position,
-                                camera_transform: registered_player.camera_transform,
-                                is_flying: registered_player.is_flying,
-                            },
-                        };
-
-                        let spawn_message_wrapped =
-                            ServerToClientMessage::PlayerSpawn(spawn_message);
-
-                        info!("Sending spawn order {:?}", spawn_message_wrapped);
-                        server.broadcast_game_message(spawn_message_wrapped);
                     }
                 }
                 ClientToServerMessage::ChatMessage(chat_msg) => {
-                    let current_timestamp: u64 = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64;
-
-                    let Some(current_author) = lobby.players.get(&client_id) else {
-                        continue;
-                    };
-
-                    let Some(message) = record_chat_message(
-                        &mut chat_conversation,
-                        &current_author.name,
-                        chat_msg.content,
-                        current_timestamp,
-                    ) else {
-                        warn!("Rejected chat message from client {}", client_id);
-                        continue;
-                    };
-                    // Only authenticated clients: the others are not in the lobby yet.
-                    for &id in lobby.players.keys() {
-                        server.send_game_message(
-                            id,
-                            ServerToClientMessage::ChatMessage(message.clone()),
-                        );
-                    }
+                    handlers::chat_message(clients, client_id, chat_msg, &mut chat_conversation);
                 }
                 ClientToServerMessage::Exit => {
-                    debug!("Received shutdown order...");
-
-                    // Save player data on exit
-                    ev_save_request.write(SaveRequestEvent::Player(client_id));
-
-                    // TODO: add permission checks
-                    if config.is_solo {
-                        info!("Server is going down...");
-                        ev_app_exit.write(AppExit::Success);
-                    } else {
-                        server.disconnect(client_id);
-                        lobby.players.remove(&client_id);
-                        info!("Player {:?} disconnected", client_id);
-                    }
+                    handlers::exit(
+                        clients,
+                        client_id,
+                        &config,
+                        &mut ev_save_request,
+                        &mut ev_app_exit,
+                    );
                 }
                 ClientToServerMessage::PlayerInputs(inputs) => {
-                    for input in inputs.iter() {
-                        ev_player_inputs.write(PlayerInputsEvent {
-                            client_id,
-                            input: input.clone(),
-                        });
-                    }
+                    handlers::player_inputs(client_id, inputs, &mut ev_player_inputs);
                 }
                 ClientToServerMessage::SaveWorldRequest => {
-                    debug!("Save request received from client with session token");
-
-                    // TODO : Check for permissions on multiplayer mode (server admin)
-
-                    // If in solo mode, save both world and player data
-                    if config.is_solo {
-                        ev_save_request.write(SaveRequestEvent::World);
-                        ev_save_request.write(SaveRequestEvent::Player(client_id));
-                    }
+                    handlers::save_world_request(client_id, &config, &mut ev_save_request);
                 }
             }
         }

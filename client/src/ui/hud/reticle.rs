@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::GameState;
+use crate::state::GameState;
 
 pub fn spawn_reticle(mut commands: Commands) {
     // Main container for the reticle

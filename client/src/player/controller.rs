@@ -3,11 +3,11 @@ use crate::input::keyboard::*;
 use crate::network::buffered_client::{
     CurrentFrameInputs, CurrentFrameInputsExt, PlayerTickInputsBuffer, SyncTime, SyncTimeExt,
 };
+use crate::state::KeyMap;
 use crate::ui::hud::debug::DebugOptions;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
 use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
-use crate::KeyMap;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::movement::simulate_player_movement;

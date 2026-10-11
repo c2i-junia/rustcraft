@@ -1,7 +1,7 @@
 use crate::player::CurrentPlayerMarker;
+use crate::state::GameState;
 use crate::world::materials::MaterialResource;
 use crate::world::time::ClientTime;
-use crate::GameState;
 use crate::{
     constants::{CELESTIAL_DISTANCE, CELESTIAL_SIZE, DAY_DURATION_IN_TICKS},
     world::GlobalMaterial,

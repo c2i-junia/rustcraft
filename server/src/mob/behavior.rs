@@ -146,7 +146,13 @@ mod tests {
     use bevy::math::Vec3;
     use bevy::prelude::World;
     use shared::world::{BlockId, ChunkMap, MobKind, ServerMob};
+    use shared::TICKS_PER_SECOND;
     use std::time::Duration;
+
+    /// What `Time<Fixed>` is on the server: the duration of a tick.
+    fn tick() -> Duration {
+        Duration::from_secs_f64(1.0 / TICKS_PER_SECOND as f64)
+    }
 
     fn mob_at(position: Vec3, target: MobTarget) -> ServerMob {
         ServerMob {
@@ -173,7 +179,7 @@ mod tests {
             .collect();
         world.insert_resource(map);
         let mut time = Time::<Fixed>::default();
-        time.advance_by(Duration::from_millis(15));
+        time.advance_by(tick());
         world.insert_resource(time);
         world.run_system_once(mob_behavior_system).unwrap();
         world.remove_resource::<ServerWorldMap>().unwrap()
@@ -228,14 +234,14 @@ mod tests {
         fox
     }
 
-    fn run_ticks(mut map: ServerWorldMap, fox: ServerMob, ticks: usize) -> ServerWorldMap {
+    fn run_seconds(mut map: ServerWorldMap, fox: ServerMob, seconds: u64) -> ServerWorldMap {
         map.mobs.insert(0, fox);
         let mut world = World::new();
         world.insert_resource(map);
         let mut time = Time::<Fixed>::default();
-        time.advance_by(Duration::from_millis(15));
+        time.advance_by(tick());
         world.insert_resource(time);
-        for _ in 0..ticks {
+        for _ in 0..seconds * TICKS_PER_SECOND {
             world.run_system_once(mob_behavior_system).unwrap();
         }
         world.remove_resource::<ServerWorldMap>().unwrap()
@@ -244,7 +250,7 @@ mod tests {
     #[test]
     fn a_fleeing_mob_does_not_sink_when_its_target_is_above() {
         for target in [Vec3::new(0.5, 9.0, 0.5), Vec3::new(3.5, 8.0, 0.5)] {
-            let map = run_ticks(ground_world(false), fleeing_fox_at_origin(target), 330);
+            let map = run_seconds(ground_world(false), fleeing_fox_at_origin(target), 5);
             let fox = &map.mobs[&0];
             assert!(
                 (fox.position.y - 1.5).abs() < 0.05,
@@ -257,7 +263,7 @@ mod tests {
     #[test]
     fn a_fleeing_mob_does_not_enter_a_wall() {
         let target = Vec3::new(5.5, 1.5, 0.5);
-        let map = run_ticks(ground_world(true), fleeing_fox_at_origin(target), 660);
+        let map = run_seconds(ground_world(true), fleeing_fox_at_origin(target), 10);
         let fox = map.mobs[&0].clone();
         let hitbox = Aabb3d::new(
             fox.position,
@@ -278,7 +284,7 @@ mod tests {
     #[test]
     fn a_fleeing_mob_runs_away_horizontally_on_open_ground() {
         let target = Vec3::new(3.5, 1.5, 4.5);
-        let map = run_ticks(ground_world(false), fleeing_fox_at_origin(target), 133);
+        let map = run_seconds(ground_world(false), fleeing_fox_at_origin(target), 2);
         let moved = map.mobs[&0].position - Vec3::new(0.5, 1.5, 0.5);
         // about one block per second for two seconds, along the direction away from the target
         let away = Vec3::new(-3.0, 0.0, -4.0).normalize();
