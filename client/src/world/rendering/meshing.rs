@@ -4,8 +4,8 @@ use std::{collections::HashMap, time::Instant};
 use crate::world::{ClientChunk, ClientWorldMap};
 use bevy::{
     math::IVec3,
+    mesh::{Indices, PrimitiveTopology},
     prelude::*,
-    render::mesh::{Indices, PrimitiveTopology},
 };
 use shared::world::{to_global_pos, BlockDirection, BlockId, BlockTransparency, WorldMap};
 

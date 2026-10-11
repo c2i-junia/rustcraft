@@ -41,9 +41,7 @@ jobs:
           clang
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@nightly
-      with:
-        components: rustfmt, clippy, rustc-codegen-cranelift-preview
+      run: rustup toolchain install
 
     - name: Cache build artifacts
       uses: Swatinem/rust-cache@v2

@@ -17,7 +17,10 @@ use bevy::{
     },
     window::PresentMode,
 };
-use bevy_inspector_egui::{bevy_egui::EguiPlugin, DefaultInspectorConfigPlugin};
+use bevy_inspector_egui::{
+    bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass},
+    DefaultInspectorConfigPlugin,
+};
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
 use input::{data::GameAction, keyboard::get_bindings};
@@ -133,11 +136,15 @@ fn main() {
         game_folder_paths.game_folder_path.display()
     );
 
-    app.add_plugins(EguiPlugin {
-        enable_multipass_for_primary_context: false,
+    // The menu and game cameras carry `PrimaryEguiContext` themselves: the automatic context
+    // would stay on the first camera ever created, which is the menu one.
+    app.insert_resource(EguiGlobalSettings {
+        auto_create_primary_context: false,
+        ..default()
     })
+    .add_plugins(EguiPlugin::default())
     .add_plugins(DefaultInspectorConfigPlugin)
-    .add_systems(Update, inspector_ui);
+    .add_systems(EguiPrimaryContextPass, inspector_ui);
 
     network::add_base_netcode(&mut app);
     app.insert_resource(get_bindings(&game_folder_paths))
@@ -152,7 +159,6 @@ fn main() {
             name: args.player_name.unwrap_or_else(|| "Player".to_string()),
         })
         .init_state::<GameState>()
-        .enable_state_scoped_entities::<GameState>()
         // Adds the plugins for each state
         .add_plugins((menus::menu_plugin, game::game_plugin))
         .run();

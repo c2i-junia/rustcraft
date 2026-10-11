@@ -7,7 +7,7 @@ use shared::players::ViewMode;
 // System to control the camera based on mouse movement
 pub fn camera_control_system(
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut mouse_motion_events: EventReader<MouseMotion>,
+    mut mouse_motion_events: MessageReader<MouseMotion>,
     mut camera_query: Query<
         (&mut Transform, &mut CameraController),
         (With<Camera>, Without<CurrentPlayerMarker>),

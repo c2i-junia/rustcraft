@@ -30,7 +30,7 @@ pub fn add_item_floating_stack(
 ) -> u32 {
     if nb == 0 {
         0
-    } else if let Some(mut item) = floating_stack.items {
+    } else if let Some(item) = floating_stack.items.as_mut() {
         if nb + item.nb > item.item_id.get_max_stack() {
             nb = item.item_id.get_max_stack() - item.nb;
         }

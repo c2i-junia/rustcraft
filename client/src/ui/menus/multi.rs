@@ -10,7 +10,7 @@ use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        Button, Changed, Commands, Component, Entity, Query, Res, StateScoped, With, Without,
+        Button, Changed, Commands, Component, DespawnOnExit, Entity, Query, Res, With, Without,
     },
     ui::{
         AlignContent, AlignItems, BackgroundColor, BorderColor, Display, FlexDirection, GridTrack,
@@ -83,7 +83,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
 
     commands
         .spawn((
-            StateScoped(MenuState::Multi),
+            DespawnOnExit(MenuState::Multi),
             (
                 Node {
                     width: Val::Vw(100.0),
@@ -114,7 +114,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
             ));
 
             root.spawn((
-                BorderColor(BACKGROUND_COLOR),
+                BorderColor::all(BACKGROUND_COLOR),
                 Node {
                     width: Val::Percent(100.0),
                     height: Val::Percent(50.0),
@@ -151,7 +151,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                 .with_children(|wrapper| {
                     wrapper.spawn((
                         (
-                            BorderColor(BACKGROUND_COLOR),
+                            BorderColor::all(BACKGROUND_COLOR),
                             BackgroundColor(Color::BLACK),
                             btn_style.clone(),
                         ),
@@ -173,7 +173,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
 
                     wrapper.spawn((
                         (
-                            BorderColor(BACKGROUND_COLOR),
+                            BorderColor::all(BACKGROUND_COLOR),
                             BackgroundColor(Color::BLACK),
                             btn_style.clone(),
                         ),
@@ -197,7 +197,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                         .spawn((
                             (
                                 Button,
-                                BorderColor(Color::BLACK),
+                                BorderColor::all(Color::BLACK),
                                 BackgroundColor(BACKGROUND_COLOR),
                                 btn_style.clone(),
                                 ImageNode::new(button_background_image.clone()),
@@ -212,7 +212,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                         .spawn((
                             (
                                 Button,
-                                BorderColor(Color::BLACK),
+                                BorderColor::all(Color::BLACK),
                                 BackgroundColor(BACKGROUND_COLOR),
                                 btn_style.clone(),
                                 ImageNode::new(button_background_image.clone()),
@@ -253,7 +253,7 @@ pub fn add_server_item(
 
     let server = commands
         .spawn((
-            BorderColor(BACKGROUND_COLOR),
+            BorderColor::all(BACKGROUND_COLOR),
             Node {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,

@@ -12,8 +12,8 @@ use bevy::image::TextureAtlas;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::input::ButtonInput;
 use bevy::prelude::{
-    EventReader, ImageNode, KeyCode, MouseButton, Node, Query, Res, ResMut, Text, Val, Visibility,
-    Window, With, Without,
+    ImageNode, KeyCode, MessageReader, MouseButton, Node, Query, Res, ResMut, Text, Val,
+    Visibility, Window, With, Without,
 };
 use bevy::ui::{BorderColor, Interaction};
 use bevy::window::PrimaryWindow;
@@ -45,7 +45,7 @@ pub fn render_inventory_hotbar(
         Res<MaterialResource>,
         Res<UIMode>,
     ),
-    mut scroll: EventReader<MouseWheel>,
+    mut scroll: MessageReader<MouseWheel>,
 ) {
     let mut vis = visibility_query.single_mut().unwrap();
 
@@ -119,12 +119,12 @@ pub fn render_inventory_hotbar(
         }
         // Show selected stack in hotbar
         if *vis != Visibility::Visible && hotbar_query.single().unwrap().selected == cell.id {
-            border_color.0 = Color::WHITE;
+            *border_color = BorderColor::all(Color::WHITE);
             continue;
         }
         // If no interaction (or the inventory is closed for hotbar), the border is the default one
         if *interaction == Interaction::None || *vis != Visibility::Visible {
-            border_color.0 = Color::srgb(0.3, 0.3, 0.3);
+            *border_color = BorderColor::all(Color::srgb(0.3, 0.3, 0.3));
             continue;
         }
         // Means we have an interaction with the cell, but which type of interaction ?
@@ -216,7 +216,7 @@ pub fn render_inventory_hotbar(
                 );
             }
         } else {
-            border_color.0 = Color::WHITE;
+            *border_color = BorderColor::all(Color::WHITE);
         }
     }
 }
@@ -236,7 +236,7 @@ pub fn update_inventory_cell(
         *atlas = items_atlas
             .sources
             .handle(
-                items_atlas.layout.clone_weak(),
+                items_atlas.layout.clone(),
                 items_atlas
                     .handles
                     .get(&format!("{:?}", fstack.item_id))

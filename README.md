@@ -102,12 +102,7 @@ To build and run this project, you need the following tools and dependencies ins
 
 ### 1. **Rust**
 - Install Rust using [Rustup](https://rustup.rs)
-- After installation, add the **Nightly toolchain** with the Cranelift backend:
-  ```bash
-  rustup install nightly
-  rustup default nightly
-  rustup component add rustc-codegen-cranelift-preview --toolchain nightly
-  ```
+- The repository pins its nightly toolchain (with the Cranelift backend) in `rust-toolchain.toml`: rustup installs it automatically on the first `cargo` command run in the repository.
 
 ### 2. **Just**
 - **Just** is used in this project to manage build. Install it using Cargo:

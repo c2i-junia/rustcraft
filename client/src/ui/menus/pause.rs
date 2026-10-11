@@ -31,7 +31,7 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
             PauseMenu,
             UiDialog,
             Name::new("PauseMenu"),
-            StateScoped(GameState::Game),
+            DespawnOnExit(GameState::Game),
             BackgroundColor(Color::BLACK.with_alpha(0.6)),
             (
                 Node {
@@ -79,7 +79,7 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
                                     ..Default::default()
                                 },
                                 BackgroundColor(Color::srgb(0.3, 0.3, 0.3)),
-                                BorderColor(Color::BLACK),
+                                BorderColor::all(Color::BLACK),
                             ),
                         ))
                         .with_children(|btn| {
@@ -147,10 +147,10 @@ pub fn render_pause_menu(
                 }
             },
             Interaction::Hovered => {
-                bcolor.0 = Color::WHITE;
+                *bcolor = BorderColor::all(Color::WHITE);
             }
             Interaction::None => {
-                bcolor.0 = Color::BLACK;
+                *bcolor = BorderColor::all(Color::BLACK);
             }
         }
     }

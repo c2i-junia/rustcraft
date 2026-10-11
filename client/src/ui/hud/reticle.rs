@@ -6,7 +6,7 @@ pub fn spawn_reticle(mut commands: Commands) {
     // Main container for the reticle
     commands
         .spawn((
-            StateScoped(GameState::Game), // Link the reticle to the Game state
+            DespawnOnExit(GameState::Game), // Link the reticle to the Game state
             Node {
                 position_type: PositionType::Absolute,
                 margin: UiRect {

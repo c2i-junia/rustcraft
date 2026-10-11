@@ -19,7 +19,7 @@ pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server:
             column_gap: Val::Px(60.),
             ..default()
         },
-        StateScoped(GameState::PreGameLoading),
+        DespawnOnExit(GameState::PreGameLoading),
     );
 
     let loading_text_bundle = (

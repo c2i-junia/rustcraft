@@ -19,8 +19,8 @@ use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
 use super::extensions::SendGameMessageExtension;
 
 pub fn setup_resources_and_events(app: &mut App) {
-    app.add_event::<SaveRequestEvent>()
-        .add_event::<PlayerInputsEvent>();
+    app.add_message::<SaveRequestEvent>()
+        .add_message::<PlayerInputsEvent>();
 
     setup_chat_resources(app);
 }
@@ -44,16 +44,16 @@ pub fn register_systems(app: &mut App) {
 }
 
 fn server_update_system(
-    mut server_events: EventReader<ServerEvent>,
+    mut server_events: MessageReader<ServerEvent>,
     (mut server, mut chat_conversation, mut lobby): (
         ResMut<RenetServer>,
         ResMut<ChatConversation>,
         ResMut<ServerLobby>,
     ),
     (mut ev_app_exit, mut ev_save_request, mut ev_player_inputs): (
-        EventWriter<AppExit>,
-        EventWriter<SaveRequestEvent>,
-        EventWriter<PlayerInputsEvent>,
+        MessageWriter<AppExit>,
+        MessageWriter<SaveRequestEvent>,
+        MessageWriter<PlayerInputsEvent>,
     ),
     config: Res<GameServerConfig>,
     mut world_map: ResMut<ServerWorldMap>,

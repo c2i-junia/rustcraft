@@ -11,7 +11,7 @@ use shared::{
 pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Time<Fixed>>) {
     let mut mobs = world_map.mobs.clone();
 
-    for (_mob_id, mob) in mobs.iter_mut() {
+    for mob in mobs.values_mut() {
         if !mob.position.is_finite() || !mob.velocity.is_finite() {
             // TODO: FIX mob position
             continue;

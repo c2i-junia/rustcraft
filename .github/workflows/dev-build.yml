@@ -44,10 +44,7 @@ jobs:
         python-version: '3.x'
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@nightly
-
-    - name: Add rustc-codegen-cranelift-preview
-      run: rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+      run: rustup toolchain install
 
     - name: Install just
       run: cargo install just
@@ -91,10 +88,7 @@ jobs:
         python-version: '3.x'
 
     - name: Install Rust
-      uses: dtolnay/rust-toolchain@nightly
-
-    - name: Add rustc-codegen-cranelift-preview
-      run: rustup component add rustc-codegen-cranelift-preview --toolchain nightly
+      run: rustup toolchain install
 
     - name: Install just
       run: cargo install just

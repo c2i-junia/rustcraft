@@ -7,9 +7,6 @@ rustflags = [
     "-Zshare-generics=y",
 ]
 
-[toolchain]
-channel = "nightly"
-
 [unstable]
 codegen-backend = true
 

@@ -44,7 +44,7 @@ pub fn controls_menu_setup(
 
     commands
         .spawn((
-            StateScoped(MenuState::SettingsControls),
+            DespawnOnExit(MenuState::SettingsControls),
             (
                 Node {
                     padding: UiRect::horizontal(Val::Vw(15.)),
@@ -126,7 +126,7 @@ pub fn controls_menu_setup(
                                 list.spawn((
                                     (
                                         Button,
-                                        BorderColor(Color::srgb(0.3, 0.3, 0.3)),
+                                        BorderColor::all(Color::srgb(0.3, 0.3, 0.3)),
                                         Node {
                                             display: Display::Grid,
                                             width: Val::Percent(100.),
@@ -226,7 +226,7 @@ pub fn controls_menu_setup(
                 wrapper
                     .spawn((
                         BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
-                        BorderColor(Color::Srgba(css::BLUE_VIOLET)),
+                        BorderColor::all(Color::Srgba(css::BLUE_VIOLET)),
                         Node {
                             border: UiRect::all(Val::Px(2.5)),
                             min_width: Val::Vw(50.),

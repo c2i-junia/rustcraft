@@ -25,9 +25,6 @@ RUN cargo install just
 
 WORKDIR /app
 
-RUN rustup override set nightly
-RUN rustup component add rustc-codegen-cranelift-preview
-
 COPY . .
 
 RUN just generate-release-folder-server

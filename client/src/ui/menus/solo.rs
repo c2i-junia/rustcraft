@@ -10,7 +10,7 @@ use bevy::{
     asset::AssetServer,
     color::Color,
     prelude::{
-        Button, Changed, Commands, Component, Entity, NextState, Query, Res, ResMut, StateScoped,
+        Button, Changed, Commands, Component, DespawnOnExit, Entity, NextState, Query, Res, ResMut,
         Text, With,
     },
     ui::{
@@ -80,7 +80,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
 
     commands
         .spawn((
-            StateScoped(MenuState::Solo),
+            DespawnOnExit(MenuState::Solo),
             (Node {
                 width: Val::Vw(100.0),
                 height: Val::Vh(100.0),
@@ -116,7 +116,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                     border: UiRect::all(Val::Px(2.)),
                     ..Default::default()
                 },
-                BorderColor(BACKGROUND_COLOR),
+                BorderColor::all(BACKGROUND_COLOR),
             ))
             .with_children(|w| {
                 w.spawn((
@@ -150,7 +150,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                     };
                     wrapper.spawn((
                         (
-                            BorderColor(BACKGROUND_COLOR),
+                            BorderColor::all(BACKGROUND_COLOR),
                             BackgroundColor(Color::BLACK),
                             node,
                         ),
@@ -176,7 +176,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                         .spawn((
                             (
                                 Button,
-                                BorderColor(Color::BLACK),
+                                BorderColor::all(Color::BLACK),
                                 BackgroundColor(BACKGROUND_COLOR),
                                 {
                                     let mut style = btn_style.clone();
@@ -195,7 +195,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                         .spawn((
                             (
                                 Button,
-                                BorderColor(Color::BLACK),
+                                BorderColor::all(Color::BLACK),
                                 BackgroundColor(BACKGROUND_COLOR),
                                 {
                                     let mut style = btn_style.clone();
@@ -341,7 +341,7 @@ fn add_world_item(
 
     let world = commands
         .spawn((
-            BorderColor(BACKGROUND_COLOR),
+            BorderColor::all(BACKGROUND_COLOR),
             Node {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,

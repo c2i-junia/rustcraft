@@ -17,7 +17,7 @@ pub fn setup_hud(mut commands: Commands) {
     let root = commands
         .spawn((
             HudRoot,
-            StateScoped(GameState::Game),
+            DespawnOnExit(GameState::Game),
             (
                 // give it a dark background for readability
                 BackgroundColor(Color::BLACK.with_alpha(0.5)),
