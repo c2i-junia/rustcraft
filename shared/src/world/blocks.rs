@@ -5,6 +5,10 @@ use bevy::math::{bounding::Aabb3d, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+/// Append only: never reorder, insert before the end or remove a variant. The variant's position
+/// is what chunk files and network messages store (bincode), so any other change turns the
+/// blocks of every existing world into other blocks. Bump `PROTOCOL_ID` and, if the saved
+/// encoding changes, `FORMAT_VERSION`. The test `block_encoding_is_pinned` guards this.
 #[derive(
     Debug,
     Clone,
@@ -42,6 +46,8 @@ pub enum BlockId {
     Water,
 }
 
+/// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
+/// in chunk files and sent on the network.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BlockDirection {
     Front,
@@ -58,6 +64,9 @@ pub struct BlockData {
     pub breaking_progress: u8,
 }
 
+/// Last breaking stage: there are ten crack textures, `DestroyStage0` to `DestroyStage9`.
+pub const MAX_BREAKING_LEVEL: u8 = 9;
+
 impl BlockData {
     pub fn new(id: BlockId, direction: BlockDirection) -> Self {
         BlockData {
@@ -67,10 +76,13 @@ impl BlockData {
         }
     }
 
-    /// Breaking stage from 0 to 10; always 0 for an unbreakable block.
+    /// Breaking stage from 0 to `MAX_BREAKING_LEVEL` (9, the last crack texture); always 0 for
+    /// an unbreakable block. A progress at or beyond the break time, which a chunk file or a
+    /// server can carry, gives the last stage.
     pub fn get_breaking_level(&self) -> u8 {
         match self.id.get_break_time() {
-            Some(break_time) => ((self.breaking_progress as u16 * 10) / break_time as u16) as u8,
+            Some(break_time) => (((self.breaking_progress as u16 * 10) / break_time as u16) as u8)
+                .min(MAX_BREAKING_LEVEL),
             None => 0,
         }
     }
@@ -284,14 +296,77 @@ mod tests {
         }
     }
 
+    const ENCODING_WARNING: &str = "the encoded value of an existing variant changed: this \
+        corrupts the saved worlds and breaks the protocol. New variants go at the END of the \
+        enum; then add them to this table (and bump PROTOCOL_ID).";
+
+    fn encoded<T: serde::Serialize>(value: &T) -> Vec<u8> {
+        use bincode::Options;
+        bincode::options().serialize(value).unwrap()
+    }
+
     #[test]
-    fn get_breaking_level_stays_within_zero_to_ten() {
+    fn block_encoding_is_pinned() {
+        for id in ALL_BLOCKS {
+            let expected: u8 = match id {
+                BlockId::Dirt => 0,
+                BlockId::Debug => 1,
+                BlockId::Grass => 2,
+                BlockId::Stone => 3,
+                BlockId::OakLog => 4,
+                BlockId::OakPlanks => 5,
+                BlockId::OakLeaves => 6,
+                BlockId::Sand => 7,
+                BlockId::Cactus => 8,
+                BlockId::Ice => 9,
+                BlockId::Glass => 10,
+                BlockId::Bedrock => 11,
+                BlockId::Dandelion => 12,
+                BlockId::Poppy => 13,
+                BlockId::TallGrass => 14,
+                BlockId::Cobblestone => 15,
+                BlockId::Snow => 16,
+                BlockId::SpruceLeaves => 17,
+                BlockId::SpruceLog => 18,
+                BlockId::Water => 19,
+            };
+            assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
+        }
+    }
+
+    #[test]
+    fn block_direction_encoding_is_pinned() {
+        for direction in [
+            BlockDirection::Front,
+            BlockDirection::Right,
+            BlockDirection::Back,
+            BlockDirection::Left,
+        ] {
+            let expected: u8 = match direction {
+                BlockDirection::Front => 0,
+                BlockDirection::Right => 1,
+                BlockDirection::Back => 2,
+                BlockDirection::Left => 3,
+            };
+            assert_eq!(
+                encoded(&direction),
+                [expected],
+                "{direction:?}: {ENCODING_WARNING}"
+            );
+        }
+    }
+
+    #[test]
+    fn get_breaking_level_stays_within_zero_to_nine() {
         for id in regular_blocks() {
             let break_time = id.get_break_time().unwrap();
             for progress in 0..=break_time {
                 let mut block = BlockData::new(id, BlockDirection::Front);
                 block.breaking_progress = progress;
-                assert!(block.get_breaking_level() <= 10, "{id:?} at {progress}");
+                assert!(
+                    block.get_breaking_level() <= MAX_BREAKING_LEVEL,
+                    "{id:?} at {progress}"
+                );
             }
         }
     }
@@ -303,14 +378,16 @@ mod tests {
         block.breaking_progress = block.id.get_break_time().unwrap() / 2;
         assert_eq!(block.get_breaking_level(), 5);
         block.breaking_progress = block.id.get_break_time().unwrap();
-        assert_eq!(block.get_breaking_level(), 10);
+        assert_eq!(block.get_breaking_level(), MAX_BREAKING_LEVEL);
+        block.breaking_progress = u8::MAX;
+        assert_eq!(block.get_breaking_level(), MAX_BREAKING_LEVEL);
     }
 
     #[test]
     fn get_breaking_level_does_not_panic_for_any_block() {
         for id in ALL_BLOCKS {
             let block = BlockData::new(id, BlockDirection::Front);
-            assert!(block.get_breaking_level() <= 10, "{id:?}");
+            assert!(block.get_breaking_level() <= MAX_BREAKING_LEVEL, "{id:?}");
         }
     }
 

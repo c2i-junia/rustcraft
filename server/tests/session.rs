@@ -424,6 +424,137 @@ fn duplicate_username_is_disconnected_without_blocking_others() {
     server.join_after_exit();
 }
 
+#[test]
+fn invalid_usernames_are_refused_and_valid_ones_are_trimmed() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let refused = [
+        String::new(),
+        "   \t ".to_string(),
+        "x".repeat(33),
+        "bad\nname".to_string(),
+        "nul\0".to_string(),
+    ];
+    for (n, name) in refused.iter().enumerate() {
+        let mut client = TestClient::connect(server.addr, PLAYER_ID + 10 + n as u64);
+        client.wait_connected();
+        client.send(auth_request(name));
+        let start = Instant::now();
+        while !client.client.is_disconnected() {
+            assert!(
+                start.elapsed() < WAIT_TIMEOUT,
+                "the name {name:?} was not refused within {WAIT_TIMEOUT:?}"
+            );
+            client.pump();
+        }
+        assert!(
+            !client
+                .inbox
+                .iter()
+                .any(|m| matches!(m, ServerToClientMessage::AuthRegisterResponse(_))),
+            "the name {name:?} was answered"
+        );
+    }
+
+    // The longest name is accepted, and the stored name has no surrounding spaces
+    let mut long = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut long, &"y".repeat(32));
+    let mut padded = TestClient::connect(server.addr, PLAYER_ID + 1);
+    padded.wait_connected();
+    padded.send(auth_request("  Verif \t"));
+    let auth = padded.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
+        _ => None,
+    });
+    assert_eq!(auth.username, "Verif");
+
+    long.send(ClientToServerMessage::Exit);
+    long.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
+fn a_message_with_too_many_inputs_is_only_simulated_up_to_the_cap() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    let id = client.id;
+    authenticate(&mut client, "flooder");
+
+    let cap = shared::MAX_INPUTS_PER_TICK as u64;
+    let frames: Vec<_> = (1..=cap + 50)
+        .map(|time_ms| PlayerFrameInput {
+            time_ms,
+            delta_ms: 16,
+            ..Default::default()
+        })
+        .collect();
+    client.send(ClientToServerMessage::PlayerInputs(frames));
+    client.wait_for("PlayerUpdate acknowledging the cap-th input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == cap => Some(()),
+        _ => None,
+    });
+    // A later input is simulated, so the excess was dropped, not delayed
+    client.send(inputs_at(100_000));
+    client.wait_for("PlayerUpdate acknowledging the later input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == 100_000 => {
+            Some(())
+        }
+        _ => None,
+    });
+    assert!(
+        !client.inbox.iter().any(|m| matches!(
+            m,
+            ServerToClientMessage::PlayerUpdate(u)
+                if u.id == id && (cap + 1..=cap + 50).contains(&u.last_ack_time)
+        )),
+        "an input beyond the cap was simulated"
+    );
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
+fn a_second_authentication_request_changes_nothing() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    let id = client.id;
+    authenticate(&mut client, "orig");
+
+    client.send(auth_request("renamed"));
+    client.send(inputs_at(5));
+    client.wait_for("PlayerUpdate acknowledging the input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == 5 => Some(()),
+        _ => None,
+    });
+
+    // No second answer, and a newcomer sees the original name only
+    let mut newcomer = TestClient::connect(server.addr, PLAYER_ID + 1);
+    newcomer.wait_connected();
+    newcomer.send(auth_request("newcomer"));
+    let auth = newcomer.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
+        _ => None,
+    });
+    let names: Vec<_> = auth.players.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.contains(&"orig"), "{names:?}");
+    assert!(!names.contains(&"renamed"), "{names:?}");
+    assert!(
+        !client
+            .inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::AuthRegisterResponse(_))),
+        "the client was answered a second time"
+    );
+    // The name "renamed" is still free: the request did not register it
+    let mut other = TestClient::connect(server.addr, PLAYER_ID + 2);
+    authenticate(&mut other, "renamed");
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+}
+
 /// Flies the player forward and up, then returns the position the server acknowledged.
 fn fly_away(client: &mut TestClient, first_time_ms: u64) -> Vec3 {
     let frame = |time_ms, actions: &[NetworkAction]| PlayerFrameInput {

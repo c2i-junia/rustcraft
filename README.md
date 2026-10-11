@@ -17,6 +17,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
     - [Package Managers](#package-managers)
     - [Manual](#manual)
 - [Controls](#controls)
+- [Saves](#saves)
 - [How to Build](#how-to-build)
     - [Prerequisites](#prerequisites)
     - [Running the Project](#running-the-project)
@@ -32,7 +33,8 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
 - World saving and loading.
-- Customizable keybindings and dynamic render distance adjustment.
+- In-game chat.
+- Customizable keybindings, and a key pair (O and P) that sets how far away mobs are drawn.
 
 <br>
 
@@ -83,14 +85,22 @@ paru -S rustcraft
 |                   | Deposit MAX items     | Left Click (over valid stack) |
 |                   | Exchange stacks       | Left Click (over a different stack or full valid stack) |
 |                   |                        |                             |
-| **Miscellaneous** | Toggle FPS Display    | F3                          |
+| **Miscellaneous** | Open Chat             | T                           |
+|                   | Reload Chunks (rebuild their meshes) | R            |
+|                   | Toggle FPS Display    | F3                          |
 |                   | Toggle Perspective    | F5                          |
 |                   | Toggle Chunk Debug    | F4                          |
 |                   | Toggle Block Debug    | F6                          |
 |                   | Toggle Raycast Debug  | F7                          |
-|                   | Decrease Render Distance | O                        |
-|                   | Increase Render Distance | P                        |
+|                   | Decrease Mob Draw Distance | O                      |
+|                   | Increase Mob Draw Distance | P                      |
 |                   | Exit Game             | Escape                      |
+
+<br>
+
+# Saves
+
+Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per chunk and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`.
 
 <br>
 

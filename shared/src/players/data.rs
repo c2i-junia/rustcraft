@@ -29,7 +29,7 @@ impl Inventory {
         }
     }
 
-    // Ajoute un item à l'inventaire du joueur
+    // Adds an item to the player's inventory
     pub fn add_item_to_inventory(&mut self, mut stack: ItemStack) {
         for i in 0..MAX_INVENTORY_SLOTS {
             let item_option = self.inner.get(&i);

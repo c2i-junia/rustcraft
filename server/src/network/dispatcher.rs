@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
 use bevy_renet::{RenetServer, RenetServerEvent};
 use shared::messages::{ChatConversation, ClientToServerMessage};
-use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
+use shared::{GameFolderPaths, GameServerConfig, MAX_INPUTS_PER_TICK, TICKS_PER_SECOND};
 
 use super::extensions::SendGameMessageExtension;
 use super::handlers::{self, Clients};
@@ -137,6 +137,8 @@ fn server_update_system(
     }
 
     for client_id in server.clients_id() {
+        let mut input_budget = MAX_INPUTS_PER_TICK;
+        let mut dropped_inputs = 0;
         while let Some(Ok(message)) = server.receive_game_message(client_id) {
             let is_auth_request = matches!(message, ClientToServerMessage::AuthRegisterRequest(_));
             // In solo mode the only client is the local player: it must be able to stop its
@@ -184,12 +186,22 @@ fn server_update_system(
                     );
                 }
                 ClientToServerMessage::PlayerInputs(inputs) => {
-                    handlers::player_inputs(client_id, inputs, &mut ev_player_inputs);
+                    dropped_inputs += handlers::player_inputs(
+                        client_id,
+                        inputs,
+                        &mut input_budget,
+                        &mut ev_player_inputs,
+                    );
                 }
                 ClientToServerMessage::SaveWorldRequest => {
                     handlers::save_world_request(client_id, &config, &mut ev_save_request);
                 }
             }
+        }
+        if dropped_inputs > 0 {
+            warn!(
+                "Dropped {dropped_inputs} inputs of client {client_id}: more than {MAX_INPUTS_PER_TICK} in one tick"
+            );
         }
     }
 }

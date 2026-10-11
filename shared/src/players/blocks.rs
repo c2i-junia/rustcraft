@@ -143,7 +143,7 @@ fn handle_block_breaking(
     let breaking_progress = block.breaking_progress;
 
     if destroyed {
-        info!(
+        log::debug!(
             "{} Player {} broke block {:?} at position {:?}",
             caller_type.as_str(),
             player.id,
@@ -170,7 +170,7 @@ fn handle_block_breaking(
         }
     } else {
         world_map.set_block(block_pos, block);
-        info!(
+        log::debug!(
             "{} Player {} is breaking block {:?} at position {:?} (progress: {}/{})",
             caller_type.as_str(),
             player.id,

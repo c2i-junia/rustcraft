@@ -9,7 +9,7 @@ use shared::messages::{
     AuthRegisterRequest, AuthRegisterResponse, ChatConversation, ChatMessageRequest,
     PlayerFrameInput, PlayerSave, PlayerSpawnEvent, ServerToClientMessage,
 };
-use shared::{GameFolderPaths, GameServerConfig};
+use shared::{sanitize_username, GameFolderPaths, GameServerConfig};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::network::broadcast_chat::record_chat_message;
@@ -54,6 +54,19 @@ pub(super) fn auth_register_request(
     game_folder_paths: &GameFolderPaths,
 ) -> ControlFlow<()> {
     let Clients { server, lobby } = clients;
+
+    if lobby.players.contains_key(&client_id) {
+        debug!("Ignoring a second authentication request from client {client_id}");
+        return ControlFlow::Continue(());
+    }
+    let Some(username) = sanitize_username(&auth_req.username) else {
+        warn!("Invalid username, disconnecting client {client_id}");
+        server.disconnect(client_id);
+        return ControlFlow::Break(());
+    };
+    let auth_req = AuthRegisterRequest {
+        username: username.to_string(),
+    };
     info!("Auth request received {:?}", auth_req);
 
     if lobby.players.values().any(|v| v.name == auth_req.username) {
@@ -206,17 +219,21 @@ pub(super) fn exit(
     }
 }
 
+/// Forwards the inputs to the simulation while `budget`, the inputs this client may still send
+/// in this tick, lasts. Returns how many were dropped.
 pub(super) fn player_inputs(
     client_id: ClientId,
     inputs: Vec<PlayerFrameInput>,
+    budget: &mut usize,
     ev_player_inputs: &mut MessageWriter<PlayerInputsEvent>,
-) {
-    for input in inputs.iter() {
-        ev_player_inputs.write(PlayerInputsEvent {
-            client_id,
-            input: input.clone(),
-        });
+) -> usize {
+    let accepted = inputs.len().min(*budget);
+    *budget -= accepted;
+    let dropped = inputs.len() - accepted;
+    for input in inputs.into_iter().take(accepted) {
+        ev_player_inputs.write(PlayerInputsEvent { client_id, input });
     }
+    dropped
 }
 
 pub(super) fn save_world_request(
