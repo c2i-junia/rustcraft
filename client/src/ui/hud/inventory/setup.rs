@@ -43,10 +43,10 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                     display: Display::Flex,
                     flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Percent(7.)),
+                    border_radius: BorderRadius::all(Val::Percent(10.)),
                     ..default()
                 },
                 BackgroundColor(Color::srgb(0.4, 0.4, 0.4)),
-                BorderRadius::all(Val::Percent(10.)),
             ),
         ))
         .id();

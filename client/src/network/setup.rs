@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use bevy_renet::netcode::{
-    ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeTransportError,
+    ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeErrorEvent,
 };
-use bevy_renet::{renet::RenetClient, RenetClientPlugin};
+use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
 use shared::messages::mob::MobUpdateEvent;
 use shared::{get_shared_renet_config, GameServerConfig, STC_AUTH_CHANNEL};
@@ -227,10 +227,16 @@ pub fn init_server_connection(
     })
 }
 
-pub fn network_failure_handler(mut renet_error: MessageReader<NetcodeTransportError>) {
-    for e in renet_error.read() {
-        error!("network error: {}", e);
+/// Logs transport errors, only while in game: outside of it the client is expected to be
+/// disconnected or connecting.
+pub fn network_failure_handler(
+    renet_error: On<NetcodeErrorEvent>,
+    game_state: Res<State<GameState>>,
+) {
+    if *game_state.get() != GameState::Game {
+        return;
     }
+    error!("network error: {}", *renet_error);
 }
 
 pub fn establish_authenticated_connection_to_server(

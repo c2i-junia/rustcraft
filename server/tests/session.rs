@@ -3,7 +3,7 @@
 
 use bevy::math::Vec3;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,

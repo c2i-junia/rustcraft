@@ -1,6 +1,6 @@
 use crate::network::SendGameMessageExtension;
 use bevy::prelude::*;
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 
 // Send save request to server
 pub fn send_save_request_to_server(client: &mut ResMut<RenetClient>) {

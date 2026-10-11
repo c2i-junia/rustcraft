@@ -8,7 +8,8 @@ use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
 use bevy::prelude::*;
-use bevy_renet::renet::{RenetServer, ServerEvent};
+use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
+use bevy_renet::{RenetServer, RenetServerEvent};
 use shared::messages::{
     AuthRegisterResponse, ChatConversation, ClientToServerMessage, PlayerSave, PlayerSpawnEvent,
     ServerToClientMessage,
@@ -18,9 +19,39 @@ use shared::{GameFolderPaths, GameServerConfig, TICKS_PER_SECOND};
 
 use super::extensions::SendGameMessageExtension;
 
+/// bevy_renet reports connections as observer events: this buffers them as a message so that
+/// `server_update_system` still reads them in `Update`. The event is copied field by field
+/// because `ServerEvent` is not `Clone`.
+#[derive(Message)]
+enum ServerEventMessage {
+    ClientConnected {
+        client_id: ClientId,
+    },
+    ClientDisconnected {
+        client_id: ClientId,
+        reason: DisconnectReason,
+    },
+}
+
+fn buffer_server_event(
+    event: On<RenetServerEvent>,
+    mut messages: MessageWriter<ServerEventMessage>,
+) {
+    messages.write(match event.0 {
+        ServerEvent::ClientConnected { client_id } => {
+            ServerEventMessage::ClientConnected { client_id }
+        }
+        ServerEvent::ClientDisconnected { client_id, reason } => {
+            ServerEventMessage::ClientDisconnected { client_id, reason }
+        }
+    });
+}
+
 pub fn setup_resources_and_events(app: &mut App) {
     app.add_message::<SaveRequestEvent>()
-        .add_message::<PlayerInputsEvent>();
+        .add_message::<PlayerInputsEvent>()
+        .add_message::<ServerEventMessage>()
+        .add_observer(buffer_server_event);
 
     setup_chat_resources(app);
 }
@@ -44,7 +75,7 @@ pub fn register_systems(app: &mut App) {
 }
 
 fn server_update_system(
-    mut server_events: MessageReader<ServerEvent>,
+    mut server_events: MessageReader<ServerEventMessage>,
     (mut server, mut chat_conversation, mut lobby): (
         ResMut<RenetServer>,
         ResMut<ChatConversation>,
@@ -63,10 +94,10 @@ fn server_update_system(
     for event in server_events.read() {
         debug!("event received");
         match event {
-            ServerEvent::ClientConnected { client_id } => {
+            ServerEventMessage::ClientConnected { client_id } => {
                 info!("Player {} connected.", client_id);
             }
-            ServerEvent::ClientDisconnected { client_id, reason } => {
+            ServerEventMessage::ClientDisconnected { client_id, reason } => {
                 info!("Player {} disconnected: {}", client_id, reason);
                 lobby.players.remove(client_id);
                 cleanup_player_from_world(

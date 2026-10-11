@@ -7,11 +7,8 @@ use crate::{
 };
 use bevy::prelude::*;
 use bevy_app::ScheduleRunnerPlugin;
-use bevy_renet::{netcode::NetcodeServerTransport, RenetServerPlugin};
-use bevy_renet::{
-    netcode::{NetcodeServerPlugin, ServerAuthentication, ServerConfig},
-    renet::RenetServer,
-};
+use bevy_renet::netcode::{NetcodeServerPlugin, ServerAuthentication, ServerConfig};
+use bevy_renet::{netcode::NetcodeServerTransport, RenetServer, RenetServerPlugin};
 use serde::{Deserialize, Serialize};
 use shared::{
     get_shared_renet_config,

@@ -47,7 +47,7 @@ pub fn handle_block_interactions(
         // Draw gizmos for the bounding box
         let center = (res.bbox.max + res.bbox.min) / 2.0;
         let hsize = res.bbox.max - res.bbox.min;
-        gizmos.cuboid(
+        gizmos.cube(
             Transform::from_translation(center.into()).with_scale(hsize.into()),
             WHITE,
         );

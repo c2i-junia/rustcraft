@@ -3,7 +3,7 @@ use crate::network::extensions::SendGameMessageExtension;
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
-use bevy_renet::renet::RenetServer;
+use bevy_renet::RenetServer;
 use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;

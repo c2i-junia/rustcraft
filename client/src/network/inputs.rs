@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 use shared::messages::{ClientToServerMessage, PlayerFrameInput};
 
 use super::buffered_client::PlayerTickInputsBuffer;
