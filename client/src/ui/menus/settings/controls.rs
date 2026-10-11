@@ -177,9 +177,9 @@ pub fn controls_menu_setup(
                                     line.spawn((
                                         (
                                             Button,
-                                            BorderRadius::all(Val::Percent(25.)),
                                             FocusPolicy::Pass,
                                             Node {
+                                                border_radius: BorderRadius::all(Val::Percent(25.)),
                                                 align_items: AlignItems::Center,
                                                 justify_content: JustifyContent::Center,
                                                 width: Val::Percent(80.),
@@ -270,8 +270,8 @@ pub fn update_input_component(
         let child = commands
             .spawn(((
                 BackgroundColor(Color::Srgba(css::BLUE_VIOLET)),
-                BorderRadius::all(Val::Px(10.)),
                 Node {
+                    border_radius: BorderRadius::all(Val::Px(10.)),
                     padding: UiRect::horizontal(Val::Px(10.)),
                     ..default()
                 },

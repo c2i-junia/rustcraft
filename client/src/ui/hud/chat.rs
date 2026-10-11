@@ -5,7 +5,7 @@ use crate::network::SendGameMessageExtension;
 use crate::ui::hud::UiDialog;
 use crate::KeyMap;
 use bevy::prelude::*;
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 use bevy_simple_text_input::*;
 
 use super::UIMode;
@@ -206,7 +206,7 @@ pub fn render_chat(
     // The oldest messages come first
     let too_many = children.len().saturating_sub(CHAT_MAX_MESSAGES);
     for &child in &children[..too_many] {
-        commands.entity(parent).remove_children(&[child]);
+        commands.entity(parent).detach_children(&[child]);
         commands.entity(child).despawn();
     }
 

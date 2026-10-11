@@ -161,6 +161,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                             TextInputSettings {
                                 retain_on_submit: true,
                                 mask_character: None,
+                                max_length: None,
                             },
                             TextInputPlaceholder {
                                 value: "Server name".into(),
@@ -182,6 +183,7 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                             TextInputSettings {
                                 retain_on_submit: true,
                                 mask_character: None,
+                                max_length: None,
                             },
                             TextInputPlaceholder {
                                 value: "Server IP".into(),
@@ -510,7 +512,7 @@ pub fn multiplayer_action(
                 }
                 MultiplayerButtonAction::Delete(serv_entity) => {
                     debug!("Old list : {:?}", list.servers);
-                    commands.entity(entity).remove_children(&[serv_entity]);
+                    commands.entity(entity).detach_children(&[serv_entity]);
                     commands.entity(serv_entity).despawn();
                     list.servers.remove(&serv_entity);
                     debug!("New list : {:?}", list.servers);

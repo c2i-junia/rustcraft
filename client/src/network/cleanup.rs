@@ -3,7 +3,7 @@ use crate::network::{
 };
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeClientTransport;
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 use shared::messages::ClientToServerMessage;
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,7 @@ use super::{buffered_client::PlayerTickInputsBuffer, UnacknowledgedInputs};
 /// server, waits for the embedded server (if any) to save and stop, and resets the
 /// connection state.
 pub fn terminate_server_connection(
+    mut commands: Commands,
     mut target: ResMut<TargetServer>,
     mut unacknowledged_inputs: ResMut<UnacknowledgedInputs>,
     mut current_frame: ResMut<PlayerTickInputsBuffer>,
@@ -21,11 +22,14 @@ pub fn terminate_server_connection(
     local_server: Option<ResMut<LocalServerHandle>>,
 ) {
     info!("Terminating server connection");
-    stop_session(
+    let can_drop_connection = stop_session(
         client.map(ResMut::into_inner),
         transport.map(ResMut::into_inner),
         local_server.map(ResMut::into_inner),
     );
+    if can_drop_connection {
+        drop_connection(&mut commands);
+    }
 
     target.address = None;
     target.username = None;
@@ -34,6 +38,12 @@ pub fn terminate_server_connection(
 
     unacknowledged_inputs.0.clear();
     current_frame.buffer.clear();
+}
+
+/// Removes the connection of an ended session, so that it is not updated any more.
+fn drop_connection(commands: &mut Commands) {
+    commands.remove_resource::<RenetClient>();
+    commands.remove_resource::<NetcodeClientTransport>();
 }
 
 /// How long the app waits for the embedded server to save and stop when a session ends.
@@ -48,6 +58,7 @@ pub fn close_session_on_app_exit(
     local_server: Option<ResMut<LocalServerHandle>>,
 ) {
     info!("App exiting, closing the session");
+    // The connection is kept: the netcode plugin still needs the transport to disconnect.
     stop_session(
         client.map(ResMut::into_inner),
         transport.map(ResMut::into_inner),
@@ -61,11 +72,14 @@ pub fn close_session_on_app_exit(
 /// `Exit` cannot be sent before the connection is established. The embedded server is then
 /// left running and its handle is kept, so that `finish_stopping_local_server` can stop it
 /// later. The handle is also kept when the server does not stop in time.
+///
+/// Returns whether the client and the transport are no longer needed. They are still needed
+/// in the case above, to send `Exit` once connected.
 fn stop_session(
     client: Option<&mut RenetClient>,
     transport: Option<&mut NetcodeClientTransport>,
     local_server: Option<&mut LocalServerHandle>,
-) {
+) -> bool {
     let mut exit_sent = false;
     if let (Some(client), Some(transport)) = (client, transport) {
         if client.is_connected() {
@@ -78,22 +92,26 @@ fn stop_session(
     }
 
     let Some(local_server) = local_server else {
-        return;
+        return true;
     };
     let Some(handle) = local_server.0.take() else {
-        return;
+        return true;
     };
     if exit_sent || handle.is_finished() {
         local_server.0 = wait_for_local_server(handle, LOCAL_SERVER_STOP_TIMEOUT);
+        true
     } else {
         warn!("The local server was not told to stop, it is still running");
         local_server.0 = Some(handle);
+        false
     }
 }
 
 /// Stops an embedded server that was still running when its session ended, as soon as the
-/// connection to it is established. Does not block: runs every frame in the menu.
+/// connection to it is established, then removes the connection. Does not block: runs every
+/// frame in the menu.
 pub fn finish_stopping_local_server(
+    mut commands: Commands,
     client: Option<ResMut<RenetClient>>,
     transport: Option<ResMut<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
@@ -110,6 +128,7 @@ pub fn finish_stopping_local_server(
                 error!("Local server thread panicked");
             }
         }
+        drop_connection(&mut commands);
         return;
     }
 
@@ -120,6 +139,7 @@ pub fn finish_stopping_local_server(
             if let Err(err) = transport.send_packets(&mut client) {
                 error!("Could not send the exit message: {err}");
             }
+            drop_connection(&mut commands);
         }
     }
 }
@@ -150,6 +170,7 @@ mod tests {
     use crate::network::add_base_netcode;
     use crate::network::launch_local_server_system;
     use crate::GameState;
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::state::app::StatesPlugin;
     use bevy_renet::netcode::ClientAuthentication;
     use shared::messages::AuthRegisterRequest;
@@ -182,6 +203,13 @@ mod tests {
 
     impl SoloSession {
         fn start(name: &str, client_id: u64) -> Self {
+            let mut session = Self::connecting(name, client_id);
+            session.finish_connecting(client_id);
+            session
+        }
+
+        /// The embedded server is running and the client has started to connect.
+        fn connecting(name: &str, client_id: u64) -> Self {
             let game_folder =
                 std::env::temp_dir().join(format!("rustcraft-{name}-{}", std::process::id()));
             let paths = GameFolderPaths {
@@ -222,30 +250,33 @@ mod tests {
             app.insert_resource(transport);
             app.insert_resource(RenetClient::new(get_shared_renet_config()));
 
-            update_until(&mut app, "the connection", |app| {
-                app.world().resource::<RenetClient>().is_connected()
-            });
-            app.world_mut()
-                .resource_mut::<RenetClient>()
-                .send_game_message(
-                    AuthRegisterRequest {
-                        username: name.to_string(),
-                    }
-                    .into(),
-                );
-            update_until(&mut app, "the authentication", |app| {
-                let mut client = app.world_mut().resource_mut::<RenetClient>();
-                client
-                    .receive_game_message_by_channel(STC_AUTH_CHANNEL)
-                    .is_some()
-            });
-            app.world_mut().resource_mut::<TargetServer>().session_token = Some(client_id);
-
             Self {
                 app,
                 game_folder,
                 world_name: name.to_string(),
             }
+        }
+
+        /// Connects and authenticates the player.
+        fn finish_connecting(&mut self, client_id: u64) {
+            let username = self.world_name.clone();
+            update_until(&mut self.app, "the connection", |app| {
+                app.world().resource::<RenetClient>().is_connected()
+            });
+            self.app
+                .world_mut()
+                .resource_mut::<RenetClient>()
+                .send_game_message(AuthRegisterRequest { username }.into());
+            update_until(&mut self.app, "the authentication", |app| {
+                let mut client = app.world_mut().resource_mut::<RenetClient>();
+                client
+                    .receive_game_message_by_channel(STC_AUTH_CHANNEL)
+                    .is_some()
+            });
+            self.app
+                .world_mut()
+                .resource_mut::<TargetServer>()
+                .session_token = Some(client_id);
         }
 
         fn assert_saved_and_stopped(self, client_id: u64) {
@@ -322,6 +353,67 @@ mod tests {
             app.world().resource::<LocalServerHandle>().0.is_none()
         });
         session.assert_saved_and_stopped(9);
+    }
+
+    fn has_connection(app: &App) -> bool {
+        app.world().get_resource::<RenetClient>().is_some()
+            || app
+                .world()
+                .get_resource::<NetcodeClientTransport>()
+                .is_some()
+    }
+
+    #[test]
+    fn terminating_an_established_session_removes_the_connection() {
+        let mut session = SoloSession::start("drop-test", 10);
+        assert!(has_connection(&session.app));
+
+        session
+            .app
+            .world_mut()
+            .run_system_once(terminate_server_connection)
+            .unwrap();
+
+        assert!(!has_connection(&session.app));
+        session.assert_saved_and_stopped(10);
+    }
+
+    /// `Exit` cannot be sent before the connection is established: the connection is kept
+    /// until `finish_stopping_local_server` has sent it.
+    #[test]
+    fn the_connection_of_a_cancelled_session_is_kept_until_the_server_is_told_to_stop() {
+        let mut session = SoloSession::connecting("cancelled-drop-test", 11);
+        session
+            .app
+            .world_mut()
+            .run_system_once(terminate_server_connection)
+            .unwrap();
+        assert!(!session.app.world().resource::<RenetClient>().is_connected());
+        assert!(has_connection(&session.app));
+        assert!(session
+            .app
+            .world()
+            .resource::<LocalServerHandle>()
+            .0
+            .is_some());
+
+        session
+            .app
+            .add_systems(Update, finish_stopping_local_server);
+        update_until(&mut session.app, "the local server to stop", |app| {
+            app.world().resource::<LocalServerHandle>().0.is_none()
+        });
+        session.app.update();
+
+        assert!(!has_connection(&session.app));
+        // The player never authenticated, so only the world is saved.
+        assert!(session
+            .app
+            .world()
+            .resource::<LocalServerHandle>()
+            .0
+            .is_none());
+        std::fs::remove_dir_all(&session.game_folder).unwrap();
     }
 
     #[test]

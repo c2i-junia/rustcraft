@@ -4,10 +4,10 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-bevy = { version="0.17", features=["serialize"] }
+bevy = { version="0.18", features=["serialize"] }
 rand = "0.8.5"
-bevy_simple_text_input = "0.12"
-bevy_renet = "3.0"
+bevy_simple_text_input = "0.14"
+bevy_renet = "4.0"
 bincode = "1.3.3"
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.6"
@@ -15,7 +15,9 @@ shared = { path = "../shared" }
 server = { path = "../server" }
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_warn"] }
 clap = { version = "4.5.19", features = ["derive"] }
-bevy-inspector-egui = "0.35"
+bevy-inspector-egui = "0.36"
+# Enables bevy_egui's bevy_ui feature, which draws egui above Bevy UI (bevy-inspector-egui does not).
+bevy_egui = { version = "0.39", default-features = false, features = ["bevy_ui", "render"] }
 egui = "0.33"
 
 [lints]

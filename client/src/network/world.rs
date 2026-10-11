@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::world::ClientChunk;
 use bevy::prelude::*;
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 use shared::messages::{
     mob::MobUpdateEvent, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };

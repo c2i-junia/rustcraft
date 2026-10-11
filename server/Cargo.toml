@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 shared = { path = "../shared" }
-bevy_app = { version = "0.17", default-features=false }
-bevy_ecs = { version = "0.17", default-features=false }
-bevy = { version = "0.17", features = ["serialize"]}
-bevy_renet = "3.0"
+bevy_app = { version = "0.18", default-features=false }
+bevy_ecs = { version = "0.18", default-features=false }
+bevy = { version = "0.18", features = ["serialize"]}
+bevy_renet = "4.0"
 bincode = { version = "1.3.3" }
 serde = { version = "1.0.210", features = ["derive"] }
 rand = "0.8.5"

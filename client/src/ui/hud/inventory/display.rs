@@ -106,7 +106,7 @@ pub fn render_inventory_hotbar(
     for (interaction, mut border_color, cell, children) in cursor_query.iter_mut() {
         // Don't update hidden cells, waste of resources
         if cell.id >= MAX_HOTBAR_SLOTS && *vis != Visibility::Visible {
-            return;
+            continue;
         }
 
         let stack = inventory.inner.get(&cell.id).cloned();

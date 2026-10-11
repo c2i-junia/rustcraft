@@ -29,7 +29,7 @@ pub fn observe_on_step(
     transforms: Query<&GlobalTransform>,
 ) {
     let translation = transforms
-        .get(trigger.trigger().animation_player)
+        .get(trigger.trigger().target)
         .unwrap()
         .translation();
     let mut rng = thread_rng();

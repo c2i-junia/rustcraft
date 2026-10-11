@@ -160,6 +160,7 @@ pub fn solo_menu_setup(mut commands: Commands, assets_server: Res<AssetServer>) 
                             TextInputSettings {
                                 retain_on_submit: true,
                                 mask_character: None,
+                                max_length: None,
                             },
                             TextInputPlaceholder {
                                 value: "World name".into(),
@@ -513,7 +514,7 @@ pub fn solo_action(
                         }
                         list.worlds.remove(&world_entity);
                     }
-                    commands.entity(entity).remove_children(&[world_entity]);
+                    commands.entity(entity).detach_children(&[world_entity]);
                     commands.entity(world_entity).despawn();
                 }
             }

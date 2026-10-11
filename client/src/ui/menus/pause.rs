@@ -9,7 +9,7 @@ use bevy::{
         JustifyContent, Node, UiRect, Val,
     },
 };
-use bevy_renet::renet::RenetClient;
+use bevy_renet::RenetClient;
 
 use crate::{input::keyboard::is_action_just_pressed, GameState, KeyMap};
 

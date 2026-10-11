@@ -2,7 +2,7 @@ use bevy::{
     platform::collections::{HashMap, HashSet},
     prelude::*,
 };
-use bevy_renet::renet::{ClientId, RenetServer};
+use bevy_renet::{renet::ClientId, RenetServer};
 use shared::{
     messages::{NetworkAction, PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{blocks::CallerType, simulation::simulate_player_actions, Player},

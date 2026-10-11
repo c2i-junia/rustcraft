@@ -56,7 +56,7 @@ pub fn game_plugin(app: &mut App) {
         .add_plugins(bevy_simple_text_input::TextInputPlugin)
         .add_plugins(camera_plugin)
         .insert_resource(ClientTime(0))
-        .insert_resource(AmbientLight {
+        .insert_resource(GlobalAmbientLight {
             color: Color::WHITE,
             brightness: 400.0,
             ..default()
@@ -177,6 +177,7 @@ pub fn game_plugin(app: &mut App) {
             (setup_fox_once_loaded, simulate_particles).run_if(in_state(GameState::Game)),
         )
         .add_observer(observe_on_step)
+        .add_observer(network_failure_handler)
         .add_systems(
             PostUpdate,
             (world_render_system).run_if(in_state(GameState::Game)),
@@ -184,7 +185,6 @@ pub fn game_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                network_failure_handler,
                 spawn_players_system,
                 update_players_system,
                 spawn_mobs_system,
