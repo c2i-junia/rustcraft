@@ -22,7 +22,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             (
                 background_image_style(),
                 BackgroundColor(Color::NONE),
-                StateScoped(MenuState::Main),
+                DespawnOnExit(MenuState::Main),
             ),
             ImageNode::new(background_image), // Set the background image
         ))

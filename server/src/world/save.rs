@@ -12,7 +12,7 @@ use shared::GameFolderPaths;
 use std::collections::HashMap;
 use std::{fs::File, io::Write, path::Path};
 
-#[derive(Event)]
+#[derive(Message)]
 pub enum SaveRequestEvent {
     World,
     Player(PlayerId),
@@ -34,7 +34,7 @@ pub fn save_world_system(
     world_seed: Res<WorldSeed>,
     game_folder_path: Res<GameFolderPaths>,
     time: Res<ServerTime>,
-    mut event: EventReader<SaveRequestEvent>,
+    mut event: MessageReader<SaveRequestEvent>,
 ) {
     // Reads all events to prevent them from being queued forever and repeatedly request a save
     let mut save_requested = false;

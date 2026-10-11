@@ -1,9 +1,9 @@
 use crate::player::CurrentPlayerMarker;
 use crate::GameState;
-use bevy::pbr::NotShadowCaster;
+use bevy::asset::RenderAssetUsages;
+use bevy::light::NotShadowCaster;
+use bevy::mesh::PrimitiveTopology;
 use bevy::prelude::*;
-use bevy::render::mesh::PrimitiveTopology;
-use bevy::render::render_asset::RenderAssetUsages;
 use shared::CHUNK_SIZE;
 
 use super::DebugOptions;
@@ -18,7 +18,7 @@ pub fn setup_chunk_ghost(
 ) {
     commands.spawn((
         ChunkGhost,
-        StateScoped(GameState::Game),
+        DespawnOnExit(GameState::Game),
         NotShadowCaster,
         Transform::default(),
         GlobalTransform::default(),

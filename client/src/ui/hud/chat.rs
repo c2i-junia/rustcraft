@@ -36,7 +36,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             Name::new("ChatRoot"),
-            StateScoped(crate::GameState::Game),
+            DespawnOnExit(crate::GameState::Game),
             ChatRoot,
             UiDialog,
             (
@@ -129,7 +129,7 @@ pub fn render_chat(
             Without<ChatRoot>,
         >,
     ),
-    mut event: EventReader<TextInputSubmitEvent>,
+    mut event: MessageReader<TextInputSubmitMessage>,
     mut commands: Commands,
 ) {
     let (mut cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;

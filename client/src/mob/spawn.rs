@@ -6,7 +6,7 @@ use crate::{mob::setup_fox, player::CurrentPlayerMarker, world::RenderDistance};
 use super::MobRoot;
 
 pub fn spawn_mobs_system(
-    mut ev_update: EventReader<MobUpdateEvent>,
+    mut ev_update: MessageReader<MobUpdateEvent>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut graphs: ResMut<Assets<AnimationGraph>>,

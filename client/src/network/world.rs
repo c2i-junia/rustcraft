@@ -18,10 +18,10 @@ use super::SendGameMessageExtension;
 pub fn update_world_from_network(
     client: &mut ResMut<RenetClient>,
     world: &mut ResMut<ClientWorldMap>,
-    ev_render: &mut EventWriter<WorldRenderRequestUpdateEvent>,
-    ev_player_spawn: &mut EventWriter<PlayerSpawnEvent>,
-    ev_mob_update: &mut EventWriter<MobUpdateEvent>,
-    ev_player_update: &mut EventWriter<PlayerUpdateEvent>,
+    ev_render: &mut MessageWriter<WorldRenderRequestUpdateEvent>,
+    ev_player_spawn: &mut MessageWriter<PlayerSpawnEvent>,
+    ev_mob_update: &mut MessageWriter<MobUpdateEvent>,
+    ev_player_update: &mut MessageWriter<PlayerUpdateEvent>,
     chat: &mut ResMut<CachedChatConversation>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {

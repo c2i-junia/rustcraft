@@ -18,7 +18,7 @@ pub fn setup_hotbar(mut commands: Commands, materials_resource: Res<MaterialReso
     commands
         .spawn((
             Hotbar { selected: 0 },
-            StateScoped(GameState::Game),
+            DespawnOnExit(GameState::Game),
             (
                 Node {
                     display: Display::Flex,
@@ -41,7 +41,7 @@ pub fn setup_hotbar(mut commands: Commands, materials_resource: Res<MaterialReso
                     InventoryCell { id: i },
                     (
                         Button,
-                        BorderColor(Color::srgb(0.3, 0.3, 0.3)),
+                        BorderColor::all(Color::srgb(0.3, 0.3, 0.3)),
                         FocusPolicy::Block,
                         Node {
                             width: Val::Px(HOTBAR_CELL_SIZE),
@@ -74,11 +74,11 @@ pub fn setup_hotbar(mut commands: Commands, materials_resource: Res<MaterialReso
                             ..Default::default()
                         },
                         ImageNode::from_atlas_image(
-                            atlas.texture.clone_weak(),
+                            atlas.texture.clone(),
                             atlas
                                 .sources
                                 .handle(
-                                    atlas.layout.clone_weak(),
+                                    atlas.layout.clone(),
                                     if let Some(handle) = atlas.handles.get("Dirt").as_ref() {
                                         handle.id()
                                     } else {

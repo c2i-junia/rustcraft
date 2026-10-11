@@ -173,7 +173,7 @@ pub fn chunk_force_reload_system(
     mut world_map: ResMut<ClientWorldMap>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
-    mut ev_writer: EventWriter<WorldRenderRequestUpdateEvent>,
+    mut ev_writer: MessageWriter<WorldRenderRequestUpdateEvent>,
     mut commands: Commands,
     ui_mode: Res<UIMode>,
 ) {

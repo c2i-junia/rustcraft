@@ -14,9 +14,4 @@ cargo install cargo-watch
 # install `just`
 cargo install just
 
-# add the Nightly toolchain with the Cranelift backend
-rustup install nightly
-rustup default nightly
-rustup component add rustc-codegen-cranelift-preview --toolchain nightly
-
 info "Setup complete! All dependencies have been installed and configured."

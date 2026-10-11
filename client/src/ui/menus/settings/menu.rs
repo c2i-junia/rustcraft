@@ -7,7 +7,7 @@ use bevy::ui::BackgroundColor;
 use bevy::utils::default;
 use bevy::{
     asset::AssetServer,
-    prelude::{Commands, Res, StateScoped},
+    prelude::{Commands, DespawnOnExit, Res},
     ui::{AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val},
 };
 
@@ -47,7 +47,7 @@ pub fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer
                 BackgroundColor(Color::NONE),
             ),
             ImageNode::new(background_image),
-            StateScoped(MenuState::Settings),
+            DespawnOnExit(MenuState::Settings),
         ))
         .with_children(|parent| {
             parent

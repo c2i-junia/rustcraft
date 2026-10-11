@@ -14,7 +14,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
         .spawn((
             UiDialog,
             InventoryRoot,
-            StateScoped(GameState::Game),
+            DespawnOnExit(GameState::Game),
             (
                 Node {
                     position_type: PositionType::Absolute,
@@ -74,7 +74,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                 position_type: PositionType::Relative,
                 ..default()
             },
-            BorderColor(Color::BLACK),
+            BorderColor::all(Color::BLACK),
         ))
         .with_children(|builder| {
             for i in MAX_HOTBAR_SLOTS..MAX_INVENTORY_SLOTS {
@@ -83,7 +83,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                         InventoryCell { id: i },
                         (
                             Button,
-                            BorderColor(Color::srgb(0.3, 0.3, 0.3)),
+                            BorderColor::all(Color::srgb(0.3, 0.3, 0.3)),
                             FocusPolicy::Block,
                             Node {
                                 width: Val::Px(HOTBAR_CELL_SIZE),
@@ -108,11 +108,11 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
                         ));
                         btn.spawn((
                             ImageNode::from_atlas_image(
-                                atlas.texture.clone_weak(),
+                                atlas.texture.clone(),
                                 atlas
                                     .sources
                                     .handle(
-                                        atlas.layout.clone_weak(),
+                                        atlas.layout.clone(),
                                         if let Some(handle) = atlas.handles.get("Dirt").as_ref() {
                                             handle.id()
                                         } else {
@@ -160,11 +160,11 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
             ));
             btn.spawn((
                 ImageNode::from_atlas_image(
-                    atlas.texture.clone_weak(),
+                    atlas.texture.clone(),
                     atlas
                         .sources
                         .handle(
-                            atlas.layout.clone_weak(),
+                            atlas.layout.clone(),
                             if let Some(handle) = atlas.handles.get("Dirt").as_ref() {
                                 handle.id()
                             } else {

@@ -67,7 +67,7 @@ fn update_chunk(
             .with_children(|root| {
                 if let Some(new_solid_mesh) = new_meshes.solid_mesh {
                     root.spawn((
-                        StateScoped(GameState::Game),
+                        DespawnOnExit(GameState::Game),
                         Mesh3d(meshes.add(new_solid_mesh)),
                         MeshMaterial3d(solid_texture.clone()),
                     ));
@@ -82,7 +82,7 @@ fn update_chunk(
 pub fn world_render_system(
     mut world_map: ResMut<ClientWorldMap>,
     material_resource: Res<MaterialResource>,
-    mut ev_render: EventReader<WorldRenderRequestUpdateEvent>,
+    mut ev_render: MessageReader<WorldRenderRequestUpdateEvent>,
     mut queued_events: Local<QueuedEvents>,
     mut queued_meshes: Local<QueuedMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,

@@ -7,7 +7,7 @@ use crate::{
     world::GlobalMaterial,
 };
 use bevy::{
-    pbr::{NotShadowCaster, NotShadowReceiver},
+    light::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
 };
 use std::f32::consts::PI;
@@ -34,7 +34,7 @@ pub fn setup_main_lighting(
     let celestial_root = commands
         .spawn((
             CelestialRoot,
-            StateScoped(GameState::Game),
+            DespawnOnExit(GameState::Game),
             Transform::default(),
         ))
         .id();

@@ -13,7 +13,7 @@ use crate::{network::extensions::SendGameMessageExtension, world::generation::ge
 
 use super::broadcast_world::get_all_active_chunks;
 
-#[derive(Event, Debug)]
+#[derive(Message, Debug)]
 pub struct PlayerInputsEvent {
     pub client_id: ClientId,
     pub input: PlayerFrameInput,
@@ -34,7 +34,7 @@ fn generate_missing_chunks(
 }
 
 pub fn handle_player_inputs_system(
-    mut events: EventReader<PlayerInputsEvent>,
+    mut events: MessageReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
     mut server: ResMut<RenetServer>,
     seed: Res<WorldSeed>,

@@ -93,7 +93,7 @@ pub fn add_base_netcode(app: &mut App) {
     app.add_systems(
         Last,
         close_session_on_app_exit
-            .run_if(on_event::<AppExit>)
+            .run_if(on_message::<AppExit>)
             .before(NetcodeClientPlugin::disconnect_on_exit),
     );
 
@@ -164,10 +164,10 @@ pub fn launch_local_server_system(
 pub fn poll_network_messages(
     mut client: ResMut<RenetClient>,
     mut world: ResMut<ClientWorldMap>,
-    mut ev_render: EventWriter<WorldRenderRequestUpdateEvent>,
-    mut ev_player_spawn: EventWriter<PlayerSpawnEvent>,
-    mut ev_mob_update: EventWriter<MobUpdateEvent>,
-    mut ev_player_update: EventWriter<PlayerUpdateEvent>,
+    mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
+    mut ev_player_spawn: MessageWriter<PlayerSpawnEvent>,
+    mut ev_mob_update: MessageWriter<MobUpdateEvent>,
+    mut ev_player_update: MessageWriter<PlayerUpdateEvent>,
     mut chat: ResMut<CachedChatConversation>,
 ) {
     update_world_from_network(
@@ -227,7 +227,7 @@ pub fn init_server_connection(
     })
 }
 
-pub fn network_failure_handler(mut renet_error: EventReader<NetcodeTransportError>) {
+pub fn network_failure_handler(mut renet_error: MessageReader<NetcodeTransportError>) {
     for e in renet_error.read() {
         error!("network error: {}", e);
     }
@@ -237,7 +237,7 @@ pub fn establish_authenticated_connection_to_server(
     mut client: ResMut<RenetClient>,
     mut target: ResMut<TargetServer>,
     current_profile: Res<CurrentPlayerProfile>,
-    mut ev_spawn: EventWriter<PlayerSpawnEvent>,
+    mut ev_spawn: MessageWriter<PlayerSpawnEvent>,
     mut client_time: ResMut<ClientTime>,
 ) {
     if target.session_token.is_some() {

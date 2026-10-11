@@ -25,14 +25,14 @@ pub struct PlayerSave {
     pub is_flying: bool,
 }
 
-#[derive(Event, Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Message, Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PlayerSpawnEvent {
     pub id: PlayerId,
     pub name: String,
     pub data: PlayerSave,
 }
 
-#[derive(Event, Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Message, Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct PlayerUpdateEvent {
     pub id: PlayerId,
     pub position: Vec3,

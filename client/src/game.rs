@@ -5,7 +5,6 @@ use crate::network::buffered_client::{CurrentFrameInputs, PlayerTickInputsBuffer
 use crate::ui::hud::chat::{render_chat, setup_chat};
 use crate::ui::menus::{setup_server_connect_loading_screen, update_server_connect_loading_screen};
 use bevy::prelude::*;
-use bevy_atmosphere::prelude::*;
 use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{PlayerSpawnEvent, PlayerUpdateEvent};
 use shared::players::{Inventory, ViewMode};
@@ -55,7 +54,6 @@ pub fn game_plugin(app: &mut App) {
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(WireframePlugin::default())
         .add_plugins(bevy_simple_text_input::TextInputPlugin)
-        .add_plugins(AtmospherePlugin)
         .add_plugins(camera_plugin)
         .insert_resource(ClientTime(0))
         .insert_resource(AmbientLight {
@@ -93,10 +91,10 @@ pub fn game_plugin(app: &mut App) {
         .init_resource::<SyncTime>()
         .init_resource::<UnacknowledgedInputs>()
         .insert_resource(Time::<Fixed>::from_hz(TICKS_PER_SECOND as f64))
-        .add_event::<WorldRenderRequestUpdateEvent>()
-        .add_event::<PlayerSpawnEvent>()
-        .add_event::<PlayerUpdateEvent>()
-        .add_event::<MobUpdateEvent>()
+        .add_message::<WorldRenderRequestUpdateEvent>()
+        .add_message::<PlayerSpawnEvent>()
+        .add_message::<PlayerUpdateEvent>()
+        .add_message::<MobUpdateEvent>()
         .add_systems(
             OnEnter(GameState::PreGameLoading),
             (

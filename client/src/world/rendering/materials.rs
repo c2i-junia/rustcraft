@@ -164,7 +164,7 @@ pub fn create_all_atlases(
             material_resource.global_materials.insert(
                 GlobalMaterial::Blocks,
                 materials.add(StandardMaterial {
-                    base_color_texture: Some(blocks.texture.clone_weak()),
+                    base_color_texture: Some(blocks.texture.clone()),
                     perceptual_roughness: BASE_ROUGHNESS,
                     reflectance: BASE_SPECULAR_HIGHLIGHT,
                     alpha_mode: AlphaMode::AlphaToCoverage,
@@ -190,7 +190,7 @@ pub fn create_all_atlases(
             material_resource.global_materials.insert(
                 GlobalMaterial::Items,
                 materials.add(StandardMaterial {
-                    base_color_texture: Some(items.texture.clone_weak()),
+                    base_color_texture: Some(items.texture.clone()),
                     perceptual_roughness: BASE_ROUGHNESS,
                     reflectance: BASE_SPECULAR_HIGHLIGHT,
                     alpha_mode: AlphaMode::Blend,
@@ -237,7 +237,7 @@ fn build_texture_atlas<T: GameElementId>(
     let mut handles = HashMap::new();
     let mut uvs = HashMap::new();
     for i in atlas_handles.handles.iter() {
-        handles.insert(i.1.clone(), i.0.clone_weak());
+        handles.insert(i.1.clone(), i.0.clone());
         let rect = texture_atlas_sources
             .texture_rect(&texture_atlas_layout, i.0.id())
             .unwrap_or_default();

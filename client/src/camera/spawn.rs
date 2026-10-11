@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_atmosphere::prelude::AtmosphereCamera;
+use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 
 use crate::GameState;
 
@@ -37,7 +37,7 @@ impl From<Quat> for CameraController {
 }
 
 /// The camera is created when the connection starts, because the loading screen positions it
-/// from the saved player, and lives until the game is left (`StateScoped`). Cancelling the
+/// from the saved player, and lives until the game is left (`DespawnOnExit`). Cancelling the
 /// loading screen goes straight back to the menu without ever entering the game, so the
 /// camera has to be despawned on that transition too.
 pub fn camera_plugin(app: &mut App) {
@@ -54,6 +54,10 @@ pub fn camera_plugin(app: &mut App) {
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::srgb_u8(117, 159, 183)),
+            ..default()
+        },
         Projection::Perspective(PerspectiveProjection {
             fov: f32::to_radians(60.0),
             ..Default::default()
@@ -61,8 +65,8 @@ fn spawn_camera(mut commands: Commands) {
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
             .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
         CameraController::default(),
-        AtmosphereCamera::default(),
-        StateScoped(GameState::Game),
+        PrimaryEguiContext,
+        DespawnOnExit(GameState::Game),
     ));
 }
 
@@ -81,7 +85,6 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .init_state::<GameState>()
-            .enable_state_scoped_entities::<GameState>()
             .add_plugins(camera_plugin);
         app.update();
         app

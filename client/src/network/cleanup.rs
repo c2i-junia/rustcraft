@@ -265,7 +265,7 @@ mod tests {
         let mut session = SoloSession::start("exit-test", 7);
 
         // The window is closed: nothing but `AppExit` reaches the app.
-        session.app.world_mut().send_event(AppExit::Success);
+        session.app.world_mut().write_message(AppExit::Success);
         let start = Instant::now();
         session.app.update();
 

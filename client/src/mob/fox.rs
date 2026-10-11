@@ -2,7 +2,11 @@
 
 use std::time::Duration;
 
-use bevy::{animation::AnimationTargetId, color::palettes::css::WHITE, prelude::*};
+use bevy::{
+    animation::{AnimationEvent, AnimationTargetId},
+    color::palettes::css::WHITE,
+    prelude::*,
+};
 use rand::{thread_rng, Rng};
 
 use super::MobRoot;
@@ -15,20 +19,24 @@ pub struct Animations {
     graph: Handle<AnimationGraph>,
 }
 
-#[derive(Event, Reflect, Clone)]
+#[derive(AnimationEvent, Reflect, Clone)]
 pub struct OnStep;
 
 pub fn observe_on_step(
-    trigger: Trigger<OnStep>,
+    trigger: On<OnStep>,
     particle: Res<ParticleAssets>,
     mut commands: Commands,
     transforms: Query<&GlobalTransform>,
 ) {
-    let translation = transforms.get(trigger.target()).unwrap().translation();
+    let translation = transforms
+        .get(trigger.trigger().animation_player)
+        .unwrap()
+        .translation();
     let mut rng = thread_rng();
     // Spawn a bunch of particles.
     for _ in 0..14 {
-        let horizontal = rng.r#gen::<Dir2>() * rng.gen_range(8.0..12.0);
+        let horizontal =
+            Vec2::from_angle(rng.gen_range(0.0..std::f32::consts::TAU)) * rng.gen_range(8.0..12.0);
         let vertical = rng.gen_range(0.0..4.0);
         let size = rng.gen_range(0.2..1.0);
         commands.queue(spawn_particle(

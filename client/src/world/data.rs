@@ -129,7 +129,7 @@ pub struct QueuedEvents {
     pub events: HashSet<WorldRenderRequestUpdateEvent>, // Set of events for rendering updates
 }
 
-#[derive(Event, Debug, Copy, Clone, Hash, Eq, PartialEq)]
+#[derive(Message, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub enum WorldRenderRequestUpdateEvent {
     ChunkToReload(IVec3),
 }
