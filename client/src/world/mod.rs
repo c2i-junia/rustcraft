@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use shared::world::{BlockId, ItemId};
 
-use crate::player::chunk_force_reload_system;
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::reticle::spawn_reticle;
 use celestial::{setup_main_lighting, update_celestial_bodies};

@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy_simple_text_input::TextInputValue;
 use ron::{from_str, ser::PrettyConfig};
 use shared::GameFolderPaths;
-use std::{fs, net::SocketAddr, path::Path};
+use std::{fs, io, net::SocketAddr, path::Path};
 
 /// Parses the address of a server as typed by the user: an IP address and a port, such as
 /// `127.0.0.1:8000`. Host names are not resolved.
@@ -25,6 +25,9 @@ pub struct ServerItem {
 pub struct ServerList {
     /// The servers in the order they are shown, which is the order they are saved in.
     pub servers: Vec<(Entity, ServerItem)>,
+    /// Set when the saved list could not be read. The list is then not saved either: that
+    /// would replace a file the player may still repair by an empty one.
+    pub unreadable: bool,
 }
 
 #[derive(Component)]
@@ -89,9 +92,13 @@ pub fn add_server_item(
     list.servers.push((row.row, ServerItem { name, ip }));
 }
 
-/// Reads the saved servers. An empty file is an empty list.
+/// Reads the saved servers. A missing or empty file is an empty list.
 fn read_servers(path: &Path) -> Result<Vec<ServerItem>, String> {
-    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -121,7 +128,8 @@ pub fn load_server_list(
     let servers = match read_servers(&path) {
         Ok(servers) => servers,
         Err(e) => {
-            error!("Failed to read the server list from {path:?}: {e}");
+            error!("Failed to read the server list from {path:?}, it will be left as it is: {e}");
+            list.unreadable = true;
             return;
         }
     };
@@ -153,6 +161,10 @@ pub fn save_server_list(list: Query<&ServerList>, game_folder_path: Res<GameFold
     let save_path = game_folder_path
         .game_folder_path
         .join(SERVER_LIST_SAVE_NAME);
+    if list.unreadable {
+        warn!("Not saving the server list: {save_path:?} could not be read and is kept as it is");
+        return;
+    }
     let servers: Vec<ServerItem> = list.servers.iter().map(|(_, srv)| srv.clone()).collect();
     match write_servers(&save_path, &servers) {
         Ok(()) => info!("Server list saved to {save_path:?}"),
@@ -250,10 +262,6 @@ mod tests {
 
     impl Menu {
         fn new(name: &str, saved: &[(&str, &str)]) -> Self {
-            let folder =
-                std::env::temp_dir().join(format!("rustcraft-multi-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&folder);
-            fs::create_dir_all(&folder).unwrap();
             let saved: Vec<ServerItem> = saved
                 .iter()
                 .map(|(name, ip)| ServerItem {
@@ -261,7 +269,19 @@ mod tests {
                     ip: ip.to_string(),
                 })
                 .collect();
-            write_servers(&folder.join(SERVER_LIST_SAVE_NAME), &saved).unwrap();
+            let file = ron::ser::to_string(&saved).unwrap();
+            Self::with_file(name, Some(&file))
+        }
+
+        /// Same, with the server file holding `file`, or missing for `None`.
+        fn with_file(name: &str, file: Option<&str>) -> Self {
+            let folder =
+                std::env::temp_dir().join(format!("rustcraft-multi-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&folder);
+            fs::create_dir_all(&folder).unwrap();
+            if let Some(file) = file {
+                fs::write(folder.join(SERVER_LIST_SAVE_NAME), file).unwrap();
+            }
 
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
@@ -414,16 +434,38 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_or_missing_server_file_is_handled() {
+    fn an_empty_or_missing_server_file_is_an_empty_list() {
         let path = std::env::temp_dir().join(format!(
             "rustcraft-servers-empty-{}.ron",
             std::process::id()
         ));
-        assert!(read_servers(&path).is_err());
+        assert!(read_servers(&path).unwrap().is_empty());
         fs::write(&path, " \n").unwrap();
         assert!(read_servers(&path).unwrap().is_empty());
         fs::write(&path, "not ron").unwrap();
         assert!(read_servers(&path).is_err());
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_missing_server_file_starts_a_list_that_is_saved() {
+        let mut menu = Menu::with_file("missing", None);
+        assert_eq!(menu.shown(), ["localhost"]);
+        assert_eq!(menu.saved(), ["localhost"]);
+    }
+
+    #[test]
+    fn a_server_file_that_cannot_be_read_is_never_overwritten() {
+        let mut menu = Menu::with_file("unreadable", Some("not ron"));
+        assert!(menu.shown().is_empty());
+
+        menu.add("bravo", "127.0.0.1:9004");
+        menu.app
+            .world_mut()
+            .run_system_once(save_server_list)
+            .unwrap();
+
+        let file = fs::read_to_string(menu.folder.join(SERVER_LIST_SAVE_NAME)).unwrap();
+        assert_eq!(file, "not ron");
     }
 }

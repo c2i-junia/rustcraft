@@ -33,8 +33,6 @@ pub enum GameSet {
 #[derive(Component)]
 pub struct MenuCamera;
 
-pub const TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
-
 // Enum that will be used as a global state for the game
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
 pub enum GameState {

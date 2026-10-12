@@ -4,7 +4,15 @@ use crate::ui::hud::UIMode;
 use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
 use shared::players::ViewMode;
 
-// System to control the camera based on mouse movement
+/// Height of the player's eyes above the centre of its box.
+const EYE_HEIGHT: f32 = 0.8;
+/// How far behind the player the camera is in third-person view.
+const THIRD_PERSON_DISTANCE: f32 = 10.0;
+/// Largest angle the camera looks up or down by, short of flipping over.
+const MAX_PITCH_DEGREES: f32 = 89.0;
+
+/// Turns the camera with the mouse and places it on the player (first person) or on a sphere
+/// around it (third person).
 pub fn camera_control_system(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut mouse_motion_events: MessageReader<MouseMotion>,
@@ -16,83 +24,43 @@ pub fn camera_control_system(
     view_mode: Res<ViewMode>,
     ui_mode: Res<UIMode>,
 ) {
-    // The window can be missing while the app is closing
-    let Ok(window) = windows.single() else {
+    // The window can be missing while the app is closing, the player while it is spawning
+    let (Ok(window), Ok(player_transform)) = (windows.single(), player_query.single()) else {
         return;
     };
+    let player_position = player_transform.translation;
 
     // if the window is not focused, ignore camera movement
     if !window.focused || *ui_mode != UIMode::Closed {
         mouse_motion_events.clear();
     }
-
-    let mut delta = Vec2::ZERO;
-
-    // accumulate mouse movements
-    for event in mouse_motion_events.read() {
-        delta += event.delta;
-    }
+    let delta: Vec2 = mouse_motion_events.read().map(|event| event.delta).sum();
+    let max_pitch = MAX_PITCH_DEGREES.to_radians();
 
     for (mut camera_transform, mut controller) in camera_query.iter_mut() {
-        // first-person view
-        if *view_mode == ViewMode::FirstPerson {
-            // distance is set to 0 for first-person view
-            controller.distance = 0.0;
+        controller.angle_x -= delta.x * controller.mouse_sensitivity;
+        controller.angle_y = (controller.angle_y + delta.y * controller.mouse_sensitivity)
+            .clamp(-max_pitch, max_pitch);
 
-            // place the camera at the player's head height (e.g. 1.8 units)
-            let player_transform = player_query.single().unwrap();
-            let player_position = player_transform.translation;
-
-            // apply mouse sensitivity and adjust camera angle
-            controller.angle_x -= delta.x * controller.mouse_sensitivity;
-            controller.angle_y += delta.y * controller.mouse_sensitivity;
-
-            // limit vertical angle to prevent flipping
-            controller.angle_y = controller
-                .angle_y
-                .clamp(-89.0f32.to_radians(), 89.0f32.to_radians());
-
-            // adjust the camera's position to be at the player's eye level
-            camera_transform.translation = Vec3::new(
-                player_position.x,
-                player_position.y + 0.8, // adjust height for the player's eyes
-                player_position.z,
-            );
-
-            // calculate rotation: apply both horizontal (Y) and vertical (X) rotation
-            let rotation_x = Quat::from_rotation_y(controller.angle_x); // horizontal rotation
-            let rotation_y = Quat::from_rotation_x(-controller.angle_y); // vertical rotation (inverted to correct direction)
-
-            // apply the combined rotations
-            camera_transform.rotation = rotation_x * rotation_y;
-        } else if *view_mode == ViewMode::ThirdPerson {
-            // in third-person view, place the camera behind the player
-            controller.distance = 10.0;
-
-            // apply mouse sensitivity and adjust camera angle
-            controller.angle_x -= delta.x * controller.mouse_sensitivity;
-            controller.angle_y += delta.y * controller.mouse_sensitivity;
-
-            // limit vertical angle to prevent flipping
-            controller.angle_y = controller
-                .angle_y
-                .clamp(-89.0f32.to_radians(), 89.0f32.to_radians());
-
-            let player_transform = player_query.single().unwrap();
-            let player_position = player_transform.translation;
-
-            // calculate the new camera position
-            let x = player_position.x
-                + controller.distance * controller.angle_y.cos() * controller.angle_x.sin();
-            let y = player_position.y + controller.distance * controller.angle_y.sin();
-            let z = player_position.z
-                + controller.distance * controller.angle_y.cos() * controller.angle_x.cos();
-
-            let camera_position = Vec3::new(x, y, z);
-
-            // update the camera's position in third-person view
-            *camera_transform =
-                Transform::from_translation(camera_position).looking_at(player_position, Vec3::Y);
+        match *view_mode {
+            ViewMode::FirstPerson => {
+                controller.distance = 0.0;
+                camera_transform.translation = player_position + Vec3::Y * EYE_HEIGHT;
+                // Horizontal rotation first, then the vertical one, inverted so that moving
+                // the mouse up looks up
+                camera_transform.rotation = Quat::from_rotation_y(controller.angle_x)
+                    * Quat::from_rotation_x(-controller.angle_y);
+            }
+            ViewMode::ThirdPerson => {
+                controller.distance = THIRD_PERSON_DISTANCE;
+                let offset = Vec3::new(
+                    controller.distance * controller.angle_y.cos() * controller.angle_x.sin(),
+                    controller.distance * controller.angle_y.sin(),
+                    controller.distance * controller.angle_y.cos() * controller.angle_x.cos(),
+                );
+                *camera_transform = Transform::from_translation(player_position + offset)
+                    .looking_at(player_position, Vec3::Y);
+            }
         }
     }
 }

@@ -68,7 +68,7 @@ fn spawn_camera(mut commands: Commands) {
         },
         Projection::Perspective(PerspectiveProjection {
             fov: f32::to_radians(60.0),
-            ..Default::default()
+            ..default()
         }),
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))
             .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),

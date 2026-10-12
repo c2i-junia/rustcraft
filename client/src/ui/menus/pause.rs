@@ -41,7 +41,7 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
                     display: Display::Flex,
                     align_items: AlignItems::Center,
                     justify_content: JustifyContent::Center,
-                    ..Default::default()
+                    ..default()
                 },
                 FocusPolicy::Block,
                 Visibility::Hidden,
@@ -56,7 +56,7 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
                 justify_content: JustifyContent::SpaceAround,
                 height: Val::Vh(40.),
                 min_width: Val::Vw(40.),
-                ..Default::default()
+                ..default()
             })
             .with_children(|wrapper| {
                 for (msg, action) in [
@@ -77,7 +77,7 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
                                     align_items: AlignItems::Center,
                                     justify_content: JustifyContent::Center,
                                     padding: UiRect::all(Val::Px(7.)),
-                                    ..Default::default()
+                                    ..default()
                                 },
                                 BackgroundColor(Color::srgb(0.3, 0.3, 0.3)),
                                 BorderColor::all(Color::BLACK),
@@ -113,7 +113,9 @@ pub fn render_pause_menu(
     mut client: ResMut<RenetClient>,
 ) {
     let (mut button, mut visibility, mut inventory) = queries;
-    let mut vis = visibility.single_mut().unwrap();
+    let Ok(mut vis) = visibility.single_mut() else {
+        return;
+    };
 
     if is_action_just_pressed(crate::input::data::GameAction::Escape, &input, &key_map) {
         if *vis == Visibility::Hidden {

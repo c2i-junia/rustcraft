@@ -1,12 +1,16 @@
-use crate::input::keyboard::is_action_just_pressed;
-use crate::input::keyboard::is_action_just_released;
+use crate::input::data::GameAction;
+use crate::input::keyboard::{is_action_just_pressed, is_action_just_released};
 use crate::network::CachedChatConversation;
 use crate::network::SendGameMessageExtension;
 use crate::state::KeyMap;
+use crate::ui::assets::load_font;
 use crate::ui::hud::UiDialog;
+use crate::ui::style::text_font;
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
 use bevy_simple_text_input::*;
+use shared::messages::{ChatMessageRequest, ClientToServerMessage};
+use shared::utils::unix_time_ms;
 
 use super::UIMode;
 
@@ -74,12 +78,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
                     width: Val::Percent(100.),
                     ..default()
                 },),
-            ))
-            .with_children(|d| {
-                // DO NOT REMOVE !!!
-                // Function send_chat has a bit of a meltdown if the ChatDisplay has no children (cuz of the Query)
-                d.spawn((Node::default(),));
-            });
+            ));
 
             root.spawn((
                 ChatInput,
@@ -94,13 +93,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
                         value: "Send a message...".to_string(),
                         ..default()
                     },
-                    TextInputTextFont(TextFont {
-                        font: asset_server
-                            .load("./fonts/RustCraftRegular-Bmg3.otf")
-                            .into(),
-                        font_size: 17.0.into(),
-                        ..default()
-                    }),
+                    TextInputTextFont(text_font(load_font(&asset_server), CHAT_SIZE)),
                     TextInputTextColor(TextColor(Color::WHITE)),
                     TextInputInactive(true),
                 ),
@@ -108,126 +101,177 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
         });
 }
 
-pub fn render_chat(
-    resources: (
-        ResMut<CachedChatConversation>,
-        Res<AssetServer>,
-        ResMut<RenetClient>,
-        Res<ButtonInput<KeyCode>>,
-        Res<KeyMap>,
-        Res<UIMode>,
-    ),
-    queries: (
-        Query<(Entity, &mut TextInputInactive, &mut TextInputValue), With<ChatInput>>,
-        Query<&mut Visibility, With<ChatRoot>>,
-        Query<(Entity, &Children), With<ChatDisplay>>,
-        Query<
-            (
-                Entity,
-                &mut BackgroundColor,
-                &mut Visibility,
-                &MessageAnimator,
-            ),
-            Without<ChatRoot>,
-        >,
-    ),
-    mut event: MessageReader<TextInputSubmitMessage>,
-    mut commands: Commands,
+/// Opens the chat on its key when no dialog is open, and closes it on Escape.
+pub fn toggle_chat_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
+    ui_mode: Res<UIMode>,
+    mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
+    mut chat_input: Query<(&mut TextInputInactive, &mut TextInputValue), With<ChatInput>>,
 ) {
-    let (mut cached_conv, asset_server, mut client, keyboard_input, key_map, ui_mode) = resources;
-    let (mut text_query, mut visibility_query, parent_query, mut animation_query) = queries;
-    let (entity_check, mut inactive, mut value) = text_query.single_mut().unwrap();
+    let (Ok(mut visibility), Ok((mut inactive, mut value))) =
+        (chat_root.single_mut(), chat_input.single_mut())
+    else {
+        return;
+    };
 
-    let mut visibility = visibility_query.single_mut().unwrap();
-    let (parent, children) = parent_query.single().unwrap();
-
-    if is_action_just_released(
-        crate::input::data::GameAction::OpenChat,
-        &keyboard_input,
-        &key_map,
-    ) && *ui_mode == UIMode::Closed
+    // On release, so that the key that opens the chat is not typed into it
+    if *ui_mode == UIMode::Closed
+        && is_action_just_released(GameAction::OpenChat, &keyboard_input, &key_map)
     {
         inactive.0 = false;
         *visibility = Visibility::Visible;
     }
 
     if *visibility == Visibility::Visible
-        && is_action_just_pressed(
-            crate::input::data::GameAction::Escape,
-            &keyboard_input,
-            &key_map,
-        )
+        && is_action_just_pressed(GameAction::Escape, &keyboard_input, &key_map)
     {
         *visibility = Visibility::Hidden;
-        *value = TextInputValue("".to_string());
+        *value = TextInputValue(String::new());
         *inactive = TextInputInactive(true);
     }
+}
 
-    let current_ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+/// Fades out the messages shown over the game while the chat is closed. Once the chat is
+/// open, or the fade is over, a message is an ordinary line of the chat again.
+pub fn fade_chat_messages_system(
+    mut commands: Commands,
+    chat_root: Query<&Visibility, With<ChatRoot>>,
+    mut messages: Query<
+        (
+            Entity,
+            &mut BackgroundColor,
+            &mut Visibility,
+            &MessageAnimator,
+        ),
+        Without<ChatRoot>,
+    >,
+) {
+    let chat_is_open = chat_root
+        .single()
+        .is_ok_and(|visibility| *visibility == Visibility::Visible);
+    let now = unix_time_ms();
 
-    for (entity, mut bg, mut vis, animator) in animation_query.iter_mut() {
-        let diff = current_ts - animator.created_ts;
-        // Additionnally, if chat is shown, cancel animation
-        if diff > ANIMATION_BEGIN_FADE + ANIMATION_HIDE || *visibility == Visibility::Visible {
-            // Remove animator to reduce load, reset style, and hide element
+    for (entity, mut background, mut visibility, animator) in messages.iter_mut() {
+        let age = now.saturating_sub(animator.created_ts);
+        if chat_is_open || age > ANIMATION_BEGIN_FADE + ANIMATION_HIDE {
             commands.entity(entity).remove::<MessageAnimator>();
-            *vis = Visibility::Inherited;
-            *bg = BackgroundColor(Color::BLACK.with_alpha(0.));
-        } else if diff > ANIMATION_BEGIN_FADE {
-            // Animate linear fade
-            let alpha = 1. - ((diff - ANIMATION_BEGIN_FADE) as f32 / ANIMATION_HIDE as f32);
-            *bg = BackgroundColor(CHAT_COLOR.with_alpha(0.6 * alpha));
+            *visibility = Visibility::Inherited;
+            *background = BackgroundColor(Color::BLACK.with_alpha(0.));
+        } else if age > ANIMATION_BEGIN_FADE {
+            let faded = (age - ANIMATION_BEGIN_FADE) as f32 / ANIMATION_HIDE as f32;
+            *background = BackgroundColor(CHAT_COLOR.with_alpha(CHAT_COLOR.alpha() * (1. - faded)));
         }
     }
+}
 
-    for message in cached_conv.unread.drain(..) {
-        let msg = commands
-            .spawn((
-                MessageAnimator {
-                    created_ts: current_ts,
-                },
-                (
-                    Text::new(format!("<{}> : {}", message.author, message.content)),
-                    TextFont {
-                        font: asset_server
-                            .load("./fonts/RustCraftRegular-Bmg3.otf")
-                            .into(),
-                        font_size: 17.0.into(),
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    Visibility::Visible,
-                    BackgroundColor(CHAT_COLOR),
-                ),
-            ))
-            .id();
-        commands.entity(parent).add_children(&[msg]);
-    }
-    // Prevents too much messages from building up on screen
-    // The oldest messages come first
-    let too_many = children.len().saturating_sub(CHAT_MAX_MESSAGES);
-    for &child in &children[..too_many] {
-        commands.entity(parent).detach_children(&[child]);
-        commands.entity(child).despawn();
-    }
-
-    if event.is_empty() {
+/// Adds the messages received since the last frame to the chat, and drops the oldest ones
+/// beyond `CHAT_MAX_MESSAGES`.
+pub fn display_chat_messages_system(
+    mut commands: Commands,
+    mut conversation: ResMut<CachedChatConversation>,
+    asset_server: Res<AssetServer>,
+    chat_display: Query<(Entity, Option<&Children>), With<ChatDisplay>>,
+) {
+    let Ok((display, children)) = chat_display.single() else {
         return;
+    };
+
+    let now = unix_time_ms();
+    for message in conversation.unread.drain(..) {
+        commands.entity(display).with_child((
+            MessageAnimator { created_ts: now },
+            Text::new(format!("<{}> : {}", message.author, message.content)),
+            text_font(load_font(&asset_server), CHAT_SIZE),
+            TextColor(Color::WHITE),
+            Visibility::Visible,
+            BackgroundColor(CHAT_COLOR),
+        ));
     }
 
-    *visibility = Visibility::Hidden;
-    *inactive = TextInputInactive(true);
+    // The oldest messages come first. Those added just above are counted from the next frame.
+    let children = children.map(|children| &children[..]).unwrap_or_default();
+    let too_many = children.len().saturating_sub(CHAT_MAX_MESSAGES);
+    for &oldest in &children[..too_many] {
+        commands.entity(oldest).despawn();
+    }
+}
 
-    for message in event.read() {
-        if entity_check == message.entity && !message.value.trim().is_empty() {
-            client.send_game_message(shared::messages::ClientToServerMessage::ChatMessage(
-                shared::messages::ChatMessageRequest {
-                    content: message.value.clone(),
-                },
-            ));
+/// Sends the message typed in the chat when it is submitted, and closes the chat.
+pub fn send_chat_message_system(
+    mut submitted: MessageReader<TextInputSubmitMessage>,
+    mut client: ResMut<RenetClient>,
+    mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
+    mut chat_input: Query<(Entity, &mut TextInputInactive), With<ChatInput>>,
+) {
+    let (Ok(mut visibility), Ok((input, mut inactive))) =
+        (chat_root.single_mut(), chat_input.single_mut())
+    else {
+        return;
+    };
+
+    for message in submitted.read() {
+        if message.entity != input {
+            continue;
         }
+        *visibility = Visibility::Hidden;
+        *inactive = TextInputInactive(true);
+        if !message.value.trim().is_empty() {
+            client.send_game_message(ClientToServerMessage::ChatMessage(ChatMessageRequest {
+                content: message.value.clone(),
+            }));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::messages::FullChatMessage;
+
+    fn message(content: &str) -> FullChatMessage {
+        FullChatMessage {
+            content: content.into(),
+            author: "steve".into(),
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn the_chat_shows_new_messages_and_keeps_only_the_latest() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Font>()
+            .init_resource::<CachedChatConversation>()
+            .add_systems(Update, display_chat_messages_system);
+        let display = app.world_mut().spawn(ChatDisplay).id();
+
+        let extra = 2;
+        for index in 0..CHAT_MAX_MESSAGES + extra {
+            app.world_mut()
+                .resource_mut::<CachedChatConversation>()
+                .unread
+                .push(message(&index.to_string()));
+            app.update();
+        }
+        // The excess is dropped on the frame after it was added
+        app.update();
+
+        let shown: Vec<String> = app
+            .world()
+            .get::<Children>(display)
+            .unwrap()
+            .iter()
+            .map(|line| app.world().get::<Text>(line).unwrap().0.clone())
+            .collect();
+        let expected: Vec<String> = (extra..CHAT_MAX_MESSAGES + extra)
+            .map(|index| format!("<steve> : {index}"))
+            .collect();
+        assert_eq!(shown, expected);
+        assert!(app
+            .world()
+            .resource::<CachedChatConversation>()
+            .unread
+            .is_empty());
     }
 }

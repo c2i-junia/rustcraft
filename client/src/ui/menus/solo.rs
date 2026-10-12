@@ -245,10 +245,14 @@ pub fn delete_save_files(
 
     match fs::remove_dir_all(&world_dir) {
         Ok(()) => info!("Deleted world directory: {}", world_dir.display()),
-        Err(e) => error!(
-            "Failed to delete world directory {}: {e}",
-            world_dir.display()
-        ),
+        // Nothing was ever saved for this world: there is nothing to delete
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(io::Error::new(
+                e.kind(),
+                format!("could not delete {}: {e}", world_dir.display()),
+            ))
+        }
     }
     Ok(())
 }
@@ -379,6 +383,39 @@ mod tests {
 
         delete_save_files("gone", &paths).unwrap();
         assert!(!saves.join("gone").exists() && saves.join("keep").is_dir());
+    }
+
+    #[test]
+    fn deleting_a_world_that_is_already_gone_succeeds() {
+        let folder = TempFolder::new("delete-gone");
+        let paths = GameFolderPaths {
+            game_folder_path: folder.0.join("game"),
+            assets_folder_path: folder.0.join("assets"),
+        };
+        delete_save_files("never-saved", &paths).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_world_that_cannot_be_deleted_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let folder = TempFolder::new("delete-denied");
+        let paths = GameFolderPaths {
+            game_folder_path: folder.0.join("game"),
+            assets_folder_path: folder.0.join("assets"),
+        };
+        let saves = paths.game_folder_path.join(SAVE_PATH);
+        make_world(&saves, "locked");
+        // Nothing can be removed from a folder that is not writable
+        let read_only = fs::Permissions::from_mode(0o555);
+        fs::set_permissions(saves.join("locked"), read_only).unwrap();
+
+        let result = delete_save_files("locked", &paths);
+
+        fs::set_permissions(saves.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert!(saves.join("locked/world.ron").is_file());
     }
 
     #[test]

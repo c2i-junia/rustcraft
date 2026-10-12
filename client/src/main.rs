@@ -11,6 +11,7 @@ mod world;
 
 use crate::world::ClientWorldMap;
 use bevy::{
+    app::PluginGroupBuilder,
     prelude::*,
     render::{
         settings::{RenderCreation, WgpuFeatures, WgpuSettings},
@@ -52,61 +53,75 @@ struct Args {
 }
 
 fn main() {
-    // Parse command-line arguments
     let args = Args::parse();
-
-    // Determine which texture path to use
     let texture_path = if args.use_custom_textures {
         TEXTURE_PATH_CUSTOM
     } else {
         TEXTURE_PATH_BASE
     };
-
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
 
     let mut app = App::new();
-    app.add_plugins(
-        DefaultPlugins
-            // Ensures that pixel-art textures will remain pixelated, and not become a blurry mess
-            .set(ImagePlugin::default_nearest())
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                    // WARNING: This is a native-only feature. It will not work with WebGL or WebGPU
-                    features: WgpuFeatures::POLYGON_MODE_LINE,
-                    ..default()
-                })),
-                ..default()
-            })
-            .set(AssetPlugin {
-                file_path: "../data".to_string(),
-                // TODO: Remove unapproved_path_mode once the asset loading system has been improved
-                unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
-                ..Default::default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "Rustcraft".to_string(),
-                    present_mode: PresentMode::AutoVsync,
-                    ..default()
-                }),
-                ..default()
-            }),
-    );
+    app.add_plugins(engine_plugins());
 
-    // Logging is set up by the DefaultPlugins above, so these lines come after them
-    info!(
-        "Using {} for textures",
-        if args.use_custom_textures {
-            "custom textures"
-        } else {
-            "base textures"
-        }
-    );
+    // Logging is set up by the engine plugins above, so these lines come after them
+    info!("Using {texture_path} for textures");
     info!(
         "Starting application with game folder: {}",
         game_folder_paths.game_folder_path.display()
     );
 
+    add_debug_inspector(&mut app);
+    network::add_base_netcode(&mut app);
+    app.insert_resource(get_bindings(&game_folder_paths))
+        .insert_resource(SelectedWorld::default())
+        .insert_resource(ClientWorldMap { ..default() })
+        .insert_resource(TexturePath {
+            path: texture_path.to_string(),
+        })
+        .insert_resource(game_folder_paths)
+        .insert_resource(PlayerNameSupplied {
+            name: args.player_name.unwrap_or_else(|| "Player".to_string()),
+        })
+        // The game starts in the default state, the menu
+        .init_state::<GameState>()
+        .add_plugins((menus::menu_plugin, game::game_plugin))
+        .run();
+}
+
+/// Bevy's default plugins, set up for a pixel-art game in a native window.
+fn engine_plugins() -> PluginGroupBuilder {
+    DefaultPlugins
+        // Ensures that pixel-art textures will remain pixelated, and not become a blurry mess
+        .set(ImagePlugin::default_nearest())
+        .set(RenderPlugin {
+            render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
+                // Drawing wireframes, for the block debug mode. Native only: it does not
+                // exist in WebGL or WebGPU.
+                features: WgpuFeatures::POLYGON_MODE_LINE,
+                ..default()
+            })),
+            ..default()
+        })
+        .set(AssetPlugin {
+            file_path: "../data".to_string(),
+            // The textures are loaded by absolute path from the assets folder, which the
+            // command line can place anywhere: paths outside `file_path` must be allowed.
+            unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+            ..default()
+        })
+        .set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Rustcraft".to_string(),
+                present_mode: PresentMode::AutoVsync,
+                ..default()
+            }),
+            ..default()
+        })
+}
+
+/// The egui window listing the entities and the resources of the app.
+fn add_debug_inspector(app: &mut App) {
     // The menu and game cameras carry `PrimaryEguiContext` themselves: the automatic context
     // would stay on the first camera ever created, which is the menu one.
     app.insert_resource(EguiGlobalSettings {
@@ -116,21 +131,4 @@ fn main() {
     .add_plugins(EguiPlugin::default())
     .add_plugins(DefaultInspectorConfigPlugin)
     .add_systems(EguiPrimaryContextPass, inspector_ui);
-
-    network::add_base_netcode(&mut app);
-    app.insert_resource(get_bindings(&game_folder_paths))
-        .insert_resource(SelectedWorld::default())
-        // Declare the game state, whose starting value is determined by the `Default` trait
-        .insert_resource(ClientWorldMap { ..default() })
-        .insert_resource(TexturePath {
-            path: texture_path.to_string(),
-        })
-        .insert_resource(game_folder_paths)
-        .insert_resource(PlayerNameSupplied {
-            name: args.player_name.unwrap_or_else(|| "Player".to_string()),
-        })
-        .init_state::<GameState>()
-        // Adds the plugins for each state
-        .add_plugins((menus::menu_plugin, game::game_plugin))
-        .run();
 }

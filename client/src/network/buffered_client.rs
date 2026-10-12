@@ -41,10 +41,7 @@ pub struct SyncTime {
 
 impl Default for SyncTime {
     fn default() -> Self {
-        let current_time_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let current_time_ms = shared::utils::unix_time_ms();
 
         Self {
             last_time_ms: current_time_ms,
@@ -65,10 +62,7 @@ impl SyncTimeExt for SyncTime {
 
     fn advance(&mut self) {
         self.last_time_ms = self.curr_time_ms;
-        self.curr_time_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        self.curr_time_ms = shared::utils::unix_time_ms();
     }
 }
 

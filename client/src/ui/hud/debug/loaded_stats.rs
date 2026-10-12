@@ -8,7 +8,7 @@ pub struct TimeText;
 #[derive(Component)]
 pub struct ChunksNumberText;
 
-pub fn total_blocks_text_update_system(
+pub fn loaded_chunks_text_update_system(
     query_chunks: Query<Entity, With<ChunksNumberText>>,
     mut writer: TextUiWriter,
     world_map: Res<ClientWorldMap>,

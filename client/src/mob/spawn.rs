@@ -14,7 +14,10 @@ pub fn spawn_mobs_system(
     player_pos: Query<&Transform, With<CurrentPlayerMarker>>,
     render_distance: Res<RenderDistance>,
 ) {
-    let player_pos = player_pos.single().unwrap().translation;
+    let Ok(player) = player_pos.single() else {
+        return;
+    };
+    let player_pos = player.translation;
 
     'event_loop: for event in ev_update.read() {
         let id = event.id;

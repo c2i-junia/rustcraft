@@ -24,24 +24,74 @@ impl UvCoords {
     }
 }
 
+/// The buffers of a chunk mesh while its faces are added one by one.
 #[derive(Default)]
-pub struct MeshCreator {
-    pub vertices: Vec<[f32; 3]>,
-    pub indices: Vec<u32>,
-    pub normals: Vec<[f32; 3]>,
-    pub uvs: Vec<[f32; 2]>,
-    pub colors: Vec<[f32; 4]>,
-    pub indices_offset: u32,
+struct MeshCreator {
+    vertices: Vec<[f32; 3]>,
+    indices: Vec<u32>,
+    normals: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    colors: Vec<[f32; 4]>,
 }
 
-fn build_mesh(creator: &MeshCreator) -> Mesh {
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, creator.vertices.clone());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, creator.normals.clone());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, creator.uvs.clone());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, creator.colors.clone());
-    mesh.insert_indices(Indices::U32(creator.indices.clone()));
-    mesh
+/// How far inside its texture a face stops, in atlas units, so that the neighbouring texture
+/// of the atlas never bleeds along the edges of a block.
+const UV_INSET: f32 = 0.001;
+
+impl MeshCreator {
+    /// Appends `face` of a block at `origin` (in chunk coordinates) turned to `direction`,
+    /// drawn with the texture at `uv_coords`.
+    fn push_face(
+        &mut self,
+        face: &Face,
+        uv_coords: &UvCoords,
+        alpha: f32,
+        origin: Vec3,
+        direction: &BlockDirection,
+    ) {
+        let first_index = self.vertices.len() as u32;
+        self.indices
+            .extend(face.indices.iter().map(|index| index + first_index));
+        self.vertices.extend(face.vertices.iter().map(|vertex| {
+            let vertex = rotate_vertices(vertex, direction);
+            [
+                vertex[0] + origin.x,
+                vertex[1] + origin.y,
+                vertex[2] + origin.z,
+            ]
+        }));
+        self.normals.extend(face.normals.iter());
+        self.colors.extend(
+            face.colors
+                .iter()
+                .map(|color| [color[0], color[1], color[2], alpha]),
+        );
+        // !!! DO NOT REMOVE THE INSET !!!
+        // It removes seams between blocks in chunk meshes
+        self.uvs.extend(face.uvs.iter().map(|uv| {
+            [
+                (uv[0] + uv_coords.u0 + UV_INSET).min(uv_coords.u1 - UV_INSET),
+                (uv[1] + uv_coords.v0 + UV_INSET).min(uv_coords.v1 - UV_INSET),
+            ]
+        }));
+    }
+
+    /// The mesh of the faces added so far, `None` when there is none.
+    fn build(self) -> Option<Mesh> {
+        if self.vertices.is_empty() {
+            return None;
+        }
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.vertices);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors);
+        mesh.insert_indices(Indices::U32(self.indices));
+        if let Err(e) = mesh.generate_tangents() {
+            warn!("Error while generating tangents for a chunk mesh: {e:?}");
+        }
+        Some(mesh)
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -49,6 +99,8 @@ pub struct ChunkMeshResponse {
     pub solid_mesh: Option<Mesh>,
 }
 
+/// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
+/// in this chunk or in the ones around it.
 pub(crate) fn generate_chunk_mesh(
     world_map: &ChunkMap,
     chunk: &Chunk,
@@ -56,114 +108,45 @@ pub(crate) fn generate_chunk_mesh(
     uv_map: &HashMap<String, UvCoords>,
 ) -> ChunkMeshResponse {
     let start = Instant::now();
-
-    let mut solid_mesh_creator = MeshCreator::default();
+    let mut mesh_creator = MeshCreator::default();
 
     for (local_block_pos, block) in chunk.iter() {
-        let x = local_block_pos.x as f32;
-        let y = local_block_pos.y as f32;
-        let z = local_block_pos.z as f32;
-
         let global_block_pos = &to_global_pos(chunk_pos, &local_block_pos);
         let visibility = block.id.get_visibility();
-
         if is_block_surrounded(world_map, global_block_pos, &visibility, &block.id) {
             continue;
         }
 
-        let mut local_vertices: Vec<[f32; 3]> = vec![];
-        let mut local_indices: Vec<u32> = vec![];
-        let mut local_normals: Vec<[f32; 3]> = vec![];
-        let mut local_uvs: Vec<[f32; 2]> = vec![];
-        let mut local_colors: Vec<[f32; 4]> = vec![];
+        let origin = local_block_pos.as_vec3();
+        let alpha = match visibility {
+            BlockTransparency::Liquid => 0.5,
+            _ => 1.0,
+        };
+        // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
+        // faces. A custom texture folder may lack the texture: no cracks then.
+        let cracks = (block.breaking_progress > 0)
+            .then(|| uv_map.get(&format!("DestroyStage{}", block.get_breaking_level())))
+            .flatten();
 
-        let voxel: VoxelShape = VoxelShape::create_from_block(block);
-
-        for face in voxel.faces.iter() {
-            let uv_coords: &UvCoords;
-
-            if let Some(uvs) = uv_map.get(&face.texture) {
-                uv_coords = uvs;
-            } else {
-                uv_coords = uv_map.get("_Default").unwrap();
-            }
-
-            let alpha = match visibility {
-                BlockTransparency::Liquid => 0.5,
-                _ => 1.0,
+        for face in VoxelShape::create_from_block(block).faces.iter() {
+            // A texture pack without this texture nor a default one: nothing to draw
+            let Some(uv_coords) = uv_map.get(&face.texture).or_else(|| uv_map.get("_Default"))
+            else {
+                continue;
             };
-
-            if should_render_face(world_map, global_block_pos, &face.direction, &visibility) {
-                render_face(
-                    &mut local_vertices,
-                    &mut local_indices,
-                    &mut local_normals,
-                    &mut local_uvs,
-                    &mut local_colors,
-                    &mut solid_mesh_creator.indices_offset,
-                    face,
-                    uv_coords,
-                    alpha,
-                );
-
-                if block.breaking_progress > 0 {
-                    // Overlay the current breaking progress (stages 0 to 9). A custom texture
-                    // folder may lack the texture: draw no cracks then.
-                    let breaking_progress = block.get_breaking_level();
-
-                    if let Some(cracks) = uv_map.get(&format!("DestroyStage{breaking_progress}")) {
-                        render_face(
-                            &mut local_vertices,
-                            &mut local_indices,
-                            &mut local_normals,
-                            &mut local_uvs,
-                            &mut local_colors,
-                            &mut solid_mesh_creator.indices_offset,
-                            face,
-                            cracks,
-                            alpha,
-                        );
-                    }
-                }
+            if !should_render_face(world_map, global_block_pos, &face.direction, &visibility) {
+                continue;
+            }
+            mesh_creator.push_face(face, uv_coords, alpha, origin, &block.direction);
+            if let Some(cracks) = cracks {
+                mesh_creator.push_face(face, cracks, alpha, origin, &block.direction);
             }
         }
-
-        let local_vertices: Vec<[f32; 3]> = local_vertices
-            .iter()
-            .map(|v| {
-                let v = rotate_vertices(v, &block.direction);
-                [v[0] + x, v[1] + y, v[2] + z]
-            })
-            .collect();
-
-        solid_mesh_creator.vertices.extend(local_vertices);
-        solid_mesh_creator.indices.extend(local_indices);
-        solid_mesh_creator.normals.extend(local_normals);
-        solid_mesh_creator.uvs.extend(local_uvs);
-        solid_mesh_creator.colors.extend(local_colors);
     }
 
-    let mut solid_mesh = build_mesh(&solid_mesh_creator);
-
+    let solid_mesh = mesh_creator.build();
     trace!("Render time : {:?}", Instant::now() - start);
-
-    let should_return_solid = !solid_mesh_creator.vertices.is_empty();
-    if should_return_solid {
-        if let Err(e) = solid_mesh.generate_tangents() {
-            warn!(
-                "Error while generating tangents for the mesh SOLID : {:?} | {:?}",
-                e, solid_mesh
-            );
-        }
-    };
-
-    ChunkMeshResponse {
-        solid_mesh: if should_return_solid {
-            Some(solid_mesh)
-        } else {
-            None
-        },
-    }
+    ChunkMeshResponse { solid_mesh }
 }
 
 pub(crate) fn is_block_surrounded(
@@ -213,42 +196,6 @@ pub fn rotate_vertices(v: &[f32; 3], direction: &BlockDirection) -> [f32; 3] {
         v[1],
         (-angle).sin() * v[0] + angle.cos() * v[2],
     ]
-}
-
-fn render_face(
-    local_vertices: &mut Vec<[f32; 3]>,
-    local_indices: &mut Vec<u32>,
-    local_normals: &mut Vec<[f32; 3]>,
-    local_uvs: &mut Vec<[f32; 2]>,
-    local_colors: &mut Vec<[f32; 4]>,
-    indices_offset: &mut u32,
-    face: &Face,
-    uv_coords: &UvCoords,
-    alpha: f32,
-) {
-    local_vertices.extend(face.vertices.iter());
-
-    local_indices.extend(face.indices.iter().map(|x| x + *indices_offset));
-    *indices_offset += face.vertices.len() as u32;
-
-    local_normals.extend(face.normals.iter());
-
-    let colors = face.colors.iter();
-    let mut new_colors = vec![];
-    for color in colors {
-        new_colors.push([color[0], color[1], color[2], alpha]);
-    }
-
-    local_colors.extend(new_colors);
-
-    local_uvs.extend(face.uvs.iter().map(|uv| {
-        // !!! DO NOT REMOVE THE FLOAT OFFSET !!!
-        // It removes seams between blocks in chunk meshes
-        [
-            (uv[0] + uv_coords.u0 + 0.001).min(uv_coords.u1 - 0.001),
-            (uv[1] + uv_coords.v0 + 0.001).min(uv_coords.v1 - 0.001),
-        ]
-    }));
 }
 
 fn should_render_face(
@@ -311,5 +258,10 @@ mod tests {
             UvCoords::new(0.0, 0.1, 0.0, 0.1),
         );
         assert!(cracked_stone_mesh(&uv_map, 200) > plain);
+    }
+
+    #[test]
+    fn a_block_without_any_texture_is_not_drawn_instead_of_panicking() {
+        assert_eq!(cracked_stone_mesh(&HashMap::new(), 0), 0);
     }
 }

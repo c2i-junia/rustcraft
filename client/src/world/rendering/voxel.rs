@@ -32,192 +32,144 @@ pub struct Face {
     pub texture: String,
 }
 
+const WHITE: [f32; 4] = [1.0; 4];
+
+impl Face {
+    /// A flat square: four vertices that share one normal, split in two triangles by `indices`.
+    fn quad(
+        texture: &str,
+        direction: FaceDirection,
+        vertices: [[f32; 3]; 4],
+        indices: [u32; 6],
+        normal: [f32; 3],
+        uvs: [[f32; 2]; 4],
+    ) -> Self {
+        Face {
+            direction,
+            vertices: vertices.to_vec(),
+            indices: indices.to_vec(),
+            normals: vec![normal; 4],
+            colors: vec![WHITE; 4],
+            uvs: uvs.to_vec(),
+            texture: texture.to_string(),
+        }
+    }
+
+    fn tint(&mut self, color: [f32; 4]) {
+        self.colors.fill(color);
+    }
+}
+
 /// Structure for voxel rendering
 pub struct VoxelShape {
     pub faces: Vec<Face>,
 }
+
+/// Index of the faces of `full_cube` whose texture differs on some blocks.
+const TOP: usize = 0;
+const BOTTOM: usize = 1;
 
 impl VoxelShape {
     /// Creates a VoxelShape based on the given BlockData
     pub fn create_from_block(block: &BlockData) -> VoxelShape {
         match block.id {
             BlockId::Grass => {
+                // Only the top of a grass block is green; its texture is grey and tinted
                 let mut shape = Self::full_cube(block);
-
-                // Apply grass-specific textures and coloring
-                for (index, face) in shape.faces.iter_mut().enumerate() {
-                    if index == 0 {
-                        face.texture += "Top";
-                        for col in face.colors.iter_mut() {
-                            *col = GRASS_COLOR;
-                        }
-                    }
-                }
-
+                shape.faces[TOP].texture += "Top";
+                shape.faces[TOP].tint(GRASS_COLOR);
                 shape
             }
             BlockId::OakLog | BlockId::SpruceLog | BlockId::Cactus => {
                 let mut shape = Self::full_cube(block);
-                shape.faces[0].texture += "Top";
-                shape.faces[1].texture += "Top";
+                shape.faces[TOP].texture += "Top";
+                shape.faces[BOTTOM].texture += "Top";
                 shape
             }
             BlockId::OakLeaves | BlockId::SpruceLeaves => {
-                let mut shape = Self::full_cube(block);
-
-                // Apply leaves color
-                for face in shape.faces.iter_mut() {
-                    for col in face.colors.iter_mut() {
-                        *col = GRASS_COLOR;
-                    }
-                }
-
-                shape
+                Self::full_cube(block).tinted(GRASS_COLOR)
             }
             BlockId::Debug => {
                 let mut shape = Self::full_cube(block);
-                shape.faces[0].texture = "Top".into();
-                shape.faces[1].texture = "Down".into();
-                shape.faces[2].texture = "Front".into();
-                shape.faces[3].texture = "Back".into();
-                shape.faces[4].texture = "Left".into();
-                shape.faces[5].texture = "Right".into();
+                let names = ["Top", "Down", "Front", "Back", "Left", "Right"];
+                for (face, name) in shape.faces.iter_mut().zip(names) {
+                    face.texture = name.into();
+                }
                 shape
             }
             BlockId::Poppy | BlockId::Dandelion => Self::flora(block),
-            BlockId::TallGrass => {
-                let mut shape = Self::flora(block);
-
-                // Apply grass color to TallGrass
-                for face in shape.faces.iter_mut() {
-                    for col in face.colors.iter_mut() {
-                        *col = GRASS_COLOR;
-                    }
-                }
-
-                shape
-            }
+            BlockId::TallGrass => Self::flora(block).tinted(GRASS_COLOR),
             _ => Self::full_cube(block),
         }
     }
 
+    fn tinted(mut self, color: [f32; 4]) -> Self {
+        for face in self.faces.iter_mut() {
+            face.tint(color);
+        }
+        self
+    }
+
+    /// The six faces of a unit cube, each with the texture named after the block, in the
+    /// order top, bottom, front, back, left, right.
     pub fn full_cube(block: &BlockData) -> Self {
+        // The texture as seen from outside the face, and mirrored
+        const UVS: [[f32; 2]; 4] = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]];
+        const MIRRORED_UVS: [[f32; 2]; 4] = [[1., 0.], [0., 0.], [0., 1.], [1., 1.]];
+        const CLOCKWISE: [u32; 6] = [0, 1, 2, 2, 3, 0];
+
+        let texture = &format!("{:?}", block.id);
+        use FaceDirection::*;
         VoxelShape {
             faces: vec![
-                Face {
-                    texture: format!("{:?}", block.id),
-                    direction: FaceDirection::Top,
-                    vertices: vec![[0., 1., 1.], [1., 1., 1.], [1., 1., 0.], [0., 1., 0.]],
-                    indices: vec![0, 1, 2, 2, 3, 0],
-                    normals: vec![
-                        [0.0, 1.0, 0.0],
-                        [0.0, 1.0, 0.0],
-                        [0.0, 1.0, 0.0],
-                        [0.0, 1.0, 0.0],
-                    ],
-                    colors: vec![
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                    ],
-                    uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
-                },
-                Face {
-                    texture: format!("{:?}", block.id),
-                    direction: FaceDirection::Bottom,
-                    vertices: vec![[0., 0., 0.], [1., 0., 0.], [1., 0., 1.], [0., 0., 1.]],
-                    indices: vec![0, 1, 2, 2, 3, 0],
-                    normals: vec![
-                        [0.0, -1.0, 0.0],
-                        [0.0, -1.0, 0.0],
-                        [0.0, -1.0, 0.0],
-                        [0.0, -1.0, 0.0],
-                    ],
-                    colors: vec![
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                    ],
-                    uvs: vec![[1., 0.], [0., 0.], [0., 1.], [1., 1.]],
-                },
-                Face {
-                    texture: format!("{:?}", block.id),
-                    direction: FaceDirection::Front,
-                    vertices: vec![[1., 1., 0.], [0., 1., 0.], [0., 0., 0.], [1., 0., 0.]],
-                    indices: vec![0, 3, 2, 2, 1, 0],
-                    normals: vec![
-                        [0.0, 0.0, -1.0],
-                        [0.0, 0.0, -1.0],
-                        [0.0, 0.0, -1.0],
-                        [0.0, 0.0, -1.0],
-                    ],
-                    colors: vec![
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                    ],
-                    uvs: vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
-                },
-                Face {
-                    texture: format!("{:?}", block.id),
-                    direction: FaceDirection::Back,
-                    vertices: vec![[1., 1., 1.], [0., 1., 1.], [0., 0., 1.], [1., 0., 1.]],
-                    indices: vec![0, 1, 2, 2, 3, 0],
-                    normals: vec![
-                        [0.0, 0.0, 1.0],
-                        [0.0, 0.0, 1.0],
-                        [0.0, 0.0, 1.0],
-                        [0.0, 0.0, 1.0],
-                    ],
-                    colors: vec![
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                    ],
-                    uvs: vec![[1., 0.], [0., 0.], [0., 1.], [1., 1.]],
-                },
-                Face {
-                    texture: format!("{:?}", block.id),
-                    direction: FaceDirection::Left,
-                    vertices: vec![[0., 1., 1.], [0., 1., 0.], [0., 0., 0.], [0., 0., 1.]],
-                    indices: vec![3, 0, 1, 1, 2, 3],
-                    normals: vec![
-                        [-1.0, 0.0, 0.0],
-                        [-1.0, 0.0, 0.0],
-                        [-1.0, 0.0, 0.0],
-                        [-1.0, 0.0, 0.0],
-                    ],
-                    colors: vec![
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                    ],
-                    uvs: vec![[1., 0.], [0., 0.], [0., 1.], [1., 1.]],
-                },
-                Face {
-                    texture: format!("{:?}", block.id),
-                    direction: FaceDirection::Right,
-                    vertices: vec![[1., 1., 0.], [1., 1., 1.], [1., 0., 1.], [1., 0., 0.]],
-                    indices: vec![0, 1, 2, 2, 3, 0],
-                    normals: vec![
-                        [1.0, 0.0, 0.0],
-                        [1.0, 0.0, 0.0],
-                        [1.0, 0.0, 0.0],
-                        [1.0, 0.0, 0.0],
-                    ],
-                    colors: vec![
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                        [1.0, 1.0, 1.0, 1.0],
-                    ],
-                    uvs: vec![[1., 0.], [0., 0.], [0., 1.], [1., 1.]],
-                },
+                Face::quad(
+                    texture,
+                    Top,
+                    [[0., 1., 1.], [1., 1., 1.], [1., 1., 0.], [0., 1., 0.]],
+                    CLOCKWISE,
+                    [0., 1., 0.],
+                    UVS,
+                ),
+                Face::quad(
+                    texture,
+                    Bottom,
+                    [[0., 0., 0.], [1., 0., 0.], [1., 0., 1.], [0., 0., 1.]],
+                    CLOCKWISE,
+                    [0., -1., 0.],
+                    MIRRORED_UVS,
+                ),
+                Face::quad(
+                    texture,
+                    Front,
+                    [[1., 1., 0.], [0., 1., 0.], [0., 0., 0.], [1., 0., 0.]],
+                    [0, 3, 2, 2, 1, 0],
+                    [0., 0., -1.],
+                    UVS,
+                ),
+                Face::quad(
+                    texture,
+                    Back,
+                    [[1., 1., 1.], [0., 1., 1.], [0., 0., 1.], [1., 0., 1.]],
+                    CLOCKWISE,
+                    [0., 0., 1.],
+                    MIRRORED_UVS,
+                ),
+                Face::quad(
+                    texture,
+                    Left,
+                    [[0., 1., 1.], [0., 1., 0.], [0., 0., 0.], [0., 0., 1.]],
+                    [3, 0, 1, 1, 2, 3],
+                    [-1., 0., 0.],
+                    MIRRORED_UVS,
+                ),
+                Face::quad(
+                    texture,
+                    Right,
+                    [[1., 1., 0.], [1., 1., 1.], [1., 0., 1.], [1., 0., 0.]],
+                    CLOCKWISE,
+                    [1., 0., 0.],
+                    MIRRORED_UVS,
+                ),
             ],
         }
     }
@@ -256,16 +208,7 @@ impl VoxelShape {
                     [-0.5, 0., 0.5],
                     [-0.5, 0., -0.5],
                 ],
-                colors: vec![
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                    [1., 1., 1., 1.],
-                ],
+                colors: vec![WHITE; 8],
                 uvs: vec![
                     [0., 1.],
                     [0., 1.],
@@ -278,6 +221,62 @@ impl VoxelShape {
                 ],
                 texture: format!("{:?}", block.id),
             }],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::world::BlockDirection;
+
+    fn shape_of(id: BlockId) -> VoxelShape {
+        VoxelShape::create_from_block(&BlockData::new(id, BlockDirection::Front))
+    }
+
+    #[test]
+    fn a_cube_has_six_square_faces_whose_normal_points_out_of_the_cube() {
+        let cube = shape_of(BlockId::Stone);
+        assert_eq!(cube.faces.len(), 6);
+        for face in &cube.faces {
+            assert_eq!(face.vertices.len(), 4);
+            assert_eq!(face.texture, "Stone");
+            assert!(face.indices.iter().all(|index| *index < 4));
+            // From the centre of the cube to the centre of the face, along the normal
+            let normal = face.normals[0];
+            let offset: f32 = (0..3)
+                .map(|axis| {
+                    let centre = face.vertices.iter().map(|v| v[axis]).sum::<f32>() / 4.;
+                    (centre - 0.5) * normal[axis]
+                })
+                .sum();
+            assert_eq!(offset, 0.5);
+        }
+    }
+
+    #[test]
+    fn grass_and_logs_have_their_own_top_texture() {
+        let grass = shape_of(BlockId::Grass);
+        assert_eq!(grass.faces[TOP].texture, "GrassTop");
+        assert_eq!(grass.faces[TOP].colors, vec![GRASS_COLOR; 4]);
+        assert_eq!(grass.faces[BOTTOM].texture, "Grass");
+        assert_eq!(grass.faces[BOTTOM].colors, vec![WHITE; 4]);
+
+        let log = shape_of(BlockId::OakLog);
+        assert_eq!(log.faces[TOP].texture, "OakLogTop");
+        assert_eq!(log.faces[BOTTOM].texture, "OakLogTop");
+        assert_eq!(log.faces[2].texture, "OakLog");
+    }
+
+    #[test]
+    fn leaves_and_tall_grass_are_tinted_on_every_face() {
+        for id in [BlockId::OakLeaves, BlockId::TallGrass] {
+            for face in shape_of(id).faces {
+                assert!(
+                    face.colors.iter().all(|color| *color == GRASS_COLOR),
+                    "{id:?}"
+                );
+            }
         }
     }
 }
