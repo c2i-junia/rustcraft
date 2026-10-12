@@ -187,10 +187,12 @@ just generate-release-folder
 
 Feel free to submit issues or open pull requests. If you want to know where to help, refer to the existing issues.
 
+[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) explains how the three crates fit together, the order of a server tick and of a client frame, and the save format.
+
 ## Guidelines 
 
-### Format
-Run `cargo fmt` before committing.
+### Checks
+Run `just check` before committing: it checks the formatting (`cargo fmt`), runs clippy without any warning allowed, and runs the tests. The CI runs the same three steps.
 
 ### Commit messages:
 
