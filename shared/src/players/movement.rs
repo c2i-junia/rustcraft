@@ -20,6 +20,12 @@ pub fn is_terrain_loaded(position: Vec3, world_map: &ChunkMap) -> bool {
     world_map.is_chunk_loaded(chunk) && world_map.is_chunk_loaded(chunk - IVec3::Y)
 }
 
+/// Below this height a player has fallen out of the world and is put back at `RESPAWN_POSITION`.
+const FALL_LIMIT: f32 = -50.0;
+const RESPAWN_POSITION: Vec3 = Vec3::new(0.0, 100.0, 0.0);
+
+/// Advances `player` by one input. The client (prediction) and the server (authority) both
+/// run it, and they must agree on its result: keep it free of randomness and of wall-clock time.
 pub fn simulate_player_movement(
     player: &mut Player,
     world_map: &ChunkMap,
@@ -36,33 +42,30 @@ pub fn simulate_player_movement(
 
     let delta = action.delta_ms.min(MAX_FRAME_DELTA_MS) as f32 / 1000.0;
 
-    let mut direction = Vec3::ZERO;
-
     if action.is_pressed(NetworkAction::ToggleFlyMode) {
         player.is_flying = !player.is_flying;
     }
-
     player.camera_transform = action.camera;
 
-    let is_jumping = action.is_pressed(NetworkAction::JumpOrFlyUp);
+    let direction = wished_direction(action);
+    apply_vertical_velocity(player, world_map, action, delta);
+    apply_wished_direction(player, world_map, direction, delta);
 
-    // Calculate movement directions relative to the camera
+    if player.position.y < FALL_LIMIT {
+        player.position = RESPAWN_POSITION;
+        player.velocity.y = 0.0;
+    }
+}
+
+/// Where the pressed keys ask to go: horizontally relative to the camera, and straight up or
+/// down for the fly keys. The horizontal part has length 1 or 0, so diagonals are not faster.
+fn wished_direction(action: &PlayerFrameInput) -> Vec3 {
     // Looking exactly up or down leaves no horizontal component: no horizontal movement then
-    let forward = player
-        .camera_transform
-        .forward()
-        .xyz()
-        .with_y(0.0)
-        .normalize_or_zero();
+    let horizontal = |direction: Dir3| direction.xyz().with_y(0.0).normalize_or_zero();
+    let forward = horizontal(action.camera.forward());
+    let right = horizontal(action.camera.right());
 
-    let right = player
-        .camera_transform
-        .right()
-        .xyz()
-        .with_y(0.0)
-        .normalize_or_zero();
-
-    // Adjust direction based on key presses
+    let mut direction = Vec3::ZERO;
     if action.is_pressed(NetworkAction::MoveBackward) {
         direction -= forward;
     }
@@ -75,8 +78,6 @@ pub fn simulate_player_movement(
     if action.is_pressed(NetworkAction::MoveRight) {
         direction += right;
     }
-
-    // Normalize direction to prevent faster movement with diagonals
     if direction != Vec3::ZERO {
         direction = direction.normalize();
     }
@@ -87,84 +88,63 @@ pub fn simulate_player_movement(
     if action.is_pressed(NetworkAction::SneakOrFlyDown) {
         direction -= Vec3::Y;
     }
+    direction
+}
 
-    // Handle jumping (if on the ground) and gravity, only if not flying
+/// Jump, gravity and landing. A flying player has no vertical velocity: it only moves up or
+/// down by its wished direction.
+fn apply_vertical_velocity(
+    player: &mut Player,
+    world_map: &ChunkMap,
+    action: &PlayerFrameInput,
+    delta: f32,
+) {
     if !player.is_flying {
-        if player.on_ground && is_jumping {
-            // Player can jump only when grounded
+        if player.on_ground && action.is_pressed(NetworkAction::JumpOrFlyUp) {
             player.velocity.y = JUMP_VELOCITY;
             player.on_ground = false;
         } else if !player.on_ground {
-            // Apply gravity when the player is in the air
             player.velocity.y += GRAVITY * delta;
         }
     }
-
-    if player.velocity.y > MAX_UPWARD_VELOCITY {
-        player.velocity.y = MAX_UPWARD_VELOCITY;
-    }
+    player.velocity.y = player.velocity.y.min(MAX_UPWARD_VELOCITY);
 
     let new_y = player.position.y + player.velocity.y * delta;
-    let new_vec = &Vec3::new(player.position.x, new_y, player.position.z);
-
-    if !player.is_flying {
-        if check_player_collision(new_vec, player, world_map) {
-            player.on_ground = true;
-            player.velocity.y = 0.0;
-        } else {
-            player.position.y = new_y;
-            player.on_ground = false;
-        }
-    } else {
+    if player.is_flying {
         player.velocity.y = 0.0;
         player.position.y = new_y;
         player.on_ground = false;
+    } else if check_player_collision(&player.position.with_y(new_y), player, world_map) {
+        player.on_ground = true;
+        player.velocity.y = 0.0;
+    } else {
+        player.position.y = new_y;
+        player.on_ground = false;
     }
+}
 
+/// Moves the player along `direction`. On foot, an axis blocked by a block is left unchanged,
+/// so the player slides along walls; a flying player goes through blocks.
+fn apply_wished_direction(player: &mut Player, world_map: &ChunkMap, direction: Vec3, delta: f32) {
     let speed = if player.is_flying {
         SPEED * FLY_SPEED_MULTIPLIER
     } else {
         SPEED
     };
-    let speed = speed * delta;
+    let step = direction * (speed * delta);
 
-    // Attempt to move the player by the calculated direction
-    let new_x = player.position.x + direction.x * speed;
-    let new_z = player.position.z + direction.z * speed;
-
-    let new_vec_x = &player.position.with_x(new_x);
-    let new_vec_z = &player.position.with_z(new_z);
-
-    // If a block is detected in the new position, don't move the player on this axis
-    if check_player_collision(new_vec_x, player, world_map) && !player.is_flying {
-    } else {
-        player.position.x = new_x;
+    // Both axes are tested from the position before the move
+    let moved_x = player.position.with_x(player.position.x + step.x);
+    let moved_z = player.position.with_z(player.position.z + step.z);
+    if player.is_flying || !check_player_collision(&moved_x, player, world_map) {
+        player.position.x = moved_x.x;
     }
-
-    if check_player_collision(new_vec_z, player, world_map) && !player.is_flying {
-    } else {
-        player.position.z = new_z;
+    if player.is_flying || !check_player_collision(&moved_z, player, world_map) {
+        player.position.z = moved_z.z;
     }
 
     if player.is_flying {
-        player.position.y += direction.y * speed;
-    }
-
-    // If the player is below the world, reset their position
-    const FALL_LIMIT: f32 = -50.0;
-    if player.position.y < FALL_LIMIT {
-        player.position = Vec3::new(0.0, 100.0, 0.0);
-        player.velocity.y = 0.0;
-    }
-}
-
-trait IsPressed {
-    fn is_pressed(&self, action: NetworkAction) -> bool;
-}
-
-impl IsPressed for PlayerFrameInput {
-    fn is_pressed(&self, action: NetworkAction) -> bool {
-        self.inputs.contains(&action)
+        player.position.y += step.y;
     }
 }
 
@@ -212,7 +192,7 @@ mod tests {
         PlayerFrameInput {
             delta_ms: 16,
             inputs: actions.iter().cloned().collect(),
-            ..Default::default()
+            ..default()
         }
     }
 
@@ -352,10 +332,10 @@ mod tests {
         assert!(!player.on_ground);
         assert!(player.position.y > start_y);
 
-        // 6.56 blocks is the apex at 16 ms measured on the per-frame integration that preceded
-        // the frame-rate independent one (the new one gives 6.83: it is derived for 1/60 s frames).
+        // A continuous jump peaks at v² / 2g = 20² / 60 = 6.67 blocks; integrating it in steps
+        // of 16 ms overshoots that a little.
         let apex = jump_apex(&world, 16);
-        assert!((apex - 6.56).abs() < 6.56 * 0.05, "apex {apex}");
+        assert!((apex - 6.83).abs() < 0.05, "apex {apex}");
     }
 
     #[test]

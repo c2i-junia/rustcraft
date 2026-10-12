@@ -37,7 +37,7 @@ pub fn manage_mob_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: R
             rotation: Quat::IDENTITY,
             height: 1.0,
             width: 1.0,
-            deepth: 1.5,
+            depth: 1.5,
             on_ground: true,
             velocity: Vec3::ZERO,
         };

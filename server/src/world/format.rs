@@ -116,4 +116,28 @@ mod tests {
 
         assert_eq!(std::fs::read(&path).unwrap(), b"precious");
     }
+
+    #[test]
+    fn a_mob_saved_with_the_former_field_name_is_still_read() {
+        use shared::world::{MobAction, MobKind, MobTarget};
+        let fox = ServerMob {
+            kind: MobKind::Fox,
+            target: MobTarget::None,
+            action: MobAction::Walk,
+            position: Default::default(),
+            rotation: Default::default(),
+            height: 1.0,
+            width: 1.0,
+            on_ground: true,
+            velocity: Default::default(),
+            depth: 1.5,
+        };
+        let meta = WorldMeta::new("w".into(), WorldSeed(1), 0, HashMap::from([(7, fox)]));
+        let saved = ron::ser::to_string(&meta).unwrap();
+        assert!(saved.contains("depth:1.5"), "{saved}");
+
+        let former = saved.replace("depth:", "deepth:");
+        let read: WorldMeta = ron::de::from_str(&former).unwrap();
+        assert_eq!(read.mobs[&7].depth, 1.5);
+    }
 }

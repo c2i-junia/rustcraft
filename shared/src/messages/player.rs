@@ -54,3 +54,9 @@ pub struct PlayerFrameInput {
     #[serde(skip)]
     pub predicted: MovementState,
 }
+
+impl PlayerFrameInput {
+    pub fn is_pressed(&self, action: NetworkAction) -> bool {
+        self.inputs.contains(&action)
+    }
+}

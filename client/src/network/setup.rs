@@ -65,11 +65,11 @@ impl FromWorld for CurrentPlayerProfile {
         let player_name = world.get_resource::<PlayerNameSupplied>();
         match player_name {
             Some(player_name) => {
-                if shared::sanitize_username(&player_name.name).is_none() {
+                if shared::messages::sanitize_username(&player_name.name).is_none() {
                     warn!(
                         "The player name {:?} will be refused by servers: 1 to {} characters, no control character",
                         player_name.name,
-                        shared::MAX_USERNAME_LENGTH
+                        shared::messages::MAX_USERNAME_LENGTH
                     );
                 }
                 Self {

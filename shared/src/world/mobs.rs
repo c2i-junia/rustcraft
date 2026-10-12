@@ -34,5 +34,7 @@ pub struct ServerMob {
     pub width: f32,
     pub on_ground: bool,
     pub velocity: Vec3,
-    pub deepth: f32,
+    /// Saves written before the rename spell it `deepth`.
+    #[serde(alias = "deepth")]
+    pub depth: f32,
 }

@@ -44,50 +44,20 @@ pub struct RaycastResponse {
     pub bbox: Aabb3d,
 }
 
+/// The first block hit by the ray the player aims with. The ray follows the camera's
+/// direction; it starts at the camera in first person and at the player in third person.
 pub fn raycast(
     world_map: &ChunkMap,
     camera_transform: &Transform,
     player_position: &Vec3,
     view_mode: ViewMode,
 ) -> Option<RaycastResponse> {
-    match view_mode {
-        ViewMode::FirstPerson => first_person_raycast(world_map, camera_transform),
-        ViewMode::ThirdPerson => third_person_raycast(world_map, camera_transform, player_position),
-    }
-}
-
-fn first_person_raycast(
-    world_map: &ChunkMap,
-    camera_transform: &Transform,
-) -> Option<RaycastResponse> {
-    let camera_position = camera_transform.translation;
-    let camera_rotation = camera_transform.rotation;
-
-    let direction = camera_rotation
-        .mul_vec3(Vec3::new(0.0, 0.0, -1.0))
-        .normalize();
-
-    let current_position = camera_position;
-
-    raycast_from_source_position_and_direction(world_map, current_position, direction)
-}
-
-fn third_person_raycast(
-    world_map: &ChunkMap,
-    camera_transform: &Transform,
-    player_position: &Vec3,
-) -> Option<RaycastResponse> {
-    let camera_rotation = camera_transform.rotation;
-
-    let camera_direction = camera_rotation
-        .mul_vec3(Vec3::new(0.0, 0.0, -1.0))
-        .normalize();
-
-    let direction = camera_direction;
-
-    let current_position = *player_position;
-
-    raycast_from_source_position_and_direction(world_map, current_position, direction)
+    let origin = match view_mode {
+        ViewMode::FirstPerson => camera_transform.translation,
+        ViewMode::ThirdPerson => *player_position,
+    };
+    let direction = camera_transform.rotation.mul_vec3(Vec3::NEG_Z).normalize();
+    raycast_from_source_position_and_direction(world_map, origin, direction)
 }
 
 /// Maximum distance, in ray parameter units (blocks for a normalized direction), a ray travels.
@@ -125,18 +95,40 @@ pub fn raycast_from_source_position_and_direction(
     }
 
     let inv_dir = 1. / direction;
-
     let step = inv_dir.signum().as_ivec3();
     let delta = inv_dir.abs();
-
-    let mut axis = 0;
 
     // Origin, constrained to its voxel (integer) position
     // Explicit flooring needed for negative coordinates
     let mut voxel = origin.floor().as_ivec3();
+    let mut t = first_boundaries(origin, direction, voxel, step);
+    let mut axis = 0;
+    // Ray parameter of the last voxel boundary crossed
+    let mut distance = 0.0;
 
-    // Calculate tMax (distance to first voxel boundary)
-    // Needed so that the player's position inside a voxel doesn't mess up the ray projection
+    for _ in 0..max_ray_steps(direction) {
+        if distance >= MAX_RAY_DISTANCE {
+            break;
+        }
+        if let Some(block) = world_map.get_block(voxel) {
+            let entered_by = entry_face(axis, step[axis])?;
+            let hit = hit_block(*block, voxel, entered_by, origin, direction, inv_dir);
+            if hit.is_some() {
+                return hit;
+            }
+        }
+
+        axis = nearest_boundary_axis(t);
+        distance = t[axis];
+        t[axis] += delta[axis];
+        voxel[axis] += step[axis];
+    }
+    None
+}
+
+/// Ray parameter of the first voxel boundary on each axis (`tMax` in the algorithm), so that
+/// the position of the origin inside its voxel does not skew the traversal.
+fn first_boundaries(origin: Vec3, direction: Vec3, voxel: IVec3, step: IVec3) -> Vec3 {
     let mut t = Vec3::ZERO;
     for i in 0..3 {
         // `-0.0` has a negative sign but no direction: dividing by it would give NaN
@@ -147,71 +139,70 @@ pub fn raycast_from_source_position_and_direction(
             f32::INFINITY
         }
     }
+    t
+}
 
-    // Ray parameter of the last voxel boundary crossed
-    let mut distance = 0.0;
-
-    // Actual raycast loop
-    for _ in 0..max_ray_steps(direction) {
-        if distance >= MAX_RAY_DISTANCE {
-            break;
-        }
-        if let Some(block) = world_map.get_block(voxel) {
-            match block.id.get_ray_hitbox() {
-                BlockHitbox::FullBlock => {
-                    return Some(RaycastResponse {
-                        block: *block,
-                        position: voxel,
-                        face: match (axis, step[axis]) {
-                            (0, -1) => FaceDirection::PlusX,
-                            (0, 1) => FaceDirection::MinusX,
-                            (1, -1) => FaceDirection::PlusY,
-                            (1, 1) => FaceDirection::MinusY,
-                            (2, -1) => FaceDirection::PlusZ,
-                            (2, 1) => FaceDirection::MinusZ,
-                            _ => return None,
-                        },
-                        bbox: Aabb3d::new(voxel.as_vec3() + HALF_BLOCK, HALF_BLOCK),
-                    })
-                }
-                BlockHitbox::Aabb(hitbox) => {
-                    let hitbox = Aabb3d {
-                        min: hitbox.min + voxel.as_vec3a(),
-                        max: hitbox.max + voxel.as_vec3a(),
-                    };
-                    if let Some((pos, face)) = aabb_ray_hit(&hitbox, &origin, &direction, &inv_dir)
-                    {
-                        return Some(RaycastResponse {
-                            block: *block,
-                            position: pos.floor().as_ivec3(),
-                            face,
-                            bbox: hitbox,
-                        });
-                    }
-                }
-                BlockHitbox::None => {}
-            }
-        }
-
-        // Choose new step direction
-        if t.x < t.y {
-            if t.x < t.z {
-                axis = 0;
-            } else {
-                axis = 2;
-            }
-        } else if t.y < t.z {
-            axis = 1;
+/// The axis whose next voxel boundary the ray reaches first.
+fn nearest_boundary_axis(t: Vec3) -> usize {
+    if t.x < t.y {
+        if t.x < t.z {
+            0
         } else {
-            axis = 2;
+            2
         }
-
-        // Update the ray's position
-        distance = t[axis];
-        t[axis] += delta[axis];
-        voxel[axis] += step[axis];
+    } else if t.y < t.z {
+        1
+    } else {
+        2
     }
-    None
+}
+
+/// The face of a voxel a ray enters through when it steps by `step` along `axis`. `None` for
+/// a step of 0, which a finite, non-zero direction never gives.
+fn entry_face(axis: usize, step: i32) -> Option<FaceDirection> {
+    Some(match (axis, step) {
+        (0, -1) => FaceDirection::PlusX,
+        (0, 1) => FaceDirection::MinusX,
+        (1, -1) => FaceDirection::PlusY,
+        (1, 1) => FaceDirection::MinusY,
+        (2, -1) => FaceDirection::PlusZ,
+        (2, 1) => FaceDirection::MinusZ,
+        _ => return None,
+    })
+}
+
+/// Whether the ray, which entered `voxel` through `entered_by`, hits the interaction box of
+/// the `block` it holds.
+fn hit_block(
+    block: BlockData,
+    voxel: IVec3,
+    entered_by: FaceDirection,
+    origin: Vec3,
+    direction: Vec3,
+    inv_dir: Vec3,
+) -> Option<RaycastResponse> {
+    match block.id.get_ray_hitbox() {
+        BlockHitbox::FullBlock => Some(RaycastResponse {
+            block,
+            position: voxel,
+            face: entered_by,
+            bbox: Aabb3d::new(voxel.as_vec3() + HALF_BLOCK, HALF_BLOCK),
+        }),
+        BlockHitbox::Aabb(hitbox) => {
+            let hitbox = Aabb3d {
+                min: hitbox.min + voxel.as_vec3a(),
+                max: hitbox.max + voxel.as_vec3a(),
+            };
+            let (pos, face) = aabb_ray_hit(&hitbox, &origin, &direction, &inv_dir)?;
+            Some(RaycastResponse {
+                block,
+                position: pos.floor().as_ivec3(),
+                face,
+                bbox: hitbox,
+            })
+        }
+        BlockHitbox::None => None,
+    }
 }
 
 // Computes the collision between an AABB and a raycasting ray

@@ -29,47 +29,37 @@ impl Inventory {
         }
     }
 
-    // Adds an item to the player's inventory
-    pub fn add_item_to_inventory(&mut self, mut stack: ItemStack) {
-        for i in 0..MAX_INVENTORY_SLOTS {
-            let item_option = self.inner.get(&i);
-
-            if let Some(existing_item) = item_option {
-                // If not item of right type or stack already full : pass
-                if existing_item.item_id != stack.item_id
-                    || existing_item.nb >= stack.item_id.get_max_stack()
-                {
-                    continue;
-                }
-
-                stack.nb += existing_item.nb;
-            }
-
-            let inserted_stack = ItemStack {
-                item_id: stack.item_id,
-                item_type: stack.item_type,
-                nb: if stack.nb >= stack.item_id.get_max_stack() {
-                    stack.item_id.get_max_stack()
-                } else {
-                    stack.nb
-                },
-            };
-            stack.nb -= inserted_stack.nb;
-
-            // Push inserted items in right inventory slot
-            self.inner.insert(i, inserted_stack);
-
-            // If no more items to add, end loop
+    /// Adds `stack` to the inventory, slot after slot: a slot takes what it can when it is
+    /// free or holds the same item. Returns how many items did not fit; those are lost.
+    pub fn add_item_to_inventory(&mut self, mut stack: ItemStack) -> u32 {
+        let max_stack = stack.item_id.get_max_stack();
+        for slot in 0..MAX_INVENTORY_SLOTS {
             if stack.nb == 0 {
                 break;
             }
+            let held = match self.inner.get(&slot) {
+                Some(existing) if existing.item_id != stack.item_id => continue,
+                Some(existing) => existing.nb,
+                None => 0,
+            };
+            if held >= max_stack {
+                continue;
+            }
+            let added = stack.nb.min(max_stack - held);
+            self.inner.insert(
+                slot,
+                ItemStack {
+                    nb: held + added,
+                    ..stack
+                },
+            );
+            stack.nb -= added;
         }
-
-        // Problem : if inventory full, items disappear
+        stack.nb
     }
 
     /// Add items to stack at specified position\
-    /// Stacks cannot exceed MAX_ITEM_STACK number of items\
+    /// Stacks cannot exceed the item's `get_max_stack()` number of items\
     /// Returns number of items really added to the stack
     pub fn add_item_to_stack(
         &mut self,
@@ -146,6 +136,10 @@ pub struct MovementState {
     pub is_flying: bool,
 }
 
+/// Size of a player's collision box, in blocks.
+pub const PLAYER_HEIGHT: f32 = 1.8;
+pub const PLAYER_WIDTH: f32 = 0.8;
+
 impl Player {
     pub fn movement_state(&self) -> MovementState {
         MovementState {
@@ -173,8 +167,8 @@ impl Player {
             on_ground: true,
             is_flying: false,
             inventory: Inventory::new(),
-            height: 1.8,
-            width: 0.8,
+            height: PLAYER_HEIGHT,
+            width: PLAYER_WIDTH,
             last_input_processed: 0,
         }
     }
@@ -182,19 +176,7 @@ impl Player {
 
 impl Default for Player {
     fn default() -> Self {
-        Self {
-            id: 0,
-            name: "Default".into(),
-            position: Vec3::ZERO,
-            camera_transform: Transform::default(),
-            velocity: Vec3::ZERO,
-            on_ground: true,
-            is_flying: false,
-            inventory: Inventory::new(),
-            height: 1.8,
-            width: 0.8,
-            last_input_processed: 0,
-        }
+        Self::new(0, "Default".into(), Vec3::ZERO, Transform::default())
     }
 }
 
@@ -275,6 +257,25 @@ mod tests {
     }
 
     #[test]
+    fn add_returns_what_did_not_fit() {
+        let mut inventory = Inventory::new();
+        for slot in 1..MAX_INVENTORY_SLOTS {
+            inventory.inner.insert(slot, stack(ItemId::Sand, 1));
+        }
+        assert_eq!(inventory.add_item_to_inventory(stack(ItemId::Dirt, 3)), 0);
+        let lost = inventory.add_item_to_inventory(stack(ItemId::Dirt, max_stack()));
+        assert_eq!(lost, 3);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, max_stack()));
+    }
+
+    #[test]
+    fn adding_nothing_takes_no_slot() {
+        let mut inventory = Inventory::new();
+        assert_eq!(inventory.add_item_to_inventory(stack(ItemId::Dirt, 0)), 0);
+        assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
     fn add_skips_full_stack_of_same_item() {
         let mut inventory = Inventory::new();
         inventory.add_item_to_inventory(stack(ItemId::Dirt, max_stack()));
@@ -293,7 +294,8 @@ mod tests {
         }
 
         let full = inventory.clone();
-        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        let lost = inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        assert_eq!(lost, 10);
         inventory.add_item_to_inventory(stack(ItemId::Sand, 10));
         assert_eq!(inventory, full);
     }

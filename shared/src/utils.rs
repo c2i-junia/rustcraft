@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["bytes", "kB", "MB", "GB", "TB"];
@@ -18,4 +18,11 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{size:.1} {unit}")
     }
+}
+
+/// Milliseconds since the Unix epoch, 0 if the system clock is set before it.
+pub fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since_epoch| since_epoch.as_millis() as u64)
 }
