@@ -16,8 +16,10 @@ use bevy_renet::netcode::{NetcodeServerPlugin, ServerAuthentication, ServerConfi
 use bevy_renet::{netcode::NetcodeServerTransport, RenetServer, RenetServerPlugin};
 use serde::{Deserialize, Serialize};
 use shared::{
-    get_shared_renet_config, messages::PlayerId, world::ChunkMap, GameFolderPaths,
-    GameServerConfig, TICKS_PER_SECOND,
+    get_shared_renet_config,
+    messages::PlayerId,
+    world::{ChunkMap, WorldSeed},
+    GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
 use std::time::{Duration, SystemTime};
@@ -42,43 +44,50 @@ impl LobbyPlayer {
     }
 }
 
-// ServerLobby represents the list of players connected to the server
-// (who may or may not be in the game world yet)
+/// The authenticated clients. A client is added here by its authentication, together with its
+/// `Player` in `ServerWorldMap::players`, and both are removed when it disconnects; a client
+/// that is connected but absent from the lobby may only ask to authenticate.
 #[derive(Debug, Default, Resource)]
 pub struct ServerLobby {
     pub players: HashMap<PlayerId, LobbyPlayer>,
 }
 
-pub fn acquire_local_ephemeral_udp_socket(ip: IpAddr) -> UdpSocket {
+pub fn acquire_local_ephemeral_udp_socket(ip: IpAddr) -> std::io::Result<UdpSocket> {
     acquire_socket_by_port(ip, 0)
 }
 
-pub fn acquire_socket_by_port(ip: IpAddr, port: u16) -> UdpSocket {
-    let addr = SocketAddr::new(ip, port);
-    UdpSocket::bind(addr).unwrap()
+pub fn acquire_socket_by_port(ip: IpAddr, port: u16) -> std::io::Result<UdpSocket> {
+    UdpSocket::bind(SocketAddr::new(ip, port))
 }
 
-pub fn add_netcode_network(app: &mut App, socket: UdpSocket) {
+/// Largest number of clients connected at once.
+const MAX_CLIENTS: usize = 64;
+
+fn add_netcode_network(app: &mut App, socket: UdpSocket) -> Result<(), String> {
     app.add_plugins(NetcodeServerPlugin);
 
-    let server = RenetServer::new(get_shared_renet_config());
+    let address = socket
+        .local_addr()
+        .map_err(|err| format!("The server socket has no local address: {err}"))?;
+    info!("Starting server on {address}");
 
-    let granted_addr = &socket.local_addr().unwrap();
-
-    let current_time: Duration = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap();
     let server_config = ServerConfig {
-        current_time,
-        max_clients: 64,
+        current_time: SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default(),
+        max_clients: MAX_CLIENTS,
         protocol_id: shared::PROTOCOL_ID,
-        public_addresses: vec![*granted_addr],
+        public_addresses: vec![address],
+        // Nothing proves who a client is: it announces its own id. Fine among friends, not
+        // for a server open to anyone.
         authentication: ServerAuthentication::Unsecure,
     };
+    let transport = NetcodeServerTransport::new(server_config, socket)
+        .map_err(|err| format!("Could not start the network transport: {err}"))?;
 
-    let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
-    app.insert_resource(server);
+    app.insert_resource(RenetServer::new(get_shared_renet_config()));
     app.insert_resource(transport);
+    Ok(())
 }
 
 /// One loop turn of the server is one tick: the fixed-step systems (`FixedUpdate`) run once per
@@ -110,45 +119,20 @@ pub fn init(
     app.insert_resource(ServerLobby::default());
     app.insert_resource(game_folder_paths.clone());
 
-    let world_name = &config.world_name.clone();
+    let world_name = config.world_name.clone();
     // Every path of the world is built from this name: refuse one that is not a plain folder name
-    let world_dir = world_dir(&game_folder_paths, world_name)?;
+    let world_dir = world_dir(&game_folder_paths, &world_name)?;
 
     app.insert_resource(config);
 
-    info!("Starting server on {}", socket.local_addr().unwrap());
-
-    add_netcode_network(&mut app, socket);
+    add_netcode_network(&mut app, socket)?;
 
     setup_resources_and_events(&mut app);
 
-    // Load world from files
-    let world_data = match load_world_data(world_name, &game_folder_paths) {
-        Ok(data) => data,
-        Err(err) => return Err(format!("Failed to load world {world_name}: {err}")),
-    };
-
-    let mut chunks = ChunkMap::default();
-    for (chunk_pos, chunk) in world_data.map {
-        chunks.insert_chunk(chunk_pos, chunk);
-    }
-
-    let mut world_map = ServerWorldMap {
-        // the folder the world was loaded from, whatever name its file claims
-        name: world_name.clone(),
-        chunks,
-        sent_chunks: HashMap::new(),
-        players: HashMap::new(),
-        mobs: world_data.mobs,
-        dirty_chunks: HashSet::new(),
-    };
-
-    cleanup_all_players_from_world(&mut world_map);
-
-    // Insert world_map and seed into ressources
+    let (world_map, seed, time) = load_world(&world_name, &game_folder_paths)?;
     app.insert_resource(world_map);
-    app.insert_resource(world_data.seed);
-    app.insert_resource(ServerTime(world_data.time));
+    app.insert_resource(seed);
+    app.insert_resource(ServerTime(time));
 
     // Create save folder if does not already exist
     let players_dir = world_dir.join("players");
@@ -164,13 +148,40 @@ pub fn init(
         .map_err(|err| format!("Could not start the world writer: {err}"))?;
     app.insert_resource(writer);
     app.insert_resource(Autosave {
-        last_save_tick: world_data.time,
+        last_save_tick: time,
     });
 
     dispatcher::register_systems(&mut app);
 
     app.run();
     Ok(())
+}
+
+/// The world saved under `world_name`, or a new one when nothing was saved yet, with its
+/// seed and its time in ticks.
+fn load_world(
+    world_name: &str,
+    game_folder_paths: &GameFolderPaths,
+) -> Result<(ServerWorldMap, WorldSeed, u64), String> {
+    let world_data = load_world_data(world_name, game_folder_paths)
+        .map_err(|err| format!("Failed to load world {world_name}: {err}"))?;
+
+    let mut chunks = ChunkMap::default();
+    for (chunk_pos, chunk) in world_data.map {
+        chunks.insert_chunk(chunk_pos, chunk);
+    }
+    let mut world_map = ServerWorldMap {
+        // the folder the world was loaded from, whatever name its file claims
+        name: world_name.to_string(),
+        chunks,
+        sent_chunks: HashMap::new(),
+        players: HashMap::new(),
+        mobs: world_data.mobs,
+        dirty_chunks: HashSet::new(),
+    };
+    cleanup_all_players_from_world(&mut world_map);
+
+    Ok((world_map, world_data.seed, world_data.time))
 }
 
 #[cfg(test)]

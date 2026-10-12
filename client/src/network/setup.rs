@@ -19,7 +19,7 @@ use shared::messages::{
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::thread::JoinHandle;
 use std::{net::UdpSocket, thread, time::SystemTime};
 
@@ -54,6 +54,9 @@ impl CurrentPlayerProfile {
     }
 }
 
+/// The id of a player is the hash of its name, and its save file is named after it. Rust does
+/// not promise that `DefaultHasher` gives the same values in every release: replacing it would
+/// need a migration of the saved players.
 fn hash_string_to_u64(input: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
@@ -109,7 +112,7 @@ pub fn add_base_netcode(app: &mut App) {
             .before(NetcodeClientPlugin::disconnect_on_exit),
     );
 
-    // TODO: change username
+    // The username is taken from the player profile when the connection starts
     app.insert_resource(TargetServer {
         address: None,
         username: None,
@@ -142,35 +145,38 @@ pub fn launch_local_server_system(
         return;
     }
 
-    if let Some(world_name) = &selected_world.name {
-        info!("Launching local server with world: {}", world_name);
+    let Some(world_name) = selected_world.name.clone() else {
+        error!("No world selected, unable to launch the local server");
+        game_state.set(GameState::Menu);
+        return;
+    };
+    info!("Launching local server with world: {}", world_name);
 
-        let socket =
-            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
-        let addr = socket.local_addr().unwrap();
-        debug!("Obtained UDP socket: {}", addr);
+    let socket = server::acquire_local_ephemeral_udp_socket(Ipv4Addr::LOCALHOST.into())
+        .and_then(|socket| Ok((socket.local_addr()?, socket)));
+    let (addr, socket) = match socket {
+        Ok(socket) => socket,
+        Err(err) => {
+            error!("Could not open a socket for the local server: {err}");
+            game_state.set(GameState::Menu);
+            return;
+        }
+    };
+    debug!("Obtained UDP socket: {}", addr);
 
-        let world_name_clone = world_name.clone();
-        let cloned_paths = paths.clone();
+    let paths = paths.clone();
+    let handle = thread::spawn(move || {
+        let config = GameServerConfig {
+            world_name,
+            is_solo: true,
+        };
+        if let Err(err) = server::init(socket, config, paths) {
+            error!("Local server did not start: {err}");
+        }
+    });
+    commands.insert_resource(LocalServerHandle(Some(handle)));
 
-        let handle = thread::spawn(move || {
-            if let Err(err) = server::init(
-                socket,
-                GameServerConfig {
-                    world_name: world_name_clone,
-                    is_solo: true,
-                },
-                cloned_paths,
-            ) {
-                error!("Local server did not start: {err}");
-            }
-        });
-        commands.insert_resource(LocalServerHandle(Some(handle)));
-
-        target.address = Some(addr);
-    } else {
-        error!("Error: No world selected. Unable to launch the server.");
-    }
+    target.address = Some(addr);
 }
 
 pub fn poll_network_messages(
@@ -204,39 +210,40 @@ pub fn init_server_connection(
         game_state.set(GameState::Menu);
         return;
     };
-    let id = current_player_id.into_inner().id;
-    commands.queue(move |world: &mut World| {
-        world.remove_resource::<RenetClient>();
-        world.remove_resource::<NetcodeClientTransport>();
-        world.remove_resource::<CachedChatConversation>();
+    let authentication = ClientAuthentication::Unsecure {
+        server_addr: addr,
+        client_id: current_player_id.id,
+        user_data: None,
+        protocol_id: shared::PROTOCOL_ID,
+    };
+    info!(
+        "Attempting to connect to: {} with data {:?}",
+        addr, authentication
+    );
 
-        let client = RenetClient::new(get_shared_renet_config());
-        world.insert_resource(client);
+    let current_time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let transport = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+        .map_err(|err| err.to_string())
+        .and_then(|socket| {
+            NetcodeClientTransport::new(current_time, authentication, socket)
+                .map_err(|err| err.to_string())
+        });
+    let transport = match transport {
+        Ok(transport) => transport,
+        Err(err) => {
+            error!("Could not open a connection to {addr}, back to the menu: {err}");
+            game_state.set(GameState::Menu);
+            return;
+        }
+    };
 
-        let authentication = ClientAuthentication::Unsecure {
-            server_addr: addr,
-            client_id: id,
-            user_data: None,
-            protocol_id: shared::PROTOCOL_ID,
-        };
-
-        info!(
-            "Attempting to connect to: {} with data {:?}",
-            addr, authentication
-        );
-
-        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-        let transport = NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
-
-        world.insert_resource(transport);
-
-        world.insert_resource(CachedChatConversation { ..default() });
-
-        info!("Network subsystem initialized");
-    })
+    // Each of them replaces the one of the previous session
+    commands.insert_resource(RenetClient::new(get_shared_renet_config()));
+    commands.insert_resource(transport);
+    commands.insert_resource(CachedChatConversation::default());
+    info!("Network subsystem initialized");
 }
 
 /// Logs transport errors, only while in game: outside of it the client is expected to be
@@ -262,21 +269,18 @@ pub fn establish_authenticated_connection_to_server(
     if target.session_token.is_some() {
         trace!(
             "Successfully acquired a session token as {}",
-            &target.username.clone().unwrap()
+            target.username.as_deref().unwrap_or_default()
         );
         return;
     }
 
     if target.state == TargetServerState::Initial {
-        if target.username.is_none() {
-            target.username = Some(current_profile.into_inner().name.clone());
-        }
+        let username = target
+            .username
+            .get_or_insert_with(|| current_profile.name.clone())
+            .clone();
 
-        let username = target.username.as_ref().unwrap();
-
-        let auth_msg = AuthRegisterRequest {
-            username: username.clone(),
-        };
+        let auth_msg = AuthRegisterRequest { username };
         info!("Sending auth request: {:?}", auth_msg);
         client.send_game_message(auth_msg.into());
         target.state = TargetServerState::Establishing;
@@ -299,8 +303,8 @@ pub fn establish_authenticated_connection_to_server(
                 target.session_token = Some(message.session_token);
                 target.state = TargetServerState::ConnectionEstablished;
                 client_time.0 = message.tick;
-                // TODO: handle clock sync using the timestamp_ms field
-                // it will become very important if the lantency is high
+                // `timestamp_ms` is not used yet: the clock starts at the server's tick as it
+                // was when the response left, so it lags by the latency
                 for player in message.players {
                     ev_spawn.write(player);
                 }

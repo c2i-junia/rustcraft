@@ -397,7 +397,7 @@ mod tests {
             name: WORLD.into(),
             seed: WorldSeed(77),
             time: 5,
-            ..Default::default()
+            ..default()
         };
         saved.map.insert(IVec3::new(-1, 4, 2), chunk.clone());
         saved.map.insert(IVec3::ZERO, Chunk::new());
@@ -594,7 +594,7 @@ mod tests {
         let mut other = WorldData {
             name: WORLD.into(),
             time: 99,
-            ..Default::default()
+            ..default()
         };
         other.map.insert(IVec3::ZERO, shared::world::Chunk::new());
         let second_text = dense_single_file(&other);
@@ -696,7 +696,7 @@ mod tests {
         );
         let mut world = WorldData {
             name: WORLD.into(),
-            ..Default::default()
+            ..default()
         };
         world.map.insert(IVec3::new(2, 0, -1), chunk.clone());
         let config = ron::ser::PrettyConfig::new()

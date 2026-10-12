@@ -41,6 +41,16 @@ impl TestServer {
 
     /// Same, saving into `tmp`, which may already hold the saves of an earlier server.
     fn start_in(tmp: tempfile::TempDir, world_name: &str) -> Self {
+        Self::start_with(tmp, world_name, true)
+    }
+
+    /// Starts a server like the `server` binary does: it serves several players and outlives
+    /// their `Exit`. Nothing stops it, so its thread lasts until the test process ends.
+    fn start_dedicated(world_name: &str) -> Self {
+        Self::start_with(tempfile::tempdir().unwrap(), world_name, false)
+    }
+
+    fn start_with(tmp: tempfile::TempDir, world_name: &str, is_solo: bool) -> Self {
         // A new world gets a fixed seed: a random one may put a tree or the sea at the spawn
         let world_dir = tmp.path().join("saves").join(world_name);
         if !world_dir.join("world.ron").exists() {
@@ -57,11 +67,12 @@ impl TestServer {
             game_folder_path: tmp.path().to_path_buf(),
             assets_folder_path: tmp.path().join("assets"),
         };
-        let socket = server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        let socket =
+            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
         let addr = socket.local_addr().unwrap();
         let config = GameServerConfig {
             world_name: world_name.to_string(),
-            is_solo: true,
+            is_solo,
         };
         let handle = thread::spawn(move || server::init(socket, config, paths).unwrap());
         Self {
@@ -391,12 +402,7 @@ fn duplicate_username_is_disconnected_without_blocking_others() {
     let mut server = TestServer::start(WORLD_NAME);
     let mut first = TestClient::connect(server.addr, PLAYER_ID);
     let first_id = first.id;
-    first.wait_connected();
-    first.send(auth_request("same"));
-    first.wait_for("AuthRegisterResponse", |m| match m {
-        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
-        _ => None,
-    });
+    authenticate(&mut first, "same");
 
     let mut second = TestClient::connect(server.addr, PLAYER_ID + 1);
     second.wait_connected();
@@ -671,7 +677,8 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
         game_folder_path: tmp.path().to_path_buf(),
         assets_folder_path: tmp.path().join("assets"),
     };
-    let socket = server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST));
+    let socket =
+        server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
     let config = GameServerConfig {
         world_name: WORLD_NAME.to_string(),
         is_solo: true,
@@ -997,4 +1004,109 @@ fn a_block_broken_in_one_session_is_still_broken_after_a_restart() {
     client.send(ClientToServerMessage::Exit);
     client.send_packets();
     second.join_after_exit();
+}
+
+/// Authenticates and returns where the server spawned this client's player.
+fn join(client: &mut TestClient, username: &str) -> Vec3 {
+    client.wait_connected();
+    client.send(auth_request(username));
+    let id = client.id;
+    client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(response) => response
+            .players
+            .iter()
+            .find(|player| player.id == id)
+            .map(|player| player.data.position),
+        _ => None,
+    })
+}
+
+/// Sends an input and waits for the server to acknowledge it: every message the server sent
+/// before on the standard channel has then arrived.
+fn sync_with_server(client: &mut TestClient, time_ms: u64) {
+    let id = client.id;
+    client.send(inputs_at(time_ms));
+    client.wait_for("PlayerUpdate acknowledging the input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == time_ms => {
+            Some(())
+        }
+        _ => None,
+    });
+}
+
+fn spawns_received(client: &TestClient) -> Vec<u64> {
+    client
+        .inbox
+        .iter()
+        .filter_map(|message| match message {
+            ServerToClientMessage::PlayerSpawn(spawn) => Some(spawn.id),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_joining_player_is_announced_once_with_its_own_position() {
+    let server = TestServer::start_dedicated(WORLD_NAME);
+    let mut first = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut first, "first");
+    // Away from the spawn point, where the second player will appear
+    fly_away(&mut first, 1);
+    sync_with_server(&mut first, 100);
+    first
+        .inbox
+        .retain(|message| !matches!(message, ServerToClientMessage::PlayerSpawn(_)));
+
+    let mut second = TestClient::connect(server.addr, PLAYER_ID + 1);
+    let second_id = second.id;
+    let second_spawn = join(&mut second, "second");
+
+    let announced = first.wait_for("PlayerSpawn of the second player", |m| match m {
+        ServerToClientMessage::PlayerSpawn(spawn) if spawn.id == second_id => Some(spawn.clone()),
+        _ => None,
+    });
+    assert_eq!(announced.name, "second");
+    assert_eq!(announced.data.position, second_spawn);
+
+    // Nobody else is announced again: the first player keeps its own position everywhere
+    sync_with_server(&mut first, 101);
+    assert_eq!(spawns_received(&first), Vec::<u64>::new());
+    sync_with_server(&mut second, 1);
+    assert_eq!(spawns_received(&second), vec![second_id]);
+}
+
+#[test]
+fn a_dedicated_server_outlives_the_exit_of_a_player_and_saves_it() {
+    let server = TestServer::start_dedicated(WORLD_NAME);
+    let mut leaving = TestClient::connect(server.addr, PLAYER_ID);
+    let mut staying = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut leaving, "leaving");
+    join(&mut staying, "staying");
+
+    // A save request is the privilege of the solo player: a dedicated server ignores it
+    staying.send(ClientToServerMessage::SaveWorldRequest);
+    leaving.send(ClientToServerMessage::Exit);
+    let start = Instant::now();
+    while !leaving.client.is_disconnected() {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the leaving client was not disconnected within {WAIT_TIMEOUT:?}"
+        );
+        leaving.pump();
+    }
+
+    sync_with_server(&mut staying, 1);
+    let player_file = server
+        .world_dir()
+        .join("players")
+        .join(format!("{PLAYER_ID}.ron"));
+    let start = Instant::now();
+    while !player_file.exists() {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "{} was not written within {WAIT_TIMEOUT:?}",
+            player_file.display()
+        );
+        staying.pump();
+    }
 }

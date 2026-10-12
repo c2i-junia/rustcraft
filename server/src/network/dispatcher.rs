@@ -16,7 +16,7 @@ use super::extensions::SendGameMessageExtension;
 use super::handlers::{self, Clients};
 
 /// bevy_renet reports connections as observer events: this buffers them as a message so that
-/// `server_update_system` still reads them in `Update`. The event is copied field by field
+/// `handle_connection_events_system` still reads them in `Update`. The event is copied field by field
 /// because `ServerEvent` is not `Clone`.
 #[derive(Message)]
 enum ServerEventMessage {
@@ -82,10 +82,23 @@ pub fn register_systems(app: &mut App) {
         )
             .chain(),
     )
-    .add_systems(Update, server_update_system.in_set(ServerSet::Receive))
     .add_systems(
         Update,
-        handle_player_inputs_system.in_set(ServerSet::Simulate),
+        (
+            handle_connection_events_system,
+            handle_client_messages_system,
+        )
+            .chain()
+            .in_set(ServerSet::Receive),
+    )
+    .add_systems(
+        Update,
+        (
+            handle_player_inputs_system,
+            crate::mob::manage_mob_spawning_system,
+        )
+            .chain()
+            .in_set(ServerSet::Simulate),
     )
     .add_systems(Update, broadcast_world_state.in_set(ServerSet::Broadcast))
     .add_systems(
@@ -93,32 +106,20 @@ pub fn register_systems(app: &mut App) {
         world::save::save_world_system.in_set(ServerSet::Save),
     );
 
-    app.add_systems(Update, crate::mob::manage_mob_spawning_system);
-
     app.add_systems(PostUpdate, update_server_time);
 
+    // `FixedUpdate` runs before `Update`: the mobs move before the inputs of the tick are read
     app.add_systems(FixedUpdate, mob_behavior_system);
 }
 
-fn server_update_system(
+fn handle_connection_events_system(
     mut server_events: MessageReader<ServerEventMessage>,
-    (mut server, mut chat_conversation, mut lobby): (
-        ResMut<RenetServer>,
-        ResMut<ChatConversation>,
-        ResMut<ServerLobby>,
-    ),
-    (mut ev_app_exit, mut ev_save_request, mut ev_player_inputs): (
-        MessageWriter<AppExit>,
-        MessageWriter<SaveRequestEvent>,
-        MessageWriter<PlayerInputsEvent>,
-    ),
-    config: Res<GameServerConfig>,
+    mut lobby: ResMut<ServerLobby>,
     mut world_map: ResMut<ServerWorldMap>,
-    time: Res<ServerTime>,
     game_folder_paths: Res<GameFolderPaths>,
+    mut ev_save_request: MessageWriter<SaveRequestEvent>,
 ) {
     for event in server_events.read() {
-        debug!("event received");
         match event {
             ServerEventMessage::ClientConnected { client_id } => {
                 handlers::client_connected(*client_id);
@@ -135,16 +136,30 @@ fn server_update_system(
             }
         }
     }
+}
 
+/// Reads what every client sent and calls the handler of each message.
+fn handle_client_messages_system(
+    (mut server, mut chat_conversation, mut lobby): (
+        ResMut<RenetServer>,
+        ResMut<ChatConversation>,
+        ResMut<ServerLobby>,
+    ),
+    (mut ev_app_exit, mut ev_save_request, mut ev_player_inputs): (
+        MessageWriter<AppExit>,
+        MessageWriter<SaveRequestEvent>,
+        MessageWriter<PlayerInputsEvent>,
+    ),
+    config: Res<GameServerConfig>,
+    mut world_map: ResMut<ServerWorldMap>,
+    time: Res<ServerTime>,
+    game_folder_paths: Res<GameFolderPaths>,
+) {
     for client_id in server.clients_id() {
         let mut input_budget = MAX_INPUTS_PER_TICK;
         let mut dropped_inputs = 0;
         while let Some(Ok(message)) = server.receive_game_message(client_id) {
-            let is_auth_request = matches!(message, ClientToServerMessage::AuthRegisterRequest(_));
-            // In solo mode the only client is the local player: it must be able to stop its
-            // server even before the authentication went through (cancelled connection).
-            let is_solo_exit = config.is_solo && matches!(message, ClientToServerMessage::Exit);
-            if !is_auth_request && !is_solo_exit && !lobby.players.contains_key(&client_id) {
+            if !may_send(&message, client_id, &lobby, &config) {
                 warn!(
                     "Ignoring {} message from unauthenticated client {}",
                     message_kind(&message),
@@ -206,6 +221,21 @@ fn server_update_system(
     }
 }
 
+/// Whether the server reads `message` from this client. A client that is not authenticated
+/// may only ask to be.
+fn may_send(
+    message: &ClientToServerMessage,
+    client_id: ClientId,
+    lobby: &ServerLobby,
+    config: &GameServerConfig,
+) -> bool {
+    let is_auth_request = matches!(message, ClientToServerMessage::AuthRegisterRequest(_));
+    // In solo mode the only client is the local player: it must be able to stop its
+    // server even before the authentication went through (cancelled connection).
+    let is_solo_exit = config.is_solo && matches!(message, ClientToServerMessage::Exit);
+    is_auth_request || is_solo_exit || lobby.players.contains_key(&client_id)
+}
+
 /// Name of the variant of `message`, to log what a client sent without dumping its payload.
 fn message_kind(message: &ClientToServerMessage) -> &'static str {
     match message {
@@ -250,7 +280,7 @@ mod tests {
         let mut world_map = ServerWorldMap {
             name: "w".into(),
             chunks,
-            ..Default::default()
+            ..default()
         };
         world_map.players.insert(
             1,
@@ -287,7 +317,7 @@ mod tests {
                     delta_ms: 16,
                     inputs: [NetworkAction::LeftClick].into(),
                     camera,
-                    ..Default::default()
+                    ..default()
                 },
             });
         }

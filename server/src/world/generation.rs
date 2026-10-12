@@ -63,7 +63,7 @@ impl ColumnRandom {
         ((self.bits(salt) >> 32) % count) as i32
     }
 
-    /// -1, 0, 0 or 1, like the remainder of a random integer divided by 2.
+    /// -1 or 1 one time in four each, 0 the rest of the time.
     fn jitter(&self, salt: u64) -> i32 {
         match self.below(salt, 4) {
             0 => -1,

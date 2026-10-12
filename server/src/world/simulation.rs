@@ -1,10 +1,7 @@
-use bevy::{
-    platform::collections::{HashMap, HashSet},
-    prelude::*,
-};
+use bevy::prelude::*;
 use bevy_renet::{renet::ClientId, RenetServer};
 use shared::{
-    messages::{NetworkAction, PlayerFrameInput, PlayerId, PlayerUpdateEvent},
+    messages::{PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{blocks::CallerType, simulation::simulate_player_actions, Player},
     world::{ChunkMap, WorldSeed},
 };
@@ -52,18 +49,13 @@ pub fn handle_player_inputs_system(
 
     generate_missing_chunks(players, chunks, dirty_chunks, seed.0);
 
-    let mut player_actions = HashMap::<u64, HashSet<NetworkAction>>::new();
-    for client_id in players.keys() {
-        player_actions.insert(*client_id, HashSet::new());
-    }
-
     for ev in events.read() {
         let Some(player) = players.get_mut(&ev.client_id) else {
             warn!("Ignoring inputs from unknown player {}", ev.client_id);
             continue;
         };
 
-        simulate_player_actions(player, chunks, &ev.input.clone(), CallerType::Server);
+        simulate_player_actions(player, chunks, &ev.input, CallerType::Server);
 
         player.last_input_processed = ev.input.time_ms;
 

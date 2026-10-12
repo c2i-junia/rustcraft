@@ -4,11 +4,13 @@ use crate::world::data::ServerWorldMap;
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
-use bevy_renet::RenetServer;
+use bevy_renet::{renet::ClientId, RenetServer};
 use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
-use shared::world::{global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap};
+use shared::world::{
+    global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap, MobId, ServerMob,
+};
 use shared::CHUNK_SIZE;
 use std::collections::{HashMap, HashSet};
 
@@ -22,14 +24,10 @@ pub fn broadcast_world_state(
     time: Res<ServerTime>,
     mut world_map: ResMut<ServerWorldMap>,
 ) {
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+    let ts = shared::utils::unix_time_ms();
 
     let world_map = world_map.as_mut();
 
-    let mobs = world_map.mobs.clone();
     let players = &world_map.players;
     let chunks = &mut world_map.chunks;
 
@@ -43,26 +41,12 @@ pub fn broadcast_world_state(
 
     let active_chunks = get_all_active_chunks(players, BROADCAST_RENDER_DISTANCE);
 
-    for client in server.clients_id().iter_mut() {
-        let player = players.get(client);
-        let player = match player {
-            Some(p) => p.clone(),
-            None => continue,
+    for client in server.clients_id() {
+        let Some(player) = players.get(&client) else {
+            continue;
         };
 
-        for (id, mob) in mobs.iter() {
-            if mob.position.distance(player.position)
-                < (BROADCAST_RENDER_DISTANCE * CHUNK_SIZE) as f32
-            {
-                server.send_game_message(
-                    *client,
-                    ServerToClientMessage::MobUpdate(MobUpdateEvent {
-                        id: *id,
-                        mob: mob.clone(),
-                    }),
-                );
-            }
-        }
+        send_nearby_mobs(&mut server, client, player.position, &world_map.mobs);
 
         let (block_updates, new_map) = client_world_messages(
             chunks,
@@ -72,23 +56,38 @@ pub fn broadcast_world_state(
         );
 
         if !block_updates.is_empty() {
-            server.send_game_message(*client, ServerToClientMessage::BlockUpdates(block_updates));
+            server.send_game_message(client, ServerToClientMessage::BlockUpdates(block_updates));
         }
-
-        let msg = WorldUpdate {
-            tick: time.0,
-            time: ts,
-            new_map,
-            mobs: mobs.clone(),
-        };
-
-        if msg.new_map.is_empty() {
-            continue;
+        if !new_map.is_empty() {
+            let update = WorldUpdate {
+                tick: time.0,
+                time: ts,
+                new_map,
+                mobs: world_map.mobs.clone(),
+            };
+            server.send_game_message(client, ServerToClientMessage::WorldUpdate(update));
         }
+    }
+}
 
-        let message = ServerToClientMessage::WorldUpdate(msg);
-
-        server.send_game_message(*client, message);
+/// Sends `client` the state of the mobs within broadcast distance of its player.
+fn send_nearby_mobs(
+    server: &mut RenetServer,
+    client: ClientId,
+    player_position: Vec3,
+    mobs: &HashMap<MobId, ServerMob>,
+) {
+    let reach = (BROADCAST_RENDER_DISTANCE * CHUNK_SIZE) as f32;
+    for (id, mob) in mobs {
+        if mob.position.distance(player_position) < reach {
+            server.send_game_message(
+                client,
+                ServerToClientMessage::MobUpdate(MobUpdateEvent {
+                    id: *id,
+                    mob: mob.clone(),
+                }),
+            );
+        }
     }
 }
 
@@ -141,22 +140,16 @@ fn get_world_map_chunks_to_send(
     map
 }
 
+/// The chunks within `radius` chunks of a player, each listed once, in the order the players
+/// reach them.
 pub fn get_all_active_chunks(players: &HashMap<PlayerId, Player>, radius: i32) -> Vec<IVec3> {
-    let player_chunks: Vec<IVec3> = players
+    let mut seen = HashSet::new();
+    players
         .values()
-        .map(|v| world_position_to_chunk_position(v.position))
-        .flat_map(|v| get_player_nearby_chunks_coords(v, radius))
-        .collect();
-
-    let mut chunks: Vec<IVec3> = Vec::new();
-
-    for c in player_chunks {
-        if !chunks.contains(&c) {
-            chunks.push(c);
-        }
-    }
-
-    chunks
+        .map(|player| world_position_to_chunk_position(player.position))
+        .flat_map(|chunk| get_player_nearby_chunks_coords(chunk, radius))
+        .filter(|chunk| seen.insert(*chunk))
+        .collect()
 }
 
 fn get_player_nearby_chunks_coords(
@@ -387,7 +380,7 @@ mod tests {
             .insert_resource(ServerTime(0))
             .insert_resource(ServerWorldMap {
                 chunks: row_of_chunks(3),
-                ..Default::default()
+                ..default()
             });
         {
             let mut map = app.world_mut().resource_mut::<ServerWorldMap>();
@@ -414,7 +407,7 @@ mod tests {
             .insert_resource(ServerTime(0))
             .insert_resource(ServerWorldMap {
                 chunks: row_of_chunks(1),
-                ..Default::default()
+                ..default()
             });
         app.world_mut()
             .resource_mut::<ServerWorldMap>()

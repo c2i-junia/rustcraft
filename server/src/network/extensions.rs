@@ -21,12 +21,15 @@ pub trait SendGameMessageExtension {
     ) -> Option<Result<ClientToServerMessage, Box<bincode::ErrorKind>>>;
 }
 
+/// Messages above this size are logged when sent: 10 KiB.
+const LARGE_MESSAGE_SIZE: u64 = 10 * 1024;
+
 impl SendGameMessageExtension for RenetServer {
     fn send_game_message(&mut self, client_id: ClientId, message: ServerToClientMessage) {
         let channel = message.get_channel_id();
         let payload = shared::game_message_to_payload(message);
         let size = payload.len() as u64;
-        if size > (10 * 1024) {
+        if size > LARGE_MESSAGE_SIZE {
             info!("Sending game message of size: {}", format_bytes(size));
         }
         self.send_message(client_id, channel, payload);
@@ -36,7 +39,7 @@ impl SendGameMessageExtension for RenetServer {
         let channel = message.get_channel_id();
         let payload = shared::game_message_to_payload(message);
         let size = payload.len() as u64;
-        if size > (10 * 1024) {
+        if size > LARGE_MESSAGE_SIZE {
             info!("Broadcasting game message of size: {}", format_bytes(size));
         }
         self.broadcast_message(channel, payload);
@@ -47,36 +50,23 @@ impl SendGameMessageExtension for RenetServer {
         client_id: ClientId,
         channel: u8,
     ) -> Option<Result<ClientToServerMessage, Box<bincode::ErrorKind>>> {
-        let payload = self.receive_message(client_id, channel);
-        if let Some(payload) = payload {
-            // debug!("Received payload: {:?}", payload);
-            let msg = shared::payload_to_game_message_limited::<
-                shared::messages::ClientToServerMessage,
-            >(&payload, shared::MAX_CLIENT_MESSAGE_SIZE);
-            match msg {
-                Ok(msg) => {
-                    return Some(Ok(msg));
-                }
-                Err(e) => {
-                    warn!("Error deserializing message: {:?}", e);
-                    return Some(Err(e));
-                }
-            }
+        let payload = self.receive_message(client_id, channel)?;
+        let message = shared::payload_to_game_message_limited::<ClientToServerMessage>(
+            &payload,
+            shared::MAX_CLIENT_MESSAGE_SIZE,
+        );
+        if let Err(err) = &message {
+            warn!("Error deserializing message: {:?}", err);
         }
-        None
+        Some(message)
     }
 
     fn receive_game_message(
         &mut self,
         client_id: ClientId,
     ) -> Option<Result<ClientToServerMessage, Box<bincode::ErrorKind>>> {
-        let channels = get_customized_client_to_server_channels();
-        for channel in channels {
-            let res = self.receive_game_message_by_channel(client_id, channel.channel_id);
-            if res.is_some() {
-                return res;
-            }
-        }
-        None
+        get_customized_client_to_server_channels()
+            .into_iter()
+            .find_map(|channel| self.receive_game_message_by_channel(client_id, channel.channel_id))
     }
 }
