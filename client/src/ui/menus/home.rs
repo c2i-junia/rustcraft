@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 
-use crate::state::TEXT_COLOR;
 use crate::ui::assets::*;
 use crate::ui::style::{
-    background_image_style, big_button_style, fill_image_node, text_font, NORMAL_BUTTON,
+    background_image_style, big_button_style, fill_image_node, text_font, BUTTON_TEXT_COLOR,
+    NORMAL_BUTTON,
 };
 
 use super::{MenuButtonAction, MenuState};
@@ -15,7 +15,7 @@ pub fn home_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let title_image = load_title_image(&asset_server);
     let font = load_font(&asset_server);
 
-    let button_text_color = TextColor(TEXT_COLOR);
+    let button_text_color = TextColor(BUTTON_TEXT_COLOR);
     let button_text_font = text_font(font.clone(), 33.0);
 
     // Main container for the menu

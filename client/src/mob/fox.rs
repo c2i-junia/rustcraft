@@ -29,10 +29,11 @@ pub fn observe_on_step(
     mut commands: Commands,
     transforms: Query<&GlobalTransform>,
 ) {
-    let translation = transforms
-        .get(trigger.trigger().target)
-        .unwrap()
-        .translation();
+    // The foot may be gone already: a fox is despawned with its bones
+    let Ok(transform) = transforms.get(trigger.trigger().target) else {
+        return;
+    };
+    let translation = transform.translation();
     let mut rng = thread_rng();
     // Spawn a bunch of particles.
     for _ in 0..14 {
@@ -95,37 +96,26 @@ pub fn setup_fox_once_loaded(
     mut players: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>,
     mut events_registered: Local<bool>,
 ) {
-    fn get_clip<'a>(
-        node: AnimationNodeIndex,
-        graph: &AnimationGraph,
-        clips: &'a mut Assets<AnimationClip>,
-    ) -> &'a mut AnimationClip {
-        let node = graph.get(node).unwrap();
-        let clip = match &node.node_type {
-            AnimationNodeType::Clip(handle) => clips.get_mut(handle).map(AssetMut::into_inner),
-            _ => unreachable!(),
-        };
-        clip.unwrap()
-    }
+    let Some(&running) = animations.animations.first() else {
+        return;
+    };
 
     for (entity, mut player) in &mut players {
         info!("setup_fox_once_loaded called with entity: {:?}", entity);
 
-        let graph = graphs.get(&animations.graph).unwrap();
-
         // The clip is shared by all foxes, so its events must be added only once.
         // Otherwise each new fox adds them again and every fox fires all of them.
         if !*events_registered {
-            // Send `OnStep` events once the fox feet hits the ground in the running animation.
-            let running_animation = get_clip(animations.animations[0], graph, &mut clips);
-            // You can determine the time an event should trigger if you know witch frame it occurs and
-            // the frame rate of the animation. Let's say we want to trigger an event at frame 15,
-            // and the animation has a frame rate of 24 fps, then time = 15 / 24 = 0.625.
-            running_animation.add_event_to_target(feet.front_left, 0.625, OnStep);
-            running_animation.add_event_to_target(feet.front_right, 0.5, OnStep);
-            running_animation.add_event_to_target(feet.back_left, 0.0, OnStep);
-            running_animation.add_event_to_target(feet.back_right, 0.125, OnStep);
-            *events_registered = true;
+            if let Some(running_animation) = clip_of(running, &animations, &graphs, &mut clips) {
+                // Send `OnStep` events once the fox feet hits the ground in the running
+                // animation. The time of an event is its frame divided by the frame rate of
+                // the animation: frame 15 at 24 fps is 15 / 24 = 0.625.
+                running_animation.add_event_to_target(feet.front_left, 0.625, OnStep);
+                running_animation.add_event_to_target(feet.front_right, 0.5, OnStep);
+                running_animation.add_event_to_target(feet.back_left, 0.0, OnStep);
+                running_animation.add_event_to_target(feet.back_right, 0.125, OnStep);
+                *events_registered = true;
+            }
         }
 
         let mut transitions = AnimationTransitions::new();
@@ -135,7 +125,7 @@ pub fn setup_fox_once_loaded(
         // the animations and will get confused if the animations are started
         // directly via the `AnimationPlayer`.
         transitions
-            .play(&mut player, animations.animations[0], Duration::ZERO)
+            .play(&mut player, running, Duration::ZERO)
             .repeat();
         commands
             .entity(entity)
@@ -144,18 +134,32 @@ pub fn setup_fox_once_loaded(
     }
 }
 
+/// The animation clip played by `node` of the fox graph, once the model is loaded.
+fn clip_of<'a>(
+    node: AnimationNodeIndex,
+    animations: &Animations,
+    graphs: &Assets<AnimationGraph>,
+    clips: &'a mut Assets<AnimationClip>,
+) -> Option<&'a mut AnimationClip> {
+    let graph = graphs.get(&animations.graph)?;
+    let AnimationNodeType::Clip(handle) = &graph.get(node)?.node_type else {
+        return None;
+    };
+    clips.get_mut(handle).map(AssetMut::into_inner)
+}
+
 pub fn simulate_particles(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Transform, &mut Particle)>,
     time: Res<Time>,
 ) {
     for (entity, mut transform, mut particle) in &mut query {
-        if particle.lifeteime_timer.tick(time.delta()).just_finished() {
+        if particle.lifetime_timer.tick(time.delta()).just_finished() {
             commands.entity(entity).despawn();
         } else {
             transform.translation += particle.velocity * time.delta_secs();
             transform.scale =
-                Vec3::splat(particle.size.lerp(0.0, particle.lifeteime_timer.fraction()));
+                Vec3::splat(particle.size.lerp(0.0, particle.lifetime_timer.fraction()));
             particle
                 .velocity
                 .smooth_nudge(&Vec3::ZERO, 4.0, time.delta_secs());
@@ -174,7 +178,7 @@ fn spawn_particle<M: Material>(
     move |world: &mut World| {
         world.spawn((
             Particle {
-                lifeteime_timer: Timer::from_seconds(lifetime, TimerMode::Once),
+                lifetime_timer: Timer::from_seconds(lifetime, TimerMode::Once),
                 size,
                 velocity,
             },
@@ -183,7 +187,7 @@ fn spawn_particle<M: Material>(
             Transform {
                 translation,
                 scale: Vec3::splat(size),
-                ..Default::default()
+                ..default()
             },
         ));
     }
@@ -191,7 +195,7 @@ fn spawn_particle<M: Material>(
 
 #[derive(Component)]
 pub struct Particle {
-    lifeteime_timer: Timer,
+    lifetime_timer: Timer,
     size: f32,
     velocity: Vec3,
 }
@@ -210,7 +214,7 @@ impl FromWorld for ParticleAssets {
                 .resource_mut::<Assets<StandardMaterial>>()
                 .add(StandardMaterial {
                     base_color: WHITE.into(),
-                    ..Default::default()
+                    ..default()
                 }),
         }
     }

@@ -59,10 +59,6 @@ pub fn is_action_just_released(
     false
 }
 
-pub fn get_action_keys(action: GameAction, key_map: &KeyMap) -> Vec<KeyCode> {
-    key_map.map.get(&action).unwrap().to_vec()
-}
-
 pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
     let binds_path: PathBuf = game_folder_paths.game_folder_path.join(BINDS_PATH);
 
@@ -104,7 +100,7 @@ pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
         },
     };
 
-    // Try to get & serialize existing binds
+    // The saved binds replace the default ones, action by action
     if let Ok(content) = fs::read_to_string(binds_path.as_path()) {
         if let Ok(key_map) = from_str::<KeyMap>(&content) {
             for (k, v) in key_map.map.iter() {
@@ -114,8 +110,6 @@ pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
     }
 
     binds
-
-    // Get default binds
 }
 
 pub fn save_keybindings(key_map: Res<KeyMap>, game_folder_path: Res<GameFolderPaths>) {

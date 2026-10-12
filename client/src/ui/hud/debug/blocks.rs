@@ -19,37 +19,28 @@ pub fn toggle_wireframe_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     key_map: Res<KeyMap>,
 ) {
-    if is_action_just_pressed(
-        GameAction::ToggleBlockWireframeDebugMode,
-        &keyboard_input,
-        &key_map,
-    ) && !settings.is_enabled
-    {
-        settings.is_enabled = true;
-        config.global = true;
-        let handle = material_resource
-            .global_materials
-            .get(&GlobalMaterial::Blocks)
-            .unwrap();
-        let mut material = materials.get_mut(handle).unwrap();
-        material.alpha_mode = AlphaMode::Blend;
-        material.base_color.set_alpha(0.3);
-        return;
-    }
-
-    if is_action_just_pressed(
+    if !is_action_just_pressed(
         GameAction::ToggleBlockWireframeDebugMode,
         &keyboard_input,
         &key_map,
     ) {
-        settings.is_enabled = false;
-        config.global = false;
-        let handle = material_resource
-            .global_materials
-            .get(&GlobalMaterial::Blocks)
-            .unwrap();
-        let mut material = materials.get_mut(handle).unwrap();
-        material.alpha_mode = AlphaMode::AlphaToCoverage;
-        material.base_color.set_alpha(1.0);
+        return;
+    }
+    settings.is_enabled = !settings.is_enabled;
+    config.global = settings.is_enabled;
+
+    // The blocks turn translucent so that the wireframes behind them show through
+    let blocks_material = material_resource
+        .global_materials
+        .get(&GlobalMaterial::Blocks)
+        .and_then(|handle| materials.get_mut(handle));
+    if let Some(mut material) = blocks_material {
+        if settings.is_enabled {
+            material.alpha_mode = AlphaMode::Blend;
+            material.base_color.set_alpha(0.3);
+        } else {
+            material.alpha_mode = AlphaMode::AlphaToCoverage;
+            material.base_color.set_alpha(1.0);
+        }
     }
 }

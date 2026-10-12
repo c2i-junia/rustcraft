@@ -3,9 +3,8 @@ use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 
-use crate::player::{toggle_chunk_debug_mode_system, toggle_raycast_debug_mode_system};
 use crate::state::{GameSet, GameState};
-use crate::ui::hud::chat::{render_chat, setup_chat};
+use crate::ui::hud::chat::*;
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
 use crate::ui::hud::hotbar::*;
@@ -17,8 +16,10 @@ pub mod debug;
 pub mod hotbar;
 pub mod inventory;
 pub mod reticle;
+mod ui_mode;
 
 pub use inventory::*;
+pub use ui_mode::*;
 
 /// Everything drawn over the game: reticle, hotbar, inventory, chat, pause menu and the debug
 /// overlays.
@@ -55,7 +56,23 @@ pub fn hud_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (render_pause_menu, render_chat, render_inventory_hotbar)
+            (
+                render_pause_menu,
+                (
+                    toggle_chat_system,
+                    fade_chat_messages_system,
+                    display_chat_messages_system,
+                    send_chat_message_system,
+                )
+                    .chain(),
+                (
+                    toggle_inventory_system,
+                    select_hotbar_slot_system,
+                    click_inventory_cells_system,
+                    display_inventory_system,
+                )
+                    .chain(),
+            )
                 .after(GameSet::UiMode)
                 .run_if(in_state(GameState::Game)),
         )
@@ -66,7 +83,7 @@ pub fn hud_plugin(app: &mut App) {
                 toggle_raycast_debug_mode_system,
                 fps_text_update_system,
                 coords_text_update_system,
-                total_blocks_text_update_system,
+                loaded_chunks_text_update_system,
                 block_text_update_system,
                 time_text_update_system,
                 toggle_hud_system,

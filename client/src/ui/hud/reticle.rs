@@ -27,7 +27,7 @@ pub fn spawn_reticle(mut commands: Commands) {
                     height: Val::Px(2.0),
                     left: Val::Px(-10.0),
                     top: Val::Px(-1.0),
-                    ..Default::default()
+                    ..default()
                 },
                 BackgroundColor(Color::WHITE),
             ));
@@ -40,7 +40,7 @@ pub fn spawn_reticle(mut commands: Commands) {
                     height: Val::Px(20.0),
                     left: Val::Px(-1.0),
                     top: Val::Px(-10.0),
-                    ..Default::default()
+                    ..default()
                 },
                 BackgroundColor(Color::WHITE),
             ));

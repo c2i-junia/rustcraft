@@ -8,7 +8,11 @@ pub mod raycast;
 pub mod setup;
 pub mod targeted_block;
 
-use bevy::prelude::{debug, Resource};
+use bevy::prelude::*;
+
+use crate::input::data::GameAction;
+use crate::input::keyboard::is_action_just_pressed;
+use crate::state::KeyMap;
 pub use blocks::*;
 pub use chunks::*;
 pub use coords::*;
@@ -34,5 +38,29 @@ impl DebugOptions {
             "Raycast debug mode is now {}",
             self.is_raycast_debug_mode_enabled
         );
+    }
+}
+
+pub fn toggle_chunk_debug_mode_system(
+    mut debug_options: ResMut<DebugOptions>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
+) {
+    if is_action_just_pressed(GameAction::ToggleChunkDebugMode, &keyboard_input, &key_map) {
+        debug_options.toggle_chunk_debug_mode();
+    }
+}
+
+pub fn toggle_raycast_debug_mode_system(
+    mut debug_options: ResMut<DebugOptions>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
+) {
+    if is_action_just_pressed(
+        GameAction::ToggleRaycastDebugMode,
+        &keyboard_input,
+        &key_map,
+    ) {
+        debug_options.toggle_raycast_debug_mode();
     }
 }

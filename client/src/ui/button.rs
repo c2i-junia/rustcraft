@@ -62,7 +62,7 @@ pub fn button_system(
             _ => node.size().x,
         };
 
-        // Charger les images appropriées en fonction de la largeur
+        // Wide buttons have their own background images
         let (normal_image, dark_image) = if width > 400.0 {
             (
                 load_button_background_large_image(&asset_server),
@@ -75,19 +75,15 @@ pub fn button_system(
             )
         };
 
-        match *interaction {
-            Interaction::Pressed => {
-                *background_color = PRESSED_BUTTON.into();
-                *ui_image = fill_image_node(normal_image.clone()); // Optional: Keep the "normal" image while pressed
-            }
-            Interaction::Hovered => {
-                *background_color = HOVERED_BUTTON.into();
-                *ui_image = fill_image_node(dark_image.clone()); // Switch to the "dark" image on hover
-            }
-            Interaction::None => {
-                *background_color = NORMAL_BUTTON.into();
-                *ui_image = fill_image_node(normal_image.clone()); // Default back to the normal image
-            }
+        // The dark image shows only while the button is hovered
+        let (color, image) = match *interaction {
+            Interaction::Pressed => (PRESSED_BUTTON, normal_image),
+            Interaction::Hovered => (HOVERED_BUTTON, dark_image),
+            Interaction::None => (NORMAL_BUTTON, normal_image),
+        };
+        background_color.set_if_neq(color.into());
+        if ui_image.image != image {
+            *ui_image = fill_image_node(image);
         }
     }
 

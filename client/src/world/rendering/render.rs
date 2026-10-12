@@ -1,6 +1,9 @@
 use crate::player::CurrentPlayerMarker;
 use std::sync::Arc;
-use std::{collections::HashSet, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 use bevy::{
     asset::Assets,
@@ -9,18 +12,20 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::{
-    world::{global_block_to_chunk_pos, to_local_pos},
+    world::{global_block_to_chunk_pos, to_local_pos, world_position_to_chunk_position, ChunkMap},
     CHUNK_SIZE,
 };
 
 use crate::{
-    state::GameState,
-    world::{self, MaterialResource, QueuedEvents, WorldRenderRequestUpdateEvent},
+    input::{data::GameAction, keyboard::is_action_just_pressed},
+    state::{GameState, KeyMap},
+    ui::hud::UIMode,
+    world::{self, MaterialResource, WorldRenderRequestUpdateEvent},
 };
 
 use crate::world::{ChunkRender, ClientWorldMap};
 
-use super::meshing::ChunkMeshResponse;
+use super::meshing::{ChunkMeshResponse, UvCoords};
 
 #[derive(Debug)]
 pub struct MeshingTask {
@@ -44,11 +49,6 @@ fn update_chunk(
     meshes: &mut Assets<Mesh>,
     new_meshes: ChunkMeshResponse,
 ) {
-    let solid_texture = material_resource
-        .global_materials
-        .get(&world::GlobalMaterial::Blocks)
-        .unwrap();
-
     match (new_meshes.solid_mesh, chunk.entity) {
         (Some(new_solid_mesh), Some(entity)) => {
             commands
@@ -56,19 +56,21 @@ fn update_chunk(
                 .insert(Mesh3d(meshes.add(new_solid_mesh)));
         }
         (Some(new_solid_mesh), None) => {
-            let chunk_t = Transform::from_xyz(
-                (chunk_pos.x * CHUNK_SIZE) as f32,
-                (chunk_pos.y * CHUNK_SIZE) as f32,
-                (chunk_pos.z * CHUNK_SIZE) as f32,
-            );
+            let Some(blocks_material) = material_resource
+                .global_materials
+                .get(&world::GlobalMaterial::Blocks)
+            else {
+                // The atlas and this material are created together: nothing is meshed before
+                return;
+            };
             chunk.entity = Some(
                 commands
                     .spawn((
-                        chunk_t,
+                        Transform::from_translation((*chunk_pos * CHUNK_SIZE).as_vec3()),
                         Visibility::Visible,
                         DespawnOnExit(GameState::Game),
                         Mesh3d(meshes.add(new_solid_mesh)),
-                        MeshMaterial3d(solid_texture.clone()),
+                        MeshMaterial3d(blocks_material.clone()),
                     ))
                     .id(),
             );
@@ -122,104 +124,61 @@ pub fn request_remesh_of_changed_blocks_system(
     }
 }
 
+/// Meshes the chunks that were asked for, nearest to the player first, on the task pool, and
+/// shows each mesh once its task is done.
 pub fn world_render_system(
     mut world_map: ResMut<ClientWorldMap>,
     material_resource: Res<MaterialResource>,
     mut ev_render: MessageReader<WorldRenderRequestUpdateEvent>,
-    mut queued_events: Local<QueuedEvents>,
+    mut requested_chunks: Local<HashSet<IVec3>>,
     mut queued_meshes: Local<QueuedMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
-    player_pos: Query<&Transform, With<CurrentPlayerMarker>>,
+    player: Query<&Transform, With<CurrentPlayerMarker>>,
 ) {
-    for event in ev_render.read() {
-        queued_events.events.insert(*event);
-    }
+    // A set, so that a chunk asked for several times is meshed once
+    requested_chunks.extend(
+        ev_render
+            .read()
+            .map(|WorldRenderRequestUpdateEvent::ChunkToReload(chunk_pos)| *chunk_pos),
+    );
 
-    if material_resource.blocks.is_none() {
-        // Wait until the texture is ready
+    // The requests wait until the textures are ready
+    let Some(block_atlas) = material_resource.blocks.as_ref() else {
         return;
-    }
+    };
 
-    let pool = AsyncComputeTaskPool::get();
-
-    let events = queued_events.events.clone();
-
-    if !events.is_empty() {
-        let start = std::time::Instant::now();
-
-        // Clone map only once, then share it as read-only across all meshing threads
-        let map_ptr = Arc::new(world_map.blocks.clone());
-        let delta = start.elapsed();
-        trace!("cloning map for render, took {:?}", delta);
-
-        let uvs = Arc::new(material_resource.blocks.as_ref().unwrap().uvs.clone());
-
-        let mut chunks_to_reload: HashSet<IVec3> = HashSet::new();
-
-        // Using a set so same chunks are not reloaded multiple times
-        for event in &events {
-            let WorldRenderRequestUpdateEvent::ChunkToReload(target_chunk_pos) = event;
-            chunks_to_reload.insert(*target_chunk_pos);
-        }
-
-        let player_pos = player_pos
-            .single()
-            .expect("Player should exist")
-            .translation;
-        let player_pos = global_block_to_chunk_pos(&IVec3::new(
-            player_pos.x as i32,
-            player_pos.y as i32,
-            player_pos.z as i32,
+    if !requested_chunks.is_empty() {
+        let mut chunks: Vec<IVec3> = requested_chunks.drain().collect();
+        let player_position = player.single().map_or(Vec3::ZERO, |t| t.translation);
+        sort_nearest_first(
+            &mut chunks,
+            world_position_to_chunk_position(player_position),
+        );
+        queued_meshes.meshes.extend(spawn_meshing_tasks(
+            &world_map.blocks,
+            &block_atlas.uvs,
+            chunks,
         ));
-
-        let mut chunks_to_reload = Vec::from_iter(chunks_to_reload);
-
-        sort_nearest_first(&mut chunks_to_reload, player_pos);
-
-        for pos in chunks_to_reload {
-            if let Some(chunk) = world_map.blocks.chunk(pos) {
-                // Define variables to move to the thread
-                let map_clone = Arc::clone(&map_ptr);
-                let uvs_clone = Arc::clone(&uvs);
-                let ch = chunk.clone();
-                let t = pool.spawn(async move {
-                    world::meshing::generate_chunk_mesh(&map_clone, &ch, &pos, &uvs_clone)
-                });
-
-                queued_meshes.meshes.push(MeshingTask {
-                    chunk_pos: pos,
-                    mesh_request_ts: Instant::now(),
-                    thread: t,
-                });
-            }
-        }
     }
 
-    // Iterate through queued meshes to see if they are completed
     queued_meshes.meshes.retain_mut(|task| {
-        let MeshingTask {
-            chunk_pos,
-            mesh_request_ts,
-            thread,
-        } = task;
-
-        let Some(chunk) = world_map.render.get_mut(chunk_pos) else {
+        let Some(chunk) = world_map.render.get_mut(&task.chunk_pos) else {
             // The chunk is gone: nobody wants this mesh
             return false;
         };
         // A mesh requested before the one on display must not replace it
-        if !chunk.is_newer_than_displayed(*mesh_request_ts) {
+        if !chunk.is_newer_than_displayed(task.mesh_request_ts) {
             return false;
         }
-        let Some(new_meshes) = block_on(future::poll_once(thread)) else {
+        let Some(new_meshes) = block_on(future::poll_once(&mut task.thread)) else {
             // Keep the task until it is done
             return true;
         };
-        chunk.last_mesh_ts = *mesh_request_ts;
+        chunk.last_mesh_ts = task.mesh_request_ts;
         update_chunk(
             chunk,
-            chunk_pos,
+            &task.chunk_pos,
             &material_resource,
             &mut commands,
             &mut meshes,
@@ -227,8 +186,58 @@ pub fn world_render_system(
         );
         false
     });
+}
 
-    queued_events.events.clear();
+/// Starts meshing each of `chunks` that is loaded, in this order. The tasks share one copy of
+/// the blocks, as a mesh depends on the neighbours of its chunk.
+fn spawn_meshing_tasks(
+    blocks: &ChunkMap,
+    uvs: &HashMap<String, UvCoords>,
+    chunks: Vec<IVec3>,
+) -> Vec<MeshingTask> {
+    let pool = AsyncComputeTaskPool::get();
+    let shared_blocks = Arc::new(blocks.clone());
+    let shared_uvs = Arc::new(uvs.clone());
+
+    chunks
+        .into_iter()
+        .filter_map(|chunk_pos| {
+            let chunk = blocks.chunk(chunk_pos)?.clone();
+            let blocks = Arc::clone(&shared_blocks);
+            let uvs = Arc::clone(&shared_uvs);
+            Some(MeshingTask {
+                chunk_pos,
+                mesh_request_ts: Instant::now(),
+                thread: pool.spawn(async move {
+                    world::meshing::generate_chunk_mesh(&blocks, &chunk, &chunk_pos, &uvs)
+                }),
+            })
+        })
+        .collect()
+}
+
+/// Meshes every loaded chunk again when the reload key is pressed.
+pub fn chunk_force_reload_system(
+    mut world_map: ResMut<ClientWorldMap>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
+    mut ev_writer: MessageWriter<WorldRenderRequestUpdateEvent>,
+    mut commands: Commands,
+    ui_mode: Res<UIMode>,
+) {
+    if *ui_mode == UIMode::Closed
+        && is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map)
+    {
+        for (pos, chunk) in world_map.render.iter_mut() {
+            // Despawn the chunk's entity
+            if let Some(e) = chunk.entity {
+                commands.entity(e).despawn();
+                chunk.entity = None;
+            }
+            // Request a render for this chunk
+            ev_writer.write(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
+        }
+    }
 }
 
 #[cfg(test)]

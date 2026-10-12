@@ -1,39 +1,13 @@
-use crate::state::TEXT_COLOR;
-use crate::ui::assets::load_background_image;
-use crate::ui::assets::*;
-use crate::ui::style::fill_image_node;
-use bevy::prelude::*;
-use bevy::text::{TextColor, TextFont};
-use bevy::ui::BackgroundColor;
-use bevy::utils::default;
-use bevy::{
-    asset::AssetServer,
-    prelude::{Commands, DespawnOnExit, Res},
-    ui::{AlignItems, FlexDirection, JustifyContent, Node, UiRect, Val},
-};
-
 use crate::menus::{MenuButtonAction, MenuState};
+use crate::ui::assets::*;
+use crate::ui::style::{big_button_style, fill_image_node, text_font, BUTTON_TEXT_COLOR};
+use bevy::prelude::*;
 
 pub fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let background_image = load_background_image(&asset_server);
-    let font = load_font(&asset_server);
-
-    let button_style = Node {
-        width: Val::Px(400.0),
-        height: Val::Px(60.0),
-        margin: UiRect::all(Val::Px(20.0)),
-        justify_content: JustifyContent::Center,
-        align_items: AlignItems::Center,
-        ..default()
-    };
-
-    let button_font = TextFont {
-        font: font.clone().into(),
-        font_size: 33.0.into(),
-        ..default()
-    };
-
-    let button_color = TextColor(TEXT_COLOR);
+    let button_style = big_button_style();
+    let button_font = text_font(load_font(&asset_server), 33.0);
+    let button_color = TextColor(BUTTON_TEXT_COLOR);
 
     commands
         .spawn((

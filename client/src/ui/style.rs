@@ -9,8 +9,10 @@ pub const PRESSED_BUTTON: Color = Color::srgb(0.2, 0.2, 0.2);
 // Common background colors
 pub const BACKGROUND_COLOR: Color = Color::srgb(0.5, 0.5, 0.5);
 
-// Common text color
+// Common text colors
 pub const TEXT_COLOR: Color = Color::WHITE;
+/// Text of the large buttons of the main and settings menus, slightly dimmed.
+pub const BUTTON_TEXT_COLOR: Color = Color::srgb(0.9, 0.9, 0.9);
 
 // Button styles
 pub fn big_button_style() -> Node {
@@ -20,7 +22,7 @@ pub fn big_button_style() -> Node {
         margin: UiRect::all(Val::Px(20.0)),
         justify_content: JustifyContent::Center,
         align_items: AlignItems::Center,
-        ..Default::default()
+        ..default()
     }
 }
 
@@ -29,7 +31,7 @@ pub fn text_font(font: Handle<Font>, font_size: f32) -> TextFont {
     TextFont {
         font: font.into(),
         font_size: font_size.into(),
-        ..Default::default()
+        ..default()
     }
 }
 
@@ -50,6 +52,6 @@ pub fn background_image_style() -> Node {
         align_items: AlignItems::Center,
         justify_content: JustifyContent::Center,
         flex_direction: FlexDirection::Column,
-        ..Default::default()
+        ..default()
     }
 }

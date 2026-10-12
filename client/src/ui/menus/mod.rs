@@ -35,9 +35,7 @@ pub fn menu_plugin(app: &mut App) {
         .add_systems(Update, solo::solo_action.run_if(in_state(MenuState::Solo)))
         // Systems to handle the settings menu screen
         .add_systems(OnEnter(MenuState::Settings), settings::settings_menu_setup)
-        // Systems to handle the display settings screen
-        // Systems to handle the sound settings screen
-        // save the keybings when lauching the game, and when exiting settings
+        // save the keybindings when launching the game, and when exiting settings
         .add_systems(OnEnter(GameState::Menu), save_keybindings)
         .add_systems(OnExit(MenuState::SettingsControls), save_keybindings)
         .add_systems(
@@ -67,7 +65,7 @@ pub fn menu_plugin(app: &mut App) {
         );
 }
 
-/// Tag component for scrolling UI lists
+/// Spawns the camera of the menus and opens the main menu.
 fn menu_setup(mut menu_state: ResMut<NextState<MenuState>>, mut commands: Commands) {
     commands.spawn((
         Camera2d,
@@ -119,7 +117,7 @@ fn escape_button(
             MenuState::Solo | MenuState::Multi | MenuState::Settings => {
                 next_menu_state.set(MenuState::Main)
             }
-            // todo: decide how we want to bypass keyboard set dialog
+            // Not in the controls screen: Escape is a key that can be bound there
             _ => (),
         }
     }
@@ -134,7 +132,10 @@ pub fn mouse_scroll(
         debug!("MouseEvent");
         for (mut scrolling_list, mut style, child_of, list_node) in &mut query_list {
             let items_height = list_node.size().y;
-            let container_height = query_node.get(child_of.parent()).unwrap().size().y;
+            let Ok(container) = query_node.get(child_of.parent()) else {
+                continue;
+            };
+            let container_height = container.size().y;
 
             let max_scroll = (items_height - container_height).max(0.) + 30.;
 

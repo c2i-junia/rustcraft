@@ -20,14 +20,14 @@ pub fn inspector_ui(world: &mut World, mut last_context: Local<Option<Entity>>) 
     };
     let width = window.width();
 
-    let time = world.get_resource::<Time>().unwrap();
+    let elapsed_secs = world.resource::<Time>().elapsed_secs();
 
     let mut res = egui::Window::new("Debug UI").default_open(false);
 
     // This is kinda ridiculous, but it's the only way I found to make the window properly appears at the left side of the screen
     // Using .default_pos(w, h) doesn't fully work for some reason on a dual-monitor setup
     // A better way might be to resize this proportionally to the window width on window resize
-    if new_context || time.elapsed_secs() < 1.0 {
+    if new_context || elapsed_secs < 1.0 {
         res = res.current_pos((width - 200.0, 0.0));
     }
 

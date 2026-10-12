@@ -10,68 +10,55 @@ use shared::world::raycast;
 
 use super::CurrentPlayerMarker;
 
-// Function to handle block placement and breaking
+/// Outlines the block the player aims at and, while a mouse button is held on it, predicts
+/// breaking it or placing a block against it.
 pub fn handle_block_interactions(
-    queries: (
-        Query<&mut Player, With<CurrentPlayerMarker>>,
-        Query<&mut Transform, With<CurrentPlayerMarker>>,
-        Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
-    ),
-    resources: (
-        ResMut<ClientWorldMap>,
-        Res<ButtonInput<MouseButton>>,
-        Res<UIMode>,
-        Res<ViewMode>,
-        ResMut<CurrentFrameInputs>,
-    ),
+    mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
+    camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
+    world_map: ResMut<ClientWorldMap>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    ui_mode: Res<UIMode>,
+    view_mode: Res<ViewMode>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
     mut gizmos: Gizmos,
 ) {
-    let (mut player_query, p_transform, camera_query) = queries;
-    let (world_map, mouse_input, ui_mode, view_mode, mut frame_inputs) = resources;
-
-    let mut player = player_query.single_mut().unwrap();
-
     if *ui_mode != UIMode::Closed {
         return;
     }
-
-    let camera_transform = camera_query.single().unwrap();
-    let player_transform = p_transform.single().unwrap();
-    let player_translation = &player_transform.translation;
-
+    let (Ok((mut player, player_transform)), Ok(camera_transform)) =
+        (player_query.single_mut(), camera_query.single())
+    else {
+        return;
+    };
     let world_map = world_map.into_inner();
 
-    let maybe_block = raycast::raycast(
+    let Some(target) = raycast::raycast(
         &world_map.blocks,
         camera_transform,
-        player_translation,
+        &player_transform.translation,
         *view_mode,
+    ) else {
+        return;
+    };
+
+    let center = (target.bbox.max + target.bbox.min) / 2.0;
+    let size = target.bbox.max - target.bbox.min;
+    gizmos.cube(
+        Transform::from_translation(center.into()).with_scale(size.into()),
+        WHITE,
     );
 
-    if let Some(res) = maybe_block {
-        // Draw gizmos for the bounding box
-        let center = (res.bbox.max + res.bbox.min) / 2.0;
-        let hsize = res.bbox.max - res.bbox.min;
-        gizmos.cube(
-            Transform::from_translation(center.into()).with_scale(hsize.into()),
-            WHITE,
-        );
-
-        // Handle left-click for breaking blocks
-        if mouse_input.pressed(MouseButton::Left) {
-            frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
-        }
-
-        // Handle right-click for placing blocks
-        if mouse_input.pressed(MouseButton::Right) {
-            frame_inputs.0.inputs.insert(NetworkAction::RightClick);
-        }
-
-        simulate_player_block_interactions(
-            &mut player,
-            &mut world_map.blocks,
-            &frame_inputs.0,
-            CallerType::Client,
-        );
+    if mouse_input.pressed(MouseButton::Left) {
+        frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
     }
+    if mouse_input.pressed(MouseButton::Right) {
+        frame_inputs.0.inputs.insert(NetworkAction::RightClick);
+    }
+
+    simulate_player_block_interactions(
+        &mut player,
+        &mut world_map.blocks,
+        &frame_inputs.0,
+        CallerType::Client,
+    );
 }

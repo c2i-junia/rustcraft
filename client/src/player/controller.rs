@@ -4,10 +4,9 @@ use crate::network::buffered_client::{
     CurrentFrameInputs, CurrentFrameInputsExt, PlayerTickInputsBuffer, SyncTime, SyncTimeExt,
 };
 use crate::state::KeyMap;
-use crate::ui::hud::debug::DebugOptions;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
-use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
+use crate::world::ClientWorldMap;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::movement::{is_terrain_loaded, simulate_player_movement};
@@ -25,9 +24,11 @@ pub fn update_frame_inputs_system(
         return;
     }
 
-    let camera = camera.single().unwrap();
+    let (Ok(camera), Ok(hotbar)) = (camera.single(), hotbar.single()) else {
+        return;
+    };
     frame_inputs.0.camera = *camera;
-    frame_inputs.0.hotbar_slot = hotbar.single().unwrap().selected;
+    frame_inputs.0.hotbar_slot = hotbar.selected;
     frame_inputs.0.view_mode = *view_mode;
 }
 
@@ -58,56 +59,45 @@ pub fn local_player_is_simulated(
             .is_ok_and(|player| is_terrain_loaded(player.position, &world_map.blocks))
 }
 
+/// The movement keys, held down, and the action each of them sends to the server.
+const HELD_ACTIONS: [(GameAction, NetworkAction); 6] = [
+    (GameAction::MoveBackward, NetworkAction::MoveBackward),
+    (GameAction::MoveForward, NetworkAction::MoveForward),
+    (GameAction::MoveLeft, NetworkAction::MoveLeft),
+    (GameAction::MoveRight, NetworkAction::MoveRight),
+    (GameAction::Jump, NetworkAction::JumpOrFlyUp),
+    (GameAction::FlyDown, NetworkAction::SneakOrFlyDown),
+];
+
+/// Completes the frame's inputs with the movement keys, predicts their effect on the local
+/// player and queues the frame for the server.
 pub fn player_movement_system(
-    queries: Query<(&mut Player, &mut Transform), (With<CurrentPlayerMarker>, Without<Camera>)>,
-    resources: (
-        Res<ButtonInput<KeyCode>>,
-        Res<UIMode>,
-        Res<KeyMap>,
-        ResMut<CurrentFrameInputs>,
-        ResMut<PlayerTickInputsBuffer>,
-    ),
+    mut player_query: Query<
+        (&mut Player, &mut Transform),
+        (With<CurrentPlayerMarker>, Without<Camera>),
+    >,
+    (keyboard_input, ui_mode, key_map): (Res<ButtonInput<KeyCode>>, Res<UIMode>, Res<KeyMap>),
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+    mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
     world_map: Res<ClientWorldMap>,
 ) {
-    let mut player_query = queries;
-    let (keyboard_input, ui_mode, key_map, mut frame_inputs, mut tick_buffer) = resources;
-
     if frame_inputs.0.delta_ms == 0 {
         return;
     }
-
-    let res = player_query.single_mut();
-    // Return early if the player has not been spawned yet
-    if res.is_err() {
-        debug!("player not found");
+    // The player has not been spawned yet
+    let Ok((mut player, mut player_transform)) = player_query.single_mut() else {
         return;
-    }
-
-    let (mut player, mut player_transform) = player_query.single_mut().unwrap();
+    };
 
     // Gameplay keys are ignored while a dialog is open or something is being typed
     if *ui_mode == UIMode::Closed {
         if is_action_just_pressed(GameAction::ToggleFlyMode, &keyboard_input, &key_map) {
             frame_inputs.0.inputs.insert(NetworkAction::ToggleFlyMode);
         }
-
-        if is_action_pressed(GameAction::MoveBackward, &keyboard_input, &key_map) {
-            frame_inputs.0.inputs.insert(NetworkAction::MoveBackward);
-        }
-        if is_action_pressed(GameAction::MoveForward, &keyboard_input, &key_map) {
-            frame_inputs.0.inputs.insert(NetworkAction::MoveForward);
-        }
-        if is_action_pressed(GameAction::MoveLeft, &keyboard_input, &key_map) {
-            frame_inputs.0.inputs.insert(NetworkAction::MoveLeft);
-        }
-        if is_action_pressed(GameAction::MoveRight, &keyboard_input, &key_map) {
-            frame_inputs.0.inputs.insert(NetworkAction::MoveRight);
-        }
-        if is_action_pressed(GameAction::Jump, &keyboard_input, &key_map) {
-            frame_inputs.0.inputs.insert(NetworkAction::JumpOrFlyUp);
-        }
-        if is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map) {
-            frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
+        for (key, action) in HELD_ACTIONS {
+            if is_action_pressed(key, &keyboard_input, &key_map) {
+                frame_inputs.0.inputs.insert(action);
+            }
         }
     }
 
@@ -120,10 +110,15 @@ pub fn player_movement_system(
     player_transform.translation = player.position;
 }
 
+/// Colour of the local player's body: red in third person, invisible in first person so that
+/// it does not block the view.
+pub const LOCAL_PLAYER_COLOR: Color = Color::srgba(1.0, 0.0, 0.0, 1.0);
+const HIDDEN_PLAYER_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+
 pub fn first_and_third_person_view_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut view_mode: ResMut<ViewMode>,
-    mut player_query: Query<&mut PlayerMaterialHandle, With<CurrentPlayerMarker>>,
+    player_query: Query<&PlayerMaterialHandle, With<CurrentPlayerMarker>>,
     key_map: Res<KeyMap>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     ui_mode: Res<UIMode>,
@@ -134,73 +129,14 @@ pub fn first_and_third_person_view_system(
         view_mode.toggle();
     }
 
-    let material_handle = player_query.single_mut();
-    // Return early if the player has not been spawned yet
-    if material_handle.is_err() {
-        debug!("player not found");
+    // The player has not been spawned yet
+    let Ok(material_handle) = player_query.single() else {
         return;
-    }
-
-    let material_handle = &material_handle.unwrap().handle;
-
-    match *view_mode {
-        ViewMode::FirstPerson => {
-            // make player transparent
-            if let Some(mut material) = materials.get_mut(material_handle) {
-                material.base_color = Color::srgba(0.0, 0.0, 0.0, 0.0);
-            }
-        }
-        ViewMode::ThirdPerson => {
-            if let Some(mut material) = materials.get_mut(material_handle) {
-                material.base_color = Color::srgba(1.0, 0.0, 0.0, 1.0);
-            }
-        }
-    }
-}
-
-pub fn toggle_chunk_debug_mode_system(
-    mut debug_options: ResMut<DebugOptions>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    key_map: Res<KeyMap>,
-) {
-    if is_action_just_pressed(GameAction::ToggleChunkDebugMode, &keyboard_input, &key_map) {
-        debug_options.toggle_chunk_debug_mode();
-    }
-}
-
-pub fn toggle_raycast_debug_mode_system(
-    mut debug_options: ResMut<DebugOptions>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    key_map: Res<KeyMap>,
-) {
-    if is_action_just_pressed(
-        GameAction::ToggleRaycastDebugMode,
-        &keyboard_input,
-        &key_map,
-    ) {
-        debug_options.toggle_raycast_debug_mode();
-    }
-}
-
-pub fn chunk_force_reload_system(
-    mut world_map: ResMut<ClientWorldMap>,
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    key_map: Res<KeyMap>,
-    mut ev_writer: MessageWriter<WorldRenderRequestUpdateEvent>,
-    mut commands: Commands,
-    ui_mode: Res<UIMode>,
-) {
-    if *ui_mode == UIMode::Closed
-        && is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map)
-    {
-        for (pos, chunk) in world_map.render.iter_mut() {
-            // Despawn the chunk's entity
-            if let Some(e) = chunk.entity {
-                commands.entity(e).despawn();
-                chunk.entity = None;
-            }
-            // Request a render for this chunk
-            ev_writer.write(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
-        }
+    };
+    if let Some(mut material) = materials.get_mut(&material_handle.handle) {
+        material.base_color = match *view_mode {
+            ViewMode::FirstPerson => HIDDEN_PLAYER_COLOR,
+            ViewMode::ThirdPerson => LOCAL_PLAYER_COLOR,
+        };
     }
 }

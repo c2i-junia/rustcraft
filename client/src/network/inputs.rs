@@ -5,7 +5,8 @@ use shared::messages::{ClientToServerMessage, PlayerFrameInput};
 use super::buffered_client::PlayerTickInputsBuffer;
 use super::SendGameMessageExtension;
 
-// vector of time_ms values for inputs that have not been acknowledged by the server
+/// The inputs sent to the server that it has not acknowledged yet, oldest first, each with
+/// the state the client predicted after it.
 #[derive(Debug, Default, Resource)]
 pub struct UnacknowledgedInputs(pub Vec<PlayerFrameInput>);
 
@@ -20,11 +21,7 @@ pub fn upload_player_inputs_system(
         return;
     }
 
-    let mut frames = vec![];
-    for input in inputs.buffer.iter() {
-        frames.push(input.clone());
-        unacknowledged_inputs.0.push(input.clone());
-    }
+    let frames = std::mem::take(&mut inputs.buffer);
+    unacknowledged_inputs.0.extend(frames.iter().cloned());
     client.send_game_message(ClientToServerMessage::PlayerInputs(frames));
-    inputs.buffer.clear();
 }

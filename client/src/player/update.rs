@@ -4,15 +4,17 @@ use crate::{
         buffered_client::PlayerTickInputsBuffer, CurrentPlayerProfile, TargetServer,
         TargetServerState, UnacknowledgedInputs,
     },
-    player::{PlayerLabel, PlayerMaterialHandle},
+    player::{PlayerLabel, PlayerMaterialHandle, LOCAL_PLAYER_COLOR},
     state::GameState,
+    ui::assets::MONO_FONT_PATH,
     world::ClientWorldMap,
 };
 use bevy::color::palettes::css::ORANGE;
 use bevy::prelude::*;
 use shared::{
-    messages::{PlayerSpawnEvent, PlayerUpdateEvent},
+    messages::{PlayerFrameInput, PlayerSpawnEvent, PlayerUpdateEvent},
     players::{movement::simulate_player_movement, Inventory, Player},
+    world::ChunkMap,
 };
 
 #[derive(Component)]
@@ -20,6 +22,13 @@ pub struct CurrentPlayerMarker {}
 
 pub const PLAYER_LABEL_FONT_SIZE: f32 = 24.0;
 
+/// Colour of the body of the other players.
+const OTHER_PLAYER_COLOR: Color = Color::srgba(0.0, 0.0, 1.0, 1.0);
+/// Where a name label waits, above the origin, until `player_labels_system` places it.
+const LABEL_START_POSITION: Vec3 = Vec3::new(0.0, 5.0, 0.0);
+
+/// Spawns the players the server announces. The local player also gets the marker the other
+/// systems find it by, and the camera takes the orientation the server saved for it.
 pub fn spawn_players_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -31,19 +40,22 @@ pub fn spawn_players_system(
     assets: Res<AssetServer>,
     mut camera_query: Query<(&mut Transform, &mut CameraController), With<Camera>>,
 ) {
-    let current_id = player_profile.into_inner().id;
-    'event_loop: for event in ev_spawn.read() {
-        info!("Executing spawn player for event: {:?}", event);
-        for player in players.iter() {
-            if player.id == event.id {
-                info!(
-                    "Ignored spawn order, player was already there: {}",
-                    player.id
-                );
-                continue 'event_loop;
-            }
+    // Two events of one frame may announce the same player: the query does not see the
+    // first one's entity yet
+    let mut known: Vec<_> = players.iter().map(|player| player.id).collect();
+
+    for event in ev_spawn.read() {
+        if known.contains(&event.id) {
+            debug!(
+                "Ignored spawn order, player was already there: {}",
+                event.id
+            );
+            continue;
         }
-        let is_current_player = event.id == current_id;
+        known.push(event.id);
+        info!("Spawning new player object: {}", event.id);
+
+        let is_current_player = event.id == player_profile.id;
         let player = Player {
             id: event.id,
             name: event.name.clone(),
@@ -53,83 +65,71 @@ pub fn spawn_players_system(
             ..default()
         };
 
-        let color = if is_current_player {
-            Color::srgba(1.0, 0.0, 0.0, 1.0)
-        } else {
-            Color::srgba(0.0, 0.0, 1.0, 1.0)
-        };
-
-        info!("Spawning new player object: {}", player.id);
-
-        let player_name = event.name.clone();
-
         // One material shared by the mesh and the handle, so the first/third person
         // system mutates the material the player is drawn with
-        let material = materials.add(color);
+        let material = materials.add(if is_current_player {
+            LOCAL_PLAYER_COLOR
+        } else {
+            OTHER_PLAYER_COLOR
+        });
+        let body = Cuboid::new(player.width, player.height, player.width);
         let mut entity = commands.spawn((
             DespawnOnExit(GameState::Game),
             Transform::from_translation(player.position),
             Visibility::default(),
-            Mesh3d(meshes.add(Mesh::from(Cuboid::new(
-                player.width,
-                player.height,
-                player.width,
-            )))),
+            Mesh3d(meshes.add(Mesh::from(body))),
             MeshMaterial3d(material.clone()),
             PlayerMaterialHandle { handle: material },
-            player.clone(),
-            Name::new(player_name.clone()),
+            player,
+            Name::new(event.name.clone()),
         ));
-
-        let text_style = TextFont {
-            font: assets.load("fonts/FiraMono-Medium.ttf").into(),
-            font_size: PLAYER_LABEL_FONT_SIZE.into(),
-            ..default()
-        };
-
-        let label_text_style = (text_style.clone(), TextColor(ORANGE.into()));
 
         if is_current_player {
             target_server.state = TargetServerState::FullyReady;
             entity.insert(CurrentPlayerMarker {});
-            info!("Inserted current player marker");
 
-            for (transform, controller) in camera_query.iter_mut() {
-                *transform.into_inner() = event.data.camera_transform;
-                *controller.into_inner() = event.data.camera_transform.rotation.into();
-
-                info!(
-                    "Setting camera transform: {:?}",
-                    event.data.camera_transform
-                );
+            for (mut transform, mut controller) in camera_query.iter_mut() {
+                *transform = event.data.camera_transform;
+                *controller = event.data.camera_transform.rotation.into();
             }
         }
 
-        let entity_id = entity.id();
-
-        commands
-            .spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    ..default()
-                },
-                PlayerLabel {
-                    entity: entity_id,
-                    name: player_name.clone(),
-                },
-                Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
-                DespawnOnExit(GameState::Game),
-            ))
-            .with_children(|parent| {
-                parent.spawn((
-                    Text::new(player_name),
-                    label_text_style.clone(),
-                    TextLayout::default().with_no_wrap(),
-                ));
-            });
+        let player_entity = entity.id();
+        spawn_player_label(&mut commands, &assets, player_entity, &event.name);
     }
 }
 
+/// The name floating above a player.
+fn spawn_player_label(commands: &mut Commands, assets: &AssetServer, player: Entity, name: &str) {
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            PlayerLabel {
+                entity: player,
+                name: name.to_string(),
+            },
+            Transform::from_translation(LABEL_START_POSITION),
+            DespawnOnExit(GameState::Game),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                Text::new(name),
+                TextFont {
+                    font: assets.load(MONO_FONT_PATH).into(),
+                    font_size: PLAYER_LABEL_FONT_SIZE.into(),
+                    ..default()
+                },
+                TextColor(ORANGE.into()),
+                TextLayout::default().with_no_wrap(),
+            ));
+        });
+}
+
+/// Applies the states the server sends: the other players are placed where it says, and the
+/// local player's prediction is checked against it and corrected if they differ.
 pub fn update_players_system(
     mut players: Query<(&mut Player, &mut Transform)>,
     mut ev_player_update: MessageReader<PlayerUpdateEvent>,
@@ -139,87 +139,91 @@ pub fn update_players_system(
     world_map: Res<ClientWorldMap>,
     mut inventory: ResMut<Inventory>,
 ) {
-    let my_id = client.session_token.unwrap();
+    // No update can concern us before the server gave us our id
+    let Some(my_id) = client.session_token else {
+        return;
+    };
 
-    // Read all updates
     for event in ev_player_update.read() {
-        // Get the player associated with the event
-        for (mut player, mut transform) in players.iter_mut() {
-            if player.id == event.id && event.id == my_id {
-                player.inventory = event.inventory.clone();
-                inventory.inner = event.inventory.inner.clone();
+        let Some((mut player, mut transform)) =
+            players.iter_mut().find(|(player, _)| player.id == event.id)
+        else {
+            continue;
+        };
 
-                // What the client predicted after the input this update acknowledges
-                let predicted = unacknowledged_inputs
-                    .0
-                    .iter()
-                    .find(|input| input.time_ms == event.last_ack_time)
-                    .map(|input| input.predicted);
-
-                if let Some(predicted) = predicted {
-                    if predicted != event.movement {
-                        warn!(
-                            "Player position mismatch: Client({:?}) != Server({:?}) at t={} (id={})",
-                            predicted, event.movement, event.last_ack_time, player.id
-                        );
-                    }
-                } else if !unacknowledged_inputs.0.is_empty() && event.last_ack_time != 0 {
-                    // The server acknowledged an input we do not know: resync on its
-                    // state and forget the inputs it cannot have taken into account.
-                    warn!(
-                        "No matching input for last ack time {}, resyncing on the server state. Unacknowledged inputs: {:?}",
-                        event.last_ack_time,
-                        unacknowledged_inputs
-                            .0
-                            .iter()
-                            .map(|input| input.time_ms)
-                            .collect::<Vec<_>>()
-                    );
-                    unacknowledged_inputs.0.clear();
-                }
-
-                unacknowledged_inputs
-                    .0
-                    .retain(|input| input.time_ms >= event.last_ack_time);
-
-                if predicted != Some(event.movement) {
-                    // Resume the prediction from the server's state: replay every input the
-                    // server has not simulated yet, those not uploaded yet included, and
-                    // record what each of them now predicts, which later updates are checked
-                    // against. Only the movement is replayed: the blocks are not rolled back.
-                    player.set_movement_state(event.movement);
-
-                    let remaining_inputs = unacknowledged_inputs
-                        .0
-                        .iter_mut()
-                        .chain(tick_buffer.buffer.iter_mut())
-                        .filter(|input| input.time_ms >= event.last_ack_time);
-
-                    let mut replayed = 0;
-                    for input in remaining_inputs {
-                        // The acknowledged input is only given the state the server sent
-                        if input.time_ms > event.last_ack_time {
-                            simulate_player_movement(&mut player, &world_map.blocks, input);
-                            replayed += 1;
-                        }
-                        input.predicted = player.movement_state();
-                    }
-                    transform.translation = player.position;
-
-                    debug!(
-                        "final player position: {:?} after reapplying {} inputs",
-                        player.position, replayed
-                    );
-                }
-            } else if player.id != my_id && player.id == event.id {
-                debug!(
-                    "Corrected player position: {:?} => {:?}",
-                    player.id, event.movement.position
-                );
-                player.position = event.movement.position;
-                *transform = Transform::from_translation(event.movement.position);
-            }
+        if event.id != my_id {
+            player.position = event.movement.position;
+            *transform = Transform::from_translation(event.movement.position);
+            continue;
         }
+
+        player.inventory = event.inventory.clone();
+        inventory.inner = event.inventory.inner.clone();
+        reconcile_prediction(
+            &mut player,
+            event,
+            &mut unacknowledged_inputs.0,
+            &mut tick_buffer.buffer,
+            &world_map.blocks,
+        );
+        transform.translation = player.position;
+    }
+}
+
+/// Compares what the client predicted after the input `update` acknowledges with what the
+/// server computed. When they differ, the prediction resumes from the server's state: every
+/// input the server has not simulated yet is replayed on top of it.
+fn reconcile_prediction(
+    player: &mut Player,
+    update: &PlayerUpdateEvent,
+    unacknowledged_inputs: &mut Vec<PlayerFrameInput>,
+    not_uploaded_inputs: &mut [PlayerFrameInput],
+    blocks: &ChunkMap,
+) {
+    let acknowledged = update.last_ack_time;
+    let predicted = unacknowledged_inputs
+        .iter()
+        .find(|input| input.time_ms == acknowledged)
+        .map(|input| input.predicted);
+
+    if predicted.is_none() && !unacknowledged_inputs.is_empty() && acknowledged != 0 {
+        // The server acknowledged an input we do not know: forget the inputs it cannot
+        // have taken into account.
+        warn!(
+            "No matching input for last ack time {acknowledged}, resyncing on the server state. Unacknowledged inputs: {:?}",
+            unacknowledged_inputs
+                .iter()
+                .map(|input| input.time_ms)
+                .collect::<Vec<_>>()
+        );
+        unacknowledged_inputs.clear();
+    }
+    unacknowledged_inputs.retain(|input| input.time_ms >= acknowledged);
+
+    if predicted == Some(update.movement) {
+        return;
+    }
+    if let Some(predicted) = predicted {
+        warn!(
+            "Player position mismatch: Client({predicted:?}) != Server({:?}) at t={acknowledged} (id={})",
+            update.movement, player.id
+        );
+    }
+
+    // Replay the inputs the server has not simulated yet, those not uploaded yet included, and
+    // record what each of them now predicts, which later updates are checked against. Only
+    // the movement is replayed: the blocks are not rolled back.
+    player.set_movement_state(update.movement);
+    let remaining_inputs = unacknowledged_inputs
+        .iter_mut()
+        .chain(not_uploaded_inputs.iter_mut())
+        .filter(|input| input.time_ms >= acknowledged);
+    for input in remaining_inputs {
+        // The acknowledged input is only given the state the server sent
+        if input.time_ms > acknowledged {
+            simulate_player_movement(player, blocks, input);
+        }
+        input.predicted = player.movement_state();
     }
 }
 

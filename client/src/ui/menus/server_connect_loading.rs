@@ -1,4 +1,5 @@
 use crate::state::GameState;
+use crate::ui::assets::{MONO_FONT_PATH, SANS_FONT_PATH};
 use bevy::{color::palettes::tailwind::YELLOW_500, prelude::*};
 
 #[derive(Component)]
@@ -25,7 +26,7 @@ pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server:
     let loading_text_bundle = (
         Text::new("Connecting to server"),
         TextFont {
-            font: asset_server.load("fonts/FiraSans-SemiBold.ttf").into(),
+            font: asset_server.load(SANS_FONT_PATH).into(),
             font_size: 67.0.into(),
             ..default()
         },
@@ -35,7 +36,7 @@ pub fn setup_server_connect_loading_screen(mut commands: Commands, asset_server:
     let cancel_button_bundle = (
         Text::new("[Cancel]"),
         TextFont {
-            font: asset_server.load("fonts/FiraMono-Medium.ttf").into(),
+            font: asset_server.load(MONO_FONT_PATH).into(),
             font_size: 32.0.into(),
             ..default()
         },

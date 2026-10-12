@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use shared::world::ChunkMap;
-use std::collections::HashSet;
 use std::hash::Hash;
 use std::time::Instant;
 
@@ -44,11 +43,6 @@ pub struct ClientWorldMap {
     pub blocks: ChunkMap,
     /// Maps global chunk positions to the render bookkeeping of the chunk
     pub render: HashMap<IVec3, ChunkRender>,
-}
-
-#[derive(Default, Debug)]
-pub struct QueuedEvents {
-    pub events: HashSet<WorldRenderRequestUpdateEvent>, // Set of events for rendering updates
 }
 
 #[derive(Message, Debug, Copy, Clone, Hash, Eq, PartialEq)]
