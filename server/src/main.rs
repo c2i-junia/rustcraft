@@ -26,7 +26,13 @@ fn main() -> ExitCode {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-    let socket = acquire_socket_by_port(std::net::IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), args.port);
+    let socket = match acquire_socket_by_port(Ipv4Addr::UNSPECIFIED.into(), args.port) {
+        Ok(socket) => socket,
+        Err(err) => {
+            error!("Could not listen on UDP port {}: {err}", args.port);
+            return ExitCode::FAILURE;
+        }
+    };
 
     match server::init(
         socket,

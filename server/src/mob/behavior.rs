@@ -1,3 +1,6 @@
+//! How mobs move, once per fixed step: gravity, then walking towards their target or
+//! fleeing from it.
+
 use bevy::{
     math::{bounding::Aabb3d, ops::atan2, Quat, Vec3},
     time::{Fixed, Time},
@@ -5,137 +8,131 @@ use bevy::{
 use bevy_ecs::system::{Res, ResMut};
 use shared::{
     players::constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
-    world::{MobAction, MobTarget},
+    world::{ChunkMap, MobAction, MobTarget, ServerMob},
 };
 
 use crate::world::data::ServerWorldMap;
 
-pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Time<Fixed>>) {
-    let mut mobs = world_map.mobs.clone();
+/// A walking mob that comes this close to its target starts fleeing from it.
+const ARRIVAL_DISTANCE: f32 = 0.5;
+/// A fleeing mob stops once it is this far from its target.
+const SAFE_DISTANCE: f32 = 15.0;
+/// Speed of a fleeing mob, in blocks per second.
+const FLEE_SPEED: f32 = 1.0;
+
+pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time<Fixed>>) {
+    let delta = time.delta_secs();
+    let ServerWorldMap {
+        mobs,
+        chunks,
+        players,
+        ..
+    } = world_map.as_mut();
 
     for mob in mobs.values_mut() {
+        // A mob whose position is not a number cannot be simulated: it stays as it is
         if !mob.position.is_finite() || !mob.velocity.is_finite() {
-            // TODO: FIX mob position
             continue;
         }
         let target = match mob.target {
-            MobTarget::Position(pos) => pos,
+            MobTarget::Position(position) => position,
             MobTarget::None => continue,
-            MobTarget::Player(id) => {
-                // A mob does not chase a player that is not connected
-                let Some(player) = world_map.players.get(&id) else {
-                    continue;
-                };
-                player.position
-            }
+            // A mob does not chase a player that is not connected
+            MobTarget::Player(id) => match players.get(&id) {
+                Some(player) => player.position,
+                None => continue,
+            },
         };
 
-        // same gravity management as the player
-        let dir = (target - mob.position).normalize_or_zero();
-        let delta = delta.delta_secs();
-        if !mob.on_ground {
-            mob.velocity.y += GRAVITY * delta;
-        }
-
-        let new_y = mob.position.y + mob.velocity.y * delta;
-        let new_vec = &Vec3::new(mob.position.x, new_y, mob.position.z);
-        if mob.velocity.y > MAX_UPWARD_VELOCITY {
-            mob.velocity.y = MAX_UPWARD_VELOCITY;
-        }
-        if world_map.chunks.check_collision_box(&Aabb3d::new(
-            *new_vec,
-            Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
-        )) {
-            mob.on_ground = true;
-            mob.velocity.y = 0.0;
-        } else {
-            mob.position.y = new_y;
-            mob.on_ground = false;
-        }
-
+        let towards_target = (target - mob.position).normalize_or_zero();
+        apply_gravity(mob, chunks, delta);
         match mob.action {
             MobAction::Walk => {
-                let speed = SPEED * delta;
-                let new_x = mob.position.x + dir.x * speed;
-                let new_z = mob.position.z + dir.z * speed;
-                let new_vec = &Vec3::new(new_x, mob.position.y, new_z);
-                //try to move the target
-                if !world_map.chunks.check_collision_box(&Aabb3d::new(
-                    *new_vec,
-                    Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
-                )) {
-                    mob.position.x = new_x;
-                    mob.position.z = new_z;
-                    mob.velocity.x = dir.x * speed;
-                    mob.velocity.z = dir.z * speed;
-                }
-                // If it can't move, try to jump (only if on ground and if it moved before)
-                else if mob.on_ground && mob.velocity.x != 0.0 && mob.velocity.z != 0.0 {
-                    mob.velocity.y += JUMP_VELOCITY;
-                    mob.on_ground = false;
-                    mob.velocity.x = 0.0;
-                    mob.velocity.z = 0.0;
-                } else if mob.on_ground {
-                    // Try to move in the other direction
-                    // Check if it can move in the x direction
-                    if !world_map.chunks.check_collision_box(&Aabb3d::new(
-                        Vec3::new(
-                            mob.position.x + dir.x * speed,
-                            mob.position.y,
-                            mob.position.z,
-                        ),
-                        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
-                    )) {
-                        mob.position.x += dir.x * speed;
-                        mob.velocity.x = dir.x * speed;
-                    // Check if it can move in the z direction
-                    } else if !world_map.chunks.check_collision_box(&Aabb3d::new(
-                        Vec3::new(
-                            mob.position.x,
-                            mob.position.y,
-                            mob.position.z + dir.z * speed,
-                        ),
-                        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
-                    )) {
-                        mob.position.z += dir.z * speed;
-                        mob.velocity.z = dir.z * speed;
-                    //Try to jump (can improve this)
-                    } else {
-                        mob.velocity.y += JUMP_VELOCITY;
-                        mob.on_ground = false;
-                        mob.velocity.x = 0.0;
-                        mob.velocity.z = 0.0;
-                    }
-                }
-
-                mob.rotation = Quat::from_rotation_y(atan2(dir.x, dir.z));
-
-                // If reached destination, start idling
-                if mob.position.distance(target) < 0.5 {
+                walk(mob, chunks, towards_target, delta);
+                if mob.position.distance(target) < ARRIVAL_DISTANCE {
                     mob.action = MobAction::Flee;
                 }
             }
             MobAction::Flee => {
-                if mob.position.distance(target) < 15.0 {
-                    // Flee on the horizontal plane only: gravity handles the vertical axis
-                    let away = Vec3::new(mob.position.x - target.x, 0.0, mob.position.z - target.z)
-                        .normalize_or_zero();
-                    let new_vec = &(mob.position + away * delta);
-                    if !world_map.chunks.check_collision_box(&Aabb3d::new(
-                        *new_vec,
-                        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
-                    )) {
-                        mob.position = *new_vec;
-                    }
-                    if away != Vec3::ZERO {
-                        mob.rotation = Quat::from_rotation_y(atan2(away.x, away.z));
-                    }
+                if mob.position.distance(target) < SAFE_DISTANCE {
+                    flee(mob, chunks, target, delta);
                 }
             }
         }
     }
+}
 
-    world_map.mobs = mobs;
+/// Whether `mob` would be inside a block at `position`.
+fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
+    chunks.check_collision_box(&Aabb3d::new(
+        position,
+        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
+    ))
+}
+
+/// Same vertical motion as a player: fall while in the air, land on the first block met.
+fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
+    if !mob.on_ground {
+        mob.velocity.y += GRAVITY * delta;
+    }
+    let new_y = mob.position.y + mob.velocity.y * delta;
+    mob.velocity.y = mob.velocity.y.min(MAX_UPWARD_VELOCITY);
+
+    if collides_at(mob, chunks, mob.position.with_y(new_y)) {
+        mob.on_ground = true;
+        mob.velocity.y = 0.0;
+    } else {
+        mob.position.y = new_y;
+        mob.on_ground = false;
+    }
+}
+
+fn jump(mob: &mut ServerMob) {
+    mob.velocity.y += JUMP_VELOCITY;
+    mob.on_ground = false;
+    mob.velocity.x = 0.0;
+    mob.velocity.z = 0.0;
+}
+
+/// One step along `direction`. A mob blocked while it was moving jumps; one blocked from a
+/// standstill slides along the obstacle on one axis, and jumps if both are blocked.
+fn walk(mob: &mut ServerMob, chunks: &ChunkMap, direction: Vec3, delta: f32) {
+    let step = Vec3::new(direction.x, 0.0, direction.z) * (SPEED * delta);
+    let along_x = Vec3::new(step.x, 0.0, 0.0);
+    let along_z = Vec3::new(0.0, 0.0, step.z);
+
+    if !collides_at(mob, chunks, mob.position + step) {
+        mob.position += step;
+        mob.velocity.x = step.x;
+        mob.velocity.z = step.z;
+    } else if mob.on_ground && mob.velocity.x != 0.0 && mob.velocity.z != 0.0 {
+        jump(mob);
+    } else if mob.on_ground {
+        if !collides_at(mob, chunks, mob.position + along_x) {
+            mob.position += along_x;
+            mob.velocity.x = step.x;
+        } else if !collides_at(mob, chunks, mob.position + along_z) {
+            mob.position += along_z;
+            mob.velocity.z = step.z;
+        } else {
+            jump(mob);
+        }
+    }
+
+    mob.rotation = Quat::from_rotation_y(atan2(direction.x, direction.z));
+}
+
+/// One step away from `threat`, on the horizontal plane only: gravity handles the vertical
+/// axis. The mob stays in place when a block is in the way.
+fn flee(mob: &mut ServerMob, chunks: &ChunkMap, threat: Vec3, delta: f32) {
+    let away = (mob.position - threat).with_y(0.0).normalize_or_zero();
+    let fled = mob.position + away * (FLEE_SPEED * delta);
+    if !collides_at(mob, chunks, fled) {
+        mob.position = fled;
+    }
+    if away != Vec3::ZERO {
+        mob.rotation = Quat::from_rotation_y(atan2(away.x, away.z));
+    }
 }
 
 #[cfg(test)]

@@ -168,7 +168,7 @@ mod tests {
                     IVec3::ZERO,
                     IVec3::new(chunks * 16 - 1, 15, 15),
                 ),
-                ..Default::default()
+                ..default()
             }
         }
 

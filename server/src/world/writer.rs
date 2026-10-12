@@ -1,5 +1,6 @@
-//! The thread that writes a world to disk, so that a save never makes the tick wait for the
-//! disk. The tick thread hands it snapshots through a channel and the thread writes them in
+//! The thread that writes the chunks and the metadata of a world to disk, so that saving them
+//! never makes the tick wait for the disk (the player files are small and written by the
+//! tick). The tick thread hands it snapshots through a channel and the thread writes them in
 //! order. Dropping the writer waits for everything queued to be written.
 
 use std::path::PathBuf;

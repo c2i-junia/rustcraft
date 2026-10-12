@@ -217,7 +217,8 @@ mod tests {
                 assets_folder_path: game_folder.join("assets"),
             };
             let socket =
-                server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST));
+                server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST))
+                    .unwrap();
             let addr = socket.local_addr().unwrap();
             let config = GameServerConfig {
                 world_name: name.to_string(),
