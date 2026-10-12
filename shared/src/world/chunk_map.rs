@@ -106,10 +106,13 @@ impl ChunkMap {
                             BlockHitbox::FullBlock => return true,
                             BlockHitbox::None => continue,
                             BlockHitbox::Aabb(block_hitbox) => {
-                                let min = hitbox.min.max(block_hitbox.min);
-                                let max = hitbox.max.min(block_hitbox.max);
+                                // The block's box is relative to its cell
+                                let cell = IVec3::new(x, y, z).as_vec3a();
+                                let min = hitbox.min.max(block_hitbox.min + cell);
+                                let max = hitbox.max.min(block_hitbox.max + cell);
 
-                                if min == max.min(min) {
+                                // The two boxes overlap when their intersection is not empty
+                                if min.cmple(max).all() {
                                     return true;
                                 }
                             }

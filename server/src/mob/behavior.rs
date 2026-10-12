@@ -44,7 +44,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
         }
         if world_map.chunks.check_collision_box(&Aabb3d::new(
             *new_vec,
-            Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
+            Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
         )) {
             mob.on_ground = true;
             mob.velocity.y = 0.0;
@@ -62,7 +62,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                 //try to move the target
                 if !world_map.chunks.check_collision_box(&Aabb3d::new(
                     *new_vec,
-                    Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
+                    Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
                 )) {
                     mob.position.x = new_x;
                     mob.position.z = new_z;
@@ -84,7 +84,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                             mob.position.y,
                             mob.position.z,
                         ),
-                        Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
+                        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
                     )) {
                         mob.position.x += dir.x * speed;
                         mob.velocity.x = dir.x * speed;
@@ -95,7 +95,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                             mob.position.y,
                             mob.position.z + dir.z * speed,
                         ),
-                        Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
+                        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
                     )) {
                         mob.position.z += dir.z * speed;
                         mob.velocity.z = dir.z * speed;
@@ -123,7 +123,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, delta: Res<Tim
                     let new_vec = &(mob.position + away * delta);
                     if !world_map.chunks.check_collision_box(&Aabb3d::new(
                         *new_vec,
-                        Vec3::new(mob.width, mob.height, mob.deepth) / 2.0,
+                        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
                     )) {
                         mob.position = *new_vec;
                     }
@@ -165,7 +165,7 @@ mod tests {
             width: 1.0,
             on_ground: false,
             velocity: Vec3::ZERO,
-            deepth: 1.0,
+            depth: 1.0,
         }
     }
 
@@ -267,7 +267,7 @@ mod tests {
         let fox = map.mobs[&0].clone();
         let hitbox = Aabb3d::new(
             fox.position,
-            Vec3::new(fox.width, fox.height, fox.deepth) / 2.0,
+            Vec3::new(fox.width, fox.height, fox.depth) / 2.0,
         );
         assert!(
             !map.chunks.check_collision_box(&hitbox),

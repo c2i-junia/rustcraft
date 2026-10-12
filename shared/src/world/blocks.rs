@@ -147,30 +147,21 @@ impl BlockId {
         Some(6 * steps)
     }
 
+    /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
+    /// drop table; a table of one entry, like every current one, always gives that entry, so
+    /// the client's prediction and the server agree.
     pub fn get_drops(&self, nb_drops: u32) -> HashMap<ItemId, u32> {
-        let mut drops = HashMap::new();
         let table = self.get_drop_table();
+        let total_chance: u32 = table.iter().map(|(chance, ..)| chance).sum();
 
-        if table.is_empty() {
+        let mut drops = HashMap::new();
+        if total_chance == 0 {
             return drops;
         }
-
-        let total = table
-            .clone()
-            .into_iter()
-            .reduce(|a, b| (a.0 + b.0, a.1, a.2))
-            .unwrap()
-            .0;
-
-        // Choose drop items
         for _ in 0..nb_drops {
-            let mut nb = rand::thread_rng().gen_range(0..total);
-            for item in table.iter() {
-                if nb < item.0 {
-                    drops.insert(item.1, *drops.get(&item.1).unwrap_or(&0) + item.2);
-                } else {
-                    nb -= item.0;
-                }
+            let roll = rand::thread_rng().gen_range(0..total_chance);
+            if let Some((item, nb)) = pick_drop(&table, roll) {
+                *drops.entry(item).or_insert(0) += nb;
             }
         }
         drops
@@ -192,7 +183,6 @@ impl BlockId {
             BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
-            BlockId::Water => vec![],
             _ => vec![],
         }
     }
@@ -208,6 +198,18 @@ impl BlockId {
 }
 
 impl GameElementId for BlockId {}
+
+/// The entry of a drop table that `roll` falls on, `roll` being below the sum of the chances:
+/// each entry takes as many consecutive rolls as its relative chance.
+fn pick_drop(table: &[(u32, ItemId, u32)], mut roll: u32) -> Option<(ItemId, u32)> {
+    for &(chance, item, nb) in table {
+        if roll < chance {
+            return Some((item, nb));
+        }
+        roll -= chance;
+    }
+    None
+}
 
 #[cfg(test)]
 mod tests {
@@ -428,5 +430,22 @@ mod tests {
             BlockId::Poppy.get_drops(1),
             HashMap::from([(ItemId::Poppy, 1)])
         );
+    }
+
+    #[test]
+    fn a_roll_picks_exactly_one_entry_in_proportion_to_its_chance() {
+        let table = [(1, ItemId::Dirt, 1), (3, ItemId::Sand, 2)];
+        assert_eq!(pick_drop(&table, 0), Some((ItemId::Dirt, 1)));
+        for roll in 1..4 {
+            assert_eq!(pick_drop(&table, roll), Some((ItemId::Sand, 2)), "{roll}");
+        }
+        assert_eq!(pick_drop(&table, 4), None);
+        assert_eq!(pick_drop(&[], 0), None);
+    }
+
+    #[test]
+    fn a_block_without_drop_table_drops_nothing() {
+        assert!(BlockId::Water.get_drops(5).is_empty());
+        assert_eq!(BlockId::Snow.get_drops(2)[&ItemId::Snowball], 8);
     }
 }

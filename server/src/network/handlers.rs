@@ -9,7 +9,8 @@ use shared::messages::{
     AuthRegisterRequest, AuthRegisterResponse, ChatConversation, ChatMessageRequest,
     PlayerFrameInput, PlayerSave, PlayerSpawnEvent, ServerToClientMessage,
 };
-use shared::{sanitize_username, GameFolderPaths, GameServerConfig};
+use shared::messages::sanitize_username;
+use shared::{GameFolderPaths, GameServerConfig};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::network::broadcast_chat::record_chat_message;

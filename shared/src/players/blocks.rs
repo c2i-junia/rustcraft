@@ -1,13 +1,15 @@
+//! Breaking and placing blocks, run by the client (prediction) and by the server (authority).
+
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::Player,
     world::{
-        global_block_to_chunk_pos, raycast, BlockData, BlockDirection, ChunkMap, FaceDirectionExt,
-        ItemStack, ItemType,
+        global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, ChunkMap,
+        FaceDirectionExt, ItemStack, ItemType, RaycastResponse,
     },
+    HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
-use bevy::math::{IVec3, NormedVectorSpace, Vec3};
-use bevy_log::info;
+use bevy::math::{IVec3, Vec3};
 
 #[derive(Debug, Clone, Copy)]
 pub enum CallerType {
@@ -27,334 +29,189 @@ impl CallerType {
 const INTERACTION_DISTANCE: f32 = 5.0;
 const CUBE_SIZE: f32 = 1.0;
 
+/// Why an interaction changed nothing.
+#[derive(Debug, PartialEq)]
+enum Refusal {
+    /// The player aims at no block.
+    NoTarget,
+    TooFar {
+        distance: f32,
+    },
+    Unbreakable(BlockId),
+    /// The cell the new block would take already holds one.
+    Occupied,
+    /// The cell the new block would take is in terrain that is not loaded.
+    ChunkNotLoaded,
+    /// The new block would overlap the player.
+    InsidePlayer,
+    InvalidSlot(u32),
+    EmptySlot(u32),
+    NotABlock(ItemType),
+}
+
+/// A refused interaction, and the block a client may have predicted a change at.
+#[derive(Debug, PartialEq)]
+struct Refused {
+    reason: Refusal,
+    predicted_at: Option<IVec3>,
+}
+
+impl Refused {
+    fn at(position: IVec3, reason: Refusal) -> Self {
+        Self {
+            reason,
+            predicted_at: Some(position),
+        }
+    }
+}
+
 pub fn simulate_player_block_interactions(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
-    // TODO: make sure that only one interaction is processed per game tick (instead of per frame like now)
+    // Interactions are processed once per input, so once per rendered frame of the client
+    // and not once per tick: a faster client breaks blocks faster.
     for network_action in &action.inputs {
-        match network_action {
-            NetworkAction::LeftClick => {
-                handle_block_breaking(player, world_map, action, caller_type);
-            }
-            NetworkAction::RightClick => {
-                handle_block_placement(player, world_map, action, caller_type);
-            }
-            _ => {}
+        let (verb, outcome) = match network_action {
+            NetworkAction::LeftClick => ("break", break_block(player, world_map, action)),
+            NetworkAction::RightClick => ("place", place_block(player, world_map, action)),
+            _ => continue,
+        };
+        let Err(refused) = outcome else {
+            continue;
+        };
+        log::debug!(
+            "{} Player {} could not {verb} a block: {:?}",
+            caller_type.as_str(),
+            player.id,
+            refused.reason
+        );
+        // The server re-states the block to the clients, which corrects whatever one of them
+        // predicted there. A client has nobody to correct, so it does nothing.
+        if let (Some(position), CallerType::Server) = (refused.predicted_at, caller_type) {
+            world_map.touch_block(position);
         }
     }
 }
 
-/// Tells the server to re-state `pos` to the clients after it refused an interaction that a
-/// client may have predicted there: the prediction is corrected whatever it was. A client
-/// has nobody to correct it, so it does nothing.
-fn report_refused(world_map: &mut ChunkMap, pos: IVec3, caller_type: CallerType) {
-    if matches!(caller_type, CallerType::Server) {
-        world_map.touch_block(pos);
-    }
-}
-
-fn handle_block_breaking(
-    player: &mut Player,
-    world_map: &mut ChunkMap,
+/// The block the player aims at, if it is within reach. An out of reach refusal names
+/// `predicted_at(target)` as the block to re-state.
+fn aimed_block(
+    player: &Player,
+    world_map: &ChunkMap,
     action: &PlayerFrameInput,
-    caller_type: CallerType,
-) {
-    let block_position = raycast::raycast(
+    predicted_at: impl Fn(&RaycastResponse) -> IVec3,
+) -> Result<RaycastResponse, Refused> {
+    let target = raycast::raycast(
         world_map,
         &action.camera,
         &player.position,
         action.view_mode,
-    );
+    )
+    .ok_or(Refused {
+        reason: Refusal::NoTarget,
+        predicted_at: None,
+    })?;
 
-    log::debug!(
-        "{} Player {} is trying to break block is at {:?}",
-        caller_type.as_str(),
-        player.id,
-        block_position,
-    );
-
-    if block_position.is_none() {
-        log::info!(
-            "{} Player {} tried to break a block but no valid block was found | [Camera: {:?}, Player Pos: {:?}, ViewMode: {:?}]",
-            caller_type.as_str(),
-            player.id,
-            action.camera,
-            player.position,
-            action.view_mode
-        );
-        return;
-    }
-
-    let block_pos = block_position.unwrap().position;
-
-    let distance = (block_pos.as_vec3() + Vec3::splat(0.5) - player.position).norm();
-    log::debug!(
-        "{} Calculated distance to block center: {:.2} (block pos: {:?}, player pos: {:?})",
-        caller_type.as_str(),
-        distance,
-        block_pos,
-        player.position
-    );
-
-    // Validate interaction distance
+    let distance = (target.position.as_vec3() + HALF_BLOCK).distance(player.position);
     if distance > INTERACTION_DISTANCE {
-        log::warn!(
-            "{} Player {} tried to break block at {:?} but it's too far (distance: {:.2})",
-            caller_type.as_str(),
-            player.id,
-            block_pos,
-            distance
-        );
-        report_refused(world_map, block_pos, caller_type);
-        return;
+        return Err(Refused::at(
+            predicted_at(&target),
+            Refusal::TooFar { distance },
+        ));
     }
+    Ok(target)
+}
 
-    let Some(mut block) = world_map.get_block(block_pos).copied() else {
-        log::info!(
-            "{} Player {} tried to break a block at {:?}, but no block was found",
-            caller_type.as_str(),
-            player.id,
-            block_pos
-        );
-        report_refused(world_map, block_pos, caller_type);
-        return;
+/// One hit on the aimed block: it breaks once it took as many hits as its break time.
+fn break_block(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<(), Refused> {
+    let position = aimed_block(player, world_map, action, |target| target.position)?.position;
+
+    let Some(mut block) = world_map.get_block(position).copied() else {
+        return Err(Refused::at(position, Refusal::NoTarget));
     };
-
     let Some(break_time) = block.id.get_break_time() else {
-        log::debug!(
-            "{} Player {} tried to break unbreakable block {:?} at {:?}",
-            caller_type.as_str(),
-            player.id,
-            block.id,
-            block_pos
-        );
-        report_refused(world_map, block_pos, caller_type);
-        return;
+        return Err(Refused::at(position, Refusal::Unbreakable(block.id)));
     };
 
-    // Try to break the block
-    block.breaking_progress += 1;
+    block.breaking_progress = block.breaking_progress.saturating_add(1);
+    if block.breaking_progress < break_time {
+        world_map.set_block(position, block);
+        return Ok(());
+    }
 
-    let destroyed = block.breaking_progress >= break_time;
-    let block_id = block.id;
-    let breaking_progress = block.breaking_progress;
-
-    if destroyed {
-        log::debug!(
-            "{} Player {} broke block {:?} at position {:?}",
-            caller_type.as_str(),
-            player.id,
-            block_id,
-            block_pos
-        );
-
-        world_map.remove_block(block_pos);
-        // Add drops to player inventory
-        for (item_id, nb) in block_id.get_drops(1) {
-            player.inventory.add_item_to_inventory(ItemStack {
-                item_id,
-                item_type: item_id.get_default_type(),
-                nb,
-            });
-            info!(
-                "{} Player {} received drop {:?} x{} from breaking block {:?}",
-                caller_type.as_str(),
+    world_map.remove_block(position);
+    for (item_id, nb) in block.id.get_drops(1) {
+        let lost = player.inventory.add_item_to_inventory(ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb,
+        });
+        if lost > 0 {
+            log::info!(
+                "Player {} has no room for {lost} of the {nb} {item_id:?} dropped by {:?}",
                 player.id,
-                item_id,
-                nb,
-                block_id
+                block.id
             );
         }
-    } else {
-        world_map.set_block(block_pos, block);
-        log::debug!(
-            "{} Player {} is breaking block {:?} at position {:?} (progress: {}/{})",
-            caller_type.as_str(),
-            player.id,
-            block_id,
-            block_pos,
-            breaking_progress,
-            break_time
-        );
     }
+    Ok(())
 }
 
-fn handle_block_placement(
+/// Places the block held in the selected hotbar slot against the aimed face.
+fn place_block(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
-    caller_type: CallerType,
-) {
-    let raycast_response = raycast::raycast(
-        world_map,
-        &action.camera,
-        &player.position,
-        action.view_mode,
-    );
+) -> Result<(), Refused> {
+    let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
+    let position = new_block_position(&aimed_block(player, world_map, action, new_block_position)?);
+    let refused = |reason| Err(Refused::at(position, reason));
 
-    log::debug!(
-        "{} Player {} is trying to place block is at {:?}",
-        caller_type.as_str(),
-        player.id,
-        raycast_response,
-    );
-
-    if raycast_response.is_none() {
-        log::info!(
-            "{} Player {} tried to place a block but no valid block was found | [Camera: {:?}, Player Pos: {:?}, ViewMode: {:?}]",
-            caller_type.as_str(),
-            player.id,
-            action.camera,
-            player.position,
-            action.view_mode
-        );
-        return;
+    if world_map.get_block(position).is_some() {
+        return refused(Refusal::Occupied);
+    }
+    // A block is never placed into terrain that is not loaded, and must not use up the item
+    // then. There is no block to re-state either: neither side has this chunk.
+    if !world_map.is_chunk_loaded(global_block_to_chunk_pos(&position)) {
+        return Err(Refused {
+            reason: Refusal::ChunkNotLoaded,
+            predicted_at: None,
+        });
+    }
+    if block_overlaps_player(position, player) {
+        return refused(Refusal::InsidePlayer);
     }
 
-    let raycast_response = raycast_response.unwrap();
-
-    let collision_pos = raycast_response.position;
-    let face_direction = raycast_response.face;
-
-    log::debug!(
-        "{} Player {} is trying to place block at {:?} on face {:?}",
-        caller_type.as_str(),
-        player.id,
-        collision_pos,
-        face_direction
-    );
-
-    let face = raycast_response.face.to_ivec3();
-
-    let block_to_create_pos = collision_pos + face;
-
-    let block_to_create_pos_vec3 = Vec3::new(
-        (collision_pos.x + face.x) as f32,
-        (collision_pos.y + face.y) as f32,
-        (collision_pos.z + face.z) as f32,
-    );
-
-    let unit_cube = Vec3::new(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-
-    let target_cube_center = block_to_create_pos_vec3 + (unit_cube / 2.);
-
-    let distance = (collision_pos.as_vec3() + Vec3::splat(0.5) - player.position).norm();
-
-    // Validate interaction distance
-    if distance > INTERACTION_DISTANCE {
-        log::warn!(
-            "{} Player {} tried to place block at {:?} but it's too far (distance: {:.2})",
-            caller_type.as_str(),
-            player.id,
-            collision_pos,
-            distance
-        );
-        report_refused(world_map, block_to_create_pos, caller_type);
-        return;
+    let slot = action.hotbar_slot;
+    if slot >= MAX_INVENTORY_SLOTS {
+        return refused(Refusal::InvalidSlot(slot));
     }
+    let Some(&item) = player.inventory.inner.get(&slot) else {
+        return refused(Refusal::EmptySlot(slot));
+    };
+    let ItemType::Block(block_id) = item.item_type else {
+        return refused(Refusal::NotABlock(item.item_type));
+    };
 
-    // Check if there's already a block at that position
-    if world_map.get_block(block_to_create_pos).is_some() {
-        log::warn!(
-            "{} Player {} tried to place block at {:?} but a block already exists there",
-            caller_type.as_str(),
-            player.id,
-            block_to_create_pos
-        );
-        report_refused(world_map, block_to_create_pos, caller_type);
-        return;
-    }
+    player.inventory.remove_item_from_stack(slot, 1);
+    world_map.set_block(position, BlockData::new(block_id, BlockDirection::Front));
+    Ok(())
+}
 
-    // A block is never placed into terrain that is not loaded, and must not use up the item then
-    if !world_map.is_chunk_loaded(global_block_to_chunk_pos(&block_to_create_pos)) {
-        log::warn!(
-            "{} Player {} tried to place block at {:?} but its chunk is not loaded",
-            caller_type.as_str(),
-            player.id,
-            block_to_create_pos
-        );
-        return;
-    }
-
-    let delta = player.position - target_cube_center;
-    let distance = delta.abs();
-
-    log::debug!(
-        "{} Calculated distance to target cube center: {:?} (block pos: {:?}, player pos: {:?})",
-        caller_type.as_str(),
-        distance,
-        block_to_create_pos,
-        player.position
-    );
-
-    // Validate that block placement won't collide with player
-    if !(distance.x > (CUBE_SIZE + player.width) / 2.
-        || distance.z > (CUBE_SIZE + player.width) / 2.
-        || distance.y > (CUBE_SIZE + player.height) / 2.)
-    {
-        log::warn!(
-            "{} Player {} tried to place block at {:?} but it would collide with player",
-            caller_type.as_str(),
-            player.id,
-            block_to_create_pos
-        );
-        report_refused(world_map, block_to_create_pos, caller_type);
-        return;
-    }
-
-    let inventory_slot = action.hotbar_slot;
-
-    // Validate hotbar slot
-    if inventory_slot >= crate::MAX_INVENTORY_SLOTS {
-        log::warn!(
-            "{} Player {} tried to place block from invalid inventory slot {}",
-            caller_type.as_str(),
-            player.id,
-            inventory_slot
-        );
-        report_refused(world_map, block_to_create_pos, caller_type);
-        return;
-    }
-
-    // Try to get item from player's inventory
-    if let Some(&item) = player.inventory.inner.get(&inventory_slot) {
-        // Check if the item has a block counterpart
-        if let ItemType::Block(block_id) = item.item_type {
-            // Remove item from inventory
-            player.inventory.remove_item_from_stack(inventory_slot, 1);
-
-            // Place the block
-            let block = BlockData::new(block_id, BlockDirection::Front);
-            world_map.set_block(block_to_create_pos, block);
-
-            log::info!(
-                "{} Player {} placed block {:?} at position {:?}",
-                caller_type.as_str(),
-                player.id,
-                block_id,
-                block_to_create_pos
-            );
-        } else {
-            log::warn!(
-                "{} Player {} tried to place item {:?} but it's not a block",
-                caller_type.as_str(),
-                player.id,
-                item.item_type
-            );
-            report_refused(world_map, block_to_create_pos, caller_type);
-        }
-    } else {
-        log::warn!(
-            "{} Player {} tried to place block from empty inventory slot {}",
-            caller_type.as_str(),
-            player.id,
-            inventory_slot
-        );
-        report_refused(world_map, block_to_create_pos, caller_type);
-    }
+/// Whether a block at `block_position` would overlap the player's box, whose `position` is
+/// its centre.
+fn block_overlaps_player(block_position: IVec3, player: &Player) -> bool {
+    let distance = (player.position - (block_position.as_vec3() + HALF_BLOCK)).abs();
+    let reach =
+        (Vec3::splat(CUBE_SIZE) + Vec3::new(player.width, player.height, player.width)) / 2.;
+    distance.x <= reach.x && distance.y <= reach.y && distance.z <= reach.z
 }
 
 #[cfg(test)]
