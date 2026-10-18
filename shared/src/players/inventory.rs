@@ -1,15 +1,18 @@
 //! What an inventory action does: the clicks on the slots of the open inventory, which move
-//! items between the slots and the stack held by the cursor (the floating stack), and closing
-//! it. Run by the client (prediction) and by the server (authority).
+//! items between the slots and the stack held by the cursor (the floating stack), crafting
+//! from the grid, and closing it. Run by the client (prediction) and by the server (authority).
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     messages::PlayerFrameInput,
     players::{blocks::CallerType, Inventory, Player},
-    world::{ItemId, ItemStack, ItemType},
+    world::{grid_slot, match_recipe, CraftingGrid, ItemId, ItemStack, ItemType},
     MAX_INVENTORY_SLOTS,
 };
+
+/// Width and height of the crafting grid of the inventory alone.
+const INVENTORY_GRID_SIZE: u32 = 2;
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
 /// the network. Bump `PROTOCOL_ID` with any change.
@@ -17,15 +20,38 @@ use crate::{
 pub enum InventoryAction {
     LeftClickSlot(u32),
     RightClickSlot(u32),
-    /// The inventory was closed: the floating stack goes back into it.
+    /// The inventory was closed: the floating stack and the crafting grid go back into it.
     Close,
+    /// Click on the result of the crafting grid: the result goes to the cursor, and every cell
+    /// of the grid gives one item.
+    TakeCraftResult,
 }
 
 /// Why an inventory action changed nothing.
 #[derive(Debug, PartialEq)]
 pub enum InventoryRefusal {
-    /// The slot is not one of the inventory.
+    /// The slot is neither one of the inventory nor one of the usable crafting grid.
     InvalidSlot(u32),
+    /// The crafting grid matches no recipe.
+    NoRecipe,
+    /// The cursor holds another item, or has no room for the result.
+    CursorFull,
+}
+
+/// The slots of the cells of a grid of `size` by `size`, in its top left corner.
+pub fn grid_slots(size: u32) -> impl Iterator<Item = u32> {
+    (0..size).flat_map(move |row| (0..size).map(move |col| grid_slot(row, col)))
+}
+
+impl Inventory {
+    /// The items in the cells of the crafting grid.
+    pub fn crafting_grid(&self) -> CraftingGrid {
+        let mut grid = CraftingGrid::default();
+        for (cell, slot) in grid.iter_mut().zip(grid_slots(3)) {
+            *cell = self.inner.get(&slot).map(|stack| stack.item_id);
+        }
+        grid
+    }
 }
 
 /// Applies the inventory actions of `input`, in order.
@@ -59,18 +85,55 @@ pub fn apply_inventory_action(
         }
         InventoryAction::Close => {
             if let Some(stack) = floating {
-                let kept = inventory.add_item_to_inventory(stack);
-                floating = (kept > 0).then_some(ItemStack { nb: kept, ..stack });
+                floating = put_back(inventory, stack);
+            }
+            for slot in grid_slots(3) {
+                if let Some(stack) = inventory.inner.remove(&slot) {
+                    if let Some(kept) = put_back(inventory, stack) {
+                        inventory.inner.insert(slot, kept);
+                    }
+                }
             }
             Ok(())
         }
+        InventoryAction::TakeCraftResult => take_craft_result(inventory, &mut floating),
     };
     inventory.floating = floating;
     applied
 }
 
+/// Adds `stack` to the inventory and returns what did not fit.
+fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
+    let kept = inventory.add_item_to_inventory(stack);
+    (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+}
+
+fn take_craft_result(
+    inventory: &mut Inventory,
+    floating: &mut Option<ItemStack>,
+) -> Result<(), InventoryRefusal> {
+    let result = match_recipe(&inventory.crafting_grid()).ok_or(InventoryRefusal::NoRecipe)?;
+    let held = match *floating {
+        None => 0,
+        Some(held) if held.item_id == result.item_id => held.nb,
+        Some(_) => return Err(InventoryRefusal::CursorFull),
+    };
+    if held + result.nb > result.item_id.get_max_stack() {
+        return Err(InventoryRefusal::CursorFull);
+    }
+
+    *floating = Some(ItemStack {
+        nb: held + result.nb,
+        ..result
+    });
+    for slot in grid_slots(3) {
+        inventory.remove_item_from_stack(slot, 1);
+    }
+    Ok(())
+}
+
 fn check_slot(slot: u32) -> Result<(), InventoryRefusal> {
-    if slot < MAX_INVENTORY_SLOTS {
+    if slot < MAX_INVENTORY_SLOTS || grid_slots(INVENTORY_GRID_SIZE).any(|cell| cell == slot) {
         Ok(())
     } else {
         Err(InventoryRefusal::InvalidSlot(slot))
@@ -170,6 +233,7 @@ fn right_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::grid_slot;
 
     fn stack(item_id: ItemId, nb: u32) -> ItemStack {
         ItemStack {
@@ -313,9 +377,9 @@ mod tests {
         assert_eq!(
             apply_inventory_action(
                 &mut inventory,
-                InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS)
+                InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50)
             ),
-            Err(InventoryRefusal::InvalidSlot(MAX_INVENTORY_SLOTS))
+            Err(InventoryRefusal::InvalidSlot(MAX_INVENTORY_SLOTS + 50))
         );
         assert_eq!(
             apply_inventory_action(&mut inventory, InventoryAction::RightClickSlot(1000)),
@@ -350,6 +414,117 @@ mod tests {
         assert_eq!(inventory.floating, Some(stack(ItemId::Sand, 5)));
     }
 
+    fn planks(nb: u32) -> ItemStack {
+        stack(ItemId::OakPlanks, nb)
+    }
+
+    #[test]
+    fn the_crafting_grid_holds_the_items_of_its_slots() {
+        let mut inventory = inventory_with(grid_slot(1, 0), stack(ItemId::OakLog, 2));
+        inventory.inner.insert(0, stack(ItemId::Dirt, 1));
+
+        let mut expected = [None; 9];
+        expected[3] = Some(ItemId::OakLog);
+        assert_eq!(inventory.crafting_grid(), expected);
+    }
+
+    #[test]
+    fn taking_the_result_consumes_one_item_per_cell() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 2));
+
+        apply(&mut inventory, InventoryAction::TakeCraftResult);
+
+        assert_eq!(inventory.floating, Some(planks(4)));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], stack(ItemId::OakLog, 1));
+
+        apply(&mut inventory, InventoryAction::TakeCraftResult);
+        assert_eq!(inventory.floating, Some(planks(8)));
+        assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn the_result_stacks_on_a_cursor_holding_the_same_item() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 1));
+        inventory.floating = Some(planks(3));
+
+        apply(&mut inventory, InventoryAction::TakeCraftResult);
+
+        assert_eq!(inventory.floating, Some(planks(7)));
+    }
+
+    #[test]
+    fn the_result_is_refused_when_the_cursor_cannot_take_it() {
+        for held in [
+            stack(ItemId::Dirt, 1),
+            planks(ItemId::OakPlanks.get_max_stack() - 2),
+        ] {
+            let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 1));
+            inventory.floating = Some(held);
+            let before = inventory.clone();
+
+            assert_eq!(
+                apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult),
+                Err(InventoryRefusal::CursorFull)
+            );
+            assert_eq!(inventory, before);
+        }
+    }
+
+    #[test]
+    fn taking_the_result_of_no_recipe_is_refused() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 1));
+        assert_eq!(
+            apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult),
+            Err(InventoryRefusal::NoRecipe)
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_grid_cell_outside_the_2x2_grid_is_refused() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(planks(1));
+
+        assert_eq!(
+            apply_inventory_action(
+                &mut inventory,
+                InventoryAction::LeftClickSlot(grid_slot(0, 2))
+            ),
+            Err(InventoryRefusal::InvalidSlot(grid_slot(0, 2)))
+        );
+        apply(
+            &mut inventory,
+            InventoryAction::LeftClickSlot(grid_slot(1, 1)),
+        );
+        assert_eq!(inventory.inner[&grid_slot(1, 1)], planks(1));
+    }
+
+    #[test]
+    fn close_returns_the_grid_to_the_inventory() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 2));
+        inventory.inner.insert(grid_slot(1, 1), planks(3));
+
+        apply(&mut inventory, InventoryAction::Close);
+
+        assert_eq!(inventory.inner.len(), 2);
+        assert_eq!(inventory.inner[&0], stack(ItemId::OakLog, 2));
+        assert_eq!(inventory.inner[&1], planks(3));
+    }
+
+    #[test]
+    fn close_keeps_in_the_grid_what_does_not_fit() {
+        let mut inventory = Inventory::new();
+        for slot in 0..MAX_INVENTORY_SLOTS {
+            inventory
+                .inner
+                .insert(slot, stack(ItemId::Dirt, max_dirt()));
+        }
+        inventory.inner.insert(grid_slot(0, 0), planks(3));
+
+        apply(&mut inventory, InventoryAction::Close);
+
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], planks(3));
+    }
+
     #[test]
     fn the_actions_of_an_input_are_applied_in_order() {
         let mut player = Player::default();
@@ -357,7 +532,7 @@ mod tests {
         let input = PlayerFrameInput {
             inventory_actions: vec![
                 InventoryAction::LeftClickSlot(0),
-                InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS),
+                InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50),
                 InventoryAction::LeftClickSlot(7),
             ],
             ..Default::default()
