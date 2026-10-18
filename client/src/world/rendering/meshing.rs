@@ -1,4 +1,5 @@
 use std::f32::consts::PI;
+use std::sync::LazyLock;
 use std::{collections::HashMap, time::Instant};
 
 use bevy::{
@@ -70,6 +71,34 @@ impl MeshCreator {
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
         self.tiles
             .extend(face.uvs.iter().map(|_| [tile as f32, 0.]));
+    }
+
+    /// Appends the face `face_index` of `CUBE` stretched over `size` blocks along the face, from
+    /// the block at `corner`: its texture repeats on each block.
+    fn push_rectangle(&mut self, face_index: usize, corner: IVec3, size: Vec2, look: &FaceLook) {
+        let face = &CUBE.faces[face_index];
+        let [_, along_u, along_v] = CUBE.axes[face_index];
+        let [origin, step_u, step_v] = CUBE.uv_steps[face_index];
+        let centre = origin + (step_u * size.x + step_v * size.y) / 2.;
+
+        let first_index = self.vertices.len() as u32;
+        self.indices
+            .extend(face.indices.iter().map(|index| index + first_index));
+        for vertex in &face.vertices {
+            let mut position = Vec3::from(*vertex);
+            if position.y == 1. {
+                position.y = look.height;
+            }
+            position[along_u] *= size.x;
+            position[along_v] *= size.y;
+            self.vertices.push((corner.as_vec3() + position).into());
+            let uv = origin + step_u * vertex[along_u] * size.x + step_v * vertex[along_v] * size.y;
+            self.uvs.push(inset_uv(uv.into(), centre.into()));
+        }
+        self.normals.extend(face.normals.iter());
+        self.colors.extend(face.vertices.iter().map(|_| look.color));
+        self.tiles
+            .extend(face.vertices.iter().map(|_| [look.tile as f32, 0.]));
     }
 
     /// The mesh of the faces added so far, `None` when there is none. It has no tangents: the
@@ -168,6 +197,144 @@ impl BlockLook {
     }
 }
 
+/// The faces of a whole block, in the order of `VoxelShape::full_cube`: the faces of every
+/// block that is a cube come in this order.
+const CUBE_FACES: usize = 6;
+
+/// The faces of a whole block, which merged faces stretch, with their axes.
+struct Cube {
+    faces: Vec<Face>,
+    /// For each face, the axis across it, then the two axes along it, u and v.
+    axes: [[usize; 3]; CUBE_FACES],
+    /// For each face, its UV where u and v are 0, then how the UV changes along u and along v.
+    uv_steps: [[Vec2; 3]; CUBE_FACES],
+}
+
+static CUBE: LazyLock<Cube> = LazyLock::new(|| {
+    let faces = VoxelShape::full_cube(&BlockData::new(BlockId::Stone, BlockDirection::Front)).faces;
+    let axes = std::array::from_fn(|index| {
+        let across = Vec3::from(faces[index].normals[0]).abs().max_position();
+        [across, (across + 1) % 3, (across + 2) % 3]
+    });
+    let uv_steps = std::array::from_fn(|index| {
+        let [_, along_u, along_v] = axes[index];
+        let face = &faces[index];
+        let uv_at = |u, v| {
+            let corner = face
+                .vertices
+                .iter()
+                .position(|vertex| vertex[along_u] == u && vertex[along_v] == v);
+            Vec2::from(face.uvs[corner.expect("a face is a unit square")])
+        };
+        let origin = uv_at(0., 0.);
+        [origin, uv_at(1., 0.) - origin, uv_at(0., 1.) - origin]
+    });
+    Cube {
+        faces,
+        axes,
+        uv_steps,
+    }
+});
+
+/// What a face of a whole block looks like: neighbouring faces merge when theirs are equal.
+#[derive(Clone, Copy)]
+struct FaceLook {
+    tile: u32,
+    color: [f32; 4],
+    liquid: bool,
+    /// Where the top of the block is: below 1 under the surface of a liquid.
+    height: f32,
+}
+
+/// Cells in a layer of a chunk.
+const LAYER: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
+
+/// The faces of whole blocks, waiting to be merged into rectangles: for each face of the cube,
+/// the layers of the chunk across it, and in each layer what face lies on each cell.
+struct FaceLayers {
+    /// By face of the cube, layer, then cell `u * CHUNK_SIZE + v`: 0 for no face, else 1 + the
+    /// index of the face in `looks`.
+    cells: Vec<u32>,
+    looks: Vec<FaceLook>,
+    /// The index in `looks` of each look, by what it comes from.
+    ids: HashMap<(BlockId, usize, u32), u32>,
+}
+
+impl FaceLayers {
+    fn new() -> Self {
+        Self {
+            cells: vec![0; CUBE_FACES * CHUNK_SIZE as usize * LAYER],
+            looks: Vec::new(),
+            ids: HashMap::new(),
+        }
+    }
+
+    /// Lays the face `face_index` of the block at `local`, which looks like `look` as all the
+    /// faces of `block_id` that are at that index and that `height` do.
+    fn add(&mut self, face_index: usize, local: IVec3, block_id: BlockId, look: FaceLook) {
+        let next_id = self.looks.len() as u32 + 1;
+        let id = *self
+            .ids
+            .entry((block_id, face_index, look.height.to_bits()))
+            .or_insert_with(|| {
+                self.looks.push(look);
+                next_id
+            });
+        let [across, along_u, along_v] = CUBE.axes[face_index].map(|axis| local[axis] as usize);
+        let size = CHUNK_SIZE as usize;
+        self.cells[(face_index * size + across) * LAYER + along_u * size + along_v] = id;
+    }
+
+    /// Merges the faces of each layer into rectangles of one look, and appends them to the
+    /// solid or the liquid faces. A rectangle grows along v first, then along u as long as the
+    /// next row matches.
+    fn merge_into(mut self, solid: &mut MeshCreator, liquid: &mut MeshCreator) {
+        let size = CHUNK_SIZE as usize;
+        for (face_index, &[axis, along_u, along_v]) in CUBE.axes.iter().enumerate() {
+            for across in 0..size {
+                let start = (face_index * size + across) * LAYER;
+                let cells = &mut self.cells[start..start + LAYER];
+                for u in 0..size {
+                    let mut v = 0;
+                    while v < size {
+                        let id = cells[u * size + v];
+                        if id == 0 {
+                            v += 1;
+                            continue;
+                        }
+                        let mut length = 1;
+                        while v + length < size && cells[u * size + v + length] == id {
+                            length += 1;
+                        }
+                        let row = |u: usize| u * size + v..u * size + v + length;
+                        let mut width = 1;
+                        while u + width < size && cells[row(u + width)].iter().all(|c| *c == id) {
+                            width += 1;
+                        }
+                        for row_u in u..u + width {
+                            cells[row(row_u)].fill(0);
+                        }
+
+                        let look = &self.looks[id as usize - 1];
+                        let mut corner = IVec3::ZERO;
+                        corner[axis] = across as i32;
+                        corner[along_u] = u as i32;
+                        corner[along_v] = v as i32;
+                        let mesh_creator = if look.liquid {
+                            &mut *liquid
+                        } else {
+                            &mut *solid
+                        };
+                        let size = Vec2::new(width as f32, length as f32);
+                        mesh_creator.push_rectangle(face_index, corner, size, look);
+                        v += length;
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ChunkMeshResponse {
     pub solid_mesh: Option<Mesh>,
@@ -177,17 +344,32 @@ pub struct ChunkMeshResponse {
 
 /// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
 /// in this chunk or in the ones around it. `tiles` gives the atlas tile of each texture.
+///
+/// Neighbouring faces of whole blocks that look the same are merged into one rectangle (greedy
+/// meshing), which keeps the meshes far smaller than one square per face.
 pub(crate) fn generate_chunk_mesh(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
     tiles: &HashMap<String, u32>,
 ) -> ChunkMeshResponse {
+    mesh_chunk(world_map, chunk, chunk_pos, tiles, true)
+}
+
+/// `generate_chunk_mesh`, with the faces merged or not.
+fn mesh_chunk(
+    world_map: &ChunkMap,
+    chunk: &Chunk,
+    chunk_pos: &IVec3,
+    tiles: &HashMap<String, u32>,
+    merge: bool,
+) -> ChunkMeshResponse {
     let start = Instant::now();
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
     let mut looks: HashMap<BlockId, BlockLook> = HashMap::new();
     let mut solid = MeshCreator::default();
     let mut liquid = MeshCreator::default();
+    let mut layers = FaceLayers::new();
 
     for (local_block_pos, block) in chunk.iter() {
         let visibility = block.id.get_visibility();
@@ -209,22 +391,44 @@ pub(crate) fn generate_chunk_mesh(
         let look = looks
             .entry(block.id)
             .or_insert_with(|| BlockLook::new(block, tiles));
-        let lowered;
-        let shape = match (visibility == BlockTransparency::Liquid)
+        let height = (visibility == BlockTransparency::Liquid)
             .then(|| liquid_height(world_map, to_global_pos(chunk_pos, &local_block_pos)))
-            .flatten()
-        {
+            .flatten();
+        let lowered;
+        let shape = match height {
             Some(height) => {
                 lowered = look.shape.clone().with_top_at(height);
                 &lowered
             }
             None => &look.shape,
         };
-        for (face, tile) in shape.faces.iter().zip(&look.tiles) {
+        // A face that is not drawn the same everywhere stays one square, as do the faces of
+        // the shapes that are not whole blocks
+        let mergeable = merge && block.direction == BlockDirection::Front && cracks.is_none();
+        let height = height.unwrap_or(1.);
+        for (face_index, (face, tile)) in shape.faces.iter().zip(&look.tiles).enumerate() {
             let Some(tile) = *tile else {
                 continue;
             };
             if !should_render_face(&blocks, local_block_pos, &face.direction, &visibility) {
+                continue;
+            }
+            let (merges, face_height) = match face.direction {
+                FaceDirection::Inset => (false, 1.),
+                FaceDirection::Top => (mergeable, height),
+                FaceDirection::Bottom => (mergeable, 1.),
+                // Below the surface of a liquid, a side is shorter than a block
+                _ => (mergeable && height == 1., 1.),
+            };
+            if merges {
+                let [red, green, blue, _] = face.colors[0];
+                let look = FaceLook {
+                    tile,
+                    color: [red, green, blue, alpha],
+                    liquid: visibility == BlockTransparency::Liquid,
+                    height: face_height,
+                };
+                layers.add(face_index, local_block_pos, block.id, look);
                 continue;
             }
             mesh_creator.push_face(face, tile, alpha, origin, &block.direction);
@@ -234,6 +438,7 @@ pub(crate) fn generate_chunk_mesh(
         }
     }
 
+    layers.merge_into(&mut solid, &mut liquid);
     let response = ChunkMeshResponse {
         solid_mesh: solid.build(),
         liquid_mesh: liquid.build(),
@@ -322,7 +527,7 @@ fn should_render_face(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::BlockData;
+    use std::collections::HashSet;
 
     fn cracked_stone_mesh(tiles: &HashMap<String, u32>, progress: u8) -> usize {
         let mut chunk = Chunk::new();
@@ -402,16 +607,223 @@ mod tests {
 
     #[test]
     fn the_faces_between_two_water_blocks_are_hidden() {
-        let one = mesh_of(&[(IVec3::ONE, BlockId::Water)]);
         let two = mesh_of(&[
             (IVec3::ONE, BlockId::Water),
             (IVec3::new(2, 1, 1), BlockId::Water),
         ]);
-        // Two cubes of six faces, less the two faces they share
-        assert_eq!(
-            vertices(&two.liquid_mesh),
-            vertices(&one.liquid_mesh) * 10 / 6
+        let cells = drawn_cells(&two.liquid_mesh);
+        // Ten faces: the two cubes less the two faces they share, at x = 2
+        assert_eq!(cells.values().sum::<usize>(), 10);
+        assert!(cells
+            .keys()
+            .all(|cell| cell.normal[0] == 0 || cell.plane != 2 * 9));
+    }
+
+    /// What a face draws on a block it covers, in a plane across an axis.
+    #[derive(Hash, PartialEq, Eq, Debug)]
+    struct DrawnCell {
+        normal: [i32; 3],
+        /// Where the plane is along the normal, in ninths of a block: liquids end at ninths.
+        plane: i32,
+        /// The block covered in the plane, along the two other axes.
+        cell: [i32; 2],
+        tile: u32,
+        color: [u32; 4],
+        /// The texel of a 16 by 16 texture drawn at a point of the block.
+        texel: [i32; 2],
+    }
+
+    /// The cells drawn by the faces of `mesh` across an axis, each with how many faces draw it.
+    /// A point of each block is looked up in the triangles: it never lies on their edges.
+    fn drawn_cells(mesh: &Option<Mesh>) -> HashMap<DrawnCell, usize> {
+        use bevy::mesh::VertexAttributeValues::{Float32x2, Float32x3, Float32x4};
+        let mut cells = HashMap::new();
+        let Some(mesh) = mesh else {
+            return cells;
+        };
+        let (
+            Some(Float32x3(positions)),
+            Some(Float32x3(normals)),
+            Some(Float32x2(uvs)),
+            Some(Float32x2(tiles)),
+            Some(Float32x4(colors)),
+            Some(Indices::U32(indices)),
+        ) = (
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+            mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
+            mesh.attribute(Mesh::ATTRIBUTE_UV_0),
+            mesh.attribute(Mesh::ATTRIBUTE_UV_1),
+            mesh.attribute(Mesh::ATTRIBUTE_COLOR),
+            mesh.indices(),
+        )
+        else {
+            panic!("a chunk mesh has positions, normals, UVs, tiles, colours and indices");
+        };
+        for triangle in indices.chunks(3) {
+            let [a, b, c] = [0, 1, 2].map(|k| triangle[k] as usize);
+            let normal = Vec3::from(normals[a]);
+            let across = normal.abs().max_position();
+            if normal.abs().cmpgt(Vec3::ZERO).bitmask().count_ones() != 1 {
+                // The crossed squares of the plants are never merged
+                continue;
+            }
+            let (along_u, along_v) = ((across + 1) % 3, (across + 2) % 3);
+            let corners =
+                [a, b, c].map(|k| Vec2::new(positions[k][along_u], positions[k][along_v]));
+            let low = corners[0]
+                .min(corners[1])
+                .min(corners[2])
+                .floor()
+                .as_ivec2();
+            let high = corners[0].max(corners[1]).max(corners[2]).ceil().as_ivec2();
+            for u in low.x..high.x {
+                for v in low.y..high.y {
+                    let point = Vec2::new(u as f32 + 0.3141, v as f32 + 0.2718);
+                    let Some(weights) = barycentric(corners, point) else {
+                        continue;
+                    };
+                    let uv = weights[0] * Vec2::from(uvs[a])
+                        + weights[1] * Vec2::from(uvs[b])
+                        + weights[2] * Vec2::from(uvs[c]);
+                    let texel = (uv.fract_gl() * 16.).floor().as_ivec2();
+                    let cell = DrawnCell {
+                        normal: normal.round().as_ivec3().into(),
+                        plane: (positions[a][across] * 9.).round() as i32,
+                        cell: [u, v],
+                        tile: tiles[a][0] as u32,
+                        color: colors[a].map(f32::to_bits),
+                        texel: texel.into(),
+                    };
+                    *cells.entry(cell).or_default() += 1;
+                }
+            }
+        }
+        cells
+    }
+
+    /// The weights of the corners of a triangle at `point`, `None` outside it.
+    fn barycentric([a, b, c]: [Vec2; 3], point: Vec2) -> Option<[f32; 3]> {
+        let area = (b - a).perp_dot(c - a);
+        let weight_b = (point - a).perp_dot(c - a) / area;
+        let weight_c = (b - a).perp_dot(point - a) / area;
+        let weight_a = 1. - weight_b - weight_c;
+        [weight_a, weight_b, weight_c]
+            .iter()
+            .all(|weight| *weight >= 0.)
+            .then_some([weight_a, weight_b, weight_c])
+    }
+
+    #[test]
+    fn merged_faces_draw_the_same_texels_on_the_same_blocks_as_one_square_per_face() {
+        let tiles: HashMap<String, u32> = ["_Default", "Grass", "GrassTop", "OakLog", "OakLogTop"]
+            .into_iter()
+            .chain((0..10).map(|_| "DestroyStage"))
+            .enumerate()
+            .map(|(index, name)| match name {
+                "DestroyStage" => (format!("DestroyStage{}", index - 5), index as u32),
+                _ => (name.to_string(), index as u32),
+            })
+            .collect();
+        let mut water = 0;
+        // Plains, then the shore of an ocean, with their trees, flowers and water
+        for center in [IVec3::new(0, 4, 0), IVec3::new(-92, 3, -85)] {
+            let mut world = ChunkMap::default();
+            for chunk_pos in std::iter::once(center).chain(SIX_OFFSETS.map(|o| center + o)) {
+                world.insert_chunk(chunk_pos, server::generate_chunk(chunk_pos, 42));
+            }
+            // A block being broken, and a turned one: neither is merged
+            let surface = |x, z| {
+                let column = center * CHUNK_SIZE + IVec3::new(x, 0, z);
+                (0..CHUNK_SIZE)
+                    .rev()
+                    .map(|y| column.with_y(column.y + y))
+                    .find(|pos| world.get_block(*pos).is_some())
+                    .expect("the chunk has ground")
+            };
+            let (cracked, turned) = (surface(5, 5), surface(9, 3));
+            let mut block = *world.get_block(cracked).unwrap();
+            block.breaking_progress = 30;
+            world.set_block(cracked, block);
+            let mut block = *world.get_block(turned).unwrap();
+            block.direction = BlockDirection::Right;
+            world.set_block(turned, block);
+
+            let chunk = world.chunk(center).unwrap();
+            let merged = mesh_chunk(&world, chunk, &center, &tiles, true);
+            let squares = mesh_chunk(&world, chunk, &center, &tiles, false);
+            assert!(vertices(&merged.solid_mesh) < vertices(&squares.solid_mesh));
+            water += vertices(&squares.liquid_mesh);
+            for (merged, squares) in [
+                (&merged.solid_mesh, &squares.solid_mesh),
+                (&merged.liquid_mesh, &squares.liquid_mesh),
+            ] {
+                assert_eq!(drawn_cells(merged), drawn_cells(squares), "{center}");
+            }
+        }
+        assert!(water > 0, "the shore has water");
+    }
+
+    #[test]
+    fn a_floor_of_one_block_is_one_rectangle_on_each_side() {
+        let floor: Vec<_> = (0..CHUNK_SIZE)
+            .flat_map(|x| (0..CHUNK_SIZE).map(move |z| (IVec3::new(x, 0, z), BlockId::Stone)))
+            .collect();
+        let mesh = mesh_of(&floor).solid_mesh;
+        assert_eq!(vertices(&mesh), 6 * 4);
+        // The texture repeats on each block: across the top, the UVs go from 0 to 16
+        let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
+            mesh.unwrap().attribute(Mesh::ATTRIBUTE_UV_0).cloned()
+        else {
+            panic!("no UVs");
+        };
+        let top = &uvs[..4];
+        let span = |axis: usize| {
+            let values = top.iter().map(|uv| uv[axis]);
+            values.clone().fold(f32::MIN, f32::max) - values.fold(f32::MAX, f32::min)
+        };
+        assert!((span(0) - 16.).abs() < 0.01 && (span(1) - 16.).abs() < 0.01);
+    }
+
+    #[test]
+    fn only_faces_that_look_the_same_merge() {
+        // Stone, stone, dirt: two rectangles on top
+        let row = mesh_of(&[
+            (IVec3::new(0, 0, 0), BlockId::Stone),
+            (IVec3::new(1, 0, 0), BlockId::Stone),
+            (IVec3::new(2, 0, 0), BlockId::Dirt),
+        ]);
+        let tops = |mesh: &Option<Mesh>| {
+            drawn_cells(mesh)
+                .keys()
+                .filter(|cell| cell.normal == [0, 1, 0])
+                .count()
+        };
+        assert_eq!(tops(&row.solid_mesh), 3);
+        assert_eq!(vertices(&row.solid_mesh), 4 * (2 + 2 + 2 + 2 + 2));
+
+        // Water at two heights: a source and the flow beside it
+        let mut chunk = Chunk::new();
+        chunk.set(
+            IVec3::ZERO,
+            BlockData::new(BlockId::Water, BlockDirection::Front),
         );
+        chunk.set(
+            IVec3::X,
+            BlockData {
+                level: 3,
+                ..BlockData::new(BlockId::Water, BlockDirection::Front)
+            },
+        );
+        let mut world = ChunkMap::default();
+        world.insert_chunk(IVec3::ZERO, chunk.clone());
+        let tiles = HashMap::from([("_Default".to_string(), 0)]);
+        let water = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles);
+        let planes: HashSet<i32> = drawn_cells(&water.liquid_mesh)
+            .into_keys()
+            .filter(|cell| cell.normal == [0, 1, 0])
+            .map(|cell| cell.plane)
+            .collect();
+        assert_eq!(planes, HashSet::from([8, 5]));
     }
 
     #[test]
