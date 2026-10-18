@@ -7,8 +7,6 @@ use crate::ui::theme::{
 };
 
 /// A key (or keys) and what it does.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub struct Hint {
     pub keys: &'static str,
     pub action: &'static str,
@@ -26,8 +24,6 @@ fn uses_glyph_font(keys: &str) -> bool {
 
 /// A bar along the bottom of the screen showing each hint as a key cap and its action.
 /// `glyph_font` draws the arrows.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) -> impl Bundle {
     let hints: Vec<_> = hints
         .iter()
@@ -73,8 +69,6 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
 }
 
 /// A key cap: `keys` on a sunken square. `glyph_font` replaces `font` when `keys` has an arrow.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub fn key_cap(keys: &str, font: Handle<Font>, glyph_font: Handle<Font>) -> impl Bundle {
     let font = if uses_glyph_font(keys) {
         glyph_font

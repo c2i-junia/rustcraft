@@ -1,3 +1,4 @@
+pub mod background;
 pub mod home;
 pub mod list_screen;
 pub mod multi;
@@ -13,7 +14,6 @@ pub use server_connect_loading::*;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 
-use bevy::app::AppExit;
 use multi::multiplayer_action;
 use settings::audio::{audio_menu_setup, audio_menu_update};
 use settings::controls::{controls_menu_setup, controls_update_system};
@@ -21,6 +21,7 @@ use settings::controls::{controls_menu_setup, controls_update_system};
 use crate::audio::settings::save_audio_settings;
 use crate::input::keyboard::save_keybindings;
 use crate::state::{GameState, MenuCamera};
+use crate::ui::widgets::dialog::dialog_open;
 
 use super::button::*;
 
@@ -29,6 +30,13 @@ pub fn menu_plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Menu), menu_setup)
         // Systems to handle the main menu screen
         .add_systems(OnEnter(MenuState::Main), home_setup)
+        .add_systems(
+            Update,
+            open_quit_dialog_on_escape
+                .run_if(in_state(MenuState::Main))
+                .run_if(not(dialog_open)),
+        )
+        .add_observer(activate_main_menu_button)
         // Systems to handle the play menu screen
         .add_systems(
             OnEnter(MenuState::Solo),
@@ -56,7 +64,12 @@ pub fn menu_plugin(app: &mut App) {
         // Common systems to all screens that handles buttons behavior
         .add_systems(
             Update,
-            (menu_action, escape_button, button_system, mouse_scroll)
+            (
+                menu_action,
+                escape_button.run_if(not(dialog_open)),
+                button_system,
+                mouse_scroll,
+            )
                 .run_if(in_state(GameState::Menu)),
         )
         .add_systems(OnEnter(MenuState::SettingsControls), controls_menu_setup)
@@ -89,22 +102,15 @@ fn menu_action(
         (&Interaction, &MenuButtonAction),
         (Changed<Interaction>, With<Button>),
     >,
-    mut app_exit_events: MessageWriter<AppExit>,
     mut menu_state: ResMut<NextState<MenuState>>,
 ) {
     for (interaction, menu_button_action) in &interaction_query {
         if *interaction == Interaction::Pressed {
             match menu_button_action {
-                MenuButtonAction::Quit => {
-                    app_exit_events.write(AppExit::Success);
-                }
-                MenuButtonAction::Solo => menu_state.set(MenuState::Solo),
-                MenuButtonAction::Settings => menu_state.set(MenuState::Settings),
                 MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
                 MenuButtonAction::BackToSettings => {
                     menu_state.set(MenuState::Settings);
                 }
-                MenuButtonAction::Multi => menu_state.set(MenuState::Multi),
                 MenuButtonAction::SettingsControls => menu_state.set(MenuState::SettingsControls),
                 MenuButtonAction::SettingsAudio => menu_state.set(MenuState::SettingsAudio),
             }
@@ -114,15 +120,11 @@ fn menu_action(
 
 fn escape_button(
     keys: Res<ButtonInput<KeyCode>>,
-    mut app_exit_events: MessageWriter<AppExit>,
     menu_state: ResMut<State<MenuState>>,
     mut next_menu_state: ResMut<NextState<MenuState>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
-            MenuState::Main => {
-                app_exit_events.write(AppExit::Success);
-            }
             MenuState::Solo | MenuState::Multi | MenuState::Settings => {
                 next_menu_state.set(MenuState::Main)
             }

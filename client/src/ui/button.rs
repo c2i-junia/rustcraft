@@ -16,14 +16,10 @@ pub struct ScrollingList {
 // All actions that can be triggered from a button click
 #[derive(Component)]
 pub enum MenuButtonAction {
-    Solo,
-    Multi,
-    Settings,
     SettingsControls,
     SettingsAudio,
     BackToMainMenu,
     BackToSettings,
-    Quit,
 }
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]

@@ -175,11 +175,12 @@ mod tests {
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn resizing_lays_the_menu_out_again() {
         let mut h = Harness::new();
-        h.wait_for(&L::text("Quit"), SCREEN);
+        h.wait_for(&L::text("Quit game"), SCREEN);
         h.resize(800, 600);
-        let quit = h.center_of(&L::text("Quit"));
-        assert_eq!(quit.x, 400.0);
-        assert!(quit.y < 600.0);
+        let quit = h.center_of(&L::text("Quit game"));
+        // in the column of buttons on the left, inside the window
+        assert!((0.0..400.0).contains(&quit.x), "Quit game is at {quit}");
+        assert!((0.0..600.0).contains(&quit.y), "Quit game is at {quit}");
         assert_eq!(h.screenshot().dimensions(), (800, 600));
     }
 

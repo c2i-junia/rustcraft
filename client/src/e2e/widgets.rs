@@ -80,7 +80,8 @@ fn spawn_group(h: &mut Harness, layout: Node) -> Entity {
                 row_gap: Val::Px(10.0),
                 ..layout
             },
-            TabGroup::new(0),
+            // modal: Tab stays among the probes, not the buttons of the menu
+            TabGroup::modal(),
             GlobalZIndex(1),
         ))
         .id();

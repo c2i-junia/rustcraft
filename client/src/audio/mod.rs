@@ -3,6 +3,7 @@
 
 use bevy::audio::{DefaultSpatialScale, SpatialScale};
 use bevy::prelude::*;
+use bevy::ui_widgets::Activate;
 
 use crate::state::{GameSet, GameState};
 
@@ -23,6 +24,7 @@ const SPATIAL_SCALE: f32 = 0.25;
 pub fn audio_plugin(app: &mut App) {
     app.insert_resource(DefaultSpatialScale(SpatialScale::new(SPATIAL_SCALE)))
         .add_message::<PlaySound>()
+        .add_observer(click_on_activate)
         .add_systems(Startup, sounds::load_sound_library)
         .add_systems(
             Update,
@@ -41,6 +43,11 @@ pub fn audio_plugin(app: &mut App) {
         );
 }
 
+/// A click for every widget button activated, as `click_sounds` gives the legacy buttons.
+fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
+    sounds.write(PlaySound::here(Sound::Click));
+}
+
 /// A click for every button pressed, in the menus and in the game.
 fn click_sounds(
     buttons: Query<&Interaction, (Changed<Interaction>, With<Button>)>,
@@ -50,5 +57,25 @@ fn click_sounds(
         if *interaction == Interaction::Pressed {
             sounds.write(PlaySound::here(Sound::Click));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activating_a_widget_button_clicks() {
+        let mut app = App::new();
+        app.add_message::<PlaySound>()
+            .add_observer(click_on_activate);
+        let entity = app.world_mut().spawn_empty().id();
+        app.world_mut().trigger(Activate { entity });
+        let heard: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<PlaySound>>()
+            .drain()
+            .collect();
+        assert_eq!(heard, [PlaySound::here(Sound::Click)]);
     }
 }

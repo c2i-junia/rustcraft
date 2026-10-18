@@ -18,13 +18,13 @@ use crate::ui::theme::{
 };
 
 /// The look of a button.
-// The variants are first used by the main menu (Lot 1).
-#[allow(dead_code)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub enum ButtonVariant {
     #[default]
     Default,
     /// A green call to action.
+    // First used by the Play button of the main menu's Continue card (Lot 1, Task 4).
+    #[allow(dead_code)]
     Primary,
     /// A red, destructive action.
     Danger,
@@ -37,8 +37,6 @@ pub enum ButtonVariant {
 pub struct ThemedButton(pub ButtonVariant);
 
 /// A themed button showing `label`. Observe `On<Activate>` on it.
-// First used by the main menu (Lot 1).
-#[allow(dead_code)]
 pub fn button(label: &str, variant: ButtonVariant, font: Handle<Font>) -> impl Bundle {
     let colors = button_colors(variant, false, false, false);
     (

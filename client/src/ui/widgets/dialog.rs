@@ -25,13 +25,9 @@ use crate::ui::theme::{
 };
 
 /// The z-index of a dialog: over the screens and the in-game overlays.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub const DIALOG_Z: i32 = 50;
 
 /// What `spawn_dialog` builds.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub struct Dialog<'a> {
     pub title: &'a str,
     /// An empty body shows nothing.
@@ -54,8 +50,6 @@ pub struct DialogRoot {
 #[derive(EntityEvent)]
 pub struct DialogClosed {
     pub entity: Entity,
-    // first read by the main menu (Lot 1, Task 3)
-    #[allow(dead_code)]
     pub action: Option<usize>,
 }
 
@@ -69,16 +63,12 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// Whether a dialog is open: the Escape handlers of the screens behind it stand down.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub fn dialog_open(dialogs: Query<(), With<DialogRoot>>) -> bool {
     !dialogs.is_empty()
 }
 
 /// Spawns `dialog` over the whole window and returns its root. `focus` is the current focus,
 /// given back when the dialog closes.
-// First used by the main menu (Lot 1, Task 3).
-#[allow(dead_code)]
 pub fn spawn_dialog(
     commands: &mut Commands,
     dialog: &Dialog,
