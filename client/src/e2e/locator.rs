@@ -2,7 +2,8 @@
 
 use std::time::{Duration, Instant};
 
-use bevy::{prelude::*, ui::UiGlobalTransform};
+use accesskit::Role;
+use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiGlobalTransform};
 
 use super::harness::Harness;
 use crate::ui::hud::InventoryCell;
@@ -12,6 +13,8 @@ enum Target {
     Text(String),
     TextContaining(String),
     Name(String),
+    /// The accessibility role and label of a widget.
+    Role(Role, String),
     /// The name of the component, for the messages, and the query of its entities.
     Marker(&'static str, MarkerQuery),
     Row(String),
@@ -24,6 +27,7 @@ impl std::fmt::Debug for Target {
             Target::Text(content) => f.debug_tuple("Text").field(content).finish(),
             Target::TextContaining(part) => f.debug_tuple("TextContaining").field(part).finish(),
             Target::Name(name) => f.debug_tuple("Name").field(name).finish(),
+            Target::Role(role, label) => f.debug_tuple("Role").field(role).field(label).finish(),
             Target::Marker(component, _) => f.debug_tuple("Marker").field(component).finish(),
             Target::Row(content) => f.debug_tuple("Row").field(content).finish(),
             Target::Cell(id) => f.debug_tuple("Cell").field(id).finish(),
@@ -55,6 +59,12 @@ impl Locator {
     /// An element with this `Name`, for the ones without text.
     pub fn name(name: &str) -> Locator {
         Self::of(Target::Name(name.to_string()))
+    }
+
+    /// A widget with the accessibility role `role` and the label `label`, as every widget of the
+    /// UI carries them.
+    pub fn role(role: Role, label: &str) -> Locator {
+        Self::of(Target::Role(role, label.to_string()))
     }
 
     /// An element with the component `C`.
@@ -108,6 +118,12 @@ impl Locator {
                 .query::<(Entity, &Name)>()
                 .iter(world)
                 .filter(|(_, n)| n.as_str() == name)
+                .map(|(entity, _)| entity)
+                .collect(),
+            Target::Role(role, label) => world
+                .query::<(Entity, &AccessibilityNode)>()
+                .iter(world)
+                .filter(|(_, node)| node.role() == *role && node.label() == Some(label.as_str()))
                 .map(|(entity, _)| entity)
                 .collect(),
             Target::Marker(_, find) => find(world),
@@ -456,6 +472,31 @@ mod tests {
     fn a_missing_marker_is_named_by_its_type_and_scope() {
         let hotbar = L::marker::<crate::ui::hud::hotbar::Hotbar>();
         main_menu().get(&hotbar.within(L::text("Quit")));
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    fn a_widget_is_found_by_its_role_and_label() {
+        let mut h = main_menu();
+        h.world_mut().spawn((
+            bevy::ui_widgets::Button,
+            bevy::ui::prelude::AccessibleLabel::new("Play probe"),
+            Node {
+                width: Val::Px(120.0),
+                height: Val::Px(40.0),
+                ..default()
+            },
+        ));
+        h.frames(3);
+        h.get(&L::role(Role::Button, "Play probe"));
+        assert!(h.find(&L::role(Role::CheckBox, "Play probe")).is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    #[should_panic(expected = r#"Role(Button, "Nope")"#)]
+    fn a_missing_role_is_named_in_the_failure() {
+        main_menu().get(&L::role(Role::Button, "Nope"));
     }
 
     #[test]

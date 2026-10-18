@@ -110,7 +110,7 @@ on their first load and the old files are kept: `world.ron.legacy` for the singl
 
 ## End-to-end tests
 
-`main.rs` builds the `App` and hands the wiring of the client to `app::add_client` (`client/src/app.rs`). The end-to-end tests (`client/src/e2e/`, compiled for tests only) call the same function on an `App` with a surfaceless window, so they run the client that players run: a `Harness` finds elements by their text, `Name` or marker, injects the mouse and keyboard as messages, and draws the cameras into an image for the golden screenshots and the review snapshots. In game, the tests go through the integrated server, on wall-clock time. How to write one is in the README.
+`main.rs` builds the `App` and hands the wiring of the client to `app::add_client` (`client/src/app.rs`). The end-to-end tests (`client/src/e2e/`, compiled for tests only) call the same function on an `App` with a surfaceless window, so they run the client that players run: a `Harness` finds elements by their text, `Name`, marker or accessibility role, injects the mouse (including the window events of picking) and keyboard as messages, and draws the cameras into an image for the golden screenshots and the review snapshots. In game, the tests go through the integrated server, on wall-clock time. How to write one is in the README.
 
 ## Known limits
 

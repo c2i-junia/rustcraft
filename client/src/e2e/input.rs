@@ -7,7 +7,7 @@ use bevy::{
         ButtonState,
     },
     prelude::*,
-    window::PrimaryWindow,
+    window::{CursorMoved, PrimaryWindow, WindowEvent},
 };
 
 use super::{harness::Harness, locator::Locator};
@@ -42,22 +42,12 @@ impl Harness {
 
     /// Holds a key down for a frame.
     pub fn key_down(&mut self, key: KeyCode) {
-        self.send_key(
-            key,
-            Key::Unidentified(NativeKey::Unidentified),
-            None,
-            ButtonState::Pressed,
-        );
+        self.send_key(key, logical_key_of(key), None, ButtonState::Pressed);
     }
 
     /// Releases a key for a frame.
     pub fn key_up(&mut self, key: KeyCode) {
-        self.send_key(
-            key,
-            Key::Unidentified(NativeKey::Unidentified),
-            None,
-            ButtonState::Released,
-        );
+        self.send_key(key, logical_key_of(key), None, ButtonState::Released);
     }
 
     /// Types the text one character at a time, into whatever has the focus.
@@ -78,13 +68,17 @@ impl Harness {
     /// Scrolls the wheel by `lines`, positive going up.
     pub fn scroll(&mut self, lines: f32) {
         let window = self.window();
-        self.world_mut().write_message(MouseWheel {
+        let wheel = MouseWheel {
             unit: MouseScrollUnit::Line,
             x: 0.0,
             y: lines,
             window,
             phase: bevy::input::touch::TouchPhase::Moved,
-        });
+        };
+        self.world_mut().write_message(wheel);
+        // Picking reads the window events only
+        self.world_mut()
+            .write_message(WindowEvent::MouseWheel(wheel));
         self.frames(1);
     }
 
@@ -96,21 +90,32 @@ impl Harness {
         self.frames(1);
         let window = self.window();
         for state in [ButtonState::Pressed, ButtonState::Released] {
-            self.world_mut().write_message(MouseButtonInput {
+            let input = MouseButtonInput {
                 button,
                 state,
                 window,
-            });
+            };
+            self.world_mut().write_message(input);
+            // Picking reads the window events only
+            self.world_mut()
+                .write_message(WindowEvent::MouseButtonInput(input));
             self.frames(1);
         }
     }
 
+    /// Moves the cursor to `position`, in physical pixels: for the `Interaction` of the UI, on the
+    /// window, and for picking, as a window event in logical pixels.
     fn move_cursor(&mut self, position: Vec2) {
         let window = self.window();
+        let mut state = self.world_mut().get_mut::<Window>(window).unwrap();
+        state.set_physical_cursor_position(Some(position.as_dvec2()));
+        let scale_factor = state.scale_factor();
         self.world_mut()
-            .get_mut::<Window>(window)
-            .unwrap()
-            .set_physical_cursor_position(Some(position.as_dvec2()));
+            .write_message(WindowEvent::CursorMoved(CursorMoved {
+                window,
+                position: position / scale_factor,
+                delta: None,
+            }));
     }
 
     fn send_key(
@@ -138,6 +143,54 @@ impl Harness {
             .single(self.world())
             .unwrap()
     }
+}
+
+/// The logical key of a physical key, on a QWERTY layout without modifiers: the named keys
+/// (Enter, the arrows, the modifiers...), and the letters and digits as their character.
+/// Anything else is unidentified.
+fn logical_key_of(key: KeyCode) -> Key {
+    match key {
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Escape => Key::Escape,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Delete => Key::Delete,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::ArrowLeft => Key::ArrowLeft,
+        KeyCode::ArrowRight => Key::ArrowRight,
+        KeyCode::ArrowUp => Key::ArrowUp,
+        KeyCode::ArrowDown => Key::ArrowDown,
+        KeyCode::Home => Key::Home,
+        KeyCode::End => Key::End,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
+        KeyCode::ShiftLeft | KeyCode::ShiftRight => Key::Shift,
+        KeyCode::ControlLeft | KeyCode::ControlRight => Key::Control,
+        KeyCode::AltLeft | KeyCode::AltRight => Key::Alt,
+        KeyCode::Space => Key::Space,
+        KeyCode::F1 => Key::F1,
+        KeyCode::F2 => Key::F2,
+        KeyCode::F3 => Key::F3,
+        KeyCode::F4 => Key::F4,
+        KeyCode::F5 => Key::F5,
+        KeyCode::F6 => Key::F6,
+        KeyCode::F7 => Key::F7,
+        KeyCode::F8 => Key::F8,
+        KeyCode::F9 => Key::F9,
+        KeyCode::F10 => Key::F10,
+        KeyCode::F11 => Key::F11,
+        KeyCode::F12 => Key::F12,
+        _ => match character_of(key) {
+            Some(c) => Key::Character(c.to_string().into()),
+            None => Key::Unidentified(NativeKey::Unidentified),
+        },
+    }
+}
+
+/// The character of a letter or digit key, in lower case.
+fn character_of(key: KeyCode) -> Option<char> {
+    ('a'..='z')
+        .chain('0'..='9')
+        .find(|&c| key_code_of(c) == key)
 }
 
 /// The physical key of an ASCII letter or digit.
@@ -185,11 +238,132 @@ fn key_code_of(c: char) -> KeyCode {
 
 #[cfg(test)]
 mod tests {
+    use accesskit::Role;
+    use bevy::{
+        a11y::AccessibilityNode,
+        text::EditableText,
+        ui::prelude::AccessibleLabel,
+        ui_widgets::{Activate, Button as UiButton, ScrollArea},
+    };
+
     use super::*;
     use crate::e2e::harness::SCREEN;
     use crate::e2e::helpers::main_menu;
     use crate::ui::button::MenuState;
     use crate::ui::menus::solo::WorldNameInput;
+    use Locator as L;
+
+    /// How many times the probe button was activated.
+    #[derive(Resource, Default)]
+    struct Activations(u32);
+
+    /// Spawns `probe` in a corner of the screen, above the main menu, and lays it out.
+    fn spawn_probe(h: &mut Harness, probe: impl Bundle) -> Entity {
+        let root = h
+            .world_mut()
+            .spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(20.0),
+                    top: Val::Px(20.0),
+                    ..default()
+                },
+                GlobalZIndex(1),
+            ))
+            .id();
+        let probe = h.world_mut().spawn((probe, ChildOf(root))).id();
+        h.frames(3);
+        probe
+    }
+
+    fn size(width: f32, height: f32) -> Node {
+        Node {
+            width: Val::Px(width),
+            height: Val::Px(height),
+            ..default()
+        }
+    }
+
+    #[test]
+    fn logical_keys_are_the_named_keys() {
+        let cases = [
+            (KeyCode::Enter, Key::Enter),
+            (KeyCode::Escape, Key::Escape),
+            (KeyCode::Backspace, Key::Backspace),
+            (KeyCode::Tab, Key::Tab),
+            (KeyCode::ArrowLeft, Key::ArrowLeft),
+            (KeyCode::ShiftLeft, Key::Shift),
+            (KeyCode::ControlRight, Key::Control),
+            (KeyCode::Space, Key::Space),
+            (KeyCode::F3, Key::F3),
+            (KeyCode::KeyE, Key::Character("e".into())),
+            (KeyCode::Digit1, Key::Character("1".into())),
+        ];
+        for (key_code, logical) in cases {
+            assert_eq!(logical_key_of(key_code), logical, "{key_code:?}");
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    fn clicking_a_widget_button_activates_it() {
+        let mut h = main_menu();
+        h.world_mut().init_resource::<Activations>();
+        let button = spawn_probe(
+            &mut h,
+            (UiButton, AccessibleLabel::new("Probe"), size(120.0, 40.0)),
+        );
+        h.world_mut()
+            .entity_mut(button)
+            .observe(|_: On<Activate>, mut activations: ResMut<Activations>| activations.0 += 1);
+        h.click(&L::role(Role::Button, "Probe"));
+        assert_eq!(h.world().resource::<Activations>().0, 1);
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    fn the_wheel_scrolls_a_scroll_area_under_the_cursor() {
+        let mut h = main_menu();
+        let list = spawn_probe(
+            &mut h,
+            (
+                ScrollArea,
+                Name::new("Probe list"),
+                Node {
+                    overflow: Overflow::scroll_y(),
+                    ..size(200.0, 100.0)
+                },
+                children![size(200.0, 1000.0)],
+            ),
+        );
+        h.hover(&L::name("Probe list"));
+        h.scroll(-1.0);
+        h.frames(1);
+        let position = h.world().get::<ScrollPosition>(list).unwrap();
+        assert!(position.y > 0.0, "the list is at {position:?}");
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    fn named_keys_edit_an_editable_text() {
+        let mut h = main_menu();
+        let field = spawn_probe(
+            &mut h,
+            (
+                EditableText::default(),
+                AccessibilityNode(accesskit::Node::new(Role::TextInput)),
+                AccessibleLabel::new("Probe field"),
+                size(200.0, 30.0),
+            ),
+        );
+        h.click(&L::role(Role::TextInput, "Probe field"));
+        h.type_text("abcd");
+        h.press(KeyCode::Backspace);
+        h.press(KeyCode::ArrowLeft);
+        h.type_text("x");
+        let value = h.world().get::<EditableText>(field).unwrap().value();
+        assert_eq!(value.to_string(), "abxc");
+    }
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]

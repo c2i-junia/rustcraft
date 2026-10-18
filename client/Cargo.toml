@@ -4,7 +4,9 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-bevy = { version="0.19", features=["serialize"] }
+bevy = { version = "=0.19.1", features = ["serialize"] }
+# The accessibility roles of the widgets, which Bevy does not re-export
+accesskit = "0.24"
 rand = "0.8.5"
 bevy_simple_text_input = "0.15"
 bevy_renet = "5.0"
