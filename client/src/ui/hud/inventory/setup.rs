@@ -46,26 +46,36 @@ fn stack_icon(atlas: &AtlasWrapper, node: Node) -> impl Bundle {
 
 /// Spawns the cell of inventory slot `slot`, as the hotbar and the inventory dialog show it.
 pub fn spawn_inventory_cell(parent: &mut ChildSpawnerCommands, slot: u32, atlas: &AtlasWrapper) {
-    spawn_cell(parent, InventoryCell { id: slot }, atlas);
+    spawn_cell(parent, InventoryCell { id: slot }, cell_node(), atlas);
 }
 
-/// Spawns a cell showing a stack, marked by `marker`.
-fn spawn_cell(parent: &mut ChildSpawnerCommands, marker: impl Bundle, atlas: &AtlasWrapper) {
+/// The size and the frame of a cell.
+fn cell_node() -> Node {
+    Node {
+        width: Val::Px(HOTBAR_CELL_SIZE),
+        height: Val::Px(HOTBAR_CELL_SIZE),
+        margin: UiRect::ZERO,
+        position_type: PositionType::Relative,
+        padding: UiRect::all(Val::Px(HOTBAR_PADDING)),
+        border: UiRect::all(Val::Px(HOTBAR_BORDER)),
+        ..default()
+    }
+}
+
+/// Spawns a cell showing a stack, marked by `marker`, laid out by `node`.
+fn spawn_cell(
+    parent: &mut ChildSpawnerCommands,
+    marker: impl Bundle,
+    node: Node,
+    atlas: &AtlasWrapper,
+) {
     parent
         .spawn((
             marker,
             Button,
             BorderColor::all(CELL_BORDER_COLOR),
             FocusPolicy::Block,
-            Node {
-                width: Val::Px(HOTBAR_CELL_SIZE),
-                height: Val::Px(HOTBAR_CELL_SIZE),
-                margin: UiRect::ZERO,
-                position_type: PositionType::Relative,
-                padding: UiRect::all(Val::Px(HOTBAR_PADDING)),
-                border: UiRect::all(Val::Px(HOTBAR_BORDER)),
-                ..default()
-            },
+            node,
         ))
         .with_children(|cell| {
             cell.spawn(stack_count());
@@ -193,7 +203,14 @@ fn spawn_crafting_row(commands: &mut Commands, atlas: &AtlasWrapper) -> Entity {
                         let cell = InventoryCell {
                             id: grid_slot(row, col),
                         };
-                        spawn_cell(grid, (cell, CraftingGridCell { row, col }), atlas);
+                        // Placed by hand: a hidden cell leaves the grid, which would move
+                        // the next ones in its place
+                        let node = Node {
+                            grid_row: GridPlacement::start(row as i16 + 1),
+                            grid_column: GridPlacement::start(col as i16 + 1),
+                            ..cell_node()
+                        };
+                        spawn_cell(grid, (cell, CraftingGridCell { row, col }), node, atlas);
                     }
                 }
             });
@@ -204,7 +221,7 @@ fn spawn_crafting_row(commands: &mut Commands, atlas: &AtlasWrapper) -> Entity {
                     ..default()
                 },
             ));
-            spawn_cell(row, CraftResultCell, atlas);
+            spawn_cell(row, CraftResultCell, cell_node(), atlas);
         })
         .id()
 }
