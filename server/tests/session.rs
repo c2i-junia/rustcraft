@@ -1282,6 +1282,32 @@ fn inventory_clicks_are_applied_by_the_server() {
 }
 
 #[test]
+fn quick_moves_and_hotbar_swaps_are_applied_by_the_server() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(20, stack(ItemId::Dirt, 5));
+    inventory.inner.insert(2, stack(ItemId::Stick, 3));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    let inventory = send_inventory_actions(
+        &mut client,
+        1,
+        vec![
+            // The dirt goes to the first free slot of the hotbar
+            InventoryAction::QuickMoveSlot(20),
+            // The stick trades places with the empty slot 9
+            InventoryAction::SwapWithHotbar { slot: 9, hotbar: 2 },
+        ],
+    );
+
+    let mut expected = Inventory::new();
+    expected.inner.insert(0, stack(ItemId::Dirt, 5));
+    expected.inner.insert(9, stack(ItemId::Stick, 3));
+    assert_eq!(inventory, expected);
+}
+
+#[test]
 fn a_log_is_crafted_into_planks() {
     let mut inventory = Inventory::new();
     inventory.inner.insert(0, stack(ItemId::OakLog, 1));
