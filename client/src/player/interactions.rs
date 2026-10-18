@@ -22,6 +22,7 @@ pub fn handle_block_interactions(
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
     world_map: ResMut<ClientWorldMap>,
     mouse_input: Res<ButtonInput<MouseButton>>,
+    mut pressed_in_ui: Local<Vec<MouseButton>>,
     (keyboard_input, key_map): (Res<ButtonInput<KeyCode>>, Res<KeyMap>),
     mut inventory_root: Query<&mut Visibility, With<InventoryRoot>>,
     ui_mode: Res<UIMode>,
@@ -30,9 +31,14 @@ pub fn handle_block_interactions(
     mut gizmos: Gizmos,
     mut block_changes: MessageWriter<BlockChanged>,
 ) {
+    // A button pressed over a UI, to close it for instance, is not for the world: it is ignored
+    // until released
     if *ui_mode != UIMode::Closed {
+        pressed_in_ui.extend(mouse_input.get_pressed());
         return;
     }
+    pressed_in_ui.retain(|button| mouse_input.pressed(*button));
+    let held = |button| mouse_input.pressed(button) && !pressed_in_ui.contains(&button);
     let (Ok((mut player, player_transform)), Ok(camera_transform)) =
         (player_query.single_mut(), camera_query.single())
     else {
@@ -56,7 +62,7 @@ pub fn handle_block_interactions(
         WHITE,
     );
 
-    if mouse_input.pressed(MouseButton::Left) {
+    if held(MouseButton::Left) {
         frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
     }
     // The simulation must see the sneak key, which decides between opening and placing
@@ -76,7 +82,7 @@ pub fn handle_block_interactions(
         if let Ok(mut visibility) = inventory_root.single_mut() {
             *visibility = Visibility::Visible;
         }
-    } else if mouse_input.pressed(MouseButton::Right) {
+    } else if held(MouseButton::Right) {
         frame_inputs.0.inputs.insert(NetworkAction::RightClick);
     }
 

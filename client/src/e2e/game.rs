@@ -3,24 +3,35 @@
 
 use std::fs;
 
-use bevy::{input::keyboard::KeyCode, prelude::*};
-use shared::players::Inventory;
-use shared::world::{grid_slot, ItemId};
+use bevy::{
+    input::{keyboard::KeyCode, mouse::MouseButtonInput, ButtonState},
+    pbr::wireframe::WireframeConfig,
+    prelude::*,
+    ui::ComputedStackIndex,
+    window::{PrimaryWindow, WindowEvent},
+};
+use shared::players::{Inventory, ViewMode};
+use shared::world::{grid_slot, raycast, FaceDirectionExt, ItemId};
 
 use super::harness::{Harness, Options, SCREEN, SERVER};
 use super::helpers::is_in;
 use super::locator::{is_inside, is_shown, Locator as L};
 use super::seed::GameFolder;
+use crate::camera::CameraController;
 use crate::constants::SAVE_PATH;
 use crate::network::hash_string_to_u64;
+use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
 use crate::ui::hud::chat::{ChatDisplay, ChatInput, ChatRoot};
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::ui::hud::{CraftResultCell, FloatingStack, InventoryCell, InventoryRoot, UIMode};
+use crate::ui::hud::{
+    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
+};
+use crate::ui::menus::pause::PauseMenu;
 use crate::ui::widgets::slot::SlotIcon;
-use crate::world::MaterialResource;
+use crate::world::{ClientWorldMap, MaterialResource};
 
 /// A client in the game, in the world `world` of `folder`, with its hotbar on screen.
 #[track_caller]
@@ -87,6 +98,17 @@ impl Harness {
             .any(|line| is_inside(world, line, display))
     }
 
+    /// The place in the UI stack of the one node carrying `C`, higher being nearer the viewer.
+    #[track_caller]
+    fn stack_index<C: Component>(&mut self) -> u32 {
+        let world = self.world_mut();
+        world
+            .query_filtered::<&ComputedStackIndex, With<C>>()
+            .single(world)
+            .unwrap()
+            .0
+    }
+
     /// The index in the items atlas of the icon shown by the result cell.
     #[track_caller]
     fn result_icon(&mut self) -> Option<usize> {
@@ -127,13 +149,26 @@ fn the_hud_shows_and_f3_toggles_the_debug_overlay() {
     assert_eq!(h.find(&cells).len(), 9);
     assert_eq!(h.reticle_bars(), 2);
 
-    // Whether the overlay starts shown is not the point: F3 flips it, and flips it back
-    let shown = h.is_visible(&L::marker::<HudRoot>());
+    // The overlay starts hidden, F3 shows it and hides it again
+    let overlay = L::marker::<HudRoot>();
+    assert!(!h.is_visible(&overlay));
     h.press(KeyCode::F3);
-    assert_eq!(h.is_visible(&L::marker::<HudRoot>()), !shown);
+    assert!(h.is_visible(&overlay));
     h.press(KeyCode::F3);
-    assert_eq!(h.is_visible(&L::marker::<HudRoot>()), shown);
+    assert!(!h.is_visible(&overlay));
     h.snapshot("hud");
+
+    // Shown, the overlay stays under the pause menu, the inventory and the chat
+    h.press(KeyCode::F3);
+    h.press(KeyCode::Escape);
+    assert!(h.stack_index::<HudRoot>() < h.stack_index::<PauseMenu>());
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::KeyE);
+    assert!(h.stack_index::<HudRoot>() < h.stack_index::<InventoryDialog>());
+    h.press(KeyCode::KeyE);
+    h.press(KeyCode::KeyT);
+    assert!(h.stack_index::<HudRoot>() < h.stack_index::<ChatRoot>());
+    h.press(KeyCode::Escape);
 }
 
 #[test]
@@ -278,6 +313,22 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert_eq!(h.value_of::<ChatInput>(), "");
     h.type_text("e");
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    // Nor are the digit, the debug keys and the wheel
+    h.type_text("3");
+    h.press(KeyCode::F3);
+    h.press(KeyCode::F6);
+    h.scroll(-1.);
+    assert_eq!(
+        h.world_mut()
+            .query::<&Hotbar>()
+            .single(h.world())
+            .unwrap()
+            .selected,
+        0
+    );
+    assert!(!h.is_visible(&L::marker::<HudRoot>()));
+    assert!(!h.world().resource::<WireframeConfig>().global);
+    assert_eq!(h.value_of::<ChatInput>(), "e3");
 
     // Escape closes the chat, and the pause menu does not open
     h.press(KeyCode::Escape);
@@ -287,6 +338,115 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     // The closed field holds no key
     h.press(KeyCode::KeyE);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+
+    // An open inventory closes with its key, and the debug keys wait for the pause menu too
+    h.press(KeyCode::KeyE);
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    h.press(KeyCode::Escape);
+    assert!(h.is_visible(&L::text("Resume")));
+    h.press(KeyCode::F3);
+    h.press(KeyCode::F6);
+    assert!(!h.is_visible(&L::marker::<HudRoot>()));
+    assert!(!h.world().resource::<WireframeConfig>().global);
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::F3);
+    assert!(h.is_visible(&L::marker::<HudRoot>()));
+}
+
+/// Whether the client world holds a block at `position`.
+fn is_block(w: &World, position: IVec3) -> bool {
+    w.resource::<ClientWorldMap>()
+        .blocks
+        .get_block(position)
+        .is_some()
+}
+
+/// The aimed block and the cell a block placed against it takes, once the aimed one is loaded.
+fn aimed_cells(w: &World, camera: Entity, player: Entity) -> Option<(IVec3, IVec3)> {
+    let target = raycast(
+        &w.resource::<ClientWorldMap>().blocks,
+        w.get::<Transform>(camera)?,
+        &w.get::<Transform>(player)?.translation,
+        *w.resource::<ViewMode>(),
+    )?;
+    Some((target.position, target.position + target.face.to_ivec3()))
+}
+
+/// Presses `button` over `locator`, holds it for `frames` frames, then releases it.
+#[track_caller]
+fn hold_click(h: &mut Harness, locator: &L, button: MouseButton, frames: usize) {
+    let center = h.center_of(locator);
+    h.move_cursor(center);
+    h.frames(1);
+    let window = h
+        .world_mut()
+        .query_filtered::<Entity, With<PrimaryWindow>>()
+        .single(h.world())
+        .unwrap();
+    for (state, held) in [(ButtonState::Pressed, frames), (ButtonState::Released, 1)] {
+        let input = MouseButtonInput {
+            button,
+            state,
+            window,
+        };
+        h.world_mut().write_message(input);
+        h.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(input));
+        h.frames(held);
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_click_that_closes_a_ui_does_not_reach_the_world() {
+    let folder =
+        GameFolder::new()
+            .with_world("Held")
+            .with_items("Held", "Tester", &[(0, ItemId::Dirt, 64)]);
+    let mut h = enter_world(folder, "Held");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Dirt, 64))
+    });
+
+    // Look down ahead of the player, at the top of a block, and wait for it to land within reach of the ground it
+    // aims at: the cell a block placed there takes
+    let world = h.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<CameraController>>()
+        .single(world)
+        .unwrap();
+    let player = world
+        .query_filtered::<Entity, With<CurrentPlayerMarker>>()
+        .single(world)
+        .unwrap();
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.6;
+    h.wait_until("the ground within reach", SERVER, |w| {
+        aimed_cells(w, camera, player).is_some_and(|(target, _)| {
+            let feet = w.get::<Transform>(player).unwrap().translation;
+            target.as_vec3().distance(feet) < 3.
+        })
+    });
+    // Settled on the ground
+    h.frames(30);
+    let (target, cell) = aimed_cells(h.world(), camera, player).unwrap();
+    assert!(is_block(h.world(), target) && !is_block(h.world(), cell));
+
+    // The click that closes the chat
+    h.press(KeyCode::KeyT);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(is_block(h.world(), target) && !is_block(h.world(), cell));
+
+    // The click that resumes the game
+    h.press(KeyCode::Escape);
+    // The legacy button answers the left button only, which breaks blocks
+    hold_click(&mut h, &L::text("Resume"), MouseButton::Left, 6);
+    assert!(!h.is_visible(&L::text("Resume")));
+    assert!(is_block(h.world(), target) && !is_block(h.world(), cell));
+
+    // A new click in gameplay does place a block there
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
+    h.wait_until("the placed block", SERVER, |w| is_block(w, cell));
 }
 
 #[test]

@@ -24,6 +24,7 @@ use bevy::{
     },
     window::PresentMode,
 };
+#[cfg(debug_assertions)]
 use bevy_inspector_egui::{
     bevy_egui::{EguiGlobalSettings, EguiPlugin, EguiPrimaryContextPass},
     DefaultInspectorConfigPlugin,
@@ -31,7 +32,9 @@ use bevy_inspector_egui::{
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
 use shared::get_game_folder_paths;
-use ui::{hud::debug::inspector::inspector_ui, menus};
+#[cfg(debug_assertions)]
+use ui::hud::debug::{debug_overlay_shown, inspector::inspector_ui};
+use ui::menus;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -73,6 +76,7 @@ fn main() {
         game_folder_paths.game_folder_path.display()
     );
 
+    #[cfg(debug_assertions)]
     add_debug_inspector(&mut app);
     app::add_client(
         &mut app,
@@ -121,7 +125,9 @@ fn engine_plugins() -> PluginGroupBuilder {
         })
 }
 
-/// The egui window listing the entities and the resources of the app.
+/// The egui window listing the entities and the resources of the app. It follows the debug
+/// overlay (F3) and is left out of release builds.
+#[cfg(debug_assertions)]
 fn add_debug_inspector(app: &mut App) {
     // The menu and game cameras carry `PrimaryEguiContext` themselves: the automatic context
     // would stay on the first camera ever created, which is the menu one.
@@ -131,5 +137,8 @@ fn add_debug_inspector(app: &mut App) {
     })
     .add_plugins(EguiPlugin::default())
     .add_plugins(DefaultInspectorConfigPlugin)
-    .add_systems(EguiPrimaryContextPass, inspector_ui);
+    .add_systems(
+        EguiPrimaryContextPass,
+        inspector_ui.run_if(debug_overlay_shown),
+    );
 }

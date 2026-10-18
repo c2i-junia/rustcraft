@@ -95,18 +95,26 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                toggle_chunk_debug_mode_system,
-                toggle_raycast_debug_mode_system,
                 fps_text_update_system,
                 coords_text_update_system,
                 loaded_chunks_text_update_system,
                 block_text_update_system,
                 time_text_update_system,
-                toggle_hud_system,
                 chunk_ghost_update_system,
                 raycast_debug_update_system,
-                toggle_wireframe_system,
             )
                 .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            // The game keys wait while a dialog is open or the player types
+            (
+                toggle_chunk_debug_mode_system,
+                toggle_raycast_debug_mode_system,
+                toggle_hud_system,
+                toggle_wireframe_system,
+            )
+                .after(GameSet::UiMode)
+                .run_if(in_state(GameState::Game).and_then(in_gameplay)),
         );
 }

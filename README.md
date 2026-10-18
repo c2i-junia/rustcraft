@@ -96,7 +96,7 @@ paru -S rustcraft
 |                   |                        |                             |
 | **Miscellaneous** | Open Chat             | T                           |
 |                   | Reload Chunks (rebuild their meshes) | R            |
-|                   | Toggle FPS Display    | F3                          |
+|                   | Toggle debug overlay  | F3                          |
 |                   | Toggle Perspective    | F5                          |
 |                   | Toggle Chunk Debug    | F4                          |
 |                   | Toggle Block Debug    | F6                          |
