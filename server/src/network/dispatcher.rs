@@ -47,6 +47,7 @@ pub fn setup_resources_and_events(app: &mut App) {
     app.add_message::<SaveRequestEvent>()
         .add_message::<PlayerInputsEvent>()
         .add_message::<ServerEventMessage>()
+        .init_resource::<world::flow::WaterFlow>()
         .add_observer(buffer_server_event);
 
     setup_chat_resources(app);
@@ -63,7 +64,7 @@ pub fn setup_resources_and_events(app: &mut App) {
 pub enum ServerSet {
     /// Connection events and client messages.
     Receive,
-    /// The player inputs are applied to the world.
+    /// The player inputs are applied to the world, then the water flows.
     Simulate,
     /// The world changes are sent to the clients.
     Broadcast,
@@ -96,6 +97,7 @@ pub fn register_systems(app: &mut App) {
         (
             handle_player_inputs_system,
             crate::mob::manage_mob_spawning_system,
+            world::flow::water_flow_system,
         )
             .chain()
             .in_set(ServerSet::Simulate),
