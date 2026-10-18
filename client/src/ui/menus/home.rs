@@ -1,8 +1,6 @@
 //! The main menu: the logo, the buttons to the other screens, the card of the last world played,
 //! and a confirmation before quitting.
 
-use std::time::SystemTime;
-
 use bevy::{
     input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus},
     prelude::*,
@@ -13,7 +11,9 @@ use shared::GameFolderPaths;
 
 use super::background::menu_background;
 use super::solo::SelectedWorld;
-use super::worlds::{last_played_world, played_ago, start_world, thumbnail_color, WorldSummary};
+use super::worlds::{
+    elapsed_since, last_played_world, played_ago, start_world, thumbnail_color, WorldSummary,
+};
 use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
@@ -202,9 +202,7 @@ fn continue_card(world: &WorldSummary, font: &Handle<Font>) -> impl Bundle {
             TextLayout::linebreak(LineBreak::WordOrCharacter),
         )
     };
-    let elapsed = SystemTime::now()
-        .duration_since(world.played)
-        .unwrap_or_default();
+    let elapsed = elapsed_since(world.played);
     let mut details = vec![text(world.name.clone(), FONT_L, TEXT)];
     if let Some(day) = world.day {
         details.push(text(format!("Day {day}"), FONT_S, TEXT));

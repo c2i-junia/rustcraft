@@ -1,7 +1,7 @@
 //! The main menu: its buttons lead to the other screens, the Continue card plays the last world,
 //! and quitting asks first.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use accesskit::Role;
 use bevy::prelude::*;
@@ -201,8 +201,17 @@ fn continue_plays_the_last_world_by_ctrl_enter_and_by_click() {
     h.key_up(KeyCode::ControlLeft);
     let selected = h.world().resource::<SelectedWorld>().name.clone();
     assert_eq!(selected.as_deref(), Some("Recent"));
-    assert_ne!(h.menu_state(), MenuState::Solo);
-    h.wait_for_game_state(GameState::Game, SERVER);
+    // the world list never opens on the way into the game
+    let start = Instant::now();
+    while h.game_state() != GameState::Game {
+        assert_ne!(h.menu_state(), MenuState::Solo);
+        assert!(
+            !h.is_visible(&L::text("World list")),
+            "the world list opened"
+        );
+        assert!(start.elapsed() < SERVER, "timed out waiting for the game");
+        h.frames(1);
+    }
 
     // Back on the main menu, the world was just played, and Play plays it again
     h.press(KeyCode::Escape);

@@ -54,6 +54,11 @@ pub fn day_of(time: u64) -> u64 {
     time / DAY_DURATION_IN_TICKS + 1
 }
 
+/// How long ago `played` was: none when it is in the future (a clock set back since).
+pub fn elapsed_since(played: SystemTime) -> Duration {
+    SystemTime::now().duration_since(played).unwrap_or_default()
+}
+
 /// How long ago a world was played, in the largest whole unit: "played 3 days ago".
 pub fn played_ago(elapsed: Duration) -> String {
     const MINUTE: u64 = 60;
@@ -117,6 +122,11 @@ mod tests {
     }
 
     fn write_world_ron(saves: &Path, name: &str, contents: &str, ago: Duration) {
+        write_world_ron_at(saves, name, contents, SystemTime::now() - ago);
+    }
+
+    /// Writes the `world.ron` of `name`, last modified at `modified`.
+    fn write_world_ron_at(saves: &Path, name: &str, contents: &str, modified: SystemTime) {
         let world = saves.join(name);
         fs::create_dir_all(&world).unwrap();
         let path = world.join(WORLD_FILE);
@@ -125,7 +135,7 @@ mod tests {
             .write(true)
             .open(&path)
             .unwrap()
-            .set_modified(SystemTime::now() - ago)
+            .set_modified(modified)
             .unwrap();
     }
 
@@ -189,6 +199,26 @@ mod tests {
         for (elapsed, said) in cases {
             assert_eq!(played_ago(elapsed), said, "after {elapsed:?}");
         }
+    }
+
+    #[test]
+    fn two_worlds_played_at_the_same_time_are_told_apart_by_name() {
+        let saves = tempfile::tempdir().unwrap();
+        let same = SystemTime::now() - HOUR;
+        for name in ["Bravo", "Charlie", "Alpha"] {
+            write_world_ron_at(saves.path(), name, "", same);
+        }
+
+        assert_eq!(last_played_world(saves.path()).unwrap().name, "Charlie");
+    }
+
+    #[test]
+    fn a_world_saved_in_the_future_was_played_just_now() {
+        let saves = tempfile::tempdir().unwrap();
+        write_world_ron_at(saves.path(), "Ahead", "", SystemTime::now() + DAY);
+
+        let world = last_played_world(saves.path()).unwrap();
+        assert_eq!(played_ago(elapsed_since(world.played)), "played just now");
     }
 
     #[test]
