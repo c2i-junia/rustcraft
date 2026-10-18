@@ -74,8 +74,12 @@ pub fn audio_menu_setup(
                                 ..default()
                             },
                         ));
-                        line.spawn((small_button(), VolumeButton { channel, steps: -1 }))
-                            .with_child((Text::new("-"), text(33.0)));
+                        line.spawn((
+                            small_button(),
+                            VolumeButton { channel, steps: -1 },
+                            Name::new(format!("Lower {}", channel.label())),
+                        ))
+                        .with_child((Text::new("-"), text(33.0)));
                         line.spawn((
                             Text::new(volume_text(&settings, channel)),
                             text(33.0),
@@ -86,8 +90,12 @@ pub fn audio_menu_setup(
                             },
                             VolumeLabel(channel),
                         ));
-                        line.spawn((small_button(), VolumeButton { channel, steps: 1 }))
-                            .with_child((Text::new("+"), text(33.0)));
+                        line.spawn((
+                            small_button(),
+                            VolumeButton { channel, steps: 1 },
+                            Name::new(format!("Raise {}", channel.label())),
+                        ))
+                        .with_child((Text::new("+"), text(33.0)));
                     });
             }
             parent

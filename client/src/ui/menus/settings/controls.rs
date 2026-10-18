@@ -170,6 +170,7 @@ fn spawn_control_line(
                 ..default()
             },
             ClearButton { action, binds },
+            Name::new(format!("Clear {action:?}")),
         ))
         .with_child((
             ImageNode::new(trash_icon.clone()),
