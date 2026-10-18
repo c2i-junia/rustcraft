@@ -2,22 +2,31 @@
 
 use accesskit::Role;
 use bevy::{
+    input::{
+        keyboard::{Key, KeyboardInput},
+        ButtonState,
+    },
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
         AutoFocus, InputFocus, InputFocusVisible,
     },
     prelude::*,
+    text::EditableText,
     ui::InteractionDisabled,
     ui_widgets::Activate,
+    window::PrimaryWindow,
 };
 
 use super::harness::{Harness, Options, SCREEN};
 use super::helpers::main_menu;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::ui::theme::{ACCENT, RAISE_HOVER};
+use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER};
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
+use crate::ui::widgets::text_field::{
+    spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
+};
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
@@ -265,4 +274,190 @@ fn hovering_a_themed_button_lightens_it() {
         h.world().get::<BackgroundColor>(play).unwrap().0,
         RAISE_HOVER
     );
+}
+
+/// What the text field of a test submitted, and how many times it was cancelled.
+#[derive(Resource, Default)]
+struct FieldEvents {
+    submits: Vec<String>,
+    cancels: u32,
+}
+
+/// Spawns a probe "P", then a "Name" text field of at most 5 characters with the focus, in a
+/// 300 px wide column above the main menu, and records its submits and cancels.
+fn spawn_field(h: &mut Harness) -> TextFieldParts {
+    h.world_mut().init_resource::<FieldEvents>();
+    let root = spawn_group(
+        h,
+        Node {
+            width: Val::Px(300.0),
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+    );
+    h.world_mut().spawn((probe("P"), ChildOf(root)));
+    let field = TextField {
+        label: "Name",
+        placeholder: "Your name",
+        max_characters: Some(5),
+        font: Handle::default(),
+        font_size: 20.0,
+    };
+    let parts = spawn_text_field(&mut h.world_mut().commands(), &field);
+    h.world_mut().flush();
+    h.world_mut().entity_mut(parts.root).insert(ChildOf(root));
+    h.world_mut()
+        .entity_mut(parts.input)
+        .insert(AutoFocus)
+        .observe(|submit: On<Submit>, mut events: ResMut<FieldEvents>| {
+            events.submits.push(submit.value.clone());
+        })
+        .observe(|_: On<Cancel>, mut events: ResMut<FieldEvents>| events.cancels += 1);
+    h.frames(3);
+    parts
+}
+
+fn submits(h: &mut Harness) -> Vec<String> {
+    h.world().resource::<FieldEvents>().submits.clone()
+}
+
+fn cancels(h: &mut Harness) -> u32 {
+    h.world().resource::<FieldEvents>().cancels
+}
+
+fn value(h: &mut Harness, input: Entity) -> String {
+    h.world()
+        .get::<EditableText>(input)
+        .unwrap()
+        .value()
+        .to_string()
+}
+
+/// The frame of a text field: the parent of its input.
+fn frame_of(h: &mut Harness, input: Entity) -> Entity {
+    h.world().get::<ChildOf>(input).unwrap().parent()
+}
+
+fn border_of(h: &mut Harness, entity: Entity) -> [Color; 4] {
+    let border = h.world().get::<BorderColor>(entity).unwrap();
+    [border.top, border.left, border.bottom, border.right]
+}
+
+/// Writes a press of C and a press of Enter, then runs a single frame.
+fn press_c_and_enter_in_one_frame(h: &mut Harness) {
+    let window = h
+        .world_mut()
+        .query_filtered::<Entity, With<PrimaryWindow>>()
+        .single(h.world())
+        .unwrap();
+    let keys = [
+        (KeyCode::KeyC, Key::Character("c".into()), Some("c")),
+        (KeyCode::Enter, Key::Enter, None),
+    ];
+    for (key_code, logical_key, text) in keys {
+        h.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key,
+            state: ButtonState::Pressed,
+            text: text.map(Into::into),
+            repeat: false,
+            window,
+        });
+    }
+    h.frames(1);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn enter_in_a_text_field_submits_its_value() {
+    let mut h = main_menu();
+    spawn_field(&mut h);
+    h.type_text("abc");
+    h.press(KeyCode::Enter);
+    h.frames(2);
+    assert_eq!(submits(&mut h), ["abc"]);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_character_and_enter_in_one_frame_submit_both() {
+    let mut h = main_menu();
+    spawn_field(&mut h);
+    press_c_and_enter_in_one_frame(&mut h);
+    assert_eq!(submits(&mut h), ["c"]);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn escape_in_a_text_field_cancels_it() {
+    let mut h = main_menu();
+    spawn_field(&mut h);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert_eq!(cancels(&mut h), 1);
+    assert!(submits(&mut h).is_empty());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_placeholder_shows_only_while_the_field_is_empty() {
+    let mut h = main_menu();
+    spawn_field(&mut h);
+    assert!(h.is_visible(&L::text("Your name")));
+    h.type_text("a");
+    assert!(!h.is_visible(&L::text("Your name")));
+    h.press(KeyCode::Backspace);
+    assert!(h.is_visible(&L::text("Your name")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_field_keeps_at_most_max_characters() {
+    let mut h = main_menu();
+    let parts = spawn_field(&mut h);
+    h.type_text("abcdefg");
+    assert_eq!(value(&mut h, parts.input), "abcde");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_error_shows_under_the_field_with_a_red_bevel() {
+    let mut h = main_menu();
+    let parts = spawn_field(&mut h);
+    let frame = frame_of(&mut h, parts.input);
+    h.world_mut()
+        .entity_mut(parts.input)
+        .insert(FieldError(Some("Bad name".into())));
+    h.wait_for(&L::text("Bad name"), SCREEN);
+    assert_eq!(border_of(&mut h, frame), [DANGER; 4]);
+    h.world_mut()
+        .entity_mut(parts.input)
+        .insert(FieldError(None));
+    h.frames(2);
+    assert!(!h.is_visible(&L::text("Bad name")));
+    assert_eq!(
+        border_of(&mut h, frame),
+        [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
+    );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_click_focuses_the_field_and_shows_its_ring_after_tab() {
+    let mut h = main_menu();
+    let parts = spawn_field(&mut h);
+    let frame = frame_of(&mut h, parts.input);
+    let ring = |h: &mut Harness| h.world().get::<Outline>(frame).unwrap().color;
+    h.click(&L::name("P"));
+    h.frames(2);
+    assert_focus_on(&mut h, "P");
+    h.click(&L::role(Role::TextInput, "Name"));
+    h.frames(2);
+    assert_eq!(focused(&mut h), parts.input);
+    assert_eq!(ring(&mut h), Color::NONE);
+    h.click(&L::name("P"));
+    h.press(KeyCode::Tab);
+    h.frames(1);
+    assert_eq!(focused(&mut h), parts.input);
+    assert_eq!(ring(&mut h), ACCENT);
 }
