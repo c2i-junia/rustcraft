@@ -291,16 +291,16 @@ pub fn spawn_row(
         ))
         .id();
 
-    let mut icon_button = |image: &'static str| {
+    let mut icon_button = |image: &'static str, name: String| {
         commands
-            .spawn((Button, icon_button_node.clone()))
+            .spawn((Button, Name::new(name), icon_button_node.clone()))
             .with_children(|btn| {
                 btn.spawn((ImageNode::new(assets.load(image)), icon.clone()));
             })
             .id()
     };
-    let play = icon_button("./graphics/play.png");
-    let delete = icon_button("./graphics/trash.png");
+    let play = icon_button("./graphics/play.png", format!("Play {title}"));
+    let delete = icon_button("./graphics/trash.png", format!("Delete {title}"));
 
     let title = commands
         .spawn((

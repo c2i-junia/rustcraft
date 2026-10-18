@@ -57,7 +57,7 @@ impl CurrentPlayerProfile {
 /// The id of a player is the hash of its name, and its save file is named after it. Rust does
 /// not promise that `DefaultHasher` gives the same values in every release: replacing it would
 /// need a migration of the saved players.
-fn hash_string_to_u64(input: &str) -> u64 {
+pub(crate) fn hash_string_to_u64(input: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
     hasher.finish()

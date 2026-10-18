@@ -9,7 +9,7 @@ mod cleanup;
 pub mod extensions;
 mod inputs;
 pub mod save;
-mod setup;
+pub(crate) mod setup;
 mod world;
 
 pub use chat::*;
