@@ -5,14 +5,17 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::ui::hud::{FloatingStack, InventoryCell, InventoryRoot, StackCount, StackIcon, UIMode};
+use crate::ui::hud::{
+    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryRoot, StackCount,
+    StackIcon, UIMode,
+};
 use crate::world::MaterialResource;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use shared::players::inventory::InventoryAction;
+use shared::players::inventory::{InventoryAction, INVENTORY_GRID_SIZE};
 use shared::players::Inventory;
-use shared::world::ItemStack;
+use shared::world::{match_recipe, ItemStack};
 
 /// Pixels of trackpad scrolling that select the next hotbar slot.
 const SCROLL_PIXELS_PER_SLOT: i32 = 20;
@@ -73,6 +76,7 @@ pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     cells: Query<(&Interaction, &InventoryCell)>,
+    result: Query<&Interaction, With<CraftResultCell>>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
 ) {
     let left = mouse_input.just_pressed(MouseButton::Left);
@@ -93,6 +97,15 @@ pub fn click_inventory_cells_system(
         } else {
             InventoryAction::RightClickSlot(cell.id)
         });
+    }
+    if result
+        .iter()
+        .any(|interaction| *interaction != Interaction::None)
+    {
+        frame_inputs
+            .0
+            .inventory_actions
+            .push(InventoryAction::TakeCraftResult);
     }
 }
 
@@ -165,6 +178,39 @@ pub fn display_inventory_system(
     }
 }
 
+/// Shows the cells of the crafting grid in use and, in the result cell, what the grid makes.
+pub fn display_crafting_system(
+    inventory: Res<Inventory>,
+    materials: Res<MaterialResource>,
+    mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
+    mut result: Query<(&Interaction, &mut BorderColor, &Children), With<CraftResultCell>>,
+    mut counts: Query<&mut Text, With<StackCount>>,
+    mut icons: Query<(&mut ImageNode, &mut Visibility), (With<StackIcon>, Without<InventoryRoot>)>,
+) {
+    let size = INVENTORY_GRID_SIZE;
+    for (cell, mut node) in &mut grid_cells {
+        let display = if cell.row < size && cell.col < size {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+    }
+
+    let made = match_recipe(&inventory.crafting_grid());
+    for (interaction, mut border_color, children) in &mut result {
+        show_stack(made, children, &mut counts, &mut icons, &materials);
+        let border = if *interaction != Interaction::None {
+            Color::WHITE
+        } else {
+            CELL_BORDER_COLOR
+        };
+        border_color.set_if_neq(BorderColor::all(border));
+    }
+}
+
 /// Shows `stack` with the count and the icon found among `children`, or hides both.
 fn show_stack(
     stack: Option<ItemStack>,
@@ -202,7 +248,7 @@ fn show_stack(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
-    use shared::world::ItemId;
+    use shared::world::{grid_slot, ItemId};
 
     fn dirt_stack(nb: u32) -> ItemStack {
         ItemStack {
@@ -240,6 +286,36 @@ mod tests {
                     .with_child((StackCount, Text::new("")));
             }
             Self { world }
+        }
+
+        fn spawn_result_cell(&mut self) -> Entity {
+            self.world
+                .spawn((
+                    CraftResultCell,
+                    Interaction::None,
+                    BorderColor::all(CELL_BORDER_COLOR),
+                ))
+                .with_child((StackCount, Text::new("")))
+                .id()
+        }
+
+        fn spawn_grid_cell(&mut self, row: u32, col: u32) -> Entity {
+            self.world
+                .spawn((
+                    InventoryCell {
+                        id: grid_slot(row, col),
+                    },
+                    CraftingGridCell { row, col },
+                    Interaction::None,
+                    BorderColor::all(CELL_BORDER_COLOR),
+                    Node::default(),
+                ))
+                .with_child((StackCount, Text::new("")))
+                .id()
+        }
+
+        fn show_crafting(&mut self) {
+            self.world.run_system_once(display_crafting_system).unwrap();
         }
 
         fn cell(&mut self, slot: u32) -> Entity {
@@ -345,6 +421,61 @@ mod tests {
     }
 
     #[test]
+    fn the_result_cell_shows_the_recipe_output() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let result = hud.spawn_result_cell();
+        let shown = |hud: &mut Hud| {
+            hud.show_crafting();
+            let count = hud.world.get::<Children>(result).unwrap()[0];
+            hud.world.get::<Text>(count).unwrap().0.clone()
+        };
+        assert_eq!(shown(&mut hud), "");
+
+        hud.world.resource_mut::<Inventory>().inner.insert(
+            grid_slot(0, 0),
+            ItemStack {
+                item_id: ItemId::OakLog,
+                item_type: ItemId::OakLog.get_default_type(),
+                nb: 1,
+            },
+        );
+        assert_eq!(shown(&mut hud), "4");
+    }
+
+    #[test]
+    fn clicking_the_result_cell_sends_take_craft_result() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let result = hud.spawn_result_cell();
+        hud.world.entity_mut(result).insert(Interaction::Pressed);
+        hud.world
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+
+        hud.world
+            .run_system_once(click_inventory_cells_system)
+            .unwrap();
+
+        assert_eq!(hud.sent_actions(), [InventoryAction::TakeCraftResult]);
+    }
+
+    #[test]
+    fn the_grid_shows_only_its_2x2_corner_without_a_table() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let inside = hud.spawn_grid_cell(1, 1);
+        let outside = [hud.spawn_grid_cell(0, 2), hud.spawn_grid_cell(2, 0)];
+
+        hud.show_crafting();
+
+        assert_ne!(
+            hud.world.get::<Node>(inside).unwrap().display,
+            Display::None
+        );
+        for cell in outside {
+            assert_eq!(hud.world.get::<Node>(cell).unwrap().display, Display::None);
+        }
+    }
+
+    #[test]
     fn the_floating_stack_shows_the_stack_held_by_the_cursor() {
         let mut hud = Hud::new(Visibility::Visible, &[]);
         assert_eq!(hud.floating_shown(), "");
@@ -425,7 +556,8 @@ mod tests {
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();
-        assert_eq!(cells.iter(&world).count() as u32, MAX_INVENTORY_SLOTS);
+        // The slots of the inventory, then the 3x3 crafting grid
+        assert_eq!(cells.iter(&world).count() as u32, MAX_INVENTORY_SLOTS + 9);
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon
         let shown = |world: &mut World, slot: u32| -> (String, Option<usize>) {

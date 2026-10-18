@@ -12,8 +12,8 @@ use shared::messages::{
 use shared::players::inventory::InventoryAction;
 use shared::players::{Inventory, Player};
 use shared::world::{
-    global_block_to_chunk_pos, raycast, to_local_pos, BlockData, BlockDirection, BlockId, Chunk,
-    ChunkMap, ItemId, ItemStack,
+    global_block_to_chunk_pos, grid_slot, raycast, to_local_pos, BlockData, BlockDirection,
+    BlockId, Chunk, ChunkMap, ItemId, ItemStack,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -1278,5 +1278,29 @@ fn inventory_clicks_are_applied_by_the_server() {
 
     let mut expected = Inventory::new();
     expected.inner.insert(7, stack(ItemId::Dirt, 5));
+    assert_eq!(inventory, expected);
+}
+
+#[test]
+fn a_log_is_crafted_into_planks() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::OakLog, 1));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    let inventory = send_inventory_actions(
+        &mut client,
+        1,
+        vec![
+            InventoryAction::LeftClickSlot(0),
+            InventoryAction::LeftClickSlot(grid_slot(0, 0)),
+            InventoryAction::TakeCraftResult,
+            InventoryAction::LeftClickSlot(1),
+        ],
+    );
+
+    let mut expected = Inventory::new();
+    expected.inner.insert(1, stack(ItemId::OakPlanks, 4));
     assert_eq!(inventory, expected);
 }

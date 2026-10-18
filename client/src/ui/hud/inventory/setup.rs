@@ -1,10 +1,12 @@
 use crate::constants::{HOTBAR_BORDER, HOTBAR_CELL_SIZE, HOTBAR_PADDING, MAX_HOTBAR_SLOTS};
 use crate::state::GameState;
 use crate::ui::hud::{
-    FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, StackCount, StackIcon, UiDialog,
+    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryDialog,
+    InventoryRoot, StackCount, StackIcon, UiDialog,
 };
 use crate::world::{AtlasWrapper, MaterialResource};
 use bevy::{prelude::*, ui::FocusPolicy};
+use shared::world::{grid_slot, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
 
 /// Border of a cell that is neither selected nor hovered.
@@ -41,9 +43,14 @@ fn stack_icon(atlas: &AtlasWrapper, node: Node) -> impl Bundle {
 
 /// Spawns the cell of inventory slot `slot`, as the hotbar and the inventory dialog show it.
 pub fn spawn_inventory_cell(parent: &mut ChildSpawnerCommands, slot: u32, atlas: &AtlasWrapper) {
+    spawn_cell(parent, InventoryCell { id: slot }, atlas);
+}
+
+/// Spawns a cell showing a stack, marked by `marker`.
+fn spawn_cell(parent: &mut ChildSpawnerCommands, marker: impl Bundle, atlas: &AtlasWrapper) {
     parent
         .spawn((
-            InventoryCell { id: slot },
+            marker,
             Button,
             BorderColor::all(CELL_BORDER_COLOR),
             FocusPolicy::Block,
@@ -147,15 +154,55 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
         })
         .id();
 
+    let crafting = spawn_crafting_row(&mut commands, atlas);
     let floating_stack = spawn_floating_stack(&mut commands, atlas);
 
     commands
         .entity(dialog)
-        .add_children(&[inventory_title, inventory_grid]);
+        .add_children(&[inventory_title, crafting, inventory_grid]);
 
     commands
         .entity(root)
         .add_children(&[dialog, floating_stack]);
+}
+
+/// The crafting grid, an arrow, and the cell of what the grid makes.
+fn spawn_crafting_row(commands: &mut Commands, atlas: &AtlasWrapper) -> Entity {
+    commands
+        .spawn(Node {
+            display: Display::Flex,
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            margin: UiRect::all(Val::Px(10.)),
+            column_gap: Val::Px(20.),
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn(Node {
+                display: Display::Grid,
+                grid_template_columns: RepeatedGridTrack::auto(CRAFTING_GRID_SIZE as u16),
+                ..default()
+            })
+            .with_children(|grid| {
+                for row in 0..CRAFTING_GRID_SIZE {
+                    for col in 0..CRAFTING_GRID_SIZE {
+                        let cell = InventoryCell {
+                            id: grid_slot(row, col),
+                        };
+                        spawn_cell(grid, (cell, CraftingGridCell { row, col }), atlas);
+                    }
+                }
+            });
+            row.spawn((
+                Text::new("->"),
+                TextFont {
+                    font_size: 24.0.into(),
+                    ..default()
+                },
+            ));
+            spawn_cell(row, CraftResultCell, atlas);
+        })
+        .id()
 }
 
 /// The stack held by the cursor, which it follows over the open inventory.
