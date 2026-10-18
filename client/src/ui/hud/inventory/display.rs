@@ -1,8 +1,8 @@
-use super::items::{left_click_slot, right_click_slot};
 use super::CELL_BORDER_COLOR;
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
+use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{FloatingStack, InventoryCell, InventoryRoot, StackCount, StackIcon, UIMode};
@@ -10,6 +10,7 @@ use crate::world::MaterialResource;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use shared::players::inventory::InventoryAction;
 use shared::players::Inventory;
 use shared::world::ItemStack;
 
@@ -66,35 +67,50 @@ pub fn select_hotbar_slot_system(
     }
 }
 
-/// Applies a click on a cell of the open inventory to the slot and to the floating stack.
+/// Sends a click on a cell of the open inventory as an action of the frame's input, which the
+/// client predicts and the server applies.
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
-    mut inventory: ResMut<Inventory>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     cells: Query<(&Interaction, &InventoryCell)>,
-    mut floating_stack: Query<&mut FloatingStack>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
 ) {
     let left = mouse_input.just_pressed(MouseButton::Left);
     let right = mouse_input.just_pressed(MouseButton::Right);
     if !left && !right {
         return;
     }
-    let (Ok(&Visibility::Visible), Ok(mut floating_stack)) =
-        (inventory_root.single(), floating_stack.single_mut())
-    else {
+    if !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
         return;
-    };
+    }
 
     for (interaction, cell) in &cells {
         if *interaction == Interaction::None {
             continue;
         }
-        if left {
-            left_click_slot(&mut inventory, cell.id, &mut floating_stack.items);
+        frame_inputs.0.inventory_actions.push(if left {
+            InventoryAction::LeftClickSlot(cell.id)
         } else {
-            right_click_slot(&mut inventory, cell.id, &mut floating_stack.items);
-        }
+            InventoryAction::RightClickSlot(cell.id)
+        });
     }
+}
+
+/// Sends `Close` when the inventory gets hidden, whichever key hid it, so that the stack held
+/// by the cursor goes back into the inventory.
+pub fn close_inventory_system(
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    mut was_open: Local<bool>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+) {
+    let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    if *was_open && !is_open {
+        frame_inputs
+            .0
+            .inventory_actions
+            .push(InventoryAction::Close);
+    }
+    *was_open = is_open;
 }
 
 /// Shows every slot in its cell, the floating stack under the cursor, and outlines the cell
@@ -105,7 +121,7 @@ pub fn display_inventory_system(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
     window: Query<&Window, With<PrimaryWindow>>,
-    mut floating_stack: Query<(&mut Node, &FloatingStack, &Children)>,
+    mut floating_stack: Query<(&mut Node, &Children), With<FloatingStack>>,
     mut cells: Query<(&Interaction, &mut BorderColor, &InventoryCell, &Children)>,
     mut counts: Query<&mut Text, With<StackCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<StackIcon>, Without<InventoryRoot>)>,
@@ -115,13 +131,13 @@ pub fn display_inventory_system(
         .is_ok_and(|visibility| *visibility == Visibility::Visible);
     let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
 
-    if let Ok((mut node, floating_stack, children)) = floating_stack.single_mut() {
+    if let Ok((mut node, children)) = floating_stack.single_mut() {
         if let Some(cursor) = window.single().ok().and_then(Window::cursor_position) {
             node.top = Val::Px(cursor.y);
             node.left = Val::Px(cursor.x);
         }
         show_stack(
-            floating_stack.items,
+            inventory.floating,
             children,
             &mut counts,
             &mut icons,
@@ -208,10 +224,11 @@ mod tests {
             world.insert_resource(Inventory::new());
             world.insert_resource(MaterialResource::default());
             world.insert_resource(ButtonInput::<MouseButton>::default());
+            world.init_resource::<CurrentFrameInputs>();
             world.spawn((InventoryRoot, inventory_visibility));
             world.spawn(Hotbar { selected: 0 });
             world
-                .spawn((FloatingStack { items: None }, Node::default()))
+                .spawn((FloatingStack, Node::default()))
                 .with_child((StackCount, Text::new("")));
             for &slot in slots {
                 world
@@ -262,9 +279,24 @@ mod tests {
             self.world.entity_mut(cell).insert(Interaction::None);
         }
 
-        fn floating(&mut self) -> Option<ItemStack> {
-            let mut floating = self.world.query::<&FloatingStack>();
-            floating.single(&self.world).unwrap().items
+        /// The count shown by the floating stack.
+        fn floating_shown(&mut self) -> String {
+            self.world
+                .run_system_once(display_inventory_system)
+                .unwrap();
+            let mut floating = self
+                .world
+                .query_filtered::<&Children, With<FloatingStack>>();
+            let count = floating.single(&self.world).unwrap()[0];
+            self.world.get::<Text>(count).unwrap().0.clone()
+        }
+
+        fn sent_actions(&self) -> Vec<InventoryAction> {
+            self.world
+                .resource::<CurrentFrameInputs>()
+                .0
+                .inventory_actions
+                .clone()
         }
     }
 
@@ -291,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_a_cell_of_the_open_inventory_moves_items_to_the_cursor_and_back() {
+    fn a_click_on_a_cell_of_the_open_inventory_is_sent_as_an_inventory_action() {
         let mut hud = Hud::new(Visibility::Visible, &[9]);
         hud.world
             .resource_mut::<Inventory>()
@@ -299,12 +331,44 @@ mod tests {
             .insert(9, dirt_stack(5));
 
         hud.click(9, MouseButton::Right);
-        assert_eq!(hud.floating(), Some(dirt_stack(3)));
-        assert_eq!(hud.shown(9).0, "2");
-
         hud.click(9, MouseButton::Left);
-        assert_eq!(hud.floating(), None);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::RightClickSlot(9),
+                InventoryAction::LeftClickSlot(9)
+            ]
+        );
+        // The click is predicted with the other inputs of the frame, not here
         assert_eq!(hud.shown(9).0, "5");
+    }
+
+    #[test]
+    fn the_floating_stack_shows_the_stack_held_by_the_cursor() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        assert_eq!(hud.floating_shown(), "");
+
+        hud.world.resource_mut::<Inventory>().floating = Some(dirt_stack(3));
+        assert_eq!(hud.floating_shown(), "3");
+    }
+
+    #[test]
+    fn hiding_the_inventory_sends_close_once() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let close = hud.world.register_system(close_inventory_system);
+        hud.world.run_system(close).unwrap();
+        assert!(hud.sent_actions().is_empty());
+
+        let mut root = hud
+            .world
+            .query_filtered::<&mut Visibility, With<InventoryRoot>>();
+        *root.single_mut(&mut hud.world).unwrap() = Visibility::Hidden;
+        for _ in 0..2 {
+            hud.world.run_system(close).unwrap();
+        }
+
+        assert_eq!(hud.sent_actions(), [InventoryAction::Close]);
     }
 
     #[test]
@@ -317,8 +381,7 @@ mod tests {
 
         hud.click(0, MouseButton::Left);
 
-        assert_eq!(hud.floating(), None);
-        assert_eq!(hud.world.resource::<Inventory>().inner[&0], dirt_stack(5));
+        assert!(hud.sent_actions().is_empty());
     }
 
     /// The hotbar and the inventory as the game builds them, with an atlas of two items.

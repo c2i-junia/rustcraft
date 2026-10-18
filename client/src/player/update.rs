@@ -13,7 +13,10 @@ use bevy::color::palettes::css::ORANGE;
 use bevy::prelude::*;
 use shared::{
     messages::{PlayerFrameInput, PlayerSpawnEvent, PlayerUpdateEvent},
-    players::{movement::simulate_player_movement, Inventory, Player},
+    players::{
+        blocks::CallerType, inventory::simulate_inventory_actions,
+        movement::simulate_player_movement, Inventory, Player,
+    },
     world::ChunkMap,
 };
 
@@ -157,8 +160,6 @@ pub fn update_players_system(
             continue;
         }
 
-        player.inventory = event.inventory.clone();
-        inventory.inner = event.inventory.inner.clone();
         reconcile_prediction(
             &mut player,
             event,
@@ -166,6 +167,17 @@ pub fn update_players_system(
             &mut tick_buffer.buffer,
             &world_map.blocks,
         );
+        // The inventory resumes from the server's, with the actions it has not applied yet
+        player.inventory = event.inventory.clone();
+        let not_applied = unacknowledged_inputs
+            .0
+            .iter()
+            .chain(tick_buffer.buffer.iter())
+            .filter(|input| input.time_ms > event.last_ack_time);
+        for input in not_applied {
+            simulate_inventory_actions(&mut player, input, CallerType::Client);
+        }
+        inventory.clone_from(&player.inventory);
         transform.translation = player.position;
     }
 }
@@ -300,6 +312,41 @@ mod tests {
             server_position
         );
         assert!(app.world().resource::<UnacknowledgedInputs>().0.is_empty());
+    }
+
+    #[test]
+    fn unacknowledged_inventory_actions_survive_a_server_update() {
+        use shared::players::inventory::InventoryAction;
+        use shared::world::{ItemId, ItemStack};
+
+        let (mut app, player) = app_with_player();
+        app.world_mut().resource_mut::<UnacknowledgedInputs>().0[1]
+            .inventory_actions
+            .push(InventoryAction::LeftClickSlot(0));
+        let dirt = ItemStack {
+            item_id: ItemId::Dirt,
+            item_type: ItemId::Dirt.get_default_type(),
+            nb: 5,
+        };
+        let mut server_inventory = Inventory::new();
+        server_inventory.inner.insert(0, dirt);
+
+        app.world_mut().write_message(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: MovementState::default(),
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: server_inventory,
+        });
+        app.update();
+
+        let mut expected = Inventory::new();
+        expected.floating = Some(dirt);
+        assert_eq!(
+            app.world().get::<Player>(player).unwrap().inventory,
+            expected
+        );
+        assert_eq!(*app.world().resource::<Inventory>(), expected);
     }
 
     /// Frames between two network ticks of the client.

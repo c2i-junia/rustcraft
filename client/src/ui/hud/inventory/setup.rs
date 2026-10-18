@@ -162,7 +162,7 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
 fn spawn_floating_stack(commands: &mut Commands, atlas: &AtlasWrapper) -> Entity {
     commands
         .spawn((
-            FloatingStack { items: None },
+            FloatingStack,
             Node {
                 width: Val::Px(20.),
                 height: Val::Px(20.),

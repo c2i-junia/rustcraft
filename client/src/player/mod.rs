@@ -43,7 +43,11 @@ pub fn player_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (handle_block_interactions, player_movement_system)
+            (
+                handle_block_interactions,
+                predict_inventory_system,
+                player_movement_system,
+            )
                 .chain()
                 .in_set(GameSet::Simulation)
                 .run_if(in_state(GameState::Game))

@@ -65,13 +65,16 @@ pub fn hud_plugin(app: &mut App) {
                     send_chat_message_system,
                 )
                     .chain(),
+                // Before the simulation, which predicts the clicks of the frame
                 (
                     toggle_inventory_system,
+                    close_inventory_system,
                     select_hotbar_slot_system,
                     click_inventory_cells_system,
                     display_inventory_system,
                 )
-                    .chain(),
+                    .chain()
+                    .before(GameSet::Simulation),
             )
                 .after(GameSet::UiMode)
                 .run_if(in_state(GameState::Game)),
