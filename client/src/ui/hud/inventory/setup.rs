@@ -1,12 +1,14 @@
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::state::GameState;
 use crate::ui::assets::load_font;
-use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{
     CraftResultCell, CraftingGridCell, FloatingStack, HudBottom, InventoryCell, InventoryDialog,
     InventoryRoot, InventoryTitle, UiDialog,
 };
-use crate::ui::theme::{BEVEL_WIDTH, FONT_L, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT};
+use crate::ui::theme::{
+    BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT,
+};
 use crate::ui::widgets::slot::{slot, slot_count, slot_icon, slot_node, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
@@ -160,6 +162,32 @@ fn spawn_hotbar(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &
             },
         ))
         .with_children(|bar| {
+            // Over the row, centred; shown by `show_selected_item_name`
+            bar.spawn((
+                HotbarItemName::default(),
+                Text::new(""),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: px(FONT_M).into(),
+                    ..default()
+                },
+                TextColor(TEXT),
+                TextLayout::justify(Justify::Center),
+                TextShadow {
+                    offset: Vec2::splat(2.0),
+                    color: BEVEL_LO,
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(0.),
+                    right: px(0.),
+                    bottom: percent(100.),
+                    margin: UiRect::bottom(px(SPACE_S)),
+                    ..default()
+                },
+                Visibility::Hidden,
+                Pickable::IGNORE,
+            ));
             for id in 0..MAX_HOTBAR_SLOTS {
                 let label = format!("Hotbar slot {}", id + 1);
                 bar.spawn((

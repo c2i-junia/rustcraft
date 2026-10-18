@@ -13,7 +13,6 @@ use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
 use crate::ui::widgets::slot::{count_label, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::MaterialResource;
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -28,9 +27,6 @@ pub const HINT_HOTBAR: &str = "Shift+click: move to the backpack";
 pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
 pub const HINT_RESULT: &str = "Click: craft";
-
-/// Pixels of trackpad scrolling that select the next hotbar slot.
-const SCROLL_PIXELS_PER_SLOT: i32 = 20;
 
 /// Opens the inventory when no dialog is open, and closes it when it is open.
 pub fn toggle_inventory_system(
@@ -53,32 +49,6 @@ pub fn toggle_inventory_system(
         } else {
             Visibility::Hidden
         };
-    }
-}
-
-/// The mouse wheel changes the selected hotbar slot, during gameplay only.
-pub fn select_hotbar_slot_system(
-    mut scroll: MessageReader<MouseWheel>,
-    ui_mode: Res<UIMode>,
-    mut hotbar: Query<&mut Hotbar>,
-) {
-    if *ui_mode != UIMode::Closed {
-        scroll.clear();
-        return;
-    }
-    let Ok(mut hotbar) = hotbar.single_mut() else {
-        return;
-    };
-    let mut selected = hotbar.selected as i32;
-    for event in scroll.read() {
-        selected -= match event.unit {
-            MouseScrollUnit::Line => event.y as i32,
-            MouseScrollUnit::Pixel => event.y as i32 / SCROLL_PIXELS_PER_SLOT,
-        };
-    }
-    let selected = selected.rem_euclid(MAX_HOTBAR_SLOTS as i32) as u32;
-    if hotbar.selected != selected {
-        hotbar.selected = selected;
     }
 }
 

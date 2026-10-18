@@ -77,11 +77,20 @@ impl Harness {
 
     /// Scrolls the wheel by `lines`, positive going up.
     pub fn scroll(&mut self, lines: f32) {
+        self.wheel(MouseScrollUnit::Line, lines);
+    }
+
+    /// Scrolls the wheel as a trackpad does, by `pixels`, positive going up.
+    pub fn scroll_pixels(&mut self, pixels: f32) {
+        self.wheel(MouseScrollUnit::Pixel, pixels);
+    }
+
+    fn wheel(&mut self, unit: MouseScrollUnit, y: f32) {
         let window = self.window();
         let wheel = MouseWheel {
-            unit: MouseScrollUnit::Line,
+            unit,
             x: 0.0,
-            y: lines,
+            y,
             window,
             phase: bevy::input::touch::TouchPhase::Moved,
         };

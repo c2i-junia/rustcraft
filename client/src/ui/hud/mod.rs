@@ -7,6 +7,9 @@ use crate::state::{GameSet, GameState};
 use crate::ui::hud::chat::*;
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
+use crate::ui::hud::hotbar::{
+    select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name,
+};
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::{render_pause_menu, setup_pause_menu};
 
@@ -64,7 +67,6 @@ pub fn hud_plugin(app: &mut App) {
                 (
                     toggle_inventory_system,
                     close_inventory_system,
-                    select_hotbar_slot_system,
                     click_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
@@ -74,6 +76,19 @@ pub fn hud_plugin(app: &mut App) {
                     .before(GameSet::Simulation),
             )
                 .after(GameSet::UiMode)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            // `update_frame_inputs_system` sends the selected slot to the server
+            (
+                select_hotbar_slot_with_keys,
+                select_hotbar_slot_with_wheel,
+                show_selected_item_name,
+            )
+                .chain()
+                .after(GameSet::UiMode)
+                .before(GameSet::Input)
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(

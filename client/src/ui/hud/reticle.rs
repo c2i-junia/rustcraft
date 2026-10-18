@@ -1,7 +1,26 @@
 use bevy::prelude::*;
 
 use crate::state::GameState;
+use crate::ui::theme::BEVEL_LO;
 
+/// A bar of the reticle, `width` by `height` px, centred on the middle of the screen.
+fn bar(width: f32, height: f32, color: Color) -> impl Bundle {
+    (
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Px(width),
+            height: Val::Px(height),
+            left: Val::Px(-width / 2.0),
+            top: Val::Px(-height / 2.0),
+            ..default()
+        },
+        BackgroundColor(color),
+        Pickable::IGNORE,
+    )
+}
+
+/// The cross in the middle of the screen: white bars on a dark outline, to read over any
+/// terrain. It lets the clicks through.
 pub fn spawn_reticle(mut commands: Commands) {
     // Main container for the reticle
     commands
@@ -17,32 +36,54 @@ pub fn spawn_reticle(mut commands: Commands) {
                 },
                 ..default()
             },
+            Pickable::IGNORE,
         ))
         .with_children(|parent| {
-            // Horizontal line (horizontal bar of the cross)
-            parent.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: Val::Px(20.0),
-                    height: Val::Px(2.0),
-                    left: Val::Px(-10.0),
-                    top: Val::Px(-1.0),
-                    ..default()
-                },
-                BackgroundColor(Color::WHITE),
-            ));
-
-            // Vertical line (vertical bar of the cross)
-            parent.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    width: Val::Px(2.0),
-                    height: Val::Px(20.0),
-                    left: Val::Px(-1.0),
-                    top: Val::Px(-10.0),
-                    ..default()
-                },
-                BackgroundColor(Color::WHITE),
-            ));
+            // The outline first, so that the bars are drawn over it
+            parent.spawn(bar(22.0, 4.0, BEVEL_LO));
+            parent.spawn(bar(4.0, 22.0, BEVEL_LO));
+            parent.spawn(bar(20.0, 2.0, Color::WHITE));
+            parent.spawn(bar(2.0, 20.0, Color::WHITE));
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::theme::BEVEL_LO;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn the_reticle_has_a_dark_outline_and_lets_clicks_through() {
+        let mut world = World::new();
+        world.run_system_once(spawn_reticle).unwrap();
+
+        let mut container = world.query_filtered::<&Children, Without<ChildOf>>();
+        let bars: Vec<Entity> = container.single(&world).unwrap().iter().collect();
+        let layout: Vec<((f32, f32), bool)> = bars
+            .iter()
+            .map(|&bar| {
+                let node = world.get::<Node>(bar).unwrap();
+                let (Val::Px(width), Val::Px(height)) = (node.width, node.height) else {
+                    panic!("a bar has a size in px");
+                };
+                let color = world.get::<BackgroundColor>(bar).unwrap().0;
+                ((width, height), color == BEVEL_LO)
+            })
+            .collect();
+        assert_eq!(
+            layout,
+            [
+                ((22., 4.), true),
+                ((4., 22.), true),
+                ((20., 2.), false),
+                ((2., 20.), false)
+            ]
+        );
+
+        let mut nodes = world.query::<(&Node, Option<&Pickable>)>();
+        for (_, pickable) in nodes.iter(&world) {
+            assert_eq!(pickable, Some(&Pickable::IGNORE));
+        }
+    }
 }

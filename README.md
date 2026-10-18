@@ -78,6 +78,9 @@ paru -S rustcraft
 | **Gameplay**      | Destroy Block         | Left Mouse Button           |
 |                   | Place Block           | Right Mouse Button          |
 |                   |                        |                             |
+| **Hotbar**        | Select a slot         | 1–9                         |
+|                   | Next / previous slot  | Mouse wheel                 |
+|                   |                        |                             |
 | **Inventory**     | Open/Close Inventory  | E                           |
 |                   | Pick up stack         | Left Click                  |
 |                   | Pick up half of stack | Right Click (with empty mouse) |

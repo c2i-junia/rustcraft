@@ -4,6 +4,7 @@ mod capture;
 mod game;
 mod harness;
 mod helpers;
+mod hud;
 mod input;
 mod inventory;
 mod locator;
