@@ -3,10 +3,12 @@
 
 use bevy::prelude::*;
 
+pub mod button;
 pub mod focus;
 mod scale;
 
 pub fn widgets_plugin(app: &mut App) {
+    button::plugin(app);
     focus::plugin(app);
     scale::plugin(app);
 }

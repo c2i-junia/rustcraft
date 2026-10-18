@@ -1,18 +1,22 @@
 //! The end-to-end tests of the widgets in `ui/widgets/`.
 
+use accesskit::Role;
 use bevy::{
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
-        AutoFocus, InputFocus, InputFocusVisible,
+        AutoFocus, FocusCause, InputFocus, InputFocusVisible,
     },
     prelude::*,
+    ui::InteractionDisabled,
+    ui_widgets::Activate,
 };
 
 use super::harness::{Harness, Options, SCREEN};
 use super::helpers::main_menu;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::ui::theme::ACCENT;
+use crate::ui::theme::{ACCENT, RAISE_HOVER};
+use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 
 #[test]
@@ -191,4 +195,85 @@ fn arrows_do_nothing_outside_an_arrow_nav_container() {
     assert_focus_on(&mut h, "X");
     h.press(KeyCode::ArrowLeft);
     assert_focus_on(&mut h, "X");
+}
+
+/// Counts the activations of the buttons of a test.
+#[derive(Resource, Default)]
+struct Activations(u32);
+
+/// Spawns a "Play" themed button above the main menu and counts its activations.
+fn spawn_button(h: &mut Harness) -> Entity {
+    h.world_mut().init_resource::<Activations>();
+    let root = spawn_group(h, Node::default());
+    let play = h
+        .world_mut()
+        .spawn((
+            button("Play", ButtonVariant::Default, Handle::default()),
+            ChildOf(root),
+        ))
+        .observe(|_: On<Activate>, mut count: ResMut<Activations>| count.0 += 1)
+        .id();
+    h.frames(3);
+    play
+}
+
+fn activations(h: &mut Harness) -> u32 {
+    h.world().resource::<Activations>().0
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn clicking_a_themed_button_activates_it() {
+    let mut h = main_menu();
+    spawn_button(&mut h);
+    h.click(&L::role(Role::Button, "Play"));
+    h.frames(2);
+    assert_eq!(activations(&mut h), 1);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn enter_and_space_activate_the_focused_button() {
+    let mut h = main_menu();
+    let play = spawn_button(&mut h);
+    h.world_mut().entity_mut(play).insert(AutoFocus);
+    h.world_mut()
+        .resource_mut::<InputFocus>()
+        .set(play, FocusCause::Navigated);
+    h.frames(2);
+    h.press(KeyCode::Enter);
+    assert_eq!(activations(&mut h), 1);
+    h.press(KeyCode::Space);
+    assert_eq!(activations(&mut h), 2);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_disabled_button_does_not_activate() {
+    let mut h = main_menu();
+    let play = spawn_button(&mut h);
+    h.world_mut()
+        .entity_mut(play)
+        .insert((AutoFocus, InteractionDisabled));
+    h.world_mut()
+        .resource_mut::<InputFocus>()
+        .set(play, FocusCause::Navigated);
+    h.frames(2);
+    h.click(&L::role(Role::Button, "Play"));
+    h.press(KeyCode::Enter);
+    h.frames(2);
+    assert_eq!(activations(&mut h), 0);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn hovering_a_themed_button_lightens_it() {
+    let mut h = main_menu();
+    let play = spawn_button(&mut h);
+    h.hover(&L::role(Role::Button, "Play"));
+    h.frames(2);
+    assert_eq!(
+        h.world().get::<BackgroundColor>(play).unwrap().0,
+        RAISE_HOVER
+    );
 }
