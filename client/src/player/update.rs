@@ -349,6 +349,39 @@ mod tests {
         assert_eq!(*app.world().resource::<Inventory>(), expected);
     }
 
+    #[test]
+    fn a_queued_frame_takes_its_inventory_actions_along() {
+        use shared::players::inventory::InventoryAction;
+
+        let mut app = App::new();
+        app.add_message::<LocalPlayerMoved>()
+            .init_resource::<ClientWorldMap>()
+            .init_resource::<PlayerTickInputsBuffer>()
+            .init_resource::<CurrentFrameInputs>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(UIMode::Closed)
+            .insert_resource(KeyMap {
+                map: BTreeMap::new(),
+            })
+            .add_systems(Update, player_movement_system);
+        app.world_mut().spawn((
+            Player::new(PLAYER_ID, "me".into(), Vec3::ZERO, Transform::default()),
+            Transform::default(),
+            CurrentPlayerMarker {},
+        ));
+        let mut frame = app.world_mut().resource_mut::<CurrentFrameInputs>();
+        frame.0.delta_ms = 16;
+        frame.0.inventory_actions.push(InventoryAction::Close);
+
+        app.update();
+
+        let queued = &app.world().resource::<PlayerTickInputsBuffer>().buffer;
+        assert_eq!(queued[0].inventory_actions, [InventoryAction::Close]);
+        // Taken by the queued frame: the next frame does not send them again
+        let frame = app.world().resource::<CurrentFrameInputs>();
+        assert!(frame.0.inventory_actions.is_empty());
+    }
+
     /// Frames between two network ticks of the client.
     const FRAMES_PER_TICK: u32 = 3;
     /// Ticks an input takes to reach the server, and an update to come back.
