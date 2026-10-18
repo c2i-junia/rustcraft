@@ -1,8 +1,12 @@
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{
-        collision::check_player_collision,
-        constants::{FLY_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
+        collision::{check_player_collision, is_player_in_liquid},
+        constants::{
+            FLY_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED,
+            SWIM_UP_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
+            WATER_SPEED_MULTIPLIER,
+        },
     },
     world::{world_position_to_chunk_position, ChunkMap},
 };
@@ -48,8 +52,14 @@ pub fn simulate_player_movement(
     player.camera_transform = action.camera;
 
     let direction = wished_direction(action);
-    apply_vertical_velocity(player, world_map, action, delta);
-    apply_wished_direction(player, world_map, direction, delta);
+    let in_liquid = !player.is_flying && is_player_in_liquid(&player.position, player, world_map);
+    if in_liquid {
+        swim(player, world_map, action, direction, delta);
+    } else {
+        apply_vertical_velocity(player, action, delta);
+    }
+    move_vertically(player, world_map, delta);
+    apply_wished_direction(player, world_map, direction, in_liquid, delta);
 
     if player.position.y < FALL_LIMIT {
         player.position = RESPAWN_POSITION;
@@ -91,14 +101,9 @@ fn wished_direction(action: &PlayerFrameInput) -> Vec3 {
     direction
 }
 
-/// Jump, gravity and landing. A flying player has no vertical velocity: it only moves up or
-/// down by its wished direction.
-fn apply_vertical_velocity(
-    player: &mut Player,
-    world_map: &ChunkMap,
-    action: &PlayerFrameInput,
-    delta: f32,
-) {
+/// Jump and gravity. A flying player has no vertical velocity: it only moves up or down by
+/// its wished direction.
+fn apply_vertical_velocity(player: &mut Player, action: &PlayerFrameInput, delta: f32) {
     if !player.is_flying {
         if player.on_ground && action.is_pressed(NetworkAction::JumpOrFlyUp) {
             player.velocity.y = JUMP_VELOCITY;
@@ -107,6 +112,34 @@ fn apply_vertical_velocity(
             player.velocity.y += GRAVITY * delta;
         }
     }
+}
+
+/// The vertical velocity of a player in a liquid: a weak gravity braked by a drag, and jump
+/// held to swim up. Pushing against a block while swimming up lifts the player out of the
+/// water, so that it can climb onto the shore.
+fn swim(
+    player: &mut Player,
+    world_map: &ChunkMap,
+    action: &PlayerFrameInput,
+    direction: Vec3,
+    delta: f32,
+) {
+    // A linear drag, without `exp`: the client and the server must compute the same value
+    player.velocity.y += (WATER_GRAVITY - WATER_DRAG * player.velocity.y) * delta;
+    if action.is_pressed(NetworkAction::JumpOrFlyUp) {
+        let ahead = player.position + direction.with_y(0.0) * 0.1;
+        let against_a_block = check_player_collision(&ahead, player, world_map);
+        let up = if against_a_block {
+            WATER_EXIT_VELOCITY
+        } else {
+            SWIM_UP_VELOCITY
+        };
+        player.velocity.y = player.velocity.y.max(up);
+    }
+}
+
+/// Moves the player by its vertical velocity, and lands it on the block in the way.
+fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) {
     player.velocity.y = player.velocity.y.min(MAX_UPWARD_VELOCITY);
 
     let new_y = player.position.y + player.velocity.y * delta;
@@ -125,9 +158,17 @@ fn apply_vertical_velocity(
 
 /// Moves the player along `direction`. On foot, an axis blocked by a block is left unchanged,
 /// so the player slides along walls; a flying player goes through blocks.
-fn apply_wished_direction(player: &mut Player, world_map: &ChunkMap, direction: Vec3, delta: f32) {
+fn apply_wished_direction(
+    player: &mut Player,
+    world_map: &ChunkMap,
+    direction: Vec3,
+    in_liquid: bool,
+    delta: f32,
+) {
     let speed = if player.is_flying {
         SPEED * FLY_SPEED_MULTIPLIER
+    } else if in_liquid {
+        SPEED * WATER_SPEED_MULTIPLIER
     } else {
         SPEED
     };
@@ -153,6 +194,10 @@ mod tests {
     use super::*;
     use crate::{
         messages::PlayerId,
+        players::{
+            constants::{WATER_DRAG, WATER_GRAVITY, WATER_SPEED_MULTIPLIER},
+            PLAYER_HEIGHT,
+        },
         world::{world_position_to_chunk_position, BlockId, Chunk},
     };
 
@@ -400,5 +445,121 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Top of the water of `pool`.
+    const WATER_TOP: f32 = 68.0;
+
+    /// `flat_world` under four blocks of water, from y = 64 to y = 67.
+    fn pool() -> ChunkMap {
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(-40, 64, -40),
+            IVec3::new(40, 67, 40),
+            BlockId::Water,
+        );
+        world
+    }
+
+    /// A player whose whole body is under water, in the middle of `pool`.
+    fn diver() -> Player {
+        let mut player = standing_player();
+        player.position.y = 66.0;
+        player.on_ground = false;
+        player
+    }
+
+    #[test]
+    fn a_player_sinks_slowly_in_water() {
+        let world = pool();
+        let mut player = diver();
+        // Half a second: a fall in the air would cover 3.75 blocks
+        simulate(&mut player, &world, &[], 31);
+        assert!(
+            player.position.y > 65.0,
+            "sank to {} in half a second",
+            player.position.y
+        );
+        assert!(player.position.y < 66.0);
+        // Never faster than where the drag balances the gravity
+        assert!(player.velocity.y > WATER_GRAVITY / WATER_DRAG - 0.01);
+    }
+
+    #[test]
+    fn holding_jump_in_water_swims_up_to_the_surface() {
+        let world = pool();
+        let mut player = standing_player();
+        // From the bottom of the pool
+        simulate(&mut player, &world, &[NetworkAction::JumpOrFlyUp], 120);
+        assert!(
+            player.position.y - PLAYER_HEIGHT / 2.0 > WATER_TOP - 1.0,
+            "feet at {}",
+            player.position.y - PLAYER_HEIGHT / 2.0
+        );
+        // It bobs at the surface, it does not jump out of the water
+        let mut highest: f32 = 0.0;
+        for _ in 0..300 {
+            simulate(&mut player, &world, &[NetworkAction::JumpOrFlyUp], 1);
+            highest = highest.max(player.position.y - PLAYER_HEIGHT / 2.0);
+        }
+        assert!(highest < WATER_TOP + 0.5, "feet up to {highest}");
+    }
+
+    #[test]
+    fn water_slows_down_a_fall() {
+        let world = pool();
+        let mut player = diver();
+        player.position.y = WATER_TOP + 0.8;
+        player.velocity.y = -30.0;
+        simulate(&mut player, &world, &[], 15);
+        assert!(player.velocity.y > -15.0, "still at {}", player.velocity.y);
+    }
+
+    #[test]
+    fn a_player_walks_slower_in_water() {
+        let world = pool();
+        let mut player = standing_player();
+        let start = player.position;
+        simulate(&mut player, &world, &[NetworkAction::MoveForward], 50);
+        let expected = 4.0 * WATER_SPEED_MULTIPLIER;
+        assert!((start.z - player.position.z - expected).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_swimmer_climbs_onto_a_shore_one_block_above_the_water() {
+        let mut world = pool();
+        // The shore: from z = -10 toward -Z, its top one block above the water
+        world.fill_box(
+            IVec3::new(-40, 64, -40),
+            IVec3::new(40, 68, -10),
+            BlockId::Stone,
+        );
+        let mut player = diver();
+        simulate(
+            &mut player,
+            &world,
+            &[NetworkAction::MoveForward, NetworkAction::JumpOrFlyUp],
+            300,
+        );
+        assert!(
+            player.position.z < -10.0,
+            "stuck at z = {}",
+            player.position.z
+        );
+        // Jump held on the shore jumps: let the player land
+        simulate(&mut player, &world, &[], 120);
+        assert!(player.on_ground);
+        assert!((player.position.y - PLAYER_HEIGHT / 2.0 - 69.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn a_flying_player_ignores_the_water() {
+        let world = pool();
+        let mut player = diver();
+        player.is_flying = true;
+        let start = player.position;
+        simulate(&mut player, &world, &[NetworkAction::MoveForward], 50);
+        assert_eq!(player.position.y, start.y);
+        assert!((start.z - player.position.z - 4.0 * FLY_SPEED_MULTIPLIER).abs() < 1e-3);
     }
 }

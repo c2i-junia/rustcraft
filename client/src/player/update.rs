@@ -573,6 +573,42 @@ mod tests {
         session.assert_the_client_predicted_the_server();
     }
 
+    /// A swim across a pool and onto its shore: sinking, swimming up and climbing out are
+    /// predicted as the server simulates them.
+    #[test]
+    fn a_swim_is_predicted_without_a_single_correction() {
+        let pool = || {
+            let mut world = flat_world();
+            world.fill_box(
+                IVec3::new(-64, 64, -64),
+                IVec3::new(63, 66, 63),
+                BlockId::Water,
+            );
+            // The shore, one block above the water
+            world.fill_box(
+                IVec3::new(-64, 64, -64),
+                IVec3::new(63, 67, -20),
+                BlockId::Stone,
+            );
+            world
+        };
+        let mut session = Session::new(Vec3::new(0.5, 70.0, 0.5));
+        session.set_client_world(pool());
+        session.server_world = pool();
+        session.hold(KeyCode::KeyW, true);
+
+        for frame in 0..600 {
+            session.hold(KeyCode::Space, (150..450).contains(&frame));
+            session.frame();
+        }
+
+        assert!(session.checked_updates > 150);
+        assert_eq!(session.corrections, 0);
+        let end = session.client_player().position;
+        assert!(end.z < -20.0 && (end.y - 68.9).abs() < 0.05, "{end:?}");
+        session.assert_the_client_predicted_the_server();
+    }
+
     /// The server moves the player by itself, and the player toggles the fly mode before
     /// hearing of it: one correction, from which the pending inputs are replayed exactly.
     fn a_move_made_by_the_server_alone(repeats_updates: bool) {

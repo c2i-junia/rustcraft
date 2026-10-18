@@ -14,3 +14,11 @@ pub fn check_player_collision(
         Vec3::new(player.width, player.height, player.width) / 2.0,
     ))
 }
+
+/// Whether the collision box of `player` at `position` touches a liquid.
+pub fn is_player_in_liquid(position: &Vec3, player: &Player, world_map: &ChunkMap) -> bool {
+    world_map.touches_liquid(&Aabb3d::new(
+        *position,
+        Vec3::new(player.width, player.height, player.width) / 2.0,
+    ))
+}
