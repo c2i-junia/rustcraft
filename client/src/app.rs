@@ -9,6 +9,7 @@ use crate::input::keyboard::get_bindings;
 use crate::network;
 use crate::state::{GameState, PlayerNameSupplied, TexturePath};
 use crate::ui::menus::{self, solo::SelectedWorld};
+use crate::ui::widgets::widgets_plugin;
 use crate::world::ClientWorldMap;
 
 /// What distinguishes one run of the client from another.
@@ -19,7 +20,7 @@ pub struct ClientSettings {
 }
 
 /// Adds the game to an app that already has the engine plugins: the netcode, the resources, and
-/// the plugins of the menus, the game and the sounds.
+/// the plugins of the widgets, the menus, the game and the sounds.
 pub fn add_client(app: &mut App, settings: ClientSettings) {
     let ClientSettings {
         game_folder_paths,
@@ -36,5 +37,10 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
         .insert_resource(PlayerNameSupplied { name: player_name })
         // The game starts in the default state, the menu
         .init_state::<GameState>()
-        .add_plugins((menus::menu_plugin, game::game_plugin, audio::audio_plugin));
+        .add_plugins((
+            widgets_plugin,
+            menus::menu_plugin,
+            game::game_plugin,
+            audio::audio_plugin,
+        ));
 }

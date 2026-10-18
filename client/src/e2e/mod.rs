@@ -12,3 +12,4 @@ mod review;
 mod seed;
 mod settings;
 mod solo;
+mod widgets;
