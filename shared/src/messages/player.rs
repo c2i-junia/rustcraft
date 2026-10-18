@@ -3,7 +3,7 @@ use bevy_platform::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
-use crate::players::{Inventory, MovementState, ViewMode};
+use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -50,6 +50,7 @@ pub struct PlayerFrameInput {
     pub camera: Transform,
     pub hotbar_slot: u32,
     pub view_mode: ViewMode,
+    pub inventory_actions: Vec<InventoryAction>,
     /// Client only: the state it predicted after this input.
     #[serde(skip)]
     pub predicted: MovementState,

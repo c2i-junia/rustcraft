@@ -38,6 +38,7 @@ pub enum ServerToClientMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::players::inventory::InventoryAction;
     use crate::world::{MobAction, MobKind, MobTarget};
     use bevy::math::Vec3;
 
@@ -139,6 +140,13 @@ mod tests {
             (NetworkAction::ToggleFlyMode, 6),
             (NetworkAction::LeftClick, 7),
             (NetworkAction::RightClick, 8),
+        ] {
+            assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
+        }
+        for (action, expected) in [
+            (InventoryAction::LeftClickSlot(0), 0),
+            (InventoryAction::RightClickSlot(0), 1),
+            (InventoryAction::Close, 2),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

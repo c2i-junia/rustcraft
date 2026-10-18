@@ -26,6 +26,7 @@ impl CurrentFrameInputsExt for CurrentFrameInputs {
             predicted: MovementState::default(),
             hotbar_slot: 0,
             view_mode: ViewMode::default(),
+            inventory_actions: Vec::new(),
         };
     }
 }

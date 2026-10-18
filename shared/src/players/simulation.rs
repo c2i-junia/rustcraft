@@ -2,6 +2,7 @@ use crate::{
     messages::PlayerFrameInput,
     players::{
         blocks::{simulate_player_block_interactions, CallerType},
+        inventory::simulate_inventory_actions,
         movement::simulate_player_movement,
         Player,
     },
@@ -15,5 +16,6 @@ pub fn simulate_player_actions(
     caller_type: CallerType,
 ) {
     simulate_player_block_interactions(player, world_map, action, caller_type);
+    simulate_inventory_actions(player, action, caller_type);
     simulate_player_movement(player, world_map, action);
 }
