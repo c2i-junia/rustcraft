@@ -9,9 +9,11 @@ use crate::ui::hud::{
 use crate::ui::theme::{
     BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT,
 };
+use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::slot::{slot, slot_count, slot_icon, slot_node, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
+use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::prelude::*;
 use shared::world::{grid_slot, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
@@ -89,6 +91,9 @@ pub fn setup_inventory(
                     BorderColor::all(Color::NONE),
                     // Closed, its room above the hotbar is empty; the slots stay pickable
                     Pickable::IGNORE,
+                    // Tab and the arrows stay among its slots
+                    TabGroup::modal(),
+                    ArrowNav,
                 ))
                 .with_children(|panel| {
                     panel

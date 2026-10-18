@@ -1,10 +1,15 @@
 //! The inventory slot: a sunken square holding an icon, a count and, in the hotbar, its number.
 //!
 //! The hit test of a slot is its `Hovered`; callers observe the pointer events on the entity.
+//! A slot takes the focus, and shows the focus ring, like the other widgets.
 
 use accesskit::Role;
-use bevy::{a11y::AccessibilityNode, picking::hover::Hovered, prelude::*};
+use bevy::{
+    a11y::AccessibilityNode, input_focus::tab_navigation::TabIndex, picking::hover::Hovered,
+    prelude::*,
+};
 
+use super::focus::FocusRing;
 use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, RAISE_HOVER, SLOT, TEXT,
 };
@@ -124,6 +129,8 @@ pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font
         // the role before the label: the label's default node must not win
         AccessibilityNode(accesskit::Node::new(Role::GridCell)),
         AccessibleLabel::new(label),
+        TabIndex(0),
+        FocusRing,
         slot_node(),
         BackgroundColor(background),
         border,

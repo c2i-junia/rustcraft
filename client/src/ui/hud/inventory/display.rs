@@ -10,11 +10,14 @@ use crate::ui::hud::{
     InventoryRoot, InventoryTitle, UIMode,
 };
 use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
-use crate::ui::widgets::slot::{count_label, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
+use crate::ui::widgets::slot::{count_label, Slot, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::MaterialResource;
+use bevy::input_focus::tab_navigation::TabIndex;
+use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
+use bevy::ui::UiGlobalTransform;
 use bevy::window::PrimaryWindow;
 use shared::players::inventory::{craft_result, InventoryAction, INVENTORY_GRID_SIZE};
 use shared::players::Inventory;
@@ -54,13 +57,15 @@ pub fn toggle_inventory_system(
 
 /// Sends a click on a cell of the open inventory, or a number key pressed over one, as an action
 /// of the frame's input, which the client predicts and the server applies. Shift turns the left
-/// click into a move of the whole stack.
+/// click into a move of the whole stack. On the focused cell, Enter is the left click and Space
+/// the right one; a number key goes to the focused cell when the cursor is over none.
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    focus: Res<InputFocus>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
-    cells: Query<(&Hovered, &InventoryCell)>,
-    result: Query<&Hovered, With<CraftResultCell>>,
+    cells: Query<(Entity, &Hovered, &InventoryCell)>,
+    result: Query<(Entity, &Hovered), With<CraftResultCell>>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
 ) {
     if !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
@@ -68,33 +73,91 @@ pub fn click_inventory_cells_system(
     }
     let left = mouse_input.just_pressed(MouseButton::Left);
     let right = mouse_input.just_pressed(MouseButton::Right);
+    let enter = keyboard_input.just_pressed(KeyCode::Enter);
+    let space = keyboard_input.just_pressed(KeyCode::Space);
     let shift = keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let hotbar = hotbar_key_index(&keyboard_input);
+    let focused = focus.get();
     let actions = &mut frame_inputs.0.inventory_actions;
 
-    for (hovered, cell) in &cells {
-        if !hovered.0 {
-            continue;
-        }
+    // A click on the hovered cell, a key on the focused one
+    let mut click = |slot: u32, left: bool, right: bool| {
         if left {
             actions.push(if shift {
-                InventoryAction::QuickMoveSlot(cell.id)
+                InventoryAction::QuickMoveSlot(slot)
             } else {
-                InventoryAction::LeftClickSlot(cell.id)
+                InventoryAction::LeftClickSlot(slot)
             });
         } else if right {
-            actions.push(InventoryAction::RightClickSlot(cell.id));
+            actions.push(InventoryAction::RightClickSlot(slot));
         }
-        if let Some(hotbar) = hotbar {
-            actions.push(InventoryAction::SwapWithHotbar {
-                slot: cell.id,
-                hotbar,
-            });
+    };
+    let (mut hovered_slot, mut focused_slot) = (None, None);
+    for (entity, hovered, cell) in &cells {
+        if hovered.0 {
+            hovered_slot = Some(cell.id);
+            click(cell.id, left, right);
+        }
+        if focused == Some(entity) {
+            focused_slot = Some(cell.id);
+            click(cell.id, enter, space);
         }
     }
-    if (left || right) && result.iter().any(|hovered| hovered.0) {
+    if let (Some(hotbar), Some(slot)) = (hotbar, hovered_slot.or(focused_slot)) {
+        actions.push(InventoryAction::SwapWithHotbar { slot, hotbar });
+    }
+    let takes_result = result.iter().any(|(entity, hovered)| {
+        (hovered.0 && (left || right)) || (focused == Some(entity) && (enter || space))
+    });
+    if takes_result {
         actions.push(InventoryAction::TakeCraftResult);
     }
+}
+
+/// Puts the focus on the selected hotbar slot when the inventory opens, without its ring until a
+/// key moves it, and takes it back when the inventory closes. The slots of the closed inventory
+/// leave the Tab and arrow navigation, as do the hidden cells of the crafting grid, so that Tab
+/// in the game never lands on the hotbar.
+pub fn sync_inventory_focus(
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    hotbar: Query<&Hotbar>,
+    mut slots: Query<
+        (Entity, &mut TabIndex, Option<&InventoryCell>, Option<&Node>),
+        Or<(With<InventoryCell>, With<CraftResultCell>)>,
+    >,
+    dialog: Query<(), With<InventoryDialog>>,
+    parents: Query<&ChildOf>,
+    mut was_open: Local<bool>,
+    mut focus: ResMut<InputFocus>,
+    mut focus_visible: ResMut<InputFocusVisible>,
+) {
+    let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    for (_, mut index, _, node) in &mut slots {
+        let shown = node.is_none_or(|node| node.display != Display::None);
+        index.set_if_neq(TabIndex(if is_open && shown { 0 } else { -1 }));
+    }
+
+    if is_open && !*was_open {
+        let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
+        let cell = slots
+            .iter()
+            .find(|(_, _, cell, _)| cell.is_some_and(|cell| Some(cell.id) == selected));
+        if let Some((entity, ..)) = cell {
+            focus.set(entity, FocusCause::Navigated);
+        }
+        focus_visible.0 = false;
+    }
+    if !is_open && *was_open {
+        let in_dialog = focus.get().is_some_and(|focused| {
+            parents
+                .iter_ancestors(focused)
+                .any(|ancestor| dialog.contains(ancestor))
+        });
+        if in_dialog {
+            focus.clear();
+        }
+    }
+    *was_open = is_open;
 }
 
 /// Sends `Close` when the inventory gets hidden, whichever key hid it, so that the stack held
@@ -114,8 +177,9 @@ pub fn close_inventory_system(
     *was_open = is_open;
 }
 
-/// Shows every slot in its cell and the floating stack centred on the cursor, and selects the
-/// cell of the selected hotbar slot, whether the inventory is open or not.
+/// Shows every slot in its cell and the floating stack centred on the cursor, or on the focused
+/// slot while the focus shows, and selects the cell of the selected hotbar slot, whether the
+/// inventory is open or not.
 pub fn display_inventory_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
@@ -123,6 +187,9 @@ pub fn display_inventory_system(
     hotbar: Query<&Hotbar>,
     window: Query<&Window, With<PrimaryWindow>>,
     ui_scale: Res<UiScale>,
+    focus: Res<InputFocus>,
+    focus_visible: Res<InputFocusVisible>,
+    slots: Query<(&UiGlobalTransform, &ComputedNode), With<Slot>>,
     mut floating_stack: Query<(&mut Node, &Children), With<FloatingStack>>,
     mut cells: Query<(&mut SlotSelected, &InventoryCell, &mut Tooltip, &Children)>,
     mut counts: Query<&mut Text, With<SlotCount>>,
@@ -134,9 +201,18 @@ pub fn display_inventory_system(
     let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
 
     if let Ok((mut node, children)) = floating_stack.single_mut() {
-        if let Some(cursor) = window.single().ok().and_then(Window::cursor_position) {
-            // `Val::Px` is multiplied by the UI scale: the window position is divided by it
-            let top_left = cursor / ui_scale.0 - SLOT_SIZE / 2.;
+        let focused_slot = focus
+            .get()
+            .filter(|_| focus_visible.0)
+            .and_then(|focused| slots.get(focused).ok())
+            .map(|(transform, slot)| transform.translation * slot.inverse_scale_factor());
+        // `Val::Px` is multiplied by the UI scale: the window position is divided by it
+        let cursor = || {
+            let cursor = window.single().ok()?.cursor_position()?;
+            Some(cursor / ui_scale.0)
+        };
+        if let Some(center) = focused_slot.or_else(cursor) {
+            let top_left = center - SLOT_SIZE / 2.;
             node.left = Val::Px(top_left.x);
             node.top = Val::Px(top_left.y);
         }
@@ -331,6 +407,8 @@ mod tests {
             world.insert_resource(ButtonInput::<KeyCode>::default());
             world.init_resource::<CurrentFrameInputs>();
             world.init_resource::<UiScale>();
+            world.init_resource::<InputFocus>();
+            world.init_resource::<InputFocusVisible>();
             world.spawn((
                 InventoryDialog,
                 BackgroundColor(Color::NONE),
@@ -428,7 +506,9 @@ mod tests {
             self.world
                 .run_system_once(click_inventory_cells_system)
                 .unwrap();
-            self.world.resource_mut::<ButtonInput<KeyCode>>().clear();
+            let mut keys = self.world.resource_mut::<ButtonInput<KeyCode>>();
+            keys.release(key);
+            keys.clear();
             if let Some(cell) = cell {
                 self.world.entity_mut(cell).insert(Hovered(false));
             }
@@ -586,6 +666,43 @@ mod tests {
         let mut closed = Hud::new(Visibility::Hidden, &[12]);
         closed.press_key_over(Some(12), KeyCode::Digit3);
         assert!(closed.sent_actions().is_empty());
+    }
+
+    #[test]
+    fn enter_space_and_shift_enter_act_on_the_focused_cell() {
+        let mut hud = Hud::new(Visibility::Visible, &[12, 15]);
+        let cell = hud.cell(12);
+        hud.world.insert_resource(InputFocus::from_entity(cell));
+
+        hud.press_key_over(None, KeyCode::Enter);
+        hud.press_key_over(None, KeyCode::Space);
+        hud.world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftLeft);
+        hud.press_key_over(None, KeyCode::Enter);
+        hud.world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ShiftLeft);
+        hud.press_key_over(None, KeyCode::Digit2);
+        // The cursor wins over the focus
+        hud.press_key_over(Some(15), KeyCode::Digit2);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::LeftClickSlot(12),
+                InventoryAction::RightClickSlot(12),
+                InventoryAction::QuickMoveSlot(12),
+                InventoryAction::SwapWithHotbar {
+                    slot: 12,
+                    hotbar: 1
+                },
+                InventoryAction::SwapWithHotbar {
+                    slot: 15,
+                    hotbar: 1
+                },
+            ]
+        );
     }
 
     #[test]
@@ -812,6 +929,54 @@ mod tests {
     }
 
     #[test]
+    fn the_open_inventory_takes_the_focus_and_gives_it_back_on_closing() {
+        let mut hud = Hud::new(Visibility::Hidden, &[]);
+        let mut dialog = hud.world.query_filtered::<Entity, With<InventoryDialog>>();
+        let dialog = dialog.single(&hud.world).unwrap();
+        let mut spawn = |id: u32, display: Display| {
+            let node = Node {
+                display,
+                ..default()
+            };
+            let cell = (InventoryCell { id }, TabIndex(0), node, ChildOf(dialog));
+            hud.world.spawn(cell).id()
+        };
+        let first = spawn(0, Display::Flex);
+        let second = spawn(1, Display::Flex);
+        let hidden = spawn(grid_slot(2, 2), Display::None);
+        let indices = |hud: &Hud| {
+            [first, second, hidden].map(|cell| hud.world.get::<TabIndex>(cell).unwrap().0)
+        };
+        let set_open = |hud: &mut Hud, visibility: Visibility| {
+            let mut root = hud
+                .world
+                .query_filtered::<&mut Visibility, With<InventoryRoot>>();
+            *root.single_mut(&mut hud.world).unwrap() = visibility;
+        };
+        let sync = hud.world.register_system(sync_inventory_focus);
+
+        // Closed, Tab skips the hotbar
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(indices(&hud), [-1, -1, -1]);
+
+        // Open, the focus is on the selected slot, without its ring
+        let mut hotbar = hud.world.query::<&mut Hotbar>();
+        hotbar.single_mut(&mut hud.world).unwrap().selected = 1;
+        hud.world.resource_mut::<InputFocusVisible>().0 = true;
+        set_open(&mut hud, Visibility::Visible);
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(hud.world.resource::<InputFocus>().get(), Some(second));
+        assert!(!hud.world.resource::<InputFocusVisible>().0);
+        // A hidden cell of the crafting grid takes no focus
+        assert_eq!(indices(&hud), [0, 0, -1]);
+
+        set_open(&mut hud, Visibility::Hidden);
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(hud.world.resource::<InputFocus>().get(), None);
+        assert_eq!(indices(&hud), [-1, -1, -1]);
+    }
+
+    #[test]
     fn hiding_the_inventory_sends_close_once() {
         let mut hud = Hud::new(Visibility::Visible, &[]);
         let close = hud.world.register_system(close_inventory_system);
@@ -883,6 +1048,8 @@ mod tests {
         );
         world.insert_resource(inventory);
         world.init_resource::<UiScale>();
+        world.init_resource::<InputFocus>();
+        world.init_resource::<InputFocusVisible>();
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();

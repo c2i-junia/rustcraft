@@ -29,8 +29,6 @@ pub struct FocusRing;
 
 /// A container whose focusable descendants (`TabIndex >= 0`) the arrow keys move between, by
 /// their position on screen. It is for grids and lists; Tab still walks them in order.
-// Nothing uses it before the first screens with a grid (lot 1).
-#[allow(dead_code)]
 #[derive(Component)]
 pub struct ArrowNav;
 

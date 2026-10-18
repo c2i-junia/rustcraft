@@ -89,6 +89,10 @@ paru -S rustcraft
 |                   | Exchange stacks       | Left Click (over a different stack or full valid stack) |
 |                   | Move a stack between backpack and hotbar | Shift + Left Click |
 |                   | Swap with a hotbar slot | 1–9 over a slot          |
+|                   | Move between slots     | Arrows                      |
+|                   | Take / place           | Enter                       |
+|                   | Take half / place one  | Space                       |
+|                   | Move to the backpack / hotbar | Shift+Enter          |
 |                   |                        |                             |
 | **Miscellaneous** | Open Chat             | T                           |
 |                   | Reload Chunks (rebuild their meshes) | R            |

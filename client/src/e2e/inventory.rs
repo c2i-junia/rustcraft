@@ -1,6 +1,10 @@
-//! The inventory panel in the game: where it opens, the stack held by the cursor, and the clicks.
+//! The inventory panel in the game: where it opens, the stack held by the cursor, the clicks and
+//! the keyboard.
 
-use bevy::{input::keyboard::KeyCode, picking::hover::HoverMap, prelude::*, ui::UiGlobalTransform};
+use bevy::{
+    input::keyboard::KeyCode, input_focus::InputFocus, picking::hover::HoverMap, prelude::*,
+    ui::UiGlobalTransform,
+};
 use image::RgbImage;
 use shared::world::{grid_slot, ItemId};
 
@@ -11,8 +15,9 @@ use super::seed::GameFolder;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::HINT_BACKPACK;
 use crate::ui::hud::{
-    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot,
+    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
 };
+use crate::ui::theme::ACCENT;
 use crate::ui::widgets::slot::SlotIcon;
 use crate::ui::widgets::tooltip::TooltipRoot;
 
@@ -53,6 +58,38 @@ impl Harness {
         assert_eq!(cells.len(), 9, "the hotbar shows nine cells");
         cells.into_iter().map(|(_, rect)| rect).collect()
     }
+}
+
+/// The slot of the cell the focus is on, if it is on a cell.
+fn focused_cell(w: &World) -> Option<u32> {
+    let focus = w.resource::<InputFocus>().get()?;
+    w.get::<InventoryCell>(focus).map(|cell| cell.id)
+}
+
+/// Whether the focus is on the inventory panel or inside it.
+fn focus_in_panel(w: &World) -> bool {
+    let Some(mut entity) = w.resource::<InputFocus>().get() else {
+        return false;
+    };
+    loop {
+        if w.get::<InventoryDialog>(entity).is_some() {
+            return true;
+        }
+        match w.get::<ChildOf>(entity) {
+            Some(parent) => entity = parent.parent(),
+            None => return false,
+        }
+    }
+}
+
+/// The slots of the cells whose focus ring shows.
+fn ringed_cells(h: &mut Harness) -> Vec<u32> {
+    let mut cells = h.world_mut().query::<(&InventoryCell, &Outline)>();
+    cells
+        .iter(h.world())
+        .filter(|(_, outline)| outline.color == ACCENT)
+        .map(|(cell, _)| cell.id)
+        .collect()
 }
 
 fn rect_of(world: &World, entity: Entity) -> Rect {
@@ -277,4 +314,92 @@ fn shift_click_number_keys_and_tooltips_in_the_open_inventory() {
     h.press(KeyCode::KeyE);
     h.frames(3);
     assert!(!h.is_visible(&tooltip()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_keyboard_alone_moves_stacks_in_the_inventory() {
+    let folder = GameFolder::new().with_world("Keyboard").with_items(
+        "Keyboard",
+        "Tester",
+        &[(10, ItemId::Dirt, 5)],
+    );
+    let mut h = enter_world(folder, "Keyboard");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 10) == Some((ItemId::Dirt, 5))
+    });
+
+    // Opening puts the focus on the selected hotbar slot, without its ring
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    assert_eq!(focused_cell(h.world()), Some(0));
+    assert!(ringed_cells(&mut h).is_empty());
+
+    // The arrows move the focus between the slots as they lie, and show its ring
+    for key in [
+        KeyCode::ArrowUp,
+        KeyCode::ArrowUp,
+        KeyCode::ArrowUp,
+        KeyCode::ArrowRight,
+    ] {
+        h.press(key);
+    }
+    assert_eq!(focused_cell(h.world()), Some(10));
+    assert_eq!(ringed_cells(&mut h), [10]);
+
+    // Enter takes the stack, which then sits on the focused slot rather than on the cursor
+    h.press(KeyCode::Enter);
+    h.wait_until("the dirt held", SERVER, |w| {
+        floating(w) == Some((ItemId::Dirt, 5))
+    });
+    let stack = h.rect_of(&L::marker::<FloatingStack>());
+    let cell = h.center_of(&L::cell(10));
+    assert!(
+        (stack.center() - cell).abs().max_element() <= 1.0,
+        "the held stack {stack:?} is not centred on the focused slot, at {cell:?}"
+    );
+
+    // Enter places it, Shift+Enter moves it to the backpack
+    for _ in 0..3 {
+        h.press(KeyCode::ArrowDown);
+    }
+    assert_eq!(focused_cell(h.world()), Some(1));
+    h.press(KeyCode::Enter);
+    h.wait_until("the dirt in slot 1", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::Dirt, 5)) && floating(w).is_none()
+    });
+    h.key_down(KeyCode::ShiftLeft);
+    h.press(KeyCode::Enter);
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the dirt in the backpack", SERVER, |w| {
+        slot(w, 9) == Some((ItemId::Dirt, 5)) && slot(w, 1).is_none()
+    });
+
+    // The panel keeps Tab to itself
+    for _ in 0..50 {
+        h.press(KeyCode::Tab);
+        assert!(focus_in_panel(h.world()), "Tab left the panel");
+    }
+
+    // Closing it lets go of the focus, and E opens it again
+    h.press(KeyCode::KeyE);
+    assert_eq!(h.world().resource::<InputFocus>().get(), None);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn tab_in_gameplay_leaves_the_hotbar_unfocused() {
+    let mut h = enter_world(GameFolder::new().with_world("Tab"), "Tab");
+
+    h.press(KeyCode::Tab);
+    h.frames(1);
+    assert_eq!(focused_cell(h.world()), None);
+    assert!(ringed_cells(&mut h).is_empty());
+    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
+
+    // The game keys still work
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
 }

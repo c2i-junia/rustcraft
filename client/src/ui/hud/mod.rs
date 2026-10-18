@@ -67,6 +67,7 @@ pub fn hud_plugin(app: &mut App) {
                 (
                     toggle_inventory_system,
                     close_inventory_system,
+                    sync_inventory_focus,
                     click_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
