@@ -15,7 +15,7 @@ use crate::constants::SAVE_PATH;
 use crate::network::hash_string_to_u64;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::hud::chat::{ChatDisplay, ChatRoot};
+use crate::ui::hud::chat::{ChatDisplay, ChatInput, ChatRoot};
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{
@@ -252,7 +252,7 @@ fn the_chat_sends_a_message_and_escape_closes_it() {
     // A message dropped with Escape is not sent
     h.press(KeyCode::KeyT);
     h.type_text("brouillon");
-    assert!(h.is_visible(&L::text_containing("brouillon")));
+    assert_eq!(h.value_of::<ChatInput>(), "brouillon");
     h.press(KeyCode::Escape);
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
     // The server answers in order: once the next message is shown, the dropped one would be too
@@ -269,6 +269,8 @@ fn the_chat_sends_a_message_and_escape_closes_it() {
 fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     let mut h = enter_world(GameFolder::new().with_world("Quiet"), "Quiet");
     h.press(KeyCode::KeyT);
+    // The key that opens the chat is not typed into it
+    assert_eq!(h.value_of::<ChatInput>(), "");
     h.type_text("e");
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
 
