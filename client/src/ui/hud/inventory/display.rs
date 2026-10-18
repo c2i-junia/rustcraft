@@ -124,10 +124,10 @@ pub fn click_inventory_cells_system(
 
 /// Puts the focus on the selected hotbar slot when the inventory opens, without its ring until a
 /// key moves it, and takes it back when the inventory closes. While it is open, a click on no
-/// slot clears the focus: it goes back to the last focused cell while it is shown, or to the
-/// selected slot, so that the keyboard always has a cell to start from. The slots of the closed
-/// inventory leave the Tab and arrow navigation, as do the hidden cells of the crafting grid, so
-/// that Tab in the game never lands on the hotbar.
+/// slot clears the focus, and a crafting cell that disappears lets go of it: it goes back to the
+/// last focused cell while it is shown, or to the selected slot, so that the keyboard always has
+/// a cell to start from. The slots of the closed inventory leave the Tab and arrow navigation, as
+/// do the hidden cells of the crafting grid, so that Tab in the game never lands on the hotbar.
 pub fn sync_inventory_focus(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
@@ -152,13 +152,16 @@ pub fn sync_inventory_focus(
             .iter_ancestors(focused)
             .any(|ancestor| dialog.contains(ancestor))
     });
+    let on_hidden_cell = focus
+        .get()
+        .is_some_and(|focused| slots.get(focused).is_ok_and(|(.., node)| !shown(node)));
 
     if is_open {
         if !*was_open {
             *last_focused = None;
             focus_visible.0 = false;
         }
-        if *was_open && in_dialog {
+        if *was_open && in_dialog && !on_hidden_cell {
             *last_focused = focus.get();
         } else {
             let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
@@ -1101,6 +1104,41 @@ mod tests {
         hud.world.run_system(sync).unwrap();
 
         assert_eq!(hud.world.resource::<InputFocus>().get(), Some(selected));
+    }
+
+    #[test]
+    fn the_focus_leaves_a_crafting_cell_that_disappears() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let mut dialog = hud.world.query_filtered::<Entity, With<InventoryDialog>>();
+        let dialog = dialog.single(&hud.world).unwrap();
+        let selected = hud
+            .world
+            .spawn((InventoryCell { id: 0 }, TabIndex(0), ChildOf(dialog)))
+            .id();
+        let corner = hud
+            .world
+            .spawn((
+                InventoryCell {
+                    id: grid_slot(2, 2),
+                },
+                TabIndex(0),
+                Node::default(),
+                ChildOf(dialog),
+            ))
+            .id();
+        let sync = hud.world.register_system(sync_inventory_focus);
+        hud.world.run_system(sync).unwrap();
+
+        // The arrows ringed the leftover corner of the grid, and Enter emptied it
+        hud.world.insert_resource(InputFocus::from_entity(corner));
+        hud.world.resource_mut::<InputFocusVisible>().0 = true;
+        hud.world.run_system(sync).unwrap();
+        hud.world.get_mut::<Node>(corner).unwrap().display = Display::None;
+        hud.world.run_system(sync).unwrap();
+
+        assert_eq!(hud.world.resource::<InputFocus>().get(), Some(selected));
+        // The ring stays as it was
+        assert!(hud.world.resource::<InputFocusVisible>().0);
     }
 
     #[test]
