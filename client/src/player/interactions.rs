@@ -34,7 +34,11 @@ pub fn handle_block_interactions(
     // A button pressed over a UI, to close it for instance, is not for the world: it is ignored
     // until released
     if *ui_mode != UIMode::Closed {
-        pressed_in_ui.extend(mouse_input.get_pressed());
+        for button in mouse_input.get_pressed() {
+            if !pressed_in_ui.contains(button) {
+                pressed_in_ui.push(*button);
+            }
+        }
         return;
     }
     pressed_in_ui.retain(|button| mouse_input.pressed(*button));

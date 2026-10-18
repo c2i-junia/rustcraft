@@ -7,7 +7,7 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::state::{GameState, KeyMap};
 use crate::ui::assets::MONO_FONT_PATH;
 use crate::ui::hud::UIMode;
-use crate::ui::theme::{FONT_S, PANEL};
+use crate::ui::theme::{FONT_S, PANEL, TEXT};
 use bevy::prelude::*;
 
 /// Marker to find the container entity so we can show/hide the FPS counter
@@ -75,11 +75,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
     let block_text = commands
         .spawn((
             BlockText,
-            debug_line(
-                "Selected block : ",
-                Color::srgb(0.2, 0.2, 0.2),
-                font.clone(),
-            ),
+            debug_line("Selected block : ", TEXT, font.clone()),
         ))
         .id();
     let time_text = commands

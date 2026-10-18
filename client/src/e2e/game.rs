@@ -313,7 +313,7 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert_eq!(h.value_of::<ChatInput>(), "");
     h.type_text("e");
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
-    // Nor are the digit, the debug keys and the wheel
+    // Neither the digit, the debug keys nor the wheel reach the game
     h.type_text("3");
     h.press(KeyCode::F3);
     h.press(KeyCode::F6);
@@ -439,10 +439,19 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
 
     // The click that resumes the game
     h.press(KeyCode::Escape);
-    // The legacy button answers the left button only, which breaks blocks
+    // The legacy button answers the left button only: a held left button would start breaking
+    // the aimed block, which shows in its breaking progress
     hold_click(&mut h, &L::text("Resume"), MouseButton::Left, 6);
     assert!(!h.is_visible(&L::text("Resume")));
     assert!(is_block(h.world(), target) && !is_block(h.world(), cell));
+    let progress = h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .get_block(target)
+        .unwrap()
+        .breaking_progress;
+    assert_eq!(progress, 0);
 
     // A new click in gameplay does place a block there
     hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
