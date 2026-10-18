@@ -16,11 +16,7 @@ pub use server_connect_loading::*;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 
 use multi::multiplayer_action;
-use settings::audio::{audio_menu_setup, audio_menu_update};
-use settings::controls::{controls_menu_setup, controls_update_system};
 
-use crate::audio::settings::save_audio_settings;
-use crate::input::keyboard::save_keybindings;
 use crate::state::{GameState, MenuCamera};
 use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::text_field::text_field_focused;
@@ -52,11 +48,6 @@ pub fn menu_plugin(app: &mut App) {
             (solo::solo_menu_setup, solo::list_worlds).chain(),
         )
         .add_systems(Update, solo::solo_action.run_if(in_state(MenuState::Solo)))
-        // Systems to handle the settings menu screen
-        .add_systems(OnEnter(MenuState::Settings), settings::settings_menu_setup)
-        // save the keybindings when launching the game, and when exiting settings
-        .add_systems(OnEnter(GameState::Menu), save_keybindings)
-        .add_systems(OnExit(MenuState::SettingsControls), save_keybindings)
         .add_systems(
             OnEnter(MenuState::Multi),
             (multi::multiplayer_menu_setup, multi::load_server_list).chain(),
@@ -66,10 +57,6 @@ pub fn menu_plugin(app: &mut App) {
             (multiplayer_action).run_if(in_state(MenuState::Multi)),
         )
         .add_systems(OnExit(MenuState::Multi), multi::save_server_list)
-        .add_systems(
-            Update,
-            controls_update_system.run_if(in_state(MenuState::SettingsControls)),
-        )
         // Common systems to all screens that handles buttons behavior
         .add_systems(
             Update,
@@ -83,18 +70,12 @@ pub fn menu_plugin(app: &mut App) {
             )
                 .run_if(in_state(GameState::Menu)),
         )
-        .add_systems(OnEnter(MenuState::SettingsControls), controls_menu_setup)
-        .add_systems(OnEnter(MenuState::SettingsAudio), audio_menu_setup)
-        .add_systems(
-            Update,
-            audio_menu_update.run_if(in_state(MenuState::SettingsAudio)),
-        )
-        .add_systems(OnExit(MenuState::SettingsAudio), save_audio_settings)
         // The loading screen is shown while connecting, between the menu and the game
         .add_systems(
             Update,
             update_server_connect_loading_screen.run_if(in_state(GameState::PreGameLoading)),
         );
+    settings::settings_plugin(app);
 }
 
 /// Spawns the camera of the menus and opens the main menu.
@@ -119,11 +100,6 @@ fn menu_action(
         if *interaction == Interaction::Pressed {
             match menu_button_action {
                 MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
-                MenuButtonAction::BackToSettings => {
-                    menu_state.set(MenuState::Settings);
-                }
-                MenuButtonAction::SettingsControls => menu_state.set(MenuState::SettingsControls),
-                MenuButtonAction::SettingsAudio => menu_state.set(MenuState::SettingsAudio),
             }
         }
     }
@@ -136,11 +112,8 @@ fn escape_button(
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
-            MenuState::Solo | MenuState::Multi | MenuState::Settings => {
-                next_menu_state.set(MenuState::Main)
-            }
-            MenuState::SettingsAudio => next_menu_state.set(MenuState::Settings),
-            // Not in the controls screen: Escape is a key that can be bound there
+            MenuState::Solo | MenuState::Multi => next_menu_state.set(MenuState::Main),
+            // The settings close themselves
             _ => (),
         }
     }

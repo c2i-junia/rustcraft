@@ -18,8 +18,6 @@ use crate::ui::theme::{
 };
 
 /// What `spawn_segmented` builds.
-// The settings screen (Lot 1, Task 6) is the first user of the segmented control
-#[allow(dead_code)]
 pub struct Segmented<'a> {
     /// The accessible label of the group.
     pub label: &'a str,
@@ -33,8 +31,6 @@ pub struct Segmented<'a> {
 pub struct Segment(pub usize);
 
 /// Triggered on the group of a segmented control when the player checks another option.
-// The settings screen (Lot 1, Task 6) is the first user of the segmented control
-#[allow(dead_code)]
 #[derive(EntityEvent)]
 pub struct SegmentChange {
     pub entity: Entity,
@@ -42,8 +38,6 @@ pub struct SegmentChange {
 }
 
 /// Spawns a segmented control, without a parent, and returns its group.
-// The settings screen (Lot 1, Task 6) is the first user of the segmented control
-#[allow(dead_code)]
 pub fn spawn_segmented(
     commands: &mut Commands,
     segmented: &Segmented,

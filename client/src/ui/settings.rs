@@ -21,8 +21,6 @@ pub enum UiScaleChoice {
 }
 
 impl UiScaleChoice {
-    // The settings screen (Task 6) is the first to list the choices
-    #[allow(dead_code)]
     pub const ALL: [UiScaleChoice; 5] = [
         UiScaleChoice::Auto,
         UiScaleChoice::X1,
@@ -31,8 +29,6 @@ impl UiScaleChoice {
         UiScaleChoice::X3,
     ];
 
-    // The settings screen (Task 6) is the first to show the labels
-    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             UiScaleChoice::Auto => "Auto",
@@ -71,8 +67,6 @@ pub fn load_interface_settings(paths: &GameFolderPaths) -> InterfaceSettings {
         .unwrap_or_default()
 }
 
-// The settings screen (Task 6) is the first to write the settings
-#[allow(dead_code)]
 /// Writes the settings to `interface.ron` in the game folder.
 pub fn write_interface_settings(settings: &InterfaceSettings, paths: &GameFolderPaths) {
     let path = paths.game_folder_path.join(INTERFACE_SETTINGS_PATH);

@@ -1,5 +1,6 @@
 //! Snapshots of every screen at three resolutions, for a human to review.
 
+use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
 use shared::world::{grid_slot, ItemId};
 
@@ -51,13 +52,15 @@ fn every_screen_at_three_resolutions() {
         h.review_screen("Multiplayer", "Server list", "multi", "Back to menu");
         h.wait_for(&L::text("Settings"), SCREEN);
         h.click(&L::text("Settings"));
-        h.wait_for(&L::text("Controls"), SCREEN);
+        h.wait_for(&L::text("MoveForward"), SCREEN);
+        h.settled_snapshot("controls");
+        h.click(&L::role(Role::Tab, "Audio"));
+        h.wait_for(&L::role(Role::Slider, "Master"), SCREEN);
+        h.settled_snapshot("audio");
+        h.click(&L::role(Role::Tab, "Interface"));
+        h.wait_for(&L::role(Role::RadioGroup, "UI scale"), SCREEN);
         h.settled_snapshot("settings");
-        h.review_screen("Controls", "Keyboard Controls", "controls", "Back");
-        h.wait_for(&L::text("Controls"), SCREEN);
-        h.review_screen("Audio", "Master", "audio", "Back");
-        h.wait_for(&L::text("Controls"), SCREEN);
-        h.click(&L::text("Back"));
+        h.click(&L::role(Role::Button, "Back"));
         h.wait_for(&L::text("Singleplayer"), SCREEN);
     }
     drop(h);

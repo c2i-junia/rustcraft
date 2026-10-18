@@ -23,8 +23,6 @@ use crate::ui::theme::{
 };
 
 /// What `spawn_tabs` builds.
-// The settings screen (Lot 1, Task 6) is the first user of the tab bar
-#[allow(dead_code)]
 pub struct Tabs<'a> {
     /// The accessible label of the bar.
     pub label: &'a str,
@@ -38,8 +36,6 @@ pub struct Tabs<'a> {
 pub struct TabButton(pub usize);
 
 /// Triggered on a tab bar when the player checks another tab.
-// The settings screen (Lot 1, Task 6) is the first user of the tab bar
-#[allow(dead_code)]
 #[derive(EntityEvent)]
 pub struct TabChange {
     pub entity: Entity,
@@ -47,8 +43,6 @@ pub struct TabChange {
 }
 
 /// Spawns a tab bar, without a parent, and returns it.
-// The settings screen (Lot 1, Task 6) is the first user of the tab bar
-#[allow(dead_code)]
 pub fn spawn_tabs(commands: &mut Commands, tabs: &Tabs, font: Handle<Font>) -> Entity {
     let bar = commands
         .spawn((

@@ -24,15 +24,14 @@ use crate::ui::theme::{
 
 /// How much an arrow key or a notch of the wheel moves a slider.
 pub const SLIDER_STEP: f32 = 0.05;
-const LABEL_WIDTH: f32 = 180.0;
+/// The width of the label before a slider; other settings line up with it.
+pub const LABEL_WIDTH: f32 = 180.0;
 const TRACK_WIDTH: f32 = 240.0;
 const TRACK_HEIGHT: f32 = 20.0;
 const THUMB_WIDTH: f32 = 12.0;
 const READOUT_WIDTH: f32 = 64.0;
 
 /// What `spawn_slider` builds.
-// The settings screen (Lot 1, Task 6) is the first user of the slider
-#[allow(dead_code)]
 pub struct SliderField<'a> {
     /// The label shown before the slider, which is also its accessible label.
     pub label: &'a str,
@@ -41,8 +40,6 @@ pub struct SliderField<'a> {
 }
 
 /// The entities of a slider: `root` to place it, `slider` to observe it.
-// The settings screen (Lot 1, Task 6) is the first user of the slider
-#[allow(dead_code)]
 pub struct SliderParts {
     pub root: Entity,
     pub slider: Entity,
@@ -65,8 +62,6 @@ struct SliderLook {
 }
 
 /// Spawns a slider row, without a parent: put `root` in place.
-// The settings screen (Lot 1, Task 6) is the first user of the slider
-#[allow(dead_code)]
 pub fn spawn_slider(
     commands: &mut Commands,
     field: &SliderField,

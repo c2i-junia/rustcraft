@@ -28,7 +28,7 @@ impl Channel {
     }
 }
 
-/// Volumes from 0 (muted) to 1 (as the file is), in steps of `VOLUME_STEP`.
+/// Volumes from 0 (muted) to 1 (as the file is).
 #[derive(Resource, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct AudioSettings {
@@ -36,8 +36,6 @@ pub struct AudioSettings {
     pub effects: f32,
     pub interface: f32,
 }
-
-pub const VOLUME_STEP: f32 = 0.1;
 
 impl Default for AudioSettings {
     fn default() -> Self {
@@ -63,8 +61,6 @@ impl AudioSettings {
         self.master * self.get(channel)
     }
 
-    // The settings screen (Task 6) is the first to set a volume
-    #[allow(dead_code)]
     /// Sets the volume of `channel`, within 0 and 1.
     pub fn set(&mut self, channel: Channel, volume: f32) {
         let slot = match channel {
@@ -73,18 +69,6 @@ impl AudioSettings {
             Channel::Interface => &mut self.interface,
         };
         *slot = volume.clamp(0.0, 1.0);
-    }
-
-    /// Moves the volume of `channel` by `steps` steps, within 0 and 1.
-    pub fn step(&mut self, channel: Channel, steps: i32) {
-        let volume = match channel {
-            Channel::Master => &mut self.master,
-            Channel::Effects => &mut self.effects,
-            Channel::Interface => &mut self.interface,
-        };
-        // Rounded to the step, so that repeated steps do not drift away from round values
-        let stepped = (*volume / VOLUME_STEP).round() + steps as f32;
-        *volume = (stepped * VOLUME_STEP).clamp(0.0, 1.0);
     }
 }
 
@@ -95,10 +79,6 @@ pub fn load_audio_settings(paths: &GameFolderPaths) -> AudioSettings {
         .ok()
         .and_then(|content| from_str(&content).ok())
         .unwrap_or_default()
-}
-
-pub fn save_audio_settings(settings: Res<AudioSettings>, paths: Res<GameFolderPaths>) {
-    write_audio_settings(&settings, &paths);
 }
 
 /// Writes the settings to `audio.ron` in the game folder.
@@ -120,19 +100,6 @@ pub fn write_audio_settings(settings: &AudioSettings, paths: &GameFolderPaths) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stepping_stays_within_zero_and_one_on_round_values() {
-        let mut settings = AudioSettings::default();
-        settings.step(Channel::Effects, 1);
-        assert_eq!(settings.effects, 1.0);
-        for _ in 0..3 {
-            settings.step(Channel::Effects, -1);
-        }
-        assert!((settings.effects - 0.7).abs() < 1e-6);
-        settings.step(Channel::Effects, -20);
-        assert_eq!(settings.effects, 0.0);
-    }
 
     #[test]
     fn a_channel_is_scaled_by_the_master_volume() {

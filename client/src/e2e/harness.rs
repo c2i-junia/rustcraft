@@ -316,5 +316,6 @@ fn the_client_starts_on_the_main_menu() {
         *w.resource::<State<MenuState>>().get() == MenuState::Main
     });
     assert_eq!(h.game_state(), GameState::Menu);
-    assert!(h.folder().join("keybindings.ron").exists());
+    // the settings are only written when the player changes them
+    assert!(!h.folder().join("keybindings.ron").exists());
 }

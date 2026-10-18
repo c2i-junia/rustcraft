@@ -1,15 +1,15 @@
-//! The keyboard controls screen: one line per action with the keys bound to it, a button to
+//! The Controls tab of the settings: one line per action with the keys bound to it, a button to
 //! clear them, and a dialog that binds the next key pressed.
 
 use bevy::{color::palettes::css, prelude::*, ui::FocusPolicy};
 use shared::GameFolderPaths;
 
 use crate::input::data::GameAction;
-use crate::menus::{MenuButtonAction, MenuState, ScrollingList};
+use crate::menus::ScrollingList;
 use crate::state::KeyMap;
 
 use crate::ui::assets::*;
-use crate::ui::style::{fill_image_node, text_font, NORMAL_BUTTON};
+use crate::ui::style::{text_font, NORMAL_BUTTON};
 
 /// Width of the last column of a line, which holds its "clear" button: wide enough to show
 /// the button while the line is hovered, and too narrow for it otherwise.
@@ -38,13 +38,15 @@ pub struct ActionRecorder {
     pub binds: Entity,
 }
 
-pub fn controls_menu_setup(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-    key_map: Res<KeyMap>,
-    paths: Res<GameFolderPaths>,
+/// Spawns the list of the actions and the "Press any key..." dialog under `panel`.
+pub fn spawn_controls_tab(
+    commands: &mut Commands,
+    panel: Entity,
+    assets: &AssetServer,
+    key_map: &KeyMap,
+    paths: &GameFolderPaths,
 ) {
-    let font = load_font(&assets);
+    let font = assets.load(FONT_PATH);
     let base_path = paths.assets_folder_path.display();
     let trash_icon: Handle<Image> = assets.load(format!("{base_path}/graphics/trash.png"));
 
@@ -58,72 +60,28 @@ pub fn controls_menu_setup(
             },
             ScrollingList { position: 0. },
         ))
-        .with_child((
-            Text::new("Keyboard Controls"),
-            text_font(font.clone(), 36.0),
-            TextColor(Color::WHITE),
-            Node {
-                margin: UiRect::vertical(Val::Px(20.)),
-                ..default()
-            },
-        ))
         .id();
     for (action, keys) in &key_map.map {
-        let line = spawn_control_line(&mut commands, &assets, *action, keys, &trash_icon);
+        let line = spawn_control_line(commands, assets, *action, keys, &trash_icon);
         commands.entity(list).add_child(line);
     }
 
-    let scroll_area = commands
-        .spawn(Node {
-            overflow: Overflow::clip_y(),
-            height: Val::Vh(100.),
-            width: Val::Vw(60.),
-            flex_direction: FlexDirection::Column,
-            ..default()
-        })
-        .add_child(list)
-        .id();
-
-    let back_button = commands
-        .spawn((
-            Button,
-            GlobalZIndex(3),
-            Node {
-                position_type: PositionType::Absolute,
-                top: Val::Px(10.),
-                left: Val::Px(10.),
-                padding: UiRect::all(Val::Px(5.)),
-                ..default()
-            },
-            MenuButtonAction::BackToSettings,
-        ))
-        .with_child((
-            Text::new("Back"),
-            text_font(font.clone(), 21.0),
-            TextColor(Color::WHITE),
-        ))
-        .id();
-
-    let recorder = spawn_action_recorder(&mut commands, font);
-
     commands
         .spawn((
-            DespawnOnExit(MenuState::SettingsControls),
             Node {
-                padding: UiRect::horizontal(Val::Vw(15.)),
-                top: Val::Px(0.),
-                display: Display::Flex,
-                width: Val::Vw(100.),
+                overflow: Overflow::clip_y(),
+                flex_grow: 1.,
+                min_height: Val::Px(0.),
+                width: Val::Percent(100.),
                 flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                row_gap: Val::Px(10.),
                 ..default()
             },
-            BackgroundColor(Color::NONE),
-            fill_image_node(load_background_image(&assets)),
+            ChildOf(panel),
         ))
-        .add_children(&[back_button, scroll_area, recorder]);
+        .add_child(list);
+
+    let recorder = spawn_action_recorder(commands, font);
+    commands.entity(recorder).insert(ChildOf(panel));
 }
 
 /// One line of the list: the name of `action`, its keys, and the button that clears them.
@@ -204,7 +162,7 @@ fn spawn_control_line(
         .id()
 }
 
-/// The hidden "Press any key..." dialog, which covers the screen while it records a key.
+/// The hidden "Press any key..." dialog, which covers the panel while it records a key.
 fn spawn_action_recorder(commands: &mut Commands, font: Handle<Font>) -> Entity {
     let dialog = commands
         .spawn((
@@ -212,7 +170,7 @@ fn spawn_action_recorder(commands: &mut Commands, font: Handle<Font>) -> Entity 
             BorderColor::all(Color::Srgba(css::BLUE_VIOLET)),
             Node {
                 border: UiRect::all(Val::Px(2.5)),
-                min_width: Val::Vw(50.),
+                min_width: Val::Percent(50.),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 padding: UiRect::all(Val::Px(10.)),
@@ -235,8 +193,8 @@ fn spawn_action_recorder(commands: &mut Commands, font: Handle<Font>) -> Entity 
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                width: Val::Vw(100.),
-                height: Val::Vh(100.),
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
                 ..default()
@@ -385,10 +343,20 @@ mod tests {
                 game_folder_path: "game".into(),
                 assets_folder_path: "assets".into(),
             })
-            .add_systems(Startup, controls_menu_setup)
+            .add_systems(Startup, spawn_tab)
             .add_systems(Update, controls_update_system);
         app.update();
         app
+    }
+
+    fn spawn_tab(
+        mut commands: Commands,
+        assets: Res<AssetServer>,
+        key_map: Res<KeyMap>,
+        paths: Res<GameFolderPaths>,
+    ) {
+        let panel = commands.spawn(Node::default()).id();
+        spawn_controls_tab(&mut commands, panel, &assets, &key_map, &paths);
     }
 
     fn only<C: Component>(app: &mut App) -> Entity {
