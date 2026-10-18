@@ -6,6 +6,7 @@ pub mod pause;
 pub mod server_connect_loading;
 pub mod settings;
 pub mod solo;
+pub mod worlds;
 
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
@@ -37,6 +38,12 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(in_state(MenuState::Main))
                 .run_if(not(dialog_open))
                 .run_if(not(text_field_focused)),
+        )
+        .add_systems(
+            Update,
+            continue_on_ctrl_enter
+                .run_if(in_state(MenuState::Main))
+                .run_if(not(dialog_open)),
         )
         .add_observer(activate_main_menu_button)
         // Systems to handle the play menu screen

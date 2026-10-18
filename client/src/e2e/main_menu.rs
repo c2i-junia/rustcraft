@@ -1,13 +1,20 @@
-//! The main menu: its buttons lead to the other screens, and quitting asks first.
+//! The main menu: its buttons lead to the other screens, the Continue card plays the last world,
+//! and quitting asks first.
+
+use std::time::Duration;
 
 use accesskit::Role;
 use bevy::prelude::*;
 
-use super::harness::{Harness, SCREEN};
-use super::helpers::main_menu;
+use super::harness::{Harness, Options, SCREEN, SERVER};
+use super::helpers::{is_in, main_menu};
 use super::locator::Locator as L;
+use super::seed::GameFolder;
+use crate::constants::DAY_DURATION_IN_TICKS;
+use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::QUIT_TITLE;
+use crate::ui::menus::solo::SelectedWorld;
+use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
 
@@ -144,4 +151,69 @@ fn two_harnesses_run_side_by_side() {
     assert_eq!(first.menu_state(), MenuState::Settings);
     assert_eq!(second.menu_state(), MenuState::Multi);
     assert_ne!(first.folder(), second.folder());
+}
+
+const HOUR: Duration = Duration::from_secs(60 * 60);
+
+/// A client on the main menu, with the game folder `folder`.
+#[track_caller]
+fn main_menu_with(folder: GameFolder) -> Harness {
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn continue_shows_the_last_played_world() {
+    let folder = GameFolder::new()
+        .with_played_world("Old", 0, 5 * 24 * HOUR)
+        .with_played_world("Recent", 3 * DAY_DURATION_IN_TICKS + 10, 2 * HOUR);
+    let mut h = main_menu_with(folder);
+    let card = || L::marker::<ContinueCard>();
+    h.wait_for(&L::text("Recent").within(card()), SCREEN);
+    assert!(h.is_visible(&L::text("Day 4").within(card())));
+    assert!(h.is_visible(&L::text("played 2 hours ago").within(card())));
+    assert!(!h.is_visible(&L::text("Old")));
+    assert!(h.is_visible(&L::text("Ctrl+Enter")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn without_a_world_there_is_no_continue_card() {
+    let mut h = main_menu();
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ContinueCard>()));
+    assert!(!h.is_visible(&L::text("Ctrl+Enter")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn continue_plays_the_last_world_by_ctrl_enter_and_by_click() {
+    let folder = GameFolder::new().with_played_world("Recent", 0, 2 * HOUR);
+    let mut h = main_menu_with(folder);
+    h.wait_for(&L::marker::<ContinueCard>(), SCREEN);
+    assert_eq!(h.focus_label().as_deref(), Some("Singleplayer"));
+
+    // Ctrl+Enter plays the last world, even with the focus on Singleplayer
+    h.key_down(KeyCode::ControlLeft);
+    h.press(KeyCode::Enter);
+    h.key_up(KeyCode::ControlLeft);
+    let selected = h.world().resource::<SelectedWorld>().name.clone();
+    assert_eq!(selected.as_deref(), Some("Recent"));
+    assert_ne!(h.menu_state(), MenuState::Solo);
+    h.wait_for_game_state(GameState::Game, SERVER);
+
+    // Back on the main menu, the world was just played, and Play plays it again
+    h.press(KeyCode::Escape);
+    h.click_when_ready(&L::text("Back to menu"));
+    h.wait_until("the main menu", SERVER, |w| {
+        is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
+    });
+    h.wait_for(
+        &L::text("played just now").within(L::marker::<ContinueCard>()),
+        SCREEN,
+    );
+    h.click(&L::role(Role::Button, "Play"));
+    h.wait_for_game_state(GameState::Game, SERVER);
 }

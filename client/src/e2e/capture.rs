@@ -148,15 +148,21 @@ impl Harness {
 #[cfg(test)]
 mod tests {
 
+    use std::time::Duration;
+
     use super::snapshot_path;
-    use crate::e2e::harness::{Harness, SCREEN};
+    use crate::e2e::harness::{Harness, Options, SCREEN};
     use crate::e2e::locator::Locator as L;
+    use crate::e2e::seed::GameFolder;
     use crate::ui::button::MenuState;
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn the_main_menu_matches_its_golden() {
-        let mut h = Harness::new();
+        // a fixed age, so that the card says the same thing every time
+        let played_ago = Duration::from_secs((3 * 24 + 1) * 60 * 60);
+        let folder = GameFolder::new().with_played_world("Survie", 0, played_ago);
+        let mut h = Harness::start(folder, Options::default());
         h.wait_for(&L::text("Multiplayer"), SCREEN);
         h.assert_screenshot("menu_main");
     }

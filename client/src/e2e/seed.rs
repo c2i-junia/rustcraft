@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use bevy::prelude::{Transform, Vec3};
 use shared::players::Player;
@@ -38,10 +39,23 @@ impl GameFolder {
 
     /// Adds a saved world, with a fixed seed so that journeys are repeatable.
     pub fn with_world(self, name: &str) -> Self {
+        self.with_played_world(name, 0, Duration::ZERO)
+    }
+
+    /// Adds a saved world like `with_world`, at the game time `time`, last played `played_ago`:
+    /// its `world.ron` was last modified then.
+    pub fn with_played_world(self, name: &str, time: u64, played_ago: Duration) -> Self {
         let world = self.path().join(SAVE_PATH).join(name);
         fs::create_dir_all(&world).expect("a world folder");
-        let meta = format!("(format_version: 2, name: {name:?}, seed: (42), time: 0, mobs: {{}})");
-        fs::write(world.join("world.ron"), meta).expect("a world.ron");
+        let meta =
+            format!("(format_version: 2, name: {name:?}, seed: (42), time: {time}, mobs: {{}})");
+        let path = world.join("world.ron");
+        fs::write(&path, meta).expect("a world.ron");
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(SystemTime::now() - played_ago))
+            .expect("the date of a world.ron");
         self
     }
 

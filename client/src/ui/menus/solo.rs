@@ -1,4 +1,5 @@
 use super::list_screen::*;
+use super::worlds::start_world;
 use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
@@ -268,9 +269,12 @@ pub fn solo_action(
             }
             SoloButtonAction::Load(world_entity) => {
                 if let Some(world) = list.worlds.get(&world_entity) {
-                    selected_world.name = Some(world.name.clone());
-                    game_state.set(GameState::PreGameLoading);
-                    menu_state.set(MenuState::Disabled);
+                    start_world(
+                        &world.name,
+                        &mut selected_world,
+                        &mut game_state,
+                        &mut menu_state,
+                    );
                 }
             }
             SoloButtonAction::Delete(world_entity) => {

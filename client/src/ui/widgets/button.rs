@@ -23,8 +23,6 @@ pub enum ButtonVariant {
     #[default]
     Default,
     /// A green call to action.
-    // First used by the Play button of the main menu's Continue card (Lot 1, Task 4).
-    #[allow(dead_code)]
     Primary,
     /// A red, destructive action.
     Danger,
