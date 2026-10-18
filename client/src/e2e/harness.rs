@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use bevy::{
     asset::{RenderAssetUsages, UnapprovedPathMode},
+    audio::{AudioPlugin, GlobalVolume, Volume},
     gilrs::GilrsPlugin,
     log::LogPlugin,
     prelude::*,
@@ -113,6 +114,11 @@ impl Harness {
         app.add_plugins(
             DefaultPlugins
                 .set(ImagePlugin::default_nearest())
+                // The game still plays its sounds, but nothing reaches the speakers
+                .set(AudioPlugin {
+                    global_volume: GlobalVolume::new(Volume::SILENT),
+                    ..default()
+                })
                 .set(AssetPlugin {
                     file_path: data.to_string_lossy().into_owned(),
                     unapproved_path_mode: UnapprovedPathMode::Allow,
