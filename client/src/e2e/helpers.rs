@@ -1,9 +1,11 @@
 //! Steps shared by the tests of the screens.
 
 use bevy::{
+    a11y::AccessibilityNode,
+    input_focus::InputFocus,
     prelude::{Component, Entity, Name, State, With, World},
     text::EditableText,
-    ui::UiGlobalTransform,
+    ui::{ComputedNode, UiGlobalTransform},
 };
 
 use super::harness::{Harness, SCREEN};
@@ -80,5 +82,33 @@ impl Harness {
             .unwrap()
             .value()
             .to_string()
+    }
+
+    /// The accessible label of the focused entity.
+    pub fn focus_label(&mut self) -> Option<String> {
+        let focused = self.world().resource::<InputFocus>().get()?;
+        let node = self.world().get::<AccessibilityNode>(focused)?;
+        node.label().map(str::to_string)
+    }
+
+    /// How many pixels of a fresh screenshot inside the physical rectangle of the element are
+    /// bright (a luminance above 128): the glyphs of a text on a dark ground.
+    #[track_caller]
+    pub fn bright_pixels_in(&mut self, locator: &L) -> usize {
+        let entity = self.get(locator);
+        let world = self.world();
+        let center = world.get::<UiGlobalTransform>(entity).unwrap().translation;
+        let half = world.get::<ComputedNode>(entity).unwrap().size() / 2.0;
+        let shot = self.screenshot();
+        let (min, max) = (center - half, center + half);
+        shot.enumerate_pixels()
+            .filter(|(x, y, _)| {
+                (min.x..max.x).contains(&(*x as f32)) && (min.y..max.y).contains(&(*y as f32))
+            })
+            .filter(|(_, _, pixel)| {
+                let [r, g, b] = pixel.0.map(f32::from);
+                0.2126 * r + 0.7152 * g + 0.0722 * b > 128.0
+            })
+            .count()
     }
 }

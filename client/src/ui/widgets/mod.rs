@@ -6,7 +6,9 @@ use bevy::prelude::*;
 use crate::ui::settings::InterfaceSettings;
 
 pub mod button;
+pub mod dialog;
 pub mod focus;
+pub mod hints;
 mod scale;
 pub mod slot;
 pub mod text_field;
@@ -16,6 +18,7 @@ pub fn widgets_plugin(app: &mut App) {
     // `add_client` inserts the saved settings; this is for apps that do not
     app.init_resource::<InterfaceSettings>();
     button::plugin(app);
+    dialog::plugin(app);
     focus::plugin(app);
     scale::plugin(app);
     slot::plugin(app);

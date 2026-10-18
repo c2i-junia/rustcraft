@@ -2,6 +2,7 @@
 
 use accesskit::Role;
 use bevy::{
+    ecs::system::RunSystemOnce,
     input::{
         keyboard::{Key, KeyboardInput},
         ButtonState,
@@ -21,9 +22,12 @@ use super::harness::{Harness, Options, SCREEN};
 use super::helpers::main_menu;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
+use crate::ui::assets::MONO_FONT_PATH;
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER};
 use crate::ui::widgets::button::{button, ButtonVariant};
+use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed, DialogRoot};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
+use crate::ui::widgets::hints::key_cap;
 use crate::ui::widgets::slot::{slot, SlotSelected};
 use crate::ui::widgets::text_field::{
     spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
@@ -699,4 +703,121 @@ fn the_tooltip_is_inside_the_window_on_the_first_frame_it_shows() {
         min.x >= -0.5 && min.y >= -0.5 && max.x <= window.x + 0.5 && max.y <= window.y + 0.5,
         "{min} {max} is outside {window}"
     );
+}
+
+/// The actions the dialogs of a test were closed with.
+#[derive(Resource, Default)]
+struct Closes(Vec<Option<usize>>);
+
+/// Spawns a "Before" button with the focus, then a probe dialog "Probe?" whose Cancel is focused,
+/// and records how its dialogs close.
+fn dialog_probe() -> Harness {
+    let mut h = main_menu();
+    h.world_mut().init_resource::<Closes>();
+    h.world_mut()
+        .add_observer(|closed: On<DialogClosed>, mut closes: ResMut<Closes>| {
+            closes.0.push(closed.action)
+        });
+    let root = spawn_group(&mut h, Node::default());
+    h.world_mut().spawn((
+        button("Before", ButtonVariant::Default, Handle::default()),
+        AutoFocus,
+        ChildOf(root),
+    ));
+    h.frames(3);
+    open_probe_dialog(&mut h);
+    h
+}
+
+fn open_probe_dialog(h: &mut Harness) {
+    h.world_mut()
+        .run_system_once(|mut commands: Commands, focus: Res<InputFocus>| {
+            let dialog = Dialog {
+                title: "Probe?",
+                body: "Sure?",
+                actions: &[
+                    ("Cancel", ButtonVariant::Default),
+                    ("Quit", ButtonVariant::Danger),
+                ],
+                focused: 0,
+            };
+            spawn_dialog(&mut commands, &dialog, Handle::default(), &focus);
+        })
+        .unwrap();
+    h.frames(3);
+}
+
+fn closes(h: &mut Harness) -> Vec<Option<usize>> {
+    h.world().resource::<Closes>().0.clone()
+}
+
+/// Whether the focus is on the dialog or inside it.
+fn focus_in_dialog(h: &mut Harness) -> bool {
+    let root = h.get(&L::marker::<DialogRoot>());
+    let mut at = Some(focused(h));
+    while let Some(entity) = at {
+        if entity == root {
+            return true;
+        }
+        at = h.world().get::<ChildOf>(entity).map(ChildOf::parent);
+    }
+    false
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_dialog_focuses_its_chosen_button_and_keeps_the_focus_inside() {
+    let mut h = dialog_probe();
+    assert_eq!(h.focus_label().as_deref(), Some("Cancel"));
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+        assert!(focus_in_dialog(&mut h), "Tab left the dialog");
+    }
+    h.click_at(Vec2::new(5.0, 5.0));
+    h.frames(2);
+    assert!(h.is_visible(&L::text("Probe?")));
+    assert!(
+        focus_in_dialog(&mut h),
+        "a click on the backdrop left the dialog"
+    );
+    assert!(closes(&mut h).is_empty());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn escape_closes_a_dialog_and_gives_the_focus_back() {
+    let mut h = dialog_probe();
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert_eq!(closes(&mut h), [None]);
+    assert!(h.find(&L::marker::<DialogRoot>()).is_empty());
+    assert_eq!(h.focus_label().as_deref(), Some("Before"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_dialog_button_closes_it_with_its_action() {
+    let mut h = dialog_probe();
+    h.click(&L::role(Role::Button, "Quit").within(L::marker::<DialogRoot>()));
+    h.frames(2);
+    assert_eq!(closes(&mut h), [Some(1)]);
+    assert!(h.find(&L::marker::<DialogRoot>()).is_empty());
+    open_probe_dialog(&mut h);
+    h.press(KeyCode::Enter);
+    h.frames(2);
+    assert_eq!(closes(&mut h), [Some(1), Some(0)]);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_key_cap_draws_arrow_glyphs() {
+    let mut h = main_menu();
+    let mono: Handle<Font> = h.world().resource::<AssetServer>().load(MONO_FONT_PATH);
+    let root = spawn_group(&mut h, Node::default());
+    h.world_mut()
+        .spawn((key_cap("←", Handle::default(), mono.clone()), ChildOf(root)));
+    h.world_mut()
+        .spawn((key_cap("Enter", Handle::default(), mono), ChildOf(root)));
+    h.frames(10);
+    assert!(h.bright_pixels_in(&L::text("←")) > 20);
 }
