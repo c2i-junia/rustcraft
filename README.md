@@ -134,8 +134,9 @@ Install the required dependencies based on your operating system:
 
 #### Arch Linux
 ```bash
-sudo pacman -S base-devel mold clang vulkan-radeon vulkan-tools
+sudo pacman -S base-devel mold clang vulkan-radeon vulkan-tools vulkan-swrast
 ```
+- `vulkan-swrast` is the software renderer the UI screenshot tests draw with.
 - Replace `vulkan-radeon` with:   
   - `vulkan-intel` for Intel GPUs.   
   - `nvidia-utils` for NVIDIA GPUs.   
@@ -193,6 +194,13 @@ Feel free to submit issues or open pull requests. If you want to know where to h
 
 ### Checks
 Run `just check` before committing: it checks the formatting (`cargo fmt`), runs clippy without any warning allowed, and runs the tests. The CI runs the same three steps.
+
+### UI screenshots
+On Linux, the tests also draw the UI off screen and compare it with the golden screenshots of `client/tests/golden/`. They draw with lavapipe, the software renderer of Mesa (`vulkan-swrast` on Arch, `mesa-vulkan-drivers` on Ubuntu/Debian), so that every machine draws the same pixels.
+
+- A test without a golden writes it and fails: look at the image, then commit it.
+- After a deliberate change of the UI, `UPDATE_GOLDEN=1 cargo test -p client golden` rewrites the goldens: look at their diff before committing them.
+- A test that fails writes `<name>.actual.png` and `<name>.diff.png`, with the differing pixels in red, next to the golden. The CI uploads them as the `golden-failures` artifact.
 
 ### Commit messages:
 
