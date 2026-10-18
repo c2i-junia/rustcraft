@@ -26,6 +26,17 @@ pub fn spawn_interface_tab(
         font_size: px(size).into(),
         ..default()
     };
+    // the control, and its note under it
+    let column = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_XS),
+                ..default()
+            },
+            ChildOf(panel),
+        ))
+        .id();
     // the label on the left, as wide as the labels of the sliders
     let row = commands
         .spawn((
@@ -34,7 +45,7 @@ pub fn spawn_interface_tab(
                 column_gap: px(SPACE_M),
                 ..default()
             },
-            ChildOf(panel),
+            ChildOf(column),
         ))
         .id();
     commands.spawn((
@@ -72,14 +83,10 @@ pub fn spawn_interface_tab(
         TextColor(MUTED),
         Node {
             display: Display::None,
-            margin: UiRect {
-                left: px(LABEL_WIDTH + SPACE_M),
-                top: px(-SPACE_M + SPACE_XS),
-                ..default()
-            },
+            margin: UiRect::left(px(LABEL_WIDTH + SPACE_M)),
             ..default()
         },
-        ChildOf(panel),
+        ChildOf(column),
     ));
 }
 

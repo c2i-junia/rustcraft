@@ -180,6 +180,8 @@ fn a_click_the_arrows_and_the_wheel_change_a_volume_saved_at_once() {
     h.wait_for(&percent("55%"), SCREEN);
     h.scroll(1.);
     h.wait_for(&percent("60%"), SCREEN);
+    let saved: AudioSettings = h.saved(AUDIO_SETTINGS_PATH);
+    assert!((saved.master - 0.6).abs() < 1e-4, "{}", saved.master);
     for _ in 0..10 {
         h.press(KeyCode::ArrowRight);
     }

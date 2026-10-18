@@ -26,7 +26,7 @@ use crate::ui::theme::{
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::dialog_open;
-use crate::ui::widgets::hints::{hint_bar, Hint};
+use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
 use audio::spawn_audio_tab;
@@ -108,8 +108,6 @@ pub const SETTINGS_HINTS: [Hint; 4] = [
 const PANEL_WIDTH: f32 = 720.0;
 /// The height of the panel: the same for every tab, so that the tabs do not move.
 const PANEL_HEIGHT: f32 = 560.0;
-/// The space the key hints take at the bottom of the screen.
-const HINT_BAR_HEIGHT: f32 = 44.0;
 
 pub fn settings_plugin(app: &mut App) {
     app.add_systems(OnEnter(MenuState::Settings), open_menu_settings)
@@ -235,7 +233,8 @@ pub fn spawn_settings(
             flex_direction: FlexDirection::Column,
             flex_grow: 1.0,
             min_height: px(0),
-            row_gap: px(SPACE_M),
+            padding: UiRect::top(px(SPACE_L)),
+            row_gap: px(SPACE_XL),
             ..default()
         },
         ChildOf(panel),

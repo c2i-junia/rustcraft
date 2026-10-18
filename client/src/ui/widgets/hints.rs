@@ -16,6 +16,9 @@ pub struct Hint {
 #[derive(Component)]
 pub struct HintBar;
 
+/// The height of the bar of key hints: screens keep their content clear of it.
+pub const HINT_BAR_HEIGHT: f32 = 44.0;
+
 /// Whether `keys` has an arrow (U+2190 to U+2193), which the sans font lacks: the key cap then
 /// uses the glyph font.
 fn uses_glyph_font(keys: &str) -> bool {
@@ -58,6 +61,7 @@ pub fn hint_bar(hints: &[Hint], font: Handle<Font>, glyph_font: Handle<Font>) ->
             bottom: px(0),
             left: px(0),
             right: px(0),
+            height: px(HINT_BAR_HEIGHT),
             column_gap: px(SPACE_L),
             padding: UiRect::axes(px(SPACE_L), px(SPACE_S)),
             ..default()

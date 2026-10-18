@@ -26,7 +26,7 @@ use crate::ui::theme::{
 pub const SLIDER_STEP: f32 = 0.05;
 /// The width of the label before a slider; other settings line up with it.
 pub const LABEL_WIDTH: f32 = 180.0;
-const TRACK_WIDTH: f32 = 240.0;
+const TRACK_WIDTH: f32 = 400.0;
 const TRACK_HEIGHT: f32 = 20.0;
 const THUMB_WIDTH: f32 = 12.0;
 const READOUT_WIDTH: f32 = 64.0;
