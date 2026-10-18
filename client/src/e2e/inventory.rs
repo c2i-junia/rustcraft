@@ -397,6 +397,60 @@ fn the_keyboard_alone_moves_stacks_in_the_inventory() {
     h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
 }
 
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn keys_act_only_on_a_slot_the_player_can_see() {
+    let folder = GameFolder::new().with_world("Unseen").with_items(
+        "Unseen",
+        "Tester",
+        &[
+            (0, ItemId::Dirt, 5),
+            (2, ItemId::Stick, 3),
+            (4, ItemId::Sand, 2),
+        ],
+    );
+    let mut h = enter_world(folder, "Unseen");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 4) == Some((ItemId::Sand, 2))
+    });
+    let unchanged = |h: &Harness| {
+        let w = h.world();
+        (slot(w, 0), slot(w, 2), slot(w, 4), slot(w, 20), floating(w))
+    };
+    let before = unchanged(&h);
+    // The top-right corner of the window, over no slot
+    let corner = Vec2::new(1279.0, 0.0);
+
+    // The focus sits on the selected slot without its ring: a number key over nothing does nothing
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    h.hover_at(corner);
+    h.press(KeyCode::Digit3);
+    h.frames(10);
+    assert_eq!(
+        unchanged(&h),
+        before,
+        "a number key over nothing moved a stack"
+    );
+
+    // Nor do Enter and Space
+    h.press(KeyCode::Enter);
+    h.press(KeyCode::Space);
+    h.frames(10);
+    assert_eq!(unchanged(&h), before, "Enter or Space moved a stack");
+
+    // A click focuses its slot without a ring: away from it, a number key does nothing
+    h.click(&L::cell(20));
+    h.hover_at(corner);
+    h.press(KeyCode::Digit5);
+    h.frames(10);
+    assert_eq!(
+        unchanged(&h),
+        before,
+        "a number key away from the clicked slot moved a stack"
+    );
+}
+
 /// Guards the modal `TabGroup` of the panel: Tab in the game gathers only the non-modal groups.
 /// The `TabIndex(-1)` of the closed slots is covered by a unit test of `sync_inventory_focus`.
 #[test]

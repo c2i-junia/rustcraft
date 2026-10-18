@@ -57,12 +57,15 @@ pub fn toggle_inventory_system(
 
 /// Sends a click on a cell of the open inventory, or a number key pressed over one, as an action
 /// of the frame's input, which the client predicts and the server applies. Shift turns the left
-/// click into a move of the whole stack. On the focused cell, Enter is the left click and Space
-/// the right one; a number key goes to the focused cell when the cursor is over none.
+/// click into a move of the whole stack. While the focus ring shows, the keys act on the ringed
+/// cell, wherever the cursor is: Enter is the left click, Space the right one, and a number key
+/// swaps it. Without the ring, the focus is not one the player can see: the keys leave it alone,
+/// and a number key goes to the cell under the cursor.
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     focus: Res<InputFocus>,
+    focus_visible: Res<InputFocusVisible>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     cells: Query<(Entity, &Hovered, &InventoryCell)>,
     result: Query<(Entity, &Hovered), With<CraftResultCell>>,
@@ -77,7 +80,7 @@ pub fn click_inventory_cells_system(
     let space = keyboard_input.just_pressed(KeyCode::Space);
     let shift = keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let hotbar = hotbar_key_index(&keyboard_input);
-    let focused = focus.get();
+    let focused = focus.get().filter(|_| focus_visible.0);
     let actions = &mut frame_inputs.0.inventory_actions;
 
     // A click on the hovered cell, a key on the focused one
@@ -103,7 +106,12 @@ pub fn click_inventory_cells_system(
             click(cell.id, enter, space);
         }
     }
-    if let (Some(hotbar), Some(slot)) = (hotbar, hovered_slot.or(focused_slot)) {
+    let key_slot = if focused.is_some() {
+        focused_slot
+    } else {
+        hovered_slot
+    };
+    if let (Some(hotbar), Some(slot)) = (hotbar, key_slot) {
         actions.push(InventoryAction::SwapWithHotbar { slot, hotbar });
     }
     let takes_result = result.iter().any(|(entity, hovered)| {
@@ -676,7 +684,10 @@ mod tests {
 
     #[test]
     fn a_number_key_over_nothing_sends_nothing() {
+        // The open inventory always has a focus, hidden until a key moves it
         let mut hud = Hud::new(Visibility::Visible, &[12]);
+        let cell = hud.cell(12);
+        hud.world.insert_resource(InputFocus::from_entity(cell));
         hud.press_key_over(None, KeyCode::Digit3);
         assert!(hud.sent_actions().is_empty());
 
@@ -690,6 +701,7 @@ mod tests {
         let mut hud = Hud::new(Visibility::Visible, &[12, 15]);
         let cell = hud.cell(12);
         hud.world.insert_resource(InputFocus::from_entity(cell));
+        hud.world.insert_resource(InputFocusVisible(true));
 
         hud.press_key_over(None, KeyCode::Enter);
         hud.press_key_over(None, KeyCode::Space);
@@ -701,7 +713,8 @@ mod tests {
             .resource_mut::<ButtonInput<KeyCode>>()
             .release(KeyCode::ShiftLeft);
         hud.press_key_over(None, KeyCode::Digit2);
-        // The cursor wins over the focus
+        // The ringed cell wins over the cursor
+        hud.press_key_over(Some(15), KeyCode::Enter);
         hud.press_key_over(Some(15), KeyCode::Digit2);
 
         assert_eq!(
@@ -714,11 +727,43 @@ mod tests {
                     slot: 12,
                     hotbar: 1
                 },
+                InventoryAction::LeftClickSlot(12),
                 InventoryAction::SwapWithHotbar {
-                    slot: 15,
+                    slot: 12,
                     hotbar: 1
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn keys_leave_a_focus_without_its_ring_alone() {
+        let mut hud = Hud::new(Visibility::Visible, &[12, 15]);
+        let result = hud.spawn_result_cell();
+        let cell = hud.cell(12);
+        hud.world.insert_resource(InputFocus::from_entity(cell));
+
+        hud.press_key_over(None, KeyCode::Enter);
+        hud.press_key_over(None, KeyCode::Space);
+        hud.world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftLeft);
+        hud.press_key_over(None, KeyCode::Enter);
+        hud.world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ShiftLeft);
+        hud.world.insert_resource(InputFocus::from_entity(result));
+        hud.press_key_over(None, KeyCode::Enter);
+        assert!(hud.sent_actions().is_empty());
+
+        // A number key goes to the hovered cell only
+        hud.press_key_over(Some(15), KeyCode::Digit2);
+        assert_eq!(
+            hud.sent_actions(),
+            [InventoryAction::SwapWithHotbar {
+                slot: 15,
+                hotbar: 1
+            }]
         );
     }
 
@@ -1030,6 +1075,7 @@ mod tests {
         let mut hud = Hud::new(Visibility::Visible, &[]);
         let result = hud.spawn_result_cell();
         hud.world.insert_resource(InputFocus::from_entity(result));
+        hud.world.insert_resource(InputFocusVisible(true));
 
         hud.press_key_over(None, KeyCode::Enter);
 
