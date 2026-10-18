@@ -149,6 +149,8 @@ mod tests {
             (InventoryAction::Close, 2),
             (InventoryAction::TakeCraftResult, 3),
             (InventoryAction::OpenCraftingTable(IVec3::ZERO), 4),
+            (InventoryAction::QuickMoveSlot(0), 5),
+            (InventoryAction::SwapWithHotbar { slot: 0, hotbar: 0 }, 6),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

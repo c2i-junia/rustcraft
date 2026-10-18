@@ -3,6 +3,8 @@
 //! from the grid, using a crafting table, and closing it. Run by the client (prediction) and by
 //! the server (authority).
 
+use std::ops::Range;
+
 use bevy::math::IVec3;
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +18,7 @@ use crate::{
         grid_slot, match_recipe, BlockId, ChunkMap, CraftingGrid, ItemId, ItemStack, ItemType,
         CRAFTING_GRID_SIZE,
     },
-    HALF_BLOCK, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
+    HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
 
 /// Width and height of the crafting grid of the inventory alone.
@@ -36,6 +38,14 @@ pub enum InventoryAction {
     /// Right click on the crafting table at this position: the grid grows to 3x3 while the
     /// table stays within reach.
     OpenCraftingTable(IVec3),
+    /// Shift+click: the stack of this slot goes to the other part of the inventory, the hotbar
+    /// or the backpack. A crafting grid cell goes back into the inventory.
+    QuickMoveSlot(u32),
+    /// Number key over a slot: it trades places with this slot of the hotbar.
+    SwapWithHotbar {
+        slot: u32,
+        hotbar: u32,
+    },
 }
 
 /// Why an inventory action changed nothing.
@@ -49,6 +59,8 @@ pub enum InventoryRefusal {
     CursorFull,
     /// There is no crafting table within reach at this position.
     NoTable(IVec3),
+    /// The cursor holds a stack, which a swap with the hotbar would leave out.
+    HoldingAStack,
 }
 
 /// The slots of the cells of a grid of `size` by `size`, in its top left corner.
@@ -123,6 +135,12 @@ pub fn apply_inventory_action(
             .map(|()| left_click_slot(inventory, slot, &mut floating)),
         InventoryAction::RightClickSlot(slot) => check_slot(inventory, slot, size, floating)
             .map(|()| right_click_slot(inventory, slot, &mut floating)),
+        InventoryAction::QuickMoveSlot(slot) => {
+            check_slot(inventory, slot, size, floating).map(|()| quick_move_slot(inventory, slot))
+        }
+        InventoryAction::SwapWithHotbar { slot, hotbar } => {
+            swap_with_hotbar(inventory, slot, hotbar, size, floating)
+        }
         InventoryAction::Close => {
             inventory.open_table = None;
             if let Some(stack) = floating {
@@ -155,6 +173,87 @@ pub fn apply_inventory_action(
 fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     let kept = inventory.add_item_to_inventory(stack);
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+}
+
+/// Adds `stack` to the slots of `range`: first on stacks of the same item, then in empty slots,
+/// in slot order. Returns how many items did not fit.
+fn add_to_range(inventory: &mut Inventory, mut stack: ItemStack, range: Range<u32>) -> u32 {
+    let max_stack = stack.item_id.get_max_stack();
+    for tops_up in [true, false] {
+        for slot in range.clone() {
+            if stack.nb == 0 {
+                return 0;
+            }
+            let matches = match inventory.inner.get(&slot) {
+                Some(held) => tops_up && held.item_id == stack.item_id,
+                None => !tops_up,
+            };
+            if !matches {
+                continue;
+            }
+            let held = inventory.inner.get(&slot).map_or(0, |held| held.nb);
+            let added = stack.nb.min(max_stack.saturating_sub(held));
+            if added > 0 {
+                inventory.inner.insert(
+                    slot,
+                    ItemStack {
+                        nb: held + added,
+                        ..stack
+                    },
+                );
+                stack.nb -= added;
+            }
+        }
+    }
+    stack.nb
+}
+
+/// Shift+click on `slot`: moves its stack from the hotbar to the backpack or the other way
+/// round, and from a crafting grid cell into the whole inventory. What does not fit stays.
+fn quick_move_slot(inventory: &mut Inventory, slot: u32) {
+    let Some(stack) = inventory.inner.remove(&slot) else {
+        return;
+    };
+    let kept = if slot < HOTBAR_SLOTS {
+        let kept = add_to_range(inventory, stack, HOTBAR_SLOTS..MAX_INVENTORY_SLOTS);
+        (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+    } else if slot < MAX_INVENTORY_SLOTS {
+        let kept = add_to_range(inventory, stack, 0..HOTBAR_SLOTS);
+        (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+    } else {
+        put_back(inventory, stack)
+    };
+    if let Some(kept) = kept {
+        inventory.inner.insert(slot, kept);
+    }
+}
+
+/// Number key over `slot`: exchanges it with the slot `hotbar` of the hotbar, without merging.
+fn swap_with_hotbar(
+    inventory: &mut Inventory,
+    slot: u32,
+    hotbar: u32,
+    size: u32,
+    floating: Option<ItemStack>,
+) -> Result<(), InventoryRefusal> {
+    if hotbar >= HOTBAR_SLOTS {
+        return Err(InventoryRefusal::InvalidSlot(hotbar));
+    }
+    if floating.is_some() {
+        return Err(InventoryRefusal::HoldingAStack);
+    }
+    if slot >= MAX_INVENTORY_SLOTS && !grid_slots(size).any(|cell| cell == slot) {
+        return Err(InventoryRefusal::InvalidSlot(slot));
+    }
+    let in_slot = inventory.inner.remove(&slot);
+    let in_hotbar = inventory.inner.remove(&hotbar);
+    if let Some(stack) = in_slot {
+        inventory.inner.insert(hotbar, stack);
+    }
+    if let Some(stack) = in_hotbar {
+        inventory.inner.insert(slot, stack);
+    }
+    Ok(())
 }
 
 /// Whether `slot` is a cell of the 3x3 grid outside the grid of `size` in use.
@@ -865,5 +964,140 @@ mod tests {
     fn old_player_saves_without_a_floating_stack_still_load() {
         let inventory: Inventory = ron::from_str("(inner: {})").unwrap();
         assert_eq!(inventory, Inventory::new());
+    }
+
+    #[test]
+    fn shift_click_moves_a_hotbar_stack_into_the_backpack() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(0));
+
+        assert_eq!(inventory.inner.get(&0), None);
+        assert_eq!(inventory.inner[&HOTBAR_SLOTS], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn shift_click_moves_a_backpack_stack_into_the_hotbar() {
+        let mut inventory = inventory_with(20, stack(ItemId::Dirt, 5));
+
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(20));
+
+        assert_eq!(inventory.inner.get(&20), None);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn shift_click_tops_up_stacks_of_the_same_item_first() {
+        let mut inventory = inventory_with(3, stack(ItemId::Dirt, max_dirt() - 4));
+        inventory.inner.insert(20, stack(ItemId::Dirt, 10));
+
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(20));
+
+        assert_eq!(inventory.inner[&3], stack(ItemId::Dirt, max_dirt()));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 6));
+        assert_eq!(inventory.inner.get(&20), None);
+    }
+
+    #[test]
+    fn shift_click_keeps_what_does_not_fit() {
+        let mut inventory = inventory_with(20, stack(ItemId::Dirt, 5));
+        for slot in 0..HOTBAR_SLOTS {
+            inventory.inner.insert(slot, stack(ItemId::Stone, 64));
+        }
+
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(20));
+
+        assert_eq!(inventory.inner[&20], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn shift_click_on_a_grid_cell_puts_it_back_into_the_inventory() {
+        let cell = grid_slot(0, 0);
+        let mut inventory = inventory_with(cell, stack(ItemId::OakPlanks, 4));
+
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(cell));
+
+        assert_eq!(inventory.inner.get(&cell), None);
+        let (slot, moved) = inventory.inner.iter().next().unwrap();
+        assert!(*slot < MAX_INVENTORY_SLOTS);
+        assert_eq!(*moved, stack(ItemId::OakPlanks, 4));
+    }
+
+    #[test]
+    fn shift_click_leaves_the_held_stack_alone() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        inventory.floating = Some(stack(ItemId::Stick, 3));
+
+        apply(&mut inventory, InventoryAction::QuickMoveSlot(0));
+
+        assert_eq!(inventory.floating, Some(stack(ItemId::Stick, 3)));
+    }
+
+    #[test]
+    fn a_number_key_swaps_a_slot_with_that_hotbar_slot() {
+        let mut inventory = inventory_with(12, stack(ItemId::Dirt, 5));
+        inventory.inner.insert(2, stack(ItemId::Stick, 3));
+
+        let swap = InventoryAction::SwapWithHotbar {
+            slot: 12,
+            hotbar: 2,
+        };
+        apply(&mut inventory, swap);
+        assert_eq!(inventory.inner[&12], stack(ItemId::Stick, 3));
+        assert_eq!(inventory.inner[&2], stack(ItemId::Dirt, 5));
+
+        let mut inventory = inventory_with(12, stack(ItemId::Dirt, 5));
+        apply(
+            &mut inventory,
+            InventoryAction::SwapWithHotbar {
+                slot: 12,
+                hotbar: 4,
+            },
+        );
+        assert_eq!(inventory.inner.get(&12), None);
+        assert_eq!(inventory.inner[&4], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn a_number_key_is_refused_while_the_cursor_holds_a_stack() {
+        let mut inventory = inventory_with(12, stack(ItemId::Dirt, 5));
+        inventory.floating = Some(stack(ItemId::Dirt, 1));
+        let before = inventory.clone();
+
+        let swap = InventoryAction::SwapWithHotbar {
+            slot: 12,
+            hotbar: 2,
+        };
+        let refusal = apply_inventory_action(&mut inventory, swap, |_| false);
+
+        assert_eq!(refusal, Err(InventoryRefusal::HoldingAStack));
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn a_number_key_on_a_cell_beyond_the_grid_is_refused() {
+        let mut inventory = Inventory::new();
+        let cell = grid_slot(2, 2);
+
+        let swap = InventoryAction::SwapWithHotbar {
+            slot: cell,
+            hotbar: 0,
+        };
+        let refusal = apply_inventory_action(&mut inventory, swap, |_| false);
+
+        assert_eq!(refusal, Err(InventoryRefusal::InvalidSlot(cell)));
+    }
+
+    #[test]
+    fn a_number_key_beyond_the_hotbar_is_refused() {
+        let mut inventory = inventory_with(12, stack(ItemId::Dirt, 5));
+
+        let swap = InventoryAction::SwapWithHotbar {
+            slot: 12,
+            hotbar: HOTBAR_SLOTS,
+        };
+        let refusal = apply_inventory_action(&mut inventory, swap, |_| false);
+
+        assert_eq!(refusal, Err(InventoryRefusal::InvalidSlot(HOTBAR_SLOTS)));
     }
 }
