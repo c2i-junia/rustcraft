@@ -20,58 +20,57 @@ use crate::world::{setup_materials, world_plugin, ClientWorldMap};
 /// Assembles the domain plugins, and holds what spans several of them: the session lifecycle
 /// (entering and leaving the game).
 pub fn game_plugin(app: &mut App) {
-    app.add_plugins(bevy_simple_text_input::TextInputPlugin)
-        .add_plugins((
-            camera_plugin,
-            hud_plugin,
-            input_plugin,
-            mob_plugin,
-            network_plugin,
-            player_plugin,
-            world_plugin,
-        ))
-        // The order of one in-game frame. `GameSet::Meshing` is in `PostUpdate`.
-        .configure_sets(
-            Update,
-            (
-                GameSet::UiMode,
-                GameSet::Input,
-                GameSet::Simulation,
-                GameSet::Reconciliation,
-                GameSet::Camera,
-            )
-                .chain(),
+    app.add_plugins((
+        camera_plugin,
+        hud_plugin,
+        input_plugin,
+        mob_plugin,
+        network_plugin,
+        player_plugin,
+        world_plugin,
+    ))
+    // The order of one in-game frame. `GameSet::Meshing` is in `PostUpdate`.
+    .configure_sets(
+        Update,
+        (
+            GameSet::UiMode,
+            GameSet::Input,
+            GameSet::Simulation,
+            GameSet::Reconciliation,
+            GameSet::Camera,
         )
-        .insert_resource(PreLoadingCompletion {
-            textures_loaded: false,
-        })
-        .insert_resource(Time::<Fixed>::from_hz(TICKS_PER_SECOND as f64))
-        .add_systems(
-            OnEnter(GameState::PreGameLoading),
-            (
-                launch_local_server_system,
-                init_server_connection,
-                setup_materials,
-                setup_server_connect_loading_screen,
-            )
-                .chain(),
+            .chain(),
+    )
+    .insert_resource(PreLoadingCompletion {
+        textures_loaded: false,
+    })
+    .insert_resource(Time::<Fixed>::from_hz(TICKS_PER_SECOND as f64))
+    .add_systems(
+        OnEnter(GameState::PreGameLoading),
+        (
+            launch_local_server_system,
+            init_server_connection,
+            setup_materials,
+            setup_server_connect_loading_screen,
         )
-        .add_systems(
-            Update,
-            check_pre_loading_complete.run_if(in_state(GameState::PreGameLoading)),
-        )
-        .add_systems(
-            OnExit(GameState::Game),
-            (clear_resources, terminate_server_connection).chain(),
-        )
-        // Cancelling the loading screen never enters the game.
-        .add_systems(
-            OnTransition {
-                exited: GameState::PreGameLoading,
-                entered: GameState::Menu,
-            },
-            terminate_server_connection,
-        );
+            .chain(),
+    )
+    .add_systems(
+        Update,
+        check_pre_loading_complete.run_if(in_state(GameState::PreGameLoading)),
+    )
+    .add_systems(
+        OnExit(GameState::Game),
+        (clear_resources, terminate_server_connection).chain(),
+    )
+    // Cancelling the loading screen never enters the game.
+    .add_systems(
+        OnTransition {
+            exited: GameState::PreGameLoading,
+            entered: GameState::Menu,
+        },
+        terminate_server_connection,
+    );
 }
 
 fn clear_resources(mut world_map: ResMut<ClientWorldMap>) {

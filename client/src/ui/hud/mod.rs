@@ -62,7 +62,6 @@ pub fn hud_plugin(app: &mut App) {
                     toggle_chat_system,
                     fade_chat_messages_system,
                     display_chat_messages_system,
-                    send_chat_message_system,
                 )
                     .chain(),
                 // Before the simulation, which predicts the clicks of the frame

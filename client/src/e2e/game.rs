@@ -19,7 +19,7 @@ use crate::ui::hud::chat::{ChatDisplay, ChatRoot};
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{
-    CraftResultCell, FloatingStack, InventoryCell, InventoryRoot, StackCount, StackIcon,
+    CraftResultCell, FloatingStack, InventoryCell, InventoryRoot, StackCount, StackIcon, UIMode,
 };
 use crate::world::MaterialResource;
 
@@ -262,6 +262,38 @@ fn the_chat_sends_a_message_and_escape_closes_it() {
     h.wait_for(&L::text_containing("ensuite"), SERVER);
     assert!(h.chat_shows("ensuite"));
     assert!(!h.is_visible(&L::text_containing("brouillon")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn typing_in_the_chat_keeps_the_game_keys_quiet() {
+    let mut h = enter_world(GameFolder::new().with_world("Quiet"), "Quiet");
+    h.press(KeyCode::KeyT);
+    h.type_text("e");
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+
+    // Escape closes the chat, and the pause menu does not open
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(!h.is_visible(&L::text("Resume")));
+
+    // The closed field holds no key
+    h.press(KeyCode::KeyE);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn clicking_outside_the_chat_closes_it() {
+    let mut h = enter_world(GameFolder::new().with_world("Outside"), "Outside");
+    h.press(KeyCode::KeyT);
+    h.type_text("draft");
+    h.click(&L::marker::<Hotbar>());
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
+
+    h.press(KeyCode::KeyE);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
 }
 
 #[test]

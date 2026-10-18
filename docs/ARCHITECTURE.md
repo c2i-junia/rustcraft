@@ -91,6 +91,18 @@ too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audi
 sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. `GameState` goes from `Menu` to `PreGameLoading` (connection and
 textures) to `Game`.
 
+## UI widgets
+
+`ui/theme.rs` holds the tokens of the visual system: colours, spacing, font sizes and bevels.
+`ui/widgets/` holds one file per widget, plus `focus.rs` (Tab navigation, the focus ring, arrow
+navigation) and `scale.rs` (the UI scale that follows the window height); `widgets_plugin` adds
+them all, in `app::add_client`. A widget is a headless `bevy::ui_widgets` widget, or
+`EditableText` for a text field, dressed with our visuals, a `TabIndex`, an accessibility role
+and a label. A text field triggers `Submit` (Enter) and `Cancel` (Escape) on its input, after
+`EditableTextSystems` has applied the edits of the frame. `UIMode::Typing` means that the focus
+is on an `EditableText`. The screens still built on `Interaction` buttons move over to the
+widgets lot by lot.
+
 ## Saves
 
 A world is a folder under `saves/`:

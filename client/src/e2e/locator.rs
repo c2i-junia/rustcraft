@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use accesskit::Role;
-use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiGlobalTransform};
+use bevy::{a11y::AccessibilityNode, prelude::*, text::EditableText, ui::UiGlobalTransform};
 
 use super::harness::Harness;
 use crate::ui::hud::InventoryCell;
@@ -46,12 +46,14 @@ pub struct Locator {
 }
 
 impl Locator {
-    /// A visible `Text` whose content, with the `TextSpan`s under it, equals `content`.
+    /// A visible `Text` whose content, with the `TextSpan`s under it, equals `content`, or a
+    /// visible text field that holds `content`.
     pub fn text(content: &str) -> Locator {
         Self::of(Target::Text(content.to_string()))
     }
 
-    /// A visible `Text` whose content, with the `TextSpan`s under it, contains `part`.
+    /// A visible `Text` whose content, with the `TextSpan`s under it, contains `part`, or a
+    /// visible text field whose value contains it.
     pub fn text_containing(part: &str) -> Locator {
         Self::of(Target::TextContaining(part.to_string()))
     }
@@ -169,23 +171,22 @@ fn is_inside_or_is(world: &World, entity: Entity, ancestor: Entity) -> bool {
     entity == ancestor || is_inside(world, entity, ancestor)
 }
 
-/// What a player reads of a `Text` and of the `TextSpan`s under it: the spans drawn in a fully
-/// transparent colour are left out, and so is the cursor of a text input, which blinks.
+/// What a player reads of a text field, or of a `Text` and of the `TextSpan`s under it: the spans
+/// drawn in a fully transparent colour are left out.
 fn content_of(world: &World, entity: Entity) -> Option<String> {
+    if let Some(field) = world.get::<EditableText>(entity) {
+        return Some(field.value().to_string());
+    }
     let mut content = world.get::<Text>(entity)?.0.clone();
     if let Some(children) = world.get::<Children>(entity) {
-        // The inner text of a `bevy_simple_text_input` holds before, cursor and after spans.
-        let is_input = world
-            .get::<Name>(entity)
-            .is_some_and(|n| n.as_str() == "TextInputInner");
-        for (i, child) in children.iter().enumerate() {
+        for child in children.iter() {
             let Some(span) = world.get::<TextSpan>(child) else {
                 continue;
             };
             let transparent = world
                 .get::<TextColor>(child)
                 .is_some_and(|c| c.0.alpha() == 0.0);
-            if !transparent && !(is_input && i == 1) {
+            if !transparent {
                 content.push_str(&span.0);
             }
         }
@@ -193,10 +194,10 @@ fn content_of(world: &World, entity: Entity) -> Option<String> {
     Some(content)
 }
 
-/// Every visible `Text` with its full content.
+/// Every visible `Text` and text field with its full content.
 fn visible_texts(world: &mut World) -> Vec<(Entity, String)> {
     let texts: Vec<Entity> = world
-        .query_filtered::<Entity, With<Text>>()
+        .query_filtered::<Entity, Or<(With<Text>, With<EditableText>)>>()
         .iter(world)
         .collect();
     texts

@@ -1,14 +1,16 @@
 use crate::input::data::GameAction;
-use crate::input::keyboard::{is_action_just_pressed, is_action_just_released};
+use crate::input::keyboard::is_action_just_released;
 use crate::network::CachedChatConversation;
 use crate::network::SendGameMessageExtension;
 use crate::state::KeyMap;
 use crate::ui::assets::load_font;
 use crate::ui::hud::UiDialog;
 use crate::ui::style::text_font;
+use crate::ui::widgets::text_field::{spawn_text_field, Cancel, Submit, TextField};
+use bevy::input_focus::{tab_navigation::TabGroup, FocusCause, FocusLost, InputFocus};
 use bevy::prelude::*;
+use bevy::text::EditableText;
 use bevy_renet::RenetClient;
-use bevy_simple_text_input::*;
 use shared::messages::{ChatMessageRequest, ClientToServerMessage};
 use shared::utils::unix_time_ms;
 
@@ -37,12 +39,14 @@ const ANIMATION_BEGIN_FADE: u64 = 5_000;
 const ANIMATION_HIDE: u64 = 2_000;
 
 pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands
+    let root = commands
         .spawn((
             Name::new("ChatRoot"),
             DespawnOnExit(crate::state::GameState::Game),
             ChatRoot,
             UiDialog,
+            // Tab stays in the field
+            TabGroup::modal(),
             (
                 Node {
                     display: Display::Flex,
@@ -79,39 +83,39 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ..default()
                 },),
             ));
+        })
+        .id();
 
-            root.spawn((
-                ChatInput,
-                (Node {
-                    width: Val::Percent(100.),
-                    ..default()
-                },),
-                (
-                    TextInput,
-                    TextInputValue("".into()),
-                    TextInputPlaceholder {
-                        value: "Send a message...".to_string(),
-                        ..default()
-                    },
-                    TextInputTextFont(text_font(load_font(&asset_server), CHAT_SIZE)),
-                    TextInputTextColor(TextColor(Color::WHITE)),
-                    TextInputInactive(true),
-                ),
-            ));
-        });
+    let field = spawn_text_field(
+        &mut commands,
+        &TextField {
+            label: "Chat",
+            placeholder: "Send a message...",
+            max_characters: Some(256),
+            font: load_font(&asset_server),
+            font_size: CHAT_SIZE,
+        },
+    );
+    commands.entity(root).add_child(field.root);
+    commands
+        .entity(field.input)
+        .insert(ChatInput)
+        .observe(send_chat_message)
+        .observe(close_chat_on::<Submit>)
+        .observe(close_chat_on::<Cancel>)
+        .observe(close_chat_on::<FocusLost>);
 }
 
-/// Opens the chat on its key when no dialog is open, and closes it on Escape.
+/// Opens the chat on its key when no dialog is open, with the focus on its field.
 pub fn toggle_chat_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
     ui_mode: Res<UIMode>,
     mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
-    mut chat_input: Query<(&mut TextInputInactive, &mut TextInputValue), With<ChatInput>>,
+    chat_input: Query<Entity, With<ChatInput>>,
+    mut focus: ResMut<InputFocus>,
 ) {
-    let (Ok(mut visibility), Ok((mut inactive, mut value))) =
-        (chat_root.single_mut(), chat_input.single_mut())
-    else {
+    let (Ok(mut visibility), Ok(input)) = (chat_root.single_mut(), chat_input.single()) else {
         return;
     };
 
@@ -119,16 +123,8 @@ pub fn toggle_chat_system(
     if *ui_mode == UIMode::Closed
         && is_action_just_released(GameAction::OpenChat, &keyboard_input, &key_map)
     {
-        inactive.0 = false;
         *visibility = Visibility::Visible;
-    }
-
-    if *visibility == Visibility::Visible
-        && is_action_just_pressed(GameAction::Escape, &keyboard_input, &key_map)
-    {
-        *visibility = Visibility::Hidden;
-        *value = TextInputValue(String::new());
-        *inactive = TextInputInactive(true);
+        focus.set(input, FocusCause::Navigated);
     }
 }
 
@@ -197,30 +193,32 @@ pub fn display_chat_messages_system(
     }
 }
 
-/// Sends the message typed in the chat when it is submitted, and closes the chat.
-pub fn send_chat_message_system(
-    mut submitted: MessageReader<TextInputSubmitMessage>,
-    mut client: ResMut<RenetClient>,
-    mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
-    mut chat_input: Query<(Entity, &mut TextInputInactive), With<ChatInput>>,
-) {
-    let (Ok(mut visibility), Ok((input, mut inactive))) =
-        (chat_root.single_mut(), chat_input.single_mut())
-    else {
-        return;
-    };
+/// Sends the message submitted in the chat field, unless it is blank.
+fn send_chat_message(submit: On<Submit>, mut client: ResMut<RenetClient>) {
+    if !submit.value.trim().is_empty() {
+        client.send_game_message(ClientToServerMessage::ChatMessage(ChatMessageRequest {
+            content: submit.value.clone(),
+        }));
+    }
+}
 
-    for message in submitted.read() {
-        if message.entity != input {
-            continue;
-        }
+/// Closes the chat when its field is submitted, cancelled or loses the focus: the chat is
+/// hidden, its field emptied and unfocused. Nothing typed is kept for the next time.
+fn close_chat_on<E: EntityEvent>(
+    event: On<E>,
+    mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
+    mut texts: Query<&mut EditableText>,
+    mut focus: ResMut<InputFocus>,
+) {
+    let input = event.event_target();
+    if let Ok(mut visibility) = chat_root.single_mut() {
         *visibility = Visibility::Hidden;
-        *inactive = TextInputInactive(true);
-        if !message.value.trim().is_empty() {
-            client.send_game_message(ClientToServerMessage::ChatMessage(ChatMessageRequest {
-                content: message.value.clone(),
-            }));
-        }
+    }
+    if let Ok(mut text) = texts.get_mut(input) {
+        text.clear();
+    }
+    if focus.get() == Some(input) {
+        focus.clear();
     }
 }
 
