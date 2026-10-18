@@ -4,6 +4,7 @@ use shared::world::{BlockData, BlockId};
 /// Specifies which position in the voxel this face occupies
 ///
 /// These faces do not render under certain circumstances to preserve resources
+#[derive(Clone)]
 pub enum FaceDirection {
     /// The face is at the top of the voxel. Won't render if the block above this one is full
     Top,
@@ -22,6 +23,7 @@ pub enum FaceDirection {
 }
 
 /// Structure for cube voxel rendering
+#[derive(Clone)]
 pub struct Face {
     pub direction: FaceDirection,
     pub vertices: Vec<[f32; 3]>,
@@ -61,6 +63,7 @@ impl Face {
 }
 
 /// Structure for voxel rendering
+#[derive(Clone)]
 pub struct VoxelShape {
     pub faces: Vec<Face>,
 }

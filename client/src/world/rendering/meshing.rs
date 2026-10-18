@@ -6,9 +6,12 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use shared::world::{
-    liquid::liquid_height, to_global_pos, BlockDirection, BlockId, BlockTransparency, Chunk,
-    ChunkMap,
+use shared::{
+    world::{
+        liquid::liquid_height, to_global_pos, BlockData, BlockDirection, BlockId,
+        BlockTransparency, Chunk, ChunkMap, SIX_OFFSETS,
+    },
+    CHUNK_SIZE,
 };
 
 use super::voxel::{Face, FaceDirection, VoxelShape};
@@ -95,6 +98,85 @@ impl MeshCreator {
     }
 }
 
+/// Cells on a side of a `Neighbourhood`: the chunk and one layer around it.
+const SIDE: i32 = CHUNK_SIZE + 2;
+
+/// The blocks a chunk mesh depends on: those of the chunk, and those of the neighbouring chunks
+/// that touch its faces, by local position from -1 to `CHUNK_SIZE`. Reading one does not look
+/// its chunk up.
+struct Neighbourhood<'a> {
+    cells: Vec<Option<&'a BlockData>>,
+}
+
+impl<'a> Neighbourhood<'a> {
+    fn new(world_map: &'a ChunkMap, chunk: &'a Chunk, chunk_pos: IVec3) -> Self {
+        let mut cells = vec![None; (SIDE * SIDE * SIDE) as usize];
+        for (local, block) in chunk.iter() {
+            cells[Self::index(local)] = Some(block);
+        }
+        for offset in SIX_OFFSETS {
+            let Some(neighbour) = world_map.chunk(chunk_pos + offset) else {
+                continue;
+            };
+            let axis = offset.abs().max_position();
+            // The layer of the neighbour against the chunk, and where it lies around the chunk
+            let (theirs, ours) = if offset[axis] > 0 {
+                (0, CHUNK_SIZE)
+            } else {
+                (CHUNK_SIZE - 1, -1)
+            };
+            for a in 0..CHUNK_SIZE {
+                for b in 0..CHUNK_SIZE {
+                    let mut local = IVec3::ZERO;
+                    local[(axis + 1) % 3] = a;
+                    local[(axis + 2) % 3] = b;
+                    local[axis] = theirs;
+                    let block = neighbour.get(local);
+                    local[axis] = ours;
+                    cells[Self::index(local)] = block;
+                }
+            }
+        }
+        Self { cells }
+    }
+
+    /// The block at a local position from -1 to `CHUNK_SIZE`: `None` for air, in a chunk that
+    /// is not loaded, and on the edges and the corners around the chunk, which no face touches.
+    fn get(&self, local: IVec3) -> Option<&'a BlockData> {
+        self.cells[Self::index(local)]
+    }
+
+    fn index(local: IVec3) -> usize {
+        let cell = local + IVec3::ONE;
+        ((cell.x * SIDE + cell.y) * SIDE + cell.z) as usize
+    }
+}
+
+/// How a kind of block is drawn: its shape, and the texture of each of its faces in the atlas,
+/// `None` for a face that the texture pack cannot draw.
+struct BlockLook {
+    shape: VoxelShape,
+    uvs: Vec<Option<UvCoords>>,
+}
+
+impl BlockLook {
+    fn new(block: &BlockData, uv_map: &HashMap<String, UvCoords>) -> Self {
+        let shape = VoxelShape::create_from_block(block);
+        // A texture pack without this texture nor a default one: nothing to draw
+        let uvs = shape
+            .faces
+            .iter()
+            .map(|face| {
+                uv_map
+                    .get(&face.texture)
+                    .or_else(|| uv_map.get("_Default"))
+                    .copied()
+            })
+            .collect();
+        Self { shape, uvs }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ChunkMeshResponse {
     pub solid_mesh: Option<Mesh>,
@@ -111,13 +193,14 @@ pub(crate) fn generate_chunk_mesh(
     uv_map: &HashMap<String, UvCoords>,
 ) -> ChunkMeshResponse {
     let start = Instant::now();
+    let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
+    let mut looks: HashMap<BlockId, BlockLook> = HashMap::new();
     let mut solid = MeshCreator::default();
     let mut liquid = MeshCreator::default();
 
     for (local_block_pos, block) in chunk.iter() {
-        let global_block_pos = &to_global_pos(chunk_pos, &local_block_pos);
         let visibility = block.id.get_visibility();
-        if is_block_surrounded(world_map, global_block_pos, &visibility, &block.id) {
+        if is_block_surrounded(&blocks, local_block_pos, &visibility, &block.id) {
             continue;
         }
 
@@ -132,17 +215,25 @@ pub(crate) fn generate_chunk_mesh(
             .then(|| uv_map.get(&format!("DestroyStage{}", block.get_breaking_level())))
             .flatten();
 
-        let mut shape = VoxelShape::create_from_block(block);
-        if let Some(height) = liquid_height(world_map, *global_block_pos) {
-            shape = shape.with_top_at(height);
-        }
-        for face in shape.faces.iter() {
-            // A texture pack without this texture nor a default one: nothing to draw
-            let Some(uv_coords) = uv_map.get(&face.texture).or_else(|| uv_map.get("_Default"))
-            else {
+        let look = looks
+            .entry(block.id)
+            .or_insert_with(|| BlockLook::new(block, uv_map));
+        let lowered;
+        let shape = match (visibility == BlockTransparency::Liquid)
+            .then(|| liquid_height(world_map, to_global_pos(chunk_pos, &local_block_pos)))
+            .flatten()
+        {
+            Some(height) => {
+                lowered = look.shape.clone().with_top_at(height);
+                &lowered
+            }
+            None => &look.shape,
+        };
+        for (face, uv_coords) in shape.faces.iter().zip(&look.uvs) {
+            let Some(uv_coords) = uv_coords else {
                 continue;
             };
-            if !should_render_face(world_map, global_block_pos, &face.direction, &visibility) {
+            if !should_render_face(&blocks, local_block_pos, &face.direction, &visibility) {
                 continue;
             }
             mesh_creator.push_face(face, uv_coords, alpha, origin, &block.direction);
@@ -160,17 +251,17 @@ pub(crate) fn generate_chunk_mesh(
     response
 }
 
-pub(crate) fn is_block_surrounded(
-    world_map: &ChunkMap,
-    global_block_pos: &IVec3,
+fn is_block_surrounded(
+    blocks: &Neighbourhood,
+    local_block_pos: IVec3,
     block_visibility: &BlockTransparency,
     block_id: &BlockId,
 ) -> bool {
-    for offset in &shared::world::SIX_OFFSETS {
-        let neighbor_pos = *global_block_pos + *offset;
+    for offset in &SIX_OFFSETS {
+        let neighbor_pos = local_block_pos + *offset;
 
         // Check if the block exists at the neighboring position
-        if let Some(block) = world_map.get_block(neighbor_pos) {
+        if let Some(block) = blocks.get(neighbor_pos) {
             let vis = block.id.get_visibility();
             match vis {
                 BlockTransparency::Solid => {}
@@ -210,8 +301,8 @@ pub fn rotate_vertices(v: &[f32; 3], direction: &BlockDirection) -> [f32; 3] {
 }
 
 fn should_render_face(
-    world_map: &ChunkMap,
-    global_block_pos: &IVec3,
+    blocks: &Neighbourhood,
+    local_block_pos: IVec3,
     direction: &FaceDirection,
     block_visibility: &BlockTransparency,
 ) -> bool {
@@ -225,7 +316,7 @@ fn should_render_face(
         FaceDirection::Inset => return true,
     };
 
-    if let Some(block) = world_map.get_block(*global_block_pos + offset) {
+    if let Some(block) = blocks.get(local_block_pos + offset) {
         let vis = block.id.get_visibility();
         match vis {
             BlockTransparency::Solid => false,
@@ -333,6 +424,27 @@ mod tests {
             vertices(&two.liquid_mesh),
             vertices(&one.liquid_mesh) * 10 / 6
         );
+    }
+
+    #[test]
+    fn a_block_against_a_block_of_a_neighbouring_chunk_hides_that_face_on_every_side() {
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        let mut uv_map = HashMap::new();
+        uv_map.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
+        for offset in shared::world::SIX_OFFSETS {
+            // A block on the face of the chunk turned to `offset`, and one beyond it
+            let block = IVec3::splat(CHUNK_SIZE / 2) + offset * (CHUNK_SIZE / 2);
+            let block = block.min(IVec3::splat(CHUNK_SIZE - 1));
+            let mut world = ChunkMap::default();
+            world.insert_chunk(IVec3::ZERO, Chunk::new());
+            world.insert_chunk(offset, Chunk::new());
+            world.set_block(block, stone);
+            world.set_block(block + offset, stone);
+
+            let chunk = world.chunk(IVec3::ZERO).unwrap();
+            let mesh = generate_chunk_mesh(&world, chunk, &IVec3::ZERO, &uv_map);
+            assert_eq!(vertices(&mesh.solid_mesh), 5 * 4, "{offset}");
+        }
     }
 
     #[test]
