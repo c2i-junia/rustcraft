@@ -9,15 +9,16 @@ use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,
 };
-use shared::players::Player;
+use shared::players::inventory::InventoryAction;
+use shared::players::{Inventory, Player};
 use shared::world::{
     global_block_to_chunk_pos, raycast, to_local_pos, BlockData, BlockDirection, BlockId, Chunk,
-    ChunkMap,
+    ChunkMap, ItemId, ItemStack,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
-    ChannelResolvableExt, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
-    STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
+    ChannelResolvableExt, GameFolderPaths, GameServerConfig, MAX_INVENTORY_SLOTS, PROTOCOL_ID,
+    STC_AUTH_CHANNEL, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
 };
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::thread::{self, JoinHandle};
@@ -1204,4 +1205,78 @@ fn a_dedicated_server_outlives_the_exit_of_a_player_and_saves_it() {
         );
         staying.pump();
     }
+}
+
+/// Starts a solo server whose save already holds player `PLAYER_ID` with `inventory`.
+fn start_with_inventory(inventory: Inventory) -> TestServer {
+    let tmp = tempfile::tempdir().unwrap();
+    let players_dir = tmp.path().join("saves").join(WORLD_NAME).join("players");
+    std::fs::create_dir_all(&players_dir).unwrap();
+    let mut player = Player::new(
+        PLAYER_ID,
+        "crafter".into(),
+        Vec3::new(0., 80., 0.),
+        Transform::default(),
+    );
+    player.inventory = inventory;
+    std::fs::write(
+        players_dir.join(format!("{PLAYER_ID}.ron")),
+        ron::ser::to_string(&player).unwrap(),
+    )
+    .unwrap();
+    TestServer::start_in(tmp, WORLD_NAME)
+}
+
+/// Sends one input holding `actions` and returns the inventory the server acknowledges it with.
+fn send_inventory_actions(
+    client: &mut TestClient,
+    time_ms: u64,
+    actions: Vec<InventoryAction>,
+) -> Inventory {
+    client.send(ClientToServerMessage::PlayerInputs(vec![
+        PlayerFrameInput {
+            time_ms,
+            delta_ms: 16,
+            inventory_actions: actions,
+            ..Default::default()
+        },
+    ]));
+    let id = client.id;
+    client.wait_for("PlayerUpdate acknowledging the actions", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == time_ms => {
+            Some(u.inventory.clone())
+        }
+        _ => None,
+    })
+}
+
+fn stack(item_id: ItemId, nb: u32) -> ItemStack {
+    ItemStack {
+        item_id,
+        item_type: item_id.get_default_type(),
+        nb,
+    }
+}
+
+#[test]
+fn inventory_clicks_are_applied_by_the_server() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::Dirt, 5));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    let inventory = send_inventory_actions(
+        &mut client,
+        1,
+        vec![
+            InventoryAction::LeftClickSlot(0),
+            InventoryAction::LeftClickSlot(7),
+            InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50),
+        ],
+    );
+
+    let mut expected = Inventory::new();
+    expected.inner.insert(7, stack(ItemId::Dirt, 5));
+    assert_eq!(inventory, expected);
 }
