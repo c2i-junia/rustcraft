@@ -147,6 +147,7 @@ mod tests {
             (InventoryAction::LeftClickSlot(0), 0),
             (InventoryAction::RightClickSlot(0), 1),
             (InventoryAction::Close, 2),
+            (InventoryAction::TakeCraftResult, 3),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }
