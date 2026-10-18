@@ -79,7 +79,8 @@ impl MeshCreator {
         }));
     }
 
-    /// The mesh of the faces added so far, `None` when there is none.
+    /// The mesh of the faces added so far, `None` when there is none. It has no tangents: the
+    /// block materials have no normal map to use them.
     fn build(self) -> Option<Mesh> {
         if self.vertices.is_empty() {
             return None;
@@ -90,9 +91,6 @@ impl MeshCreator {
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors);
         mesh.insert_indices(Indices::U32(self.indices));
-        if let Err(e) = mesh.generate_tangents() {
-            warn!("Error while generating tangents for a chunk mesh: {e:?}");
-        }
         Some(mesh)
     }
 }
@@ -335,6 +333,12 @@ mod tests {
             vertices(&two.liquid_mesh),
             vertices(&one.liquid_mesh) * 10 / 6
         );
+    }
+
+    #[test]
+    fn a_chunk_mesh_has_no_tangents_as_no_normal_map_reads_them() {
+        let mesh = mesh_of(&[(IVec3::ONE, BlockId::Stone)]).solid_mesh.unwrap();
+        assert!(mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_none());
     }
 
     #[test]
