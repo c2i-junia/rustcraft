@@ -4,6 +4,7 @@ pub mod button;
 pub mod golden;
 pub mod hud;
 pub mod menus;
+pub mod settings;
 pub mod style;
 pub mod theme;
 pub mod widgets;

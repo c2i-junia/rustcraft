@@ -3,6 +3,8 @@
 
 use bevy::prelude::*;
 
+use crate::ui::settings::InterfaceSettings;
+
 pub mod button;
 pub mod focus;
 mod scale;
@@ -11,6 +13,8 @@ pub mod text_field;
 pub mod tooltip;
 
 pub fn widgets_plugin(app: &mut App) {
+    // `add_client` inserts the saved settings; this is for apps that do not
+    app.init_resource::<InterfaceSettings>();
     button::plugin(app);
     focus::plugin(app);
     scale::plugin(app);

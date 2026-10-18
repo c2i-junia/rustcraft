@@ -59,68 +59,85 @@ pub fn is_action_just_released(
     false
 }
 
+/// How many keys an action has: a primary one and a secondary one.
+pub const MAX_KEYS_PER_ACTION: usize = 2;
+
+/// The bindings of a game folder without a keybindings file.
+pub fn default_bindings() -> KeyMap {
+    let mut map = BTreeMap::new();
+    map.insert(
+        GameAction::MoveForward,
+        vec![KeyCode::KeyW, KeyCode::ArrowUp],
+    );
+    map.insert(
+        GameAction::MoveBackward,
+        vec![KeyCode::KeyS, KeyCode::ArrowDown],
+    );
+    map.insert(
+        GameAction::MoveLeft,
+        vec![KeyCode::KeyA, KeyCode::ArrowLeft],
+    );
+    map.insert(
+        GameAction::MoveRight,
+        vec![KeyCode::KeyD, KeyCode::ArrowRight],
+    );
+    map.insert(GameAction::Jump, vec![KeyCode::Space]);
+    map.insert(GameAction::Escape, vec![KeyCode::Escape]);
+    map.insert(GameAction::ToggleFps, vec![KeyCode::F3]);
+    map.insert(GameAction::ToggleChunkDebugMode, vec![KeyCode::F4]);
+    map.insert(GameAction::ToggleViewMode, vec![KeyCode::F5]);
+    map.insert(GameAction::ToggleBlockWireframeDebugMode, vec![KeyCode::F6]);
+    map.insert(GameAction::ToggleRaycastDebugMode, vec![KeyCode::F7]);
+    map.insert(GameAction::ToggleFlyMode, vec![KeyCode::KeyF]);
+    map.insert(GameAction::FlyUp, vec![KeyCode::Space]);
+    map.insert(GameAction::FlyDown, vec![KeyCode::ShiftLeft]);
+    map.insert(GameAction::ToggleInventory, vec![KeyCode::KeyE]);
+    map.insert(GameAction::OpenChat, vec![KeyCode::KeyT]);
+    map.insert(GameAction::RenderDistanceMinus, vec![KeyCode::KeyO]);
+    map.insert(GameAction::RenderDistancePlus, vec![KeyCode::KeyP]);
+    map.insert(GameAction::ReloadChunks, vec![KeyCode::KeyR]);
+    KeyMap { map }
+}
+
+/// The saved bindings over the default ones, action by action. An action keeps its first
+/// `MAX_KEYS_PER_ACTION` distinct keys, and `Escape` always pauses.
 pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
     let binds_path: PathBuf = game_folder_paths.game_folder_path.join(BINDS_PATH);
 
-    let mut binds = KeyMap {
-        map: {
-            let mut map = BTreeMap::new();
-            map.insert(
-                GameAction::MoveForward,
-                vec![KeyCode::KeyW, KeyCode::ArrowUp],
-            );
-            map.insert(
-                GameAction::MoveBackward,
-                vec![KeyCode::KeyS, KeyCode::ArrowDown],
-            );
-            map.insert(
-                GameAction::MoveLeft,
-                vec![KeyCode::KeyA, KeyCode::ArrowLeft],
-            );
-            map.insert(
-                GameAction::MoveRight,
-                vec![KeyCode::KeyD, KeyCode::ArrowRight],
-            );
-            map.insert(GameAction::Jump, vec![KeyCode::Space]);
-            map.insert(GameAction::Escape, vec![KeyCode::Escape]);
-            map.insert(GameAction::ToggleFps, vec![KeyCode::F3]);
-            map.insert(GameAction::ToggleChunkDebugMode, vec![KeyCode::F4]);
-            map.insert(GameAction::ToggleViewMode, vec![KeyCode::F5]);
-            map.insert(GameAction::ToggleBlockWireframeDebugMode, vec![KeyCode::F6]);
-            map.insert(GameAction::ToggleRaycastDebugMode, vec![KeyCode::F7]);
-            map.insert(GameAction::ToggleFlyMode, vec![KeyCode::KeyF]);
-            map.insert(GameAction::FlyUp, vec![KeyCode::Space]);
-            map.insert(GameAction::FlyDown, vec![KeyCode::ShiftLeft]);
-            map.insert(GameAction::ToggleInventory, vec![KeyCode::KeyE]);
-            map.insert(GameAction::OpenChat, vec![KeyCode::KeyT]);
-            map.insert(GameAction::RenderDistanceMinus, vec![KeyCode::KeyO]);
-            map.insert(GameAction::RenderDistancePlus, vec![KeyCode::KeyP]);
-            map.insert(GameAction::ReloadChunks, vec![KeyCode::KeyR]);
-            map
-        },
-    };
+    let mut binds = default_bindings();
 
-    // The saved binds replace the default ones, action by action
     if let Ok(content) = fs::read_to_string(binds_path.as_path()) {
         if let Ok(key_map) = from_str::<KeyMap>(&content) {
-            for (k, v) in key_map.map.iter() {
-                binds.map.insert(*k, v.clone());
+            for (action, keys) in key_map.map {
+                let mut kept: Vec<KeyCode> = Vec::new();
+                for key in keys {
+                    if !kept.contains(&key) && kept.len() < MAX_KEYS_PER_ACTION {
+                        kept.push(key);
+                    }
+                }
+                binds.map.insert(action, kept);
             }
         }
     }
+    binds.map.insert(GameAction::Escape, vec![KeyCode::Escape]);
 
     binds
 }
 
 pub fn save_keybindings(key_map: Res<KeyMap>, game_folder_path: Res<GameFolderPaths>) {
-    let binds_path = game_folder_path.game_folder_path.join(BINDS_PATH);
+    write_keybindings(&key_map, &game_folder_path);
+}
+
+/// Writes the bindings to `keybindings.ron` in the game folder.
+pub fn write_keybindings(key_map: &KeyMap, paths: &GameFolderPaths) {
+    let binds_path = paths.game_folder_path.join(BINDS_PATH);
 
     let pretty_config = PrettyConfig::new()
         .with_depth_limit(3)
         .with_separate_tuple_members(true)
         .with_enumerate_arrays(true);
 
-    if let Ok(serialized) = ron::ser::to_string_pretty(key_map.into_inner(), pretty_config) {
+    if let Ok(serialized) = ron::ser::to_string_pretty(key_map, pretty_config) {
         match File::create(&binds_path) {
             Ok(mut file) => {
                 if let Err(e) = file.write_all(serialized.as_bytes()) {
@@ -166,5 +183,68 @@ mod tests {
         let reloaded = get_bindings(&paths);
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(reloaded.map[&GameAction::Jump], vec![KeyCode::KeyJ]);
+    }
+
+    fn temp_paths(name: &str) -> GameFolderPaths {
+        let dir = std::env::temp_dir().join(format!("rustcraft-{name}-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        GameFolderPaths {
+            game_folder_path: dir.clone(),
+            assets_folder_path: dir.join("assets"),
+        }
+    }
+
+    #[test]
+    fn an_old_keybindings_file_still_loads() {
+        let paths = temp_paths("old-keybindings");
+        // What `save_keybindings` wrote before the settings screen
+        let old = "(
+    map: {
+        MoveForward: [
+            /*[0]*/ KeyW,
+            /*[1]*/ ArrowUp,
+            /*[2]*/ KeyZ,
+        ],
+        Jump: [
+            /*[0]*/ KeyJ,
+        ],
+        Escape: [
+            /*[0]*/ Escape,
+        ],
+    },
+)";
+        fs::write(paths.game_folder_path.join(BINDS_PATH), old).unwrap();
+
+        let loaded = get_bindings(&paths);
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+        let mut expected = default_bindings().map;
+        expected.insert(GameAction::Jump, vec![KeyCode::KeyJ]);
+        expected.insert(
+            GameAction::MoveForward,
+            vec![KeyCode::KeyW, KeyCode::ArrowUp],
+        );
+        assert_eq!(loaded.map, expected);
+    }
+
+    #[test]
+    fn escape_always_pauses() {
+        let paths = temp_paths("escape-keybindings");
+        fs::write(
+            paths.game_folder_path.join(BINDS_PATH),
+            "(map: {Escape: [KeyP]})",
+        )
+        .unwrap();
+        let loaded = get_bindings(&paths);
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+        assert_eq!(loaded.map[&GameAction::Escape], vec![KeyCode::Escape]);
+    }
+
+    #[test]
+    fn an_unreadable_keybindings_file_gives_the_defaults() {
+        let paths = temp_paths("garbage-keybindings");
+        fs::write(paths.game_folder_path.join(BINDS_PATH), "garbage").unwrap();
+        let loaded = get_bindings(&paths);
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+        assert_eq!(loaded.map, default_bindings().map);
     }
 }

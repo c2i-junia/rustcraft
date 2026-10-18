@@ -9,6 +9,7 @@ use crate::input::keyboard::get_bindings;
 use crate::network;
 use crate::state::{GameState, PlayerNameSupplied, TexturePath};
 use crate::ui::menus::{self, solo::SelectedWorld};
+use crate::ui::settings::load_interface_settings;
 use crate::ui::widgets::widgets_plugin;
 use crate::world::ClientWorldMap;
 
@@ -30,6 +31,7 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
     network::add_base_netcode(app);
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))
+        .insert_resource(load_interface_settings(&game_folder_paths))
         .insert_resource(SelectedWorld::default())
         .insert_resource(ClientWorldMap { ..default() })
         .insert_resource(TexturePath { path: texture_path })

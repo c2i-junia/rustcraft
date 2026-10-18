@@ -30,6 +30,12 @@ impl GameFolder {
         self.dir.path()
     }
 
+    /// Adds a file to the game folder, such as a settings file.
+    pub fn with_file(self, name: &str, contents: &str) -> Self {
+        fs::write(self.path().join(name), contents).expect("a file in the game folder");
+        self
+    }
+
     /// Adds a saved world, with a fixed seed so that journeys are repeatable.
     pub fn with_world(self, name: &str) -> Self {
         let world = self.path().join(SAVE_PATH).join(name);

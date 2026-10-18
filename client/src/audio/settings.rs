@@ -63,6 +63,18 @@ impl AudioSettings {
         self.master * self.get(channel)
     }
 
+    // The settings screen (Task 6) is the first to set a volume
+    #[allow(dead_code)]
+    /// Sets the volume of `channel`, within 0 and 1.
+    pub fn set(&mut self, channel: Channel, volume: f32) {
+        let slot = match channel {
+            Channel::Master => &mut self.master,
+            Channel::Effects => &mut self.effects,
+            Channel::Interface => &mut self.interface,
+        };
+        *slot = volume.clamp(0.0, 1.0);
+    }
+
     /// Moves the volume of `channel` by `steps` steps, within 0 and 1.
     pub fn step(&mut self, channel: Channel, steps: i32) {
         let volume = match channel {
@@ -86,8 +98,13 @@ pub fn load_audio_settings(paths: &GameFolderPaths) -> AudioSettings {
 }
 
 pub fn save_audio_settings(settings: Res<AudioSettings>, paths: Res<GameFolderPaths>) {
+    write_audio_settings(&settings, &paths);
+}
+
+/// Writes the settings to `audio.ron` in the game folder.
+pub fn write_audio_settings(settings: &AudioSettings, paths: &GameFolderPaths) {
     let path = paths.game_folder_path.join(AUDIO_SETTINGS_PATH);
-    let serialized = match ron::ser::to_string_pretty(settings.into_inner(), PrettyConfig::new()) {
+    let serialized = match ron::ser::to_string_pretty(settings, PrettyConfig::new()) {
         Ok(serialized) => serialized,
         Err(e) => {
             error!("Failed to serialize the audio settings: {e}");
@@ -143,14 +160,39 @@ mod tests {
             effects: 0.6,
             interface: 0.0,
         };
-        let mut app = App::new();
-        app.insert_resource(settings)
-            .insert_resource(paths.clone())
-            .add_systems(Update, save_audio_settings);
-        app.update();
+        write_audio_settings(&settings, &paths);
 
         let reloaded = load_audio_settings(&paths);
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(reloaded, settings);
+    }
+
+    #[test]
+    fn setting_a_volume_clamps_it() {
+        let mut settings = AudioSettings::default();
+        for (volume, expected) in [(1.4, 1.0), (-0.1, 0.0), (0.55, 0.55)] {
+            settings.set(Channel::Effects, volume);
+            assert_eq!(settings.effects, expected);
+        }
+    }
+
+    #[test]
+    fn an_old_audio_file_still_loads() {
+        let dir = std::env::temp_dir().join(format!("rustcraft-old-audio-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let paths = GameFolderPaths {
+            game_folder_path: dir.clone(),
+            assets_folder_path: dir.join("assets"),
+        };
+        fs::write(dir.join(AUDIO_SETTINGS_PATH), "(master: 0.7)").unwrap();
+        let loaded = load_audio_settings(&paths);
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            loaded,
+            AudioSettings {
+                master: 0.7,
+                ..default()
+            }
+        );
     }
 }

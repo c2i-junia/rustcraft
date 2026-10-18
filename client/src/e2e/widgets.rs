@@ -48,6 +48,21 @@ fn the_ui_scale_follows_the_window_height() {
     assert_eq!(h.world().resource::<UiScale>().0, 1.0);
 }
 
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_forced_ui_scale_is_read_from_the_game_folder() {
+    let mut h = Harness::start(
+        GameFolder::new().with_file("interface.ron", "(ui_scale: X1)"),
+        Options {
+            width: 1920,
+            height: 1080,
+            ..default()
+        },
+    );
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert_eq!(h.world().resource::<UiScale>().0, 1.0);
+}
+
 /// Spawns a tab group in a corner of the screen, above the main menu, and lays it out.
 fn spawn_group(h: &mut Harness, layout: Node) -> Entity {
     let root = h
