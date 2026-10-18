@@ -1,12 +1,10 @@
 use super::{item_name, InventoryRoot, UIMode};
 use crate::constants::MAX_HOTBAR_SLOTS;
+use crate::ui::widgets::scroll::scroll_steps;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use shared::players::Inventory;
 use std::time::Duration;
-
-/// Pixels of trackpad scrolling that select the next hotbar slot.
-const SCROLL_PIXELS_PER_SLOT: f32 = 20.0;
 
 /// How long the name of the selected item stays on screen.
 pub const ITEM_NAME_DURATION: Duration = Duration::from_secs(2);
@@ -49,20 +47,9 @@ pub struct HotbarItemName {
 }
 
 /// The whole slots a scroll of `y` adds to the selection, going down the hotbar for a positive
-/// result. `remainder` keeps the part of a slot not scrolled yet, in slots: it is dropped when
-/// the wheel turns the other way, so that a trackpad reversing course answers at once.
-fn scroll_steps(remainder: &mut f32, unit: MouseScrollUnit, y: f32) -> i32 {
-    let slots = match unit {
-        MouseScrollUnit::Line => y,
-        MouseScrollUnit::Pixel => y / SCROLL_PIXELS_PER_SLOT,
-    };
-    if slots * *remainder < 0. {
-        *remainder = 0.;
-    }
-    *remainder += slots;
-    let whole = remainder.trunc();
-    *remainder -= whole;
-    -(whole as i32)
+/// result: scrolling up selects the slot before. `remainder` is that of `scroll_steps`.
+fn slot_steps(remainder: &mut f32, unit: MouseScrollUnit, y: f32) -> i32 {
+    -scroll_steps(remainder, unit, y)
 }
 
 /// The number keys select a hotbar slot, during gameplay only.
@@ -98,7 +85,7 @@ pub fn select_hotbar_slot_with_wheel(
     };
     let mut selected = hotbar.selected as i32;
     for event in scroll.read() {
-        selected += scroll_steps(&mut remainder, event.unit, event.y);
+        selected += slot_steps(&mut remainder, event.unit, event.y);
     }
     let selected = selected.rem_euclid(MAX_HOTBAR_SLOTS as i32) as u32;
     if hotbar.selected != selected {
@@ -154,44 +141,36 @@ pub fn show_selected_item_name(
 mod tests {
     use super::*;
     use crate::ui::hud::InventoryRoot;
+    use crate::ui::widgets::scroll::SCROLL_PIXELS_PER_STEP;
     use shared::players::Inventory;
     use shared::world::{ItemId, ItemStack};
     use std::time::Duration;
 
     #[test]
     fn line_scrolling_moves_one_slot_per_line() {
-        assert_eq!(scroll_steps(&mut 0., MouseScrollUnit::Line, -1.), 1);
-        assert_eq!(scroll_steps(&mut 0., MouseScrollUnit::Line, 2.), -2);
+        assert_eq!(slot_steps(&mut 0., MouseScrollUnit::Line, -1.), 1);
+        assert_eq!(slot_steps(&mut 0., MouseScrollUnit::Line, 2.), -2);
     }
 
     #[test]
     fn pixel_scrolling_accumulates_into_steps() {
         let mut remainder = 0.;
         let steps: Vec<i32> = (0..4)
-            .map(|_| scroll_steps(&mut remainder, MouseScrollUnit::Pixel, -5.))
+            .map(|_| slot_steps(&mut remainder, MouseScrollUnit::Pixel, -5.))
             .collect();
         assert_eq!(steps, [0, 0, 0, 1]);
-        assert_eq!(
-            scroll_steps(&mut remainder, MouseScrollUnit::Pixel, -45.),
-            2
-        );
+        assert_eq!(slot_steps(&mut remainder, MouseScrollUnit::Pixel, -45.), 2);
         // 5 px are left over, still going the same way
-        assert_eq!(remainder * SCROLL_PIXELS_PER_SLOT, -5.);
+        assert_eq!(remainder * SCROLL_PIXELS_PER_STEP, -5.);
     }
 
     #[test]
     fn reversing_the_wheel_drops_the_remainder() {
         let mut remainder = 0.;
-        assert_eq!(
-            scroll_steps(&mut remainder, MouseScrollUnit::Pixel, -15.),
-            0
-        );
-        assert_eq!(scroll_steps(&mut remainder, MouseScrollUnit::Pixel, 10.), 0);
-        assert_eq!(remainder * SCROLL_PIXELS_PER_SLOT, 10.);
-        assert_eq!(
-            scroll_steps(&mut remainder, MouseScrollUnit::Pixel, 10.),
-            -1
-        );
+        assert_eq!(slot_steps(&mut remainder, MouseScrollUnit::Pixel, -15.), 0);
+        assert_eq!(slot_steps(&mut remainder, MouseScrollUnit::Pixel, 10.), 0);
+        assert_eq!(remainder * SCROLL_PIXELS_PER_STEP, 10.);
+        assert_eq!(slot_steps(&mut remainder, MouseScrollUnit::Pixel, 10.), -1);
     }
 
     fn planks_in_slot_2() -> Inventory {

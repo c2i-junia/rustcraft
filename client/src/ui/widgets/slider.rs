@@ -10,14 +10,14 @@ use bevy::{
     picking::hover::Hovered,
     prelude::*,
     text::Justify,
-    ui::UiSystems,
+    ui::{InteractionDisabled, UiSystems},
     ui_widgets::{
         slider_self_update, SetSliderValue, Slider, SliderRange, SliderStep, SliderThumb,
         SliderValue, SliderValueChange, TrackClick,
     },
 };
 
-use super::{focus::FocusRing, text_field::sunken_bevel};
+use super::{focus::FocusRing, scroll::scroll_steps, text_field::sunken_bevel};
 use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_M, RAISE, SLOT, SPACE_M, TEXT,
 };
@@ -51,6 +51,10 @@ pub struct SliderParts {
 /// The percentage shown after a slider.
 #[derive(Component)]
 pub struct SliderReadout;
+
+/// The part of a wheel step that trackpad pixels have not made yet, on the `slider`.
+#[derive(Component, Default)]
+struct WheelRemainder(f32);
 
 /// The parts of a slider that follow its value, on the `slider`.
 #[derive(Component)]
@@ -104,6 +108,7 @@ pub fn spawn_slider(
             FocusRing,
             Hovered::default(),
             AccessibleLabel::new(field.label),
+            WheelRemainder::default(),
             Node {
                 width: px(TRACK_WIDTH),
                 height: px(TRACK_HEIGHT),
@@ -181,23 +186,37 @@ fn percent_label(value: f32) -> String {
     format!("{}%", (value * 100.0).round())
 }
 
-/// A notch of the wheel over the slider moves it by a step, up raising it, and nothing else
-/// scrolls.
-fn wheel_steps(mut scroll: On<Pointer<Scroll>>, mut commands: Commands) {
+/// A notch of the wheel, or enough trackpad pixels, over the slider moves it by a step, up
+/// raising it, and nothing else scrolls. A disabled slider lets the scroll go to its ancestors.
+fn wheel_steps(
+    mut scroll: On<Pointer<Scroll>>,
+    mut sliders: Query<&mut WheelRemainder, Without<InteractionDisabled>>,
+    mut commands: Commands,
+) {
+    // an entity observer of the slider: the bubbling has made the slider the target, whichever
+    // part of it is under the cursor
+    let slider = scroll.entity;
+    let Ok(mut remainder) = sliders.get_mut(slider) else {
+        return;
+    };
     // a horizontal scroll is for an ancestor
     if scroll.y == 0.0 {
         return;
     }
     scroll.propagate(false);
-    commands.trigger(SetSliderValue {
-        entity: scroll.entity,
-        change: SliderValueChange::RelativeStep(scroll.y.signum()),
-    });
+    let steps = scroll_steps(&mut remainder.0, scroll.unit, scroll.y);
+    if steps != 0 {
+        commands.trigger(SetSliderValue {
+            entity: slider,
+            change: SliderValueChange::RelativeStep(steps as f32),
+        });
+    }
 }
 
 /// Places the fill and the thumb of each slider whose value changed, and writes its readout.
 /// The thumb travels the whole track, bevel included, minus its own width, as the widget assumes
-/// for a click or a drag; it is placed from the inner edge of the bevel, as absolute nodes are.
+/// for a click or a drag, and the fill ends under its centre. Both are placed from the inner
+/// edge of the bevel, as absolute nodes are, in px: the track has a fixed width.
 fn place_slider_parts(
     sliders: Query<(&SliderValue, &SliderRange, &SliderLook), Changed<SliderValue>>,
     mut nodes: Query<&mut Node>,
@@ -205,13 +224,12 @@ fn place_slider_parts(
 ) {
     for (value, range, look) in &sliders {
         let position = range.thumb_position(value.0).clamp(0.0, 1.0);
+        let thumb_left = position * (TRACK_WIDTH - THUMB_WIDTH) - BEVEL_WIDTH;
         if let Ok(mut fill) = nodes.get_mut(look.fill) {
-            fill.width = percent(position * 100.0);
+            fill.width = px(thumb_left + THUMB_WIDTH / 2.0);
         }
         if let Ok(mut thumb) = nodes.get_mut(look.thumb) {
-            thumb.left = percent(position * 100.0);
-            // left = position x (inner + 2 bevels - thumb) - bevel, where inner is the 100 %
-            thumb.margin.left = px(position * (2.0 * BEVEL_WIDTH - THUMB_WIDTH) - BEVEL_WIDTH);
+            thumb.left = px(thumb_left);
         }
         if let Ok(mut readout) = texts.get_mut(look.readout) {
             readout.0 = percent_label(value.0);

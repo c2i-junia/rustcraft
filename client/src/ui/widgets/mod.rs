@@ -10,6 +10,7 @@ pub mod dialog;
 pub mod focus;
 pub mod hints;
 mod scale;
+pub mod scroll;
 pub mod segmented;
 pub mod slider;
 pub mod slot;

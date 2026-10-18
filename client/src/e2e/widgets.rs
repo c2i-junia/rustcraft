@@ -922,12 +922,69 @@ fn a_click_the_arrows_and_the_wheel_move_a_slider() {
         h.frames(1);
         assert_eq!(readout(&mut h, &parts), expected, "{key:?} {wheel:?}");
     }
-    // at 100 % the fill covers the whole track, inside its bevel
-    let track = h.world().get::<ComputedNode>(parts.slider).unwrap();
-    let inner = track.padding_box().width();
-    let fill = h.world().get::<Children>(parts.slider).unwrap()[0];
-    let fill = h.world().get::<ComputedNode>(fill).unwrap().size().x;
-    assert!((fill - inner).abs() < 0.5, "{fill} != {inner}");
+    // at 100 % the fill runs to the end of the track, under the centre of the thumb
+    let [fill, thumb] = {
+        let children = h.world().get::<Children>(parts.slider).unwrap();
+        [children[0], children[1]]
+    };
+    let right_edge = |h: &mut Harness, entity: Entity| {
+        let size = h.world().get::<ComputedNode>(entity).unwrap().size();
+        h.world()
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .translation
+            .x
+            + size.x / 2.0
+    };
+    let fill_end = right_edge(&mut h, fill);
+    let thumb_width = h.world().get::<ComputedNode>(thumb).unwrap().size().x;
+    let thumb_centre = right_edge(&mut h, thumb) - thumb_width / 2.0;
+    assert!(
+        (fill_end - thumb_centre).abs() <= 1.0,
+        "{fill_end} != {thumb_centre}"
+    );
+    let track_end = right_edge(&mut h, parts.slider);
+    assert!(
+        (right_edge(&mut h, thumb) - track_end).abs() <= 1.0,
+        "the thumb should end the track"
+    );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_trackpad_moves_a_slider_by_whole_steps() {
+    let mut h = main_menu();
+    let parts = spawn_sliders(&mut h, &[("Volume", 0.5)]).remove(0);
+    h.hover(&L::role(Role::Slider, "Volume"));
+    for _ in 0..3 {
+        h.scroll_pixels(5.0);
+    }
+    h.frames(1);
+    assert_eq!(readout(&mut h, &parts), "50%");
+    for _ in 0..5 {
+        h.scroll_pixels(5.0);
+    }
+    h.frames(1);
+    assert_eq!(readout(&mut h, &parts), "60%");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_disabled_slider_ignores_the_wheel_and_the_arrows() {
+    let mut h = main_menu();
+    let parts = spawn_sliders(&mut h, &[("Volume", 0.5)]).remove(0);
+    h.world_mut()
+        .entity_mut(parts.slider)
+        .insert(InteractionDisabled);
+    h.click(&L::role(Role::Slider, "Volume"));
+    h.frames(2);
+    assert_eq!(focused(&mut h), parts.slider);
+    h.scroll(1.0);
+    h.press(KeyCode::ArrowRight);
+    h.press(KeyCode::ArrowLeft);
+    h.press(KeyCode::ArrowLeft);
+    h.frames(1);
+    assert_eq!(readout(&mut h, &parts), "50%");
 }
 
 #[test]
