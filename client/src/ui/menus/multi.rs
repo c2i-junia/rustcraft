@@ -3,8 +3,9 @@ use super::MenuState;
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
+use crate::ui::widgets::text_field::{FieldError, Submit};
 use bevy::prelude::*;
-use bevy_simple_text_input::TextInputValue;
+use bevy::text::EditableText;
 use ron::{from_str, ser::PrettyConfig};
 use shared::GameFolderPaths;
 use std::{fs, io, net::SocketAddr, path::Path};
@@ -13,6 +14,19 @@ use std::{fs, io, net::SocketAddr, path::Path};
 /// `127.0.0.1:8000`. Host names are not resolved.
 fn parse_server_address(text: &str) -> Option<SocketAddr> {
     text.parse().ok()
+}
+
+/// Shown under the IP field when the typed address cannot be parsed.
+pub const INVALID_ADDRESS: &str = "Enter an address like 127.0.0.1:8000";
+
+/// The server to add from the typed `name` and `ip`. It is an error, the message to show, when
+/// the address is invalid.
+fn new_server(name: &str, ip: &str) -> Result<ServerItem, &'static str> {
+    parse_server_address(ip).ok_or(INVALID_ADDRESS)?;
+    Ok(ServerItem {
+        name: name.to_string(),
+        ip: ip.to_string(),
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -53,10 +67,12 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
             inputs: &[
                 InputField {
                     placeholder: "Server name",
+                    max_characters: Some(32),
                     ..default()
                 },
                 InputField {
                     placeholder: "Server IP",
+                    max_characters: Some(64),
                     ..default()
                 },
             ],
@@ -65,8 +81,14 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
         },
     );
     commands.entity(screen.list).insert(ServerList::default());
-    commands.entity(screen.inputs[0]).insert(ServerNameInput);
-    commands.entity(screen.inputs[1]).insert(ServerIpInput);
+    commands
+        .entity(screen.inputs[0])
+        .insert(ServerNameInput)
+        .observe(add_server_on_submit);
+    commands
+        .entity(screen.inputs[1])
+        .insert(ServerIpInput)
+        .observe(add_server_on_submit);
     commands
         .entity(screen.add_button)
         .insert(MultiplayerButtonAction::Add);
@@ -172,13 +194,61 @@ pub fn save_server_list(list: Query<&ServerList>, game_folder_path: Res<GameFold
     }
 }
 
+/// Adds the server typed in the name field and the IP field `ip_field`, or shows under the IP
+/// field why it cannot be added.
+fn add_typed_server(
+    (name, ip): (&str, &str),
+    ip_field: Entity,
+    (list_entity, list): (Entity, &mut ServerList),
+    commands: &mut Commands,
+    assets: &Res<AssetServer>,
+) {
+    match new_server(name, ip) {
+        Ok(ServerItem { name, ip }) => {
+            add_server_item(name, ip, commands, assets, list, list_entity);
+            commands.entity(ip_field).insert(FieldError(None));
+        }
+        Err(message) => {
+            warn!("Not adding server {name:?}: invalid address {ip:?}");
+            commands
+                .entity(ip_field)
+                .insert(FieldError(Some(message.to_string())));
+        }
+    }
+}
+
+/// Enter in the name field or in the IP field adds the server, as "Add server" does.
+fn add_server_on_submit(
+    _: On<Submit>,
+    name_input: Query<&EditableText, With<ServerNameInput>>,
+    ip_input: Query<(Entity, &EditableText), With<ServerIpInput>>,
+    mut list_query: Query<(Entity, &mut ServerList)>,
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+) {
+    let (Ok(name), Ok((ip_field, ip)), Ok((list_entity, mut list))) = (
+        name_input.single(),
+        ip_input.single(),
+        list_query.single_mut(),
+    ) else {
+        return;
+    };
+    add_typed_server(
+        (&name.value().to_string(), &ip.value().to_string()),
+        ip_field,
+        (list_entity, &mut list),
+        &mut commands,
+        &assets,
+    );
+}
+
 pub fn multiplayer_action(
     interactions: Query<
         (&Interaction, &MultiplayerButtonAction),
         (Changed<Interaction>, With<Button>),
     >,
-    name_input: Query<&TextInputValue, (With<ServerNameInput>, Without<ServerIpInput>)>,
-    ip_input: Query<&TextInputValue, (With<ServerIpInput>, Without<ServerNameInput>)>,
+    name_input: Query<&EditableText, With<ServerNameInput>>,
+    ip_input: Query<(Entity, &EditableText), With<ServerIpInput>>,
     mut list_query: Query<(Entity, &mut ServerList)>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -196,15 +266,17 @@ pub fn multiplayer_action(
         }
         match *action {
             MultiplayerButtonAction::Add => {
-                let (Ok(name), Ok(ip)) = (name_input.single(), ip_input.single()) else {
+                let (Ok(name), Ok((ip_field, ip))) = (name_input.single(), ip_input.single())
+                else {
                     continue;
                 };
-                if parse_server_address(&ip.0).is_none() {
-                    warn!("Not adding server {:?}: invalid address {:?}", name.0, ip.0);
-                    continue;
-                }
-                let (name, ip) = (name.0.clone(), ip.0.clone());
-                add_server_item(name, ip, &mut commands, &asset_server, &mut list, entity);
+                add_typed_server(
+                    (&name.value().to_string(), &ip.value().to_string()),
+                    ip_field,
+                    (entity, &mut list),
+                    &mut commands,
+                    &asset_server,
+                );
             }
             MultiplayerButtonAction::Connect(serv_entity) => {
                 let Some((_, srv)) = list.servers.iter().find(|(e, _)| *e == serv_entity) else {
@@ -254,6 +326,19 @@ mod tests {
         assert_eq!(parse_server_address("1.2.3.4"), None);
     }
 
+    #[test]
+    fn a_new_server_needs_an_address() {
+        let home = new_server("Home", "10.0.0.2:8000").unwrap();
+        assert_eq!(
+            (home.name.as_str(), home.ip.as_str()),
+            ("Home", "10.0.0.2:8000")
+        );
+        assert_eq!(
+            new_server("Bad", "not an ip").map(|srv| srv.name),
+            Err(INVALID_ADDRESS)
+        );
+    }
+
     /// A minimal app that runs the real list systems against a server file in its own folder.
     struct Menu {
         app: App,
@@ -301,8 +386,8 @@ mod tests {
                 });
             let world = app.world_mut();
             world.spawn(ServerList::default());
-            world.spawn((ServerNameInput, TextInputValue(String::new())));
-            world.spawn((ServerIpInput, TextInputValue(String::new())));
+            world.spawn((ServerNameInput, EditableText::new("")));
+            world.spawn((ServerIpInput, EditableText::new("")));
             world.spawn((MultiplayerButtonAction::Add, Button, Interaction::None));
             world.run_system_once(load_server_list).unwrap();
             Self { app, folder }
@@ -345,11 +430,11 @@ mod tests {
 
         fn add(&mut self, name: &str, ip: &str) {
             let world = self.app.world_mut();
-            for (mut value, is_name) in world
-                .query::<(&mut TextInputValue, Has<ServerNameInput>)>()
+            for (mut text, is_name) in world
+                .query::<(&mut EditableText, Has<ServerNameInput>)>()
                 .iter_mut(world)
             {
-                value.0 = if is_name { name } else { ip }.to_string();
+                *text = EditableText::new(if is_name { name } else { ip });
             }
             let add = world
                 .query::<(Entity, &MultiplayerButtonAction)>()

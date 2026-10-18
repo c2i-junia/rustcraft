@@ -2,9 +2,9 @@
 
 use bevy::{
     prelude::{Component, Entity, Name, State, With, World},
+    text::EditableText,
     ui::UiGlobalTransform,
 };
-use bevy_simple_text_input::TextInputValue;
 
 use super::harness::{Harness, SCREEN};
 use super::locator::Locator as L;
@@ -71,14 +71,14 @@ impl Harness {
             .count()
     }
 
-    /// What the text input marked with `M` holds.
+    /// What the text field marked with `M` holds.
     #[track_caller]
     pub fn value_of<M: Component>(&mut self) -> String {
         self.world_mut()
-            .query_filtered::<&TextInputValue, With<M>>()
+            .query_filtered::<&EditableText, With<M>>()
             .single(self.world())
             .unwrap()
-            .0
-            .clone()
+            .value()
+            .to_string()
     }
 }

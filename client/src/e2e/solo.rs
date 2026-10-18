@@ -1,5 +1,6 @@
 //! The world list: creating, deleting and playing the saved worlds.
 
+use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
 
 use super::harness::{Harness, SCREEN, SERVER};
@@ -7,7 +8,7 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::solo::WorldNameInput;
+use crate::ui::menus::solo::{WorldNameInput, INVALID_WORLD_NAME, WORLD_EXISTS};
 
 /// A client on the world list, with the worlds `Survie`, `Creative build` and `Test world 3`.
 fn world_list() -> Harness {
@@ -30,6 +31,9 @@ fn open_world_list(folder: GameFolder) -> Harness {
 fn the_world_list_matches_its_golden() {
     let mut h = world_list();
     h.wait_for_icons("Test world 3");
+    // The caret of the focused name field blinks on the wall clock: a click elsewhere clears the
+    // focus, so that the screenshot shows no caret
+    h.click(&L::text("World list"));
     h.assert_screenshot("menu_solo");
 }
 
@@ -62,6 +66,30 @@ fn a_typed_name_and_create_add_a_world() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn enter_in_the_world_name_creates_the_world() {
+    let mut h = world_list();
+    h.type_text("Entered");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::name("Play Entered"), SCREEN);
+    assert_eq!(h.value_of::<WorldNameInput>(), "");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn after_create_a_click_on_the_field_types_again() {
+    let mut h = world_list();
+    h.type_text("One");
+    h.click(&L::text("Create world"));
+    h.wait_for(&L::name("Play One"), SCREEN);
+    h.click(&L::role(Role::TextInput, "World name"));
+    h.type_text("Two");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::name("Play Two"), SCREEN);
+    assert_eq!(h.find(&L::name("Play One")).len(), 1);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn an_invalid_name_adds_no_world() {
     let mut h = world_list();
     h.wait_for(&L::name("Play Survie"), SCREEN);
@@ -72,6 +100,7 @@ fn an_invalid_name_adds_no_world() {
     h.frames(2);
     assert_eq!(h.find(&L::name("Play bad/name")).len(), 0);
     assert_eq!(h.play_rows(), 3);
+    assert!(h.is_visible(&L::text(INVALID_WORLD_NAME)));
 }
 
 #[test]
@@ -84,6 +113,7 @@ fn a_duplicate_name_adds_no_world() {
     // The click frame handles the button: two more frames are plenty for a negative check
     h.frames(2);
     assert_eq!(h.find(&L::name("Play Survie")).len(), 1);
+    assert!(h.is_visible(&L::text(WORLD_EXISTS)));
 }
 
 #[test]

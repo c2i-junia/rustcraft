@@ -33,16 +33,12 @@ pub struct TextField<'a> {
 }
 
 /// The entities of a text field: `root` to place it, `input` to observe it and read its value.
-// Read by the world and server forms (Lot 0, Task 6).
-#[allow(dead_code)]
 pub struct TextFieldParts {
     pub root: Entity,
     pub input: Entity,
 }
 
 /// Triggered on the `input` of a text field when Enter is pressed in it, with its value.
-// `value` is read by the world and server forms (Lot 0, Task 6).
-#[allow(dead_code)]
 #[derive(EntityEvent)]
 pub struct Submit {
     pub entity: Entity,
@@ -75,8 +71,6 @@ enum FieldRequest {
 }
 
 /// Spawns a text field, without a parent: put `root` in place.
-// First used by the world and server forms (Lot 0, Task 6).
-#[allow(dead_code)]
 pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextFieldParts {
     let font = TextFont {
         font: field.font.clone().into(),

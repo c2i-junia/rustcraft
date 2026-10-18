@@ -3,11 +3,12 @@
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 
+use accesskit::Role;
 use bevy::{
     input::keyboard::KeyCode,
-    prelude::{Component, With},
+    input_focus::InputFocus,
+    prelude::{Component, Entity, With},
 };
-use bevy_simple_text_input::TextInputInactive;
 use shared::{GameFolderPaths, GameServerConfig};
 
 use super::harness::{Harness, SCREEN, SERVER};
@@ -17,7 +18,7 @@ use super::seed::GameFolder;
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::multi::{ServerIpInput, ServerItem, ServerNameInput};
+use crate::ui::menus::multi::{ServerIpInput, ServerItem, ServerNameInput, INVALID_ADDRESS};
 
 /// A client on the server list, with the saved servers `localhost` and `Friends`.
 fn server_list() -> Harness {
@@ -39,23 +40,30 @@ impl Harness {
     /// Types `name` and `ip` in the fields, each focused by a click, and clicks "Add server".
     #[track_caller]
     fn add_server(&mut self, name: &str, ip: &str) {
-        self.click(&L::text("Server name"));
-        self.type_text(name);
-        self.click(&L::text("Server IP"));
-        self.type_text(ip);
-        assert_eq!(self.value_of::<ServerNameInput>(), name);
-        assert_eq!(self.value_of::<ServerIpInput>(), ip);
+        self.fill_server(name, ip);
         self.click(&L::text("Add server"));
     }
 
-    /// Whether the text input marked with `M` is inactive, that is without the focus.
+    /// Types `name` and `ip` in the fields, each focused by a click.
     #[track_caller]
-    fn is_inactive<M: Component>(&mut self) -> bool {
-        self.world_mut()
-            .query_filtered::<&TextInputInactive, With<M>>()
+    fn fill_server(&mut self, name: &str, ip: &str) {
+        self.click(&L::role(Role::TextInput, "Server name"));
+        self.type_text(name);
+        self.click(&L::role(Role::TextInput, "Server IP"));
+        self.type_text(ip);
+        assert_eq!(self.value_of::<ServerNameInput>(), name);
+        assert_eq!(self.value_of::<ServerIpInput>(), ip);
+    }
+
+    /// Whether the focus is on the text field marked with `M`.
+    #[track_caller]
+    fn has_focus<M: Component>(&mut self) -> bool {
+        let field = self
+            .world_mut()
+            .query_filtered::<Entity, With<M>>()
             .single(self.world())
-            .unwrap()
-            .0
+            .unwrap();
+        self.world().resource::<InputFocus>().get() == Some(field)
     }
 
     /// The servers of the saved list, in order.
@@ -92,15 +100,15 @@ fn localhost_and_the_saved_servers_are_listed() {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn clicking_a_field_focuses_it_alone() {
     let mut h = server_list();
-    h.click(&L::text("Server name"));
+    h.click(&L::role(Role::TextInput, "Server name"));
     h.frames(2);
-    assert!(!h.is_inactive::<ServerNameInput>());
-    assert!(h.is_inactive::<ServerIpInput>());
+    assert!(h.has_focus::<ServerNameInput>());
+    assert!(!h.has_focus::<ServerIpInput>());
 
-    h.click(&L::text("Server IP"));
+    h.click(&L::role(Role::TextInput, "Server IP"));
     h.frames(2);
-    assert!(!h.is_inactive::<ServerIpInput>());
-    assert!(h.is_inactive::<ServerNameInput>());
+    assert!(h.has_focus::<ServerIpInput>());
+    assert!(!h.has_focus::<ServerNameInput>());
 }
 
 #[test]
@@ -123,6 +131,28 @@ fn a_new_server_is_listed_and_saved() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn tab_and_enter_add_a_server() {
+    let mut h = server_list();
+    h.click(&L::role(Role::TextInput, "Server name"));
+    h.type_text("Home");
+    h.press(KeyCode::Tab);
+    h.type_text("10.0.0.2:8000");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::name("Play Home"), SCREEN);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn enter_in_the_name_field_adds_the_server() {
+    let mut h = server_list();
+    h.fill_server("Home", "10.0.0.2:8000");
+    h.click(&L::role(Role::TextInput, "Server name"));
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::name("Play Home"), SCREEN);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn an_invalid_address_adds_no_server() {
     let mut h = server_list();
     h.wait_for(&L::name("Play Friends"), SCREEN);
@@ -132,6 +162,7 @@ fn an_invalid_address_adds_no_server() {
     h.frames(2);
     assert_eq!(h.find(&L::name("Play Bad")).len(), 0);
     assert_eq!(h.play_rows(), rows);
+    assert!(h.is_visible(&L::text(INVALID_ADDRESS)));
 }
 
 #[test]

@@ -2,9 +2,10 @@ use super::list_screen::*;
 use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
+use crate::ui::widgets::text_field::{FieldError, Submit};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy_simple_text_input::TextInputValue;
+use bevy::text::EditableText;
 use shared::GameFolderPaths;
 use std::io;
 use std::{
@@ -46,14 +47,17 @@ pub fn solo_menu_setup(mut commands: Commands, assets: Res<AssetServer>) {
             inputs: &[InputField {
                 placeholder: "World name",
                 focused: true,
-                game_font: true,
+                max_characters: Some(MAX_WORLD_NAME_LENGTH),
             }],
             add_label: "Create world",
             stacked: true,
         },
     );
     commands.entity(screen.list).insert(WorldList::default());
-    commands.entity(screen.inputs[0]).insert(WorldNameInput);
+    commands
+        .entity(screen.inputs[0])
+        .insert(WorldNameInput)
+        .observe(create_world_on_submit);
     commands
         .entity(screen.add_button)
         .insert(SoloButtonAction::Add);
@@ -130,6 +134,11 @@ fn add_world_item(
 
 const MAX_WORLD_NAME_LENGTH: usize = 32;
 
+/// Shown under the name field when the typed name breaks the rule of `is_valid_world_name`.
+pub const INVALID_WORLD_NAME: &str = "Use 1 to 32 letters, digits, spaces, _ or -";
+/// Shown under the name field when a world of the list already has the typed name.
+pub const WORLD_EXISTS: &str = "A world with this name already exists";
+
 /// A world name becomes a folder name under the saves folder, so it must be a single plain
 /// path component: letters, digits, spaces, `_` and `-`, 1 to 32 characters.
 fn is_valid_world_name(name: &str) -> bool {
@@ -161,9 +170,72 @@ fn generate_new_world_name(world_list: &WorldList) -> String {
         .unwrap_or_default()
 }
 
+/// The name of the world to create from the `typed` one: a default name when nothing is typed.
+/// It is an error, the message to show, when the name is invalid or is taken in `list`.
+fn new_world_name(typed: &str, list: &WorldList) -> Result<String, &'static str> {
+    let name = if typed.is_empty() {
+        generate_new_world_name(list)
+    } else {
+        typed.to_string()
+    };
+    if !is_valid_world_name(&name) {
+        return Err(INVALID_WORLD_NAME);
+    }
+    if list.worlds.values().any(|world| world.name == name) {
+        return Err(WORLD_EXISTS);
+    }
+    Ok(name)
+}
+
+/// Creates the world `typed` in the name field `field` and empties the field, or shows under the
+/// field why the world cannot be created.
+fn create_world(
+    typed: &str,
+    (field, mut text): (Entity, Mut<EditableText>),
+    (list_entity, list): (Entity, &mut WorldList),
+    commands: &mut Commands,
+    assets: &Res<AssetServer>,
+) {
+    match new_world_name(typed, list) {
+        Ok(name) => {
+            add_world_item(name, commands, assets, list, list_entity);
+            text.clear();
+            commands.entity(field).insert(FieldError(None));
+        }
+        Err(message) => {
+            warn!("Not creating world {typed:?}: {message}");
+            commands
+                .entity(field)
+                .insert(FieldError(Some(message.to_string())));
+        }
+    }
+}
+
+/// Enter in the name field creates the world, as "Create world" does.
+fn create_world_on_submit(
+    submit: On<Submit>,
+    mut texts: Query<&mut EditableText>,
+    mut list_query: Query<(Entity, &mut WorldList)>,
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+) {
+    let (Ok(text), Ok((list_entity, mut list))) =
+        (texts.get_mut(submit.entity), list_query.single_mut())
+    else {
+        return;
+    };
+    create_world(
+        &submit.value,
+        (submit.entity, text),
+        (list_entity, &mut list),
+        &mut commands,
+        &assets,
+    );
+}
+
 pub fn solo_action(
     interactions: Query<(&Interaction, &SoloButtonAction), (Changed<Interaction>, With<Button>)>,
-    mut name_input: Query<&mut TextInputValue, With<WorldNameInput>>,
+    mut name_input: Query<(Entity, &mut EditableText), With<WorldNameInput>>,
     mut list_query: Query<(Entity, &mut WorldList)>,
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -182,27 +254,17 @@ pub fn solo_action(
         }
         match *action {
             SoloButtonAction::Add => {
-                let Ok(mut name) = name_input.single_mut() else {
+                let Ok((field, text)) = name_input.single_mut() else {
                     continue;
                 };
-                // if no name, create default one
-                let new_name = if name.0.is_empty() {
-                    generate_new_world_name(&list)
-                } else {
-                    name.0.clone()
-                };
-
-                if !is_valid_world_name(&new_name) {
-                    warn!("Not creating world {new_name:?}: invalid name");
-                    continue;
-                }
-                if list.worlds.values().any(|world| world.name == new_name) {
-                    warn!("Not creating world {new_name:?}: it already exists");
-                    continue;
-                }
-
-                add_world_item(new_name, &mut commands, &asset_server, &mut list, entity);
-                name.0 = "".into();
+                let typed = text.value().to_string();
+                create_world(
+                    &typed,
+                    (field, text),
+                    (entity, &mut list),
+                    &mut commands,
+                    &asset_server,
+                );
             }
             SoloButtonAction::Load(world_entity) => {
                 if let Some(world) = list.worlds.get(&world_entity) {
@@ -310,6 +372,21 @@ mod tests {
                 "{invalid:?} should be invalid"
             );
         }
+    }
+
+    #[test]
+    fn a_new_world_name_is_checked() {
+        let mut list = WorldList::default();
+        assert_eq!(new_world_name("", &list), Ok("new_world_1".to_string()));
+        assert_eq!(new_world_name("bad/name", &list), Err(INVALID_WORLD_NAME));
+        list.worlds.insert(
+            Entity::PLACEHOLDER,
+            WorldItem {
+                name: "Survie".into(),
+            },
+        );
+        assert_eq!(new_world_name("Survie", &list), Err(WORLD_EXISTS));
+        assert_eq!(new_world_name("Nouveau", &list), Ok("Nouveau".to_string()));
     }
 
     #[test]
