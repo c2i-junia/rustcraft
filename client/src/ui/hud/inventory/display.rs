@@ -1,16 +1,17 @@
-use super::{CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
+use super::{item_name, CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
-use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::{
     CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryDialog,
     InventoryRoot, InventoryTitle, UIMode,
 };
 use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
 use crate::ui::widgets::slot::{count_label, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
+use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::MaterialResource;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::picking::hover::Hovered;
@@ -19,6 +20,14 @@ use bevy::window::PrimaryWindow;
 use shared::players::inventory::{craft_result, InventoryAction, INVENTORY_GRID_SIZE};
 use shared::players::Inventory;
 use shared::world::{grid_slot, ItemStack, CRAFTING_GRID_SIZE};
+use shared::MAX_INVENTORY_SLOTS;
+
+/// What a click does on a slot of the hotbar, of the backpack, of the crafting grid and on the
+/// result.
+pub const HINT_HOTBAR: &str = "Shift+click: move to the backpack";
+pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
+pub const HINT_GRID: &str = "Shift+click: move to the inventory";
+pub const HINT_RESULT: &str = "Click: craft";
 
 /// Pixels of trackpad scrolling that select the next hotbar slot.
 const SCROLL_PIXELS_PER_SLOT: i32 = 20;
@@ -73,39 +82,48 @@ pub fn select_hotbar_slot_system(
     }
 }
 
-/// Sends a click on a cell of the open inventory as an action of the frame's input, which the
-/// client predicts and the server applies.
+/// Sends a click on a cell of the open inventory, or a number key pressed over one, as an action
+/// of the frame's input, which the client predicts and the server applies. Shift turns the left
+/// click into a move of the whole stack.
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     cells: Query<(&Hovered, &InventoryCell)>,
     result: Query<&Hovered, With<CraftResultCell>>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
 ) {
-    let left = mouse_input.just_pressed(MouseButton::Left);
-    let right = mouse_input.just_pressed(MouseButton::Right);
-    if !left && !right {
-        return;
-    }
     if !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
         return;
     }
+    let left = mouse_input.just_pressed(MouseButton::Left);
+    let right = mouse_input.just_pressed(MouseButton::Right);
+    let shift = keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let hotbar = hotbar_key_index(&keyboard_input);
+    let actions = &mut frame_inputs.0.inventory_actions;
 
     for (hovered, cell) in &cells {
         if !hovered.0 {
             continue;
         }
-        frame_inputs.0.inventory_actions.push(if left {
-            InventoryAction::LeftClickSlot(cell.id)
-        } else {
-            InventoryAction::RightClickSlot(cell.id)
-        });
+        if left {
+            actions.push(if shift {
+                InventoryAction::QuickMoveSlot(cell.id)
+            } else {
+                InventoryAction::LeftClickSlot(cell.id)
+            });
+        } else if right {
+            actions.push(InventoryAction::RightClickSlot(cell.id));
+        }
+        if let Some(hotbar) = hotbar {
+            actions.push(InventoryAction::SwapWithHotbar {
+                slot: cell.id,
+                hotbar,
+            });
+        }
     }
-    if result.iter().any(|hovered| hovered.0) {
-        frame_inputs
-            .0
-            .inventory_actions
-            .push(InventoryAction::TakeCraftResult);
+    if (left || right) && result.iter().any(|hovered| hovered.0) {
+        actions.push(InventoryAction::TakeCraftResult);
     }
 }
 
@@ -136,7 +154,7 @@ pub fn display_inventory_system(
     window: Query<&Window, With<PrimaryWindow>>,
     ui_scale: Res<UiScale>,
     mut floating_stack: Query<(&mut Node, &Children), With<FloatingStack>>,
-    mut cells: Query<(&mut SlotSelected, &InventoryCell, &Children)>,
+    mut cells: Query<(&mut SlotSelected, &InventoryCell, &mut Tooltip, &Children)>,
     mut counts: Query<&mut Text, With<SlotCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
 ) {
@@ -161,13 +179,21 @@ pub fn display_inventory_system(
         );
     }
 
-    for (mut is_selected, cell, children) in &mut cells {
+    for (mut is_selected, cell, mut tooltip, children) in &mut cells {
         is_selected.set_if_neq(SlotSelected(selected == Some(cell.id)));
+        let stack = inventory.inner.get(&cell.id).copied();
+        let hint = if cell.id < MAX_HOTBAR_SLOTS {
+            HINT_HOTBAR
+        } else if cell.id < MAX_INVENTORY_SLOTS {
+            HINT_BACKPACK
+        } else {
+            HINT_GRID
+        };
+        tooltip.set_if_neq(tooltip_of(stack, hint, is_open, &inventory));
         // The cells of a closed inventory are not shown: no need to update them
         if cell.id >= MAX_HOTBAR_SLOTS && !is_open {
             continue;
         }
-        let stack = inventory.inner.get(&cell.id).copied();
         show_stack(stack, children, &mut counts, &mut icons, &materials);
     }
 }
@@ -205,8 +231,9 @@ pub fn style_inventory_panel(
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
-    result: Query<&Children, With<CraftResultCell>>,
+    mut result: Query<(&Children, &mut Tooltip), With<CraftResultCell>>,
     mut title: Query<&mut Text, (With<InventoryTitle>, Without<SlotCount>)>,
     mut counts: Query<&mut Text, With<SlotCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
@@ -235,8 +262,38 @@ pub fn display_crafting_system(
     }
 
     let made = craft_result(&inventory, size);
-    for children in &result {
+    let is_open = inventory_root
+        .single()
+        .is_ok_and(|visibility| *visibility == Visibility::Visible);
+    for (children, mut tooltip) in &mut result {
+        tooltip.set_if_neq(tooltip_of(made, HINT_RESULT, is_open, &inventory));
         show_stack(made, children, &mut counts, &mut icons, &materials);
+    }
+}
+
+/// The tooltip of a slot holding `stack`: nothing while the inventory is closed, while the cursor
+/// holds a stack, or on an empty slot.
+fn tooltip_of(
+    stack: Option<ItemStack>,
+    hint: &str,
+    is_open: bool,
+    inventory: &Inventory,
+) -> Tooltip {
+    match stack {
+        Some(stack) if is_open && inventory.floating.is_none() => Tooltip {
+            title: item_name(stack.item_id),
+            detail: count_detail(stack.nb),
+            hint: hint.to_string(),
+        },
+        _ => Tooltip::default(),
+    }
+}
+
+/// The count of a stack in words.
+fn count_detail(nb: u32) -> String {
+    match nb {
+        1 => "1 item".to_string(),
+        nb => format!("{nb} items"),
     }
 }
 
@@ -319,6 +376,7 @@ mod tests {
                     .spawn((
                         InventoryCell { id: slot },
                         Hovered(false),
+                        Tooltip::default(),
                         SlotSelected::default(),
                     ))
                     .with_child((SlotCount, Text::new("")));
@@ -328,7 +386,12 @@ mod tests {
 
         fn spawn_result_cell(&mut self) -> Entity {
             self.world
-                .spawn((CraftResultCell, Hovered(false), SlotSelected::default()))
+                .spawn((
+                    CraftResultCell,
+                    Hovered(false),
+                    Tooltip::default(),
+                    SlotSelected::default(),
+                ))
                 .with_child((SlotCount, Text::new("")))
                 .id()
         }
@@ -341,6 +404,7 @@ mod tests {
                     },
                     CraftingGridCell { row, col },
                     Hovered(false),
+                    Tooltip::default(),
                     SlotSelected::default(),
                     Node::default(),
                 ))
@@ -372,6 +436,41 @@ mod tests {
                 self.world.get::<Text>(count).unwrap().0.clone(),
                 *self.world.get::<SlotSelected>(cell).unwrap(),
             )
+        }
+
+        fn click_with_shift(&mut self, slot: u32, button: MouseButton) {
+            self.world
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::ShiftLeft);
+            self.click(slot, button);
+            self.world
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .release(KeyCode::ShiftLeft);
+        }
+
+        /// Presses `key` while the cell of `slot` is hovered, if any.
+        fn press_key_over(&mut self, slot: Option<u32>, key: KeyCode) {
+            let cell = slot.map(|slot| self.cell(slot));
+            if let Some(cell) = cell {
+                self.world.entity_mut(cell).insert(Hovered(true));
+            }
+            self.world.resource_mut::<ButtonInput<KeyCode>>().press(key);
+            self.world
+                .run_system_once(click_inventory_cells_system)
+                .unwrap();
+            self.world.resource_mut::<ButtonInput<KeyCode>>().clear();
+            if let Some(cell) = cell {
+                self.world.entity_mut(cell).insert(Hovered(false));
+            }
+        }
+
+        /// The tooltip of `entity` once the cells are displayed.
+        fn tooltip_of(&mut self, entity: Entity) -> Tooltip {
+            self.world
+                .run_system_once(display_inventory_system)
+                .unwrap();
+            self.show_crafting();
+            self.world.get::<Tooltip>(entity).unwrap().clone()
         }
 
         fn click(&mut self, slot: u32, button: MouseButton) {
@@ -474,6 +573,135 @@ mod tests {
         );
         // The click is predicted with the other inputs of the frame, not here
         assert_eq!(hud.shown(9).0, "5");
+    }
+
+    #[test]
+    fn shift_click_sends_a_quick_move() {
+        let mut hud = Hud::new(Visibility::Visible, &[12]);
+
+        hud.click_with_shift(12, MouseButton::Left);
+        assert_eq!(hud.sent_actions(), [InventoryAction::QuickMoveSlot(12)]);
+
+        // Shift only changes the left button
+        hud.world
+            .resource_mut::<CurrentFrameInputs>()
+            .0
+            .inventory_actions
+            .clear();
+        hud.click_with_shift(12, MouseButton::Right);
+        assert_eq!(hud.sent_actions(), [InventoryAction::RightClickSlot(12)]);
+    }
+
+    #[test]
+    fn a_number_key_over_a_slot_sends_a_swap() {
+        let mut hud = Hud::new(Visibility::Visible, &[12]);
+
+        hud.press_key_over(Some(12), KeyCode::Digit3);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [InventoryAction::SwapWithHotbar {
+                slot: 12,
+                hotbar: 2
+            }]
+        );
+    }
+
+    #[test]
+    fn a_number_key_over_nothing_sends_nothing() {
+        let mut hud = Hud::new(Visibility::Visible, &[12]);
+        hud.press_key_over(None, KeyCode::Digit3);
+        assert!(hud.sent_actions().is_empty());
+
+        let mut closed = Hud::new(Visibility::Hidden, &[12]);
+        closed.press_key_over(Some(12), KeyCode::Digit3);
+        assert!(closed.sent_actions().is_empty());
+    }
+
+    #[test]
+    fn a_cell_s_tooltip_names_its_item_count_and_hint() {
+        let mut hud = Hud::new(Visibility::Visible, &[0, 12]);
+        let grid = hud.spawn_grid_cell(0, 0);
+        let result = hud.spawn_result_cell();
+        {
+            let mut inventory = hud.world.resource_mut::<Inventory>();
+            inventory.inner.insert(12, dirt_stack(5));
+            inventory.inner.insert(0, dirt_stack(1));
+            inventory.inner.insert(
+                grid_slot(0, 0),
+                ItemStack {
+                    item_id: ItemId::OakLog,
+                    item_type: ItemId::OakLog.get_default_type(),
+                    nb: 1,
+                },
+            );
+        }
+        let (backpack, hotbar) = (hud.cell(12), hud.cell(0));
+
+        assert_eq!(
+            hud.tooltip_of(backpack),
+            Tooltip {
+                title: "Dirt".into(),
+                detail: "5 items".into(),
+                hint: HINT_BACKPACK.into()
+            }
+        );
+        assert_eq!(
+            hud.tooltip_of(hotbar),
+            Tooltip {
+                title: "Dirt".into(),
+                detail: "1 item".into(),
+                hint: HINT_HOTBAR.into()
+            }
+        );
+        assert_eq!(
+            hud.tooltip_of(grid),
+            Tooltip {
+                title: "Oak Log".into(),
+                detail: "1 item".into(),
+                hint: HINT_GRID.into()
+            }
+        );
+        assert_eq!(
+            hud.tooltip_of(result),
+            Tooltip {
+                title: "Oak Planks".into(),
+                detail: "4 items".into(),
+                hint: HINT_RESULT.into()
+            }
+        );
+    }
+
+    #[test]
+    fn no_tooltip_on_an_empty_slot_while_holding_a_stack_or_while_closed() {
+        for case in ["empty", "holding", "closed"] {
+            let visibility = if case == "closed" {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+            let mut hud = Hud::new(visibility, &[0, 12]);
+            let result = hud.spawn_result_cell();
+            let mut inventory = hud.world.resource_mut::<Inventory>();
+            if case != "empty" {
+                inventory.inner.insert(12, dirt_stack(5));
+                inventory.inner.insert(0, dirt_stack(5));
+                inventory.inner.insert(
+                    grid_slot(0, 0),
+                    ItemStack {
+                        item_id: ItemId::OakLog,
+                        item_type: ItemId::OakLog.get_default_type(),
+                        nb: 1,
+                    },
+                );
+            }
+            if case == "holding" {
+                inventory.floating = Some(dirt_stack(2));
+            }
+            for cell in [hud.cell(0), hud.cell(12), result] {
+                assert_eq!(hud.tooltip_of(cell), Tooltip::default(), "{case}");
+            }
+        }
     }
 
     #[test]

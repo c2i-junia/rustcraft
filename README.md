@@ -84,6 +84,8 @@ paru -S rustcraft
 |                   | Deposit 1 item        | Right Click (over valid stack) |
 |                   | Deposit MAX items     | Left Click (over valid stack) |
 |                   | Exchange stacks       | Left Click (over a different stack or full valid stack) |
+|                   | Move a stack between backpack and hotbar | Shift + Left Click |
+|                   | Swap with a hotbar slot | 1–9 over a slot          |
 |                   |                        |                             |
 | **Miscellaneous** | Open Chat             | T                           |
 |                   | Reload Chunks (rebuild their meshes) | R            |

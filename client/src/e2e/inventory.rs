@@ -9,10 +9,12 @@ use super::harness::{Harness, Options, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::HINT_BACKPACK;
 use crate::ui::hud::{
     CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot,
 };
 use crate::ui::widgets::slot::SlotIcon;
+use crate::ui::widgets::tooltip::TooltipRoot;
 
 /// How much a channel of a hotbar pixel may change when the inventory opens.
 const CHANNEL_TOLERANCE: u8 = 16;
@@ -226,4 +228,53 @@ fn the_held_stack_follows_the_cursor_and_stray_clicks_do_nothing() {
     h.wait_until("the dirt in slot 20", SERVER, |w| {
         slot(w, 20) == Some((ItemId::Dirt, 5)) && floating(w).is_none()
     });
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn shift_click_number_keys_and_tooltips_in_the_open_inventory() {
+    let folder = GameFolder::new().with_world("Moves").with_items(
+        "Moves",
+        "Tester",
+        &[(2, ItemId::Stick, 3), (10, ItemId::Dirt, 5)],
+    );
+    let mut h = enter_world(folder, "Moves");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 10) == Some((ItemId::Dirt, 5))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+
+    // The tooltip names the item, its count and what a click does
+    h.hover(&L::cell(10));
+    let tooltip = L::marker::<TooltipRoot>;
+    for text in ["Dirt", "5 items", HINT_BACKPACK] {
+        h.wait_for(&L::text(text).within(tooltip()), SCREEN);
+    }
+
+    // Shift+click moves a stack from the backpack to the hotbar, and back
+    h.key_down(KeyCode::ShiftLeft);
+    h.click(&L::cell(10));
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the dirt in the hotbar", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Dirt, 5)) && slot(w, 10).is_none()
+    });
+    h.key_down(KeyCode::ShiftLeft);
+    h.click(&L::cell(0));
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the dirt in the backpack", SERVER, |w| {
+        slot(w, 9) == Some((ItemId::Dirt, 5))
+    });
+
+    // A number key over a slot swaps it with that hotbar slot
+    h.hover(&L::cell(9));
+    h.press(KeyCode::Digit3);
+    h.wait_until("the swap", SERVER, |w| {
+        slot(w, 2) == Some((ItemId::Dirt, 5)) && slot(w, 9) == Some((ItemId::Stick, 3))
+    });
+
+    // Closing the inventory hides the tooltip
+    h.press(KeyCode::KeyE);
+    h.frames(3);
+    assert!(!h.is_visible(&tooltip()));
 }

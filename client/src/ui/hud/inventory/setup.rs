@@ -8,6 +8,7 @@ use crate::ui::hud::{
 };
 use crate::ui::theme::{BEVEL_WIDTH, FONT_L, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT};
 use crate::ui::widgets::slot::{slot, slot_count, slot_icon, slot_node, SLOT_SIZE};
+use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
 use bevy::prelude::*;
 use shared::world::{grid_slot, CRAFTING_GRID_SIZE};
@@ -141,6 +142,7 @@ fn spawn_backpack(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font:
                 let label = format!("Backpack slot {}", id - MAX_HOTBAR_SLOTS + 1);
                 grid.spawn((
                     InventoryCell { id },
+                    Tooltip::default(),
                     slot(&label, None, icon(atlas), font.clone()),
                 ));
             }
@@ -162,6 +164,7 @@ fn spawn_hotbar(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &
                 let label = format!("Hotbar slot {}", id + 1);
                 bar.spawn((
                     InventoryCell { id },
+                    Tooltip::default(),
                     slot(&label, Some(id + 1), icon(atlas), font.clone()),
                 ));
             }
@@ -199,6 +202,7 @@ fn spawn_crafting_row(
                                 id: grid_slot(row, col),
                             },
                             CraftingGridCell { row, col },
+                            Tooltip::default(),
                             slot(&label, None, icon(atlas), font.clone()),
                         ))
                         .insert(Node {
@@ -212,6 +216,7 @@ fn spawn_crafting_row(
             row.spawn(panel_text("->", font, MUTED));
             row.spawn((
                 CraftResultCell,
+                Tooltip::default(),
                 slot("Crafting result", None, icon(atlas), font.clone()),
             ));
         });
