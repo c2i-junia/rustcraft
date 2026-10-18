@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-18 · **Branch:** `feat/ui-redesign` (from `main` at c7a8c53) · **Status:** approved by the owner, who delegated every open choice ("je te laisse trancher et prendre tes propres recommandations").
 
-The proposal this implements, with mockups of every screen, is the artifact
+The verified notes on the Bevy 0.19.1 UI APIs this design relies on are in
+`2026-10-18-bevy-ui-0.19-notes.md`, next to this file. The proposal this implements, with mockups of every screen, is the artifact
 https://claude.ai/artifact/BvMQVHaQm8ypvKDVmLtdsg. This document is the binding version for the
 builder: where the two differ, this document wins.
 
@@ -206,11 +207,12 @@ ignored while typing.
 Each lot is planned in its own plan just before it starts, delivered as reviewed commits, and
 keeps the whole suite green.
 
-0. **Foundations:** harness picking and keys; theme; widgets (button, text field, slider,
-   segmented, tabs, list, dialog, toast, hints, slot, tooltip); focus ring, Tab navigation, arrow
-   navigation, Escape-to-back, AutoFocus; `UiScale`; a11y roles and the `role` locator;
+0. **Foundations:** harness picking and keys; theme; button and text field widgets; focus ring,
+   Tab navigation, arrow navigation, AutoFocus; `UiScale`; a11y roles and the `role` locator;
    `bevy_simple_text_input` replaced in the existing screens by the new text field (Enter submits
-   from here on). No screen redesigned yet beyond what the replacement needs.
+   from here on). No screen redesigned yet beyond what the replacement needs. Every other widget
+   (slider, segmented, tabs, list, dialog, toast, hints, slot, tooltip) is built in the first lot
+   that uses it, in `ui/widgets/`, so that no widget exists without a screen and its tests.
 5. **Hotbar and inventory** (done second): HUD hotbar, item name, 1–9, trackpad wheel, reticle;
    unified inventory panel, tooltips, Shift+click, 1–9 swap, crafting table panel; debug overlay
    below menus and hidden by default; game keys gated while typing.
