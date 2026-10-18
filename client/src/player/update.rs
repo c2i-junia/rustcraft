@@ -175,7 +175,7 @@ pub fn update_players_system(
             .chain(tick_buffer.buffer.iter())
             .filter(|input| input.time_ms > event.last_ack_time);
         for input in not_applied {
-            simulate_inventory_actions(&mut player, input, CallerType::Client);
+            simulate_inventory_actions(&mut player, &world_map.blocks, input, CallerType::Client);
         }
         inventory.clone_from(&player.inventory);
         transform.translation = player.position;

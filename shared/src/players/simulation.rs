@@ -16,6 +16,6 @@ pub fn simulate_player_actions(
     caller_type: CallerType,
 ) {
     simulate_player_block_interactions(player, world_map, action, caller_type);
-    simulate_inventory_actions(player, action, caller_type);
+    simulate_inventory_actions(player, world_map, action, caller_type);
     simulate_player_movement(player, world_map, action);
 }

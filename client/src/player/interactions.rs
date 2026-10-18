@@ -85,6 +85,7 @@ pub fn handle_block_interactions(
 pub fn predict_inventory_system(
     mut player: Query<&mut Player, With<CurrentPlayerMarker>>,
     frame_inputs: Res<CurrentFrameInputs>,
+    world_map: Res<ClientWorldMap>,
     mut inventory: ResMut<Inventory>,
 ) {
     let Ok(mut player) = player.single_mut() else {
@@ -93,6 +94,11 @@ pub fn predict_inventory_system(
     if frame_inputs.0.inventory_actions.is_empty() {
         return;
     }
-    simulate_inventory_actions(&mut player, &frame_inputs.0, CallerType::Client);
+    simulate_inventory_actions(
+        &mut player,
+        &world_map.blocks,
+        &frame_inputs.0,
+        CallerType::Client,
+    );
     inventory.clone_from(&player.inventory);
 }

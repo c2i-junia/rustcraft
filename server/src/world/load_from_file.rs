@@ -287,6 +287,8 @@ pub fn load_player_data(
             player.camera_transform = saved.camera_transform;
             player.is_flying = saved.is_flying;
             player.inventory = saved.inventory;
+            // A table is used only while the player is there
+            player.inventory.open_table = None;
         }
         Err(err) => {
             let mut corrupt_path = path.as_os_str().to_owned();
@@ -368,6 +370,19 @@ mod tests {
         assert_eq!(loaded.camera_transform, saved.camera_transform);
         assert!(loaded.is_flying);
         assert_eq!(loaded.inventory, saved.inventory);
+    }
+
+    #[test]
+    fn a_loaded_player_has_no_open_table() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let mut saved = Player::new(7, "crafter".into(), Vec3::ZERO, Transform::default());
+        saved.inventory.open_table = Some(bevy::math::IVec3::new(1, 2, 3));
+        save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
+
+        let loaded = load_player_data(WORLD, &7, "crafter", &paths).unwrap();
+
+        assert_eq!(loaded.inventory.open_table, None);
     }
 
     #[test]

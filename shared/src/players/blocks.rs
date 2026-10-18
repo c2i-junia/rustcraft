@@ -26,7 +26,8 @@ impl CallerType {
     }
 }
 
-const INTERACTION_DISTANCE: f32 = 5.0;
+/// How far from the centre of a block a player may break, place or use it.
+pub const INTERACTION_DISTANCE: f32 = 5.0;
 const CUBE_SIZE: f32 = 1.0;
 
 /// Why an interaction changed nothing.
@@ -47,6 +48,9 @@ enum Refusal {
     InvalidSlot(u32),
     EmptySlot(u32),
     NotABlock(ItemType),
+    /// The aimed block is used by a right click, like a crafting table, unless the player
+    /// sneaks.
+    UsesBlock(BlockId),
 }
 
 /// A refused interaction, and the block a client may have predicted a change at.
@@ -171,7 +175,17 @@ fn place_block(
     action: &PlayerFrameInput,
 ) -> Result<(), Refused> {
     let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
-    let position = new_block_position(&aimed_block(player, world_map, action, new_block_position)?);
+    let target = aimed_block(player, world_map, action, new_block_position)?;
+    if let Some(aimed) = world_map.get_block(target.position) {
+        if aimed.id == BlockId::CraftingTable && !action.is_pressed(NetworkAction::SneakOrFlyDown) {
+            // The client opens the table instead, and predicts no block either
+            return Err(Refused {
+                reason: Refusal::UsesBlock(aimed.id),
+                predicted_at: None,
+            });
+        }
+    }
+    let position = new_block_position(&target);
     let refused = |reason| Err(Refused::at(position, reason));
 
     if world_map
@@ -322,6 +336,45 @@ mod tests {
         };
         simulate_player_block_interactions(&mut player, world, &input, CallerType::Server);
         player
+    }
+
+    #[test]
+    fn right_click_on_a_table_places_nothing_unless_sneaking() {
+        for (sneaking, placed) in [(false, None), (true, Some(BlockId::Dirt))] {
+            let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+            let position = Vec3::new(0.5, 0.5, 2.5);
+            let camera = Transform::from_translation(position);
+            let mut player = Player::new(1, "tester".to_string(), position, camera);
+            player.inventory.inner.insert(
+                0,
+                ItemStack {
+                    item_id: ItemId::Dirt,
+                    item_type: ItemId::Dirt.get_default_type(),
+                    nb: 1,
+                },
+            );
+            world.fill_box(
+                IVec3::new(0, 0, -1),
+                IVec3::new(0, 0, -1),
+                BlockId::CraftingTable,
+            );
+            let mut input = PlayerFrameInput {
+                inputs: [NetworkAction::RightClick].into(),
+                camera,
+                ..Default::default()
+            };
+            if sneaking {
+                input.inputs.insert(NetworkAction::SneakOrFlyDown);
+            }
+
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+
+            assert_eq!(
+                world.get_block(IVec3::ZERO).map(|b| b.id),
+                placed,
+                "sneaking: {sneaking}"
+            );
+        }
     }
 
     #[test]
