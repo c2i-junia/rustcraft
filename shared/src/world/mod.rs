@@ -1,6 +1,7 @@
 pub mod blocks;
 pub mod chunk;
 pub mod chunk_map;
+pub mod crafting;
 pub mod data;
 pub mod items;
 pub mod liquid;
@@ -13,6 +14,7 @@ mod utils;
 pub use blocks::*;
 pub use chunk::*;
 pub use chunk_map::*;
+pub use crafting::*;
 pub use data::*;
 pub use items::*;
 pub use mobs::*;
