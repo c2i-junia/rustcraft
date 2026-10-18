@@ -5,13 +5,16 @@ use std::time::{Duration, Instant};
 use bevy::{prelude::*, ui::UiGlobalTransform};
 
 use super::harness::Harness;
+use crate::ui::hud::InventoryCell;
 
 /// What a locator looks for.
 enum Target {
     Text(String),
+    TextContaining(String),
     Name(String),
     Marker(fn(&mut World) -> Vec<Entity>),
     Row(String),
+    Cell(u32),
 }
 
 /// Describes elements of the UI. Only visible elements are ever found.
@@ -24,6 +27,11 @@ impl Locator {
     /// A visible `Text` whose content, with the `TextSpan`s under it, equals `content`.
     pub fn text(content: &str) -> Locator {
         Self::of(Target::Text(content.to_string()))
+    }
+
+    /// A visible `Text` whose content, with the `TextSpan`s under it, contains `part`.
+    pub fn text_containing(part: &str) -> Locator {
+        Self::of(Target::TextContaining(part.to_string()))
     }
 
     /// An element with this `Name`, for the ones without text.
@@ -39,6 +47,13 @@ impl Locator {
                 .iter(world)
                 .collect()
         }))
+    }
+
+    /// The cell of inventory slot `id`. Each slot has a single cell: the hotbar holds the
+    /// first slots, and the inventory dialog the others and the crafting grid, so the cell of a
+    /// hotbar slot is the one in the hotbar, even while the inventory is open.
+    pub fn cell(id: u32) -> Locator {
+        Self::of(Target::Cell(id))
     }
 
     /// The nearest ancestor of `text(content)` that holds another `Text` or a `Button`.
@@ -66,6 +81,11 @@ impl Locator {
                 .filter(|(_, text)| text == content)
                 .map(|(entity, _)| entity)
                 .collect(),
+            Target::TextContaining(part) => visible_texts(world)
+                .into_iter()
+                .filter(|(_, text)| text.contains(part.as_str()))
+                .map(|(entity, _)| entity)
+                .collect(),
             Target::Name(name) => world
                 .query::<(Entity, &Name)>()
                 .iter(world)
@@ -77,6 +97,12 @@ impl Locator {
                 .into_iter()
                 .filter(|(_, text)| text == content)
                 .filter_map(|(entity, _)| row_of(world, entity))
+                .collect(),
+            Target::Cell(id) => world
+                .query::<(Entity, &InventoryCell)>()
+                .iter(world)
+                .filter(|(_, cell)| cell.id == *id)
+                .map(|(entity, _)| entity)
                 .collect(),
         };
         found.retain(|&entity| is_visible(world, entity));
@@ -93,7 +119,7 @@ impl Locator {
 }
 
 /// Whether `entity` is a descendant of `ancestor`.
-fn is_inside(world: &World, entity: Entity, ancestor: Entity) -> bool {
+pub(super) fn is_inside(world: &World, entity: Entity, ancestor: Entity) -> bool {
     let mut current = entity;
     while let Some(parent) = world.get::<ChildOf>(current) {
         current = parent.parent();
@@ -147,7 +173,7 @@ fn visible_texts(world: &mut World) -> Vec<(Entity, String)> {
 }
 
 /// Visible means shown, displayed all the way up the tree, and of a size.
-fn is_visible(world: &World, entity: Entity) -> bool {
+pub(super) fn is_visible(world: &World, entity: Entity) -> bool {
     let shown = world
         .get::<InheritedVisibility>(entity)
         .is_some_and(|v| v.get());

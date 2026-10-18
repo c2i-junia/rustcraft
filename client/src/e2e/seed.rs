@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use bevy::prelude::{Transform, Vec3};
 use shared::players::Player;
@@ -12,15 +13,16 @@ use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::network::setup::hash_string_to_u64;
 use crate::ui::menus::multi::ServerItem;
 
-/// A temporary game folder, deleted when it is dropped.
+/// A temporary game folder, deleted when its last clone is dropped.
+#[derive(Clone)]
 pub struct GameFolder {
-    dir: TempDir,
+    dir: Arc<TempDir>,
 }
 
 impl GameFolder {
     pub fn new() -> Self {
         Self {
-            dir: TempDir::new().expect("a temporary game folder"),
+            dir: Arc::new(TempDir::new().expect("a temporary game folder")),
         }
     }
 

@@ -22,6 +22,7 @@ use shared::GameFolderPaths;
 use super::seed::GameFolder;
 use crate::app::{add_client, ClientSettings};
 use crate::constants::TEXTURE_PATH_BASE;
+use crate::network::setup::LocalServerHandle;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
 
@@ -73,7 +74,10 @@ const LIFETIME: Duration = Duration::from_secs(300);
 /// Aborts the process, saying which test it was, if its harness lives longer than [`LIFETIME`].
 /// A frame stuck in the renderer cannot be timed out from the test thread, and would otherwise
 /// block the whole run.
-struct Watchdog(std::sync::mpsc::Sender<()>);
+struct Watchdog(
+    // Only held for its drop, which tells the watchdog that the harness is gone
+    #[allow(dead_code)] std::sync::mpsc::Sender<()>,
+);
 
 impl Watchdog {
     fn start() -> Self {
@@ -237,6 +241,43 @@ impl Harness {
     /// Whether the app asked to exit at any point.
     pub fn has_exited(&self) -> bool {
         self.world().resource::<ExitLatch>().0
+    }
+}
+
+/// How long a harness dropped in game waits for the integrated server to save and stop.
+const LEAVE_TIMEOUT: Duration = Duration::from_secs(10);
+
+impl Drop for Harness {
+    /// Leaves the game, so that the integrated server saves and stops before the next test
+    /// rather than running on in the background. Nothing is done while a test panics: running
+    /// frames then could panic again, which aborts the process.
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
+        let in_game = |world: &World| {
+            world
+                .get_resource::<State<GameState>>()
+                .is_some_and(|state| *state.get() == GameState::Game)
+        };
+        if !in_game(self.world()) {
+            return;
+        }
+        self.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        let start = Instant::now();
+        while start.elapsed() < LEAVE_TIMEOUT {
+            let server_runs = self
+                .world()
+                .get_resource::<LocalServerHandle>()
+                .is_some_and(|handle| handle.0.is_some());
+            if !in_game(self.world()) && !server_runs {
+                return;
+            }
+            self.frames(1);
+        }
+        eprintln!("the integrated server did not stop within {LEAVE_TIMEOUT:?}");
     }
 }
 
