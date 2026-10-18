@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
-use crate::world::{global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, Chunk};
+use crate::world::{
+    global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockTransparency, Chunk,
+};
 
 /// The blocks of a world, on the server as on the client: the loaded chunks, and the global
 /// positions of the blocks that changed since the last `take_changed_blocks`.
@@ -96,33 +98,43 @@ impl ChunkMap {
 
     /// Whether `hitbox` overlaps the hitbox of a block.
     pub fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
-        // Check all blocks inside the hitbox
-        // Manual flooring is needed for negative coordinates
-        for x in (hitbox.min.x.floor() as i32)..=(hitbox.max.x.floor() as i32) {
-            for y in (hitbox.min.y.floor() as i32)..=(hitbox.max.y.floor() as i32) {
-                for z in (hitbox.min.z.floor() as i32)..=(hitbox.max.z.floor() as i32) {
-                    if let Some(block) = self.get_block(IVec3::new(x, y, z)) {
-                        match block.id.get_hitbox() {
-                            BlockHitbox::FullBlock => return true,
-                            BlockHitbox::None => continue,
-                            BlockHitbox::Aabb(block_hitbox) => {
-                                // The block's box is relative to its cell
-                                let cell = IVec3::new(x, y, z).as_vec3a();
-                                let min = hitbox.min.max(block_hitbox.min + cell);
-                                let max = hitbox.max.min(block_hitbox.max + cell);
+        cells_overlapped(hitbox).any(|pos| {
+            let Some(block) = self.get_block(pos) else {
+                return false;
+            };
+            match block.id.get_hitbox() {
+                BlockHitbox::FullBlock => true,
+                BlockHitbox::None => false,
+                BlockHitbox::Aabb(block_hitbox) => {
+                    // The block's box is relative to its cell
+                    let cell = pos.as_vec3a();
+                    let min = hitbox.min.max(block_hitbox.min + cell);
+                    let max = hitbox.max.min(block_hitbox.max + cell);
 
-                                // The two boxes overlap when their intersection is not empty
-                                if min.cmple(max).all() {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
+                    // The two boxes overlap when their intersection is not empty
+                    min.cmple(max).all()
                 }
             }
-        }
-        false
+        })
     }
+
+    /// Whether `hitbox` overlaps a cell that holds a liquid.
+    pub fn touches_liquid(&self, hitbox: &Aabb3d) -> bool {
+        cells_overlapped(hitbox).any(|pos| {
+            self.get_block(pos)
+                .is_some_and(|block| block.id.get_visibility() == BlockTransparency::Liquid)
+        })
+    }
+}
+
+/// The cells that `hitbox` overlaps.
+fn cells_overlapped(hitbox: &Aabb3d) -> impl Iterator<Item = IVec3> {
+    // Manual flooring is needed for negative coordinates
+    let min = hitbox.min.floor().as_ivec3();
+    let max = hitbox.max.floor().as_ivec3();
+    (min.x..=max.x).flat_map(move |x| {
+        (min.y..=max.y).flat_map(move |y| (min.z..=max.z).map(move |z| IVec3::new(x, y, z)))
+    })
 }
 
 #[cfg(test)]
