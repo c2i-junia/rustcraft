@@ -30,6 +30,16 @@ pub const SCREEN: Duration = Duration::from_secs(2);
 /// How long a journey through a server may take.
 pub const SERVER: Duration = Duration::from_secs(30);
 
+/// Whether the app ever asked to exit. A message of `AppExit` lives for two frames only.
+#[derive(Resource, Default)]
+struct ExitLatch(bool);
+
+fn latch_exit(mut exits: MessageReader<AppExit>, mut latch: ResMut<ExitLatch>) {
+    if exits.read().next().is_some() {
+        latch.0 = true;
+    }
+}
+
 /// How the client is started.
 pub struct Options {
     pub width: u32,
@@ -156,6 +166,8 @@ impl Harness {
                 }
             },
         );
+        app.init_resource::<ExitLatch>();
+        app.add_systems(Last, latch_exit);
         add_client(
             &mut app,
             ClientSettings {
@@ -222,9 +234,9 @@ impl Harness {
         self.folder.path()
     }
 
-    /// Whether the app asked to exit.
+    /// Whether the app asked to exit at any point.
     pub fn has_exited(&self) -> bool {
-        self.app.should_exit().is_some()
+        self.world().resource::<ExitLatch>().0
     }
 }
 

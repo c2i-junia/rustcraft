@@ -10,6 +10,7 @@ use tempfile::TempDir;
 
 use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::network::setup::hash_string_to_u64;
+use crate::ui::menus::multi::ServerItem;
 
 /// A temporary game folder, deleted when it is dropped.
 pub struct GameFolder {
@@ -65,11 +66,14 @@ impl GameFolder {
 
     /// Saves the server list, as `(name, ip)` pairs.
     pub fn with_servers(self, servers: &[(&str, &str)]) -> Self {
-        let list: Vec<String> = servers
+        let list: Vec<ServerItem> = servers
             .iter()
-            .map(|(name, ip)| format!("(name: {name:?}, ip: {ip:?})"))
+            .map(|(name, ip)| ServerItem {
+                name: name.to_string(),
+                ip: ip.to_string(),
+            })
             .collect();
-        let data = format!("[{}]", list.join(", "));
+        let data = ron::ser::to_string(&list).expect("a serialised server list");
         fs::write(self.path().join(SERVER_LIST_SAVE_NAME), data).expect("a servers.ron");
         self
     }
