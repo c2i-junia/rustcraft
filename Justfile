@@ -16,13 +16,13 @@ create-game-folders:
     mkdir -p appdata/server appdata/server/saves
 
 debug: create-game-folders
-    cargo build --features=bevy/dynamic_linking
+    cargo build
 
 release: create-game-folders
-    cargo build --release
+    cargo build --release --no-default-features
 
 generate-release-folder:
-    cargo build --release
+    cargo build --release --no-default-features
 
     # create folder
     mkdir -p release
@@ -43,7 +43,7 @@ generate-release-folder:
     cp target/release/server release/bin/rustcraft-server
 
 generate-release-folder-server:
-    cargo build --release --bin server
+    cargo build --release --no-default-features --bin server
 
     # create folder
     mkdir -p release

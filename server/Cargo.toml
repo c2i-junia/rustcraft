@@ -27,6 +27,11 @@ path = "src/lib.rs"
 name = "server"
 path = "src/main.rs"
 
+[features]
+default = ["dev"]
+# Links Bevy dynamically to speed up debug builds. Release builds disable it with `--no-default-features`.
+dev = ["bevy/dynamic_linking"]
+
 [lints]
 workspace = true
 

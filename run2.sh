@@ -5,7 +5,6 @@ just create-game-folders
 # RUST_BACKTRACE=1 \
 RUST_LOG=client=debug,server=debug,shared=debug,warn \
 cargo run \
---features=bevy/dynamic_linking \
 --package client \
 --bin client \
 -- \
