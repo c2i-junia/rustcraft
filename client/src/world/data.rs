@@ -12,6 +12,7 @@ pub enum GlobalMaterial {
     Sun,
     Moon,
     Blocks,
+    Liquids,
     Items,
 }
 
@@ -19,6 +20,8 @@ pub enum GlobalMaterial {
 #[derive(Clone, Debug)]
 pub struct ChunkRender {
     pub entity: Option<Entity>,
+    /// The entity of the liquid faces, apart because they are blended.
+    pub liquid_entity: Option<Entity>,
     /// When the mesh on display was requested, or when the chunk arrived if none is yet.
     pub last_mesh_ts: Instant,
 }
@@ -27,6 +30,7 @@ impl ChunkRender {
     pub fn new() -> Self {
         Self {
             entity: None,
+            liquid_entity: None,
             last_mesh_ts: Instant::now(),
         }
     }
