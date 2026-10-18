@@ -40,6 +40,10 @@ pub enum ItemId {
     Snow,
     Snowball,
     SpruceLog,
+    Stick,
+    CraftingTable,
+    SprucePlanks,
+    Furnace,
 }
 
 impl ItemId {
@@ -66,8 +70,11 @@ impl ItemId {
             Self::Cobblestone => ItemType::Block(BlockId::Cobblestone),
             Self::Snow => ItemType::Block(BlockId::Snow),
             Self::SpruceLog => ItemType::Block(BlockId::SpruceLog),
+            Self::CraftingTable => ItemType::Block(BlockId::CraftingTable),
+            Self::SprucePlanks => ItemType::Block(BlockId::SprucePlanks),
+            Self::Furnace => ItemType::Block(BlockId::Furnace),
 
-            Self::Snowball => ItemType::Generic,
+            Self::Snowball | Self::Stick => ItemType::Generic,
         }
     }
 }
@@ -113,6 +120,10 @@ mod tests {
             (ItemId::Snow, 15),
             (ItemId::Snowball, 16),
             (ItemId::SpruceLog, 17),
+            (ItemId::Stick, 18),
+            (ItemId::CraftingTable, 19),
+            (ItemId::SprucePlanks, 20),
+            (ItemId::Furnace, 21),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -134,7 +145,11 @@ mod tests {
                 | ItemId::Cobblestone
                 | ItemId::Snow
                 | ItemId::Snowball
-                | ItemId::SpruceLog => {}
+                | ItemId::SpruceLog
+                | ItemId::Stick
+                | ItemId::CraftingTable
+                | ItemId::SprucePlanks
+                | ItemId::Furnace => {}
             }
         }
         for (id, expected) in table {

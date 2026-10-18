@@ -41,10 +41,16 @@ impl SoundMaterial {
             | BlockId::Poppy
             | BlockId::Cactus => Self::Grass,
             BlockId::Dirt => Self::Dirt,
-            BlockId::Stone | BlockId::Cobblestone | BlockId::Bedrock | BlockId::Debug => {
-                Self::Stone
-            }
-            BlockId::OakLog | BlockId::OakPlanks | BlockId::SpruceLog => Self::Wood,
+            BlockId::Stone
+            | BlockId::Cobblestone
+            | BlockId::Bedrock
+            | BlockId::Debug
+            | BlockId::Furnace => Self::Stone,
+            BlockId::OakLog
+            | BlockId::OakPlanks
+            | BlockId::SpruceLog
+            | BlockId::SprucePlanks
+            | BlockId::CraftingTable => Self::Wood,
             BlockId::OakLeaves | BlockId::SpruceLeaves => Self::Leaves,
             BlockId::Sand => Self::Sand,
             BlockId::Snow => Self::Snow,
