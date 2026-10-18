@@ -2329,6 +2329,7 @@ dependencies = [
  "serde",
  "server",
  "shared",
+ "tempfile",
 ]
 
 [[package]]

@@ -1,6 +1,9 @@
+mod app;
 mod audio;
 mod camera;
 mod constants;
+#[cfg(test)]
+mod e2e;
 mod game;
 mod input;
 mod mob;
@@ -10,8 +13,7 @@ mod state;
 mod ui;
 mod world;
 
-use crate::world::ClientWorldMap;
-use audio::settings::load_audio_settings;
+use app::ClientSettings;
 use bevy::{
     app::PluginGroupBuilder,
     prelude::*,
@@ -27,10 +29,7 @@ use bevy_inspector_egui::{
 };
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
-use input::keyboard::get_bindings;
-use menus::solo::SelectedWorld;
 use shared::get_game_folder_paths;
-use state::{GameState, PlayerNameSupplied, TexturePath};
 use ui::{hud::debug::inspector::inspector_ui, menus};
 
 #[derive(Parser, Debug)]
@@ -74,22 +73,15 @@ fn main() {
     );
 
     add_debug_inspector(&mut app);
-    network::add_base_netcode(&mut app);
-    app.insert_resource(get_bindings(&game_folder_paths))
-        .insert_resource(load_audio_settings(&game_folder_paths))
-        .insert_resource(SelectedWorld::default())
-        .insert_resource(ClientWorldMap { ..default() })
-        .insert_resource(TexturePath {
-            path: texture_path.to_string(),
-        })
-        .insert_resource(game_folder_paths)
-        .insert_resource(PlayerNameSupplied {
-            name: args.player_name.unwrap_or_else(|| "Player".to_string()),
-        })
-        // The game starts in the default state, the menu
-        .init_state::<GameState>()
-        .add_plugins((menus::menu_plugin, game::game_plugin, audio::audio_plugin))
-        .run();
+    app::add_client(
+        &mut app,
+        ClientSettings {
+            game_folder_paths,
+            texture_path: texture_path.to_string(),
+            player_name: args.player_name.unwrap_or_else(|| "Player".to_string()),
+        },
+    );
+    app.run();
 }
 
 /// Bevy's default plugins, set up for a pixel-art game in a native window.
