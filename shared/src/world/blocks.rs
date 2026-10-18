@@ -44,6 +44,9 @@ pub enum BlockId {
     SpruceLeaves,
     SpruceLog,
     Water,
+    CraftingTable,
+    SprucePlanks,
+    Furnace,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -147,6 +150,9 @@ impl BlockId {
             Self::Snow => 9,
             Self::SpruceLeaves => 2,
             Self::SpruceLog => 10,
+            Self::CraftingTable => 10,
+            Self::SprucePlanks => 10,
+            Self::Furnace => 15,
             Self::Bedrock | Self::Water => return None,
         };
         Some(6 * steps)
@@ -188,6 +194,9 @@ impl BlockId {
             BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
+            BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
+            BlockId::SprucePlanks => vec![(1, ItemId::SprucePlanks, 1)],
+            BlockId::Furnace => vec![(1, ItemId::Furnace, 1)],
             _ => vec![],
         }
     }
@@ -224,8 +233,9 @@ fn pick_drop(table: &[(u32, ItemId, u32)], mut roll: u32) -> Option<(ItemId, u32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 20] = [
+    const ALL_BLOCKS: [BlockId; 23] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -246,6 +256,9 @@ mod tests {
         BlockId::SpruceLeaves,
         BlockId::SpruceLog,
         BlockId::Water,
+        BlockId::CraftingTable,
+        BlockId::SprucePlanks,
+        BlockId::Furnace,
     ];
 
     /// Blocks that cannot be broken by hand.
@@ -273,7 +286,10 @@ mod tests {
             | BlockId::Snow
             | BlockId::SpruceLeaves
             | BlockId::SpruceLog
-            | BlockId::Water => {}
+            | BlockId::Water
+            | BlockId::CraftingTable
+            | BlockId::SprucePlanks
+            | BlockId::Furnace => {}
         }
     }
 
@@ -341,9 +357,25 @@ mod tests {
                 BlockId::SpruceLeaves => 17,
                 BlockId::SpruceLog => 18,
                 BlockId::Water => 19,
+                BlockId::CraftingTable => 20,
+                BlockId::SprucePlanks => 21,
+                BlockId::Furnace => 22,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
+    }
+
+    #[test]
+    fn new_blocks_drop_their_own_item() {
+        for (block, item) in [
+            (BlockId::CraftingTable, ItemId::CraftingTable),
+            (BlockId::SprucePlanks, ItemId::SprucePlanks),
+            (BlockId::Furnace, ItemId::Furnace),
+        ] {
+            assert_eq!(block.get_drops(1), HashMap::from([(item, 1)]));
+            assert_eq!(item.get_default_type(), ItemType::Block(block));
+        }
+        assert_eq!(ItemId::Stick.get_default_type(), ItemType::Generic);
     }
 
     #[test]
