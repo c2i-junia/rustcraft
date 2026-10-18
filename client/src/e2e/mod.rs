@@ -3,6 +3,7 @@
 // The harness offers what the tests of the screens need, and not all of it is used yet.
 #![allow(dead_code)]
 
+mod capture;
 mod harness;
 mod input;
 mod locator;

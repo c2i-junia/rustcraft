@@ -24,7 +24,7 @@ use bevy::{
     prelude::*,
     render::{
         render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
-        settings::{RenderCreation, WgpuSettings},
+        settings::{InstanceFlags, RenderCreation, WgpuSettings},
         view::screenshot::{Screenshot, ScreenshotCaptured},
         RenderPlugin,
     },
@@ -73,6 +73,9 @@ impl UiGolden {
                     render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
                         // The software renderer, lavapipe
                         force_fallback_adapter: true,
+                        // The Vulkan validation layer deadlocks the process when it exits
+                        // while render threads still run
+                        instance_flags: InstanceFlags::empty(),
                         ..default()
                     })),
                     // Every pipeline is ready for the first frame
@@ -173,35 +176,7 @@ impl UiGolden {
     /// Lays the UI out, draws it, and checks it against the golden `name`.
     pub fn assert_matches(&mut self, name: &str) {
         let shot = self.screenshot();
-        let golden = golden_path(name, "");
-        let update = std::env::var_os("UPDATE_GOLDEN").is_some_and(|value| value == "1");
-        if update || !golden.exists() {
-            shot.save(&golden).unwrap();
-            assert!(
-                update,
-                "no golden for {name}: wrote {}, check it and commit it",
-                golden.display()
-            );
-            return;
-        }
-
-        let expected = image::open(&golden).unwrap().to_rgb8();
-        let (actual, diff) = (golden_path(name, ".actual"), golden_path(name, ".diff"));
-        let (diff_image, differing) = compare(&expected, &shot);
-        if differing <= MAX_DIFFERING_PIXELS {
-            // Those of an earlier failure
-            let _ = std::fs::remove_file(&actual);
-            let _ = std::fs::remove_file(&diff);
-            return;
-        }
-        shot.save(&actual).unwrap();
-        diff_image.save(&diff).unwrap();
-        panic!(
-            "{name}: {differing} pixels differ from {}, see {} and {}",
-            golden.display(),
-            actual.display(),
-            diff.display()
-        );
+        assert_image_matches(name, &shot);
     }
 
     /// The image drawn by the next frames.
@@ -224,6 +199,40 @@ impl UiGolden {
         }
         panic!("the screenshot was never captured");
     }
+}
+
+/// Checks `shot` against the golden `name`, and writes the golden when asked to or when it is
+/// missing.
+pub fn assert_image_matches(name: &str, shot: &RgbImage) {
+    let golden = golden_path(name, "");
+    let update = std::env::var_os("UPDATE_GOLDEN").is_some_and(|value| value == "1");
+    if update || !golden.exists() {
+        shot.save(&golden).unwrap();
+        assert!(
+            update,
+            "no golden for {name}: wrote {}, check it and commit it",
+            golden.display()
+        );
+        return;
+    }
+
+    let expected = image::open(&golden).unwrap().to_rgb8();
+    let (actual, diff) = (golden_path(name, ".actual"), golden_path(name, ".diff"));
+    let (diff_image, differing) = compare(&expected, shot);
+    if differing <= MAX_DIFFERING_PIXELS {
+        // Those of an earlier failure
+        let _ = std::fs::remove_file(&actual);
+        let _ = std::fs::remove_file(&diff);
+        return;
+    }
+    shot.save(&actual).unwrap();
+    diff_image.save(&diff).unwrap();
+    panic!(
+        "{name}: {differing} pixels differ from {}, see {} and {}",
+        golden.display(),
+        actual.display(),
+        diff.display()
+    );
 }
 
 fn golden_path(name: &str, suffix: &str) -> PathBuf {

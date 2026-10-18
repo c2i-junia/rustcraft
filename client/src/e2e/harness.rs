@@ -49,10 +49,10 @@ impl Default for Options {
 
 /// A running client, and the game folder it uses.
 pub struct Harness {
-    app: App,
+    pub(super) app: App,
     folder: GameFolder,
     /// The image the screenshots are taken from.
-    target: Handle<Image>,
+    pub(super) target: Handle<Image>,
     /// Dropped last, so that it also covers the shutdown of the app.
     _watchdog: Watchdog,
 }
