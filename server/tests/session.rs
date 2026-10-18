@@ -13,7 +13,7 @@ use shared::players::inventory::InventoryAction;
 use shared::players::{Inventory, Player};
 use shared::world::{
     global_block_to_chunk_pos, grid_slot, raycast, to_local_pos, BlockData, BlockDirection,
-    BlockId, Chunk, ChunkMap, ItemId, ItemStack,
+    BlockId, Chunk, ChunkMap, FaceDirectionExt, ItemId, ItemStack,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -1302,5 +1302,75 @@ fn a_log_is_crafted_into_planks() {
 
     let mut expected = Inventory::new();
     expected.inner.insert(1, stack(ItemId::OakPlanks, 4));
+    assert_eq!(inventory, expected);
+}
+
+#[test]
+fn a_furnace_is_crafted_at_a_table() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::CraftingTable, 1));
+    inventory.inner.insert(1, stack(ItemId::Cobblestone, 8));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    // Place the table on the ground, two blocks ahead
+    let (down, _) = land_and_aim_down(&mut client);
+    let position = down.translation;
+    let camera = Transform::from_translation(position)
+        .looking_at(position + Vec3::new(0., -1.6, 2.), Vec3::Y);
+    let ground = raycast::raycast(&client.world, &camera, &position, Default::default())
+        .expect("the player aims at the ground");
+    let table = ground.position + ground.face.to_ivec3();
+    let place = PlayerFrameInput {
+        time_ms: 100,
+        delta_ms: 16,
+        inputs: [NetworkAction::RightClick].into(),
+        camera,
+        hotbar_slot: 0,
+        ..Default::default()
+    };
+
+    let ring = [
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (1, 0),
+        (1, 2),
+        (2, 0),
+        (2, 1),
+        (2, 2),
+    ];
+    let mut actions = vec![
+        InventoryAction::OpenCraftingTable(table),
+        InventoryAction::LeftClickSlot(1),
+    ];
+    actions.extend(
+        ring.iter()
+            .map(|&(row, col)| InventoryAction::RightClickSlot(grid_slot(row, col))),
+    );
+    actions.extend([
+        InventoryAction::TakeCraftResult,
+        InventoryAction::LeftClickSlot(2),
+        InventoryAction::Close,
+    ]);
+    let craft = PlayerFrameInput {
+        time_ms: 101,
+        delta_ms: 16,
+        camera,
+        inventory_actions: actions,
+        ..Default::default()
+    };
+    client.send(ClientToServerMessage::PlayerInputs(vec![place, craft]));
+    let id = client.id;
+    let inventory = client.wait_for("PlayerUpdate acknowledging the craft", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == 101 => {
+            Some(u.inventory.clone())
+        }
+        _ => None,
+    });
+
+    let mut expected = Inventory::new();
+    expected.inner.insert(2, stack(ItemId::Furnace, 1));
     assert_eq!(inventory, expected);
 }

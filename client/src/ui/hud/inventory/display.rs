@@ -1,4 +1,4 @@
-use super::CELL_BORDER_COLOR;
+use super::{CELL_BORDER_COLOR, CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -6,8 +6,8 @@ use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{
-    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryRoot, StackCount,
-    StackIcon, UIMode,
+    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryRoot, InventoryTitle,
+    StackCount, StackIcon, UIMode,
 };
 use crate::world::MaterialResource;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
@@ -15,7 +15,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use shared::players::inventory::{InventoryAction, INVENTORY_GRID_SIZE};
 use shared::players::Inventory;
-use shared::world::{match_recipe, ItemStack};
+use shared::world::{match_recipe, ItemStack, CRAFTING_GRID_SIZE};
 
 /// Pixels of trackpad scrolling that select the next hotbar slot.
 const SCROLL_PIXELS_PER_SLOT: i32 = 20;
@@ -179,15 +179,26 @@ pub fn display_inventory_system(
 }
 
 /// Shows the cells of the crafting grid in use and, in the result cell, what the grid makes.
+/// The grid is 3x3 and the dialog named after the table while a crafting table is open.
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
     mut result: Query<(&Interaction, &mut BorderColor, &Children), With<CraftResultCell>>,
+    mut title: Query<&mut Text, (With<InventoryTitle>, Without<StackCount>)>,
     mut counts: Query<&mut Text, With<StackCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<StackIcon>, Without<InventoryRoot>)>,
 ) {
-    let size = INVENTORY_GRID_SIZE;
+    // The server checks that the table is still within reach; the dialog follows its updates
+    let (size, name) = match inventory.open_table {
+        Some(_) => (CRAFTING_GRID_SIZE, CRAFTING_TABLE_TITLE),
+        None => (INVENTORY_GRID_SIZE, INVENTORY_TITLE),
+    };
+    if let Ok(mut title) = title.single_mut() {
+        if title.0 != name {
+            title.0 = name.to_string();
+        }
+    }
     for (cell, mut node) in &mut grid_cells {
         let display = if cell.row < size && cell.col < size {
             Display::Flex
@@ -247,6 +258,7 @@ fn show_stack(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::hud::InventoryTitle;
     use bevy::ecs::system::RunSystemOnce;
     use shared::world::{grid_slot, ItemId};
 
@@ -473,6 +485,32 @@ mod tests {
         for cell in outside {
             assert_eq!(hud.world.get::<Node>(cell).unwrap().display, Display::None);
         }
+    }
+
+    #[test]
+    fn the_grid_shows_3x3_and_the_title_names_the_table_while_one_is_open() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let corner = hud.spawn_grid_cell(2, 2);
+        let title = hud
+            .world
+            .spawn((InventoryTitle, Text::new("Inventory")))
+            .id();
+
+        hud.world.resource_mut::<Inventory>().open_table = Some(IVec3::new(1, 2, 3));
+        hud.show_crafting();
+        assert_ne!(
+            hud.world.get::<Node>(corner).unwrap().display,
+            Display::None
+        );
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, "Crafting Table");
+
+        hud.world.resource_mut::<Inventory>().open_table = None;
+        hud.show_crafting();
+        assert_eq!(
+            hud.world.get::<Node>(corner).unwrap().display,
+            Display::None
+        );
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, "Inventory");
     }
 
     #[test]

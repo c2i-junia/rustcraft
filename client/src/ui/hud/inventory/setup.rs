@@ -2,12 +2,15 @@ use crate::constants::{HOTBAR_BORDER, HOTBAR_CELL_SIZE, HOTBAR_PADDING, MAX_HOTB
 use crate::state::GameState;
 use crate::ui::hud::{
     CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryDialog,
-    InventoryRoot, StackCount, StackIcon, UiDialog,
+    InventoryRoot, InventoryTitle, StackCount, StackIcon, UiDialog,
 };
 use crate::world::{AtlasWrapper, MaterialResource};
 use bevy::{prelude::*, ui::FocusPolicy};
 use shared::world::{grid_slot, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
+
+pub const INVENTORY_TITLE: &str = "Inventory";
+pub const CRAFTING_TABLE_TITLE: &str = "Crafting Table";
 
 /// Border of a cell that is neither selected nor hovered.
 pub const CELL_BORDER_COLOR: Color = Color::srgb(0.3, 0.3, 0.3);
@@ -123,7 +126,8 @@ pub fn setup_inventory(mut commands: Commands, materials_resource: Res<MaterialR
 
     let inventory_title = commands
         .spawn((
-            Text::new("Inventory"),
+            InventoryTitle,
+            Text::new(INVENTORY_TITLE),
             TextFont {
                 font_size: 24.0.into(),
                 ..default()

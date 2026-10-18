@@ -22,6 +22,10 @@ pub struct InventoryCell {
     pub id: u32,
 }
 
+/// The title of the inventory dialog, which names the crafting table while one is open.
+#[derive(Component)]
+pub struct InventoryTitle;
+
 /// A cell of the crafting grid, shown when the grid in use reaches it.
 #[derive(Component)]
 pub struct CraftingGridCell {
