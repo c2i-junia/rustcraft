@@ -21,3 +21,8 @@ pub const HALF_BLOCK: Vec3 = Vec3 {
 /// a two second stall of a 240 fps client, and bounds the work one client can ask per tick to
 /// what a 10000 fps client would.
 pub const MAX_INPUTS_PER_TICK: usize = 512;
+
+/// Most inventory actions one input may carry; the excess is ignored. A person clicks a few
+/// times per frame at most, and an action costs a few slot lookups: this bounds what a client
+/// can ask per input, like `MAX_INPUTS_PER_TICK` bounds the inputs.
+pub const MAX_INVENTORY_ACTIONS_PER_INPUT: usize = 32;
