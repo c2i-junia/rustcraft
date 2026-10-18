@@ -1,4 +1,4 @@
-//! Golden screenshots of the hotbar and of the inventory dialog. See `crate::ui::golden`.
+//! Golden screenshots of the hotbar and of the inventory panel. See `crate::ui::golden`.
 //! They need lavapipe, which is only installed on Linux.
 
 use bevy::prelude::*;
@@ -7,10 +7,11 @@ use shared::world::{grid_slot, ItemId, ItemStack};
 
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::ui::golden::UiGolden;
-use crate::ui::hud::hotbar::setup_hotbar;
 use crate::ui::hud::{
-    display_crafting_system, display_inventory_system, setup_inventory, InventoryRoot,
+    display_crafting_system, display_inventory_system, setup_inventory, style_inventory_panel,
+    InventoryRoot,
 };
+use crate::ui::widgets::slot::style_slots;
 
 fn stack(item_id: ItemId, nb: u32) -> ItemStack {
     ItemStack {
@@ -20,11 +21,10 @@ fn stack(item_id: ItemId, nb: u32) -> ItemStack {
     }
 }
 
-/// Renders the hotbar and, if `open`, the inventory dialog, as they show `inventory`.
+/// Renders the hotbar and, if `open`, the inventory panel, as they show `inventory`.
 fn assert_inventory_matches(name: &str, inventory: Inventory, open: bool) {
     let mut golden = UiGolden::new();
     golden.world_mut().insert_resource(inventory);
-    golden.run_system(setup_hotbar);
     golden.run_system(setup_inventory);
     if open {
         let mut root = golden
@@ -34,6 +34,8 @@ fn assert_inventory_matches(name: &str, inventory: Inventory, open: bool) {
     }
     golden.run_system(display_inventory_system);
     golden.run_system(display_crafting_system);
+    golden.run_system(style_inventory_panel);
+    golden.run_system(style_slots);
     golden.assert_matches(name);
 }
 

@@ -28,6 +28,7 @@ use bevy::{
         view::screenshot::{Screenshot, ScreenshotCaptured},
         RenderPlugin,
     },
+    text::FontSource,
     window::ExitCondition,
     winit::WinitPlugin,
 };
@@ -173,10 +174,30 @@ impl UiGolden {
         self.apps.update();
     }
 
-    /// Lays the UI out, draws it, and checks it against the golden `name`.
+    /// Lays the UI out, draws it once its fonts are loaded, and checks it against the golden
+    /// `name`.
     pub fn assert_matches(&mut self, name: &str) {
+        self.wait_for_fonts();
         let shot = self.screenshot();
         assert_image_matches(name, &shot);
+    }
+
+    /// Runs frames until the font of every `TextFont` is loaded: a text is not drawn before.
+    pub fn wait_for_fonts(&mut self) {
+        for _ in 0..MAX_FRAMES {
+            let world = self.world_mut();
+            let mut texts = world.query::<&TextFont>();
+            let fonts = world.resource::<Assets<Font>>();
+            let loaded = texts.iter(world).all(|text| match &text.font {
+                FontSource::Handle(handle) => fonts.contains(handle),
+                _ => true,
+            });
+            if loaded {
+                return;
+            }
+            self.update();
+        }
+        panic!("the fonts did not load");
     }
 
     /// The image drawn by the next frames.

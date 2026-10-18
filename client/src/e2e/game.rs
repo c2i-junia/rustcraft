@@ -18,15 +18,21 @@ use crate::ui::button::MenuState;
 use crate::ui::hud::chat::{ChatDisplay, ChatInput, ChatRoot};
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::ui::hud::{
-    CraftResultCell, FloatingStack, InventoryCell, InventoryRoot, StackCount, StackIcon, UIMode,
-};
+use crate::ui::hud::{CraftResultCell, FloatingStack, InventoryCell, InventoryRoot, UIMode};
+use crate::ui::widgets::slot::SlotIcon;
 use crate::world::MaterialResource;
 
 /// A client in the game, in the world `world` of `folder`, with its hotbar on screen.
 #[track_caller]
 pub fn enter_world(folder: GameFolder, world: &str) -> Harness {
-    let mut h = Harness::start(folder, Options::default());
+    enter_world_with(folder, world, Options::default())
+}
+
+/// A client started with `options` in the game, in the world `world` of `folder`, with its
+/// hotbar on screen.
+#[track_caller]
+pub fn enter_world_with(folder: GameFolder, world: &str, options: Options) -> Harness {
+    let mut h = Harness::start(folder, options);
     h.click_when_ready(&L::text("Singleplayer"));
     h.wait_for_icons(world);
     h.click(&L::name(&format!("Play {world}")));
@@ -39,13 +45,13 @@ pub fn enter_world(folder: GameFolder, world: &str) -> Harness {
 type Shown = Option<(ItemId, u32)>;
 
 /// What the inventory of the client holds in slot `id`.
-fn slot(w: &World, id: u32) -> Shown {
+pub(super) fn slot(w: &World, id: u32) -> Shown {
     let stack = w.resource::<Inventory>().inner.get(&id).copied();
     stack.map(|stack| (stack.item_id, stack.nb))
 }
 
 /// What the cursor holds.
-fn floating(w: &World) -> Shown {
+pub(super) fn floating(w: &World) -> Shown {
     let stack = w.resource::<Inventory>().floating;
     stack.map(|stack| (stack.item_id, stack.nb))
 }
@@ -84,7 +90,7 @@ impl Harness {
     /// The index in the items atlas of the icon shown by the result cell.
     #[track_caller]
     fn result_icon(&mut self) -> Option<usize> {
-        let icon = self.get(&L::marker::<StackIcon>().within(L::marker::<CraftResultCell>()));
+        let icon = self.get(&L::marker::<SlotIcon>().within(L::marker::<CraftResultCell>()));
         self.world()
             .get::<ImageNode>(icon)?
             .texture_atlas
@@ -177,7 +183,7 @@ fn the_inventory_opens_closes_and_moves_stacks() {
     // A stack of the inventory goes to another slot
     h.click(&L::cell(10));
     h.wait_for(
-        &L::marker::<StackIcon>().within(L::marker::<FloatingStack>()),
+        &L::marker::<SlotIcon>().within(L::marker::<FloatingStack>()),
         SCREEN,
     );
     h.click(&L::cell(20));
@@ -195,9 +201,8 @@ fn the_inventory_opens_closes_and_moves_stacks() {
         slot(w, 30) == Some((ItemId::Stick, 3)) && slot(w, 0).is_none()
     });
 
-    // Four planks make a crafting table
-    let count = L::marker::<StackCount>().within(L::marker::<CraftResultCell>());
-    assert_eq!(h.text_of(&count), "1");
+    // Four planks make a crafting table, a single one: no count is shown
+    assert_eq!(h.text_of(&L::marker::<CraftResultCell>()), "");
     assert_eq!(h.result_icon(), h.icon_index(ItemId::CraftingTable));
     h.click(&L::marker::<CraftResultCell>());
     h.wait_until("the crafting table held", SERVER, |w| {
@@ -219,58 +224,6 @@ fn the_inventory_opens_closes_and_moves_stacks() {
                 .values()
                 .any(|stack| stack.item_id == ItemId::CraftingTable)
     });
-}
-
-/// Picks up a stack in the open inventory of a window of `width` x `height`, and returns where
-/// the centre of the held stack is from the cursor, in physical pixels.
-fn held_stack_offset(width: u32, height: u32) -> Vec2 {
-    let folder =
-        GameFolder::new()
-            .with_world("Bag")
-            .with_items("Bag", "Tester", &[(10, ItemId::Dirt, 5)]);
-    let mut h = Harness::start(
-        folder,
-        Options {
-            width,
-            height,
-            ..default()
-        },
-    );
-    h.click_when_ready(&L::text("Singleplayer"));
-    h.wait_for_icons("Bag");
-    h.click(&L::name("Play Bag"));
-    h.wait_for_game_state(GameState::Game, SERVER);
-    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
-    h.wait_until("the saved inventory", SERVER, |w| {
-        slot(w, 10) == Some((ItemId::Dirt, 5))
-    });
-    h.press(KeyCode::KeyE);
-    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
-    h.click(&L::cell(10));
-    let stack = L::marker::<FloatingStack>();
-    h.wait_for(&stack, SCREEN);
-    h.frames(3);
-    let cursor = h
-        .world_mut()
-        .query::<&Window>()
-        .single(h.world())
-        .unwrap()
-        .physical_cursor_position()
-        .unwrap();
-    h.center_of(&stack) - cursor
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_held_stack_follows_the_cursor_at_any_ui_scale() {
-    // The stack is drawn at the same place relative to the cursor, scaled with the UI
-    let at_720 = held_stack_offset(1280, 720);
-    let at_1080 = held_stack_offset(1920, 1080);
-    let expected = at_720 * 1.5;
-    assert!(
-        (at_1080 - expected).abs().max_element() < 3.0,
-        "offset {at_1080} at 1080p, expected about {expected} (offset {at_720} at 720p)"
-    );
 }
 
 #[test]

@@ -11,12 +11,6 @@ pub const DAY_DURATION_IN_TICKS: u64 = 20 * 60; // 20 ticks per second * 60 seco
 
 pub const MAX_HOTBAR_SLOTS: u32 = shared::HOTBAR_SLOTS;
 
-pub const HOTBAR_CELL_SIZE: f32 = 50.;
-/// Leaves 32 px to the icon, twice its 16 px texture: no pixel of the icon falls on the edge
-/// between two texels, which renderers would round differently.
-pub const HOTBAR_PADDING: f32 = 4.;
-pub const HOTBAR_BORDER: f32 = 5.;
-
 pub const SAVE_PATH: &str = "saves/";
 pub const SERVER_LIST_SAVE_NAME: &str = "servers.ron";
 pub const BINDS_PATH: &str = "keybindings.ron";

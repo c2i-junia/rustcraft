@@ -35,7 +35,12 @@ impl Harness {
     #[track_caller]
     pub fn hover(&mut self, locator: &Locator) {
         let center = self.center_of(locator);
-        self.move_cursor(center);
+        self.hover_at(center);
+    }
+
+    /// Moves the cursor to a point of the window, in physical pixels, for a frame, without a click.
+    pub fn hover_at(&mut self, position: Vec2) {
+        self.move_cursor(position);
         self.frames(1);
     }
 

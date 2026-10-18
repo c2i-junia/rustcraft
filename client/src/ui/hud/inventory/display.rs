@@ -1,4 +1,4 @@
-use super::{CELL_BORDER_COLOR, CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
+use super::{CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -6,11 +6,14 @@ use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{
-    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryRoot, InventoryTitle,
-    StackCount, StackIcon, UIMode,
+    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryDialog,
+    InventoryRoot, InventoryTitle, UIMode,
 };
+use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
+use crate::ui::widgets::slot::{count_label, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
 use crate::world::MaterialResource;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use shared::players::inventory::{craft_result, InventoryAction, INVENTORY_GRID_SIZE};
@@ -75,8 +78,8 @@ pub fn select_hotbar_slot_system(
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
-    cells: Query<(&Interaction, &InventoryCell)>,
-    result: Query<&Interaction, With<CraftResultCell>>,
+    cells: Query<(&Hovered, &InventoryCell)>,
+    result: Query<&Hovered, With<CraftResultCell>>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
 ) {
     let left = mouse_input.just_pressed(MouseButton::Left);
@@ -88,8 +91,8 @@ pub fn click_inventory_cells_system(
         return;
     }
 
-    for (interaction, cell) in &cells {
-        if *interaction == Interaction::None {
+    for (hovered, cell) in &cells {
+        if !hovered.0 {
             continue;
         }
         frame_inputs.0.inventory_actions.push(if left {
@@ -98,10 +101,7 @@ pub fn click_inventory_cells_system(
             InventoryAction::RightClickSlot(cell.id)
         });
     }
-    if result
-        .iter()
-        .any(|interaction| *interaction != Interaction::None)
-    {
+    if result.iter().any(|hovered| hovered.0) {
         frame_inputs
             .0
             .inventory_actions
@@ -126,8 +126,8 @@ pub fn close_inventory_system(
     *was_open = is_open;
 }
 
-/// Shows every slot in its cell, the floating stack under the cursor, and outlines the cell
-/// that is selected (in the hotbar) or hovered (in the open inventory).
+/// Shows every slot in its cell and the floating stack centred on the cursor, and selects the
+/// cell of the selected hotbar slot, whether the inventory is open or not.
 pub fn display_inventory_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
@@ -136,9 +136,9 @@ pub fn display_inventory_system(
     window: Query<&Window, With<PrimaryWindow>>,
     ui_scale: Res<UiScale>,
     mut floating_stack: Query<(&mut Node, &Children), With<FloatingStack>>,
-    mut cells: Query<(&Interaction, &mut BorderColor, &InventoryCell, &Children)>,
-    mut counts: Query<&mut Text, With<StackCount>>,
-    mut icons: Query<(&mut ImageNode, &mut Visibility), (With<StackIcon>, Without<InventoryRoot>)>,
+    mut cells: Query<(&mut SlotSelected, &InventoryCell, &Children)>,
+    mut counts: Query<&mut Text, With<SlotCount>>,
+    mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
 ) {
     let is_open = inventory_root
         .single()
@@ -148,8 +148,9 @@ pub fn display_inventory_system(
     if let Ok((mut node, children)) = floating_stack.single_mut() {
         if let Some(cursor) = window.single().ok().and_then(Window::cursor_position) {
             // `Val::Px` is multiplied by the UI scale: the window position is divided by it
-            node.top = Val::Px(cursor.y / ui_scale.0);
-            node.left = Val::Px(cursor.x / ui_scale.0);
+            let top_left = cursor / ui_scale.0 - SLOT_SIZE / 2.;
+            node.left = Val::Px(top_left.x);
+            node.top = Val::Px(top_left.y);
         }
         show_stack(
             inventory.floating,
@@ -160,23 +161,42 @@ pub fn display_inventory_system(
         );
     }
 
-    for (interaction, mut border_color, cell, children) in &mut cells {
-        let in_hotbar = cell.id < MAX_HOTBAR_SLOTS;
+    for (mut is_selected, cell, children) in &mut cells {
+        is_selected.set_if_neq(SlotSelected(selected == Some(cell.id)));
         // The cells of a closed inventory are not shown: no need to update them
-        if !in_hotbar && !is_open {
+        if cell.id >= MAX_HOTBAR_SLOTS && !is_open {
             continue;
         }
         let stack = inventory.inner.get(&cell.id).copied();
         show_stack(stack, children, &mut counts, &mut icons, &materials);
+    }
+}
 
-        let is_selected = !is_open && selected == Some(cell.id);
-        let is_hovered = is_open && *interaction != Interaction::None;
-        let border = if is_selected || is_hovered {
-            Color::WHITE
-        } else {
-            CELL_BORDER_COLOR
-        };
-        border_color.set_if_neq(BorderColor::all(border));
+/// Draws the panel, a raised bevel on its background, while the inventory is open: closed, only
+/// the hotbar shows.
+pub fn style_inventory_panel(
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    mut panel: Query<(&mut BackgroundColor, &mut BorderColor), With<InventoryDialog>>,
+) {
+    let is_open = inventory_root
+        .single()
+        .is_ok_and(|visibility| *visibility == Visibility::Visible);
+    let (background, border) = if is_open {
+        (
+            PANEL,
+            BorderColor {
+                top: BEVEL_HI,
+                left: BEVEL_HI,
+                bottom: BEVEL_LO,
+                right: BEVEL_LO,
+            },
+        )
+    } else {
+        (Color::NONE, BorderColor::all(Color::NONE))
+    };
+    for (mut panel_background, mut panel_border) in &mut panel {
+        panel_background.set_if_neq(BackgroundColor(background));
+        panel_border.set_if_neq(border);
     }
 }
 
@@ -186,10 +206,10 @@ pub fn display_crafting_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
-    mut result: Query<(&Interaction, &mut BorderColor, &Children), With<CraftResultCell>>,
-    mut title: Query<&mut Text, (With<InventoryTitle>, Without<StackCount>)>,
-    mut counts: Query<&mut Text, With<StackCount>>,
-    mut icons: Query<(&mut ImageNode, &mut Visibility), (With<StackIcon>, Without<InventoryRoot>)>,
+    result: Query<&Children, With<CraftResultCell>>,
+    mut title: Query<&mut Text, (With<InventoryTitle>, Without<SlotCount>)>,
+    mut counts: Query<&mut Text, With<SlotCount>>,
+    mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
 ) {
     // The server checks that the table is still within reach; the dialog follows its updates
     let (size, name) = match inventory.open_table {
@@ -215,14 +235,8 @@ pub fn display_crafting_system(
     }
 
     let made = craft_result(&inventory, size);
-    for (interaction, mut border_color, children) in &mut result {
+    for children in &result {
         show_stack(made, children, &mut counts, &mut icons, &materials);
-        let border = if *interaction != Interaction::None {
-            Color::WHITE
-        } else {
-            CELL_BORDER_COLOR
-        };
-        border_color.set_if_neq(BorderColor::all(border));
     }
 }
 
@@ -230,11 +244,11 @@ pub fn display_crafting_system(
 fn show_stack(
     stack: Option<ItemStack>,
     children: &Children,
-    counts: &mut Query<&mut Text, With<StackCount>>,
-    icons: &mut Query<(&mut ImageNode, &mut Visibility), (With<StackIcon>, Without<InventoryRoot>)>,
+    counts: &mut Query<&mut Text, With<SlotCount>>,
+    icons: &mut Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
     materials: &MaterialResource,
 ) {
-    let count = stack.map(|stack| stack.nb.to_string()).unwrap_or_default();
+    let count = stack.map(|stack| count_label(stack.nb)).unwrap_or_default();
     let sprite = stack.and_then(|stack| {
         let atlas = materials.items.as_ref()?;
         atlas.sprite(&format!("{:?}", stack.item_id))
@@ -262,7 +276,8 @@ fn show_stack(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::hud::InventoryTitle;
+    use crate::ui::hud::{InventoryDialog, InventoryTitle};
+    use crate::ui::theme::PANEL;
     use bevy::ecs::system::RunSystemOnce;
     use shared::world::{grid_slot, ItemId};
 
@@ -274,8 +289,8 @@ mod tests {
         }
     }
 
-    /// A world holding an inventory dialog, a hotbar and one cell per given slot, without
-    /// textures: only the counts and the borders are shown.
+    /// A world holding an inventory panel, a hotbar and one cell per given slot, without
+    /// textures: only the counts and the selection are shown.
     struct Hud {
         world: World,
     }
@@ -286,33 +301,35 @@ mod tests {
             world.insert_resource(Inventory::new());
             world.insert_resource(MaterialResource::default());
             world.insert_resource(ButtonInput::<MouseButton>::default());
+            world.insert_resource(ButtonInput::<KeyCode>::default());
             world.init_resource::<CurrentFrameInputs>();
             world.init_resource::<UiScale>();
+            world.spawn((
+                InventoryDialog,
+                BackgroundColor(Color::NONE),
+                BorderColor::all(Color::NONE),
+            ));
             world.spawn((InventoryRoot, inventory_visibility));
             world.spawn(Hotbar { selected: 0 });
             world
                 .spawn((FloatingStack, Node::default()))
-                .with_child((StackCount, Text::new("")));
+                .with_child((SlotCount, Text::new("")));
             for &slot in slots {
                 world
                     .spawn((
                         InventoryCell { id: slot },
-                        Interaction::None,
-                        BorderColor::all(CELL_BORDER_COLOR),
+                        Hovered(false),
+                        SlotSelected::default(),
                     ))
-                    .with_child((StackCount, Text::new("")));
+                    .with_child((SlotCount, Text::new("")));
             }
             Self { world }
         }
 
         fn spawn_result_cell(&mut self) -> Entity {
             self.world
-                .spawn((
-                    CraftResultCell,
-                    Interaction::None,
-                    BorderColor::all(CELL_BORDER_COLOR),
-                ))
-                .with_child((StackCount, Text::new("")))
+                .spawn((CraftResultCell, Hovered(false), SlotSelected::default()))
+                .with_child((SlotCount, Text::new("")))
                 .id()
         }
 
@@ -323,11 +340,11 @@ mod tests {
                         id: grid_slot(row, col),
                     },
                     CraftingGridCell { row, col },
-                    Interaction::None,
-                    BorderColor::all(CELL_BORDER_COLOR),
+                    Hovered(false),
+                    SlotSelected::default(),
                     Node::default(),
                 ))
-                .with_child((StackCount, Text::new("")))
+                .with_child((SlotCount, Text::new("")))
                 .id()
         }
 
@@ -344,8 +361,8 @@ mod tests {
             cell
         }
 
-        /// The count and the border shown by the cell of `slot`.
-        fn shown(&mut self, slot: u32) -> (String, BorderColor) {
+        /// The count shown by the cell of `slot`, and whether it is selected.
+        fn shown(&mut self, slot: u32) -> (String, SlotSelected) {
             self.world
                 .run_system_once(display_inventory_system)
                 .unwrap();
@@ -353,13 +370,13 @@ mod tests {
             let count = self.world.get::<Children>(cell).unwrap()[0];
             (
                 self.world.get::<Text>(count).unwrap().0.clone(),
-                *self.world.get::<BorderColor>(cell).unwrap(),
+                *self.world.get::<SlotSelected>(cell).unwrap(),
             )
         }
 
         fn click(&mut self, slot: u32, button: MouseButton) {
             let cell = self.cell(slot);
-            self.world.entity_mut(cell).insert(Interaction::Pressed);
+            self.world.entity_mut(cell).insert(Hovered(true));
             self.world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .press(button);
@@ -369,7 +386,7 @@ mod tests {
             self.world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .clear();
-            self.world.entity_mut(cell).insert(Interaction::None);
+            self.world.entity_mut(cell).insert(Hovered(false));
         }
 
         /// The count shown by the floating stack.
@@ -404,15 +421,37 @@ mod tests {
         assert_eq!(hud.shown(9).0, "5");
         assert_eq!(hud.shown(0).0, "");
 
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(9, dirt_stack(1));
+        assert_eq!(hud.shown(9).0, "");
+
         hud.world.resource_mut::<Inventory>().inner.remove(&9);
         assert_eq!(hud.shown(9).0, "");
     }
 
     #[test]
-    fn the_selected_hotbar_cell_is_outlined_while_the_inventory_is_closed() {
-        let mut hud = Hud::new(Visibility::Hidden, &[0, 1]);
-        assert_eq!(hud.shown(0).1, BorderColor::all(Color::WHITE));
-        assert_eq!(hud.shown(1).1, BorderColor::all(CELL_BORDER_COLOR));
+    fn the_selected_hotbar_cell_stays_selected_when_the_inventory_opens() {
+        for visibility in [Visibility::Hidden, Visibility::Visible] {
+            let mut hud = Hud::new(visibility, &[0, 1]);
+            assert_eq!(hud.shown(0).1, SlotSelected(true), "{visibility:?}");
+            assert_eq!(hud.shown(1).1, SlotSelected(false), "{visibility:?}");
+        }
+    }
+
+    #[test]
+    fn the_panel_has_its_background_only_while_open() {
+        let background = |visibility: Visibility| {
+            let mut hud = Hud::new(visibility, &[]);
+            hud.world.run_system_once(style_inventory_panel).unwrap();
+            let mut panel = hud
+                .world
+                .query_filtered::<&BackgroundColor, With<InventoryDialog>>();
+            *panel.single(&hud.world).unwrap()
+        };
+        assert_eq!(background(Visibility::Hidden), BackgroundColor(Color::NONE));
+        assert_eq!(background(Visibility::Visible), BackgroundColor(PANEL));
     }
 
     #[test]
@@ -463,7 +502,7 @@ mod tests {
     fn clicking_the_result_cell_sends_take_craft_result() {
         let mut hud = Hud::new(Visibility::Visible, &[]);
         let result = hud.spawn_result_cell();
-        hud.world.entity_mut(result).insert(Interaction::Pressed);
+        hud.world.entity_mut(result).insert(Hovered(true));
         hud.world
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
@@ -608,7 +647,6 @@ mod tests {
     /// The hotbar and the inventory as the game builds them, with an atlas of two items.
     #[test]
     fn the_cells_built_by_the_setup_systems_show_the_count_and_the_icon_of_their_slot() {
-        use crate::ui::hud::hotbar::setup_hotbar;
         use crate::ui::hud::setup_inventory;
         use crate::world::AtlasWrapper;
         use bevy::image::TextureAtlasSources;
@@ -626,7 +664,11 @@ mod tests {
             uvs: Default::default(),
         };
 
-        let mut world = World::new();
+        // The setup loads the font of the slots
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Font>();
+        let world = app.world_mut();
         world.insert_resource(MaterialResource {
             items: Some(atlas),
             ..default()
@@ -643,12 +685,11 @@ mod tests {
         );
         world.insert_resource(inventory);
         world.init_resource::<UiScale>();
-        world.run_system_once(setup_hotbar).unwrap();
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();
         // The slots of the inventory, then the 3x3 crafting grid
-        assert_eq!(cells.iter(&world).count() as u32, MAX_INVENTORY_SLOTS + 9);
+        assert_eq!(cells.iter(world).count() as u32, MAX_INVENTORY_SLOTS + 9);
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon
         let shown = |world: &mut World, slot: u32| -> (String, Option<usize>) {
@@ -658,8 +699,8 @@ mod tests {
             let mut count = String::new();
             let mut icon = None;
             for child in children.iter() {
-                if let Some(text) = world.get::<Text>(child) {
-                    count = text.0.clone();
+                if world.get::<SlotCount>(child).is_some() {
+                    count = world.get::<Text>(child).unwrap().0.clone();
                 }
                 if let Some(image) = world.get::<ImageNode>(child) {
                     if *world.get::<Visibility>(child).unwrap() != Visibility::Hidden {
@@ -670,16 +711,13 @@ mod tests {
             (count, icon)
         };
 
-        assert_eq!(shown(&mut world, 0), ("5".to_string(), Some(0)));
-        assert_eq!(shown(&mut world, 1), (String::new(), None));
+        assert_eq!(shown(world, 0), ("5".to_string(), Some(0)));
+        assert_eq!(shown(world, 1), (String::new(), None));
         // The cells of the closed inventory are not updated
-        assert_eq!(shown(&mut world, MAX_HOTBAR_SLOTS), (String::new(), None));
+        assert_eq!(shown(world, MAX_HOTBAR_SLOTS), (String::new(), None));
 
         let mut root = world.query_filtered::<&mut Visibility, With<InventoryRoot>>();
-        *root.single_mut(&mut world).unwrap() = Visibility::Visible;
-        assert_eq!(
-            shown(&mut world, MAX_HOTBAR_SLOTS),
-            ("2".to_string(), Some(1))
-        );
+        *root.single_mut(world).unwrap() = Visibility::Visible;
+        assert_eq!(shown(world, MAX_HOTBAR_SLOTS), ("2".to_string(), Some(1)));
     }
 }

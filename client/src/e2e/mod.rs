@@ -5,6 +5,7 @@ mod game;
 mod harness;
 mod helpers;
 mod input;
+mod inventory;
 mod locator;
 mod main_menu;
 mod multi;

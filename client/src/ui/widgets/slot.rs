@@ -9,14 +9,10 @@ use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, RAISE_HOVER, SLOT, TEXT,
 };
 
-// The sizes and the builders below are first used by the inventory panel (Lot 5, Task 3).
-
 /// The side of a slot, in logical px.
-#[allow(dead_code)]
 pub const SLOT_SIZE: f32 = 50.0;
 
 /// Twice the 16 px item textures: a whole multiple of them at every UiScale step.
-#[allow(dead_code)]
 pub const ICON_SIZE: f32 = 32.0;
 
 /// An inventory slot built by `slot`, which keeps its look in step with the cursor and selection.
@@ -37,7 +33,6 @@ pub struct SlotIcon;
 pub struct SlotCount;
 
 /// The node of a slot. Callers override the grid placement with `..slot_node()`.
-#[allow(dead_code)]
 pub fn slot_node() -> Node {
     Node {
         width: px(SLOT_SIZE),
@@ -50,7 +45,6 @@ pub fn slot_node() -> Node {
 }
 
 /// The icon of a slot, hidden until an item shows in it.
-#[allow(dead_code)]
 pub fn slot_icon(icon: ImageNode) -> impl Bundle {
     (
         SlotIcon,
@@ -66,7 +60,6 @@ pub fn slot_icon(icon: ImageNode) -> impl Bundle {
 }
 
 /// The count of a slot, in its bottom-right corner. It is empty until set.
-#[allow(dead_code)]
 pub fn slot_count(font: Handle<Font>) -> impl Bundle {
     (
         SlotCount,
@@ -92,7 +85,6 @@ pub fn slot_count(font: Handle<Font>) -> impl Bundle {
 }
 
 /// The text of a count: nothing for a single item.
-#[allow(dead_code)]
 pub fn count_label(nb: u32) -> String {
     if nb < 2 {
         String::new()
@@ -102,7 +94,6 @@ pub fn count_label(nb: u32) -> String {
 }
 
 /// A slot named `label`, with its number in the top-left corner when it has one.
-#[allow(dead_code)]
 pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font>) -> impl Bundle {
     let (background, border) = slot_colors(false, false);
     let number = number.map(|number| {

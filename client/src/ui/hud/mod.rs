@@ -7,7 +7,6 @@ use crate::state::{GameSet, GameState};
 use crate::ui::hud::chat::*;
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
-use crate::ui::hud::hotbar::*;
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::{render_pause_menu, setup_pause_menu};
 
@@ -43,10 +42,7 @@ pub fn hud_plugin(app: &mut App) {
             OnEnter(GameState::Game),
             (spawn_reticle, setup_hud, setup_chat, setup_pause_menu).chain(),
         )
-        .add_systems(
-            OnEnter(GameState::Game),
-            (setup_hotbar, setup_inventory).chain(),
-        )
+        .add_systems(OnEnter(GameState::Game), setup_inventory)
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(
             Update,
@@ -72,6 +68,7 @@ pub fn hud_plugin(app: &mut App) {
                     click_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
+                    style_inventory_panel,
                 )
                     .chain()
                     .before(GameSet::Simulation),

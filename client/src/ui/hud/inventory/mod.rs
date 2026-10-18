@@ -1,4 +1,4 @@
-//! The inventory dialog and the cells it shares with the hotbar.
+//! The inventory panel, whose bottom row is the hotbar.
 
 use bevy::prelude::Component;
 
@@ -10,21 +10,25 @@ mod setup;
 pub use display::*;
 pub use setup::*;
 
-// Marker for Inventory root
+/// The bottom of the screen, where the panel sits, centred.
+#[derive(Component)]
+pub struct HudBottom;
+
+/// The upper part of the panel, above the hotbar: shown while the inventory is open.
 #[derive(Component)]
 pub struct InventoryRoot;
 
-/// Main inventory dialog
+/// The panel holding the inventory and the hotbar. It is drawn only while the inventory is open.
 #[derive(Component)]
 pub struct InventoryDialog;
 
-/// A slot of the player's inventory, in the hotbar or in the inventory dialog.
+/// A slot of the player's inventory, in the hotbar or in the inventory panel.
 #[derive(Component)]
 pub struct InventoryCell {
     pub id: u32,
 }
 
-/// The title of the inventory dialog, which names the crafting table while one is open.
+/// The title of the inventory panel, which names the crafting table while one is open.
 #[derive(Component)]
 pub struct InventoryTitle;
 
@@ -42,11 +46,3 @@ pub struct CraftResultCell;
 /// Shows the stack held by the cursor, `Inventory::floating`.
 #[derive(Component)]
 pub struct FloatingStack;
-
-/// The text showing how many items a cell or the floating stack holds.
-#[derive(Component)]
-pub struct StackCount;
-
-/// The image of the item a cell or the floating stack holds.
-#[derive(Component)]
-pub struct StackIcon;
