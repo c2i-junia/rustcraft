@@ -63,6 +63,7 @@ pub fn setup_inventory(
                 left: px(0.),
                 right: px(0.),
                 bottom: px(HOTBAR_BOTTOM),
+                margin: UiRect::bottom(px(SPACE_S)),
                 justify_content: JustifyContent::Center,
                 ..default()
             },
@@ -83,6 +84,8 @@ pub fn setup_inventory(
                     // Drawn by `style_inventory_panel` while the inventory is open
                     BackgroundColor(Color::NONE),
                     BorderColor::all(Color::NONE),
+                    // Closed, its room above the hotbar is empty; the slots stay pickable
+                    Pickable::IGNORE,
                 ))
                 .with_children(|panel| {
                     panel

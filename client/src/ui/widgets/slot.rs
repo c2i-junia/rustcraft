@@ -105,6 +105,11 @@ pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font
                 ..default()
             },
             TextColor(MUTED),
+            // Read over any icon, as the count is
+            TextShadow {
+                offset: Vec2::splat(2.0),
+                color: BEVEL_LO,
+            },
             Node {
                 position_type: PositionType::Absolute,
                 left: px(BEVEL_WIDTH),

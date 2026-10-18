@@ -1,6 +1,6 @@
 //! The inventory panel in the game: where it opens, the stack held by the cursor, and the clicks.
 
-use bevy::{input::keyboard::KeyCode, prelude::*, ui::UiGlobalTransform};
+use bevy::{input::keyboard::KeyCode, picking::hover::HoverMap, prelude::*, ui::UiGlobalTransform};
 use image::RgbImage;
 use shared::world::{grid_slot, ItemId};
 
@@ -97,6 +97,24 @@ fn the_open_inventory_leaves_the_hotbar_alone_and_fits_the_window() {
 
     for (width, height) in [(800, 600), (1280, 720), (1366, 768)] {
         h.resize(width, height);
+        let size = format!("{width}x{height}");
+
+        // Closed, the room of the inventory above the hotbar takes no hover
+        let closed = h.rect_of(&L::marker::<InventoryDialog>());
+        let hotbar_top = h.hotbar_rects()[0].min.y;
+        h.hover_at(Vec2::new(
+            closed.center().x,
+            (closed.min.y + hotbar_top) / 2.0,
+        ));
+        h.frames(1);
+        let dialog = h.get(&L::marker::<InventoryDialog>());
+        let hovered = h
+            .world()
+            .resource::<HoverMap>()
+            .values()
+            .any(|hits| hits.contains_key(&dialog));
+        assert!(!hovered, "the closed panel takes the hover at {size}");
+
         // Away from every cell, so that none of them is hovered
         h.hover_at(Vec2::new(width as f32 - 1.0, 0.0));
         h.frames(2);
@@ -106,7 +124,6 @@ fn the_open_inventory_leaves_the_hotbar_alone_and_fits_the_window() {
         h.press(KeyCode::KeyE);
         h.frames(2);
         assert!(h.is_visible(&L::marker::<InventoryRoot>()));
-        let size = format!("{width}x{height}");
 
         // Neither moved, nor covered, nor dimmed
         let hotbar = h.hotbar_rects();
@@ -129,10 +146,11 @@ fn the_open_inventory_leaves_the_hotbar_alone_and_fits_the_window() {
         // Everything else lies above the hotbar
         let hotbar_top = hotbar[0].min.y;
         let above = cells.iter().filter(|rect| !hotbar.contains(rect));
-        // At least the backpack, the 2x2 grid and the result
-        let (backpack, grid, result) = (27, 4, 1);
-        assert!(
-            above.clone().count() >= backpack + grid + result,
+        // The backpack, the 2x2 grid with the leftover cell at the first size, and the result
+        let grid = if (width, height) == (800, 600) { 5 } else { 4 };
+        assert_eq!(
+            above.clone().count(),
+            27 + grid + 1,
             "the cells shown at {size}"
         );
         for rect in above {
