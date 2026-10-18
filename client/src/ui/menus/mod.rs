@@ -22,6 +22,7 @@ use crate::audio::settings::save_audio_settings;
 use crate::input::keyboard::save_keybindings;
 use crate::state::{GameState, MenuCamera};
 use crate::ui::widgets::dialog::dialog_open;
+use crate::ui::widgets::text_field::text_field_focused;
 
 use super::button::*;
 
@@ -34,7 +35,8 @@ pub fn menu_plugin(app: &mut App) {
             Update,
             open_quit_dialog_on_escape
                 .run_if(in_state(MenuState::Main))
-                .run_if(not(dialog_open)),
+                .run_if(not(dialog_open))
+                .run_if(not(text_field_focused)),
         )
         .add_observer(activate_main_menu_button)
         // Systems to handle the play menu screen
@@ -66,7 +68,9 @@ pub fn menu_plugin(app: &mut App) {
             Update,
             (
                 menu_action,
-                escape_button.run_if(not(dialog_open)),
+                escape_button
+                    .run_if(not(dialog_open))
+                    .run_if(not(text_field_focused)),
                 button_system,
                 mouse_scroll,
             )

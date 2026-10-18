@@ -188,6 +188,12 @@ pub(super) fn plugin(app: &mut App) {
     );
 }
 
+/// Whether the focus is in a text field: it takes Escape for itself, so the Escape handlers of the
+/// screen behind it stand down.
+pub fn text_field_focused(focus: Res<InputFocus>, fields: Query<(), With<EditableText>>) -> bool {
+    focus.get().is_some_and(|entity| fields.contains(entity))
+}
+
 /// The bevel of a field at rest: dark at the top and left, light at the bottom and right.
 fn sunken_bevel() -> BorderColor {
     BorderColor {
@@ -287,5 +293,26 @@ fn show_errors(
                 Display::None
             };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::system::RunSystemOnce;
+
+    use super::*;
+
+    #[test]
+    fn a_focused_text_field_is_seen_and_nothing_else_is() {
+        let mut world = World::new();
+        world.init_resource::<InputFocus>();
+        let field = world.spawn(EditableText::default()).id();
+        let other = world.spawn_empty().id();
+        let focused = |world: &mut World| world.run_system_once(text_field_focused).unwrap();
+        assert!(!focused(&mut world));
+        world.insert_resource(InputFocus::from_entity(other));
+        assert!(!focused(&mut world));
+        world.insert_resource(InputFocus::from_entity(field));
+        assert!(focused(&mut world));
     }
 }

@@ -23,6 +23,7 @@ use super::helpers::main_menu;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::assets::MONO_FONT_PATH;
+use crate::ui::menus::QUIT_TITLE;
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER};
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed, DialogRoot};
@@ -418,6 +419,8 @@ fn escape_in_a_text_field_cancels_it() {
     h.frames(2);
     assert_eq!(cancels(&mut h), 1);
     assert!(submits(&mut h).is_empty());
+    // the field took the Escape: the main menu behind does not also ask to quit
+    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
 }
 
 #[test]

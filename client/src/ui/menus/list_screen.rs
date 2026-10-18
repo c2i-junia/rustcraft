@@ -9,7 +9,7 @@ use super::{MenuButtonAction, MenuState, ScrollingList};
 use crate::ui::assets::*;
 use crate::ui::style::*;
 use crate::ui::theme::FONT_M;
-use crate::ui::widgets::text_field::{spawn_text_field, TextField};
+use crate::ui::widgets::text_field::{spawn_text_field, Cancel, TextField};
 use bevy::input_focus::{tab_navigation::TabGroup, AutoFocus};
 use bevy::prelude::*;
 
@@ -214,6 +214,12 @@ fn spawn_input(
     if field.focused {
         commands.entity(parts.input).insert(AutoFocus);
     }
+    // Escape in a field goes back to the main menu (Lots 2 and 3 redesign these screens)
+    commands.entity(parts.input).observe(
+        |_: On<Cancel>, mut menu_state: ResMut<NextState<MenuState>>| {
+            menu_state.set(MenuState::Main)
+        },
+    );
     // The field draws its own bevel. It is taller than a button, and grows when it shows an
     // error: the fields of a row stay aligned at the top
     let cell = commands
