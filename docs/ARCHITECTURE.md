@@ -100,8 +100,12 @@ them all, in `app::add_client`. A widget is a headless `bevy::ui_widgets` widget
 `EditableText` for a text field, dressed with our visuals, a `TabIndex`, an accessibility role
 and a label. A text field triggers `Submit` (Enter) and `Cancel` (Escape) on its input, after
 `EditableTextSystems` has applied the edits of the frame. `UIMode::Typing` means that the focus
-is on an `EditableText`. The screens still built on `Interaction` buttons move over to the
-widgets lot by lot.
+is on an `EditableText`. `slot.rs` is an item slot: its icon at twice the size of its texture,
+its count, its number in the hotbar and its selection. `tooltip.rs` is the one tooltip by the
+cursor, for any hovered entity with a `Tooltip`. The inventory is one panel whose bottom row is
+the hotbar, and every change to it is an `InventoryAction` predicted by the client and applied
+by the server. The screens still built on `Interaction` buttons move over to the widgets lot by
+lot.
 
 ## Saves
 

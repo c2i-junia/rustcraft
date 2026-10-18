@@ -1,10 +1,10 @@
 //! Snapshots of every screen at three resolutions, for a human to review.
 
 use bevy::input::keyboard::KeyCode;
-use shared::world::ItemId;
+use shared::world::{grid_slot, ItemId};
 
-use super::game::enter_world;
-use super::harness::{Harness, SCREEN};
+use super::game::{enter_world, slot};
+use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 
@@ -72,15 +72,27 @@ fn every_screen_at_three_resolutions() {
             (2, ItemId::OakPlanks, 5),
             (10, ItemId::Sand, 33),
             (11, ItemId::OakLog, 8),
+            (grid_slot(2, 2), ItemId::Cobblestone, 1),
         ],
     );
     let mut h = enter_world(folder, "Review");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 2) == Some((ItemId::OakPlanks, 5))
+    });
     for (width, height) in RESOLUTIONS {
         h.resize(width, height);
+        // The name shows when the selection changes, so the slot 3 is left first
+        h.press(KeyCode::Digit1);
+        h.press(KeyCode::Digit3);
         h.snapshot_in_game("hud");
 
         h.press(KeyCode::KeyE);
+        h.hover(&L::cell(10));
         h.snapshot_in_game("inventory");
+        h.click(&L::cell(11));
+        h.hover(&L::cell(20));
+        h.snapshot_in_game("inventory_held");
+        h.click(&L::cell(11));
         h.press(KeyCode::KeyE);
 
         h.press(KeyCode::KeyT);
