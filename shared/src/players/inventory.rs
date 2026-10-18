@@ -16,7 +16,7 @@ use crate::{
         grid_slot, match_recipe, BlockId, ChunkMap, CraftingGrid, ItemId, ItemStack, ItemType,
         CRAFTING_GRID_SIZE,
     },
-    HALF_BLOCK, MAX_INVENTORY_SLOTS,
+    HALF_BLOCK, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
 
 /// Width and height of the crafting grid of the inventory alone.
@@ -76,7 +76,7 @@ pub fn grid_size(inventory: &Inventory, table_in_reach: impl Fn(IVec3) -> bool) 
     }
 }
 
-/// Applies the inventory actions of `input`, in order.
+/// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`.
 pub fn simulate_inventory_actions(
     player: &mut Player,
     world_map: &ChunkMap,
@@ -90,7 +90,8 @@ pub fn simulate_inventory_actions(
             .is_some_and(|block| block.id == BlockId::CraftingTable)
             && (table.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
     };
-    for &action in &input.inventory_actions {
+    let actions = input.inventory_actions.iter();
+    for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
         if let Err(refusal) = apply_inventory_action(&mut player.inventory, action, table_in_reach)
         {
             log::debug!(
@@ -738,6 +739,28 @@ mod tests {
             ],
         );
         assert_eq!(player.inventory.open_table, None);
+    }
+
+    #[test]
+    fn an_input_applies_at_most_its_share_of_inventory_actions() {
+        let mut player = Player::default();
+        player.inventory.floating = Some(stack(ItemId::Dirt, max_dirt()));
+        let input = PlayerFrameInput {
+            inventory_actions: vec![InventoryAction::RightClickSlot(1); 40],
+            ..Default::default()
+        };
+
+        simulate_inventory_actions(
+            &mut player,
+            &ChunkMap::default(),
+            &input,
+            CallerType::Server,
+        );
+
+        assert_eq!(
+            player.inventory.inner[&1].nb,
+            MAX_INVENTORY_ACTIONS_PER_INPUT as u32
+        );
     }
 
     #[test]
