@@ -13,7 +13,7 @@ use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::world::time::ClientTime;
-use crate::world::WorldRenderRequestUpdateEvent;
+use crate::world::{BlockChanged, WorldRenderRequestUpdateEvent};
 use shared::messages::{
     AuthRegisterRequest, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };
@@ -186,6 +186,7 @@ pub fn poll_network_messages(
     mut ev_player_spawn: MessageWriter<PlayerSpawnEvent>,
     mut ev_mob_update: MessageWriter<MobUpdateEvent>,
     mut ev_player_update: MessageWriter<PlayerUpdateEvent>,
+    mut ev_block_changed: MessageWriter<BlockChanged>,
     mut chat: ResMut<CachedChatConversation>,
 ) {
     update_world_from_network(
@@ -195,6 +196,7 @@ pub fn poll_network_messages(
         &mut ev_player_spawn,
         &mut ev_mob_update,
         &mut ev_player_update,
+        &mut ev_block_changed,
         &mut chat,
     );
 }

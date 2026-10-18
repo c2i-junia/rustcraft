@@ -18,6 +18,7 @@ pub const HOTBAR_BORDER: f32 = 5.;
 pub const SAVE_PATH: &str = "saves/";
 pub const SERVER_LIST_SAVE_NAME: &str = "servers.ron";
 pub const BINDS_PATH: &str = "keybindings.ron";
+pub const AUDIO_SETTINGS_PATH: &str = "audio.ron";
 
 pub const GRASS_COLOR: [f32; 4] = [0.1, 1.0, 0.3, 1.0];
 

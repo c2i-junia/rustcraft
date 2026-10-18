@@ -20,6 +20,7 @@ pub fn player_plugin(app: &mut App) {
         .insert_resource(Inventory::new())
         .add_message::<PlayerSpawnEvent>()
         .add_message::<PlayerUpdateEvent>()
+        .add_message::<LocalPlayerMoved>()
         .add_systems(
             Update,
             spawn_players_system.run_if(in_state(GameState::PreGameLoading)),

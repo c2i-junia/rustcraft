@@ -11,7 +11,7 @@ use shared::STC_AUTH_CHANNEL;
 
 use crate::world::ClientWorldMap;
 
-use crate::world::WorldRenderRequestUpdateEvent;
+use crate::world::{BlockChanged, WorldRenderRequestUpdateEvent};
 
 use super::CachedChatConversation;
 use super::SendGameMessageExtension;
@@ -23,6 +23,7 @@ pub fn update_world_from_network(
     ev_player_spawn: &mut MessageWriter<PlayerSpawnEvent>,
     ev_mob_update: &mut MessageWriter<MobUpdateEvent>,
     ev_player_update: &mut MessageWriter<PlayerUpdateEvent>,
+    ev_block_changed: &mut MessageWriter<BlockChanged>,
     chat: &mut ResMut<CachedChatConversation>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
@@ -55,12 +56,22 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::BlockUpdates(updates) => {
                 for BlockUpdate { position, block } in updates {
+                    let before = world.blocks.get_block(position).copied();
                     // The map ignores an update for a chunk it does not have.
                     match block {
                         Some(block) => world.blocks.set_block(position, block),
                         None => {
                             world.blocks.remove_block(position);
                         }
+                    }
+                    let after = world.blocks.get_block(position).copied();
+                    if after != before {
+                        ev_block_changed.write(BlockChanged {
+                            position,
+                            before,
+                            after,
+                            by_local_player: false,
+                        });
                     }
                 }
             }

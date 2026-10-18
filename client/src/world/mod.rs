@@ -27,6 +27,7 @@ pub fn world_plugin(app: &mut App) {
         .insert_resource(AtlasHandles::<ItemId>::default())
         .insert_resource(RenderDistance { ..default() })
         .add_message::<WorldRenderRequestUpdateEvent>()
+        .add_message::<BlockChanged>()
         .add_systems(
             Update,
             create_all_atlases.run_if(in_state(GameState::PreGameLoading)),

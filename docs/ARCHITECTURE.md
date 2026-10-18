@@ -83,7 +83,9 @@ The network is polled in `FixedPreUpdate` and the inputs are uploaded in `FixedU
 
 The client has one plugin per domain, registered by `game_plugin`: `camera`, `input`, `mob`,
 `network`, `player`, `ui::hud` and `world`. The menus have their own plugin
-(`ui::menus::menu_plugin`). `GameState` goes from `Menu` to `PreGameLoading` (connection and
+(`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
+too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audio` turns into
+sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. `GameState` goes from `Menu` to `PreGameLoading` (connection and
 textures) to `Game`.
 
 ## Saves

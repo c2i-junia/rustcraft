@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::world::ChunkMap;
+use shared::world::{BlockData, ChunkMap};
 use std::hash::Hash;
 use std::time::Instant;
 
@@ -49,6 +49,15 @@ pub struct ClientWorldMap {
 pub enum WorldRenderRequestUpdateEvent {
     /// Mesh this chunk again, and only this one. Ignored when the chunk is not loaded.
     ChunkToReload(IVec3),
+}
+
+/// A block of `ClientWorldMap` changed: the local player predicted it, or the server sent it.
+#[derive(Message, Debug, Copy, Clone, PartialEq)]
+pub struct BlockChanged {
+    pub position: IVec3,
+    pub before: Option<BlockData>,
+    pub after: Option<BlockData>,
+    pub by_local_player: bool,
 }
 
 #[cfg(test)]

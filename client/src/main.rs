@@ -1,3 +1,4 @@
+mod audio;
 mod camera;
 mod constants;
 mod game;
@@ -10,6 +11,7 @@ mod ui;
 mod world;
 
 use crate::world::ClientWorldMap;
+use audio::settings::load_audio_settings;
 use bevy::{
     app::PluginGroupBuilder,
     prelude::*,
@@ -74,6 +76,7 @@ fn main() {
     add_debug_inspector(&mut app);
     network::add_base_netcode(&mut app);
     app.insert_resource(get_bindings(&game_folder_paths))
+        .insert_resource(load_audio_settings(&game_folder_paths))
         .insert_resource(SelectedWorld::default())
         .insert_resource(ClientWorldMap { ..default() })
         .insert_resource(TexturePath {
@@ -85,7 +88,7 @@ fn main() {
         })
         // The game starts in the default state, the menu
         .init_state::<GameState>()
-        .add_plugins((menus::menu_plugin, game::game_plugin))
+        .add_plugins((menus::menu_plugin, game::game_plugin, audio::audio_plugin))
         .run();
 }
 
