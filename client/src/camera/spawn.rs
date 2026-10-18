@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 
-use super::camera_control_system;
+use super::{camera_control_system, underwater_fog_system, SKY_COLOR};
 
 use crate::state::{GameSet, GameState};
 
@@ -46,7 +46,8 @@ pub fn camera_plugin(app: &mut App) {
     app.add_systems(OnEnter(GameState::PreGameLoading), spawn_camera)
         .add_systems(
             Update,
-            camera_control_system
+            (camera_control_system, underwater_fog_system)
+                .chain()
                 .in_set(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),
         )
@@ -63,7 +64,7 @@ fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Camera {
-            clear_color: ClearColorConfig::Custom(Color::srgb_u8(117, 159, 183)),
+            clear_color: ClearColorConfig::Custom(SKY_COLOR),
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
@@ -95,10 +96,11 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .init_state::<GameState>()
-            // What `camera_control_system` reads once the game state is reached
+            // What the camera systems read once the game state is reached
             .add_message::<bevy::input::mouse::MouseMotion>()
             .insert_resource(shared::players::ViewMode::FirstPerson)
             .insert_resource(crate::ui::hud::UIMode::Closed)
+            .init_resource::<crate::world::ClientWorldMap>()
             .add_plugins(camera_plugin);
         app.update();
         app
