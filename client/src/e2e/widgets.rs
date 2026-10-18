@@ -461,3 +461,48 @@ fn a_click_focuses_the_field_and_shows_its_ring_after_tab() {
     assert_eq!(focused(&mut h), parts.input);
     assert_eq!(ring(&mut h), ACCENT);
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_click_on_the_field_padding_focuses_it() {
+    let mut h = main_menu();
+    let parts = spawn_field(&mut h);
+    let frame = frame_of(&mut h, parts.input);
+    h.click(&L::name("P"));
+    h.frames(2);
+    assert_focus_on(&mut h, "P");
+    // 5 logical px inside the left edge of the frame, in its bevel and padding band of 10
+    let node = h.world().get::<ComputedNode>(frame).unwrap();
+    let (size, inset) = (node.size(), 5.0 / node.inverse_scale_factor());
+    let center = h
+        .world()
+        .get::<UiGlobalTransform>(frame)
+        .unwrap()
+        .translation;
+    h.click_at(Vec2::new(center.x - size.x / 2.0 + inset, center.y));
+    h.frames(2);
+    assert_eq!(focused(&mut h), parts.input);
+}
+
+/// Counts the presses that reach the input of the text field of a test.
+#[derive(Resource, Default)]
+struct InputPresses(u32);
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_click_on_the_placeholder_reaches_the_field() {
+    let mut h = main_menu();
+    let parts = spawn_field(&mut h);
+    h.world_mut().init_resource::<InputPresses>();
+    h.world_mut()
+        .entity_mut(parts.input)
+        .observe(|_: On<Pointer<Press>>, mut presses: ResMut<InputPresses>| presses.0 += 1);
+    h.click(&L::name("P"));
+    h.frames(2);
+    assert_focus_on(&mut h, "P");
+    h.click(&L::text("Your name"));
+    h.frames(2);
+    assert_eq!(focused(&mut h), parts.input);
+    // the input itself was pressed, so the caret was placed
+    assert_eq!(h.world().resource::<InputPresses>().0, 1);
+}

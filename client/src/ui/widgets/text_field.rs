@@ -10,7 +10,7 @@ use bevy::{
         keyboard::{Key, KeyboardInput},
         ButtonState,
     },
-    input_focus::{tab_navigation::TabIndex, FocusedInput},
+    input_focus::{tab_navigation::TabIndex, AcquireFocus, FocusCause, FocusedInput, InputFocus},
     prelude::*,
     text::{EditableText, EditableTextSystems, LineBreak, TextCursorStyle},
     ui::UiSystems,
@@ -18,7 +18,7 @@ use bevy::{
 
 use super::focus::FocusRing;
 use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_S, MUTED, SLOT, SPACE_S, TEXT,
+    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_S, MUTED, SLOT, SPACE_S, SPACE_XS, TEXT,
 };
 
 /// What `spawn_text_field` builds.
@@ -87,6 +87,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         .spawn(Node {
             width: percent(100),
             flex_direction: FlexDirection::Column,
+            row_gap: px(SPACE_XS),
             ..default()
         })
         .id();
@@ -166,6 +167,16 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
             ChildOf(root),
         ))
         .id();
+    // a press on the bevel or the padding of the frame focuses the input, instead of bubbling up
+    // to the window, which clears the focus
+    commands.entity(frame).observe(
+        move |mut acquire: On<AcquireFocus>, mut focus: ResMut<InputFocus>| {
+            acquire.propagate(false);
+            if focus.get() != Some(input) {
+                focus.set(input, FocusCause::Pressed);
+            }
+        },
+    );
     commands.entity(input).insert(FieldParts {
         frame,
         placeholder,
@@ -209,7 +220,7 @@ fn request_on_enter_or_escape(
     let Ok(text) = texts.get(field) else {
         return;
     };
-    // while the IME composes, Enter and Escape belong to it
+    // while the IME composes, Enter and Escape belong to it: they bubble on, untouched
     if text.is_composing() {
         return;
     }
@@ -222,6 +233,8 @@ fn request_on_enter_or_escape(
     commands.entity(field).insert(request);
 }
 
+/// Triggers the requested Submits and Cancels, once `EditableTextSystems` has applied the edits of
+/// this update, so that a Submit carries the characters typed in the same update as Enter.
 fn emit_requests(requests: Query<(Entity, &FieldRequest, &EditableText)>, mut commands: Commands) {
     for (entity, request, text) in &requests {
         commands.entity(entity).remove::<FieldRequest>();

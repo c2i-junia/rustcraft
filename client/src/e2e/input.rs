@@ -26,6 +26,11 @@ impl Harness {
         self.click_with(locator, MouseButton::Right);
     }
 
+    /// Clicks a point of the window, in physical pixels, with the left button.
+    pub fn click_at(&mut self, position: Vec2) {
+        self.click_point(position, MouseButton::Left);
+    }
+
     /// Moves the cursor onto the element.
     #[track_caller]
     pub fn hover(&mut self, locator: &Locator) {
@@ -85,7 +90,11 @@ impl Harness {
     #[track_caller]
     fn click_with(&mut self, locator: &Locator, button: MouseButton) {
         let center = self.center_of(locator);
-        self.move_cursor(center);
+        self.click_point(center, button);
+    }
+
+    fn click_point(&mut self, position: Vec2, button: MouseButton) {
+        self.move_cursor(position);
         // One frame for the hover
         self.frames(1);
         let window = self.window();
