@@ -97,6 +97,8 @@ impl MeshCreator {
 #[derive(Debug, Default, Clone)]
 pub struct ChunkMeshResponse {
     pub solid_mesh: Option<Mesh>,
+    /// The faces of the liquids, drawn apart with a blended material.
+    pub liquid_mesh: Option<Mesh>,
 }
 
 /// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
@@ -108,7 +110,8 @@ pub(crate) fn generate_chunk_mesh(
     uv_map: &HashMap<String, UvCoords>,
 ) -> ChunkMeshResponse {
     let start = Instant::now();
-    let mut mesh_creator = MeshCreator::default();
+    let mut solid = MeshCreator::default();
+    let mut liquid = MeshCreator::default();
 
     for (local_block_pos, block) in chunk.iter() {
         let global_block_pos = &to_global_pos(chunk_pos, &local_block_pos);
@@ -118,9 +121,9 @@ pub(crate) fn generate_chunk_mesh(
         }
 
         let origin = local_block_pos.as_vec3();
-        let alpha = match visibility {
-            BlockTransparency::Liquid => 0.5,
-            _ => 1.0,
+        let (mesh_creator, alpha) = match visibility {
+            BlockTransparency::Liquid => (&mut liquid, 0.5),
+            _ => (&mut solid, 1.0),
         };
         // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
         // faces. A custom texture folder may lack the texture: no cracks then.
@@ -144,9 +147,12 @@ pub(crate) fn generate_chunk_mesh(
         }
     }
 
-    let solid_mesh = mesh_creator.build();
+    let response = ChunkMeshResponse {
+        solid_mesh: solid.build(),
+        liquid_mesh: liquid.build(),
+    };
     trace!("Render time : {:?}", Instant::now() - start);
-    ChunkMeshResponse { solid_mesh }
+    response
 }
 
 pub(crate) fn is_block_surrounded(
@@ -258,6 +264,47 @@ mod tests {
             UvCoords::new(0.0, 0.1, 0.0, 0.1),
         );
         assert!(cracked_stone_mesh(&uv_map, 200) > plain);
+    }
+
+    fn mesh_of(blocks: &[(IVec3, BlockId)]) -> ChunkMeshResponse {
+        let mut chunk = Chunk::new();
+        for (position, id) in blocks {
+            chunk.set(*position, BlockData::new(*id, BlockDirection::Front));
+        }
+        let mut world = ChunkMap::default();
+        world.insert_chunk(IVec3::ZERO, chunk.clone());
+        let mut uv_map = HashMap::new();
+        uv_map.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
+        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &uv_map)
+    }
+
+    fn vertices(mesh: &Option<Mesh>) -> usize {
+        mesh.as_ref().map_or(0, |mesh| mesh.count_vertices())
+    }
+
+    #[test]
+    fn water_is_drawn_in_the_liquid_mesh_and_solid_blocks_in_the_solid_one() {
+        let stone = mesh_of(&[(IVec3::ONE, BlockId::Stone)]);
+        assert!(vertices(&stone.solid_mesh) > 0);
+        assert_eq!(vertices(&stone.liquid_mesh), 0);
+
+        let water = mesh_of(&[(IVec3::ONE, BlockId::Water)]);
+        assert_eq!(vertices(&water.solid_mesh), 0);
+        assert_eq!(vertices(&water.liquid_mesh), vertices(&stone.solid_mesh));
+    }
+
+    #[test]
+    fn the_faces_between_two_water_blocks_are_hidden() {
+        let one = mesh_of(&[(IVec3::ONE, BlockId::Water)]);
+        let two = mesh_of(&[
+            (IVec3::ONE, BlockId::Water),
+            (IVec3::new(2, 1, 1), BlockId::Water),
+        ]);
+        // Two cubes of six faces, less the two faces they share
+        assert_eq!(
+            vertices(&two.liquid_mesh),
+            vertices(&one.liquid_mesh) * 10 / 6
+        );
     }
 
     #[test]

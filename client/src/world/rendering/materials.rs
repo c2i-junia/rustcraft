@@ -136,14 +136,12 @@ pub fn create_all_atlases(
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut atlas_material = |atlas: &AtlasWrapper, alpha_mode| {
-        materials.add(StandardMaterial {
-            base_color_texture: Some(atlas.texture.clone()),
-            perceptual_roughness: BASE_ROUGHNESS,
-            reflectance: BASE_SPECULAR_HIGHLIGHT,
-            alpha_mode,
-            ..default()
-        })
+    let atlas_material = |atlas: &AtlasWrapper, alpha_mode| StandardMaterial {
+        base_color_texture: Some(atlas.texture.clone()),
+        perceptual_roughness: BASE_ROUGHNESS,
+        reflectance: BASE_SPECULAR_HIGHLIGHT,
+        alpha_mode,
+        ..default()
     };
 
     if material_resource.blocks.is_none() {
@@ -151,7 +149,15 @@ pub fn create_all_atlases(
         {
             material_resource.global_materials.insert(
                 GlobalMaterial::Blocks,
-                atlas_material(&blocks, AlphaMode::AlphaToCoverage),
+                materials.add(atlas_material(&blocks, AlphaMode::AlphaToCoverage)),
+            );
+            // A liquid is seen through, and from below its surface too
+            material_resource.global_materials.insert(
+                GlobalMaterial::Liquids,
+                materials.add(StandardMaterial {
+                    cull_mode: None,
+                    ..atlas_material(&blocks, AlphaMode::Blend)
+                }),
             );
             material_resource.blocks = Some(blocks);
         }
@@ -162,7 +168,7 @@ pub fn create_all_atlases(
         {
             material_resource.global_materials.insert(
                 GlobalMaterial::Items,
-                atlas_material(&items, AlphaMode::Blend),
+                materials.add(atlas_material(&items, AlphaMode::Blend)),
             );
             material_resource.items = Some(items);
         }

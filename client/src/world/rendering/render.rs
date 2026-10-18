@@ -7,6 +7,7 @@ use std::{
 
 use bevy::{
     asset::Assets,
+    light::NotShadowCaster,
     math::IVec3,
     prelude::*,
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
@@ -39,8 +40,9 @@ pub struct QueuedMeshes {
     pub meshes: Vec<MeshingTask>,
 }
 
-/// Shows `new_meshes` for the chunk: the chunk entity is kept and only its mesh replaced, so
-/// that the chunk never disappears for a frame. A chunk without any face has no entity.
+/// Shows `new_meshes` for the chunk: the chunk entities are kept and only their meshes
+/// replaced, so that the chunk never disappears for a frame. The solid and the liquid faces
+/// have an entity each, and only while they have faces.
 fn update_chunk(
     chunk: &mut ChunkRender,
     chunk_pos: &IVec3,
@@ -49,35 +51,65 @@ fn update_chunk(
     meshes: &mut Assets<Mesh>,
     new_meshes: ChunkMeshResponse,
 ) {
-    match (new_meshes.solid_mesh, chunk.entity) {
-        (Some(new_solid_mesh), Some(entity)) => {
-            commands
-                .entity(entity)
-                .insert(Mesh3d(meshes.add(new_solid_mesh)));
+    let mut show = |entity: &mut Option<Entity>, mesh, material| {
+        show_mesh(
+            entity,
+            mesh,
+            material,
+            chunk_pos,
+            material_resource,
+            commands,
+            meshes,
+        )
+    };
+    show(
+        &mut chunk.entity,
+        new_meshes.solid_mesh,
+        world::GlobalMaterial::Blocks,
+    );
+    show(
+        &mut chunk.liquid_entity,
+        new_meshes.liquid_mesh,
+        world::GlobalMaterial::Liquids,
+    );
+}
+
+/// Shows `mesh` drawn with `material` on `entity`, spawning it or despawning it as needed.
+fn show_mesh(
+    entity: &mut Option<Entity>,
+    mesh: Option<Mesh>,
+    material: world::GlobalMaterial,
+    chunk_pos: &IVec3,
+    material_resource: &MaterialResource,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+) {
+    match (mesh, *entity) {
+        (Some(mesh), Some(entity)) => {
+            commands.entity(entity).insert(Mesh3d(meshes.add(mesh)));
         }
-        (Some(new_solid_mesh), None) => {
-            let Some(blocks_material) = material_resource
-                .global_materials
-                .get(&world::GlobalMaterial::Blocks)
-            else {
-                // The atlas and this material are created together: nothing is meshed before
+        (Some(mesh), None) => {
+            let Some(handle) = material_resource.global_materials.get(&material) else {
+                // The atlas and the block materials are created together: nothing is meshed
+                // before
                 return;
             };
-            chunk.entity = Some(
-                commands
-                    .spawn((
-                        Transform::from_translation((*chunk_pos * CHUNK_SIZE).as_vec3()),
-                        Visibility::Visible,
-                        DespawnOnExit(GameState::Game),
-                        Mesh3d(meshes.add(new_solid_mesh)),
-                        MeshMaterial3d(blocks_material.clone()),
-                    ))
-                    .id(),
-            );
+            let mut new_entity = commands.spawn((
+                Transform::from_translation((*chunk_pos * CHUNK_SIZE).as_vec3()),
+                Visibility::Visible,
+                DespawnOnExit(GameState::Game),
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(handle.clone()),
+            ));
+            // The light goes through a liquid: it does not darken the ground below
+            if material == world::GlobalMaterial::Liquids {
+                new_entity.insert(NotShadowCaster);
+            }
+            *entity = Some(new_entity.id());
         }
-        (None, Some(entity)) => {
-            commands.entity(entity).despawn();
-            chunk.entity = None;
+        (None, Some(old_entity)) => {
+            commands.entity(old_entity).despawn();
+            *entity = None;
         }
         (None, None) => {}
     }
@@ -229,10 +261,12 @@ pub fn chunk_force_reload_system(
         && is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map)
     {
         for (pos, chunk) in world_map.render.iter_mut() {
-            // Despawn the chunk's entity
-            if let Some(e) = chunk.entity {
-                commands.entity(e).despawn();
-                chunk.entity = None;
+            // Despawn the chunk's entities
+            for entity in [chunk.entity.take(), chunk.liquid_entity.take()]
+                .into_iter()
+                .flatten()
+            {
+                commands.entity(entity).despawn();
             }
             // Request a render for this chunk
             ev_writer.write(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
@@ -321,12 +355,17 @@ mod tests {
         assert_eq!(chunks[0], center);
     }
 
+    fn empty_mesh() -> Option<Mesh> {
+        Some(Mesh::new(
+            PrimitiveTopology::TriangleList,
+            Default::default(),
+        ))
+    }
+
     fn some_mesh() -> ChunkMeshResponse {
         ChunkMeshResponse {
-            solid_mesh: Some(Mesh::new(
-                PrimitiveTopology::TriangleList,
-                Default::default(),
-            )),
+            solid_mesh: empty_mesh(),
+            liquid_mesh: None,
         }
     }
 
@@ -341,6 +380,9 @@ mod tests {
         materials
             .global_materials
             .insert(world::GlobalMaterial::Blocks, Handle::default());
+        materials
+            .global_materials
+            .insert(world::GlobalMaterial::Liquids, Handle::default());
         let mut queue = CommandQueue::default();
         let mut commands = Commands::new(&mut queue, world);
         update_chunk(
@@ -405,5 +447,31 @@ mod tests {
 
         show(&mut world, &mut meshes, &mut chunk, some_mesh());
         assert!(chunk.entity.is_some());
+    }
+
+    #[test]
+    fn the_liquid_faces_get_an_entity_of_their_own_that_casts_no_shadow() {
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut chunk = ChunkRender::new();
+        let both = || ChunkMeshResponse {
+            solid_mesh: empty_mesh(),
+            liquid_mesh: empty_mesh(),
+        };
+
+        show(&mut world, &mut meshes, &mut chunk, both());
+        let solid = chunk.entity.unwrap();
+        let liquid = chunk
+            .liquid_entity
+            .expect("the liquid faces have an entity");
+        assert_ne!(solid, liquid);
+        assert!(world.get::<NotShadowCaster>(liquid).is_some());
+        assert!(world.get::<NotShadowCaster>(solid).is_none());
+
+        // The water is gone, the ground stays
+        show(&mut world, &mut meshes, &mut chunk, some_mesh());
+        assert_eq!(chunk.entity, Some(solid));
+        assert_eq!(chunk.liquid_entity, None);
+        assert!(world.get_entity(liquid).is_err());
     }
 }
