@@ -13,7 +13,7 @@ use bevy::{
     },
     prelude::*,
     text::EditableText,
-    ui::InteractionDisabled,
+    ui::{Checked, InteractionDisabled},
     ui_widgets::Activate,
     window::PrimaryWindow,
 };
@@ -29,7 +29,10 @@ use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed, DialogRoot};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::key_cap;
+use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
+use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderParts, SliderReadout};
 use crate::ui::widgets::slot::{slot, SlotSelected};
+use crate::ui::widgets::tabs::{spawn_tabs, TabChange, Tabs};
 use crate::ui::widgets::text_field::{
     spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
 };
@@ -854,4 +857,180 @@ fn a_key_cap_draws_arrow_glyphs() {
         .spawn((key_cap("Enter", Handle::default(), mono), ChildOf(root)));
     h.frames(10);
     assert!(h.bright_pixels_in(&L::text("←")) > 20);
+}
+
+/// Spawns one slider per `(label, value)`, in a column above the main menu.
+fn spawn_sliders(h: &mut Harness, sliders: &[(&str, f32)]) -> Vec<SliderParts> {
+    let root = spawn_group(
+        h,
+        Node {
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+    );
+    let parts: Vec<_> = sliders
+        .iter()
+        .map(|&(label, value)| {
+            let field = SliderField { label, value };
+            let parts = spawn_slider(&mut h.world_mut().commands(), &field, Handle::default());
+            h.world_mut().flush();
+            h.world_mut().entity_mut(parts.root).insert(ChildOf(root));
+            parts
+        })
+        .collect();
+    h.frames(3);
+    parts
+}
+
+/// The text of the readout of a slider.
+fn readout(h: &mut Harness, parts: &SliderParts) -> String {
+    let children = h.world().get::<Children>(parts.root).unwrap().to_vec();
+    let readout = children
+        .into_iter()
+        .find(|child| h.world().get::<SliderReadout>(*child).is_some())
+        .unwrap();
+    h.world().get::<Text>(readout).unwrap().0.clone()
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_click_the_arrows_and_the_wheel_move_a_slider() {
+    let mut h = main_menu();
+    let parts = spawn_sliders(&mut h, &[("Volume", 0.2)]).remove(0);
+    assert_eq!(readout(&mut h, &parts), "20%");
+    // the track snaps to the click, at its centre
+    h.click(&L::role(Role::Slider, "Volume"));
+    h.frames(2);
+    assert_eq!(readout(&mut h, &parts), "50%");
+    assert_eq!(focused(&mut h), parts.slider);
+    let steps = [
+        (Some(KeyCode::ArrowRight), None, "55%"),
+        (Some(KeyCode::ArrowLeft), None, "50%"),
+        (Some(KeyCode::ArrowLeft), None, "45%"),
+        (None, Some(1.0), "50%"),
+        (None, Some(-1.0), "45%"),
+        (Some(KeyCode::End), None, "100%"),
+        (Some(KeyCode::ArrowRight), None, "100%"),
+    ];
+    for (key, wheel, expected) in steps {
+        if let Some(key) = key {
+            h.press(key);
+        }
+        if let Some(lines) = wheel {
+            h.scroll(lines);
+        }
+        h.frames(1);
+        assert_eq!(readout(&mut h, &parts), expected, "{key:?} {wheel:?}");
+    }
+    // at 100 % the fill covers the whole track, inside its bevel
+    let track = h.world().get::<ComputedNode>(parts.slider).unwrap();
+    let inner = track.padding_box().width();
+    let fill = h.world().get::<Children>(parts.slider).unwrap()[0];
+    let fill = h.world().get::<ComputedNode>(fill).unwrap().size().x;
+    assert!((fill - inner).abs() < 0.5, "{fill} != {inner}");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_wheel_moves_only_the_slider_under_the_cursor() {
+    let mut h = main_menu();
+    let parts = spawn_sliders(&mut h, &[("A", 0.5), ("B", 0.5)]);
+    h.hover(&L::role(Role::Slider, "A"));
+    h.scroll(1.0);
+    h.frames(1);
+    assert_eq!(readout(&mut h, &parts[0]), "55%");
+    assert_eq!(readout(&mut h, &parts[1]), "50%");
+}
+
+/// The indices the segmented control or the tabs of a test reported.
+#[derive(Resource, Default)]
+struct Changes(Vec<usize>);
+
+fn changes(h: &mut Harness) -> Vec<usize> {
+    h.world().resource::<Changes>().0.clone()
+}
+
+/// Spawns `spawn` above the main menu and records the indices it reports.
+fn spawn_choices<E: EntityEvent>(
+    h: &mut Harness,
+    spawn: impl FnOnce(&mut Commands) -> Entity,
+    index: fn(&E) -> usize,
+) -> Entity {
+    h.world_mut().init_resource::<Changes>();
+    let root = spawn_group(h, Node::default());
+    let group = spawn(&mut h.world_mut().commands());
+    h.world_mut().flush();
+    h.world_mut()
+        .entity_mut(group)
+        .insert(ChildOf(root))
+        .observe(move |change: On<E>, mut changes: ResMut<Changes>| changes.0.push(index(&change)));
+    h.frames(3);
+    group
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_segment_is_chosen_by_click_and_by_arrows() {
+    let mut h = main_menu();
+    spawn_choices(
+        &mut h,
+        |commands| {
+            let segmented = Segmented {
+                label: "UI scale",
+                options: &["Auto", "1", "1.5", "2", "3"],
+                selected: 0,
+            };
+            spawn_segmented(commands, &segmented, Handle::default())
+        },
+        |change: &SegmentChange| change.index,
+    );
+    h.click(&L::text("2"));
+    h.frames(2);
+    assert_eq!(changes(&mut h), [3]);
+    let mut checked = h.world_mut().query_filtered::<&Segment, With<Checked>>();
+    let checked: Vec<_> = checked.iter(h.world()).map(|s| s.0).collect();
+    assert_eq!(checked, [3]);
+    let two = h.get(&L::role(Role::RadioButton, "2"));
+    assert_eq!(h.world().get::<BackgroundColor>(two).unwrap().0, ACCENT);
+    h.press(KeyCode::ArrowLeft);
+    h.frames(1);
+    assert_eq!(changes(&mut h), [3, 2]);
+    h.hover(&L::text("3"));
+    h.frames(2);
+    let three = h.get(&L::role(Role::RadioButton, "3"));
+    assert_eq!(
+        h.world().get::<BackgroundColor>(three).unwrap().0,
+        RAISE_HOVER
+    );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn tabs_switch_by_click_and_by_arrows() {
+    let mut h = main_menu();
+    spawn_choices(
+        &mut h,
+        |commands| {
+            let tabs = Tabs {
+                label: "Probe tabs",
+                tabs: &["A", "B", "C"],
+                selected: 0,
+            };
+            spawn_tabs(commands, &tabs, Handle::default())
+        },
+        |change: &TabChange| change.index,
+    );
+    h.click(&L::role(Role::Tab, "B"));
+    h.frames(2);
+    assert_eq!(changes(&mut h), [1]);
+    h.press(KeyCode::ArrowRight);
+    h.frames(1);
+    assert_eq!(changes(&mut h), [1, 2]);
+    h.press(KeyCode::ArrowRight);
+    h.frames(1);
+    assert_eq!(changes(&mut h), [1, 2, 0]);
+    h.hover(&L::role(Role::Tab, "C"));
+    h.frames(2);
+    let c = h.get(&L::role(Role::Tab, "C"));
+    assert_eq!(h.world().get::<BackgroundColor>(c).unwrap().0, RAISE_HOVER);
 }

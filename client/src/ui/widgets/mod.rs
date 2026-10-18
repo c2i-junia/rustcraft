@@ -10,7 +10,10 @@ pub mod dialog;
 pub mod focus;
 pub mod hints;
 mod scale;
+pub mod segmented;
+pub mod slider;
 pub mod slot;
+pub mod tabs;
 pub mod text_field;
 pub mod tooltip;
 
@@ -21,7 +24,10 @@ pub fn widgets_plugin(app: &mut App) {
     dialog::plugin(app);
     focus::plugin(app);
     scale::plugin(app);
+    segmented::plugin(app);
+    slider::plugin(app);
     slot::plugin(app);
+    tabs::plugin(app);
     text_field::plugin(app);
     tooltip::plugin(app);
 }

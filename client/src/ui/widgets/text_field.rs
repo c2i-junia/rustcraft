@@ -195,7 +195,7 @@ pub fn text_field_focused(focus: Res<InputFocus>, fields: Query<(), With<Editabl
 }
 
 /// The bevel of a field at rest: dark at the top and left, light at the bottom and right.
-fn sunken_bevel() -> BorderColor {
+pub(super) fn sunken_bevel() -> BorderColor {
     BorderColor {
         top: BEVEL_LO,
         left: BEVEL_LO,
