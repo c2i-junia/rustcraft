@@ -8,3 +8,4 @@ pub use init::{
     init_with_status,
 };
 pub use world::format::{write_meta, WorldMeta, FORMAT_VERSION, WORLD_FILE};
+pub use world::generation::generate_chunk;

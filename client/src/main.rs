@@ -1,3 +1,5 @@
+// Reading the `RenderDevice` resource overflows the default limit of the trait solver (benches)
+#![recursion_limit = "256"]
 mod app;
 mod audio;
 mod camera;

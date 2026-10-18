@@ -43,7 +43,7 @@ pub struct QueuedMeshes {
 /// Shows `new_meshes` for the chunk: the chunk entities are kept and only their meshes
 /// replaced, so that the chunk never disappears for a frame. The solid and the liquid faces
 /// have an entity each, and only while they have faces.
-fn update_chunk(
+pub(super) fn update_chunk(
     chunk: &mut ChunkRender,
     chunk_pos: &IVec3,
     material_resource: &MaterialResource,
@@ -222,7 +222,7 @@ pub fn world_render_system(
 
 /// Starts meshing each of `chunks` that is loaded, in this order. The tasks share one copy of
 /// the blocks, as a mesh depends on the neighbours of its chunk.
-fn spawn_meshing_tasks(
+pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
     uvs: &HashMap<String, UvCoords>,
     chunks: Vec<IVec3>,

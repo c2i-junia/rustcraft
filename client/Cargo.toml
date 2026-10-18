@@ -36,3 +36,4 @@ shared = { path = "../shared", features = ["test-helpers"] }
 # The version Bevy uses, to read and write the golden screenshots of the UI
 image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"
+serde_json = "1"

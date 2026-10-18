@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod bench;
 pub mod materials;
 pub mod meshing;
 pub mod render;
