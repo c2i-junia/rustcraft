@@ -12,7 +12,9 @@ pub const DAY_DURATION_IN_TICKS: u64 = 20 * 60; // 20 ticks per second * 60 seco
 pub const MAX_HOTBAR_SLOTS: u32 = 9;
 
 pub const HOTBAR_CELL_SIZE: f32 = 50.;
-pub const HOTBAR_PADDING: f32 = 5.;
+/// Leaves 32 px to the icon, twice its 16 px texture: no pixel of the icon falls on the edge
+/// between two texels, which renderers would round differently.
+pub const HOTBAR_PADDING: f32 = 4.;
 pub const HOTBAR_BORDER: f32 = 5.;
 
 pub const SAVE_PATH: &str = "saves/";
