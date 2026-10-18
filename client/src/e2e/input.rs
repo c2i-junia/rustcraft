@@ -246,6 +246,8 @@ mod tests {
         ui_widgets::{Activate, Button as UiButton, ScrollArea},
     };
 
+    use bevy::input_focus::tab_navigation::TabIndex;
+
     use super::*;
     use crate::e2e::harness::SCREEN;
     use crate::e2e::helpers::main_menu;
@@ -351,6 +353,8 @@ mod tests {
             &mut h,
             (
                 EditableText::default(),
+                // the Tab navigation clears the focus of a press on a node with no `TabIndex`
+                TabIndex(0),
                 AccessibilityNode(accesskit::Node::new(Role::TextInput)),
                 AccessibleLabel::new("Probe field"),
                 size(200.0, 30.0),
