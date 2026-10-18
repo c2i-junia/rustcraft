@@ -1,5 +1,5 @@
 use bevy::{
-    math::Vec3,
+    math::{IVec3, Vec3},
     prelude::{Component, Resource, Transform},
 };
 use bevy_platform::collections::HashMap;
@@ -17,6 +17,9 @@ pub struct Inventory {
     /// The stack held by the cursor while the inventory is open.
     #[serde(default)]
     pub floating: Option<ItemStack>,
+    /// The crafting table the player is using, if any.
+    #[serde(default)]
+    pub open_table: Option<IVec3>,
 }
 
 impl Default for Inventory {
@@ -30,6 +33,7 @@ impl Inventory {
         Self {
             inner: HashMap::new(),
             floating: None,
+            open_table: None,
         }
     }
 

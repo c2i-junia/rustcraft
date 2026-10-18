@@ -1,14 +1,22 @@
 //! What an inventory action does: the clicks on the slots of the open inventory, which move
 //! items between the slots and the stack held by the cursor (the floating stack), crafting
-//! from the grid, and closing it. Run by the client (prediction) and by the server (authority).
+//! from the grid, using a crafting table, and closing it. Run by the client (prediction) and by
+//! the server (authority).
 
+use bevy::math::IVec3;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     messages::PlayerFrameInput,
-    players::{blocks::CallerType, Inventory, Player},
-    world::{grid_slot, match_recipe, CraftingGrid, ItemId, ItemStack, ItemType},
-    MAX_INVENTORY_SLOTS,
+    players::{
+        blocks::{CallerType, INTERACTION_DISTANCE},
+        Inventory, Player,
+    },
+    world::{
+        grid_slot, match_recipe, BlockId, ChunkMap, CraftingGrid, ItemId, ItemStack, ItemType,
+        CRAFTING_GRID_SIZE,
+    },
+    HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
 
 /// Width and height of the crafting grid of the inventory alone.
@@ -25,6 +33,9 @@ pub enum InventoryAction {
     /// Click on the result of the crafting grid: the result goes to the cursor, and every cell
     /// of the grid gives one item.
     TakeCraftResult,
+    /// Right click on the crafting table at this position: the grid grows to 3x3 while the
+    /// table stays within reach.
+    OpenCraftingTable(IVec3),
 }
 
 /// Why an inventory action changed nothing.
@@ -36,6 +47,8 @@ pub enum InventoryRefusal {
     NoRecipe,
     /// The cursor holds another item, or has no room for the result.
     CursorFull,
+    /// There is no crafting table within reach at this position.
+    NoTable(IVec3),
 }
 
 /// The slots of the cells of a grid of `size` by `size`, in its top left corner.
@@ -47,21 +60,39 @@ impl Inventory {
     /// The items in the cells of the crafting grid.
     pub fn crafting_grid(&self) -> CraftingGrid {
         let mut grid = CraftingGrid::default();
-        for (cell, slot) in grid.iter_mut().zip(grid_slots(3)) {
+        for (cell, slot) in grid.iter_mut().zip(grid_slots(CRAFTING_GRID_SIZE)) {
             *cell = self.inner.get(&slot).map(|stack| stack.item_id);
         }
         grid
     }
 }
 
+/// Width and height of the crafting grid in use: 3 while the open table is a crafting table
+/// within reach, 2 otherwise.
+pub fn grid_size(inventory: &Inventory, table_in_reach: impl Fn(IVec3) -> bool) -> u32 {
+    match inventory.open_table {
+        Some(table) if table_in_reach(table) => CRAFTING_GRID_SIZE,
+        _ => INVENTORY_GRID_SIZE,
+    }
+}
+
 /// Applies the inventory actions of `input`, in order.
 pub fn simulate_inventory_actions(
     player: &mut Player,
+    world_map: &ChunkMap,
     input: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
+    let position = player.position;
+    let table_in_reach = |table: IVec3| {
+        world_map
+            .get_block(table)
+            .is_some_and(|block| block.id == BlockId::CraftingTable)
+            && (table.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
+    };
     for &action in &input.inventory_actions {
-        if let Err(refusal) = apply_inventory_action(&mut player.inventory, action) {
+        if let Err(refusal) = apply_inventory_action(&mut player.inventory, action, table_in_reach)
+        {
             log::debug!(
                 "{} Player {} could not apply {action:?}: {refusal:?}",
                 caller_type.as_str(),
@@ -71,23 +102,28 @@ pub fn simulate_inventory_actions(
     }
 }
 
+/// Applies `action` to `inventory`. `table_in_reach` tells whether a position holds a crafting
+/// table the player can use.
 pub fn apply_inventory_action(
     inventory: &mut Inventory,
     action: InventoryAction,
+    table_in_reach: impl Fn(IVec3) -> bool,
 ) -> Result<(), InventoryRefusal> {
+    let size = grid_size(inventory, &table_in_reach);
     let mut floating = inventory.floating.take();
     let applied = match action {
         InventoryAction::LeftClickSlot(slot) => {
-            check_slot(slot).map(|()| left_click_slot(inventory, slot, &mut floating))
+            check_slot(slot, size).map(|()| left_click_slot(inventory, slot, &mut floating))
         }
         InventoryAction::RightClickSlot(slot) => {
-            check_slot(slot).map(|()| right_click_slot(inventory, slot, &mut floating))
+            check_slot(slot, size).map(|()| right_click_slot(inventory, slot, &mut floating))
         }
         InventoryAction::Close => {
+            inventory.open_table = None;
             if let Some(stack) = floating {
                 floating = put_back(inventory, stack);
             }
-            for slot in grid_slots(3) {
+            for slot in grid_slots(CRAFTING_GRID_SIZE) {
                 if let Some(stack) = inventory.inner.remove(&slot) {
                     if let Some(kept) = put_back(inventory, stack) {
                         inventory.inner.insert(slot, kept);
@@ -96,7 +132,15 @@ pub fn apply_inventory_action(
             }
             Ok(())
         }
-        InventoryAction::TakeCraftResult => take_craft_result(inventory, &mut floating),
+        InventoryAction::TakeCraftResult => take_craft_result(inventory, &mut floating, size),
+        InventoryAction::OpenCraftingTable(table) => {
+            if table_in_reach(table) {
+                inventory.open_table = Some(table);
+                Ok(())
+            } else {
+                Err(InventoryRefusal::NoTable(table))
+            }
+        }
     };
     inventory.floating = floating;
     applied
@@ -108,10 +152,19 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
 }
 
+/// Takes what the grid makes, unless items lie in cells beyond the grid of `size` in use,
+/// left there when a table was closed with a full inventory.
 fn take_craft_result(
     inventory: &mut Inventory,
     floating: &mut Option<ItemStack>,
+    size: u32,
 ) -> Result<(), InventoryRefusal> {
+    let beyond_the_grid = grid_slots(CRAFTING_GRID_SIZE)
+        .filter(|slot| !grid_slots(size).any(|usable| usable == *slot))
+        .any(|slot| inventory.inner.contains_key(&slot));
+    if beyond_the_grid {
+        return Err(InventoryRefusal::NoRecipe);
+    }
     let result = match_recipe(&inventory.crafting_grid()).ok_or(InventoryRefusal::NoRecipe)?;
     let held = match *floating {
         None => 0,
@@ -126,14 +179,14 @@ fn take_craft_result(
         nb: held + result.nb,
         ..result
     });
-    for slot in grid_slots(3) {
+    for slot in grid_slots(CRAFTING_GRID_SIZE) {
         inventory.remove_item_from_stack(slot, 1);
     }
     Ok(())
 }
 
-fn check_slot(slot: u32) -> Result<(), InventoryRefusal> {
-    if slot < MAX_INVENTORY_SLOTS || grid_slots(INVENTORY_GRID_SIZE).any(|cell| cell == slot) {
+fn check_slot(slot: u32, size: u32) -> Result<(), InventoryRefusal> {
+    if slot < MAX_INVENTORY_SLOTS || grid_slots(size).any(|cell| cell == slot) {
         Ok(())
     } else {
         Err(InventoryRefusal::InvalidSlot(slot))
@@ -233,7 +286,9 @@ fn right_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut O
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::grid_slot;
+    use crate::world::{grid_slot, BlockId, ChunkMap};
+    use bevy::math::{IVec3, Vec3};
+    use bevy::prelude::Transform;
 
     fn stack(item_id: ItemId, nb: u32) -> ItemStack {
         ItemStack {
@@ -254,7 +309,7 @@ mod tests {
     }
 
     fn apply(inventory: &mut Inventory, action: InventoryAction) {
-        apply_inventory_action(inventory, action).unwrap();
+        apply_inventory_action(inventory, action, |_| false).unwrap();
     }
 
     #[test]
@@ -377,12 +432,17 @@ mod tests {
         assert_eq!(
             apply_inventory_action(
                 &mut inventory,
-                InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50)
+                InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50),
+                |_| false
             ),
             Err(InventoryRefusal::InvalidSlot(MAX_INVENTORY_SLOTS + 50))
         );
         assert_eq!(
-            apply_inventory_action(&mut inventory, InventoryAction::RightClickSlot(1000)),
+            apply_inventory_action(
+                &mut inventory,
+                InventoryAction::RightClickSlot(1000),
+                |_| false
+            ),
             Err(InventoryRefusal::InvalidSlot(1000))
         );
         assert_eq!(inventory, before);
@@ -463,7 +523,7 @@ mod tests {
             let before = inventory.clone();
 
             assert_eq!(
-                apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult),
+                apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult, |_| false),
                 Err(InventoryRefusal::CursorFull)
             );
             assert_eq!(inventory, before);
@@ -474,7 +534,7 @@ mod tests {
     fn taking_the_result_of_no_recipe_is_refused() {
         let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 1));
         assert_eq!(
-            apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult),
+            apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult, |_| false),
             Err(InventoryRefusal::NoRecipe)
         );
     }
@@ -487,7 +547,8 @@ mod tests {
         assert_eq!(
             apply_inventory_action(
                 &mut inventory,
-                InventoryAction::LeftClickSlot(grid_slot(0, 2))
+                InventoryAction::LeftClickSlot(grid_slot(0, 2)),
+                |_| false
             ),
             Err(InventoryRefusal::InvalidSlot(grid_slot(0, 2)))
         );
@@ -525,6 +586,160 @@ mod tests {
         assert_eq!(inventory.inner[&grid_slot(0, 0)], planks(3));
     }
 
+    const TABLE: IVec3 = IVec3::new(0, 0, -3);
+    /// Three blocks from the centre of `TABLE`, and thirteen.
+    const NEAR: Vec3 = Vec3::new(0.5, 0.5, 0.5);
+    const FAR: Vec3 = Vec3::new(0.5, 0.5, 10.5);
+
+    /// A player at `position`, and a world holding `block` at `TABLE`.
+    fn player_by(block: BlockId, position: Vec3) -> (Player, ChunkMap) {
+        let player = Player::new(1, "tester".into(), position, Transform::default());
+        let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        world.fill_box(TABLE, TABLE, block);
+        (player, world)
+    }
+
+    fn act(player: &mut Player, world: &ChunkMap, actions: Vec<InventoryAction>) {
+        let input = PlayerFrameInput {
+            inventory_actions: actions,
+            ..Default::default()
+        };
+        simulate_inventory_actions(player, world, &input, CallerType::Server);
+    }
+
+    /// Fills the grid with a ring of cobblestone, a furnace, but for its bottom right cell.
+    fn almost_a_furnace(inventory: &mut Inventory) {
+        for (row, col) in [(0, 0), (0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)] {
+            inventory
+                .inner
+                .insert(grid_slot(row, col), stack(ItemId::Cobblestone, 1));
+        }
+        inventory.floating = Some(stack(ItemId::Cobblestone, 1));
+    }
+
+    fn furnace_from_a_table(player: &mut Player, world: &ChunkMap) -> Option<ItemStack> {
+        act(
+            player,
+            world,
+            vec![
+                InventoryAction::LeftClickSlot(grid_slot(2, 2)),
+                InventoryAction::TakeCraftResult,
+            ],
+        );
+        player.inventory.floating
+    }
+
+    #[test]
+    fn a_table_opens_only_within_reach() {
+        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+        assert_eq!(player.inventory.open_table, Some(TABLE));
+
+        let (mut player, world) = player_by(BlockId::CraftingTable, FAR);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+        assert_eq!(player.inventory.open_table, None);
+    }
+
+    #[test]
+    fn a_block_that_is_not_a_table_does_not_open() {
+        let (mut player, world) = player_by(BlockId::Stone, NEAR);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+        assert_eq!(player.inventory.open_table, None);
+    }
+
+    #[test]
+    fn the_3x3_grid_is_usable_while_a_table_is_open() {
+        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        almost_a_furnace(&mut player.inventory);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+
+        assert_eq!(
+            furnace_from_a_table(&mut player, &world),
+            Some(stack(ItemId::Furnace, 1))
+        );
+        assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn a_ring_of_cobblestone_makes_nothing_without_a_table() {
+        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        almost_a_furnace(&mut player.inventory);
+        player
+            .inventory
+            .inner
+            .insert(grid_slot(2, 2), stack(ItemId::Cobblestone, 1));
+        player.inventory.floating = None;
+
+        act(&mut player, &world, vec![InventoryAction::TakeCraftResult]);
+
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(player.inventory.inner.len(), 8);
+    }
+
+    #[test]
+    fn a_broken_table_takes_the_3x3_grid_away() {
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
+        almost_a_furnace(&mut player.inventory);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+        world.remove_block(TABLE);
+
+        assert_eq!(
+            furnace_from_a_table(&mut player, &world),
+            Some(stack(ItemId::Cobblestone, 1))
+        );
+    }
+
+    #[test]
+    fn a_table_out_of_reach_takes_the_3x3_grid_away() {
+        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        almost_a_furnace(&mut player.inventory);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+        player.position = FAR;
+
+        assert_eq!(
+            furnace_from_a_table(&mut player, &world),
+            Some(stack(ItemId::Cobblestone, 1))
+        );
+    }
+
+    #[test]
+    fn close_forgets_the_open_table() {
+        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        act(
+            &mut player,
+            &world,
+            vec![
+                InventoryAction::OpenCraftingTable(TABLE),
+                InventoryAction::Close,
+            ],
+        );
+        assert_eq!(player.inventory.open_table, None);
+    }
+
     #[test]
     fn the_actions_of_an_input_are_applied_in_order() {
         let mut player = Player::default();
@@ -538,7 +753,12 @@ mod tests {
             ..Default::default()
         };
 
-        simulate_inventory_actions(&mut player, &input, CallerType::Server);
+        simulate_inventory_actions(
+            &mut player,
+            &ChunkMap::default(),
+            &input,
+            CallerType::Server,
+        );
 
         assert_eq!(player.inventory.inner.len(), 1);
         assert_eq!(player.inventory.inner[&7], stack(ItemId::Dirt, 5));

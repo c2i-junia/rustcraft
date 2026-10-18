@@ -40,7 +40,7 @@ mod tests {
     use super::*;
     use crate::players::inventory::InventoryAction;
     use crate::world::{MobAction, MobKind, MobTarget};
-    use bevy::math::Vec3;
+    use bevy::math::{IVec3, Vec3};
 
     const ENCODING_WARNING: &str = "the order of the variants is the wire format: reordering \
         them makes a client and a server misread each other. New variants go at the END of the \
@@ -148,6 +148,7 @@ mod tests {
             (InventoryAction::RightClickSlot(0), 1),
             (InventoryAction::Close, 2),
             (InventoryAction::TakeCraftResult, 3),
+            (InventoryAction::OpenCraftingTable(IVec3::ZERO), 4),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }
