@@ -62,6 +62,10 @@ pub struct BlockData {
     pub id: BlockId,
     pub direction: BlockDirection,
     pub breaking_progress: u8,
+    /// For a liquid, how far it is from its source (see `liquid`); 0 for any other block.
+    /// The worlds saved in RON before it existed read it as 0.
+    #[serde(default)]
+    pub level: u8,
 }
 
 /// Last breaking stage: there are ten crack textures, `DestroyStage0` to `DestroyStage9`.
@@ -73,6 +77,7 @@ impl BlockData {
             id,
             direction,
             breaking_progress: 0,
+            level: 0,
         }
     }
 
@@ -361,6 +366,21 @@ mod tests {
                 "{direction:?}: {ENCODING_WARNING}"
             );
         }
+    }
+
+    #[test]
+    fn block_data_encoding_is_pinned() {
+        let block = BlockData {
+            breaking_progress: 3,
+            level: 5,
+            ..BlockData::new(BlockId::Stone, BlockDirection::Right)
+        };
+        assert_eq!(
+            encoded(&block),
+            [3, 1, 3, 5],
+            "the fields of BlockData changed: bump PROTOCOL_ID and FORMAT_VERSION, and convert \
+            the chunk files of the previous version"
+        );
     }
 
     #[test]

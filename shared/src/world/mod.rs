@@ -3,6 +3,7 @@ pub mod chunk;
 pub mod chunk_map;
 pub mod data;
 pub mod items;
+pub mod liquid;
 pub mod mobs;
 pub mod raycast;
 #[cfg(any(test, feature = "test-helpers"))]

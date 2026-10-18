@@ -6,7 +6,10 @@ use bevy::{
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
-use shared::world::{to_global_pos, BlockDirection, BlockId, BlockTransparency, Chunk, ChunkMap};
+use shared::world::{
+    liquid::liquid_height, to_global_pos, BlockDirection, BlockId, BlockTransparency, Chunk,
+    ChunkMap,
+};
 
 use super::voxel::{Face, FaceDirection, VoxelShape};
 
@@ -131,7 +134,11 @@ pub(crate) fn generate_chunk_mesh(
             .then(|| uv_map.get(&format!("DestroyStage{}", block.get_breaking_level())))
             .flatten();
 
-        for face in VoxelShape::create_from_block(block).faces.iter() {
+        let mut shape = VoxelShape::create_from_block(block);
+        if let Some(height) = liquid_height(world_map, *global_block_pos) {
+            shape = shape.with_top_at(height);
+        }
+        for face in shape.faces.iter() {
             // A texture pack without this texture nor a default one: nothing to draw
             let Some(uv_coords) = uv_map.get(&face.texture).or_else(|| uv_map.get("_Default"))
             else {
@@ -291,6 +298,29 @@ mod tests {
         let water = mesh_of(&[(IVec3::ONE, BlockId::Water)]);
         assert_eq!(vertices(&water.solid_mesh), 0);
         assert_eq!(vertices(&water.liquid_mesh), vertices(&stone.solid_mesh));
+    }
+
+    #[test]
+    fn the_surface_of_the_water_is_below_the_top_of_its_cell() {
+        let highest = |response: ChunkMeshResponse| {
+            let mesh = response.liquid_mesh.unwrap();
+            let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("no positions");
+            };
+            positions.iter().map(|p| p[1]).fold(f32::MIN, f32::max)
+        };
+        assert_eq!(
+            highest(mesh_of(&[(IVec3::ONE, BlockId::Water)])),
+            1.0 + 8.0 / 9.0
+        );
+        // Under more water, a block fills its cell
+        let column = mesh_of(&[
+            (IVec3::ONE, BlockId::Water),
+            (IVec3::new(1, 2, 1), BlockId::Water),
+        ]);
+        assert_eq!(highest(column), 2.0 + 8.0 / 9.0);
     }
 
     #[test]

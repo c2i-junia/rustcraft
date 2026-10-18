@@ -14,11 +14,12 @@ pub const WORLD_FILE: &str = "world.ron";
 
 /// Version of the layout written by this code: `world.ron` is the metadata only and the chunks
 /// are in the files of `chunks/`. The single-file formats that preceded it have no version.
+/// Version 1 had the same layout, but its blocks had no level.
 ///
 /// Bump it when the files written to a world's folder change in a way an older reader would
 /// misread (the layout, `WorldMeta`, the chunk encoding), and add a conversion from the
 /// previous version on load. Adding a `BlockId` at the end of its enum needs no bump.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// What `world.ron` holds: everything about a world but its chunks and players.
 #[derive(Serialize, Deserialize)]

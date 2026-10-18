@@ -18,7 +18,7 @@ pub const CHUNKS_DIR: &str = "chunks";
 
 /// Largest size, in bytes, of a valid chunk file. A chunk is a sequence of cells, each
 /// encoded by bincode in well under `MAX_ENCODED_CELL_BYTES` (a tag, the block id, its
-/// direction and its breaking progress: 4 to 6 bytes), and lz4 never expands its input by
+/// direction, its breaking progress and its level: 5 to 7 bytes), and lz4 never expands its input by
 /// more than `n / 255 + 16` bytes, plus the 4 bytes of size prefix. A larger file is not
 /// a chunk and is not read into memory.
 const MAX_CHUNK_FILE_SIZE: u64 = {
@@ -90,6 +90,14 @@ pub fn has_chunk_files(chunks_dir: &Path) -> io::Result<bool> {
 /// interrupted write (a chunk file name plus `.tmp`) is deleted. Only a folder that cannot
 /// be listed is an error.
 pub fn read_chunks(chunks_dir: &Path) -> io::Result<HashMap<IVec3, Chunk>> {
+    read_chunks_with(chunks_dir, decode_chunk)
+}
+
+/// `read_chunks`, with the files decoded by `decode`.
+pub fn read_chunks_with(
+    chunks_dir: &Path,
+    decode: fn(&[u8]) -> Result<Chunk, String>,
+) -> io::Result<HashMap<IVec3, Chunk>> {
     let entries = match std::fs::read_dir(chunks_dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
@@ -125,7 +133,7 @@ pub fn read_chunks(chunks_dir: &Path) -> io::Result<HashMap<IVec3, Chunk>> {
             }
             continue;
         };
-        match read_chunk_file(&path) {
+        match read_chunk_file(&path, decode) {
             Ok(chunk) => {
                 chunks.insert(chunk_pos, chunk);
             }
@@ -138,7 +146,10 @@ pub fn read_chunks(chunks_dir: &Path) -> io::Result<HashMap<IVec3, Chunk>> {
     Ok(chunks)
 }
 
-fn read_chunk_file(path: &Path) -> Result<Chunk, String> {
+fn read_chunk_file(
+    path: &Path,
+    decode: fn(&[u8]) -> Result<Chunk, String>,
+) -> Result<Chunk, String> {
     let size = std::fs::metadata(path)
         .map_err(|err| err.to_string())?
         .len();
@@ -147,7 +158,7 @@ fn read_chunk_file(path: &Path) -> Result<Chunk, String> {
             "{size} bytes, more than the {MAX_CHUNK_FILE_SIZE} of any chunk"
         ));
     }
-    decode_chunk(&std::fs::read(path).map_err(|err| err.to_string())?)
+    decode(&std::fs::read(path).map_err(|err| err.to_string())?)
 }
 
 #[cfg(test)]
