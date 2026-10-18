@@ -3,6 +3,8 @@
 use bevy::prelude::Component;
 
 mod display;
+#[cfg(test)]
+mod goldens;
 mod setup;
 
 pub use display::*;

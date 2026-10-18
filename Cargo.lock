@@ -2322,6 +2322,7 @@ dependencies = [
  "bincode",
  "clap",
  "egui",
+ "image",
  "log",
  "rand 0.8.5",
  "ron 0.6.6",

@@ -38,7 +38,8 @@ jobs:
           libexpat1-dev \
           zlib1g-dev \
           mold \
-          clang
+          clang \
+          mesa-vulkan-drivers
 
     - name: Install Rust
       run: rustup toolchain install
@@ -54,3 +55,13 @@ jobs:
 
     - name: Run tests
       run: cargo test --workspace
+
+    - name: Upload the UI screenshots that differ from their golden
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: golden-failures
+        path: |
+          client/tests/golden/*.actual.png
+          client/tests/golden/*.diff.png
+        if-no-files-found: ignore
