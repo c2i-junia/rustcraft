@@ -187,6 +187,11 @@ impl BlockId {
         }
     }
 
+    /// Whether a block placed in the cell of this one takes its place.
+    pub fn is_replaceable(&self) -> bool {
+        matches!(*self, Self::Water)
+    }
+
     pub fn get_visibility(&self) -> BlockTransparency {
         match *self {
             Self::Dandelion | Self::Poppy | Self::TallGrass => BlockTransparency::Decoration,

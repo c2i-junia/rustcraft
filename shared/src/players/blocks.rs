@@ -174,7 +174,10 @@ fn place_block(
     let position = new_block_position(&aimed_block(player, world_map, action, new_block_position)?);
     let refused = |reason| Err(Refused::at(position, reason));
 
-    if world_map.get_block(position).is_some() {
+    if world_map
+        .get_block(position)
+        .is_some_and(|block| !block.id.is_replaceable())
+    {
         return refused(Refusal::Occupied);
     }
     // A block is never placed into terrain that is not loaded, and must not use up the item
@@ -369,5 +372,17 @@ mod tests {
         let player = place_across_a_chunk_border(&mut world);
         assert_eq!(world.get_block(IVec3::ZERO), None);
         assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    #[test]
+    fn a_block_placed_into_water_replaces_it() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        world.fill_box(IVec3::ZERO, IVec3::ZERO, BlockId::Water);
+        let player = place_across_a_chunk_border(&mut world);
+        assert_eq!(
+            world.get_block(IVec3::ZERO).map(|b| b.id),
+            Some(BlockId::Dirt)
+        );
+        assert!(player.inventory.inner.is_empty());
     }
 }
