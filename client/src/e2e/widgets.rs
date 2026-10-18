@@ -773,14 +773,44 @@ fn a_dialog_focuses_its_chosen_button_and_keeps_the_focus_inside() {
         h.press(KeyCode::Tab);
         assert!(focus_in_dialog(&mut h), "Tab left the dialog");
     }
-    h.click_at(Vec2::new(5.0, 5.0));
-    h.frames(2);
-    assert!(h.is_visible(&L::text("Probe?")));
-    assert!(
-        focus_in_dialog(&mut h),
-        "a click on the backdrop left the dialog"
-    );
+    // a click anywhere that is not a button leaves the focus on the same button, which still
+    // reacts to Tab
+    let title = h.center_of(&L::text("Probe?"));
+    let title_height = {
+        let entity = h.get(&L::text("Probe?"));
+        h.world().get::<ComputedNode>(entity).unwrap().size().y
+    };
+    let clicks = [
+        ("the backdrop", Vec2::new(5.0, 5.0)),
+        (
+            "the panel padding",
+            title - Vec2::new(0.0, title_height / 2.0 + 8.0),
+        ),
+        ("the title", title),
+        ("the body", h.center_of(&L::text("Sure?"))),
+    ];
+    for (what, position) in clicks {
+        h.click_at(position);
+        h.frames(2);
+        assert!(h.is_visible(&L::text("Probe?")));
+        assert_eq!(
+            h.focus_label().as_deref(),
+            Some("Cancel"),
+            "a click on {what}"
+        );
+        h.press(KeyCode::Tab);
+        assert_eq!(h.focus_label().as_deref(), Some("Quit"), "Tab after {what}");
+        h.press(KeyCode::Tab);
+        assert_eq!(
+            h.focus_label().as_deref(),
+            Some("Cancel"),
+            "Tab after {what}"
+        );
+    }
     assert!(closes(&mut h).is_empty());
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert_eq!(closes(&mut h), [None]);
 }
 
 #[test]

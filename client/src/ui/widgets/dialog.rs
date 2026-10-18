@@ -12,8 +12,7 @@ use bevy::{
         ButtonState,
     },
     input_focus::{
-        tab_navigation::{TabGroup, TabIndex},
-        AutoFocus, FocusCause, FocusedInput, InputFocus,
+        tab_navigation::TabGroup, AcquireFocus, AutoFocus, FocusCause, FocusedInput, InputFocus,
     },
     prelude::*,
     ui::FocusPolicy,
@@ -86,6 +85,7 @@ pub fn spawn_dialog(
     font: Handle<Font>,
     focus: &InputFocus,
 ) -> Entity {
+    debug_assert!(dialog.focused < dialog.actions.len());
     let root = commands
         .spawn((
             DialogRoot {
@@ -115,7 +115,6 @@ pub fn spawn_dialog(
             ..default()
         },
         BackgroundColor(BEVEL_LO.with_alpha(0.6)),
-        TabIndex(-1),
         FocusPolicy::Block,
         ChildOf(root),
     ));
@@ -165,15 +164,33 @@ pub fn spawn_dialog(
             ChildOf(panel),
         ))
         .id();
+    let mut first = None;
     for (index, (label, variant)) in dialog.actions.iter().enumerate() {
         let mut action = commands.spawn((button(label, *variant, font.clone()), ChildOf(actions)));
         if index == dialog.focused {
             action.insert(AutoFocus);
+            first = Some(action.id());
         }
         action.observe(move |_: On<Activate>, mut commands: Commands| {
             commands.entity(root).insert(CloseRequest(Some(index)));
         });
     }
+    // a click that no button took (a button stops the event) keeps the focus on the dialog
+    commands.entity(root).observe(
+        move |mut event: On<AcquireFocus>,
+              parents: Query<&ChildOf>,
+              mut focus: ResMut<InputFocus>| {
+            event.propagate(false);
+            let inside =
+                std::iter::successors(focus.get(), |e| parents.get(*e).ok().map(ChildOf::parent))
+                    .any(|e| e == root);
+            if !inside {
+                if let Some(chosen) = first {
+                    focus.set(chosen, FocusCause::Pressed);
+                }
+            }
+        },
+    );
     root
 }
 
