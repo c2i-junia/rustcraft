@@ -90,6 +90,12 @@ pub fn simulate_inventory_actions(
             .is_some_and(|block| block.id == BlockId::CraftingTable)
             && (table.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
     };
+    // A table the player walked away from, or that was broken, is closed: the dialog shrinks
+    if let Some(table) = player.inventory.open_table {
+        if !table_in_reach(table) {
+            player.inventory.open_table = None;
+        }
+    }
     let actions = input.inventory_actions.iter();
     for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
         if let Err(refusal) = apply_inventory_action(&mut player.inventory, action, table_in_reach)
@@ -113,12 +119,10 @@ pub fn apply_inventory_action(
     let size = grid_size(inventory, &table_in_reach);
     let mut floating = inventory.floating.take();
     let applied = match action {
-        InventoryAction::LeftClickSlot(slot) => {
-            check_slot(slot, size).map(|()| left_click_slot(inventory, slot, &mut floating))
-        }
-        InventoryAction::RightClickSlot(slot) => {
-            check_slot(slot, size).map(|()| right_click_slot(inventory, slot, &mut floating))
-        }
+        InventoryAction::LeftClickSlot(slot) => check_slot(inventory, slot, size, floating)
+            .map(|()| left_click_slot(inventory, slot, &mut floating)),
+        InventoryAction::RightClickSlot(slot) => check_slot(inventory, slot, size, floating)
+            .map(|()| right_click_slot(inventory, slot, &mut floating)),
         InventoryAction::Close => {
             inventory.open_table = None;
             if let Some(stack) = floating {
@@ -153,20 +157,29 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
 }
 
-/// Takes what the grid makes, unless items lie in cells beyond the grid of `size` in use,
-/// left there when a table was closed with a full inventory.
+/// Whether `slot` is a cell of the 3x3 grid outside the grid of `size` in use.
+fn is_beyond_the_grid(slot: u32, size: u32) -> bool {
+    grid_slots(CRAFTING_GRID_SIZE).any(|cell| cell == slot)
+        && !grid_slots(size).any(|usable| usable == slot)
+}
+
+/// What the grid of `size` in use makes. Nothing while items lie in cells beyond it, left there
+/// when a table was closed with a full inventory.
+pub fn craft_result(inventory: &Inventory, size: u32) -> Option<ItemStack> {
+    let beyond_the_grid = grid_slots(CRAFTING_GRID_SIZE)
+        .any(|slot| is_beyond_the_grid(slot, size) && inventory.inner.contains_key(&slot));
+    if beyond_the_grid {
+        return None;
+    }
+    match_recipe(&inventory.crafting_grid())
+}
+
 fn take_craft_result(
     inventory: &mut Inventory,
     floating: &mut Option<ItemStack>,
     size: u32,
 ) -> Result<(), InventoryRefusal> {
-    let beyond_the_grid = grid_slots(CRAFTING_GRID_SIZE)
-        .filter(|slot| !grid_slots(size).any(|usable| usable == *slot))
-        .any(|slot| inventory.inner.contains_key(&slot));
-    if beyond_the_grid {
-        return Err(InventoryRefusal::NoRecipe);
-    }
-    let result = match_recipe(&inventory.crafting_grid()).ok_or(InventoryRefusal::NoRecipe)?;
+    let result = craft_result(inventory, size).ok_or(InventoryRefusal::NoRecipe)?;
     let held = match *floating {
         None => 0,
         Some(held) if held.item_id == result.item_id => held.nb,
@@ -186,8 +199,17 @@ fn take_craft_result(
     Ok(())
 }
 
-fn check_slot(slot: u32, size: u32) -> Result<(), InventoryRefusal> {
-    if slot < MAX_INVENTORY_SLOTS || grid_slots(size).any(|cell| cell == slot) {
+/// A click may reach the inventory and the grid in use. Cells beyond it may only be emptied,
+/// with nothing in the cursor.
+fn check_slot(
+    inventory: &Inventory,
+    slot: u32,
+    size: u32,
+    floating: Option<ItemStack>,
+) -> Result<(), InventoryRefusal> {
+    let takes_a_leftover =
+        is_beyond_the_grid(slot, size) && floating.is_none() && inventory.inner.contains_key(&slot);
+    if slot < MAX_INVENTORY_SLOTS || grid_slots(size).any(|cell| cell == slot) || takes_a_leftover {
         Ok(())
     } else {
         Err(InventoryRefusal::InvalidSlot(slot))
@@ -725,6 +747,57 @@ mod tests {
             furnace_from_a_table(&mut player, &world),
             Some(stack(ItemId::Cobblestone, 1))
         );
+    }
+
+    #[test]
+    fn nothing_is_crafted_while_items_lie_beyond_the_grid_in_use() {
+        let mut inventory = Inventory::new();
+        almost_a_furnace(&mut inventory);
+        inventory
+            .inner
+            .insert(grid_slot(2, 2), stack(ItemId::Cobblestone, 1));
+
+        assert_eq!(craft_result(&inventory, INVENTORY_GRID_SIZE), None);
+        assert_eq!(
+            craft_result(&inventory, CRAFTING_GRID_SIZE),
+            Some(stack(ItemId::Furnace, 1))
+        );
+    }
+
+    #[test]
+    fn items_left_beyond_the_grid_can_be_taken_out_but_not_put_back() {
+        let mut inventory = inventory_with(grid_slot(2, 2), stack(ItemId::Cobblestone, 3));
+
+        apply(
+            &mut inventory,
+            InventoryAction::LeftClickSlot(grid_slot(2, 2)),
+        );
+        assert_eq!(inventory.floating, Some(stack(ItemId::Cobblestone, 3)));
+
+        assert_eq!(
+            apply_inventory_action(
+                &mut inventory,
+                InventoryAction::LeftClickSlot(grid_slot(2, 2)),
+                |_| false
+            ),
+            Err(InventoryRefusal::InvalidSlot(grid_slot(2, 2)))
+        );
+        assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn a_table_out_of_reach_is_closed_at_the_next_input() {
+        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        act(
+            &mut player,
+            &world,
+            vec![InventoryAction::OpenCraftingTable(TABLE)],
+        );
+        player.position = FAR;
+
+        act(&mut player, &world, vec![]);
+
+        assert_eq!(player.inventory.open_table, None);
     }
 
     #[test]

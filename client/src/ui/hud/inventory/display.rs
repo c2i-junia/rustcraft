@@ -13,9 +13,9 @@ use crate::world::MaterialResource;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use shared::players::inventory::{InventoryAction, INVENTORY_GRID_SIZE};
+use shared::players::inventory::{craft_result, InventoryAction, INVENTORY_GRID_SIZE};
 use shared::players::Inventory;
-use shared::world::{match_recipe, ItemStack, CRAFTING_GRID_SIZE};
+use shared::world::{grid_slot, ItemStack, CRAFTING_GRID_SIZE};
 
 /// Pixels of trackpad scrolling that select the next hotbar slot.
 const SCROLL_PIXELS_PER_SLOT: i32 = 20;
@@ -200,7 +200,9 @@ pub fn display_crafting_system(
         }
     }
     for (cell, mut node) in &mut grid_cells {
-        let display = if cell.row < size && cell.col < size {
+        // A cell beyond the grid in use still shows what was left in it, to be taken out
+        let holds_items = inventory.inner.contains_key(&grid_slot(cell.row, cell.col));
+        let display = if (cell.row < size && cell.col < size) || holds_items {
             Display::Flex
         } else {
             Display::None
@@ -210,7 +212,7 @@ pub fn display_crafting_system(
         }
     }
 
-    let made = match_recipe(&inventory.crafting_grid());
+    let made = craft_result(&inventory, size);
     for (interaction, mut border_color, children) in &mut result {
         show_stack(made, children, &mut counts, &mut icons, &materials);
         let border = if *interaction != Interaction::None {
@@ -511,6 +513,53 @@ mod tests {
             Display::None
         );
         assert_eq!(hud.world.get::<Text>(title).unwrap().0, "Inventory");
+    }
+
+    #[test]
+    fn a_hidden_cell_holding_items_is_shown() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let corner = hud.spawn_grid_cell(2, 2);
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(grid_slot(2, 2), dirt_stack(1));
+
+        hud.show_crafting();
+
+        assert_ne!(
+            hud.world.get::<Node>(corner).unwrap().display,
+            Display::None
+        );
+    }
+
+    #[test]
+    fn the_result_cell_shows_nothing_while_items_lie_beyond_the_grid() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let result = hud.spawn_result_cell();
+        // A furnace left in the grid of a closed table: the inventory alone cannot make it
+        let cobblestone = ItemStack {
+            item_id: ItemId::Cobblestone,
+            item_type: ItemId::Cobblestone.get_default_type(),
+            nb: 1,
+        };
+        let mut inventory = hud.world.resource_mut::<Inventory>();
+        for (row, col) in [
+            (0, 0),
+            (0, 1),
+            (0, 2),
+            (1, 0),
+            (1, 2),
+            (2, 0),
+            (2, 1),
+            (2, 2),
+        ] {
+            inventory.inner.insert(grid_slot(row, col), cobblestone);
+        }
+
+        hud.show_crafting();
+
+        let count = hud.world.get::<Children>(result).unwrap()[0];
+        assert_eq!(hud.world.get::<Text>(count).unwrap().0, "");
     }
 
     #[test]
