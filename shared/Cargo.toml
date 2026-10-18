@@ -15,6 +15,9 @@ bincode = "1.3.3"
 lz4 = "1.28.1"
 bevy_platform = "0.19"
 
+[dev-dependencies]
+ron = "0.6"
+
 [features]
 # Fixtures to build worlds in the tests of the crates that depend on this one.
 test-helpers = []

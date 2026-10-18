@@ -14,6 +14,9 @@ use crate::{
 #[derive(Debug, Resource, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Inventory {
     pub inner: HashMap<u32, ItemStack>,
+    /// The stack held by the cursor while the inventory is open.
+    #[serde(default)]
+    pub floating: Option<ItemStack>,
 }
 
 impl Default for Inventory {
@@ -26,6 +29,7 @@ impl Inventory {
     pub fn new() -> Self {
         Self {
             inner: HashMap::new(),
+            floating: None,
         }
     }
 
