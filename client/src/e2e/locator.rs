@@ -1,5 +1,7 @@
 //! Finds the elements of the UI the way a player sees them: by their text, never by where they are.
 
+use std::time::{Duration, Instant};
+
 use bevy::{prelude::*, ui::UiGlobalTransform};
 
 use super::harness::Harness;
@@ -204,6 +206,22 @@ impl Harness {
         );
     }
 
+    /// Runs frames until the locator finds something, and panics, listing the texts on screen,
+    /// if it takes longer than `timeout`.
+    pub fn wait_for(&mut self, locator: &Locator, timeout: Duration) {
+        let start = Instant::now();
+        while !self.is_visible(locator) {
+            if start.elapsed() >= timeout {
+                let texts = visible_texts(self.world_mut())
+                    .into_iter()
+                    .map(|(_, text)| text)
+                    .collect::<Vec<_>>();
+                panic!("timed out after {timeout:?} waiting for an element; the visible texts are {texts:?}");
+            }
+            self.frames(1);
+        }
+    }
+
     pub fn is_visible(&mut self, locator: &Locator) -> bool {
         !self.find(locator).is_empty()
     }
@@ -245,15 +263,23 @@ fn collect_texts(world: &World, entity: Entity, texts: &mut Vec<String>) {
 mod tests {
     use super::*;
     use crate::e2e::harness::SCREEN;
-    use crate::ui::button::MenuState;
     use Locator as L;
+
+    impl Harness {
+        /// The entity of a text, visible or not.
+        fn get_unsized(&mut self, content: &str) -> Entity {
+            self.world_mut()
+                .query::<(Entity, &Text)>()
+                .iter(self.world())
+                .find(|(_, text)| text.0 == content)
+                .unwrap()
+                .0
+        }
+    }
 
     fn main_menu() -> Harness {
         let mut h = Harness::new();
-        h.wait_until("the main menu", SCREEN, |w| {
-            *w.resource::<State<MenuState>>().get() == MenuState::Main
-        });
-        h.frames(3);
+        h.wait_for(&L::text("Singleplayer"), SCREEN);
         h
     }
 
@@ -268,6 +294,52 @@ mod tests {
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn a_hidden_text_is_not_found() {
         let mut h = main_menu();
+        let size = |width| Node {
+            width: Val::Px(width),
+            height: Val::Px(20.0),
+            ..default()
+        };
+        // Three ways to hide a text, each shown afterwards so that the case can fail
+        let hidden = h
+            .world_mut()
+            .spawn((size(100.0), Text::new("Invisible"), Visibility::Hidden))
+            .id();
+        let undisplayed = h
+            .world_mut()
+            .spawn((
+                Node {
+                    display: Display::None,
+                    ..size(100.0)
+                },
+                children![(size(100.0), Text::new("Undisplayed"))],
+            ))
+            .id();
+        h.world_mut().spawn((size(0.0), Text::new("Flat")));
+        h.frames(3);
+        for text in ["Invisible", "Undisplayed", "Flat"] {
+            assert!(h.find(&L::text(text)).is_empty(), "{text} is hidden");
+        }
+
+        h.world_mut()
+            .entity_mut(hidden)
+            .insert(Visibility::Inherited);
+        h.world_mut().get_mut::<Node>(undisplayed).unwrap().display = Display::Flex;
+        let flat = h.get_unsized("Flat");
+        h.world_mut().get_mut::<Node>(flat).unwrap().width = Val::Px(100.0);
+        h.frames(3);
+        for text in ["Invisible", "Undisplayed", "Flat"] {
+            assert!(h.is_visible(&L::text(text)), "{text} is shown");
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    fn a_text_of_a_closed_screen_is_not_found() {
+        let mut h = main_menu();
+        h.click(&L::text("Singleplayer"));
+        h.wait_for(&L::text("World list"), SCREEN);
+        h.click(&L::text("Back to menu"));
+        h.wait_for(&L::text("Singleplayer"), SCREEN);
         assert!(h.find(&L::text("World list")).is_empty());
     }
 

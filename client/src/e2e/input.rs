@@ -188,10 +188,7 @@ mod tests {
 
     fn main_menu() -> Harness {
         let mut h = Harness::new();
-        h.wait_until("the main menu", SCREEN, |w| {
-            *w.resource::<State<MenuState>>().get() == MenuState::Main
-        });
-        h.frames(3);
+        h.wait_for(&Locator::text("Singleplayer"), SCREEN);
         h
     }
 

@@ -11,7 +11,7 @@ use bevy::{
     prelude::*,
     render::{
         render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages},
-        settings::{RenderCreation, WgpuFeatures, WgpuSettings},
+        settings::{InstanceFlags, RenderCreation, WgpuFeatures, WgpuSettings},
         RenderPlugin,
     },
     window::{ExitCondition, WindowResolution},
@@ -53,6 +53,33 @@ pub struct Harness {
     folder: GameFolder,
     /// The image the screenshots are taken from.
     target: Handle<Image>,
+    /// Dropped last, so that it also covers the shutdown of the app.
+    _watchdog: Watchdog,
+}
+
+/// How long a harness may live before the watchdog aborts the process.
+const LIFETIME: Duration = Duration::from_secs(300);
+
+/// Aborts the process, saying which test it was, if its harness lives longer than [`LIFETIME`].
+/// A frame stuck in the renderer cannot be timed out from the test thread, and would otherwise
+/// block the whole run.
+struct Watchdog(std::sync::mpsc::Sender<()>);
+
+impl Watchdog {
+    fn start() -> Self {
+        let test = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .to_string();
+        let (done, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if wait.recv_timeout(LIFETIME) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                eprintln!("the harness of {test} is stuck after {LIFETIME:?}: aborting");
+                std::process::abort();
+            }
+        });
+        Self(done)
+    }
 }
 
 impl Harness {
@@ -82,6 +109,9 @@ impl Harness {
                         // The software renderer, lavapipe
                         force_fallback_adapter: true,
                         features: WgpuFeatures::POLYGON_MODE_LINE,
+                        // The Vulkan validation layer deadlocks the process when it exits
+                        // while render threads still run
+                        instance_flags: InstanceFlags::empty(),
                         ..default()
                     })),
                     // Every pipeline is ready for the first frame
@@ -143,6 +173,7 @@ impl Harness {
             app,
             folder,
             target,
+            _watchdog: Watchdog::start(),
         }
     }
 
