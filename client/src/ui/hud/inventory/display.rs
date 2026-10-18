@@ -115,9 +115,11 @@ pub fn click_inventory_cells_system(
 }
 
 /// Puts the focus on the selected hotbar slot when the inventory opens, without its ring until a
-/// key moves it, and takes it back when the inventory closes. The slots of the closed inventory
-/// leave the Tab and arrow navigation, as do the hidden cells of the crafting grid, so that Tab
-/// in the game never lands on the hotbar.
+/// key moves it, and takes it back when the inventory closes. While it is open, a click on no
+/// slot clears the focus: it goes back to the last focused cell, or to the selected slot, so that
+/// the keyboard always has a cell to start from. The slots of the closed inventory leave the Tab
+/// and arrow navigation, as do the hidden cells of the crafting grid, so that Tab in the game
+/// never lands on the hotbar.
 pub fn sync_inventory_focus(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
@@ -128,6 +130,7 @@ pub fn sync_inventory_focus(
     dialog: Query<(), With<InventoryDialog>>,
     parents: Query<&ChildOf>,
     mut was_open: Local<bool>,
+    mut last_focused: Local<Option<Entity>>,
     mut focus: ResMut<InputFocus>,
     mut focus_visible: ResMut<InputFocusVisible>,
 ) {
@@ -136,26 +139,40 @@ pub fn sync_inventory_focus(
         let shown = node.is_none_or(|node| node.display != Display::None);
         index.set_if_neq(TabIndex(if is_open && shown { 0 } else { -1 }));
     }
+    let in_dialog = focus.get().is_some_and(|focused| {
+        parents
+            .iter_ancestors(focused)
+            .any(|ancestor| dialog.contains(ancestor))
+    });
 
-    if is_open && !*was_open {
-        let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
-        let cell = slots
-            .iter()
-            .find(|(_, _, cell, _)| cell.is_some_and(|cell| Some(cell.id) == selected));
-        if let Some((entity, ..)) = cell {
-            focus.set(entity, FocusCause::Navigated);
+    if is_open {
+        if !*was_open {
+            *last_focused = None;
+            focus_visible.0 = false;
         }
-        focus_visible.0 = false;
-    }
-    if !is_open && *was_open {
-        let in_dialog = focus.get().is_some_and(|focused| {
-            parents
-                .iter_ancestors(focused)
-                .any(|ancestor| dialog.contains(ancestor))
-        });
+        if *was_open && in_dialog {
+            *last_focused = focus.get();
+        } else {
+            let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
+            let selected_cell = || {
+                slots.iter().find_map(|(entity, _, cell, _)| {
+                    cell.is_some_and(|cell| Some(cell.id) == selected)
+                        .then_some(entity)
+                })
+            };
+            let target = last_focused
+                .filter(|&cell| slots.contains(cell))
+                .or_else(selected_cell);
+            if let Some(target) = target {
+                focus.set(target, FocusCause::Navigated);
+            }
+            *last_focused = target;
+        }
+    } else if *was_open {
         if in_dialog {
             focus.clear();
         }
+        *last_focused = None;
     }
     *was_open = is_open;
 }
@@ -974,6 +991,49 @@ mod tests {
         hud.world.run_system(sync).unwrap();
         assert_eq!(hud.world.resource::<InputFocus>().get(), None);
         assert_eq!(indices(&hud), [-1, -1, -1]);
+    }
+
+    #[test]
+    fn the_open_inventory_takes_the_focus_back_after_a_click_on_empty_space() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let mut dialog = hud.world.query_filtered::<Entity, With<InventoryDialog>>();
+        let dialog = dialog.single(&hud.world).unwrap();
+        let mut spawn = |id: u32| {
+            let cell = (InventoryCell { id }, TabIndex(0), ChildOf(dialog));
+            hud.world.spawn(cell).id()
+        };
+        let selected = spawn(0);
+        let last = spawn(12);
+        let sync = hud.world.register_system(sync_inventory_focus);
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(hud.world.resource::<InputFocus>().get(), Some(selected));
+
+        // The arrows moved the focus, then a click on empty space cleared it
+        hud.world.insert_resource(InputFocus::from_entity(last));
+        hud.world.run_system(sync).unwrap();
+        hud.world.resource_mut::<InputFocus>().clear();
+        hud.world.resource_mut::<InputFocusVisible>().0 = true;
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(hud.world.resource::<InputFocus>().get(), Some(last));
+        // The ring is left as it was: hidden after a click, shown after a key
+        assert!(hud.world.resource::<InputFocusVisible>().0);
+
+        // Without the last cell, the focus goes back to the selected slot
+        hud.world.despawn(last);
+        hud.world.resource_mut::<InputFocus>().clear();
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(hud.world.resource::<InputFocus>().get(), Some(selected));
+    }
+
+    #[test]
+    fn enter_on_the_focused_result_cell_crafts() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let result = hud.spawn_result_cell();
+        hud.world.insert_resource(InputFocus::from_entity(result));
+
+        hud.press_key_over(None, KeyCode::Enter);
+
+        assert_eq!(hud.sent_actions(), [InventoryAction::TakeCraftResult]);
     }
 
     #[test]

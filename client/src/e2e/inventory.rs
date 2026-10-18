@@ -375,6 +375,15 @@ fn the_keyboard_alone_moves_stacks_in_the_inventory() {
         slot(w, 9) == Some((ItemId::Dirt, 5)) && slot(w, 1).is_none()
     });
 
+    // A click between the backpack and the hotbar, on no slot, leaves the keyboard a focus
+    let (above, below) = (h.rect_of(&L::cell(27)), h.rect_of(&L::cell(0)));
+    h.click_at(Vec2::new(
+        above.center().x,
+        (above.max.y + below.min.y) / 2.0,
+    ));
+    h.press(KeyCode::ArrowRight);
+    assert_eq!(focused_cell(h.world()), Some(2));
+
     // The panel keeps Tab to itself
     for _ in 0..50 {
         h.press(KeyCode::Tab);
@@ -388,6 +397,8 @@ fn the_keyboard_alone_moves_stacks_in_the_inventory() {
     h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
 }
 
+/// Guards the modal `TabGroup` of the panel: Tab in the game gathers only the non-modal groups.
+/// The `TabIndex(-1)` of the closed slots is covered by a unit test of `sync_inventory_focus`.
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn tab_in_gameplay_leaves_the_hotbar_unfocused() {
