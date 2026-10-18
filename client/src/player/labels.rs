@@ -14,6 +14,7 @@ pub fn player_labels_system(
     mut labels: Query<(&mut Node, &mut Visibility, &PlayerLabel)>,
     labeled: Query<&GlobalTransform>,
     view: Res<ViewMode>,
+    ui_scale: Res<UiScale>,
 ) {
     let (camera, camera_global_transform) = camera.into_inner();
 
@@ -40,8 +41,9 @@ pub fn player_labels_system(
                 if let Ok(viewport_position) = viewport_position {
                     // The logic for centering the label is clearly not sound but kinda works, should be improved
                     let name_px_size = PLAYER_LABEL_FONT_SIZE * label.name.len() as f32;
-                    node.top = Val::Px(viewport_position.y);
-                    node.left = Val::Px(viewport_position.x - (name_px_size / 4.0));
+                    // `Val::Px` is multiplied by the UI scale: the viewport position is divided by it
+                    node.top = Val::Px(viewport_position.y / ui_scale.0);
+                    node.left = Val::Px((viewport_position.x - (name_px_size / 4.0)) / ui_scale.0);
                 } else {
                     warn!("Viewport position not found: {:?}", viewport_position);
                 }

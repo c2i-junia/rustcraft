@@ -221,6 +221,58 @@ fn the_inventory_opens_closes_and_moves_stacks() {
     });
 }
 
+/// Picks up a stack in the open inventory of a window of `width` x `height`, and returns where
+/// the centre of the held stack is from the cursor, in physical pixels.
+fn held_stack_offset(width: u32, height: u32) -> Vec2 {
+    let folder =
+        GameFolder::new()
+            .with_world("Bag")
+            .with_items("Bag", "Tester", &[(10, ItemId::Dirt, 5)]);
+    let mut h = Harness::start(
+        folder,
+        Options {
+            width,
+            height,
+            ..default()
+        },
+    );
+    h.click_when_ready(&L::text("Singleplayer"));
+    h.wait_for_icons("Bag");
+    h.click(&L::name("Play Bag"));
+    h.wait_for_game_state(GameState::Game, SERVER);
+    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 10) == Some((ItemId::Dirt, 5))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    h.click(&L::cell(10));
+    let stack = L::marker::<FloatingStack>();
+    h.wait_for(&stack, SCREEN);
+    h.frames(3);
+    let cursor = h
+        .world_mut()
+        .query::<&Window>()
+        .single(h.world())
+        .unwrap()
+        .physical_cursor_position()
+        .unwrap();
+    h.center_of(&stack) - cursor
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_held_stack_follows_the_cursor_at_any_ui_scale() {
+    // The stack is drawn at the same place relative to the cursor, scaled with the UI
+    let at_720 = held_stack_offset(1280, 720);
+    let at_1080 = held_stack_offset(1920, 1080);
+    let expected = at_720 * 1.5;
+    assert!(
+        (at_1080 - expected).abs().max_element() < 3.0,
+        "offset {at_1080} at 1080p, expected about {expected} (offset {at_720} at 720p)"
+    );
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn escape_closes_the_inventory() {

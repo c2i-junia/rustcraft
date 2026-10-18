@@ -134,6 +134,7 @@ pub fn display_inventory_system(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
     window: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
     mut floating_stack: Query<(&mut Node, &Children), With<FloatingStack>>,
     mut cells: Query<(&Interaction, &mut BorderColor, &InventoryCell, &Children)>,
     mut counts: Query<&mut Text, With<StackCount>>,
@@ -146,8 +147,9 @@ pub fn display_inventory_system(
 
     if let Ok((mut node, children)) = floating_stack.single_mut() {
         if let Some(cursor) = window.single().ok().and_then(Window::cursor_position) {
-            node.top = Val::Px(cursor.y);
-            node.left = Val::Px(cursor.x);
+            // `Val::Px` is multiplied by the UI scale: the window position is divided by it
+            node.top = Val::Px(cursor.y / ui_scale.0);
+            node.left = Val::Px(cursor.x / ui_scale.0);
         }
         show_stack(
             inventory.floating,
@@ -285,6 +287,7 @@ mod tests {
             world.insert_resource(MaterialResource::default());
             world.insert_resource(ButtonInput::<MouseButton>::default());
             world.init_resource::<CurrentFrameInputs>();
+            world.init_resource::<UiScale>();
             world.spawn((InventoryRoot, inventory_visibility));
             world.spawn(Hotbar { selected: 0 });
             world
@@ -639,6 +642,7 @@ mod tests {
             },
         );
         world.insert_resource(inventory);
+        world.init_resource::<UiScale>();
         world.run_system_once(setup_hotbar).unwrap();
         world.run_system_once(setup_inventory).unwrap();
 
