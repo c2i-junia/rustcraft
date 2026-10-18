@@ -103,6 +103,20 @@ impl VoxelShape {
         }
     }
 
+    /// Brings the top of the shape down to `height` blocks above its bottom.
+    pub fn with_top_at(mut self, height: f32) -> Self {
+        for vertex in self
+            .faces
+            .iter_mut()
+            .flat_map(|face| face.vertices.iter_mut())
+        {
+            if vertex[1] == 1.0 {
+                vertex[1] = height;
+            }
+        }
+        self
+    }
+
     fn tinted(mut self, color: [f32; 4]) -> Self {
         for face in self.faces.iter_mut() {
             face.tint(color);

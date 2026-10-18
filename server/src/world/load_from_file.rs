@@ -8,16 +8,20 @@ use shared::GameFolderPaths;
 use std::fs;
 use std::path::Path;
 
-use crate::world::chunk_files::{has_chunk_files, read_chunks, write_chunk, CHUNKS_DIR};
+use crate::world::chunk_files::{
+    has_chunk_files, read_chunks, read_chunks_with, write_chunk, CHUNKS_DIR,
+};
 use crate::world::data::{world_dir, SAVE_PATH};
 use crate::world::format::{write_meta, WorldData, WorldMeta, FORMAT_VERSION, WORLD_FILE};
-use crate::world::legacy::LegacyWorldData;
+use crate::world::legacy::{decode_chunk_v1, LegacyWorldData};
 use std::path::PathBuf;
 
 /// What a `world.ron` turned out to hold.
 enum WorldFile {
     /// The current layout: only the metadata, the chunks are in `chunks/`.
     Current(WorldMeta),
+    /// The current layout, with chunk files of format version 1, whose blocks have no level.
+    V1(WorldMeta),
     /// One of the two single-file formats, chunks included.
     SingleFile(WorldData),
 }
@@ -63,16 +67,11 @@ pub fn load_world_data(
         parse_world_file(&contents).map_err(|err| format!("{}: {err}", file_path.display()))?;
 
     let world_data = match world_file {
-        WorldFile::Current(meta) => {
-            let map = read_chunks(&dir.join(CHUNKS_DIR))
-                .map_err(|err| format!("{}: {err}", dir.join(CHUNKS_DIR).display()))?;
-            WorldData {
-                map,
-                mobs: meta.mobs,
-                seed: meta.seed,
-                name: meta.name,
-                time: meta.time,
-            }
+        WorldFile::Current(meta) => read_chunks_of(&dir, meta)?,
+        WorldFile::V1(meta) => {
+            convert_v1_chunks(&dir, &meta)
+                .map_err(|err| format!("could not convert {}: {err}", dir.display()))?;
+            read_chunks_of(&dir, meta)?
         }
         WorldFile::SingleFile(world_data) => {
             convert_single_file_world(&dir, &world_data)
@@ -84,6 +83,19 @@ pub fn load_world_data(
     info!("Found world data file from disk: {}", file_path.display());
 
     Ok(world_data)
+}
+
+/// The world of `meta`, with the chunk files of the folder of the world `dir`.
+fn read_chunks_of(dir: &Path, meta: WorldMeta) -> Result<WorldData, String> {
+    let chunks_dir = dir.join(CHUNKS_DIR);
+    let map = read_chunks(&chunks_dir).map_err(|err| format!("{}: {err}", chunks_dir.display()))?;
+    Ok(WorldData {
+        map,
+        mobs: meta.mobs,
+        seed: meta.seed,
+        name: meta.name,
+        time: meta.time,
+    })
 }
 
 /// Tells the layout of a `world.ron` by its `format_version`, which the single-file formats
@@ -100,6 +112,9 @@ fn parse_world_file(contents: &str) -> Result<WorldFile, String> {
         .format_version;
     match version {
         0 => parse_single_file_world(contents).map(WorldFile::SingleFile),
+        1 => from_str::<WorldMeta>(contents)
+            .map(WorldFile::V1)
+            .map_err(|err| format!("not a valid world file ({err})")),
         FORMAT_VERSION => from_str::<WorldMeta>(contents)
             .map(WorldFile::Current)
             .map_err(|err| format!("not a valid world file ({err})")),
@@ -153,6 +168,51 @@ fn convert_single_file_world(dir: &Path, world: &WorldData) -> Result<(), String
         "Converted the world {} to one file per chunk, the old file is kept as {:?}",
         dir.display(),
         legacy_name
+    );
+    Ok(())
+}
+
+/// Name of the folder that keeps the chunk files of format version 1 once converted.
+pub const V1_CHUNKS_DIR: &str = "chunks.v1";
+
+/// Converts the chunk files of a world of format version 1, whose blocks had no level, then
+/// writes its `world.ron` again with the current version. The old files are kept in
+/// `chunks.v1`.
+///
+/// The old folder is first renamed to `chunks.v1`, and from then on is the source of the
+/// conversion: a `chunks` folder next to it while `world.ron` still says version 1 is what an
+/// interrupted conversion left, and is written again. The new `world.ron` comes last, so it
+/// only says the current version once every chunk is converted.
+fn convert_v1_chunks(dir: &Path, meta: &WorldMeta) -> Result<(), String> {
+    let chunks_dir = dir.join(CHUNKS_DIR);
+    let v1_dir = dir.join(V1_CHUNKS_DIR);
+    fn at(path: &Path) -> impl Fn(std::io::Error) -> String + '_ {
+        move |err| format!("{}: {err}", path.display())
+    }
+
+    if !v1_dir.exists() && chunks_dir.exists() {
+        fs::rename(&chunks_dir, &v1_dir).map_err(at(&chunks_dir))?;
+        sync_dir(dir);
+    }
+    let chunks = read_chunks_with(&v1_dir, decode_chunk_v1).map_err(at(&v1_dir))?;
+    if chunks_dir.exists() {
+        fs::remove_dir_all(&chunks_dir).map_err(at(&chunks_dir))?;
+    }
+    fs::create_dir_all(&chunks_dir).map_err(at(&chunks_dir))?;
+    for (&chunk_pos, chunk) in &chunks {
+        write_chunk(&chunks_dir, chunk_pos, chunk)
+            .map_err(|err| format!("chunk {chunk_pos}: {err}"))?;
+    }
+    // The chunk files must be on disk before the new world.ron says the world is converted
+    sync_dir(&chunks_dir);
+
+    let converted = WorldMeta::new(meta.name.clone(), meta.seed, meta.time, meta.mobs.clone());
+    write_meta(dir, &converted).map_err(|err| err.to_string())?;
+    sync_dir(dir);
+    info!(
+        "Converted the {} chunks of the world {} to format version {FORMAT_VERSION}, the old files are kept in {V1_CHUNKS_DIR}",
+        chunks.len(),
+        dir.display()
     );
     Ok(())
 }
@@ -254,6 +314,8 @@ pub fn load_player_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::chunk_files::chunk_file_name;
+    use crate::world::legacy::encode_chunk_v1;
     use crate::world::save::save_player_data;
     use shared::world::{ItemId, ItemStack};
 
@@ -471,17 +533,80 @@ mod tests {
         );
     }
 
+    /// A world of format version 1: the metadata of `sample_world` and its chunks, written
+    /// without their levels.
+    fn v1_world(tmp: &tempfile::TempDir) -> (GameFolderPaths, shared::world::Chunk) {
+        let paths = paths(tmp);
+        let (saved, chunk) = sample_world();
+        let dir = world_dir_of(tmp);
+        let mut meta = WorldMeta::from(&saved);
+        meta.format_version = 1;
+        write_meta(&dir, &meta).unwrap();
+        fs::create_dir_all(dir.join(CHUNKS_DIR)).unwrap();
+        for (&pos, chunk) in &saved.map {
+            fs::write(
+                dir.join(CHUNKS_DIR).join(chunk_file_name(pos)),
+                encode_chunk_v1(chunk),
+            )
+            .unwrap();
+        }
+        (paths, chunk)
+    }
+
+    fn assert_converted(tmp: &tempfile::TempDir, chunk: &shared::world::Chunk) {
+        let dir = world_dir_of(tmp);
+        let loaded = load_world_data(WORLD, &paths(tmp)).unwrap();
+        assert_eq!(loaded.map.len(), 2);
+        assert_eq!(&loaded.map[&IVec3::new(-1, 4, 2)], chunk);
+        assert_eq!((loaded.seed.0, loaded.time), (77, 5));
+        assert!(matches!(
+            parse_world_file(&fs::read_to_string(dir.join(WORLD_FILE)).unwrap()),
+            Ok(WorldFile::Current(_))
+        ));
+        assert_eq!(
+            file_names(&dir.join(V1_CHUNKS_DIR)),
+            ["-1_4_2.bin", "0_0_0.bin"]
+        );
+    }
+
+    #[test]
+    fn a_world_of_format_version_1_is_converted_and_its_old_chunks_kept() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, chunk) = v1_world(&tmp);
+
+        assert_converted(&tmp, &chunk);
+        // A second load reads the converted world as it is
+        assert_converted(&tmp, &chunk);
+    }
+
+    #[test]
+    fn an_interrupted_conversion_of_format_version_1_is_redone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, chunk) = v1_world(&tmp);
+        // The conversion stopped after renaming the old folder and writing one new file
+        let dir = world_dir_of(&tmp);
+        fs::rename(dir.join(CHUNKS_DIR), dir.join(V1_CHUNKS_DIR)).unwrap();
+        fs::create_dir_all(dir.join(CHUNKS_DIR)).unwrap();
+        fs::write(dir.join(CHUNKS_DIR).join("5_5_5.bin"), b"half written").unwrap();
+
+        assert_converted(&tmp, &chunk);
+        assert_eq!(
+            file_names(&dir.join(CHUNKS_DIR)),
+            ["-1_4_2.bin", "0_0_0.bin"]
+        );
+    }
+
     #[test]
     fn a_world_in_a_newer_format_version_is_refused_and_left_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let text =
-            r#"(format_version: 2, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
+            r#"(format_version: 3, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
         let paths = write_world_file(&tmp, text);
 
         let err = load_world_data(WORLD, &paths).err().unwrap().to_string();
 
         assert!(err.contains("world.ron"), "{err}");
-        assert!(err.contains("version 2"), "{err}");
+        assert!(err.contains("version 3"), "{err}");
         assert_eq!(
             fs::read_to_string(world_dir_of(&tmp).join("world.ron")).unwrap(),
             text

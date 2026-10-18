@@ -153,6 +153,7 @@ mod tests {
         use super::*;
         use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
         use crate::world::data::SAVE_PATH;
+        use crate::world::format::FORMAT_VERSION;
         use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
@@ -238,7 +239,7 @@ mod tests {
                     .unwrap();
             assert_eq!(
                 (meta.name.as_str(), meta.time, meta.format_version),
-                ("w", 10, 1)
+                ("w", 10, FORMAT_VERSION)
             );
         }
 

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::world::BlockTransparency;
+use shared::world::liquid::liquid_height;
 
 use crate::world::ClientWorldMap;
 
@@ -16,10 +16,9 @@ pub fn underwater_fog_system(
     mut commands: Commands,
 ) {
     for (entity, transform, mut camera, has_fog) in &mut cameras {
-        let under_water = world_map
-            .blocks
-            .get_block(transform.translation.floor().as_ivec3())
-            .is_some_and(|block| block.id.get_visibility() == BlockTransparency::Liquid);
+        let eye = transform.translation;
+        let under_water = liquid_height(&world_map.blocks, eye.floor().as_ivec3())
+            .is_some_and(|height| eye.y - eye.y.floor() < height);
         if under_water == has_fog {
             continue;
         }
@@ -66,6 +65,15 @@ mod tests {
 
         app.update();
         assert!(app.world().get::<DistanceFog>(camera).is_some());
+
+        // In the top cell of the water, above its surface
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .y = 3.95;
+        app.update();
+        assert!(app.world().get::<DistanceFog>(camera).is_none());
 
         app.world_mut()
             .get_mut::<Transform>(camera)

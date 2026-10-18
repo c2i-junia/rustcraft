@@ -1,6 +1,7 @@
-//! The `world.ron` format written before chunks became dense arrays: a chunk was a map from
-//! local position to block, next to bookkeeping that is no longer saved. Only the conversion
-//! to the current format lives here.
+//! The formats written by older versions, and only their conversion to the current one:
+//! - the `world.ron` written before chunks became dense arrays, where a chunk was a map from
+//!   local position to block, next to bookkeeping that is no longer saved;
+//! - the chunk files of format version 1, whose blocks had no level.
 
 use std::collections::HashMap;
 
@@ -8,10 +9,12 @@ use bevy::{
     log::{debug, warn},
     math::IVec3,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use shared::{
+    payload_to_game_message,
     world::{
-        global_block_to_chunk_pos, to_local_pos, BlockData, Chunk, MobId, ServerMob, WorldSeed,
+        global_block_to_chunk_pos, to_local_pos, BlockData, BlockDirection, BlockId, Chunk, MobId,
+        ServerMob, WorldSeed,
     },
     CHUNK_SIZE,
 };
@@ -103,6 +106,61 @@ impl From<LegacyWorldData> for WorldData {
             time: legacy.time,
         }
     }
+}
+
+/// A block as the chunk files of format version 1 encoded it, before blocks had a level.
+#[derive(Serialize, Deserialize)]
+struct BlockDataV1 {
+    id: BlockId,
+    direction: BlockDirection,
+    breaking_progress: u8,
+}
+
+/// The local positions of a chunk in the order of its cells in a chunk file: `x`, then `y`,
+/// then `z`.
+fn cell_positions() -> impl Iterator<Item = IVec3> {
+    (0..CHUNK_SIZE).flat_map(|x| {
+        (0..CHUNK_SIZE).flat_map(move |y| (0..CHUNK_SIZE).map(move |z| IVec3::new(x, y, z)))
+    })
+}
+
+/// Decodes a chunk file of format version 1: its blocks get level 0. Like `decode_chunk`, a
+/// file that does not hold exactly one chunk is an error.
+pub(super) fn decode_chunk_v1(bytes: &[u8]) -> Result<Chunk, String> {
+    let cells: Vec<Option<BlockDataV1>> =
+        payload_to_game_message(bytes).map_err(|err| err.to_string())?;
+    let volume = cell_positions().count();
+    if cells.len() != volume {
+        return Err(format!("{} cells instead of {volume}", cells.len()));
+    }
+    let mut chunk = Chunk::new();
+    for (local, cell) in cell_positions().zip(cells) {
+        if let Some(old) = cell {
+            chunk.set(
+                local,
+                BlockData {
+                    breaking_progress: old.breaking_progress,
+                    ..BlockData::new(old.id, old.direction)
+                },
+            );
+        }
+    }
+    Ok(chunk)
+}
+
+/// The chunk file that format version 1 wrote for `chunk`, its levels left out.
+#[cfg(test)]
+pub(super) fn encode_chunk_v1(chunk: &Chunk) -> Vec<u8> {
+    let cells: Vec<Option<BlockDataV1>> = cell_positions()
+        .map(|local| {
+            chunk.get(local).map(|block| BlockDataV1 {
+                id: block.id,
+                direction: block.direction,
+                breaking_progress: block.breaking_progress,
+            })
+        })
+        .collect();
+    shared::game_message_to_payload(cells)
 }
 
 #[cfg(test)]
