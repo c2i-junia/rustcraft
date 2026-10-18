@@ -77,9 +77,26 @@ const LIFETIME: Duration = Duration::from_secs(300);
 /// A frame stuck in the renderer cannot be timed out from the test thread, and would otherwise
 /// block the whole run.
 struct Watchdog(
-    // Only held for its drop, which tells the watchdog that the harness is gone
-    #[allow(dead_code)] std::sync::mpsc::Sender<()>,
+    // Only held for its drop
+    #[allow(dead_code)] Stop,
 );
+
+thread_local! {
+    /// The watchdogs started by the test of this thread. They stop when the thread ends, even
+    /// when the test failed: the client is built with Cranelift, which runs no destructor while
+    /// a panic unwinds, so the drop of a failed test's harness never comes.
+    static WATCHDOGS: std::cell::RefCell<Vec<Stop>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Stops a watchdog when dropped.
+struct Stop(std::sync::mpsc::Sender<()>);
+
+impl Drop for Stop {
+    fn drop(&mut self) {
+        // The watchdog may be gone already
+        let _ = self.0.send(());
+    }
+}
 
 impl Watchdog {
     fn start() -> Self {
@@ -88,13 +105,15 @@ impl Watchdog {
             .unwrap_or("unnamed")
             .to_string();
         let (done, wait) = std::sync::mpsc::channel();
+        WATCHDOGS.with(|watchdogs| watchdogs.borrow_mut().push(Stop(done.clone())));
         std::thread::spawn(move || {
             if wait.recv_timeout(LIFETIME) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
                 eprintln!("the harness of {test} is stuck after {LIFETIME:?}: aborting");
                 std::process::abort();
             }
         });
-        Self(done)
+        // Dropped with the harness, it stops the watchdog before the thread ends
+        Self(Stop(done))
     }
 }
 

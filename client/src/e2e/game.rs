@@ -279,14 +279,17 @@ fn the_pause_menu_resumes_saves_and_leaves() {
         .join(SAVE_PATH)
         .join("Pause/players")
         .join(format!("{}.ron", hash_string_to_u64("Tester")));
+    let meta = h.folder().join(SAVE_PATH).join("Pause/world.ron");
+    let written = || fs::metadata(&meta).unwrap().modified().unwrap();
+    let seeded = written();
     assert!(!player.exists());
     h.press(KeyCode::Escape);
     h.click(&L::text("Save"));
+    // Save writes the player at once and world.ron a little later, on another thread
     h.wait_until("the saved player", SERVER, |_| player.exists());
+    h.wait_until("world.ron saved", SERVER, |_| written() > seeded);
 
-    // Leaving saves the world: world.ron is written after the click
-    let meta = h.folder().join(SAVE_PATH).join("Pause/world.ron");
-    let written = || fs::metadata(&meta).unwrap().modified().unwrap();
+    // Leaving saves the world again: world.ron is written after the click
     let before = written();
     h.click(&L::text("Back to menu"));
     h.wait_until("the main menu", SERVER, |w| {
