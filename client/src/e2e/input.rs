@@ -14,17 +14,20 @@ use super::{harness::Harness, locator::Locator};
 
 impl Harness {
     /// Clicks the centre of the element with the left button.
+    #[track_caller]
     pub fn click(&mut self, locator: &Locator) {
         self.click_with(locator, MouseButton::Left);
     }
 
     // No test uses the right button yet
     #[allow(dead_code)]
+    #[track_caller]
     pub fn right_click(&mut self, locator: &Locator) {
         self.click_with(locator, MouseButton::Right);
     }
 
     /// Moves the cursor onto the element.
+    #[track_caller]
     pub fn hover(&mut self, locator: &Locator) {
         let center = self.center_of(locator);
         self.move_cursor(center);
@@ -85,6 +88,7 @@ impl Harness {
         self.frames(1);
     }
 
+    #[track_caller]
     fn click_with(&mut self, locator: &Locator, button: MouseButton) {
         let center = self.center_of(locator);
         self.move_cursor(center);
@@ -181,18 +185,11 @@ fn key_code_of(c: char) -> KeyCode {
 
 #[cfg(test)]
 mod tests {
-    use bevy_simple_text_input::TextInputValue;
-
     use super::*;
     use crate::e2e::harness::SCREEN;
+    use crate::e2e::helpers::main_menu;
     use crate::ui::button::MenuState;
     use crate::ui::menus::solo::WorldNameInput;
-
-    fn main_menu() -> Harness {
-        let mut h = Harness::new();
-        h.wait_for(&Locator::text("Singleplayer"), SCREEN);
-        h
-    }
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
@@ -212,8 +209,6 @@ mod tests {
         });
         h.frames(3);
         h.type_text("My world 2");
-        let input = h.get(&Locator::marker::<WorldNameInput>());
-        let value = h.world().get::<TextInputValue>(input).unwrap();
-        assert_eq!(value.0, "My world 2");
+        assert_eq!(h.value_of::<WorldNameInput>(), "My world 2");
     }
 }

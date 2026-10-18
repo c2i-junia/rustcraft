@@ -1,10 +1,6 @@
 //! The world list: creating, deleting and playing the saved worlds.
 
-use bevy::{
-    input::keyboard::KeyCode,
-    prelude::State,
-    prelude::{Name, With},
-};
+use bevy::input::keyboard::KeyCode;
 
 use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
@@ -12,7 +8,6 @@ use super::seed::GameFolder;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
 use crate::ui::menus::solo::WorldNameInput;
-use bevy_simple_text_input::TextInputValue;
 
 /// A client on the world list, with the worlds `Survie`, `Creative build` and `Test world 3`.
 fn world_list() -> Harness {
@@ -25,7 +20,7 @@ fn world_list() -> Harness {
 
 fn open_world_list(folder: GameFolder) -> Harness {
     let mut h = Harness::start(folder, Default::default());
-    h.click_when_ready("Singleplayer");
+    h.click_when_ready(&L::text("Singleplayer"));
     h.wait_for(&L::text("World list"), SCREEN);
     h
 }
@@ -71,25 +66,12 @@ fn an_invalid_name_adds_no_world() {
     let mut h = world_list();
     h.wait_for(&L::name("Play Survie"), SCREEN);
     h.type_text("bad/name");
-    let typed = h
-        .world_mut()
-        .query_filtered::<&TextInputValue, With<WorldNameInput>>()
-        .single(h.world())
-        .unwrap()
-        .0
-        .clone();
-    assert_eq!(typed, "bad/name");
+    assert_eq!(h.value_of::<WorldNameInput>(), "bad/name");
     h.click(&L::text("Create world"));
     // The click frame handles the button: two more frames are plenty for a negative check
     h.frames(2);
     assert_eq!(h.find(&L::name("Play bad/name")).len(), 0);
-    let rows = h
-        .world_mut()
-        .query::<&Name>()
-        .iter(h.world())
-        .filter(|n| n.starts_with("Play "))
-        .count();
-    assert_eq!(rows, 3);
+    assert_eq!(h.play_rows(), 3);
 }
 
 #[test]
@@ -156,7 +138,5 @@ fn playing_a_world_connects_then_enters_the_game() {
     h.wait_for_icons("Survie");
     h.click(&L::name("Play Survie"));
     assert_eq!(h.game_state(), GameState::PreGameLoading);
-    h.wait_until("the game", SERVER, |w| {
-        *w.resource::<State<GameState>>().get() == GameState::Game
-    });
+    h.wait_for_game_state(GameState::Game, SERVER);
 }

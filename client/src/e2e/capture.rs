@@ -14,7 +14,7 @@ use bevy::{
 };
 use image::RgbImage;
 
-use super::harness::Harness;
+use super::harness::{Harness, SCREEN};
 use crate::ui::golden::assert_image_matches;
 
 /// The frames that capturing the screen may take.
@@ -59,8 +59,23 @@ impl Harness {
             .to_rgb8()
     }
 
-    /// Checks the screen against the golden `name`.
+    /// Runs frames until every image of the UI is loaded: the buttons are only borders before.
+    /// Meant for the menus: in game, the atlas built at runtime never counts as loaded.
+    #[track_caller]
+    pub fn wait_for_ui_images(&mut self) {
+        self.wait_until("the images of the UI", SCREEN, |w| {
+            let server = w.resource::<AssetServer>();
+            let mut nodes = w.try_query::<&ImageNode>().unwrap();
+            nodes
+                .iter(w)
+                .all(|node| server.is_loaded_with_dependencies(&node.image))
+        });
+    }
+
+    /// Checks the menu screen against the golden `name`, once its images are loaded.
+    #[track_caller]
     pub fn assert_screenshot(&mut self, name: &str) {
+        self.wait_for_ui_images();
         let shot = self.screenshot();
         assert_image_matches(name, &shot);
     }
@@ -122,32 +137,17 @@ impl Harness {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::*;
 
     use super::snapshot_path;
     use crate::e2e::harness::{Harness, SCREEN};
     use crate::e2e::locator::Locator as L;
     use crate::ui::button::MenuState;
 
-    impl Harness {
-        /// Runs frames until every image of the UI is loaded.
-        fn wait_for_ui_images(&mut self) {
-            self.wait_until("the images of the UI", SCREEN, |w| {
-                let server = w.resource::<AssetServer>();
-                let mut nodes = w.try_query::<&ImageNode>().unwrap();
-                nodes
-                    .iter(w)
-                    .all(|node| server.is_loaded_with_dependencies(&node.image))
-            });
-        }
-    }
-
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn the_main_menu_matches_its_golden() {
         let mut h = Harness::new();
         h.wait_for(&L::text("Multiplayer"), SCREEN);
-        h.wait_for_ui_images();
         h.assert_screenshot("menu_main");
     }
 

@@ -8,10 +8,11 @@ use shared::players::Inventory;
 use shared::world::{grid_slot, ItemId};
 
 use super::harness::{Harness, Options, SCREEN, SERVER};
-use super::locator::{is_inside, is_visible, Locator as L};
+use super::helpers::is_in;
+use super::locator::{is_inside, is_shown, Locator as L};
 use super::seed::GameFolder;
 use crate::constants::SAVE_PATH;
-use crate::network::setup::hash_string_to_u64;
+use crate::network::hash_string_to_u64;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
 use crate::ui::hud::chat::{ChatDisplay, ChatRoot};
@@ -23,14 +24,13 @@ use crate::ui::hud::{
 use crate::world::MaterialResource;
 
 /// A client in the game, in the world `world` of `folder`, with its hotbar on screen.
+#[track_caller]
 pub fn enter_world(folder: GameFolder, world: &str) -> Harness {
     let mut h = Harness::start(folder, Options::default());
-    h.click_when_ready("Singleplayer");
+    h.click_when_ready(&L::text("Singleplayer"));
     h.wait_for_icons(world);
     h.click(&L::name(&format!("Play {world}")));
-    h.wait_until("the game", SERVER, |w| {
-        *w.resource::<State<GameState>>().get() == GameState::Game
-    });
+    h.wait_for_game_state(GameState::Game, SERVER);
     h.wait_for(&L::marker::<Hotbar>(), SCREEN);
     h
 }
@@ -63,13 +63,12 @@ impl Harness {
             })
             .map(|(entity, _)| entity)
             .collect();
-        bars.into_iter()
-            .filter(|&bar| is_visible(world, bar))
-            .count()
+        bars.into_iter().filter(|&bar| is_shown(world, bar)).count()
     }
 
     /// Whether a visible line of the chat contains `part`. The lines stay on screen for a
     /// while after the chat is closed, while the chat itself is hidden.
+    #[track_caller]
     fn chat_shows(&mut self, part: &str) -> bool {
         let lines = self.find(&L::text_containing(part));
         let world = self.world_mut();
@@ -83,6 +82,7 @@ impl Harness {
     }
 
     /// The index in the items atlas of the icon shown by the result cell.
+    #[track_caller]
     fn result_icon(&mut self) -> Option<usize> {
         let icon = self.get(&L::marker::<StackIcon>().within(L::marker::<CraftResultCell>()));
         self.world()
@@ -105,14 +105,12 @@ fn the_connection_screen_shows_then_cancel_returns_to_the_menu() {
     // Nothing answers on the discard port
     let folder = GameFolder::new().with_servers(&[("Nowhere", "127.0.0.1:9")]);
     let mut h = Harness::start(folder, Options::default());
-    h.click_when_ready("Multiplayer");
+    h.click_when_ready(&L::text("Multiplayer"));
     h.wait_for_icons("Nowhere");
     h.click(&L::name("Play Nowhere"));
     h.wait_for(&L::text_containing("Connecting to server"), SCREEN);
     h.click(&L::text("[Cancel]"));
-    h.wait_until("the menu", SCREEN, |w| {
-        *w.resource::<State<GameState>>().get() == GameState::Menu
-    });
+    h.wait_for_game_state(GameState::Menu, SCREEN);
 }
 
 #[test]
@@ -286,11 +284,15 @@ fn the_pause_menu_resumes_saves_and_leaves() {
     h.click(&L::text("Save"));
     h.wait_until("the saved player", SERVER, |_| player.exists());
 
+    // Leaving saves the world: world.ron is written after the click
+    let meta = h.folder().join(SAVE_PATH).join("Pause/world.ron");
+    let written = || fs::metadata(&meta).unwrap().modified().unwrap();
+    let before = written();
     h.click(&L::text("Back to menu"));
     h.wait_until("the main menu", SERVER, |w| {
-        *w.resource::<State<GameState>>().get() == GameState::Menu
-            && *w.resource::<State<MenuState>>().get() == MenuState::Main
+        is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
     });
+    h.wait_until("world.ron written", SERVER, |_| written() > before);
 }
 
 #[test]

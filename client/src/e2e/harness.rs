@@ -20,10 +20,11 @@ use bevy::{
 };
 use shared::GameFolderPaths;
 
+use super::helpers::is_in;
 use super::seed::GameFolder;
 use crate::app::{add_client, ClientSettings};
 use crate::constants::TEXTURE_PATH_BASE;
-use crate::network::setup::LocalServerHandle;
+use crate::network::LocalServerHandle;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
 
@@ -103,7 +104,10 @@ impl Harness {
         Self::start(GameFolder::new(), Options::default())
     }
 
+    /// A client with the game folder `folder`. The watchdog starts first, so that it also covers
+    /// the start of the renderer.
     pub fn start(folder: GameFolder, options: Options) -> Self {
+        let watchdog = Watchdog::start();
         let Options {
             width,
             height,
@@ -195,7 +199,7 @@ impl Harness {
             app,
             folder,
             target,
-            _watchdog: Watchdog::start(),
+            _watchdog: watchdog,
         }
     }
 
@@ -206,7 +210,9 @@ impl Harness {
         }
     }
 
-    /// Runs frames until `condition` holds, and panics if it takes longer than `timeout`.
+    /// Runs frames until `condition` holds, and panics, saying what it waited for, if it takes
+    /// longer than `timeout`.
+    #[track_caller]
     pub fn wait_until(
         &mut self,
         what: &str,
@@ -261,11 +267,7 @@ impl Drop for Harness {
         if std::thread::panicking() {
             return;
         }
-        let in_game = |world: &World| {
-            world
-                .get_resource::<State<GameState>>()
-                .is_some_and(|state| *state.get() == GameState::Game)
-        };
+        let in_game = |world: &World| is_in(world, GameState::Game);
         if !in_game(self.world()) {
             return;
         }

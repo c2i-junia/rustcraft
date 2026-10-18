@@ -1,6 +1,6 @@
 //! Snapshots of every screen at three resolutions, for a human to review.
 
-use bevy::{input::keyboard::KeyCode, prelude::*};
+use bevy::input::keyboard::KeyCode;
 use shared::world::ItemId;
 
 use super::game::enter_world;
@@ -14,18 +14,13 @@ const RESOLUTIONS: [(u32, u32); 3] = [(800, 600), (1280, 720), (1920, 1080)];
 impl Harness {
     /// Runs frames until every image of the UI is loaded, then saves the snapshot `name`.
     fn settled_snapshot(&mut self, name: &str) {
-        self.wait_until("the images of the UI", SCREEN, |w| {
-            let server = w.resource::<AssetServer>();
-            let mut nodes = w.try_query::<&ImageNode>().unwrap();
-            nodes
-                .iter(w)
-                .all(|node| server.is_loaded_with_dependencies(&node.image))
-        });
+        self.wait_for_ui_images();
         self.snapshot(name);
     }
 
-    /// Lets the game draw a few frames, then saves the snapshot `name`. Some images of the game
-    /// never count as loaded, unlike those of the menus, so only the frames are waited for.
+    /// Lets the game draw a few frames, then saves the snapshot `name`. The atlas of the items
+    /// is built at runtime and never counts as loaded, unlike the images of the menus, so
+    /// `wait_for_ui_images` would time out: only the frames are waited for.
     fn snapshot_in_game(&mut self, name: &str) {
         self.frames(10);
         self.snapshot(name);

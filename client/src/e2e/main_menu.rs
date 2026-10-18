@@ -2,19 +2,13 @@
 
 use bevy::prelude::*;
 
-use super::harness::{Harness, SCREEN};
+use super::harness::SCREEN;
+use super::helpers::main_menu;
 use super::locator::Locator as L;
 use crate::ui::assets::{
     DARK_BUTTON_BACKGROUND_IMAGE_PATH, DARK_BUTTON_BACKGROUND_LARGE_IMAGE_PATH,
 };
 use crate::ui::button::MenuState;
-
-/// A client on the main menu.
-fn main_menu() -> Harness {
-    let mut h = Harness::new();
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
-    h
-}
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]

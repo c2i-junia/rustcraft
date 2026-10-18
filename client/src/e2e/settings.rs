@@ -15,7 +15,7 @@ use crate::ui::button::MenuState;
 /// A client on the settings.
 fn settings() -> Harness {
     let mut h = Harness::new();
-    h.click_when_ready("Settings");
+    h.click_when_ready(&L::text("Settings"));
     h.wait_for(&L::text("Controls"), SCREEN);
     h
 }

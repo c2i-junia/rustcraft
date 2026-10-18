@@ -5,12 +5,13 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use bevy::{
     input::keyboard::KeyCode,
-    prelude::{Component, Name, With},
+    prelude::{Component, With},
 };
-use bevy_simple_text_input::{TextInputInactive, TextInputValue};
+use bevy_simple_text_input::TextInputInactive;
 use shared::{GameFolderPaths, GameServerConfig};
 
 use super::harness::{Harness, SCREEN, SERVER};
+use super::helpers::is_in;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::constants::SERVER_LIST_SAVE_NAME;
@@ -18,20 +19,25 @@ use crate::state::GameState;
 use crate::ui::button::MenuState;
 use crate::ui::menus::multi::{ServerIpInput, ServerItem, ServerNameInput};
 
-/// A client on the server list, with the saved server `Friends`.
+/// A client on the server list, with the saved servers `localhost` and `Friends`.
 fn server_list() -> Harness {
-    open_server_list(GameFolder::new().with_servers(&[("Friends", "192.168.1.20:8000")]))
+    open_server_list(GameFolder::new().with_servers(&[
+        ("localhost", "127.0.0.1:8000"),
+        ("Friends", "192.168.1.20:8000"),
+    ]))
 }
 
+/// A client on the server list, with the game folder `folder`.
 fn open_server_list(folder: GameFolder) -> Harness {
     let mut h = Harness::start(folder, Default::default());
-    h.click_when_ready("Multiplayer");
+    h.click_when_ready(&L::text("Multiplayer"));
     h.wait_for(&L::text("Server list"), SCREEN);
     h
 }
 
 impl Harness {
     /// Types `name` and `ip` in the fields, each focused by a click, and clicks "Add server".
+    #[track_caller]
     fn add_server(&mut self, name: &str, ip: &str) {
         self.click(&L::text("Server name"));
         self.type_text(name);
@@ -42,15 +48,8 @@ impl Harness {
         self.click(&L::text("Add server"));
     }
 
-    fn value_of<M: Component>(&mut self) -> String {
-        self.world_mut()
-            .query_filtered::<&TextInputValue, With<M>>()
-            .single(self.world())
-            .unwrap()
-            .0
-            .clone()
-    }
-
+    /// Whether the text input marked with `M` is inactive, that is without the focus.
+    #[track_caller]
     fn is_inactive<M: Component>(&mut self) -> bool {
         self.world_mut()
             .query_filtered::<&TextInputInactive, With<M>>()
@@ -127,17 +126,12 @@ fn a_new_server_is_listed_and_saved() {
 fn an_invalid_address_adds_no_server() {
     let mut h = server_list();
     h.wait_for(&L::name("Play Friends"), SCREEN);
+    let rows = h.play_rows();
     h.add_server("Bad", "not an ip");
     // The click frame handles the button: two more frames are plenty for a negative check
     h.frames(2);
     assert_eq!(h.find(&L::name("Play Bad")).len(), 0);
-    let rows = h
-        .world_mut()
-        .query::<&Name>()
-        .iter(h.world())
-        .filter(|n| n.starts_with("Play "))
-        .count();
-    assert_eq!(rows, 2);
+    assert_eq!(h.play_rows(), rows);
 }
 
 #[test]
@@ -153,7 +147,8 @@ fn deleting_a_server_removes_it() {
     h.click(&L::text("Back to menu"));
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     let saved: Vec<String> = h.saved_servers().into_iter().map(|s| s.name).collect();
-    assert_eq!(saved, ["localhost"]);
+    assert!(!saved.iter().any(|name| name == "Friends"), "{saved:?}");
+    assert!(saved.iter().any(|name| name == "localhost"), "{saved:?}");
 }
 
 #[test]
@@ -174,8 +169,10 @@ fn back_and_escape_return_to_the_main_menu() {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn connecting_to_a_server_enters_the_game() {
-    // The server runs on its own thread and folder, and is left running when the test ends:
-    // a dedicated server has no way to stop.
+    // The server runs on its own thread and is left running when the test ends: a dedicated
+    // server has no way to stop. Its folder belongs to the test, which deletes it at the end.
+    // The server may then fail to save into it, and only writes an error; it cannot fail the
+    // test, which has stopped listening to the server, or keep the process from exiting.
     let server_folder = GameFolder::new();
     let socket = server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST))
         .expect("a socket for the server");
@@ -190,7 +187,6 @@ fn connecting_to_a_server_enters_the_game() {
     };
     let (stopped, server_error) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _keep_alive = server_folder;
         if let Err(error) = server::init(socket, config, paths) {
             let _ = stopped.send(error);
         }
@@ -204,6 +200,6 @@ fn connecting_to_a_server_enters_the_game() {
         if let Ok(error) = server_error.try_recv() {
             panic!("the server stopped: {error}");
         }
-        *w.resource::<bevy::prelude::State<GameState>>().get() == GameState::Game
+        is_in(w, GameState::Game)
     });
 }

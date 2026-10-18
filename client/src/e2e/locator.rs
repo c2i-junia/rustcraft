@@ -12,12 +12,30 @@ enum Target {
     Text(String),
     TextContaining(String),
     Name(String),
-    Marker(fn(&mut World) -> Vec<Entity>),
+    /// The name of the component, for the messages, and the query of its entities.
+    Marker(&'static str, MarkerQuery),
     Row(String),
     Cell(u32),
 }
 
+impl std::fmt::Debug for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Target::Text(content) => f.debug_tuple("Text").field(content).finish(),
+            Target::TextContaining(part) => f.debug_tuple("TextContaining").field(part).finish(),
+            Target::Name(name) => f.debug_tuple("Name").field(name).finish(),
+            Target::Marker(component, _) => f.debug_tuple("Marker").field(component).finish(),
+            Target::Row(content) => f.debug_tuple("Row").field(content).finish(),
+            Target::Cell(id) => f.debug_tuple("Cell").field(id).finish(),
+        }
+    }
+}
+
+/// Finds the entities that have a given component.
+type MarkerQuery = fn(&mut World) -> Vec<Entity>;
+
 /// Describes elements of the UI. Only visible elements are ever found.
+#[derive(Debug)]
 pub struct Locator {
     target: Target,
     scope: Option<Box<Locator>>,
@@ -41,7 +59,7 @@ impl Locator {
 
     /// An element with the component `C`.
     pub fn marker<C: Component>() -> Locator {
-        Self::of(Target::Marker(|world| {
+        Self::of(Target::Marker(std::any::type_name::<C>(), |world| {
             world
                 .query_filtered::<Entity, With<C>>()
                 .iter(world)
@@ -92,7 +110,7 @@ impl Locator {
                 .filter(|(_, n)| n.as_str() == name)
                 .map(|(entity, _)| entity)
                 .collect(),
-            Target::Marker(find) => find(world),
+            Target::Marker(_, find) => find(world),
             Target::Row(content) => visible_texts(world)
                 .into_iter()
                 .filter(|(_, text)| text == content)
@@ -105,7 +123,7 @@ impl Locator {
                 .map(|(entity, _)| entity)
                 .collect(),
         };
-        found.retain(|&entity| is_visible(world, entity));
+        found.retain(|&entity| is_shown(world, entity));
         if let Some(scope) = &self.scope {
             let scopes = scope.find(world);
             found.retain(|&entity| {
@@ -167,13 +185,13 @@ fn visible_texts(world: &mut World) -> Vec<(Entity, String)> {
         .collect();
     texts
         .into_iter()
-        .filter(|&entity| is_visible(world, entity))
+        .filter(|&entity| is_shown(world, entity))
         .filter_map(|entity| Some((entity, content_of(world, entity)?)))
         .collect()
 }
 
 /// Visible means shown, displayed all the way up the tree, and of a size.
-pub(super) fn is_visible(world: &World, entity: Entity) -> bool {
+pub(super) fn is_shown(world: &World, entity: Entity) -> bool {
     let shown = world
         .get::<InheritedVisibility>(entity)
         .is_some_and(|v| v.get());
@@ -226,44 +244,52 @@ impl Harness {
         locator.find(self.world_mut())
     }
 
-    /// The one visible element the locator finds. Panics, listing the texts on screen, if there
-    /// is none or more than one.
+    /// The one visible element the locator finds. Panics, naming the locator and listing the
+    /// texts on screen, if there is none or more than one.
+    #[track_caller]
     pub fn get(&mut self, locator: &Locator) -> Entity {
         let found = self.find(locator);
         if let [entity] = found[..] {
             return entity;
         }
-        let texts: Vec<String> = visible_texts(self.world_mut())
-            .into_iter()
-            .map(|(_, text)| text)
-            .collect();
+        let texts = self.visible_texts();
         panic!(
-            "expected exactly one element, found {}; the visible texts are {texts:?}",
+            "expected exactly one element for {locator:?}, found {}; the visible texts are {texts:?}",
             found.len()
         );
     }
 
-    /// Runs frames until the locator finds something, and panics, listing the texts on screen,
-    /// if it takes longer than `timeout`.
+    /// Runs frames until the locator finds something, and panics, naming the locator and listing
+    /// the texts on screen, if it takes longer than `timeout`.
+    #[track_caller]
     pub fn wait_for(&mut self, locator: &Locator, timeout: Duration) {
         let start = Instant::now();
         while !self.is_visible(locator) {
             if start.elapsed() >= timeout {
-                let texts = visible_texts(self.world_mut())
-                    .into_iter()
-                    .map(|(_, text)| text)
-                    .collect::<Vec<_>>();
-                panic!("timed out after {timeout:?} waiting for an element; the visible texts are {texts:?}");
+                let texts = self.visible_texts();
+                panic!(
+                    "timed out after {timeout:?} waiting for {locator:?}; the visible texts are {texts:?}"
+                );
             }
             self.frames(1);
         }
     }
 
+    /// The content of every visible text, for the messages of a failure.
+    fn visible_texts(&mut self) -> Vec<String> {
+        visible_texts(self.world_mut())
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect()
+    }
+
+    /// Whether the locator finds something now.
     pub fn is_visible(&mut self, locator: &Locator) -> bool {
         !self.find(locator).is_empty()
     }
 
     /// The text of the element: its own, or the ones under it, separated by spaces.
+    #[track_caller]
     pub fn text_of(&mut self, locator: &Locator) -> String {
         let entity = self.get(locator);
         let world = self.world();
@@ -276,6 +302,7 @@ impl Harness {
     }
 
     /// The centre of the element, in physical pixels.
+    #[track_caller]
     pub fn center_of(&mut self, locator: &Locator) -> Vec2 {
         let entity = self.get(locator);
         self.world()
@@ -300,6 +327,7 @@ fn collect_texts(world: &World, entity: Entity, texts: &mut Vec<String>) {
 mod tests {
     use super::*;
     use crate::e2e::harness::SCREEN;
+    use crate::e2e::helpers::main_menu;
     use Locator as L;
 
     impl Harness {
@@ -312,12 +340,6 @@ mod tests {
                 .unwrap()
                 .0
         }
-    }
-
-    fn main_menu() -> Harness {
-        let mut h = Harness::new();
-        h.wait_for(&L::text("Singleplayer"), SCREEN);
-        h
     }
 
     #[test]
@@ -415,19 +437,38 @@ mod tests {
         assert!(h.find(&L::text("SeenUnseen")).is_empty());
     }
 
+    // The panics of these tests are not caught in the test: the Cranelift backend of the dev
+    // profile neither runs destructors nor catches while unwinding, so the harness of a
+    // panicking test leaves its folder behind.
+
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     #[should_panic(expected = "Singleplayer")]
     fn a_missing_text_fails_with_the_texts_on_screen() {
-        let mut h = main_menu();
-        h.get(&L::text("Nope"));
+        main_menu().get(&L::text("Nope"));
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    #[should_panic(
+        expected = r#"Marker("client::ui::hud::hotbar::Hotbar"), scope: Some(Locator { target: Text("Quit")"#
+    )]
+    fn a_missing_marker_is_named_by_its_type_and_scope() {
+        let hotbar = L::marker::<crate::ui::hud::hotbar::Hotbar>();
+        main_menu().get(&hotbar.within(L::text("Quit")));
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    #[should_panic(expected = r#"waiting for Locator { target: Text("Nope")"#)]
+    fn a_wait_that_times_out_names_its_locator() {
+        main_menu().wait_for(&L::text("Nope"), Duration::from_millis(50));
     }
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     #[should_panic(expected = "waiting for the moon")]
     fn waiting_for_what_never_happens_fails_with_its_description() {
-        let mut h = main_menu();
-        h.wait_until("the moon", SCREEN, |_| false);
+        main_menu().wait_until("the moon", SCREEN, |_| false);
     }
 }
