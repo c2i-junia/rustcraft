@@ -3,7 +3,10 @@
 use accesskit::Role;
 use bevy::{a11y::AccessibilityNode, picking::hover::Hovered, prelude::*, window::PrimaryWindow};
 
-use crate::ui::theme::{BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_S, TEXT};
+use crate::ui::{
+    assets::load_font,
+    theme::{BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_S, TEXT},
+};
 
 /// How far the tooltip sits right of and below the cursor, in logical px.
 const TOOLTIP_OFFSET: f32 = 12.0;
@@ -30,16 +33,19 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, show_tooltip);
 }
 
-fn spawn_tooltip(mut commands: Commands) {
+fn spawn_tooltip(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let font = load_font(&asset_server);
     let line = |index: usize, color: Color| {
         (
             TooltipLine(index),
             Text::new(""),
             TextFont {
+                font: font.clone().into(),
                 font_size: px(FONT_S).into(),
                 ..default()
             },
             TextColor(color),
+            Pickable::IGNORE,
             Node {
                 display: Display::None,
                 ..default()
@@ -52,8 +58,8 @@ fn spawn_tooltip(mut commands: Commands) {
         AccessibilityNode(accesskit::Node::new(Role::Tooltip)),
         GlobalZIndex(100),
         Pickable::IGNORE,
+        Visibility::Hidden,
         Node {
-            display: Display::None,
             position_type: PositionType::Absolute,
             flex_direction: FlexDirection::Column,
             padding: UiRect::all(px(SPACE_S)),
@@ -90,9 +96,12 @@ fn tooltip_position(cursor: Vec2, size: Vec2, window: Vec2) -> Vec2 {
 }
 
 /// Shows the tooltip of the first hovered element, or hides the panel.
+///
+/// The panel stays laid out while hidden. A change of content is written while it is hidden, and
+/// the panel is placed and shown on the next frame, from the size that content was laid out with.
 fn show_tooltip(
     hovered: Query<(&Tooltip, &Hovered, &InheritedVisibility)>,
-    mut root: Single<(&mut Node, &ComputedNode, &Children), With<TooltipRoot>>,
+    mut root: Single<(&mut Node, &mut Visibility, &ComputedNode, &Children), With<TooltipRoot>>,
     mut lines: Query<(&TooltipLine, &mut Text, &mut Node), Without<TooltipRoot>>,
     window: Single<&Window, With<PrimaryWindow>>,
     ui_scale: Res<UiScale>,
@@ -101,22 +110,12 @@ fn show_tooltip(
         .iter()
         .find(|(tooltip, hovered, visible)| hovered.0 && visible.get() && !tooltip.title.is_empty())
         .map(|(tooltip, ..)| tooltip);
-    let cursor = window.cursor_position();
-    let (Some(tooltip), Some(cursor)) = (tooltip, cursor) else {
-        hide(&mut root.0);
+    let (node, visibility, computed, children) = &mut *root;
+    let (Some(tooltip), Some(cursor)) = (tooltip, window.cursor_position()) else {
+        visibility.set_if_neq(Visibility::Hidden);
         return;
     };
-    let (node, computed, children) = &mut *root;
-    // the size of the previous frame: the panel is laid out once it is shown
-    let size = computed.size() * computed.inverse_scale_factor();
-    let position = tooltip_position(
-        cursor / ui_scale.0,
-        size,
-        Vec2::new(window.width(), window.height()) / ui_scale.0,
-    );
-    set_if_neq(&mut node.display, Display::Flex);
-    set_if_neq(&mut node.left, px(position.x));
-    set_if_neq(&mut node.top, px(position.y));
+    let mut up_to_date = true;
     for child in children.iter() {
         let Ok((TooltipLine(index), mut text, mut line)) = lines.get_mut(child) else {
             continue;
@@ -128,31 +127,53 @@ fn show_tooltip(
         };
         if text.0 != *content {
             text.0.clone_from(content);
+            up_to_date = false;
         }
-        set_if_neq(
-            &mut line.display,
-            if content.is_empty() {
-                Display::None
-            } else {
-                Display::Flex
-            },
-        );
+        let display = if content.is_empty() {
+            Display::None
+        } else {
+            Display::Flex
+        };
+        if line.display != display {
+            line.display = display;
+            up_to_date = false;
+        }
     }
-}
-
-fn hide(node: &mut Mut<Node>) {
-    set_if_neq(&mut node.display, Display::None);
-}
-
-fn set_if_neq<T: PartialEq>(field: &mut T, value: T) {
-    if *field != value {
-        *field = value;
+    if !up_to_date {
+        visibility.set_if_neq(Visibility::Hidden);
+        return;
     }
+    let size = computed.size() * computed.inverse_scale_factor();
+    let position = tooltip_position(
+        cursor / ui_scale.0,
+        size,
+        Vec2::new(window.width(), window.height()) / ui_scale.0,
+    );
+    let (left, top) = (px(position.x), px(position.y));
+    if node.left != left || node.top != top {
+        node.left = left;
+        node.top = top;
+    }
+    visibility.set_if_neq(Visibility::Inherited);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tooltip_bigger_than_the_window_sticks_to_its_corner() {
+        let window = Vec2::new(800.0, 600.0);
+        let huge = Vec2::new(900.0, 700.0);
+        assert_eq!(
+            tooltip_position(Vec2::new(400.0, 300.0), huge, window),
+            Vec2::ZERO
+        );
+        assert_eq!(
+            tooltip_position(Vec2::new(400.0, 300.0), Vec2::ZERO, window),
+            Vec2::new(412.0, 312.0)
+        );
+    }
 
     #[test]
     fn the_tooltip_stays_inside_the_window() {

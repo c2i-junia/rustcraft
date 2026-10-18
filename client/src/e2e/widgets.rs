@@ -584,7 +584,20 @@ fn hovering_an_element_with_a_tooltip_shows_it_by_the_cursor() {
         .unwrap()
         .translation;
     let top_left = center - size / 2.0;
-    assert!(top_left.x > probe_center.x && top_left.y > probe_center.y);
+    // 12 logical px right of and below the cursor, which is at the centre of the probe
+    let offset = 12.0
+        / h.world()
+            .get::<ComputedNode>(root)
+            .unwrap()
+            .inverse_scale_factor();
+    assert!(
+        (top_left.x - probe_center.x - offset).abs() <= 1.0,
+        "{top_left} {probe_center}"
+    );
+    assert!(
+        (top_left.y - probe_center.y - offset).abs() <= 1.0,
+        "{top_left} {probe_center}"
+    );
     h.hover(&L::name("Elsewhere"));
     h.frames(2);
     assert!(!h.is_visible(&panel()));
@@ -598,4 +611,57 @@ fn an_empty_tooltip_shows_nothing() {
     h.hover(&L::name("Tooltip probe"));
     h.frames(3);
     assert!(!h.is_visible(&L::marker::<TooltipRoot>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_tooltip_is_inside_the_window_on_the_first_frame_it_shows() {
+    let mut h = main_menu();
+    h.world_mut().spawn((
+        Name::new("Corner probe"),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(0.0),
+            bottom: Val::Px(0.0),
+            width: Val::Px(100.0),
+            height: Val::Px(40.0),
+            ..default()
+        },
+        dirt_tooltip(),
+        GlobalZIndex(1),
+    ));
+    h.frames(3);
+    let center = h.center_of(&L::name("Corner probe"));
+    h.move_cursor(center);
+    let panel = L::marker::<TooltipRoot>;
+    let mut shown = false;
+    for _ in 0..10 {
+        h.frames(1);
+        if h.is_visible(&panel()) {
+            shown = true;
+            break;
+        }
+    }
+    assert!(shown, "the tooltip never showed");
+    let root = h.get(&panel());
+    let size = h.world().get::<ComputedNode>(root).unwrap().size();
+    let middle = h
+        .world()
+        .get::<UiGlobalTransform>(root)
+        .unwrap()
+        .translation;
+    let window = h
+        .world_mut()
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(h.world())
+        .unwrap();
+    let window = Vec2::new(
+        window.physical_width() as f32,
+        window.physical_height() as f32,
+    );
+    let (min, max) = (middle - size / 2.0, middle + size / 2.0);
+    assert!(
+        min.x >= -0.5 && min.y >= -0.5 && max.x <= window.x + 0.5 && max.y <= window.y + 0.5,
+        "{min} {max} is outside {window}"
+    );
 }
