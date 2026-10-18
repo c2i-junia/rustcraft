@@ -10,7 +10,7 @@ use crate::world::ClientWorldMap;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::movement::{is_terrain_loaded, simulate_player_movement};
-use shared::players::{Player, ViewMode};
+use shared::players::{MovementState, Player, ViewMode};
 
 use super::CurrentPlayerMarker;
 
@@ -69,6 +69,14 @@ const HELD_ACTIONS: [(GameAction, NetworkAction); 6] = [
     (GameAction::FlyDown, NetworkAction::SneakOrFlyDown),
 ];
 
+/// The local player moved by one predicted frame. Replays of the reconciliation are not
+/// reported: each frame is reported once, as the player lives it.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct LocalPlayerMoved {
+    pub from: MovementState,
+    pub to: MovementState,
+}
+
 /// Completes the frame's inputs with the movement keys, predicts their effect on the local
 /// player and queues the frame for the server.
 pub fn player_movement_system(
@@ -80,6 +88,7 @@ pub fn player_movement_system(
     mut frame_inputs: ResMut<CurrentFrameInputs>,
     mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
     world_map: Res<ClientWorldMap>,
+    mut moves: MessageWriter<LocalPlayerMoved>,
 ) {
     if frame_inputs.0.delta_ms == 0 {
         return;
@@ -101,10 +110,15 @@ pub fn player_movement_system(
         }
     }
 
+    let from = player.movement_state();
     simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
 
     // The frame is final: record what it predicts and queue it for the server
     frame_inputs.0.predicted = player.movement_state();
+    moves.write(LocalPlayerMoved {
+        from,
+        to: frame_inputs.0.predicted,
+    });
     tick_buffer.buffer.push(frame_inputs.0.clone());
 
     player_transform.translation = player.position;

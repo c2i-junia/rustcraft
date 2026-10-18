@@ -21,6 +21,7 @@ pub enum MenuButtonAction {
     Multi,
     Settings,
     SettingsControls,
+    SettingsAudio,
     BackToMainMenu,
     BackToSettings,
     Quit,
@@ -33,6 +34,7 @@ pub enum MenuState {
     Multi,
     Settings,
     SettingsControls,
+    SettingsAudio,
     #[default]
     Disabled,
 }

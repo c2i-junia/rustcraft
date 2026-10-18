@@ -9,6 +9,7 @@ Date: 11.10.2026
     - Block changes are now sent to the players as small updates instead of whole chunks.
     - World generation is deterministic: a seed always gives the same world.
     - Added a chat (T key).
+    - Added sounds: footsteps and landings, mining, breaking and placing blocks by material, other players' blocks and steps heard from where they are, and button clicks. Their volumes are set in Settings > Audio.
     - Fixed players spawning inside stone.
     - Fixed the world not being saved when leaving the game.
     - Fixed the fox sinking into the ground; it now stays on it.

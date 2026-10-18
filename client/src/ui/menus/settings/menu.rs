@@ -34,6 +34,7 @@ pub fn settings_menu_setup(mut commands: Commands, asset_server: Res<AssetServer
                 .with_children(|parent| {
                     for (action, text) in [
                         (MenuButtonAction::SettingsControls, "Controls"),
+                        (MenuButtonAction::SettingsAudio, "Audio"),
                         (MenuButtonAction::BackToMainMenu, "Back"),
                     ] {
                         parent

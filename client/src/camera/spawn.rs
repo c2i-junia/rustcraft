@@ -74,6 +74,8 @@ fn spawn_camera(mut commands: Commands) {
             .looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
         CameraController::default(),
         PrimaryEguiContext,
+        // The ears of the spatial sounds, one block apart
+        SpatialListener::new(1.0),
         DespawnOnExit(GameState::Game),
     ));
 }

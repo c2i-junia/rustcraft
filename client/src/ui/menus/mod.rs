@@ -15,8 +15,10 @@ use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 
 use bevy::app::AppExit;
 use multi::multiplayer_action;
+use settings::audio::{audio_menu_setup, audio_menu_update};
 use settings::controls::{controls_menu_setup, controls_update_system};
 
+use crate::audio::settings::save_audio_settings;
 use crate::input::keyboard::save_keybindings;
 use crate::state::{GameState, MenuCamera};
 
@@ -58,6 +60,12 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Menu)),
         )
         .add_systems(OnEnter(MenuState::SettingsControls), controls_menu_setup)
+        .add_systems(OnEnter(MenuState::SettingsAudio), audio_menu_setup)
+        .add_systems(
+            Update,
+            audio_menu_update.run_if(in_state(MenuState::SettingsAudio)),
+        )
+        .add_systems(OnExit(MenuState::SettingsAudio), save_audio_settings)
         // The loading screen is shown while connecting, between the menu and the game
         .add_systems(
             Update,
@@ -98,6 +106,7 @@ fn menu_action(
                 }
                 MenuButtonAction::Multi => menu_state.set(MenuState::Multi),
                 MenuButtonAction::SettingsControls => menu_state.set(MenuState::SettingsControls),
+                MenuButtonAction::SettingsAudio => menu_state.set(MenuState::SettingsAudio),
             }
         }
     }
@@ -117,6 +126,7 @@ fn escape_button(
             MenuState::Solo | MenuState::Multi | MenuState::Settings => {
                 next_menu_state.set(MenuState::Main)
             }
+            MenuState::SettingsAudio => next_menu_state.set(MenuState::Settings),
             // Not in the controls screen: Escape is a key that can be bound there
             _ => (),
         }

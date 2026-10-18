@@ -235,6 +235,7 @@ mod tests {
     use crate::network::upload_player_inputs_system;
     use crate::player::{
         local_player_is_simulated, player_movement_system, pre_input_update_system,
+        LocalPlayerMoved,
     };
     use crate::state::KeyMap;
     use crate::ui::hud::UIMode;
@@ -359,6 +360,7 @@ mod tests {
         fn new(spawn: Vec3) -> Self {
             let mut app = App::new();
             app.add_message::<PlayerUpdateEvent>()
+                .add_message::<LocalPlayerMoved>()
                 .insert_resource(ClientWorldMap {
                     blocks: flat_world(),
                     ..default()

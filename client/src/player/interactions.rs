@@ -1,17 +1,17 @@
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::ui::hud::UIMode;
-use crate::world::ClientWorldMap;
+use crate::world::{BlockChanged, ClientWorldMap};
 use bevy::color::palettes::css::WHITE;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::blocks::{simulate_player_block_interactions, CallerType};
 use shared::players::{Player, ViewMode};
-use shared::world::raycast;
+use shared::world::{raycast, FaceDirectionExt};
 
 use super::CurrentPlayerMarker;
 
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
-/// breaking it or placing a block against it.
+/// breaking it or placing a block against it, and reports the blocks that changed.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
@@ -21,6 +21,7 @@ pub fn handle_block_interactions(
     view_mode: Res<ViewMode>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
     mut gizmos: Gizmos,
+    mut block_changes: MessageWriter<BlockChanged>,
 ) {
     if *ui_mode != UIMode::Closed {
         return;
@@ -55,10 +56,26 @@ pub fn handle_block_interactions(
         frame_inputs.0.inputs.insert(NetworkAction::RightClick);
     }
 
+    // The aimed block, and the cell a block placed against it takes
+    let touched = [target.position, target.position + target.face.to_ivec3()];
+    let before = touched.map(|position| world_map.blocks.get_block(position).copied());
+
     simulate_player_block_interactions(
         &mut player,
         &mut world_map.blocks,
         &frame_inputs.0,
         CallerType::Client,
     );
+
+    for (position, before) in touched.into_iter().zip(before) {
+        let after = world_map.blocks.get_block(position).copied();
+        if after != before {
+            block_changes.write(BlockChanged {
+                position,
+                before,
+                after,
+                by_local_player: true,
+            });
+        }
+    }
 }
