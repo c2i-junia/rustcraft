@@ -1,23 +1,29 @@
+use crate::input::data::GameAction;
+use crate::input::keyboard::is_action_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
-use crate::ui::hud::UIMode;
+use crate::state::KeyMap;
+use crate::ui::hud::{InventoryRoot, UIMode};
 use crate::world::{BlockChanged, ClientWorldMap};
 use bevy::color::palettes::css::WHITE;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::blocks::{simulate_player_block_interactions, CallerType};
-use shared::players::inventory::simulate_inventory_actions;
+use shared::players::inventory::{simulate_inventory_actions, InventoryAction};
 use shared::players::{Inventory, Player, ViewMode};
-use shared::world::{raycast, FaceDirectionExt};
+use shared::world::{raycast, BlockId, FaceDirectionExt};
 
 use super::CurrentPlayerMarker;
 
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
-/// breaking it or placing a block against it, and reports the blocks that changed.
+/// breaking it or placing a block against it, and reports the blocks that changed. A right
+/// click on a crafting table opens it instead, unless the player sneaks.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
     world_map: ResMut<ClientWorldMap>,
     mouse_input: Res<ButtonInput<MouseButton>>,
+    (keyboard_input, key_map): (Res<ButtonInput<KeyCode>>, Res<KeyMap>),
+    mut inventory_root: Query<&mut Visibility, With<InventoryRoot>>,
     ui_mode: Res<UIMode>,
     view_mode: Res<ViewMode>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
@@ -53,7 +59,24 @@ pub fn handle_block_interactions(
     if mouse_input.pressed(MouseButton::Left) {
         frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
     }
-    if mouse_input.pressed(MouseButton::Right) {
+    // The simulation must see the sneak key, which decides between opening and placing
+    let sneaking = is_action_pressed(GameAction::FlyDown, &keyboard_input, &key_map);
+    if sneaking {
+        frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
+    }
+    let aims_at_a_table = world_map
+        .blocks
+        .get_block(target.position)
+        .is_some_and(|block| block.id == BlockId::CraftingTable);
+    if aims_at_a_table && !sneaking && mouse_input.just_pressed(MouseButton::Right) {
+        frame_inputs
+            .0
+            .inventory_actions
+            .push(InventoryAction::OpenCraftingTable(target.position));
+        if let Ok(mut visibility) = inventory_root.single_mut() {
+            *visibility = Visibility::Visible;
+        }
+    } else if mouse_input.pressed(MouseButton::Right) {
         frame_inputs.0.inputs.insert(NetworkAction::RightClick);
     }
 
