@@ -8,6 +8,7 @@ mod input;
 mod locator;
 mod main_menu;
 mod multi;
+mod review;
 mod seed;
 mod settings;
 mod solo;
