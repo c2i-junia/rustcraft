@@ -10,7 +10,10 @@ use shared::messages::{
     PlayerFrameInput, ServerToClientMessage,
 };
 use shared::players::Player;
-use shared::world::{raycast, BlockData, ChunkMap};
+use shared::world::{
+    global_block_to_chunk_pos, raycast, to_local_pos, BlockData, BlockDirection, BlockId, Chunk,
+    ChunkMap,
+};
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
     ChannelResolvableExt, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
@@ -58,7 +61,7 @@ impl TestServer {
             std::fs::write(
                 world_dir.join("world.ron"),
                 format!(
-                    r#"(format_version: 1, name: "{world_name}", seed: ({FLAT_SPAWN_SEED}), time: 0, mobs: {{}})"#
+                    r#"(format_version: 2, name: "{world_name}", seed: ({FLAT_SPAWN_SEED}), time: 0, mobs: {{}})"#
                 ),
             )
             .unwrap();
@@ -1003,6 +1006,98 @@ fn a_block_broken_in_one_session_is_still_broken_after_a_restart() {
 
     client.send(ClientToServerMessage::Exit);
     client.send_packets();
+    second.join_after_exit();
+}
+
+/// Hits the block at `target` with `camera` until it breaks, one hit per message.
+fn break_aimed_block(client: &mut TestClient, camera: Transform, target: IVec3) {
+    let breaking_started = Instant::now();
+    for time_ms in 1000.. {
+        assert!(
+            breaking_started.elapsed() < WAIT_TIMEOUT,
+            "the block was not broken within {WAIT_TIMEOUT:?}: camera {camera:?}, target {target}"
+        );
+        client.send(left_click_frame(time_ms, camera));
+        let broken = client.wait_for("a BlockUpdates for the target", |m| match m {
+            ServerToClientMessage::BlockUpdates(batch) => batch
+                .iter()
+                .find(|u| u.position == target)
+                .map(|u| u.block.is_none()),
+            _ => None,
+        });
+        if broken {
+            return;
+        }
+    }
+}
+
+/// Pumps until `client` knows of water at `position`, and returns its level.
+fn wait_for_water(client: &mut TestClient, position: IVec3) -> u8 {
+    let start = Instant::now();
+    loop {
+        if let Some(block) = client
+            .world
+            .get_block(position)
+            .filter(|block| block.id == BlockId::Water)
+        {
+            return block.level;
+        }
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "client {} never saw water at {position}",
+            client.id
+        );
+        client.pump();
+    }
+}
+
+#[test]
+fn water_flows_into_a_broken_block_next_to_it_for_every_client() {
+    // A first session finds the block under the player and saves its chunk
+    let mut first = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(first.addr, PLAYER_ID);
+    authenticate(&mut client, "miner");
+    let (_, target) = land_and_aim_down(&mut client);
+    client.send(ClientToServerMessage::SaveWorldRequest);
+    client.send_packets();
+    let start = Instant::now();
+    while first.chunk_files().is_empty() {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "no chunk file was written");
+        client.pump();
+    }
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    first.join_after_exit();
+
+    // A source next to that block, in the saved chunk
+    let source = target + IVec3::X;
+    let source_chunk = global_block_to_chunk_pos(&source);
+    let chunk_file = first.world_dir().join("chunks").join(format!(
+        "{}_{}_{}.bin",
+        source_chunk.x, source_chunk.y, source_chunk.z
+    ));
+    let mut chunk: Chunk = payload_to_game_message(&std::fs::read(&chunk_file).unwrap()).unwrap();
+    chunk.set(
+        to_local_pos(&source),
+        BlockData::new(BlockId::Water, BlockDirection::Front),
+    );
+    std::fs::write(&chunk_file, game_message_to_payload(&chunk)).unwrap();
+
+    let mut second = TestServer::start_in(first.tmp, WORLD_NAME);
+    let mut miner = TestClient::connect(second.addr, PLAYER_ID);
+    authenticate(&mut miner, "miner");
+    let mut watcher = TestClient::connect(second.addr, PLAYER_ID + 1);
+    authenticate(&mut watcher, "watcher");
+    let (camera, aimed) = land_and_aim_down(&mut miner);
+    assert_eq!(aimed, target);
+
+    break_aimed_block(&mut miner, camera, target);
+
+    assert_eq!(wait_for_water(&mut miner, target), 1);
+    assert_eq!(wait_for_water(&mut watcher, target), 1);
+
+    miner.send(ClientToServerMessage::Exit);
+    miner.send_packets();
     second.join_after_exit();
 }
 

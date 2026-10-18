@@ -73,6 +73,12 @@ impl ChunkMap {
         }
     }
 
+    /// The positions of the blocks changed since the last `take_changed_blocks`, in no order,
+    /// left in the log.
+    pub fn changed_blocks(&self) -> impl Iterator<Item = IVec3> + '_ {
+        self.changed.iter().copied()
+    }
+
     /// The positions of the blocks changed since the previous call, each once, sorted by
     /// `x`, then `y`, then `z`.
     pub fn take_changed_blocks(&mut self) -> Vec<IVec3> {
