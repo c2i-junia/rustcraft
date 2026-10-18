@@ -1,0 +1,229 @@
+//! The inventory slot: a sunken square holding an icon, a count and, in the hotbar, its number.
+//!
+//! The hit test of a slot is its `Hovered`; callers observe the pointer events on the entity.
+
+use accesskit::Role;
+use bevy::{a11y::AccessibilityNode, picking::hover::Hovered, prelude::*};
+
+use crate::ui::theme::{
+    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, RAISE_HOVER, SLOT, TEXT,
+};
+
+// The sizes and the builders below are first used by the inventory panel (Lot 5, Task 3).
+
+/// The side of a slot, in logical px.
+#[allow(dead_code)]
+pub const SLOT_SIZE: f32 = 50.0;
+
+/// Twice the 16 px item textures: a whole multiple of them at every UiScale step.
+#[allow(dead_code)]
+pub const ICON_SIZE: f32 = 32.0;
+
+/// An inventory slot built by `slot`, which keeps its look in step with the cursor and selection.
+#[derive(Component)]
+#[require(SlotSelected, Hovered)]
+pub struct Slot;
+
+/// Whether the slot is the selected one: it then takes the accent colour.
+#[derive(Component, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SlotSelected(pub bool);
+
+/// The icon of the item in a slot, hidden while the slot is empty.
+#[derive(Component)]
+pub struct SlotIcon;
+
+/// The count of the items in a slot.
+#[derive(Component)]
+pub struct SlotCount;
+
+/// The node of a slot. Callers override the grid placement with `..slot_node()`.
+#[allow(dead_code)]
+pub fn slot_node() -> Node {
+    Node {
+        width: px(SLOT_SIZE),
+        height: px(SLOT_SIZE),
+        border: UiRect::all(px(BEVEL_WIDTH)),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    }
+}
+
+/// The icon of a slot, hidden until an item shows in it.
+#[allow(dead_code)]
+pub fn slot_icon(icon: ImageNode) -> impl Bundle {
+    (
+        SlotIcon,
+        icon,
+        Node {
+            width: px(ICON_SIZE),
+            height: px(ICON_SIZE),
+            ..default()
+        },
+        Visibility::Hidden,
+        Pickable::IGNORE,
+    )
+}
+
+/// The count of a slot, in its bottom-right corner. It is empty until set.
+#[allow(dead_code)]
+pub fn slot_count(font: Handle<Font>) -> impl Bundle {
+    (
+        SlotCount,
+        Text::new(""),
+        TextFont {
+            font: font.into(),
+            font_size: px(FONT_S).into(),
+            ..default()
+        },
+        TextColor(TEXT),
+        TextShadow {
+            offset: Vec2::splat(2.0),
+            color: BEVEL_LO,
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            right: px(BEVEL_WIDTH),
+            bottom: px(BEVEL_WIDTH),
+            ..default()
+        },
+        Pickable::IGNORE,
+    )
+}
+
+/// The text of a count: nothing for a single item.
+#[allow(dead_code)]
+pub fn count_label(nb: u32) -> String {
+    if nb < 2 {
+        String::new()
+    } else {
+        nb.to_string()
+    }
+}
+
+/// A slot named `label`, with its number in the top-left corner when it has one.
+#[allow(dead_code)]
+pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font>) -> impl Bundle {
+    let (background, border) = slot_colors(false, false);
+    let number = number.map(|number| {
+        (
+            Text::new(number.to_string()),
+            TextFont {
+                font: font.clone().into(),
+                font_size: px(FONT_S).into(),
+                ..default()
+            },
+            TextColor(MUTED),
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(BEVEL_WIDTH),
+                top: px(BEVEL_WIDTH),
+                ..default()
+            },
+            Pickable::IGNORE,
+        )
+    });
+    (
+        Slot,
+        // the role before the label: the label's default node must not win
+        AccessibilityNode(accesskit::Node::new(Role::GridCell)),
+        AccessibleLabel::new(label),
+        slot_node(),
+        BackgroundColor(background),
+        border,
+        Children::spawn((
+            Spawn(slot_icon(icon)),
+            Spawn(slot_count(font)),
+            SpawnIter(number.into_iter()),
+        )),
+    )
+}
+
+pub(super) fn plugin(app: &mut App) {
+    app.add_systems(PostUpdate, style_slots);
+}
+
+/// The background and the border of a slot in a given state.
+fn slot_colors(hovered: bool, selected: bool) -> (Color, BorderColor) {
+    let background = if hovered { RAISE_HOVER } else { SLOT };
+    let border = if selected {
+        BorderColor::all(ACCENT)
+    } else {
+        BorderColor {
+            top: BEVEL_LO,
+            left: BEVEL_LO,
+            bottom: BEVEL_HI,
+            right: BEVEL_HI,
+        }
+    };
+    (background, border)
+}
+
+/// Applies the look of a slot to the slots whose state changed.
+pub(crate) fn style_slots(
+    mut slots: Query<
+        (
+            &Hovered,
+            &SlotSelected,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        (With<Slot>, Or<(Changed<Hovered>, Changed<SlotSelected>)>),
+    >,
+) {
+    for (hovered, selected, mut background, mut border) in &mut slots {
+        let (new_background, new_border) = slot_colors(hovered.0, selected.0);
+        background.0 = new_background;
+        *border = new_border;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_count_shows_from_two_items() {
+        assert_eq!(count_label(0), "");
+        assert_eq!(count_label(1), "");
+        assert_eq!(count_label(2), "2");
+        assert_eq!(count_label(64), "64");
+    }
+
+    #[test]
+    fn a_slot_is_sunken_lightens_on_hover_and_takes_the_accent_when_selected() {
+        let (background, border) = slot_colors(false, false);
+        assert_eq!(background, SLOT);
+        assert_eq!(
+            [border.top, border.left, border.bottom, border.right],
+            [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
+        );
+        assert_eq!(slot_colors(true, false).0, RAISE_HOVER);
+        assert_eq!(slot_colors(false, true).1, BorderColor::all(ACCENT));
+    }
+
+    #[test]
+    fn icons_are_whole_multiples_of_their_texels_at_every_scale() {
+        for scale in [1.0, 1.5, 2.0, 3.0] {
+            assert_eq!((ICON_SIZE * scale) % 16.0, 0.0, "scale {scale}");
+        }
+        // the icon is centred on whole pixels
+        assert_eq!((SLOT_SIZE - ICON_SIZE - 2.0 * BEVEL_WIDTH) % 2.0, 0.0);
+    }
+
+    #[test]
+    fn a_slot_has_the_grid_cell_role_and_its_label() {
+        let mut world = World::new();
+        let id = world
+            .spawn(slot(
+                "Hotbar slot 1",
+                Some(1),
+                ImageNode::default(),
+                Handle::default(),
+            ))
+            .id();
+        let node = world.get::<AccessibilityNode>(id).unwrap();
+        assert_eq!(node.role(), Role::GridCell);
+        assert_eq!(node.label(), Some("Hotbar slot 1"));
+    }
+}

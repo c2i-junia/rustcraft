@@ -24,9 +24,11 @@ use super::seed::GameFolder;
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER};
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
+use crate::ui::widgets::slot::{slot, SlotSelected};
 use crate::ui::widgets::text_field::{
     spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
 };
+use crate::ui::widgets::tooltip::{Tooltip, TooltipRoot};
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
@@ -505,4 +507,95 @@ fn a_click_on_the_placeholder_reaches_the_field() {
     assert_eq!(focused(&mut h), parts.input);
     // the input itself was pressed, so the caret was placed
     assert_eq!(h.world().resource::<InputPresses>().0, 1);
+}
+
+/// Spawns a "Probe slot", a 100x40 "Tooltip probe" with a tooltip, and an "Elsewhere" probe, in
+/// a row above the main menu.
+fn spawn_slot_and_tooltip_probes(h: &mut Harness, tooltip: Tooltip) -> Entity {
+    let root = spawn_group(h, Node::default());
+    let probe_slot = h
+        .world_mut()
+        .spawn((
+            slot(
+                "Probe slot",
+                Some(3),
+                ImageNode::default(),
+                Handle::default(),
+            ),
+            ChildOf(root),
+        ))
+        .id();
+    h.world_mut().spawn((
+        Name::new("Tooltip probe"),
+        Node {
+            width: Val::Px(100.0),
+            height: Val::Px(40.0),
+            ..default()
+        },
+        tooltip,
+        ChildOf(root),
+    ));
+    h.world_mut().spawn((probe("Elsewhere"), ChildOf(root)));
+    h.frames(3);
+    probe_slot
+}
+
+fn dirt_tooltip() -> Tooltip {
+    Tooltip {
+        title: "Dirt".into(),
+        detail: "5 items".into(),
+        hint: "Shift+click: move to the hotbar".into(),
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn hovering_a_slot_lightens_it() {
+    let mut h = main_menu();
+    let slot = spawn_slot_and_tooltip_probes(&mut h, dirt_tooltip());
+    h.hover(&L::role(Role::GridCell, "Probe slot"));
+    h.frames(2);
+    assert_eq!(
+        h.world().get::<BackgroundColor>(slot).unwrap().0,
+        RAISE_HOVER
+    );
+    h.world_mut().entity_mut(slot).insert(SlotSelected(true));
+    h.frames(1);
+    assert_eq!(border_of(&mut h, slot), [ACCENT; 4]);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn hovering_an_element_with_a_tooltip_shows_it_by_the_cursor() {
+    let mut h = main_menu();
+    spawn_slot_and_tooltip_probes(&mut h, dirt_tooltip());
+    let probe_center = h.center_of(&L::name("Tooltip probe"));
+    h.hover(&L::name("Tooltip probe"));
+    h.frames(3);
+    let panel = L::marker::<TooltipRoot>;
+    for text in ["Dirt", "5 items", "Shift+click: move to the hotbar"] {
+        assert!(h.is_visible(&L::text(text).within(panel())), "{text}");
+    }
+    let root = h.get(&panel());
+    let size = h.world().get::<ComputedNode>(root).unwrap().size();
+    let center = h
+        .world()
+        .get::<UiGlobalTransform>(root)
+        .unwrap()
+        .translation;
+    let top_left = center - size / 2.0;
+    assert!(top_left.x > probe_center.x && top_left.y > probe_center.y);
+    h.hover(&L::name("Elsewhere"));
+    h.frames(2);
+    assert!(!h.is_visible(&panel()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_empty_tooltip_shows_nothing() {
+    let mut h = main_menu();
+    spawn_slot_and_tooltip_probes(&mut h, Tooltip::default());
+    h.hover(&L::name("Tooltip probe"));
+    h.frames(3);
+    assert!(!h.is_visible(&L::marker::<TooltipRoot>()));
 }
