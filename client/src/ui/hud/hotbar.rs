@@ -43,6 +43,9 @@ pub struct Hotbar {
 pub struct HotbarItemName {
     /// When the name hides again, on the game clock.
     pub hide_at: Option<Duration>,
+    /// The selection seen on the last frame. It lives with the name, which is spawned with the
+    /// hotbar in each world, so a new world never counts its first frame as a change.
+    seen: Option<u32>,
 }
 
 /// The whole slots a scroll of `y` adds to the selection, going down the hotbar for a positive
@@ -111,7 +114,6 @@ pub fn show_selected_item_name(
     hotbar: Query<&Hotbar>,
     inventory_root: Query<&Visibility, (With<InventoryRoot>, Without<HotbarItemName>)>,
     mut name: Query<(&mut HotbarItemName, &mut Text, &mut Visibility)>,
-    mut previous: Local<Option<u32>>,
 ) {
     let (Ok(hotbar), Ok((mut name, mut text, mut visibility))) =
         (hotbar.single(), name.single_mut())
@@ -123,15 +125,20 @@ pub fn show_selected_item_name(
         name.hide_at = None;
         *visibility = Visibility::Hidden;
     }
+    let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
     // The first frame only records the selection
-    let changed = previous.is_some_and(|previous| previous != hotbar.selected);
-    *previous = Some(hotbar.selected);
+    let changed = name.seen.is_some_and(|seen| seen != hotbar.selected);
+    name.seen = Some(hotbar.selected);
+    if is_open {
+        name.hide_at = None;
+        *visibility = Visibility::Hidden;
+        return;
+    }
     if !changed {
         return;
     }
-    let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
     match inventory.inner.get(&hotbar.selected) {
-        Some(stack) if !is_open => {
+        Some(stack) => {
             text.0 = item_name(stack.item_id);
             name.hide_at = Some(now + ITEM_NAME_DURATION);
             *visibility = Visibility::Inherited;
@@ -268,6 +275,43 @@ mod tests {
         run.initialize(&mut world);
         run.run((), &mut world).unwrap();
         world.get_mut::<Hotbar>(hotbar).unwrap().selected = 2;
+        run.run((), &mut world).unwrap();
+        assert_eq!(shown(&world, name).1, Visibility::Hidden);
+    }
+
+    #[test]
+    fn a_new_world_does_not_flash_the_name_on_its_first_frame() {
+        let (mut world, hotbar, name) = name_world(Visibility::Hidden);
+        let mut run = IntoSystem::into_system(show_selected_item_name);
+        run.initialize(&mut world);
+        run.run((), &mut world).unwrap();
+        world.get_mut::<Hotbar>(hotbar).unwrap().selected = 2;
+        run.run((), &mut world).unwrap();
+        assert_eq!(shown(&world, name).1, Visibility::Inherited);
+
+        // The next world: a new hotbar and name, the same system state
+        world.despawn(hotbar);
+        world.despawn(name);
+        world.spawn(Hotbar { selected: 0 });
+        let name = world
+            .spawn((HotbarItemName::default(), Text::new(""), Visibility::Hidden))
+            .id();
+        run.run((), &mut world).unwrap();
+        assert_eq!(shown(&world, name).1, Visibility::Hidden);
+    }
+
+    #[test]
+    fn opening_the_inventory_hides_the_name() {
+        let (mut world, hotbar, name) = name_world(Visibility::Hidden);
+        let mut run = IntoSystem::into_system(show_selected_item_name);
+        run.initialize(&mut world);
+        run.run((), &mut world).unwrap();
+        world.get_mut::<Hotbar>(hotbar).unwrap().selected = 2;
+        run.run((), &mut world).unwrap();
+        assert_eq!(shown(&world, name).1, Visibility::Inherited);
+
+        let mut root = world.query_filtered::<&mut Visibility, With<InventoryRoot>>();
+        *root.single_mut(&mut world).unwrap() = Visibility::Visible;
         run.run((), &mut world).unwrap();
         assert_eq!(shown(&world, name).1, Visibility::Hidden);
     }
