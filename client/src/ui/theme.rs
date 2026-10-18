@@ -5,8 +5,9 @@
 
 use bevy::prelude::*;
 
-/// Background of the panels, 93 % opaque.
-pub const PANEL: Color = Color::srgba_u8(0x11, 0x13, 0x18, 237);
+/// Background of the panels, opaque: a translucent panel shows the world through, as the
+/// colours are blended in linear space.
+pub const PANEL: Color = Color::srgb_u8(0x11, 0x13, 0x18);
 /// Surface of the raised controls.
 pub const RAISE: Color = Color::srgb_u8(0x25, 0x2A, 0x33);
 /// Surface of the raised controls under the cursor.

@@ -87,7 +87,7 @@ Logical pixels at `UiScale` 1 (design height 720).
 
 | Token | Value | Use |
 |---|---|---|
-| panel | `#111318` at 93 % | panel background |
+| panel | `#111318` opaque | panel background |
 | raise / raise-hover | `#252A33` / `#2E3440` | buttons, tabs |
 | bevel hi / lo | `#48505F` / `#07080A`, 2 px | raised: hi top-left, lo bottom-right; sunken (fields, slots): inverted |
 | slot | `#0C0E12` | field and slot interiors |
