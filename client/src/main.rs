@@ -16,6 +16,7 @@ mod world;
 use app::ClientSettings;
 use bevy::{
     app::PluginGroupBuilder,
+    log::{LogPlugin, DEFAULT_FILTER},
     prelude::*,
     render::{
         settings::{RenderCreation, WgpuFeatures, WgpuSettings},
@@ -103,6 +104,11 @@ fn engine_plugins() -> PluginGroupBuilder {
             // The textures are loaded by absolute path from the assets folder, which the
             // command line can place anywhere: paths outside `file_path` must be allowed.
             unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
+            ..default()
+        })
+        .set(LogPlugin {
+            // The warnings come from screens without tab groups, see the redesign lots
+            filter: format!("{},bevy_input_focus::tab_navigation=error", DEFAULT_FILTER),
             ..default()
         })
         .set(WindowPlugin {
