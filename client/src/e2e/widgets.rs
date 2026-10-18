@@ -605,6 +605,26 @@ fn hovering_an_element_with_a_tooltip_shows_it_by_the_cursor() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_screenshot_shows_the_tooltip_of_the_hovered_element() {
+    let mut h = main_menu();
+    spawn_slot_and_tooltip_probes(&mut h, dirt_tooltip());
+    h.hover(&L::name("Tooltip probe"));
+    h.frames(3);
+    let root = h.get(&L::marker::<TooltipRoot>());
+    let size = h.world().get::<ComputedNode>(root).unwrap().size();
+    let center = h
+        .world()
+        .get::<UiGlobalTransform>(root)
+        .unwrap()
+        .translation;
+    let shot = h.screenshot();
+    // The middle of the top bevel of the tooltip
+    let pixel = shot.get_pixel(center.x as u32, (center.y - size.y / 2.0) as u32 + 1);
+    assert_eq!(pixel.0, BEVEL_HI.to_srgba().to_u8_array_no_alpha());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn an_empty_tooltip_shows_nothing() {
     let mut h = main_menu();
     spawn_slot_and_tooltip_probes(&mut h, Tooltip::default());

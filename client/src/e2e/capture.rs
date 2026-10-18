@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use bevy::{
     camera::RenderTarget,
+    picking::PickingSettings,
     prelude::*,
     render::{
         render_resource::Extent3d,
@@ -30,8 +31,14 @@ fn snapshot_path(test: &str, name: &str, width: u32, height: u32) -> PathBuf {
 }
 
 impl Harness {
-    /// The image of the screen, drawn off screen.
+    /// The image of the screen, drawn off screen. The hover is kept as it is meanwhile: the
+    /// cursor is on the window, which the cameras no longer draw into, so the picking would find
+    /// nothing under it and the tooltip and the hovered slot would not be in the picture.
     pub fn screenshot(&mut self) -> RgbImage {
+        let hover = self.world().resource::<PickingSettings>().is_hover_enabled;
+        self.world_mut()
+            .resource_mut::<PickingSettings>()
+            .is_hover_enabled = false;
         self.set_camera_targets(RenderTarget::Image(self.target.clone().into()));
         self.frames(1);
         let shot = Arc::new(Mutex::new(None));
@@ -52,6 +59,9 @@ impl Harness {
         }
         self.set_camera_targets(RenderTarget::Window(WindowRef::Primary));
         self.frames(1);
+        self.world_mut()
+            .resource_mut::<PickingSettings>()
+            .is_hover_enabled = hover;
         image
             .expect("the screenshot was never captured")
             .try_into_dynamic()
