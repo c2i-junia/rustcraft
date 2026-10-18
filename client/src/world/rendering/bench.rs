@@ -45,13 +45,14 @@ use serde_json::{json, Value};
 use shared::world::{BlockId, ChunkMap, ItemId};
 use shared::{GameFolderPaths, CHUNK_SIZE};
 
-use super::meshing::{generate_chunk_mesh, ChunkMeshResponse, UvCoords};
+use super::meshing::{generate_chunk_mesh, ChunkMeshResponse};
 use super::render::{spawn_meshing_tasks, update_chunk};
 use crate::camera::SKY_COLOR;
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::{
-    create_all_atlases, setup_materials, AtlasHandles, ChunkRender, MaterialResource,
+    chunk_material_plugin, create_all_atlases, setup_materials, AtlasHandles, ChunkRender,
+    MaterialResource,
 };
 
 const SEED: u32 = 42;
@@ -162,9 +163,8 @@ impl Scene {
     }
 }
 
-/// A place in an atlas for each block texture of the game, as the mesher only reads the
-/// coordinates.
-fn uv_map() -> HashMap<String, UvCoords> {
+/// An atlas tile for each block texture of the game, as the mesher only reads their indices.
+fn tiles() -> HashMap<String, u32> {
     let folder =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures/blocks");
     let mut names: Vec<String> = std::fs::read_dir(folder)
@@ -172,16 +172,7 @@ fn uv_map() -> HashMap<String, UvCoords> {
         .filter_map(|file| Some(file.ok()?.path().file_stem()?.to_str()?.to_owned()))
         .collect();
     names.sort();
-    let side = (names.len() as f32).sqrt().ceil();
-    names
-        .into_iter()
-        .enumerate()
-        .map(|(index, name)| {
-            let (x, y) = ((index as f32 % side).floor(), (index as f32 / side).floor());
-            let uv = UvCoords::new(x / side, (x + 1.) / side, y / side, (y + 1.) / side);
-            (name, uv)
-        })
-        .collect()
+    names.into_iter().zip(0..).collect()
 }
 
 /// What the meshes of a scene take on the GPU.
@@ -283,7 +274,7 @@ fn write_results(bench: &str, results: Value) {
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_meshing() {
-    let uvs = uv_map();
+    let tiles = tiles();
     AsyncComputeTaskPool::get_or_init(TaskPool::default);
     let mut scenes = Vec::new();
 
@@ -299,7 +290,7 @@ fn bench_meshing() {
             let start = Instant::now();
             for pos in &positions {
                 let chunk_start = Instant::now();
-                let response = generate_chunk_mesh(&world, world.chunk(*pos).unwrap(), pos, &uvs);
+                let response = generate_chunk_mesh(&world, world.chunk(*pos).unwrap(), pos, &tiles);
                 if round > 0 {
                     per_chunk.push(millis(chunk_start));
                 } else {
@@ -318,7 +309,7 @@ fn bench_meshing() {
         let mut load_total = Vec::new();
         for round in 0..ROUNDS {
             let start = Instant::now();
-            let tasks = spawn_meshing_tasks(&world, &uvs, positions.clone());
+            let tasks = spawn_meshing_tasks(&world, &tiles, positions.clone());
             let main_thread = millis(start);
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -335,7 +326,7 @@ fn bench_meshing() {
         let mut remesh_total = Vec::new();
         for _ in 0..REMESHES {
             let start = Instant::now();
-            let tasks = spawn_meshing_tasks(&world, &uvs, vec![surface]);
+            let tasks = spawn_meshing_tasks(&world, &tiles, vec![surface]);
             remesh_main_thread.push(millis(start));
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -419,6 +410,7 @@ impl Drawing {
                 .disable::<GilrsPlugin>()
                 .disable::<LogPlugin>(),
             WireframePlugin::default(),
+            chunk_material_plugin,
         ))
         .insert_resource(MaterialResource::default())
         .insert_resource(AtlasHandles::<BlockId>::default())
@@ -523,19 +515,19 @@ impl Drawing {
 
     /// Meshes every chunk of `world` and shows it, as `world_render_system` does.
     fn show(&mut self, world: &ChunkMap) -> MeshStats {
-        let uvs = self
+        let tiles = self
             .world()
             .resource::<MaterialResource>()
             .blocks
             .as_ref()
             .unwrap()
-            .uvs
+            .tiles
             .clone();
         let mut stats = MeshStats::default();
         let mut responses: Vec<_> = world
             .chunk_positions()
             .map(|pos| {
-                let response = generate_chunk_mesh(world, world.chunk(pos).unwrap(), &pos, &uvs);
+                let response = generate_chunk_mesh(world, world.chunk(pos).unwrap(), &pos, &tiles);
                 stats.add(&response);
                 (pos, response)
             })

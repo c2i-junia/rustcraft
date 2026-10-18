@@ -30,7 +30,7 @@ use crate::{
 
 use crate::world::{ChunkRender, ClientWorldMap};
 
-use super::meshing::{ChunkMeshResponse, UvCoords};
+use super::meshing::ChunkMeshResponse;
 
 #[derive(Debug)]
 pub struct MeshingTask {
@@ -93,7 +93,7 @@ fn show_mesh(
             commands.entity(entity).insert(Mesh3d(meshes.add(mesh)));
         }
         (Some(mesh), None) => {
-            let Some(handle) = material_resource.global_materials.get(&material) else {
+            let Some(handle) = material_resource.chunk_materials.get(&material) else {
                 // The atlas and the block materials are created together: nothing is meshed
                 // before
                 return;
@@ -193,7 +193,7 @@ pub fn world_render_system(
         );
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
-            &block_atlas.uvs,
+            &block_atlas.tiles,
             chunks,
         ));
     }
@@ -229,7 +229,7 @@ pub fn world_render_system(
 /// its chunk. Copying the whole world instead would stall the frame once it is large.
 pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
-    uvs: &HashMap<String, UvCoords>,
+    tiles: &HashMap<String, u32>,
     chunks: Vec<IVec3>,
 ) -> Vec<MeshingTask> {
     let pool = AsyncComputeTaskPool::get();
@@ -245,20 +245,20 @@ pub(super) fn spawn_meshing_tasks(
         }
     }
     let shared_blocks = Arc::new(nearby);
-    let shared_uvs = Arc::new(uvs.clone());
+    let shared_tiles = Arc::new(tiles.clone());
 
     chunks
         .into_iter()
         .filter(|chunk_pos| blocks.is_chunk_loaded(*chunk_pos))
         .map(|chunk_pos| {
             let blocks = Arc::clone(&shared_blocks);
-            let uvs = Arc::clone(&shared_uvs);
+            let tiles = Arc::clone(&shared_tiles);
             MeshingTask {
                 chunk_pos,
                 mesh_request_ts: Instant::now(),
                 thread: pool.spawn(async move {
                     let chunk = blocks.chunk(chunk_pos).expect("copied with its neighbours");
-                    world::meshing::generate_chunk_mesh(&blocks, chunk, &chunk_pos, &uvs)
+                    world::meshing::generate_chunk_mesh(&blocks, chunk, &chunk_pos, &tiles)
                 }),
             }
         })
@@ -385,10 +385,9 @@ mod tests {
         world.set_block(IVec3::new(CHUNK_SIZE - 1, 5, 5), stone);
         // Against the block above, in the next chunk
         world.set_block(IVec3::new(CHUNK_SIZE, 5, 5), stone);
-        let mut uvs = HashMap::new();
-        uvs.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
+        let tiles = HashMap::from([("_Default".to_string(), 0)]);
 
-        let tasks = spawn_meshing_tasks(&world, &uvs, vec![IVec3::ZERO, IVec3::NEG_ONE]);
+        let tasks = spawn_meshing_tasks(&world, &tiles, vec![IVec3::ZERO, IVec3::NEG_ONE]);
 
         assert_eq!(tasks.len(), 1, "a chunk that is not loaded is not meshed");
         let meshes = block_on(tasks.into_iter().next().unwrap().thread);
@@ -396,7 +395,7 @@ mod tests {
             &world,
             world.chunk(IVec3::ZERO).unwrap(),
             &IVec3::ZERO,
-            &uvs,
+            &tiles,
         );
         assert_eq!(
             meshes.solid_mesh.unwrap().count_vertices(),
@@ -427,10 +426,10 @@ mod tests {
     ) {
         let mut materials = MaterialResource::default();
         materials
-            .global_materials
+            .chunk_materials
             .insert(world::GlobalMaterial::Blocks, Handle::default());
         materials
-            .global_materials
+            .chunk_materials
             .insert(world::GlobalMaterial::Liquids, Handle::default());
         let mut queue = CommandQueue::default();
         let mut commands = Commands::new(&mut queue, world);
@@ -464,7 +463,7 @@ mod tests {
         assert_eq!(chunk.entity, Some(entity));
         assert_ne!(world.get::<Mesh3d>(entity).unwrap().0, first_mesh);
         assert!(world
-            .get::<MeshMaterial3d<StandardMaterial>>(entity)
+            .get::<MeshMaterial3d<world::ChunkMaterial>>(entity)
             .is_some());
         assert_eq!(world.query::<&Mesh3d>().iter(&world).count(), 1);
     }

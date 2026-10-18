@@ -1,7 +1,7 @@
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::state::KeyMap;
-use crate::world::materials::MaterialResource;
+use crate::world::materials::{ChunkMaterial, MaterialResource};
 use crate::world::GlobalMaterial;
 use bevy::pbr::wireframe::WireframeConfig;
 use bevy::prelude::*;
@@ -16,7 +16,7 @@ pub fn toggle_wireframe_system(
     mut settings: ResMut<BlockDebugWireframeSettings>,
     mut config: ResMut<WireframeConfig>,
     material_resource: ResMut<MaterialResource>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<ChunkMaterial>>,
     key_map: Res<KeyMap>,
 ) {
     if !is_action_just_pressed(
@@ -31,16 +31,16 @@ pub fn toggle_wireframe_system(
 
     // The blocks turn translucent so that the wireframes behind them show through
     let blocks_material = material_resource
-        .global_materials
+        .chunk_materials
         .get(&GlobalMaterial::Blocks)
         .and_then(|handle| materials.get_mut(handle));
     if let Some(mut material) = blocks_material {
         if settings.is_enabled {
-            material.alpha_mode = AlphaMode::Blend;
-            material.base_color.set_alpha(0.3);
+            material.base.alpha_mode = AlphaMode::Blend;
+            material.base.base_color.set_alpha(0.3);
         } else {
-            material.alpha_mode = AlphaMode::AlphaToCoverage;
-            material.base_color.set_alpha(1.0);
+            material.base.alpha_mode = AlphaMode::AlphaToCoverage;
+            material.base.base_color.set_alpha(1.0);
         }
     }
 }

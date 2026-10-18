@@ -38,7 +38,9 @@ use shared::GameFolderPaths;
 
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
-use crate::world::{create_all_atlases, setup_materials, AtlasHandles, MaterialResource};
+use crate::world::{
+    chunk_material_plugin, create_all_atlases, setup_materials, AtlasHandles, MaterialResource,
+};
 
 /// The size of the window the goldens are drawn in.
 pub const WIDTH: u32 = 1024;
@@ -95,6 +97,7 @@ impl UiGolden {
                 .disable::<GilrsPlugin>()
                 .disable::<LogPlugin>(),
         )
+        .add_plugins(chunk_material_plugin)
         .insert_resource(MaterialResource::default())
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())

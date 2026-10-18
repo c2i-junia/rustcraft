@@ -16,20 +16,6 @@ use shared::{
 
 use super::voxel::{Face, FaceDirection, VoxelShape};
 
-#[derive(Copy, Clone, Debug)]
-pub struct UvCoords {
-    pub u0: f32,
-    pub u1: f32,
-    pub v0: f32,
-    pub v1: f32,
-}
-
-impl UvCoords {
-    pub fn new(u0: f32, u1: f32, v0: f32, v1: f32) -> Self {
-        Self { u0, u1, v0, v1 }
-    }
-}
-
 /// The buffers of a chunk mesh while its faces are added one by one.
 #[derive(Default)]
 struct MeshCreator {
@@ -37,20 +23,28 @@ struct MeshCreator {
     indices: Vec<u32>,
     normals: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
+    /// The atlas tile of each vertex, in `x`: see `AtlasTiles`.
+    tiles: Vec<[f32; 2]>,
     colors: Vec<[f32; 4]>,
 }
 
-/// How far inside its texture a face stops, in atlas units, so that the neighbouring texture
-/// of the atlas never bleeds along the edges of a block.
-const UV_INSET: f32 = 0.001;
+/// How far inside its face a UV stops, in blocks. The shader repeats the texture of a face with
+/// `fract`, which must not wrap around on the edges of the face, where the interpolated UVs may
+/// stray a little past 0 or 1.
+const UV_EDGE_INSET: f32 = 1. / 1024.;
+
+/// `uv` of a corner of a face moved towards the middle of the face, `centre`.
+fn inset_uv(uv: [f32; 2], centre: [f32; 2]) -> [f32; 2] {
+    [0, 1].map(|axis| uv[axis] + UV_EDGE_INSET.copysign(centre[axis] - uv[axis]))
+}
 
 impl MeshCreator {
     /// Appends `face` of a block at `origin` (in chunk coordinates) turned to `direction`,
-    /// drawn with the texture at `uv_coords`.
+    /// drawn with the texture of the atlas `tile`.
     fn push_face(
         &mut self,
         face: &Face,
-        uv_coords: &UvCoords,
+        tile: u32,
         alpha: f32,
         origin: Vec3,
         direction: &BlockDirection,
@@ -72,14 +66,10 @@ impl MeshCreator {
                 .iter()
                 .map(|color| [color[0], color[1], color[2], alpha]),
         );
-        // !!! DO NOT REMOVE THE INSET !!!
-        // It removes seams between blocks in chunk meshes
-        self.uvs.extend(face.uvs.iter().map(|uv| {
-            [
-                (uv[0] + uv_coords.u0 + UV_INSET).min(uv_coords.u1 - UV_INSET),
-                (uv[1] + uv_coords.v0 + UV_INSET).min(uv_coords.v1 - UV_INSET),
-            ]
-        }));
+        self.uvs
+            .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
+        self.tiles
+            .extend(face.uvs.iter().map(|_| [tile as f32, 0.]));
     }
 
     /// The mesh of the faces added so far, `None` when there is none. It has no tangents: the
@@ -92,6 +82,7 @@ impl MeshCreator {
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.vertices);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, self.tiles);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors);
         mesh.insert_indices(Indices::U32(self.indices));
         Some(mesh)
@@ -152,28 +143,28 @@ impl<'a> Neighbourhood<'a> {
     }
 }
 
-/// How a kind of block is drawn: its shape, and the texture of each of its faces in the atlas,
-/// `None` for a face that the texture pack cannot draw.
+/// How a kind of block is drawn: its shape, and the atlas tile of each of its faces, `None` for
+/// a face that the texture pack cannot draw.
 struct BlockLook {
     shape: VoxelShape,
-    uvs: Vec<Option<UvCoords>>,
+    tiles: Vec<Option<u32>>,
 }
 
 impl BlockLook {
-    fn new(block: &BlockData, uv_map: &HashMap<String, UvCoords>) -> Self {
+    fn new(block: &BlockData, tiles: &HashMap<String, u32>) -> Self {
         let shape = VoxelShape::create_from_block(block);
         // A texture pack without this texture nor a default one: nothing to draw
-        let uvs = shape
+        let tiles = shape
             .faces
             .iter()
             .map(|face| {
-                uv_map
+                tiles
                     .get(&face.texture)
-                    .or_else(|| uv_map.get("_Default"))
+                    .or_else(|| tiles.get("_Default"))
                     .copied()
             })
             .collect();
-        Self { shape, uvs }
+        Self { shape, tiles }
     }
 }
 
@@ -185,12 +176,12 @@ pub struct ChunkMeshResponse {
 }
 
 /// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
-/// in this chunk or in the ones around it.
+/// in this chunk or in the ones around it. `tiles` gives the atlas tile of each texture.
 pub(crate) fn generate_chunk_mesh(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
-    uv_map: &HashMap<String, UvCoords>,
+    tiles: &HashMap<String, u32>,
 ) -> ChunkMeshResponse {
     let start = Instant::now();
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
@@ -212,12 +203,12 @@ pub(crate) fn generate_chunk_mesh(
         // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
         // faces. A custom texture folder may lack the texture: no cracks then.
         let cracks = (block.breaking_progress > 0)
-            .then(|| uv_map.get(&format!("DestroyStage{}", block.get_breaking_level())))
+            .then(|| tiles.get(&format!("DestroyStage{}", block.get_breaking_level())))
             .flatten();
 
         let look = looks
             .entry(block.id)
-            .or_insert_with(|| BlockLook::new(block, uv_map));
+            .or_insert_with(|| BlockLook::new(block, tiles));
         let lowered;
         let shape = match (visibility == BlockTransparency::Liquid)
             .then(|| liquid_height(world_map, to_global_pos(chunk_pos, &local_block_pos)))
@@ -229,16 +220,16 @@ pub(crate) fn generate_chunk_mesh(
             }
             None => &look.shape,
         };
-        for (face, uv_coords) in shape.faces.iter().zip(&look.uvs) {
-            let Some(uv_coords) = uv_coords else {
+        for (face, tile) in shape.faces.iter().zip(&look.tiles) {
+            let Some(tile) = *tile else {
                 continue;
             };
             if !should_render_face(&blocks, local_block_pos, &face.direction, &visibility) {
                 continue;
             }
-            mesh_creator.push_face(face, uv_coords, alpha, origin, &block.direction);
+            mesh_creator.push_face(face, tile, alpha, origin, &block.direction);
             if let Some(cracks) = cracks {
-                mesh_creator.push_face(face, cracks, alpha, origin, &block.direction);
+                mesh_creator.push_face(face, *cracks, alpha, origin, &block.direction);
             }
         }
     }
@@ -333,33 +324,30 @@ mod tests {
     use super::*;
     use shared::world::BlockData;
 
-    fn cracked_stone_mesh(uv_map: &HashMap<String, UvCoords>, progress: u8) -> usize {
+    fn cracked_stone_mesh(tiles: &HashMap<String, u32>, progress: u8) -> usize {
         let mut chunk = Chunk::new();
         let mut block = BlockData::new(BlockId::Stone, BlockDirection::Front);
         block.breaking_progress = progress;
         chunk.set(IVec3::new(1, 1, 1), block);
         let mut world = ChunkMap::default();
         world.insert_chunk(IVec3::ZERO, chunk.clone());
-        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, uv_map)
+        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, tiles)
             .solid_mesh
             .map_or(0, |mesh| mesh.count_vertices())
     }
 
     #[test]
     fn a_missing_cracks_texture_draws_no_cracks_instead_of_panicking() {
-        let mut uv_map = HashMap::new();
-        uv_map.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
-        let plain = cracked_stone_mesh(&uv_map, 0);
+        let mut tiles = HashMap::new();
+        tiles.insert("_Default".to_string(), 0);
+        let plain = cracked_stone_mesh(&tiles, 0);
         // Mid-way, last hit and beyond the break time: the block is drawn without cracks
         for progress in [30, 60, 200] {
-            assert_eq!(cracked_stone_mesh(&uv_map, progress), plain, "{progress}");
+            assert_eq!(cracked_stone_mesh(&tiles, progress), plain, "{progress}");
         }
 
-        uv_map.insert(
-            "DestroyStage9".to_string(),
-            UvCoords::new(0.0, 0.1, 0.0, 0.1),
-        );
-        assert!(cracked_stone_mesh(&uv_map, 200) > plain);
+        tiles.insert("DestroyStage9".to_string(), 1);
+        assert!(cracked_stone_mesh(&tiles, 200) > plain);
     }
 
     fn mesh_of(blocks: &[(IVec3, BlockId)]) -> ChunkMeshResponse {
@@ -369,9 +357,9 @@ mod tests {
         }
         let mut world = ChunkMap::default();
         world.insert_chunk(IVec3::ZERO, chunk.clone());
-        let mut uv_map = HashMap::new();
-        uv_map.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
-        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &uv_map)
+        let mut tiles = HashMap::new();
+        tiles.insert("_Default".to_string(), 0);
+        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
     }
 
     fn vertices(mesh: &Option<Mesh>) -> usize {
@@ -429,8 +417,8 @@ mod tests {
     #[test]
     fn a_block_against_a_block_of_a_neighbouring_chunk_hides_that_face_on_every_side() {
         let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
-        let mut uv_map = HashMap::new();
-        uv_map.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
+        let mut tiles = HashMap::new();
+        tiles.insert("_Default".to_string(), 0);
         for offset in shared::world::SIX_OFFSETS {
             // A block on the face of the chunk turned to `offset`, and one beyond it
             let block = IVec3::splat(CHUNK_SIZE / 2) + offset * (CHUNK_SIZE / 2);
@@ -442,8 +430,45 @@ mod tests {
             world.set_block(block + offset, stone);
 
             let chunk = world.chunk(IVec3::ZERO).unwrap();
-            let mesh = generate_chunk_mesh(&world, chunk, &IVec3::ZERO, &uv_map);
+            let mesh = generate_chunk_mesh(&world, chunk, &IVec3::ZERO, &tiles);
             assert_eq!(vertices(&mesh.solid_mesh), 5 * 4, "{offset}");
+        }
+    }
+
+    #[test]
+    fn each_vertex_names_the_atlas_tile_of_its_face_and_a_point_inside_it() {
+        let mut chunk = Chunk::new();
+        chunk.set(
+            IVec3::ONE,
+            BlockData::new(BlockId::Grass, BlockDirection::Front),
+        );
+        let mut world = ChunkMap::default();
+        world.insert_chunk(IVec3::ZERO, chunk.clone());
+        let tiles = HashMap::from([
+            ("_Default".to_string(), 0),
+            ("Grass".to_string(), 1),
+            ("GrassTop".to_string(), 2),
+        ]);
+        let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+            .solid_mesh
+            .unwrap();
+        let attribute = |attribute| match mesh.attribute(attribute) {
+            Some(bevy::mesh::VertexAttributeValues::Float32x2(values)) => values.clone(),
+            _ => panic!("no {attribute:?}"),
+        };
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) =
+            mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            panic!("no normals");
+        };
+
+        let tiles = attribute(Mesh::ATTRIBUTE_UV_1);
+        for (tile, normal) in tiles.iter().zip(normals) {
+            let expected = if normal[1] > 0. { 2. } else { 1. };
+            assert_eq!(tile[0], expected, "normal {normal:?}");
+        }
+        for uv in attribute(Mesh::ATTRIBUTE_UV_0) {
+            assert!(uv.iter().all(|c| 0. < *c && *c < 1.), "{uv:?}");
         }
     }
 

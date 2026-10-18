@@ -1201,7 +1201,8 @@ mod tests {
             handles: [("Dirt".to_string(), dirt), ("Sand".to_string(), sand)].into(),
             texture: Handle::default(),
             layout: Handle::default(),
-            uvs: Default::default(),
+            tiles: Default::default(),
+            tile_rects: Default::default(),
         };
 
         // The setup loads the font of the slots

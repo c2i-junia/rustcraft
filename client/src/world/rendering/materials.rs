@@ -2,9 +2,12 @@ use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
 use crate::world::GlobalMaterial;
+use bevy::asset::{load_internal_asset, uuid_handle};
 use bevy::image::ImageSampler;
+use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
-use bevy::render::render_resource::Face;
+use bevy::render::render_resource::{AsBindGroup, Face};
+use bevy::shader::ShaderRef;
 use shared::world::{BlockId, GameElementId, ItemId};
 use shared::GameFolderPaths;
 use std::collections::HashMap;
@@ -12,15 +15,16 @@ use std::fs;
 use std::marker::PhantomData;
 use std::path::Path;
 
-use super::meshing::UvCoords;
-
 #[derive(Debug)]
 pub struct AtlasWrapper {
     pub handles: HashMap<String, Handle<Image>>,
     pub texture: Handle<Image>,
     pub layout: Handle<TextureAtlasLayout>,
     pub sources: TextureAtlasSources,
-    pub uvs: HashMap<String, UvCoords>,
+    /// The index in `tile_rects` of each texture, by name.
+    pub tiles: HashMap<String, u32>,
+    /// Where each texture lies in the atlas: min x, min y, max x, max y, in atlas units.
+    pub tile_rects: Vec<Vec4>,
 }
 
 impl AtlasWrapper {
@@ -35,9 +39,64 @@ impl AtlasWrapper {
     }
 }
 
+/// The most block textures a texture pack may have: the length of the array of tiles in
+/// `chunk.wgsl`.
+pub const MAX_TILES: usize = 256;
+
+const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1a7d9c21");
+
+/// What the chunks are drawn with: the material of the block atlas, whose tiles repeat over the
+/// faces that span several blocks.
+pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, AtlasTiles>;
+
+/// Where each texture lies in the atlas, for `chunk.wgsl`. A chunk mesh names the tile of each
+/// vertex by its index (`UV_1.x`), and the point in the tile in `UV_0`, which repeats past 1.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct AtlasTiles {
+    /// min x, min y, max x, max y of each tile, in atlas units
+    #[uniform(100)]
+    pub rects: [Vec4; MAX_TILES],
+}
+
+impl AtlasTiles {
+    fn new(rects: &[Vec4]) -> Self {
+        if rects.len() > MAX_TILES {
+            error!(
+                "{} block textures, but no more than {MAX_TILES} can be drawn",
+                rects.len()
+            );
+        }
+        let mut tiles = Self {
+            rects: [Vec4::ZERO; MAX_TILES],
+        };
+        for (tile, rect) in tiles.rects.iter_mut().zip(rects) {
+            *tile = *rect;
+        }
+        tiles
+    }
+}
+
+impl MaterialExtension for AtlasTiles {
+    fn fragment_shader() -> ShaderRef {
+        CHUNK_SHADER.into()
+    }
+
+    fn prepass_fragment_shader() -> ShaderRef {
+        CHUNK_SHADER.into()
+    }
+}
+
+/// Makes `ChunkMaterial` drawable.
+pub fn chunk_material_plugin(app: &mut App) {
+    load_internal_asset!(app, CHUNK_SHADER, "chunk.wgsl", Shader::from_wgsl);
+    app.add_plugins(MaterialPlugin::<ChunkMaterial>::default());
+}
+
 #[derive(Resource, Default, Debug)]
 pub struct MaterialResource {
     pub global_materials: HashMap<GlobalMaterial, Handle<StandardMaterial>>,
+    /// The materials of the blocks and of the liquids.
+    pub chunk_materials: HashMap<GlobalMaterial, Handle<ChunkMaterial>>,
     pub items: Option<AtlasWrapper>,
     pub blocks: Option<AtlasWrapper>,
 }
@@ -135,6 +194,7 @@ pub fn create_all_atlases(
     mut loading: ResMut<PreLoadingCompletion>,
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut chunk_materials: ResMut<Assets<ChunkMaterial>>,
 ) {
     let atlas_material = |atlas: &AtlasWrapper, alpha_mode| StandardMaterial {
         base_color_texture: Some(atlas.texture.clone()),
@@ -147,17 +207,24 @@ pub fn create_all_atlases(
     if material_resource.blocks.is_none() {
         if let Some(blocks) = build_texture_atlas(&mut atlases.0, &mut images, &mut texture_atlases)
         {
-            material_resource.global_materials.insert(
+            let chunk_material = |base| ChunkMaterial {
+                base,
+                extension: AtlasTiles::new(&blocks.tile_rects),
+            };
+            material_resource.chunk_materials.insert(
                 GlobalMaterial::Blocks,
-                materials.add(atlas_material(&blocks, AlphaMode::AlphaToCoverage)),
+                chunk_materials.add(chunk_material(atlas_material(
+                    &blocks,
+                    AlphaMode::AlphaToCoverage,
+                ))),
             );
             // A liquid is seen through, and from below its surface too
-            material_resource.global_materials.insert(
+            material_resource.chunk_materials.insert(
                 GlobalMaterial::Liquids,
-                materials.add(StandardMaterial {
+                chunk_materials.add(chunk_material(StandardMaterial {
                     cull_mode: None,
                     ..atlas_material(&blocks, AlphaMode::Blend)
-                }),
+                })),
             );
             material_resource.blocks = Some(blocks);
         }
@@ -204,20 +271,21 @@ fn build_texture_atlas<T: GameElementId>(
 
     // Create UV references
     let mut handles = HashMap::new();
-    let mut uvs = HashMap::new();
+    let mut tiles = HashMap::new();
+    let mut tile_rects = Vec::new();
     for (handle, name) in atlas_handles.handles.iter() {
         handles.insert(name.clone(), handle.clone());
         let rect = texture_atlas_sources
             .texture_rect(&texture_atlas_layout, handle.id())
             .unwrap_or_default();
 
-        let uv_coords = UvCoords::new(
+        tiles.insert(name.clone(), tile_rects.len() as u32);
+        tile_rects.push(Vec4::new(
             rect.min.x as f32 / size.x,
-            rect.max.x as f32 / size.x,
             rect.min.y as f32 / size.y,
+            rect.max.x as f32 / size.x,
             rect.max.y as f32 / size.y,
-        );
-        uvs.insert(name.clone(), uv_coords);
+        ));
     }
 
     Some(AtlasWrapper {
@@ -225,6 +293,7 @@ fn build_texture_atlas<T: GameElementId>(
         layout: texture_atlases.add(texture_atlas_layout),
         sources: texture_atlas_sources,
         handles,
-        uvs,
+        tiles,
+        tile_rects,
     })
 }

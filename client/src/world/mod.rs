@@ -26,6 +26,7 @@ pub fn world_plugin(app: &mut App) {
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
         .insert_resource(RenderDistance { ..default() })
+        .add_plugins(chunk_material_plugin)
         .add_message::<WorldRenderRequestUpdateEvent>()
         .add_message::<BlockChanged>()
         .add_systems(
