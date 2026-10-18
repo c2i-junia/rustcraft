@@ -1,6 +1,6 @@
 //! Pictures of the client: golden comparisons, and snapshots for a human to review.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use bevy::{
@@ -19,6 +19,15 @@ use crate::ui::golden::assert_image_matches;
 
 /// The frames that capturing the screen may take.
 const MAX_FRAMES: usize = 500;
+
+/// Where the snapshot `name` of `test` is saved. The module path of the test, whose `::` are not
+/// welcome in a file name, is the folder.
+fn snapshot_path(test: &str, name: &str, width: u32, height: u32) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/ui-snapshots")
+        .join(test.replace("::", "__"))
+        .join(format!("{name}_{width}x{height}.png"))
+}
 
 impl Harness {
     /// The image of the screen, drawn off screen.
@@ -56,20 +65,26 @@ impl Harness {
         assert_image_matches(name, &shot);
     }
 
-    /// Saves the screen as `target/ui-snapshots/<name>_<width>x<height>.png` for a human to review,
-    /// when `UI_SNAPSHOTS=1`.
+    /// Saves the screen as `target/ui-snapshots/<test>/<name>_<width>x<height>.png` for a human to
+    /// review, when `UI_SNAPSHOTS=1`. Each test has its own folder, as tests run in parallel.
     pub fn snapshot(&mut self, name: &str) {
         if !std::env::var_os("UI_SNAPSHOTS").is_some_and(|value| value == "1") {
             return;
         }
         let shot = self.screenshot();
-        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/ui-snapshots");
-        std::fs::create_dir_all(&folder).unwrap();
-        let file = format!("{name}_{}x{}.png", shot.width(), shot.height());
-        shot.save(folder.join(file)).unwrap();
+        let thread = std::thread::current();
+        let path = snapshot_path(
+            thread.name().unwrap_or("unnamed"),
+            name,
+            shot.width(),
+            shot.height(),
+        );
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        shot.save(path).unwrap();
     }
 
-    /// Resizes the window and the screenshots, and lays the UI out again.
+    /// Resizes the window and the screenshots, and lays the UI out again. The cameras only read the
+    /// new size of a window from a `WindowResized` message, so one is sent.
     pub fn resize(&mut self, width: u32, height: u32) {
         let world = self.world_mut();
         let (entity, mut window) = world
@@ -109,6 +124,7 @@ impl Harness {
 mod tests {
     use bevy::prelude::*;
 
+    use super::snapshot_path;
     use crate::e2e::harness::{Harness, SCREEN};
     use crate::e2e::locator::Locator as L;
     use crate::ui::button::MenuState;
@@ -154,5 +170,12 @@ mod tests {
         let quit = h.center_of(&L::text("Quit"));
         assert_eq!(quit.x, 400.0);
         assert!(quit.y < 600.0);
+        assert_eq!(h.screenshot().dimensions(), (800, 600));
+    }
+
+    #[test]
+    fn a_snapshot_is_saved_in_the_folder_of_its_test() {
+        let path = snapshot_path("e2e::menu::a_test", "main", 800, 600);
+        assert!(path.ends_with("ui-snapshots/e2e__menu__a_test/main_800x600.png"));
     }
 }
