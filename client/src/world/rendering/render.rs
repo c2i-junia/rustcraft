@@ -1,4 +1,5 @@
 use crate::player::CurrentPlayerMarker;
+use std::iter;
 use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
@@ -13,7 +14,10 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::{
-    world::{global_block_to_chunk_pos, to_local_pos, world_position_to_chunk_position, ChunkMap},
+    world::{
+        global_block_to_chunk_pos, to_local_pos, world_position_to_chunk_position, ChunkMap,
+        SIX_OFFSETS,
+    },
     CHUNK_SIZE,
 };
 
@@ -221,29 +225,42 @@ pub fn world_render_system(
 }
 
 /// Starts meshing each of `chunks` that is loaded, in this order. The tasks share one copy of
-/// the blocks, as a mesh depends on the neighbours of its chunk.
+/// the chunks they read: theirs and the six around each, as a mesh depends on the neighbours of
+/// its chunk. Copying the whole world instead would stall the frame once it is large.
 pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
     uvs: &HashMap<String, UvCoords>,
     chunks: Vec<IVec3>,
 ) -> Vec<MeshingTask> {
     let pool = AsyncComputeTaskPool::get();
-    let shared_blocks = Arc::new(blocks.clone());
+    let mut nearby = ChunkMap::default();
+    for chunk_pos in chunks
+        .iter()
+        .flat_map(|chunk_pos| iter::once(*chunk_pos).chain(SIX_OFFSETS.map(|o| *chunk_pos + o)))
+    {
+        if let Some(chunk) = blocks.chunk(chunk_pos) {
+            if !nearby.is_chunk_loaded(chunk_pos) {
+                nearby.insert_chunk(chunk_pos, chunk.clone());
+            }
+        }
+    }
+    let shared_blocks = Arc::new(nearby);
     let shared_uvs = Arc::new(uvs.clone());
 
     chunks
         .into_iter()
-        .filter_map(|chunk_pos| {
-            let chunk = blocks.chunk(chunk_pos)?.clone();
+        .filter(|chunk_pos| blocks.is_chunk_loaded(*chunk_pos))
+        .map(|chunk_pos| {
             let blocks = Arc::clone(&shared_blocks);
             let uvs = Arc::clone(&shared_uvs);
-            Some(MeshingTask {
+            MeshingTask {
                 chunk_pos,
                 mesh_request_ts: Instant::now(),
                 thread: pool.spawn(async move {
-                    world::meshing::generate_chunk_mesh(&blocks, &chunk, &chunk_pos, &uvs)
+                    let chunk = blocks.chunk(chunk_pos).expect("copied with its neighbours");
+                    world::meshing::generate_chunk_mesh(&blocks, chunk, &chunk_pos, &uvs)
                 }),
-            })
+            }
         })
         .collect()
 }
@@ -353,6 +370,38 @@ mod tests {
         let distances: Vec<i32> = chunks.iter().map(|c| c.distance_squared(center)).collect();
         assert_eq!(distances, vec![0, 1, 2, 9, 25]);
         assert_eq!(chunks[0], center);
+    }
+
+    #[test]
+    fn a_meshing_task_sees_the_blocks_of_the_neighbouring_chunks() {
+        use bevy::tasks::TaskPool;
+        use shared::world::{BlockData, BlockDirection, BlockId};
+        AsyncComputeTaskPool::get_or_init(TaskPool::default);
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        let mut world = ChunkMap::default();
+        for chunk_pos in [IVec3::ZERO, IVec3::X, IVec3::new(5, 0, 0)] {
+            world.insert_chunk(chunk_pos, Default::default());
+        }
+        world.set_block(IVec3::new(CHUNK_SIZE - 1, 5, 5), stone);
+        // Against the block above, in the next chunk
+        world.set_block(IVec3::new(CHUNK_SIZE, 5, 5), stone);
+        let mut uvs = HashMap::new();
+        uvs.insert("_Default".to_string(), UvCoords::new(0.0, 0.1, 0.0, 0.1));
+
+        let tasks = spawn_meshing_tasks(&world, &uvs, vec![IVec3::ZERO, IVec3::NEG_ONE]);
+
+        assert_eq!(tasks.len(), 1, "a chunk that is not loaded is not meshed");
+        let meshes = block_on(tasks.into_iter().next().unwrap().thread);
+        let in_place = world::meshing::generate_chunk_mesh(
+            &world,
+            world.chunk(IVec3::ZERO).unwrap(),
+            &IVec3::ZERO,
+            &uvs,
+        );
+        assert_eq!(
+            meshes.solid_mesh.unwrap().count_vertices(),
+            in_place.solid_mesh.unwrap().count_vertices()
+        );
     }
 
     fn empty_mesh() -> Option<Mesh> {
