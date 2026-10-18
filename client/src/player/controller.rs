@@ -113,13 +113,15 @@ pub fn player_movement_system(
     let from = player.movement_state();
     simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
 
-    // The frame is final: record what it predicts and queue it for the server
+    // The frame is final: record what it predicts and queue it for the server, which takes its
+    // inventory actions along
     frame_inputs.0.predicted = player.movement_state();
     moves.write(LocalPlayerMoved {
         from,
         to: frame_inputs.0.predicted,
     });
     tick_buffer.buffer.push(frame_inputs.0.clone());
+    frame_inputs.0.inventory_actions.clear();
 
     player_transform.translation = player.position;
 }

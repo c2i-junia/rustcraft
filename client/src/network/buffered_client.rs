@@ -17,7 +17,10 @@ pub trait CurrentFrameInputsExt {
 }
 
 impl CurrentFrameInputsExt for CurrentFrameInputs {
+    /// Starts the frame's input. The inventory actions of a frame that was not queued for the
+    /// server, because it was not simulated, are kept for this one: a click is never lost.
     fn reset(&mut self, new_time: u64, new_delta: u64) {
+        let pending_actions = std::mem::take(&mut self.0.inventory_actions);
         self.0 = PlayerFrameInput {
             time_ms: new_time,
             delta_ms: new_delta,
@@ -26,7 +29,7 @@ impl CurrentFrameInputsExt for CurrentFrameInputs {
             predicted: MovementState::default(),
             hotbar_slot: 0,
             view_mode: ViewMode::default(),
-            inventory_actions: Vec::new(),
+            inventory_actions: pending_actions,
         };
     }
 }
@@ -70,6 +73,19 @@ impl SyncTimeExt for SyncTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reset_keeps_the_inventory_actions_no_frame_has_queued() {
+        use shared::players::inventory::InventoryAction;
+
+        let mut frame = CurrentFrameInputs::default();
+        frame.0.inventory_actions.push(InventoryAction::Close);
+
+        frame.reset(2_000, 0);
+
+        assert_eq!(frame.0.time_ms, 2_000);
+        assert_eq!(frame.0.inventory_actions, [InventoryAction::Close]);
+    }
 
     #[test]
     fn delta_is_the_time_elapsed_between_two_ticks() {
