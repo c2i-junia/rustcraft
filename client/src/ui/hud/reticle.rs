@@ -1,7 +1,12 @@
 use bevy::prelude::*;
 
+use super::UIMode;
 use crate::state::GameState;
 use crate::ui::theme::BEVEL_LO;
+
+/// The root of the reticle.
+#[derive(Component)]
+pub struct Reticle;
 
 /// A bar of the reticle, `width` by `height` px, centred on the middle of the screen.
 fn bar(width: f32, height: f32, color: Color) -> impl Bundle {
@@ -25,6 +30,7 @@ pub fn spawn_reticle(mut commands: Commands) {
     // Main container for the reticle
     commands
         .spawn((
+            Reticle,
             DespawnOnExit(GameState::Game), // Link the reticle to the Game state
             Node {
                 position_type: PositionType::Absolute,
@@ -45,6 +51,19 @@ pub fn spawn_reticle(mut commands: Commands) {
             parent.spawn(bar(20.0, 2.0, Color::WHITE));
             parent.spawn(bar(2.0, 20.0, Color::WHITE));
         });
+}
+
+/// Hides the reticle while a dialog is open: there is nothing to aim at, and it would show
+/// through the panel. The chat leaves it.
+pub fn show_reticle(ui_mode: Res<UIMode>, mut reticle: Query<&mut Visibility, With<Reticle>>) {
+    let shown = if *ui_mode == UIMode::Opened {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut visibility in &mut reticle {
+        visibility.set_if_neq(shown);
+    }
 }
 
 #[cfg(test)]

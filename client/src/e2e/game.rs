@@ -165,9 +165,14 @@ fn the_hud_shows_and_f3_toggles_the_debug_overlay() {
     h.press(KeyCode::Escape);
     h.press(KeyCode::KeyE);
     assert!(h.stack_index::<HudRoot>() < h.stack_index::<InventoryDialog>());
+    // Nothing to aim at: the reticle does not show through the panel
+    assert_eq!(h.reticle_bars(), 0);
     h.press(KeyCode::KeyE);
+    assert_eq!(h.reticle_bars(), 2);
     h.press(KeyCode::KeyT);
     assert!(h.stack_index::<HudRoot>() < h.stack_index::<ChatRoot>());
+    // The chat leaves the reticle
+    assert_eq!(h.reticle_bars(), 2);
     h.press(KeyCode::Escape);
 }
 
