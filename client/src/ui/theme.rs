@@ -19,7 +19,11 @@ pub const BEVEL_WIDTH: f32 = 2.0;
 /// Background of the item slots and the text fields.
 pub const SLOT: Color = Color::srgb_u8(0x0C, 0x0E, 0x12);
 pub const ACCENT: Color = Color::srgb_u8(0xF0, 0xB5, 0x4A);
+/// `OK` under the cursor.
+pub const OK_HOVER: Color = Color::srgb_u8(0x8F, 0xD8, 0x77);
 pub const OK: Color = Color::srgb_u8(0x78, 0xC7, 0x5F);
+/// `DANGER` under the cursor.
+pub const DANGER_HOVER: Color = Color::srgb_u8(0xEA, 0x72, 0x5C);
 pub const DANGER: Color = Color::srgb_u8(0xE3, 0x59, 0x3F);
 pub const TEXT: Color = Color::srgb_u8(0xEF, 0xE9, 0xDA);
 pub const MUTED: Color = Color::srgb_u8(0x9A, 0xA2, 0xAE);

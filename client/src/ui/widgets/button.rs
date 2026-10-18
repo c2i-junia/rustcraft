@@ -13,10 +13,11 @@ use bevy::{
 
 use super::focus::FocusRing;
 use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DISABLED_ALPHA, FONT_M, OK, PANEL, RAISE, RAISE_HOVER,
-    SPACE_L, SPACE_S, TEXT,
+    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DANGER_HOVER, DISABLED_ALPHA, FONT_M, OK, OK_HOVER,
+    PANEL, RAISE, RAISE_HOVER, SPACE_L, SPACE_S, TEXT,
 };
 
+/// The look of a button.
 // The variants are first used by the main menu (Lot 1).
 #[allow(dead_code)]
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -91,8 +92,8 @@ fn button_colors(
     let surface = if hovered { RAISE_HOVER } else { RAISE };
     let (background, text) = match variant {
         ButtonVariant::Default => (surface, TEXT),
-        ButtonVariant::Primary => (OK, PANEL),
-        ButtonVariant::Danger => (DANGER, PANEL),
+        ButtonVariant::Primary => (if hovered { OK_HOVER } else { OK }, PANEL),
+        ButtonVariant::Danger => (if hovered { DANGER_HOVER } else { DANGER }, PANEL),
         ButtonVariant::Ghost if hovered || pressed => (RAISE_HOVER, TEXT),
         ButtonVariant::Ghost => (Color::NONE, TEXT),
     };
@@ -137,20 +138,22 @@ type StateChanged = Or<(
     Added<ThemedButton>,
 )>;
 
-/// Applies the look of a button to itself and to its label.
-fn apply_style(
-    button: Entity,
-    buttons: &mut Query<(
-        &ThemedButton,
-        &Hovered,
+type Buttons<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ThemedButton,
+        &'static Hovered,
         Has<Pressed>,
         Has<InteractionDisabled>,
-        &mut BackgroundColor,
-        &mut BorderColor,
-        &Children,
-    )>,
-    texts: &mut Query<&mut TextColor>,
-) {
+        &'static mut BackgroundColor,
+        &'static mut BorderColor,
+        &'static Children,
+    ),
+>;
+
+/// Applies the look of a button to itself and to its label.
+fn apply_style(button: Entity, buttons: &mut Buttons, texts: &mut Query<&mut TextColor>) {
     let Ok((variant, hovered, pressed, disabled, mut background, mut border, children)) =
         buttons.get_mut(button)
     else {
@@ -168,15 +171,7 @@ fn apply_style(
 
 fn style_buttons(
     changed: Query<Entity, (With<ThemedButton>, StateChanged)>,
-    mut buttons: Query<(
-        &ThemedButton,
-        &Hovered,
-        Has<Pressed>,
-        Has<InteractionDisabled>,
-        &mut BackgroundColor,
-        &mut BorderColor,
-        &Children,
-    )>,
+    mut buttons: Buttons,
     mut texts: Query<&mut TextColor>,
 ) {
     for button in &changed {
@@ -188,15 +183,7 @@ fn style_buttons(
 fn style_released_buttons(
     mut released: RemovedComponents<Pressed>,
     mut enabled: RemovedComponents<InteractionDisabled>,
-    mut buttons: Query<(
-        &ThemedButton,
-        &Hovered,
-        Has<Pressed>,
-        Has<InteractionDisabled>,
-        &mut BackgroundColor,
-        &mut BorderColor,
-        &Children,
-    )>,
+    mut buttons: Buttons,
     mut texts: Query<&mut TextColor>,
 ) {
     let entities: EntityHashSet = released.read().chain(enabled.read()).collect();
@@ -229,13 +216,32 @@ mod tests {
         assert_eq!(hover.background, RAISE_HOVER);
     }
 
+    const VARIANTS: [ButtonVariant; 4] = [
+        ButtonVariant::Default,
+        ButtonVariant::Primary,
+        ButtonVariant::Danger,
+        ButtonVariant::Ghost,
+    ];
+
     #[test]
     fn pressing_inverts_the_bevel() {
-        let pressed = button_colors(ButtonVariant::Default, true, true, false);
-        assert_eq!(
-            edges(&pressed.border),
-            [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
-        );
+        for variant in VARIANTS {
+            let pressed = button_colors(variant, true, true, false);
+            assert_eq!(
+                edges(&pressed.border),
+                [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI],
+                "{variant:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_variant_changes_on_hover() {
+        for variant in VARIANTS {
+            let rest = button_colors(variant, false, false, false);
+            let hover = button_colors(variant, true, false, false);
+            assert_ne!(rest.background, hover.background, "{variant:?}");
+        }
     }
 
     #[test]
