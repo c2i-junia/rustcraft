@@ -347,6 +347,20 @@ fn the_keyboard_alone_moves_stacks_in_the_inventory() {
     assert_eq!(focused_cell(h.world()), Some(10));
     assert_eq!(ringed_cells(&mut h), [10]);
 
+    // The ringed slot shows its tooltip beside it, inside the window
+    let tooltip = L::marker::<TooltipRoot>;
+    h.wait_for(&L::text("Dirt").within(tooltip()), SCREEN);
+    let (panel, cell) = (h.rect_of(&tooltip()), h.rect_of(&L::cell(10)));
+    assert!(
+        panel.intersect(cell).is_empty(),
+        "the tooltip {panel:?} covers the focused slot {cell:?}"
+    );
+    let window = Rect::new(0.0, 0.0, 1280.0, 720.0);
+    assert!(
+        window.contains(panel.min) && window.contains(panel.max),
+        "the tooltip {panel:?} leaves the window"
+    );
+
     // Enter takes the stack, which then sits on the focused slot rather than on the cursor
     h.press(KeyCode::Enter);
     h.wait_until("the dirt held", SERVER, |w| {
