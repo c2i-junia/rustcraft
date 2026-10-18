@@ -1,10 +1,8 @@
 //! The inventory dialog and the cells it shares with the hotbar.
 
 use bevy::prelude::Component;
-use shared::world::ItemStack;
 
 mod display;
-pub mod items;
 mod setup;
 
 pub use display::*;
@@ -24,11 +22,9 @@ pub struct InventoryCell {
     pub id: u32,
 }
 
-/// The current selected stack, not considered in the player's inventory
+/// Shows the stack held by the cursor, `Inventory::floating`.
 #[derive(Component)]
-pub struct FloatingStack {
-    pub items: Option<ItemStack>,
-}
+pub struct FloatingStack;
 
 /// The text showing how many items a cell or the floating stack holds.
 #[derive(Component)]

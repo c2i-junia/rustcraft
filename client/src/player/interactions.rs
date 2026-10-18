@@ -5,7 +5,8 @@ use bevy::color::palettes::css::WHITE;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::blocks::{simulate_player_block_interactions, CallerType};
-use shared::players::{Player, ViewMode};
+use shared::players::inventory::simulate_inventory_actions;
+use shared::players::{Inventory, Player, ViewMode};
 use shared::world::{raycast, FaceDirectionExt};
 
 use super::CurrentPlayerMarker;
@@ -78,4 +79,20 @@ pub fn handle_block_interactions(
             });
         }
     }
+}
+
+/// Predicts the inventory actions of the frame on the local player, and shows the result.
+pub fn predict_inventory_system(
+    mut player: Query<&mut Player, With<CurrentPlayerMarker>>,
+    frame_inputs: Res<CurrentFrameInputs>,
+    mut inventory: ResMut<Inventory>,
+) {
+    let Ok(mut player) = player.single_mut() else {
+        return;
+    };
+    if frame_inputs.0.inventory_actions.is_empty() {
+        return;
+    }
+    simulate_inventory_actions(&mut player, &frame_inputs.0, CallerType::Client);
+    inventory.clone_from(&player.inventory);
 }
