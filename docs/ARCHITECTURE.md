@@ -49,7 +49,8 @@ result from the same input.
 
 Blocks follow the same idea: the client applies its own clicks at once, and the server sends
 `BlockUpdates` for every block that changed. When the server refuses an interaction, it
-restates the block so that a wrong prediction is corrected.
+restates the block so that a wrong prediction is corrected. The flow of water is not
+predicted: the client only receives the cells it changes.
 
 ## One server tick
 
@@ -59,7 +60,9 @@ orders the systems of `Update`:
 1. **Receive**: connection events, then the messages of each client, one handler per kind of
    message (`network/handlers.rs`). A client that is not authenticated may only ask to be.
 2. **Simulate**: the inputs are applied to the world. Chunks are generated around the players
-   before and after each input.
+   before and after each input. Then the water flows (`world/flow.rs`): every 5 ticks, the
+   cells next to a block that changed take the level their neighbours give them
+   (`shared/src/world/liquid.rs`).
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
 4. **Save**: on request or every 60 seconds, the metadata and the changed chunks are handed
    to the writer thread.
@@ -101,7 +104,9 @@ A world is a folder under `saves/`:
 Every file is written to a temporary file and renamed, so a crash never leaves a half-written
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out
 of the tick; only the changed chunks are written. Worlds saved by older versions are converted
-on their first load and the old file is kept (`world/legacy.rs`, `world/load_from_file.rs`).
+on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
+`chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,
+`world/load_from_file.rs`).
 
 ## Known limits
 
