@@ -109,12 +109,23 @@ fn is_inside_or_is(world: &World, entity: Entity, ancestor: Entity) -> bool {
     entity == ancestor || is_inside(world, entity, ancestor)
 }
 
-/// The content of a `Text` and of the `TextSpan`s under it.
+/// What a player reads of a `Text` and of the `TextSpan`s under it: the spans drawn in a fully
+/// transparent colour are left out, and so is the cursor of a text input, which blinks.
 fn content_of(world: &World, entity: Entity) -> Option<String> {
     let mut content = world.get::<Text>(entity)?.0.clone();
     if let Some(children) = world.get::<Children>(entity) {
-        for &child in children {
-            if let Some(span) = world.get::<TextSpan>(child) {
+        // The inner text of a `bevy_simple_text_input` holds before, cursor and after spans.
+        let is_input = world
+            .get::<Name>(entity)
+            .is_some_and(|n| n.as_str() == "TextInputInner");
+        for (i, child) in children.iter().enumerate() {
+            let Some(span) = world.get::<TextSpan>(child) else {
+                continue;
+            };
+            let transparent = world
+                .get::<TextColor>(child)
+                .is_some_and(|c| c.0.alpha() == 0.0);
+            if !transparent && !(is_input && i == 1) {
                 content.push_str(&span.0);
             }
         }
@@ -358,6 +369,24 @@ mod tests {
         ));
         h.frames(3);
         h.get(&L::text("FPS: 60"));
+    }
+
+    #[test]
+    #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+    fn a_transparent_span_is_not_part_of_the_text() {
+        let mut h = main_menu();
+        h.world_mut().spawn((
+            Node {
+                width: Val::Px(100.0),
+                height: Val::Px(20.0),
+                ..default()
+            },
+            Text::new("Seen"),
+            children![(TextSpan::new("Unseen"), TextColor(Color::NONE))],
+        ));
+        h.frames(3);
+        h.get(&L::text("Seen"));
+        assert!(h.find(&L::text("SeenUnseen")).is_empty());
     }
 
     #[test]

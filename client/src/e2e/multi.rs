@@ -16,7 +16,7 @@ use super::seed::GameFolder;
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::multi::{ServerIpInput, ServerNameInput};
+use crate::ui::menus::multi::{ServerIpInput, ServerItem, ServerNameInput};
 
 /// A client on the server list, with the saved server `Friends`.
 fn server_list() -> Harness {
@@ -33,9 +33,9 @@ fn open_server_list(folder: GameFolder) -> Harness {
 impl Harness {
     /// Types `name` and `ip` in the fields, each focused by a click, and clicks "Add server".
     fn add_server(&mut self, name: &str, ip: &str) {
-        self.click(&L::marker::<ServerNameInput>());
+        self.click(&L::text("Server name"));
         self.type_text(name);
-        self.click(&L::marker::<ServerIpInput>());
+        self.click(&L::text("Server IP"));
         self.type_text(ip);
         assert_eq!(self.value_of::<ServerNameInput>(), name);
         assert_eq!(self.value_of::<ServerIpInput>(), ip);
@@ -59,8 +59,11 @@ impl Harness {
             .0
     }
 
-    fn saved_servers(&self) -> String {
-        fs::read_to_string(self.folder().join(SERVER_LIST_SAVE_NAME)).unwrap_or_default()
+    /// The servers of the saved list, in order.
+    fn saved_servers(&self) -> Vec<ServerItem> {
+        let file = self.folder().join(SERVER_LIST_SAVE_NAME);
+        let text = fs::read_to_string(&file).expect("a saved server list");
+        ron::from_str(&text).expect("a server list in RON")
     }
 }
 
@@ -90,12 +93,12 @@ fn localhost_and_the_saved_servers_are_listed() {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn clicking_a_field_focuses_it_alone() {
     let mut h = server_list();
-    h.click(&L::marker::<ServerNameInput>());
+    h.click(&L::text("Server name"));
     h.frames(2);
     assert!(!h.is_inactive::<ServerNameInput>());
     assert!(h.is_inactive::<ServerIpInput>());
 
-    h.click(&L::marker::<ServerIpInput>());
+    h.click(&L::text("Server IP"));
     h.frames(2);
     assert!(!h.is_inactive::<ServerIpInput>());
     assert!(h.is_inactive::<ServerNameInput>());
@@ -112,8 +115,11 @@ fn a_new_server_is_listed_and_saved() {
     h.click(&L::text("Back to menu"));
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     let saved = h.saved_servers();
-    assert!(saved.contains("Home"), "{saved}");
-    assert!(saved.contains("10.0.0.2:8000"), "{saved}");
+    let home = saved
+        .iter()
+        .find(|s| s.name == "Home")
+        .expect("Home is saved");
+    assert_eq!(home.ip, "10.0.0.2:8000");
 }
 
 #[test]
@@ -146,9 +152,8 @@ fn deleting_a_server_removes_it() {
 
     h.click(&L::text("Back to menu"));
     h.wait_for(&L::text("Singleplayer"), SCREEN);
-    let saved = h.saved_servers();
-    assert!(!saved.contains("Friends"), "{saved}");
-    assert!(saved.contains("localhost"), "{saved}");
+    let saved: Vec<String> = h.saved_servers().into_iter().map(|s| s.name).collect();
+    assert_eq!(saved, ["localhost"]);
 }
 
 #[test]
@@ -183,9 +188,12 @@ fn connecting_to_a_server_enters_the_game() {
         world_name: "dedicated".to_string(),
         is_solo: false,
     };
+    let (stopped, server_error) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _keep_alive = server_folder;
-        server::init(socket, config, paths)
+        if let Err(error) = server::init(socket, config, paths) {
+            let _ = stopped.send(error);
+        }
     });
 
     let mut h = server_list();
@@ -193,6 +201,9 @@ fn connecting_to_a_server_enters_the_game() {
     h.wait_for_icons("Local test");
     h.click(&L::name("Play Local test"));
     h.wait_until("the game", SERVER, |w| {
+        if let Ok(error) = server_error.try_recv() {
+            panic!("the server stopped: {error}");
+        }
         *w.resource::<bevy::prelude::State<GameState>>().get() == GameState::Game
     });
 }

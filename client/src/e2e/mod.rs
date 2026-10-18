@@ -7,6 +7,7 @@
 
 mod capture;
 mod harness;
+mod helpers;
 mod input;
 mod locator;
 mod main_menu;
