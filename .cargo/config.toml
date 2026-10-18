@@ -9,6 +9,12 @@ rustflags = [
 
 [unstable]
 codegen-backend = true
+feature-unification = true
+
+# (Nightly) Resolve features over the whole workspace, so that `-p client`, `-p server`
+# and the tests all share the same build of Bevy.
+[resolver]
+feature-unification = "workspace"
 
 [profile.dev]
 codegen-backend = "cranelift"
