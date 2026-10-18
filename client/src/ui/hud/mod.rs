@@ -72,6 +72,7 @@ pub fn hud_plugin(app: &mut App) {
                     select_hotbar_slot_system,
                     click_inventory_cells_system,
                     display_inventory_system,
+                    display_crafting_system,
                 )
                     .chain()
                     .before(GameSet::Simulation),

@@ -22,6 +22,17 @@ pub struct InventoryCell {
     pub id: u32,
 }
 
+/// A cell of the crafting grid, shown when the grid in use reaches it.
+#[derive(Component)]
+pub struct CraftingGridCell {
+    pub row: u32,
+    pub col: u32,
+}
+
+/// The cell showing what the crafting grid makes; a click on it takes it.
+#[derive(Component)]
+pub struct CraftResultCell;
+
 /// Shows the stack held by the cursor, `Inventory::floating`.
 #[derive(Component)]
 pub struct FloatingStack;

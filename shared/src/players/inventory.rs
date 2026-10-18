@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Width and height of the crafting grid of the inventory alone.
-const INVENTORY_GRID_SIZE: u32 = 2;
+pub const INVENTORY_GRID_SIZE: u32 = 2;
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
 /// the network. Bump `PROTOCOL_ID` with any change.
