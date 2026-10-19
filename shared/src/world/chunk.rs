@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::Arc;
 
 use bevy::math::IVec3;
 use serde::{
@@ -12,19 +13,21 @@ use crate::{world::BlockData, CHUNK_SIZE};
 const CHUNK_VOLUME: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize;
 
 /// A cube of `CHUNK_SIZE^3` cells, each holding a block or air (`None`), in one allocation.
+/// The copies of a chunk share its cells until one of them changes: copying a chunk to mesh,
+/// send or save it costs nothing.
 ///
 /// Positions are local: every coordinate is in `0..CHUNK_SIZE`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Chunk {
     /// Indexed by `(x * CHUNK_SIZE + y) * CHUNK_SIZE + z`.
-    cells: Box<[Option<BlockData>]>,
+    cells: Arc<[Option<BlockData>]>,
 }
 
 impl Chunk {
     /// A chunk made of air only.
     pub fn new() -> Self {
         Self {
-            cells: vec![None; CHUNK_VOLUME].into_boxed_slice(),
+            cells: vec![None; CHUNK_VOLUME].into(),
         }
     }
 
@@ -61,7 +64,7 @@ impl Chunk {
             debug_assert!(false, "local position {local} is outside the chunk");
             return;
         };
-        self.cells[index] = Some(block);
+        Arc::make_mut(&mut self.cells)[index] = Some(block);
     }
 
     /// Empties a local position and returns the block that was there. Same contract as `set`
@@ -71,7 +74,7 @@ impl Chunk {
             debug_assert!(false, "local position {local} is outside the chunk");
             return None;
         };
-        self.cells[index].take()
+        Arc::make_mut(&mut self.cells)[index].take()
     }
 
     /// Whether the chunk is made of air only.
@@ -146,11 +149,11 @@ impl<'de> Deserialize<'de> for Chunk {
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Chunk, A::Error> {
                 // Never reads past the expected length: the announced one comes from the network.
-                let mut chunk = Chunk::new();
-                let cells =
+                let mut cells = vec![None; CHUNK_VOLUME];
+                let cell_by_cell =
                     self.human_readable || seq.size_hint().is_none_or(|n| n == CHUNK_VOLUME);
-                if cells {
-                    for (index, cell) in chunk.cells.iter_mut().enumerate() {
+                if cell_by_cell {
+                    for (index, cell) in cells.iter_mut().enumerate() {
                         *cell = seq
                             .next_element()?
                             .ok_or_else(|| de::Error::invalid_length(index, &self))?;
@@ -158,7 +161,9 @@ impl<'de> Deserialize<'de> for Chunk {
                     if seq.next_element::<Option<BlockData>>()?.is_some() {
                         return Err(de::Error::invalid_length(CHUNK_VOLUME + 1, &self));
                     }
-                    return Ok(chunk);
+                    return Ok(Chunk {
+                        cells: cells.into(),
+                    });
                 }
                 let mut filled = 0;
                 while let Some((length, cell)) = seq.next_element::<(u16, Option<BlockData>)>()? {
@@ -166,13 +171,15 @@ impl<'de> Deserialize<'de> for Chunk {
                     if length == 0 || end > CHUNK_VOLUME {
                         return Err(de::Error::invalid_length(end, &self));
                     }
-                    chunk.cells[filled..end].fill(cell);
+                    cells[filled..end].fill(cell);
                     filled = end;
                 }
                 if filled != CHUNK_VOLUME {
                     return Err(de::Error::invalid_length(filled, &self));
                 }
-                Ok(chunk)
+                Ok(Chunk {
+                    cells: cells.into(),
+                })
             }
         }
 
@@ -346,6 +353,21 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_shares_the_cells_until_one_of_the_two_changes() {
+        let original = sample();
+        let mut copy = original.clone();
+        assert!(Arc::ptr_eq(&original.cells, &copy.cells));
+
+        copy.set(IVec3::new(1, 1, 1), block(BlockId::Stone));
+        copy.remove(IVec3::ZERO);
+
+        assert!(!Arc::ptr_eq(&original.cells, &copy.cells));
+        assert_eq!(original, sample());
+        assert_eq!(copy.get(IVec3::new(1, 1, 1)), Some(&block(BlockId::Stone)));
+        assert_eq!(copy.get(IVec3::ZERO), None);
+    }
+
+    #[test]
     fn bincode_round_trip() {
         let chunk = sample();
         let bytes = bincode::serialize(&chunk).unwrap();
@@ -356,7 +378,7 @@ mod tests {
     fn a_chunk_is_written_as_its_runs_and_as_cells_in_ron() {
         let chunk = sample();
         let runs = bincode::serialize(&chunk).unwrap();
-        let cells = bincode::serialize(&chunk.cells).unwrap();
+        let cells = bincode::serialize(&chunk.cells[..]).unwrap();
         assert!(runs.len() * 50 < cells.len(), "{} bytes", runs.len());
 
         let text = ron::ser::to_string(&chunk).unwrap();
@@ -367,7 +389,7 @@ mod tests {
     #[test]
     fn a_chunk_of_as_many_runs_as_cells_round_trips() {
         let mut chunk = Chunk::new();
-        for (index, cell) in chunk.cells.iter_mut().enumerate() {
+        for (index, cell) in Arc::make_mut(&mut chunk.cells).iter_mut().enumerate() {
             if index % 2 == 0 {
                 *cell = Some(block(BlockId::Stone));
             }
