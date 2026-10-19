@@ -235,12 +235,19 @@ sudo pacman -S base-devel mold clang vulkan-radeon vulkan-tools vulkan-swrast
 
 #### Ubuntu/Debian
 ```bash
-sudo apt install -y build-essential mold clang mesa-vulkan-drivers vulkan-tools pkg-config libasound2-dev libudev-dev
+sudo apt install -y build-essential mold clang mesa-vulkan-drivers vulkan-tools pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
 ```
 - For NVIDIA GPUs, also install:
     ```shell
     sudo apt install -y nvidia-driver nvidia-vulkan-icd
     ```
+
+#### Fedora
+```bash
+sudo dnf install gcc gcc-c++ mold clang pkgconf-pkg-config alsa-lib-devel systemd-devel wayland-devel libxkbcommon-devel mesa-vulkan-drivers vulkan-tools
+```
+- `mesa-vulkan-drivers` also provides lavapipe, the software renderer the UI screenshot tests draw with.
+- For NVIDIA GPUs, install the driver from [RPM Fusion](https://rpmfusion.org/Howto/NVIDIA) (`akmod-nvidia`).
 
 ## Running the Project
 
@@ -288,7 +295,7 @@ Feel free to submit issues or open pull requests. If you want to know where to h
 Run `just check` before committing: it checks the formatting (`cargo fmt`), runs clippy without any warning allowed, and runs the tests. The CI runs the same three steps.
 
 ### UI screenshots
-On Linux, the tests also draw the UI off screen and compare it with the golden screenshots of `client/tests/golden/`. They draw with lavapipe, the software renderer of Mesa (`vulkan-swrast` on Arch, `mesa-vulkan-drivers` on Ubuntu/Debian), so that every machine draws the same pixels.
+On Linux, the tests also draw the UI off screen and compare it with the golden screenshots of `client/tests/golden/`. They draw with lavapipe, the software renderer of Mesa (`vulkan-swrast` on Arch, `mesa-vulkan-drivers` on Ubuntu/Debian and Fedora), so that every machine draws the same pixels.
 
 - A test without a golden writes it and fails: look at the image, then commit it.
 - After a deliberate change of the UI, `UPDATE_GOLDEN=1 cargo test -p client golden` rewrites the goldens: look at their diff before committing them.
