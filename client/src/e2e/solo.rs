@@ -1,15 +1,22 @@
 //! The world list: creating, deleting and playing the saved worlds.
 
+use std::fs;
+
 use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
+use bevy::math::Vec2;
+use bevy::ui::InteractionDisabled;
+use server::{WorldMeta, WORLD_FILE};
 
 use super::harness::{Harness, SCREEN, SERVER, STARTUP};
+use super::helpers::ctrl_n;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
+use crate::constants::SAVE_PATH;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::solo::WorldNameInput;
-use crate::ui::menus::worlds::{INVALID_WORLD_NAME, WORLD_EXISTS};
+use crate::ui::menus::solo::dialogs::{WorldNameInput, WorldSeedInput, NEW_WORLD_TITLE};
+use crate::ui::menus::worlds::{EMPTY_WORLD_NAME, INVALID_SEED, INVALID_WORLD_NAME, WORLD_EXISTS};
 
 /// A client on the world list, with the worlds `Survie`, `Creative build` and `Test world 3`.
 fn world_list() -> Harness {
@@ -33,9 +40,8 @@ fn open_world_list(folder: GameFolder) -> Harness {
 fn the_world_list_matches_its_golden() {
     let mut h = world_list();
     h.wait_for_icons("Test world 3");
-    // The caret of the focused name field blinks on the wall clock: a click elsewhere clears the
-    // focus, so that the screenshot shows no caret
-    h.click(&L::text("World list"));
+    // The cursor in a corner, so that it hovers nothing
+    h.hover_at(Vec2::ZERO);
     h.assert_screenshot("menu_solo");
 }
 
@@ -56,66 +62,211 @@ fn the_saved_worlds_are_listed_in_order() {
     );
 }
 
+/// The New world button of the world list.
+fn new_world_button() -> L {
+    L::role(Role::Button, "New world")
+}
+
+/// The Create button of the New world dialog.
+fn create_button() -> L {
+    L::role(Role::Button, "Create")
+}
+
+/// Whether the New world dialog is open.
+fn dialog_is_open(h: &mut Harness) -> bool {
+    h.is_visible(&L::role(Role::Dialog, NEW_WORLD_TITLE))
+}
+
+/// The names of the folders in the saves folder, sorted.
+fn saved_folders(h: &Harness) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(h.folder().join(SAVE_PATH))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The `world.ron` of the world `name`.
+fn world_meta(h: &Harness, name: &str) -> WorldMeta {
+    let path = h.folder().join(SAVE_PATH).join(name).join(WORLD_FILE);
+    ron::de::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn new_world_opens_a_dialog_with_a_free_name_ready_to_replace() {
+    let mut h = open_world_list(GameFolder::new().with_world("New world"));
+    h.wait_for(&L::name("Play New world"), SCREEN);
+    h.click(&new_world_button());
+    h.wait_for(&L::role(Role::Dialog, NEW_WORLD_TITLE), SCREEN);
+    h.frames(2);
+    assert_eq!(h.focus_label().as_deref(), Some("Name"));
+    assert_eq!(h.value_of::<WorldNameInput>(), "New world 2");
+    h.type_text("Base");
+    assert_eq!(h.value_of::<WorldNameInput>(), "Base");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn ctrl_n_then_enter_creates_one_world_on_disk() {
+    let mut h = world_list();
+    h.wait_for(&L::name("Play Survie"), SCREEN);
+    ctrl_n(&mut h);
+    h.type_text("Entered");
+    h.press(KeyCode::Enter);
+    h.frames(3);
+    assert!(!dialog_is_open(&mut h));
+    assert_eq!(h.find(&L::name("Play Entered")).len(), 1);
+    assert_eq!(
+        saved_folders(&h),
+        ["Creative build", "Entered", "Survie", "Test world 3"]
+    );
+    let meta = world_meta(&h, "Entered");
+    assert_eq!(meta.name, "Entered");
+    assert_eq!(meta.time, 0);
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_typed_name_and_create_add_a_world() {
     let mut h = world_list();
+    h.click_when_ready(&new_world_button());
+    h.wait_for(&L::role(Role::Dialog, NEW_WORLD_TITLE), SCREEN);
     h.type_text("Nouveau");
-    h.click(&L::text("Create world"));
+    h.click(&create_button());
     h.wait_for(&L::name("Play Nouveau"), SCREEN);
     assert!(h.is_visible(&L::text("Nouveau")));
+    assert!(h.folder().join(SAVE_PATH).join("Nouveau").is_dir());
 }
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn enter_in_the_world_name_creates_the_world() {
+fn a_typed_seed_is_kept() {
     let mut h = world_list();
-    h.type_text("Entered");
+    h.wait_for(&L::name("Play Survie"), SCREEN);
+    ctrl_n(&mut h);
+    h.type_text("Seeded");
+    h.press(KeyCode::Tab);
+    h.type_text("12ab34");
+    assert_eq!(h.value_of::<WorldSeedInput>(), "1234");
     h.press(KeyCode::Enter);
-    h.wait_for(&L::name("Play Entered"), SCREEN);
-    assert_eq!(h.value_of::<WorldNameInput>(), "");
+    h.wait_for(&L::name("Play Seeded"), SCREEN);
+    assert_eq!(world_meta(&h, "Seeded").seed.0, 1234);
 }
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn after_create_a_click_on_the_field_types_again() {
+fn the_name_is_checked_as_you_type_and_nothing_moves() {
     let mut h = world_list();
+    h.wait_for(&L::name("Play Survie"), SCREEN);
+    ctrl_n(&mut h);
+    let y = h.center_of(&create_button()).y;
+    let create_disabled = |h: &mut Harness| {
+        let create = h.get(&create_button());
+        h.world().get::<InteractionDisabled>(create).is_some()
+    };
+    let messages = [
+        EMPTY_WORLD_NAME,
+        INVALID_WORLD_NAME,
+        WORLD_EXISTS,
+        INVALID_SEED,
+    ];
+
+    h.type_text("bad/name");
+    h.wait_for(&L::text(INVALID_WORLD_NAME), SCREEN);
+    assert!(create_disabled(&mut h));
+    assert_eq!(h.center_of(&create_button()).y, y);
+    h.press(KeyCode::Enter);
+    h.frames(2);
+    assert!(dialog_is_open(&mut h));
+    assert_eq!(h.play_rows(), 3);
+
+    for _ in 0..8 {
+        h.press(KeyCode::Backspace);
+    }
+    h.wait_for(&L::text(EMPTY_WORLD_NAME), SCREEN);
+    assert!(create_disabled(&mut h));
+    h.type_text("survie");
+    h.wait_for(&L::text(WORLD_EXISTS), SCREEN);
+    assert!(create_disabled(&mut h));
+    assert_eq!(h.center_of(&create_button()).y, y);
+    h.type_text("2");
+    h.frames(2);
+    for message in messages {
+        assert!(!h.is_visible(&L::text(message)), "{message}");
+    }
+    assert!(!create_disabled(&mut h));
+
+    h.press(KeyCode::Tab);
+    h.type_text("4294967296");
+    h.wait_for(&L::text(INVALID_SEED), SCREEN);
+    assert!(create_disabled(&mut h));
+    assert_eq!(h.center_of(&create_button()).y, y);
+    h.press(KeyCode::Backspace);
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(INVALID_SEED)));
+    assert!(!create_disabled(&mut h));
+    assert_eq!(h.center_of(&create_button()).y, y);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_failed_create_says_why_and_keeps_the_dialog_open() {
+    // A folder without a world.ron is not listed, yet its name is taken on disk
+    let folder = GameFolder::new().with_world("Survie");
+    fs::create_dir(folder.path().join(SAVE_PATH).join("Taken")).unwrap();
+    let mut h = open_world_list(folder);
+    h.wait_for(&L::name("Play Survie"), SCREEN);
+    ctrl_n(&mut h);
+    h.type_text("Taken");
+    h.press(KeyCode::Enter);
+    let failure = L::text("A folder with this name already exists");
+    h.wait_for(&failure, SCREEN);
+    assert!(dialog_is_open(&mut h));
+    assert_eq!(h.play_rows(), 1);
+    h.type_text("2");
+    h.frames(2);
+    assert!(!h.is_visible(&failure));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn escape_cancels_the_dialog_and_stays_on_the_list() {
+    let mut h = world_list();
+    h.wait_for(&L::name("Play Survie"), SCREEN);
+    ctrl_n(&mut h);
+    h.press(KeyCode::Escape);
+    assert!(!dialog_is_open(&mut h));
+    assert_eq!(h.menu_state(), MenuState::Solo);
+    h.frames(2);
+    assert_eq!(h.menu_state(), MenuState::Solo);
+    assert_eq!(
+        saved_folders(&h),
+        ["Creative build", "Survie", "Test world 3"]
+    );
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn after_a_create_new_world_opens_with_a_fresh_name() {
+    let mut h = world_list();
+    h.click_when_ready(&new_world_button());
+    h.wait_for(&L::role(Role::Dialog, NEW_WORLD_TITLE), SCREEN);
     h.type_text("One");
-    h.click(&L::text("Create world"));
+    h.click(&create_button());
     h.wait_for(&L::name("Play One"), SCREEN);
-    h.click(&L::role(Role::TextInput, "World name"));
+    ctrl_n(&mut h);
+    h.frames(2);
+    assert_eq!(h.value_of::<WorldNameInput>(), "New world");
     h.type_text("Two");
     h.press(KeyCode::Enter);
     h.wait_for(&L::name("Play Two"), SCREEN);
     assert_eq!(h.find(&L::name("Play One")).len(), 1);
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn an_invalid_name_adds_no_world() {
-    let mut h = world_list();
-    h.wait_for(&L::name("Play Survie"), SCREEN);
-    h.type_text("bad/name");
-    assert_eq!(h.value_of::<WorldNameInput>(), "bad/name");
-    h.click(&L::text("Create world"));
-    // The click frame handles the button: two more frames are plenty for a negative check
-    h.frames(2);
-    assert_eq!(h.find(&L::name("Play bad/name")).len(), 0);
-    assert_eq!(h.play_rows(), 3);
-    assert!(h.is_visible(&L::text(INVALID_WORLD_NAME)));
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn a_duplicate_name_adds_no_world() {
-    let mut h = world_list();
-    h.wait_for(&L::name("Play Survie"), SCREEN);
-    h.type_text("Survie");
-    h.click(&L::text("Create world"));
-    // The click frame handles the button: two more frames are plenty for a negative check
-    h.frames(2);
-    assert_eq!(h.find(&L::name("Play Survie")).len(), 1);
-    assert!(h.is_visible(&L::text(WORLD_EXISTS)));
+    assert_eq!(h.find(&L::name("Play Two")).len(), 1);
 }
 
 #[test]

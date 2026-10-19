@@ -240,7 +240,6 @@ pub fn text_field_focused(focus: Res<InputFocus>, fields: Query<(), With<Editabl
 }
 
 /// Replaces the value of a field with `value`.
-#[allow(dead_code)] // fills the New world dialog (Lot 2, Task 4)
 pub fn set_text(text: &mut EditableText, value: &str) {
     text.queue_edit(TextEdit::SelectAll);
     text.queue_edit(TextEdit::Insert(value.into()));

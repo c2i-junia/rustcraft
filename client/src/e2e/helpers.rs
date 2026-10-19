@@ -1,7 +1,9 @@
 //! Steps shared by the tests of the screens.
 
+use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
+    input::keyboard::KeyCode,
     input_focus::InputFocus,
     prelude::{Component, Entity, Name, State, With, World},
     text::EditableText,
@@ -11,6 +13,7 @@ use bevy::{
 use super::harness::{Harness, SCREEN, STARTUP};
 use super::locator::Locator as L;
 use crate::state::GameState;
+use crate::ui::menus::solo::dialogs::NEW_WORLD_TITLE;
 
 /// A client on the main menu, with an empty game folder.
 #[track_caller]
@@ -18,6 +21,15 @@ pub fn main_menu() -> Harness {
     let mut h = Harness::new();
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     h
+}
+
+/// Presses Ctrl+N on the world list, and waits for the New world dialog.
+#[track_caller]
+pub fn ctrl_n(h: &mut Harness) {
+    h.key_down(KeyCode::ControlLeft);
+    h.press(KeyCode::KeyN);
+    h.key_up(KeyCode::ControlLeft);
+    h.wait_for(&L::role(Role::Dialog, NEW_WORLD_TITLE), SCREEN);
 }
 
 /// Whether the game is in the state `state`.

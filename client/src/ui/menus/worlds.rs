@@ -191,7 +191,6 @@ pub fn check_world_name(typed: &str, others: &[String]) -> Result<String, &'stat
 
 /// The first of "New world", "New world 2", "New world 3"… that none of `others` has, whatever
 /// its case.
-#[allow(dead_code)] // fills the New world dialog, Task 4
 pub fn free_world_name(others: &[String]) -> String {
     let taken = |name: &str| others.iter().any(|other| other.eq_ignore_ascii_case(name));
     std::iter::once("New world".to_string())
@@ -202,7 +201,6 @@ pub fn free_world_name(others: &[String]) -> String {
 
 /// The seed `typed` in the seed field, digits only: none when it is empty, which means a random
 /// one.
-#[allow(dead_code)] // read by the New world dialog, Task 4
 pub fn parse_seed(typed: &str) -> Result<Option<u32>, &'static str> {
     if typed.is_empty() {
         return Ok(None);
@@ -223,7 +221,6 @@ fn io_error(err: Box<dyn std::error::Error>) -> io::Error {
 
 /// Creates the world `name` in `saves` with this `seed`: its folder, never an existing one, and
 /// its `world.ron`, so that it is listed at once. On a failed write the folder is removed.
-#[allow(dead_code)] // called by the New world dialog, Task 4
 pub fn create_world(saves: &Path, name: &str, seed: u32) -> io::Result<()> {
     if !is_single_path_component(name) {
         return Err(invalid_name(name));

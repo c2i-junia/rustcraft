@@ -47,7 +47,6 @@ pub struct Dialog<'a> {
 /// The entities of a dialog: its root, and its buttons in the order of its actions.
 pub struct DialogParts {
     pub root: Entity,
-    #[allow(dead_code)] // disabled by the New world dialog (Lot 2, Task 4)
     pub actions: Vec<Entity>,
 }
 
@@ -144,7 +143,6 @@ pub fn spawn_dialog(
 
 /// A dialog whose `fields` (caption, field) sit between its body and its actions. The first
 /// field has the focus (`dialog.focused` is not used); `hints` replace the dialog's own hints.
-#[allow(dead_code)] // opens the New world dialog (Lot 2, Task 4)
 pub fn spawn_form_dialog(
     commands: &mut Commands,
     dialog: &Dialog,
@@ -160,7 +158,6 @@ pub fn spawn_form_dialog(
 /// Closes the dialog in `PostUpdate` with `DialogClosed { action: Some(last) }`; the focus goes
 /// back where it was only when `restore_focus`. With `false` the caller sets the focus itself,
 /// typically on what the submission made.
-#[allow(dead_code)] // closes the New world dialog (Lot 2, Task 4)
 pub fn close_dialog(commands: &mut Commands, root: Entity, restore_focus: bool) {
     commands
         .entity(root)

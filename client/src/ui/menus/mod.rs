@@ -76,6 +76,7 @@ pub fn menu_plugin(app: &mut App) {
             update_server_connect_loading_screen.run_if(in_state(GameState::PreGameLoading)),
         );
     settings::settings_plugin(app);
+    solo::solo_plugin(app);
 }
 
 /// Spawns the camera of the menus and opens the main menu.
