@@ -11,7 +11,8 @@ use bevy::{
     ecs::entity::Entities,
     input_focus::{tab_navigation::TabGroup, AutoFocus, FocusCause, InputFocus, InputFocusVisible},
     prelude::*,
-    ui_widgets::{observe, Activate},
+    text::{EditableText, TextEdit},
+    ui_widgets::{observe, Activate, ValueChange},
 };
 
 use super::background::menu_background;
@@ -30,7 +31,7 @@ use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
 use audio::spawn_audio_tab;
-use controls::{spawn_controls_tab, KeyCapture, CONTROLS_HINTS};
+use controls::{spawn_controls_tab, KeyCapture, KeySearch, KeySearchField, CONTROLS_HINTS};
 use interface::{show_scale_limit, spawn_interface_tab};
 
 /// Where the settings are open.
@@ -84,6 +85,10 @@ pub struct SettingsPanel;
 #[derive(Component)]
 pub struct FooterActions;
 
+/// The tab bar of the settings.
+#[derive(Component)]
+struct SettingsTabs;
+
 /// A request to close the settings, on their root, applied in `PostUpdate`: the key or the click
 /// that asked for it must not also act on the screen beneath.
 #[derive(Component)]
@@ -121,6 +126,9 @@ pub fn settings_plugin(app: &mut App) {
                     .run_if(settings_open)
                     .run_if(not(modal_open))
                     .run_if(not(text_field_focused)),
+                focus_key_search
+                    .run_if(settings_open)
+                    .run_if(not(modal_open)),
                 show_scale_limit.run_if(any_with_component::<interface::ScaleLimitNote>),
             ),
         )
@@ -174,6 +182,7 @@ pub fn spawn_settings(
         context,
         restore_focus,
     });
+    commands.insert_resource(KeySearch::default());
     // the panel in the middle of the space the key hints leave
     let content = commands
         .spawn((
@@ -236,7 +245,7 @@ pub fn spawn_settings(
     let bar = spawn_tabs(commands, &tabs, font.clone());
     commands
         .entity(bar)
-        .insert((AutoFocus, ChildOf(panel)))
+        .insert((SettingsTabs, AutoFocus, ChildOf(panel)))
         .observe(show_tab);
     commands.spawn((
         SettingsPanel,
@@ -264,7 +273,14 @@ pub fn spawn_settings(
                     commands.entity(root).insert(CloseSettings);
                 }),
             ),
-            (FooterActions, Node::default()),
+            (
+                FooterActions,
+                Node {
+                    align_items: AlignItems::Center,
+                    column_gap: px(SPACE_L),
+                    ..default()
+                }
+            ),
         ],
     ));
     // the first tab shows, with its key hints, as if the player had chosen it
@@ -286,6 +302,7 @@ fn show_tab(
     root: Single<Entity, With<SettingsRoot>>,
     hint_bars: Query<(Entity, &ChildOf), With<HintBar>>,
     key_map: Res<KeyMap>,
+    search: Res<KeySearch>,
     audio: Res<AudioSettings>,
     interface: Res<InterfaceSettings>,
     assets: Res<AssetServer>,
@@ -319,6 +336,7 @@ fn show_tab(
             &mut commands,
             (panel, *footer),
             &key_map,
+            &search,
             (font, glyph_font),
         ),
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
@@ -349,6 +367,56 @@ fn settings_escape(
     }
     for root in &roots {
         commands.entity(root).insert(CloseSettings);
+    }
+}
+
+/// Ctrl+F gives the focus to the search of the Controls tab, its text selected, from any tab: from
+/// another tab it first goes back to Controls, whose field takes the focus once it is spawned. A
+/// slot waiting for a key takes Ctrl+F for itself.
+#[allow(clippy::too_many_arguments)]
+fn focus_key_search(
+    keys: Res<ButtonInput<KeyCode>>,
+    capture: Res<KeyCapture>,
+    mut requested: Local<bool>,
+    fields: Query<Entity, With<KeySearchField>>,
+    bars: Query<(Entity, &Children), With<SettingsTabs>>,
+    tabs: Query<&TabButton>,
+    mut texts: Query<&mut EditableText>,
+    mut focus: ResMut<InputFocus>,
+    mut visible: ResMut<InputFocusVisible>,
+    mut commands: Commands,
+) {
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    if ctrl && keys.just_pressed(KeyCode::KeyF) && !capture.is_active() {
+        *requested = true;
+        if fields.is_empty() {
+            let controls = SettingsTab::ALL
+                .iter()
+                .position(|&tab| tab == SettingsTab::Controls);
+            for (bar, children) in &bars {
+                let tab = children
+                    .iter()
+                    .find(|&child| tabs.get(child).is_ok_and(|tab| Some(tab.0) == controls));
+                if let Some(tab) = tab {
+                    commands.trigger(ValueChange {
+                        source: bar,
+                        value: tab,
+                        is_final: true,
+                    });
+                }
+            }
+        }
+    }
+    if !*requested {
+        return;
+    }
+    if let Some(field) = fields.iter().next() {
+        *requested = false;
+        focus.set(field, FocusCause::Navigated);
+        visible.0 = true;
+        if let Ok(mut text) = texts.get_mut(field) {
+            text.queue_edit(TextEdit::SelectAll);
+        }
     }
 }
 

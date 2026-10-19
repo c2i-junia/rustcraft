@@ -19,7 +19,7 @@ use crate::input::data::GameAction;
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
 use crate::ui::hud::fps_counter::{FpsCounter, FpsGraph, FrameBar, GraphStat};
-use crate::ui::menus::settings::controls::PRESS_A_KEY;
+use crate::ui::menus::settings::controls::{PRESS_A_KEY, SEARCH_LABEL};
 use crate::ui::menus::MenuState;
 use crate::ui::settings::{FpsCounterChoice, InterfaceSettings, UiScaleChoice};
 use crate::ui::theme::{
@@ -455,6 +455,8 @@ fn a_key_pressed_after_clicking_a_slot_is_bound_and_saved_at_once() {
 fn the_keyboard_alone_rebinds_cancels_and_clears() {
     let mut h = controls();
     let backward = || L::row("Move backward");
+    // past the search field
+    h.press(KeyCode::Tab);
     h.press(KeyCode::Tab);
     assert_eq!(
         h.focus_label().as_deref(),
@@ -725,6 +727,106 @@ fn a_key_bound_twice_is_shown_on_both_rows_and_reset_restores_the_defaults() {
     assert_eq!(saved.map, default_bindings().map);
 }
 
+impl Harness {
+    /// Presses Ctrl+F.
+    fn ctrl_f(&mut self) {
+        self.key_down(KeyCode::ControlLeft);
+        self.press(KeyCode::KeyF);
+        self.key_up(KeyCode::ControlLeft);
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn ctrl_f_searches_the_actions_by_name_or_key_and_escape_clears_then_leaves() {
+    let mut h = controls();
+    let hint = |text: &str| L::text(text).within(L::marker::<HintBar>());
+    assert!(h.is_visible(&hint("Search")));
+    h.ctrl_f();
+    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    h.wait_for(&hint("Results"), SCREEN);
+
+    // a key's name finds the actions it is bound to; the other rows and categories hide
+    h.type_text("space");
+    h.wait_for(&L::text("2 of 19"), SCREEN);
+    assert!(h.is_visible(&L::text("Jump")));
+    assert!(h.is_visible(&L::text("Fly up")));
+    assert!(!h.is_visible(&L::text("Move forward")));
+    assert!(!h.is_visible(&L::text("Debug")));
+    assert!(h.is_visible(&hint("Clear")));
+    h.snapshot("search_space");
+
+    // Down goes to the first row found, which stays when its key changes
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.focus_label().as_deref(), Some("Jump, primary key"));
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::KeyJ);
+    h.wait_for(&L::text("J").within(L::row("Jump")), SCREEN);
+    h.frames(2);
+    assert!(h.is_visible(&L::text("Jump")));
+
+    // Ctrl+F selects the search: what is typed replaces it
+    h.ctrl_f();
+    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    h.type_text("xyz");
+    h.wait_for(
+        &L::text("No action or key matches \u{201c}xyz\u{201d}"),
+        SCREEN,
+    );
+    assert!(!h.is_visible(&L::text("Jump")));
+
+    // every word, in any case
+    h.ctrl_f();
+    h.type_text("FLY tog");
+    h.wait_for(&L::text("1 of 19"), SCREEN);
+    assert!(h.is_visible(&L::text("Toggle flying")));
+
+    // Escape clears the search, then leaves the settings
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Move forward"), SCREEN);
+    assert!(!h.is_visible(&L::text("1 of 19")));
+    assert_eq!(h.menu_state(), MenuState::Settings);
+    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    h.wait_for(&hint("Back"), SCREEN);
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn ctrl_f_comes_back_to_the_controls_and_the_search_outlives_the_tab() {
+    let mut h = controls();
+    h.ctrl_f();
+    h.type_text("debug");
+    h.wait_for(&L::text("5 of 19"), SCREEN);
+    h.open_tab_showing("Audio", &master());
+    h.ctrl_f();
+    h.wait_for(&L::text("5 of 19"), SCREEN);
+    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    assert!(h.is_visible(&L::text("Chunk borders")));
+    assert!(!h.is_visible(&L::text("Jump")));
+    // Up from the first row goes back to the field
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(
+        h.focus_label().as_deref(),
+        Some("Debug overlay, primary key")
+    );
+    h.press(KeyCode::ArrowUp);
+    assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
+    // a slot waiting for a key takes Ctrl+F for itself
+    h.press(KeyCode::ArrowDown);
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.ctrl_f();
+    h.wait_for(&L::text("F").within(L::row("Debug overlay")), SCREEN);
+    assert_eq!(
+        h.focus_label().as_deref(),
+        Some("Debug overlay, primary key")
+    );
+}
+
 /// The rectangle of the element, in physical pixels.
 #[track_caller]
 fn rect_of(h: &mut Harness, locator: &L) -> Rect {
@@ -771,6 +873,8 @@ fn the_focused_slot_and_its_ring_stay_in_view() {
     };
     let mut h = settings_with(GameFolder::new(), small);
     h.wait_for(&L::text("Move forward"), SCREEN);
+    // past the search field
+    h.press(KeyCode::Tab);
     h.press(KeyCode::Tab);
     for _ in 0..8 {
         h.press(KeyCode::ArrowDown);
