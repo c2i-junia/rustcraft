@@ -119,6 +119,26 @@ A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP 
 Open both in a firewall or a router: a server whose status port cannot be reached, or an older
 server that has none, shows as "Offline" in the list, and can still be joined.
 
+While a world opens or a server is joined, a card shows each step and can be cancelled with
+Escape. When it fails, a card says why, with the way back to the list and, when it may help,
+"Try again":
+
+- **Cannot reach "…"**: the server did not answer within 10 seconds. Check that it is running
+  and that its two UDP ports, the game port and the game port + 1, are open in its firewall and
+  forwarded by its router.
+- **"…" runs another version**: join with the same version of Rustcraft as the server.
+- **"…" is full**: the server has no room for another player; try again later.
+- **"…" refused you**: the server closed the connection before letting you in, most often
+  because a player with your name is already on it. Start the game with another name:
+  `rustcraft --player-name <name>`.
+- **Your name is not accepted**: a player name has 1 to 32 characters and no control
+  characters. Start the game with another `--player-name`.
+- **Connection to "…" lost**, **"…" stopped**: the server stopped answering, or shut down.
+  Check your network, or ask whoever runs the server, then try again.
+- **Cannot open "…"** (a world): the world could not be loaded, and the card gives the reason,
+  often its `world.ron`; or it is still closing from the last session, and opens again in a
+  moment.
+
 <br>
 
 # Saves

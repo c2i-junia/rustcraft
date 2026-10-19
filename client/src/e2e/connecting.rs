@@ -215,6 +215,9 @@ fn a_world_cancelled_while_loading_chunks_opens_again_from_nothing() {
     // a frame more
     h.press(KeyCode::Escape);
     h.wait_for_game_state(GameState::Menu, SCREEN);
+    // This checks the player and the replay. The cancel often lands before any chunk came in,
+    // so that the chunks received are forgotten is proven by the unit test
+    // `cancelling_the_loading_screen_forgets_the_chunks_it_received`.
     let map = h.world().resource::<ClientWorldMap>();
     assert_eq!(map.blocks.chunk_positions().count(), 0);
     assert!(map.render.is_empty());

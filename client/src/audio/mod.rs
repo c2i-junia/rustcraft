@@ -48,7 +48,8 @@ fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
     sounds.write(PlaySound::here(Sound::Click));
 }
 
-/// A click for every button pressed, in the menus and in the game.
+/// A click for every legacy `Button` pressed. The pause menu's are the last ones (Lot 6): every
+/// other screen uses the widget buttons, which `click_on_activate` gives a click.
 fn click_sounds(
     buttons: Query<&Interaction, (Changed<Interaction>, With<Button>)>,
     mut sounds: MessageWriter<PlaySound>,

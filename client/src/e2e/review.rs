@@ -1,11 +1,15 @@
 //! Snapshots of every screen at three resolutions, for a human to review.
 
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, SystemTime};
 
 use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
 use bevy::math::Vec2;
+use bevy::time::{Real, Time};
 use server::WORLD_FILE;
 use shared::world::{grid_slot, ItemId};
 
@@ -18,8 +22,12 @@ use super::seed::{fixed_status, GameFolder};
 use super::settings::key_slot;
 use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::input::keyboard::default_bindings;
-use crate::network::status::StatusProbe;
-use crate::state::KeyMap;
+use crate::network::address::{AddressResolver, ServerAddress};
+use crate::network::session::{ConnectStep, ConnectWatch, SessionOrigin};
+use crate::network::status::{ServerStatus, StatusProbe};
+use crate::network::{CurrentPlayerProfile, LocalServerHandle, TargetServer};
+use crate::state::{GameState, KeyMap};
+use crate::ui::menus::connecting::{ConnectingCard, BLINK};
 use crate::ui::menus::multi::dialogs::ADD_SERVER_TITLE;
 use crate::ui::menus::multi::ServerDetail;
 use crate::ui::menus::servers::SERVER_EXISTS;
@@ -38,6 +46,19 @@ const LONG_NAME: &str = "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW";
 
 /// The longest address a server can be given: 64 characters, of the widest letter.
 const LONG_ADDRESS: &str = "wwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwww:65535";
+
+/// The discard port of this computer, where nothing answers.
+const DISCARD: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9);
+
+/// Every server is offline: an answer is only looked for when a join gets none.
+fn offline(_: &str) -> ServerStatus {
+    ServerStatus::Offline
+}
+
+/// Every host name is the discard port, so that the longest address can be joined.
+fn to_discard(_: &ServerAddress) -> std::io::Result<SocketAddr> {
+    Ok(DISCARD)
+}
 
 /// The folder of the menus: `Review` for the Continue card, last played, then older worlds, one
 /// with the longest name and one whose `world.ron` cannot be read; and a server of every status
@@ -196,6 +217,49 @@ impl Harness {
         self.press(KeyCode::Escape);
         self.click(&L::role(Role::Button, "Back"));
     }
+
+    /// Shows the connecting card at `step` and saves the snapshot `name`. No session stays at a
+    /// step long enough to be looked at, so the session is not tracked while the card is shown:
+    /// its origin is set aside, then put back.
+    fn connecting_snapshot(&mut self, step: ConnectStep, name: &str) {
+        let origin = self.world_mut().remove_resource::<SessionOrigin>().unwrap();
+        self.world_mut().resource_mut::<ConnectWatch>().step = step;
+        self.wait_for_ui_images();
+        // the marker of the current step blinks: the snapshot is taken early in its shown half
+        self.wait_until("the marker of the current step shown", SCREEN, |w| {
+            w.resource::<Time<Real>>().elapsed_secs() % (2.0 * BLINK) < BLINK / 4.0
+        });
+        self.snapshot(name);
+        self.world_mut().insert_resource(origin);
+    }
+
+    /// Reviews the connecting card of a session at each of its steps, the first one `first`,
+    /// from its first frame, then cancels it. `prefix` names the snapshots.
+    fn review_connecting(&mut self, first: ConnectStep, prefix: &str) {
+        self.wait_for_game_state(GameState::PreGameLoading, SCREEN);
+        self.wait_for(&L::marker::<ConnectingCard>(), SCREEN);
+        self.hover_at(Vec2::ZERO);
+        let chunks = ConnectStep::LoadingChunks {
+            received: 12,
+            total: 27,
+        };
+        self.connecting_snapshot(first, prefix);
+        self.connecting_snapshot(chunks, &format!("{prefix}_chunks"));
+        self.connecting_snapshot(ConnectStep::Spawning, &format!("{prefix}_spawning"));
+        self.click(&L::role(Role::Button, "Cancel"));
+        self.wait_for_game_state(GameState::Menu, SCREEN);
+    }
+
+    /// Resizes the window to each resolution and saves the snapshot `name` of the error card
+    /// titled `title`.
+    fn review_error_card(&mut self, title: &str, name: &str) {
+        self.wait_for(&L::role(Role::Dialog, title), SERVER);
+        self.hover_at(Vec2::ZERO);
+        for (width, height) in RESOLUTIONS {
+            self.resize(width, height);
+            self.settled_snapshot(name);
+        }
+    }
 }
 
 #[test]
@@ -293,6 +357,66 @@ fn every_screen_at_three_resolutions() {
         h.hover_at(Vec2::ZERO);
         h.settled_snapshot("multi_unreadable");
     }
+    drop(h);
+
+    // The connecting card of a server and of a world of the longest name, the server at the
+    // longest address, at each step; then the error cards: with Back only or with Try again,
+    // of a server and of a world
+    let folder = GameFolder::new()
+        .with_servers(&[("Nowhere", "127.0.0.1:9"), (LONG_NAME, LONG_ADDRESS)])
+        .with_broken_world(LONG_NAME);
+    let mut h = Harness::start(folder, Options::default());
+    h.world_mut().insert_resource(StatusProbe(offline));
+    h.world_mut().insert_resource(AddressResolver(to_discard));
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
+    for (width, height) in RESOLUTIONS {
+        h.resize(width, height);
+        h.join_server_card(LONG_NAME);
+        h.review_connecting(ConnectStep::Connecting, "connecting");
+    }
+    // a name no server accepts
+    let name = std::mem::take(&mut h.world_mut().resource_mut::<CurrentPlayerProfile>().name);
+    h.join_server_card("Nowhere");
+    h.review_error_card("Your name is not accepted", "connect_error_name");
+    h.world_mut().resource_mut::<CurrentPlayerProfile>().name = name;
+    h.press(KeyCode::Escape);
+    // the one wait for a server that never answers
+    h.join_server_card("Nowhere");
+    h.review_error_card("Cannot reach \"Nowhere\"", "connect_error_no_answer");
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::role(Role::Button, "Back"), SCREEN);
+    h.click(&L::role(Role::Button, "Back"));
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.click(&L::text("Singleplayer"));
+    for (width, height) in RESOLUTIONS {
+        h.resize(width, height);
+        // a session at an address starts no server: the world stays at its first step
+        h.world_mut().resource_mut::<TargetServer>().address = Some(DISCARD);
+        h.play_world(LONG_NAME);
+        h.review_connecting(ConnectStep::StartingWorld, "connecting_world");
+    }
+    // the server of the last session still runs
+    let (stop, stopped) = mpsc::channel::<()>();
+    let running = thread::spawn(move || {
+        let _ = stopped.recv();
+        Ok(())
+    });
+    h.world_mut()
+        .insert_resource(LocalServerHandle(Some(running)));
+    h.play_world(LONG_NAME);
+    let cannot_open = format!("Cannot open \"{LONG_NAME}\"");
+    h.wait_for(&L::text_containing("still closing"), SERVER);
+    h.review_error_card(&cannot_open, "connect_error_world_busy");
+    drop(stop);
+    h.press(KeyCode::Escape);
+    h.wait_until("the last server stopped", SCREEN, |w| {
+        w.resource::<LocalServerHandle>().0.is_none()
+    });
+    // a world that cannot be read, with the path of its file in the reason
+    h.play_world(LONG_NAME);
+    h.wait_for(&L::text_containing("could not be loaded"), SERVER);
+    h.review_error_card(&cannot_open, "connect_error_world_long");
     drop(h);
 
     // The game, with a world whose inventory is not empty

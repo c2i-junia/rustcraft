@@ -53,6 +53,51 @@ unchanged: a reply whose protocol differs from the client's makes the server "In
 and the client never joins it. Format 1 never changes; a new layout gets a new format, and
 servers keep answering the older ones.
 
+A session (`client/src/network/session.rs`) goes from the Singleplayer or Multiplayer screen to
+the game and back. `SessionOrigin` says where it was started from: a world, or a server with
+its address as typed. `SessionEnd` says why it ended, and the menus read it when they open: no
+error is a cancel, which lands on the list the session came from with its card selected; an
+error opens the error card (`ui/menus/connect_error.rs`), with the way back to that list and,
+when trying again may succeed, Try again. Every writer of an end goes through `end_session`,
+which does nothing while the game state already changes in the frame: the first end of a
+session wins, whatever the order of the systems.
+
+While the connecting card shows (`GameState::PreGameLoading`), `ConnectWatch` holds the step of
+the session: Starting the world (the local server loads, then accepts the player) or Connecting
+(netcode, then the authentication), then Loading chunks `n / 27`, then Spawning (the textures
+and the local player). From the authentication on, the client reads the server's messages and
+counts the chunks within `shared::BROADCAST_CHUNK_RADIUS` (1) of the local player's chunk, the
+(2r + 1)³ = 27 chunks the server sends around a player; it enters the game once all of them are
+in, so a player never spawns over the void. The radius is therefore part of the protocol: a
+change of it bumps `PROTOCOL_ID`. Entering the game asks a mesh for every chunk held, and a
+cancel forgets them. The mob and player updates and the `BlockChanged` messages that arrive
+while loading are dropped: the server sends the mobs and the players again on every broadcast,
+and a changed block is written into the map anyway, only its sound and particles are lost.
+
+A failure is read from what netcode and the status already say, without a protocol change
+(`failure_of`). Before the authentication, a denied connection is a full server; a disconnect by
+the server is a refusal (the server drops a player whose name is in use), or an invalid name
+when `sanitize_username` refuses ours; anything else is no answer, after which the status of a
+server is asked once, and a server of another protocol says so. After the authentication and
+before the game, a dropped connection is lost while loading; in the game, a disconnect by the
+server is a server that stopped (a dedicated server only disconnects a player when it shuts
+down), anything else a lost connection. A name no server accepts ends the session before a local
+server starts or a packet leaves. `CONNECT_TIMEOUT` (10 s) without a new step ends a session
+that is Connecting or Loading chunks. It counts from the last change of step, not from the start:
+a busy server may send the chunks of other players first, and each chunk that comes in is a new
+step. Netcode itself gives up on a silent server only after 15 s, the timeout of renetcode's
+unsecure connect token, so the 10 s are what end a silent connect. Starting the world and
+Spawning have no timeout.
+
+The local server of a world runs on a thread of the client (`LocalServerHandle`), which is the
+watchdog of Starting the world: a thread that finishes says why the world could not be opened,
+and a connection that gives up while the thread still loads (a world slower than netcode's
+15 s) is opened again, and the authentication sent again. A local server is told to stop
+whenever its session ends: on Cancel, on an error, and when the player leaves the game. One that
+cannot be told yet, because its connection is not up, is stopped from the menus, the error card
+included, once it is (`finish_stopping_local_server`); opening a world while the last one is still closing says so
+(`WorldBusy`) rather than starting a second server on the same save.
+
 ## Prediction and reconciliation
 
 The player simulation in `shared/src/players` runs on both sides, and both must get the same
@@ -150,10 +195,15 @@ Escape through `FocusedInput<KeyboardInput>` and finish in `PostUpdate`; the han
 read `ButtonInput<KeyCode>` in `Update` (the Escape of the main menu, of the world and server
 lists, of the settings and of the pause menu, and the New world opener, Ctrl+N) skip while a
 dialog is open, a text field has the focus, a key is being captured or, for the pause menu, the
-settings are open. The
-settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
-game from the pause menu. The screens still built on `Interaction` buttons move over to the
-widgets lot by lot.
+settings are open. The connecting card reads Escape the same way: no dialog or field exists
+there. The settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
+game from the pause menu. `progress.rs` is a progress bar: a sunken track whose `OK` fill
+follows the value its screen sets on `ProgressBar`, told as a percentage to accessibility. The
+connecting card (`ui/menus/connecting.rs`) and the error card (`ui/menus/connect_error.rs`)
+share a width and the centre of the window, so that the one takes the place of the other; the
+error card is a dialog spawned with `spawn_dialog_with_hints`, whose hints replace the dialog's
+own (no `Tab Move` when the card has a single action). The pause menu is the last screen still
+built on `Interaction` buttons; it moves over to the widgets in the last lot.
 
 ## Saves
 
@@ -190,3 +240,5 @@ the folder, after a confirmation.
   a client with a higher frame rate breaks blocks faster.
 - Mobs are a prototype: one fox, spawned at a fixed tick.
 - An item that does not fit in a full inventory is lost.
+- Quitting the game while a world is still starting stops its server thread wherever it is in
+  the load, with the process: the server cannot be told to stop before it accepts the player.

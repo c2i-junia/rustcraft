@@ -60,7 +60,7 @@ pub const CARD_WIDTH: f32 = 480.0;
 /// The side of the square marker of a step.
 const MARKER_SIDE: f32 = 10.0;
 /// How long the marker of the current step shows, then hides, in seconds.
-const BLINK: f32 = 0.5;
+pub(crate) const BLINK: f32 = 0.5;
 /// The row of the chunks.
 const CHUNKS_ROW: usize = 1;
 
