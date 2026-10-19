@@ -18,7 +18,7 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-use super::harness::{Harness, Options, SCREEN};
+use super::harness::{Harness, Options, SCREEN, STARTUP};
 use super::helpers::main_menu;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
@@ -49,7 +49,7 @@ fn the_ui_scale_follows_the_window_height() {
             ..default()
         },
     );
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     assert_eq!(h.world().resource::<UiScale>().0, 1.5);
     h.resize(800, 600);
     h.frames(2);
@@ -67,7 +67,7 @@ fn a_forced_ui_scale_is_read_from_the_game_folder() {
             ..default()
         },
     );
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     assert_eq!(h.world().resource::<UiScale>().0, 1.0);
 }
 

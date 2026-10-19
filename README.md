@@ -218,7 +218,7 @@ The tests in `client/src/e2e/` run the whole client headless, with the same wiri
 
 - **Locators** (`Locator`, imported as `L`) describe what a player sees: `L::text("Singleplayer")` first, as text is what the player reads. For elements without text, use `L::name("Play My world")` (the `Name` of the element) or `L::marker::<Hotbar>()` (a component); a widget is found by the accessibility role and label every new widget carries, `L::role(Role::Button, "Play")`. `L::row("My world")` is the row of a text, and `locator.within(scope)` restricts a locator to the descendants of another. Hidden elements are never found, and a text made of spans is matched on its whole content. `L::text` and `L::text_containing` match displayed texts only, never the value of a text field: read a field with `h.value_of::<Marker>()`.
 - **Real input**: `click` and `hover` move the cursor and send the button messages, which the UI systems read as for a mouse; `press`, `key_down` and `key_up` send keys, `type_text` characters, `scroll` the wheel. `click`, `hover` and `scroll` also send the window events that `bevy_picking` reads, so the `ui_widgets` work headless, and the keys carry their logical key (`Key::Enter`, `Key::ArrowLeft`, ...) as well as their physical one. A test never calls a system or changes a resource to do what a player does.
-- **Waits**: a click is not a transition, so a test waits for its result with `wait_for(&locator, SCREEN)` or `wait_until("what", timeout, |world| ...)`. `SCREEN` (2 s) is for the screens, `SERVER` (30 s) for what goes through the integrated server (loading a world, a chat message). A wait that times out, or a `get` that finds nothing, fails with the locator (or the description) it waited for, the texts visible on screen, and the line of the test; nothing hangs, and a watchdog aborts the whole test process, naming the test, when a harness lives longer than 300 s.
+- **Waits**: a click is not a transition, so a test waits for its result with `wait_for(&locator, SCREEN)` or `wait_until("what", timeout, |world| ...)`. `SCREEN` (2 s) is for the screens, `STARTUP` (10 s) for the first screen of a client, slower to come on a busy machine, and `SERVER` (30 s) for what goes through the integrated server (loading a world, a chat message). A wait that times out, or a `get` that finds nothing, fails with the locator (or the description) it waited for, the texts visible on screen, and the line of the test; nothing hangs, and a watchdog aborts the whole test process, naming the test, when a harness lives longer than 300 s.
 
 A test is a few lines:
 
@@ -227,7 +227,7 @@ A test is a few lines:
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn singleplayer_opens_the_world_list() {
     let mut h = Harness::new();
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     h.click(&L::text("Singleplayer"));
     h.wait_for(&L::text("World list"), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Solo);

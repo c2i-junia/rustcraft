@@ -11,7 +11,7 @@ use bevy::{
 };
 use shared::{GameFolderPaths, GameServerConfig};
 
-use super::harness::{Harness, SCREEN, SERVER};
+use super::harness::{Harness, SCREEN, SERVER, STARTUP};
 use super::helpers::is_in;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
@@ -31,7 +31,8 @@ fn server_list() -> Harness {
 /// A client on the server list, with the game folder `folder`.
 fn open_server_list(folder: GameFolder) -> Harness {
     let mut h = Harness::start(folder, Default::default());
-    h.click_when_ready(&L::text("Multiplayer"));
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
     h.wait_for(&L::text("Server list"), SCREEN);
     h
 }

@@ -3,7 +3,7 @@
 use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
 
-use super::harness::{Harness, SCREEN, SERVER};
+use super::harness::{Harness, SCREEN, SERVER, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::state::GameState;
@@ -21,7 +21,8 @@ fn world_list() -> Harness {
 
 fn open_world_list(folder: GameFolder) -> Harness {
     let mut h = Harness::start(folder, Default::default());
-    h.click_when_ready(&L::text("Singleplayer"));
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.click(&L::text("Singleplayer"));
     h.wait_for(&L::text("World list"), SCREEN);
     h
 }

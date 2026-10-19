@@ -151,7 +151,7 @@ mod tests {
     use std::time::Duration;
 
     use super::snapshot_path;
-    use crate::e2e::harness::{Harness, Options, SCREEN};
+    use crate::e2e::harness::{Harness, Options, STARTUP};
     use crate::e2e::locator::Locator as L;
     use crate::e2e::seed::GameFolder;
     use crate::ui::button::MenuState;
@@ -163,7 +163,7 @@ mod tests {
         let played_ago = Duration::from_secs((3 * 24 + 1) * 60 * 60);
         let folder = GameFolder::new().with_played_world("Survie", 0, played_ago);
         let mut h = Harness::start(folder, Options::default());
-        h.wait_for(&L::text("Multiplayer"), SCREEN);
+        h.wait_for(&L::text("Multiplayer"), STARTUP);
         h.assert_screenshot("menu_main");
     }
 
@@ -171,7 +171,7 @@ mod tests {
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn a_click_after_a_screenshot_still_reaches_its_button() {
         let mut h = Harness::new();
-        h.wait_for(&L::text("Multiplayer"), SCREEN);
+        h.wait_for(&L::text("Multiplayer"), STARTUP);
         h.screenshot();
         h.click(&L::text("Multiplayer"));
         assert_eq!(h.menu_state(), MenuState::Multi);
@@ -181,7 +181,7 @@ mod tests {
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
     fn resizing_lays_the_menu_out_again() {
         let mut h = Harness::new();
-        h.wait_for(&L::text("Quit game"), SCREEN);
+        h.wait_for(&L::text("Quit game"), STARTUP);
         h.resize(800, 600);
         let quit = h.center_of(&L::text("Quit game"));
         // in the column of buttons on the left, inside the window

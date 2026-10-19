@@ -7,7 +7,7 @@ use accesskit::Role;
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 
-use super::harness::{Harness, Options, SCREEN, SERVER};
+use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::{is_in, main_menu};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
@@ -173,7 +173,7 @@ const HOUR: Duration = Duration::from_secs(60 * 60);
 #[track_caller]
 fn main_menu_with(folder: GameFolder) -> Harness {
     let mut h = Harness::start(folder, Options::default());
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     h
 }
 
@@ -250,7 +250,7 @@ fn the_logo_starts_where_the_buttons_start() {
         ..default()
     };
     let mut h = Harness::start(GameFolder::new(), full_hd);
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     h.wait_for_ui_images();
     h.frames(1);
     let left_of = |world: &World, entity: Entity| {

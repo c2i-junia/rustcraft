@@ -7,7 +7,7 @@ use bevy::input::keyboard::KeyCode;
 use shared::world::{grid_slot, ItemId};
 
 use super::game::{enter_world, slot};
-use super::harness::{Harness, Options, SCREEN, SERVER};
+use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use super::settings::key_slot;
@@ -54,7 +54,7 @@ fn every_screen_at_three_resolutions() {
     // The menus, with one client that is resized and a world for the Continue card
     let folder = GameFolder::new().with_played_world("Review", 0, Duration::from_secs(3 * DAY));
     let mut h = Harness::start(folder, Options::default());
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     for (width, height) in RESOLUTIONS {
         h.resize(width, height);
         h.wait_for(&L::marker::<ContinueCard>(), SCREEN);

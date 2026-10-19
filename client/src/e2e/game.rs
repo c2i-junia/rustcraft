@@ -15,7 +15,7 @@ use bevy::{
 use shared::players::{Inventory, ViewMode};
 use shared::world::{grid_slot, raycast, FaceDirectionExt, ItemId};
 
-use super::harness::{Harness, Options, SCREEN, SERVER};
+use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::is_in;
 use super::locator::{is_inside, is_shown, Locator as L};
 use super::seed::GameFolder;
@@ -48,7 +48,8 @@ pub fn enter_world(folder: GameFolder, world: &str) -> Harness {
 #[track_caller]
 pub fn enter_world_with(folder: GameFolder, world: &str, options: Options) -> Harness {
     let mut h = Harness::start(folder, options);
-    h.click_when_ready(&L::text("Singleplayer"));
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.click(&L::text("Singleplayer"));
     h.wait_for_icons(world);
     h.click(&L::name(&format!("Play {world}")));
     h.wait_for_game_state(GameState::Game, SERVER);
@@ -137,7 +138,8 @@ fn the_connection_screen_shows_then_cancel_returns_to_the_menu() {
     // Nothing answers on the discard port
     let folder = GameFolder::new().with_servers(&[("Nowhere", "127.0.0.1:9")]);
     let mut h = Harness::start(folder, Options::default());
-    h.click_when_ready(&L::text("Multiplayer"));
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
     h.wait_for_icons("Nowhere");
     h.click(&L::name("Play Nowhere"));
     h.wait_for(&L::text_containing("Connecting to server"), SCREEN);

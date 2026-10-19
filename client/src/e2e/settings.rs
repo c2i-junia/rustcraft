@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy::ui_widgets::{ScrollArea, Scrollbar, ScrollbarThumb};
 
-use super::harness::{Harness, Options, SCREEN};
+use super::harness::{Harness, Options, SCREEN, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::audio::settings::AudioSettings;
@@ -29,7 +29,8 @@ use crate::ui::widgets::hints::HintBar;
 #[track_caller]
 fn settings_with(folder: GameFolder, options: Options) -> Harness {
     let mut h = Harness::start(folder, options);
-    h.click_when_ready(&L::text("Settings"));
+    h.wait_for(&L::text("Settings"), STARTUP);
+    h.click(&L::text("Settings"));
     h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
     h
 }
@@ -271,7 +272,7 @@ fn the_ui_scale_is_chosen_clamped_and_saved() {
 
     // the choice is kept for the next start
     let mut h = Harness::start(folder, full_hd());
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     assert_eq!(h.ui_scale(), 1.0);
 }
 

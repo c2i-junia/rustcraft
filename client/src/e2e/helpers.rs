@@ -8,7 +8,7 @@ use bevy::{
     ui::{ComputedNode, UiGlobalTransform},
 };
 
-use super::harness::{Harness, SCREEN};
+use super::harness::{Harness, SCREEN, STARTUP};
 use super::locator::Locator as L;
 use crate::state::GameState;
 
@@ -16,7 +16,7 @@ use crate::state::GameState;
 #[track_caller]
 pub fn main_menu() -> Harness {
     let mut h = Harness::new();
-    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     h
 }
 

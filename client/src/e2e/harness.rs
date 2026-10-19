@@ -30,6 +30,9 @@ use crate::ui::button::MenuState;
 
 /// How long a screen may take to appear.
 pub const SCREEN: Duration = Duration::from_secs(2);
+/// How long the first screen may take to appear: a client starting while the machine is busy,
+/// with other tests or a build, is slow to load its first assets.
+pub const STARTUP: Duration = Duration::from_secs(10);
 /// How long a journey through a server may take.
 pub const SERVER: Duration = Duration::from_secs(30);
 
@@ -312,7 +315,7 @@ impl Drop for Harness {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_client_starts_on_the_main_menu() {
     let mut h = Harness::new();
-    h.wait_until("the main menu", SCREEN, |w| {
+    h.wait_until("the main menu", STARTUP, |w| {
         *w.resource::<State<MenuState>>().get() == MenuState::Main
     });
     assert_eq!(h.game_state(), GameState::Menu);
