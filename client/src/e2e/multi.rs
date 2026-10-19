@@ -1003,4 +1003,6 @@ fn edit_changes_the_server_in_place_and_pings_a_new_address() {
     h.frames(2);
     assert!(!h.is_visible(&edit_dialog("Pals")));
     assert_eq!(saved_file(&h), file);
+    let edit = h.get(&pane_button("Edit"));
+    assert_eq!(h.world().resource::<InputFocus>().get(), Some(edit));
 }
