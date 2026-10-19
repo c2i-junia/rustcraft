@@ -251,9 +251,20 @@ fn a_server_that_never_answers_times_out_then_says_it_runs_another_version() {
 
     let t0 = Instant::now();
     h.join_server_card("Nowhere");
+    h.wait_for(&card_title("Joining \"Nowhere\""), SCREEN);
+    let card = h.rect_of(&L::marker::<ConnectingCard>());
     let no_answer = error_card("Cannot reach \"Nowhere\"");
     h.wait_for(&no_answer, SERVER);
     assert!(t0.elapsed() >= CONNECT_TIMEOUT, "{:?}", t0.elapsed());
+    // the error card takes the place of the connecting card: the same width, the same centre
+    h.frames(1);
+    let panel =
+        h.rect_of(&L::marker::<DialogPanel>().within(error_card("Cannot reach \"Nowhere\"")));
+    assert_eq!(panel.width(), card.width());
+    assert!(
+        panel.center().distance(card.center()) < 1.0,
+        "the error card at {panel:?}, the connecting card at {card:?}"
+    );
     assert!(h.is_visible(&L::text_containing("127.0.0.1:9").within(no_answer)));
     assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
     assert_eq!(h.menu_state(), MenuState::ConnectError);

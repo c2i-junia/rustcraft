@@ -21,7 +21,7 @@ use crate::ui::theme::{
     SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
+use crate::ui::widgets::hints::{hint_bar, Hint};
 use crate::ui::widgets::progress::{progress_bar, ProgressBar};
 use crate::ui::widgets::raised_bevel;
 
@@ -123,6 +123,7 @@ pub fn setup_connecting_card(
             TabGroup::new(0),
         ))
         .id();
+    // centred in the window, as the error card that may take its place
     let centre = commands
         .spawn((
             Node {
@@ -131,7 +132,6 @@ pub fn setup_connecting_card(
                 height: percent(100),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
-                padding: UiRect::bottom(px(HINT_BAR_HEIGHT)),
                 ..default()
             },
             ChildOf(root),
