@@ -696,3 +696,65 @@ fn bench_drawing() {
         }),
     );
 }
+
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_minimap() {
+    use crate::ui::hud::minimap::colors::MinimapColors;
+    use crate::ui::hud::minimap::compose::{compose, MAP_SIZE};
+    use crate::ui::hud::minimap::surface::MinimapSurface;
+    use crate::ui::hud::minimap::ZOOMS;
+
+    let colors = MinimapColors::of(BlockId::ALL.map(|id| (id, [id as u8; 3])));
+    let mut pixels = vec![0; (MAP_SIZE * MAP_SIZE * 4) as usize];
+    let mut scenes = Vec::new();
+    for scene in &SCENES {
+        let world = scene.generate();
+        let center = scene.center_chunk().xz();
+        let columns = (2 * scene.radius + 1).pow(2) as usize;
+
+        // Every column of the scene scanned, as when the world arrives, and one column alone
+        let mut scan_all = Vec::new();
+        let mut scan_column = Vec::new();
+        let mut surface = MinimapSurface::default();
+        for _ in 0..ROUNDS {
+            surface = MinimapSurface::of(&world);
+            let start = Instant::now();
+            surface.scan_dirty(&world, center, columns);
+            scan_all.push(millis(start));
+            let mut one = MinimapSurface::of(&world);
+            let start = Instant::now();
+            one.scan_dirty(&world, center, 1);
+            scan_column.push(millis(start));
+        }
+
+        // The image drawn again, as when the player steps onto another block
+        let mut drawn = serde_json::Map::new();
+        for zoom in ZOOMS {
+            let mut samples = Vec::new();
+            for _ in 0..REMESHES {
+                let start = Instant::now();
+                compose(
+                    &surface,
+                    &colors,
+                    IVec2::new(scene.center.0, scene.center.1),
+                    zoom,
+                    &mut pixels,
+                );
+                samples.push(millis(start));
+                black_box(&pixels);
+            }
+            drawn.insert(format!("zoom_{zoom}"), summary(samples));
+        }
+        scenes.push(json!({
+            "scene": scene.name,
+            "columns": columns,
+            "scan_all_ms": summary(scan_all),
+            "scan_one_column_ms": summary(scan_column),
+            "compose_ms": drawn,
+        }));
+    }
+    let results = json!({ "scenes": scenes });
+    println!("{}", serde_json::to_string_pretty(&results).unwrap());
+    write_results("minimap", results);
+}
