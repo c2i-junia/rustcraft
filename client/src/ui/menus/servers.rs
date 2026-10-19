@@ -3,7 +3,7 @@
 //! cannot be read is never written, so the player may still repair it.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
 
 use ron::ser::PrettyConfig;
@@ -41,7 +41,7 @@ pub fn read_servers(path: &Path) -> io::Result<Vec<ServerItem>> {
 }
 
 /// Writes `servers` to `path` in the format the list always had, through `<path>.tmp` renamed
-/// over it, so that a failed write leaves the previous list.
+/// over it once synced, so that a failed write or a crash leaves the previous list.
 pub(super) fn write_servers(path: &Path, servers: &[ServerItem]) -> io::Result<()> {
     let pretty_config = PrettyConfig::new()
         .with_depth_limit(3)
@@ -50,7 +50,9 @@ pub(super) fn write_servers(path: &Path, servers: &[ServerItem]) -> io::Result<(
     let data = ron::ser::to_string_pretty(&servers, pretty_config).map_err(io::Error::other)?;
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
-    fs::write(&tmp, data)?;
+    let mut file = fs::File::create(&tmp)?;
+    file.write_all(data.as_bytes())?;
+    file.sync_all()?;
     fs::rename(&tmp, path)
 }
 
@@ -192,6 +194,18 @@ mod tests {
             read_servers(&path).unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
+    }
+
+    #[test]
+    fn a_list_that_cannot_be_opened_is_an_error_and_is_never_written() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join(SERVER_LIST_SAVE_NAME);
+        fs::create_dir(&path).unwrap();
+        assert!(read_servers(&path).is_err());
+        assert!(add_server(&path, server("bravo", "10.0.0.3")).is_err());
+        assert!(remove_server(&path, "localhost").is_err());
+        assert!(path.is_dir());
+        assert!(!folder.path().join("servers.ron.tmp").exists());
     }
 
     #[test]

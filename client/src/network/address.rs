@@ -51,7 +51,8 @@ const MAX_HOST_LENGTH: usize = 253;
 const MAX_LABEL_LENGTH: usize = 63;
 
 /// Whether `host` is an IPv4 address or a host name: labels of ASCII letters, digits and `-`,
-/// 1 to 63 characters, neither starting nor ending with `-`, joined by dots.
+/// 1 to 63 characters, neither starting nor ending with `-`, joined by dots, the last one not
+/// all digits (no top-level domain is numeric), so that a mistyped IPv4 address is refused.
 fn is_valid_host(host: &str) -> bool {
     let is_label = |label: &str| {
         (1..=MAX_LABEL_LENGTH).contains(&label.len())
@@ -61,8 +62,12 @@ fn is_valid_host(host: &str) -> bool {
             && !label.starts_with('-')
             && !label.ends_with('-')
     };
+    let numeric_top_level = host
+        .rsplit('.')
+        .next()
+        .is_some_and(|label| label.bytes().all(|byte| byte.is_ascii_digit()));
     host.parse::<Ipv4Addr>().is_ok()
-        || (host.len() <= MAX_HOST_LENGTH && host.split('.').all(is_label))
+        || (host.len() <= MAX_HOST_LENGTH && host.split('.').all(is_label) && !numeric_top_level)
 }
 
 /// The address `typed` by the player, trimmed: `host` or `host:port`, the port 8000 when it is
@@ -139,6 +144,10 @@ mod tests {
             parse_server_address("localhost:25565"),
             Ok(address("localhost", 25565))
         );
+        assert_eq!(
+            parse_server_address("a.b1"),
+            Ok(address("a.b1", DEFAULT_PORT))
+        );
     }
 
     #[test]
@@ -155,6 +164,10 @@ mod tests {
             ("a..b", INVALID_ADDRESS),
             (&long_label, INVALID_ADDRESS),
             ("a_b.com", INVALID_ADDRESS),
+            ("999.1.1.1", INVALID_ADDRESS),
+            ("10.0.0", INVALID_ADDRESS),
+            ("8000", INVALID_ADDRESS),
+            ("1.2.3.4.5", INVALID_ADDRESS),
             ("host:0", INVALID_PORT),
             ("host:65536", INVALID_PORT),
             ("::1", IPV6_ADDRESS),
