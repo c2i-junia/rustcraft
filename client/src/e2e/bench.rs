@@ -7,10 +7,17 @@
 
 use std::time::Instant;
 
+use accesskit::Role;
 use bevy::prelude::*;
 
 use super::game::enter_world;
+use super::harness::{SCREEN, SERVER};
+use super::helpers::{ctrl, is_in};
+use super::locator::Locator as L;
 use super::seed::GameFolder;
+use crate::state::GameState;
+use crate::ui::menus::pause::WORLD_SAVED;
+use crate::ui::menus::MenuState;
 
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
@@ -76,30 +83,17 @@ fn bench_join_meshing() {
 }
 
 /// The life of a world as a player meets it: Ctrl+Enter on the main menu, the game, every chunk
-/// of the render distance received and drawn, Save now, then Save and quit to title. Times each
-/// step from the press of Ctrl+Enter, and the longest frames while the chunks come in.
+/// of the render distance received and drawn, Save and quit to title; then the same world opened
+/// again, Save now, and Save and quit. Times each step, the loads from the press of Ctrl+Enter,
+/// and the longest frames while the chunks come in.
 ///
 /// `BENCH_WORLD` is the folder of a saved world to copy and play, as the player `BENCH_PLAYER`
 /// (default `PlayerOne`); without it, a new world is generated. The render distance is 8.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_world_lifecycle() {
-    use std::sync::atomic::Ordering;
+    use super::harness::{Options, STARTUP};
 
-    use accesskit::Role;
-
-    use super::harness::{Options, SERVER};
-    use super::helpers::{ctrl, is_in};
-    use super::locator::Locator as L;
-    use crate::player::CurrentPlayerMarker;
-    use crate::state::GameState;
-    use crate::ui::menus::pause::WORLD_SAVED;
-    use crate::ui::menus::MenuState;
-    use crate::world::rendering::render::MESHES_SHOWN;
-    use crate::world::ClientWorldMap;
-    use shared::world::world_position_to_chunk_position;
-
-    const RADIUS: i32 = 8;
     let folder = GameFolder::new().with_file("video.ron", "(render_distance: 8)");
     let (folder, world) = match std::env::var("BENCH_WORLD") {
         Ok(source) => (
@@ -116,16 +110,50 @@ fn bench_world_lifecycle() {
             ..Options::default()
         },
     );
-    h.wait_for(&L::text("Singleplayer"), super::harness::STARTUP);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
     h.frames(10);
 
+    let first = load_with_ctrl_enter(&mut h);
+    let first_quit = save_and_quit(&mut h);
+    h.frames(10);
+    let again = load_with_ctrl_enter(&mut h);
+
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::role(Role::Button, "Save now"), SCREEN);
+    let save = Instant::now();
+    h.click(&L::role(Role::Button, "Save now"));
+    h.wait_for(&L::role(Role::Status, WORLD_SAVED), SERVER);
+    let save_now = save.elapsed().as_secs_f64();
+    let quit_after_save = save_and_quit(&mut h);
+
+    let result = serde_json::json!({
+        "world": world,
+        "first": first,
+        "save_and_quit_s": first_quit,
+        "again": again,
+        "save_now_s": save_now,
+        "save_and_quit_after_save_now_s": quit_after_save,
+    });
+    println!("BENCH_RESULT {result}");
+}
+
+/// Presses Ctrl+Enter on the main menu, and times the game, the first mesh shown, every chunk of
+/// the render distance (8) held, and the last mesh shown before none is for 1.5 s.
+fn load_with_ctrl_enter(h: &mut super::harness::Harness) -> serde_json::Value {
+    use std::sync::atomic::Ordering;
+
+    use crate::player::CurrentPlayerMarker;
+    use crate::world::rendering::render::MESHES_SHOWN;
+    use crate::world::ClientWorldMap;
+    use shared::world::world_position_to_chunk_position;
+
+    const RADIUS: i32 = 8;
     let shown_before = MESHES_SHOWN.load(Ordering::Relaxed);
     let start = Instant::now();
-    ctrl(&mut h, KeyCode::Enter);
+    ctrl(h, KeyCode::Enter);
     h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
     let in_game = start.elapsed().as_secs_f64();
 
-    // Every chunk of the render distance in, then no mesh shown for 1.5 s
     let wanted = (2 * RADIUS + 1).pow(3) as usize;
     let mut all_chunks = None;
     let mut last = (usize::MAX, usize::MAX);
@@ -143,8 +171,8 @@ fn bench_world_lifecycle() {
             .single(world)
             .map(|t| world_position_to_chunk_position(t.translation))
             .unwrap_or_default();
-        let map = world.resource::<ClientWorldMap>();
-        let held = map
+        let held = world
+            .resource::<ClientWorldMap>()
             .blocks
             .chunk_positions()
             .filter(|c| (*c - center).abs().max_element() <= RADIUS)
@@ -164,39 +192,34 @@ fn bench_world_lifecycle() {
             break;
         }
     }
-    let drawn = last_change;
     let (held, shown) = last;
     frames.sort_by(f64::total_cmp);
     let percentile = |p: f64| frames[((frames.len() - 1) as f64 * p) as usize];
+    serde_json::json!({
+        "in_game_s": in_game,
+        "first_mesh_s": first_mesh,
+        "all_chunks_s": all_chunks,
+        "all_drawn_s": last_change,
+        "chunks": held,
+        "meshes_shown": shown,
+        "frames": frames.len(),
+        "frame_ms_p50": percentile(0.5),
+        "frame_ms_p99": percentile(0.99),
+        "frame_ms_max": percentile(1.0),
+    })
+}
 
-    h.press(KeyCode::Escape);
-    h.wait_for(&L::role(Role::Button, "Save now"), super::harness::SCREEN);
-    let save = Instant::now();
-    h.click(&L::role(Role::Button, "Save now"));
-    h.wait_for(&L::role(Role::Status, WORLD_SAVED), SERVER);
-    let save_now = save.elapsed().as_secs_f64();
-
+/// Opens the pause menu unless it is open, clicks Save and quit to title, and times it until the
+/// main menu.
+fn save_and_quit(h: &mut super::harness::Harness) -> f64 {
+    if !h.is_visible(&L::role(Role::Button, "Save and quit to title")) {
+        h.press(KeyCode::Escape);
+    }
+    h.wait_for(&L::role(Role::Button, "Save and quit to title"), SCREEN);
     let quit = Instant::now();
     h.click(&L::role(Role::Button, "Save and quit to title"));
     h.wait_until("the main menu", SERVER, |w| {
         is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
     });
-    let save_and_quit = quit.elapsed().as_secs_f64();
-
-    let result = serde_json::json!({
-        "world": world,
-        "in_game_s": in_game,
-        "first_mesh_s": first_mesh,
-        "all_chunks_s": all_chunks,
-        "all_drawn_s": drawn,
-        "chunks": held,
-        "meshes_shown": shown,
-        "load_frames": frames.len(),
-        "load_frame_ms_p50": percentile(0.5),
-        "load_frame_ms_p99": percentile(0.99),
-        "load_frame_ms_max": percentile(1.0),
-        "save_now_s": save_now,
-        "save_and_quit_s": save_and_quit,
-    });
-    println!("BENCH_RESULT {result}");
+    quit.elapsed().as_secs_f64()
 }
