@@ -737,6 +737,10 @@ fn rename_renames_the_folder_and_keeps_the_place_of_the_world() {
     h.click(&rename);
     h.wait_for(&L::role(Role::Dialog, "Rename \"Base\""), SCREEN);
     h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::role(Role::Dialog, "Rename \"Base\"")));
+    let focused = h.world().resource::<InputFocus>().get();
+    assert_eq!(focused, Some(h.get(&rename)));
+    assert_eq!(selected_world(&mut h).as_deref(), Some("Base"));
     assert_eq!(
         card_names(&mut h),
         ["Creative build", "Base", "Test world 3"]
@@ -744,6 +748,40 @@ fn rename_renames_the_folder_and_keeps_the_place_of_the_world() {
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     assert!(h.is_visible(&L::text("Creative build").within(L::marker::<ContinueCard>())));
+}
+
+/// Opens the Rename dialog of `world` from its card and the detail pane, its name ready to
+/// replace.
+#[track_caller]
+fn open_rename(h: &mut Harness, world: &str) {
+    h.click_when_ready(&card(world));
+    h.click(&L::role(Role::Button, "Rename"));
+    h.wait_for(
+        &L::role(Role::Dialog, &format!("Rename \"{world}\"")),
+        SCREEN,
+    );
+    h.frames(2);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_rename_that_only_changes_the_case_renames_the_world() {
+    let mut h = world_list();
+    open_rename(&mut h, "Survie");
+    h.type_text("survie");
+    h.press(KeyCode::Enter);
+    h.frames(3);
+    assert!(!h.is_visible(&L::role(Role::Dialog, "Rename \"Survie\"")));
+    assert_eq!(
+        saved_folders(&h),
+        ["Creative build", "Test world 3", "survie"]
+    );
+    assert_eq!(world_meta(&h, "survie").name, "survie");
+    assert_eq!(
+        card_names(&mut h),
+        ["Creative build", "survie", "Test world 3"]
+    );
+    assert_eq!(h.focus_label().as_deref(), Some("survie"));
 }
 
 #[test]

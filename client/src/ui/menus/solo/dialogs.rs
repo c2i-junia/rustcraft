@@ -543,6 +543,7 @@ pub fn open_delete_world_dialog(
 #[cfg(test)]
 mod tests {
     use bevy::text::TextEdit;
+    use tempfile::TempDir;
 
     use super::*;
     use crate::ui::menus::worlds::EMPTY_WORLD_NAME;
@@ -655,6 +656,47 @@ mod tests {
         world.commands().trigger(DialogSubmit { entity: root });
         world.flush();
         assert!(saves.join("Survie").is_dir());
+    }
+
+    /// A world whose saves are in a temporary folder, with a Rename dialog of `from` whose name
+    /// field holds `typed`. Returns the folder, the dialog's root and its name field.
+    fn rename_form(world: &mut World, from: &str, typed: &str) -> (TempDir, Entity, Entity) {
+        let folder = TempDir::new().unwrap();
+        world.insert_resource(GameFolderPaths {
+            game_folder_path: folder.path().to_path_buf(),
+            assets_folder_path: folder.path().to_path_buf(),
+        });
+        let name = world
+            .spawn((EditableText::new(typed), FieldError(None)))
+            .id();
+        let primary = world.spawn_empty().id();
+        let root = world
+            .spawn(WorldForm::new(
+                name,
+                None,
+                primary,
+                Vec::new(),
+                Some(from.into()),
+            ))
+            .observe(rename_world_on_submit)
+            .id();
+        (folder, root, name)
+    }
+
+    #[test]
+    fn a_second_submit_of_a_closing_rename_renames_once() {
+        let mut world = World::new();
+        let (folder, root, name) = rename_form(&mut world, "Survie", "Base");
+        let saves = folder.path().join(SAVE_PATH);
+        create_world(&saves, "Survie", 1).unwrap();
+        // two submits in the same update, such as Enter and a click on Rename
+        let mut commands = world.commands();
+        commands.trigger(DialogSubmit { entity: root });
+        commands.trigger(DialogSubmit { entity: root });
+        world.flush();
+        assert!(saves.join("Base").is_dir());
+        assert!(!saves.join("Survie").exists());
+        assert_eq!(world.get::<FieldError>(name).unwrap().0, None);
     }
 
     #[test]
