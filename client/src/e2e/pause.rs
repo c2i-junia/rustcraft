@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::mpsc::{channel, Sender};
 use std::time::{Instant, SystemTime};
 
 use accesskit::Role;
@@ -22,7 +23,7 @@ use super::locator::{is_inside, is_shown, Locator as L};
 use super::multi::selected_server;
 use super::seed::GameFolder;
 use crate::constants::SAVE_PATH;
-use crate::network::hash_string_to_u64;
+use crate::network::{hash_string_to_u64, LocalServerHandle};
 use crate::state::GameState;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{HudBottom, InventoryCell, InventoryRoot, UIMode};
@@ -261,15 +262,60 @@ fn the_pause_menu_resumes_saves_and_leaves() {
     // No click on the settings reached the "Save now" beneath them
     assert!(!player.exists());
     h.press(KeyCode::Escape);
-    save_now_says_when_the_world_is_saved(&mut h, &player, written, seeded);
+    save_now_says_when_the_world_is_saved(&mut h, &player, &written, seeded);
+    save_and_quit_shows_saving_until_the_world_is_saved(&mut h, written);
+}
 
-    // Leaving saves the world again: world.ron is written after the click
+/// Holds the end of the thread of the local server, which still saves and stops as it would,
+/// until the sender returned is used: the world of a test is saved in a few milliseconds, sooner
+/// than the frames of a check.
+fn hold_the_local_server(h: &mut Harness) -> Sender<()> {
+    let (release, wait) = channel::<()>();
+    let mut local_server = h.world_mut().resource_mut::<LocalServerHandle>();
+    let server = local_server.0.take().expect("the local server runs");
+    local_server.0 = Some(std::thread::spawn(move || {
+        let result = server.join().unwrap_or(Ok(()));
+        let _ = wait.recv();
+        result
+    }));
+    release
+}
+
+/// Save and quit keeps the game going behind the pause menu while the world is written: every
+/// button is disabled, the leaving one reads "Saving...", and neither Escape nor a click closes
+/// the menu of a game that is ending. The title opens once the local server stopped, with no
+/// error.
+fn save_and_quit_shows_saving_until_the_world_is_saved(
+    h: &mut Harness,
+    written: impl Fn() -> SystemTime,
+) {
+    let release = hold_the_local_server(h);
     let before = written();
     h.click(&button("Save and quit to title"));
-    h.wait_until("the main menu", SERVER, |w| {
-        is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
+    h.frames(1);
+    assert!(h.is_visible(&L::text(SAVING).within(pause_menu())));
+    assert_eq!(h.game_state(), GameState::Game);
+    let world = h.world_mut();
+    let disabled: Vec<bool> = world
+        .query::<(&PauseButton, Has<InteractionDisabled>)>()
+        .iter(world)
+        .map(|(_, disabled)| disabled)
+        .collect();
+    assert_eq!(disabled, [true; 4]);
+
+    h.press(KeyCode::Escape);
+    h.click(&button("Back to game"));
+    assert!(h.is_visible(&pause_menu()));
+    assert!(h.is_visible(&L::text(SAVING).within(pause_menu())));
+    assert_eq!(h.game_state(), GameState::Game);
+
+    release.send(()).unwrap();
+    h.wait_until("the menus", SERVER, |w| {
+        is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() != MenuState::Disabled
     });
-    h.wait_until("world.ron written", SERVER, |_| written() > before);
+    assert!(written() > before);
+    assert!(h.world().resource::<LocalServerHandle>().0.is_none());
+    assert_eq!(h.menu_state(), MenuState::Main);
 }
 
 /// Save now reads "Saving..." and is disabled until the world is written, then says so in a
@@ -278,7 +324,7 @@ fn the_pause_menu_resumes_saves_and_leaves() {
 fn save_now_says_when_the_world_is_saved(
     h: &mut Harness,
     player: &Path,
-    written: impl Fn() -> SystemTime,
+    written: &impl Fn() -> SystemTime,
     seeded: SystemTime,
 ) {
     h.click(&button("Save now"));

@@ -10,6 +10,7 @@ mod chat;
 mod cleanup;
 pub mod extensions;
 mod inputs;
+pub mod leave;
 pub mod save;
 pub mod session;
 mod setup;
@@ -35,6 +36,7 @@ pub fn authenticated(target: Res<TargetServer>) -> bool {
 /// The transport itself is set up by `add_base_netcode`.
 pub fn network_plugin(app: &mut App) {
     session::session_plugin(app);
+    leave::leave_plugin(app);
     app.init_resource::<CurrentPlayerProfile>()
         .init_resource::<PlayerTickInputsBuffer>()
         .init_resource::<CurrentFrameInputs>()

@@ -28,7 +28,7 @@ use std::{net::UdpSocket, thread, time::SystemTime};
 use crate::world::ClientWorldMap;
 use shared::GameFolderPaths;
 
-use super::cleanup::{close_session_on_app_exit, join_local_server};
+use super::cleanup::{close_session_on_app_exit, join_local_server, ExitSent};
 use super::SendGameMessageExtension;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +212,8 @@ pub fn launch_local_server_system(
     });
     commands.insert_resource(LocalServerHandle(Some(handle)));
     commands.insert_resource(LocalServerAddress(addr));
+    // told nothing yet, unlike a server of an earlier session joined above
+    commands.remove_resource::<ExitSent>();
 
     target.address = Some(addr);
 }

@@ -30,7 +30,7 @@ use crate::network::session::{
     chunks_around, ConnectStep, ConnectTimeout, ConnectWatch, SessionEnd, CONNECT_TIMEOUT,
 };
 use crate::network::status::{query_status, ServerStatus, StatusProbe};
-use crate::network::{TargetServer, TargetServerState};
+use crate::network::{LocalServerHandle, TargetServer, TargetServerState};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::menus::connect_error::TRY_AGAIN;
@@ -255,6 +255,11 @@ fn a_world_cancelled_while_loading_chunks_opens_again_from_nothing() {
     h.frames(2);
     assert_eq!(h.menu_state(), MenuState::Solo);
 
+    // the server of the cancelled world saves in the background: the world opens again once
+    // it stopped
+    h.wait_until("the cancelled world's server to stop", SERVER, |w| {
+        w.resource::<LocalServerHandle>().0.is_none()
+    });
     h.play_world("Survie");
     h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
     h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));

@@ -11,6 +11,7 @@ use shared::messages::sanitize_username;
 use shared::world::{world_position_to_chunk_position, ChunkMap};
 use shared::BROADCAST_CHUNK_RADIUS;
 
+use super::leave::Leaving;
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{
     authenticated, establish_authenticated_connection_to_server, open_connection,
@@ -152,7 +153,9 @@ pub fn session_plugin(app: &mut App) {
 }
 
 /// Ends the session as `error` (`None`: cancelled) unless it already ended this frame: inserts
-/// `SessionEnd` and sets `GameState::Menu`. Returns whether it did.
+/// `SessionEnd` and sets `GameState::Menu`. Returns whether it did. Never called while the game
+/// is being left (`Leaving`): its callers in the game, `watch_session` and the pause menu's
+/// buttons, stand down then.
 pub fn end_session(
     commands: &mut Commands,
     game: &mut NextState<GameState>,
@@ -316,20 +319,22 @@ fn watch_connection(
 /// Ends a session whose connection dropped in the game (`failure_of`): the server stopped or the
 /// connection was lost. The local server of a world that stopped ends it at once, before
 /// netcode gives up: `WorldFailed` with its error, else `ServerStopped`. Stands down while the
-/// game is already left this frame: leaving on purpose, from the pause menu, is never an error.
+/// game is already left this frame, or being left (`Leaving`): leaving on purpose, from the pause
+/// menu, is never an error, and the local server stopping then is what it waits for.
 fn watch_session(
     client: Option<Res<RenetClient>>,
     transport: Option<Res<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
     origin: Option<Res<SessionOrigin>>,
     profile: Res<CurrentPlayerProfile>,
+    leaving: Option<Res<Leaving>>,
     mut game: ResMut<NextState<GameState>>,
     mut commands: Commands,
 ) {
     let Some(origin) = origin else {
         return;
     };
-    if !matches!(*game, NextState::Unchanged) {
+    if !matches!(*game, NextState::Unchanged) || leaving.is_some() {
         return;
     }
     // the handle is that of this session's world: no other one starts while it is held
@@ -1032,6 +1037,30 @@ mod tests {
             .set(GameState::Menu);
         app.update();
         assert!(!app.world().contains_resource::<SessionEnd>());
+    }
+
+    #[test]
+    fn saving_and_quitting_is_never_an_error() {
+        // the local server stopped and dropped the connection after saving
+        let server = std::thread::spawn(|| Ok(()));
+        while !server.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut client = RenetClient::new(get_shared_renet_config());
+        client.disconnect();
+        let mut app = in_game(world(), client);
+        app.insert_resource(LocalServerHandle(Some(server)))
+            .insert_resource(Leaving {
+                since: Instant::now(),
+            });
+        app.update();
+        assert!(!app.world().contains_resource::<SessionEnd>());
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Unchanged
+        ));
+        // its end is the leave's to read
+        assert!(app.world().resource::<LocalServerHandle>().0.is_some());
     }
 
     #[test]

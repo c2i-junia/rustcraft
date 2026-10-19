@@ -16,6 +16,7 @@ use bevy_renet::RenetClient;
 
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
+use crate::network::leave::{leaving, LeaveGame};
 use crate::network::save::send_save_request_to_server;
 use crate::network::session::{end_session, SessionOrigin};
 use crate::network::LocalSaves;
@@ -34,7 +35,7 @@ use crate::ui::theme::{
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
-use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
+use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::text_field::text_field_focused;
 use crate::ui::widgets::toast::{show_toast, ToastKind};
 
@@ -57,7 +58,7 @@ pub const PAUSE_HINTS: [Hint; 3] = [
     },
 ];
 
-/// The label of "Save now" while the world is being saved.
+/// The label of "Save now", and of "Save and quit to title", while the world is being saved.
 pub const SAVING: &str = "Saving...";
 
 /// The toast once the world is saved.
@@ -154,16 +155,20 @@ pub fn pause_plugin(app: &mut App) {
             .after(GameSet::UiMode)
             .run_if(in_state(GameState::Game))
             .run_if(not(dialog_open))
-            .run_if(not(text_field_focused)),
+            .run_if(not(text_field_focused))
+            .run_if(not(leaving)),
     )
-    // after the menu opens: a menu opened while saving never shows "Save now" enabled
+    // after the menu opens: a menu opened while saving never shows "Save now" enabled; never
+    // while leaving, whose buttons stay disabled
     .add_systems(
         Update,
         watch_save_now
             .after(toggle_pause_menu)
             .run_if(in_state(GameState::Game))
-            .run_if(resource_exists::<SaveNow>),
+            .run_if(resource_exists::<SaveNow>)
+            .run_if(not(leaving)),
     )
+    .add_systems(Update, show_leaving.run_if(leaving))
     .add_systems(OnExit(GameState::Game), |mut commands: Commands| {
         commands.remove_resource::<SaveNow>();
     })
@@ -383,7 +388,7 @@ fn act_on_pause_button(
                     .insert(InteractionDisabled);
             }
         }
-        PauseButton::SaveAndQuit => game.set(GameState::Menu),
+        PauseButton::SaveAndQuit => commands.trigger(LeaveGame),
         PauseButton::Disconnect => {
             if let Some(origin) = origin {
                 end_session(&mut commands, &mut game, &origin, None);
@@ -432,6 +437,29 @@ fn watch_save_now(
     commands.remove_resource::<SaveNow>();
 }
 
+/// While the game is left for the title, the pause menu waits: every button is disabled, the
+/// leaving one reads "Saving...", and its hints, which no key follows any more, are hidden.
+fn show_leaving(
+    buttons: Query<(Entity, &PauseButton), Without<InteractionDisabled>>,
+    menus: Query<&Children, With<PauseMenu>>,
+    mut hints: Query<&mut Visibility, With<HintBar>>,
+    mut commands: Commands,
+) {
+    for (entity, &action) in &buttons {
+        let mut button = commands.entity(entity);
+        button.insert(InteractionDisabled);
+        if action == PauseButton::SaveAndQuit {
+            button.queue(set_label(SAVING));
+        }
+    }
+    for children in &menus {
+        let mut bars = hints.iter_many_mut(children);
+        while let Some(mut visibility) = bars.fetch_next() {
+            visibility.set_if_neq(Visibility::Hidden);
+        }
+    }
+}
+
 /// Closes the pause menu asked to close; nothing has the focus in the game.
 fn close_pause_menu(
     menus: Query<Entity, (With<PauseMenu>, With<ClosePause>)>,
@@ -464,6 +492,7 @@ fn hide_hud_under_menus(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::network::leave::Leaving;
     use bevy::state::app::StatesPlugin;
     use shared::SaveCounter;
     use std::collections::BTreeMap;
@@ -634,6 +663,69 @@ mod tests {
             .map(|node| node.label().map(str::to_string))
             .collect();
         assert_eq!(alerts, [Some(SAVE_FAILED.to_string())]);
+    }
+
+    /// The labels of the toasts of `role` shown.
+    fn toasts(app: &mut App, role: Role) -> Vec<Option<String>> {
+        let world = app.world_mut();
+        world
+            .query::<&AccessibilityNode>()
+            .iter(world)
+            .filter(|node| node.role() == role)
+            .map(|node| node.label().map(str::to_string))
+            .collect()
+    }
+
+    #[test]
+    fn while_leaving_the_pause_menu_waits_and_escape_does_nothing() {
+        let mut app = saving_app(&SaveCounter::default());
+        app.world_mut().remove_resource::<SaveNow>();
+        open_pause_menu(&mut app);
+        app.world_mut().insert_resource(Leaving {
+            since: Instant::now(),
+        });
+        app.update();
+
+        let world = app.world_mut();
+        let buttons: Vec<(PauseButton, bool)> = world
+            .query::<(&PauseButton, Has<InteractionDisabled>)>()
+            .iter(world)
+            .map(|(&action, disabled)| (action, disabled))
+            .collect();
+        assert_eq!(buttons.len(), 4);
+        assert!(buttons.iter().all(|&(_, disabled)| disabled), "{buttons:?}");
+        let leave = world
+            .query::<(&PauseButton, &AccessibleLabel)>()
+            .iter(world)
+            .find(|(action, _)| **action == PauseButton::SaveAndQuit)
+            .map(|(_, label)| label.0.clone());
+        assert_eq!(leave.as_deref(), Some(SAVING));
+        let hints = world
+            .query_filtered::<&Visibility, With<HintBar>>()
+            .single(world)
+            .unwrap();
+        assert_eq!(*hints, Visibility::Hidden);
+
+        press_escape(&mut app);
+        app.update();
+        app.update();
+        assert_eq!(menus(&mut app), 1);
+    }
+
+    #[test]
+    fn leaving_never_gives_save_now_back() {
+        let saves = SaveCounter::default();
+        let mut app = saving_app(&saves);
+        open_pause_menu(&mut app);
+        app.world_mut().insert_resource(Leaving {
+            since: Instant::now(),
+        });
+
+        saves.bump();
+        app.update();
+
+        assert_eq!(save_now(&mut app), (SAVING.to_string(), true));
+        assert_eq!(toasts(&mut app, Role::Status), []);
     }
 
     #[test]
