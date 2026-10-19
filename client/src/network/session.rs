@@ -5,12 +5,16 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
-use bevy_renet::netcode::NetcodeDisconnectReason;
+use bevy_renet::netcode::{NetcodeClientTransport, NetcodeDisconnectReason};
+use bevy_renet::RenetClient;
 use shared::messages::sanitize_username;
 use shared::world::{world_position_to_chunk_position, ChunkMap};
 use shared::BROADCAST_CHUNK_RADIUS;
 
-use super::{authenticated, establish_authenticated_connection_to_server, TargetServer};
+use super::status::{InFlight, ServerStatus, StatusProbe};
+use super::{
+    authenticated, establish_authenticated_connection_to_server, CurrentPlayerProfile, TargetServer,
+};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
@@ -70,7 +74,6 @@ pub enum ConnectError {
     /// The server never answered.
     NoAnswer,
     /// The server answers the status of another protocol.
-    #[allow(dead_code)] // The status asked after no answer, Task 4
     Incompatible,
     /// The server has no room for another player.
     Full,
@@ -89,7 +92,6 @@ pub enum ConnectError {
     #[allow(dead_code)] // When a world cannot start, Task 5
     WorldBusy,
     /// No socket could be opened, for this reason.
-    #[allow(dead_code)] // When a world cannot start, Task 5
     NoConnection(String),
     /// The server disconnected the player in game.
     ServerStopped,
@@ -101,8 +103,19 @@ pub enum ConnectError {
 #[derive(Resource)]
 pub struct ConnectWatch {
     pub step: ConnectStep,
-    #[allow(dead_code)] // watch_connection, Task 4
     since: Instant,
+    /// The status asked once a server gave no answer: whether it runs another version.
+    verdict: Option<InFlight<ServerStatus>>,
+}
+
+/// How long a session may stay at `Connecting` or `LoadingChunks` without a new step.
+#[derive(Resource)]
+pub struct ConnectTimeout(pub Duration);
+
+impl Default for ConnectTimeout {
+    fn default() -> Self {
+        Self(CONNECT_TIMEOUT)
+    }
 }
 
 #[cfg(test)]
@@ -112,13 +125,15 @@ impl ConnectWatch {
         Self {
             step,
             since: Instant::now(),
+            verdict: None,
         }
     }
 }
 
 /// Watches the session being opened and tells its step.
 pub fn session_plugin(app: &mut App) {
-    app.add_systems(OnEnter(GameState::PreGameLoading), start_watching)
+    app.init_resource::<ConnectTimeout>()
+        .add_systems(OnEnter(GameState::PreGameLoading), start_watching)
         .add_systems(OnExit(GameState::PreGameLoading), stop_watching)
         // a session in the game has not ended: no menu may read an end left from before
         .add_systems(OnEnter(GameState::Game), |mut commands: Commands| {
@@ -128,8 +143,10 @@ pub fn session_plugin(app: &mut App) {
             Update,
             // the frame the server accepts the player shows `Loading chunks`, even when every
             // chunk comes in the next one
-            track_connection
-                .after(establish_authenticated_connection_to_server)
+            (
+                track_connection.after(establish_authenticated_connection_to_server),
+                watch_connection.after(track_connection),
+            )
                 .run_if(in_state(GameState::PreGameLoading)),
         );
 }
@@ -162,6 +179,7 @@ fn start_watching(origin: Option<Res<SessionOrigin>>, mut commands: Commands) {
     commands.insert_resource(ConnectWatch {
         step: connect_step(&origin, false, None),
         since: Instant::now(),
+        verdict: None,
     });
 }
 
@@ -193,8 +211,98 @@ pub(crate) fn track_connection(
     }
 }
 
+/// Ends a session that failed: the transport dropped (`failure_of`), `CONNECT_TIMEOUT` without a
+/// new step while `Connecting` or `LoadingChunks`, then for a server's `NoAnswer` the status
+/// verdict: a server of another version says so. Stands down while the session already ends
+/// this frame, a cancel: the first end of a session wins.
+///
+/// The timeout counts from the last new step, not from the start: on a busy server the chunks
+/// around the spawn may come after those of the other players, and each one that comes is a
+/// new step.
+#[allow(clippy::too_many_arguments)]
+fn watch_connection(
+    watch: Option<ResMut<ConnectWatch>>,
+    origin: Option<Res<SessionOrigin>>,
+    client: Option<Res<RenetClient>>,
+    transport: Option<Res<NetcodeClientTransport>>,
+    target: Res<TargetServer>,
+    profile: Res<CurrentPlayerProfile>,
+    timeout: Res<ConnectTimeout>,
+    probe: Res<StatusProbe>,
+    mut game: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+) {
+    let (Some(mut watch), Some(origin)) = (watch, origin) else {
+        return;
+    };
+    if !matches!(*game, NextState::Unchanged) {
+        return;
+    }
+    if let Some(verdict) = &watch.verdict {
+        if let Some(status) = verdict.take() {
+            let error = if status == ServerStatus::Incompatible {
+                ConnectError::Incompatible
+            } else {
+                ConnectError::NoAnswer
+            };
+            end_session(&mut commands, &mut game, &origin, Some(error));
+        }
+        return;
+    }
+    let dropped = client.is_some_and(|client| client.is_disconnected());
+    let stalled = matches!(
+        watch.step,
+        ConnectStep::Connecting | ConnectStep::LoadingChunks { .. }
+    ) && watch.since.elapsed() >= timeout.0;
+    if !dropped && !stalled {
+        return;
+    }
+    let reached = if authenticated(target) {
+        Reached::Authenticated
+    } else {
+        Reached::Connecting
+    };
+    let reason = transport
+        .filter(|_| dropped)
+        .and_then(|transport| transport.disconnect_reason());
+    let error = failure_of(reached, reason, &profile.name);
+    if let (ConnectError::NoAnswer, SessionOrigin::Server { ip, .. }) = (&error, &*origin) {
+        info!("No answer from {ip}, asking its status");
+        let (ip, probe) = (ip.clone(), probe.0);
+        // not a new step: the card has nothing to redraw
+        watch.bypass_change_detection().verdict =
+            Some(InFlight::spawn(ServerStatus::Offline, move || probe(&ip)));
+        return;
+    }
+    end_session(&mut commands, &mut game, &origin, Some(error));
+}
+
+/// Whether servers accept the player's name: `sanitize_username` keeps it.
+pub fn player_name_accepted(profile: Res<CurrentPlayerProfile>) -> bool {
+    sanitize_username(&profile.name).is_some()
+}
+
+/// Ends the session being opened when no server would accept the player's name, before a local
+/// server starts or a packet leaves.
+pub(crate) fn refuse_an_invalid_name(
+    profile: Res<CurrentPlayerProfile>,
+    origin: Option<Res<SessionOrigin>>,
+    mut game: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+) {
+    let Some(origin) = origin else {
+        return;
+    };
+    if sanitize_username(&profile.name).is_some() {
+        return;
+    }
+    let error = ConnectError::InvalidName {
+        name: profile.name.clone(),
+    };
+    end_session(&mut commands, &mut game, &origin, Some(error));
+}
+
 /// How far a session got before its connection dropped.
-#[allow(dead_code)] // watch_connection, Task 4
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reached {
     /// Not authenticated yet.
@@ -202,12 +310,13 @@ pub enum Reached {
     /// Authenticated, not in the game yet.
     Authenticated,
     /// In the game.
+    #[allow(dead_code)] // watch_session, Task 6
     InGame,
 }
 
-/// How long a connected session may stay at `Connecting` or `LoadingChunks` without a new step
-/// before it gives up.
-#[allow(dead_code)] // watch_connection, Task 4
+/// How long a session may stay at `Connecting` or `LoadingChunks` without a new step before it
+/// gives up. Netcode itself gives up on a silent server only after 15 s (the `timeout_seconds` of
+/// renetcode's unsecure connect token).
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// What a dropped connection means (Decision 5); `name` is the player's.
@@ -215,7 +324,6 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Before the authentication, a server denies a client when it is full and drops one whose
 /// name is in use or invalid; anything else is no answer. After it, the connection is lost
 /// while loading. In the game, a dedicated server only disconnects a player when it shuts down.
-#[allow(dead_code)] // watch_connection, Task 4
 pub fn failure_of(
     reached: Reached,
     reason: Option<NetcodeDisconnectReason>,
@@ -319,8 +427,10 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy_renet::netcode::NetcodeDisconnectReason as Reason;
+    use shared::get_shared_renet_config;
     use shared::world::Chunk;
 
+    use crate::network::status::ServerStatus;
     use crate::network::TargetServerState;
 
     fn world() -> SessionOrigin {
@@ -559,6 +669,142 @@ mod tests {
             app.world().resource::<ConnectWatch>().step,
             ConnectStep::Spawning
         );
+    }
+
+    /// A bare app watching a session to the server `Nowhere` at `step`, without a new step for
+    /// `stalled`, the client still connecting (no transport), the status asked with `probe`.
+    fn watched(step: ConnectStep, stalled: Duration, probe: fn(&str) -> ServerStatus) -> App {
+        let authenticated = !matches!(step, ConnectStep::Connecting);
+        let mut app = App::new();
+        app.init_resource::<NextState<GameState>>()
+            .insert_resource(SessionOrigin::Server {
+                name: "Nowhere".into(),
+                ip: "127.0.0.1:9".into(),
+                address: "127.0.0.1:9".parse().unwrap(),
+            })
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: if authenticated {
+                    TargetServerState::ConnectionEstablished
+                } else {
+                    TargetServerState::Establishing
+                },
+            })
+            .insert_resource(RenetClient::new(get_shared_renet_config()))
+            .insert_resource(CurrentPlayerProfile {
+                id: 1,
+                name: "Tester".into(),
+            })
+            .insert_resource(StatusProbe(probe))
+            .init_resource::<ConnectTimeout>()
+            .insert_resource(ConnectWatch {
+                step,
+                since: Instant::now() - stalled,
+                verdict: None,
+            })
+            .add_systems(Update, watch_connection);
+        app
+    }
+
+    /// Runs frames of `app` until its session ends, and returns its error. Fails after 5 s.
+    fn ended(app: &mut App) -> Option<ConnectError> {
+        let start = Instant::now();
+        while !app.world().contains_resource::<SessionEnd>() {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "the session never ended"
+            );
+            app.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Pending(GameState::Menu)
+        ));
+        app.world().resource::<SessionEnd>().error.clone()
+    }
+
+    /// Whether `app` ended its session after a few frames.
+    fn ends_soon(app: &mut App) -> bool {
+        for _ in 0..3 {
+            app.update();
+        }
+        app.world().contains_resource::<SessionEnd>()
+            || !matches!(
+                app.world().resource::<NextState<GameState>>(),
+                NextState::Unchanged
+            )
+    }
+
+    fn never_asked(_: &str) -> ServerStatus {
+        panic!("the status was asked")
+    }
+
+    const ELEVEN: Duration = Duration::from_secs(11);
+
+    #[test]
+    fn a_server_silent_for_too_long_times_out() {
+        let mut app = watched(ConnectStep::Connecting, ELEVEN, |_| ServerStatus::Offline);
+        assert_eq!(ended(&mut app), Some(ConnectError::NoAnswer));
+
+        let mut app = watched(ConnectStep::Connecting, Duration::from_secs(9), |_| {
+            ServerStatus::Offline
+        });
+        assert!(!ends_soon(&mut app));
+        assert!(app.world().resource::<ConnectWatch>().verdict.is_none());
+    }
+
+    #[test]
+    fn a_silent_server_of_another_version_says_so() {
+        let mut app = watched(ConnectStep::Connecting, ELEVEN, |_| {
+            ServerStatus::Incompatible
+        });
+        assert_eq!(ended(&mut app), Some(ConnectError::Incompatible));
+    }
+
+    #[test]
+    fn a_stall_while_loading_chunks_is_a_lost_connection() {
+        let loading = ConnectStep::LoadingChunks {
+            received: 3,
+            total: 27,
+        };
+        let mut app = watched(loading, ELEVEN, never_asked);
+        assert_eq!(ended(&mut app), Some(ConnectError::LostWhileLoading));
+
+        // authenticated, the local player never spawns: the step stays at no chunk, and the
+        // tracking that runs before the watch never restarts its clock
+        let mut app = watched(
+            ConnectStep::LoadingChunks {
+                received: 0,
+                total: 27,
+            },
+            ELEVEN,
+            never_asked,
+        );
+        app.init_resource::<ClientWorldMap>()
+            .add_systems(Update, track_connection.before(watch_connection));
+        assert_eq!(ended(&mut app), Some(ConnectError::LostWhileLoading));
+    }
+
+    #[test]
+    fn the_spawning_step_never_times_out() {
+        let mut app = watched(ConnectStep::Spawning, Duration::from_secs(60), never_asked);
+        assert!(!ends_soon(&mut app));
+    }
+
+    #[test]
+    fn a_cancel_in_the_frame_of_a_failure_shows_no_error() {
+        let mut app = watched(ConnectStep::Connecting, ELEVEN, |_| ServerStatus::Offline);
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(!app.world().contains_resource::<SessionEnd>());
+        assert!(app.world().resource::<ConnectWatch>().verdict.is_none());
     }
 
     #[test]

@@ -106,6 +106,10 @@ pub(crate) struct FormFields {
     touched: Vec<bool>,
 }
 
+/// The box of a dialog, which holds its title, body and actions.
+#[derive(Component)]
+struct DialogPanel;
+
 /// The key hints of every dialog. None has an arrow, so the key caps need no glyph font.
 const DIALOG_HINTS: [Hint; 3] = [
     Hint {
@@ -170,8 +174,19 @@ pub fn spawn_dialog(
     font: Handle<Font>,
     focus: &InputFocus,
 ) -> Entity {
+    spawn_dialog_with_hints(commands, dialog, &DIALOG_HINTS, font, focus)
+}
+
+/// `spawn_dialog` whose `hints` replace the dialog's own hints.
+pub fn spawn_dialog_with_hints(
+    commands: &mut Commands,
+    dialog: &Dialog,
+    hints: &[Hint],
+    font: Handle<Font>,
+    focus: &InputFocus,
+) -> Entity {
     debug_assert!(dialog.focused < dialog.actions.len());
-    build_dialog(commands, dialog, &[], &DIALOG_HINTS, font, focus).root
+    build_dialog(commands, dialog, &[], hints, font, focus).root
 }
 
 /// A dialog whose `fields` (caption, field) sit between its body and its actions. The first
@@ -201,6 +216,25 @@ pub fn close_dialog(commands: &mut Commands, root: Entity, restore_focus: bool) 
                 restore_focus,
             });
         });
+}
+
+/// Gives the dialog `root` a fixed `width`, still at most 90 % of the window: a long body then
+/// wraps on a few lines rather than spreads across the window.
+pub fn set_dialog_width(commands: &mut Commands, root: Entity, width: f32) {
+    commands.queue(move |world: &mut World| {
+        let Some(children) = world.get::<Children>(root) else {
+            return;
+        };
+        let panels: Vec<Entity> = children
+            .iter()
+            .filter(|&child| world.get::<DialogPanel>(child).is_some())
+            .collect();
+        for panel in panels {
+            if let Some(mut node) = world.get_mut::<Node>(panel) {
+                node.width = px(width);
+            }
+        }
+    });
 }
 
 /// Shows `errors` under the fields of the form `root` (one per field, `None`: no message), and
@@ -288,6 +322,7 @@ fn build_dialog(
     ));
     let panel = commands
         .spawn((
+            DialogPanel,
             Node {
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::all(px(SPACE_XL)),
@@ -595,6 +630,31 @@ mod tests {
         let node = world.get::<AccessibilityNode>(root).unwrap();
         assert_eq!(node.role(), Role::Dialog);
         assert_eq!(node.label(), Some("Quit Rustcraft?"));
+    }
+
+    #[test]
+    fn a_dialog_given_a_width_has_a_panel_that_wide() {
+        let mut world = World::new();
+        let mut queue = CommandQueue::default();
+        let dialog = Dialog {
+            title: "Probe",
+            body: "A long body.",
+            actions: &[("Cancel", ButtonVariant::Default)],
+            focused: 0,
+        };
+        let mut commands = Commands::new(&mut queue, &world);
+        let root = spawn_dialog_with_hints(
+            &mut commands,
+            &dialog,
+            &DIALOG_HINTS[..1],
+            Handle::default(),
+            &InputFocus::default(),
+        );
+        set_dialog_width(&mut commands, root, 480.0);
+        queue.apply(&mut world);
+        let mut panels = world.query_filtered::<&Node, With<DialogPanel>>();
+        let widths: Vec<Val> = panels.iter(&world).map(|node| node.width).collect();
+        assert_eq!(widths, [px(480)]);
     }
 
     /// The builder behind `spawn_dialog`, past its `debug_assert`: a release build does not panic.

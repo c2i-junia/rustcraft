@@ -489,6 +489,23 @@ fn no_such_host(address: &ServerAddress) -> io::Result<SocketAddr> {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn join_stays_enabled_for_offline_and_unknown_host_servers() {
+    let mut h = status_list();
+    // an old server without a status port reads offline yet accepts players, and an unknown
+    // host says so in the pane
+    for name in ["Friends", "Typo"] {
+        h.click(&card(name));
+        h.frames(1);
+        assert_eq!(selected_server(&mut h).as_deref(), Some(name));
+        assert!(!is_disabled(&mut h, &pane_button("Join")), "{name}");
+    }
+    h.click(&card("Old friends"));
+    h.frames(1);
+    assert!(is_disabled(&mut h, &pane_button("Join")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_host_that_is_not_found_is_said_in_the_pane() {
     let mut h = status_list();
     h.world_mut().insert_resource(AddressResolver(no_such_host));

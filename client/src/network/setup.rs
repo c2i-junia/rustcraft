@@ -9,6 +9,7 @@ use shared::messages::mob::MobUpdateEvent;
 use shared::{get_shared_renet_config, GameServerConfig, STC_AUTH_CHANNEL};
 
 use crate::menus::solo::SelectedWorld;
+use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
@@ -201,20 +202,14 @@ pub fn poll_network_messages(
     );
 }
 
-pub fn init_server_connection(
-    mut commands: Commands,
-    target: Res<TargetServer>,
-    current_player_id: Res<CurrentPlayerProfile>,
-    mut game_state: ResMut<NextState<GameState>>,
-) {
-    let Some(addr) = target.address else {
-        error!("No server to connect to, back to the menu");
-        game_state.set(GameState::Menu);
-        return;
-    };
+/// Opens a connection to the server at `addr` as `client_id`: a new client and its transport.
+pub fn open_connection(
+    addr: SocketAddr,
+    client_id: u64,
+) -> Result<(RenetClient, NetcodeClientTransport), String> {
     let authentication = ClientAuthentication::Unsecure {
         server_addr: addr,
-        client_id: current_player_id.id,
+        client_id,
         user_data: None,
         protocol_id: shared::PROTOCOL_ID,
     };
@@ -226,23 +221,41 @@ pub fn init_server_connection(
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
-    let transport = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
-        .map_err(|err| err.to_string())
-        .and_then(|socket| {
-            NetcodeClientTransport::new(current_time, authentication, socket)
-                .map_err(|err| err.to_string())
-        });
-    let transport = match transport {
-        Ok(transport) => transport,
-        Err(err) => {
-            error!("Could not open a connection to {addr}, back to the menu: {err}");
-            game_state.set(GameState::Menu);
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|err| err.to_string())?;
+    let transport = NetcodeClientTransport::new(current_time, authentication, socket)
+        .map_err(|err| err.to_string())?;
+    Ok((RenetClient::new(get_shared_renet_config()), transport))
+}
+
+/// Connects to the server of the session, or ends it with `NoConnection`.
+pub fn init_server_connection(
+    mut commands: Commands,
+    target: Res<TargetServer>,
+    current_player_id: Res<CurrentPlayerProfile>,
+    origin: Option<Res<SessionOrigin>>,
+    mut game_state: ResMut<NextState<GameState>>,
+) {
+    let connection = match target.address {
+        Some(addr) => open_connection(addr, current_player_id.id),
+        None => Err("no server to connect to".to_string()),
+    };
+    let (client, transport) = match connection {
+        Ok(connection) => connection,
+        Err(reason) => {
+            error!("Could not open a connection, back to the menu: {reason}");
+            match origin {
+                Some(origin) => {
+                    let error = Some(ConnectError::NoConnection(reason));
+                    end_session(&mut commands, &mut game_state, &origin, error);
+                }
+                None => game_state.set(GameState::Menu),
+            }
             return;
         }
     };
 
     // Each of them replaces the one of the previous session
-    commands.insert_resource(RenetClient::new(get_shared_renet_config()));
+    commands.insert_resource(client);
     commands.insert_resource(transport);
     commands.insert_resource(CachedChatConversation::default());
     info!("Network subsystem initialized");

@@ -55,8 +55,8 @@ pub const CONNECT_HINTS: [Hint; 1] = [Hint {
     action: "Cancel",
 }];
 
-/// The width of the card, as a dialog's.
-const CARD_WIDTH: f32 = 480.0;
+/// The width of the card, and of the error card that may take its place.
+pub const CARD_WIDTH: f32 = 480.0;
 /// The side of the square marker of a step.
 const MARKER_SIDE: f32 = 10.0;
 /// How long the marker of the current step shows, then hides, in seconds.

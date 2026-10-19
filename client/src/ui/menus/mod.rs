@@ -1,4 +1,5 @@
 pub mod background;
+pub mod connect_error;
 pub mod connecting;
 pub mod home;
 pub mod multi;
@@ -30,6 +31,8 @@ pub enum MenuState {
     Solo,
     Multi,
     Settings,
+    /// The error card of a session that failed.
+    ConnectError,
     #[default]
     Disabled,
 }
@@ -61,6 +64,7 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(not(text_field_focused)),
         );
     connecting::connecting_plugin(app);
+    connect_error::connect_error_plugin(app);
     settings::settings_plugin(app);
     solo::solo_plugin(app);
     multi::multi_plugin(app);
@@ -81,10 +85,11 @@ fn menu_setup(
     menu_state.set(first_menu(end.as_deref()));
 }
 
-/// The first screen of the menus: the list a cancelled session came from, else the main menu
-/// (the error card from Task 4).
+/// The first screen of the menus: the error card of a session that failed, the list a cancelled
+/// session came from, else the main menu.
 pub fn first_menu(end: Option<&SessionEnd>) -> MenuState {
     match end {
+        Some(SessionEnd { error: Some(_), .. }) => MenuState::ConnectError,
         Some(SessionEnd {
             origin,
             error: None,
@@ -268,7 +273,7 @@ mod tests {
     use bevy::state::app::StatesPlugin;
 
     use super::*;
-    use crate::network::session::{SessionEnd, SessionOrigin};
+    use crate::network::session::{ConnectError, SessionEnd, SessionOrigin};
 
     #[test]
     fn the_menus_open_where_a_cancelled_session_came_from() {
@@ -286,7 +291,15 @@ mod tests {
         };
         assert_eq!(first_menu(None), MenuState::Main);
         assert_eq!(first_menu(Some(&cancelled(world))), MenuState::Solo);
-        assert_eq!(first_menu(Some(&cancelled(server))), MenuState::Multi);
+        assert_eq!(
+            first_menu(Some(&cancelled(server.clone()))),
+            MenuState::Multi
+        );
+        let failed = SessionEnd {
+            origin: server,
+            error: Some(ConnectError::NoAnswer),
+        };
+        assert_eq!(first_menu(Some(&failed)), MenuState::ConnectError);
     }
 
     #[test]

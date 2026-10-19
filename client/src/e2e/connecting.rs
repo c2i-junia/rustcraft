@@ -1,11 +1,14 @@
-//! The connecting card: its steps and progress, Cancel and Escape back to the list.
+//! The connecting card: its steps and progress, Cancel and Escape back to the list; the error
+//! card of a session that failed, Try again and Back.
 
 use accesskit::Role;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use bevy::text::FontSource;
+use bevy::ui::InteractionDisabled;
+use bevy_renet::netcode::NetcodeClientTransport;
 
 use shared::players::Player;
 use shared::world::world_position_to_chunk_position;
@@ -17,8 +20,10 @@ use super::multi::selected_server;
 use super::seed::GameFolder;
 use super::solo::selected_world;
 use crate::network::session::{chunks_around, ConnectStep, ConnectWatch};
+use crate::network::status::{ServerStatus, StatusProbe};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
+use crate::ui::menus::connect_error::TRY_AGAIN;
 use crate::ui::menus::connecting::ConnectingCard;
 use crate::ui::menus::MenuState;
 use crate::world::ClientWorldMap;
@@ -37,6 +42,11 @@ fn join_nowhere() -> Harness {
     h.join_server_card("Nowhere");
     h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
     h
+}
+
+/// The error card titled `title`.
+fn error_card(title: &str) -> L {
+    L::role(Role::Dialog, title)
 }
 
 /// The title `title` of the connecting card.
@@ -213,4 +223,73 @@ fn a_world_cancelled_while_loading_chunks_opens_again_from_nothing() {
     let center = player_chunk(&mut h);
     let blocks = &h.world().resource::<ClientWorldMap>().blocks;
     assert_eq!(chunks_around(blocks, center, 1), (27, 27));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_server_that_never_answers_times_out_then_says_it_runs_another_version() {
+    let mut h = Harness::start(nowhere(), Options::default());
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
+    // offline, as an old server without a status port reads: it may still be joined
+    h.wait_for(
+        &L::text("Offline").within(L::role(Role::ListItem, "Nowhere")),
+        SERVER,
+    );
+    let join = h.get(&L::role(Role::Button, "Join"));
+    assert!(h.world().get::<InteractionDisabled>(join).is_none());
+
+    let t0 = Instant::now();
+    h.join_server_card("Nowhere");
+    let no_answer = error_card("Cannot reach \"Nowhere\"");
+    h.wait_for(&no_answer, SERVER);
+    assert!(t0.elapsed() >= Duration::from_secs(4), "{:?}", t0.elapsed());
+    assert!(h.is_visible(&L::text_containing("127.0.0.1:9").within(no_answer)));
+    assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
+    assert_eq!(h.menu_state(), MenuState::ConnectError);
+    assert_eq!(h.game_state(), GameState::Menu);
+
+    // the server answers its status now, in another version
+    h.world_mut()
+        .insert_resource(StatusProbe(|_| ServerStatus::Incompatible));
+    h.press(KeyCode::Enter);
+    h.wait_for(&card_title("Joining \"Nowhere\""), SCREEN);
+    h.wait_for(&error_card("\"Nowhere\" runs another version"), SERVER);
+
+    h.press(KeyCode::Escape);
+    h.wait_for_game_state(GameState::Menu, SCREEN);
+    h.wait_until("the server list", SCREEN, |w| {
+        *w.resource::<State<MenuState>>().get() == MenuState::Multi
+    });
+    h.frames(2);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+    assert_eq!(selected_server(&mut h).as_deref(), Some("Nowhere"));
+    assert_eq!(h.focus_label().as_deref(), Some("Nowhere"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_invalid_player_name_is_said_before_connecting() {
+    let options = Options {
+        player_name: "".into(),
+        ..default()
+    };
+    let mut h = Harness::start(nowhere(), options);
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
+    h.join_server_card("Nowhere");
+    h.wait_for(&error_card("Your name is not accepted"), SCREEN);
+    // no packet left: no connection was opened
+    assert!(!h.world().contains_resource::<NetcodeClientTransport>());
+
+    h.hover_at(Vec2::ZERO);
+    h.assert_screenshot("connect_error");
+
+    h.click(&L::role(Role::Button, "Back to Servers"));
+    h.wait_until("the server list", SCREEN, |w| {
+        *w.resource::<State<MenuState>>().get() == MenuState::Multi
+    });
+    h.frames(2);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+    assert_eq!(selected_server(&mut h).as_deref(), Some("Nowhere"));
 }

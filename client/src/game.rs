@@ -7,7 +7,9 @@ use shared::TICKS_PER_SECOND;
 use crate::camera::camera_plugin;
 use crate::input::input_plugin;
 use crate::mob::mob_plugin;
-use crate::network::session::{track_connection, ConnectStep, ConnectWatch};
+use crate::network::session::{
+    player_name_accepted, refuse_an_invalid_name, track_connection, ConnectStep, ConnectWatch,
+};
 use crate::network::{
     init_server_connection, launch_local_server_system, network_plugin,
     terminate_server_connection, TargetServer, TargetServerState,
@@ -49,8 +51,10 @@ pub fn game_plugin(app: &mut App) {
     .add_systems(
         OnEnter(GameState::PreGameLoading),
         (
-            launch_local_server_system,
-            init_server_connection,
+            // a name no server accepts ends the session before anything starts
+            refuse_an_invalid_name,
+            launch_local_server_system.run_if(player_name_accepted),
+            init_server_connection.run_if(player_name_accepted),
             setup_materials,
             setup_connecting_card,
         )
