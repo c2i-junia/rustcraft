@@ -29,7 +29,6 @@ pub fn audio_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                click_sounds,
                 (
                     blocks::block_sounds,
                     footsteps::local_footsteps,
@@ -43,22 +42,9 @@ pub fn audio_plugin(app: &mut App) {
         );
 }
 
-/// A click for every widget button activated, as `click_sounds` gives the legacy buttons.
+/// A click for every widget button activated.
 fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
     sounds.write(PlaySound::here(Sound::Click));
-}
-
-/// A click for every legacy `Button` pressed. The pause menu's are the last ones (Lot 6): every
-/// other screen uses the widget buttons, which `click_on_activate` gives a click.
-fn click_sounds(
-    buttons: Query<&Interaction, (Changed<Interaction>, With<Button>)>,
-    mut sounds: MessageWriter<PlaySound>,
-) {
-    for interaction in &buttons {
-        if *interaction == Interaction::Pressed {
-            sounds.write(PlaySound::here(Sound::Click));
-        }
-    }
 }
 
 #[cfg(test)]

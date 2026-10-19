@@ -8,9 +8,9 @@ pub mod interface;
 use accesskit::{NodeId, Role};
 use bevy::{
     a11y::AccessibilityNode,
-    input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus},
+    ecs::entity::Entities,
+    input_focus::{tab_navigation::TabGroup, AutoFocus, FocusCause, InputFocus},
     prelude::*,
-    ui::FocusPolicy,
     ui_widgets::{observe, Activate},
 };
 
@@ -46,6 +46,9 @@ pub enum SettingsContext {
 #[derive(Component)]
 pub struct SettingsRoot {
     pub context: SettingsContext,
+    /// Where the focus goes back to when the settings close in game, if that still exists: the
+    /// button that opened them.
+    pub restore_focus: Option<Entity>,
 }
 
 /// The tabs of the settings, in the order of the tab bar.
@@ -130,14 +133,16 @@ pub fn settings_open(roots: Query<(), With<SettingsRoot>>) -> bool {
 }
 
 fn open_menu_settings(mut commands: Commands, assets: Res<AssetServer>) {
-    spawn_settings(&mut commands, &assets, SettingsContext::Menu);
+    spawn_settings(&mut commands, &assets, SettingsContext::Menu, None);
 }
 
-/// Spawns the settings, open on the Controls tab, and returns their root.
+/// Spawns the settings, open on the Controls tab, and returns their root. Closed in game, they
+/// give the focus back to `restore_focus`.
 pub fn spawn_settings(
     commands: &mut Commands,
     assets: &AssetServer,
     context: SettingsContext,
+    restore_focus: Option<Entity>,
 ) -> Entity {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let root = match context {
@@ -148,7 +153,7 @@ pub fn spawn_settings(
                 TabGroup::new(0),
             ))
             .id(),
-        // over the pause menu (5), whose legacy buttons it keeps from the clicks and the hover
+        // over the pause menu (5)
         SettingsContext::Game => commands
             .spawn((
                 UiDialog,
@@ -158,7 +163,6 @@ pub fn spawn_settings(
                     ..default()
                 },
                 BackgroundColor(BEVEL_LO.with_alpha(0.7)),
-                FocusPolicy::Block,
                 Visibility::Visible,
                 GlobalZIndex(6),
                 TabGroup::modal(),
@@ -166,7 +170,10 @@ pub fn spawn_settings(
             ))
             .id(),
     };
-    commands.entity(root).insert(SettingsRoot { context });
+    commands.entity(root).insert(SettingsRoot {
+        context,
+        restore_focus,
+    });
     // the panel in the middle of the space the key hints leave
     let content = commands
         .spawn((
@@ -346,9 +353,10 @@ fn settings_escape(
 }
 
 /// Closes the settings asked to close: from the main menu, back to it; in game, back to the
-/// pause menu, which stayed open beneath them.
+/// pause menu, which stayed open beneath them, the focus on the button that opened them.
 fn close_settings(
     roots: Query<(Entity, &SettingsRoot), With<CloseSettings>>,
+    entities: &Entities,
     mut menu_state: ResMut<NextState<MenuState>>,
     mut focus: ResMut<InputFocus>,
     mut commands: Commands,
@@ -359,8 +367,61 @@ fn close_settings(
             SettingsContext::Menu => menu_state.set(MenuState::Main),
             SettingsContext::Game => {
                 commands.entity(root).despawn();
-                focus.clear();
+                match settings.restore_focus.filter(|&e| entities.contains(e)) {
+                    Some(opener) => focus.set(opener, FocusCause::Navigated),
+                    None => focus.clear(),
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::state::app::StatesPlugin;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .init_state::<MenuState>()
+            .init_resource::<InputFocus>()
+            .add_systems(PostUpdate, close_settings);
+        app
+    }
+
+    #[test]
+    fn closing_the_settings_in_game_gives_the_focus_back() {
+        let mut app = app();
+        let opener = app.world_mut().spawn_empty().id();
+        let root = app
+            .world_mut()
+            .spawn((
+                SettingsRoot {
+                    context: SettingsContext::Game,
+                    restore_focus: Some(opener),
+                },
+                CloseSettings,
+            ))
+            .id();
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(opener));
+        assert!(app.world().get_entity(root).is_err());
+
+        // the opener is gone: the focus goes nowhere
+        app.world_mut().despawn(opener);
+        let root = app
+            .world_mut()
+            .spawn((
+                SettingsRoot {
+                    context: SettingsContext::Game,
+                    restore_focus: Some(opener),
+                },
+                CloseSettings,
+            ))
+            .id();
+        app.update();
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        assert!(app.world().get_entity(root).is_err());
     }
 }

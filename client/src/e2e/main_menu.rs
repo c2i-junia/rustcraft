@@ -222,7 +222,7 @@ fn continue_plays_the_last_world_by_ctrl_enter_and_by_click() {
 
     // Back on the main menu, the world was just played, and Play plays it again
     h.press(KeyCode::Escape);
-    h.click_when_ready(&L::text("Back to menu"));
+    h.click_when_ready(&L::role(Role::Button, "Save and quit to title"));
     h.wait_until("the main menu", SERVER, |w| {
         is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
     });

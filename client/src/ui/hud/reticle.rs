@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 use super::UIMode;
 use crate::state::GameState;
+use crate::ui::menus::pause::{pause_open, PauseMenu};
+use crate::ui::menus::settings::{settings_open, SettingsRoot};
 use crate::ui::theme::BEVEL_LO;
 
 /// The root of the reticle.
@@ -53,10 +55,15 @@ pub fn spawn_reticle(mut commands: Commands) {
         });
 }
 
-/// Hides the reticle while a dialog is open: there is nothing to aim at, and it would show
-/// through the panel. The chat leaves it.
-pub fn show_reticle(ui_mode: Res<UIMode>, mut reticle: Query<&mut Visibility, With<Reticle>>) {
-    let shown = if *ui_mode == UIMode::Opened {
+/// Hides the reticle while a dialog is open, from the frame the pause menu or the settings
+/// open: there is nothing to aim at, and it would show through the panel. The chat leaves it.
+pub fn show_reticle(
+    ui_mode: Res<UIMode>,
+    menus: Query<(), With<PauseMenu>>,
+    settings: Query<(), With<SettingsRoot>>,
+    mut reticle: Query<&mut Visibility, With<Reticle>>,
+) {
+    let shown = if *ui_mode == UIMode::Opened || pause_open(menus) || settings_open(settings) {
         Visibility::Hidden
     } else {
         Visibility::Inherited

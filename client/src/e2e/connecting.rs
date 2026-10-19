@@ -3,7 +3,8 @@
 
 use accesskit::Role;
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use bevy::input::keyboard::KeyCode;
@@ -37,6 +38,29 @@ use crate::ui::menus::connecting::ConnectingCard;
 use crate::ui::menus::MenuState;
 use crate::ui::widgets::dialog::DialogPanel;
 use crate::world::ClientWorldMap;
+
+/// A server of the world `world` on this computer, on its own thread, in a folder of its own
+/// deleted once it stops. A solo server, which any client's `Exit` stops: a dedicated server
+/// stops only with its process.
+pub(super) fn spawn_test_server(world: &str) -> (SocketAddr, JoinHandle<Result<(), String>>) {
+    let folder = GameFolder::new();
+    let (socket, status) = server::acquire_local_socket_pair(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .expect("the sockets of the server");
+    let addr = socket.local_addr().unwrap();
+    let paths = GameFolderPaths {
+        game_folder_path: folder.path().to_path_buf(),
+        assets_folder_path: folder.path().join("assets"),
+    };
+    let config = GameServerConfig {
+        world_name: world.to_string(),
+        is_solo: true,
+    };
+    let server = std::thread::spawn(move || {
+        let _folder = folder;
+        server::init_with_status(socket, status, config, paths)
+    });
+    (addr, server)
+}
 
 /// A game folder with the server `Nowhere`, on the discard port, where nothing answers.
 fn nowhere() -> GameFolder {
@@ -423,22 +447,7 @@ fn a_long_error_stays_inside_its_card_at_800x600() {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_card() {
-    // A solo server, which any client's `Exit` stops: a dedicated server stops only with its
-    // process. It runs on its own thread, in a folder of the test.
-    let server_folder = GameFolder::new();
-    let (socket, status) = server::acquire_local_socket_pair(IpAddr::V4(Ipv4Addr::LOCALHOST))
-        .expect("the sockets of the server");
-    let addr = socket.local_addr().unwrap();
-    let paths = GameFolderPaths {
-        game_folder_path: server_folder.path().to_path_buf(),
-        assets_folder_path: server_folder.path().join("assets"),
-    };
-    let config = GameServerConfig {
-        world_name: "dedicated".to_string(),
-        is_solo: true,
-    };
-    let server =
-        std::thread::spawn(move || server::init_with_status(socket, status, config, paths));
+    let (addr, server) = spawn_test_server("dedicated");
 
     // another player already plays as `Tester`, the name of the player
     let intruder = RawClient::join(addr, 77, Some("Tester"));

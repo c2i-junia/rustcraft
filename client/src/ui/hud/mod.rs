@@ -11,7 +11,7 @@ use crate::ui::hud::hotbar::{
     select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name,
 };
 use crate::ui::hud::reticle::{show_reticle, spawn_reticle};
-use crate::ui::menus::pause::{open_settings_from_pause, render_pause_menu, setup_pause_menu};
+use crate::ui::menus::pause::pause_plugin;
 
 pub mod chat;
 pub mod debug;
@@ -43,7 +43,7 @@ pub fn hud_plugin(app: &mut App) {
         .insert_resource(DebugOptions::default())
         .add_systems(
             OnEnter(GameState::Game),
-            (spawn_reticle, setup_hud, setup_chat, setup_pause_menu).chain(),
+            (spawn_reticle, setup_hud, setup_chat).chain(),
         )
         .add_systems(OnEnter(GameState::Game), setup_inventory)
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
@@ -56,8 +56,6 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                render_pause_menu,
-                open_settings_from_pause,
                 show_reticle,
                 (
                     toggle_chat_system,
@@ -119,4 +117,5 @@ pub fn hud_plugin(app: &mut App) {
                 .after(GameSet::UiMode)
                 .run_if(in_state(GameState::Game).and_then(in_gameplay)),
         );
+    pause_plugin(app);
 }

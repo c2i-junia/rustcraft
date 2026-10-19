@@ -1,5 +1,5 @@
 //! The game, through the integrated server: the HUD, the hotbar, the inventory and its crafting
-//! grid, the chat, the pause menu, and leaving.
+//! grid, and the chat. The pause menu and leaving are in `pause`.
 
 use std::fs;
 
@@ -16,12 +16,10 @@ use shared::players::{Inventory, ViewMode};
 use shared::world::{grid_slot, raycast, FaceDirectionExt, ItemId};
 
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
-use super::helpers::is_in;
 use super::locator::{is_inside, is_shown, Locator as L};
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::constants::SAVE_PATH;
-use crate::network::hash_string_to_u64;
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::hud::chat::{ChatDisplay, ChatInput, ChatRoot};
@@ -31,9 +29,6 @@ use crate::ui::hud::{
     CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
 };
 use crate::ui::menus::pause::PauseMenu;
-use crate::ui::menus::settings::controls::PRESS_A_KEY;
-use crate::ui::menus::settings::SettingsRoot;
-use crate::ui::menus::MenuState;
 use crate::ui::widgets::slot::SlotIcon;
 use crate::world::{ClientWorldMap, MaterialResource};
 
@@ -73,7 +68,7 @@ pub(super) fn floating(w: &World) -> Shown {
 
 impl Harness {
     /// The visible nodes drawn as the two bars of the reticle, 20 by 2 pixels and 2 by 20.
-    fn reticle_bars(&mut self) -> usize {
+    pub(super) fn reticle_bars(&mut self) -> usize {
         let world = self.world_mut();
         let bars: Vec<Entity> = world
             .query::<(Entity, &ComputedNode)>()
@@ -262,15 +257,15 @@ fn escape_closes_the_inventory() {
     let mut h = enter_world(GameFolder::new().with_world("Escape"), "Escape");
     // Escape opens the pause menu during gameplay
     h.press(KeyCode::Escape);
-    assert!(h.is_visible(&L::text("Resume")));
+    assert!(h.is_visible(&L::role(Role::Button, "Back to game")));
     h.press(KeyCode::Escape);
-    assert!(!h.is_visible(&L::text("Resume")));
+    assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
 
     h.press(KeyCode::KeyE);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
     h.press(KeyCode::Escape);
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
-    assert!(!h.is_visible(&L::text("Resume")));
+    assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
 }
 
 #[test]
@@ -328,7 +323,7 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     // Escape closes the chat, and the pause menu does not open
     h.press(KeyCode::Escape);
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
-    assert!(!h.is_visible(&L::text("Resume")));
+    assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
 
     // The closed field holds no key
     h.press(KeyCode::KeyE);
@@ -338,7 +333,7 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     h.press(KeyCode::KeyE);
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     h.press(KeyCode::Escape);
-    assert!(h.is_visible(&L::text("Resume")));
+    assert!(h.is_visible(&L::role(Role::Button, "Back to game")));
     h.press(KeyCode::F3);
     h.press(KeyCode::F6);
     assert!(!h.is_visible(&L::marker::<HudRoot>()));
@@ -434,10 +429,15 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
 
     // The click that resumes the game
     h.press(KeyCode::Escape);
-    // The legacy button answers the left button only: a held left button would start breaking
-    // the aimed block, which shows in its breaking progress
-    hold_click(&mut h, &L::text("Resume"), MouseButton::Left, 6);
-    assert!(!h.is_visible(&L::text("Resume")));
+    // A held left button would start breaking the aimed block, which shows in its breaking
+    // progress
+    hold_click(
+        &mut h,
+        &L::role(Role::Button, "Back to game"),
+        MouseButton::Left,
+        6,
+    );
+    assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
     assert!(is_block(h.world(), target) && !is_block(h.world(), cell));
     let progress = h
         .world()
@@ -448,7 +448,9 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
         .breaking_progress;
     assert_eq!(progress, 0);
 
-    // A new click in gameplay does place a block there
+    // A new click in gameplay does place a block there, once the hotbar hidden under the pause
+    // menu shows again
+    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
     hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
     h.wait_until("the placed block", SERVER, |w| is_block(w, cell));
 }
@@ -465,68 +467,6 @@ fn clicking_outside_the_chat_closes_it() {
 
     h.press(KeyCode::KeyE);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_pause_menu_resumes_saves_and_leaves() {
-    let mut h = enter_world(GameFolder::new().with_world("Pause"), "Pause");
-    h.press(KeyCode::Escape);
-    h.wait_for(&L::text("Resume"), SCREEN);
-    h.snapshot("pause");
-    h.click(&L::text("Resume"));
-    assert!(!h.is_visible(&L::text("Resume")));
-
-    let player = h
-        .folder()
-        .join(SAVE_PATH)
-        .join("Pause/players")
-        .join(format!("{}.ron", hash_string_to_u64("Tester")));
-    let meta = h.folder().join(SAVE_PATH).join("Pause/world.ron");
-    let written = || fs::metadata(&meta).unwrap().modified().unwrap();
-    let seeded = written();
-
-    // The settings open over the game, which goes on beneath them
-    h.press(KeyCode::Escape);
-    h.click(&L::text("Settings"));
-    h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
-    assert!(is_in(h.world(), GameState::Game));
-    assert!(*h.world().resource::<UIMode>() == UIMode::Opened);
-    // The buttons of the pause menu beneath them are out of the cursor's reach
-    h.hover(&L::text("Save"));
-    let save = h.get(&L::text("Save"));
-    let save = h.world().get::<ChildOf>(save).unwrap().parent();
-    assert_eq!(h.world().get::<Interaction>(save), Some(&Interaction::None));
-    // A key bound in the settings does not also do what it does in the game
-    h.click(&L::role(Role::Button, "Jump, secondary key"));
-    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
-    h.press(KeyCode::KeyE);
-    h.wait_for(&L::text("E").within(L::row("Jump")), SCREEN);
-    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
-    h.press(KeyCode::Delete);
-    h.click(&L::role(Role::Tab, "Audio"));
-    h.wait_for(&L::role(Role::Slider, "Master"), SCREEN);
-    // Escape closes the settings, and only them
-    h.press(KeyCode::Escape);
-    assert!(!h.is_visible(&L::marker::<SettingsRoot>()));
-    h.frames(2);
-    assert!(h.is_visible(&L::text("Resume")));
-    h.click(&L::text("Resume"));
-    // No click on the settings reached the "Save" beneath them
-    assert!(!player.exists());
-    h.press(KeyCode::Escape);
-    h.click(&L::text("Save"));
-    // Save writes the player at once and world.ron a little later, on another thread
-    h.wait_until("the saved player", SERVER, |_| player.exists());
-    h.wait_until("world.ron saved", SERVER, |_| written() > seeded);
-
-    // Leaving saves the world again: world.ron is written after the click
-    let before = written();
-    h.click(&L::text("Back to menu"));
-    h.wait_until("the main menu", SERVER, |w| {
-        is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
-    });
-    h.wait_until("world.ron written", SERVER, |_| written() > before);
 }
 
 #[test]
