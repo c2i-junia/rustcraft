@@ -44,21 +44,25 @@ fn splitmix64(value: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// The random decisions of one world column. Every value is a pure function of
-/// `(seed, x, z, salt)`, so a column decides the same thing whichever chunk asks.
-struct ColumnRandom {
+/// The random decisions tied to a place of the world: a column `[x, z]`, or a chunk or a cell
+/// `[x, y, z]`. Every value is a pure function of `(seed, coords, salt)`, so a place decides
+/// the same thing whichever chunk asks.
+struct PositionRandom<const N: usize> {
     seed: u32,
-    x: i32,
-    z: i32,
+    coords: [i32; N],
 }
 
-impl ColumnRandom {
+/// The random decisions of one world column.
+type ColumnRandom = PositionRandom<2>;
+
+impl<const N: usize> PositionRandom<N> {
     /// Folds the seed, the coordinates and the salt into one 64-bit hash, one `splitmix64`
     /// round after each of them.
     fn bits(&self, salt: u64) -> u64 {
         let mut hash = splitmix64(self.seed as u64);
-        hash = splitmix64(hash ^ self.x as u32 as u64);
-        hash = splitmix64(hash ^ self.z as u32 as u64);
+        for coord in self.coords {
+            hash = splitmix64(hash ^ coord as u32 as u64);
+        }
         splitmix64(hash ^ salt)
     }
 
@@ -157,10 +161,9 @@ fn place(chunk: &mut Chunk, chunk_origin: IVec3, world_pos: IVec3, block: BlockI
 }
 
 fn random_of(seed: u32, column: &Column) -> ColumnRandom {
-    ColumnRandom {
+    PositionRandom {
         seed,
-        x: column.x,
-        z: column.z,
+        coords: [column.x, column.z],
     }
 }
 
@@ -826,88 +829,68 @@ mod tests {
         assert_eq!(splitmix64(0), 0xE220_A839_7B1D_CDAF);
     }
 
-    #[test]
-    fn column_random_depends_on_every_input_and_nothing_else() {
-        let base = ColumnRandom {
-            seed: 1,
-            x: 5,
-            z: -7,
-        };
-        let same = ColumnRandom {
-            seed: 1,
-            x: 5,
-            z: -7,
-        };
-        assert_eq!(base.bits(3), same.bits(3));
-        assert_ne!(base.bits(3), base.bits(4));
-        assert_ne!(
-            base.bits(3),
-            ColumnRandom {
-                seed: 2,
-                x: 5,
-                z: -7
-            }
-            .bits(3)
-        );
-        assert_ne!(
-            base.bits(3),
-            ColumnRandom {
-                seed: 1,
-                x: 6,
-                z: -7
-            }
-            .bits(3)
-        );
-        assert_ne!(
-            base.bits(3),
-            ColumnRandom {
-                seed: 1,
-                x: 5,
-                z: -6
-            }
-            .bits(3)
-        );
-        assert_ne!(
-            ColumnRandom {
-                seed: 1,
-                x: -1,
-                z: 0
-            }
-            .bits(3),
-            ColumnRandom {
-                seed: 1,
-                x: 1,
-                z: 0
-            }
-            .bits(3)
-        );
-        // swapped coordinates and a diagonal step must not collide
-        let swapped = ColumnRandom {
-            seed: 1,
-            x: -7,
-            z: 5,
-        };
-        let diagonal = ColumnRandom {
-            seed: 1,
-            x: 6,
-            z: -8,
-        };
-        assert_ne!(base.bits(3), swapped.bits(3));
-        assert_ne!(base.bits(3), diagonal.bits(3));
+    fn random<const N: usize>(seed: u32, coords: [i32; N]) -> PositionRandom<N> {
+        PositionRandom { seed, coords }
     }
 
     #[test]
-    fn column_random_is_roughly_uniform() {
+    fn column_random_is_pinned() {
+        // The flora of every generated world depends on these: they must not move.
+        let pinned = [
+            (42, [0, 0], SALT_TREE_ROLL, 0xE83E_6035_A495_EFC6),
+            (42, [-1500, 1056], SALT_LEAF + 3, 0x72C8_8AC5_F55C_BD3C),
+            (u32::MAX, [7, -7], SALT_FLOWER_ROLL, 0x255C_0451_9D29_2354),
+        ];
+        for (seed, coords, salt, want) in pinned {
+            assert_eq!(random(seed, coords).bits(salt), want, "{coords:?}");
+        }
+    }
+
+    /// Checks that the hash of `coords` changes with the seed, the salt and each coordinate,
+    /// and that reordering the coordinates or stepping diagonally does not collide.
+    fn assert_depends_on_every_input<const N: usize>(coords: [i32; N]) {
+        let base = random(1, coords).bits(3);
+        assert_eq!(base, random(1, coords).bits(3));
+        assert_ne!(base, random(1, coords).bits(4));
+        assert_ne!(base, random(2, coords).bits(3));
+        for axis in 0..N {
+            let mut stepped = coords;
+            stepped[axis] += 1;
+            assert_ne!(base, random(1, stepped).bits(3), "axis {axis}");
+            let mut negated = coords;
+            negated[axis] = -negated[axis];
+            assert_ne!(base, random(1, negated).bits(3), "axis {axis}");
+        }
+        let mut reversed = coords;
+        reversed.reverse();
+        assert_ne!(base, random(1, reversed).bits(3));
+        let diagonal = coords.map(|c| c + 1);
+        assert_ne!(base, random(1, diagonal).bits(3));
+    }
+
+    #[test]
+    fn position_random_depends_on_every_input_and_nothing_else() {
+        assert_depends_on_every_input([5, -7]);
+        assert_depends_on_every_input([5, 64, -7]);
+    }
+
+    #[test]
+    fn position_random_is_roughly_uniform() {
         let mut below_tenth = 0;
         for x in -50..50 {
             for z in -50..50 {
-                let random = ColumnRandom { seed: 9, x, z };
-                let value = random.unit(SALT_TREE_ROLL);
-                assert!((0.0..1.0).contains(&value));
-                below_tenth += (value < 0.1) as i32;
-                assert!((0..3).contains(&random.below(SALT_TRUNK_HEIGHT, 3)));
+                let column = random(9, [x, z]);
+                let cell = random(9, [x, z, x - z]);
+                for value in [column.unit(SALT_TREE_ROLL), cell.unit(SALT_TREE_ROLL)] {
+                    assert!((0.0..1.0).contains(&value));
+                    below_tenth += (value < 0.1) as i32;
+                }
+                assert!((0..3).contains(&column.below(SALT_TRUNK_HEIGHT, 3)));
             }
         }
-        assert!((900..1100).contains(&below_tenth), "{below_tenth} of 10000");
+        assert!(
+            (1800..2200).contains(&below_tenth),
+            "{below_tenth} of 20000"
+        );
     }
 }
