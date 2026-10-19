@@ -6,7 +6,7 @@ use bevy::{
     input::keyboard::KeyCode,
     input_focus::InputFocus,
     math::Rect,
-    prelude::{Component, Entity, Name, State, With, World},
+    prelude::{Component, Entity, State, With, World},
     text::EditableText,
     ui::{ComputedNode, UiGlobalTransform},
 };
@@ -33,12 +33,17 @@ pub fn main_menu_with(folder: GameFolder) -> Harness {
     h
 }
 
+/// Presses `key` with Control held.
+pub fn ctrl(h: &mut Harness, key: KeyCode) {
+    h.key_down(KeyCode::ControlLeft);
+    h.press(key);
+    h.key_up(KeyCode::ControlLeft);
+}
+
 /// Presses Ctrl+N on the world list, and waits for the New world dialog.
 #[track_caller]
 pub fn ctrl_n(h: &mut Harness) {
-    h.key_down(KeyCode::ControlLeft);
-    h.press(KeyCode::KeyN);
-    h.key_up(KeyCode::ControlLeft);
+    ctrl(h, KeyCode::KeyN);
     h.wait_for(&L::role(Role::Dialog, NEW_WORLD_TITLE), SCREEN);
 }
 
@@ -83,16 +88,6 @@ impl Harness {
         self.wait_until(&format!("the game state {state:?}"), timeout, |w| {
             is_in(w, state)
         });
-    }
-
-    /// How many rows of the world list or of the server list there are: the "Play ..." buttons,
-    /// shown or not.
-    pub fn play_rows(&mut self) -> usize {
-        self.world_mut()
-            .query::<&Name>()
-            .iter(self.world())
-            .filter(|name| name.starts_with("Play "))
-            .count()
     }
 
     /// What the text field marked with `M` holds.

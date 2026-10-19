@@ -84,8 +84,6 @@ pub struct DialogSubmit {
 pub struct FormChanged {
     pub entity: Entity,
     pub values: Vec<String>,
-    // first read by the Add server dialog of the multiplayer screen
-    #[allow(dead_code)]
     pub touched: Vec<bool>,
 }
 
@@ -218,6 +216,7 @@ pub fn apply_form_check(
             return;
         };
         let (inputs, primary) = (form.inputs.clone(), form.primary);
+        debug_assert_eq!(errors.len(), inputs.len(), "one error per field");
         for (input, message) in inputs.into_iter().zip(errors) {
             if let Some(mut error) = world.get_mut::<FieldError>(input) {
                 if error.0.as_deref() != message {

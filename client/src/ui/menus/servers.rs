@@ -65,7 +65,6 @@ fn position(servers: &[ServerItem], name: &str) -> io::Result<usize> {
 }
 
 /// Appends `server` to the list of `path`.
-#[allow(dead_code)] // The Add server dialog, Task 5
 pub fn add_server(path: &Path, server: ServerItem) -> io::Result<()> {
     let mut servers = read_servers(path)?;
     servers.push(server);
@@ -82,7 +81,6 @@ pub fn edit_server(path: &Path, name: &str, server: ServerItem) -> io::Result<()
 }
 
 /// Removes the server `name`, whatever its case, from the list of `path`.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub fn remove_server(path: &Path, name: &str) -> io::Result<()> {
     let mut servers = read_servers(path)?;
     let index = position(&servers, name)?;
@@ -103,7 +101,6 @@ pub const SERVER_EXISTS: &str = "Another server has this address";
 
 /// The trimmed name, or the message to show. `others` are the names of the other servers.
 /// A name is 1 to 32 printable ASCII characters but the backtick, which the font lacks.
-#[allow(dead_code)] // The Add server dialog, Task 5
 pub fn check_server_name(typed: &str, others: &[String]) -> Result<String, &'static str> {
     let name = typed.trim();
     if name.is_empty() {
@@ -122,7 +119,6 @@ pub fn check_server_name(typed: &str, others: &[String]) -> Result<String, &'sta
 
 /// The parsed address, or the message to show. `others` are the other servers; those whose
 /// address does not parse cannot be the same server.
-#[allow(dead_code)] // The Add server dialog, Task 5
 pub fn check_server_address(
     typed: &str,
     others: &[ServerItem],
@@ -138,7 +134,6 @@ pub fn check_server_address(
 
 /// The first of "My server", "My server 2", "My server 3"... that none of `others` has,
 /// whatever its case.
-#[allow(dead_code)] // The Add server dialog, Task 5
 pub fn free_server_name(others: &[String]) -> String {
     let taken = |name: &str| others.iter().any(|other| other.eq_ignore_ascii_case(name));
     std::iter::once("My server".to_string())

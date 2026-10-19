@@ -1,37 +1,26 @@
-//! The screen of the server list: a title, a bordered scrolling list, a row of text inputs, an
-//! "add" button and a "Back to menu" button.
+//! The screen of the server list: a title, a bordered scrolling list, an "add" button and a
+//! "Back to menu" button.
 //!
-//! The functions here only build the entities and hand their ids back. What the list holds, what
-//! the inputs mean and what the buttons do is attached by the screen (`multi.rs`), which inserts
-//! its own marker components on those entities.
+//! The functions here only build the entities and hand their ids back. What the list holds and
+//! what the buttons do is attached by the screen (`multi`), which inserts its own marker
+//! components on those entities.
 
 use super::{MenuButtonAction, MenuState, ScrollingList};
 use crate::ui::assets::*;
 use crate::ui::style::*;
-use crate::ui::theme::FONT_M;
-use crate::ui::widgets::text_field::{spawn_text_field, Cancel, TextField};
-use bevy::input_focus::{tab_navigation::TabGroup, InputFocus};
+use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::prelude::*;
 
 pub struct ListScreen<'a> {
     pub menu: MenuState,
     pub title: &'a str,
-    pub inputs: &'a [InputField<'a>],
     pub add_label: &'a str,
-}
-
-pub struct InputField<'a> {
-    /// The text shown while the field is empty, which is also its accessible label.
-    pub placeholder: &'a str,
-    pub max_characters: Option<usize>,
 }
 
 /// The entities of a spawned screen, for the caller to mark.
 pub struct ListScreenParts {
     /// The node the rows are added to (see [`spawn_row`]).
     pub list: Entity,
-    /// The `input` of each text field, one per [`ListScreen::inputs`], in the same order.
-    pub inputs: Vec<Entity>,
     pub add_button: Entity,
 }
 
@@ -59,14 +48,10 @@ pub fn spawn_list_screen(
     let root = spawn_root(commands, assets, screen.menu);
     let title = spawn_title(commands, screen.title, &look);
     let (frame, list) = spawn_list_frame(commands);
-    let (grid, inputs, add_button) = spawn_controls(commands, assets, screen, &look);
+    let (grid, add_button) = spawn_controls(commands, assets, screen, &look);
     commands.entity(root).add_children(&[title, frame, grid]);
 
-    ListScreenParts {
-        list,
-        inputs,
-        add_button,
-    }
+    ListScreenParts { list, add_button }
 }
 
 fn spawn_root(commands: &mut Commands, assets: &Res<AssetServer>, menu: MenuState) -> Entity {
@@ -138,14 +123,14 @@ fn spawn_list_frame(commands: &mut Commands) -> (Entity, Entity) {
     (frame, list)
 }
 
-/// The grid under the list: the text inputs, then the add button and the back button.
-/// Returns the grid, the inputs and the add button.
+/// The grid under the list: the add button and the back button.
+/// Returns the grid and the add button.
 fn spawn_controls(
     commands: &mut Commands,
     assets: &Res<AssetServer>,
     screen: &ListScreen,
     look: &Look,
-) -> (Entity, Vec<Entity>, Entity) {
+) -> (Entity, Entity) {
     let cell = Node {
         display: Display::Flex,
         flex_direction: FlexDirection::Column,
@@ -167,11 +152,6 @@ fn spawn_controls(
         })
         .id();
 
-    let (cells, inputs): (Vec<Entity>, Vec<Entity>) = screen
-        .inputs
-        .iter()
-        .map(|field| spawn_input(commands, assets, field, &cell))
-        .unzip();
     let button_image = load_button_background_large_image(assets);
     let add_button = spawn_button(commands, screen.add_label, &cell, &button_image, look);
     let back_button = spawn_button(commands, "Back to menu", &cell, &button_image, look);
@@ -179,47 +159,10 @@ fn spawn_controls(
         .entity(back_button)
         .insert(MenuButtonAction::BackToMainMenu);
 
-    commands.entity(grid).add_children(&cells);
     commands
         .entity(grid)
         .add_children(&[add_button, back_button]);
-    (grid, inputs, add_button)
-}
-
-/// Spawns a text field in a cell of the grid. Returns the cell and the `input` of the field.
-fn spawn_input(
-    commands: &mut Commands,
-    assets: &Res<AssetServer>,
-    field: &InputField,
-    cell: &Node,
-) -> (Entity, Entity) {
-    let parts = spawn_text_field(
-        commands,
-        &TextField {
-            label: field.placeholder,
-            placeholder: field.placeholder,
-            max_characters: field.max_characters,
-            font: load_font(assets),
-            font_size: FONT_M,
-            reserve_error: false,
-        },
-    );
-    // Escape in a field leaves the field: a second Escape leaves the screen
-    commands
-        .entity(parts.input)
-        .observe(|_: On<Cancel>, mut focus: ResMut<InputFocus>| focus.clear());
-    // The field draws its own bevel. It is taller than a button, and grows when it shows an
-    // error: the fields of a row stay aligned at the top
-    let cell = commands
-        .spawn(Node {
-            border: UiRect::ZERO,
-            height: Val::Auto,
-            justify_content: JustifyContent::FlexStart,
-            ..cell.clone()
-        })
-        .add_children(&[parts.root])
-        .id();
-    (cell, parts.input)
+    (grid, add_button)
 }
 
 fn spawn_button(

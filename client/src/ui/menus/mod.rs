@@ -16,8 +16,6 @@ pub use server_connect_loading::*;
 
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 
-use multi::multiplayer_action;
-
 use crate::state::{GameState, MenuCamera};
 use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::text_field::text_field_focused;
@@ -43,15 +41,6 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(not(dialog_open)),
         )
         .add_observer(activate_main_menu_button)
-        .add_systems(
-            OnEnter(MenuState::Multi),
-            (multi::multiplayer_menu_setup, multi::load_server_list).chain(),
-        )
-        .add_systems(
-            Update,
-            (multiplayer_action).run_if(in_state(MenuState::Multi)),
-        )
-        .add_systems(OnExit(MenuState::Multi), multi::save_server_list)
         // Common systems to all screens that handles buttons behavior
         .add_systems(
             Update,
@@ -72,6 +61,7 @@ pub fn menu_plugin(app: &mut App) {
         );
     settings::settings_plugin(app);
     solo::solo_plugin(app);
+    multi::multi_plugin(app);
 }
 
 /// Spawns the camera of the menus and opens the main menu.

@@ -34,7 +34,6 @@ impl ServerAddress {
 }
 
 /// The most characters the address field takes.
-#[allow(dead_code)] // The Add server dialog, Task 5
 pub const MAX_ADDRESS_LENGTH: usize = 64;
 /// Shown under the address field once it has been typed into and emptied.
 pub const EMPTY_ADDRESS: &str = "Enter an address";
