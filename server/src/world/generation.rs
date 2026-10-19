@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use shared::{world::*, CHUNK_SIZE};
 
+use super::caves::{CaveMask, Caves, CAVE_FLOOR};
+
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
 /// at most 2 blocks long, and its tip carries one more leaf (`x + 1 + 2`). Generating a chunk
@@ -90,6 +92,8 @@ struct Column {
     biome_type: BiomeType,
     surface: BlockId,
     sub_surface: BlockId,
+    /// The highest cell of the column caves may carve.
+    cave_ceiling: i32,
 }
 
 impl Column {
@@ -100,14 +104,34 @@ impl Column {
             coords: [x, z],
         };
         let (surface, sub_surface) = ground_blocks(shape.height, shape.biome, drop, &random);
-        Column {
+        let mut column = Column {
             x,
             z,
             height: shape.height,
             biome_type: shape.biome,
             surface,
             sub_surface,
-        }
+            cave_ceiling: shape.height,
+        };
+        column.cave_ceiling = cave_ceiling(&column, drop, &random);
+        column
+    }
+}
+
+/// Thickness of the rock kept between a cave and the water above it or beside it.
+const CAVE_ROOF: i32 = 4;
+
+/// The highest cell of `column` caves may carve: they stay `CAVE_ROOF` under the ground of the
+/// column and of its neighbours where either holds water, so that no water touches a cave,
+/// and they leave the ground under anything growing. Elsewhere they may open at the surface.
+fn cave_ceiling(column: &Column, drop: i32, random: &ColumnRandom) -> i32 {
+    let lowest = column.height - drop.max(0);
+    if lowest < SEA_LEVEL {
+        lowest - CAVE_ROOF
+    } else if !column_decorations(column, random).is_empty() {
+        column.height - 1
+    } else {
+        column.height
     }
 }
 
@@ -342,6 +366,7 @@ fn column_blocks(seed: u32, column: &Column) -> Blocks {
 pub struct WorldGenerator {
     seed: u32,
     terrain: TerrainNoises,
+    caves: Caves,
 }
 
 impl WorldGenerator {
@@ -349,6 +374,7 @@ impl WorldGenerator {
         Self {
             seed,
             terrain: TerrainNoises::new(seed),
+            caves: Caves::new(seed),
         }
     }
 
@@ -379,6 +405,16 @@ impl WorldGenerator {
             .collect();
         let shape_at = |dx: i32, dz: i32| shapes[((dz + ring) * side + dx + ring) as usize];
 
+        // only a chunk that holds ground above the floor of the caves may be carved
+        let top = (0..CHUNK_SIZE)
+            .flat_map(|dx| (0..CHUNK_SIZE).map(move |dz| (dx, dz)))
+            .map(|(dx, dz)| shape_at(dx, dz).height)
+            .max()
+            .unwrap();
+        let caves: Option<CaveMask> = (chunk_origin.y <= top
+            && chunk_origin.y + CHUNK_SIZE > CAVE_FLOOR)
+            .then(|| self.caves.carve(chunk_origin));
+
         let chunk_range = 0..CHUNK_SIZE;
         for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
             for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
@@ -398,6 +434,12 @@ impl WorldGenerator {
 
                 if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
                     for y in chunk_origin.y..chunk_origin.y + CHUNK_SIZE {
+                        let local = IVec3::new(dx, y - chunk_origin.y, dz);
+                        let carved = y <= column.cave_ceiling
+                            && caves.as_ref().is_some_and(|caves| caves.contains(local));
+                        if carved {
+                            continue;
+                        }
                         if let Some(block) = terrain_block(y, &column) {
                             place(
                                 &mut chunk,
@@ -780,12 +822,22 @@ mod tests {
             for cz in -4..8 {
                 for cy in 3..5 {
                     let chunk_pos = IVec3::new(cx, cy, cz);
-                    for (local, block) in generator.generate_chunk(chunk_pos).iter() {
+                    let chunk = generator.generate_chunk(chunk_pos);
+                    for (local, block) in chunk.iter() {
                         let pos = chunk_pos * CHUNK_SIZE + local;
                         match block.id {
                             BlockId::Water => {
                                 water += 1;
                                 assert!(pos.y <= SEA_LEVEL, "water at {pos}");
+                                // nothing for it to flow into: no cave beside it or under it
+                                for side in
+                                    [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z, IVec3::NEG_Y]
+                                {
+                                    let next = local + side;
+                                    if Chunk::contains(next) {
+                                        assert!(chunk.get(next).is_some(), "air at {}", pos + side);
+                                    }
+                                }
                             }
                             // the ground of the ice plains is snow over ice
                             BlockId::Ice if pos.y > generator.column(pos.x, pos.z).height => {
@@ -799,6 +851,64 @@ mod tests {
             }
         }
         assert!(water > 0 && ice > 0, "{water} water, {ice} ice");
+    }
+
+    #[test]
+    fn caves_open_underground_and_at_the_surface_but_leave_the_bottom_whole() {
+        let generator = WorldGenerator::new(42);
+        let (mut underground, mut openings) = (0, 0);
+        for x in (-256..256).step_by(32) {
+            for z in (-256..256).step_by(32) {
+                let column = generator.column(x, z);
+                for cy in 0..=column.height / CHUNK_SIZE {
+                    let chunk_pos =
+                        IVec3::new(x, cy * CHUNK_SIZE, z).div_euclid(IVec3::splat(CHUNK_SIZE));
+                    let chunk = generator.generate_chunk(chunk_pos);
+                    let (lx, lz) = (x.rem_euclid(CHUNK_SIZE), z.rem_euclid(CHUNK_SIZE));
+                    for ly in 0..CHUNK_SIZE {
+                        let y = cy * CHUNK_SIZE + ly;
+                        if y > column.height || chunk.get(IVec3::new(lx, ly, lz)).is_some() {
+                            continue;
+                        }
+                        assert!(y >= CAVE_FLOOR, "a cave at ({x}, {y}, {z})");
+                        underground += 1;
+                        if y == column.height {
+                            openings += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            underground > 200 && openings > 0,
+            "{underground} cells, {openings} openings"
+        );
+    }
+
+    #[test]
+    fn plants_and_trunks_stand_on_something() {
+        let generator = WorldGenerator::new(42);
+        for chunk_pos in sample_chunks() {
+            let chunk = generator.generate_chunk(chunk_pos);
+            for (local, block) in chunk.iter() {
+                let rooted = matches!(
+                    block.id,
+                    BlockId::Dandelion
+                        | BlockId::Poppy
+                        | BlockId::TallGrass
+                        | BlockId::OakLog
+                        | BlockId::Cactus
+                );
+                let below = local - IVec3::Y;
+                if rooted && Chunk::contains(below) {
+                    assert!(
+                        chunk.get(below).is_some(),
+                        "{:?} over air at {local} in {chunk_pos}",
+                        block.id
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -885,20 +995,27 @@ mod tests {
 
     #[test]
     fn decorations_never_replace_terrain() {
+        let generator = WorldGenerator::new(42);
         for chunk_pos in sample_chunks() {
-            let chunk = generate_chunk(chunk_pos, 42);
-            let generator = WorldGenerator::new(42);
+            let chunk = generator.generate_chunk(chunk_pos);
+            let caves = generator.caves.carve(chunk_pos * CHUNK_SIZE);
             for dx in 0..CHUNK_SIZE {
                 for dz in 0..CHUNK_SIZE {
                     let column = generator
                         .column(chunk_pos.x * CHUNK_SIZE + dx, chunk_pos.z * CHUNK_SIZE + dz);
                     for dy in 0..CHUNK_SIZE {
                         let y = chunk_pos.y * CHUNK_SIZE + dy;
+                        let local = IVec3::new(dx, dy, dz);
                         if y <= column.height || y <= SEA_LEVEL {
-                            let actual = chunk.get(IVec3::new(dx, dy, dz)).map(|b| b.id);
+                            let carved = y <= column.cave_ceiling && caves.contains(local);
+                            let expected = if carved {
+                                None
+                            } else {
+                                terrain_block(y, &column)
+                            };
                             assert_eq!(
-                                actual,
-                                terrain_block(y, &column),
+                                chunk.get(local).map(|b| b.id),
+                                expected,
                                 "chunk {chunk_pos} local ({dx}, {dy}, {dz})"
                             );
                         }

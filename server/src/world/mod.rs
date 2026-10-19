@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod bench;
 pub mod broadcast_world;
+mod caves;
 pub mod chunk_files;
 pub mod container_files;
 pub(crate) mod data;

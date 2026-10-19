@@ -30,6 +30,7 @@ Date: 11.10.2026
     - Biomes are about three times wider, with winding borders, and the land slopes into the sea instead of stepping at the border of two biomes. Shores and sea floors are sand. Worlds created before keep their explored land; new land around it uses the new generation.
     - Added mountain ranges: long chains of peaks up to about 165 blocks high, bare stone above 104 and snow-capped above 122, with steep faces left bare. The mountain biomes now come from the altitude.
     - Added rivers that wind through the lowlands in sandy beds and valleys, and lakes with gently sloping shores. Water in the ice plains freezes over.
+    - Added caves: winding tunnels that sometimes open at the surface, and wide chambers deep underground. They stay clear of the water of the seas, rivers and lakes.
     - New players appear on open, dry ground near the centre of the world instead of always at its very centre.
     - Added coal, iron and gold ore. Coal ore drops coal; iron and gold ore drop themselves until they can be smelted.
 
