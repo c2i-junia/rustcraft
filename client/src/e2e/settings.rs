@@ -446,6 +446,45 @@ fn a_capture_ends_when_the_window_loses_focus_and_a_modifier_binds_on_its_releas
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_capture_binds_the_key_pressed_with_a_modifier_and_never_a_modifier_it_did_not_see_pressed() {
+    let mut h = controls();
+    let jump = |w: &World| w.resource::<KeyMap>().map[&GameAction::Jump].clone();
+
+    // Shift held then W: W is bound, not Shift
+    h.click(&key_slot("Jump", "primary"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.key_down(KeyCode::ShiftLeft);
+    h.press(KeyCode::KeyW);
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_for(&L::text("W").within(L::row("Jump")), SCREEN);
+    h.frames(2);
+    assert_eq!(jump(h.world()), [KeyCode::KeyW]);
+
+    // a modifier then Escape: the capture is cancelled, and binds nothing
+    h.click(&key_slot("Jump", "secondary"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.key_down(KeyCode::ControlLeft);
+    h.press(KeyCode::Escape);
+    h.key_up(KeyCode::ControlLeft);
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
+    assert_eq!(h.menu_state(), MenuState::Settings);
+    assert_eq!(jump(h.world()), [KeyCode::KeyW]);
+
+    // a modifier held before the capture and released during it binds nothing
+    h.key_down(KeyCode::AltLeft);
+    h.click(&key_slot("Jump", "secondary"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.key_up(KeyCode::AltLeft);
+    h.frames(2);
+    assert!(h.is_visible(&L::text(PRESS_A_KEY)));
+    assert_eq!(jump(h.world()), [KeyCode::KeyW]);
+    let saved: KeyMap = h.saved(BINDS_PATH);
+    assert_eq!(saved.map[&GameAction::Jump], [KeyCode::KeyW]);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_right_click_clears_a_slot_and_a_click_elsewhere_cancels_a_capture() {
     let mut h = controls();
     let primary = key_slot("Jump", "primary");

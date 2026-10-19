@@ -146,6 +146,7 @@ fn key_label(key: KeyCode) -> String {
         KeyCode::ControlRight => "Right Ctrl",
         KeyCode::AltLeft => "Left Alt",
         KeyCode::AltRight => "Right Alt",
+        KeyCode::SuperLeft | KeyCode::SuperRight => "Super",
         KeyCode::ArrowUp => "↑",
         KeyCode::ArrowDown => "↓",
         KeyCode::ArrowLeft => "←",
@@ -692,6 +693,8 @@ mod tests {
             (KeyCode::NumpadAdd, "Num +"),
             (KeyCode::Numpad0, "Num 0"),
             (KeyCode::NumpadEnter, "Num Enter"),
+            (KeyCode::SuperLeft, "Super"),
+            (KeyCode::SuperRight, "Super"),
         ];
         for (key, label) in cases {
             assert_eq!(key_label(key), label, "{key:?}");
