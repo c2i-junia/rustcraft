@@ -110,19 +110,36 @@ impl Harness {
         self.move_cursor(position);
         // One frame for the hover
         self.frames(1);
-        let window = self.window();
         for state in [ButtonState::Pressed, ButtonState::Released] {
-            let input = MouseButtonInput {
-                button,
-                state,
-                window,
-            };
-            self.world_mut().write_message(input);
-            // Picking reads the window events only
-            self.world_mut()
-                .write_message(WindowEvent::MouseButtonInput(input));
-            self.frames(1);
+            self.mouse_button(button, state);
         }
+    }
+
+    /// Moves the cursor onto the element and holds the left button down on it.
+    #[track_caller]
+    pub fn mouse_down(&mut self, locator: &Locator) {
+        self.hover(locator);
+        self.mouse_button(MouseButton::Left, ButtonState::Pressed);
+    }
+
+    /// Releases the left button where the cursor is.
+    pub fn mouse_up(&mut self) {
+        self.mouse_button(MouseButton::Left, ButtonState::Released);
+    }
+
+    /// Presses or releases a mouse button for a frame.
+    fn mouse_button(&mut self, button: MouseButton, state: ButtonState) {
+        let window = self.window();
+        let input = MouseButtonInput {
+            button,
+            state,
+            window,
+        };
+        self.world_mut().write_message(input);
+        // Picking reads the window events only
+        self.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(input));
+        self.frames(1);
     }
 
     /// Moves the cursor to `position`, in physical pixels: for the `Interaction` of the UI, on the

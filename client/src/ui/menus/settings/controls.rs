@@ -1,8 +1,8 @@
 //! The Controls tab of the settings: the actions by category, each with a primary and a secondary
-//! key slot. Enter or a click on a slot waits for the key to bind to it, which Escape cancels;
-//! Delete, Backspace or a right click clears it. A key bound to two actions is shown on both
-//! rows, never refused, and "Reset to defaults", beside Back, brings back the default keys once
-//! the player confirms. Every change is saved at once.
+//! key slot. Enter, Space or a click on a slot waits for the key to bind to it, which Escape
+//! cancels; Delete, Backspace or a right click clears it. A key bound to two actions is shown on
+//! both rows, never refused, and "Reset to defaults", beside Back, brings back the default keys
+//! once the player confirms. Every change is saved at once.
 
 use accesskit::Role;
 use bevy::{
@@ -14,6 +14,7 @@ use bevy::{
     input_focus::{tab_navigation::TabIndex, FocusGained, FocusLost, FocusedInput, InputFocus},
     picking::hover::Hovered,
     prelude::*,
+    ui::Pressed,
     ui_widgets::{
         observe, Activate, ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar,
         ScrollbarDragState, ScrollbarThumb,
@@ -529,6 +530,19 @@ fn spawn_key_slot(commands: &mut Commands, slot: KeySlot) -> Entity {
         ))
         .observe(slot_key)
         .observe(slot_click)
+        // pressed while a mouse button is down on it, as a button is
+        .observe(|press: On<Pointer<Press>>, mut commands: Commands| {
+            commands.entity(press.entity).insert(Pressed);
+        })
+        .observe(|release: On<Pointer<Release>>, mut commands: Commands| {
+            commands.entity(release.entity).remove::<Pressed>();
+        })
+        .observe(|drag_end: On<Pointer<DragEnd>>, mut commands: Commands| {
+            commands.entity(drag_end.entity).remove::<Pressed>();
+        })
+        .observe(|cancel: On<Pointer<Cancel>>, mut commands: Commands| {
+            commands.entity(cancel.entity).remove::<Pressed>();
+        })
         .observe(show_focused_row)
         .observe(|lost: On<FocusLost>, mut capture: ResMut<KeyCapture>| {
             if capture.slot == Some(lost.entity) {
@@ -665,13 +679,15 @@ fn style_thumb(
     }
 }
 
-/// Lightens the slot under the cursor, outlines the capturing one in the accent, and one holding
-/// a key bound to another action too in red.
+/// Lightens the slot under the cursor, inverts the bevel of the pressed one as on a button,
+/// outlines the capturing one in the accent, and one holding a key bound to another action too
+/// in red.
 fn style_key_slots(
     mut slots: Query<
         (
             Entity,
             &Hovered,
+            Has<Pressed>,
             Has<Conflicting>,
             &mut BackgroundColor,
             &mut BorderColor,
@@ -680,13 +696,15 @@ fn style_key_slots(
     >,
     capture: Res<KeyCapture>,
 ) {
-    for (entity, hovered, conflicting, mut background, mut border) in &mut slots {
+    for (entity, hovered, pressed, conflicting, mut background, mut border) in &mut slots {
         let surface = if hovered.get() { RAISE_HOVER } else { RAISE };
         background.set_if_neq(BackgroundColor(surface));
         let edge = if capture.slot == Some(entity) {
             BorderColor::all(ACCENT)
         } else if conflicting {
             BorderColor::all(DANGER)
+        } else if pressed {
+            sunken_bevel()
         } else {
             raised_bevel()
         };
@@ -696,8 +714,8 @@ fn style_key_slots(
 
 /// The keys pressed on a focused slot. While it captures, every key stops here: the first one
 /// pressed is bound to the slot, or cancels the capture if it is Escape; a modifier is bound
-/// when it is released, if no other key came first. Otherwise Enter starts the capture, and
-/// Delete or Backspace clears the slot.
+/// when it is released, if no other key came first. Otherwise Enter or Space starts the capture,
+/// as they activate a button, and Delete or Backspace clears the slot.
 fn slot_key(
     mut event: On<FocusedInput<KeyboardInput>>,
     slots: Query<&KeySlot>,
@@ -738,7 +756,7 @@ fn slot_key(
         return;
     }
     match input.key_code {
-        KeyCode::Enter if !input.repeat => {
+        KeyCode::Enter | KeyCode::Space if !input.repeat => {
             event.propagate(false);
             *capture = KeyCapture::on(entity);
         }

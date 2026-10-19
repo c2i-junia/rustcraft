@@ -20,7 +20,9 @@ use crate::state::KeyMap;
 use crate::ui::button::MenuState;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
-use crate::ui::theme::{BEVEL_HI, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER};
+use crate::ui::theme::{
+    BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
+};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -407,6 +409,47 @@ fn the_keyboard_alone_rebinds_cancels_and_clears() {
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_key_slot_sinks_while_pressed_and_space_starts_its_capture_like_a_button() {
+    let mut h = controls();
+    let edges = |h: &mut Harness, slot: &L| {
+        let entity = h.get(slot);
+        let border = h.world().get::<BorderColor>(entity).unwrap();
+        [border.top, border.left, border.bottom, border.right]
+    };
+    let secondary = key_slot("Move forward", "secondary");
+    let raised = [BEVEL_HI, BEVEL_HI, BEVEL_LO, BEVEL_LO];
+    assert_eq!(edges(&mut h, &secondary), raised);
+    // the bevel inverts while the button is down, and the release starts the capture
+    h.mouse_down(&secondary);
+    h.frames(1);
+    assert_eq!(
+        edges(&mut h, &secondary),
+        [BEVEL_LO, BEVEL_LO, BEVEL_HI, BEVEL_HI]
+    );
+    h.mouse_up();
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
+    assert_eq!(edges(&mut h, &secondary), raised);
+
+    // Space starts the capture of the focused slot, and during it is bound like any key
+    assert_eq!(
+        h.focus_label().as_deref(),
+        Some("Move forward, secondary key")
+    );
+    h.press(KeyCode::Space);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::Space);
+    h.wait_until("Space bound to Move forward", SCREEN, |w| {
+        w.resource::<KeyMap>().map[&GameAction::MoveForward] == [KeyCode::KeyW, KeyCode::Space]
+    });
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
 }
 
 #[test]
