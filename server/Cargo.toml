@@ -16,6 +16,7 @@ noise = "0.9.0"
 ron = "0.6"
 clap = { version = "4.5.19", features = ["derive"] }
 ulid = "1.1.4"
+mlua = { version = "0.12", features = ["luau", "send"] }
 
 # Define the library target
 [lib]

@@ -1,5 +1,6 @@
 mod init;
 mod mob;
+mod mods;
 mod network;
 mod world;
 

@@ -16,6 +16,7 @@ use shared::world::WorldSeed;
 use shared::{GameFolderPaths, GameServerConfig};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
+use crate::mods::Mods;
 use crate::network::broadcast_chat::record_chat_message;
 use crate::network::cleanup::cleanup_player_from_world;
 use crate::network::commands::{command_line, parse_command, run_command, SERVER_AUTHOR};
@@ -147,6 +148,7 @@ pub(super) fn chat_message(
     chat_conversation: &mut ChatConversation,
     world_map: &mut ServerWorldMap,
     time: &mut ServerTime,
+    mods: &Mods,
 ) {
     let Clients { server, lobby } = clients;
     let Some(current_author) = lobby.players.get(&client_id) else {
@@ -161,12 +163,17 @@ pub(super) fn chat_message(
         let clock = time.0;
         let answer = match parse_command(line) {
             Ok(command) => run_command(command, time, &mut player.inventory),
-            Err(error) => error,
+            Err(error) => mods
+                .run_command(line, &current_author.name, world_map)
+                .unwrap_or(error),
         };
         if time.0 != clock {
             for &id in lobby.players.keys() {
                 server.send_game_message(id, ServerToClientMessage::TimeSet(time.0));
             }
+        }
+        if answer.is_empty() {
+            return;
         }
         let answer = FullChatMessage {
             author: SERVER_AUTHOR.to_string(),

@@ -1,4 +1,5 @@
 use crate::{
+    mods::Mods,
     network::{
         cleanup::cleanup_all_players_from_world,
         dispatcher::{self, setup_resources_and_events},
@@ -181,6 +182,10 @@ fn run(
     app.insert_resource(world_map);
     app.insert_resource(seed);
     app.insert_resource(ServerTime(time));
+
+    let mods = Mods::new().map_err(|err| format!("Could not start the mods: {err}"))?;
+    mods.load_folder(&game_folder_paths.game_folder_path.join("mods"));
+    app.insert_resource(mods);
 
     // Create save folder if does not already exist
     let players_dir = world_dir.join("players");

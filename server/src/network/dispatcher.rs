@@ -1,5 +1,6 @@
 use crate::init::{ServerLobby, ServerTime};
 use crate::mob::behavior::mob_behavior_system;
+use crate::mods::Mods;
 use crate::network::broadcast_chat::*;
 use crate::world;
 use crate::world::broadcast_world::broadcast_world_state;
@@ -169,6 +170,7 @@ fn handle_client_messages_system(
     mut time: ResMut<ServerTime>,
     seed: Res<WorldSeed>,
     game_folder_paths: Res<GameFolderPaths>,
+    mods: Res<Mods>,
 ) {
     for client_id in server.clients_id() {
         let mut input_budget = MAX_INPUTS_PER_TICK;
@@ -213,6 +215,7 @@ fn handle_client_messages_system(
                         &mut chat_conversation,
                         &mut world_map,
                         &mut time,
+                        &mods,
                     );
                 }
                 ClientToServerMessage::Exit => {
@@ -338,6 +341,7 @@ mod tests {
             .insert_resource(WorldSeed(1))
             .insert_resource(crate::world::save::Autosave { last_save_tick: 0 })
             .insert_resource(ServerTime(0))
+            .insert_resource(Mods::new().unwrap())
             .insert_resource(WorldWriter::spawn(tmp.path().into(), None).unwrap());
         setup_resources_and_events(&mut app);
         register_systems(&mut app);
