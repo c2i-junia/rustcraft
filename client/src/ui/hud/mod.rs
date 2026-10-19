@@ -12,7 +12,6 @@ use crate::ui::hud::hotbar::{
 };
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::pause_plugin;
-use bevy::text::EditableTextSystems;
 use bevy::ui::UiSystems;
 
 pub mod chat;
@@ -78,7 +77,8 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             (
-                match_the_field_font.after(EditableTextSystems),
+                // before Bevy reads the font of the field and applies its edits
+                match_the_field_font.before(UiSystems::Content),
                 settle_chat_scroll.after(UiSystems::Layout),
             )
                 .run_if(in_state(GameState::Game)),

@@ -4,6 +4,7 @@
 use accesskit::Role;
 use bevy::{
     input::keyboard::KeyCode, pbr::wireframe::WireframeConfig, prelude::*, text::FontSource,
+    ui::UiGlobalTransform, ui_widgets::ScrollbarThumb,
 };
 use shared::messages::FullChatMessage;
 use shared::utils::unix_time_ms;
@@ -77,6 +78,23 @@ impl Harness {
         self.frames(1);
     }
 
+    /// Asserts that the bottom of the line reading `text` is at the bottom of the log, shown or
+    /// not.
+    #[track_caller]
+    fn assert_at_log_bottom(&mut self, text: &str) {
+        let line = self.rect_of(&L::text(text));
+        let world = self.world_mut();
+        let log = world
+            .query_filtered::<(&UiGlobalTransform, &ComputedNode), With<ChatLog>>()
+            .single(world)
+            .unwrap();
+        let log = Rect::from_center_size(log.0.translation, log.1.size());
+        assert!(
+            (log.max.y - line.max.y).abs() <= 1.0,
+            "{line:?} at the bottom of {log:?}"
+        );
+    }
+
     /// Opens the chat, sends `message` and waits for the server to send it back.
     #[track_caller]
     fn send_chat(&mut self, message: &str) {
@@ -123,7 +141,14 @@ fn the_chat_sends_a_message_and_escape_closes_it() {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_chat_keeps_its_history_with_times_and_scrolls() {
     let mut h = enter_world(GameFolder::new().with_world("History"), "History");
-    for message in ["one", "two", "three"] {
+    // a single line sits at the bottom of the log, over the game and in the open chat
+    h.send_chat("one");
+    h.assert_at_log_bottom("<Tester> one");
+    h.press(KeyCode::KeyT);
+    h.frames(2);
+    h.assert_at_log_bottom("<Tester> one");
+    h.press(KeyCode::Escape);
+    for message in ["two", "three"] {
         h.send_chat(message);
     }
     h.press(KeyCode::KeyT);
@@ -183,10 +208,37 @@ fn the_chat_keeps_its_history_with_times_and_scrolls() {
     h.click(&L::text("<Bot> line 31"));
     assert!(h.is_visible(&L::marker::<ChatRoot>()));
     assert!(*h.world().resource::<UIMode>() == UIMode::Typing);
+
+    // dragging the thumb of the scrollbar scrolls the log, and the chat stays open
+    let log = h.get(&L::marker::<ChatLog>());
+    let at_end = h.world().get::<ScrollPosition>(log).unwrap().y;
+    let thumb = L::marker::<ScrollbarThumb>().within(L::marker::<ChatRoot>());
+    let grabbed = h.center_of(&thumb);
+    h.mouse_down(&thumb);
+    for step in 1..=4 {
+        h.hover_at(grabbed - Vec2::Y * 15. * step as f32);
+    }
+    h.mouse_up();
+    h.frames(2);
+    let dragged = h.world().get::<ScrollPosition>(log).unwrap().y;
+    assert!(dragged < at_end, "{at_end} then {dragged}");
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(*h.world().resource::<UIMode>() == UIMode::Typing);
+
+    // a full log scrolled up keeps its lines in place as the oldest go
+    let kept = (0..32)
+        .map(|index| format!("<Bot> line {index}"))
+        .find(|line| h.in_log_view(line))
+        .expect("a line in view");
+    let before = h.center_of(&L::text(&kept));
+    h.receive_chat(32..100);
+    h.frames(2);
+    assert!(!h.is_visible(&L::text("<Tester> one")));
+    assert_eq!(h.center_of(&L::text(&kept)), before);
+
     // a letter the pixel font lacks has the text being written drawn in Fira Mono
     assert_eq!(h.field_font(), FONT_PATH);
     h.type_text("été");
-    h.frames(1);
     assert_eq!(h.field_font(), MONO_FONT_PATH);
     h.press(KeyCode::Escape);
 }

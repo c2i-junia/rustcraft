@@ -8,7 +8,7 @@ use bevy::input_focus::{
     tab_navigation::TabGroup, AcquireFocus, FocusCause, FocusLost, FocusedInput, InputFocus,
 };
 use bevy::prelude::*;
-use bevy::text::{EditableText, FontSource, LineBreak, LineHeight};
+use bevy::text::{EditableText, FontSource, LineBreak, LineHeight, TextEdit};
 use bevy_renet::RenetClient;
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use shared::messages::{ChatMessageRequest, ClientToServerMessage, FullChatMessage};
@@ -52,9 +52,14 @@ abcdefghijklmnopqrstuvwxyz{|}~¡¢£¤§«¬\u{ad}®±¶·¸»¿ÄÅÆÇÑØÜà
 #[derive(Component)]
 pub struct ChatRoot;
 
-/// The `ScrollArea` holding the lines of the chat, oldest first.
+/// The `ScrollArea` of the chat, holding its `ChatLines`.
 #[derive(Component)]
 pub struct ChatLog;
+
+/// The column of the lines in the log, oldest first, at the bottom of the log while they are
+/// few.
+#[derive(Component)]
+pub struct ChatLines;
 
 /// A line of the log: the time of its message, then its author and its text.
 #[derive(Component)]
@@ -96,6 +101,19 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
         .entity(log.well)
         .insert(BackgroundColor(PANEL.with_alpha(LOG_ALPHA)));
     commands.entity(log.list).insert(ChatLog);
+    // the lines sit at the bottom of the log while they are few
+    commands.spawn((
+        ChatLines,
+        Node {
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::End,
+            min_height: percent(100),
+            // grows past the log as the lines come, which the log scrolls
+            flex_shrink: 0.0,
+            ..default()
+        },
+        ChildOf(log.list),
+    ));
     commands
         .spawn((
             Node {
@@ -206,7 +224,7 @@ pub fn fade_chat_messages_system(
     ui_mode: Res<UIMode>,
     chat_root: Query<&Visibility, (With<ChatRoot>, Without<ChatLine>)>,
     dialogs: Query<&Visibility, (With<UiDialog>, Without<ChatRoot>, Without<ChatLine>)>,
-    logs: Query<&Children, With<ChatLog>>,
+    logs: Query<&Children, With<ChatLines>>,
     mut lines: Query<(&ChatLine, &Children, &mut Visibility, &mut BackgroundColor)>,
     mut colors: Query<&mut TextColor>,
 ) {
@@ -247,22 +265,18 @@ pub fn fade_chat_messages_system(
 }
 
 /// Adds the messages received since the last frame to the log, and drops the oldest lines beyond
-/// `CHAT_MAX_MESSAGES`. A log scrolled to its end stays there.
+/// `CHAT_MAX_MESSAGES`. A log scrolled to its end stays there; a log scrolled up keeps its lines
+/// in place.
 pub fn display_chat_messages_system(
     mut commands: Commands,
     mut conversation: ResMut<CachedChatConversation>,
     asset_server: Res<AssetServer>,
-    mut logs: Query<
-        (
-            Entity,
-            Option<&Children>,
-            &mut ScrollPosition,
-            &ComputedNode,
-        ),
-        With<ChatLog>,
-    >,
+    mut logs: Query<(&mut ScrollPosition, &ComputedNode), With<ChatLog>>,
+    columns: Query<(Entity, Option<&Children>), With<ChatLines>>,
+    laid_out: Query<&ComputedNode, With<ChatLine>>,
 ) {
-    let Ok((log, lines, mut position, node)) = logs.single_mut() else {
+    let (Ok((mut position, node)), Ok((column, lines))) = (logs.single_mut(), columns.single())
+    else {
         return;
     };
     if conversation.unread.is_empty() {
@@ -276,6 +290,12 @@ pub fn display_chat_messages_system(
     for &oldest in &lines[..dropped] {
         commands.entity(oldest).despawn();
     }
+    // the height the dropped lines took, as laid out on the last frame
+    let gone: f32 = lines[..dropped]
+        .iter()
+        .filter_map(|&line| laid_out.get(line).ok())
+        .map(|line| line.size().y * line.inverse_scale_factor)
+        .sum();
 
     let now = Instant::now();
     for message in &incoming[skipped..] {
@@ -293,7 +313,7 @@ pub fn display_chat_messages_system(
             // shown over the game, a line takes no click; in the open chat, the log under it
             // takes the wheel and the clicks
             Pickable::IGNORE,
-            ChildOf(log),
+            ChildOf(column),
             children![
                 (
                     line_text(time, asset_server.load(FONT_PATH), MUTED),
@@ -317,6 +337,9 @@ pub fn display_chat_messages_system(
     let end = (node.content_size().y - node.size().y + node.scrollbar_size.y).max(0.0);
     if node.scroll_position.y >= end - 1.0 {
         scroll_to_bottom(&mut position);
+    } else {
+        // a log scrolled up keeps its lines in place as the oldest go
+        position.y = (position.y - gone).max(0.0);
     }
 }
 
@@ -348,13 +371,21 @@ pub fn settle_chat_scroll(mut logs: Query<(&mut ScrollPosition, &ComputedNode), 
 }
 
 /// Draws the text being written in Fira Mono while the pixel font lacks one of its characters,
-/// as the lines of the log.
+/// as the lines of the log. Bevy reads the font of a field before it applies the edits of the
+/// frame, so the characters about to be inserted count too: the frame that draws a new letter
+/// already has its font. Edits that remove one are seen on the next frame.
 pub fn match_the_field_font(
     mut fields: Query<(&EditableText, &mut TextFont), (With<ChatInput>, Changed<EditableText>)>,
     asset_server: Res<AssetServer>,
 ) {
     for (text, mut font) in &mut fields {
-        let wanted = FontSource::Handle(asset_server.load(font_for(&text.value().to_string())));
+        let mut written = text.value().to_string();
+        for edit in &text.pending_edits {
+            if let TextEdit::Insert(inserted) = edit {
+                written.push_str(inserted);
+            }
+        }
+        let wanted = FontSource::Handle(asset_server.load(font_for(&written)));
         if font.font != wanted {
             font.font = wanted;
         }
@@ -458,11 +489,13 @@ mod tests {
                 Update,
                 (display_chat_messages_system, fade_chat_messages_system).chain(),
             );
+        let lines = app.world_mut().spawn((ChatLines, Node::default())).id();
         let log = app.world_mut().spawn((ChatLog, Node::default())).id();
+        app.world_mut().entity_mut(log).add_child(lines);
         app.world_mut()
             .spawn((ChatRoot, UiDialog, Visibility::Hidden))
             .add_child(log);
-        (app, log)
+        (app, lines)
     }
 
     fn receive(app: &mut App, messages: impl IntoIterator<Item = FullChatMessage>) {
@@ -473,7 +506,7 @@ mod tests {
         app.update();
     }
 
-    /// The lines of the log, oldest first.
+    /// The lines of the log, in its column `log`, oldest first.
     fn lines(app: &App, log: Entity) -> Vec<Entity> {
         app.world()
             .get::<Children>(log)
@@ -591,5 +624,88 @@ mod tests {
             assets.get_path(&mono).unwrap().to_string(),
         );
         assert_eq!(fonts, [pixel.clone(), pixel, mono.clone(), mono]);
+    }
+
+    #[test]
+    fn a_letter_being_typed_switches_the_field_font_before_it_is_drawn() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Font>()
+            .add_systems(Update, match_the_field_font);
+        let mut text = EditableText::new("ca");
+        // typed this frame, applied by Bevy after the style of the field is read
+        text.queue_edit(TextEdit::Insert("é".into()));
+        let field = app.world_mut().spawn((ChatInput, text)).id();
+        app.update();
+        let assets = app.world().resource::<AssetServer>().clone();
+        let mono = assets.load::<Font>(MONO_FONT_PATH);
+        assert_eq!(
+            app.world().get::<TextFont>(field).unwrap().font,
+            FontSource::Handle(mono)
+        );
+    }
+
+    /// The characters a font maps to a glyph, read from the Windows Unicode BMP subtable
+    /// (platform 3, encoding 1, format 4) of its `cmap` table.
+    fn mapped_characters(font: &[u8]) -> std::collections::BTreeSet<char> {
+        let u16_at = |at: usize| u16::from_be_bytes([font[at], font[at + 1]]);
+        let u32_at = |at: usize| u32::from_be_bytes(font[at..at + 4].try_into().unwrap()) as usize;
+        let tables = u16_at(4) as usize;
+        let cmap = (0..tables)
+            .map(|i| 12 + 16 * i)
+            .find(|&record| &font[record..record + 4] == b"cmap")
+            .map(|record| u32_at(record + 8))
+            .expect("a cmap table");
+        let subtables = u16_at(cmap + 2) as usize;
+        let subtable = (0..subtables)
+            .map(|i| cmap + 4 + 8 * i)
+            .find(|&record| u16_at(record) == 3 && u16_at(record + 2) == 1)
+            .map(|record| cmap + u32_at(record + 4))
+            .expect("a Unicode BMP subtable");
+        assert_eq!(u16_at(subtable), 4, "a subtable of format 4");
+        let segments = u16_at(subtable + 6) as usize / 2;
+        let ends = subtable + 14;
+        let starts = ends + 2 * segments + 2;
+        let deltas = starts + 2 * segments;
+        let range_offsets = deltas + 2 * segments;
+        let mut mapped = std::collections::BTreeSet::new();
+        for segment in 0..segments {
+            let (start, end) = (u16_at(starts + 2 * segment), u16_at(ends + 2 * segment));
+            let delta = u16_at(deltas + 2 * segment);
+            let range_offset = range_offsets + 2 * segment;
+            for code in start..=end {
+                if code == 0xFFFF {
+                    continue;
+                }
+                let glyph = match u16_at(range_offset) as usize {
+                    0 => code.wrapping_add(delta),
+                    offset => match u16_at(range_offset + offset + 2 * (code - start) as usize) {
+                        0 => 0,
+                        glyph => glyph.wrapping_add(delta),
+                    },
+                };
+                if glyph != 0 {
+                    mapped.extend(char::from_u32(code.into()));
+                }
+            }
+        }
+        mapped
+    }
+
+    #[test]
+    fn the_characters_of_the_pixel_font_are_those_of_its_file() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../data/fonts/RustCraftRegular-Bmg3.otf"
+        );
+        assert!(path.ends_with(FONT_PATH.trim_start_matches("./")));
+        let font = std::fs::read(path).unwrap();
+        let listed: std::collections::BTreeSet<char> = PIXEL_FONT_CHARS.chars().collect();
+        assert_eq!(
+            listed.len(),
+            PIXEL_FONT_CHARS.chars().count(),
+            "listed once each"
+        );
+        assert_eq!(listed, mapped_characters(&font));
     }
 }
