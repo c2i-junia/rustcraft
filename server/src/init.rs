@@ -250,6 +250,7 @@ fn load_world(
         dropped_items: DroppedItems::from_saved(world_data.dropped_items),
         sent_items: HashMap::new(),
         dirty_chunks: HashSet::new(),
+        players_to_save: Vec::new(),
         saved: Some(world_dir(game_folder_paths, world_name)?),
     };
     cleanup_all_players_from_world(&mut world_map);

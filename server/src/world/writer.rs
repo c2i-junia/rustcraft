@@ -1,6 +1,5 @@
-//! The thread that writes the chunks and the metadata of a world to disk, so that saving them
-//! never makes the tick wait for the disk (the player files are small and written by the
-//! tick). The tick thread hands it snapshots through a channel and the thread writes them in
+//! The thread that writes the chunks, the metadata and the players of a world to disk, so
+//! that saving them never makes the tick wait for the disk. The tick thread hands it snapshots through a channel and the thread writes them in
 //! order. Dropping the writer waits for everything queued to be written.
 
 use std::path::PathBuf;
@@ -13,6 +12,7 @@ use bevy::{
     log::{debug, error, info},
     math::IVec3,
 };
+use shared::messages::PlayerId;
 use shared::world::Chunk;
 use shared::SaveCounter;
 
@@ -22,12 +22,18 @@ use super::chunk_files::{
 use super::container_files::{
     remove_containers, write_containers_pending, ChunkContainers, CONTAINERS_DIR,
 };
-use super::format::{commit, write_meta_pending, PendingFile, WorldMeta, WORLD_FILE};
+use super::format::{
+    commit, write_meta_pending, write_pending, PendingFile, WorldMeta, WORLD_FILE,
+};
 
-/// What one save writes: the metadata of the world and a copy of each chunk to write, with the
-/// contents of its chests.
+/// The folder of a world that holds a file per player.
+const PLAYERS_DIR: &str = "players";
+
+/// What one save writes: the metadata of the world, the file of each player to write, and a
+/// copy of each chunk to write, with the contents of its chests.
 pub struct SaveJob {
     pub meta: WorldMeta,
+    pub players: Vec<(PlayerId, String)>,
     pub chunks: Vec<(IVec3, Chunk, ChunkContainers)>,
 }
 
@@ -57,24 +63,42 @@ struct ChunkFiles {
     remove_containers: bool,
 }
 
+/// Whose a file of a job is.
+#[derive(Clone, Copy, PartialEq)]
+enum Owner {
+    Meta,
+    Player,
+    Chunk(IVec3),
+}
+
 /// Writes `job` into the folder `world_dir`. Every file is written aside, then all are synced
 /// at once and put in place, the metadata first, so that the seed of a new world is on disk
-/// before any of its chunks. Every failure is logged with its path.
+/// before any of its chunks, then the players. Every failure is logged with its path.
 pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
-    let meta = write_meta_pending(world_dir, &job.meta)
-        .inspect_err(|err| {
-            error!(
-                "Failed to write {}: {err}",
-                world_dir.join(WORLD_FILE).display()
-            );
-        })
-        .ok();
+    let mut head = Vec::new();
+    match write_meta_pending(world_dir, &job.meta) {
+        Ok(meta) => head.push((Owner::Meta, meta)),
+        Err(err) => error!(
+            "Failed to write {}: {err}",
+            world_dir.join(WORLD_FILE).display()
+        ),
+    }
+    let players_dir = world_dir.join(PLAYERS_DIR);
+    for (id, contents) in &job.players {
+        let path = players_dir.join(format!("{id}.ron"));
+        match std::fs::create_dir_all(&players_dir)
+            .and_then(|()| write_pending(&path, contents.as_bytes()))
+        {
+            Ok(player) => head.push((Owner::Player, player)),
+            Err(err) => error!("Failed to write {}: {err}", path.display()),
+        }
+    }
 
     let chunks_dir = world_dir.join(CHUNKS_DIR);
     if let Err(err) = std::fs::create_dir_all(&chunks_dir) {
         error!("Failed to create {}: {err}", chunks_dir.display());
         return JobOutcome {
-            meta_written: commit_meta(world_dir, meta),
+            meta_written: commit_owned(world_dir, head).0,
             chunks_dir_ok: false,
             failed_chunks: job.chunks.into_iter().map(|(pos, ..)| pos).collect(),
         };
@@ -117,34 +141,17 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
         }
     });
 
-    let mut owners = Vec::new();
-    let mut pending = Vec::new();
-    if let Some(meta) = meta {
-        owners.push(None);
-        pending.push(meta);
-    }
     for chunk in &mut written {
-        for file in chunk.files.drain(..) {
-            owners.push(Some(chunk.chunk_pos));
-            pending.push(file);
-        }
+        let chunk_pos = chunk.chunk_pos;
+        head.extend(
+            chunk
+                .files
+                .drain(..)
+                .map(|file| (Owner::Chunk(chunk_pos), file)),
+        );
     }
-    let paths: Vec<_> = pending.iter().map(|file| file.path().to_owned()).collect();
-    let mut meta_written = false;
-    for ((owner, path), result) in owners
-        .into_iter()
-        .zip(paths)
-        .zip(commit(world_dir, pending))
-    {
-        match (owner, result) {
-            (None, Ok(())) => meta_written = true,
-            (_, Err(err)) => {
-                error!("Failed to write {}: {err}", path.display());
-                failed.extend(owner);
-            }
-            (Some(_), Ok(())) => {}
-        }
-    }
+    let (meta_written, failed_chunks) = commit_owned(world_dir, head);
+    failed.extend(failed_chunks);
     // Once the chunk without a chest is in place: a crash before leaves the chest it had,
     // still with its contents
     for chunk in written {
@@ -174,20 +181,33 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
     }
 }
 
-/// Commits the metadata alone, when no chunk can be written. Whether it is in place.
-fn commit_meta(world_dir: &std::path::Path, meta: Option<PendingFile>) -> bool {
-    let Some(meta) = meta else {
-        return false;
-    };
-    let path = meta.path().to_owned();
-    match commit(world_dir, vec![meta]).pop() {
-        Some(Ok(())) => true,
-        Some(Err(err)) => {
-            error!("Failed to write {}: {err}", path.display());
-            false
+/// Commits `files` in order, logging each failure with its path. Whether the metadata is in
+/// place, and the chunks of the files that are not.
+fn commit_owned(
+    world_dir: &std::path::Path,
+    files: Vec<(Owner, PendingFile)>,
+) -> (bool, Vec<IVec3>) {
+    let (owners, pending): (Vec<_>, Vec<_>) = files.into_iter().unzip();
+    let paths: Vec<_> = pending.iter().map(|file| file.path().to_owned()).collect();
+    let mut meta_written = false;
+    let mut failed = Vec::new();
+    for ((owner, path), result) in owners
+        .into_iter()
+        .zip(paths)
+        .zip(commit(world_dir, pending))
+    {
+        match (owner, result) {
+            (Owner::Meta, Ok(())) => meta_written = true,
+            (owner, Err(err)) => {
+                error!("Failed to write {}: {err}", path.display());
+                if let Owner::Chunk(chunk_pos) = owner {
+                    failed.push(chunk_pos);
+                }
+            }
+            (_, Ok(())) => {}
         }
-        None => false,
     }
+    (meta_written, failed)
 }
 
 /// Writes the files of one chunk aside, `None` when one of them failed, which is logged.
@@ -356,6 +376,7 @@ mod tests {
     fn job(positions: &[IVec3]) -> SaveJob {
         SaveJob {
             meta: meta(1),
+            players: Vec::new(),
             chunks: positions
                 .iter()
                 .map(|&p| (p, stone_chunk(), Vec::new()))
@@ -387,6 +408,7 @@ mod tests {
         let containers_dir = tmp.path().join(CONTAINERS_DIR);
         let with_chest = SaveJob {
             meta: meta(1),
+            players: Vec::new(),
             chunks: vec![(
                 IVec3::X,
                 stone_chunk(),
@@ -409,6 +431,22 @@ mod tests {
     }
 
     #[test]
+    fn the_players_of_a_job_are_written_in_their_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut with_player = job(&[IVec3::ZERO]);
+        with_player.players = vec![(7, "(name: \"Zed\")".into())];
+
+        assert!(write_job(tmp.path(), with_player).is_complete());
+
+        let players_dir = tmp.path().join(PLAYERS_DIR);
+        assert_eq!(
+            std::fs::read_to_string(players_dir.join("7.ron")).unwrap(),
+            "(name: \"Zed\")"
+        );
+        assert_eq!(std::fs::read_dir(players_dir).unwrap().count(), 1);
+    }
+
+    #[test]
     fn a_world_without_chests_has_no_containers_folder() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(write_job(tmp.path(), job(&[IVec3::ZERO])).is_complete());
@@ -421,6 +459,7 @@ mod tests {
         let writer = WorldWriter::spawn(tmp.path().to_path_buf(), None).unwrap();
         let old = SaveJob {
             meta: meta(1),
+            players: Vec::new(),
             chunks: vec![(IVec3::ZERO, Chunk::new(), Vec::new())],
         };
         assert!(writer.submit(old).is_ok());

@@ -140,7 +140,6 @@ fn handle_connection_events_system(
     mut server_events: MessageReader<ServerEventMessage>,
     mut lobby: ResMut<ServerLobby>,
     mut world_map: ResMut<ServerWorldMap>,
-    game_folder_paths: Res<GameFolderPaths>,
     mut ev_save_request: MessageWriter<SaveRequestEvent>,
 ) {
     for event in server_events.read() {
@@ -154,7 +153,6 @@ fn handle_connection_events_system(
                     reason,
                     &mut lobby,
                     &mut world_map,
-                    &game_folder_paths,
                     &mut ev_save_request,
                 );
             }

@@ -1,13 +1,14 @@
 use crate::init::ServerTime;
 use crate::world::container_files::ChunkContainers;
-use crate::world::format::{write_atomically, WorldMeta};
+use crate::world::format::WorldMeta;
 use crate::world::writer::{SaveJob, WorldWriter};
 use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
 use shared::world::{to_local_pos, WorldSeed};
-use shared::{GameFolderPaths, TICKS_PER_SECOND};
+use shared::TICKS_PER_SECOND;
+#[cfg(test)]
 use std::path::Path;
 
 #[derive(Message)]
@@ -16,7 +17,7 @@ pub enum SaveRequestEvent {
     Player(PlayerId),
 }
 
-use crate::world::data::{world_dir, ServerWorldMap};
+use crate::world::data::ServerWorldMap;
 
 /// Game ticks between two autosaves: 60 seconds.
 pub const AUTOSAVE_INTERVAL_TICKS: u64 = 60 * TICKS_PER_SECOND;
@@ -27,14 +28,13 @@ pub struct Autosave {
     pub last_save_tick: u64,
 }
 
-/// Reacts to the save requests, and to the autosave coming due, by handing the metadata and
-/// the dirty chunks to the writer thread. The player files are written here, they are small.
+/// Reacts to the save requests, and to the autosave coming due, by handing the metadata, the
+/// files of the players to save and the dirty chunks to the writer thread.
 ///
 /// Runs after the broadcast, which is what feeds `dirty_chunks` from the change log.
 pub fn save_world_system(
     mut world_map: ResMut<ServerWorldMap>,
     world_seed: Res<WorldSeed>,
-    game_folder_path: Res<GameFolderPaths>,
     time: Res<ServerTime>,
     mut writer: ResMut<WorldWriter>,
     mut autosave: ResMut<Autosave>,
@@ -51,8 +51,9 @@ pub fn save_world_system(
         save_requested = true;
 
         if let SaveRequestEvent::Player(id) = ev {
+            let world_map = world_map.as_mut();
             if let Some(player) = world_map.players.get(id) {
-                save_player(&world_map.name, player, &game_folder_path);
+                queue_player_save(&mut world_map.players_to_save, &world_map.name, player);
             }
         }
     }
@@ -60,8 +61,9 @@ pub fn save_world_system(
     let autosave_due = time.0.saturating_sub(autosave.last_save_tick) >= AUTOSAVE_INTERVAL_TICKS;
     if autosave_due {
         // A crash must not revert the connected players to their state at join
+        let world_map = world_map.as_mut();
         for player in world_map.players.values() {
-            save_player(&world_map.name, player, &game_folder_path);
+            queue_player_save(&mut world_map.players_to_save, &world_map.name, player);
         }
     }
     if save_requested || autosave_due {
@@ -70,7 +72,8 @@ pub fn save_world_system(
     }
 }
 
-/// Hands the metadata and a copy of every dirty chunk to the writer. A chunk is dirty until it
+/// Hands the metadata, the files of the players to save and a copy of every dirty chunk to the
+/// writer. A chunk is dirty until it
 /// is handed over, so a second save queued while the first is being written does not copy it
 /// again unless it changed.
 fn queue_save(
@@ -104,6 +107,7 @@ fn queue_save(
             dropped_items: world_map.dropped_items.to_saved(),
             ..WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone())
         },
+        players: std::mem::take(&mut world_map.players_to_save),
         chunks,
     };
 
@@ -118,33 +122,25 @@ fn queue_save(
     }
 }
 
-/// Writes `player` into the save folder of the world `world_name`.
-pub fn save_player(world_name: &str, player: &Player, game_folder_path: &GameFolderPaths) {
-    let save_file_path = match world_dir(game_folder_path, world_name) {
-        Ok(dir) => dir.join("players").join(format!("{}.ron", player.id)),
-        Err(err) => {
-            error!("Could not save data for player {}: {err}", player.id);
-            return;
-        }
-    };
-
-    if let Err(err) = save_player_data(player, &save_file_path) {
-        error!(
+/// Puts the file of `player`, of the world `world_name`, among `players_to_save`: the next save
+/// hands it to the writer, which syncs it with the chunks. Syncing it alone took the tick
+/// several milliseconds.
+pub fn queue_player_save(
+    players_to_save: &mut Vec<(PlayerId, String)>,
+    world_name: &str,
+    player: &Player,
+) {
+    match player_file(player) {
+        Ok(contents) => players_to_save.push((player.id, contents)),
+        Err(err) => error!(
             "[{}] Could not save data for player {} : {}",
             world_name, player.id, err
-        );
-    } else {
-        info!(
-            "[{}] Player {} data saved successfully",
-            world_name, player.id
-        );
+        ),
     }
 }
 
-pub fn save_player_data(
-    player: &Player,
-    file_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+/// What the file of `player` holds.
+fn player_file(player: &Player) -> Result<String, ron::Error> {
     // RON Serialization config
     let pretty_config = PrettyConfig::new()
         .with_depth_limit(3)
@@ -152,9 +148,15 @@ pub fn save_player_data(
         .with_enumerate_arrays(true);
 
     // Serialize Complete player data
-    let serialized = ron::ser::to_string_pretty(player, pretty_config)?;
-    write_atomically(file_path, serialized.as_bytes())?;
+    ron::ser::to_string_pretty(player, pretty_config)
+}
 
+#[cfg(test)]
+pub fn save_player_data(
+    player: &Player,
+    file_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    crate::world::format::write_atomically(file_path, player_file(player)?.as_bytes())?;
     Ok(())
 }
 
@@ -165,7 +167,6 @@ mod tests {
     mod saving {
         use super::*;
         use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
-        use crate::world::data::SAVE_PATH;
         use crate::world::format::FORMAT_VERSION;
         use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
         use std::sync::{Arc, Mutex};
@@ -192,10 +193,6 @@ mod tests {
                 .insert_resource(map)
                 .insert_resource(WorldSeed(1))
                 .insert_resource(ServerTime(tick))
-                .insert_resource(GameFolderPaths {
-                    game_folder_path: "unused".into(),
-                    assets_folder_path: "unused".into(),
-                })
                 .insert_resource(writer)
                 .insert_resource(Autosave { last_save_tick: 0 })
                 .add_systems(Update, save_world_system);
@@ -320,18 +317,13 @@ mod tests {
         #[test]
         fn the_autosave_writes_the_connected_players_with_their_current_state() {
             let tmp = tempfile::tempdir().unwrap();
-            let players_dir = tmp.path().join(SAVE_PATH).join("w").join("players");
-            std::fs::create_dir_all(&players_dir).unwrap();
+            let players_dir = tmp.path().join("players");
             let mut map = world_map(1);
             let mut player = Player::new(7, "Zed".into(), Vec3::ZERO, Transform::default());
             player.position = Vec3::new(12.0, 34.0, 56.0);
             map.players.insert(7, player);
-            let writer = WorldWriter::spawn(tmp.path().join("unused"), None).unwrap();
+            let writer = WorldWriter::spawn(tmp.path().into(), None).unwrap();
             let mut app = app(map, writer, AUTOSAVE_INTERVAL_TICKS - 1);
-            app.world_mut().insert_resource(GameFolderPaths {
-                game_folder_path: tmp.path().into(),
-                assets_folder_path: "unused".into(),
-            });
 
             app.update();
             assert!(
@@ -341,6 +333,7 @@ mod tests {
 
             app.world_mut().resource_mut::<ServerTime>().0 += 1;
             app.update();
+            flush(&mut app);
 
             let saved: Player =
                 ron::de::from_str(&std::fs::read_to_string(players_dir.join("7.ron")).unwrap())

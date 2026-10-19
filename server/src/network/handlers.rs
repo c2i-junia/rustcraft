@@ -41,12 +41,11 @@ pub(super) fn client_disconnected(
     reason: &DisconnectReason,
     lobby: &mut ServerLobby,
     world_map: &mut ServerWorldMap,
-    game_folder_paths: &GameFolderPaths,
     ev_save_request: &mut MessageWriter<SaveRequestEvent>,
 ) {
     info!("Player {} disconnected: {}", client_id, reason);
     lobby.players.remove(client_id);
-    cleanup_player_from_world(world_map, client_id, game_folder_paths, ev_save_request);
+    cleanup_player_from_world(world_map, client_id, ev_save_request);
 }
 
 /// Breaks when the client was refused: the rest of its messages of this frame are dropped.
