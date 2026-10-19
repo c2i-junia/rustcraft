@@ -24,6 +24,7 @@ Date: 11.10.2026
     - Added a render distance, from 1 to 8 chunks, set in Settings > Video or with O and P: the server sends the chunks within it around each player and unloads the farther ones. A dedicated server caps it with --max-render-distance (6 by default).
     - Fixed every player receiving the chunks around all the other players.
     - A broken block now drops its item on the ground as a small spinning copy, which the players pick up by walking over it. Items of the same kind lying together merge, items left for 5 minutes vanish, and the items on the ground are saved with the world.
+    - Added the chest, crafted from a ring of eight planks: right click opens it, and its 27 slots keep their items in the world, saved with it. A broken chest drops what it held. Sneak to place a block against a chest or a crafting table instead of opening it.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

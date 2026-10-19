@@ -136,6 +136,14 @@ Blocks follow the same idea: the client applies its own clicks at once, and the 
 restates the block so that a wrong prediction is corrected. The flow of water is not
 predicted: the client only receives the cells it changes.
 
+The contents of a chest live in the `ChunkMap`, at its position (`shared/src/world/container.rs`):
+the server holds those of every chest, a client only those of the chest its player has open,
+which the server sends with each `PlayerUpdate`. While a chest is open, its 27 stacks are lent
+to the inventory as slots 45 to 71 for the length of one `InventoryAction`, so that a click on
+them is a click on any slot (`shared/src/players/inventory.rs`). The client inserts the contents
+the server sent before replaying its unacknowledged actions on them, as it does for the
+inventory. A broken chest drops what it held on the ground with itself.
+
 ## One server tick
 
 The server runs at 20 ticks per second. `ServerSet` (`server/src/network/dispatcher.rs`)
@@ -209,7 +217,7 @@ is on an `EditableText`. `slot.rs` is an item slot: its icon at twice the size o
 its count, its number in the hotbar and its selection. `tooltip.rs` is the one tooltip by the
 cursor, for any hovered entity with a `Tooltip`. The inventory is one panel whose bottom row is
 the hotbar, and every change to it is an `InventoryAction` predicted by the client and applied
-by the server. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
+by the server. While a chest is open, its slots take the place of the crafting row. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
 confirmation) takes the focus, Escape closes it, the focus comes back where it was, and it
 closes in `PostUpdate`. `hints.rs` is the key-hint bar at the bottom of a menu and its key caps,
 whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of options on a
@@ -281,14 +289,17 @@ A world is a folder under `saves/`:
 |------|---------|------------|
 | `world.ron` | Name, seed, time, mobs and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded like a network message | the writer thread |
+| `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
 | `players/<id>.ron` | Position, orientation and inventory of one player | the tick thread |
 
 Every file is written to a temporary file and renamed, so a crash never leaves a half-written
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out
-of the tick; only the changed chunks are written. Worlds saved by older versions are converted
+of the tick; only the changed chunks are written, with the file of their chests, which is
+removed once they hold none (`world/container_files.rs`). Worlds saved by older versions are converted
 on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
 `chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,
-`world/load_from_file.rs`).
+`world/load_from_file.rs`). Format version 2 differs from 3 only by having no `containers/`,
+and loads as it is.
 
 The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
 `world.ron` when a world is created, so that the world is listed at once; a rename renames the
