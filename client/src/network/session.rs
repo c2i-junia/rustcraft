@@ -245,8 +245,13 @@ fn watch_connection(
     }
     // the handle is that of this session's world: no other one starts while it is held
     let mut local_server = local_server.filter(|_| origin.is_world());
-    if let Some(error) = local_server.as_deref_mut().and_then(local_server_stopped) {
-        end_session(&mut commands, &mut game, &origin, Some(error));
+    if let Some(stopped) = local_server.as_deref_mut().and_then(local_server_stopped) {
+        let reason = stopped
+            .err()
+            .unwrap_or_else(|| "The world stopped while opening".to_string());
+        warn!("The local server stopped while the world was opening: {reason}");
+        let error = Some(ConnectError::WorldFailed(reason));
+        end_session(&mut commands, &mut game, &origin, error);
         return;
     }
     if let Some(verdict) = &watch.verdict {
@@ -309,11 +314,13 @@ fn watch_connection(
 }
 
 /// Ends a session whose connection dropped in the game (`failure_of`): the server stopped or the
-/// connection was lost. Stands down while the game is already left this frame: leaving on
-/// purpose, from the pause menu, is never an error.
+/// connection was lost. The local server of a world that stopped ends it at once, before
+/// netcode gives up: `WorldFailed` with its error, else `ServerStopped`. Stands down while the
+/// game is already left this frame: leaving on purpose, from the pause menu, is never an error.
 fn watch_session(
     client: Option<Res<RenetClient>>,
     transport: Option<Res<NetcodeClientTransport>>,
+    local_server: Option<ResMut<LocalServerHandle>>,
     origin: Option<Res<SessionOrigin>>,
     profile: Res<CurrentPlayerProfile>,
     mut game: ResMut<NextState<GameState>>,
@@ -322,6 +329,20 @@ fn watch_session(
     let Some(origin) = origin else {
         return;
     };
+    if !matches!(*game, NextState::Unchanged) {
+        return;
+    }
+    // the handle is that of this session's world: no other one starts while it is held
+    let mut local_server = local_server.filter(|_| origin.is_world());
+    if let Some(stopped) = local_server.as_deref_mut().and_then(local_server_stopped) {
+        let error = match stopped {
+            Ok(()) => ConnectError::ServerStopped,
+            Err(reason) => ConnectError::WorldFailed(reason),
+        };
+        warn!("The local server stopped in the game: {error:?}");
+        end_session(&mut commands, &mut game, &origin, Some(error));
+        return;
+    }
     if !client.is_some_and(|client| client.is_disconnected()) {
         return;
     }
@@ -332,18 +353,16 @@ fn watch_session(
     }
 }
 
-/// The error of the local server of a world whose thread finished, which it joins: the world
-/// is no longer opening. `None` while it runs.
-fn local_server_stopped(local_server: &mut LocalServerHandle) -> Option<ConnectError> {
+/// How the thread of the local server of a world finished, which it joins: `Err` with the
+/// error it returned, `Ok` when it returned without one or panicked. `None` while it runs.
+fn local_server_stopped(local_server: &mut LocalServerHandle) -> Option<Result<(), String>> {
     if !local_server.0.as_ref()?.is_finished() {
         return None;
     }
-    let reason = match local_server.0.take()?.join() {
-        Ok(Err(reason)) => reason,
-        Ok(Ok(())) | Err(_) => "The world stopped while opening".to_string(),
-    };
-    warn!("The local server stopped while the world was opening: {reason}");
-    Some(ConnectError::WorldFailed(reason))
+    match local_server.0.take()?.join() {
+        Ok(Err(reason)) => Some(Err(reason)),
+        Ok(Ok(())) | Err(_) => Some(Ok(())),
+    }
 }
 
 /// Whether servers accept the player's name: `sanitize_username` keeps it.
@@ -1031,6 +1050,41 @@ mod tests {
             app.world().resource::<NextState<GameState>>(),
             NextState::Pending(GameState::Menu)
         ));
+    }
+
+    /// The local server of a world in game whose thread finished on `result`.
+    fn world_in_game_whose_server_finished(result: Result<(), String>) -> App {
+        let server = std::thread::spawn(move || result);
+        while !server.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // still connected: netcode has not given up yet
+        let client = RenetClient::new(get_shared_renet_config());
+        let mut app = in_game(world(), client);
+        app.insert_resource(LocalServerHandle(Some(server)));
+        app.update();
+        app
+    }
+
+    #[test]
+    fn a_world_whose_server_thread_ends_in_game_says_so_at_once() {
+        let app = world_in_game_whose_server_finished(Ok(()));
+        let end = app.world().get_resource::<SessionEnd>().cloned();
+        assert_eq!(
+            end.map(|end| end.error),
+            Some(Some(ConnectError::ServerStopped))
+        );
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Pending(GameState::Menu)
+        ));
+
+        let app = world_in_game_whose_server_finished(Err("world.ron: bad".into()));
+        assert_eq!(
+            app.world().resource::<SessionEnd>().error,
+            Some(ConnectError::WorldFailed("world.ron: bad".into()))
+        );
     }
 
     /// A client whose server, a bare one of the test, closed its connection once connected.

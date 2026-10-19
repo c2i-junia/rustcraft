@@ -91,7 +91,8 @@ Spawning have no timeout.
 
 The local server of a world runs on a thread of the client (`LocalServerHandle`), which is the
 watchdog of Starting the world: a thread that finishes says why the world could not be opened,
-and a connection that gives up while the thread still loads (a world slower than netcode's
+and, in the game, that the world stopped (with its error, if any) without waiting for netcode;
+a connection that gives up while the thread still loads (a world slower than netcode's
 15 s) is opened again, and the authentication sent again. A local server is told to stop
 whenever its session ends: on Cancel, on an error, and when the player leaves the game. One that
 cannot be told yet, because its connection is not up, is stopped from the menus, the error card

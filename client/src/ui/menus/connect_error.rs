@@ -152,7 +152,12 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
         ),
         ConnectError::ConnectionLost => (
             format!("Connection to \"{name}\" lost"),
-            "The server stopped answering. Check your network, then try again.".to_string(),
+            if world {
+                "The world stopped answering."
+            } else {
+                "The server stopped answering. Check your network, then try again."
+            }
+            .to_string(),
         ),
     };
     (title, body)
@@ -458,6 +463,12 @@ mod tests {
             &world,
             "\"Survie\" stopped",
             "The world stopped unexpectedly.",
+        );
+        says(
+            ConnectError::ConnectionLost,
+            &world,
+            "Connection to \"Survie\" lost",
+            "The world stopped answering.",
         );
 
         assert_eq!(back_label(&world), "Back to Worlds");
