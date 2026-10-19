@@ -13,7 +13,7 @@ use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
-        FocusCause, FocusedInput, InputFocus,
+        FocusCause, FocusedInput, InputFocus, InputFocusVisible,
     },
     prelude::*,
     ui::Selected,
@@ -561,6 +561,8 @@ fn show_changed_worlds(
     new_world: Query<Entity, With<NewWorldButton>>,
     mut errors: Query<(&mut Text, &mut Node), (With<WorldError>, Without<WorldDetail>)>,
     mut focus: ResMut<InputFocus>,
+    mut focus_visible: ResMut<InputFocusVisible>,
+    keys: Res<ButtonInput<KeyCode>>,
     paths: Res<GameFolderPaths>,
     assets: Res<AssetServer>,
     mut commands: Commands,
@@ -586,6 +588,12 @@ fn show_changed_worlds(
         (Some(&card), Ok(facts)) => {
             commands.entity(card).insert((Selected, TabIndex(0)));
             focus_on(card);
+            // reached by the keyboard, the card shows its ring; a click leaves it hidden
+            let typed = keys.get_just_pressed().next().is_some()
+                || keys.get_just_released().next().is_some();
+            if open_dialogs.is_empty() && typed {
+                focus_visible.0 = true;
+            }
             show_detail(&mut commands, facts, &worlds[chosen], &font);
             true
         }

@@ -7,7 +7,7 @@ use std::time::Duration;
 use accesskit::Role;
 use bevy::ecs::system::SystemState;
 use bevy::input::keyboard::KeyCode;
-use bevy::input_focus::InputFocus;
+use bevy::input_focus::{InputFocus, InputFocusVisible};
 use bevy::math::Vec2;
 use bevy::prelude::{BackgroundColor, Children, Entity, Query, With};
 use bevy::ui::{InteractionDisabled, Selected};
@@ -581,6 +581,26 @@ fn ctrl_n_then_enter_creates_one_world_on_disk() {
     let meta = world_meta(&h, "Entered");
     assert_eq!(meta.name, "Entered");
     assert_eq!(meta.time, 0);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_world_created_by_the_keyboard_has_the_focus_and_its_ring() {
+    let mut h = world_list();
+    h.wait_for(&card("Survie"), SCREEN);
+    ctrl_n(&mut h);
+    h.press(KeyCode::Enter);
+    h.wait_for(&card("New world"), SCREEN);
+    h.frames(3);
+    let world = h.world_mut();
+    let focused = world.resource::<InputFocus>().get().unwrap();
+    assert_eq!(
+        world
+            .get::<WorldCard>(focused)
+            .map(|card| card.0.name.as_str()),
+        Some("New world")
+    );
+    assert!(world.resource::<InputFocusVisible>().0);
 }
 
 #[test]
