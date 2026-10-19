@@ -837,7 +837,7 @@ mod tests {
             .collect();
         let mut water = 0;
         // A snow plain, then the shore of a lake, with its water
-        for center in [IVec3::new(0, 4, 0), IVec3::new(-3, 3, -3)] {
+        for center in [IVec3::new(0, 4, 0), IVec3::new(6, 3, 6)] {
             let mut world = ChunkMap::default();
             for chunk_pos in std::iter::once(center).chain(SIX_OFFSETS.map(|o| center + o)) {
                 world.insert_chunk(chunk_pos, server::generate_chunk(chunk_pos, 42));

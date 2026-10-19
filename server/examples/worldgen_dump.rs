@@ -24,11 +24,13 @@ const AIR: u8 = 255;
 /// Slices go from y 0 to this height.
 const SLICE_TOP: i32 = 256;
 
-/// Whether `block` is part of the ground: not water, and not something growing on it.
+/// Whether `block` is part of the ground: not water nor the ice on it, and not something
+/// growing on it.
 fn is_ground(block: BlockId) -> bool {
     !matches!(
         block,
         BlockId::Water
+            | BlockId::Ice
             | BlockId::OakLeaves
             | BlockId::OakLog
             | BlockId::SpruceLeaves

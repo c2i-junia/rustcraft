@@ -149,6 +149,8 @@ fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
         Some(column.sub_surface)
     } else if y == height {
         Some(column.surface)
+    } else if y == SEA_LEVEL && column.biome_type == BiomeType::IcePlain {
+        Some(BlockId::Ice)
     } else {
         Some(BlockId::Water)
     }
@@ -508,7 +510,7 @@ mod tests {
         let expected = [
             ((408, 316), (67, BiomeType::Plains, BlockId::Grass)),
             ((478, 622), (66, BiomeType::Forest, BlockId::Grass)),
-            ((185, -880), (96, BiomeType::MediumMountain, BlockId::Grass)),
+            ((185, -880), (95, BiomeType::MediumMountain, BlockId::Grass)),
             (
                 (-570, 710),
                 (122, BiomeType::HighMountainGrass, BlockId::Stone),
@@ -518,7 +520,7 @@ mod tests {
                 (164, BiomeType::HighMountainGrass, BlockId::Snow),
             ),
             ((-878, -454), (70, BiomeType::Desert, BlockId::Sand)),
-            ((828, 137), (83, BiomeType::IcePlain, BlockId::Snow)),
+            ((828, 137), (79, BiomeType::IcePlain, BlockId::Snow)),
             ((-126, 239), (67, BiomeType::FlowerPlains, BlockId::Grass)),
             ((-38, -183), (58, BiomeType::ShallowOcean, BlockId::Sand)),
             ((890, 975), (54, BiomeType::Ocean, BlockId::Sand)),
@@ -746,6 +748,60 @@ mod tests {
     }
 
     #[test]
+    fn rivers_and_lakes_hold_water_inland() {
+        let generator = WorldGenerator::new(42);
+        let (mut inland, mut wet) = (0, 0);
+        for x in (-1024..1024).step_by(4) {
+            for z in (-1024..1024).step_by(4) {
+                let shape = generator.terrain.column_shape(x, z);
+                let ocean = matches!(
+                    shape.biome,
+                    BiomeType::ShallowOcean | BiomeType::Ocean | BiomeType::DeepOcean
+                );
+                if !ocean {
+                    inland += 1;
+                    if shape.height < SEA_LEVEL {
+                        wet += 1;
+                    }
+                }
+            }
+        }
+        // about one land column in ten
+        let share = wet as f64 / inland as f64;
+        assert!((0.04..0.2).contains(&share), "{wet} of {inland}");
+    }
+
+    #[test]
+    fn water_stays_at_the_sea_level_and_freezes_in_the_ice_plains() {
+        // around the origin of the seed 42: an ice plain, its frozen lakes, and liquid ones
+        let generator = WorldGenerator::new(42);
+        let (mut water, mut ice) = (0, 0);
+        for cx in -4..8 {
+            for cz in -4..8 {
+                for cy in 3..5 {
+                    let chunk_pos = IVec3::new(cx, cy, cz);
+                    for (local, block) in generator.generate_chunk(chunk_pos).iter() {
+                        let pos = chunk_pos * CHUNK_SIZE + local;
+                        match block.id {
+                            BlockId::Water => {
+                                water += 1;
+                                assert!(pos.y <= SEA_LEVEL, "water at {pos}");
+                            }
+                            // the ground of the ice plains is snow over ice
+                            BlockId::Ice if pos.y > generator.column(pos.x, pos.z).height => {
+                                ice += 1;
+                                assert_eq!(pos.y, SEA_LEVEL, "ice at {pos}");
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        assert!(water > 0 && ice > 0, "{water} water, {ice} ice");
+    }
+
+    #[test]
     fn nothing_grows_above_the_stone_line() {
         // a window over a mountain chain of the seed 42
         let seed = 42;
@@ -795,7 +851,15 @@ mod tests {
         let above = generate_chunk(chunk_of_root, seed);
         assert_eq!(above.get(local).map(|b| b.id), Some(BlockId::OakLog));
         let below = generate_chunk(chunk_of_root - IVec3::Y, seed);
-        assert!(below.iter().all(|(_, b)| b.id != BlockId::OakLog));
+        // the trunk's column, in the chunk below, is ground up to the top
+        for y in 0..CHUNK_SIZE {
+            let block = below.get(local.with_y(y)).map(|b| b.id);
+            assert_ne!(block, Some(BlockId::OakLog), "at y {y}");
+        }
+        assert_eq!(
+            below.get(local.with_y(CHUNK_SIZE - 1)).map(|b| b.id),
+            Some(column.surface)
+        );
     }
 
     #[test]

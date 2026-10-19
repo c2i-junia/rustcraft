@@ -29,6 +29,7 @@ Date: 11.10.2026
     - Added coal, iron and gold ore. Like stone, they drop something only when broken with a pickaxe: coal ore drops coal, and iron and gold ore drop themselves until they can be smelted.
     - Biomes are about three times wider, with winding borders, and the land slopes into the sea instead of stepping at the border of two biomes. Shores and sea floors are sand. Worlds created before keep their explored land; new land around it uses the new generation.
     - Added mountain ranges: long chains of peaks up to about 165 blocks high, bare stone above 104 and snow-capped above 122, with steep faces left bare. The mountain biomes now come from the altitude.
+    - Added rivers that wind through the lowlands in sandy beds and valleys, and lakes with gently sloping shores. Water in the ice plains freezes over.
     - New players appear on open, dry ground near the centre of the world instead of always at its very centre.
     - Added coal, iron and gold ore. Coal ore drops coal; iron and gold ore drop themselves until they can be smelted.
 

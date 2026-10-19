@@ -37,6 +37,25 @@ const RANGES_LIFT: f64 = 14.0;
 const RIDGES_HEIGHT: f64 = 80.0;
 const RIDGES_WAVELENGTH: f64 = 320.0;
 
+/// Rivers run along the lines where a noise crosses zero, `|noise|` measuring how far a
+/// column is from one: below `RIVER_BED` the bed lies `RIVER_DEPTH` under the sea level, and
+/// the banks rise to just above the sea at `RIVER_BANK`. Beyond, the land may rise no higher
+/// than `VALLEY_SLOPE` per unit of that measure: high land is cut by a wide valley, low land
+/// keeps its shape. Their water is the sea's: it stays at the sea level.
+const RIVERS_WAVELENGTH: f64 = 500.0;
+const RIVER_BED: f64 = 0.012;
+const RIVER_BANK: f64 = 0.025;
+const RIVER_DEPTH: f64 = 3.0;
+const VALLEY_SLOPE: f64 = 300.0;
+
+/// Lakes fill bowls around the peaks of a noise: `LAKE_DEPTH` under the sea level where it
+/// exceeds `LAKES_FULL`, the land around rising no higher than `LAKE_SLOPE` per unit of it
+/// below. A bowl dug in high land stays dry, a smooth hollow.
+const LAKES_WAVELENGTH: f64 = 200.0;
+const LAKES_FULL: f64 = 0.55;
+const LAKE_DEPTH: f64 = 5.0;
+const LAKE_SLOPE: f64 = 150.0;
+
 /// The mountain biomes are altitude bands: from these heights, whatever the climate.
 pub const MOUNTAIN_FROM: i32 = 84;
 pub const HIGH_MOUNTAIN_FROM: i32 = 100;
@@ -56,6 +75,8 @@ const SALT_HILLS: u64 = 5;
 const SALT_ROUGHNESS: u64 = 6;
 const SALT_RANGES: u64 = 7;
 const SALT_RIDGES: u64 = 8;
+const SALT_RIVERS: u64 = 9;
+const SALT_LAKES: u64 = 10;
 
 /// What the noises decide for one world column, before it is filled with blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +168,8 @@ pub struct TerrainNoises {
     roughness: Fractal,
     ranges: Fractal,
     ridges: Fractal,
+    rivers: Fractal,
+    lakes: Fractal,
 }
 
 impl TerrainNoises {
@@ -160,6 +183,8 @@ impl TerrainNoises {
             roughness: Fractal::new(seed, SALT_ROUGHNESS, 2, ROUGHNESS_WAVELENGTH),
             ranges: Fractal::new(seed, SALT_RANGES, 2, RANGES_WAVELENGTH),
             ridges: Fractal::new(seed, SALT_RIDGES, 4, RIDGES_WAVELENGTH),
+            rivers: Fractal::new(seed, SALT_RIVERS, 3, RIVERS_WAVELENGTH),
+            lakes: Fractal::new(seed, SALT_LAKES, 2, LAKES_WAVELENGTH),
         }
     }
 
@@ -207,6 +232,24 @@ impl TerrainNoises {
         if range > 0.0 {
             land += range * (RANGES_LIFT + RIDGES_HEIGHT * self.ridges.ridged(x, z));
         }
+
+        // Rivers and lakes sink the land, fading out as it rises into the mountains
+        let lowland = 1.0 - range;
+        let sea = SEA_LEVEL as f64;
+        let river = self.rivers.get(x, z).abs();
+        let valley = if river < RIVER_BANK {
+            lerp(
+                sea - RIVER_DEPTH,
+                sea + 1.0,
+                smoothstep(RIVER_BED, RIVER_BANK, river),
+            )
+        } else {
+            sea + 1.0 + VALLEY_SLOPE * (river - RIVER_BANK)
+        };
+        land = lerp(land, land.min(valley), lowland);
+        let lake = (LAKES_FULL - self.lakes.get(x, z)).max(0.0);
+        let bowl = sea - LAKE_DEPTH + LAKE_SLOPE * lake;
+        land = lerp(land, land.min(bowl), lowland);
 
         let depth = smoothstep(OCEAN_HUMIDITY, 1.0, humidity);
         let sea_floor = SEA_LEVEL as f64 - 2.0 - OCEAN_DEPTH * depth + 3.0 * hills;

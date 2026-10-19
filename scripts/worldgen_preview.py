@@ -49,6 +49,7 @@ BLOCKS = [
 ]
 AIR = 255
 WATER = 19
+ICE = 9
 
 # In the order of the variants of BiomeType (shared/src/world/data.rs)
 BIOMES = [
@@ -120,11 +121,11 @@ def coloured_map(top, block, floor):
 
 
 def stats(top, block, floor, biome):
-    land = block != WATER
+    land = (block != WATER) & (block != ICE)
     print(f"floor height: min {floor.min():.0f}, p10 {np.percentile(floor, 10):.0f}, "
           f"median {np.median(floor):.0f}, p90 {np.percentile(floor, 90):.0f}, "
           f"p99 {np.percentile(floor, 99):.0f}, max {floor.max():.0f}")
-    print(f"water {100 * (~land).mean():.1f}%, snow {100 * (block == 16).mean():.1f}%, "
+    print(f"water {100 * (~land).mean():.1f}% (frozen {100 * (block == ICE).mean():.1f}%), snow {100 * (block == 16).mean():.1f}%, "
           f"bare stone {100 * (block == 3).mean():.1f}%")
     steps = np.abs(np.diff(floor, axis=1))
     print(f"steps between neighbours: >2 {100 * (steps > 2).mean():.2f}%, "
