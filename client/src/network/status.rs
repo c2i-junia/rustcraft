@@ -15,7 +15,6 @@ use shared::PROTOCOL_ID;
 use super::address::{parse_server_address, resolve};
 
 /// What the list knows of a server.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 #[derive(Clone, Debug, PartialEq)]
 pub enum ServerStatus {
     /// Asked, not answered yet.
@@ -38,15 +37,12 @@ pub enum ServerStatus {
 }
 
 /// How long a server has to answer before it is said offline.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub const STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a request waits for its reply before another one is sent, in case it was lost.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub const RESEND_EVERY: Duration = Duration::from_millis(500);
 
 /// Asks the server at `typed` (a `ServerItem::ip`) for its status. Blocks up to STATUS_TIMEOUT
 /// plus the name resolution: call it from a thread.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub fn query_status(typed: &str) -> ServerStatus {
     let Ok(address) = parse_server_address(typed) else {
         return ServerStatus::BadAddress;
@@ -62,7 +58,6 @@ pub fn query_status(typed: &str) -> ServerStatus {
 
 /// Asks the status port `status` itself: a connected socket, a new random nonce every
 /// RESEND_EVERY, the latency from the send of the nonce answered.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub fn query_status_at(status: SocketAddr, timeout: Duration) -> ServerStatus {
     let start = Instant::now();
     let Ok(socket) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else {
@@ -128,7 +123,6 @@ pub fn query_status_at(status: SocketAddr, timeout: Duration) -> ServerStatus {
 }
 
 /// The number of bars, 1 to 4, that show `latency` on a card.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub fn latency_bars(latency: Duration) -> u8 {
     match latency.as_millis() {
         0..=60 => 4,
@@ -140,7 +134,6 @@ pub fn latency_bars(latency: Duration) -> u8 {
 
 /// How the screen asks: `query_status`, replaced by tests with fixed answers.
 #[derive(Resource, Clone, Copy)]
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub struct StatusProbe(pub fn(&str) -> ServerStatus);
 
 impl Default for StatusProbe {
@@ -151,10 +144,8 @@ impl Default for StatusProbe {
 
 /// The result of `f` run on its own thread, taken once. Dropping it abandons the result: a
 /// probe replaced by a newer one can never land. The thread ends with `f`, and is not joined.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub struct InFlight<T>(Arc<Mutex<Option<T>>>);
 
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 impl<T: Send + 'static> InFlight<T> {
     pub fn spawn(f: impl FnOnce() -> T + Send + 'static) -> Self {
         let slot = Arc::new(Mutex::new(None));
@@ -164,6 +155,12 @@ impl<T: Send + 'static> InFlight<T> {
             *result.lock().unwrap() = Some(value);
         });
         Self(slot)
+    }
+
+    /// An `InFlight` whose result is already there, for tests.
+    #[cfg(test)]
+    pub fn ready(value: T) -> Self {
+        Self(Arc::new(Mutex::new(Some(value))))
     }
 
     /// The result once `f` has returned, the first time it is asked only. Never, if `f` panics.

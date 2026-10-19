@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, SystemTime};
 
 use bevy::prelude::{Transform, Vec3};
@@ -12,7 +13,33 @@ use tempfile::TempDir;
 
 use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::network::hash_string_to_u64;
+use crate::network::status::ServerStatus;
 use crate::ui::menus::servers::ServerItem;
+
+/// The status of the server at `ip` without the network, as tests ask it: two servers online,
+/// one of another version, one offline, one host that does not resolve, and one more online for
+/// a changed address; anything else is offline.
+pub fn fixed_status(ip: &str) -> ServerStatus {
+    let online = |players, max_players, ms| ServerStatus::Online {
+        players,
+        max_players,
+        latency: Duration::from_millis(ms),
+    };
+    match ip {
+        "10.0.0.1:8000" => online(3, 20, 42),
+        "10.0.0.2" => online(18, 20, 180),
+        "10.0.0.3:8000" => ServerStatus::Incompatible,
+        "nowhere.invalid" => ServerStatus::UnknownHost,
+        "10.0.0.9" => online(1, 8, 20),
+        _ => ServerStatus::Offline,
+    }
+}
+
+/// `fixed_status`, answered after 300 ms: long enough to see the servers pinging.
+pub fn slow_status(ip: &str) -> ServerStatus {
+    thread::sleep(Duration::from_millis(300));
+    fixed_status(ip)
+}
 
 /// A temporary game folder, deleted when its last clone is dropped.
 #[derive(Clone)]
@@ -104,5 +131,17 @@ impl GameFolder {
         let data = ron::ser::to_string(&list).expect("a serialised server list");
         fs::write(self.path().join(SERVER_LIST_SAVE_NAME), data).expect("a servers.ron");
         self
+    }
+
+    /// Saves the servers that `fixed_status` knows: `Survival` and `Creative` online, `Old
+    /// friends` of another version, `Friends` offline and `Typo`, whose host does not resolve.
+    pub fn with_status_servers(self) -> Self {
+        self.with_servers(&[
+            ("Survival", "10.0.0.1:8000"),
+            ("Creative", "10.0.0.2"),
+            ("Old friends", "10.0.0.3:8000"),
+            ("Friends", "10.0.0.4:8000"),
+            ("Typo", "nowhere.invalid"),
+        ])
     }
 }

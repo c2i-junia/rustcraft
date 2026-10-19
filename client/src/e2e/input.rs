@@ -290,8 +290,8 @@ mod tests {
     use super::*;
     use crate::e2e::harness::SCREEN;
     use crate::e2e::helpers::{ctrl_n, main_menu};
-    use crate::ui::button::MenuState;
     use crate::ui::menus::solo::dialogs::WorldNameInput;
+    use crate::ui::menus::MenuState;
     use Locator as L;
 
     /// How many times the probe button was activated.

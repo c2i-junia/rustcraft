@@ -17,8 +17,8 @@ use crate::constants::{AUDIO_SETTINGS_PATH, BINDS_PATH, INTERFACE_SETTINGS_PATH}
 use crate::input::data::GameAction;
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
-use crate::ui::button::MenuState;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
+use crate::ui::menus::MenuState;
 use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,

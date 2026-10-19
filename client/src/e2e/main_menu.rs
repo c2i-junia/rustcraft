@@ -14,8 +14,9 @@ use super::seed::GameFolder;
 use crate::constants::DAY_DURATION_IN_TICKS;
 use crate::state::GameState;
 use crate::ui::assets::TITLE_IMAGE_PATH;
-use crate::ui::button::MenuState;
+use crate::ui::menus::multi::SERVERS_TITLE;
 use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
+use crate::ui::menus::MenuState;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
@@ -34,7 +35,7 @@ fn singleplayer_opens_the_world_list() {
 fn multiplayer_opens_the_server_list() {
     let mut h = main_menu();
     h.click(&L::text("Multiplayer"));
-    h.wait_for(&L::text("Server list"), SCREEN);
+    h.wait_for(&L::text(SERVERS_TITLE), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Multi);
 }
 
@@ -161,7 +162,7 @@ fn two_harnesses_run_side_by_side() {
     first.click(&L::text("Settings"));
     second.click(&L::text("Multiplayer"));
     first.wait_for(&L::text("Controls"), SCREEN);
-    second.wait_for(&L::text("Server list"), SCREEN);
+    second.wait_for(&L::text(SERVERS_TITLE), SCREEN);
     assert_eq!(first.menu_state(), MenuState::Settings);
     assert_eq!(second.menu_state(), MenuState::Multi);
     assert_ne!(first.folder(), second.folder());

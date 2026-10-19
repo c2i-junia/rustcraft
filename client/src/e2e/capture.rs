@@ -154,7 +154,7 @@ mod tests {
     use crate::e2e::harness::{Harness, Options, STARTUP};
     use crate::e2e::locator::Locator as L;
     use crate::e2e::seed::GameFolder;
-    use crate::ui::button::MenuState;
+    use crate::ui::menus::MenuState;
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]

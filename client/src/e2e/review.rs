@@ -18,6 +18,7 @@ use super::settings::key_slot;
 use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH};
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
+use crate::ui::menus::multi::SERVERS_TITLE;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::worlds::WORLD_EXISTS;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
@@ -151,7 +152,7 @@ fn every_screen_at_three_resolutions() {
         h.press(KeyCode::Escape);
         h.review_worlds();
         h.wait_for(&L::text("Singleplayer"), SCREEN);
-        h.review_screen("Multiplayer", "Server list", "multi", "Back to menu");
+        h.review_screen("Multiplayer", SERVERS_TITLE, "multi", "Back");
         h.wait_for(&L::text("Settings"), SCREEN);
         h.click(&L::text("Settings"));
         h.wait_for(&L::text("Move forward"), SCREEN);

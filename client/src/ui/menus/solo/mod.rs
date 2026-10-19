@@ -25,7 +25,7 @@ use super::background::menu_background;
 use super::worlds::{
     elapsed_since, format_size, list_worlds, played_ago, start_world, thumbnail_color, WorldSummary,
 };
-use super::MenuState;
+use super::{neighbour, text, MenuState};
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
@@ -343,20 +343,6 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
     ));
 }
 
-/// A text of the screen, which breaks a long word rather than leave its box.
-fn text(content: &str, size: f32, color: Color, font: &Handle<Font>) -> impl Bundle {
-    (
-        Text::new(content),
-        TextFont {
-            font: font.clone().into(),
-            font_size: px(size).into(),
-            ..default()
-        },
-        TextColor(color),
-        TextLayout::linebreak(LineBreak::WordOrCharacter),
-    )
-}
-
 /// A thumbnail of `side` pixels in the colour of the world of `seed`.
 fn thumbnail(seed: Option<u32>, side: f32) -> impl Bundle {
     (
@@ -531,19 +517,6 @@ fn card_names(
         .filter_map(|card| cards.get(card).ok())
         .map(|card| card.0.name.clone())
         .collect()
-}
-
-/// The world whose card takes the focus once `name` is deleted: the next one, else the previous.
-fn neighbour(names: &[String], name: &str) -> Option<String> {
-    let index = names.iter().position(|other| other == name)?;
-    names
-        .get(index + 1)
-        .or_else(|| {
-            index
-                .checked_sub(1)
-                .and_then(|previous| names.get(previous))
-        })
-        .cloned()
 }
 
 /// Lists the worlds of the disk again, and selects and focuses the card of `focus`, else the
@@ -745,19 +718,4 @@ fn follow_focus_with_hints(
         wanted,
         ChildOf(child_of.parent()),
     ));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_deleted_world_hands_the_focus_to_the_next_else_the_previous() {
-        let names: Vec<String> = ["A", "B", "C"].map(String::from).to_vec();
-        assert_eq!(neighbour(&names, "A").as_deref(), Some("B"));
-        assert_eq!(neighbour(&names, "B").as_deref(), Some("C"));
-        assert_eq!(neighbour(&names, "C").as_deref(), Some("B"));
-        assert_eq!(neighbour(&names[..1], "A"), None);
-        assert_eq!(neighbour(&names, "Z"), None);
-    }
 }

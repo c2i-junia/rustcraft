@@ -26,7 +26,7 @@ use crate::app::{add_client, ClientSettings};
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::network::LocalServerHandle;
 use crate::state::GameState;
-use crate::ui::button::MenuState;
+use crate::ui::menus::MenuState;
 
 /// How long a screen may take to appear.
 pub const SCREEN: Duration = Duration::from_secs(2);

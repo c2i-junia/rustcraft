@@ -24,7 +24,6 @@ use crate::constants::SAVE_PATH;
 use crate::network::hash_string_to_u64;
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
-use crate::ui::button::MenuState;
 use crate::ui::hud::chat::{ChatDisplay, ChatInput, ChatRoot};
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
@@ -34,6 +33,7 @@ use crate::ui::hud::{
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::settings::SettingsRoot;
+use crate::ui::menus::MenuState;
 use crate::ui::widgets::slot::SlotIcon;
 use crate::world::{ClientWorldMap, MaterialResource};
 
@@ -139,8 +139,7 @@ fn the_connection_screen_shows_then_cancel_returns_to_the_menu() {
     let mut h = Harness::start(folder, Options::default());
     h.wait_for(&L::text("Multiplayer"), STARTUP);
     h.click(&L::text("Multiplayer"));
-    h.wait_for_icons("Nowhere");
-    h.click(&L::name("Play Nowhere"));
+    h.join_server_card("Nowhere");
     h.wait_for(&L::text_containing("Connecting to server"), SCREEN);
     h.click(&L::text("[Cancel]"));
     h.wait_for_game_state(GameState::Menu, SCREEN);

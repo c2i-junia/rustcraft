@@ -1,5 +1,5 @@
 //! The dialogs of the server list. Add server checks the name and the address as they are typed,
-//! and writes the server to `servers.ron` as soon as it is submitted.
+//! and writes the server to `servers.ron` as soon as it is submitted. Remove asks first.
 
 use std::io;
 
@@ -10,19 +10,19 @@ use bevy::{
 use shared::GameFolderPaths;
 
 use super::super::servers::{
-    add_server, check_server_address, check_server_name, free_server_name, ServerItem,
-    MAX_SERVER_NAME_LENGTH,
+    add_server, check_server_address, check_server_name, free_server_name, remove_server,
+    ServerItem, MAX_SERVER_NAME_LENGTH,
 };
 use super::super::MenuState;
-use super::ServerList;
+use super::{AddServerButton, ServerCard};
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::MAX_ADDRESS_LENGTH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::FONT_M;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
-    apply_form_check, close_dialog, dialog_open, spawn_form_dialog, CloseRequest, Dialog,
-    DialogSubmit, FormChanged,
+    apply_form_check, close_dialog, dialog_open, spawn_dialog, spawn_form_dialog, CloseRequest,
+    Dialog, DialogClosed, DialogSubmit, FormChanged,
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
@@ -162,19 +162,22 @@ pub fn open_add_server_dialog(
     parts.root
 }
 
-/// Opens the Add server dialog on Ctrl+N, with the listed servers.
+/// Opens the Add server dialog on Ctrl+N, with the listed servers, unless Add server is
+/// disabled: the list could not be read.
 pub fn open_add_server_on_ctrl_n(
     keys: Res<ButtonInput<KeyCode>>,
-    lists: Query<&ServerList>,
+    add_server: Query<Has<InteractionDisabled>, With<AddServerButton>>,
+    cards: Query<&ServerCard>,
     assets: Res<AssetServer>,
     focus: Res<InputFocus>,
     mut commands: Commands,
 ) {
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-    if control && keys.just_pressed(KeyCode::KeyN) {
-        let others = lists.single().map(ServerList::items).unwrap_or_default();
-        open_add_server_dialog(&mut commands, &assets, &focus, others);
+    if !control || !keys.just_pressed(KeyCode::KeyN) || add_server.single().unwrap_or(true) {
+        return;
     }
+    let others = cards.iter().map(|card| card.0.clone()).collect();
+    open_add_server_dialog(&mut commands, &assets, &focus, others);
 }
 
 /// The value of the text field `input`.
@@ -259,6 +262,57 @@ fn add_server_on_submit(
                 .insert(FieldError(Some(save_failure(&e).to_string())));
         }
     }
+}
+
+/// Opens the dialog that asks to remove `server`, Cancel focused. Confirmed, the server leaves
+/// `servers.ron` and the card of `next` takes the focus; a failure keeps the card and says why
+/// under the buttons of the detail pane. Returns the root of the dialog.
+pub fn open_remove_server_dialog(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    focus: &InputFocus,
+    server: &ServerItem,
+    next: Option<String>,
+) -> Entity {
+    let title = format!("Remove \"{}\"?", server.name);
+    let body = format!("{} will leave your server list.", server.ip);
+    let dialog = Dialog {
+        title: &title,
+        body: &body,
+        actions: &[
+            ("Cancel", ButtonVariant::Default),
+            ("Remove", ButtonVariant::Danger),
+        ],
+        focused: 0,
+    };
+    let root = spawn_dialog(commands, &dialog, assets.load(FONT_PATH), focus);
+    let name = server.name.clone();
+    commands.entity(root).observe(
+        move |closed: On<DialogClosed>, paths: Res<GameFolderPaths>, mut commands: Commands| {
+            if closed.action != Some(1) {
+                return;
+            }
+            let path = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
+            let changed = match remove_server(&path, &name) {
+                Ok(()) => {
+                    info!("Removed the server {name:?}");
+                    ServersChanged {
+                        focus: next.clone(),
+                        error: None,
+                    }
+                }
+                Err(e) => {
+                    error!("Could not remove the server {name:?} from {path:?}: {e}");
+                    ServersChanged {
+                        focus: Some(name.clone()),
+                        error: Some(save_failure(&e)),
+                    }
+                }
+            };
+            commands.trigger(changed);
+        },
+    );
+    root
 }
 
 #[cfg(test)]

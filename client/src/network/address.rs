@@ -27,7 +27,6 @@ impl ServerAddress {
     }
 
     /// Whether the host is an IPv4 address, which joining does not need to look up.
-    #[allow(dead_code)] // The Multiplayer screen, Task 6
     pub fn is_ip(&self) -> bool {
         self.host.parse::<Ipv4Addr>().is_ok()
     }
@@ -102,7 +101,6 @@ pub fn parse_server_address(typed: &str) -> Result<ServerAddress, &'static str> 
 }
 
 /// The first IPv4 address of `address`. Blocks on DNS: call it from a thread.
-#[allow(dead_code)] // The Multiplayer screen, Task 6
 pub fn resolve(address: &ServerAddress) -> io::Result<SocketAddr> {
     (address.host.as_str(), address.port)
         .to_socket_addrs()?

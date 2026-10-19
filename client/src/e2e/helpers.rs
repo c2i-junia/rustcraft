@@ -6,7 +6,7 @@ use bevy::{
     input::keyboard::KeyCode,
     input_focus::InputFocus,
     math::Rect,
-    prelude::{Component, Entity, State, With, World},
+    prelude::{Component, State, With, World},
     text::EditableText,
     ui::{ComputedNode, UiGlobalTransform},
 };
@@ -60,26 +60,6 @@ impl Harness {
     pub fn click_when_ready(&mut self, locator: &L) {
         self.wait_for(locator, SCREEN);
         self.click(locator);
-    }
-
-    /// Waits until the icons of the row `title` are laid out side by side: they are only borders
-    /// until their images are loaded, and a click would then hit the wrong one. `title` is the
-    /// name of a world or of a server.
-    #[track_caller]
-    pub fn wait_for_icons(&mut self, title: &str) {
-        let play = self.wait_for_named(&format!("Play {title}"));
-        let delete = self.wait_for_named(&format!("Delete {title}"));
-        self.wait_until("the icons of the row", SCREEN, |w| {
-            let x = |e| w.get::<UiGlobalTransform>(e).unwrap().translation.x;
-            x(delete) - x(play) > 20.0
-        });
-    }
-
-    /// Waits for the element with this `Name`, and returns it.
-    #[track_caller]
-    pub fn wait_for_named(&mut self, name: &str) -> Entity {
-        self.wait_for(&L::name(name), SCREEN);
-        self.get(&L::name(name))
     }
 
     /// Runs frames until the game is in the state `state`.

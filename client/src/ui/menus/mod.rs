@@ -1,6 +1,5 @@
 pub mod background;
 pub mod home;
-pub mod list_screen;
 pub mod multi;
 pub mod pause;
 pub mod server_connect_loading;
@@ -14,13 +13,20 @@ use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 pub use home::*;
 pub use server_connect_loading::*;
 
-use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
-
 use crate::state::{GameState, MenuCamera};
 use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::text_field::text_field_focused;
 
-use super::button::*;
+/// The screen of the menus shown, `Disabled` outside the menus.
+#[derive(Clone, Copy, Default, Eq, PartialEq, Debug, Hash, States)]
+pub enum MenuState {
+    Main,
+    Solo,
+    Multi,
+    Settings,
+    #[default]
+    Disabled,
+}
 
 pub fn menu_plugin(app: &mut App) {
     app.init_state::<MenuState>()
@@ -41,18 +47,12 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(not(dialog_open)),
         )
         .add_observer(activate_main_menu_button)
-        // Common systems to all screens that handles buttons behavior
         .add_systems(
             Update,
-            (
-                menu_action,
-                escape_button
-                    .run_if(not(dialog_open))
-                    .run_if(not(text_field_focused)),
-                button_system,
-                mouse_scroll,
-            )
-                .run_if(in_state(GameState::Menu)),
+            escape_button
+                .run_if(in_state(GameState::Menu))
+                .run_if(not(dialog_open))
+                .run_if(not(text_field_focused)),
         )
         // The loading screen is shown while connecting, between the menu and the game
         .add_systems(
@@ -75,22 +75,6 @@ fn menu_setup(mut menu_state: ResMut<NextState<MenuState>>, mut commands: Comman
     menu_state.set(MenuState::Main);
 }
 
-fn menu_action(
-    interaction_query: Query<
-        (&Interaction, &MenuButtonAction),
-        (Changed<Interaction>, With<Button>),
-    >,
-    mut menu_state: ResMut<NextState<MenuState>>,
-) {
-    for (interaction, menu_button_action) in &interaction_query {
-        if *interaction == Interaction::Pressed {
-            match menu_button_action {
-                MenuButtonAction::BackToMainMenu => menu_state.set(MenuState::Main),
-            }
-        }
-    }
-}
-
 fn escape_button(
     keys: Res<ButtonInput<KeyCode>>,
     menu_state: ResMut<State<MenuState>>,
@@ -105,34 +89,45 @@ fn escape_button(
     }
 }
 
-pub fn mouse_scroll(
-    mut mouse_wheel_events: MessageReader<MouseWheel>,
-    mut query_list: Query<(&mut ScrollingList, &mut Node, &ChildOf, &ComputedNode)>,
-    query_node: Query<&ComputedNode>,
-) {
-    for mouse_wheel_event in mouse_wheel_events.read() {
-        debug!("MouseEvent");
-        for (mut scrolling_list, mut style, child_of, list_node) in &mut query_list {
-            let items_height = list_node.size().y;
-            let Ok(container) = query_node.get(child_of.parent()) else {
-                continue;
-            };
-            let container_height = container.size().y;
+/// A text of a menu screen, which breaks a long word rather than leave its box.
+fn text(content: &str, size: f32, color: Color, font: &Handle<Font>) -> impl Bundle {
+    (
+        Text::new(content),
+        TextFont {
+            font: font.clone().into(),
+            font_size: px(size).into(),
+            ..default()
+        },
+        TextColor(color),
+        TextLayout::linebreak(LineBreak::WordOrCharacter),
+    )
+}
 
-            let max_scroll = (items_height - container_height).max(0.) + 30.;
+/// The card that takes the focus once the card `name` of a list of `names` is gone: the next
+/// one, else the previous.
+fn neighbour(names: &[String], name: &str) -> Option<String> {
+    let index = names.iter().position(|other| other == name)?;
+    names
+        .get(index + 1)
+        .or_else(|| {
+            index
+                .checked_sub(1)
+                .and_then(|previous| names.get(previous))
+        })
+        .cloned()
+}
 
-            let dy = match mouse_wheel_event.unit {
-                MouseScrollUnit::Line => mouse_wheel_event.y * 20.,
-                MouseScrollUnit::Pixel => mouse_wheel_event.y,
-            };
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            scrolling_list.position += dy;
-            scrolling_list.position = scrolling_list.position.clamp(-max_scroll, 0.);
-            style.top = Val::Px(scrolling_list.position);
-            debug!(
-                "Mouse event : {:?}, {:?}, {:?}, {:?}",
-                container_height, max_scroll, items_height, scrolling_list.position
-            );
-        }
+    #[test]
+    fn a_deleted_card_hands_the_focus_to_the_next_else_the_previous() {
+        let names: Vec<String> = ["A", "B", "C"].map(String::from).to_vec();
+        assert_eq!(neighbour(&names, "A").as_deref(), Some("B"));
+        assert_eq!(neighbour(&names, "B").as_deref(), Some("C"));
+        assert_eq!(neighbour(&names, "C").as_deref(), Some("B"));
+        assert_eq!(neighbour(&names[..1], "A"), None);
+        assert_eq!(neighbour(&names, "Z"), None);
     }
 }
