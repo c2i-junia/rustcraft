@@ -339,6 +339,7 @@ pub fn open_connection(
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|err| err.to_string())?;
+    shared::enlarge_socket_buffers(&socket);
     let transport = NetcodeClientTransport::new(current_time, authentication, socket)
         .map_err(|err| err.to_string())?;
     Ok((RenetClient::new(get_shared_renet_config()), transport))

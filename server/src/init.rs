@@ -117,6 +117,7 @@ fn add_netcode_network(app: &mut App, socket: UdpSocket) -> Result<(), String> {
         // for a server open to anyone.
         authentication: ServerAuthentication::Unsecure,
     };
+    shared::enlarge_socket_buffers(&socket);
     let transport = NetcodeServerTransport::new(server_config, socket)
         .map_err(|err| format!("Could not start the network transport: {err}"))?;
 
