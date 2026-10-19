@@ -69,7 +69,7 @@ pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
         (
-            style_thumb.run_if(any_with_component::<ScrollbarThumb>),
+            (style_thumb, hide_idle_scrollbars).run_if(any_with_component::<ScrollbarThumb>),
             (first_card_takes_tab, style_cards).run_if(any_with_component::<ListCard>),
         ),
     )
@@ -334,6 +334,31 @@ fn style_cards(
             raised_bevel()
         };
         border.set_if_neq(edge);
+    }
+}
+
+/// Hides the scrollbar of a list whose items all fit, and shows it again once they overflow. The
+/// well then takes its room: it only grows while nothing overflows, so this never flickers.
+fn hide_idle_scrollbars(mut bars: Query<(&Scrollbar, &mut Node)>, areas: Query<&ComputedNode>) {
+    for (bar, mut node) in &mut bars {
+        // a list not laid out yet keeps its scrollbar: a list that overflows shows it at once
+        let Some(area) = areas
+            .get(bar.target)
+            .ok()
+            .filter(|area| area.size().y > 0.0)
+        else {
+            continue;
+        };
+        // as the scrollbar widget measures it, with half a pixel for the rounding
+        let visible = area.size().y - area.scrollbar_size.y;
+        let display = if area.content_size().y > visible + 0.5 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
     }
 }
 

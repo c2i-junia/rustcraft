@@ -238,7 +238,10 @@ fn solo_setup(mut commands: Commands, assets: Res<AssetServer>) {
         SoloHints::Elsewhere,
         ChildOf(root),
     ));
-    commands.trigger(WorldsChanged { focus: None });
+    commands.trigger(WorldsChanged {
+        focus: None,
+        error: None,
+    });
 }
 
 /// Spawns the detail pane in `body`: the facts of the selected world, Play, Delete, and the line
@@ -295,8 +298,9 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
                 button("Play", ButtonVariant::Primary, font.clone()),
                 WorldAction::Play,
             ),
+            // red only in the confirmation: Play stays the one strong action
             (
-                button("Delete", ButtonVariant::Danger, font.clone()),
+                button("Delete", ButtonVariant::Default, font.clone()),
                 WorldAction::Delete,
             ),
         ],
@@ -444,7 +448,7 @@ fn show_detail(commands: &mut Commands, facts: Entity, world: &WorldSummary, fon
 }
 
 /// Shows `message` under the buttons of the detail pane, or hides the line for `None`.
-pub(super) fn show_world_error<F: QueryFilter>(
+fn show_world_error<F: QueryFilter>(
     errors: &mut Query<(&mut Text, &mut Node), F>,
     message: Option<String>,
 ) {
@@ -487,12 +491,14 @@ fn neighbour(names: &[String], name: &str) -> Option<String> {
 }
 
 /// Lists the worlds of the disk again, and selects and focuses the card of `focus`, else the
-/// first card. Without a world, the detail pane hides and New world takes the focus.
+/// first card, and shows `error` under the buttons of the detail pane. Without a world, the
+/// detail pane hides, its buttons leave the tab order and New world takes the focus.
 #[allow(clippy::too_many_arguments)]
 fn show_changed_worlds(
     changed: On<WorldsChanged>,
     lists: Query<Entity, With<WorldList>>,
     mut panes: Query<&mut Node, With<WorldDetail>>,
+    mut actions: Query<&mut TabIndex, With<WorldAction>>,
     facts: Query<Entity, With<WorldFacts>>,
     new_world: Query<Entity, With<NewWorldButton>>,
     mut errors: Query<(&mut Text, &mut Node), (With<WorldError>, Without<WorldDetail>)>,
@@ -530,7 +536,11 @@ fn show_changed_worlds(
     for mut pane in &mut panes {
         pane.display = if shown { Display::Flex } else { Display::None };
     }
-    show_world_error(&mut errors, None);
+    // a hidden button would still take Tab
+    for mut tab_index in &mut actions {
+        tab_index.set_if_neq(TabIndex(if shown { 0 } else { -1 }));
+    }
+    show_world_error(&mut errors, changed.error.map(str::to_string));
 }
 
 /// Shows the world of the card just selected in the detail pane.

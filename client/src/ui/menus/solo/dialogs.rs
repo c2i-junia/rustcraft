@@ -17,7 +17,7 @@ use super::super::worlds::{
     WorldSummary, MAX_WORLD_NAME_LENGTH,
 };
 use super::super::MenuState;
-use super::{show_world_error, WorldCard, WorldError};
+use super::WorldCard;
 use crate::constants::SAVE_PATH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::FONT_M;
@@ -33,6 +33,9 @@ use crate::ui::widgets::text_field::{
 
 /// The title of the New world dialog.
 pub const NEW_WORLD_TITLE: &str = "New world";
+
+/// What the detail pane says when a world could not be deleted for lack of permission.
+pub const DELETE_PERMISSION: &str = "No permission to delete this world";
 
 /// The most digits a seed has: a `u32` has at most 10.
 const SEED_DIGITS: usize = 10;
@@ -102,10 +105,12 @@ impl WorldForm {
 }
 
 /// Triggered once the worlds on disk changed: the screen lists them again and focuses the card
-/// of `focus` (none: the first card, or New world when there is none).
+/// of `focus` (none, or a world no longer listed: the first card, or New world when there is
+/// none). `error` then shows under the buttons of the detail pane.
 #[derive(Event)]
 pub struct WorldsChanged {
     pub focus: Option<String>,
+    pub error: Option<&'static str>,
 }
 
 pub(super) fn plugin(app: &mut App) {
@@ -299,6 +304,16 @@ fn create_failure(error: &io::Error) -> &'static str {
     }
 }
 
+/// What the detail pane says when `delete_world` failed: a short text by kind, like
+/// `create_failure`.
+fn delete_failure(error: &io::Error) -> &'static str {
+    match error.kind() {
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => DELETE_PERMISSION,
+        io::ErrorKind::ResourceBusy => "The world is in use",
+        _ => "Could not delete the world",
+    }
+}
+
 /// Creates the world of the New world dialog on disk, checking its fields again, then closes it
 /// and lists the worlds with the focus on the new one; on a failure the dialog stays open and
 /// says why under the name. A dialog already closing was submitted before in this update.
@@ -327,7 +342,10 @@ fn create_world_on_submit(
     match create_world(&saves, &name, seed.unwrap_or_else(rand::random)) {
         Ok(()) => {
             info!("Created the world {name:?}");
-            commands.trigger(WorldsChanged { focus: Some(name) });
+            commands.trigger(WorldsChanged {
+                focus: Some(name),
+                error: None,
+            });
             // the card of the new world takes the focus
             close_dialog(&mut commands, root, false);
         }
@@ -366,24 +384,26 @@ pub fn open_delete_world_dialog(
     let root = spawn_dialog(commands, &dialog, assets.load(FONT_PATH), focus);
     let name = world.name.clone();
     commands.entity(root).observe(
-        move |closed: On<DialogClosed>,
-              paths: Res<GameFolderPaths>,
-              mut errors: Query<(&mut Text, &mut Node), With<WorldError>>,
-              mut commands: Commands| {
+        move |closed: On<DialogClosed>, paths: Res<GameFolderPaths>, mut commands: Commands| {
             if closed.action != Some(1) {
                 return;
             }
             let saves = paths.game_folder_path.join(SAVE_PATH);
-            match delete_world(&saves, &name) {
-                Ok(()) => commands.trigger(WorldsChanged {
+            let changed = match delete_world(&saves, &name) {
+                Ok(()) => WorldsChanged {
                     focus: next.clone(),
-                }),
+                    error: None,
+                },
+                // part of the world may be gone: the cards show what is left on disk
                 Err(e) => {
                     error!("Could not delete the world {name:?}: {e}");
-                    let message = format!("Could not delete the world: {e}");
-                    show_world_error(&mut errors, Some(message));
+                    WorldsChanged {
+                        focus: Some(name.clone()),
+                        error: Some(delete_failure(&e)),
+                    }
                 }
-            }
+            };
+            commands.trigger(changed);
         },
     );
     root
@@ -404,6 +424,19 @@ mod tests {
             .spawn(WorldForm::new(name, None, primary, Vec::new(), None))
             .id();
         (root, name, primary)
+    }
+
+    #[test]
+    fn a_failed_delete_says_why_in_a_few_words() {
+        let cases = [
+            (io::ErrorKind::PermissionDenied, DELETE_PERMISSION),
+            (io::ErrorKind::ReadOnlyFilesystem, DELETE_PERMISSION),
+            (io::ErrorKind::ResourceBusy, "The world is in use"),
+            (io::ErrorKind::Other, "Could not delete the world"),
+        ];
+        for (kind, message) in cases {
+            assert_eq!(delete_failure(&io::Error::from(kind)), message, "{kind:?}");
+        }
     }
 
     #[test]

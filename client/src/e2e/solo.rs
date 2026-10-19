@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
+use bevy::input_focus::InputFocus;
 use bevy::math::Vec2;
 use bevy::prelude::{BackgroundColor, Children, Entity, With};
 use bevy::ui::{InteractionDisabled, Selected};
@@ -18,9 +19,12 @@ use super::seed::GameFolder;
 use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH};
 use crate::state::GameState;
 use crate::ui::button::MenuState;
+use crate::ui::menus::solo::dialogs::DELETE_PERMISSION;
 use crate::ui::menus::solo::dialogs::{WorldNameInput, WorldSeedInput, NEW_WORLD_TITLE};
 use crate::ui::menus::solo::{SelectedWorld, WorldCard, WorldDetail, WorldList, WORLDS_TITLE};
-use crate::ui::menus::worlds::{EMPTY_WORLD_NAME, INVALID_SEED, INVALID_WORLD_NAME, WORLD_EXISTS};
+use crate::ui::menus::worlds::{
+    list_worlds, EMPTY_WORLD_NAME, INVALID_SEED, INVALID_WORLD_NAME, WORLD_EXISTS,
+};
 use crate::ui::menus::ContinueCard;
 use crate::ui::theme::RAISE_HOVER;
 use crate::ui::widgets::hints::HintBar;
@@ -254,28 +258,68 @@ fn delete_asks_first_and_the_focus_moves_to_the_next_world() {
 #[cfg(unix)]
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn a_failed_delete_says_why_under_the_pane_and_keeps_the_card() {
+fn a_failed_delete_shows_what_is_left_on_disk_and_says_why() {
     use std::os::unix::fs::PermissionsExt;
 
     let mut h = world_list();
-    let survie = h.folder().join(SAVE_PATH).join("Survie");
-    h.wait_for(&card("Survie"), SCREEN);
-    // nothing in the folder can be removed, so nothing of the world is lost
-    fs::set_permissions(&survie, fs::Permissions::from_mode(0o555)).unwrap();
-    delete_through_the_pane(&mut h, "Survie");
-    fs::set_permissions(&survie, fs::Permissions::from_mode(0o755)).unwrap();
-    let failure =
-        L::text_containing("Could not delete the world").within(L::marker::<WorldDetail>());
+    let saves = h.folder().join(SAVE_PATH);
+    let survie = saves.join("Survie");
+    // a folder whose file cannot be removed
+    let locked = survie.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("region"), "x").unwrap();
+    h.click_when_ready(&card("Survie"));
+    h.click(&pane_delete());
+    let dialog = L::role(Role::Dialog, "Delete \"Survie\"?");
+    h.wait_for(&dialog, SCREEN);
+    let confirm = h.center_of(&L::role(Role::Button, "Delete").within(dialog));
+    // world.ron goes before the delete fails: the world is half deleted, and no longer listed
+    fs::remove_file(survie.join(WORLD_FILE)).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    h.click_at(confirm);
+    h.frames(2);
+    // put back before anything can panic: a failed test drops nothing
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let on_disk: Vec<String> = list_worlds(&saves).into_iter().map(|w| w.name).collect();
+    assert_eq!(card_names(&mut h), on_disk);
+    assert_eq!(card_names(&mut h), ["Creative build", "Test world 3"]);
+    let failure = L::text(DELETE_PERMISSION).within(L::marker::<WorldDetail>());
     assert!(h.is_visible(&failure));
-    assert!(survie.join(WORLD_FILE).exists());
-    assert_eq!(
-        card_names(&mut h),
-        ["Creative build", "Survie", "Test world 3"]
-    );
     // another world selected, the message goes
-    h.click(&card("Creative build"));
+    h.click(&card("Test world 3"));
     h.frames(1);
     assert!(!h.is_visible(&failure));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn escape_from_delete_gives_the_focus_back_to_its_opener() {
+    let mut h = world_list();
+    let dialog = L::role(Role::Dialog, "Delete \"Survie\"?");
+    h.click_when_ready(&card("Survie"));
+    h.press(KeyCode::Delete);
+    h.wait_for(&dialog, SCREEN);
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&dialog));
+    assert_eq!(h.focus_label().as_deref(), Some("Survie"));
+
+    h.click(&pane_delete());
+    h.wait_for(&dialog, SCREEN);
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&dialog));
+    let focused = h.world().resource::<InputFocus>().get();
+    assert_eq!(focused, Some(h.get(&pane_delete())));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_empty_screen_tabs_past_the_hidden_pane() {
+    let mut h = open_world_list(GameFolder::new());
+    h.wait_for(&L::text("No worlds yet"), SCREEN);
+    assert_eq!(h.focus_label().as_deref(), Some("New world"));
+    h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("Back"));
 }
 
 #[test]

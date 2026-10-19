@@ -15,7 +15,7 @@ use bevy::{
     prelude::*,
     text::EditableText,
     ui::{Checked, InteractionDisabled, Selected},
-    ui_widgets::{Activate, ScrollbarThumb},
+    ui_widgets::{Activate, Scrollbar, ScrollbarThumb},
     window::PrimaryWindow,
 };
 
@@ -1646,4 +1646,20 @@ fn the_wheel_scrolls_the_card_list_under_the_cursor() {
     h.scroll(-3.);
     h.frames(2);
     assert_eq!(h.world().get::<ScrollPosition>(list).unwrap().y, scrolled);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_list_shows_its_scrollbar_only_while_its_items_overflow() {
+    let mut h = main_menu();
+    let list = card_probe(&mut h);
+    let scrollbar = L::marker::<Scrollbar>();
+    assert!(h.is_visible(&scrollbar));
+    let slots: Vec<Entity> = h.world().get::<Children>(list).unwrap().to_vec();
+    for &slot in &slots[2..] {
+        h.world_mut().entity_mut(slot).despawn();
+    }
+    h.frames(3);
+    assert!(!h.is_visible(&scrollbar));
+    assert!(h.is_visible(&card(2)));
 }
