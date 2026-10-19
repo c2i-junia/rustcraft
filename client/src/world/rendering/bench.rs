@@ -493,15 +493,29 @@ impl Drawing {
             }),
             target,
         ));
-        // The sun of the morning, as `setup_main_lighting` makes it
+        // The sun of the morning, as `setup_main_lighting` makes it. `BENCH_LIGHTS=game` adds
+        // the moon below the horizon, casting shadows as the game's does; `none` draws no
+        // shadows at all.
+        let lights = std::env::var("BENCH_LIGHTS").unwrap_or_default();
+        let sun = Quat::from_euler(EulerRot::YXZ, 0.7, -0.8, 0.);
         drawing.world_mut().spawn((
             DirectionalLight {
                 illuminance: 5000.,
-                shadow_maps_enabled: true,
+                shadow_maps_enabled: lights != "none",
                 ..default()
             },
-            Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.7, -0.8, 0.)),
+            Transform::from_rotation(sun),
         ));
+        if lights == "game" {
+            drawing.world_mut().spawn((
+                DirectionalLight {
+                    illuminance: 100.,
+                    shadow_maps_enabled: true,
+                    ..default()
+                },
+                Transform::from_rotation(sun * Quat::from_rotation_y(std::f32::consts::PI)),
+            ));
+        }
         drawing
     }
 

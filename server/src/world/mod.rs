@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod bench;
 pub mod broadcast_world;
 pub mod chunk_files;
 pub mod container_files;

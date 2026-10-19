@@ -127,7 +127,7 @@ fn send_nearby_mobs(
 /// What the client of a player in `player_chunk` must be sent: the chunks it must forget, then
 /// the updates of its chunks, then the chunks within `render_distance` it lacks. The unloads
 /// come first, so that no update is sent for a chunk the client is told to forget.
-fn world_messages_around(
+pub(super) fn world_messages_around(
     chunks: &ChunkMap,
     changed: &[IVec3],
     player_chunk: IVec3,
