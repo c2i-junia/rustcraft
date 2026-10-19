@@ -137,6 +137,9 @@ impl Harness {
             player_name,
         } = options;
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
+        // `BENCH_GPU` renders a benchmark on the GPU of the machine, compiling the pipelines
+        // in the background as the game does
+        let gpu = std::env::var_os("BENCH_GPU").is_some();
         let mut app = App::new();
         let plugins = DefaultPlugins
             .set(ImagePlugin::default_nearest())
@@ -153,7 +156,7 @@ impl Harness {
             .set(RenderPlugin {
                 render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
                     // The software renderer, lavapipe
-                    force_fallback_adapter: true,
+                    force_fallback_adapter: !gpu,
                     features: WgpuFeatures::POLYGON_MODE_LINE,
                     // The Vulkan validation layer deadlocks the process when it exits
                     // while render threads still run
@@ -161,7 +164,7 @@ impl Harness {
                     ..default()
                 })),
                 // Every pipeline is ready for the first frame
-                synchronous_pipeline_compilation: true,
+                synchronous_pipeline_compilation: !gpu,
                 ..default()
             })
             // Without winit the window has no surface, but it still gives the UI a cursor
