@@ -12,10 +12,14 @@ use crate::world::simulation::{
 };
 use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
-use bevy_renet::{RenetServer, RenetServerEvent};
+use bevy_renet::{RenetReceive, RenetServer, RenetServerEvent};
 use shared::messages::{ChatConversation, ClientToServerMessage};
 use shared::world::WorldSeed;
-use shared::{GameFolderPaths, GameServerConfig, MAX_INPUTS_PER_TICK, TICKS_PER_SECOND};
+use shared::{
+    GameFolderPaths, GameServerConfig, CTS_AUTH_CHANNEL, CTS_STANDARD_CHANNEL, MAX_INPUTS_PER_TICK,
+    TICKS_PER_SECOND,
+};
+use std::collections::HashMap;
 
 use super::extensions::SendGameMessageExtension;
 use super::handlers::{self, Clients};
@@ -52,6 +56,7 @@ pub fn setup_resources_and_events(app: &mut App) {
     app.add_message::<SaveRequestEvent>()
         .add_message::<PlayerInputsEvent>()
         .add_message::<ServerEventMessage>()
+        .init_resource::<JoinRequests>()
         .init_resource::<world::flow::WaterFlow>()
         .add_observer(buffer_server_event);
 
@@ -121,7 +126,8 @@ pub fn register_systems(app: &mut App) {
         world::save::save_world_system.in_set(ServerSet::Save),
     );
 
-    app.add_systems(FixedPostUpdate, update_server_time);
+    app.add_systems(FixedPostUpdate, update_server_time)
+        .add_systems(PreUpdate, take_join_requests_system.after(RenetReceive));
 
     // The mobs and the items move before the inputs of the tick are read
     app.add_systems(
@@ -156,6 +162,38 @@ fn handle_connection_events_system(
     }
 }
 
+/// The requests to join that came between two ticks, by client: they are handled by the next
+/// tick, after the other messages the client sent before them.
+#[derive(Resource, Default)]
+pub struct JoinRequests(HashMap<ClientId, Vec<ClientToServerMessage>>);
+
+/// Takes the requests to join of the clients not yet in the lobby as soon as they arrive, and
+/// has a tick run in this turn of the loop: a joining player gets its chunks without waiting
+/// for the next tick. That tick comes early once, which shifts the following ones.
+fn take_join_requests_system(
+    mut server: ResMut<RenetServer>,
+    lobby: Res<ServerLobby>,
+    mut requests: ResMut<JoinRequests>,
+    mut fixed: ResMut<Time<Fixed>>,
+) {
+    let mut asked = false;
+    for client_id in server.clients_id() {
+        if lobby.players.contains_key(&client_id) {
+            continue;
+        }
+        while let Some(Ok(message)) =
+            server.receive_game_message_by_channel(client_id, CTS_AUTH_CHANNEL)
+        {
+            requests.0.entry(client_id).or_default().push(message);
+            asked = true;
+        }
+    }
+    if asked {
+        let missing = fixed.timestep().saturating_sub(fixed.overstep());
+        fixed.accumulate_overstep(missing);
+    }
+}
+
 /// Reads what every client sent and calls the handler of each message.
 fn handle_client_messages_system(
     (mut server, mut chat_conversation, mut lobby): (
@@ -174,11 +212,22 @@ fn handle_client_messages_system(
     seed: Res<WorldSeed>,
     game_folder_paths: Res<GameFolderPaths>,
     mods: Res<Mods>,
+    mut join_requests: ResMut<JoinRequests>,
 ) {
     for client_id in server.clients_id() {
         let mut input_budget = MAX_INPUTS_PER_TICK;
         let mut dropped_inputs = 0;
-        while let Some(Ok(message)) = server.receive_game_message(client_id) {
+        // The order of `receive_game_message`, with the requests to join taken early
+        let mut joins = join_requests
+            .0
+            .remove(&client_id)
+            .unwrap_or_default()
+            .into_iter();
+        while let Some(Ok(message)) = server
+            .receive_game_message_by_channel(client_id, CTS_STANDARD_CHANNEL)
+            .or_else(|| joins.next().map(Ok))
+            .or_else(|| server.receive_game_message(client_id))
+        {
             if !may_send(&message, client_id, &lobby, &config) {
                 warn!(
                     "Ignoring {} message from unauthenticated client {}",
@@ -258,6 +307,8 @@ fn handle_client_messages_system(
             );
         }
     }
+    // Those of the clients that left
+    join_requests.0.clear();
 }
 
 /// Whether the server reads `message` from this client. A client that is not authenticated
@@ -306,6 +357,84 @@ mod tests {
     use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap, WorldSeed};
     use std::time::Duration;
 
+    const TICK: Duration = Duration::from_millis(1000 / TICKS_PER_SECOND);
+
+    /// A server whose world is `world_map` and whose files are in `folder`, its clock moving by
+    /// `update` on each update.
+    fn server_app(folder: &std::path::Path, world_map: ServerWorldMap, update: Duration) -> App {
+        let mut app = App::new();
+        app.add_plugins(TimePlugin)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(update))
+            .insert_resource(RenetServer::new(shared::get_shared_renet_config()))
+            .insert_resource(ServerLobby::default())
+            .insert_resource(GameServerConfig {
+                world_name: "w".into(),
+                is_solo: true,
+                saves: None,
+                max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+            })
+            .insert_resource(GameFolderPaths {
+                game_folder_path: folder.join("game"),
+                assets_folder_path: folder.join("assets"),
+            })
+            .insert_resource(world_map)
+            .insert_resource(WorldSeed(1))
+            .insert_resource(crate::world::save::Autosave { last_save_tick: 0 })
+            .insert_resource(ServerTime(0))
+            .insert_resource(Mods::new().unwrap())
+            .insert_resource(WorldWriter::spawn(folder.into(), None).unwrap());
+        setup_resources_and_events(&mut app);
+        register_systems(&mut app);
+        app
+    }
+
+    /// A player who asks to join between two ticks is accepted at once, and a tick runs in the
+    /// same update to send it its chunks.
+    #[test]
+    fn a_player_joins_and_gets_a_tick_without_waiting_for_the_next_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let world_map = ServerWorldMap {
+            name: "w".into(),
+            ..default()
+        };
+        let mut app = server_app(tmp.path(), world_map, Duration::from_millis(1));
+        // the first update only starts the clock
+        app.update();
+        let mut client = app
+            .world_mut()
+            .resource_mut::<RenetServer>()
+            .new_local_client(7);
+        client.send_message(
+            CTS_AUTH_CHANNEL,
+            shared::game_message_to_payload(ClientToServerMessage::AuthRegisterRequest(
+                shared::messages::AuthRegisterRequest {
+                    username: "p".into(),
+                    render_distance: 1,
+                },
+            )),
+        );
+        app.world_mut()
+            .resource_mut::<RenetServer>()
+            .process_local_client(7, &mut client)
+            .unwrap();
+
+        app.update();
+
+        assert!(app
+            .world()
+            .resource::<ServerLobby>()
+            .players
+            .contains_key(&7));
+        assert_eq!(app.world().resource::<ServerTime>().0, 1);
+        let chunks = &app.world().resource::<ServerWorldMap>().sent_chunks;
+        assert!(chunks.get(&7).is_some_and(|sent| !sent.chunks.is_empty()));
+
+        // the next tick comes a whole tick later
+        app.update();
+        assert_eq!(app.world().resource::<ServerTime>().0, 1);
+        drop(app.world_mut().remove_resource::<WorldWriter>());
+    }
+
     /// The inputs that break a block and the exit arrive in the same frame: the block change
     /// made by the inputs is in the saved chunk.
     #[test]
@@ -328,32 +457,8 @@ mod tests {
             Player::new(1, "p".into(), player_position, Transform::default()),
         );
 
-        let mut app = App::new();
-        app.add_plugins(TimePlugin)
-            // each update is a tick
-            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
-                1.0 / TICKS_PER_SECOND as f64,
-            )))
-            .insert_resource(RenetServer::new(shared::get_shared_renet_config()))
-            .insert_resource(ServerLobby::default())
-            .insert_resource(GameServerConfig {
-                world_name: "w".into(),
-                is_solo: true,
-                saves: None,
-                max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
-            })
-            .insert_resource(GameFolderPaths {
-                game_folder_path: tmp.path().join("game"),
-                assets_folder_path: tmp.path().join("assets"),
-            })
-            .insert_resource(world_map)
-            .insert_resource(WorldSeed(1))
-            .insert_resource(crate::world::save::Autosave { last_save_tick: 0 })
-            .insert_resource(ServerTime(0))
-            .insert_resource(Mods::new().unwrap())
-            .insert_resource(WorldWriter::spawn(tmp.path().into(), None).unwrap());
-        setup_resources_and_events(&mut app);
-        register_systems(&mut app);
+        // each update is a tick
+        let mut app = server_app(tmp.path(), world_map, TICK);
 
         let camera = Transform::from_translation(player_position).looking_to(Vec3::NEG_Y, Vec3::Z);
         let hits = leaves.id.get_break_time().unwrap();
