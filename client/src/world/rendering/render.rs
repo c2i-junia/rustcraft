@@ -265,6 +265,8 @@ pub fn world_render_system(
             return true;
         };
         chunk.last_mesh_ts = task.mesh_request_ts;
+        #[cfg(test)]
+        MESHES_SHOWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         update_chunk(
             chunk,
             &task.chunk_pos,
@@ -280,6 +282,11 @@ pub fn world_render_system(
 /// How many chunk meshes were started, for the benchmarks.
 #[cfg(test)]
 pub(crate) static MESHES_STARTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// How many chunk meshes were shown, for the benchmarks.
+#[cfg(test)]
+pub(crate) static MESHES_SHOWN: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 /// Starts meshing each of `chunks` that is loaded, in this order. The tasks share one copy of

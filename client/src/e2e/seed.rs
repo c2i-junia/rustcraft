@@ -93,6 +93,24 @@ impl GameFolder {
         self
     }
 
+    /// Adds a copy of the world folder `source` as the world `name`.
+    pub fn with_world_copy(self, name: &str, source: &Path) -> Self {
+        fn copy(from: &Path, to: &Path) {
+            fs::create_dir_all(to).expect("a world folder");
+            for entry in fs::read_dir(from).expect("a world to copy") {
+                let entry = entry.expect("an entry of a world");
+                let target = to.join(entry.file_name());
+                if entry.file_type().expect("a file type").is_dir() {
+                    copy(&entry.path(), &target);
+                } else {
+                    fs::copy(entry.path(), target).expect("a file of a world");
+                }
+            }
+        }
+        copy(source, &self.path().join(SAVE_PATH).join(name));
+        self
+    }
+
     /// Adds a world whose `world.ron` cannot be read: the server stops on it.
     pub fn with_broken_world(self, name: &str) -> Self {
         let world = self.path().join(SAVE_PATH).join(name);
