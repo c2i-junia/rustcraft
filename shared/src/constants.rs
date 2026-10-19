@@ -8,6 +8,9 @@ pub const PROTOCOL_ID: u64 = 5;
 pub const DEFAULT_PORT: u16 = 8000;
 pub const TICKS_PER_SECOND: u64 = 20;
 pub const CHUNK_SIZE: i32 = 16;
+/// The chunks within this many chunks of a player are generated and sent to its client, which
+/// waits for those around its spawn before entering the game: bump `PROTOCOL_ID` with it.
+pub const BROADCAST_CHUNK_RADIUS: i32 = 1;
 pub const MAX_INVENTORY_SLOTS: u32 = 4 * 9;
 /// The first slots of the inventory, the ones the hotbar shows.
 pub const HOTBAR_SLOTS: u32 = 9;

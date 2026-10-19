@@ -4,6 +4,7 @@ use shared::{
     messages::{PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{blocks::CallerType, simulation::simulate_player_actions, Player},
     world::{ChunkMap, WorldSeed},
+    BROADCAST_CHUNK_RADIUS,
 };
 
 use crate::{
@@ -19,15 +20,15 @@ pub struct PlayerInputsEvent {
     pub input: PlayerFrameInput,
 }
 
-/// Generates the chunks within one chunk of every player. A generated chunk is dirty: it has
-/// to be saved, as inserting it is not logged as a block change.
+/// Generates the chunks within `BROADCAST_CHUNK_RADIUS` chunks of every player. A generated
+/// chunk is dirty: it has to be saved, as inserting it is not logged as a block change.
 fn generate_missing_chunks(
     players: &std::collections::HashMap<PlayerId, Player>,
     chunks: &mut ChunkMap,
     dirty_chunks: &mut std::collections::HashSet<IVec3>,
     seed: u32,
 ) {
-    for c in get_all_active_chunks(players, 1) {
+    for c in get_all_active_chunks(players, BROADCAST_CHUNK_RADIUS) {
         if !chunks.is_chunk_loaded(c) {
             info!("Generated chunk: {:?}", c);
             chunks.insert_chunk(c, generate_chunk(c, seed));

@@ -10,6 +10,7 @@ mod cleanup;
 pub mod extensions;
 mod inputs;
 pub mod save;
+pub mod session;
 mod setup;
 pub mod status;
 mod world;

@@ -11,10 +11,8 @@ use shared::players::Player;
 use shared::world::{
     global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap, MobId, ServerMob,
 };
-use shared::CHUNK_SIZE;
+use shared::{BROADCAST_CHUNK_RADIUS, CHUNK_SIZE};
 use std::collections::{HashMap, HashSet};
-
-pub const BROADCAST_RENDER_DISTANCE: i32 = 1;
 
 /// Most chunks sent to one client by one broadcast.
 const MAX_CHUNKS_PER_BROADCAST: usize = 10;
@@ -39,7 +37,7 @@ pub fn broadcast_world_state(
         .dirty_chunks
         .extend(changed.iter().map(global_block_to_chunk_pos));
 
-    let active_chunks = get_all_active_chunks(players, BROADCAST_RENDER_DISTANCE);
+    let active_chunks = get_all_active_chunks(players, BROADCAST_CHUNK_RADIUS);
 
     for client in server.clients_id() {
         let Some(player) = players.get(&client) else {
@@ -77,7 +75,7 @@ fn send_nearby_mobs(
     player_position: Vec3,
     mobs: &HashMap<MobId, ServerMob>,
 ) {
-    let reach = (BROADCAST_RENDER_DISTANCE * CHUNK_SIZE) as f32;
+    let reach = (BROADCAST_CHUNK_RADIUS * CHUNK_SIZE) as f32;
     for (id, mob) in mobs {
         if mob.position.distance(player_position) < reach {
             server.send_game_message(
