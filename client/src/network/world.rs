@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::world::ChunkRender;
 use bevy::prelude::*;
-use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
+use bevy::tasks::{block_on, futures_lite::future, ComputeTaskPool, Task};
 use bevy_renet::RenetClient;
 use shared::messages::{
     mob::MobUpdateEvent, BlockUpdate, DroppedItemsUpdate, PlayerSpawnEvent, PlayerUpdateEvent,
@@ -46,7 +46,7 @@ impl DecodingChunkMessages {
                 continue;
             }
             self.0
-                .push_back(AsyncComputeTaskPool::get().spawn(async move { decode(&payload) }));
+                .push_back(ComputeTaskPool::get().spawn(async move { decode(&payload) }));
         }
         while let Some(task) = self.0.front_mut() {
             let Some(message) = block_on(future::poll_once(task)) else {
