@@ -108,6 +108,8 @@ fn bench_world_lifecycle() {
         ),
         Err(_) => (folder.with_world("New"), "New"),
     };
+    // The copy is on the disk before the world opens, as a world saved long ago
+    let _ = std::process::Command::new("sync").status();
     let player = std::env::var("BENCH_PLAYER").unwrap_or_else(|_| "PlayerOne".to_string());
     let mut h = super::harness::Harness::start(
         folder,
