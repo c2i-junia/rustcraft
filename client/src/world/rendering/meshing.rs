@@ -9,7 +9,7 @@ use bevy::{
 };
 use shared::{
     world::{
-        liquid::liquid_height, to_global_pos, BlockData, BlockDirection, BlockId,
+        liquid::corner_heights, to_global_pos, BlockData, BlockDirection, BlockId,
         BlockTransparency, Chunk, ChunkMap, SIX_OFFSETS,
     },
     CHUNK_SIZE,
@@ -391,13 +391,13 @@ fn mesh_chunk(
         let look = looks
             .entry(block.id)
             .or_insert_with(|| BlockLook::new(block, tiles));
-        let height = (visibility == BlockTransparency::Liquid)
-            .then(|| liquid_height(world_map, to_global_pos(chunk_pos, &local_block_pos)))
+        let corners = (visibility == BlockTransparency::Liquid)
+            .then(|| corner_heights(world_map, to_global_pos(chunk_pos, &local_block_pos)))
             .flatten();
         let lowered;
-        let shape = match height {
-            Some(height) => {
-                lowered = look.shape.clone().with_top_at(height);
+        let shape = match corners {
+            Some(corners) => {
+                lowered = look.shape.clone().with_top_corners(corners);
                 &lowered
             }
             None => &look.shape,
@@ -405,7 +405,14 @@ fn mesh_chunk(
         // A face that is not drawn the same everywhere stays one square, as do the faces of
         // the shapes that are not whole blocks
         let mergeable = merge && block.direction == BlockDirection::Front && cracks.is_none();
-        let height = height.unwrap_or(1.);
+        // Where the top of the block is when it is level, `None` on a sloping liquid
+        let level_top = match corners {
+            Some(corners) => corners
+                .iter()
+                .all(|c| *c == corners[0])
+                .then_some(corners[0]),
+            None => Some(1.),
+        };
         for (face_index, (face, tile)) in shape.faces.iter().zip(&look.tiles).enumerate() {
             let Some(tile) = *tile else {
                 continue;
@@ -415,10 +422,10 @@ fn mesh_chunk(
             }
             let (merges, face_height) = match face.direction {
                 FaceDirection::Inset => (false, 1.),
-                FaceDirection::Top => (mergeable, height),
+                FaceDirection::Top => (mergeable && level_top.is_some(), level_top.unwrap_or(1.)),
                 FaceDirection::Bottom => (mergeable, 1.),
                 // Below the surface of a liquid, a side is shorter than a block
-                _ => (mergeable && height == 1., 1.),
+                _ => (mergeable && level_top == Some(1.), 1.),
             };
             if merges {
                 let [red, green, blue, _] = face.colors[0];
@@ -527,7 +534,6 @@ fn should_render_face(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
 
     fn cracked_stone_mesh(tiles: &HashMap<String, u32>, progress: u8) -> usize {
         let mut chunk = Chunk::new();
@@ -582,27 +588,107 @@ mod tests {
         assert_eq!(vertices(&water.liquid_mesh), vertices(&stone.solid_mesh));
     }
 
+    /// The positions of the vertices of the faces of `mesh` that face up, level or sloping.
+    fn top_vertices(mesh: &Option<Mesh>) -> Vec<Vec3> {
+        use bevy::mesh::VertexAttributeValues::Float32x3;
+        let Some(mesh) = mesh else {
+            return Vec::new();
+        };
+        let (Some(Float32x3(positions)), Some(Float32x3(normals))) = (
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION),
+            mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
+        ) else {
+            panic!("a chunk mesh has positions and normals");
+        };
+        positions
+            .iter()
+            .zip(normals)
+            .filter(|(_, normal)| normal[1] > 0.5)
+            .map(|(position, _)| Vec3::from(*position))
+            .collect()
+    }
+
+    /// `blocks`, each walled with stone on its four sides.
+    fn walled(blocks: &[(IVec3, BlockId)]) -> Vec<(IVec3, BlockId)> {
+        let walls = blocks.iter().flat_map(|(position, _)| {
+            [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
+                .map(|side| *position + side)
+                .into_iter()
+                .filter(|wall| blocks.iter().all(|(position, _)| position != wall))
+                .map(|wall| (wall, BlockId::Stone))
+        });
+        blocks.iter().copied().chain(walls).collect()
+    }
+
     #[test]
     fn the_surface_of_the_water_is_below_the_top_of_its_cell() {
         let highest = |response: ChunkMeshResponse| {
-            let mesh = response.liquid_mesh.unwrap();
-            let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
-                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-            else {
-                panic!("no positions");
-            };
-            positions.iter().map(|p| p[1]).fold(f32::MIN, f32::max)
+            top_vertices(&response.liquid_mesh)
+                .iter()
+                .map(|p| p.y)
+                .fold(f32::MIN, f32::max)
         };
         assert_eq!(
-            highest(mesh_of(&[(IVec3::ONE, BlockId::Water)])),
+            highest(mesh_of(&walled(&[(IVec3::ONE, BlockId::Water)]))),
             1.0 + 8.0 / 9.0
         );
         // Under more water, a block fills its cell
-        let column = mesh_of(&[
+        let column = mesh_of(&walled(&[
             (IVec3::ONE, BlockId::Water),
             (IVec3::new(1, 2, 1), BlockId::Water),
-        ]);
+        ]));
         assert_eq!(highest(column), 2.0 + 8.0 / 9.0);
+        // In the open, the surface goes down towards the air on every side
+        assert_eq!(
+            highest(mesh_of(&[(IVec3::ONE, BlockId::Water)])),
+            1.0 + 80.0 / 117.0
+        );
+    }
+
+    #[test]
+    fn the_surface_of_a_flow_has_no_steps() {
+        let mut chunk = Chunk::new();
+        for x in 0..8 {
+            for z in 0..8 {
+                chunk.set(
+                    IVec3::new(x, 0, z),
+                    BlockData::new(BlockId::Stone, BlockDirection::Front),
+                );
+            }
+        }
+        // A source and the flow around it, as the server spreads it, down to the air
+        let source = IVec3::new(3, 1, 3);
+        for x in 1..6 {
+            for z in 1..6 {
+                let pos = IVec3::new(x, 1, z);
+                let distance = (pos - source).abs();
+                chunk.set(
+                    pos,
+                    BlockData {
+                        level: (distance.x + distance.z) as u8,
+                        ..BlockData::new(BlockId::Water, BlockDirection::Front)
+                    },
+                );
+            }
+        }
+        let mut world = ChunkMap::default();
+        world.insert_chunk(IVec3::ZERO, chunk.clone());
+        let tiles = HashMap::from([("_Default".to_string(), 0)]);
+        let water = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles);
+
+        let mut heights: HashMap<[i32; 2], f32> = HashMap::new();
+        let tops = top_vertices(&water.liquid_mesh);
+        assert_eq!(
+            tops.len(),
+            4 * 25,
+            "one square for each cell, as none is level"
+        );
+        for vertex in tops {
+            let corner = [vertex.x as i32, vertex.z as i32];
+            let height = *heights.entry(corner).or_insert(vertex.y);
+            assert_eq!(height, vertex.y, "two heights at {corner:?}");
+        }
+        assert!(heights[&[3, 3]] > heights[&[1, 1]]);
     }
 
     #[test]
@@ -612,8 +698,10 @@ mod tests {
             (IVec3::new(2, 1, 1), BlockId::Water),
         ]);
         let cells = drawn_cells(&two.liquid_mesh);
-        // Ten faces: the two cubes less the two faces they share, at x = 2
-        assert_eq!(cells.values().sum::<usize>(), 10);
+        // Eight faces across an axis: the two cubes less the two faces they share, at x = 2,
+        // and their tops, which slope down to the air
+        assert_eq!(cells.values().sum::<usize>(), 8);
+        assert_eq!(top_vertices(&two.liquid_mesh).len(), 2 * 4);
         assert!(cells
             .keys()
             .all(|cell| cell.normal[0] == 0 || cell.plane != 2 * 9));
@@ -801,29 +889,10 @@ mod tests {
         assert_eq!(tops(&row.solid_mesh), 3);
         assert_eq!(vertices(&row.solid_mesh), 4 * (2 + 2 + 2 + 2 + 2));
 
-        // Water at two heights: a source and the flow beside it
-        let mut chunk = Chunk::new();
-        chunk.set(
-            IVec3::ZERO,
-            BlockData::new(BlockId::Water, BlockDirection::Front),
-        );
-        chunk.set(
-            IVec3::X,
-            BlockData {
-                level: 3,
-                ..BlockData::new(BlockId::Water, BlockDirection::Front)
-            },
-        );
-        let mut world = ChunkMap::default();
-        world.insert_chunk(IVec3::ZERO, chunk.clone());
-        let tiles = HashMap::from([("_Default".to_string(), 0)]);
-        let water = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles);
-        let planes: HashSet<i32> = drawn_cells(&water.liquid_mesh)
-            .into_keys()
-            .filter(|cell| cell.normal == [0, 1, 0])
-            .map(|cell| cell.plane)
-            .collect();
-        assert_eq!(planes, HashSet::from([8, 5]));
+        // A level pool of water is one rectangle on top, but a sloping surface is not merged
+        let pool = [IVec3::new(1, 1, 1), IVec3::new(2, 1, 1)].map(|pos| (pos, BlockId::Water));
+        assert_eq!(top_vertices(&mesh_of(&walled(&pool)).liquid_mesh).len(), 4);
+        assert_eq!(top_vertices(&mesh_of(&pool).liquid_mesh).len(), 2 * 4);
     }
 
     #[test]

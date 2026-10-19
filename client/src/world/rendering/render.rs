@@ -14,10 +14,7 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::{
-    world::{
-        global_block_to_chunk_pos, to_local_pos, world_position_to_chunk_position, ChunkMap,
-        SIX_OFFSETS,
-    },
+    world::{global_block_to_chunk_pos, world_position_to_chunk_position, ChunkMap},
     CHUNK_SIZE,
 };
 
@@ -119,19 +116,25 @@ fn show_mesh(
     }
 }
 
+/// Where the blocks that the mesh of a block reads lie around it: below and on its sides, for
+/// the faces they hide, and the cells that share the corners of its top, with the cells above
+/// them, for the surface of a liquid. The same offsets give the chunks a chunk mesh reads.
+fn read_by_mesh() -> impl Iterator<Item = IVec3> {
+    let around_top = (-1..=1)
+        .flat_map(|x| (0..=1).flat_map(move |y| (-1..=1).map(move |z| IVec3::new(x, y, z))));
+    around_top.chain(iter::once(IVec3::NEG_Y))
+}
+
 /// The chunk that holds the block at `block_pos`, then the neighbouring chunks whose meshes
-/// depend on it: the mesher only looks at the six face neighbours of a block, so a block on a
-/// chunk face touches one neighbour, on an edge two, on a corner three.
+/// read it: a block on a face of its chunk touches the neighbour across that face, and a block
+/// on an edge or a corner the chunks around it too, as a liquid next to it slopes towards it.
 fn chunks_touched_by_block(block_pos: IVec3) -> Vec<IVec3> {
     let chunk_pos = global_block_to_chunk_pos(&block_pos);
-    let local = to_local_pos(&block_pos);
     let mut touched = vec![chunk_pos];
-    for axis in 0..3 {
-        if local[axis] == 0 {
-            touched.push(chunk_pos - IVec3::AXES[axis]);
-        }
-        if local[axis] == CHUNK_SIZE - 1 {
-            touched.push(chunk_pos + IVec3::AXES[axis]);
+    for offset in read_by_mesh() {
+        let reader = global_block_to_chunk_pos(&(block_pos - offset));
+        if !touched.contains(&reader) {
+            touched.push(reader);
         }
     }
     touched
@@ -225,8 +228,9 @@ pub fn world_render_system(
 }
 
 /// Starts meshing each of `chunks` that is loaded, in this order. The tasks share one copy of
-/// the chunks they read: theirs and the six around each, as a mesh depends on the neighbours of
-/// its chunk. Copying the whole world instead would stall the frame once it is large.
+/// the chunks they read: theirs and those around each that `read_by_mesh` gives, as a mesh
+/// depends on the neighbours of its chunk. Copying the whole world instead would stall the
+/// frame once it is large.
 pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
     tiles: &HashMap<String, u32>,
@@ -236,7 +240,7 @@ pub(super) fn spawn_meshing_tasks(
     let mut nearby = ChunkMap::default();
     for chunk_pos in chunks
         .iter()
-        .flat_map(|chunk_pos| iter::once(*chunk_pos).chain(SIX_OFFSETS.map(|o| *chunk_pos + o)))
+        .flat_map(|chunk_pos| read_by_mesh().map(move |offset| *chunk_pos + offset))
     {
         if let Some(chunk) = blocks.chunk(chunk_pos) {
             if !nearby.is_chunk_loaded(chunk_pos) {
@@ -325,34 +329,41 @@ mod tests {
             chunks_touched_by_block(IVec3::new(5, last, 5)),
             vec![IVec3::ZERO, IVec3::new(0, 1, 0)]
         );
+        // The water below a block at the bottom of a chunk fills its cell under it
         assert_eq!(
-            chunks_touched_by_block(IVec3::new(5, 5, CHUNK_SIZE)),
-            vec![IVec3::new(0, 0, 1), IVec3::new(0, 0, 0)]
+            chunks_touched_by_block(IVec3::new(5, 0, 5)),
+            vec![IVec3::ZERO, IVec3::new(0, -1, 0)]
+        );
+        assert_eq!(
+            sorted(chunks_touched_by_block(IVec3::new(5, 5, CHUNK_SIZE))),
+            vec![IVec3::new(0, 0, 0), IVec3::new(0, 0, 1)]
         );
     }
 
     #[test]
-    fn a_block_on_an_edge_or_a_corner_touches_the_face_neighbours_only() {
+    fn a_block_on_a_vertical_edge_touches_the_chunk_across_the_edge_too() {
         let last = CHUNK_SIZE - 1;
+        // A liquid across the edge shares a corner with the block
         assert_eq!(
-            sorted(chunks_touched_by_block(IVec3::new(0, last, 5))),
-            sorted(vec![IVec3::ZERO, IVec3::new(-1, 0, 0), IVec3::new(0, 1, 0)])
+            sorted(chunks_touched_by_block(IVec3::new(0, 5, last))),
+            sorted(vec![
+                IVec3::ZERO,
+                IVec3::new(-1, 0, 0),
+                IVec3::new(0, 0, 1),
+                IVec3::new(-1, 0, 1),
+            ])
         );
-        // the corner of the chunk (-1, -1, -1) that faces the origin
+        // The corner of the chunk (-1, -1, -1) that faces the origin: the chunks of the cells
+        // beside and above it read it, the chunks below it do not
         assert_eq!(
             sorted(chunks_touched_by_block(IVec3::splat(-1))),
             sorted(vec![
                 IVec3::splat(-1),
                 IVec3::new(0, -1, -1),
-                IVec3::new(-1, 0, -1),
                 IVec3::new(-1, -1, 0),
+                IVec3::new(0, -1, 0),
+                IVec3::new(-1, 0, -1),
             ])
-        );
-        // the far corner of chunk (0, 0, 0)
-        assert_eq!(
-            chunks_touched_by_block(IVec3::splat(last)).len(),
-            4,
-            "own chunk and three face neighbours, no diagonal one"
         );
     }
 

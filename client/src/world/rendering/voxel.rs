@@ -1,4 +1,5 @@
 use crate::constants::GRASS_COLOR;
+use bevy::math::Vec3;
 use shared::world::{BlockData, BlockId};
 
 /// Specifies which position in the voxel this face occupies
@@ -110,15 +111,22 @@ impl VoxelShape {
         }
     }
 
-    /// Brings the top of the shape down to `height` blocks above its bottom.
-    pub fn with_top_at(mut self, height: f32) -> Self {
-        for vertex in self
-            .faces
-            .iter_mut()
-            .flat_map(|face| face.vertices.iter_mut())
-        {
-            if vertex[1] == 1.0 {
-                vertex[1] = height;
+    /// Brings each top corner of the shape down to its height above the bottom, in blocks: the
+    /// corner at `x` and `z` (each 0 or 1) at index `x + 2 * z`. A sloping top gets the normal
+    /// of its mean slope.
+    pub fn with_top_corners(mut self, heights: [f32; 4]) -> Self {
+        for face in self.faces.iter_mut() {
+            for vertex in face.vertices.iter_mut() {
+                if vertex[1] == 1.0 {
+                    vertex[1] = heights[vertex[0] as usize + 2 * vertex[2] as usize];
+                }
+            }
+            if let FaceDirection::Top = face.direction {
+                let [low_x_low_z, high_x_low_z, low_x_high_z, high_x_high_z] = heights;
+                let slope_x = (high_x_low_z - low_x_low_z + high_x_high_z - low_x_high_z) / 2.;
+                let slope_z = (low_x_high_z - low_x_low_z + high_x_high_z - high_x_low_z) / 2.;
+                let normal = Vec3::new(-slope_x, 1., -slope_z).normalize();
+                face.normals.fill(normal.into());
             }
         }
         self
@@ -312,5 +320,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn each_top_corner_goes_to_its_own_height_and_a_sloping_top_leans_to_the_low_side() {
+        let heights = [0.25, 0.5, 0.75, 1.0];
+        let shape = shape_of(BlockId::Water).with_top_corners(heights);
+        for face in &shape.faces {
+            for vertex in &face.vertices {
+                let corner = heights[vertex[0] as usize + 2 * vertex[2] as usize];
+                assert!(vertex[1] == 0. || vertex[1] == corner, "{vertex:?}");
+            }
+        }
+        let top = Vec3::from(shape.faces[TOP].normals[0]);
+        assert!(top.y > 0. && top.x < 0. && top.z < 0., "{top}");
+        assert!((top.length() - 1.).abs() < 1e-6);
+
+        let level = shape_of(BlockId::Water).with_top_corners([0.5; 4]);
+        assert_eq!(level.faces[TOP].normals[0], [0., 1., 0.]);
     }
 }
