@@ -241,9 +241,10 @@ pub fn world_render_system(
         );
         // A newer mesh of a chunk makes the one still being made useless: dropping its task
         // cancels it
+        let remeshed: HashSet<IVec3> = chunks.iter().copied().collect();
         queued_meshes
             .meshes
-            .retain(|task| !chunks.contains(&task.chunk_pos));
+            .retain(|task| !remeshed.contains(&task.chunk_pos));
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
             &block_atlas.tiles,
