@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use bevy_platform::collections::{HashMap, HashSet};
 
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
