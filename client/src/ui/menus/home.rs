@@ -16,9 +16,9 @@ use super::worlds::{
 };
 use super::MenuState;
 use crate::constants::SAVE_PATH;
+use crate::network::leave::QuitRequested;
 use crate::state::GameState;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
-use crate::ui::quit::QuitRequested;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XXL, TEXT,

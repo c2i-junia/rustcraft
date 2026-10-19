@@ -6,9 +6,14 @@
 use std::time::{Duration, Instant};
 
 use accesskit::Role;
-use bevy::{a11y::AccessibilityNode, prelude::*, window::WindowCloseRequested};
+use bevy::{
+    a11y::AccessibilityNode,
+    input_focus::{tab_navigation::TabGroup, InputFocus},
+    prelude::*,
+    window::WindowCloseRequested,
+};
 
-use crate::network::leave::{LeaveGame, LeaveStep, STOP_TIMEOUT};
+use crate::network::leave::{LeaveGame, LeaveStep, QuitRequested, Quitting, STOP_TIMEOUT};
 use crate::network::session::{end_session, SessionOrigin};
 use crate::network::{finish_stopping_local_server, LocalServerHandle};
 use crate::state::GameState;
@@ -24,16 +29,6 @@ use crate::ui::widgets::raised_bevel;
 pub const QUITTING_TITLE: &str = "Saving the world...";
 /// The note under it.
 pub const QUIT_NOW_NOTE: &str = "Close the window again to quit now.";
-
-/// Asked by the window's close button and the main menu's Quit.
-#[derive(Event)]
-pub struct QuitRequested;
-
-/// The app quits once the world is saved: asked since `since`.
-#[derive(Resource)]
-pub struct Quitting {
-    pub since: Instant,
-}
 
 /// The card shown while the world is saved before quitting.
 #[derive(Component)]
@@ -53,16 +48,26 @@ pub fn quit_step(in_session: bool, server_running: bool, elapsed: Duration) -> L
 /// The window's close button asks to quit, and so does the main menu's Quit; the app exits once
 /// the world is saved.
 pub fn quit_plugin(app: &mut App) {
-    app.add_observer(on_quit_requested).add_systems(
-        Update,
-        (
-            forward_close_requests,
-            // the menus join a local server that stopped before the app exits
-            quit_once_stopped
-                .after(finish_stopping_local_server)
-                .run_if(resource_exists::<Quitting>),
-        ),
-    );
+    app.add_observer(on_quit_requested)
+        .add_systems(
+            Update,
+            (
+                forward_close_requests,
+                // the menus join a local server that stopped before the app exits
+                quit_once_stopped
+                    .after(finish_stopping_local_server)
+                    .run_if(resource_exists::<Quitting>),
+            ),
+        )
+        .add_systems(Last, keep_the_focus_off.run_if(resource_exists::<Quitting>));
+}
+
+/// Takes back the focus that a screen opening beneath the card, or Tab, gave: no key reaches
+/// through the card.
+fn keep_the_focus_off(mut focus: ResMut<InputFocus>) {
+    if focus.get().is_some() {
+        focus.clear();
+    }
 }
 
 /// Whether a world of this computer is being played or still starting.
@@ -99,6 +104,7 @@ fn on_quit_requested(
     origin: Option<Res<SessionOrigin>>,
     state: Res<State<GameState>>,
     assets: Res<AssetServer>,
+    mut focus: ResMut<InputFocus>,
     mut game: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
     mut commands: Commands,
@@ -119,6 +125,7 @@ fn on_quit_requested(
         since: Instant::now(),
     });
     spawn_quitting_card(&mut commands, &assets);
+    focus.clear();
     match (state, origin) {
         (GameState::Game, _) if world => commands.trigger(LeaveGame),
         (GameState::PreGameLoading, Some(origin)) if world => {
@@ -152,7 +159,7 @@ fn quit_once_stopped(
 }
 
 /// Spawns the card shown while the world is saved before quitting: over everything, dialogs
-/// included, nothing on it to focus. It is not despawned with a state: the app exits with it.
+/// included, modal, nothing on it to focus. It is not despawned with a state: the app exits with it.
 pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Entity {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let text = |content: &str, size: f32, color: Color| {
@@ -176,6 +183,8 @@ pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Ent
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
             AccessibleLabel::new(QUITTING_TITLE),
+            // Tab stays in it, where there is nothing to focus
+            TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
                 width: percent(100),
@@ -212,6 +221,8 @@ pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Ent
 mod tests {
     use super::*;
     use crate::network::finish_stopping_local_server;
+    use crate::network::session::SessionEnd;
+    use bevy::input_focus::FocusCause;
     use bevy::state::app::StatesPlugin;
     use bevy::window::WindowCloseRequested;
     use std::sync::mpsc::{channel, Sender};
@@ -243,6 +254,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
             .init_asset::<Font>()
+            .init_resource::<InputFocus>()
             .add_message::<WindowCloseRequested>()
             .insert_state(GameState::Menu)
             .insert_resource(LocalServerHandle(Some(server)))
@@ -259,27 +271,76 @@ mod tests {
             .count()
     }
 
+    /// Runs frames of `app` until it asks to exit. Fails the test after 10 s.
+    fn update_until_exit(app: &mut App) {
+        let start = Instant::now();
+        loop {
+            app.update();
+            if app.should_exit().is_some() {
+                return;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "never quit");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// A world cancelled or left earlier still saves in the menus: the app waits for its server,
+    /// and exits once it is joined.
     #[test]
-    fn quitting_waits_for_a_world_still_starting() {
+    fn quitting_in_the_menus_waits_for_a_local_server_still_saving() {
         let (release, server) = parked();
         let mut app = menu_app(server);
+        // a screen focused beneath the card, then a screen focusing its card as it opens
+        let button = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(button, FocusCause::Navigated);
+        app.world_mut().trigger(QuitRequested);
+        assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        for _ in 0..3 {
+            app.world_mut()
+                .resource_mut::<InputFocus>()
+                .set(button, FocusCause::Navigated);
+            app.update();
+            assert!(app.should_exit().is_none());
+            assert_eq!(app.world().resource::<InputFocus>().get(), None);
+        }
+        assert_eq!(cards(&mut app), 1);
+
+        release.send(()).unwrap();
+        update_until_exit(&mut app);
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+    }
+
+    /// A world still starting is cancelled, back to the menus, where its server is waited for.
+    #[test]
+    fn quitting_while_a_world_starts_cancels_it_then_waits_for_its_server() {
+        let (release, server) = parked();
+        let mut app = menu_app(server);
+        let origin = SessionOrigin::World {
+            name: "Slow".to_string(),
+        };
+        app.insert_resource(origin.clone())
+            .world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::PreGameLoading);
+        app.update();
+
         app.world_mut().trigger(QuitRequested);
         for _ in 0..3 {
             app.update();
             assert!(app.should_exit().is_none());
         }
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Menu
+        );
+        let end = app.world().resource::<SessionEnd>();
+        assert_eq!((&end.origin, &end.error), (&origin, &None));
         assert_eq!(cards(&mut app), 1);
 
         release.send(()).unwrap();
-        let start = Instant::now();
-        loop {
-            app.update();
-            if app.should_exit().is_some() {
-                break;
-            }
-            assert!(start.elapsed() < Duration::from_secs(10), "never quit");
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        update_until_exit(&mut app);
         assert!(app.world().resource::<LocalServerHandle>().0.is_none());
     }
 

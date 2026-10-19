@@ -30,7 +30,7 @@ use crate::ui::hud::{HudBottom, InventoryCell, InventoryRoot, UIMode};
 use crate::ui::menus::pause::{PauseButton, PauseMenu, PAUSE_TITLE, SAVING, WORLD_SAVED};
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::settings::SettingsRoot;
-use crate::ui::menus::MenuState;
+use crate::ui::menus::{MenuState, QUIT_TITLE};
 use crate::ui::quit::QUITTING_TITLE;
 use crate::ui::theme::{ACCENT, RAISE, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
@@ -434,11 +434,51 @@ fn closing_the_window_while_a_world_starts_waits_for_it() {
     h.play_world("Slow");
     h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
     assert_eq!(h.game_state(), GameState::PreGameLoading);
+    let release = hold_the_local_server(&mut h);
     h.request_close();
-    assert!(h.is_visible(&L::text(QUITTING_TITLE)));
+    let card = L::role(Role::Dialog, QUITTING_TITLE);
+    assert!(h.is_visible(&card));
+    assert!(!h.has_exited());
+
+    // the menus come back beneath the card, which no key reaches through
+    h.wait_for_game_state(GameState::Menu, SCREEN);
+    h.frames(3);
+    assert!(h.is_visible(&card));
+    let menu = h.menu_state();
+    for key in [KeyCode::Tab, KeyCode::Enter, KeyCode::Escape] {
+        h.press(key);
+    }
+    h.frames(2);
+    assert_eq!(h.menu_state(), menu);
+    assert_eq!(h.game_state(), GameState::Menu);
+    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+    assert!(h.is_visible(&card));
     assert!(!h.has_exited());
 
     // the world is told to stop once it accepts the connection, and joined, not killed
+    release.send(()).unwrap();
     wait_for_exit(&mut h);
     assert!(h.world().resource::<LocalServerHandle>().0.is_none());
+}
+
+/// The headline: the close button during gameplay, with no Save and quit first, saves the world
+/// then quits.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn closing_the_window_during_gameplay_saves_then_quits() {
+    let mut h = enter_world(GameFolder::new().with_world("Play"), "Play");
+    let meta = h.folder().join(SAVE_PATH).join("Play/world.ron");
+    let written = || fs::metadata(&meta).unwrap().modified().unwrap();
+    let release = hold_the_local_server(&mut h);
+    let before = written();
+    h.request_close();
+    assert!(h.is_visible(&L::role(Role::Dialog, QUITTING_TITLE)));
+    assert!(!h.has_exited());
+    h.frames(3);
+    assert!(!h.has_exited());
+
+    release.send(()).unwrap();
+    wait_for_exit(&mut h);
+    assert!(h.world().resource::<LocalServerHandle>().0.is_none());
+    assert!(written() > before);
 }

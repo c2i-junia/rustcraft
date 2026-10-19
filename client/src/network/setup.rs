@@ -149,7 +149,7 @@ pub struct LastWorldClosing {
 /// a world, `NoConnection` without a socket. While the server of the last session still runs,
 /// the world waits for it (`LastWorldClosing`) when it was told to stop (`ExitSent`), and runs
 /// again every frame until that server is joined; `WorldBusy` after `STOP_TIMEOUT`, or at once
-/// for a server never told.
+/// for a server never told. Stands down when the session already ended this frame.
 pub fn launch_local_server_system(
     mut commands: Commands,
     mut target: ResMut<TargetServer>,
@@ -163,6 +163,11 @@ pub fn launch_local_server_system(
 ) {
     if target.address.is_some() {
         debug!("Skipping launch local server");
+        return;
+    }
+    // the session ended this frame (a cancel, a quit): no server is started that no one would
+    // tell to stop
+    if !matches!(*game_state, NextState::Unchanged) {
         return;
     }
 

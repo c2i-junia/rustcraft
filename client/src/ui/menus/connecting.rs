@@ -24,6 +24,7 @@ use crate::ui::theme::{
     SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
+use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::hints::{hint_bar, Hint};
 use crate::ui::widgets::progress::{progress_bar, ProgressBar};
 use crate::ui::widgets::raised_bevel;
@@ -108,7 +109,7 @@ pub fn connecting_plugin(app: &mut App) {
                 .after(track_connection)
                 .run_if(resource_exists_and_changed::<ConnectWatch>),
             blink_current_step,
-            cancel_on_escape,
+            cancel_on_escape.run_if(not(dialog_open)),
         )
             .run_if(in_state(GameState::PreGameLoading)),
     )

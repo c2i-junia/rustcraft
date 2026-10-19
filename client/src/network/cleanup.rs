@@ -1,9 +1,8 @@
-use crate::network::leave::STOP_TIMEOUT;
+use crate::network::leave::{Quitting, STOP_TIMEOUT};
 use crate::network::{
     open_connection, CurrentPlayerProfile, LocalServerAddress, LocalServerHandle,
     SendGameMessageExtension, TargetServer, TargetServerState,
 };
-use crate::ui::quit::Quitting;
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeClientTransport;
 use bevy_renet::RenetClient;
@@ -918,6 +917,31 @@ mod tests {
         let handle = app.world().resource::<LocalServerHandle>().0.as_ref();
         assert!(handle.is_some_and(|handle| !handle.is_finished()));
         release.send(()).unwrap();
+    }
+
+    /// The session ends in the frame the last world finished saving (a cancel, a quit): the
+    /// launch stands down rather than start a server no one would tell to stop.
+    #[test]
+    fn a_world_is_not_launched_once_its_session_ended() {
+        let stopped = std::thread::spawn(|| Ok(()));
+        while !stopped.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut app = reopening_app(stopped);
+        app.insert_resource(ExitSent)
+            .insert_resource(LastWorldClosing {
+                since: Instant::now(),
+            });
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        app.world_mut()
+            .run_system_once(launch_local_server_system)
+            .unwrap();
+
+        assert!(app.world().resource::<LocalServerHandle>().0.is_some());
+        assert!(app.world().resource::<TargetServer>().address.is_none());
+        assert!(!app.world().contains_resource::<SessionEnd>());
     }
 
     /// The quit already waited for the local server, or was asked to quit at once: the app's

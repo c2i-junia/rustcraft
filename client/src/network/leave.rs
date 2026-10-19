@@ -50,6 +50,16 @@ pub fn leave_step(server_running: bool, elapsed: Duration) -> LeaveStep {
 #[derive(Event)]
 pub struct LeaveGame;
 
+/// Asked by the window's close button and the main menu's Quit (`ui/quit.rs`).
+#[derive(Event)]
+pub struct QuitRequested;
+
+/// The app quits once the world is saved: asked since `since`.
+#[derive(Resource)]
+pub struct Quitting {
+    pub since: Instant,
+}
+
 /// Whether the game is being left on purpose.
 pub fn leaving(leaving: Option<Res<Leaving>>) -> bool {
     leaving.is_some()
