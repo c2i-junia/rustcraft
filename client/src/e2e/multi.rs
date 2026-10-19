@@ -672,6 +672,30 @@ fn an_unreadable_server_list_is_said_and_never_overwritten() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_empty_server_list_offers_no_refresh_until_a_server_is_added() {
+    let folder = GameFolder::new().with_file(SERVER_LIST_SAVE_NAME, "[]");
+    let mut h = open_server_list_with(folder, StatusProbe(fixed_status));
+    h.wait_for(&L::text("No servers yet"), SCREEN);
+    let bar = || L::marker::<HintBar>();
+    let refresh = L::role(Role::Button, "Refresh");
+    h.frames(2);
+    assert!(is_disabled(&mut h, &refresh));
+    assert!(!h.is_visible(&L::text("Refresh").within(bar())));
+    assert!(h.is_visible(&L::text("Ctrl+N").within(bar())));
+
+    add_dialog(&mut h);
+    h.type_text("Home");
+    h.press(KeyCode::Tab);
+    h.type_text("10.0.0.2:8000");
+    h.press(KeyCode::Enter);
+    h.wait_for(&card("Home"), SCREEN);
+    h.frames(2);
+    assert!(!is_disabled(&mut h, &refresh));
+    assert!(h.is_visible(&L::text("Refresh").within(bar())));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn list_keys_do_nothing_while_a_dialog_is_open() {
     let mut h = status_list();
     let names = card_names(&mut h);

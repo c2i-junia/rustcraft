@@ -29,8 +29,8 @@ use shared::GameFolderPaths;
 use super::background::menu_background;
 use super::servers::{read_servers, ServerItem};
 use super::{
-    follow_focus_with_hints, list_hint_bar, neighbour, text, ListFocus, ListHints, ListUnreadable,
-    MenuState,
+    follow_focus_with_hints, list_hint_bar, neighbour, text, ListEmpty, ListFocus, ListHints,
+    ListUnreadable, MenuState,
 };
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::{parse_server_address, AddressResolver};
@@ -156,6 +156,23 @@ pub const SCREEN_HINTS: [Hint; 5] = [
     BACK_HINT,
 ];
 
+/// The key hints while the list is empty: Refresh does nothing then.
+const EMPTY_HINTS: [Hint; 4] = [
+    Hint {
+        keys: "Tab",
+        action: "Move",
+    },
+    Hint {
+        keys: "Enter",
+        action: "Select",
+    },
+    Hint {
+        keys: "Ctrl+N",
+        action: "Add server",
+    },
+    BACK_HINT,
+];
+
 /// The key hints while `servers.ron` cannot be read: Add server and Refresh do nothing then.
 const UNREADABLE_HINTS: [Hint; 3] = [
     Hint {
@@ -172,6 +189,7 @@ const UNREADABLE_HINTS: [Hint; 3] = [
 impl ListHints for MultiHints {
     const CARDS: &'static [Hint] = &CARD_HINTS;
     const SCREEN: &'static [Hint] = &SCREEN_HINTS;
+    const EMPTY: &'static [Hint] = &EMPTY_HINTS;
     const UNREADABLE: &'static [Hint] = &UNREADABLE_HINTS;
 }
 
@@ -574,8 +592,8 @@ fn card_names(
 /// Lists the servers of `servers.ron` again, asks those the board does not know for their
 /// status, selects and focuses the card of `focus`, else the first card, and shows `error` under
 /// the buttons of the detail pane. Without a server, the detail pane hides, its buttons leave the
-/// tab order and Add server takes the focus; while the file cannot be read, Add server and
-/// Refresh are disabled and Back takes it.
+/// tab order, Refresh is disabled and Add server takes the focus; while the file cannot be read,
+/// Add server and Refresh are disabled and Back takes it.
 #[allow(clippy::too_many_arguments)]
 fn show_changed_servers(
     changed: On<ServersChanged>,
@@ -624,9 +642,15 @@ fn show_changed_servers(
     } else {
         commands.entity(list).insert(ListUnreadable);
     }
+    if read.is_ok() && servers.is_empty() {
+        commands.entity(list).insert(ListEmpty);
+    } else {
+        commands.entity(list).remove::<ListEmpty>();
+    }
     let mut add_server = None;
     for (button, is_add) in &title_buttons {
-        if read.is_ok() {
+        // Add server needs a list it can write; Refresh a server to ask
+        if read.is_ok() && (is_add || !servers.is_empty()) {
             commands.entity(button).remove::<InteractionDisabled>();
         } else {
             commands.entity(button).insert(InteractionDisabled);

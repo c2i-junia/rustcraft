@@ -124,13 +124,19 @@ fn neighbour(names: &[String], name: &str) -> Option<String> {
 }
 
 /// The key hints of a list screen, named by the marker of its hint bar: those shown while a card
-/// of the list has the focus, those shown otherwise, and those shown while the list cannot be
-/// read.
+/// of the list has the focus, those shown otherwise, those shown while the list is empty, and
+/// those shown while it cannot be read.
 trait ListHints: Component + Default {
     const CARDS: &'static [Hint];
     const SCREEN: &'static [Hint];
+    const EMPTY: &'static [Hint] = Self::SCREEN;
     const UNREADABLE: &'static [Hint] = Self::SCREEN;
 }
+
+/// On the list of a list screen without a card: its hint bar shows `ListHints::EMPTY`, without
+/// the keys that do nothing then.
+#[derive(Component)]
+struct ListEmpty;
 
 /// On the list of a list screen whose file cannot be read: its hint bar shows
 /// `ListHints::UNREADABLE`, without the keys that do nothing then.
@@ -142,8 +148,10 @@ struct ListUnreadable;
 enum HintsShown {
     /// A card has the focus.
     Cards,
-    /// Anything else has it, or the list is empty.
+    /// Anything else has it.
     Elsewhere,
+    /// The list is empty.
+    Empty,
     /// The list cannot be read.
     Unreadable,
 }
@@ -162,17 +170,21 @@ fn list_hint_bar<S: ListHints>(assets: &AssetServer) -> impl Bundle {
 }
 
 /// Keeps the hint bar of the list screen `S` on the hints of the cards while a card has the
-/// focus, on those of an unreadable list while it is one, and on those of the screen otherwise.
+/// focus, on those of an unreadable or an empty list while it is one, and on those of the screen
+/// otherwise.
 fn follow_focus_with_hints<S: ListHints>(
     focus: Res<InputFocus>,
     cards: Query<(), With<ListCard>>,
     unreadable: Query<(), With<ListUnreadable>>,
+    empty: Query<(), With<ListEmpty>>,
     bars: Query<(Entity, &HintsShown, &ChildOf), With<S>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
     let wanted = if !unreadable.is_empty() {
         HintsShown::Unreadable
+    } else if !empty.is_empty() {
+        HintsShown::Empty
     } else if focus.get().is_some_and(|entity| cards.contains(entity)) {
         HintsShown::Cards
     } else {
@@ -187,6 +199,7 @@ fn follow_focus_with_hints<S: ListHints>(
     let hints = match wanted {
         HintsShown::Cards => S::CARDS,
         HintsShown::Elsewhere => S::SCREEN,
+        HintsShown::Empty => S::EMPTY,
         HintsShown::Unreadable => S::UNREADABLE,
     };
     commands.entity(bar).despawn();
