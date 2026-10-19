@@ -80,7 +80,7 @@ pub fn default_bindings() -> KeyMap {
     map.insert(GameAction::RenderDistanceMinus, vec![KeyCode::KeyO]);
     map.insert(GameAction::RenderDistancePlus, vec![KeyCode::KeyP]);
     map.insert(GameAction::ReloadChunks, vec![KeyCode::KeyR]);
-    map.insert(GameAction::ToggleMinimap, vec![KeyCode::KeyM]);
+    map.insert(GameAction::OpenMap, vec![KeyCode::KeyM]);
     map.insert(GameAction::MinimapZoomIn, vec![KeyCode::Equal]);
     map.insert(GameAction::MinimapZoomOut, vec![KeyCode::Minus]);
     KeyMap { map }

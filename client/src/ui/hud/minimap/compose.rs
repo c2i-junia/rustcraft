@@ -3,6 +3,7 @@
 
 use bevy::prelude::*;
 use shared::world::BlockId;
+use shared::CHUNK_SIZE;
 
 use super::colors::MinimapColors;
 use super::surface::{MinimapSurface, Surface, MAX_WATER_DEPTH};
@@ -72,6 +73,40 @@ pub fn compose(
     }
 }
 
+/// Writes into `pixels`, RGBA rows of `width` pixels from the north, the whole surface at one
+/// block a pixel, the top-left pixel showing the column `corner` (x, z). The image must hold
+/// every column of chunks of the surface.
+pub fn compose_world(
+    surface: &MinimapSurface,
+    colors: &MinimapColors,
+    corner: IVec2,
+    width: u32,
+    pixels: &mut [u8],
+) {
+    let water = colors.get(BlockId::Water);
+    let pixels = pixels.as_chunks_mut::<4>().0;
+    pixels.fill([UNLOADED[0], UNLOADED[1], UNLOADED[2], 255]);
+    // Tile by tile rather than pixel by pixel: a column's neighbours are mostly in its tile
+    for (column, cells) in surface.tiles() {
+        let north_tile = surface.tile(column - IVec2::Y);
+        let origin = column * CHUNK_SIZE - corner;
+        for (cell, here) in cells.iter().enumerate() {
+            let Some(here) = *here else {
+                continue;
+            };
+            let (x, z) = (cell as i32 / CHUNK_SIZE, cell as i32 % CHUNK_SIZE);
+            let north = if z > 0 {
+                cells[cell - 1]
+            } else {
+                north_tile.and_then(|tile| tile[cell + CHUNK_SIZE as usize - 1])
+            };
+            let color = shade(colors.get(here.block), water, here, north);
+            let index = (origin.y + z) * width as i32 + origin.x + x;
+            pixels[index as usize] = [color[0], color[1], color[2], 255];
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use shared::world::{BlockData, BlockDirection, Chunk, ChunkMap};
@@ -138,5 +173,44 @@ mod tests {
         compose(&surface, &colors, IVec2::new(4, 2), 2, &mut pixels);
         assert_eq!(pixel(&pixels, 0, 0), [1, 2, 3, 255]);
         assert_eq!(pixel(&pixels, 1, -1)[..3], UNLOADED);
+    }
+
+    #[test]
+    fn the_whole_world_is_drawn_as_the_minimap_draws_it() {
+        let mut map = ChunkMap::default();
+        for chunk in [IVec3::ZERO, IVec3::new(0, 0, -1), IVec3::new(1, 0, 1)] {
+            map.insert_chunk(chunk, Chunk::new());
+        }
+        let block = |id| BlockData::new(id, BlockDirection::Front);
+        for x in 0..32 {
+            for z in -16..32_i32 {
+                if map.chunk(IVec3::new(x / 16, 0, z.div_euclid(16))).is_some() {
+                    let id = if (x + z) % 3 == 0 {
+                        BlockId::Stone
+                    } else {
+                        BlockId::Sand
+                    };
+                    map.set_block(IVec3::new(x, (x * z).rem_euclid(5), z), block(id));
+                }
+            }
+        }
+        let mut surface = MinimapSurface::of(&map);
+        surface.scan_dirty(&map, IVec2::ZERO, usize::MAX);
+        let colors =
+            MinimapColors::of([(BlockId::Stone, [1, 2, 3]), (BlockId::Sand, [90, 80, 70])]);
+        assert_eq!(
+            surface.bounds(),
+            Some((IVec2::new(0, -1), IVec2::new(1, 1)))
+        );
+
+        // 32 × 48 blocks from (0, -16); the same pixels as the minimap's at one block a pixel
+        let mut world = vec![0; 32 * 48 * 4];
+        compose_world(&surface, &colors, IVec2::new(0, -16), 32, &mut world);
+        let mut minimap = vec![0; (MAP_SIZE * MAP_SIZE * 4) as usize];
+        compose(&surface, &colors, IVec2::new(64, 48), 1, &mut minimap);
+        for y in 0..48 {
+            let row = |pixels: &[u8], from: usize| pixels[from * 4..(from + 32) * 4].to_vec();
+            assert_eq!(row(&world, y * 32), row(&minimap, y * 128), "row {y}");
+        }
     }
 }

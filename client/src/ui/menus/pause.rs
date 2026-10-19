@@ -24,6 +24,7 @@ use crate::network::LocalSaves;
 use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::fade_chat_messages_system;
+use crate::ui::hud::minimap::world_map::WorldMapRoot;
 use crate::ui::hud::minimap::MinimapRoot;
 use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
@@ -212,11 +213,20 @@ pub fn pause_plugin(app: &mut App) {
     );
 }
 
-/// The overlays the game's HUD hides under: the pause menu, the in-game settings and the card
-/// shown while quitting. An overlay over the game joins them here, so that the hotbar, the
+/// The overlays the game's HUD hides under: the pause menu, the in-game settings, the card
+/// shown while quitting and the world map. An overlay over the game joins them here, so that the hotbar, the
 /// reticle and the chat lines all hide under it.
-pub type Overlays<'w, 's> =
-    Query<'w, 's, (), Or<(With<PauseMenu>, With<SettingsRoot>, With<QuittingCard>)>>;
+pub type Overlays<'w, 's> = Query<
+    'w,
+    's,
+    (),
+    Or<(
+        With<PauseMenu>,
+        With<SettingsRoot>,
+        With<QuittingCard>,
+        With<WorldMapRoot>,
+    )>,
+>;
 
 /// Whether an overlay is open over the game.
 pub fn overlay_open(overlays: Overlays) -> bool {

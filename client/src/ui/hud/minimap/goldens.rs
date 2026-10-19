@@ -9,6 +9,9 @@ use shared::CHUNK_SIZE;
 use super::colors::compute_minimap_colors;
 use super::markers::{place_minimap_dots, point_minimap_arrow};
 use super::surface::MinimapSurface;
+use super::world_map::{
+    draw_world_map, place_world_map, spawn_world_map, start_world_map, WorldMap,
+};
 use super::{draw_minimap, spawn_minimap, start_minimap_surface, write_minimap_coords};
 use crate::camera::CameraController;
 use crate::mob::MobRoot;
@@ -74,9 +77,9 @@ fn made_up_world() -> ClientWorldMap {
     map
 }
 
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_minimap() {
+/// The made-up world, the player in it looking north-east, another player and a fox, and its
+/// surface scanned.
+fn golden_in_the_made_up_world() -> UiGolden {
     let mut golden = UiGolden::new();
     let world = golden.world_mut();
     world.insert_resource(made_up_world());
@@ -95,8 +98,6 @@ fn the_minimap() {
         GlobalTransform::from_xyz(-12.0, 64.0, 14.0),
     ));
 
-    golden.run_system(spawn_top_right_column);
-    golden.run_system(spawn_minimap);
     golden.run_system(compute_minimap_colors);
     golden.run_system(start_minimap_surface);
     golden
@@ -105,9 +106,38 @@ fn the_minimap() {
             let map = world.resource::<ClientWorldMap>();
             surface.scan_dirty(&map.blocks, IVec2::ZERO, usize::MAX);
         });
+    golden
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_minimap() {
+    let mut golden = golden_in_the_made_up_world();
+    golden.run_system(spawn_top_right_column);
+    golden.run_system(spawn_minimap);
     golden.run_system(draw_minimap);
     golden.run_system(point_minimap_arrow);
     golden.run_system(place_minimap_dots);
     golden.run_system(write_minimap_coords);
     golden.assert_matches("minimap");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_world_map() {
+    let mut golden = golden_in_the_made_up_world();
+    golden.world_mut().insert_resource(Time::<()>::default());
+    golden.run_system(start_world_map);
+    golden.run_system(
+        |mut commands: Commands, assets: Res<AssetServer>, map: Res<WorldMap>| {
+            spawn_world_map(&mut commands, &assets, &map);
+        },
+    );
+    golden.run_system(draw_world_map);
+    // laid out once, for the size of the view
+    golden.wait_for_fonts();
+    golden.run_system(place_world_map);
+    golden.run_system(point_minimap_arrow);
+    golden.run_system(write_minimap_coords);
+    golden.assert_matches("world_map");
 }

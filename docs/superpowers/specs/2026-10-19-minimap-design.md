@@ -14,8 +14,9 @@ recommendations of the proposal; they are recorded under "Decisions".
   are seen through; leaves are shown. A block higher than the one to its north is lighter, a
   lower one darker. Water is darkened by its depth, up to 16 blocks.
 - What is not loaded is `SLOT`.
-- Three zoom levels: 1, 2 and 4 blocks per pixel (`=` and `-`). `M` shows or hides the map.
-  The Interface tab of the settings has Minimap: Off / On, saved in `interface.ron`.
+- Three zoom levels: 1, 2 and 4 blocks per pixel (`=` and `-`). The Interface tab of the
+  settings has Minimap: Off / On, saved in `interface.ron`. (`M` showed or hid it at first; it
+  opens the world map since 2026-10-20, see `2026-10-20-world-map-design.md`.)
 - The coordinates of the player, as whole blocks, under the map.
 - The other players are light dots, held at the edge of the map when they are beyond it; the
   mobs are orange dots, shown only within the map.
@@ -53,4 +54,4 @@ All on the client, from `ClientWorldMap`: no message, no protocol change.
 
 ## Out of scope
 
-A full-screen map, an explored map saved per world, waypoints, a cave mode, a turning map.
+A full-screen map (added later: `2026-10-20-world-map-design.md`), an explored map saved per world, waypoints, a cave mode, a turning map.

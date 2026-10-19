@@ -280,7 +280,15 @@ top textures of the blocks (`MinimapColors`), the relief shaded from the north; 
 only when the player steps onto another column, the zoom changes or the surface does. The arrow
 of the player, turned by the camera, the dots of the other players and of the mobs and the
 coordinates are UI nodes over it. Like the hotbar, it hides under the pause menu and the
-settings; `M` and the Interface tab show or hide it (`InterfaceSettings::minimap`).
+settings; the Interface tab shows or hides it (`InterfaceSettings::minimap`).
+
+`M` opens the world map (`ui/hud/minimap/world_map.rs`), a dialog over the whole window: the
+same surface, all of it, drawn by `compose_world` tile by tile into one image at a block a pixel,
+again at most every 250 ms while the surface changes. The UI scales that image (1 to 8 px a
+block) and moves it, so that dragging, the wheel (around the cursor) and `=` / `-` never draw it
+again; the arrow and the dots are its children, placed in percent of it. It follows the player
+until dragged, and Space centres it again. It joins `Overlays`, so the HUD hides under it, and
+closes on `M` or Escape.
 
 The chat (`ui/hud/chat.rs`) is a log of the last 100 messages with their times, over the field
 to write in, at the bottom-left above the hotbar; closed, the recent lines stay over the game

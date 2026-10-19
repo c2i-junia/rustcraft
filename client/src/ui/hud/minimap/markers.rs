@@ -23,7 +23,7 @@ const ARROW: [&str; 9] = [
 const ARROW_SCALE: f32 = 2.0;
 
 /// The side of a dot, its outline included, in logical px.
-const DOT_SIZE: f32 = 5.0;
+pub const DOT_SIZE: f32 = 5.0;
 
 /// The arrow of the player.
 #[derive(Component)]
@@ -39,8 +39,8 @@ fn srgba(color: Color) -> [u8; 4] {
     color.to_srgba().to_u8_array()
 }
 
-/// Spawns the arrow at the centre of `view`.
-pub fn spawn_arrow(commands: &mut Commands, images: &mut Assets<Image>, view: Entity) {
+/// The image of the arrow, pointing north, and its size on screen in logical px.
+pub fn arrow_image(images: &mut Assets<Image>) -> (Handle<Image>, Vec2) {
     let width = ARROW[0].len();
     let pixels: Vec<u8> = ARROW
         .iter()
@@ -64,9 +64,15 @@ pub fn spawn_arrow(commands: &mut Commands, images: &mut Assets<Image>, view: En
     );
     image.sampler = ImageSampler::nearest();
     let size = Vec2::new(width as f32, ARROW.len() as f32) * ARROW_SCALE;
+    (images.add(image), size)
+}
+
+/// Spawns the arrow at the centre of `view`.
+pub fn spawn_arrow(commands: &mut Commands, images: &mut Assets<Image>, view: Entity) {
+    let (image, size) = arrow_image(images);
     commands.spawn((
         MinimapArrow,
-        ImageNode::new(images.add(image)),
+        ImageNode::new(image),
         Node {
             position_type: PositionType::Absolute,
             width: px(size.x),
@@ -84,7 +90,7 @@ pub fn heading(forward: Vec3) -> f32 {
     forward.x.atan2(-forward.z)
 }
 
-/// Turns the arrow the way the camera looks.
+/// Turns the arrows, of the minimap and of the world map, the way the camera looks.
 pub fn point_minimap_arrow(
     camera: Query<&GlobalTransform, With<CameraController>>,
     mut arrows: Query<&mut UiTransform, With<MinimapArrow>>,

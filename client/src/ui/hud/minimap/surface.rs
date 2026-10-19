@@ -122,6 +122,27 @@ impl MinimapSurface {
         self.tiles.get(&column)?.cells[cell]
     }
 
+    /// The cells of the column of chunks `column`, indexed by `x * CHUNK_SIZE + z`.
+    pub fn tile(&self, column: IVec2) -> Option<&[Option<Surface>; TILE_CELLS]> {
+        self.tiles.get(&column).map(|tile| &tile.cells)
+    }
+
+    /// Every column of chunks held, with its cells.
+    pub fn tiles(&self) -> impl Iterator<Item = (IVec2, &[Option<Surface>; TILE_CELLS])> {
+        self.tiles
+            .iter()
+            .map(|(column, tile)| (*column, &tile.cells))
+    }
+
+    /// The first and the last columns of chunks held, along x and z, or `None` when none is.
+    pub fn bounds(&self) -> Option<(IVec2, IVec2)> {
+        let mut columns = self.tiles.keys();
+        let first = *columns.next()?;
+        Some(columns.fold((first, first), |(min, max), column| {
+            (min.min(*column), max.max(*column))
+        }))
+    }
+
     /// A chunk came in: its column is scanned again.
     pub fn chunk_loaded(&mut self, chunk: IVec3) {
         let column = chunk.xz();

@@ -104,8 +104,11 @@ paru -S rustcraft
 |                   | Recall sent messages   | ↑ / ↓ in the chat           |
 |                   | Scroll the chat        | PageUp / PageDown, mouse wheel |
 |                   |                        |                             |
-| **Minimap**       | Show / hide the minimap | M                         |
-|                   | Zoom in / out          | = / -                       |
+| **Map**           | Open / close the world map | M / Escape             |
+|                   | Zoom in / out          | = / -, mouse wheel on the world map |
+|                   | Move the world map     | Drag                        |
+|                   | Centre it on the player | Space                      |
+|                   | Show / hide the minimap | Settings → Interface       |
 |                   |                        |                             |
 | **Miscellaneous** | Game menu             | Escape                      |
 |                   | Reload Chunks (rebuild their meshes) | R            |

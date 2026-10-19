@@ -25,7 +25,9 @@ pub enum GameAction {
     RenderDistanceMinus,
     RenderDistancePlus,
     ReloadChunks,
-    ToggleMinimap,
+    /// Was `ToggleMinimap`, which showed or hid the minimap: a key saved for it opens the map.
+    #[serde(alias = "ToggleMinimap")]
+    OpenMap,
     MinimapZoomIn,
     MinimapZoomOut,
 }
@@ -73,7 +75,7 @@ impl GameAction {
         GameAction::ToggleInventory,
         GameAction::OpenChat,
         GameAction::CycleFpsCounter,
-        GameAction::ToggleMinimap,
+        GameAction::OpenMap,
         GameAction::MinimapZoomIn,
         GameAction::MinimapZoomOut,
         GameAction::ToggleViewMode,
@@ -101,9 +103,9 @@ impl GameAction {
             GameAction::ToggleInventory => "Inventory",
             GameAction::OpenChat => "Chat",
             GameAction::CycleFpsCounter => "FPS counter",
-            GameAction::ToggleMinimap => "Minimap",
-            GameAction::MinimapZoomIn => "Zoom in the minimap",
-            GameAction::MinimapZoomOut => "Zoom out the minimap",
+            GameAction::OpenMap => "Map",
+            GameAction::MinimapZoomIn => "Zoom in the map",
+            GameAction::MinimapZoomOut => "Zoom out the map",
             GameAction::ToggleViewMode => "Camera view",
             GameAction::RenderDistanceMinus => "Lower render distance",
             GameAction::RenderDistancePlus => "Raise render distance",
@@ -130,7 +132,7 @@ impl GameAction {
             | GameAction::ToggleInventory
             | GameAction::OpenChat
             | GameAction::CycleFpsCounter
-            | GameAction::ToggleMinimap
+            | GameAction::OpenMap
             | GameAction::MinimapZoomIn
             | GameAction::MinimapZoomOut => ActionCategory::Interface,
             GameAction::ToggleViewMode
@@ -162,5 +164,12 @@ mod tests {
         assert_eq!(GameAction::OpenChat.category(), ActionCategory::Interface);
         assert_eq!(GameAction::ToggleViewMode.category(), ActionCategory::View);
         assert_eq!(GameAction::ReloadChunks.category(), ActionCategory::Debug);
+    }
+
+    #[test]
+    fn a_key_saved_for_the_former_minimap_toggle_opens_the_map() {
+        let action: GameAction = ron::from_str("ToggleMinimap").unwrap();
+        assert_eq!(action, GameAction::OpenMap);
+        assert_eq!(ron::to_string(&action).unwrap(), "OpenMap");
     }
 }

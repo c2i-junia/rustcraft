@@ -1,12 +1,12 @@
 //! The minimap in the top-right corner of the game: the loaded world seen from above, north up,
 //! around an arrow that turns with the camera, with the coordinates of the player under it.
-//! `M` shows or hides it, as the Interface tab of the settings does, and `=` and `-` zoom.
+//! The Interface tab of the settings shows or hides it, and `=` and `-` zoom. `M` opens the
+//! world map, the same surface over the whole screen (`world_map`).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use shared::GameFolderPaths;
 
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -15,7 +15,7 @@ use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::hud::corner::TopRightColumn;
 use crate::ui::hud::debug::debug_font;
 use crate::ui::hud::debug::in_gameplay;
-use crate::ui::settings::{write_interface_settings, InterfaceSettings, MinimapChoice};
+use crate::ui::settings::{InterfaceSettings, MinimapChoice};
 use crate::ui::theme::{ACCENT, BEVEL_WIDTH, PANEL, SPACE_XS, TEXT};
 use crate::ui::widgets::raised_bevel;
 use crate::world::{BlockChanged, ChunkLoadEvent, ClientWorldMap};
@@ -26,11 +26,16 @@ pub mod compose;
 mod goldens;
 mod markers;
 pub mod surface;
+pub mod world_map;
 
 use colors::{compute_minimap_colors, MinimapColors};
 use compose::{compose, MAP_SIZE, UNLOADED};
 use markers::{place_minimap_dots, point_minimap_arrow, spawn_arrow, write_minimap_coords};
 use surface::{MinimapSurface, COLUMNS_PER_FRAME};
+use world_map::{
+    draw_world_map, place_world_map, start_world_map, toggle_world_map, world_map_keys,
+    world_map_open,
+};
 
 /// The blocks a pixel of the map shows a column of, from the nearest to the farthest view.
 pub const ZOOMS: [i32; 3] = [1, 2, 4];
@@ -67,13 +72,31 @@ impl MinimapImage {
 pub fn minimap_plugin(app: &mut App) {
     app.add_systems(
         OnEnter(GameState::Game),
-        (compute_minimap_colors, start_minimap_surface),
+        (
+            compute_minimap_colors,
+            start_minimap_surface,
+            start_world_map,
+        ),
     )
     .add_systems(
         Update,
-        (toggle_minimap, zoom_minimap)
+        zoom_minimap
             .after(GameSet::UiMode)
             .run_if(in_state(GameState::Game).and_then(in_gameplay)),
+    )
+    // opened during gameplay, closed while open: after the dialogs are counted
+    .add_systems(
+        Update,
+        (
+            toggle_world_map,
+            (world_map_keys, draw_world_map, place_world_map)
+                .chain()
+                .run_if(world_map_open),
+        )
+            .chain()
+            .after(GameSet::UiMode)
+            .after(follow_the_world)
+            .run_if(in_state(GameState::Game)),
     )
     .add_systems(
         Update,
@@ -87,7 +110,6 @@ pub fn minimap_plugin(app: &mut App) {
         )
             .chain()
             .after(GameSet::Camera)
-            .after(toggle_minimap)
             .after(zoom_minimap)
             .run_if(in_state(GameState::Game)),
     );
@@ -190,23 +212,6 @@ fn show_minimap(settings: Res<InterfaceSettings>, mut roots: Query<&mut Node, Wi
             node.display = display;
         }
     }
-}
-
-/// Shows or hides the minimap on its key, and saves it.
-fn toggle_minimap(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    key_map: Res<KeyMap>,
-    mut settings: ResMut<InterfaceSettings>,
-    paths: Res<GameFolderPaths>,
-) {
-    if !is_action_just_pressed(GameAction::ToggleMinimap, &keyboard_input, &key_map) {
-        return;
-    }
-    settings.minimap = match settings.minimap {
-        MinimapChoice::On => MinimapChoice::Off,
-        MinimapChoice::Off => MinimapChoice::On,
-    };
-    write_interface_settings(&settings, &paths);
 }
 
 /// Zooms the map in and out on their keys, within `ZOOMS`.
