@@ -1,7 +1,8 @@
 use bevy::prelude::*;
 use bevy::window::ExitSystems;
 use bevy_renet::netcode::{
-    ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeErrorEvent,
+    ClientAuthentication, NetcodeClientPlugin, NetcodeClientTransport, NetcodeDisconnectReason,
+    NetcodeErrorEvent,
 };
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
@@ -27,7 +28,7 @@ use std::{net::UdpSocket, thread, time::SystemTime};
 use crate::world::ClientWorldMap;
 use shared::GameFolderPaths;
 
-use super::cleanup::close_session_on_app_exit;
+use super::cleanup::{close_session_on_app_exit, join_local_server};
 use super::SendGameMessageExtension;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -139,7 +140,7 @@ pub fn launch_local_server_system(
     mut target: ResMut<TargetServer>,
     selected_world: Res<SelectedWorld>,
     paths: Res<GameFolderPaths>,
-    local_server: Option<Res<LocalServerHandle>>,
+    local_server: Option<ResMut<LocalServerHandle>>,
     origin: Option<Res<SessionOrigin>>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
@@ -155,11 +156,18 @@ pub fn launch_local_server_system(
         None => game_state.set(GameState::Menu),
     };
 
-    // Two servers on the same save folder would corrupt it.
-    if local_server.is_some_and(|local_server| local_server.0.is_some()) {
-        error!("The previous local server is still running, not starting another one");
-        fail(ConnectError::WorldBusy);
-        return;
+    // Two servers on the same save folder would corrupt it; one that already stopped is joined.
+    if let Some(mut local_server) = local_server {
+        if local_server.0.as_ref().is_some_and(JoinHandle::is_finished) {
+            if let Some(handle) = local_server.0.take() {
+                join_local_server(handle);
+            }
+        }
+        if local_server.0.is_some() {
+            error!("The previous local server is still running, not starting another one");
+            fail(ConnectError::WorldBusy);
+            return;
+        }
     }
 
     let Some(world_name) = selected_world.name.clone() else {
@@ -296,6 +304,7 @@ pub fn network_failure_handler(
 
 pub fn establish_authenticated_connection_to_server(
     mut client: ResMut<RenetClient>,
+    transport: Option<Res<NetcodeClientTransport>>,
     mut target: ResMut<TargetServer>,
     current_profile: Res<CurrentPlayerProfile>,
     mut ev_spawn: MessageWriter<PlayerSpawnEvent>,
@@ -322,8 +331,12 @@ pub fn establish_authenticated_connection_to_server(
         target.state = TargetServerState::Establishing;
     }
 
-    // The server drops a client whose name it refuses (invalid or already in use)
-    if target.state == TargetServerState::Establishing && client.is_disconnected() {
+    // The server drops a client whose name it refuses (invalid or already in use); a connection
+    // that gave up on a silent server is no refusal
+    let refused = transport.is_some_and(|transport| {
+        transport.disconnect_reason() == Some(NetcodeDisconnectReason::DisconnectedByServer)
+    });
+    if target.state == TargetServerState::Establishing && refused {
         if !*refusal_logged {
             warn!("The server closed the connection before authentication: is the player name valid and not already in use?");
             *refusal_logged = true;

@@ -14,7 +14,7 @@ use shared::BROADCAST_CHUNK_RADIUS;
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{
     authenticated, establish_authenticated_connection_to_server, open_connection,
-    CurrentPlayerProfile, LocalServerHandle, TargetServer,
+    CurrentPlayerProfile, LocalServerHandle, TargetServer, TargetServerState,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
@@ -229,7 +229,7 @@ fn watch_connection(
     client: Option<Res<RenetClient>>,
     transport: Option<Res<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
-    target: Res<TargetServer>,
+    mut target: ResMut<TargetServer>,
     profile: Res<CurrentPlayerProfile>,
     timeout: Res<ConnectTimeout>,
     probe: Res<StatusProbe>,
@@ -275,6 +275,8 @@ fn watch_connection(
                     info!("The world is still starting, connecting to it again");
                     commands.insert_resource(client);
                     commands.insert_resource(transport);
+                    // the request queued on the connection that gave up is lost: ask again
+                    target.state = TargetServerState::Initial;
                     watch.since = Instant::now();
                 }
                 Err(reason) => {
@@ -285,7 +287,7 @@ fn watch_connection(
             return;
         }
     }
-    let reached = if authenticated(target) {
+    let reached = if authenticated(target.into()) {
         Reached::Authenticated
     } else {
         Reached::Connecting
@@ -472,7 +474,6 @@ mod tests {
     use shared::world::Chunk;
 
     use crate::network::status::ServerStatus;
-    use crate::network::TargetServerState;
     use std::thread::JoinHandle;
 
     fn world() -> SessionOrigin {
@@ -918,6 +919,11 @@ mod tests {
         assert!(!ends_soon(&mut app));
         assert!(app.world().contains_resource::<NetcodeClientTransport>());
         assert!(!app.world().resource::<RenetClient>().is_disconnected());
+        // the authentication is asked again on the new connection
+        assert_eq!(
+            app.world().resource::<TargetServer>().state,
+            TargetServerState::Initial
+        );
         let watch = app.world().resource::<ConnectWatch>();
         assert!(
             watch.since.elapsed() < ELEVEN,

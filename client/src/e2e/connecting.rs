@@ -339,6 +339,7 @@ fn a_world_that_cannot_load_says_why_and_returns_to_its_card() {
     // the server that stopped was waited for: the world is not said to be still closing
     h.play_world("Broken");
     h.wait_for(&error_card(title), SERVER);
+    assert!(h.is_visible(&L::text_containing("could not be loaded").within(error_card(title))));
     assert!(!h.is_visible(&L::text_containing("still closing")));
 
     // the world is deleted while its card shows: the list focuses another one

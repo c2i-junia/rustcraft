@@ -1,6 +1,6 @@
 use crate::network::{
-    open_connection, LocalServerAddress, LocalServerHandle, SendGameMessageExtension, TargetServer,
-    TargetServerState,
+    open_connection, CurrentPlayerProfile, LocalServerAddress, LocalServerHandle,
+    SendGameMessageExtension, TargetServer, TargetServerState,
 };
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeClientTransport;
@@ -110,14 +110,16 @@ fn stop_session(
 
 /// Stops an embedded server that was still running when its session ended, as soon as the
 /// connection to it is established, then removes the connection. A connection that gave up
-/// before the server answered, a world slow to load, is opened again. Does not block: runs
-/// every frame in the menu.
+/// before the server answered (a world slow to load), or that another session replaced and
+/// removed, is opened again. Does not block: runs every frame in the menu.
 pub fn finish_stopping_local_server(
     mut commands: Commands,
     client: Option<ResMut<RenetClient>>,
     transport: Option<ResMut<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
     address: Option<Res<LocalServerAddress>>,
+    profile: Option<Res<CurrentPlayerProfile>>,
+    mut open_failed: Local<bool>,
 ) {
     let Some(mut local_server) = local_server else {
         return;
@@ -133,35 +135,43 @@ pub fn finish_stopping_local_server(
         return;
     }
 
-    let (Some(mut client), Some(mut transport)) = (client, transport) else {
-        return;
-    };
-    if client.is_disconnected() {
-        let Some(LocalServerAddress(addr)) = address.as_deref() else {
-            return;
-        };
-        info!("The connection to the local server left running gave up, opening another");
-        match open_connection(*addr, transport.client_id()) {
-            Ok((client, transport)) => {
-                commands.insert_resource(client);
-                commands.insert_resource(transport);
+    match (client, transport) {
+        (Some(mut client), Some(mut transport)) if !client.is_disconnected() => {
+            if client.is_connected() {
+                info!("Stopping the local server left running by a cancelled connection");
+                client.send_game_message(ClientToServerMessage::Exit);
+                if let Err(err) = transport.send_packets(&mut client) {
+                    error!("Could not send the exit message: {err}");
+                }
+                drop_connection(&mut commands);
             }
-            Err(err) => error!("Could not open a connection to the local server: {err}"),
         }
-        return;
-    }
-    if client.is_connected() {
-        info!("Stopping the local server left running by a cancelled connection");
-        client.send_game_message(ClientToServerMessage::Exit);
-        if let Err(err) = transport.send_packets(&mut client) {
-            error!("Could not send the exit message: {err}");
+        _ => {
+            let (Some(LocalServerAddress(addr)), Some(profile)) =
+                (address.as_deref(), profile.as_deref())
+            else {
+                return;
+            };
+            match open_connection(*addr, profile.id) {
+                Ok((client, transport)) => {
+                    info!("Connecting again to the local server left running, to stop it");
+                    commands.insert_resource(client);
+                    commands.insert_resource(transport);
+                    *open_failed = false;
+                }
+                // tried again every frame: said once
+                Err(err) if !*open_failed => {
+                    error!("Could not open a connection to the local server: {err}");
+                    *open_failed = true;
+                }
+                Err(_) => (),
+            }
         }
-        drop_connection(&mut commands);
     }
 }
 
 /// Joins the thread of an embedded server that finished, and logs why it stopped when it failed.
-fn join_local_server(handle: std::thread::JoinHandle<Result<(), String>>) {
+pub(crate) fn join_local_server(handle: std::thread::JoinHandle<Result<(), String>>) {
     match handle.join() {
         Ok(Ok(())) => (),
         Ok(Err(err)) => error!("Local server stopped on an error: {err}"),
@@ -191,13 +201,18 @@ mod tests {
     use super::*;
     use crate::menus::solo::SelectedWorld;
     use crate::network::add_base_netcode;
+    use crate::network::establish_authenticated_connection_to_server;
     use crate::network::launch_local_server_system;
-    use crate::network::session::{ConnectError, SessionEnd, SessionOrigin};
+    use crate::network::session::{session_plugin, ConnectError, SessionEnd, SessionOrigin};
+    use crate::network::status::StatusProbe;
     use crate::state::GameState;
+    use crate::world::time::ClientTime;
+    use crate::world::ClientWorldMap;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::state::app::StatesPlugin;
     use bevy_renet::netcode::ClientAuthentication;
     use shared::messages::AuthRegisterRequest;
+    use shared::messages::PlayerSpawnEvent;
     use shared::{
         get_shared_renet_config, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
     };
@@ -256,7 +271,11 @@ mod tests {
             app.init_resource::<UnacknowledgedInputs>()
                 .init_resource::<PlayerTickInputsBuffer>();
             app.insert_resource(LocalServerHandle(Some(server)))
-                .insert_resource(LocalServerAddress(addr));
+                .insert_resource(LocalServerAddress(addr))
+                .insert_resource(CurrentPlayerProfile {
+                    id: client_id,
+                    name: name.to_string(),
+                });
             app.world_mut().resource_mut::<TargetServer>().address = Some(addr);
             let now = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -406,6 +425,111 @@ mod tests {
         let world_dir = session.game_folder.join("saves").join("gave-up-test");
         assert!(world_dir.join("world.ron").is_file(), "world not saved");
         std::fs::remove_dir_all(&session.game_folder).unwrap();
+    }
+
+    /// A server join replaced the connection of a world still starting, then ended: a
+    /// connection is opened to tell the world's server to stop.
+    #[test]
+    fn a_server_left_running_is_stopped_even_without_a_connection() {
+        let mut session = SoloSession::connecting("no-client-test", 14);
+        session.app.world_mut().remove_resource::<RenetClient>();
+        session
+            .app
+            .world_mut()
+            .remove_resource::<NetcodeClientTransport>();
+        session
+            .app
+            .add_systems(Update, finish_stopping_local_server);
+
+        update_until(&mut session.app, "the local server to stop", |app| {
+            app.world().resource::<LocalServerHandle>().0.is_none()
+        });
+        let world_dir = session.game_folder.join("saves").join("no-client-test");
+        assert!(world_dir.join("world.ron").is_file(), "world not saved");
+        std::fs::remove_dir_all(&session.game_folder).unwrap();
+    }
+
+    /// The first connection to a world gave up before its server answered, a world slower to
+    /// load than netcode waits: the new connection authenticates.
+    #[test]
+    fn a_world_whose_first_connection_gave_up_still_authenticates() {
+        let mut session = SoloSession::connecting("slow-test", 15);
+        session
+            .app
+            .add_plugins(StatesPlugin)
+            .insert_state(GameState::PreGameLoading)
+            .add_message::<PlayerSpawnEvent>()
+            .insert_resource(ClientTime(0))
+            .init_resource::<ClientWorldMap>()
+            .init_resource::<StatusProbe>()
+            .insert_resource(SessionOrigin::World {
+                name: "slow-test".to_string(),
+            })
+            .add_systems(Update, establish_authenticated_connection_to_server);
+        session_plugin(&mut session.app);
+        // the authentication request is queued on the first connection, which then gives up
+        session.app.update();
+        assert_eq!(
+            session.app.world().resource::<TargetServer>().state,
+            TargetServerState::Establishing
+        );
+        session
+            .app
+            .world_mut()
+            .resource_mut::<NetcodeClientTransport>()
+            .disconnect();
+
+        update_until(&mut session.app, "the authentication", |app| {
+            app.world().resource::<TargetServer>().state == TargetServerState::ConnectionEstablished
+        });
+        assert!(!session.app.world().contains_resource::<SessionEnd>());
+        session
+            .app
+            .world_mut()
+            .run_system_once(terminate_server_connection)
+            .unwrap();
+        assert!(session
+            .app
+            .world()
+            .resource::<LocalServerHandle>()
+            .0
+            .is_none());
+        std::fs::remove_dir_all(&session.game_folder).unwrap();
+    }
+
+    #[test]
+    fn a_local_server_that_already_stopped_is_not_busy() {
+        let stopped = std::thread::spawn(|| Err("Failed to load world world: bad".to_string()));
+        while !stopped.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .init_state::<GameState>()
+            .insert_resource(LocalServerHandle(Some(stopped)))
+            // no world: the launch ends there, after the busy check
+            .insert_resource(SelectedWorld { name: None })
+            .insert_resource(SessionOrigin::World {
+                name: "world".to_string(),
+            })
+            .insert_resource(GameFolderPaths {
+                game_folder_path: std::env::temp_dir().join("rustcraft-never-used"),
+                assets_folder_path: std::env::temp_dir().join("rustcraft-never-used"),
+            })
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: TargetServerState::Initial,
+            })
+            .add_systems(Update, launch_local_server_system);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<SessionEnd>().error,
+            Some(ConnectError::WorldFailed("No world was selected".into()))
+        );
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
     }
 
     fn has_connection(app: &App) -> bool {
