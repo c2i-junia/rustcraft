@@ -21,17 +21,31 @@ pub use codec::*;
 pub use constants::*;
 pub use paths::*;
 
-/// The saves of a world its embedded server finished writing, for the client of the same process.
+/// The saves of a world its embedded server finished writing, and the ones it failed to write
+/// in full, for the client of the same process.
 #[derive(Clone, Default, Debug)]
-pub struct SaveCounter(Arc<AtomicU64>);
+pub struct SaveCounter {
+    saved: Arc<AtomicU64>,
+    failed: Arc<AtomicU64>,
+}
 
 impl SaveCounter {
+    /// The saves written in full.
     pub fn get(&self) -> u64 {
-        self.0.load(Ordering::Acquire)
+        self.saved.load(Ordering::Acquire)
     }
 
     pub fn bump(&self) {
-        self.0.fetch_add(1, Ordering::Release);
+        self.saved.fetch_add(1, Ordering::Release);
+    }
+
+    /// The saves of which something could not be written.
+    pub fn failures(&self) -> u64 {
+        self.failed.load(Ordering::Acquire)
+    }
+
+    pub fn bump_failure(&self) {
+        self.failed.fetch_add(1, Ordering::Release);
     }
 }
 
@@ -39,6 +53,7 @@ impl SaveCounter {
 pub struct GameServerConfig {
     pub world_name: String,
     pub is_solo: bool,
-    /// Counts the saves written, for the client that runs this server in its own process.
+    /// Counts the saves written and failed, for the client that runs this server in its own
+    /// process.
     pub saves: Option<SaveCounter>,
 }

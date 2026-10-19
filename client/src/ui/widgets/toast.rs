@@ -22,6 +22,9 @@ const TOAST_MAX_WIDTH: f32 = 360.0;
 /// The width of the coloured left edge of a toast, in logical px.
 const TOAST_EDGE: f32 = 4.0;
 
+/// The most toasts shown at once: a new one beyond them takes the place of the oldest.
+const MAX_TOASTS: usize = 3;
+
 /// What a toast tells: news, or a failure.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ToastKind {
@@ -43,7 +46,8 @@ pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, despawn_old_toasts);
 }
 
-/// Shows `text` in a toast under the ones already shown, for `TOAST_DURATION`.
+/// Shows `text` in a toast under the ones already shown, for `TOAST_DURATION`. The oldest goes
+/// when there would be more than `MAX_TOASTS`.
 pub fn show_toast(
     commands: &mut Commands,
     text: &str,
@@ -105,6 +109,13 @@ pub fn show_toast(
                 ChildOf(stack),
             ));
         }
+        let shown: Vec<Entity> = world
+            .get::<Children>(stack)
+            .map(|toasts| toasts.to_vec())
+            .unwrap_or_default();
+        for &old in &shown[..shown.len().saturating_sub(MAX_TOASTS)] {
+            world.despawn(old);
+        }
     });
     toast
 }
@@ -162,5 +173,27 @@ mod tests {
             assert_eq!(node.role(), role, "{kind:?}");
             assert_eq!(node.label(), Some("Hello"), "{kind:?}");
         }
+    }
+
+    #[test]
+    fn at_most_three_toasts_show_and_the_oldest_goes() {
+        let mut world = World::new();
+        let toasts: Vec<Entity> = ["One", "Two", "Three", "Four"]
+            .into_iter()
+            .map(|text| {
+                world
+                    .run_system_once(move |mut commands: Commands| {
+                        show_toast(&mut commands, text, ToastKind::Info, Handle::default())
+                    })
+                    .unwrap()
+            })
+            .collect();
+
+        assert!(world.get_entity(toasts[0]).is_err());
+        let stack = world
+            .query_filtered::<&Children, With<ToastStack>>()
+            .single(&world)
+            .unwrap();
+        assert_eq!(stack.to_vec(), toasts[1..]);
     }
 }

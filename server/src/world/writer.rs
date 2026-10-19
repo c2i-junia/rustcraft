@@ -25,21 +25,43 @@ pub struct SaveJob {
     pub chunks: Vec<(IVec3, Chunk)>,
 }
 
-/// Writes `job` into the folder `world_dir`. The metadata goes first, so that the seed of a new
-/// world is on disk before any of its chunks. Returns the chunks that could not be written;
-/// every failure is logged with its path.
-pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> Vec<IVec3> {
-    if let Err(err) = write_meta(world_dir, &job.meta) {
-        error!(
-            "Failed to write {}: {err}",
-            world_dir.join(WORLD_FILE).display()
-        );
+/// What writing one job did.
+pub struct JobOutcome {
+    pub meta_written: bool,
+    pub chunks_dir_ok: bool,
+    /// The chunks that could not be written: all of them without a chunks folder.
+    pub failed_chunks: Vec<IVec3>,
+}
+
+impl JobOutcome {
+    /// Whether everything of the job is on disk.
+    pub fn is_complete(&self) -> bool {
+        self.meta_written && self.chunks_dir_ok && self.failed_chunks.is_empty()
     }
+}
+
+/// Writes `job` into the folder `world_dir`. The metadata goes first, so that the seed of a new
+/// world is on disk before any of its chunks. Every failure is logged with its path.
+pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
+    let meta_written = match write_meta(world_dir, &job.meta) {
+        Ok(()) => true,
+        Err(err) => {
+            error!(
+                "Failed to write {}: {err}",
+                world_dir.join(WORLD_FILE).display()
+            );
+            false
+        }
+    };
 
     let chunks_dir = world_dir.join(CHUNKS_DIR);
     if let Err(err) = std::fs::create_dir_all(&chunks_dir) {
         error!("Failed to create {}: {err}", chunks_dir.display());
-        return job.chunks.into_iter().map(|(pos, _)| pos).collect();
+        return JobOutcome {
+            meta_written,
+            chunks_dir_ok: false,
+            failed_chunks: job.chunks.into_iter().map(|(pos, _)| pos).collect(),
+        };
     }
 
     let total = job.chunks.len();
@@ -58,7 +80,11 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> Vec<IVec3> {
         job.meta.name,
         total - failed.len()
     );
-    failed
+    JobOutcome {
+        meta_written,
+        chunks_dir_ok: true,
+        failed_chunks: failed,
+    }
 }
 
 #[derive(Resource)]
@@ -70,15 +96,17 @@ pub struct WorldWriter {
 }
 
 impl WorldWriter {
-    /// Starts a writer that saves into `world_dir`, and bumps `saves` after each job written
-    /// without a failed chunk.
+    /// Starts a writer that saves into `world_dir`, and counts in `saves` each job written in
+    /// full and each one that was not.
     pub fn spawn(world_dir: PathBuf, saves: Option<SaveCounter>) -> std::io::Result<Self> {
         Self::spawn_with(move |job| {
-            let failed = write_job(&world_dir, job);
-            if let (true, Some(saves)) = (failed.is_empty(), &saves) {
-                saves.bump();
+            let outcome = write_job(&world_dir, job);
+            match (&saves, outcome.is_complete()) {
+                (Some(saves), true) => saves.bump(),
+                (Some(saves), false) => saves.bump_failure(),
+                (None, _) => {}
             }
-            failed
+            outcome.failed_chunks
         })
     }
 
@@ -260,6 +288,26 @@ mod tests {
         writer.close_for_test();
 
         assert_eq!(counter.get(), 1);
+        assert_eq!(counter.failures(), 1);
+    }
+
+    #[test]
+    fn a_save_whose_world_file_cannot_be_written_is_a_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A directory squatting on the temporary name makes world.ron's write fail
+        std::fs::create_dir(tmp.path().join("world.ron.tmp")).unwrap();
+        let counter = SaveCounter::default();
+        let mut writer =
+            WorldWriter::spawn(tmp.path().to_path_buf(), Some(counter.clone())).unwrap();
+
+        assert!(writer.submit(job(&[IVec3::X])).is_ok());
+        writer.close_for_test();
+
+        assert_eq!(counter.get(), 0);
+        assert_eq!(counter.failures(), 1);
+        // the chunks are written all the same, and none is reported
+        assert_eq!(read_chunks(&tmp.path().join(CHUNKS_DIR)).unwrap().len(), 1);
+        assert!(writer.take_failed_chunks().is_empty());
     }
 
     #[test]

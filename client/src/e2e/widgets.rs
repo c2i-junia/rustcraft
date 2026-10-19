@@ -25,7 +25,7 @@ use super::harness::{Harness, Options, SCREEN, STARTUP};
 use super::helpers::main_menu;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::ui::assets::MONO_FONT_PATH;
+use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::QUIT_TITLE;
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER, SPACE_L, SPACE_S};
 use crate::ui::widgets::button::{button, ButtonVariant};
@@ -1667,16 +1667,47 @@ fn a_list_shows_its_scrollbar_only_while_its_items_overflow() {
     assert!(h.is_visible(&card(2)));
 }
 
-/// Shows a toast and lays it out.
+/// Shows a toast in the font of the UI and lays it out.
 fn toast(h: &mut Harness, text: &'static str, kind: ToastKind) -> Entity {
+    let font = h.world().resource::<AssetServer>().load(FONT_PATH);
     let toast = h
         .world_mut()
         .run_system_once(move |mut commands: Commands| {
-            show_toast(&mut commands, text, kind, Handle::default())
+            show_toast(&mut commands, text, kind, font.clone())
         })
         .unwrap();
     h.frames(2);
     toast
+}
+
+/// Checks that the toast `first` shows `SPACE_L` from the top-right corner of the window, and
+/// `second` `SPACE_S` below it.
+#[track_caller]
+fn assert_toasts_top_right(h: &mut Harness, first: Entity, second: Entity) {
+    assert!(h.is_visible(&L::role(Role::Status, "Hello")));
+    assert!(h.is_visible(&L::role(Role::Alert, "Second")));
+    let scale = h.world().resource::<UiScale>().0;
+    let window = h
+        .world_mut()
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(h.world())
+        .unwrap()
+        .physical_width() as f32;
+    let first_rect = rect_of_entity(h, first);
+    assert!(
+        (window - first_rect.max.x - SPACE_L * scale).abs() < 1.0,
+        "{first_rect:?} in a window {window} px wide"
+    );
+    assert!(
+        (first_rect.min.y - SPACE_L * scale).abs() < 1.0,
+        "{first_rect:?}"
+    );
+    let second_rect = rect_of_entity(h, second);
+    assert!(first_rect.intersect(second_rect).is_empty());
+    assert!(
+        (second_rect.min.y - first_rect.max.y - SPACE_S * scale).abs() < 1.0,
+        "{first_rect:?} then {second_rect:?}"
+    );
 }
 
 #[test]
@@ -1711,38 +1742,20 @@ fn a_toast_shows_top_right_and_goes() {
     h.frames(3);
 
     let first = toast(&mut h, "Hello", ToastKind::Info);
-    assert!(h.is_visible(&L::role(Role::Status, "Hello")));
-    let scale = h.world().resource::<UiScale>().0;
-    let window = h
-        .world_mut()
-        .query_filtered::<&Window, With<PrimaryWindow>>()
-        .single(h.world())
-        .unwrap()
-        .physical_width() as f32;
-    let first_rect = rect_of_entity(&h, first);
-    assert!(
-        (window - first_rect.max.x - SPACE_L * scale).abs() < 1.0,
-        "{first_rect:?} in a window {window} px wide"
-    );
-    assert!(
-        (first_rect.min.y - SPACE_L * scale).abs() < 1.0,
-        "{first_rect:?}"
-    );
-
-    // the next one below the first
     let second = toast(&mut h, "Second", ToastKind::Error);
-    assert!(h.is_visible(&L::role(Role::Alert, "Second")));
-    let second_rect = rect_of_entity(&h, second);
-    assert!(first_rect.intersect(second_rect).is_empty());
-    assert!(
-        (second_rect.min.y - first_rect.max.y - SPACE_S * scale).abs() < 1.0,
-        "{first_rect:?} then {second_rect:?}"
-    );
-    assert_eq!(rect_of_entity(&h, first), first_rect);
-    h.snapshot("toasts");
+    // they stay for the length of the test; the end of their time is checked last
+    for toast in [first, second] {
+        h.world_mut().get_mut::<Toast>(toast).unwrap().until = Duration::MAX;
+    }
+    for (width, height) in [(800, 600), (1920, 1080), (1280, 720)] {
+        h.resize(width, height);
+        h.frames(2);
+        h.snapshot("toasts");
+        assert_toasts_top_right(&mut h, first, second);
+    }
 
     // a toast takes no click
-    h.click_at(first_rect.center());
+    h.click_at(rect_of_entity(&h, first).center());
     h.frames(1);
     assert_eq!(activations(&mut h), 1);
 

@@ -108,18 +108,21 @@ impl PauseButton {
     }
 }
 
-/// A save asked by "Save now": the counter when it was asked, and when.
+/// A save asked by "Save now": the counts of saves written and failed when it was asked, and
+/// when.
 #[derive(Resource)]
 pub struct SaveNow {
     pub from: u64,
+    pub failures: u64,
     pub since: Instant,
 }
 
-/// `Some(true)` once the counter passed `from`, `Some(false)` after SAVE_TIMEOUT, else `None`.
-pub fn save_outcome(from: u64, now: u64, elapsed: Duration) -> Option<bool> {
+/// `Some(true)` once the counter passed `from`, `Some(false)` once a save `failed` since, or
+/// after SAVE_TIMEOUT, else `None`.
+pub fn save_outcome(from: u64, now: u64, failed: bool, elapsed: Duration) -> Option<bool> {
     if now > from {
         Some(true)
-    } else if elapsed >= SAVE_TIMEOUT {
+    } else if failed || elapsed >= SAVE_TIMEOUT {
         Some(false)
     } else {
         None
@@ -153,9 +156,11 @@ pub fn pause_plugin(app: &mut App) {
             .run_if(not(dialog_open))
             .run_if(not(text_field_focused)),
     )
+    // after the menu opens: a menu opened while saving never shows "Save now" enabled
     .add_systems(
         Update,
         watch_save_now
+            .after(toggle_pause_menu)
             .run_if(in_state(GameState::Game))
             .run_if(resource_exists::<SaveNow>),
     )
@@ -369,6 +374,7 @@ fn act_on_pause_button(
             if let Some(saves) = saves {
                 commands.insert_resource(SaveNow {
                     from: saves.0.get(),
+                    failures: saves.0.failures(),
                     since: Instant::now(),
                 });
                 commands
@@ -395,7 +401,8 @@ fn watch_save_now(
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
-    let outcome = save_outcome(save.from, saves.0.get(), save.since.elapsed());
+    let failed = saves.0.failures() > save.failures;
+    let outcome = save_outcome(save.from, saves.0.get(), failed, save.since.elapsed());
     for (entity, &action, disabled) in &buttons {
         if action != PauseButton::SaveNow {
             continue;
@@ -458,6 +465,7 @@ fn hide_hud_under_menus(
 mod tests {
     use super::*;
     use bevy::state::app::StatesPlugin;
+    use shared::SaveCounter;
     use std::collections::BTreeMap;
 
     fn app(ui_mode: UIMode) -> App {
@@ -535,10 +543,97 @@ mod tests {
     #[test]
     fn a_save_is_told_once_written_or_after_ten_seconds() {
         let s = Duration::from_secs;
-        assert_eq!(save_outcome(5, 5, s(1)), None);
-        assert_eq!(save_outcome(5, 6, s(1)), Some(true));
-        assert_eq!(save_outcome(5, 5, s(10)), Some(false));
-        assert_eq!(save_outcome(5, 6, s(11)), Some(true));
+        assert_eq!(save_outcome(5, 5, false, s(1)), None);
+        assert_eq!(save_outcome(5, 6, false, s(1)), Some(true));
+        assert_eq!(save_outcome(5, 5, false, s(10)), Some(false));
+        assert_eq!(save_outcome(5, 6, false, s(11)), Some(true));
+    }
+
+    #[test]
+    fn a_failed_save_is_told_at_once_unless_another_save_was_written() {
+        let s = Duration::from_secs;
+        assert_eq!(save_outcome(5, 5, true, s(1)), Some(false));
+        assert_eq!(save_outcome(5, 6, true, s(1)), Some(true));
+    }
+
+    /// An app in the game with the systems of the pause menu, and a save asked by "Save now" that
+    /// is not written yet.
+    fn saving_app(saves: &SaveCounter) -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
+            .init_asset::<Font>()
+            .insert_state(GameState::Game)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<InputFocus>()
+            .init_resource::<InputFocusVisible>()
+            .init_resource::<KeyCapture>()
+            .insert_resource(KeyMap {
+                map: BTreeMap::from([(GameAction::Escape, vec![KeyCode::Escape])]),
+            })
+            .insert_resource(UIMode::Closed)
+            .insert_resource(LocalSaves(saves.clone()))
+            .insert_resource(SaveNow {
+                from: saves.get(),
+                failures: saves.failures(),
+                since: Instant::now(),
+            })
+            .add_plugins(pause_plugin);
+        app
+    }
+
+    /// Opens the pause menu with Escape, then lets go of the key.
+    fn open_pause_menu(app: &mut App) {
+        press_escape(app);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+    }
+
+    /// The label of "Save now", and whether it is disabled.
+    fn save_now(app: &mut App) -> (String, bool) {
+        let world = app.world_mut();
+        let (label, disabled, children) = world
+            .query::<(
+                &PauseButton,
+                &AccessibleLabel,
+                Has<InteractionDisabled>,
+                &Children,
+            )>()
+            .iter(world)
+            .find(|(action, ..)| **action == PauseButton::SaveNow)
+            .map(|(_, label, disabled, children)| (label.0.clone(), disabled, children[0]))
+            .unwrap();
+        assert_eq!(world.get::<Text>(children).unwrap().0, label);
+        (label, disabled)
+    }
+
+    #[test]
+    fn a_menu_opened_while_saving_shows_save_now_waiting_from_its_first_frame() {
+        let mut app = saving_app(&SaveCounter::default());
+        open_pause_menu(&mut app);
+        assert_eq!(save_now(&mut app), (SAVING.to_string(), true));
+    }
+
+    #[test]
+    fn a_failed_save_says_so_at_once_and_gives_save_now_back() {
+        let saves = SaveCounter::default();
+        let mut app = saving_app(&saves);
+        open_pause_menu(&mut app);
+
+        saves.bump_failure();
+        app.update();
+
+        assert_eq!(save_now(&mut app), ("Save now".to_string(), false));
+        assert!(!app.world().contains_resource::<SaveNow>());
+        let world = app.world_mut();
+        let alerts: Vec<Option<String>> = world
+            .query::<&AccessibilityNode>()
+            .iter(world)
+            .filter(|node| node.role() == Role::Alert)
+            .map(|node| node.label().map(str::to_string))
+            .collect();
+        assert_eq!(alerts, [Some(SAVE_FAILED.to_string())]);
     }
 
     #[test]
