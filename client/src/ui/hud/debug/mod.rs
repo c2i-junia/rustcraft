@@ -1,3 +1,4 @@
+pub mod biome;
 pub mod blocks;
 pub mod chunks;
 pub mod coords;
@@ -14,6 +15,7 @@ use bevy::prelude::*;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::state::KeyMap;
+pub use biome::*;
 pub use blocks::*;
 pub use chunks::*;
 pub use coords::*;

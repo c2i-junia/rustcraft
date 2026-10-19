@@ -12,6 +12,7 @@ use shared::messages::{
 };
 use shared::players::Player;
 use shared::utils::unix_time_ms;
+use shared::world::WorldSeed;
 use shared::{GameFolderPaths, GameServerConfig};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
@@ -55,6 +56,7 @@ pub(super) fn auth_register_request(
     world_map: &mut ServerWorldMap,
     chat_conversation: &ChatConversation,
     time: &ServerTime,
+    seed: WorldSeed,
     game_folder_paths: &GameFolderPaths,
     max_render_distance: u32,
 ) -> ControlFlow<()> {
@@ -107,6 +109,7 @@ pub(super) fn auth_register_request(
         timestamp_ms: unix_time_ms(),
         players,
         max_render_distance,
+        seed: seed.0,
     };
     server.send_game_message(client_id, auth_res.into());
 

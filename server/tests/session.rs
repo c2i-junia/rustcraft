@@ -325,6 +325,7 @@ fn solo_session_from_auth_to_exit() {
     });
     assert_eq!(auth.username, "tester");
     assert_eq!(auth.session_token, client.id);
+    assert_eq!(auth.seed, FLAT_SPAWN_SEED);
 
     // 2. World chunks and our own spawn
     let chunk_count = client.wait_for("WorldUpdate with chunks", |m| match m {

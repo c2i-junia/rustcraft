@@ -3,7 +3,7 @@ use bevy::prelude::*;
 /// Bump it whenever a network message or an enum sent in one (`BlockId`, `BlockDirection`,
 /// `ItemId`, ...) changes, so that a client and a server of different builds refuse to talk
 /// instead of misreading each other.
-pub const PROTOCOL_ID: u64 = 9;
+pub const PROTOCOL_ID: u64 = 10;
 /// The UDP port a server listens on when none is given, and that an address without one means.
 pub const DEFAULT_PORT: u16 = 8000;
 pub const TICKS_PER_SECOND: u64 = 20;

@@ -13,6 +13,7 @@ use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
 use bevy_renet::{RenetServer, RenetServerEvent};
 use shared::messages::{ChatConversation, ClientToServerMessage};
+use shared::world::WorldSeed;
 use shared::{GameFolderPaths, GameServerConfig, MAX_INPUTS_PER_TICK, TICKS_PER_SECOND};
 
 use super::extensions::SendGameMessageExtension;
@@ -166,6 +167,7 @@ fn handle_client_messages_system(
     config: Res<GameServerConfig>,
     mut world_map: ResMut<ServerWorldMap>,
     mut time: ResMut<ServerTime>,
+    seed: Res<WorldSeed>,
     game_folder_paths: Res<GameFolderPaths>,
 ) {
     for client_id in server.clients_id() {
@@ -194,6 +196,7 @@ fn handle_client_messages_system(
                         &mut world_map,
                         &chat_conversation,
                         &time,
+                        *seed,
                         &game_folder_paths,
                         config.max_render_distance,
                     );

@@ -7,6 +7,7 @@ use bevy_renet::netcode::{
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
 use shared::messages::mob::MobUpdateEvent;
+use shared::world::BiomeNoises;
 use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CHANNEL};
 
 use crate::menus::solo::SelectedWorld;
@@ -14,6 +15,7 @@ use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
+use crate::ui::hud::debug::WorldBiomes;
 use crate::world::time::ClientTime;
 use crate::world::{
     BlockChanged, RenderDistance, ServerRenderDistanceLimit, WorldRenderRequestUpdateEvent,
@@ -444,6 +446,7 @@ pub fn establish_authenticated_connection_to_server(
                 target.state = TargetServerState::ConnectionEstablished;
                 client_time.0 = message.tick;
                 commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
+                commands.insert_resource(WorldBiomes(BiomeNoises::new(message.seed)));
                 // `timestamp_ms` is not used yet: the clock starts at the server's tick as it
                 // was when the response left, so it lags by the latency
                 for player in message.players {

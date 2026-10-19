@@ -121,6 +121,7 @@ pub fn hud_plugin(app: &mut App) {
                 show_fps_counter,
                 (record_frame_time, draw_fps_graph).chain(),
                 coords_text_update_system,
+                biome_text_update_system,
                 loaded_chunks_text_update_system,
                 block_text_update_system,
                 time_text_update_system,

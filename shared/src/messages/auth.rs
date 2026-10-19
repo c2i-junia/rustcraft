@@ -24,6 +24,8 @@ pub struct AuthRegisterResponse {
     pub players: Vec<PlayerSpawnEvent>, // all players (including the new one)
     /// The largest render distance this server grants, in chunks.
     pub max_render_distance: u32,
+    /// The seed of the world, from which the client finds the biome the player is in.
+    pub seed: u32,
 }
 
 impl From<AuthRegisterResponse> for ServerToClientMessage {

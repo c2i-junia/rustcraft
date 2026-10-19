@@ -91,6 +91,7 @@ mod tests {
             timestamp_ms: 0,
             players: vec![],
             max_render_distance: 0,
+            seed: 0,
         };
         let chat = FullChatMessage {
             content: String::new(),

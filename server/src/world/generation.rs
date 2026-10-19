@@ -5,7 +5,6 @@ use shared::{world::*, CHUNK_SIZE};
 /// Water fills every column up to this height; flora only grows on land above it.
 const SEA_LEVEL: i32 = 62;
 const TERRAIN_SCALE: f64 = 0.1;
-const BIOME_SCALE: f64 = 0.01;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
@@ -93,49 +92,15 @@ struct Column {
 
 struct Noises {
     terrain: Perlin,
-    temperature: Perlin,
-    humidity: Perlin,
+    biome: BiomeNoises,
 }
 
 impl Noises {
     fn new(seed: u32) -> Self {
         Self {
             terrain: Perlin::new(seed),
-            temperature: Perlin::new(seed.wrapping_add(1)),
-            humidity: Perlin::new(seed.wrapping_add(2)),
+            biome: BiomeNoises::new(seed),
         }
-    }
-}
-
-pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
-    let ocean_percentage: f64 = 0.33;
-    if humidity > (1.0 - (ocean_percentage / 3.0)) {
-        return BiomeType::DeepOcean;
-    }
-    if humidity > (1.0 - 2.0 * (ocean_percentage / 3.0)) {
-        return BiomeType::Ocean;
-    }
-    if humidity > (1.0 - ocean_percentage) {
-        return BiomeType::ShallowOcean;
-    }
-    if temperature > 0.6 {
-        if humidity > (1.0 - ocean_percentage) / 2.0 {
-            BiomeType::Forest
-        } else {
-            BiomeType::Desert
-        }
-    } else if temperature > 0.3 {
-        if humidity > 2.0 * (1.0 - ocean_percentage) / 3.0 {
-            BiomeType::FlowerPlains
-        } else if humidity > (1.0 - ocean_percentage) / 3.0 {
-            BiomeType::Plains
-        } else {
-            BiomeType::MediumMountain
-        }
-    } else if humidity > (1.0 - ocean_percentage) / 2.0 {
-        BiomeType::IcePlain
-    } else {
-        BiomeType::HighMountainGrass
     }
 }
 
@@ -210,23 +175,20 @@ fn interpolated_height(
 }
 
 fn terrain_column(noises: &Noises, x: i32, z: i32) -> Column {
-    let point = [x as f64 * BIOME_SCALE, z as f64 * BIOME_SCALE];
-    let temperature = (noises.temperature.get(point) + 1.0) / 2.0;
-    let humidity = (noises.humidity.get(point) + 1.0) / 2.0;
     let height = interpolated_height(
         x,
         z,
         BIOME_SCALE,
         &noises.terrain,
-        &noises.temperature,
-        &noises.humidity,
+        &noises.biome.temperature,
+        &noises.biome.humidity,
         TERRAIN_SCALE,
     );
     Column {
         x,
         z,
         height,
-        biome_type: determine_biome(temperature, humidity),
+        biome_type: noises.biome.biome_at(x, z),
     }
 }
 
@@ -476,9 +438,7 @@ mod tests {
 
     /// Height, biome and surface block of a world column, read back from the generated chunks.
     fn probe(seed: u32, x: i32, z: i32) -> (i32, BiomeType, BlockId) {
-        let temperature = Perlin::new(seed + 1).get([x as f64 * 0.01, z as f64 * 0.01]);
-        let humidity = Perlin::new(seed + 2).get([x as f64 * 0.01, z as f64 * 0.01]);
-        let biome = determine_biome((temperature + 1.0) / 2.0, (humidity + 1.0) / 2.0);
+        let biome = BiomeNoises::new(seed).biome_at(x, z);
         let surface = get_biome_data(biome).surface_block;
         let local = IVec3::new(x.rem_euclid(CHUNK_SIZE), 0, z.rem_euclid(CHUNK_SIZE));
         let mut height = -1;

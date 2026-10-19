@@ -1,3 +1,4 @@
+pub mod biome;
 pub mod blocks;
 pub mod chunk;
 pub mod chunk_map;
@@ -13,6 +14,7 @@ pub mod raycast;
 mod test_helpers;
 mod utils;
 
+pub use biome::*;
 pub use blocks::*;
 pub use chunk::*;
 pub use chunk_map::*;
