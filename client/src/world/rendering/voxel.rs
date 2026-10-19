@@ -84,10 +84,19 @@ impl VoxelShape {
                 shape.faces[TOP].tint(GRASS_COLOR);
                 shape
             }
+            BlockId::CraftingTable => {
+                // A texture per face, like the model of the texture pack: the front looks
+                // north, toward -Z
+                let mut shape = Self::full_cube(block);
+                let suffixes = ["Top", "Bottom", "", "Side2", "Side1", "Side"];
+                for (face, suffix) in shape.faces.iter_mut().zip(suffixes) {
+                    face.texture += suffix;
+                }
+                shape
+            }
             BlockId::OakLog
             | BlockId::SpruceLog
             | BlockId::Cactus
-            | BlockId::CraftingTable
             | BlockId::Furnace
             | BlockId::Chest => {
                 let mut shape = Self::full_cube(block);
@@ -299,9 +308,28 @@ mod tests {
     }
 
     #[test]
-    fn crafting_table_furnace_and_chest_have_their_own_top_texture() {
+    fn the_crafting_table_has_a_texture_per_face() {
+        let textures: Vec<_> = shape_of(BlockId::CraftingTable)
+            .faces
+            .into_iter()
+            .map(|face| face.texture)
+            .collect();
+        assert_eq!(
+            textures,
+            [
+                "CraftingTableTop",
+                "CraftingTableBottom",
+                "CraftingTable",
+                "CraftingTableSide2",
+                "CraftingTableSide1",
+                "CraftingTableSide",
+            ]
+        );
+    }
+
+    #[test]
+    fn furnace_and_chest_have_their_own_top_texture() {
         for (id, top, side) in [
-            (BlockId::CraftingTable, "CraftingTableTop", "CraftingTable"),
             (BlockId::Furnace, "FurnaceTop", "Furnace"),
             (BlockId::Chest, "ChestTop", "Chest"),
         ] {

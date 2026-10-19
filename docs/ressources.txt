@@ -38,7 +38,9 @@ https://github.com/tbillington/bevy_best_practices/tree/main
 ---- TEXTURES ----
 XSSheep's and Nova_Wostra's Pixel Perfection (resource pack):
 https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
--> The textures of the wooden tools (data/graphics/base_textures/items/Wooden*.png).
+-> The textures of the wooden tools (data/graphics/base_textures/items/Wooden*.png), of the
+   crafting table (blocks/CraftingTable*.png, items/CraftingTable.png) and of the chest
+   (blocks/Chest*.png, items/Chest.png), cut from the pack's entity/chest/normal.png.
 
 ---- OTHER ----
 logo : 
