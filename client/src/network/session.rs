@@ -932,13 +932,13 @@ mod tests {
 
     #[test]
     fn a_world_whose_server_stopped_says_why() {
-        let server = std::thread::spawn(|| Err("Failed to load world Broken: bad".to_string()));
+        let server = std::thread::spawn(|| Err("saves/Broken/world.ron: bad".to_string()));
         let client = RenetClient::new(get_shared_renet_config());
         let mut app = world_watched(server, client);
         assert_eq!(
             ended(&mut app),
             Some(ConnectError::WorldFailed(
-                "Failed to load world Broken: bad".into()
+                "saves/Broken/world.ron: bad".into()
             ))
         );
         assert!(app.world().resource::<LocalServerHandle>().0.is_none());

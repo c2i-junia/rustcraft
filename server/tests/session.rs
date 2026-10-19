@@ -721,9 +721,10 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
 
     let err = server::init(socket, config, paths).unwrap_err();
 
+    // only the cause: the caller names the world
     assert!(
-        err.contains("world.ron"),
-        "error does not name the file: {err}"
+        err.starts_with(&format!("{}: ", world_file.display())),
+        "error does not start with the file: {err}"
     );
     assert_eq!(std::fs::read_to_string(world_file).unwrap(), "not a world");
 }

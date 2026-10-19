@@ -519,7 +519,7 @@ mod tests {
 
     #[test]
     fn a_local_server_that_already_stopped_is_not_busy() {
-        let stopped = std::thread::spawn(|| Err("Failed to load world world: bad".to_string()));
+        let stopped = std::thread::spawn(|| Err("saves/world/world.ron: bad".to_string()));
         while !stopped.is_finished() {
             std::thread::sleep(Duration::from_millis(1));
         }

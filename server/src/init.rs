@@ -221,8 +221,9 @@ fn load_world(
     world_name: &str,
     game_folder_paths: &GameFolderPaths,
 ) -> Result<(ServerWorldMap, WorldSeed, u64), String> {
-    let world_data = load_world_data(world_name, game_folder_paths)
-        .map_err(|err| format!("Failed to load world {world_name}: {err}"))?;
+    // the cause alone, which names the file: the caller knows the world it asked for
+    let world_data =
+        load_world_data(world_name, game_folder_paths).map_err(|err| err.to_string())?;
 
     let mut chunks = ChunkMap::default();
     for (chunk_pos, chunk) in world_data.map {
