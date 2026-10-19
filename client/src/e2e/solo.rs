@@ -10,6 +10,7 @@ use bevy::input_focus::InputFocus;
 use bevy::math::Vec2;
 use bevy::prelude::{BackgroundColor, Children, Entity, With};
 use bevy::ui::{InteractionDisabled, Selected};
+use bevy::ui_widgets::Scrollbar;
 use server::{WorldMeta, WORLD_FILE};
 
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
@@ -481,6 +482,37 @@ fn a_long_name_stays_inside_its_card_at_800x600() {
     let pane = h.rect_of(&L::marker::<WorldDetail>());
     let pane_name = h.rect_of(&L::text(&name).within(L::marker::<WorldDetail>()));
     assert!(inside(pane, pane_name), "{pane_name:?} in {pane:?}");
+    // the name takes two lines of the pane: its buttons stay inside it
+    for action in ["Play", "Rename", "Delete"] {
+        let button = h.rect_of(&L::role(Role::Button, action).within(L::marker::<WorldDetail>()));
+        assert!(inside(pane, button), "{action}: {button:?} in {pane:?}");
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_ten_digit_seed_keeps_its_card_as_tall_as_the_others_at_800x600() {
+    let small = Options {
+        width: 800,
+        height: 600,
+        ..Default::default()
+    };
+    // enough worlds for the scrollbar, and the widest age
+    let mut folder = GameFolder::new()
+        .with_seeded_world("Short", 1, 0, HOUR)
+        .with_seeded_world("Long", u32::MAX, 0, 10 * DAY);
+    for i in 1..=4 {
+        folder = folder.with_seeded_world(&format!("Older {i}"), 1, 0, (20 + i) * DAY);
+    }
+    let mut h = open_world_list_with(folder, small);
+    h.wait_for(&card("Long"), SCREEN);
+    h.frames(2);
+    let short = h.rect_of(&card("Short")).height();
+    let long = h.rect_of(&card("Long")).height();
+    assert_eq!(
+        long, short,
+        "the card of the long seed is {long} px tall, not {short}"
+    );
 }
 
 /// The New world button of the world list.
@@ -765,6 +797,18 @@ fn open_rename(h: &mut Harness, world: &str) {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn rename_is_disabled_from_the_first_frame_of_its_dialog() {
+    let mut h = world_list();
+    h.click_when_ready(&card("Survie"));
+    h.click(&L::role(Role::Button, "Rename"));
+    let dialog = L::role(Role::Dialog, "Rename \"Survie\"");
+    h.wait_for(&dialog, SCREEN);
+    let confirm = h.get(&L::role(Role::Button, "Rename").within(dialog));
+    assert!(h.world().get::<InteractionDisabled>(confirm).is_some());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_rename_that_only_changes_the_case_renames_the_world() {
     let mut h = world_list();
     open_rename(&mut h, "Survie");
@@ -824,4 +868,17 @@ fn back_and_escape_return_to_the_main_menu() {
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_list_of_long_names_that_fits_shows_no_scrollbar() {
+    let mut folder = GameFolder::new().with_seeded_world(&"W".repeat(32), u32::MAX, 0, DAY);
+    for i in 1..=3 {
+        folder = folder.with_seeded_world(&format!("World {i}"), 1, 0, (1 + i) * DAY);
+    }
+    let mut h = open_world_list(folder);
+    h.wait_for(&card("World 3"), SCREEN);
+    h.frames(3);
+    assert!(!h.is_visible(&L::marker::<Scrollbar>()));
 }

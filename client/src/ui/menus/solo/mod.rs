@@ -287,30 +287,49 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
             ChildOf(pane),
         ))
         .id();
-    commands.spawn((
-        ArrowNav,
-        Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
-            ..default()
-        },
-        ChildOf(actions),
-        children![
-            (
+    let buttons = commands
+        .spawn((
+            ArrowNav,
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_S),
+                ..default()
+            },
+            ChildOf(actions),
+            children![(
                 button("Play", ButtonVariant::Primary, font.clone()),
                 WorldAction::Play,
-            ),
-            (
-                button("Rename", ButtonVariant::Default, font.clone()),
-                WorldAction::Rename,
-            ),
-            // red only in the confirmation: Play stays the one strong action
-            (
-                button("Delete", ButtonVariant::Default, font.clone()),
-                WorldAction::Delete,
-            ),
-        ],
-    ));
+            )],
+        ))
+        .id();
+    // side by side under Play, which leaves a long name two lines of the pane at 800x600
+    let pair = commands
+        .spawn((
+            Node {
+                column_gap: px(SPACE_S),
+                ..default()
+            },
+            ChildOf(buttons),
+        ))
+        .id();
+    // red only in the confirmation: Play stays the one strong action
+    for (label, action) in [
+        ("Rename", WorldAction::Rename),
+        ("Delete", WorldAction::Delete),
+    ] {
+        commands
+            .spawn((
+                button(label, ButtonVariant::Default, font.clone()),
+                action,
+                ChildOf(pair),
+            ))
+            .entry::<Node>()
+            .and_modify(|mut node| {
+                // halves of the width, whatever their labels
+                node.flex_grow = 1.0;
+                node.flex_basis = px(0);
+            });
+    }
     commands.spawn((
         WorldError,
         text("", FONT_S, DANGER, font),
@@ -394,6 +413,15 @@ fn show_worlds(
                 }
                 _ => text("Cannot read world.ron", FONT_S, DANGER, font),
             };
+            let played = text(
+                &played_ago(elapsed_since(world.played)),
+                FONT_S,
+                MUTED,
+                font,
+            );
+            let size = text(&format_size(world.size), FONT_S, MUTED, font);
+            // two lines, each with its fact on the right: the short size leaves the day and
+            // the seed the width the age takes from the name
             commands.entity(card).insert((
                 WorldCard(world.clone()),
                 children![
@@ -406,24 +434,9 @@ fn show_worlds(
                             row_gap: px(SPACE_XS),
                             ..default()
                         },
-                        children![text(&world.name, FONT_M, TEXT, font), details],
-                    ),
-                    (
-                        Node {
-                            flex_direction: FlexDirection::Column,
-                            flex_shrink: 0.0,
-                            align_items: AlignItems::FlexEnd,
-                            row_gap: px(SPACE_XS),
-                            ..default()
-                        },
                         children![
-                            text(
-                                &played_ago(elapsed_since(world.played)),
-                                FONT_S,
-                                MUTED,
-                                font
-                            ),
-                            text(&format_size(world.size), FONT_S, MUTED, font),
+                            card_line(text(&world.name, FONT_M, TEXT, font), played),
+                            card_line(details, size),
                         ],
                     ),
                 ],
@@ -431,6 +444,36 @@ fn show_worlds(
             card
         })
         .collect()
+}
+
+/// A line of a card: `left`, which wraps, and `right`, which keeps its width, at the end.
+fn card_line(left: impl Bundle, right: impl Bundle) -> impl Bundle {
+    (
+        Node {
+            column_gap: px(SPACE_M),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        children![
+            // in a box of its own: a text that shrinks itself adds its height at the narrowest,
+            // a letter a line, to the content size of the list, which then shows its scrollbar
+            (
+                Node {
+                    flex_grow: 1.0,
+                    min_width: px(0),
+                    ..default()
+                },
+                children![left],
+            ),
+            (
+                right,
+                Node {
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+            ),
+        ],
+    )
 }
 
 /// Shows `world` in the detail pane, in place of what it showed.

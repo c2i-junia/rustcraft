@@ -253,6 +253,10 @@ pub fn open_rename_dialog(
         font,
         focus,
     );
+    // the name is unchanged until the first check, a few frames later
+    commands
+        .entity(parts.actions[1])
+        .insert(InteractionDisabled);
     commands
         .entity(parts.root)
         .insert(WorldForm::new(
