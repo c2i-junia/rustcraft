@@ -1,6 +1,7 @@
 pub mod blocks;
 pub mod chunk;
 pub mod chunk_map;
+pub mod container;
 pub mod crafting;
 pub mod data;
 pub mod dropped_items;
@@ -15,6 +16,7 @@ mod utils;
 pub use blocks::*;
 pub use chunk::*;
 pub use chunk_map::*;
+pub use container::*;
 pub use crafting::*;
 pub use data::*;
 pub use dropped_items::*;

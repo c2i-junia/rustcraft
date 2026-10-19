@@ -205,6 +205,12 @@ impl BlockId {
         }
     }
 
+    /// Whether a right click on this block uses it, like a crafting table or a chest, instead of
+    /// placing a block against it. Sneaking places the block.
+    pub fn is_usable(&self) -> bool {
+        matches!(*self, Self::CraftingTable | Self::Chest)
+    }
+
     /// Whether a block placed in the cell of this one takes its place.
     pub fn is_replaceable(&self) -> bool {
         matches!(*self, Self::Water)

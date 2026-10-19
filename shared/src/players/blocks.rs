@@ -5,7 +5,7 @@ use crate::{
     players::{movement::MAX_FRAME_DELTA_MS, Player},
     world::{
         global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, ChunkMap,
-        FaceDirectionExt, ItemType, RaycastResponse,
+        Container, FaceDirectionExt, ItemType, RaycastResponse,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -74,10 +74,13 @@ impl Refused {
 }
 
 /// A block a player broke. Its items are not given to the player: the server drops them.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BrokenBlock {
     pub position: IVec3,
     pub block: BlockId,
+    /// What a broken chest held, dropped with it. A client only knows the contents of the
+    /// chest its player has open.
+    pub contents: Option<Container>,
 }
 
 /// Breaks and places the blocks `action` asks for, and returns the blocks it broke.
@@ -205,10 +208,12 @@ fn break_block(
         return Ok(None);
     }
 
+    let contents = world_map.take_container(position);
     world_map.remove_block(position);
     Ok(Some(BrokenBlock {
         position,
         block: block.id,
+        contents,
     }))
 }
 
@@ -221,8 +226,8 @@ fn place_block(
     let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
     let target = aimed_block(player, world_map, action, new_block_position)?;
     if let Some(aimed) = world_map.get_block(target.position) {
-        if aimed.id == BlockId::CraftingTable && !action.is_pressed(NetworkAction::SneakOrFlyDown) {
-            // The client opens the table instead, and predicts no block either
+        if aimed.id.is_usable() && !action.is_pressed(NetworkAction::SneakOrFlyDown) {
+            // The client opens the block instead, and predicts no block either
             return Err(Refused {
                 reason: Refusal::UsesBlock(aimed.id),
                 predicted_at: None,
@@ -263,6 +268,9 @@ fn place_block(
 
     player.inventory.remove_item_from_stack(slot, 1);
     world_map.set_block(position, BlockData::new(block_id, BlockDirection::Front));
+    if block_id == BlockId::Chest {
+        world_map.insert_container(position, Container::default());
+    }
     Ok(())
 }
 
@@ -376,7 +384,8 @@ mod tests {
             broken,
             vec![BrokenBlock {
                 position: TARGET,
-                block: BlockId::Dandelion
+                block: BlockId::Dandelion,
+                contents: None,
             }]
         );
         // The items are dropped by the server, not given to the player
@@ -453,8 +462,12 @@ mod tests {
     }
 
     #[test]
-    fn right_click_on_a_table_places_nothing_unless_sneaking() {
-        for (sneaking, placed) in [(false, None), (true, Some(BlockId::Dirt))] {
+    fn right_click_on_a_table_or_a_chest_places_nothing_unless_sneaking() {
+        let cases = [false, true].into_iter().flat_map(|sneaking| {
+            let placed = sneaking.then_some(BlockId::Dirt);
+            [BlockId::CraftingTable, BlockId::Chest].map(|used| (used, sneaking, placed))
+        });
+        for (used, sneaking, placed) in cases {
             let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
             let position = Vec3::new(0.5, 0.5, 2.5);
             let camera = Transform::from_translation(position);
@@ -467,11 +480,7 @@ mod tests {
                     nb: 1,
                 },
             );
-            world.fill_box(
-                IVec3::new(0, 0, -1),
-                IVec3::new(0, 0, -1),
-                BlockId::CraftingTable,
-            );
+            world.fill_box(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1), used);
             let mut input = PlayerFrameInput {
                 inputs: [NetworkAction::RightClick].into(),
                 camera,
@@ -486,7 +495,7 @@ mod tests {
             assert_eq!(
                 world.get_block(IVec3::ZERO).map(|b| b.id),
                 placed,
-                "sneaking: {sneaking}"
+                "{used:?}, sneaking: {sneaking}"
             );
         }
     }
@@ -594,5 +603,81 @@ mod tests {
             Some(BlockId::Dirt)
         );
         assert!(player.inventory.inner.is_empty());
+    }
+
+    fn stack(item_id: ItemId, nb: u32) -> ItemStack {
+        ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb,
+        }
+    }
+
+    /// Hits the chest at `TARGET` until it breaks, and returns what breaking it gave.
+    fn break_chest(
+        player: &mut Player,
+        world: &mut ChunkMap,
+        input: &PlayerFrameInput,
+    ) -> Vec<BrokenBlock> {
+        let steps = BlockId::Chest.get_break_time().unwrap();
+        (0..steps)
+            .flat_map(|_| {
+                simulate_player_block_interactions(player, world, input, CallerType::Server)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn placing_a_chest_gives_it_empty_contents() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        let position = Vec3::new(0.5, 0.5, 2.5);
+        let camera = Transform::from_translation(position);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player.inventory.inner.insert(0, stack(ItemId::Chest, 1));
+        world.fill_box(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1), BlockId::Stone);
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+
+        assert_eq!(
+            world.get_block(IVec3::ZERO).map(|b| b.id),
+            Some(BlockId::Chest)
+        );
+        assert_eq!(world.container(IVec3::ZERO), Some(&Container::default()));
+    }
+
+    #[test]
+    fn a_broken_chest_hands_its_contents_over_with_it() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Chest);
+        let mut contents = Container::default();
+        contents.slots[4] = Some(stack(ItemId::Stone, 10));
+        world.insert_container(TARGET, contents.clone());
+
+        let broken = break_chest(&mut player, &mut world, &input);
+
+        assert!(world.get_block(TARGET).is_none());
+        assert_eq!(world.container(TARGET), None);
+        assert_eq!(
+            broken,
+            vec![BrokenBlock {
+                position: TARGET,
+                block: BlockId::Chest,
+                contents: Some(contents),
+            }]
+        );
+        assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn a_chest_whose_contents_are_unknown_breaks_like_any_block() {
+        let (mut player, mut world, input) = left_click_on(BlockId::Chest);
+        let broken = break_chest(&mut player, &mut world, &input);
+        assert!(world.get_block(TARGET).is_none());
+        assert_eq!(broken.len(), 1);
+        assert_eq!(broken[0].contents, None);
     }
 }

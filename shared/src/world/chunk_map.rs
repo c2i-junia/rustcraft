@@ -3,17 +3,25 @@ use std::collections::{HashMap, HashSet};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
 use crate::world::{
-    global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockTransparency, Chunk,
+    global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockId, BlockTransparency,
+    Chunk, Container,
 };
 
 /// The blocks of a world, on the server as on the client: the loaded chunks, and the global
 /// positions of the blocks that changed since the last `take_changed_blocks`.
+///
+/// It also holds the contents of the chests, by position. A container only exists where a chest
+/// stands: replacing or removing the chest, or removing its chunk, drops it. The server holds
+/// the contents of every chest, a client only those of the chest its player has open.
 ///
 /// Positions named `pos` are global block positions, `chunk_pos` are chunk coordinates.
 #[derive(Default, Clone, Debug)]
 pub struct ChunkMap {
     chunks: HashMap<IVec3, Chunk>,
     changed: HashSet<IVec3>,
+    containers: HashMap<IVec3, Container>,
+    /// The chests whose contents changed since the last `take_changed_containers`.
+    changed_containers: HashSet<IVec3>,
 }
 
 impl ChunkMap {
@@ -31,8 +39,10 @@ impl ChunkMap {
     /// hear about the blocks of a chunk that is gone. This is not a block change.
     pub fn remove_chunk(&mut self, chunk_pos: IVec3) -> Option<Chunk> {
         let chunk = self.chunks.remove(&chunk_pos)?;
-        self.changed
-            .retain(|pos| global_block_to_chunk_pos(pos) != chunk_pos);
+        let outside = |pos: &IVec3| global_block_to_chunk_pos(pos) != chunk_pos;
+        self.changed.retain(outside);
+        self.containers.retain(|pos, _| outside(pos));
+        self.changed_containers.retain(outside);
         Some(chunk)
     }
 
@@ -63,14 +73,74 @@ impl ChunkMap {
         }
         chunk.set(local, block);
         self.changed.insert(pos);
+        if block.id != BlockId::Chest {
+            self.drop_container(pos);
+        }
     }
 
-    /// Empties `pos` and returns the block that was there, if any.
+    /// Empties `pos` and returns the block that was there, if any. The contents of a chest
+    /// there are dropped: take them first with `take_container`.
     pub fn remove_block(&mut self, pos: IVec3) -> Option<BlockData> {
         let chunk = self.chunks.get_mut(&global_block_to_chunk_pos(&pos))?;
         let removed = chunk.remove(to_local_pos(&pos))?;
         self.changed.insert(pos);
+        self.drop_container(pos);
         Some(removed)
+    }
+
+    /// The contents of the chest at `pos`, if this map holds them.
+    pub fn container(&self, pos: IVec3) -> Option<&Container> {
+        self.containers.get(&pos)
+    }
+
+    /// The contents of the chest at `pos`, to change: the chest is recorded as changed.
+    pub fn container_mut(&mut self, pos: IVec3) -> Option<&mut Container> {
+        let container = self.containers.get_mut(&pos)?;
+        self.changed_containers.insert(pos);
+        Some(container)
+    }
+
+    /// Stores the contents of the chest at `pos`, replacing what this map held for it. Does
+    /// nothing unless a chest stands at `pos`. This is not a change: it is how contents are
+    /// loaded, and how a client takes those the server sends.
+    pub fn insert_container(&mut self, pos: IVec3, container: Container) {
+        if self
+            .get_block(pos)
+            .is_some_and(|block| block.id == BlockId::Chest)
+        {
+            self.containers.insert(pos, container);
+        }
+    }
+
+    /// Removes the contents of the chest at `pos` from this map and returns them; the chest is
+    /// recorded as changed if this map held them.
+    pub fn take_container(&mut self, pos: IVec3) -> Option<Container> {
+        let container = self.containers.remove(&pos)?;
+        self.changed_containers.insert(pos);
+        Some(container)
+    }
+
+    fn drop_container(&mut self, pos: IVec3) {
+        if self.containers.remove(&pos).is_some() {
+            self.changed_containers.insert(pos);
+        }
+    }
+
+    /// The contents of the chests of the chunk at `chunk_pos`, with their global position.
+    pub fn containers_of_chunk(
+        &self,
+        chunk_pos: IVec3,
+    ) -> impl Iterator<Item = (IVec3, &Container)> + '_ {
+        self.containers
+            .iter()
+            .filter(move |(pos, _)| global_block_to_chunk_pos(pos) == chunk_pos)
+            .map(|(pos, container)| (*pos, container))
+    }
+
+    /// The positions of the chests whose contents changed, were added or were dropped since the
+    /// previous call, each once, in no order.
+    pub fn take_changed_containers(&mut self) -> Vec<IVec3> {
+        self.changed_containers.drain().collect()
     }
 
     /// Records `pos` as changed without changing it, so that whoever drains the log reports its
@@ -257,6 +327,102 @@ mod tests {
         assert_eq!(map.get_block(kept), Some(&block(BlockId::Dirt)));
         assert_eq!(map.take_changed_blocks(), vec![kept]);
         assert!(map.remove_chunk(IVec3::ZERO).is_none());
+    }
+
+    fn holding(nb: u32) -> Container {
+        let mut container = Container::default();
+        container.slots[0] = Some(crate::world::ItemStack {
+            item_id: crate::world::ItemId::Dirt,
+            item_type: crate::world::ItemType::Block(BlockId::Dirt),
+            nb,
+        });
+        container
+    }
+
+    /// A map with a chest at `pos` holding 3 dirt, and no change recorded.
+    fn chest_at(pos: IVec3) -> ChunkMap {
+        let mut map = loaded(IVec3::ZERO, IVec3::new(31, 15, 15));
+        map.set_block(pos, block(BlockId::Chest));
+        map.insert_container(pos, holding(3));
+        map.take_changed_blocks();
+        map
+    }
+
+    #[test]
+    fn contents_are_only_stored_where_a_chest_stands() {
+        let mut map = chest_at(IVec3::new(1, 2, 3));
+        map.set_block(IVec3::new(4, 4, 4), block(BlockId::Stone));
+
+        map.insert_container(IVec3::new(4, 4, 4), holding(1));
+        map.insert_container(IVec3::new(5, 5, 5), holding(1));
+
+        assert_eq!(map.container(IVec3::new(1, 2, 3)), Some(&holding(3)));
+        assert_eq!(map.container(IVec3::new(4, 4, 4)), None);
+        assert_eq!(map.container(IVec3::new(5, 5, 5)), None);
+        assert!(map.take_changed_containers().is_empty());
+    }
+
+    #[test]
+    fn replacing_or_removing_a_chest_drops_its_contents() {
+        let pos = IVec3::new(1, 2, 3);
+        let mut map = chest_at(pos);
+        map.set_block(pos, block(BlockId::Stone));
+        assert_eq!(map.container(pos), None);
+        assert_eq!(map.take_changed_containers(), vec![pos]);
+
+        let mut map = chest_at(pos);
+        map.remove_block(pos);
+        assert_eq!(map.container(pos), None);
+        assert_eq!(map.take_changed_containers(), vec![pos]);
+    }
+
+    #[test]
+    fn a_breaking_chest_keeps_its_contents() {
+        let pos = IVec3::new(1, 2, 3);
+        let mut map = chest_at(pos);
+        map.set_block(
+            pos,
+            BlockData {
+                breaking_progress: 4,
+                ..block(BlockId::Chest)
+            },
+        );
+        assert_eq!(map.container(pos), Some(&holding(3)));
+        assert!(map.take_changed_containers().is_empty());
+    }
+
+    #[test]
+    fn changing_or_taking_contents_records_the_chest() {
+        let pos = IVec3::new(1, 2, 3);
+        let mut map = chest_at(pos);
+        map.container_mut(pos).unwrap().slots[1] = holding(5).slots[0];
+        assert_eq!(map.take_changed_containers(), vec![pos]);
+        assert!(map.take_changed_containers().is_empty());
+
+        let mut expected = holding(3);
+        expected.slots[1] = holding(5).slots[0];
+        assert_eq!(map.take_container(pos), Some(expected));
+        assert_eq!(map.container(pos), None);
+        assert_eq!(map.take_changed_containers(), vec![pos]);
+        assert!(map.take_changed_blocks().is_empty());
+    }
+
+    #[test]
+    fn removing_a_chunk_drops_its_contents_only() {
+        let (dropped, kept) = (IVec3::new(1, 2, 3), IVec3::new(20, 2, 3));
+        let mut map = chest_at(dropped);
+        map.set_block(kept, block(BlockId::Chest));
+        map.insert_container(kept, holding(7));
+        map.container_mut(dropped);
+
+        map.remove_chunk(IVec3::ZERO);
+
+        assert_eq!(map.container(dropped), None);
+        assert_eq!(map.container(kept), Some(&holding(7)));
+        assert!(map.take_changed_containers().is_empty());
+        let listed: Vec<IVec3> = map.containers_of_chunk(IVec3::X).map(|(p, _)| p).collect();
+        assert_eq!(listed, vec![kept]);
+        assert_eq!(map.containers_of_chunk(IVec3::ZERO).count(), 0);
     }
 
     #[test]

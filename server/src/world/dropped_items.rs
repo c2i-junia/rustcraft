@@ -80,15 +80,24 @@ impl DroppedItems {
         )
     }
 
-    /// Drops the items of `broken` at its centre, each thrown in a random direction.
+    /// Drops the items of `broken`, and what it held if it was a chest, at its centre, each
+    /// thrown in a random direction.
     pub fn drop_block_items(&mut self, broken: &BrokenBlock, rng: &mut impl Rng) {
         let centre = broken.position.as_vec3() + HALF_BLOCK;
-        for (item_id, nb) in broken.block.get_drops(1) {
-            let stack = ItemStack {
+        let drops = broken
+            .block
+            .get_drops(1)
+            .into_iter()
+            .map(|(item_id, nb)| ItemStack {
                 item_id,
                 item_type: item_id.get_default_type(),
                 nb,
-            };
+            });
+        let contents = broken
+            .contents
+            .iter()
+            .flat_map(|contents| contents.stacks());
+        for stack in drops.chain(contents) {
             let velocity = Vec3::new(
                 rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
                 POP_UPWARD_SPEED,
@@ -316,6 +325,7 @@ mod tests {
         let broken = BrokenBlock {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Dirt,
+            contents: None,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
 
@@ -326,6 +336,31 @@ mod tests {
         assert!(item.velocity.y > 0.0);
         assert!(!item.can_be_picked_up());
         assert_eq!(items.take_changes().0, HashSet::from([id]));
+    }
+
+    #[test]
+    fn a_broken_chest_drops_what_it_held_with_itself() {
+        let mut items = DroppedItems::default();
+        let mut contents = shared::world::Container::default();
+        contents.slots[2] = Some(stack(ItemId::Stone, 12));
+        contents.slots[20] = Some(stack(ItemId::Dirt, 64));
+        let broken = BrokenBlock {
+            position: IVec3::new(3, 64, -2),
+            block: BlockId::Chest,
+            contents: Some(contents),
+        };
+        items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
+
+        let mut dropped: Vec<ItemStack> = items.items.values().map(|item| item.stack).collect();
+        dropped.sort_by_key(|stack| stack.item_id);
+        assert_eq!(
+            dropped,
+            [
+                stack(ItemId::Dirt, 64),
+                stack(ItemId::Stone, 12),
+                stack(ItemId::Chest, 1)
+            ]
+        );
     }
 
     #[test]
