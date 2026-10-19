@@ -149,6 +149,32 @@ pub fn clear_key(map: &mut KeyMap, action: GameAction, slot: usize) {
     }
 }
 
+/// Pairs that share a key on purpose: Space jumps on foot and flies up in fly mode.
+pub const SHARED_KEYS: [(GameAction, GameAction); 1] = [(GameAction::Jump, GameAction::FlyUp)];
+
+/// For each action, the keys it shares with other actions, and with which.
+pub fn conflicts(map: &KeyMap) -> BTreeMap<GameAction, Vec<(KeyCode, GameAction)>> {
+    let shared_on_purpose = |a: GameAction, b: GameAction| {
+        SHARED_KEYS.contains(&(a, b)) || SHARED_KEYS.contains(&(b, a))
+    };
+    let mut found = BTreeMap::new();
+    for (&action, keys) in &map.map {
+        let mut shared = Vec::new();
+        for &key in keys {
+            for (&other, other_keys) in &map.map {
+                if other != action && other_keys.contains(&key) && !shared_on_purpose(action, other)
+                {
+                    shared.push((key, other));
+                }
+            }
+        }
+        if !shared.is_empty() {
+            found.insert(action, shared);
+        }
+    }
+    found
+}
+
 /// Writes the bindings to `keybindings.ron` in the game folder.
 pub fn write_keybindings(key_map: &KeyMap, paths: &GameFolderPaths) {
     let binds_path = paths.game_folder_path.join(BINDS_PATH);
@@ -282,6 +308,29 @@ mod tests {
         assert_eq!(keys(&map), [KeyCode::KeyJ]);
         clear_key(&mut map, GameAction::Jump, 1);
         assert_eq!(keys(&map), [KeyCode::KeyJ]);
+    }
+
+    #[test]
+    fn conflicts_are_reported_on_both_actions() {
+        let mut map = default_bindings();
+        map.map
+            .insert(GameAction::Jump, vec![KeyCode::Space, KeyCode::KeyW]);
+        let expected = BTreeMap::from([
+            (
+                GameAction::Jump,
+                vec![(KeyCode::KeyW, GameAction::MoveForward)],
+            ),
+            (
+                GameAction::MoveForward,
+                vec![(KeyCode::KeyW, GameAction::Jump)],
+            ),
+        ]);
+        assert_eq!(conflicts(&map), expected);
+    }
+
+    #[test]
+    fn jump_and_fly_up_may_share_space() {
+        assert!(conflicts(&default_bindings()).is_empty());
     }
 
     #[test]

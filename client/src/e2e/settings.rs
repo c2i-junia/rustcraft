@@ -15,11 +15,12 @@ use super::seed::GameFolder;
 use crate::audio::settings::AudioSettings;
 use crate::constants::{AUDIO_SETTINGS_PATH, BINDS_PATH, INTERFACE_SETTINGS_PATH};
 use crate::input::data::GameAction;
+use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
 use crate::ui::button::MenuState;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
-use crate::ui::theme::{BEVEL_HI, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER};
+use crate::ui::theme::{BEVEL_HI, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -502,6 +503,58 @@ fn a_right_click_clears_a_slot_and_a_click_elsewhere_cancels_a_capture() {
     h.frames(2);
     assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
     assert!(h.world().resource::<KeyMap>().map[&GameAction::Jump].is_empty());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_key_bound_twice_is_shown_on_both_rows_and_reset_restores_the_defaults() {
+    let mut h = controls();
+    let any_conflict = L::text_containing("is also bound");
+    h.frames(2);
+    assert!(!h.is_visible(&any_conflict));
+
+    h.click(&key_slot("Jump", "secondary"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::KeyW);
+    h.wait_for(
+        &L::text("W is also bound to Move forward").within(L::row("Jump")),
+        SCREEN,
+    );
+    h.wait_for(
+        &L::text("W is also bound to Jump").within(L::row("Move forward")),
+        SCREEN,
+    );
+    // shown, never refused, and the slots holding the key are outlined in red
+    assert_eq!(
+        h.world().resource::<KeyMap>().map[&GameAction::Jump],
+        [KeyCode::Space, KeyCode::KeyW]
+    );
+    let border = |h: &mut Harness, slot: &L| {
+        let entity = h.get(slot);
+        h.world().get::<BorderColor>(entity).unwrap().top
+    };
+    h.frames(2);
+    assert_eq!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
+    assert_eq!(border(&mut h, &key_slot("Move forward", "primary")), DANGER);
+    assert_ne!(border(&mut h, &key_slot("Jump", "primary")), DANGER);
+    // and shown again when the tab is
+    h.open_tab_showing("Audio", &master());
+    h.open_tab_showing(
+        "Controls",
+        &L::text("W is also bound to Move forward").within(L::row("Jump")),
+    );
+    h.frames(2);
+    assert_eq!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
+
+    h.click(&L::role(Role::Button, "Reset to defaults"));
+    h.wait_until("the default bindings", SCREEN, |w| {
+        w.resource::<KeyMap>().map == default_bindings().map
+    });
+    h.frames(2);
+    assert!(!h.is_visible(&any_conflict));
+    assert_ne!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
+    let saved: KeyMap = h.saved(BINDS_PATH);
+    assert_eq!(saved.map, default_bindings().map);
 }
 
 /// The rectangle of the element, in physical pixels.

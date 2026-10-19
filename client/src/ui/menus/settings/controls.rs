@@ -1,6 +1,8 @@
 //! The Controls tab of the settings: the actions by category, each with a primary and a secondary
 //! key slot. Enter or a click on a slot waits for the key to bind to it, which Escape cancels;
-//! Delete, Backspace or a right click clears it. Every change is saved at once.
+//! Delete, Backspace or a right click clears it. A key bound to two actions is shown on both
+//! rows, never refused, and "Reset to defaults" brings back the default keys. Every change is
+//! saved at once.
 
 use accesskit::Role;
 use bevy::{
@@ -13,21 +15,24 @@ use bevy::{
     picking::hover::Hovered,
     prelude::*,
     ui_widgets::{
-        ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar, ScrollbarDragState,
-        ScrollbarThumb,
+        observe, Activate, ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar,
+        ScrollbarDragState, ScrollbarThumb,
     },
     window::WindowFocused,
 };
 use shared::GameFolderPaths;
 
 use crate::input::data::{ActionCategory, GameAction};
-use crate::input::keyboard::{clear_key, set_key, write_keybindings, MAX_KEYS_PER_ACTION};
+use crate::input::keyboard::{
+    clear_key, conflicts, default_bindings, set_key, write_keybindings, MAX_KEYS_PER_ACTION,
+};
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, FONT_M, FONT_S,
-    MUTED, RAISE, RAISE_HOVER, SLOT, SPACE_M, SPACE_S, SPACE_XS, TEXT,
+    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, FONT_M,
+    FONT_S, MUTED, RAISE, RAISE_HOVER, SLOT, SPACE_M, SPACE_S, SPACE_XS, TEXT,
 };
+use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 
@@ -39,6 +44,19 @@ pub struct KeySlot {
     pub action: GameAction,
     pub slot: usize,
 }
+
+/// The message under the row of an action naming the keys it shares with other actions, hidden
+/// while it shares none.
+#[derive(Component)]
+pub struct ConflictMessage(pub GameAction);
+
+/// Marks a key slot holding a key that another action has too.
+#[derive(Component)]
+struct Conflicting;
+
+/// The button bringing back the default keys of every action.
+#[derive(Component)]
+pub struct ResetBindings;
 
 /// The key slot waiting for a key to bind, if any.
 #[derive(Resource, Default)]
@@ -126,6 +144,9 @@ pub(super) fn plugin(app: &mut App) {
                 swap_hints,
                 show_keys
                     .run_if(resource_changed::<KeyMap>.or_else(resource_changed::<KeyCapture>)),
+                show_conflicts.run_if(
+                    resource_changed::<KeyMap>.or_else(any_match_filter::<Added<ConflictMessage>>),
+                ),
             )
                 .run_if(any_with_component::<KeySlot>),
         )
@@ -173,6 +194,28 @@ fn key_label(key: KeyCode) -> String {
         }
     };
     named.to_string()
+}
+
+/// How a key is named in a text: as on its key cap, but the arrows, which only key caps can draw,
+/// are written in words.
+fn key_name(key: KeyCode) -> String {
+    match key {
+        KeyCode::ArrowUp => "Up arrow".to_string(),
+        KeyCode::ArrowDown => "Down arrow".to_string(),
+        KeyCode::ArrowLeft => "Left arrow".to_string(),
+        KeyCode::ArrowRight => "Right arrow".to_string(),
+        _ => key_label(key),
+    }
+}
+
+/// What the row of an action sharing the keys `shared` with other actions says:
+/// "W is also bound to Move forward", one sentence per key and action.
+fn conflict_message(shared: &[(KeyCode, GameAction)]) -> String {
+    shared
+        .iter()
+        .map(|&(key, other)| format!("{} is also bound to {}", key_name(key), other.name()))
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 /// Whether `key` is a modifier, which a capture binds on its release.
@@ -238,7 +281,8 @@ fn line() -> Node {
     }
 }
 
-/// Spawns the headers of the key columns and the scrolling list of the actions under `panel`.
+/// Spawns the headers of the key columns, the scrolling list of the actions and the reset button
+/// under `panel`.
 /// `fonts` are the font of the texts and the one that draws the arrows of the key caps.
 pub fn spawn_controls_tab(
     commands: &mut Commands,
@@ -369,10 +413,12 @@ pub fn spawn_controls_tab(
             .filter(|action| action.category() == category);
         for (index, action) in actions.enumerate() {
             let parent = if index == 0 { group } else { list };
+            // the conflict message wraps under the label and the slots
             let row = commands
                 .spawn((
                     Node {
                         padding: UiRect::vertical(px(RING_ROOM)),
+                        flex_wrap: FlexWrap::Wrap,
                         ..line()
                     },
                     ChildOf(parent),
@@ -393,8 +439,38 @@ pub fn spawn_controls_tab(
                 let content = key.map_or(SlotContent::Empty, SlotContent::Key);
                 show_in_slot(commands, key_slot, content, &font, &glyph_font);
             }
+            commands.spawn((
+                ConflictMessage(action),
+                label("", &font, FONT_S, DANGER),
+                Node {
+                    width: percent(100),
+                    display: Display::None,
+                    ..default()
+                },
+                ChildOf(row),
+            ));
         }
     }
+    commands.spawn((
+        Node {
+            justify_content: JustifyContent::FlexEnd,
+            // as far from the list as from the Back button
+            margin: UiRect::top(px(SPACE_M - SPACE_XS)),
+            ..default()
+        },
+        ChildOf(content),
+        children![(
+            button("Reset to defaults", ButtonVariant::Default, font),
+            ResetBindings,
+            observe(reset_bindings),
+        )],
+    ));
+}
+
+/// Binds the default keys to every action, and saves them.
+fn reset_bindings(_: On<Activate>, mut key_map: ResMut<KeyMap>, paths: Res<GameFolderPaths>) {
+    *key_map = default_bindings();
+    write_keybindings(&key_map, &paths);
 }
 
 /// Spawns an empty key slot, which the player focuses, clicks and types into.
@@ -515,6 +591,36 @@ fn show_keys(
     }
 }
 
+/// Shows under each row the keys its action shares with other actions, and marks the slots
+/// holding them.
+fn show_conflicts(
+    key_map: Res<KeyMap>,
+    mut messages: Query<(&ConflictMessage, &mut Text, &mut Node)>,
+    slots: Query<(Entity, &KeySlot)>,
+    mut commands: Commands,
+) {
+    let conflicts = conflicts(&key_map);
+    for (message, mut text, mut node) in &mut messages {
+        match conflicts.get(&message.0) {
+            Some(shared) => {
+                text.0 = conflict_message(shared);
+                node.display = Display::Flex;
+            }
+            None => node.display = Display::None,
+        }
+    }
+    for (entity, slot) in &slots {
+        let shared = conflicts.get(&slot.action);
+        let conflicting = bound_key(&key_map, slot.action, slot.slot)
+            .is_some_and(|key| shared.is_some_and(|shared| shared.iter().any(|&(k, _)| k == key)));
+        if conflicting {
+            commands.entity(entity).insert(Conflicting);
+        } else {
+            commands.entity(entity).remove::<Conflicting>();
+        }
+    }
+}
+
 /// Lightens the thumb of the scrollbar while it is under the cursor or dragged.
 fn style_thumb(
     mut thumbs: Query<(&Hovered, &ScrollbarDragState, &mut BackgroundColor), With<ScrollbarThumb>>,
@@ -529,16 +635,28 @@ fn style_thumb(
     }
 }
 
-/// Lightens the slot under the cursor, and outlines the capturing one in the accent.
+/// Lightens the slot under the cursor, outlines the capturing one in the accent, and one holding
+/// a key bound to another action too in red.
 fn style_key_slots(
-    mut slots: Query<(Entity, &Hovered, &mut BackgroundColor, &mut BorderColor), With<KeySlot>>,
+    mut slots: Query<
+        (
+            Entity,
+            &Hovered,
+            Has<Conflicting>,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        With<KeySlot>,
+    >,
     capture: Res<KeyCapture>,
 ) {
-    for (entity, hovered, mut background, mut border) in &mut slots {
+    for (entity, hovered, conflicting, mut background, mut border) in &mut slots {
         let surface = if hovered.get() { RAISE_HOVER } else { RAISE };
         background.set_if_neq(BackgroundColor(surface));
         let edge = if capture.slot == Some(entity) {
             BorderColor::all(ACCENT)
+        } else if conflicting {
+            BorderColor::all(DANGER)
         } else {
             raised_bevel()
         };
@@ -699,6 +817,26 @@ mod tests {
         for (key, label) in cases {
             assert_eq!(key_label(key), label, "{key:?}");
         }
+    }
+
+    #[test]
+    fn a_conflict_message_names_the_key_and_the_other_action() {
+        assert_eq!(
+            conflict_message(&[(KeyCode::KeyW, GameAction::MoveForward)]),
+            "W is also bound to Move forward"
+        );
+        assert_eq!(
+            conflict_message(&[
+                (KeyCode::KeyW, GameAction::MoveForward),
+                (KeyCode::KeyE, GameAction::ToggleInventory),
+            ]),
+            "W is also bound to Move forward · E is also bound to Inventory"
+        );
+        // the font of the texts has no arrows: only key caps draw them
+        assert_eq!(
+            conflict_message(&[(KeyCode::ArrowUp, GameAction::MoveForward)]),
+            "Up arrow is also bound to Move forward"
+        );
     }
 
     #[test]
