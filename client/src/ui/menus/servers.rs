@@ -72,7 +72,6 @@ pub fn add_server(path: &Path, server: ServerItem) -> io::Result<()> {
 }
 
 /// Replaces the server `name` of the list of `path`, whatever its case, by `server` in its place.
-#[allow(dead_code)] // The Edit dialog, Task 7
 pub fn edit_server(path: &Path, name: &str, server: ServerItem) -> io::Result<()> {
     let mut servers = read_servers(path)?;
     let index = position(&servers, name)?;

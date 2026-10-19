@@ -1,5 +1,5 @@
-//! The dialogs of the server list. Add server checks the name and the address as they are typed,
-//! and writes the server to `servers.ron` as soon as it is submitted. Remove asks first.
+//! The dialogs of the server list. Add server and Edit check the name and the address as they
+//! are typed, and write the server to `servers.ron` as soon as it is submitted. Remove asks first.
 
 use std::io;
 
@@ -10,8 +10,8 @@ use bevy::{
 use shared::GameFolderPaths;
 
 use super::super::servers::{
-    add_server, check_server_address, check_server_name, free_server_name, remove_server,
-    ServerItem, MAX_SERVER_NAME_LENGTH,
+    add_server, check_server_address, check_server_name, edit_server, free_server_name,
+    remove_server, ServerItem, MAX_SERVER_NAME_LENGTH,
 };
 use super::super::MenuState;
 use super::{cancel_join, AddServerButton, ServerCard};
@@ -48,6 +48,22 @@ const ADD_SERVER_HINTS: [Hint; 3] = [
     },
 ];
 
+/// The key hints of the Edit dialog.
+const EDIT_SERVER_HINTS: [Hint; 3] = [
+    Hint {
+        keys: "Tab",
+        action: "Move",
+    },
+    Hint {
+        keys: "Enter",
+        action: "Save",
+    },
+    Hint {
+        keys: "Esc",
+        action: "Cancel",
+    },
+];
+
 /// The input of the name field of a server dialog.
 #[derive(Component)]
 pub struct ServerNameInput;
@@ -65,8 +81,8 @@ struct ServerForm {
     address: Entity,
     /// The other servers, whose names and addresses the server may not take.
     others: Vec<ServerItem>,
-    /// The server being edited, `None` for a new one.
-    #[allow(dead_code)] // The Edit dialog, Task 7
+    /// The server being edited, `None` for a new one: kept unchanged, it is not an error, but
+    /// there is nothing to save.
     editing: Option<ServerItem>,
 }
 
@@ -74,6 +90,13 @@ impl ServerForm {
     /// The names of the other servers.
     fn names(&self) -> Vec<String> {
         self.others.iter().map(|other| other.name.clone()).collect()
+    }
+
+    /// Whether `name` and `address`, as typed, are those of the server being edited.
+    fn unchanged(&self, name: &str, address: &str) -> bool {
+        self.editing
+            .as_ref()
+            .is_some_and(|server| server.name == name.trim() && server.ip == address.trim())
     }
 }
 
@@ -104,6 +127,36 @@ pub fn open_add_server_dialog(
     focus: &InputFocus,
     others: Vec<ServerItem>,
 ) -> Entity {
+    let root = open_server_dialog(commands, assets, focus, others, None);
+    commands.entity(root).observe(add_server_on_submit);
+    root
+}
+
+/// Opens the Edit dialog of `server`: its name field holds its name, entirely selected, and its
+/// address field its address. `others` are the other saved servers. Save stays disabled while
+/// both are unchanged. Returns the root of the dialog.
+pub fn open_edit_server_dialog(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    focus: &InputFocus,
+    server: &ServerItem,
+    others: Vec<ServerItem>,
+) -> Entity {
+    let root = open_server_dialog(commands, assets, focus, others, Some(server.clone()));
+    commands.entity(root).observe(edit_server_on_submit);
+    root
+}
+
+/// Opens a server dialog, checked against `others`: Add server, or the Edit dialog of `editing`,
+/// its fields filled with it. A pending join is dropped. Returns the root of the dialog, whose
+/// primary action is disabled until the first check.
+fn open_server_dialog(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    focus: &InputFocus,
+    others: Vec<ServerItem>,
+    editing: Option<ServerItem>,
+) -> Entity {
     cancel_join(commands);
     let font: Handle<Font> = assets.load(FONT_PATH);
     let mut field = |label, placeholder, max_characters| {
@@ -121,20 +174,35 @@ pub fn open_add_server_dialog(
     };
     let name = field("Name", "", MAX_SERVER_NAME_LENGTH);
     let address = field("Address", "host:port", MAX_ADDRESS_LENGTH);
-    let names: Vec<String> = others.iter().map(|other| other.name.clone()).collect();
-    let free = free_server_name(&names);
+    let (title, primary, hints, values) = match &editing {
+        None => {
+            let names: Vec<String> = others.iter().map(|other| other.name.clone()).collect();
+            let free = (free_server_name(&names), String::new());
+            (ADD_SERVER_TITLE.to_string(), "Add", &ADD_SERVER_HINTS, free)
+        }
+        Some(server) => {
+            let title = format!("Edit \"{}\"", server.name);
+            let values = (server.name.clone(), server.ip.clone());
+            (title, "Save", &EDIT_SERVER_HINTS, values)
+        }
+    };
+    let (name_value, address_value) = values;
     commands
         .entity(name.input)
         .insert((ServerNameInput, SelectAllOnFocus))
         .entry::<EditableText>()
-        .and_modify(move |mut text| set_text(&mut text, &free));
-    commands.entity(address.input).insert(ServerAddressInput);
+        .and_modify(move |mut text| set_text(&mut text, &name_value));
+    commands
+        .entity(address.input)
+        .insert(ServerAddressInput)
+        .entry::<EditableText>()
+        .and_modify(move |mut text| set_text(&mut text, &address_value));
     let dialog = Dialog {
-        title: ADD_SERVER_TITLE,
+        title: &title,
         body: "",
         actions: &[
             ("Cancel", ButtonVariant::Default),
-            ("Add", ButtonVariant::Primary),
+            (primary, ButtonVariant::Primary),
         ],
         focused: 0,
     };
@@ -142,11 +210,11 @@ pub fn open_add_server_dialog(
         commands,
         &dialog,
         &[("Name", name), ("Address", address)],
-        &ADD_SERVER_HINTS,
+        hints,
         font,
         focus,
     );
-    // the address is empty until the first check, a few frames later
+    // the address is empty, or the server unchanged, until the first check, a few frames later
     commands
         .entity(parts.actions[1])
         .insert(InteractionDisabled);
@@ -156,10 +224,9 @@ pub fn open_add_server_dialog(
             name: name.input,
             address: address.input,
             others,
-            editing: None,
+            editing,
         })
-        .observe(check_server_form)
-        .observe(add_server_on_submit);
+        .observe(check_server_form);
     parts.root
 }
 
@@ -183,11 +250,16 @@ pub fn open_add_server_on_ctrl_n(
 
 /// Checks the fields of a server dialog whose values changed: shows why a field is wrong under
 /// it, and disables the primary action while one is. An empty address never typed into shows no
-/// message. A message set by a failed submit stays until a value changes.
+/// message; an edited server unchanged shows none either, yet cannot be saved. A message set by a
+/// failed submit stays until a value changes.
 fn check_server_form(changed: On<FormChanged>, forms: Query<&ServerForm>, mut commands: Commands) {
     let Ok(form) = forms.get(changed.entity) else {
         return;
     };
+    if form.unchanged(&changed.values[0], &changed.values[1]) {
+        apply_form_check(&mut commands, changed.entity, vec![None, None], false);
+        return;
+    }
     let name = check_server_name(&changed.values[0], &form.names());
     let address = check_server_address(&changed.values[1], &form.others);
     let address_shown = changed.touched[1] || !changed.values[1].is_empty();
@@ -197,6 +269,19 @@ fn check_server_form(changed: On<FormChanged>, forms: Query<&ServerForm>, mut co
     ];
     let submittable = name.is_ok() && address.is_ok();
     apply_form_check(&mut commands, changed.entity, errors, submittable);
+}
+
+/// The server the fields of `form` hold, checked again; `None` while a field is wrong.
+fn typed_server(form: &ServerForm, texts: &Query<&EditableText>) -> Option<ServerItem> {
+    let typed = value_of(texts, form.address);
+    let (Ok(name), Ok(_)) = (
+        check_server_name(&value_of(texts, form.name), &form.names()),
+        check_server_address(&typed, &form.others),
+    ) else {
+        return None;
+    };
+    let ip = typed.trim().to_string();
+    Some(ServerItem { name, ip })
 }
 
 /// What a field says when servers.ron could not be written, in a few words.
@@ -226,21 +311,14 @@ fn add_server_on_submit(
     let Ok(form) = forms.get(root) else {
         return;
     };
-    let typed = value_of(&texts, form.address);
-    let (Ok(name), Ok(_)) = (
-        check_server_name(&value_of(&texts, form.name), &form.names()),
-        check_server_address(&typed, &form.others),
-    ) else {
+    let Some(server) = typed_server(form, &texts) else {
         return;
     };
-    let server = ServerItem {
-        name: name.clone(),
-        ip: typed.trim().to_string(),
-    };
+    let ServerItem { name, ip } = server.clone();
     let path = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
     match add_server(&path, server) {
         Ok(()) => {
-            info!("Added the server {name:?} at {:?}", typed.trim());
+            info!("Added the server {name:?} at {ip:?}");
             // closing first: the card of the new server takes the focus
             close_dialog(&mut commands, root, false);
             commands.trigger(ServersChanged {
@@ -253,6 +331,54 @@ fn add_server_on_submit(
             commands
                 .entity(form.address)
                 .insert(FieldError(Some(save_failure(&e).to_string())));
+        }
+    }
+}
+
+/// Saves the server of the Edit dialog in its place in `servers.ron`, checking its fields again,
+/// then closes it and lists the servers with the focus on it: a new address is asked for its
+/// status as the list is rebuilt. On a failure the dialog stays open and says why under the
+/// address, and the servers are listed again. A dialog already closing was submitted before in
+/// this update.
+fn edit_server_on_submit(
+    submit: On<DialogSubmit>,
+    forms: Query<&ServerForm, Without<CloseRequest>>,
+    texts: Query<&EditableText>,
+    paths: Res<GameFolderPaths>,
+    mut commands: Commands,
+) {
+    let root = submit.entity;
+    let Ok(form) = forms.get(root) else {
+        return;
+    };
+    let Some(server) = typed_server(form, &texts) else {
+        return;
+    };
+    let Some(old) = form.editing.as_ref().filter(|old| **old != server) else {
+        return;
+    };
+    let ServerItem { name, ip } = server.clone();
+    let path = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
+    match edit_server(&path, &old.name, server) {
+        Ok(()) => {
+            info!("Edited the server {:?} into {name:?} at {ip:?}", old.name);
+            // closing first: the card of the edited server takes the focus
+            close_dialog(&mut commands, root, false);
+            commands.trigger(ServersChanged {
+                focus: Some(name),
+                error: None,
+            });
+        }
+        // the cards show what the file holds, and the dialog, still open, keeps the focus
+        Err(e) => {
+            error!("Could not edit the server {:?} in {path:?}: {e}", old.name);
+            commands
+                .entity(form.address)
+                .insert(FieldError(Some(save_failure(&e).to_string())));
+            commands.trigger(ServersChanged {
+                focus: Some(old.name.clone()),
+                error: None,
+            });
         }
     }
 }
@@ -463,5 +589,97 @@ mod tests {
         };
         assert_eq!(check(false), (None, true));
         assert_eq!(check(true), (Some(EMPTY_ADDRESS.to_string()), true));
+    }
+
+    /// The saved servers of the tests of the Edit dialog.
+    const FRIENDS_FILE: &str = r#"[(name: "Friends", ip: "10.0.0.4:8000")]"#;
+
+    /// The Edit dialog of `Friends` (`10.0.0.4:8000`) whose fields hold `name` and `address`,
+    /// without other servers: its root and its address field.
+    fn edit_form(world: &mut World, name: &str, address: &str) -> (Entity, Entity) {
+        let name = world
+            .spawn((EditableText::new(name), FieldError(None)))
+            .id();
+        let address = world
+            .spawn((EditableText::new(address), FieldError(None)))
+            .id();
+        let friends = ServerItem {
+            name: "Friends".to_string(),
+            ip: "10.0.0.4:8000".to_string(),
+        };
+        let root = world
+            .spawn(ServerForm {
+                name,
+                address,
+                others: Vec::new(),
+                editing: Some(friends),
+            })
+            .observe(edit_server_on_submit)
+            .id();
+        (root, address)
+    }
+
+    /// The `ServersChanged` triggered, in order: their focus and error.
+    #[derive(Resource, Default)]
+    struct Changes(Vec<(Option<String>, Option<&'static str>)>);
+
+    /// Records the `ServersChanged` triggered in `world` in `Changes`.
+    fn record_changes(world: &mut World) {
+        world.init_resource::<Changes>();
+        world.add_observer(
+            |changed: On<ServersChanged>, mut changes: ResMut<Changes>| {
+                changes.0.push((changed.focus.clone(), changed.error));
+            },
+        );
+    }
+
+    #[test]
+    fn an_unchanged_server_is_not_saved() {
+        let (folder, mut world) = folder_with(FRIENDS_FILE);
+        let (root, _) = edit_form(&mut world, " Friends ", "10.0.0.4:8000 ");
+        world.commands().trigger(DialogSubmit { entity: root });
+        world.flush();
+        let file = fs::read_to_string(folder.path().join(SERVER_LIST_SAVE_NAME)).unwrap();
+        assert_eq!(file, FRIENDS_FILE);
+        assert!(world.get::<CloseRequest>(root).is_none());
+    }
+
+    #[test]
+    fn a_second_submit_of_a_closing_edit_edits_once() {
+        let (folder, mut world) = folder_with(FRIENDS_FILE);
+        record_changes(&mut world);
+        let (root, address) = edit_form(&mut world, "Pals", "10.0.0.9");
+        // two submits in the same update, such as Enter and a click on Save
+        let mut commands = world.commands();
+        commands.trigger(DialogSubmit { entity: root });
+        commands.trigger(DialogSubmit { entity: root });
+        world.flush();
+        let saved = read_servers(&folder.path().join(SERVER_LIST_SAVE_NAME)).unwrap();
+        assert_eq!(
+            saved,
+            [ServerItem {
+                name: "Pals".to_string(),
+                ip: "10.0.0.9".to_string(),
+            }]
+        );
+        assert_eq!(world.get::<FieldError>(address).unwrap().0, None);
+        let changes = &world.resource::<Changes>().0;
+        assert_eq!(changes, &[(Some("Pals".to_string()), None)]);
+    }
+
+    #[test]
+    fn a_failed_edit_lists_the_servers_again_and_keeps_its_dialog() {
+        let (folder, mut world) = folder_with("not ron");
+        record_changes(&mut world);
+        let (root, address) = edit_form(&mut world, "Pals", "10.0.0.9");
+        world.commands().trigger(DialogSubmit { entity: root });
+        world.flush();
+        let changes = &world.resource::<Changes>().0;
+        assert_eq!(changes, &[(Some("Friends".to_string()), None)]);
+        let error = world.get::<FieldError>(address).unwrap();
+        assert_eq!(error.0.as_deref(), Some("Cannot read servers.ron"));
+        assert!(world.get::<CloseRequest>(root).is_none());
+        let file = fs::read_to_string(folder.path().join(SERVER_LIST_SAVE_NAME)).unwrap();
+        assert_eq!(file, "not ron");
     }
 }

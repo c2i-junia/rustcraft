@@ -1,10 +1,10 @@
 //! The Multiplayer screen: the saved servers as cards with their status, and a detail pane for
-//! the selected one with Join and Remove. Refresh (F5) and Add server (Ctrl+N) sit in the title
-//! bar.
+//! the selected one with Join, Edit and Remove. Refresh (F5) and Add server (Ctrl+N) sit in the
+//! title bar.
 //!
-//! The cards are always built again from `servers.ron` once a server was added or removed; their
-//! statuses live on the screen's root (`status::StatusBoard`), asked on threads, and never wait
-//! for the network on the frame. Joining resolves the address on a thread too.
+//! The cards are always built again from `servers.ron` once a server was added, edited or
+//! removed; their statuses live on the screen's root (`status::StatusBoard`), asked on threads,
+//! and never wait for the network on the frame. Joining resolves the address on a thread too.
 
 pub mod dialogs;
 pub mod status;
@@ -47,7 +47,9 @@ use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{cards_of, spawn_list_card, spawn_scroll_list, CardSelected};
 use crate::ui::widgets::raised_bevel;
-use dialogs::{open_add_server_dialog, open_remove_server_dialog, ServersChanged};
+use dialogs::{
+    open_add_server_dialog, open_edit_server_dialog, open_remove_server_dialog, ServersChanged,
+};
 use status::{
     can_join, card_status_node, pane_status, ping_every_server, show_card_status, status_dot,
     StatusBoard,
@@ -76,6 +78,7 @@ struct ServerFacts;
 #[derive(Component, Clone, Copy)]
 pub enum ServerAction {
     Join,
+    Edit,
     Remove,
 }
 
@@ -283,8 +286,8 @@ fn multi_setup(mut commands: Commands, assets: Res<AssetServer>) {
     });
 }
 
-/// Spawns the detail pane in `body`: the facts of the selected server, Join, Remove, and the
-/// line of a failure.
+/// Spawns the detail pane in `body`: the facts of the selected server, Join, Edit and Remove, and
+/// the line of a failure.
 fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>) {
     let pane = commands
         .spawn((
@@ -324,26 +327,49 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
             ChildOf(pane),
         ))
         .id();
-    commands.spawn((
-        ArrowNav,
-        Node {
-            flex_direction: FlexDirection::Column,
-            row_gap: px(SPACE_S),
-            ..default()
-        },
-        ChildOf(actions),
-        children![
-            (
+    let buttons = commands
+        .spawn((
+            ArrowNav,
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_S),
+                ..default()
+            },
+            ChildOf(actions),
+            children![(
                 button("Join", ButtonVariant::Primary, font.clone()),
                 ServerAction::Join,
-            ),
-            // red only in the confirmation: Join stays the one strong action
-            (
-                button("Remove", ButtonVariant::Default, font.clone()),
-                ServerAction::Remove,
-            ),
-        ],
-    ));
+            )],
+        ))
+        .id();
+    // side by side under Join, as Rename and Delete under Play in Singleplayer
+    let pair = commands
+        .spawn((
+            Node {
+                column_gap: px(SPACE_S),
+                ..default()
+            },
+            ChildOf(buttons),
+        ))
+        .id();
+    // red only in the confirmation: Join stays the one strong action
+    for (label, action) in [
+        ("Edit", ServerAction::Edit),
+        ("Remove", ServerAction::Remove),
+    ] {
+        commands
+            .spawn((
+                button(label, ButtonVariant::Default, font.clone()),
+                action,
+                ChildOf(pair),
+            ))
+            .entry::<Node>()
+            .and_modify(|mut node| {
+                // halves of the width, whatever their labels
+                node.flex_grow = 1.0;
+                node.flex_basis = px(0);
+            });
+    }
     commands.spawn((
         ServerError,
         text("", FONT_S, DANGER, font),
@@ -817,6 +843,14 @@ fn act_on_selected_server(
                     &mut errors,
                 );
             }
+        }
+        ServerAction::Edit => {
+            let others = cards
+                .iter()
+                .map(|other| other.0.clone())
+                .filter(|other| other.name != card.0.name)
+                .collect();
+            open_edit_server_dialog(&mut commands, &assets, &focus, &card.0, others);
         }
         ServerAction::Remove => {
             let next = neighbour(&card_names(&lists, &children, &cards), &card.0.name);

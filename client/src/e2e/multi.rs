@@ -946,3 +946,61 @@ fn after_an_add_the_dialog_opens_fresh() {
     assert_eq!(h.value_of::<ServerNameInput>(), "My server");
     assert_eq!(h.value_of::<ServerAddressInput>(), "");
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn edit_changes_the_server_in_place_and_pings_a_new_address() {
+    let mut h = status_list();
+    let edit_dialog = |name: &str| L::role(Role::Dialog, &format!("Edit \"{name}\""));
+    let save = || L::role(Role::Button, "Save").within(edit_dialog("Friends"));
+    let messages = [SERVER_NAME_EXISTS, SERVER_EXISTS, EMPTY_SERVER_NAME];
+    h.click(&card("Friends"));
+    h.click(&L::role(Role::Button, "Edit"));
+    h.wait_for(&edit_dialog("Friends"), SCREEN);
+    h.frames(2);
+    assert_eq!(h.value_of::<ServerNameInput>(), "Friends");
+    assert_eq!(h.value_of::<ServerAddressInput>(), "10.0.0.4:8000");
+    assert!(is_disabled(&mut h, &save()));
+    for message in messages {
+        assert!(!h.is_visible(&L::text(message)), "{message}");
+    }
+
+    h.type_text("Survival");
+    h.wait_for(&L::text(SERVER_NAME_EXISTS), SCREEN);
+    assert!(is_disabled(&mut h, &save()));
+    // its own name in another case is not taken
+    ctrl(&mut h, KeyCode::KeyA);
+    h.type_text("friends");
+    h.frames(2);
+    for message in messages {
+        assert!(!h.is_visible(&L::text(message)), "{message}");
+    }
+    assert!(!is_disabled(&mut h, &save()));
+
+    ctrl(&mut h, KeyCode::KeyA);
+    h.type_text("Pals");
+    h.press(KeyCode::Tab);
+    ctrl(&mut h, KeyCode::KeyA);
+    h.type_text("10.0.0.1");
+    h.wait_for(&L::text(SERVER_EXISTS), SCREEN);
+    assert!(is_disabled(&mut h, &save()));
+    ctrl(&mut h, KeyCode::KeyA);
+    h.type_text("10.0.0.9");
+    h.press(KeyCode::Enter);
+    h.wait_for(&card("Pals"), SCREEN);
+    assert!(!h.is_visible(&edit_dialog("Friends")));
+    let saved = saved_servers(&h);
+    assert_eq!(saved[3].name, "Pals");
+    assert_eq!(saved[3].ip, "10.0.0.9");
+    assert_eq!(card_names(&mut h)[3], "Pals");
+    assert_eq!(h.focus_label().as_deref(), Some("Pals"));
+    h.wait_for(&L::text("1 / 8").within(card("Pals")), SCREEN);
+
+    let file = saved_file(&h);
+    h.click(&L::role(Role::Button, "Edit"));
+    h.wait_for(&edit_dialog("Pals"), SCREEN);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&edit_dialog("Pals")));
+    assert_eq!(saved_file(&h), file);
+}

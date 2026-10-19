@@ -1,5 +1,6 @@
-//! The status of the listed servers: asked on threads when the screen opens, after an Add and on
-//! Refresh (F5), and shown on their cards and in the detail pane as the answers come.
+//! The status of the listed servers: asked on threads when the screen opens, after an Add or an
+//! Edit of the address and on Refresh (F5), and shown on their cards and in the detail pane as the
+//! answers come.
 
 use std::collections::HashMap;
 
@@ -373,6 +374,24 @@ mod tests {
 
     fn instant_online(_: &str) -> ServerStatus {
         online(3, 20, 42)
+    }
+
+    #[test]
+    fn an_address_edited_away_and_back_is_asked_afresh() {
+        let mut board = StatusBoard::default();
+        board.ping("10.0.0.4:8000", StatusProbe(instant_online));
+        let start = Instant::now();
+        while board.status("10.0.0.4:8000") == ServerStatus::Pinging {
+            assert!(start.elapsed() < Duration::from_secs(5), "never answered");
+            board.collect();
+            thread::yield_now();
+        }
+        // as the list is rebuilt after each edit: A to B, then back to A typed another way
+        board.keep_only(["10.0.0.9"].into_iter());
+        assert!(!board.knows("10.0.0.4:8000"));
+        board.keep_only(["10.0.0.4"].into_iter());
+        assert!(!board.knows("10.0.0.4"));
+        assert_eq!(board.status("10.0.0.4"), ServerStatus::Pinging);
     }
 
     #[test]
