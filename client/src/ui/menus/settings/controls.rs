@@ -336,7 +336,7 @@ pub fn spawn_controls_tab(
             children![label(column, &font, FONT_S, MUTED)],
         ));
     }
-    let ScrollListParts { frame, list } = spawn_scroll_list(commands);
+    let ScrollListParts { frame, list, .. } = spawn_scroll_list(commands);
     commands.entity(frame).insert(ChildOf(content));
     commands.entity(list).insert(ArrowNav);
     for category in ActionCategory::ALL {

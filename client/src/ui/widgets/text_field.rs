@@ -221,7 +221,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
 
 /// The systems of the text fields: they trigger `Submit` and `Cancel` in `PostUpdate`.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub(super) struct TextFieldSystems;
+pub(crate) struct TextFieldSystems;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(

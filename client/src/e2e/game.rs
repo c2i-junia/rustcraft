@@ -1,5 +1,5 @@
 //! The game, through the integrated server: the HUD, the hotbar, the inventory and its crafting
-//! grid, and the chat. The pause menu and leaving are in `pause`.
+//! grid. The chat is in `chat`, the pause menu and leaving in `pause`.
 
 use std::fs;
 
@@ -7,7 +7,6 @@ use accesskit::Role;
 
 use bevy::{
     input::{keyboard::KeyCode, mouse::MouseButtonInput, ButtonState},
-    pbr::wireframe::WireframeConfig,
     prelude::*,
     ui::ComputedStackIndex,
     window::{PrimaryWindow, WindowEvent},
@@ -16,17 +15,17 @@ use shared::players::{Inventory, ViewMode};
 use shared::world::{grid_slot, raycast, FaceDirectionExt, ItemId};
 
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
-use super::locator::{is_inside, is_shown, Locator as L};
+use super::locator::{is_shown, Locator as L};
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::constants::SAVE_PATH;
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
-use crate::ui::hud::chat::{ChatDisplay, ChatInput, ChatRoot};
+use crate::ui::hud::chat::ChatRoot;
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{
-    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
+    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot,
 };
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::widgets::slot::SlotIcon;
@@ -80,21 +79,6 @@ impl Harness {
             .map(|(entity, _)| entity)
             .collect();
         bars.into_iter().filter(|&bar| is_shown(world, bar)).count()
-    }
-
-    /// Whether a visible line of the chat contains `part`. The lines stay on screen for a
-    /// while after the chat is closed, while the chat itself is hidden.
-    #[track_caller]
-    fn chat_shows(&mut self, part: &str) -> bool {
-        let lines = self.find(&L::text_containing(part));
-        let world = self.world_mut();
-        let display = world
-            .query_filtered::<Entity, With<ChatDisplay>>()
-            .single(world)
-            .unwrap();
-        lines
-            .into_iter()
-            .any(|line| is_inside(world, line, display))
     }
 
     /// The place in the UI stack of the one node carrying `C`, higher being nearer the viewer.
@@ -268,81 +252,6 @@ fn escape_closes_the_inventory() {
     assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
 }
 
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_chat_sends_a_message_and_escape_closes_it() {
-    let mut h = enter_world(GameFolder::new().with_world("Chat"), "Chat");
-    h.press(KeyCode::KeyT);
-    assert!(h.is_visible(&L::marker::<ChatRoot>()));
-    h.type_text("bonjour");
-    h.press(KeyCode::Enter);
-    h.wait_for(&L::text_containing("bonjour"), SERVER);
-    assert!(h.chat_shows("bonjour"));
-
-    // A message dropped with Escape is not sent
-    h.press(KeyCode::KeyT);
-    h.type_text("brouillon");
-    assert_eq!(h.value_of::<ChatInput>(), "brouillon");
-    h.press(KeyCode::Escape);
-    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
-    // The server answers in order: once the next message is shown, the dropped one would be too
-    h.press(KeyCode::KeyT);
-    h.type_text("ensuite");
-    h.press(KeyCode::Enter);
-    h.wait_for(&L::text_containing("ensuite"), SERVER);
-    assert!(h.chat_shows("ensuite"));
-    assert!(!h.is_visible(&L::text_containing("brouillon")));
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn typing_in_the_chat_keeps_the_game_keys_quiet() {
-    let mut h = enter_world(GameFolder::new().with_world("Quiet"), "Quiet");
-    h.press(KeyCode::KeyT);
-    // The key that opens the chat is not typed into it
-    assert_eq!(h.value_of::<ChatInput>(), "");
-    h.type_text("e");
-    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
-    // Neither the digit, the debug keys nor the wheel reach the game
-    h.type_text("3");
-    h.press(KeyCode::F3);
-    h.press(KeyCode::F6);
-    h.scroll(-1.);
-    assert_eq!(
-        h.world_mut()
-            .query::<&Hotbar>()
-            .single(h.world())
-            .unwrap()
-            .selected,
-        0
-    );
-    assert!(!h.is_visible(&L::marker::<HudRoot>()));
-    assert!(!h.world().resource::<WireframeConfig>().global);
-    assert_eq!(h.value_of::<ChatInput>(), "e3");
-
-    // Escape closes the chat, and the pause menu does not open
-    h.press(KeyCode::Escape);
-    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
-    assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
-
-    // The closed field holds no key
-    h.press(KeyCode::KeyE);
-    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
-
-    // An open inventory closes with its key, and the debug keys wait for the pause menu too
-    h.press(KeyCode::KeyE);
-    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
-    h.press(KeyCode::Escape);
-    assert!(h.is_visible(&L::role(Role::Button, "Back to game")));
-    h.press(KeyCode::F3);
-    h.press(KeyCode::F6);
-    assert!(!h.is_visible(&L::marker::<HudRoot>()));
-    assert!(!h.world().resource::<WireframeConfig>().global);
-    h.press(KeyCode::Escape);
-    h.press(KeyCode::F3);
-    assert!(h.is_visible(&L::marker::<HudRoot>()));
-}
-
 /// Whether the client world holds a block at `position`.
 fn is_block(w: &World, position: IVec3) -> bool {
     w.resource::<ClientWorldMap>()
@@ -451,20 +360,6 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
     // A new click in gameplay does place a block there
     hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
     h.wait_until("the placed block", SERVER, |w| is_block(w, cell));
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn clicking_outside_the_chat_closes_it() {
-    let mut h = enter_world(GameFolder::new().with_world("Outside"), "Outside");
-    h.press(KeyCode::KeyT);
-    h.type_text("draft");
-    h.click(&L::marker::<Hotbar>());
-    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
-    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
-
-    h.press(KeyCode::KeyE);
-    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
 }
 
 #[test]

@@ -23,6 +23,7 @@ use crate::network::session::{end_session, SessionOrigin};
 use crate::network::LocalSaves;
 use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
+use crate::ui::hud::chat::fade_chat_messages_system;
 use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
 use crate::ui::menus::settings::controls::KeyCapture;
@@ -37,7 +38,7 @@ use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
-use crate::ui::widgets::text_field::text_field_focused;
+use crate::ui::widgets::text_field::{text_field_focused, TextFieldSystems};
 use crate::ui::widgets::toast::{show_toast, ToastKind};
 
 /// The title of the pause menu. Not "Paused": the server keeps ticking beneath it.
@@ -193,12 +194,16 @@ pub fn pause_plugin(app: &mut App) {
         commands.remove_resource::<SaveNow>();
     })
     // the HUD hides in the frame the menus first show, and shows again in the frame they are
-    // gone
+    // gone; the chat lines over the game too, also in the frame the chat closes
     .add_systems(
         PostUpdate,
         (
             close_pause_menu,
-            (hide_hud_under_menus, show_reticle)
+            (
+                hide_hud_under_menus,
+                show_reticle,
+                fade_chat_messages_system.after(TextFieldSystems),
+            )
                 .after(close_pause_menu)
                 .after(close_settings)
                 .before(VisibilitySystems::VisibilityPropagate)

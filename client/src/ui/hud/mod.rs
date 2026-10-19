@@ -12,6 +12,8 @@ use crate::ui::hud::hotbar::{
 };
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::pause_plugin;
+use bevy::text::EditableTextSystems;
+use bevy::ui::UiSystems;
 
 pub mod chat;
 pub mod debug;
@@ -56,12 +58,7 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                (
-                    toggle_chat_system,
-                    fade_chat_messages_system,
-                    display_chat_messages_system,
-                )
-                    .chain(),
+                (toggle_chat_system, display_chat_messages_system).chain(),
                 // Before the simulation, which predicts the clicks of the frame
                 (
                     toggle_inventory_system,
@@ -76,6 +73,14 @@ pub fn hud_plugin(app: &mut App) {
                     .before(GameSet::Simulation),
             )
                 .after(GameSet::UiMode)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            PostUpdate,
+            (
+                match_the_field_font.after(EditableTextSystems),
+                settle_chat_scroll.after(UiSystems::Layout),
+            )
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(

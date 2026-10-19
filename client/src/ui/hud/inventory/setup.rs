@@ -23,6 +23,9 @@ pub const CRAFTING_TABLE_TITLE: &str = "Crafting Table";
 
 /// The height of the hotbar above the bottom of the window, in logical px.
 const HOTBAR_BOTTOM: f32 = SPACE_L;
+/// The top of the closed panel, the hotbar, above the bottom of the window, in logical px: the
+/// bottom and the margin of the panel, its bevel and its padding, then a slot.
+pub const HOTBAR_TOP: f32 = HOTBAR_BOTTOM + SPACE_S + BEVEL_WIDTH + SPACE_S + SLOT_SIZE;
 
 /// The icon of a slot. It starts on any sprite of the items atlas, hidden.
 fn icon(atlas: &AtlasWrapper) -> ImageNode {

@@ -20,6 +20,8 @@ bevy-inspector-egui = "0.37"
 # Enables bevy_egui's bevy_ui feature, which draws egui above Bevy UI (bevy-inspector-egui does not).
 bevy_egui = { version = "0.40", default-features = false, features = ["bevy_ui", "render"] }
 egui = "0.34"
+# The local time of the chat messages: std has no time zone
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [features]
 default = ["dev"]

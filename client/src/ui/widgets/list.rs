@@ -41,6 +41,8 @@ pub const RING_ROOM: f32 = FOCUS_RING_WIDTH + FOCUS_RING_OFFSET;
 pub struct ScrollListParts {
     /// The row to place, which grows to fill its parent: the well, then the scrollbar.
     pub frame: Entity,
+    /// The sunken well around the list, `SLOT` unless the caller paints it.
+    pub well: Entity,
     /// The vertical `ScrollArea` in a sunken well, padded by `RING_ROOM` on its sides, where the
     /// caller spawns the items. An item carries the room of its ring above and below itself, as
     /// `spawn_list_card` does.
@@ -138,7 +140,7 @@ pub fn spawn_scroll_list(commands: &mut Commands) -> ScrollListParts {
             raised_bevel(),
         )],
     ));
-    ScrollListParts { frame, list }
+    ScrollListParts { frame, well, list }
 }
 
 /// Spawns a card labelled `label` for screen readers at the end of `list`, in its slot, and

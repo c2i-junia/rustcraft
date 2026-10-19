@@ -1,0 +1,304 @@
+//! The chat: sending, the history of the log with its times, scrolling it, where it sits over
+//! the HUD, and the game keys it keeps quiet.
+
+use accesskit::Role;
+use bevy::{
+    input::keyboard::KeyCode, pbr::wireframe::WireframeConfig, prelude::*, text::FontSource,
+};
+use shared::messages::FullChatMessage;
+use shared::utils::unix_time_ms;
+use shared::world::ItemId;
+
+use super::game::{enter_world, enter_world_with, slot};
+use super::harness::{Harness, Options, SCREEN, SERVER};
+use super::locator::{is_inside, Locator as L};
+use super::seed::GameFolder;
+use crate::network::CachedChatConversation;
+use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot};
+use crate::ui::hud::debug::HudRoot;
+use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
+use crate::ui::hud::{InventoryRoot, UIMode};
+use crate::ui::theme::SPACE_S;
+
+impl Harness {
+    /// Whether a visible line of the chat contains `part`. The lines stay on screen for a
+    /// while after the chat is closed, while the chat itself is hidden.
+    #[track_caller]
+    fn chat_shows(&mut self, part: &str) -> bool {
+        let lines = self.find(&L::text_containing(part));
+        let world = self.world_mut();
+        let log = world
+            .query_filtered::<Entity, With<ChatLog>>()
+            .single(world)
+            .unwrap();
+        lines.into_iter().any(|line| is_inside(world, line, log))
+    }
+
+    /// Whether the text `text` of a line is in view in the open log, which clips the lines
+    /// scrolled out of it.
+    #[track_caller]
+    fn in_log_view(&mut self, text: &str) -> bool {
+        let line = L::text(text).within(L::marker::<ChatLog>());
+        if !self.is_visible(&line) {
+            return false;
+        }
+        let shown = self.rect_of(&line);
+        let log = self.rect_of(&L::marker::<ChatLog>());
+        log.contains(shown.min + 0.5) && log.contains(shown.max - 0.5)
+    }
+
+    /// The path of the font the chat field draws its text in.
+    #[track_caller]
+    fn field_font(&mut self) -> String {
+        let world = self.world_mut();
+        let font = world
+            .query_filtered::<&TextFont, With<ChatInput>>()
+            .single(world)
+            .unwrap();
+        let FontSource::Handle(font) = &font.font else {
+            panic!("the chat field is drawn in a font of the game");
+        };
+        let path = world.resource::<AssetServer>().get_path(font).unwrap();
+        path.to_string()
+    }
+
+    /// Has the server send the messages `line <index>` of `Bot`, one for each index.
+    fn receive_chat(&mut self, indices: std::ops::Range<usize>) {
+        let now = unix_time_ms();
+        self.world_mut()
+            .resource_mut::<CachedChatConversation>()
+            .unread
+            .extend(indices.map(|index| FullChatMessage {
+                content: format!("line {index}"),
+                author: "Bot".into(),
+                timestamp: now,
+            }));
+        self.frames(1);
+    }
+
+    /// Opens the chat, sends `message` and waits for the server to send it back.
+    #[track_caller]
+    fn send_chat(&mut self, message: &str) {
+        self.press(KeyCode::KeyT);
+        self.type_text(message);
+        self.press(KeyCode::Enter);
+        self.wait_for(&L::text_containing(message), SERVER);
+    }
+}
+
+/// Whether `text` reads as a time, `HH:MM`.
+fn is_time(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 5 && bytes[2] == b':' && [0, 1, 3, 4].iter().all(|&i| bytes[i].is_ascii_digit())
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_chat_sends_a_message_and_escape_closes_it() {
+    let mut h = enter_world(GameFolder::new().with_world("Chat"), "Chat");
+    h.press(KeyCode::KeyT);
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    h.type_text("bonjour");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("bonjour"), SERVER);
+    assert!(h.chat_shows("bonjour"));
+
+    // A message dropped with Escape is not sent
+    h.press(KeyCode::KeyT);
+    h.type_text("brouillon");
+    assert_eq!(h.value_of::<ChatInput>(), "brouillon");
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    // The server answers in order: once the next message is shown, the dropped one would be too
+    h.press(KeyCode::KeyT);
+    h.type_text("ensuite");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("ensuite"), SERVER);
+    assert!(h.chat_shows("ensuite"));
+    assert!(!h.is_visible(&L::text_containing("brouillon")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_chat_keeps_its_history_with_times_and_scrolls() {
+    let mut h = enter_world(GameFolder::new().with_world("History"), "History");
+    for message in ["one", "two", "three"] {
+        h.send_chat(message);
+    }
+    h.press(KeyCode::KeyT);
+    for message in ["one", "two", "three"] {
+        assert!(h.in_log_view(&format!("<Tester> {message}")), "{message}");
+    }
+    // each line starts with the time of its message
+    let world = h.world_mut();
+    let times: Vec<String> = world
+        .query_filtered::<&Children, With<ChatLine>>()
+        .iter(world)
+        .map(|texts| world.get::<Text>(texts[0]).unwrap().0.clone())
+        .collect();
+    assert_eq!(times.len(), 3);
+    assert!(times.iter().all(|time| is_time(time)), "{times:?}");
+    h.press(KeyCode::Escape);
+    // a click on a line shown over the game leaves the chat closed
+    assert!(h.chat_shows("three"));
+    h.click(&L::text("<Tester> three"));
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
+
+    // more messages from the server than the log shows at once
+    h.receive_chat(0..30);
+    h.press(KeyCode::KeyT);
+    h.frames(2);
+    assert!(h.in_log_view("<Bot> line 29"));
+    assert!(!h.in_log_view("<Tester> one"));
+
+    // the wheel over the log scrolls it: one step of Bevy's wheel is 100 px, five lines
+    h.hover(&L::marker::<ChatLog>());
+    let before = h.center_of(&L::text("<Bot> line 29"));
+    h.scroll(1.);
+    h.frames(2);
+    let scrolled = h.center_of(&L::text("<Bot> line 29"));
+    assert!(scrolled.y > before.y, "{before} then {scrolled}");
+    // the field keeps the focus, and PageUp and PageDown scroll by the log less a line
+    h.press(KeyCode::PageUp);
+    h.frames(2);
+    assert!(h.in_log_view("<Bot> line 10"));
+    assert!(!h.in_log_view("<Bot> line 29"));
+    // a message arriving leaves a log scrolled up where it is
+    h.receive_chat(30..31);
+    h.frames(2);
+    assert!(h.in_log_view("<Bot> line 10"));
+    assert!(!h.in_log_view("<Bot> line 30"));
+    for _ in 0..3 {
+        h.press(KeyCode::PageDown);
+    }
+    h.frames(2);
+    assert!(h.in_log_view("<Bot> line 30"));
+    // and a log at its end shows it
+    h.receive_chat(31..32);
+    h.frames(2);
+    assert!(h.in_log_view("<Bot> line 31"));
+    // a click in the log keeps the chat open
+    h.click(&L::text("<Bot> line 31"));
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(*h.world().resource::<UIMode>() == UIMode::Typing);
+    // a letter the pixel font lacks has the text being written drawn in Fira Mono
+    assert_eq!(h.field_font(), FONT_PATH);
+    h.type_text("été");
+    h.frames(1);
+    assert_eq!(h.field_font(), MONO_FONT_PATH);
+    h.press(KeyCode::Escape);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_chat_sits_above_the_hotbar_and_its_item_name() {
+    let folder = GameFolder::new().with_world("Above").with_items(
+        "Above",
+        "Tester",
+        &[(1, ItemId::Stone, 12)],
+    );
+    let small = Options {
+        width: 800,
+        height: 600,
+        ..default()
+    };
+    let mut h = enter_world_with(folder, "Above", small);
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::Stone, 12))
+    });
+    for (width, height) in [(800, 600), (1920, 1080)] {
+        h.resize(width, height);
+        h.frames(2);
+        // the name shows when the selection changes
+        h.press(KeyCode::Digit1);
+        h.press(KeyCode::Digit2);
+        h.wait_for(&L::marker::<HotbarItemName>(), SCREEN);
+        h.press(KeyCode::KeyT);
+        h.frames(2);
+        let chat = h.rect_of(&L::marker::<ChatRoot>());
+        let name = h.rect_of(&L::marker::<HotbarItemName>());
+        let bar = h.rect_of(&L::marker::<Hotbar>());
+        for (a, b) in [(chat, name), (chat, bar), (name, bar)] {
+            assert!(
+                a.intersect(b).is_empty(),
+                "{a:?} and {b:?} at {width}x{height}"
+            );
+        }
+        let scale = h.world().resource::<UiScale>().0;
+        assert!(
+            name.min.y - chat.max.y >= SPACE_S * scale - 0.5,
+            "{chat:?} above {name:?} at {width}x{height}"
+        );
+        let window = Rect::new(0., 0., width as f32, height as f32);
+        assert!(
+            window.contains(chat.min) && window.contains(chat.max),
+            "{chat:?} at {width}x{height}"
+        );
+        h.press(KeyCode::Escape);
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn typing_in_the_chat_keeps_the_game_keys_quiet() {
+    let mut h = enter_world(GameFolder::new().with_world("Quiet"), "Quiet");
+    h.press(KeyCode::KeyT);
+    // The key that opens the chat is not typed into it
+    assert_eq!(h.value_of::<ChatInput>(), "");
+    h.type_text("e");
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    // Neither the digit, the debug keys nor the wheel reach the game
+    h.type_text("3");
+    h.press(KeyCode::F3);
+    h.press(KeyCode::F6);
+    h.scroll(-1.);
+    assert_eq!(
+        h.world_mut()
+            .query::<&Hotbar>()
+            .single(h.world())
+            .unwrap()
+            .selected,
+        0
+    );
+    assert!(!h.is_visible(&L::marker::<HudRoot>()));
+    assert!(!h.world().resource::<WireframeConfig>().global);
+    assert_eq!(h.value_of::<ChatInput>(), "e3");
+
+    // Escape closes the chat, and the pause menu does not open
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(!h.is_visible(&L::role(Role::Button, "Back to game")));
+
+    // The closed field holds no key
+    h.press(KeyCode::KeyE);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+
+    // An open inventory closes with its key, and the debug keys wait for the pause menu too
+    h.press(KeyCode::KeyE);
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    h.press(KeyCode::Escape);
+    assert!(h.is_visible(&L::role(Role::Button, "Back to game")));
+    h.press(KeyCode::F3);
+    h.press(KeyCode::F6);
+    assert!(!h.is_visible(&L::marker::<HudRoot>()));
+    assert!(!h.world().resource::<WireframeConfig>().global);
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::F3);
+    assert!(h.is_visible(&L::marker::<HudRoot>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn clicking_outside_the_chat_closes_it() {
+    let mut h = enter_world(GameFolder::new().with_world("Outside"), "Outside");
+    h.press(KeyCode::KeyT);
+    h.type_text("draft");
+    h.click(&L::marker::<Hotbar>());
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
+
+    h.press(KeyCode::KeyE);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+}
