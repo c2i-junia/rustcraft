@@ -35,6 +35,11 @@ https://github.com/tbillington/bevy_best_practices/tree/main
 
 
 
+---- TEXTURES ----
+XSSheep's and Nova_Wostra's Pixel Perfection (resource pack):
+https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
+-> The textures of the wooden tools (data/graphics/base_textures/items/Wooden*.png).
+
 ---- OTHER ----
 logo : 
 https://textcraft.net/
