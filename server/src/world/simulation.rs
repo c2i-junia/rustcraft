@@ -15,7 +15,7 @@ use crate::{
             insert_with_chests, read_chunk_containers, ChunkContainers, CONTAINERS_DIR,
         },
         data::ServerWorldMap,
-        generation::generate_chunk,
+        generation::{generate_chunk, WorldGenerator},
     },
 };
 use bevy::tasks::{ComputeTaskPool, TaskPool};
@@ -84,7 +84,7 @@ pub(super) fn generate_missing_chunks<'a>(
     chunks: &mut ChunkMap,
     dirty_chunks: &mut std::collections::HashSet<IVec3>,
     saved: Option<&Path>,
-    seed: u32,
+    generator: &WorldGenerator,
     budget: usize,
 ) {
     let missing: Vec<IVec3> = get_all_active_chunks(players, radius)
@@ -96,7 +96,10 @@ pub(super) fn generate_missing_chunks<'a>(
         return;
     }
     debug!("Loading {} chunks", missing.len());
-    for (c, made) in missing.iter().zip(make_chunks(&missing, saved, seed)) {
+    for (c, made) in missing
+        .iter()
+        .zip(make_chunks(&missing, saved, generator.seed()))
+    {
         match made {
             Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
             Made::Generated(chunk) => {
@@ -111,7 +114,13 @@ pub fn handle_player_inputs_system(
     mut events: MessageReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
     seed: Res<WorldSeed>,
+    mut generator: Local<Option<WorldGenerator>>,
 ) {
+    // The noises are built once per seed, not once per chunk
+    if generator.as_ref().is_none_or(|g| g.seed() != seed.0) {
+        *generator = Some(WorldGenerator::new(seed.0));
+    }
+    let generator = generator.as_ref().unwrap();
     let mut rng = rand::thread_rng();
     let world_map = world_map.as_mut();
     let players = &mut world_map.players;
@@ -127,7 +136,7 @@ pub fn handle_player_inputs_system(
         chunks,
         dirty_chunks,
         saved,
-        seed.0,
+        generator,
         GENERATED_CHUNKS_PER_TICK,
     );
 
@@ -154,7 +163,7 @@ pub fn handle_player_inputs_system(
             chunks,
             dirty_chunks,
             saved,
-            seed.0,
+            generator,
             usize::MAX,
         );
     }
@@ -211,7 +220,7 @@ mod tests {
             &mut chunks,
             &mut dirty,
             None,
-            1,
+            &WorldGenerator::new(1),
             usize::MAX,
         );
 
@@ -233,13 +242,30 @@ mod tests {
         );
         let mut chunks = ChunkMap::default();
         let mut dirty = std::collections::HashSet::new();
+        let generator = WorldGenerator::new(1);
 
-        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, None, 1, 7);
+        generate_missing_chunks(
+            &players,
+            |_| 2,
+            &mut chunks,
+            &mut dirty,
+            None,
+            &generator,
+            7,
+        );
         // The chunk of the player and its six face neighbours
         assert_eq!(dirty.len(), 7);
         assert!(dirty.iter().all(|c| c.abs().element_sum() <= 1));
 
-        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, None, 1, 7);
+        generate_missing_chunks(
+            &players,
+            |_| 2,
+            &mut chunks,
+            &mut dirty,
+            None,
+            &generator,
+            7,
+        );
         assert_eq!(
             dirty.len(),
             14,
@@ -291,7 +317,7 @@ mod tests {
             &mut chunks,
             &mut dirty,
             Some(dir.path()),
-            1,
+            &WorldGenerator::new(1),
             usize::MAX,
         );
 

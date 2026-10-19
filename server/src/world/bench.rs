@@ -18,7 +18,7 @@ use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE};
 
 use super::broadcast_world::world_messages_around;
 use super::data::SentChunks;
-use super::generation::generate_chunk;
+use super::generation::{generate_chunk, WorldGenerator};
 use super::simulation::{generate_missing_chunks, GENERATED_CHUNKS_PER_TICK};
 
 const SEED: u32 = 42;
@@ -236,7 +236,7 @@ fn bench_join_generation() {
             &mut chunks,
             &mut dirty,
             None,
-            SEED,
+            &WorldGenerator::new(SEED),
             GENERATED_CHUNKS_PER_TICK,
         );
         ticks.push(start.elapsed().as_secs_f64() * 1e3);
@@ -308,7 +308,7 @@ fn bench_inputs_generation() {
         &mut chunks,
         &mut dirty,
         None,
-        SEED,
+        &WorldGenerator::new(SEED),
         usize::MAX,
     );
     let mut samples = Vec::new();
@@ -322,7 +322,7 @@ fn bench_inputs_generation() {
                     &mut chunks,
                     &mut dirty,
                     None,
-                    SEED,
+                    &WorldGenerator::new(SEED),
                     usize::MAX,
                 );
             }

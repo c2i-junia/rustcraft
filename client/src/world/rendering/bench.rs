@@ -130,13 +130,14 @@ impl Scene {
     fn generate(&self) -> ChunkMap {
         let positions = self.chunk_positions();
         let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+        let generator = &server::WorldGenerator::new(SEED);
         let chunks: Vec<_> = std::thread::scope(|scope| {
             let workers: Vec<_> = positions
                 .chunks(positions.len().div_ceil(threads))
                 .map(|part| {
                     scope.spawn(move || {
                         part.iter()
-                            .map(|pos| (*pos, server::generate_chunk(*pos, SEED)))
+                            .map(|pos| (*pos, generator.generate_chunk(*pos)))
                             .collect::<Vec<_>>()
                     })
                 })

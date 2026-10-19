@@ -1,12 +1,8 @@
 use bevy::prelude::*;
-use noise::{NoiseFn, Perlin};
 use shared::{world::*, CHUNK_SIZE};
 
 /// Water fills every column up to this height; flora only grows on land above it.
 const SEA_LEVEL: i32 = 62;
-const TERRAIN_SCALE: f64 = 0.1;
-/// How far, along x and z, the biomes that blend into the height of a column lie.
-const BIOME_BLEND: i32 = 4;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
@@ -104,99 +100,13 @@ struct Column {
     biome_type: BiomeType,
 }
 
-struct Noises {
-    terrain: Perlin,
-    biome: BiomeNoises,
-}
-
-impl Noises {
-    fn new(seed: u32) -> Self {
-        Self {
-            terrain: Perlin::new(seed),
-            biome: BiomeNoises::new(seed),
-        }
-    }
-
-    /// The temperature and the humidity of the column at `(x, z)`, each in `[0, 1]`.
-    fn climate(&self, x: i32, z: i32) -> (f64, f64) {
-        let point = [x as f64 * BIOME_SCALE, z as f64 * BIOME_SCALE];
-        (
-            (self.biome.temperature.get(point) + 1.0) / 2.0,
-            (self.biome.humidity.get(point) + 1.0) / 2.0,
-        )
-    }
-}
-
-fn interpolated_height(
-    x: i32,
-    z: i32,
-    climate: &impl Fn(i32, i32) -> (f64, f64),
-    perlin: &Perlin,
-    scale: f64,
-) -> i32 {
-    // get the properties of the main biome at (x, z)
-    let (temperature, humidity) = climate(x, z);
-    let biome_type = determine_biome(temperature, humidity);
-    let biome = get_biome_data(biome_type);
-
-    // initialize weighted values
-    let mut weighted_base_height = biome.base_height as f64;
-    let mut weighted_variation = biome.height_variation as f64;
-    let mut total_weight = 1.0;
-
-    // loop through neighboring blocks to get influences
-    for &offset_x in &[-BIOME_BLEND, 0, BIOME_BLEND] {
-        for &offset_z in &[-BIOME_BLEND, 0, BIOME_BLEND] {
-            if offset_x == 0 && offset_z == 0 {
-                continue; // ignore the central position
-            }
-
-            // determine the biome of the neighboring block
-            let (neighbor_temp, neighbor_humidity) = climate(x + offset_x, z + offset_z);
-            let neighbor_biome_type = determine_biome(neighbor_temp, neighbor_humidity);
-            let neighbor_biome = get_biome_data(neighbor_biome_type);
-
-            // weight by distance (the farther a neighbor is, the less influence it has)
-            let distance = ((offset_x.pow(2) + offset_z.pow(2)) as f64).sqrt();
-            let weight = 1.0 / (distance + 1.0); // distance +1 to avoid division by zero
-
-            // update weighted values
-            weighted_base_height += neighbor_biome.base_height as f64 * weight;
-            weighted_variation += neighbor_biome.height_variation as f64 * weight;
-            total_weight += weight;
-        }
-    }
-
-    // normalize weighted values
-    weighted_base_height /= total_weight;
-    weighted_variation /= total_weight;
-
-    // final calculation of height with perlin noise
-    let terrain_noise = perlin.get([x as f64 * scale, z as f64 * scale]);
-    let interpolated_height = weighted_base_height + (weighted_variation * terrain_noise);
-
-    interpolated_height.round() as i32
-}
-
-#[cfg(test)]
-fn terrain_column(noises: &Noises, x: i32, z: i32) -> Column {
-    terrain_column_in(noises, x, z, &|x, z| noises.climate(x, z))
-}
-
-/// `terrain_column`, reading the climate of the columns from `climate`.
-fn terrain_column_in(
-    noises: &Noises,
-    x: i32,
-    z: i32,
-    climate: &impl Fn(i32, i32) -> (f64, f64),
-) -> Column {
-    let (temperature, humidity) = climate(x, z);
-    let height = interpolated_height(x, z, climate, &noises.terrain, TERRAIN_SCALE);
+fn terrain_column(terrain: &TerrainNoises, x: i32, z: i32) -> Column {
+    let shape = terrain.column_shape(x, z);
     Column {
         x,
         z,
-        height,
-        biome_type: determine_biome(temperature, humidity),
+        height: shape.height,
+        biome_type: shape.biome,
     }
 }
 
@@ -399,19 +309,77 @@ fn column_blocks(seed: u32, column: &Column) -> Blocks {
     blocks
 }
 
-/// Generates a chunk. It is a pure function of its arguments: terrain comes from the noise,
-/// and decorations are decided per world column, so a structure rooted in a neighbouring
-/// column is cut at the chunk border the same way whichever chunk is generated first.
-pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> Chunk {
-    let chunk_origin = chunk_pos * CHUNK_SIZE;
-    // Most chunks lie above everything or deep underground: they need no noise
-    if chunk_origin.y > (HIGHEST_SURFACE + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
-        return Chunk::new();
+/// Generates the chunks of one world. Its noises are built once, from the seed.
+pub struct WorldGenerator {
+    seed: u32,
+    terrain: TerrainNoises,
+}
+
+impl WorldGenerator {
+    pub fn new(seed: u32) -> Self {
+        Self {
+            seed,
+            terrain: TerrainNoises::new(seed),
+        }
     }
-    if chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE - 4 {
-        return underground_chunk(chunk_origin);
+
+    pub fn seed(&self) -> u32 {
+        self.seed
     }
-    generate_chunk_from_noise(chunk_pos, seed)
+
+    /// Generates a chunk. It is a pure function of the seed and the position: terrain comes
+    /// from the noise, and decorations are decided per world column, so a structure rooted in
+    /// a neighbouring column is cut at the chunk border the same way whichever chunk is
+    /// generated first.
+    pub fn generate_chunk(&self, chunk_pos: IVec3) -> Chunk {
+        let chunk_origin = chunk_pos * CHUNK_SIZE;
+        // Most chunks lie above everything or deep underground: they need no noise
+        if chunk_origin.y > (HIGHEST_SURFACE + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
+            return Chunk::new();
+        }
+        if chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE - 4 {
+            return underground_chunk(chunk_origin);
+        }
+        self.generate_chunk_from_noise(chunk_pos)
+    }
+
+    /// `generate_chunk` for any chunk, from the noise of its columns.
+    fn generate_chunk_from_noise(&self, chunk_pos: IVec3) -> Chunk {
+        let seed = self.seed;
+        let chunk_origin = chunk_pos * CHUNK_SIZE;
+
+        let mut chunk = Chunk::new();
+
+        let chunk_range = 0..CHUNK_SIZE;
+        for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+            for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+                let column =
+                    terrain_column(&self.terrain, chunk_origin.x + dx, chunk_origin.z + dz);
+
+                if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
+                    let biome = get_biome_data(column.biome_type);
+                    for y in chunk_origin.y..chunk_origin.y + CHUNK_SIZE {
+                        if let Some(block) = terrain_block(y, column.height, &biome) {
+                            place(
+                                &mut chunk,
+                                chunk_origin,
+                                IVec3::new(column.x, y, column.z),
+                                block,
+                            );
+                        }
+                    }
+                }
+
+                // decorations only grow upwards from the surface
+                if column.height + 1 < chunk_origin.y + CHUNK_SIZE {
+                    for (pos, block) in column_blocks(seed, &column) {
+                        place(&mut chunk, chunk_origin, pos, block);
+                    }
+                }
+            }
+        }
+        chunk
+    }
 }
 
 /// A chunk below the lowest surface less the depth of the sub-surface blocks: stone, and the
@@ -436,52 +404,10 @@ fn underground_chunk(chunk_origin: IVec3) -> Chunk {
     chunk
 }
 
-/// `generate_chunk` for any chunk, from the noise of its columns.
-fn generate_chunk_from_noise(chunk_pos: IVec3, seed: u32) -> Chunk {
-    let noises = Noises::new(seed);
-    let chunk_origin = chunk_pos * CHUNK_SIZE;
-
-    // The climate of every column the heights of the chunk read, computed once: each height
-    // blends the biomes of nine columns
-    let reach = STRUCTURE_MARGIN + BIOME_BLEND;
-    let side = CHUNK_SIZE + 2 * reach;
-    let corner = chunk_origin.xz() - IVec2::splat(reach);
-    let climates: Vec<(f64, f64)> = (0..side * side)
-        .map(|i| noises.climate(corner.x + i / side, corner.y + i % side))
-        .collect();
-    let climate = |x: i32, z: i32| climates[((x - corner.x) * side + z - corner.y) as usize];
-
-    let mut chunk = Chunk::new();
-
-    let chunk_range = 0..CHUNK_SIZE;
-    for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
-        for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
-            let column =
-                terrain_column_in(&noises, chunk_origin.x + dx, chunk_origin.z + dz, &climate);
-
-            if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
-                let biome = get_biome_data(column.biome_type);
-                for y in chunk_origin.y..chunk_origin.y + CHUNK_SIZE {
-                    if let Some(block) = terrain_block(y, column.height, &biome) {
-                        place(
-                            &mut chunk,
-                            chunk_origin,
-                            IVec3::new(column.x, y, column.z),
-                            block,
-                        );
-                    }
-                }
-            }
-
-            // decorations only grow upwards from the surface
-            if column.height + 1 < chunk_origin.y + CHUNK_SIZE {
-                for (pos, block) in column_blocks(seed, &column) {
-                    place(&mut chunk, chunk_origin, pos, block);
-                }
-            }
-        }
-    }
-    chunk
+/// Generates one chunk of the world of `seed`, building its noises for it alone: a caller that
+/// generates many chunks keeps a [`WorldGenerator`] instead.
+pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> Chunk {
+    WorldGenerator::new(seed).generate_chunk(chunk_pos)
 }
 
 #[cfg(test)]
@@ -492,7 +418,7 @@ mod tests {
 
     /// Height, biome and surface block of a world column, read back from the generated chunks.
     fn probe(seed: u32, x: i32, z: i32) -> (i32, BiomeType, BlockId) {
-        let biome = BiomeNoises::new(seed).biome_at(x, z);
+        let biome = TerrainNoises::new(seed).column_shape(x, z).biome;
         let surface = get_biome_data(biome).surface_block;
         let local = IVec3::new(x.rem_euclid(CHUNK_SIZE), 0, z.rem_euclid(CHUNK_SIZE));
         let mut height = -1;
@@ -571,7 +497,7 @@ mod tests {
 
     #[test]
     fn no_structure_grows_higher_than_its_bound() {
-        let noises = Noises::new(42);
+        let noises = TerrainNoises::new(42);
         let mut highest = 0;
         for x in -1600..-1400 {
             for z in -1400..-1200 {
@@ -594,11 +520,13 @@ mod tests {
 
     #[test]
     fn chunks_without_noise_are_the_ones_the_noise_makes() {
+        let generator = WorldGenerator::new(42);
         for (cx, cz) in [(0, 0), (-1, -1), (-94, -80), (-94, -66), (-92, -85)] {
             for cy in -2..=8 {
                 let chunk_pos = IVec3::new(cx, cy, cz);
                 assert!(
-                    generate_chunk(chunk_pos, 42) == generate_chunk_from_noise(chunk_pos, 42),
+                    generator.generate_chunk(chunk_pos)
+                        == generator.generate_chunk_from_noise(chunk_pos),
                     "chunk {chunk_pos}"
                 );
             }
@@ -672,7 +600,7 @@ mod tests {
         zs: Range<i32>,
         wanted: impl Fn(&Blocks) -> bool,
     ) -> Column {
-        let noises = Noises::new(seed);
+        let noises = TerrainNoises::new(seed);
         let xs_window = xs.clone();
         for x in xs {
             for z in zs.clone() {
@@ -761,7 +689,7 @@ mod tests {
     #[test]
     fn a_tree_rooted_on_the_top_layer_of_a_chunk_belongs_to_the_chunk_above() {
         let seed = 42;
-        let noises = Noises::new(seed);
+        let noises = TerrainNoises::new(seed);
         let mut found = None;
         'scan: for x in -100..100 {
             for z in -100..100 {
@@ -813,7 +741,7 @@ mod tests {
     fn decorations_never_replace_terrain() {
         for chunk_pos in sample_chunks() {
             let chunk = generate_chunk(chunk_pos, 42);
-            let noises = Noises::new(42);
+            let noises = TerrainNoises::new(42);
             for dx in 0..CHUNK_SIZE {
                 for dz in 0..CHUNK_SIZE {
                     let column = terrain_column(
@@ -874,12 +802,13 @@ mod tests {
         let radius = shared::DEFAULT_MAX_RENDER_DISTANCE as i32;
         let spawn_chunk = IVec3::new(0, SEA_LEVEL / CHUNK_SIZE, 0);
         let start = std::time::Instant::now();
+        let generator = WorldGenerator::new(42);
         let mut count = 0;
         for x in -radius..=radius {
             for y in -radius..=radius {
                 for z in -radius..=radius {
                     let chunk_pos = spawn_chunk + IVec3::new(x, y, z);
-                    std::hint::black_box(generate_chunk(chunk_pos, 42));
+                    std::hint::black_box(generator.generate_chunk(chunk_pos));
                     count += 1;
                 }
             }

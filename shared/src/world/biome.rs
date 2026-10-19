@@ -37,16 +37,16 @@ pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
     }
 }
 
-/// The temperature and humidity noises of a world, which pick the biome of each column. The
-/// server generates the terrain with them; the client, given the seed, finds the biome the
-/// player is in.
-pub struct BiomeNoises {
-    pub temperature: Perlin,
-    pub humidity: Perlin,
+/// The temperature and humidity noises of a world, which pick the biome of each column. They
+/// are part of the [`TerrainNoises`](super::TerrainNoises), through which the server and the
+/// client read them.
+pub(super) struct BiomeNoises {
+    temperature: Perlin,
+    humidity: Perlin,
 }
 
 impl BiomeNoises {
-    pub fn new(seed: u32) -> Self {
+    pub(super) fn new(seed: u32) -> Self {
         Self {
             temperature: Perlin::new(seed.wrapping_add(1)),
             humidity: Perlin::new(seed.wrapping_add(2)),
@@ -54,7 +54,7 @@ impl BiomeNoises {
     }
 
     /// The biome of the world column `(x, z)`.
-    pub fn biome_at(&self, x: i32, z: i32) -> BiomeType {
+    pub(super) fn biome_at(&self, x: i32, z: i32) -> BiomeType {
         let point = [x as f64 * BIOME_SCALE, z as f64 * BIOME_SCALE];
         let temperature = (self.temperature.get(point) + 1.0) / 2.0;
         let humidity = (self.humidity.get(point) + 1.0) / 2.0;
