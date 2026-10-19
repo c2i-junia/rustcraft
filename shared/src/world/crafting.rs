@@ -20,7 +20,7 @@ pub const fn grid_slot(row: u32, col: u32) -> u32 {
 }
 
 /// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
-/// wherever that part sits in the grid.
+/// wherever that part sits in the grid, or match it mirrored left to right.
 struct Recipe {
     width: usize,
     cells: &'static [Option<ItemId>],
@@ -33,6 +33,7 @@ const SPRUCE_LOG: Option<ItemId> = Some(ItemId::SpruceLog);
 const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
 const SPRUCE: Option<ItemId> = Some(ItemId::SprucePlanks);
 const COBBLE: Option<ItemId> = Some(ItemId::Cobblestone);
+const STICK: Option<ItemId> = Some(ItemId::Stick);
 
 #[rustfmt::skip]
 const RECIPES: &[Recipe] = &[
@@ -72,6 +73,106 @@ const RECIPES: &[Recipe] = &[
         output: ItemId::Chest,
         nb: 1,
     },
+    Recipe {
+        width: 3,
+        cells: &[
+            OAK, OAK, OAK,
+            None, STICK, None,
+            None, STICK, None,
+        ],
+        output: ItemId::WoodenPickaxe,
+        nb: 1,
+    },
+    Recipe {
+        width: 3,
+        cells: &[
+            SPRUCE, SPRUCE, SPRUCE,
+            None, STICK, None,
+            None, STICK, None,
+        ],
+        output: ItemId::WoodenPickaxe,
+        nb: 1,
+    },
+    Recipe {
+        width: 2,
+        cells: &[
+            OAK, OAK,
+            OAK, STICK,
+            None, STICK,
+        ],
+        output: ItemId::WoodenAxe,
+        nb: 1,
+    },
+    Recipe {
+        width: 2,
+        cells: &[
+            SPRUCE, SPRUCE,
+            SPRUCE, STICK,
+            None, STICK,
+        ],
+        output: ItemId::WoodenAxe,
+        nb: 1,
+    },
+    Recipe {
+        width: 1,
+        cells: &[
+            OAK,
+            STICK,
+            STICK,
+        ],
+        output: ItemId::WoodenShovel,
+        nb: 1,
+    },
+    Recipe {
+        width: 1,
+        cells: &[
+            SPRUCE,
+            STICK,
+            STICK,
+        ],
+        output: ItemId::WoodenShovel,
+        nb: 1,
+    },
+    Recipe {
+        width: 2,
+        cells: &[
+            OAK, OAK,
+            None, STICK,
+            None, STICK,
+        ],
+        output: ItemId::WoodenHoe,
+        nb: 1,
+    },
+    Recipe {
+        width: 2,
+        cells: &[
+            SPRUCE, SPRUCE,
+            None, STICK,
+            None, STICK,
+        ],
+        output: ItemId::WoodenHoe,
+        nb: 1,
+    },
+    Recipe {
+        width: 1,
+        cells: &[
+            OAK,
+            OAK,
+            STICK,
+        ],
+        output: ItemId::WoodenSword,
+        nb: 1,
+    },
+    Recipe {
+        width: 1,
+        cells: &[
+            SPRUCE,
+            SPRUCE,
+            STICK,
+        ],
+        output: ItemId::WoodenSword,
+        nb: 1,
+    },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -89,12 +190,18 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
     let (&top, &bottom, &left, &right) = (rows.first()?, rows.last()?, cols.first()?, cols.last()?);
     let (height, width) = (bottom - top + 1, right - left + 1);
 
+    let matches = |recipe: &Recipe, mirrored: bool| {
+        (0..height).all(|row| {
+            (0..width).all(|col| {
+                let recipe_col = if mirrored { width - 1 - col } else { col };
+                recipe.cells[row * width + recipe_col] == cell(top + row, left + col)
+            })
+        })
+    };
     let recipe = RECIPES.iter().find(|recipe| {
         recipe.width == width
             && recipe.cells.len() == width * height
-            && (0..height).all(|row| {
-                (0..width).all(|col| recipe.cells[row * width + col] == cell(top + row, left + col))
-            })
+            && (matches(recipe, false) || matches(recipe, true))
     })?;
     Some(ItemStack {
         item_id: recipe.output,
@@ -249,5 +356,66 @@ mod tests {
         assert_eq!(CRAFTING_GRID_START, MAX_INVENTORY_SLOTS);
         assert_eq!(grid_slot(0, 0), MAX_INVENTORY_SLOTS);
         assert_eq!(grid_slot(2, 1), MAX_INVENTORY_SLOTS + 7);
+    }
+
+    const STICK: Option<ItemId> = Some(ItemId::Stick);
+
+    #[test]
+    fn planks_and_sticks_make_the_wooden_tools() {
+        for p in [OAK, SPRUCE] {
+            for (cells, tool) in [
+                (
+                    [p, p, p, None, STICK, None, None, STICK, None],
+                    ItemId::WoodenPickaxe,
+                ),
+                (
+                    [p, p, None, p, STICK, None, None, STICK, None],
+                    ItemId::WoodenAxe,
+                ),
+                (
+                    [p, None, None, STICK, None, None, STICK, None, None],
+                    ItemId::WoodenShovel,
+                ),
+                (
+                    [p, p, None, None, STICK, None, None, STICK, None],
+                    ItemId::WoodenHoe,
+                ),
+                (
+                    [p, None, None, p, None, None, STICK, None, None],
+                    ItemId::WoodenSword,
+                ),
+            ] {
+                assert_eq!(match_recipe(&grid(cells)), made(tool, 1), "{tool:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_recipe_also_matches_mirrored_left_to_right() {
+        assert_eq!(
+            match_recipe(&grid([None, OAK, OAK, None, STICK, OAK, None, STICK, None])),
+            made(ItemId::WoodenAxe, 1)
+        );
+        assert_eq!(
+            match_recipe(&grid([
+                OAK, OAK, None, STICK, None, None, STICK, None, None
+            ])),
+            made(ItemId::WoodenHoe, 1)
+        );
+        // but not upside down
+        assert_eq!(
+            match_recipe(&grid([None, STICK, None, None, STICK, None, OAK, OAK, OAK])),
+            None
+        );
+    }
+
+    #[test]
+    fn a_tool_needs_planks_of_one_kind() {
+        assert_eq!(
+            match_recipe(&grid([
+                OAK, OAK, SPRUCE, None, STICK, None, None, STICK, None
+            ])),
+            None
+        );
     }
 }

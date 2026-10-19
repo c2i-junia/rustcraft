@@ -46,11 +46,16 @@ pub enum ItemId {
     SprucePlanks,
     Furnace,
     Chest,
+    WoodenPickaxe,
+    WoodenAxe,
+    WoodenShovel,
+    WoodenHoe,
+    WoodenSword,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 23] = [
+    pub const ALL: [ItemId; 28] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -74,6 +79,11 @@ impl ItemId {
         Self::SprucePlanks,
         Self::Furnace,
         Self::Chest,
+        Self::WoodenPickaxe,
+        Self::WoodenAxe,
+        Self::WoodenShovel,
+        Self::WoodenHoe,
+        Self::WoodenSword,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -105,7 +115,30 @@ impl ItemId {
     }
 
     pub fn get_max_stack(&self) -> u32 {
-        64
+        if self.tool().is_some() {
+            1
+        } else {
+            64
+        }
+    }
+
+    /// What the item does as a tool, if it is one.
+    pub fn tool(&self) -> Option<Tool> {
+        let (kind, wear_per_block) = match *self {
+            Self::WoodenPickaxe => (ToolKind::Pickaxe, 1),
+            Self::WoodenAxe => (ToolKind::Axe, 1),
+            Self::WoodenShovel => (ToolKind::Shovel, 1),
+            Self::WoodenHoe => (ToolKind::Hoe, 1),
+            // A weapon: like in Minecraft, mining wears it twice as fast
+            Self::WoodenSword => (ToolKind::Sword, 2),
+            _ => return None,
+        };
+        Some(Tool {
+            kind,
+            speed: WOODEN_TOOL_SPEED,
+            durability: WOODEN_TOOL_DURABILITY,
+            wear_per_block,
+        })
     }
 
     pub fn get_default_type(&self) -> ItemType {
@@ -133,17 +166,56 @@ impl ItemId {
             Self::Chest => ItemType::Block(BlockId::Chest),
 
             Self::Snowball | Self::Stick => ItemType::Generic,
+
+            Self::WoodenPickaxe
+            | Self::WoodenAxe
+            | Self::WoodenShovel
+            | Self::WoodenHoe
+            | Self::WoodenSword => ItemType::Tool { wear: 0 },
         }
     }
 }
 
 impl GameElementId for ItemId {}
 
-/// Type of item
+/// How many times faster a wooden tool breaks the blocks it is made for than a hand.
+pub const WOODEN_TOOL_SPEED: u8 = 2;
+/// Blocks a wooden tool breaks before it breaks itself, like in Minecraft.
+pub const WOODEN_TOOL_DURABILITY: u32 = 59;
+
+/// The kinds of tools: each one breaks some blocks faster, see `BlockId::get_tool_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolKind {
+    Pickaxe,
+    Axe,
+    Shovel,
+    Hoe,
+    Sword,
+}
+
+/// What a tool item does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tool {
+    pub kind: ToolKind,
+    /// Mining hits each hit counts for on a block of its kind.
+    pub speed: u8,
+    /// The wear at which the tool breaks.
+    pub durability: u32,
+    /// The wear a broken block adds.
+    pub wear_per_block: u32,
+}
+
+/// Type of item. Append only, like `ItemId`: chest files and network messages store the
+/// position of the variant (bincode).
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum ItemType {
     Generic,
     Block(BlockId),
+    /// A tool, and the wear of this one: it breaks when the wear reaches its durability. It is
+    /// held by the stack, of one tool, so that it follows the tool wherever it goes.
+    Tool {
+        wear: u32,
+    },
 }
 
 impl Default for ItemType {
@@ -183,6 +255,11 @@ mod tests {
             (ItemId::SprucePlanks, 20),
             (ItemId::Furnace, 21),
             (ItemId::Chest, 22),
+            (ItemId::WoodenPickaxe, 23),
+            (ItemId::WoodenAxe, 24),
+            (ItemId::WoodenShovel, 25),
+            (ItemId::WoodenHoe, 26),
+            (ItemId::WoodenSword, 27),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -209,7 +286,12 @@ mod tests {
                 | ItemId::CraftingTable
                 | ItemId::SprucePlanks
                 | ItemId::Furnace
-                | ItemId::Chest => {}
+                | ItemId::Chest
+                | ItemId::WoodenPickaxe
+                | ItemId::WoodenAxe
+                | ItemId::WoodenShovel
+                | ItemId::WoodenHoe
+                | ItemId::WoodenSword => {}
             }
         }
         for (id, expected) in table {
@@ -245,5 +327,41 @@ mod tests {
         // only the names of the items, not anything serde would accept
         assert_eq!(ItemId::from_name("oak__log"), None);
         assert_eq!(ItemId::from_name("diamond"), None);
+    }
+
+    #[test]
+    fn item_type_encoding_is_pinned() {
+        // The chest files saved before the tools hold these: they must still read the same
+        let encoded = |item_type: ItemType| bincode::options().serialize(&item_type).unwrap();
+        assert_eq!(encoded(ItemType::Generic), [0]);
+        assert_eq!(encoded(ItemType::Block(BlockId::Stone)), [1, 3]);
+        assert_eq!(encoded(ItemType::Tool { wear: 5 }), [2, 5]);
+    }
+
+    #[test]
+    fn the_wooden_tools_are_unworn_tools_that_stack_to_one() {
+        let tools = [
+            (ItemId::WoodenPickaxe, ToolKind::Pickaxe),
+            (ItemId::WoodenAxe, ToolKind::Axe),
+            (ItemId::WoodenShovel, ToolKind::Shovel),
+            (ItemId::WoodenHoe, ToolKind::Hoe),
+            (ItemId::WoodenSword, ToolKind::Sword),
+        ];
+        for (item, kind) in tools {
+            let tool = item.tool().unwrap();
+            assert_eq!(tool.kind, kind);
+            assert_eq!(tool.speed, WOODEN_TOOL_SPEED);
+            assert_eq!(tool.durability, WOODEN_TOOL_DURABILITY);
+            assert_eq!(item.get_max_stack(), 1, "{item:?}");
+            assert_eq!(item.get_default_type(), ItemType::Tool { wear: 0 });
+        }
+        assert_eq!(ItemId::WoodenSword.tool().unwrap().wear_per_block, 2);
+        let others = ItemId::ALL
+            .iter()
+            .filter(|item| !tools.iter().any(|(t, _)| t == *item));
+        for item in others {
+            assert_eq!(item.tool(), None, "{item:?}");
+            assert_eq!(item.get_max_stack(), 64, "{item:?}");
+        }
     }
 }

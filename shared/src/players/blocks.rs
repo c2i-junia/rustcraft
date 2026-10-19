@@ -4,8 +4,8 @@ use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{movement::MAX_FRAME_DELTA_MS, Player},
     world::{
-        global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, ChunkMap,
-        Container, FaceDirectionExt, ItemType, RaycastResponse,
+        global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, BlockTransparency,
+        ChunkMap, Container, FaceDirectionExt, ItemType, RaycastResponse, Tool,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -81,6 +81,9 @@ pub struct BrokenBlock {
     /// What a broken chest held, dropped with it. A client only knows the contents of the
     /// chest its player has open.
     pub contents: Option<Container>,
+    /// Whether the block drops its items: a block that needs a tool, like stone, drops nothing
+    /// when broken without it. What a chest held drops in any case.
+    pub harvested: bool,
 }
 
 /// Breaks and places the blocks `action` asks for, and returns the blocks it broke.
@@ -184,8 +187,19 @@ fn aimed_block(
     Ok(target)
 }
 
+/// The tool in the selected hotbar slot, if it holds one.
+fn held_tool(player: &Player, action: &PlayerFrameInput) -> Option<Tool> {
+    player
+        .inventory
+        .inner
+        .get(&action.hotbar_slot)?
+        .item_id
+        .tool()
+}
+
 /// `hits` hits on the aimed block: it breaks once it took as many hits as its break time, and is
-/// returned then. The hits left over by a broken block are lost, and never reach the block
+/// returned then. A held tool made for the block counts each hit as its speed, and wears out by
+/// breaking blocks. The hits left over by a broken block are lost, and never reach the block
 /// behind it.
 fn break_block(
     player: &mut Player,
@@ -202,18 +216,37 @@ fn break_block(
         return Err(Refused::at(position, Refusal::Unbreakable(block.id)));
     };
 
-    block.breaking_progress = block.breaking_progress.saturating_add(hits);
+    let tool = held_tool(player, action);
+    let speed = tool
+        .filter(|tool| block.id.is_mined_faster_by(tool.kind))
+        .map_or(1, |tool| tool.speed);
+    block.breaking_progress = block
+        .breaking_progress
+        .saturating_add(hits.saturating_mul(speed));
     if block.breaking_progress < break_time {
         world_map.set_block(position, block);
         return Ok(None);
     }
 
+    let harvested = block
+        .id
+        .get_required_tool()
+        .is_none_or(|kind| tool.is_some_and(|tool| tool.kind == kind));
+    // Like in Minecraft, the plants that break at once do not wear a tool out
+    if let Some(tool) = tool {
+        if block.id.get_visibility() != BlockTransparency::Decoration {
+            player
+                .inventory
+                .wear_tool(action.hotbar_slot, tool.wear_per_block);
+        }
+    }
     let contents = world_map.take_container(position);
     world_map.remove_block(position);
     Ok(Some(BrokenBlock {
         position,
         block: block.id,
         contents,
+        harvested,
     }))
 }
 
@@ -386,6 +419,7 @@ mod tests {
                 position: TARGET,
                 block: BlockId::Dandelion,
                 contents: None,
+                harvested: true,
             }]
         );
         // The items are dropped by the server, not given to the player
@@ -667,6 +701,7 @@ mod tests {
                 position: TARGET,
                 block: BlockId::Chest,
                 contents: Some(contents),
+                harvested: true,
             }]
         );
         assert!(player.inventory.inner.is_empty());
@@ -679,5 +714,124 @@ mod tests {
         assert!(world.get_block(TARGET).is_none());
         assert_eq!(broken.len(), 1);
         assert_eq!(broken[0].contents, None);
+    }
+
+    /// Hits the block at `TARGET` until it breaks, holding `held` in the selected slot, and
+    /// returns the hits it took and what breaking it gave.
+    fn break_holding(id: BlockId, held: Option<ItemStack>) -> (u32, Player, BrokenBlock) {
+        let (mut player, mut world, input) = left_click_on(id);
+        if let Some(held) = held {
+            player.inventory.inner.insert(input.hotbar_slot, held);
+        }
+        for hits in 1..=u32::from(id.get_break_time().unwrap()) {
+            let mut broken = simulate_player_block_interactions(
+                &mut player,
+                &mut world,
+                &input,
+                CallerType::Server,
+            );
+            if let Some(broken) = broken.pop() {
+                return (hits, player, broken);
+            }
+        }
+        panic!("{id:?} not broken by {held:?}");
+    }
+
+    fn tool(item_id: ItemId) -> Option<ItemStack> {
+        Some(stack(item_id, 1))
+    }
+
+    #[test]
+    fn a_tool_breaks_the_blocks_it_is_made_for_faster() {
+        for (block, item) in [
+            (BlockId::Stone, ItemId::WoodenPickaxe),
+            (BlockId::OakLog, ItemId::WoodenAxe),
+            (BlockId::Dirt, ItemId::WoodenShovel),
+            (BlockId::OakLeaves, ItemId::WoodenHoe),
+            (BlockId::SpruceLeaves, ItemId::WoodenSword),
+        ] {
+            let (by_hand, ..) = break_holding(block, None);
+            let (with_tool, ..) = break_holding(block, tool(item));
+            let speed = u32::from(item.tool().unwrap().speed);
+            assert_eq!(by_hand, u32::from(block.get_break_time().unwrap()));
+            assert_eq!(
+                with_tool,
+                by_hand.div_ceil(speed),
+                "{block:?} with {item:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tool_breaks_other_blocks_like_a_hand() {
+        for (block, item) in [
+            (BlockId::Dirt, ItemId::WoodenPickaxe),
+            (BlockId::Stone, ItemId::WoodenAxe),
+            (BlockId::Glass, ItemId::WoodenShovel),
+        ] {
+            let (by_hand, ..) = break_holding(block, None);
+            let (with_tool, ..) = break_holding(block, tool(item));
+            assert_eq!(with_tool, by_hand, "{block:?} with {item:?}");
+        }
+    }
+
+    #[test]
+    fn stone_drops_its_items_only_when_broken_with_a_pickaxe() {
+        for (held, harvested) in [
+            (None, false),
+            (Some(stack(ItemId::Dirt, 5)), false),
+            (tool(ItemId::WoodenAxe), false),
+            (tool(ItemId::WoodenPickaxe), true),
+        ] {
+            for block in [BlockId::Stone, BlockId::Cobblestone, BlockId::Furnace] {
+                let (.., broken) = break_holding(block, held);
+                assert_eq!(broken.harvested, harvested, "{block:?} with {held:?}");
+            }
+        }
+        // A block that needs no tool always drops its items
+        assert!(break_holding(BlockId::Dirt, None).2.harvested);
+        assert!(
+            break_holding(BlockId::Dirt, tool(ItemId::WoodenPickaxe))
+                .2
+                .harvested
+        );
+    }
+
+    #[test]
+    fn each_broken_block_wears_the_held_tool() {
+        for (block, item, wear) in [
+            (BlockId::Stone, ItemId::WoodenPickaxe, 1),
+            // A tool wears out on any block, not only on those it is made for
+            (BlockId::Stone, ItemId::WoodenShovel, 1),
+            (BlockId::OakLeaves, ItemId::WoodenSword, 2),
+            // but not on the plants that break at once
+            (BlockId::Poppy, ItemId::WoodenAxe, 0),
+        ] {
+            let (_, player, _) = break_holding(block, tool(item));
+            assert_eq!(
+                player.inventory.inner[&0].item_type,
+                ItemType::Tool { wear },
+                "{block:?} with {item:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tool_breaking_its_last_block_breaks_too() {
+        let durability = ItemId::WoodenPickaxe.tool().unwrap().durability;
+        let worn = ItemStack {
+            item_type: ItemType::Tool {
+                wear: durability - 1,
+            },
+            ..stack(ItemId::WoodenPickaxe, 1)
+        };
+        let (hits, player, broken) = break_holding(BlockId::Stone, Some(worn));
+        // The last block still gets the tool's speed and its drops
+        assert_eq!(
+            hits,
+            u32::from(BlockId::Stone.get_break_time().unwrap()) / 2
+        );
+        assert!(broken.harvested);
+        assert!(player.inventory.inner.is_empty());
     }
 }

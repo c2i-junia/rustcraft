@@ -10,7 +10,9 @@ use crate::ui::theme::{
     BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::focus::ArrowNav;
-use crate::ui::widgets::slot::{slot, slot_count, slot_icon, slot_node, SLOT_SIZE};
+use crate::ui::widgets::slot::{
+    slot, slot_count, slot_durability, slot_icon, slot_node, SLOT_SIZE,
+};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
 use bevy::input_focus::tab_navigation::TabGroup;
@@ -136,7 +138,7 @@ pub fn setup_inventory(
         },
         GlobalZIndex(3),
         Pickable::IGNORE,
-        children![slot_icon(icon(atlas)), slot_count(font)],
+        children![slot_icon(icon(atlas)), slot_durability(), slot_count(font)],
     ));
 }
 

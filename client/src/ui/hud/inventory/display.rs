@@ -10,7 +10,10 @@ use crate::ui::hud::{
     InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
 };
 use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
-use crate::ui::widgets::slot::{count_label, Slot, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
+use crate::ui::widgets::slot::{
+    count_label, durability_bar, tool_wear, Slot, SlotCount, SlotDurability, SlotIcon,
+    SlotSelected, ICON_SIZE, SLOT_SIZE,
+};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{ClientWorldMap, MaterialResource};
 use bevy::input_focus::tab_navigation::TabIndex;
@@ -33,6 +36,26 @@ pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
 pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
 pub const HINT_RESULT: &str = "Click: craft";
+
+/// The durability bars of the slots, which `show_stack` sizes and colours.
+type DurabilityBars<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static mut Node,
+        &'static mut BackgroundColor,
+        &'static mut Visibility,
+    ),
+    (
+        With<SlotDurability>,
+        Without<SlotIcon>,
+        Without<InventoryRoot>,
+        Without<FloatingStack>,
+        Without<CraftingGridCell>,
+        Without<ChestGrid>,
+        Without<CraftingRow>,
+    ),
+>;
 
 /// Opens the inventory when no dialog is open, and closes it when it is open.
 pub fn toggle_inventory_system(
@@ -237,6 +260,7 @@ pub fn display_inventory_system(
     mut cells: Query<(&mut SlotSelected, &InventoryCell, &mut Tooltip, &Children)>,
     mut counts: Query<&mut Text, With<SlotCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
+    mut bars: DurabilityBars,
 ) {
     let is_open = inventory_root
         .single()
@@ -267,6 +291,7 @@ pub fn display_inventory_system(
             children,
             &mut counts,
             &mut icons,
+            &mut bars,
             &materials,
         );
     }
@@ -288,7 +313,14 @@ pub fn display_inventory_system(
         if cell.id >= MAX_HOTBAR_SLOTS && !is_open {
             continue;
         }
-        show_stack(stack, children, &mut counts, &mut icons, &materials);
+        show_stack(
+            stack,
+            children,
+            &mut counts,
+            &mut icons,
+            &mut bars,
+            &materials,
+        );
     }
 }
 
@@ -349,6 +381,7 @@ pub fn display_crafting_system(
     mut title: Query<&mut Text, (With<InventoryTitle>, Without<SlotCount>)>,
     mut counts: Query<&mut Text, With<SlotCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
+    mut bars: DurabilityBars,
 ) {
     // The server checks that the table or the chest is still within reach; the dialog follows
     // its updates
@@ -392,7 +425,14 @@ pub fn display_crafting_system(
         .is_ok_and(|visibility| *visibility == Visibility::Visible);
     for (children, mut tooltip) in &mut result {
         tooltip.set_if_neq(tooltip_of(made, HINT_RESULT, is_open, &inventory));
-        show_stack(made, children, &mut counts, &mut icons, &materials);
+        show_stack(
+            made,
+            children,
+            &mut counts,
+            &mut icons,
+            &mut bars,
+            &materials,
+        );
     }
 }
 
@@ -407,7 +447,10 @@ fn tooltip_of(
     match stack {
         Some(stack) if is_open && inventory.floating.is_none() => Tooltip {
             title: item_name(stack.item_id),
-            detail: count_detail(stack.nb),
+            detail: match tool_wear(&stack) {
+                Some((wear, durability)) => durability_detail(wear, durability),
+                None => count_detail(stack.nb),
+            },
             hint: hint.to_string(),
         },
         _ => Tooltip::default(),
@@ -422,14 +465,25 @@ fn count_detail(nb: u32) -> String {
     }
 }
 
-/// Shows `stack` with the count and the icon found among `children`, or hides both.
+/// What is left of a tool, in words.
+fn durability_detail(wear: u32, durability: u32) -> String {
+    format!(
+        "Durability: {} / {durability}",
+        durability.saturating_sub(wear)
+    )
+}
+
+/// Shows `stack` with the count, the icon and the durability bar found among `children`, or
+/// hides them.
 fn show_stack(
     stack: Option<ItemStack>,
     children: &Children,
     counts: &mut Query<&mut Text, With<SlotCount>>,
     icons: &mut Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
+    bars: &mut DurabilityBars,
     materials: &MaterialResource,
 ) {
+    let bar = stack.as_ref().and_then(durability_bar);
     let count = stack.map(|stack| count_label(stack.nb)).unwrap_or_default();
     let sprite = stack.and_then(|stack| {
         let atlas = materials.items.as_ref()?;
@@ -452,6 +506,18 @@ fn show_stack(
                 image.texture_atlas.clone_from(&sprite);
             }
         }
+        if let Ok((mut node, mut color, mut visibility)) = bars.get_mut(child) {
+            let Some((left, bar_color)) = bar else {
+                visibility.set_if_neq(Visibility::Hidden);
+                continue;
+            };
+            visibility.set_if_neq(Visibility::Inherited);
+            color.set_if_neq(BackgroundColor(bar_color));
+            let width = px(ICON_SIZE * left);
+            if node.width != width {
+                node.width = width;
+            }
+        }
     }
 }
 
@@ -460,7 +526,9 @@ mod tests {
     use super::*;
     use crate::ui::hud::{InventoryDialog, InventoryTitle};
     use crate::ui::theme::PANEL;
+    use crate::ui::widgets::slot::slot_durability;
     use bevy::ecs::system::RunSystemOnce;
+    use shared::world::ItemType;
     use shared::world::{grid_slot, ItemId};
 
     fn dirt_stack(nb: u32) -> ItemStack {
@@ -820,6 +888,41 @@ mod tests {
                 hotbar: 1
             }]
         );
+    }
+
+    #[test]
+    fn a_worn_tool_shows_its_durability_in_its_tooltip_and_bar() {
+        let mut hud = Hud::new(Visibility::Visible, &[0, 1]);
+        let bar = |hud: &mut Hud, slot: u32| {
+            let cell = hud.cell(slot);
+            hud.world.spawn((slot_durability(), ChildOf(cell))).id()
+        };
+        let (worn_bar, new_bar) = (bar(&mut hud, 0), bar(&mut hud, 1));
+        let durability = ItemId::WoodenPickaxe.tool().unwrap().durability;
+        let pickaxe = |wear| ItemStack {
+            item_id: ItemId::WoodenPickaxe,
+            item_type: ItemType::Tool { wear },
+            nb: 1,
+        };
+        {
+            let mut inventory = hud.world.resource_mut::<Inventory>();
+            inventory.inner.insert(0, pickaxe(durability - 10));
+            inventory.inner.insert(1, pickaxe(0));
+        }
+
+        let cell = hud.cell(0);
+        assert_eq!(
+            hud.tooltip_of(cell).detail,
+            format!("Durability: 10 / {durability}")
+        );
+        let shown = |hud: &Hud, bar: Entity| *hud.world.get::<Visibility>(bar).unwrap();
+        assert_eq!(shown(&hud, worn_bar), Visibility::Inherited);
+        assert_eq!(
+            hud.world.get::<Node>(worn_bar).unwrap().width,
+            px(ICON_SIZE * 10.0 / durability as f32)
+        );
+        // An unworn tool shows no bar, like in Minecraft
+        assert_eq!(shown(&hud, new_bar), Visibility::Hidden);
     }
 
     #[test]

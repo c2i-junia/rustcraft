@@ -103,10 +103,33 @@ impl Inventory {
             if nb + item.nb > item.item_id.get_max_stack() {
                 nb = item.item_id.get_max_stack() - item.nb;
             }
-            new_item.nb = nb + item.nb;
+            // The stack keeps its own type: a tool its wear
+            new_item = ItemStack {
+                nb: nb + item.nb,
+                ..*item
+            };
         }
         self.inner.insert(stack, new_item);
         nb
+    }
+
+    /// Adds `wear` to the tool in `slot`. A tool worn down to its durability breaks: it leaves
+    /// the slot, and `true` is returned. Anything else in the slot is left alone.
+    pub fn wear_tool(&mut self, slot: u32, wear: u32) -> bool {
+        let Some(stack) = self.inner.get_mut(&slot) else {
+            return false;
+        };
+        let (Some(tool), ItemType::Tool { wear: worn }) = (stack.item_id.tool(), stack.item_type)
+        else {
+            return false;
+        };
+        let worn = worn.saturating_add(wear);
+        if worn < tool.durability {
+            stack.item_type = ItemType::Tool { wear: worn };
+            return false;
+        }
+        self.inner.remove(&slot);
+        true
     }
 
     /// Removes items from stack at specified position\
@@ -387,5 +410,46 @@ mod tests {
         let mut inventory = Inventory::new();
         assert_eq!(inventory.remove_item_from_stack(5, 3), 0);
         assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn a_tool_wears_down_then_breaks_at_its_durability() {
+        let durability = ItemId::WoodenAxe.tool().unwrap().durability;
+        let mut inventory = Inventory::new();
+        inventory.inner.insert(2, stack(ItemId::WoodenAxe, 1));
+        for wear in 1..durability {
+            assert!(!inventory.wear_tool(2, 1));
+            assert_eq!(inventory.inner[&2].item_type, ItemType::Tool { wear });
+        }
+        assert!(inventory.wear_tool(2, 1));
+        assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn wearing_anything_but_a_tool_changes_nothing() {
+        let mut inventory = Inventory::new();
+        inventory.inner.insert(0, stack(ItemId::Dirt, 3));
+        let before = inventory.clone();
+        assert!(!inventory.wear_tool(0, 1));
+        assert!(!inventory.wear_tool(1, 1));
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn a_worn_tool_keeps_its_wear_when_moved_around() {
+        let worn = ItemStack {
+            item_type: ItemType::Tool { wear: 30 },
+            ..stack(ItemId::WoodenPickaxe, 1)
+        };
+        let mut inventory = Inventory::new();
+        assert_eq!(inventory.add_item_to_inventory(worn), 0);
+        assert_eq!(inventory.inner[&0], worn);
+        // A second tool never stacks onto the first one
+        assert_eq!(
+            inventory.add_item_to_inventory(stack(ItemId::WoodenPickaxe, 1)),
+            0
+        );
+        assert_eq!(inventory.inner[&0], worn);
+        assert_eq!(inventory.inner[&1], stack(ItemId::WoodenPickaxe, 1));
     }
 }

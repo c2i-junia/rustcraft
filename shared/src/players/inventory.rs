@@ -1412,4 +1412,44 @@ mod tests {
         act(&mut player, &mut world, Vec::new());
         assert_eq!(player.inventory.open_chest, None);
     }
+
+    #[test]
+    fn a_worn_tool_keeps_its_wear_through_every_click() {
+        let worn = ItemStack {
+            item_type: ItemType::Tool { wear: 12 },
+            ..stack(ItemId::WoodenAxe, 1)
+        };
+        let mut inventory = inventory_with(0, worn);
+        for action in [
+            InventoryAction::LeftClickSlot(0),
+            InventoryAction::LeftClickSlot(5),
+            InventoryAction::RightClickSlot(5),
+            InventoryAction::RightClickSlot(20),
+            InventoryAction::QuickMoveSlot(20),
+            InventoryAction::SwapWithHotbar { slot: 0, hotbar: 3 },
+        ] {
+            apply(&mut inventory, action);
+            let stacks: Vec<_> = inventory
+                .inner
+                .values()
+                .chain(&inventory.floating)
+                .collect();
+            assert_eq!(stacks, [&worn], "after {action:?}");
+        }
+        assert_eq!(inventory.inner[&3], worn);
+    }
+
+    #[test]
+    fn a_tool_in_the_cursor_takes_no_second_one() {
+        let worn = ItemStack {
+            item_type: ItemType::Tool { wear: 40 },
+            ..stack(ItemId::WoodenAxe, 1)
+        };
+        let mut inventory = inventory_with(0, worn);
+        inventory.floating = Some(stack(ItemId::WoodenAxe, 1));
+        apply(&mut inventory, InventoryAction::RightClickSlot(0));
+        // Neither tool takes the wear of the other
+        assert_eq!(inventory.inner[&0], worn);
+        assert_eq!(inventory.floating, Some(stack(ItemId::WoodenAxe, 1)));
+    }
 }

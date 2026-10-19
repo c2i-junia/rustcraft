@@ -80,13 +80,14 @@ impl DroppedItems {
         )
     }
 
-    /// Drops the items of `broken`, and what it held if it was a chest, at its centre, each
-    /// thrown in a random direction.
+    /// Drops the items of `broken` if it was harvested, and what it held if it was a chest, at
+    /// its centre, each thrown in a random direction.
     pub fn drop_block_items(&mut self, broken: &BrokenBlock, rng: &mut impl Rng) {
         let centre = broken.position.as_vec3() + HALF_BLOCK;
+        let nb_drops = u32::from(broken.harvested);
         let drops = broken
             .block
-            .get_drops(1)
+            .get_drops(nb_drops)
             .into_iter()
             .map(|(item_id, nb)| ItemStack {
                 item_id,
@@ -326,6 +327,7 @@ mod tests {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Dirt,
             contents: None,
+            harvested: true,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
 
@@ -348,6 +350,7 @@ mod tests {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Chest,
             contents: Some(contents),
+            harvested: true,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
 
@@ -361,6 +364,38 @@ mod tests {
                 stack(ItemId::Chest, 1)
             ]
         );
+    }
+
+    #[test]
+    fn a_block_broken_without_its_tool_drops_nothing() {
+        let mut items = DroppedItems::default();
+        let broken = BrokenBlock {
+            position: IVec3::new(3, 64, -2),
+            block: BlockId::Stone,
+            contents: None,
+            harvested: false,
+        };
+        items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
+        assert_eq!(items.len(), 0);
+    }
+
+    #[test]
+    fn a_worn_tool_dropped_from_a_chest_keeps_its_wear() {
+        let mut items = DroppedItems::default();
+        let worn = ItemStack {
+            item_type: shared::world::ItemType::Tool { wear: 17 },
+            ..stack(ItemId::WoodenPickaxe, 1)
+        };
+        let mut contents = shared::world::Container::default();
+        contents.slots[0] = Some(worn);
+        let broken = BrokenBlock {
+            position: IVec3::new(3, 64, -2),
+            block: BlockId::Chest,
+            contents: Some(contents),
+            harvested: true,
+        };
+        items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
+        assert!(items.items.values().any(|item| item.stack == worn));
     }
 
     #[test]

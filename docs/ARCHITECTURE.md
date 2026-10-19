@@ -144,6 +144,15 @@ them is a click on any slot (`shared/src/players/inventory.rs`). The client inse
 the server sent before replaying its unacknowledged actions on them, as it does for the
 inventory. A broken chest drops what it held on the ground with itself.
 
+A tool (`ItemId::tool`, `shared/src/world/items.rs`) stacks to one, and its stack carries its
+wear in its `ItemType::Tool`, so that the wear follows it into the cursor, a chest or the
+ground. Held in the selected hotbar slot, a tool made for the aimed block
+(`BlockId::is_mined_faster_by`) counts each mining hit as its speed, and each block it breaks
+wears it, until it breaks itself (`shared/src/players/blocks.rs`). A block that needs a tool
+(`BlockId::get_required_tool`), like stone and a pickaxe, still breaks without it, but its
+`BrokenBlock` is not `harvested`, and the server drops none of its items. The client predicts
+the wear like any change of the inventory.
+
 ## One server tick
 
 The server runs at 20 ticks per second. `ServerSet` (`server/src/network/dispatcher.rs`)
@@ -214,7 +223,7 @@ them all, in `app::add_client`. A widget is a headless `bevy::ui_widgets` widget
 and a label. A text field triggers `Submit` (Enter) and `Cancel` (Escape) on its input, after
 `EditableTextSystems` has applied the edits of the frame. `UIMode::Typing` means that the focus
 is on an `EditableText`. `slot.rs` is an item slot: its icon at twice the size of its texture,
-its count, its number in the hotbar and its selection. `tooltip.rs` is the one tooltip by the
+its count, its number in the hotbar, the durability bar of a worn tool and its selection. `tooltip.rs` is the one tooltip by the
 cursor, for any hovered entity with a `Tooltip`. The inventory is one panel whose bottom row is
 the hotbar, and every change to it is an `InventoryAction` predicted by the client and applied
 by the server. While a chest is open, its slots take the place of the crafting row. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{GameElementId, ItemId};
+use super::{GameElementId, ItemId, ToolKind};
 use bevy::math::{bounding::Aabb3d, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -187,6 +187,38 @@ impl BlockId {
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
+    }
+
+    /// Whether a tool of `kind` breaks this block faster than a hand, at its speed.
+    pub fn is_mined_faster_by(&self, kind: ToolKind) -> bool {
+        match kind {
+            ToolKind::Pickaxe => matches!(
+                *self,
+                Self::Stone | Self::Cobblestone | Self::Furnace | Self::Ice
+            ),
+            ToolKind::Axe => matches!(
+                *self,
+                Self::OakLog
+                    | Self::SpruceLog
+                    | Self::OakPlanks
+                    | Self::SprucePlanks
+                    | Self::CraftingTable
+                    | Self::Chest
+            ),
+            ToolKind::Shovel => matches!(*self, Self::Dirt | Self::Grass | Self::Sand | Self::Snow),
+            ToolKind::Hoe | ToolKind::Sword => {
+                matches!(*self, Self::OakLeaves | Self::SpruceLeaves)
+            }
+        }
+    }
+
+    /// The tool this block must be broken with to drop anything, like stone and a pickaxe.
+    /// Broken otherwise, it still goes, but drops nothing.
+    pub fn get_required_tool(&self) -> Option<ToolKind> {
+        match *self {
+            Self::Stone | Self::Cobblestone | Self::Furnace => Some(ToolKind::Pickaxe),
+            _ => None,
+        }
     }
 
     /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
@@ -521,5 +553,35 @@ mod tests {
     fn a_block_without_drop_table_drops_nothing() {
         assert!(BlockId::Water.get_drops(5).is_empty());
         assert_eq!(BlockId::Snow.get_drops(2)[&ItemId::Snowball], 8);
+    }
+
+    #[test]
+    fn stone_blocks_need_a_pickaxe_and_the_others_nothing() {
+        for id in ALL_BLOCKS {
+            let expected = matches!(id, BlockId::Stone | BlockId::Cobblestone | BlockId::Furnace)
+                .then_some(ToolKind::Pickaxe);
+            assert_eq!(id.get_required_tool(), expected, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn a_block_that_needs_a_tool_is_mined_faster_by_it() {
+        for id in ALL_BLOCKS {
+            if let Some(kind) = id.get_required_tool() {
+                assert!(id.is_mined_faster_by(kind), "{id:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn each_tool_is_made_for_its_own_blocks() {
+        assert!(BlockId::Stone.is_mined_faster_by(ToolKind::Pickaxe));
+        assert!(BlockId::OakLog.is_mined_faster_by(ToolKind::Axe));
+        assert!(BlockId::Grass.is_mined_faster_by(ToolKind::Shovel));
+        assert!(BlockId::SpruceLeaves.is_mined_faster_by(ToolKind::Hoe));
+        assert!(BlockId::OakLeaves.is_mined_faster_by(ToolKind::Sword));
+        assert!(!BlockId::Stone.is_mined_faster_by(ToolKind::Axe));
+        assert!(!BlockId::Dirt.is_mined_faster_by(ToolKind::Pickaxe));
+        assert!(!BlockId::Glass.is_mined_faster_by(ToolKind::Pickaxe));
     }
 }
