@@ -865,6 +865,32 @@ mod tests {
         }
     }
 
+    /// Times the chunks a player asks for at spawn with the largest render distance a server
+    /// grants by default. Ignored: run it in release, with
+    /// `cargo test -p server --release generation_time -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn generation_time_of_a_render_distance() {
+        let radius = shared::DEFAULT_MAX_RENDER_DISTANCE as i32;
+        let spawn_chunk = IVec3::new(0, SEA_LEVEL / CHUNK_SIZE, 0);
+        let start = std::time::Instant::now();
+        let mut count = 0;
+        for x in -radius..=radius {
+            for y in -radius..=radius {
+                for z in -radius..=radius {
+                    let chunk_pos = spawn_chunk + IVec3::new(x, y, z);
+                    std::hint::black_box(generate_chunk(chunk_pos, 42));
+                    count += 1;
+                }
+            }
+        }
+        let elapsed = start.elapsed();
+        println!(
+            "{count} chunks in {elapsed:?}, {:?} per chunk",
+            elapsed / count
+        );
+    }
+
     #[test]
     fn splitmix64_matches_the_reference_vector() {
         // first output of the reference splitmix64 generator seeded with 0
