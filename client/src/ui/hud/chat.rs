@@ -94,6 +94,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
             max_characters: Some(256),
             font: load_font(&asset_server),
             font_size: CHAT_SIZE,
+            reserve_error: false,
         },
     );
     commands.entity(root).add_child(field.root);

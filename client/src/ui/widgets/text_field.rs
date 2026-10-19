@@ -12,7 +12,7 @@ use bevy::{
     },
     input_focus::{tab_navigation::TabIndex, AcquireFocus, FocusCause, FocusedInput, InputFocus},
     prelude::*,
-    text::{EditableText, EditableTextSystems, LineBreak, TextCursorStyle},
+    text::{EditableText, EditableTextSystems, LineBreak, TextCursorStyle, TextEdit},
     ui::UiSystems,
 };
 
@@ -30,9 +30,13 @@ pub struct TextField<'a> {
     pub max_characters: Option<usize>,
     pub font: Handle<Font>,
     pub font_size: f32,
+    /// Keeps one line under the field for its error, so that an error appearing moves nothing
+    /// below.
+    pub reserve_error: bool,
 }
 
 /// The entities of a text field: `root` to place it, `input` to observe it and read its value.
+#[derive(Clone, Copy)]
 pub struct TextFieldParts {
     pub root: Entity,
     pub input: Entity,
@@ -61,6 +65,7 @@ struct FieldParts {
     frame: Entity,
     placeholder: Entity,
     message: Entity,
+    reserve_error: bool,
 }
 
 /// A Submit or a Cancel to trigger once the edits of this update are applied, on the `input`.
@@ -145,6 +150,24 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
             ChildOf(frame),
         ))
         .id();
+    let message_layout = if field.reserve_error {
+        // one line at the default line height of 1.2 font sizes, kept while there is no error
+        (
+            Node {
+                min_height: px(FONT_S * 1.2),
+                ..default()
+            },
+            Visibility::Hidden,
+        )
+    } else {
+        (
+            Node {
+                display: Display::None,
+                ..default()
+            },
+            Visibility::Inherited,
+        )
+    };
     let message = commands
         .spawn((
             Text::default(),
@@ -154,10 +177,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
                 ..default()
             },
             TextColor(DANGER),
-            Node {
-                display: Display::None,
-                ..default()
-            },
+            message_layout,
             ChildOf(root),
         ))
         .id();
@@ -175,14 +195,20 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         frame,
         placeholder,
         message,
+        reserve_error: field.reserve_error,
     });
     TextFieldParts { root, input }
 }
+
+/// The systems of the text fields: they trigger `Submit` and `Cancel` in `PostUpdate`.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct TextFieldSystems;
 
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         PostUpdate,
         (emit_requests, show_placeholders, show_errors)
+            .in_set(TextFieldSystems)
             .after(EditableTextSystems)
             .before(UiSystems::Layout),
     );
@@ -192,6 +218,13 @@ pub(super) fn plugin(app: &mut App) {
 /// screen behind it stand down.
 pub fn text_field_focused(focus: Res<InputFocus>, fields: Query<(), With<EditableText>>) -> bool {
     focus.get().is_some_and(|entity| fields.contains(entity))
+}
+
+/// Replaces the value of a field with `value`.
+#[allow(dead_code)] // fills the New world dialog (Lot 2, Task 4)
+pub fn set_text(text: &mut EditableText, value: &str) {
+    text.queue_edit(TextEdit::SelectAll);
+    text.queue_edit(TextEdit::Insert(value.into()));
 }
 
 /// The bevel of a field at rest: dark at the top and left, light at the bottom and right.
@@ -267,10 +300,12 @@ fn show_placeholders(
     }
 }
 
-/// Shows the error of each field under it, and turns its bevel red while there is one.
+/// Shows the error of each field under it, and turns its bevel red while there is one. A field
+/// that reserves its error line hides the message instead of removing its line.
 fn show_errors(
     fields: Query<(&FieldError, &FieldParts), Changed<FieldError>>,
     mut nodes: Query<&mut Node>,
+    mut visibilities: Query<&mut Visibility>,
     mut texts: Query<&mut Text>,
     mut borders: Query<&mut BorderColor>,
 ) {
@@ -286,7 +321,15 @@ fn show_errors(
                 text.0.clone_from(message);
             }
         }
-        if let Ok(mut node) = nodes.get_mut(parts.message) {
+        if parts.reserve_error {
+            if let Ok(mut visibility) = visibilities.get_mut(parts.message) {
+                *visibility = if error.0.is_some() {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+        } else if let Ok(mut node) = nodes.get_mut(parts.message) {
             node.display = if error.0.is_some() {
                 Display::Flex
             } else {

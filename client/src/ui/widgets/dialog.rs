@@ -3,6 +3,9 @@
 //! `spawn_dialog` builds it; observe `DialogClosed` (a global observer) to learn which action
 //! closed it, or that Escape did. The focus stays inside while it is open and goes back to where
 //! it was when it closes. Its own key hints replace those of the screen while it is open.
+//!
+//! `spawn_form_dialog` adds text fields above the buttons: observe `DialogSubmit` and close it
+//! with `close_dialog` once the submission succeeded.
 
 use accesskit::Role;
 use bevy::{
@@ -15,14 +18,16 @@ use bevy::{
         tab_navigation::TabGroup, AcquireFocus, AutoFocus, FocusCause, FocusedInput, InputFocus,
     },
     prelude::*,
-    ui::FocusPolicy,
+    ui::{FocusPolicy, InteractionDisabled},
     ui_widgets::Activate,
 };
 
 use super::button::{button, ButtonVariant};
 use super::hints::{hint_bar, Hint, HintBar};
+use super::text_field::{Cancel, Submit, TextFieldParts, TextFieldSystems};
 use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XL, TEXT,
+    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M,
+    SPACE_S, SPACE_XL, SPACE_XS, TEXT,
 };
 
 /// The z-index of a dialog: over the screens and the in-game overlays.
@@ -39,11 +44,20 @@ pub struct Dialog<'a> {
     pub focused: usize,
 }
 
+/// The entities of a dialog: its root, and its buttons in the order of its actions.
+pub struct DialogParts {
+    pub root: Entity,
+    #[allow(dead_code)] // disabled by the New world dialog (Lot 2, Task 4)
+    pub actions: Vec<Entity>,
+}
+
 /// The root of an open dialog.
 #[derive(Component)]
 pub struct DialogRoot {
     /// Where the focus goes back to when the dialog closes, if that still exists.
     restore_focus: Option<Entity>,
+    /// The index of the primary action: the last one.
+    primary: usize,
 }
 
 /// Triggered on the root of a dialog when it closes: `Some(i)` for the action `i`, `None` for
@@ -52,6 +66,14 @@ pub struct DialogRoot {
 pub struct DialogClosed {
     pub entity: Entity,
     pub action: Option<usize>,
+}
+
+/// Triggered on the root of a form dialog when Enter is pressed in one of its fields or its
+/// primary (last) action is activated, unless that action has `InteractionDisabled`. The dialog
+/// stays open: the caller closes it with `close_dialog` once the submission succeeded.
+#[derive(EntityEvent)]
+pub struct DialogSubmit {
+    pub entity: Entity,
 }
 
 /// The key hints of every dialog. None has an arrow, so the key caps need no glyph font.
@@ -74,13 +96,33 @@ const DIALOG_HINTS: [Hint; 3] = [
 #[derive(Component)]
 struct DialogHints;
 
-/// Asks to close the dialog, with this action. It is carried out in `PostUpdate`, so that the
-/// systems of `Update` still see the dialog open in the update of the key.
+/// Asks to close the dialog. It is carried out in `PostUpdate`, so that the systems of `Update`
+/// still see the dialog open in the update of the key.
 #[derive(Component)]
-struct CloseRequest(Option<usize>);
+struct CloseRequest {
+    /// The action it closes with, `None` for Escape.
+    action: Option<usize>,
+    /// Whether the focus goes back where it was before the dialog opened.
+    restore_focus: bool,
+}
+
+impl CloseRequest {
+    fn new(action: Option<usize>) -> Self {
+        Self {
+            action,
+            restore_focus: true,
+        }
+    }
+}
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, (close_dialogs, hide_screen_hints).chain());
+    // after the fields: Escape in a field of a form closes it in the update of the key
+    app.add_systems(
+        PostUpdate,
+        (close_dialogs, hide_screen_hints)
+            .chain()
+            .after(TextFieldSystems),
+    );
 }
 
 /// Whether a dialog is open: the Escape handlers of the screens behind it stand down.
@@ -97,10 +139,54 @@ pub fn spawn_dialog(
     focus: &InputFocus,
 ) -> Entity {
     debug_assert!(dialog.focused < dialog.actions.len());
+    build_dialog(commands, dialog, &[], &DIALOG_HINTS, font, focus).root
+}
+
+/// A dialog whose `fields` (caption, field) sit between its body and its actions. The first
+/// field has the focus (`dialog.focused` is not used); `hints` replace the dialog's own hints.
+#[allow(dead_code)] // opens the New world dialog (Lot 2, Task 4)
+pub fn spawn_form_dialog(
+    commands: &mut Commands,
+    dialog: &Dialog,
+    fields: &[(&str, TextFieldParts)],
+    hints: &[Hint],
+    font: Handle<Font>,
+    focus: &InputFocus,
+) -> DialogParts {
+    debug_assert!(!fields.is_empty() && !dialog.actions.is_empty());
+    build_dialog(commands, dialog, fields, hints, font, focus)
+}
+
+/// Closes the dialog in `PostUpdate` with `DialogClosed { action: Some(last) }`; the focus goes
+/// back where it was only when `restore_focus` (the caller may have focused something new).
+#[allow(dead_code)] // closes the New world dialog (Lot 2, Task 4)
+pub fn close_dialog(commands: &mut Commands, root: Entity, restore_focus: bool) {
+    commands
+        .entity(root)
+        .queue(move |mut dialog: EntityWorldMut| {
+            let action = dialog.get::<DialogRoot>().map(|root| root.primary);
+            dialog.insert(CloseRequest {
+                action,
+                restore_focus,
+            });
+        });
+}
+
+/// Spawns a dialog, a form one when there are `fields`: `spawn_dialog` and `spawn_form_dialog`.
+fn build_dialog(
+    commands: &mut Commands,
+    dialog: &Dialog,
+    fields: &[(&str, TextFieldParts)],
+    hints: &[Hint],
+    font: Handle<Font>,
+    focus: &InputFocus,
+) -> DialogParts {
+    let primary = dialog.actions.len().saturating_sub(1);
     let root = commands
         .spawn((
             DialogRoot {
                 restore_focus: focus.get(),
+                primary,
             },
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::Dialog)),
@@ -130,7 +216,7 @@ pub fn spawn_dialog(
         ChildOf(root),
     ));
     commands.spawn((
-        hint_bar(&DIALOG_HINTS, font.clone(), font.clone()),
+        hint_bar(hints, font.clone(), font.clone()),
         DialogHints,
         ChildOf(root),
     ));
@@ -170,6 +256,32 @@ pub fn spawn_dialog(
     if !dialog.body.is_empty() {
         commands.spawn((text(dialog.body, FONT_M, MUTED), ChildOf(panel)));
     }
+    if !fields.is_empty() {
+        let form = commands
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(SPACE_M),
+                    ..default()
+                },
+                ChildOf(panel),
+            ))
+            .id();
+        for (caption, field) in fields {
+            let column = commands
+                .spawn((
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: px(SPACE_XS),
+                        ..default()
+                    },
+                    ChildOf(form),
+                ))
+                .id();
+            commands.spawn((text(caption, FONT_S, MUTED), ChildOf(column)));
+            commands.entity(field.root).insert(ChildOf(column));
+        }
+    }
     let actions = commands
         .spawn((
             Node {
@@ -180,16 +292,52 @@ pub fn spawn_dialog(
             ChildOf(panel),
         ))
         .id();
-    let mut first = None;
-    for (index, (label, variant)) in dialog.actions.iter().enumerate() {
-        let mut action = commands.spawn((button(label, *variant, font.clone()), ChildOf(actions)));
-        if index == dialog.focused {
-            action.insert(AutoFocus);
-            first = Some(action.id());
+    let mut buttons = Vec::with_capacity(dialog.actions.len());
+    for (label, variant) in dialog.actions {
+        buttons.push(
+            commands
+                .spawn((button(label, *variant, font.clone()), ChildOf(actions)))
+                .id(),
+        );
+    }
+    let primary_button = buttons[primary];
+    for (index, &action) in buttons.iter().enumerate() {
+        // the primary action of a form submits it, the others close the dialog
+        if !fields.is_empty() && index == primary {
+            commands.entity(action).observe(
+                move |_: On<Activate>,
+                      disabled: Query<(), With<InteractionDisabled>>,
+                      mut commands: Commands| {
+                    submit(root, primary_button, &disabled, &mut commands);
+                },
+            );
+        } else {
+            commands
+                .entity(action)
+                .observe(move |_: On<Activate>, mut commands: Commands| {
+                    commands.entity(root).insert(CloseRequest::new(Some(index)));
+                });
         }
-        action.observe(move |_: On<Activate>, mut commands: Commands| {
-            commands.entity(root).insert(CloseRequest(Some(index)));
-        });
+    }
+    // the focus goes to the first field of a form, else to the chosen button
+    let first = match fields.first() {
+        Some((_, field)) => field.input,
+        None => buttons[dialog.focused],
+    };
+    commands.entity(first).insert(AutoFocus);
+    for (_, field) in fields {
+        commands
+            .entity(field.input)
+            .observe(
+                move |_: On<Submit>,
+                      disabled: Query<(), With<InteractionDisabled>>,
+                      mut commands: Commands| {
+                    submit(root, primary_button, &disabled, &mut commands);
+                },
+            )
+            .observe(move |_: On<Cancel>, mut commands: Commands| {
+                commands.entity(root).insert(CloseRequest::new(None));
+            });
     }
     // a click that no button took (a button stops the event) keeps the focus on the dialog
     commands.entity(root).observe(
@@ -201,13 +349,26 @@ pub fn spawn_dialog(
                 std::iter::successors(focus.get(), |e| parents.get(*e).ok().map(ChildOf::parent))
                     .any(|e| e == root);
             if !inside {
-                if let Some(chosen) = first {
-                    focus.set(chosen, FocusCause::Pressed);
-                }
+                focus.set(first, FocusCause::Pressed);
             }
         },
     );
-    root
+    DialogParts {
+        root,
+        actions: buttons,
+    }
+}
+
+/// Triggers `DialogSubmit` on the form dialog `root`, unless its `primary` action is disabled.
+fn submit(
+    root: Entity,
+    primary: Entity,
+    disabled: &Query<(), With<InteractionDisabled>>,
+    commands: &mut Commands,
+) {
+    if !disabled.contains(primary) {
+        commands.trigger(DialogSubmit { entity: root });
+    }
 }
 
 /// Asks to close the dialog on Escape, which stops there: nothing behind the dialog sees it.
@@ -219,11 +380,11 @@ fn escape_closes(mut event: On<FocusedInput<KeyboardInput>>, mut commands: Comma
     event.propagate(false);
     commands
         .entity(event.event_target())
-        .insert(CloseRequest(None));
+        .insert(CloseRequest::new(None));
 }
 
 /// Closes the dialogs that asked to: triggers `DialogClosed`, despawns the root and puts the
-/// focus back where it was, if that still exists.
+/// focus back where it was, if that still exists and the request says so.
 fn close_dialogs(
     requests: Query<(Entity, &DialogRoot, &CloseRequest)>,
     existing: Query<()>,
@@ -233,9 +394,12 @@ fn close_dialogs(
     for (root, dialog, request) in &requests {
         commands.trigger(DialogClosed {
             entity: root,
-            action: request.0,
+            action: request.action,
         });
         commands.entity(root).despawn();
+        if !request.restore_focus {
+            continue;
+        }
         if let Some(previous) = dialog.restore_focus.filter(|e| existing.contains(*e)) {
             focus.set(previous, FocusCause::Navigated);
         }

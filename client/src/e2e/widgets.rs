@@ -9,7 +9,7 @@ use bevy::{
     },
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
-        AutoFocus, InputFocus, InputFocusVisible,
+        AutoFocus, FocusCause, InputFocus, InputFocusVisible,
     },
     prelude::*,
     text::EditableText,
@@ -26,15 +26,18 @@ use crate::ui::assets::MONO_FONT_PATH;
 use crate::ui::menus::QUIT_TITLE;
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER};
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed, DialogRoot};
+use crate::ui::widgets::dialog::{
+    close_dialog, spawn_dialog, spawn_form_dialog, Dialog, DialogClosed, DialogParts, DialogRoot,
+    DialogSubmit,
+};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
-use crate::ui::widgets::hints::key_cap;
+use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderParts, SliderReadout};
 use crate::ui::widgets::slot::{slot, SlotSelected};
 use crate::ui::widgets::tabs::{spawn_tabs, TabChange, Tabs};
 use crate::ui::widgets::text_field::{
-    spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
+    set_text, spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
 };
 use crate::ui::widgets::tooltip::{Tooltip, TooltipRoot};
 
@@ -328,6 +331,7 @@ fn spawn_field(h: &mut Harness) -> TextFieldParts {
         max_characters: Some(5),
         font: Handle::default(),
         font_size: 20.0,
+        reserve_error: false,
     };
     let parts = spawn_text_field(&mut h.world_mut().commands(), &field);
     h.world_mut().flush();
@@ -843,6 +847,252 @@ fn a_dialog_button_closes_it_with_its_action() {
     h.press(KeyCode::Enter);
     h.frames(2);
     assert_eq!(closes(&mut h), [Some(1), Some(0)]);
+}
+
+/// How many times the form dialogs of a test were submitted.
+#[derive(Resource, Default)]
+struct FormSubmits(u32);
+
+/// The parts of the last probe form, and the input of its "Name" field.
+#[derive(Resource)]
+struct ProbeForm {
+    parts: DialogParts,
+    name: Entity,
+}
+
+/// Spawns a "Before" button with the focus, then a probe form "Probe form" with a "Name" and a
+/// "Seed" field that reserve their error line, and records its submits and how it closes.
+fn form_probe(h: &mut Harness) {
+    h.world_mut().init_resource::<Closes>();
+    h.world_mut().init_resource::<FormSubmits>();
+    h.world_mut()
+        .add_observer(|closed: On<DialogClosed>, mut closes: ResMut<Closes>| {
+            closes.0.push(closed.action)
+        });
+    h.world_mut()
+        .add_observer(|_: On<DialogSubmit>, mut submits: ResMut<FormSubmits>| submits.0 += 1);
+    let root = spawn_group(h, Node::default());
+    h.world_mut().spawn((
+        button("Before", ButtonVariant::Default, Handle::default()),
+        AutoFocus,
+        ChildOf(root),
+    ));
+    h.frames(3);
+    open_probe_form(h);
+}
+
+fn open_probe_form(h: &mut Harness) {
+    let form = h
+        .world_mut()
+        .run_system_once(|mut commands: Commands, focus: Res<InputFocus>| {
+            let mut field = |label| {
+                spawn_text_field(
+                    &mut commands,
+                    &TextField {
+                        label,
+                        placeholder: "",
+                        max_characters: None,
+                        font: Handle::default(),
+                        font_size: 20.0,
+                        reserve_error: true,
+                    },
+                )
+            };
+            let (name, seed) = (field("Name"), field("Seed"));
+            let dialog = Dialog {
+                title: "Probe form",
+                body: "",
+                actions: &[
+                    ("Cancel", ButtonVariant::Default),
+                    ("Create", ButtonVariant::Primary),
+                ],
+                focused: 0,
+            };
+            let hints = [
+                Hint {
+                    keys: "Tab",
+                    action: "Move",
+                },
+                Hint {
+                    keys: "Enter",
+                    action: "Create",
+                },
+                Hint {
+                    keys: "Esc",
+                    action: "Cancel",
+                },
+            ];
+            let parts = spawn_form_dialog(
+                &mut commands,
+                &dialog,
+                &[("Name", name), ("Seed", seed)],
+                &hints,
+                Handle::default(),
+                &focus,
+            );
+            ProbeForm {
+                parts,
+                name: name.input,
+            }
+        })
+        .unwrap();
+    h.world_mut().insert_resource(form);
+    h.frames(3);
+}
+
+fn form_submits(h: &mut Harness) -> u32 {
+    h.world().resource::<FormSubmits>().0
+}
+
+fn probe_form(h: &mut Harness) -> &ProbeForm {
+    h.world().resource::<ProbeForm>()
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_form_dialog_focuses_its_first_field_and_submits_once_per_enter() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    assert_eq!(h.focus_label().as_deref(), Some("Name"));
+    h.type_text("abc");
+    h.press(KeyCode::Enter);
+    h.frames(3);
+    assert_eq!(form_submits(&mut h), 1);
+    assert!(h.is_visible(&L::text("Probe form")));
+    h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("Seed"));
+    h.press(KeyCode::Enter);
+    h.frames(3);
+    assert_eq!(form_submits(&mut h), 2);
+    h.click(&L::role(Role::Button, "Create"));
+    h.frames(3);
+    assert_eq!(form_submits(&mut h), 3);
+    assert!(h.is_visible(&L::text("Probe form")));
+    assert!(closes(&mut h).is_empty());
+    // the dialog keeps the focus inside, yet a click on a field takes it there
+    h.click(&L::role(Role::TextInput, "Name"));
+    h.frames(2);
+    assert_eq!(h.focus_label().as_deref(), Some("Name"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_disabled_primary_blocks_the_submit() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    let create = probe_form(&mut h).parts.actions[1];
+    h.world_mut().entity_mut(create).insert(InteractionDisabled);
+    h.frames(1);
+    h.press(KeyCode::Enter);
+    h.frames(3);
+    h.click(&L::role(Role::Button, "Create"));
+    h.frames(3);
+    assert_eq!(form_submits(&mut h), 0);
+    assert!(h.is_visible(&L::text("Probe form")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn escape_in_a_form_field_closes_only_the_dialog() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    h.press(KeyCode::Escape);
+    assert_eq!(closes(&mut h), [None]);
+    assert!(h.find(&L::marker::<DialogRoot>()).is_empty());
+    assert_eq!(h.focus_label().as_deref(), Some("Before"));
+    h.frames(2);
+    assert!(h.is_visible(&L::role(Role::Button, "Before")));
+    assert_eq!(h.focus_label().as_deref(), Some("Before"));
+    assert_eq!(closes(&mut h), [None]);
+    assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+}
+
+/// Whether the probe form gives the focus back when its submit closes it.
+#[derive(Resource)]
+struct RestoreOnSubmit(bool);
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn close_dialog_can_leave_the_focus_to_the_caller() {
+    let mut h = main_menu();
+    h.world_mut().insert_resource(RestoreOnSubmit(false));
+    let root = spawn_group(&mut h, Node::default());
+    let after = h
+        .world_mut()
+        .spawn((
+            button("After", ButtonVariant::Default, Handle::default()),
+            ChildOf(root),
+        ))
+        .id();
+    h.world_mut().add_observer(
+        move |submit: On<DialogSubmit>,
+              restore: Res<RestoreOnSubmit>,
+              mut focus: ResMut<InputFocus>,
+              mut commands: Commands| {
+            focus.set(after, FocusCause::Navigated);
+            close_dialog(&mut commands, submit.entity, restore.0);
+        },
+    );
+    form_probe(&mut h);
+    h.press(KeyCode::Enter);
+    h.frames(2);
+    assert!(h.find(&L::marker::<DialogRoot>()).is_empty());
+    assert_eq!(closes(&mut h), [Some(1)]);
+    assert_eq!(h.focus_label().as_deref(), Some("After"));
+    h.world_mut().insert_resource(RestoreOnSubmit(true));
+    h.click(&L::role(Role::Button, "Before"));
+    h.frames(2);
+    assert_eq!(h.focus_label().as_deref(), Some("Before"));
+    open_probe_form(&mut h);
+    h.press(KeyCode::Enter);
+    h.frames(2);
+    assert!(h.find(&L::marker::<DialogRoot>()).is_empty());
+    assert_eq!(closes(&mut h), [Some(1), Some(1)]);
+    assert_eq!(h.focus_label().as_deref(), Some("Before"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_form_dialog_shows_its_own_hints() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    assert!(h.is_visible(&L::text("Create").within(L::marker::<HintBar>())));
+    assert!(!h.is_visible(&L::text("Select").within(L::marker::<HintBar>())));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_error_moves_nothing_below_a_field_that_reserves_its_line() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    let create = L::role(Role::Button, "Create");
+    let y = h.center_of(&create).y;
+    let name = probe_form(&mut h).name;
+    h.world_mut()
+        .entity_mut(name)
+        .insert(FieldError(Some("Bad".into())));
+    h.wait_for(&L::text("Bad"), SCREEN);
+    h.frames(2);
+    assert_eq!(h.center_of(&create).y, y);
+    h.world_mut().entity_mut(name).insert(FieldError(None));
+    h.frames(2);
+    assert!(!h.is_visible(&L::text("Bad")));
+    assert_eq!(h.center_of(&create).y, y);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn set_text_replaces_the_value() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    let name = probe_form(&mut h).name;
+    h.type_text("abc");
+    h.frames(2);
+    assert_eq!(value(&mut h, name), "abc");
+    let mut text = h.world_mut().get_mut::<EditableText>(name).unwrap();
+    set_text(&mut text, "New world");
+    h.frames(2);
+    assert_eq!(value(&mut h, name), "New world");
 }
 
 #[test]

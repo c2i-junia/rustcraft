@@ -209,6 +209,7 @@ fn spawn_input(
             max_characters: field.max_characters,
             font: load_font(assets),
             font_size: FONT_M,
+            reserve_error: false,
         },
     );
     if field.focused {
