@@ -1,5 +1,6 @@
 //! The client app, built in one place for the game and for the end-to-end tests.
 
+use bevy::app::{TaskPoolOptions, TaskPoolThreadAssignmentPolicy};
 use bevy::prelude::*;
 use shared::GameFolderPaths;
 
@@ -15,6 +16,21 @@ use crate::ui::settings::load_interface_settings;
 use crate::ui::widgets::widgets_plugin;
 use crate::world::load_render_distance;
 use crate::world::ClientWorldMap;
+
+/// The threads of the task pools. The chunks are meshed on the async compute pool, which
+/// also compiles the pipelines in the background: Bevy gives it at most 4 threads, where
+/// meshing the chunks of a world that opens keeps many more busy.
+pub fn task_pool_plugin() -> TaskPoolPlugin {
+    let mut options = TaskPoolOptions::default();
+    options.async_compute = TaskPoolThreadAssignmentPolicy {
+        max_threads: 8,
+        percent: 0.25,
+        ..options.async_compute
+    };
+    TaskPoolPlugin {
+        task_pool_options: options,
+    }
+}
 
 /// What distinguishes one run of the client from another.
 pub struct ClientSettings {

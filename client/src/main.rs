@@ -123,6 +123,7 @@ fn bundled_assets_folder(base_path: &Path) -> Option<PathBuf> {
 /// Bevy's default plugins, set up for a pixel-art game in a native window.
 fn engine_plugins() -> PluginGroupBuilder {
     DefaultPlugins
+        .set(app::task_pool_plugin())
         // Ensures that pixel-art textures will remain pixelated, and not become a blurry mess
         .set(ImagePlugin::default_nearest())
         .set(RenderPlugin {

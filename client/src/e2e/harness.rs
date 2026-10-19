@@ -142,6 +142,7 @@ impl Harness {
         let gpu = std::env::var_os("BENCH_GPU").is_some();
         let mut app = App::new();
         let plugins = DefaultPlugins
+            .set(crate::app::task_pool_plugin())
             .set(ImagePlugin::default_nearest())
             // The game still plays its sounds, but nothing reaches the speakers
             .set(AudioPlugin {
