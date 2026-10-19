@@ -194,22 +194,12 @@ fn list_of(
 }
 
 /// The cards of `list`, in the order of their slots.
-fn cards_of(
-    list: Entity,
-    children: &Query<&Children>,
-    is_card: impl Fn(Entity) -> bool,
-) -> Vec<Entity> {
+pub fn cards_of(list: Entity, children: &Query<&Children>) -> Vec<Entity> {
     children
         .get(list)
         .into_iter()
         .flatten()
-        .filter_map(|&slot| {
-            children
-                .get(slot)
-                .ok()?
-                .iter()
-                .find(|&child| is_card(child))
-        })
+        .filter_map(|&slot| children.get(slot).ok()?.first().copied())
         .collect()
 }
 
@@ -235,7 +225,7 @@ fn select_focused_card(
     let Some((list, slot)) = list_of(card, &parents, &slots) else {
         return;
     };
-    for other in cards_of(list, &children, |entity| cards.contains(entity)) {
+    for other in cards_of(list, &children) {
         if other != card {
             commands
                 .entity(other)
@@ -270,7 +260,7 @@ fn card_keys(
     let Some((list, _)) = list_of(card, &parents, &slots) else {
         return;
     };
-    let order = cards_of(list, &children, |entity| cards.contains(entity));
+    let order = cards_of(list, &children);
     let Some(index) = order.iter().position(|&other| other == card) else {
         return;
     };
@@ -297,7 +287,7 @@ fn first_card_takes_tab(
 ) {
     let lists: EntityHashSet = slots.iter().map(ChildOf::parent).collect();
     for list in lists {
-        let order = cards_of(list, &children, |entity| cards.contains(entity));
+        let order = cards_of(list, &children);
         if order
             .iter()
             .any(|&card| cards.get(card).is_ok_and(|(_, selected)| selected))

@@ -37,7 +37,9 @@ use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{CloseRequest, DialogRoot};
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
-use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, ListCard};
+use crate::ui::widgets::list::{
+    cards_of, spawn_list_card, spawn_scroll_list, CardSelected, ListCard,
+};
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 use dialogs::{open_delete_world_dialog, open_new_world_dialog, open_rename_dialog, WorldsChanged};
 
@@ -525,9 +527,8 @@ fn card_names(
 ) -> Vec<String> {
     lists
         .iter()
-        .flat_map(|list| children.get(list).into_iter().flatten())
-        .flat_map(|&slot| children.get(slot).into_iter().flatten())
-        .filter_map(|&child| cards.get(child).ok())
+        .flat_map(|list| cards_of(list, children))
+        .filter_map(|card| cards.get(card).ok())
         .map(|card| card.0.name.clone())
         .collect()
 }

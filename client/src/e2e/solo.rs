@@ -5,10 +5,11 @@ use std::fs;
 use std::time::Duration;
 
 use accesskit::Role;
+use bevy::ecs::system::SystemState;
 use bevy::input::keyboard::KeyCode;
 use bevy::input_focus::InputFocus;
 use bevy::math::Vec2;
-use bevy::prelude::{BackgroundColor, Children, Entity, With};
+use bevy::prelude::{BackgroundColor, Children, Entity, Query, With};
 use bevy::ui::{InteractionDisabled, Selected};
 use bevy::ui_widgets::Scrollbar;
 use server::{WorldMeta, WORLD_FILE};
@@ -29,6 +30,7 @@ use crate::ui::menus::worlds::{
 use crate::ui::menus::ContinueCard;
 use crate::ui::theme::RAISE_HOVER;
 use crate::ui::widgets::hints::HintBar;
+use crate::ui::widgets::list::cards_of;
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -71,15 +73,13 @@ fn card_names(h: &mut Harness) -> Vec<String> {
         .query_filtered::<Entity, With<WorldList>>()
         .single(world)
         .unwrap();
-    let mut names = Vec::new();
-    for &slot in world.get::<Children>(list).into_iter().flatten() {
-        for &child in world.get::<Children>(slot).into_iter().flatten() {
-            if let Some(card) = world.get::<WorldCard>(child) {
-                names.push(card.0.name.clone());
-            }
-        }
-    }
-    names
+    let mut state = SystemState::<Query<&Children>>::new(world);
+    let children = state.get(world).unwrap();
+    cards_of(list, &children)
+        .into_iter()
+        .filter_map(|card| world.get::<WorldCard>(card))
+        .map(|card| card.0.name.clone())
+        .collect()
 }
 
 /// The name of the world of the selected card.
