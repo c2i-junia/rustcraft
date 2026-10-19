@@ -16,7 +16,7 @@ use super::locator::{is_inside, Locator as L};
 use super::seed::GameFolder;
 use crate::network::CachedChatConversation;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
-use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot};
+use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT};
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{InventoryRoot, UIMode};
@@ -262,13 +262,17 @@ fn the_chat_keeps_its_history_with_times_and_scrolls() {
     assert!(h.in_log_view("<Bot> line 29"));
     assert!(!h.in_log_view("<Tester> one"));
 
-    // the wheel over the log scrolls it: one step of Bevy's wheel is 100 px, five lines
+    // the wheel over the log scrolls it by three lines a notch
     h.hover(&L::marker::<ChatLog>());
     let before = h.center_of(&L::text("<Bot> line 29"));
     h.scroll(1.);
     h.frames(2);
     let scrolled = h.center_of(&L::text("<Bot> line 29"));
-    assert!(scrolled.y > before.y, "{before} then {scrolled}");
+    assert_eq!(
+        scrolled.y - before.y,
+        3.0 * CHAT_LINE_HEIGHT,
+        "{before} then {scrolled}"
+    );
     // the field keeps the focus, and PageUp and PageDown scroll by the log less a line
     h.press(KeyCode::PageUp);
     h.frames(2);

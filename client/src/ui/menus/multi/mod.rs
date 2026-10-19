@@ -47,7 +47,9 @@ use crate::ui::theme::{
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
-use crate::ui::widgets::list::{cards_of, spawn_list_card, spawn_scroll_list, CardSelected};
+use crate::ui::widgets::list::{
+    cards_of, spawn_list_card, spawn_scroll_list, CardSelected, WheelStep,
+};
 use crate::ui::widgets::raised_bevel;
 use dialogs::{
     open_add_server_dialog, open_edit_server_dialog, open_remove_server_dialog, ServersChanged,
@@ -291,7 +293,7 @@ fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res
             ChildOf(content),
         ))
         .id();
-    let scroll = spawn_scroll_list(&mut commands);
+    let scroll = spawn_scroll_list(&mut commands, WheelStep::Item);
     commands.entity(scroll.frame).insert(ChildOf(body));
     commands
         .entity(scroll.list)

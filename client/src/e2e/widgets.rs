@@ -36,7 +36,7 @@ use crate::ui::widgets::dialog::{
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 use crate::ui::widgets::list::{
-    spawn_list_card, spawn_scroll_list, CardSelected, ListCard, RING_ROOM,
+    spawn_list_card, spawn_scroll_list, CardSelected, ListCard, WheelStep, RING_ROOM,
 };
 use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderParts, SliderReadout};
@@ -1474,7 +1474,7 @@ fn card_probe(h: &mut Harness) -> Entity {
         AutoFocus,
         ChildOf(aside),
     ));
-    let parts = spawn_scroll_list(&mut h.world_mut().commands());
+    let parts = spawn_scroll_list(&mut h.world_mut().commands(), WheelStep::Item);
     h.world_mut().flush();
     h.world_mut().entity_mut(parts.frame).insert(ChildOf(root));
     for n in 1..=12 {

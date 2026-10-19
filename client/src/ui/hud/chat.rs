@@ -26,7 +26,7 @@ use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
 use crate::ui::theme::{BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XS, TEXT};
-use crate::ui::widgets::list::spawn_scroll_list;
+use crate::ui::widgets::list::{spawn_scroll_list, WheelStep};
 use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit, TextField};
 
 /// The messages the log keeps; the oldest go first.
@@ -40,7 +40,7 @@ pub const CHAT_FADE_AFTER: Duration = Duration::from_secs(7);
 pub const CHAT_FADE: Duration = Duration::from_secs(1);
 
 /// The height of a line of the log: whole pixels at every `UiScale`.
-const CHAT_LINE_HEIGHT: f32 = FONT_S + SPACE_XS;
+pub const CHAT_LINE_HEIGHT: f32 = FONT_S + SPACE_XS;
 /// The opacity of the well of the open log: the game stays readable through it.
 const LOG_ALPHA: f32 = 0.75;
 /// The opacity of the strip under a line shown over the game.
@@ -159,7 +159,8 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
         .id();
 
     // a well of `CHAT_LOG_LINES` lines, translucent over the game, with its scrollbar
-    let log = spawn_scroll_list(&mut commands);
+    // three lines a notch of the wheel
+    let log = spawn_scroll_list(&mut commands, WheelStep::Px(3.0 * CHAT_LINE_HEIGHT));
     commands
         .entity(log.well)
         .insert(BackgroundColor(PANEL.with_alpha(LOG_ALPHA)));

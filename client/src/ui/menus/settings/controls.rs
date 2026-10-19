@@ -34,7 +34,9 @@ use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
-use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, RING_ROOM, SCROLLBAR_WIDTH};
+use crate::ui::widgets::list::{
+    spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM, SCROLLBAR_WIDTH,
+};
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 
 use super::{spawn_hints, SettingsRoot};
@@ -336,7 +338,9 @@ pub fn spawn_controls_tab(
             children![label(column, &font, FONT_S, MUTED)],
         ));
     }
-    let ScrollListParts { frame, list, .. } = spawn_scroll_list(commands);
+    // a row a notch of the wheel
+    let row = WheelStep::Px(SLOT_HEIGHT + 2.0 * RING_ROOM);
+    let ScrollListParts { frame, list, .. } = spawn_scroll_list(commands, row);
     commands.entity(frame).insert(ChildOf(content));
     commands.entity(list).insert(ArrowNav);
     for category in ActionCategory::ALL {

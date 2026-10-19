@@ -10,12 +10,12 @@ use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
     ecs::entity::EntityHashSet,
-    input::{keyboard::KeyboardInput, ButtonState},
+    input::{keyboard::KeyboardInput, mouse::MouseScrollUnit, ButtonState},
     input_focus::{
         tab_navigation::TabIndex, FocusCause, FocusGained, FocusedInput, InputFocus,
         InputFocusVisible,
     },
-    picking::hover::Hovered,
+    picking::{hover::Hovered, PickingSystems},
     prelude::*,
     ui::{Selectable, Selected},
     ui_widgets::{
@@ -58,6 +58,23 @@ pub struct ListCard;
 #[derive(Component)]
 pub struct CardSlot;
 
+/// How far a notch of the wheel scrolls a list. Bevy's `ScrollArea` moves every list by 100 px
+/// a notch, a card and a part of the next, or five lines of the chat: each list has its own step.
+#[derive(Clone, Copy)]
+pub enum WheelStep {
+    /// So many logical pixels.
+    Px(f32),
+    /// The height of the first item of the list: one card, with the room of its ring.
+    Item,
+}
+
+/// The wheel of a list: its step, and where the list was before the wheel of this frame.
+#[derive(Component)]
+struct ListWheel {
+    step: WheelStep,
+    from: f32,
+}
+
 /// Triggered on the list when another card is selected.
 #[derive(EntityEvent)]
 pub struct CardSelected {
@@ -75,13 +92,15 @@ pub(super) fn plugin(app: &mut App) {
             (first_card_takes_tab, style_cards).run_if(any_with_component::<ListCard>),
         ),
     )
+    // before the pointer events, which the wheel comes with
+    .add_systems(PreUpdate, note_wheel_start.before(PickingSystems::Hover))
     .add_observer(select_focused_card)
     .add_observer(card_keys);
 }
 
 /// Spawns a scroll list, without a parent: a recessed well holding the list, and its scrollbar.
-/// The wheel scrolls the list under the cursor only.
-pub fn spawn_scroll_list(commands: &mut Commands) -> ScrollListParts {
+/// The wheel scrolls the list under the cursor only, by `step` a notch.
+pub fn spawn_scroll_list(commands: &mut Commands, step: WheelStep) -> ScrollListParts {
     let frame = commands
         .spawn(Node {
             flex_grow: 1.0,
@@ -109,6 +128,7 @@ pub fn spawn_scroll_list(commands: &mut Commands) -> ScrollListParts {
     let list = commands
         .spawn((
             ScrollArea,
+            ListWheel { step, from: 0.0 },
             Node {
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0,
@@ -119,6 +139,7 @@ pub fn spawn_scroll_list(commands: &mut Commands) -> ScrollListParts {
             },
             ChildOf(well),
         ))
+        .observe(wheel_by_step)
         .id();
     commands.spawn((
         Scrollbar::new(list, ControlOrientation::Vertical, SCROLLBAR_MIN_THUMB),
@@ -141,6 +162,43 @@ pub fn spawn_scroll_list(commands: &mut Commands) -> ScrollListParts {
         )],
     ));
     ScrollListParts { frame, well, list }
+}
+
+/// Notes where each list is before the wheel of this frame moves it.
+fn note_wheel_start(mut lists: Query<(&ScrollPosition, &mut ListWheel)>) {
+    for (position, mut wheel) in &mut lists {
+        wheel.from = position.y;
+    }
+}
+
+/// Scrolls the list under the cursor by its `WheelStep` a notch of the wheel. Bevy's observer of
+/// `ScrollArea`, global, has moved it by 100 px a notch already, as the global observers of an
+/// entity run before its own: the list is put where its step takes it from where it was. The
+/// pixels of a trackpad move it by as many pixels, as Bevy did.
+fn wheel_by_step(
+    scroll: On<Pointer<Scroll>>,
+    mut lists: Query<(
+        &mut ListWheel,
+        &mut ScrollPosition,
+        &ComputedNode,
+        Option<&Children>,
+    )>,
+    items: Query<&ComputedNode>,
+) {
+    let Ok((mut wheel, mut position, list, children)) = lists.get_mut(scroll.entity) else {
+        return;
+    };
+    if scroll.unit == MouseScrollUnit::Line {
+        let step = match wheel.step {
+            WheelStep::Px(step) => step,
+            WheelStep::Item => children
+                .and_then(|children| items.get(*children.first()?).ok())
+                .map_or(0.0, |item| item.size().y * item.inverse_scale_factor()),
+        };
+        let end = (list.content_size().y - list.size().y) * list.inverse_scale_factor();
+        position.y = (wheel.from - scroll.y * step).clamp(0.0, end.max(0.0));
+    }
+    wheel.from = position.y;
 }
 
 /// Spawns a card labelled `label` for screen readers at the end of `list`, in its slot, and
