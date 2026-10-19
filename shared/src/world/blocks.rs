@@ -129,7 +129,8 @@ impl BlockId {
         }
     }
 
-    /// Number of mining steps needed to break the block by hand, `None` if it cannot be broken.
+    /// Number of mining hits needed to break the block by hand, one every `HIT_MS` the button
+    /// is held: a block takes `steps / 10` seconds. `None` if it cannot be broken.
     pub fn get_break_time(&self) -> Option<u8> {
         let steps: u8 = match *self {
             Self::Dirt => 5,
@@ -155,7 +156,7 @@ impl BlockId {
             Self::Furnace => 15,
             Self::Bedrock | Self::Water => return None,
         };
-        Some(6 * steps)
+        Some(2 * steps)
     }
 
     /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
@@ -302,9 +303,9 @@ mod tests {
 
     #[test]
     fn get_break_time_of_regular_blocks() {
-        assert_eq!(BlockId::Dirt.get_break_time(), Some(30));
-        assert_eq!(BlockId::Stone.get_break_time(), Some(60));
-        assert_eq!(BlockId::Dandelion.get_break_time(), Some(6));
+        assert_eq!(BlockId::Dirt.get_break_time(), Some(10));
+        assert_eq!(BlockId::Stone.get_break_time(), Some(20));
+        assert_eq!(BlockId::Dandelion.get_break_time(), Some(2));
         for id in regular_blocks() {
             assert!(id.get_break_time().is_some_and(|t| t > 0), "{id:?}");
         }

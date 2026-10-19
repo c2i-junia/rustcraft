@@ -19,6 +19,7 @@ Date: 11.10.2026
     - Fixed a world disappearing from the list although its deletion had failed.
     - Fixed players being announced at the position of the last player who joined.
     - Fixed crashes when a texture pack lacks a texture, when a port is already in use and when the connection cannot be opened: the game logs the error and goes back to the menu.
+    - Fixed blocks breaking faster at higher frame rates: a block now takes the same time to break on any screen.
     - The mob draw distance can no longer go below one chunk.
 
 ----------------------------------------------------------------------------------------------------

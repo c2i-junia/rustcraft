@@ -264,7 +264,7 @@ mod tests {
     use crate::world::writer::WorldWriter;
     use bevy::time::TimePlugin;
     use shared::messages::{NetworkAction, PlayerFrameInput};
-    use shared::players::Player;
+    use shared::players::{blocks::HIT_MS, Player};
     use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap, WorldSeed};
 
     /// The inputs that break a block and the exit arrive in the same frame: the block change
@@ -317,7 +317,7 @@ mod tests {
                 client_id: 1,
                 input: PlayerFrameInput {
                     time_ms,
-                    delta_ms: 16,
+                    delta_ms: HIT_MS,
                     inputs: [NetworkAction::LeftClick].into(),
                     camera,
                     ..default()

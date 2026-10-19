@@ -15,7 +15,8 @@ use crate::world::BlockChanged;
 /// change, and may first restate the block as it was a few inputs earlier.
 const ECHO_WINDOW_SECS: f32 = 1.0;
 
-/// Shortest time between two mining hits: the block takes one per rendered frame.
+/// Shortest time between two mining sounds: the block takes a hit every `HIT_MS`, too often to
+/// play each one.
 const DIG_INTERVAL_SECS: f32 = 0.2;
 
 /// The sound of a block going from `before` to `after`.

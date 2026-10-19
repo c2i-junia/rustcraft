@@ -9,6 +9,7 @@ use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,
 };
+use shared::players::blocks::HIT_MS;
 use shared::players::inventory::InventoryAction;
 use shared::players::{Inventory, Player};
 use shared::status::{StatusReply, StatusRequest};
@@ -866,7 +867,7 @@ fn land_and_aim_down(client: &mut TestClient) -> (Transform, IVec3) {
 fn left_click_frame(time_ms: u64, camera: Transform) -> ClientToServerMessage {
     ClientToServerMessage::PlayerInputs(vec![PlayerFrameInput {
         time_ms,
-        delta_ms: 16,
+        delta_ms: HIT_MS,
         inputs: [NetworkAction::LeftClick].into(),
         camera,
         ..Default::default()
@@ -894,7 +895,7 @@ fn a_broken_block_reaches_every_client_as_updates_and_never_as_a_whole_chunk() {
     let block = *a.world.get_block(target).unwrap();
     let break_time = block.id.get_break_time().expect("the target is breakable");
 
-    // One hit per message: each one is a tick of progress.
+    // One hit per message: each one holds the button for `HIT_MS`.
     a.inbox.clear();
     b.inbox.clear();
     let mut sequence = Vec::new();

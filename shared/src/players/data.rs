@@ -132,6 +132,9 @@ pub struct Player {
     pub height: f32,
     pub width: f32,
     pub last_input_processed: u64,
+    /// Time the left button was held that did not add up to a mining hit yet, in ms.
+    #[serde(skip)]
+    pub mining_carry_ms: u64,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -178,6 +181,7 @@ impl Player {
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,
             last_input_processed: 0,
+            mining_carry_ms: 0,
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
-    players::Player,
+    players::{movement::MAX_FRAME_DELTA_MS, Player},
     world::{
         global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, ChunkMap,
         FaceDirectionExt, ItemStack, ItemType, RaycastResponse,
@@ -28,6 +28,8 @@ impl CallerType {
 
 /// How far from the centre of a block a player may break, place or use it.
 pub const INTERACTION_DISTANCE: f32 = 5.0;
+/// Time the left button must be held on a block for one mining hit, a server tick.
+pub const HIT_MS: u64 = 50;
 const CUBE_SIZE: f32 = 1.0;
 
 /// Why an interaction changed nothing.
@@ -75,11 +77,13 @@ pub fn simulate_player_block_interactions(
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
-    // Interactions are processed once per input, so once per rendered frame of the client
-    // and not once per tick: a faster client breaks blocks faster.
+    // Placing acts once per input, but breaking counts the time the button is held, so that
+    // a block takes as long to break at any frame rate.
+    let hits = mining_hits(player, action);
     for network_action in &action.inputs {
         let (verb, outcome) = match network_action {
-            NetworkAction::LeftClick => ("break", break_block(player, world_map, action)),
+            NetworkAction::LeftClick if hits == 0 => continue,
+            NetworkAction::LeftClick => ("break", break_block(player, world_map, action, hits)),
             NetworkAction::RightClick => ("place", place_block(player, world_map, action)),
             _ => continue,
         };
@@ -98,6 +102,20 @@ pub fn simulate_player_block_interactions(
             world_map.touch_block(position);
         }
     }
+}
+
+/// Mining hits the time held in `action` adds up to; what is left of it is kept for the next
+/// input. Releasing the left button drops the time held.
+fn mining_hits(player: &mut Player, action: &PlayerFrameInput) -> u8 {
+    if !action.is_pressed(NetworkAction::LeftClick) {
+        player.mining_carry_ms = 0;
+        return 0;
+    }
+    player.mining_carry_ms += action.delta_ms.min(MAX_FRAME_DELTA_MS);
+    let hits = player.mining_carry_ms / HIT_MS;
+    player.mining_carry_ms %= HIT_MS;
+    // At most (HIT_MS - 1 + MAX_FRAME_DELTA_MS) / HIT_MS, 2 hits
+    hits as u8
 }
 
 /// The block the player aims at, if it is within reach. An out of reach refusal names
@@ -129,11 +147,13 @@ fn aimed_block(
     Ok(target)
 }
 
-/// One hit on the aimed block: it breaks once it took as many hits as its break time.
+/// `hits` hits on the aimed block: it breaks once it took as many hits as its break time. The
+/// hits left over by a broken block are lost, and never reach the block behind it.
 fn break_block(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
+    hits: u8,
 ) -> Result<(), Refused> {
     let position = aimed_block(player, world_map, action, |target| target.position)?.position;
 
@@ -144,7 +164,7 @@ fn break_block(
         return Err(Refused::at(position, Refusal::Unbreakable(block.id)));
     };
 
-    block.breaking_progress = block.breaking_progress.saturating_add(1);
+    block.breaking_progress = block.breaking_progress.saturating_add(hits);
     if block.breaking_progress < break_time {
         world_map.set_block(position, block);
         return Ok(());
@@ -249,11 +269,65 @@ mod tests {
         world.fill_box(TARGET, TARGET, id);
         world.take_changed_blocks();
         let input = PlayerFrameInput {
+            delta_ms: HIT_MS,
             inputs: [NetworkAction::LeftClick].into(),
             camera,
             ..Default::default()
         };
         (player, world, input)
+    }
+
+    #[test]
+    fn breaking_takes_the_same_time_at_any_frame_rate() {
+        let break_ms = u64::from(BlockId::Stone.get_break_time().unwrap()) * HIT_MS;
+        for delta_ms in [4, 7, 16, 33, 100] {
+            let (mut player, mut world, mut input) = left_click_on(BlockId::Stone);
+            input.delta_ms = delta_ms;
+            let mut held_ms = 0;
+            while world.get_block(TARGET).is_some() {
+                assert!(
+                    held_ms < break_ms,
+                    "{delta_ms} ms: not broken after {held_ms} ms"
+                );
+                simulate_player_block_interactions(
+                    &mut player,
+                    &mut world,
+                    &input,
+                    CallerType::Server,
+                );
+                held_ms += delta_ms;
+            }
+            assert!(
+                held_ms >= break_ms,
+                "{delta_ms} ms: broken after {held_ms} ms"
+            );
+        }
+    }
+
+    #[test]
+    fn releasing_the_button_drops_the_time_held() {
+        let (mut player, mut world, mut input) = left_click_on(BlockId::Stone);
+        input.delta_ms = HIT_MS - 1;
+        let mut released = input.clone();
+        released.inputs.clear();
+        for input in [&input, &released, &input] {
+            simulate_player_block_interactions(&mut player, &mut world, input, CallerType::Server);
+        }
+        assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, 0);
+    }
+
+    #[test]
+    fn hits_left_over_by_a_broken_block_do_not_reach_the_one_behind() {
+        let (mut player, mut world, mut input) = left_click_on(BlockId::Dandelion);
+        let behind = TARGET + IVec3::NEG_Z;
+        world.fill_box(behind, behind, BlockId::Stone);
+        assert_eq!(BlockId::Dandelion.get_break_time(), Some(2));
+        // One hit, then two in one long frame: the second one has no block left to hit
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        input.delta_ms = 2 * HIT_MS;
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        assert!(world.get_block(TARGET).is_none());
+        assert_eq!(world.get_block(behind).unwrap().breaking_progress, 0);
     }
 
     #[test]
