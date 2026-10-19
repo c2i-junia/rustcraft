@@ -56,8 +56,8 @@ pub struct DialogParts {
 pub struct DialogRoot {
     /// Where the focus goes back to when the dialog closes, if that still exists.
     restore_focus: Option<Entity>,
-    /// The index of the primary action: the last one.
-    primary: usize,
+    /// The index of the primary action: the last one, if there is any.
+    primary: Option<usize>,
 }
 
 /// Triggered on the root of a dialog when it closes: `Some(i)` for the action `i`, `None` for
@@ -158,13 +158,14 @@ pub fn spawn_form_dialog(
 }
 
 /// Closes the dialog in `PostUpdate` with `DialogClosed { action: Some(last) }`; the focus goes
-/// back where it was only when `restore_focus` (the caller may have focused something new).
+/// back where it was only when `restore_focus`. With `false` the caller sets the focus itself,
+/// typically on what the submission made.
 #[allow(dead_code)] // closes the New world dialog (Lot 2, Task 4)
 pub fn close_dialog(commands: &mut Commands, root: Entity, restore_focus: bool) {
     commands
         .entity(root)
         .queue(move |mut dialog: EntityWorldMut| {
-            let action = dialog.get::<DialogRoot>().map(|root| root.primary);
+            let action = dialog.get::<DialogRoot>().and_then(|root| root.primary);
             dialog.insert(CloseRequest {
                 action,
                 restore_focus,
@@ -181,7 +182,7 @@ fn build_dialog(
     font: Handle<Font>,
     focus: &InputFocus,
 ) -> DialogParts {
-    let primary = dialog.actions.len().saturating_sub(1);
+    let primary = dialog.actions.len().checked_sub(1);
     let root = commands
         .spawn((
             DialogRoot {
@@ -300,10 +301,10 @@ fn build_dialog(
                 .id(),
         );
     }
-    let primary_button = buttons[primary];
+    let primary_button = primary.map(|index| buttons[index]);
     for (index, &action) in buttons.iter().enumerate() {
         // the primary action of a form submits it, the others close the dialog
-        if !fields.is_empty() && index == primary {
+        if !fields.is_empty() && Some(index) == primary {
             commands.entity(action).observe(
                 move |_: On<Activate>,
                       disabled: Query<(), With<InteractionDisabled>>,
@@ -319,12 +320,14 @@ fn build_dialog(
                 });
         }
     }
-    // the focus goes to the first field of a form, else to the chosen button
+    // the focus goes to the first field of a form, else to the chosen button, if it exists
     let first = match fields.first() {
-        Some((_, field)) => field.input,
-        None => buttons[dialog.focused],
+        Some((_, field)) => Some(field.input),
+        None => buttons.get(dialog.focused).copied(),
     };
-    commands.entity(first).insert(AutoFocus);
+    if let Some(first) = first {
+        commands.entity(first).insert(AutoFocus);
+    }
     for (_, field) in fields {
         commands
             .entity(field.input)
@@ -349,7 +352,9 @@ fn build_dialog(
                 std::iter::successors(focus.get(), |e| parents.get(*e).ok().map(ChildOf::parent))
                     .any(|e| e == root);
             if !inside {
-                focus.set(first, FocusCause::Pressed);
+                if let Some(chosen) = first {
+                    focus.set(chosen, FocusCause::Pressed);
+                }
             }
         },
     );
@@ -362,11 +367,11 @@ fn build_dialog(
 /// Triggers `DialogSubmit` on the form dialog `root`, unless its `primary` action is disabled.
 fn submit(
     root: Entity,
-    primary: Entity,
+    primary: Option<Entity>,
     disabled: &Query<(), With<InteractionDisabled>>,
     commands: &mut Commands,
 ) {
-    if !disabled.contains(primary) {
+    if !primary.is_some_and(|primary| disabled.contains(primary)) {
         commands.trigger(DialogSubmit { entity: root });
     }
 }
@@ -448,5 +453,36 @@ mod tests {
         let node = world.get::<AccessibilityNode>(root).unwrap();
         assert_eq!(node.role(), Role::Dialog);
         assert_eq!(node.label(), Some("Quit Rustcraft?"));
+    }
+
+    /// The builder behind `spawn_dialog`, past its `debug_assert`: a release build does not panic.
+    #[test]
+    fn a_dialog_without_actions_or_with_a_focus_out_of_range_builds_without_focus() {
+        for actions in [&[][..], &[("Cancel", ButtonVariant::Default)][..]] {
+            let mut world = World::new();
+            let mut queue = CommandQueue::default();
+            let dialog = Dialog {
+                title: "Probe?",
+                body: "",
+                actions,
+                focused: 1,
+            };
+            let parts = build_dialog(
+                &mut Commands::new(&mut queue, &world),
+                &dialog,
+                &[],
+                &DIALOG_HINTS,
+                Handle::default(),
+                &InputFocus::default(),
+            );
+            queue.apply(&mut world);
+            assert_eq!(parts.actions.len(), actions.len());
+            assert_eq!(
+                world.get::<DialogRoot>(parts.root).unwrap().primary,
+                actions.len().checked_sub(1)
+            );
+            let mut autofocus = world.query_filtered::<(), With<AutoFocus>>();
+            assert_eq!(autofocus.iter(&world).count(), 0);
+        }
     }
 }

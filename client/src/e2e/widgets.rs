@@ -1060,24 +1060,102 @@ fn a_form_dialog_shows_its_own_hints() {
     assert!(!h.is_visible(&L::text("Select").within(L::marker::<HintBar>())));
 }
 
+/// An error longer than the field of the probe form.
+const LONG_ERROR: &str = "This error is far too long to fit on one line under the field";
+
+/// Shows an empty, a short and a long error under the Name field of the probe form, then none,
+/// and checks that Create never moves.
+fn assert_errors_move_nothing(h: &mut Harness) {
+    let create = L::role(Role::Button, "Create");
+    let at = h.center_of(&create);
+    let name = probe_form(h).name;
+    for error in [Some(""), Some("Bad"), Some(LONG_ERROR), None] {
+        h.world_mut()
+            .entity_mut(name)
+            .insert(FieldError(error.map(Into::into)));
+        h.frames(3);
+        match error {
+            Some("") | None => assert!(!h.is_visible(&L::text("Bad"))),
+            Some(error) => assert!(h.is_visible(&L::text(error))),
+        }
+        assert_eq!(h.center_of(&create), at, "with the error {error:?}");
+    }
+    // the long error was indeed longer than the field
+    let long = {
+        h.world_mut()
+            .entity_mut(name)
+            .insert(FieldError(Some(LONG_ERROR.into())));
+        h.frames(2);
+        h.get(&L::text(LONG_ERROR))
+    };
+    let frame = frame_of(h, name);
+    let width = |h: &mut Harness, entity| h.world().get::<ComputedNode>(entity).unwrap().size().x;
+    assert!(width(h, long) > width(h, frame));
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn an_error_moves_nothing_below_a_field_that_reserves_its_line() {
     let mut h = main_menu();
     form_probe(&mut h);
-    let create = L::role(Role::Button, "Create");
-    let y = h.center_of(&create).y;
-    let name = probe_form(&mut h).name;
-    h.world_mut()
-        .entity_mut(name)
-        .insert(FieldError(Some("Bad".into())));
-    h.wait_for(&L::text("Bad"), SCREEN);
-    h.frames(2);
-    assert_eq!(h.center_of(&create).y, y);
-    h.world_mut().entity_mut(name).insert(FieldError(None));
-    h.frames(2);
-    assert!(!h.is_visible(&L::text("Bad")));
-    assert_eq!(h.center_of(&create).y, y);
+    assert_errors_move_nothing(&mut h);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_error_moves_nothing_at_a_ui_scale_of_1_5() {
+    let mut h = Harness::start(
+        GameFolder::new(),
+        Options {
+            width: 1920,
+            height: 1080,
+            ..default()
+        },
+    );
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(h.world().resource::<UiScale>().0, 1.5);
+    form_probe(&mut h);
+    assert_errors_move_nothing(&mut h);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn tab_cycles_through_the_fields_and_the_actions_of_a_form() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    assert_eq!(h.focus_label().as_deref(), Some("Name"));
+    for expected in ["Seed", "Cancel", "Create", "Name"] {
+        h.press(KeyCode::Tab);
+        assert_eq!(h.focus_label().as_deref(), Some(expected));
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_click_on_the_padding_of_a_form_keeps_the_focus_inside() {
+    let mut h = main_menu();
+    form_probe(&mut h);
+    let title = h.center_of(&L::text("Probe form"));
+    let title_height = {
+        let entity = h.get(&L::text("Probe form"));
+        h.world().get::<ComputedNode>(entity).unwrap().size().y
+    };
+    let padding = title - Vec2::new(0.0, title_height / 2.0 + 8.0);
+    for focused in ["Name", "Create"] {
+        if focused == "Create" {
+            h.press(KeyCode::Tab);
+            h.press(KeyCode::Tab);
+            h.press(KeyCode::Tab);
+        }
+        assert_eq!(h.focus_label().as_deref(), Some(focused));
+        h.click_at(padding);
+        h.frames(2);
+        assert!(
+            focus_in_dialog(&mut h),
+            "a click on the padding from {focused}"
+        );
+        assert_eq!(h.focus_label().as_deref(), Some(focused));
+    }
 }
 
 #[test]

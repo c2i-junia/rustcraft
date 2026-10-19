@@ -12,7 +12,7 @@ use bevy::{
     },
     input_focus::{tab_navigation::TabIndex, AcquireFocus, FocusCause, FocusedInput, InputFocus},
     prelude::*,
-    text::{EditableText, EditableTextSystems, LineBreak, TextCursorStyle, TextEdit},
+    text::{EditableText, EditableTextSystems, LineBreak, LineHeight, TextCursorStyle, TextEdit},
     ui::UiSystems,
 };
 
@@ -20,6 +20,9 @@ use super::focus::FocusRing;
 use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_S, MUTED, SLOT, SPACE_S, SPACE_XS, TEXT,
 };
+
+/// The height of the line a field keeps for its error: one line of `FONT_S`.
+const ERROR_LINE_HEIGHT: f32 = FONT_S * 1.2;
 
 /// What `spawn_text_field` builds.
 pub struct TextField<'a> {
@@ -31,7 +34,8 @@ pub struct TextField<'a> {
     pub font: Handle<Font>,
     pub font_size: f32,
     /// Keeps one line under the field for its error, so that an error appearing moves nothing
-    /// below.
+    /// below. The message never wraps and is clipped at the width of the field: callers keep
+    /// their messages short (a failure from the disk shows as a short text, not the OS message).
     pub reserve_error: bool,
 }
 
@@ -150,24 +154,6 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
             ChildOf(frame),
         ))
         .id();
-    let message_layout = if field.reserve_error {
-        // one line at the default line height of 1.2 font sizes, kept while there is no error
-        (
-            Node {
-                min_height: px(FONT_S * 1.2),
-                ..default()
-            },
-            Visibility::Hidden,
-        )
-    } else {
-        (
-            Node {
-                display: Display::None,
-                ..default()
-            },
-            Visibility::Inherited,
-        )
-    };
     let message = commands
         .spawn((
             Text::default(),
@@ -177,10 +163,45 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
                 ..default()
             },
             TextColor(DANGER),
-            message_layout,
-            ChildOf(root),
         ))
         .id();
+    if field.reserve_error {
+        // a line of fixed height that clips the message: out of the flow, a long message neither
+        // wraps onto a second line nor widens what holds the field
+        let line = commands
+            .spawn((
+                Node {
+                    height: px(ERROR_LINE_HEIGHT),
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+                ChildOf(root),
+            ))
+            .id();
+        commands.entity(message).insert((
+            LineHeight::Px(ERROR_LINE_HEIGHT),
+            TextLayout {
+                linebreak: LineBreak::NoWrap,
+                ..default()
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                top: px(0),
+                ..default()
+            },
+            Visibility::Hidden,
+            ChildOf(line),
+        ));
+    } else {
+        commands.entity(message).insert((
+            Node {
+                display: Display::None,
+                ..default()
+            },
+            ChildOf(root),
+        ));
+    }
     // a press on the bevel or the padding of the frame focuses the input, instead of bubbling up
     // to the window, which clears the focus
     commands.entity(frame).observe(
