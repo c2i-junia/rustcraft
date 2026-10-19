@@ -71,6 +71,7 @@ pub fn default_bindings() -> KeyMap {
     map.insert(GameAction::ToggleViewMode, vec![KeyCode::F5]);
     map.insert(GameAction::ToggleBlockWireframeDebugMode, vec![KeyCode::F6]);
     map.insert(GameAction::ToggleRaycastDebugMode, vec![KeyCode::F7]);
+    map.insert(GameAction::CycleFpsCounter, vec![KeyCode::F8]);
     map.insert(GameAction::ToggleFlyMode, vec![KeyCode::KeyF]);
     map.insert(GameAction::FlyUp, vec![KeyCode::Space]);
     map.insert(GameAction::FlyDown, vec![KeyCode::ShiftLeft]);

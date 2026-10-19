@@ -12,6 +12,7 @@ pub enum GameAction {
     Jump,
     Escape,
     ToggleFps,
+    CycleFpsCounter,
     ToggleViewMode,
     ToggleChunkDebugMode,
     ToggleFlyMode,
@@ -57,7 +58,7 @@ impl ActionCategory {
 
 impl GameAction {
     /// Every action but Escape, which always pauses and cannot be rebound, in display order.
-    pub const LISTED: [GameAction; 18] = [
+    pub const LISTED: [GameAction; 19] = [
         GameAction::MoveForward,
         GameAction::MoveBackward,
         GameAction::MoveLeft,
@@ -68,6 +69,7 @@ impl GameAction {
         GameAction::FlyDown,
         GameAction::ToggleInventory,
         GameAction::OpenChat,
+        GameAction::CycleFpsCounter,
         GameAction::ToggleViewMode,
         GameAction::RenderDistanceMinus,
         GameAction::RenderDistancePlus,
@@ -92,6 +94,7 @@ impl GameAction {
             GameAction::FlyDown => "Fly down",
             GameAction::ToggleInventory => "Inventory",
             GameAction::OpenChat => "Chat",
+            GameAction::CycleFpsCounter => "FPS counter",
             GameAction::ToggleViewMode => "Camera view",
             GameAction::RenderDistanceMinus => "Lower render distance",
             GameAction::RenderDistancePlus => "Raise render distance",
@@ -114,9 +117,10 @@ impl GameAction {
             | GameAction::ToggleFlyMode
             | GameAction::FlyUp
             | GameAction::FlyDown => ActionCategory::Movement,
-            GameAction::Escape | GameAction::ToggleInventory | GameAction::OpenChat => {
-                ActionCategory::Interface
-            }
+            GameAction::Escape
+            | GameAction::ToggleInventory
+            | GameAction::OpenChat
+            | GameAction::CycleFpsCounter => ActionCategory::Interface,
             GameAction::ToggleViewMode
             | GameAction::RenderDistanceMinus
             | GameAction::RenderDistancePlus => ActionCategory::View,
@@ -138,7 +142,7 @@ mod tests {
     #[test]
     fn every_listed_action_has_a_human_name_and_a_category() {
         let distinct: BTreeSet<_> = GameAction::LISTED.iter().collect();
-        assert_eq!(distinct.len(), 18);
+        assert_eq!(distinct.len(), 19);
         assert!(!GameAction::LISTED.contains(&GameAction::Escape));
         assert_eq!(GameAction::MoveForward.name(), "Move forward");
         assert_eq!(GameAction::ToggleFps.name(), "Debug overlay");

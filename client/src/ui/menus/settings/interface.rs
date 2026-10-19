@@ -1,10 +1,12 @@
-//! The Interface tab of the settings: the UI scale, saved as soon as it is chosen, and a note
-//! when the window is too small for it.
+//! The Interface tab of the settings: the UI scale, with a note when the window is too small for
+//! it, and the FPS counter, each saved as soon as it is chosen.
 
 use bevy::{prelude::*, window::PrimaryWindow};
 use shared::GameFolderPaths;
 
-use crate::ui::settings::{write_interface_settings, InterfaceSettings, UiScaleChoice};
+use crate::ui::settings::{
+    write_interface_settings, FpsCounterChoice, InterfaceSettings, UiScaleChoice,
+};
 use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_M, SPACE_XS, TEXT};
 use crate::ui::widgets::scale::ui_scale_for;
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
@@ -14,18 +16,49 @@ use crate::ui::widgets::slider::LABEL_WIDTH;
 #[derive(Component)]
 pub struct ScaleLimitNote;
 
-/// Spawns the UI scale control and its note under `panel`.
+fn text_font(font: &Handle<Font>, size: f32) -> TextFont {
+    TextFont {
+        font: font.clone().into(),
+        font_size: px(size).into(),
+        ..default()
+    }
+}
+
+/// Spawns a row under `parent` with `label` on the left, as wide as the labels of the sliders,
+/// and returns it to take the control.
+fn spawn_row(commands: &mut Commands, parent: Entity, label: &str, font: &Handle<Font>) -> Entity {
+    let row = commands
+        .spawn((
+            Node {
+                align_items: AlignItems::Center,
+                column_gap: px(SPACE_M),
+                ..default()
+            },
+            ChildOf(parent),
+        ))
+        .id();
+    commands.spawn((
+        Text::new(label),
+        text_font(font, FONT_M),
+        TextColor(TEXT),
+        // measured as wrapped on two lines otherwise, which puts it above the middle of the row
+        TextLayout::no_wrap(),
+        Node {
+            width: px(LABEL_WIDTH),
+            ..default()
+        },
+        ChildOf(row),
+    ));
+    row
+}
+
+/// Spawns the UI scale control and its note, then the FPS counter control, under `panel`.
 pub fn spawn_interface_tab(
     commands: &mut Commands,
     panel: Entity,
     settings: &InterfaceSettings,
     font: Handle<Font>,
 ) {
-    let text_font = |size: f32| TextFont {
-        font: font.clone().into(),
-        font_size: px(size).into(),
-        ..default()
-    };
     // the control, and its note under it
     let column = commands
         .spawn((
@@ -37,29 +70,7 @@ pub fn spawn_interface_tab(
             ChildOf(panel),
         ))
         .id();
-    // the label on the left, as wide as the labels of the sliders
-    let row = commands
-        .spawn((
-            Node {
-                align_items: AlignItems::Center,
-                column_gap: px(SPACE_M),
-                ..default()
-            },
-            ChildOf(column),
-        ))
-        .id();
-    commands.spawn((
-        Text::new("UI scale"),
-        text_font(FONT_M),
-        TextColor(TEXT),
-        // measured as wrapped on two lines otherwise, which puts it above the middle of the row
-        TextLayout::no_wrap(),
-        Node {
-            width: px(LABEL_WIDTH),
-            ..default()
-        },
-        ChildOf(row),
-    ));
+    let row = spawn_row(commands, column, "UI scale", &font);
     let labels = UiScaleChoice::ALL.map(UiScaleChoice::label);
     let selected = UiScaleChoice::ALL
         .iter()
@@ -79,7 +90,7 @@ pub fn spawn_interface_tab(
     commands.spawn((
         ScaleLimitNote,
         Text::default(),
-        text_font(FONT_S),
+        text_font(&font, FONT_S),
         TextColor(MUTED),
         Node {
             display: Display::None,
@@ -88,6 +99,23 @@ pub fn spawn_interface_tab(
         },
         ChildOf(column),
     ));
+
+    let row = spawn_row(commands, panel, "FPS counter", &font);
+    let labels = FpsCounterChoice::ALL.map(FpsCounterChoice::label);
+    let selected = FpsCounterChoice::ALL
+        .iter()
+        .position(|&choice| choice == settings.fps_counter)
+        .unwrap_or_default();
+    let segmented = Segmented {
+        label: "FPS counter",
+        options: &labels,
+        selected,
+    };
+    let group = spawn_segmented(commands, &segmented, font);
+    commands
+        .entity(group)
+        .insert(ChildOf(row))
+        .observe(choose_fps_counter);
 }
 
 /// Applies and saves the chosen UI scale.
@@ -97,6 +125,16 @@ fn choose_scale(
     paths: Res<GameFolderPaths>,
 ) {
     settings.ui_scale = UiScaleChoice::ALL[change.index];
+    write_interface_settings(&settings, &paths);
+}
+
+/// Applies and saves what the FPS counter shows.
+fn choose_fps_counter(
+    change: On<SegmentChange>,
+    mut settings: ResMut<InterfaceSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    settings.fps_counter = FpsCounterChoice::ALL[change.index];
     write_interface_settings(&settings, &paths);
 }
 

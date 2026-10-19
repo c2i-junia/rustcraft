@@ -10,7 +10,7 @@ pub struct FpsText;
 
 /// The colour of the frame rate `fps`: `DANGER` at 30 and below, `OK` at 120 and above, and a
 /// blend of the two between.
-fn fps_color(fps: f64) -> Color {
+pub(crate) fn fps_color(fps: f64) -> Color {
     let ok = ((fps - 30.0) / (120.0 - 30.0)).clamp(0.0, 1.0) as f32;
     DANGER.mix(&OK, ok)
 }

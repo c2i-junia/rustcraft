@@ -6,6 +6,10 @@ use crate::state::{GameSet, GameState};
 use crate::ui::hud::chat::*;
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
+use crate::ui::hud::fps_counter::{
+    cycle_fps_counter_system, draw_fps_graph, record_frame_time, reset_frame_times,
+    show_fps_counter, spawn_fps_counter, FrameTimes,
+};
 use crate::ui::hud::hotbar::{
     select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name,
 };
@@ -16,6 +20,7 @@ use bevy::ui::UiSystems;
 
 pub mod chat;
 pub mod debug;
+pub mod fps_counter;
 pub mod hotbar;
 pub mod inventory;
 pub mod reticle;
@@ -24,8 +29,8 @@ mod ui_mode;
 pub use inventory::*;
 pub use ui_mode::*;
 
-/// Everything drawn over the game: reticle, hotbar, inventory, chat, pause menu and the debug
-/// overlays.
+/// Everything drawn over the game: reticle, hotbar, inventory, chat, pause menu, FPS counter and
+/// the debug overlays.
 pub fn hud_plugin(app: &mut App) {
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(WireframePlugin::default())
@@ -42,12 +47,17 @@ pub fn hud_plugin(app: &mut App) {
         })
         .insert_resource(UIMode::Closed)
         .insert_resource(DebugOptions::default())
+        .init_resource::<FrameTimes>()
         .add_systems(
             OnEnter(GameState::Game),
             (spawn_reticle, setup_hud, setup_chat).chain(),
         )
         .add_systems(OnEnter(GameState::Game), setup_inventory)
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
+        .add_systems(
+            OnEnter(GameState::Game),
+            (reset_frame_times, spawn_fps_counter),
+        )
         .add_systems(
             Update,
             set_ui_mode
@@ -106,6 +116,8 @@ pub fn hud_plugin(app: &mut App) {
             Update,
             (
                 fps_text_update_system,
+                show_fps_counter,
+                (record_frame_time, draw_fps_graph).chain(),
                 coords_text_update_system,
                 loaded_chunks_text_update_system,
                 block_text_update_system,
@@ -122,6 +134,7 @@ pub fn hud_plugin(app: &mut App) {
                 toggle_chunk_debug_mode_system,
                 toggle_raycast_debug_mode_system,
                 toggle_hud_system,
+                cycle_fps_counter_system,
                 toggle_wireframe_system,
             )
                 .after(GameSet::UiMode)

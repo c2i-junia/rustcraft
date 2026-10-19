@@ -18,6 +18,7 @@ use crate::network::CachedChatConversation;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT, CHAT_WIDTH};
 use crate::ui::hud::debug::{DebugOptions, HudRoot};
+use crate::ui::hud::fps_counter::FpsCounter;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{InventoryRoot, UIMode};
 use crate::ui::theme::{SPACE_L, SPACE_S};
@@ -413,7 +414,13 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     // Neither the digit, the debug keys nor the wheel reach the game
     h.type_text("3");
-    for key in [KeyCode::F3, KeyCode::F4, KeyCode::F6, KeyCode::F7] {
+    for key in [
+        KeyCode::F3,
+        KeyCode::F4,
+        KeyCode::F6,
+        KeyCode::F7,
+        KeyCode::F8,
+    ] {
         h.press(key);
     }
     h.scroll(-1.);
@@ -428,6 +435,7 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert!(!h.is_visible(&L::marker::<HudRoot>()));
     assert!(!h.world().resource::<WireframeConfig>().global);
     assert!(!h.world().resource::<DebugOptions>().any_enabled());
+    assert!(!h.is_visible(&L::marker::<FpsCounter>()));
     assert_eq!(h.value_of::<ChatInput>(), "e3");
 
     // Escape closes the chat, and the pause menu does not open
@@ -444,12 +452,19 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     h.press(KeyCode::Escape);
     assert!(h.is_visible(&L::role(Role::Button, "Back to game")));
-    for key in [KeyCode::F3, KeyCode::F4, KeyCode::F6, KeyCode::F7] {
+    for key in [
+        KeyCode::F3,
+        KeyCode::F4,
+        KeyCode::F6,
+        KeyCode::F7,
+        KeyCode::F8,
+    ] {
         h.press(key);
     }
     assert!(!h.is_visible(&L::marker::<HudRoot>()));
     assert!(!h.world().resource::<WireframeConfig>().global);
     assert!(!h.world().resource::<DebugOptions>().any_enabled());
+    assert!(!h.is_visible(&L::marker::<FpsCounter>()));
     h.press(KeyCode::Escape);
     h.press(KeyCode::F3);
     assert!(h.is_visible(&L::marker::<HudRoot>()));

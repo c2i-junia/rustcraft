@@ -1,4 +1,4 @@
-//! The settings screen: its tabs, the controls, the volumes and the UI scale.
+//! The settings screen: its tabs, the controls, the volumes, the UI scale and the FPS counter.
 
 use std::fs;
 
@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy::ui_widgets::{ScrollArea, Scrollbar, ScrollbarThumb};
 
+use super::game::enter_world;
 use super::harness::{Harness, Options, SCREEN, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
@@ -17,9 +18,10 @@ use crate::constants::{AUDIO_SETTINGS_PATH, BINDS_PATH, INTERFACE_SETTINGS_PATH}
 use crate::input::data::GameAction;
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
+use crate::ui::hud::fps_counter::{FpsCounter, FpsGraph, FrameBar, GraphStat};
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::MenuState;
-use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
+use crate::ui::settings::{FpsCounterChoice, InterfaceSettings, UiScaleChoice};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
 };
@@ -274,6 +276,75 @@ fn the_ui_scale_is_chosen_clamped_and_saved() {
     let mut h = Harness::start(folder, full_hd());
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     assert_eq!(h.ui_scale(), 1.0);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_fps_graph_is_chosen_in_the_menu_and_changed_in_game() {
+    let folder = GameFolder::new().with_world("Fps");
+    let mut h = interface_with(folder.clone(), Options::default());
+    let counter = L::marker::<FpsCounter>();
+    let graph = L::marker::<FpsGraph>();
+
+    h.click(&L::role(Role::RadioButton, "Graph"));
+    let saved: InterfaceSettings = h.saved(INTERFACE_SETTINGS_PATH);
+    assert_eq!(saved.fps_counter, FpsCounterChoice::Graph);
+    drop(h);
+
+    // the choice is kept for the next start, and the graph fills with the frames of the game
+    let mut h = enter_world(folder, "Fps");
+    h.wait_for(&graph, SCREEN);
+    h.wait_until("a bar and the stats of the graph", SCREEN, |w| {
+        let mut bars = w.try_query::<(&FrameBar, &Node)>().unwrap();
+        let mut stats = w.try_query::<(&GraphStat, &Text)>().unwrap();
+        bars.iter(w).any(|(_, node)| node.height != px(0))
+            && stats.iter(w).all(|(_, text)| text.0 != "N/A")
+    });
+
+    // changed from the pause menu, it applies at once
+    h.press(KeyCode::Escape);
+    h.click(&L::role(Role::Button, "Settings"));
+    h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
+    h.open_tab_showing("Interface", &L::role(Role::RadioGroup, "FPS counter"));
+    h.click(&L::role(Role::RadioButton, "Number"));
+    h.frames(2);
+    assert!(h.is_visible(&counter));
+    assert!(!h.is_visible(&graph));
+    h.click(&L::role(Role::RadioButton, "Off"));
+    h.frames(2);
+    assert!(!h.is_visible(&counter));
+    let saved: InterfaceSettings = h.saved(INTERFACE_SETTINGS_PATH);
+    assert_eq!(saved.fps_counter, FpsCounterChoice::Off);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_fps_counter_key_goes_round_its_choices_and_saves_them() {
+    let folder = GameFolder::new().with_world("FpsKey");
+    let mut h = enter_world(folder.clone(), "FpsKey");
+    let counter = L::marker::<FpsCounter>();
+    let graph = L::marker::<FpsGraph>();
+    let saved = |h: &Harness| {
+        h.saved::<InterfaceSettings>(INTERFACE_SETTINGS_PATH)
+            .fps_counter
+    };
+    assert!(!h.is_visible(&counter));
+
+    h.press(KeyCode::F8);
+    h.frames(2);
+    assert!(h.is_visible(&counter));
+    assert!(!h.is_visible(&graph));
+    assert_eq!(saved(&h), FpsCounterChoice::Number);
+
+    h.press(KeyCode::F8);
+    h.frames(2);
+    assert!(h.is_visible(&graph));
+    assert_eq!(saved(&h), FpsCounterChoice::Graph);
+
+    h.press(KeyCode::F8);
+    h.frames(2);
+    assert!(!h.is_visible(&counter));
+    assert_eq!(saved(&h), FpsCounterChoice::Off);
 }
 
 #[test]

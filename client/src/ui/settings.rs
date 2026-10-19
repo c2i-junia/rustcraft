@@ -51,11 +51,45 @@ impl UiScaleChoice {
     }
 }
 
+/// What the FPS counter in the top-right corner of the game shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FpsCounterChoice {
+    #[default]
+    Off,
+    /// The frame rate alone.
+    Number,
+    /// The frame rate, over a graph of the frame times of the last seconds.
+    Graph,
+}
+
+impl FpsCounterChoice {
+    pub const ALL: [FpsCounterChoice; 3] = [
+        FpsCounterChoice::Off,
+        FpsCounterChoice::Number,
+        FpsCounterChoice::Graph,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FpsCounterChoice::Off => "Off",
+            FpsCounterChoice::Number => "Number",
+            FpsCounterChoice::Graph => "Graph",
+        }
+    }
+
+    /// The choice after this one, back to `Off` after the last.
+    pub fn next(self) -> FpsCounterChoice {
+        let index = FpsCounterChoice::ALL.iter().position(|&c| c == self);
+        FpsCounterChoice::ALL[index.map_or(0, |i| (i + 1) % FpsCounterChoice::ALL.len())]
+    }
+}
+
 /// The interface settings, saved in `interface.ron`.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InterfaceSettings {
     pub ui_scale: UiScaleChoice,
+    pub fps_counter: FpsCounterChoice,
 }
 
 /// The saved settings, or the default ones when none were saved or the file cannot be read.
@@ -101,6 +135,7 @@ mod tests {
         let paths = temp_paths("interface-roundtrip");
         let settings = InterfaceSettings {
             ui_scale: UiScaleChoice::X1_5,
+            fps_counter: FpsCounterChoice::Graph,
         };
         write_interface_settings(&settings, &paths);
         let reloaded = load_interface_settings(&paths);
@@ -124,6 +159,33 @@ mod tests {
             fs::write(&file, content).unwrap();
             assert_eq!(
                 load_interface_settings(&paths).ui_scale,
+                expected,
+                "{content}"
+            );
+        }
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+    }
+
+    #[test]
+    fn the_fps_counter_choices_go_round() {
+        use FpsCounterChoice::*;
+        assert_eq!(Off.next(), Number);
+        assert_eq!(Number.next(), Graph);
+        assert_eq!(Graph.next(), Off);
+    }
+
+    #[test]
+    fn the_fps_counter_is_off_unless_saved_on() {
+        let paths = temp_paths("interface-fps");
+        let file = paths.game_folder_path.join(INTERFACE_SETTINGS_PATH);
+        for (content, expected) in [
+            ("(ui_scale: X2)", FpsCounterChoice::Off),
+            ("(fps_counter: Number)", FpsCounterChoice::Number),
+            ("(fps_counter: Graph)", FpsCounterChoice::Graph),
+        ] {
+            fs::write(&file, content).unwrap();
+            assert_eq!(
+                load_interface_settings(&paths).fps_counter,
                 expected,
                 "{content}"
             );

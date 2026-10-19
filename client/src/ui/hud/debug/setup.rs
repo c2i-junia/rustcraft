@@ -15,7 +15,7 @@ use bevy::prelude::*;
 pub struct HudRoot;
 
 /// The font of the overlay, monospaced so that the numbers do not jitter.
-fn debug_font(assets: &AssetServer) -> TextFont {
+pub(crate) fn debug_font(assets: &AssetServer) -> TextFont {
     TextFont {
         font: assets.load(MONO_FONT_PATH).into(),
         ..TextFont::from_font_size(FONT_S)
@@ -23,7 +23,7 @@ fn debug_font(assets: &AssetServer) -> TextFont {
 }
 
 /// One line of the debug overlay, showing `text` until its system updates it.
-fn debug_line(text: &str, color: Color, font: TextFont) -> impl Bundle {
+pub(crate) fn debug_line(text: &str, color: Color, font: TextFont) -> impl Bundle {
     (Text::new(text), font, TextColor(color))
 }
 
