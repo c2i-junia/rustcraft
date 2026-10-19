@@ -2,8 +2,7 @@ use bevy::prelude::*;
 
 use super::InventoryRoot;
 use crate::state::GameState;
-use crate::ui::menus::pause::{pause_open, PauseMenu};
-use crate::ui::menus::settings::{settings_open, SettingsRoot};
+use crate::ui::menus::pause::{overlay_open, Overlays};
 use crate::ui::theme::{BEVEL_LO, RETICLE};
 
 /// The length of a bar of the reticle, in logical px.
@@ -63,17 +62,16 @@ pub fn spawn_reticle(mut commands: Commands) {
         });
 }
 
-/// Hides the reticle while the inventory, the pause menu or the settings are open, from the
-/// frame they show to the frame they are gone: there is nothing to aim at, and it would show
-/// through the panel. The chat leaves it.
+/// Hides the reticle while the inventory or an overlay (the pause menu, the settings, the card
+/// shown while quitting) is open, from the frame they show to the frame they are gone: there is
+/// nothing to aim at, and it would show through the panel. The chat leaves it.
 pub fn show_reticle(
     inventory: Query<&Visibility, (With<InventoryRoot>, Without<Reticle>)>,
-    menus: Query<(), With<PauseMenu>>,
-    settings: Query<(), With<SettingsRoot>>,
+    overlays: Overlays,
     mut reticle: Query<&mut Visibility, With<Reticle>>,
 ) {
     let inventory_open = inventory.iter().any(|v| *v == Visibility::Visible);
-    let shown = if inventory_open || pause_open(menus) || settings_open(settings) {
+    let shown = if inventory_open || overlay_open(overlays) {
         Visibility::Hidden
     } else {
         Visibility::Inherited

@@ -154,8 +154,10 @@ fn despawn_old_toasts(
 #[cfg(test)]
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
+    use bevy::state::app::StatesPlugin;
 
     use super::*;
+    use crate::state::GameState;
 
     #[test]
     fn a_toast_has_the_role_of_its_kind() {
@@ -173,6 +175,32 @@ mod tests {
             assert_eq!(node.role(), role, "{kind:?}");
             assert_eq!(node.label(), Some("Hello"), "{kind:?}");
         }
+    }
+
+    /// A toast shown in the game, as "Could not save the world" as the world is left, is still
+    /// read in the menus.
+    #[test]
+    fn a_toast_outlives_the_game_that_showed_it() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Game)
+            .add_plugins(plugin);
+        app.update();
+        let toast = app
+            .world_mut()
+            .run_system_once(|mut commands: Commands| {
+                show_toast(&mut commands, "Hello", ToastKind::Error, Handle::default())
+            })
+            .unwrap();
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Menu
+        );
+        assert!(app.world().get::<Toast>(toast).is_some());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Quitting the game saves a world first: the window's close button and the main menu's Quit
 //! ask to quit (`QuitRequested`). With a world being played or still starting, or a local server
-//! still saving, a card says the world is being saved, the world is left, and the app exits once
+//! still running, a card says the world is being saved, the game is left, and the app exits once
 //! its server stopped, or after `STOP_TIMEOUT`. A second request quits at once.
 
 use std::time::{Duration, Instant};
@@ -96,7 +96,9 @@ fn forward_close_requests(mut closes: MessageReader<WindowCloseRequested>, mut c
 /// Quits at once when nothing is left to save, or when the app already waits for the world to
 /// be saved (a second close). Otherwise shows the card and leaves the world: the game saves it
 /// as Save and quit does, and a world still starting is cancelled, then told to stop once it
-/// accepts the connection.
+/// accepts the connection. A server session with a local server still running is left for the
+/// menus, where that server, which a world cancelled before it answered may have left untold,
+/// is told to stop and joined.
 fn on_quit_requested(
     _: On<QuitRequested>,
     quitting: Option<Res<Quitting>>,
@@ -128,7 +130,7 @@ fn on_quit_requested(
     focus.clear();
     match (state, origin) {
         (GameState::Game, _) if world => commands.trigger(LeaveGame),
-        (GameState::PreGameLoading, Some(origin)) if world => {
+        (GameState::Game | GameState::PreGameLoading, Some(origin)) => {
             end_session(&mut commands, &mut game, &origin, None);
         }
         _ => {}
@@ -249,8 +251,8 @@ mod tests {
         (release, server)
     }
 
-    /// A bare app in the menus with the quit and the stop of a local server left running, whose
-    /// local server is `server`.
+    /// A bare app in the menus with the quit and the stop of a local server left running, which
+    /// runs in the menus only, as in the game, whose local server is `server`.
     fn menu_app(server: JoinHandle<Result<(), String>>) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
@@ -260,7 +262,10 @@ mod tests {
             .insert_state(GameState::Menu)
             .insert_resource(LocalServerHandle(Some(server)))
             .add_plugins(quit_plugin)
-            .add_systems(Update, finish_stopping_local_server);
+            .add_systems(
+                Update,
+                finish_stopping_local_server.run_if(in_state(GameState::Menu)),
+            );
         app
     }
 
@@ -343,6 +348,63 @@ mod tests {
         release.send(()).unwrap();
         update_until_exit(&mut app);
         assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+    }
+
+    /// A server session joined after a world cancelled before its server answered: that
+    /// server, never told to stop, is told from the menus the server session is left for, and
+    /// the app exits once it is joined.
+    #[test]
+    fn quitting_a_server_session_tells_a_local_server_left_running_to_stop() {
+        let (release, server) = parked();
+        let mut app = menu_app(server);
+        let origin = SessionOrigin::Server {
+            name: "Friends".to_string(),
+            ip: "127.0.0.1".to_string(),
+            address: "127.0.0.1:8000".parse().unwrap(),
+        };
+        app.insert_resource(origin.clone())
+            .world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Game);
+        app.update();
+
+        app.world_mut().trigger(QuitRequested);
+        for _ in 0..3 {
+            app.update();
+            assert!(app.should_exit().is_none());
+        }
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Menu
+        );
+        let end = app.world().resource::<SessionEnd>();
+        assert_eq!((&end.origin, &end.error), (&origin, &None));
+        assert_eq!(cards(&mut app), 1);
+
+        release.send(()).unwrap();
+        update_until_exit(&mut app);
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+    }
+
+    /// With no local server running, a server session has nothing to save: the app exits at once.
+    #[test]
+    fn quitting_a_server_session_without_a_local_server_quits_at_once() {
+        let mut app = menu_app(std::thread::spawn(|| Ok(())));
+        app.insert_resource(LocalServerHandle(None))
+            .insert_resource(SessionOrigin::Server {
+                name: "Friends".to_string(),
+                ip: "127.0.0.1".to_string(),
+                address: "127.0.0.1:8000".parse().unwrap(),
+            })
+            .world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Game);
+        app.update();
+
+        app.world_mut().trigger(QuitRequested);
+        app.update();
+        assert!(app.should_exit().is_some());
+        assert_eq!(cards(&mut app), 0);
     }
 
     #[test]

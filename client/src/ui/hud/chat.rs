@@ -26,6 +26,7 @@ use crate::network::SendGameMessageExtension;
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
+use crate::ui::menus::pause::{overlay_open, Overlays};
 use crate::ui::theme::{BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XS, TEXT};
 use crate::ui::widgets::list::{spawn_scroll_list, WheelStep};
 use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit, TextField};
@@ -384,12 +385,13 @@ fn open_chat(
 
 /// Shows the recent lines over the game while the chat is closed: the last `CHAT_LOG_LINES`
 /// lines younger than `CHAT_FADE_AFTER + CHAT_FADE`, each on its strip, fading with
-/// `line_alpha`. The open chat shows its lines without strips; another dialog open hides them,
-/// from the frame it shows, as the HUD.
+/// `line_alpha`. The open chat shows its lines without strips; another dialog or an overlay open
+/// hides them, from the frame it shows, as the HUD.
 pub fn fade_chat_messages_system(
     ui_mode: Res<UIMode>,
     chat_root: Query<&Visibility, (With<ChatRoot>, Without<ChatLine>)>,
     dialogs: Query<&Visibility, (With<UiDialog>, Without<ChatRoot>, Without<ChatLine>)>,
+    overlays: Overlays,
     logs: Query<&Children, With<ChatLines>>,
     mut lines: Query<(&ChatLine, &Children, &mut Visibility, &mut BackgroundColor)>,
     mut colors: Query<&mut TextColor>,
@@ -398,6 +400,7 @@ pub fn fade_chat_messages_system(
         .iter()
         .any(|visibility| *visibility == Visibility::Visible);
     let dialog_open = *ui_mode == UIMode::Opened
+        || overlay_open(overlays)
         || dialogs
             .iter()
             .any(|visibility| *visibility == Visibility::Visible);

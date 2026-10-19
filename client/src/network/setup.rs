@@ -134,9 +134,22 @@ pub struct LocalServerHandle(pub Option<JoinHandle<Result<(), String>>>);
 #[derive(Resource)]
 pub struct LocalServerAddress(pub SocketAddr);
 
-/// The saves the embedded solo server of the session finished writing.
+/// The saves the embedded solo server of the session finished writing, until its thread is
+/// joined.
 #[derive(Resource, Clone)]
 pub struct LocalSaves(pub SaveCounter);
+
+/// Forgets the saves of the embedded server once its thread is joined: a server session after a
+/// world has no saves to watch. Runs in `First`, before a world launched in the frame joins the
+/// last server and starts its own.
+pub fn forget_the_saves_of_a_joined_server(
+    local_server: Option<Res<LocalServerHandle>>,
+    mut commands: Commands,
+) {
+    if local_server.is_none_or(|local_server| local_server.0.is_none()) {
+        commands.remove_resource::<LocalSaves>();
+    }
+}
 
 /// The world opened waits for the server of the last one, told to stop, to finish saving: since
 /// the world was asked for.
@@ -428,5 +441,49 @@ pub fn establish_authenticated_connection_to_server(
                 warn!("Ignoring an unexpected {kind} message on the authentication channel");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::finish_stopping_local_server;
+    use bevy::state::app::StatesPlugin;
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    /// The saves of a world go with its server: once it is joined in the menus, a server session
+    /// entered next finds none.
+    #[test]
+    fn the_saves_of_a_world_go_once_its_server_is_joined() {
+        let (release, wait) = channel::<()>();
+        let server = thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(())
+        });
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Menu)
+            .insert_resource(LocalServerHandle(Some(server)))
+            .insert_resource(LocalSaves(SaveCounter::default()))
+            .add_systems(
+                First,
+                forget_the_saves_of_a_joined_server.run_if(resource_exists::<LocalSaves>),
+            )
+            .add_systems(Update, finish_stopping_local_server);
+        for _ in 0..3 {
+            app.update();
+            assert!(app.world().contains_resource::<LocalSaves>());
+        }
+
+        release.send(()).unwrap();
+        let start = Instant::now();
+        while app.world().resource::<LocalServerHandle>().0.is_some() {
+            assert!(start.elapsed() < Duration::from_secs(10), "never joined");
+            app.update();
+            thread::sleep(Duration::from_millis(5));
+        }
+        app.update();
+        assert!(!app.world().contains_resource::<LocalSaves>());
     }
 }

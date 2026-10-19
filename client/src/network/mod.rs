@@ -66,5 +66,9 @@ pub fn network_plugin(app: &mut App) {
         .add_systems(
             Update,
             finish_stopping_local_server.run_if(in_state(GameState::Menu)),
+        )
+        .add_systems(
+            First,
+            forget_the_saves_of_a_joined_server.run_if(resource_exists::<LocalSaves>),
         );
 }

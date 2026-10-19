@@ -28,9 +28,8 @@ use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
 use crate::ui::menus::modal_open;
 use crate::ui::menus::settings::controls::KeyCapture;
-use crate::ui::menus::settings::{
-    close_settings, settings_open, spawn_settings, SettingsContext, SettingsRoot,
-};
+use crate::ui::menus::settings::{close_settings, spawn_settings, SettingsContext, SettingsRoot};
+use crate::ui::quit::QuittingCard;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XL,
     SPACE_XS, TEXT,
@@ -212,9 +211,15 @@ pub fn pause_plugin(app: &mut App) {
     );
 }
 
-/// Whether the pause menu is open.
-pub fn pause_open(menus: Query<(), With<PauseMenu>>) -> bool {
-    !menus.is_empty()
+/// The overlays the game's HUD hides under: the pause menu, the in-game settings and the card
+/// shown while quitting. An overlay over the game joins them here, so that the hotbar, the
+/// reticle and the chat lines all hide under it.
+pub type Overlays<'w, 's> =
+    Query<'w, 's, (), Or<(With<PauseMenu>, With<SettingsRoot>, With<QuittingCard>)>>;
+
+/// Whether an overlay is open over the game.
+pub fn overlay_open(overlays: Overlays) -> bool {
+    !overlays.is_empty()
 }
 
 /// Escape opens the pause menu during gameplay, closes the inventory, or asks the pause menu to
@@ -491,11 +496,19 @@ fn show_leaving(
     }
 }
 
-/// Watches the saves of the world entered, if the embedded server counts them.
-fn watch_the_saves_of_the_world(saves: Option<Res<LocalSaves>>, mut commands: Commands) {
+/// Watches the saves of the world entered, if the embedded server counts them. A server session
+/// watches none: the saves left from a world played earlier are not its own.
+fn watch_the_saves_of_the_world(
+    saves: Option<Res<LocalSaves>>,
+    origin: Option<Res<SessionOrigin>>,
+    mut commands: Commands,
+) {
     let Some(saves) = saves else {
         return;
     };
+    if let Some(SessionOrigin::Server { .. }) = origin.as_deref() {
+        return;
+    }
     commands.insert_resource(AutosaveWatch {
         saved: saves.0.get(),
         failed: saves.0.failures(),
@@ -507,9 +520,11 @@ fn watch_the_saves_of_the_world(saves: Option<Res<LocalSaves>>, mut commands: Co
 /// Says in an error toast that the world could not be saved, at the first failed save after one
 /// written (or since the game began): a disk that keeps failing is told once, not at every
 /// autosave. A failure while "Save now" waits is told by it, except while leaving, when "Save
-/// now" says nothing any more.
+/// now" says nothing any more. Once the saves are forgotten, their server joined, the watch reads
+/// them a last time and goes.
 fn watch_autosaves(
     mut watch: ResMut<AutosaveWatch>,
+    local_saves: Option<Res<LocalSaves>>,
     save_now: Option<Res<SaveNow>>,
     leaving: Option<Res<Leaving>>,
     assets: Res<AssetServer>,
@@ -532,6 +547,9 @@ fn watch_autosaves(
     }
     watch.saved = saved;
     watch.failed = failed;
+    if local_saves.is_none() {
+        commands.remove_resource::<AutosaveWatch>();
+    }
 }
 
 /// Closes the pause menu asked to close; nothing has the focus in the game.
@@ -546,14 +564,10 @@ fn close_pause_menu(
     }
 }
 
-/// Hides the hotbar and its item name under the pause menu and the settings: nothing there
-/// concerns them, and the hint bar would cover them in part.
-fn hide_hud_under_menus(
-    menus: Query<(), With<PauseMenu>>,
-    settings: Query<(), With<SettingsRoot>>,
-    mut hud: Query<&mut Visibility, With<HudBottom>>,
-) {
-    let shown = if pause_open(menus) || settings_open(settings) {
+/// Hides the hotbar and its item name under the overlays: nothing there concerns them, and the
+/// hint bar would cover them in part.
+fn hide_hud_under_menus(overlays: Overlays, mut hud: Query<&mut Visibility, With<HudBottom>>) {
+    let shown = if overlay_open(overlays) {
         Visibility::Hidden
     } else {
         Visibility::Inherited
@@ -566,7 +580,11 @@ fn hide_hud_under_menus(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::hud::chat::{ChatLine, ChatLines};
+    use crate::ui::hud::reticle::Reticle;
+    use crate::ui::quit::quit_plugin;
     use bevy::state::app::StatesPlugin;
+    use bevy::window::WindowCloseRequested;
     use std::collections::BTreeMap;
 
     fn app(ui_mode: UIMode) -> App {
@@ -859,6 +877,95 @@ mod tests {
         saves.bump_failure();
         app.update();
         assert_eq!(toasts(&mut app, Role::Alert), std::slice::from_ref(&failed));
+    }
+
+    /// The card shown while quitting is an overlay as the pause menu: the hotbar, the reticle and
+    /// the chat lines over the game hide in the frame it shows.
+    #[test]
+    fn the_quitting_card_hides_the_hud_the_reticle_and_the_chat_lines() {
+        let mut app = saving_app(&SaveCounter::default());
+        app.world_mut().remove_resource::<SaveNow>();
+        app.add_message::<WindowCloseRequested>()
+            .insert_resource(SessionOrigin::World {
+                name: "Survie".to_string(),
+            })
+            .add_plugins(quit_plugin);
+        let hud = app
+            .world_mut()
+            .spawn((HudBottom, Visibility::Inherited))
+            .id();
+        let reticle = app.world_mut().spawn((Reticle, Visibility::Inherited)).id();
+        let text = app.world_mut().spawn(TextColor(TEXT)).id();
+        let line = app
+            .world_mut()
+            .spawn((
+                ChatLine {
+                    received: Instant::now(),
+                },
+                Visibility::Inherited,
+                BackgroundColor(Color::NONE),
+            ))
+            .add_child(text)
+            .id();
+        app.world_mut().spawn(ChatLines).add_child(line);
+        app.update();
+        let visibility =
+            |app: &App, entity: Entity| *app.world().get::<Visibility>(entity).unwrap();
+        assert_eq!(visibility(&app, line), Visibility::Visible);
+
+        let window = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .write_message(WindowCloseRequested { window });
+        app.update();
+
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<(), With<QuittingCard>>()
+                .iter(world)
+                .count(),
+            1
+        );
+        assert_eq!(visibility(&app, hud), Visibility::Hidden);
+        assert_eq!(visibility(&app, reticle), Visibility::Hidden);
+        assert_eq!(visibility(&app, line), Visibility::Inherited);
+    }
+
+    /// The saves of a world played earlier are not the server's: a server session watches none.
+    #[test]
+    fn a_server_session_watches_no_saves() {
+        let mut app = saving_app(&SaveCounter::default());
+        app.world_mut().remove_resource::<SaveNow>();
+        app.insert_resource(SessionOrigin::Server {
+            name: "Friends".to_string(),
+            ip: "127.0.0.1".to_string(),
+            address: "127.0.0.1:8000".parse().unwrap(),
+        });
+        app.update();
+        assert!(!app.world().contains_resource::<AutosaveWatch>());
+    }
+
+    /// The last save of a world left fails as its server finishes in the menus: the failure is
+    /// told, then the watch goes with the saves of the server joined.
+    #[test]
+    fn the_last_failed_save_of_a_server_joined_is_told_then_the_watch_goes() {
+        let saves = SaveCounter::default();
+        let mut app = saving_app(&saves);
+        app.world_mut().remove_resource::<SaveNow>();
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        app.update();
+
+        saves.bump_failure();
+        app.world_mut().remove_resource::<LocalSaves>();
+        app.update();
+        assert_eq!(
+            toasts(&mut app, Role::Alert),
+            [Some(SAVE_FAILED.to_string())]
+        );
+        assert!(!app.world().contains_resource::<AutosaveWatch>());
     }
 
     #[test]
