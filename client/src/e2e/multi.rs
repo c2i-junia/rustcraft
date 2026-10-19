@@ -354,6 +354,7 @@ fn the_keyboard_alone_adds_a_server_sees_it_online_and_joins() {
     let config = GameServerConfig {
         world_name: "dedicated".to_string(),
         is_solo: false,
+        saves: None,
     };
     let (stopped, server_error) = std::sync::mpsc::channel();
     std::thread::spawn(move || {

@@ -19,6 +19,7 @@ pub mod slider;
 pub mod slot;
 pub mod tabs;
 pub mod text_field;
+pub mod toast;
 pub mod tooltip;
 
 /// The bevel of a raised surface: light at the top and left, dark at the bottom and right.
@@ -55,5 +56,6 @@ pub fn widgets_plugin(app: &mut App) {
     slot::plugin(app);
     tabs::plugin(app);
     text_field::plugin(app);
+    toast::plugin(app);
     tooltip::plugin(app);
 }

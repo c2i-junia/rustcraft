@@ -54,6 +54,7 @@ pub(super) fn spawn_test_server(world: &str) -> (SocketAddr, JoinHandle<Result<(
     let config = GameServerConfig {
         world_name: world.to_string(),
         is_solo: true,
+        saves: None,
     };
     let server = std::thread::spawn(move || {
         let _folder = folder;

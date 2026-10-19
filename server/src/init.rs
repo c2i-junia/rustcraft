@@ -168,6 +168,7 @@ fn run(
     let world_name = config.world_name.clone();
     // Every path of the world is built from this name: refuse one that is not a plain folder name
     let world_dir = world_dir(&game_folder_paths, &world_name)?;
+    let saves = config.saves.clone();
 
     app.insert_resource(config);
 
@@ -190,7 +191,7 @@ fn run(
     }
 
     // The writer is dropped with the app, which waits for the last save to be written
-    let writer = WorldWriter::spawn(world_dir)
+    let writer = WorldWriter::spawn(world_dir, saves)
         .map_err(|err| format!("Could not start the world writer: {err}"))?;
     app.insert_resource(writer);
     app.insert_resource(Autosave {
@@ -298,6 +299,7 @@ mod tests {
             GameServerConfig {
                 world_name: "w".into(),
                 is_solo: true,
+                saves: None,
             },
             GameFolderPaths {
                 game_folder_path: tmp.path().into(),

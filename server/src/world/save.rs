@@ -222,7 +222,11 @@ mod tests {
             let mut map = world_map(2);
             map.chunks.set_block(IVec3::new(1, 2, 3), stone());
             map.dirty_chunks.insert(IVec3::ZERO);
-            let mut app = app(map, WorldWriter::spawn(tmp.path().into()).unwrap(), 10);
+            let mut app = app(
+                map,
+                WorldWriter::spawn(tmp.path().into(), None).unwrap(),
+                10,
+            );
             app.world_mut().write_message(SaveRequestEvent::World);
 
             app.update();
@@ -248,7 +252,7 @@ mod tests {
             let tmp = tempfile::tempdir().unwrap();
             let mut map = world_map(1);
             map.dirty_chunks.insert(IVec3::ZERO);
-            let writer = WorldWriter::spawn(tmp.path().into()).unwrap();
+            let writer = WorldWriter::spawn(tmp.path().into(), None).unwrap();
             let mut app = app(map, writer, 100 + AUTOSAVE_INTERVAL_TICKS - 1);
             app.world_mut().resource_mut::<Autosave>().last_save_tick = 100;
 
@@ -280,7 +284,7 @@ mod tests {
             let mut player = Player::new(7, "Zed".into(), Vec3::ZERO, Transform::default());
             player.position = Vec3::new(12.0, 34.0, 56.0);
             map.players.insert(7, player);
-            let writer = WorldWriter::spawn(tmp.path().join("unused")).unwrap();
+            let writer = WorldWriter::spawn(tmp.path().join("unused"), None).unwrap();
             let mut app = app(map, writer, AUTOSAVE_INTERVAL_TICKS - 1);
             app.world_mut().insert_resource(GameFolderPaths {
                 game_folder_path: tmp.path().into(),
@@ -311,7 +315,11 @@ mod tests {
             std::fs::create_dir(&squatter).unwrap();
             let mut map = world_map(1);
             map.dirty_chunks.insert(IVec3::ZERO);
-            let mut app = app(map, WorldWriter::spawn(tmp.path().into()).unwrap(), 10);
+            let mut app = app(
+                map,
+                WorldWriter::spawn(tmp.path().into(), None).unwrap(),
+                10,
+            );
             app.world_mut().write_message(SaveRequestEvent::World);
             app.update();
 

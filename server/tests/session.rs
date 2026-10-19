@@ -104,6 +104,7 @@ impl TestServer {
         let config = GameServerConfig {
             world_name: world_name.to_string(),
             is_solo,
+            saves: None,
         };
         let handle = thread::spawn(move || match status {
             Some(status) => server::init_with_status(socket, status, config, paths).unwrap(),
@@ -717,6 +718,7 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
     let config = GameServerConfig {
         world_name: WORLD_NAME.to_string(),
         is_solo: true,
+        saves: None,
     };
 
     let err = server::init(socket, config, paths).unwrap_err();

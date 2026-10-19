@@ -1,5 +1,7 @@
 //! The end-to-end tests of the widgets in `ui/widgets/`.
 
+use std::time::Duration;
+
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
@@ -25,7 +27,7 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::assets::MONO_FONT_PATH;
 use crate::ui::menus::QUIT_TITLE;
-use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER};
+use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, DANGER, RAISE_HOVER, SPACE_L, SPACE_S};
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{
     close_dialog, spawn_dialog, spawn_form_dialog, Dialog, DialogClosed, DialogParts, DialogRoot,
@@ -43,6 +45,7 @@ use crate::ui::widgets::tabs::{spawn_tabs, TabChange, Tabs};
 use crate::ui::widgets::text_field::{
     set_text, spawn_text_field, Cancel, FieldError, Submit, TextField, TextFieldParts,
 };
+use crate::ui::widgets::toast::{show_toast, Toast, ToastKind};
 use crate::ui::widgets::tooltip::{Tooltip, TooltipRoot};
 
 #[test]
@@ -1662,4 +1665,89 @@ fn a_list_shows_its_scrollbar_only_while_its_items_overflow() {
     h.frames(3);
     assert!(!h.is_visible(&scrollbar));
     assert!(h.is_visible(&card(2)));
+}
+
+/// Shows a toast and lays it out.
+fn toast(h: &mut Harness, text: &'static str, kind: ToastKind) -> Entity {
+    let toast = h
+        .world_mut()
+        .run_system_once(move |mut commands: Commands| {
+            show_toast(&mut commands, text, kind, Handle::default())
+        })
+        .unwrap();
+    h.frames(2);
+    toast
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_toast_shows_top_right_and_goes() {
+    let mut h = main_menu();
+    h.world_mut().init_resource::<Activations>();
+    // a large button at the top-right, under where the toasts show
+    let root = h
+        .world_mut()
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(0.0),
+                top: Val::Px(0.0),
+                ..default()
+            },
+            GlobalZIndex(1),
+        ))
+        .id();
+    let under = h
+        .world_mut()
+        .spawn((
+            button("Under", ButtonVariant::Default, Handle::default()),
+            ChildOf(root),
+        ))
+        .observe(|_: On<Activate>, mut count: ResMut<Activations>| count.0 += 1)
+        .id();
+    let mut node = h.world_mut().get_mut::<Node>(under).unwrap();
+    node.width = Val::Px(400.0);
+    node.height = Val::Px(300.0);
+    h.frames(3);
+
+    let first = toast(&mut h, "Hello", ToastKind::Info);
+    assert!(h.is_visible(&L::role(Role::Status, "Hello")));
+    let scale = h.world().resource::<UiScale>().0;
+    let window = h
+        .world_mut()
+        .query_filtered::<&Window, With<PrimaryWindow>>()
+        .single(h.world())
+        .unwrap()
+        .physical_width() as f32;
+    let first_rect = rect_of_entity(&h, first);
+    assert!(
+        (window - first_rect.max.x - SPACE_L * scale).abs() < 1.0,
+        "{first_rect:?} in a window {window} px wide"
+    );
+    assert!(
+        (first_rect.min.y - SPACE_L * scale).abs() < 1.0,
+        "{first_rect:?}"
+    );
+
+    // the next one below the first
+    let second = toast(&mut h, "Second", ToastKind::Error);
+    assert!(h.is_visible(&L::role(Role::Alert, "Second")));
+    let second_rect = rect_of_entity(&h, second);
+    assert!(first_rect.intersect(second_rect).is_empty());
+    assert!(
+        (second_rect.min.y - first_rect.max.y - SPACE_S * scale).abs() < 1.0,
+        "{first_rect:?} then {second_rect:?}"
+    );
+    assert_eq!(rect_of_entity(&h, first), first_rect);
+    h.snapshot("toasts");
+
+    // a toast takes no click
+    h.click_at(first_rect.center());
+    h.frames(1);
+    assert_eq!(activations(&mut h), 1);
+
+    h.world_mut().get_mut::<Toast>(first).unwrap().until = Duration::ZERO;
+    h.frames(1);
+    assert!(h.world().get_entity(first).is_err());
+    assert!(h.is_visible(&L::role(Role::Alert, "Second")));
 }

@@ -66,6 +66,25 @@ pub fn button(label: &str, variant: ButtonVariant, font: Handle<Font>) -> impl B
     )
 }
 
+/// Shows `label` on a button built by `button`: its text and its accessible label.
+pub fn set_label(label: &str) -> impl EntityCommand {
+    let label = label.to_string();
+    move |mut button: EntityWorldMut| {
+        button.insert(AccessibleLabel::new(label.clone()));
+        let children: Vec<Entity> = button
+            .get::<Children>()
+            .map(|children| children.to_vec())
+            .unwrap_or_default();
+        button.world_scope(|world| {
+            for child in children {
+                if let Some(mut text) = world.get_mut::<Text>(child) {
+                    text.0.clone_from(&label);
+                }
+            }
+        });
+    }
+}
+
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(Update, (style_buttons, style_released_buttons));
 }

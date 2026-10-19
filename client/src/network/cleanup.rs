@@ -282,6 +282,7 @@ mod tests {
             let config = GameServerConfig {
                 world_name: name.to_string(),
                 is_solo: true,
+                saves: None,
             };
             let server = std::thread::spawn(move || server::init(socket, config, paths));
 

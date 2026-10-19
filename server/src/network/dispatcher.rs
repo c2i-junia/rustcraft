@@ -296,6 +296,7 @@ mod tests {
             .insert_resource(GameServerConfig {
                 world_name: "w".into(),
                 is_solo: true,
+                saves: None,
             })
             .insert_resource(GameFolderPaths {
                 game_folder_path: tmp.path().join("game"),
@@ -305,7 +306,7 @@ mod tests {
             .insert_resource(WorldSeed(1))
             .insert_resource(crate::world::save::Autosave { last_save_tick: 0 })
             .insert_resource(ServerTime(0))
-            .insert_resource(WorldWriter::spawn(tmp.path().into()).unwrap());
+            .insert_resource(WorldWriter::spawn(tmp.path().into(), None).unwrap());
         setup_resources_and_events(&mut app);
         register_systems(&mut app);
 

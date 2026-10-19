@@ -14,6 +14,7 @@ use bevy::{
     math::IVec3,
 };
 use shared::world::Chunk;
+use shared::SaveCounter;
 
 use super::chunk_files::{chunk_file_name, write_chunk, CHUNKS_DIR};
 use super::format::{write_meta, WorldMeta, WORLD_FILE};
@@ -69,9 +70,16 @@ pub struct WorldWriter {
 }
 
 impl WorldWriter {
-    /// Starts a writer that saves into `world_dir`.
-    pub fn spawn(world_dir: PathBuf) -> std::io::Result<Self> {
-        Self::spawn_with(move |job| write_job(&world_dir, job))
+    /// Starts a writer that saves into `world_dir`, and bumps `saves` after each job written
+    /// without a failed chunk.
+    pub fn spawn(world_dir: PathBuf, saves: Option<SaveCounter>) -> std::io::Result<Self> {
+        Self::spawn_with(move |job| {
+            let failed = write_job(&world_dir, job);
+            if let (true, Some(saves)) = (failed.is_empty(), &saves) {
+                saves.bump();
+            }
+            failed
+        })
     }
 
     /// Starts a writer that handles each job with `handle`, which returns the chunks it failed
@@ -180,7 +188,7 @@ mod tests {
     fn dropping_the_writer_waits_for_every_queued_job() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().to_path_buf();
-        let writer = WorldWriter::spawn(dir.clone()).unwrap();
+        let writer = WorldWriter::spawn(dir.clone(), None).unwrap();
         for x in 0..20 {
             assert!(writer.submit(job(&[IVec3::new(x, 0, 0)])).is_ok());
         }
@@ -194,7 +202,7 @@ mod tests {
     #[test]
     fn jobs_are_written_in_order_so_the_last_snapshot_wins() {
         let tmp = tempfile::tempdir().unwrap();
-        let writer = WorldWriter::spawn(tmp.path().to_path_buf()).unwrap();
+        let writer = WorldWriter::spawn(tmp.path().to_path_buf(), None).unwrap();
         let old = SaveJob {
             meta: meta(1),
             chunks: vec![(IVec3::ZERO, Chunk::new())],
@@ -214,7 +222,7 @@ mod tests {
         std::fs::create_dir_all(&chunks_dir).unwrap();
         // A directory squatting on the temporary name makes this chunk's write fail
         std::fs::create_dir(chunks_dir.join("0_0_0.bin.tmp")).unwrap();
-        let writer = WorldWriter::spawn(tmp.path().to_path_buf()).unwrap();
+        let writer = WorldWriter::spawn(tmp.path().to_path_buf(), None).unwrap();
 
         assert!(writer.submit(job(&[IVec3::ZERO, IVec3::X])).is_ok());
         let start = Instant::now();
@@ -230,6 +238,28 @@ mod tests {
         assert_eq!(failed, vec![IVec3::ZERO]);
         let written = read_chunks(&chunks_dir).unwrap();
         assert_eq!(written.keys().copied().collect::<Vec<_>>(), vec![IVec3::X]);
+    }
+
+    #[test]
+    fn a_written_save_is_counted_and_a_failed_one_is_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let counter = SaveCounter::default();
+        let mut writer =
+            WorldWriter::spawn(tmp.path().to_path_buf(), Some(counter.clone())).unwrap();
+
+        assert!(writer.submit(job(&[IVec3::X])).is_ok());
+        let start = Instant::now();
+        while counter.get() != 1 {
+            assert!(start.elapsed() < Duration::from_secs(10), "not counted");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // A directory squatting on the temporary name makes this chunk's write fail
+        std::fs::create_dir(tmp.path().join(CHUNKS_DIR).join("0_0_0.bin.tmp")).unwrap();
+        assert!(writer.submit(job(&[IVec3::ZERO])).is_ok());
+        writer.close_for_test();
+
+        assert_eq!(counter.get(), 1);
     }
 
     #[test]

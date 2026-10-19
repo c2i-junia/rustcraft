@@ -1,12 +1,15 @@
 //! The pause menu, over the game, which goes on beneath it: back to the game, the settings,
 //! saving, and leaving. Escape opens it during gameplay and closes it.
 
+use std::time::{Duration, Instant};
+
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
     camera::visibility::VisibilitySystems,
     input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus, InputFocusVisible},
     prelude::*,
+    ui::InteractionDisabled,
     ui_widgets::{observe, Activate},
 };
 use bevy_renet::RenetClient;
@@ -15,8 +18,9 @@ use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::network::save::send_save_request_to_server;
 use crate::network::session::{end_session, SessionOrigin};
+use crate::network::LocalSaves;
 use crate::state::{GameSet, GameState, KeyMap};
-use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
 use crate::ui::menus::settings::controls::KeyCapture;
@@ -27,11 +31,12 @@ use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XL,
     SPACE_XS, TEXT,
 };
-use crate::ui::widgets::button::{button, ButtonVariant};
+use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::text_field::text_field_focused;
+use crate::ui::widgets::toast::{show_toast, ToastKind};
 
 /// The title of the pause menu. Not "Paused": the server keeps ticking beneath it.
 pub const PAUSE_TITLE: &str = "Game menu";
@@ -51,6 +56,18 @@ pub const PAUSE_HINTS: [Hint; 3] = [
         action: "Back",
     },
 ];
+
+/// The label of "Save now" while the world is being saved.
+pub const SAVING: &str = "Saving...";
+
+/// The toast once the world is saved.
+pub const WORLD_SAVED: &str = "World saved";
+
+/// The toast when the world was not saved in time.
+pub const SAVE_FAILED: &str = "Could not save the world";
+
+/// How long "Save now" waits for the world to be written before saying it could not be saved.
+pub const SAVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The width of the panel of the pause menu.
 const PANEL_WIDTH: f32 = 320.0;
@@ -91,6 +108,24 @@ impl PauseButton {
     }
 }
 
+/// A save asked by "Save now": the counter when it was asked, and when.
+#[derive(Resource)]
+pub struct SaveNow {
+    pub from: u64,
+    pub since: Instant,
+}
+
+/// `Some(true)` once the counter passed `from`, `Some(false)` after SAVE_TIMEOUT, else `None`.
+pub fn save_outcome(from: u64, now: u64, elapsed: Duration) -> Option<bool> {
+    if now > from {
+        Some(true)
+    } else if elapsed >= SAVE_TIMEOUT {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// The buttons of the pause menu, top to bottom: a world's, or a server's (Decision 2). A
 /// server is not the player's to save, and ignores a client's save request.
 pub fn pause_buttons(origin: Option<&SessionOrigin>) -> &'static [PauseButton] {
@@ -118,6 +153,15 @@ pub fn pause_plugin(app: &mut App) {
             .run_if(not(dialog_open))
             .run_if(not(text_field_focused)),
     )
+    .add_systems(
+        Update,
+        watch_save_now
+            .run_if(in_state(GameState::Game))
+            .run_if(resource_exists::<SaveNow>),
+    )
+    .add_systems(OnExit(GameState::Game), |mut commands: Commands| {
+        commands.remove_resource::<SaveNow>();
+    })
     // the HUD hides in the frame the menus first show, and shows again in the frame they are
     // gone
     .add_systems(
@@ -298,6 +342,7 @@ fn act_on_pause_button(
     menus: Query<Entity, With<PauseMenu>>,
     settings: Query<(), With<SettingsRoot>>,
     origin: Option<Res<SessionOrigin>>,
+    saves: Option<Res<LocalSaves>>,
     mut client: ResMut<RenetClient>,
     mut game: ResMut<NextState<GameState>>,
     assets: Res<AssetServer>,
@@ -318,7 +363,20 @@ fn act_on_pause_button(
                 spawn_settings(&mut commands, &assets, SettingsContext::Game, opener);
             }
         }
-        PauseButton::SaveNow => send_save_request_to_server(&mut client),
+        PauseButton::SaveNow => {
+            send_save_request_to_server(&mut client);
+            // the embedded server counts its saves: the button waits for this one
+            if let Some(saves) = saves {
+                commands.insert_resource(SaveNow {
+                    from: saves.0.get(),
+                    since: Instant::now(),
+                });
+                commands
+                    .entity(event.entity)
+                    .queue(set_label(SAVING))
+                    .insert(InteractionDisabled);
+            }
+        }
         PauseButton::SaveAndQuit => game.set(GameState::Menu),
         PauseButton::Disconnect => {
             if let Some(origin) = origin {
@@ -326,6 +384,45 @@ fn act_on_pause_button(
             }
         }
     }
+}
+
+/// Says in a toast whether the save asked by "Save now" was written, and gives the button back.
+/// A menu opened again while the world is being saved shows the button waiting.
+fn watch_save_now(
+    save: Res<SaveNow>,
+    saves: Res<LocalSaves>,
+    buttons: Query<(Entity, &PauseButton, Has<InteractionDisabled>)>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let outcome = save_outcome(save.from, saves.0.get(), save.since.elapsed());
+    for (entity, &action, disabled) in &buttons {
+        if action != PauseButton::SaveNow {
+            continue;
+        }
+        let mut button = commands.entity(entity);
+        match outcome {
+            None if !disabled => {
+                button.queue(set_label(SAVING)).insert(InteractionDisabled);
+            }
+            None => {}
+            Some(_) => {
+                button
+                    .queue(set_label(action.label()))
+                    .remove::<InteractionDisabled>();
+            }
+        }
+    }
+    let Some(saved) = outcome else {
+        return;
+    };
+    let (text, kind) = if saved {
+        (WORLD_SAVED, ToastKind::Info)
+    } else {
+        (SAVE_FAILED, ToastKind::Error)
+    };
+    show_toast(&mut commands, text, kind, load_font(&assets));
+    commands.remove_resource::<SaveNow>();
 }
 
 /// Closes the pause menu asked to close; nothing has the focus in the game.
@@ -433,6 +530,15 @@ mod tests {
                 "Disconnect"
             ]
         );
+    }
+
+    #[test]
+    fn a_save_is_told_once_written_or_after_ten_seconds() {
+        let s = Duration::from_secs;
+        assert_eq!(save_outcome(5, 5, s(1)), None);
+        assert_eq!(save_outcome(5, 6, s(1)), Some(true));
+        assert_eq!(save_outcome(5, 5, s(10)), Some(false));
+        assert_eq!(save_outcome(5, 6, s(11)), Some(true));
     }
 
     #[test]

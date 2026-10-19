@@ -2,12 +2,16 @@
 //! leaving a world or a server.
 
 use std::fs;
-use std::time::Instant;
+use std::path::Path;
+use std::time::{Instant, SystemTime};
 
 use accesskit::Role;
 use bevy::{
-    a11y::AccessibilityNode, input::keyboard::KeyCode, input_focus::InputFocus, prelude::*,
-    ui::UiGlobalTransform,
+    a11y::AccessibilityNode,
+    input::keyboard::KeyCode,
+    input_focus::InputFocus,
+    prelude::*,
+    ui::{InteractionDisabled, UiGlobalTransform},
 };
 
 use super::connecting::spawn_test_server;
@@ -22,7 +26,7 @@ use crate::network::hash_string_to_u64;
 use crate::state::GameState;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{HudBottom, InventoryCell, InventoryRoot, UIMode};
-use crate::ui::menus::pause::{PauseButton, PauseMenu, PAUSE_TITLE};
+use crate::ui::menus::pause::{PauseButton, PauseMenu, PAUSE_TITLE, SAVING, WORLD_SAVED};
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::settings::SettingsRoot;
 use crate::ui::menus::MenuState;
@@ -257,10 +261,7 @@ fn the_pause_menu_resumes_saves_and_leaves() {
     // No click on the settings reached the "Save now" beneath them
     assert!(!player.exists());
     h.press(KeyCode::Escape);
-    h.click(&button("Save now"));
-    // Save writes the player at once and world.ron a little later, on another thread
-    h.wait_until("the saved player", SERVER, |_| player.exists());
-    h.wait_until("world.ron saved", SERVER, |_| written() > seeded);
+    save_now_says_when_the_world_is_saved(&mut h, &player, written, seeded);
 
     // Leaving saves the world again: world.ron is written after the click
     let before = written();
@@ -269,6 +270,38 @@ fn the_pause_menu_resumes_saves_and_leaves() {
         is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
     });
     h.wait_until("world.ron written", SERVER, |_| written() > before);
+}
+
+/// Save now reads "Saving..." and is disabled until the world is written, then says so in a
+/// toast. The player is written at once by the tick and world.ron a little later, on another
+/// thread, before the chunks: both are on disk by the time the toast shows.
+fn save_now_says_when_the_world_is_saved(
+    h: &mut Harness,
+    player: &Path,
+    written: impl Fn() -> SystemTime,
+    seeded: SystemTime,
+) {
+    h.click(&button("Save now"));
+    let saving = h.get(&button(SAVING));
+    assert!(h.world().get::<InteractionDisabled>(saving).is_some());
+    let saved = L::role(Role::Status, WORLD_SAVED);
+    h.wait_for(&saved, SERVER);
+    h.snapshot("world saved");
+    let toast = h.get(&saved);
+    assert!(player.exists());
+    assert!(written() > seeded);
+    let save = h.get(&button("Save now"));
+    assert_eq!(save, saving);
+    assert!(h.world().get::<InteractionDisabled>(save).is_none());
+    assert_eq!(h.focused(), save);
+
+    // and again from the keyboard
+    h.press(KeyCode::Enter);
+    let start = Instant::now();
+    while h.find(&saved).iter().all(|&found| found == toast) {
+        assert!(start.elapsed() < SERVER, "no second toast");
+        h.frames(1);
+    }
 }
 
 #[test]

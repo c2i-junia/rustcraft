@@ -7,7 +7,7 @@ use bevy_renet::netcode::{
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
 use shared::messages::mob::MobUpdateEvent;
-use shared::{get_shared_renet_config, GameServerConfig, STC_AUTH_CHANNEL};
+use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CHANNEL};
 
 use crate::menus::solo::SelectedWorld;
 use crate::network::session::{end_session, ConnectError, SessionOrigin};
@@ -132,6 +132,10 @@ pub struct LocalServerHandle(pub Option<JoinHandle<Result<(), String>>>);
 #[derive(Resource)]
 pub struct LocalServerAddress(pub SocketAddr);
 
+/// The saves the embedded solo server of the session finished writing.
+#[derive(Resource, Clone)]
+pub struct LocalSaves(pub SaveCounter);
+
 /// Starts the embedded server of the selected world, or ends the session: `WorldBusy` while the
 /// server of the last session still runs, `WorldFailed` without a world, `NoConnection` without
 /// a socket.
@@ -192,10 +196,13 @@ pub fn launch_local_server_system(
     debug!("Obtained UDP socket: {}", addr);
 
     let paths = paths.clone();
+    let saves = SaveCounter::default();
+    commands.insert_resource(LocalSaves(saves.clone()));
     let handle = thread::spawn(move || {
         let config = GameServerConfig {
             world_name,
             is_solo: true,
+            saves: Some(saves),
         };
         let result = server::init(socket, config, paths);
         if let Err(err) = &result {

@@ -55,6 +55,7 @@ fn main() -> ExitCode {
     let config = GameServerConfig {
         world_name: args.world,
         is_solo: false,
+        saves: None,
     };
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
     let result = match status {
