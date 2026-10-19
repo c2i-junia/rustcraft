@@ -33,6 +33,7 @@ Date: 11.10.2026
     - Added caves: winding tunnels that sometimes open at the surface, and wide chambers deep underground. They stay clear of the water of the seas, rivers and lakes.
     - New players appear on open, dry ground near the centre of the world instead of always at its very centre.
     - Added coal, iron and gold ore. Coal ore drops coal; iron and gold ore drop themselves until they can be smelted.
+    - Ores generate in clusters and veins: coal up to y 128, iron up to y 64, and the rarer gold up to y 32.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

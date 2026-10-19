@@ -3,6 +3,8 @@ use shared::{world::*, CHUNK_SIZE};
 
 use super::caves::{CaveMask, Caves, CAVE_FLOOR};
 
+mod ores;
+
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
 /// at most 2 blocks long, and its tip carries one more leaf (`x + 1 + 2`). Generating a chunk
@@ -459,6 +461,7 @@ impl WorldGenerator {
                 }
             }
         }
+        ores::place_ores(seed, chunk_pos, &mut chunk);
         chunk
     }
 }
@@ -1013,9 +1016,15 @@ mod tests {
                             } else {
                                 terrain_block(y, &column)
                             };
+                            // ores are scattered through the stone afterwards
+                            let actual = chunk.get(local).map(|b| match b.id {
+                                BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre => {
+                                    BlockId::Stone
+                                }
+                                id => id,
+                            });
                             assert_eq!(
-                                chunk.get(local).map(|b| b.id),
-                                expected,
+                                actual, expected,
                                 "chunk {chunk_pos} local ({dx}, {dy}, {dz})"
                             );
                         }

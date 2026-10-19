@@ -184,7 +184,7 @@ def main():
         width, height, data = read(path)
         cells = data.reshape(height, width)
         colours = palette(BLOCKS)
-        colours[AIR] = (15, 15, 22) if mode == "slice" else (0, 0, 0)
+        colours[AIR] = (15, 15, 22) if mode == "slice" else (70, 110, 170)
         image = colours[cells].astype(np.uint8)
         found = {BLOCKS[i][0]: int((cells == i).sum()) for i in (24, 25, 26)}
         print(f"air {100 * (cells == AIR).mean():.1f}%, ores {found}")
