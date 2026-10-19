@@ -175,11 +175,11 @@ pub fn check_world_name(typed: &str, others: &[String]) -> Result<String, &'stat
     if name.is_empty() {
         return Err(EMPTY_WORLD_NAME);
     }
-    if is_reserved_on_windows(name) {
-        return Err(RESERVED_WORLD_NAME);
-    }
     if !is_valid_world_name(name) {
         return Err(INVALID_WORLD_NAME);
+    }
+    if is_reserved_on_windows(name) {
+        return Err(RESERVED_WORLD_NAME);
     }
     if others.iter().any(|other| other.eq_ignore_ascii_case(name)) {
         return Err(WORLD_EXISTS);
@@ -601,17 +601,7 @@ mod tests {
     #[test]
     fn names_windows_reserves_are_refused() {
         for reserved in [
-            "CON",
-            "con",
-            "Prn",
-            "AUX",
-            "nul",
-            "COM1",
-            "com9",
-            "LPT1",
-            "lpt9",
-            "aux.txt",
-            "Con.tar.gz",
+            "CON", "con", "Prn", "AUX", "nul", "COM1", "com9", "LPT1", "lpt9",
         ] {
             assert_eq!(
                 check_world_name(reserved, &[]),
@@ -624,6 +614,17 @@ mod tests {
                 check_world_name(allowed, &[]),
                 Ok(allowed.to_string()),
                 "{allowed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reserved_name_with_a_dot_is_told_its_invalid_characters_first() {
+        for typed in ["aux.txt", "Con.tar.gz"] {
+            assert_eq!(
+                check_world_name(typed, &[]),
+                Err(INVALID_WORLD_NAME),
+                "{typed:?}"
             );
         }
     }
