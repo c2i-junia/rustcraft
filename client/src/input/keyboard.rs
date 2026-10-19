@@ -1,10 +1,7 @@
 use crate::state::KeyMap;
 use crate::{constants::BINDS_PATH, input::data::GameAction};
 use bevy::prelude::*;
-use bevy::{
-    input::ButtonInput,
-    prelude::{KeyCode, Res},
-};
+use bevy::{input::ButtonInput, prelude::KeyCode};
 use ron::{from_str, ser::PrettyConfig};
 use shared::GameFolderPaths;
 use std::{
@@ -124,8 +121,32 @@ pub fn get_bindings(game_folder_paths: &GameFolderPaths) -> KeyMap {
     binds
 }
 
-pub fn save_keybindings(key_map: Res<KeyMap>, game_folder_path: Res<GameFolderPaths>) {
-    write_keybindings(&key_map, &game_folder_path);
+/// Binds `key` to the slot `slot` (0 for the primary key, 1 for the secondary one) of `action`,
+/// in place of the key there, or after the keys of the action when the slot is empty. A key
+/// already in the other slot is not repeated.
+pub fn set_key(map: &mut KeyMap, action: GameAction, slot: usize, key: KeyCode) {
+    let keys = map.map.entry(action).or_default();
+    if let Some(bound) = keys.get_mut(slot) {
+        *bound = key;
+    } else {
+        keys.push(key);
+    }
+    let mut kept = Vec::new();
+    keys.retain(|key| {
+        let first = !kept.contains(key);
+        kept.push(*key);
+        first
+    });
+}
+
+/// Removes the key in the slot `slot` of `action`: clearing the primary key makes the secondary
+/// key the primary one.
+pub fn clear_key(map: &mut KeyMap, action: GameAction, slot: usize) {
+    if let Some(keys) = map.map.get_mut(&action) {
+        if slot < keys.len() {
+            keys.remove(slot);
+        }
+    }
 }
 
 /// Writes the bindings to `keybindings.ron` in the game folder.
@@ -174,11 +195,7 @@ mod tests {
         let mut key_map = get_bindings(&paths);
         key_map.map.insert(GameAction::Jump, vec![KeyCode::KeyJ]);
 
-        let mut app = App::new();
-        app.insert_resource(key_map)
-            .insert_resource(paths.clone())
-            .add_systems(Update, save_keybindings);
-        app.update();
+        write_keybindings(&key_map, &paths);
 
         let reloaded = get_bindings(&paths);
         fs::remove_dir_all(&dir).unwrap();
@@ -197,7 +214,7 @@ mod tests {
     #[test]
     fn an_old_keybindings_file_still_loads() {
         let paths = temp_paths("old-keybindings");
-        // What `save_keybindings` wrote before the settings screen
+        // What the game wrote before the settings screen
         let old = "(
     map: {
         MoveForward: [
@@ -237,6 +254,34 @@ mod tests {
         let loaded = get_bindings(&paths);
         fs::remove_dir_all(&paths.game_folder_path).unwrap();
         assert_eq!(loaded.map[&GameAction::Escape], vec![KeyCode::Escape]);
+    }
+
+    #[test]
+    fn setting_and_clearing_key_slots() {
+        let mut map = KeyMap {
+            map: [(GameAction::Jump, vec![KeyCode::Space])].into(),
+        };
+        let keys = |map: &KeyMap| map.map[&GameAction::Jump].clone();
+        set_key(&mut map, GameAction::Jump, 1, KeyCode::KeyJ);
+        assert_eq!(keys(&map), [KeyCode::Space, KeyCode::KeyJ]);
+        set_key(&mut map, GameAction::Jump, 0, KeyCode::KeyK);
+        assert_eq!(keys(&map), [KeyCode::KeyK, KeyCode::KeyJ]);
+        // a key already in the other slot is not repeated
+        set_key(&mut map, GameAction::Jump, 1, KeyCode::KeyK);
+        assert_eq!(keys(&map), [KeyCode::KeyK]);
+
+        // an empty slot is filled by appending
+        map.map.insert(GameAction::Jump, vec![]);
+        set_key(&mut map, GameAction::Jump, 1, KeyCode::KeyJ);
+        assert_eq!(keys(&map), [KeyCode::KeyJ]);
+
+        // clearing the primary key promotes the secondary one
+        map.map
+            .insert(GameAction::Jump, vec![KeyCode::KeyK, KeyCode::KeyJ]);
+        clear_key(&mut map, GameAction::Jump, 0);
+        assert_eq!(keys(&map), [KeyCode::KeyJ]);
+        clear_key(&mut map, GameAction::Jump, 1);
+        assert_eq!(keys(&map), [KeyCode::KeyJ]);
     }
 
     #[test]

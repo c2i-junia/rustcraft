@@ -12,12 +12,10 @@ use bevy::{
     prelude::*,
     ui_widgets::{observe, Activate},
 };
-use shared::GameFolderPaths;
 
 use super::background::menu_background;
 use super::MenuState;
 use crate::audio::settings::AudioSettings;
-use crate::input::keyboard::save_keybindings;
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::settings::InterfaceSettings;
@@ -26,11 +24,11 @@ use crate::ui::theme::{
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::dialog_open;
-use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
+use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
 use audio::spawn_audio_tab;
-use controls::{controls_update_system, spawn_controls_tab, ActionRecorder};
+use controls::{spawn_controls_tab, KeyCapture, CONTROLS_HINTS};
 use interface::{show_scale_limit, spawn_interface_tab};
 
 /// Where the settings are open.
@@ -110,19 +108,15 @@ const PANEL_WIDTH: f32 = 720.0;
 const PANEL_HEIGHT: f32 = 560.0;
 
 pub fn settings_plugin(app: &mut App) {
+    controls::plugin(app);
     app.add_systems(OnEnter(MenuState::Settings), open_menu_settings)
-        // the hosted controls list saves the keys it binds when the settings close
-        .add_systems(OnExit(MenuState::Settings), save_keybindings)
         .add_systems(
             Update,
             (
-                // before the recorder takes the key and hides itself
                 settings_escape
                     .run_if(settings_open)
                     .run_if(not(dialog_open))
-                    .run_if(not(text_field_focused))
-                    .before(controls_update_system),
-                controls_update_system.run_if(any_with_component::<ActionRecorder>),
+                    .run_if(not(text_field_focused)),
                 show_scale_limit.run_if(any_with_component::<interface::ScaleLimitNote>),
             ),
         )
@@ -249,11 +243,7 @@ pub fn spawn_settings(
             }),
         )],
     ));
-    commands.spawn((
-        hint_bar(&SETTINGS_HINTS, font, assets.load(MONO_FONT_PATH)),
-        ChildOf(root),
-    ));
-    // the first tab shows as if the player had chosen it
+    // the first tab shows, with its key hints, as if the player had chosen it
     commands.trigger(TabChange {
         entity: bar,
         index: 0,
@@ -261,16 +251,18 @@ pub fn spawn_settings(
     root
 }
 
-/// Replaces the content of the settings panel by the content of the chosen tab, which labels it.
+/// Replaces the content of the settings panel by the content of the chosen tab, which labels it,
+/// and the key hints by those of the tab.
 #[allow(clippy::too_many_arguments)]
 fn show_tab(
     change: On<TabChange>,
     panel: Single<(Entity, &mut AccessibilityNode), With<SettingsPanel>>,
     tabs: Query<(Entity, &TabButton, &ChildOf)>,
+    root: Single<Entity, With<SettingsRoot>>,
+    hint_bars: Query<(Entity, &ChildOf), With<HintBar>>,
     key_map: Res<KeyMap>,
     audio: Res<AudioSettings>,
     interface: Res<InterfaceSettings>,
-    paths: Res<GameFolderPaths>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -284,29 +276,38 @@ fn show_tab(
     }
     commands.entity(panel).despawn_related::<Children>();
     let font: Handle<Font> = assets.load(FONT_PATH);
+    let glyph_font: Handle<Font> = assets.load(MONO_FONT_PATH);
+    let root = *root;
+    for (bar, child_of) in &hint_bars {
+        if child_of.parent() == root {
+            commands.entity(bar).despawn();
+        }
+    }
+    let hints: &[Hint] = match tab {
+        SettingsTab::Controls => &CONTROLS_HINTS,
+        _ => &SETTINGS_HINTS,
+    };
+    commands.spawn((
+        hint_bar(hints, font.clone(), glyph_font.clone()),
+        ChildOf(root),
+    ));
     match tab {
         SettingsTab::Controls => {
-            spawn_controls_tab(&mut commands, panel, &assets, &key_map, &paths)
+            spawn_controls_tab(&mut commands, panel, &key_map, (font, glyph_font))
         }
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
         SettingsTab::Interface => spawn_interface_tab(&mut commands, panel, &interface, font),
     }
 }
 
-/// Escape closes the settings, unless the hosted controls list is waiting for a key to bind.
+/// Escape closes the settings, unless a key slot is waiting for a key: Escape then cancels that.
 fn settings_escape(
     keys: Res<ButtonInput<KeyCode>>,
-    recorders: Query<&Visibility, With<ActionRecorder>>,
+    capture: Res<KeyCapture>,
     roots: Query<Entity, With<SettingsRoot>>,
     mut commands: Commands,
 ) {
-    if !keys.just_pressed(KeyCode::Escape) {
-        return;
-    }
-    if recorders
-        .iter()
-        .any(|visibility| *visibility == Visibility::Visible)
-    {
+    if !keys.just_pressed(KeyCode::Escape) || capture.is_active() {
         return;
     }
     for root in &roots {

@@ -52,7 +52,7 @@ fn every_screen_at_three_resolutions() {
         h.review_screen("Multiplayer", "Server list", "multi", "Back to menu");
         h.wait_for(&L::text("Settings"), SCREEN);
         h.click(&L::text("Settings"));
-        h.wait_for(&L::text("MoveForward"), SCREEN);
+        h.wait_for(&L::text("Move forward"), SCREEN);
         h.settled_snapshot("controls");
         h.click(&L::role(Role::Tab, "Audio"));
         h.wait_for(&L::role(Role::Slider, "Master"), SCREEN);

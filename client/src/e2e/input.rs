@@ -19,8 +19,7 @@ impl Harness {
         self.click_with(locator, MouseButton::Left);
     }
 
-    // No test uses the right button yet
-    #[allow(dead_code)]
+    /// Clicks the centre of the element with the right button.
     #[track_caller]
     pub fn right_click(&mut self, locator: &Locator) {
         self.click_with(locator, MouseButton::Right);

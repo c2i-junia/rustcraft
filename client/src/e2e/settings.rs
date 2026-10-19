@@ -15,6 +15,7 @@ use crate::constants::{AUDIO_SETTINGS_PATH, BINDS_PATH, INTERFACE_SETTINGS_PATH}
 use crate::input::data::GameAction;
 use crate::state::KeyMap;
 use crate::ui::button::MenuState;
+use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
 use crate::ui::theme::RAISE_HOVER;
 
@@ -37,7 +38,7 @@ fn settings() -> Harness {
 #[track_caller]
 fn controls() -> Harness {
     let mut h = settings();
-    h.wait_for(&L::text("MoveForward"), SCREEN);
+    h.wait_for(&L::text("Move forward"), SCREEN);
     h
 }
 
@@ -129,7 +130,7 @@ fn the_tabs_show_their_content_and_back_returns_to_the_menu() {
 
     h.open_tab_showing("Audio", &master());
     assert_eq!(h.menu_state(), MenuState::Settings);
-    assert!(!h.is_visible(&L::text("MoveForward")));
+    assert!(!h.is_visible(&L::text("Move forward")));
     // the panel is labelled by its tab
     let panel = h.get(&L::role(Role::TabPanel, "Audio"));
     let tab = h.get(&L::role(Role::Tab, "Audio"));
@@ -269,6 +270,10 @@ fn every_control_of_the_settings_lightens_on_hover() {
     h.hover(&back);
     h.frames(2);
     assert_eq!(background(&mut h, &back), RAISE_HOVER);
+    let slot = L::role(Role::Button, "Jump, primary key");
+    h.hover(&slot);
+    h.frames(2);
+    assert_eq!(background(&mut h, &slot), RAISE_HOVER);
 }
 
 #[test]
@@ -290,6 +295,13 @@ fn starting_and_opening_the_settings_rewrite_no_settings_file() {
     assert_eq!(read(BINDS_PATH), keybindings);
     assert_eq!(read(AUDIO_SETTINGS_PATH), audio);
     assert_eq!(read(INTERFACE_SETTINGS_PATH), interface);
+    // nor does leaving them
+    h.back_to_the_menu();
+    h.frames(2);
+    assert_eq!(
+        fs::read_to_string(h.folder().join(BINDS_PATH)).unwrap(),
+        keybindings
+    );
 }
 
 #[test]
@@ -300,38 +312,130 @@ fn the_controls_match_their_golden() {
     h.assert_screenshot("menu_controls");
 }
 
+/// The key slot `slot` ("primary" or "secondary") of the action `action`.
+fn key_slot(action: &str, slot: &str) -> L {
+    L::role(Role::Button, &format!("{action}, {slot} key"))
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn each_action_lists_its_keys() {
     let mut h = controls();
-    h.wait_for(&L::text("W").within(L::row("MoveForward")), SCREEN);
+    h.wait_for(&L::text("W").within(L::row("Move forward")), SCREEN);
     h.wait_for(&L::text("Space").within(L::row("Jump")), SCREEN);
+    for category in ["Movement", "Interface", "View", "Debug"] {
+        assert!(h.is_visible(&L::text(category)), "{category}");
+    }
+    assert!(!h.is_visible(&L::text("MoveForward")));
 }
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn a_key_pressed_after_clicking_an_action_is_bound_and_saved() {
+fn the_arrow_keys_show_their_glyph() {
     let mut h = controls();
-    h.click(&L::text("Jump"));
-    h.wait_for(&L::text("Press any key..."), SCREEN);
+    let arrow = L::text("↑").within(L::row("Move forward"));
+    h.wait_for(&arrow, SCREEN);
+    h.wait_for_ui_images();
+    assert!(h.bright_pixels_in(&arrow) > 20);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_key_pressed_after_clicking_a_slot_is_bound_and_saved_at_once() {
+    let mut h = controls();
+    h.click(&key_slot("Jump", "secondary"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
     h.press(KeyCode::KeyJ);
     h.wait_for(&L::text("J").within(L::row("Jump")), SCREEN);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
 
-    h.back_to_the_menu();
     let saved: KeyMap = h.saved(BINDS_PATH);
-    assert!(saved.map[&GameAction::Jump].contains(&KeyCode::KeyJ));
+    assert_eq!(
+        saved.map[&GameAction::Jump],
+        [KeyCode::Space, KeyCode::KeyJ]
+    );
+    assert_eq!(h.menu_state(), MenuState::Settings);
 }
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_clear_button_removes_the_keys_of_an_action() {
+fn the_keyboard_alone_rebinds_cancels_and_clears() {
     let mut h = controls();
-    h.wait_for(&L::text("Space").within(L::row("Jump")), SCREEN);
-    h.hover(&L::row("Jump"));
-    h.wait_for(&L::name("Clear Jump"), SCREEN);
-    h.click(&L::name("Clear Jump"));
-    // The click frame handles the button: two more frames are plenty for a negative check
+    let backward = || L::row("Move backward");
+    h.press(KeyCode::Tab);
+    assert_eq!(
+        h.focus_label().as_deref(),
+        Some("Move forward, primary key")
+    );
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(
+        h.focus_label().as_deref(),
+        Some("Move backward, primary key")
+    );
+
+    // Escape cancels the capture, and only the capture
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::Escape);
+    assert_eq!(h.menu_state(), MenuState::Settings);
     h.frames(2);
-    assert!(!h.is_visible(&L::text("Space").within(L::row("Jump"))));
+    assert_eq!(h.menu_state(), MenuState::Settings);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
+    assert!(h.is_visible(&L::text("S").within(backward())));
+
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::KeyX);
+    h.wait_for(&L::text("X").within(backward()), SCREEN);
+
+    h.press(KeyCode::Delete);
+    h.wait_until("Move backward cleared", SCREEN, |w| {
+        w.resource::<KeyMap>().map[&GameAction::MoveBackward] == [KeyCode::ArrowDown]
+    });
+    let saved: KeyMap = h.saved(BINDS_PATH);
+    assert_eq!(saved.map[&GameAction::MoveBackward], [KeyCode::ArrowDown]);
+
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_right_click_clears_a_slot_and_a_click_elsewhere_cancels_a_capture() {
+    let mut h = controls();
+    let primary = key_slot("Jump", "primary");
+    h.right_click(&primary);
+    h.wait_until("Jump cleared", SCREEN, |w| {
+        w.resource::<KeyMap>().map[&GameAction::Jump].is_empty()
+    });
+    let saved: KeyMap = h.saved(BINDS_PATH);
+    assert!(saved.map[&GameAction::Jump].is_empty());
+
+    h.click(&primary);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.click(&L::text("Jump"));
+    // The press handles the click: two more frames are plenty for a negative check
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
     assert!(h.world().resource::<KeyMap>().map[&GameAction::Jump].is_empty());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_wheel_scrolls_the_controls_list_under_the_cursor() {
+    let mut h = controls();
+    let first = L::text("Move forward");
+    let before = h.center_of(&first);
+    h.hover(&first);
+    h.scroll(-3.);
+    h.frames(2);
+    let scrolled = h.center_of(&first);
+    assert!(scrolled.y < before.y, "{before} then {scrolled}");
+
+    // over the tabs, the wheel moves nothing
+    h.hover(&L::role(Role::Tab, "Audio"));
+    h.scroll(-3.);
+    h.frames(2);
+    assert_eq!(h.center_of(&first), scrolled);
 }
