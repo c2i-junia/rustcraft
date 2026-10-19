@@ -4,6 +4,7 @@ use crate::world::data::{SentChunks, ServerWorldMap};
 use crate::world::dropped_items::dropped_items_update;
 use bevy::math::IVec3;
 use bevy::prelude::*;
+use bevy::tasks::{ComputeTaskPool, TaskPool};
 use bevy_ecs::system::ResMut;
 use bevy_renet::{renet::ClientId, RenetServer};
 use shared::messages::mob::MobUpdateEvent;
@@ -13,11 +14,11 @@ use shared::world::{
     chunk_distance, global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap,
     MobId, ServerMob,
 };
-use shared::{CHUNK_SIZE, UNLOAD_MARGIN};
+use shared::{game_message_to_payload, CHUNK_SIZE, STC_CHUNK_DATA_CHANNEL, UNLOAD_MARGIN};
 use std::collections::{HashMap, HashSet};
 
 /// Most chunks sent to one client by one broadcast.
-const MAX_CHUNKS_PER_BROADCAST: usize = 10;
+const MAX_CHUNKS_PER_BROADCAST: usize = 512;
 
 pub fn broadcast_world_state(
     mut server: ResMut<RenetServer>,
@@ -90,19 +91,51 @@ pub fn broadcast_world_state(
         if !block_updates.is_empty() {
             server.send_game_message(client, ServerToClientMessage::BlockUpdates(block_updates));
         }
-        if !new_map.is_empty() {
-            let update = WorldUpdate {
-                tick: time.0,
-                time: ts,
-                new_map,
-                mobs: world_map.mobs.clone(),
-            };
-            server.send_game_message(client, ServerToClientMessage::WorldUpdate(update));
+        let player_chunk = world_position_to_chunk_position(player.position);
+        for payload in encode_world_updates(new_map, player_chunk, time.0, ts, &world_map.mobs) {
+            server.send_message(client, STC_CHUNK_DATA_CHANNEL, payload);
         }
     }
 }
 
-/// Sends `client` the state of the mobs within the render distance of its player.
+/// The most chunks in one `WorldUpdate`: the new chunks of a tick are split into messages of
+/// this many, encoded in parallel, which the client decodes in parallel too.
+const CHUNKS_PER_MESSAGE: usize = 32;
+
+/// The messages that carry `new_map` to a client whose player is in `player_chunk`, encoded,
+/// nearest chunks first. The first one carries the mobs.
+fn encode_world_updates(
+    new_map: HashMap<IVec3, Chunk>,
+    player_chunk: IVec3,
+    tick: u64,
+    time: u64,
+    mobs: &HashMap<MobId, ServerMob>,
+) -> Vec<Vec<u8>> {
+    let mut chunks: Vec<(IVec3, Chunk)> = new_map.into_iter().collect();
+    chunks.sort_by_key(|(pos, _)| (*pos - player_chunk).length_squared());
+    let mut updates = Vec::new();
+    let mut chunks = chunks.into_iter().peekable();
+    while chunks.peek().is_some() {
+        updates.push(ServerToClientMessage::WorldUpdate(WorldUpdate {
+            tick,
+            time,
+            new_map: chunks.by_ref().take(CHUNKS_PER_MESSAGE).collect(),
+            mobs: match updates.is_empty() {
+                true => mobs.clone(),
+                false => HashMap::new(),
+            },
+        }));
+    }
+    match updates.len() {
+        0 | 1 => updates.into_iter().map(game_message_to_payload).collect(),
+        _ => ComputeTaskPool::get_or_init(TaskPool::default).scope(|scope| {
+            for update in updates {
+                scope.spawn(async move { game_message_to_payload(update) });
+            }
+        }),
+    }
+}
+
 fn send_nearby_mobs(
     server: &mut RenetServer,
     client: ClientId,
@@ -318,33 +351,39 @@ mod tests {
     }
 
     #[test]
-    fn at_most_ten_chunks_are_sent_per_call_nearest_first() {
-        let chunks = row_of_full_chunks(25);
+    fn at_most_the_limit_of_chunks_are_sent_per_call_nearest_first() {
+        const MAX: i32 = MAX_CHUNKS_PER_BROADCAST as i32;
+        let chunks = row_of_full_chunks(2 * MAX + 5);
         let mut sent = HashSet::new();
 
-        let first = get_world_map_chunks_to_send(&chunks, &active_row(25), &mut sent);
-        let second = get_world_map_chunks_to_send(&chunks, &active_row(25), &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, &active_row(2 * MAX + 5), &mut sent);
+        let second = get_world_map_chunks_to_send(&chunks, &active_row(2 * MAX + 5), &mut sent);
 
-        assert_eq!(first.len(), 10);
-        assert!((0..10).all(|x| first.contains_key(&IVec3::new(x, 0, 0))));
-        assert_eq!(second.len(), 10);
-        assert!((10..20).all(|x| second.contains_key(&IVec3::new(x, 0, 0))));
+        assert_eq!(first.len(), MAX_CHUNKS_PER_BROADCAST);
+        assert!((0..MAX).all(|x| first.contains_key(&IVec3::new(x, 0, 0))));
+        assert_eq!(second.len(), MAX_CHUNKS_PER_BROADCAST);
+        assert!((MAX..2 * MAX).all(|x| second.contains_key(&IVec3::new(x, 0, 0))));
     }
 
     #[test]
-    fn empty_chunks_do_not_count_towards_the_ten() {
+    fn empty_chunks_do_not_count_towards_the_limit() {
+        const MAX: i32 = MAX_CHUNKS_PER_BROADCAST as i32;
         // Empty chunks at even x, chunks with a block at odd x
-        let mut chunks = row_of_chunks(40);
-        for x in (1..40).step_by(2) {
+        let mut chunks = row_of_chunks(4 * MAX);
+        for x in (1..4 * MAX).step_by(2) {
             chunks.set_block(IVec3::new(x * CHUNK_SIZE, 0, 0), stone());
         }
         let mut sent = HashSet::new();
 
-        let first = get_world_map_chunks_to_send(&chunks, &active_row(40), &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, &active_row(4 * MAX), &mut sent);
 
-        // Ten chunks with blocks, at x = 1 to 19, and the empty chunks among them
-        assert_eq!(first.values().filter(|c| !c.is_empty()).count(), 10);
-        assert_eq!(xs(first.keys()), (0..20).collect::<Vec<_>>());
+        // The limit of chunks with blocks, at x = 1 to 2 * MAX - 1, and the empty chunks
+        // among them
+        assert_eq!(
+            first.values().filter(|c| !c.is_empty()).count(),
+            MAX_CHUNKS_PER_BROADCAST
+        );
+        assert_eq!(xs(first.keys()), (0..2 * MAX).collect::<Vec<_>>());
     }
 
     /// What a client holds: the chunks and updates it received, applied in order.
@@ -473,21 +512,22 @@ mod tests {
 
     #[test]
     fn a_chunk_held_back_by_the_limit_is_sent_whole_with_the_change_and_no_update() {
-        let mut chunks = row_of_full_chunks(12);
-        let active = active_row(12);
+        const LAST: i32 = MAX_CHUNKS_PER_BROADCAST as i32 + 1;
+        let mut chunks = row_of_full_chunks(LAST + 1);
+        let active = active_row(LAST + 1);
         let mut sent = HashSet::new();
         let first = get_world_map_chunks_to_send(&chunks, &active, &mut sent);
-        assert!(!first.contains_key(&IVec3::new(11, 0, 0)));
+        assert!(!first.contains_key(&IVec3::new(LAST, 0, 0)));
 
-        // chunk 11 is still waiting for its turn when one of its blocks changes
-        let pos = IVec3::new(11 * CHUNK_SIZE + 1, 2, 3);
+        // the last chunk is still waiting for its turn when one of its blocks changes
+        let pos = IVec3::new(LAST * CHUNK_SIZE + 1, 2, 3);
         chunks.set_block(pos, stone());
         let changed = chunks.take_changed_blocks();
         let (updates, new_chunks) = client_world_messages(&chunks, &changed, &active, &mut sent);
 
         assert!(updates.is_empty());
         assert_eq!(
-            new_chunks[&IVec3::new(11, 0, 0)].get(IVec3::new(1, 2, 3)),
+            new_chunks[&IVec3::new(LAST, 0, 0)].get(IVec3::new(1, 2, 3)),
             Some(&stone())
         );
     }
@@ -610,6 +650,50 @@ mod tests {
     }
 
     /// The x of each chunk, sorted.
+    #[test]
+    fn new_chunks_are_split_into_messages_nearest_first_with_the_mobs_in_the_first() {
+        let new_map: HashMap<IVec3, Chunk> = (0..70)
+            .map(|x| (IVec3::new(x, 0, 0), Chunk::new()))
+            .collect();
+        let fox = ServerMob {
+            kind: shared::world::MobKind::Fox,
+            target: shared::world::MobTarget::None,
+            action: shared::world::MobAction::Walk,
+            position: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+            height: 1.,
+            width: 1.,
+            on_ground: true,
+            velocity: Vec3::ZERO,
+            depth: 1.,
+        };
+        let mobs = HashMap::from([(7, fox)]);
+
+        let payloads = encode_world_updates(new_map, IVec3::ZERO, 3, 4, &mobs);
+
+        let updates: Vec<WorldUpdate> = payloads
+            .iter()
+            .map(
+                |payload| match shared::payload_to_game_message(payload).unwrap() {
+                    ServerToClientMessage::WorldUpdate(update) => update,
+                    other => panic!("not a world update: {other:?}"),
+                },
+            )
+            .collect();
+        let sizes: Vec<usize> = updates.iter().map(|u| u.new_map.len()).collect();
+        assert_eq!(
+            sizes,
+            [
+                CHUNKS_PER_MESSAGE,
+                CHUNKS_PER_MESSAGE,
+                70 - 2 * CHUNKS_PER_MESSAGE
+            ]
+        );
+        assert_eq!(xs(updates[0].new_map.keys()), (0..32).collect::<Vec<_>>());
+        assert_eq!(updates[0].mobs.len(), 1);
+        assert!(updates[1..].iter().all(|u| u.mobs.is_empty()));
+    }
+
     fn xs<'a>(chunks: impl IntoIterator<Item = &'a IVec3>) -> Vec<i32> {
         let mut xs: Vec<i32> = chunks.into_iter().map(|chunk| chunk.x).collect();
         xs.sort();
