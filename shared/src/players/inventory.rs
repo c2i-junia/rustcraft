@@ -257,39 +257,6 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
 }
 
-/// Adds `stack` to the slots of `range`: first on stacks of the same item, then in empty slots,
-/// in slot order. Returns how many items did not fit.
-fn add_to_range(inventory: &mut Inventory, mut stack: ItemStack, range: Range<u32>) -> u32 {
-    let max_stack = stack.item_id.get_max_stack();
-    for tops_up in [true, false] {
-        for slot in range.clone() {
-            if stack.nb == 0 {
-                return 0;
-            }
-            let matches = match inventory.inner.get(&slot) {
-                Some(held) => tops_up && held.item_id == stack.item_id,
-                None => !tops_up,
-            };
-            if !matches {
-                continue;
-            }
-            let held = inventory.inner.get(&slot).map_or(0, |held| held.nb);
-            let added = stack.nb.min(max_stack.saturating_sub(held));
-            if added > 0 {
-                inventory.inner.insert(
-                    slot,
-                    ItemStack {
-                        nb: held + added,
-                        ..stack
-                    },
-                );
-                stack.nb -= added;
-            }
-        }
-    }
-    stack.nb
-}
-
 /// Shift+click on `slot`: moves its stack from the hotbar to the backpack or the other way
 /// round, and from a crafting grid cell into the whole inventory. With a chest open, it moves
 /// it from the inventory to the chest and from the chest to the inventory. What does not fit
@@ -306,13 +273,13 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, chest_open: bool) {
         None
     };
     let kept = if let Some(range) = range {
-        let kept = add_to_range(inventory, stack, range);
+        let kept = inventory.add_item_to_range(stack, range);
         (kept > 0).then_some(ItemStack { nb: kept, ..stack })
     } else if slot < HOTBAR_SLOTS {
-        let kept = add_to_range(inventory, stack, HOTBAR_SLOTS..MAX_INVENTORY_SLOTS);
+        let kept = inventory.add_item_to_range(stack, HOTBAR_SLOTS..MAX_INVENTORY_SLOTS);
         (kept > 0).then_some(ItemStack { nb: kept, ..stack })
     } else if slot < MAX_INVENTORY_SLOTS {
-        let kept = add_to_range(inventory, stack, 0..HOTBAR_SLOTS);
+        let kept = inventory.add_item_to_range(stack, 0..HOTBAR_SLOTS);
         (kept > 0).then_some(ItemStack { nb: kept, ..stack })
     } else {
         put_back(inventory, stack)

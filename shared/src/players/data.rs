@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use bevy::{
     math::{IVec3, Vec3},
     prelude::{Component, Resource, Transform},
@@ -41,31 +43,41 @@ impl Inventory {
         }
     }
 
-    /// Adds `stack` to the inventory, slot after slot: a slot takes what it can when it is
-    /// free or holds the same item. Returns how many items did not fit; those are lost.
-    pub fn add_item_to_inventory(&mut self, mut stack: ItemStack) -> u32 {
+    /// Adds `stack` to the inventory: first on the stacks of the same item, then in empty slots,
+    /// in slot order. Returns how many items did not fit; those are lost.
+    pub fn add_item_to_inventory(&mut self, stack: ItemStack) -> u32 {
+        self.add_item_to_range(stack, 0..MAX_INVENTORY_SLOTS)
+    }
+
+    /// Adds `stack` to the slots of `range`: first on stacks of the same item, then in empty
+    /// slots, in slot order. Returns how many items did not fit.
+    pub fn add_item_to_range(&mut self, mut stack: ItemStack, range: Range<u32>) -> u32 {
         let max_stack = stack.item_id.get_max_stack();
-        for slot in 0..MAX_INVENTORY_SLOTS {
-            if stack.nb == 0 {
-                break;
+        for tops_up in [true, false] {
+            for slot in range.clone() {
+                if stack.nb == 0 {
+                    return 0;
+                }
+                let matches = match self.inner.get(&slot) {
+                    Some(held) => tops_up && held.item_id == stack.item_id,
+                    None => !tops_up,
+                };
+                if !matches {
+                    continue;
+                }
+                let held = self.inner.get(&slot).map_or(0, |held| held.nb);
+                let added = stack.nb.min(max_stack.saturating_sub(held));
+                if added > 0 {
+                    self.inner.insert(
+                        slot,
+                        ItemStack {
+                            nb: held + added,
+                            ..stack
+                        },
+                    );
+                    stack.nb -= added;
+                }
             }
-            let held = match self.inner.get(&slot) {
-                Some(existing) if existing.item_id != stack.item_id => continue,
-                Some(existing) => existing.nb,
-                None => 0,
-            };
-            if held >= max_stack {
-                continue;
-            }
-            let added = stack.nb.min(max_stack - held);
-            self.inner.insert(
-                slot,
-                ItemStack {
-                    nb: held + added,
-                    ..stack
-                },
-            );
-            stack.nb -= added;
         }
         stack.nb
     }
@@ -293,6 +305,16 @@ mod tests {
         let mut inventory = Inventory::new();
         assert_eq!(inventory.add_item_to_inventory(stack(ItemId::Dirt, 0)), 0);
         assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn add_tops_up_a_later_partial_stack_before_an_earlier_empty_slot() {
+        let mut inventory = Inventory::new();
+        inventory.inner.insert(3, stack(ItemId::Dirt, max_stack() - 4));
+        inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
+        assert_eq!(inventory.inner[&3], stack(ItemId::Dirt, max_stack()));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 6));
+        assert_eq!(inventory.inner.len(), 2);
     }
 
     #[test]
