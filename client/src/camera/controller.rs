@@ -1,8 +1,10 @@
 use crate::camera::CameraController;
 use crate::player::*;
 use crate::ui::hud::UIMode;
+use crate::world::ClientWorldMap;
 use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
 use shared::players::ViewMode;
+use shared::world::{aabb_ray_hit, raycast_from_source_position_and_direction, ChunkMap};
 
 /// Height of the player's eyes above the centre of its box.
 const EYE_HEIGHT: f32 = 0.8;
@@ -10,6 +12,28 @@ const EYE_HEIGHT: f32 = 0.8;
 const THIRD_PERSON_DISTANCE: f32 = 10.0;
 /// Largest angle the camera looks up or down by, short of flipping over.
 const MAX_PITCH_DEGREES: f32 = 89.0;
+/// Gap kept between the camera and a block in the way, so that the near plane does not cut
+/// through the block.
+const CAMERA_WALL_MARGIN: f32 = 0.2;
+
+/// How far from `target` the third-person camera can be along `direction`: the full
+/// `distance`, or less when a block stands in the way, so that the camera never ends up
+/// inside or behind the terrain.
+fn unobstructed_distance(blocks: &ChunkMap, target: Vec3, direction: Vec3, distance: f32) -> f32 {
+    let Some(direction) = direction.try_normalize() else {
+        return distance;
+    };
+    let Some(hit) = raycast_from_source_position_and_direction(blocks, target, direction) else {
+        return distance;
+    };
+    // The response only holds the box that was hit: intersect it again for the exact point
+    let Some((hit_position, _)) = aabb_ray_hit(&hit.bbox, &target, &direction, &direction.recip())
+    else {
+        return distance;
+    };
+    let hit_distance = hit_position.distance(target);
+    (hit_distance - CAMERA_WALL_MARGIN).clamp(0.0, distance)
+}
 
 /// Turns the camera with the mouse and places it on the player (first person) or on a sphere
 /// around it (third person).
@@ -23,6 +47,7 @@ pub fn camera_control_system(
     player_query: Query<&Transform, With<CurrentPlayerMarker>>,
     view_mode: Res<ViewMode>,
     ui_mode: Res<UIMode>,
+    world_map: Res<ClientWorldMap>,
 ) {
     // The window can be missing while the app is closing, the player while it is spawning
     let (Ok(window), Ok(player_transform)) = (windows.single(), player_query.single()) else {
@@ -53,14 +78,65 @@ pub fn camera_control_system(
             }
             ViewMode::ThirdPerson => {
                 controller.distance = THIRD_PERSON_DISTANCE;
-                let offset = Vec3::new(
-                    controller.distance * controller.angle_y.cos() * controller.angle_x.sin(),
-                    controller.distance * controller.angle_y.sin(),
-                    controller.distance * controller.angle_y.cos() * controller.angle_x.cos(),
+                let direction = Vec3::new(
+                    controller.angle_y.cos() * controller.angle_x.sin(),
+                    controller.angle_y.sin(),
+                    controller.angle_y.cos() * controller.angle_x.cos(),
                 );
-                *camera_transform = Transform::from_translation(player_position + offset)
-                    .looking_at(player_position, Vec3::Y);
+                let distance = unobstructed_distance(
+                    &world_map.blocks,
+                    player_position,
+                    direction,
+                    controller.distance,
+                );
+                // `looking_at` needs the camera away from the player to give a rotation
+                let distance = distance.max(CAMERA_WALL_MARGIN);
+                *camera_transform =
+                    Transform::from_translation(player_position + direction * distance)
+                        .looking_at(player_position, Vec3::Y);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::world::BlockId;
+
+    const PLAYER: Vec3 = Vec3::new(0.5, 70.5, 0.5);
+
+    fn world() -> ChunkMap {
+        ChunkMap::with_loaded_region(IVec3::new(-32, 32, -32), IVec3::new(32, 95, 32))
+    }
+
+    #[test]
+    fn the_camera_keeps_its_full_distance_in_the_open() {
+        assert_eq!(
+            unobstructed_distance(&world(), PLAYER, Vec3::NEG_Y, THIRD_PERSON_DISTANCE),
+            THIRD_PERSON_DISTANCE
+        );
+    }
+
+    #[test]
+    fn the_camera_stays_above_the_ground_below_the_player() {
+        let mut blocks = world();
+        // Ground whose top is 3.5 blocks under the player's centre
+        blocks.fill_box(IVec3::new(-5, 60, -5), IVec3::new(5, 66, 5), BlockId::Stone);
+        let distance = unobstructed_distance(&blocks, PLAYER, Vec3::NEG_Y, THIRD_PERSON_DISTANCE);
+        assert!(
+            (distance - (3.5 - CAMERA_WALL_MARGIN)).abs() < 1e-4,
+            "{distance}"
+        );
+    }
+
+    #[test]
+    fn the_camera_stops_in_front_of_a_wall_behind_the_player() {
+        let mut blocks = world();
+        blocks.fill_box(IVec3::new(-5, 60, 4), IVec3::new(5, 80, 4), BlockId::Stone);
+        let direction = Vec3::new(0.0, 1.0, 1.0);
+        let distance = unobstructed_distance(&blocks, PLAYER, direction, THIRD_PERSON_DISTANCE);
+        let camera = PLAYER + direction.normalize() * distance;
+        assert!(camera.z < 4.0, "{camera}");
     }
 }
