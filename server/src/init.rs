@@ -90,6 +90,11 @@ pub fn acquire_local_socket_pair(ip: IpAddr) -> std::io::Result<(UdpSocket, UdpS
     }))
 }
 
+/// The period of the loop of the server: the transport sends and receives on every turn, and a
+/// tick runs (`FixedUpdate`) on the turns its time has come. A connection takes several round
+/// trips: at the tick rate, each would wait up to a tick.
+const LOOP_PERIOD: Duration = Duration::from_millis(4);
+
 /// Largest number of clients connected at once.
 const MAX_CLIENTS: usize = 64;
 
@@ -120,8 +125,8 @@ fn add_netcode_network(app: &mut App, socket: UdpSocket) -> Result<(), String> {
     Ok(())
 }
 
-/// One loop turn of the server is one tick: the fixed-step systems (`FixedUpdate`) run once per
-/// tick, with the tick duration as delta, instead of at Bevy's default 64 Hz.
+/// A tick is one run of the fixed-step systems (`FixedUpdate`), `TICKS_PER_SECOND` times a
+/// second with the tick duration as delta, instead of at Bevy's default 64 Hz.
 fn set_fixed_timestep(app: &mut App) {
     app.insert_resource(Time::<Fixed>::from_hz(TICKS_PER_SECOND as f64));
 }
@@ -156,11 +161,7 @@ fn run(
     game_folder_paths: GameFolderPaths,
 ) -> Result<(), String> {
     let mut app = App::new();
-    app.add_plugins(
-        MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(
-            1.0 / TICKS_PER_SECOND as f64,
-        ))),
-    );
+    app.add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(LOOP_PERIOD)));
     set_fixed_timestep(&mut app);
 
     app.add_plugins(RenetServerPlugin);

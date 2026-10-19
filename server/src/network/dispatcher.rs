@@ -58,7 +58,7 @@ pub fn setup_resources_and_events(app: &mut App) {
     setup_chat_resources(app);
 }
 
-/// The stages of a server tick, in this order. A save is done on the frame of its request and
+/// The stages of a server tick, in this order. A save is done on the tick of its request and
 /// holds every change made until then, which is why the broadcast (it drains the change log
 /// into the dirty chunks) comes before it.
 ///
@@ -77,9 +77,13 @@ pub enum ServerSet {
     Save,
 }
 
+/// Registers the systems of a tick in `FixedUpdate`, in the order of `ServerSet`. The loop of
+/// the server turns faster than the ticks: the transport sends and receives on every turn, so
+/// that the round trips of a connection do not each wait for a tick, and a tick runs on the
+/// turns its time has come.
 pub fn register_systems(app: &mut App) {
     app.configure_sets(
-        Update,
+        FixedUpdate,
         (
             ServerSet::Receive,
             ServerSet::Simulate,
@@ -89,7 +93,7 @@ pub fn register_systems(app: &mut App) {
             .chain(),
     )
     .add_systems(
-        Update,
+        FixedUpdate,
         (
             handle_connection_events_system,
             handle_client_messages_system,
@@ -98,7 +102,7 @@ pub fn register_systems(app: &mut App) {
             .in_set(ServerSet::Receive),
     )
     .add_systems(
-        Update,
+        FixedUpdate,
         (
             handle_player_inputs_system,
             pickup_dropped_items_system,
@@ -109,21 +113,20 @@ pub fn register_systems(app: &mut App) {
             .in_set(ServerSet::Simulate),
     )
     .add_systems(
-        Update,
+        FixedUpdate,
         (broadcast_player_updates_system, broadcast_world_state).in_set(ServerSet::Broadcast),
     )
     .add_systems(
-        Update,
+        FixedUpdate,
         world::save::save_world_system.in_set(ServerSet::Save),
     );
 
-    app.add_systems(PostUpdate, update_server_time);
+    app.add_systems(FixedPostUpdate, update_server_time);
 
-    // `FixedUpdate` runs before `Update`: the mobs and the items move before the inputs of the
-    // tick are read
+    // The mobs and the items move before the inputs of the tick are read
     app.add_systems(
         FixedUpdate,
-        (mob_behavior_system, dropped_items_physics_system),
+        (mob_behavior_system, dropped_items_physics_system).before(ServerSet::Receive),
     );
 }
 
@@ -297,10 +300,11 @@ mod tests {
     use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
     use crate::world::simulation::PlayerInputsEvent;
     use crate::world::writer::WorldWriter;
-    use bevy::time::TimePlugin;
+    use bevy::time::{TimePlugin, TimeUpdateStrategy};
     use shared::messages::{NetworkAction, PlayerFrameInput};
     use shared::players::{blocks::HIT_MS, Player};
     use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap, WorldSeed};
+    use std::time::Duration;
 
     /// The inputs that break a block and the exit arrive in the same frame: the block change
     /// made by the inputs is in the saved chunk.
@@ -326,6 +330,10 @@ mod tests {
 
         let mut app = App::new();
         app.add_plugins(TimePlugin)
+            // each update is a tick
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+                1.0 / TICKS_PER_SECOND as f64,
+            )))
             .insert_resource(RenetServer::new(shared::get_shared_renet_config()))
             .insert_resource(ServerLobby::default())
             .insert_resource(GameServerConfig {
@@ -363,6 +371,8 @@ mod tests {
         }
         app.world_mut().write_message(SaveRequestEvent::Player(1));
 
+        // the first update only starts the clock
+        app.update();
         app.update();
         drop(app.world_mut().remove_resource::<WorldWriter>());
 

@@ -302,6 +302,7 @@ mod tests {
     use shared::messages::PlayerSpawnEvent;
     use shared::{
         get_shared_renet_config, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
+        STC_CHUNK_DATA_CHANNEL,
     };
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
     use std::path::PathBuf;
@@ -436,6 +437,13 @@ mod tests {
                 .world_mut()
                 .resource_mut::<TargetServer>()
                 .session_token = Some(client_id);
+            // the chunks around the player, made on the first tick after the authentication
+            update_until(&mut self.app, "the first chunks", |app| {
+                let mut client = app.world_mut().resource_mut::<RenetClient>();
+                client
+                    .receive_game_message_by_channel(STC_CHUNK_DATA_CHANNEL)
+                    .is_some()
+            });
         }
 
         fn assert_saved_and_stopped(self, client_id: u64) {
