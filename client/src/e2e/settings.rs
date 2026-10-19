@@ -4,7 +4,7 @@ use std::fs;
 
 use accesskit::{NodeId, Role};
 use bevy::a11y::AccessibilityNode;
-use bevy::input::keyboard::KeyCode;
+use bevy::input::keyboard::{KeyCode, KeyboardFocusLost};
 use bevy::prelude::*;
 
 use super::harness::{Harness, Options, SCREEN};
@@ -398,6 +398,42 @@ fn the_keyboard_alone_rebinds_cancels_and_clears() {
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_capture_ends_when_the_window_loses_focus_and_a_modifier_binds_on_its_release() {
+    let mut h = controls();
+    let primary = key_slot("Jump", "primary");
+    // Alt+Tab to another window: the Alt release never reaches the slot as a binding
+    h.click(&primary);
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.key_down(KeyCode::AltLeft);
+    assert!(h.is_visible(&L::text(PRESS_A_KEY)));
+    h.world_mut().write_message(KeyboardFocusLost);
+    h.frames(1);
+    h.key_up(KeyCode::AltLeft);
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
+    assert!(h.is_visible(&L::text("Space").within(L::row("Jump"))));
+    assert_eq!(
+        h.world().resource::<KeyMap>().map[&GameAction::Jump],
+        [KeyCode::Space]
+    );
+    assert!(!h.folder().join(BINDS_PATH).exists());
+
+    // a modifier alone binds when it is released
+    h.click(&key_slot("Jump", "secondary"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.key_down(KeyCode::ShiftLeft);
+    assert!(h.is_visible(&L::text(PRESS_A_KEY)));
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_for(&L::text("Left Shift").within(L::row("Jump")), SCREEN);
+    let saved: KeyMap = h.saved(BINDS_PATH);
+    assert_eq!(
+        saved.map[&GameAction::Jump],
+        [KeyCode::Space, KeyCode::ShiftLeft]
+    );
 }
 
 #[test]

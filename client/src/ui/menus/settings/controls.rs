@@ -5,11 +5,15 @@
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
-    input::{keyboard::KeyboardInput, ButtonState},
+    input::{
+        keyboard::{KeyboardFocusLost, KeyboardInput},
+        ButtonState,
+    },
     input_focus::{tab_navigation::TabIndex, FocusGained, FocusLost, FocusedInput},
     picking::hover::Hovered,
     prelude::*,
     ui_widgets::{ScrollArea, ScrollIntoView},
+    window::WindowFocused,
 };
 use shared::GameFolderPaths;
 
@@ -35,12 +39,22 @@ pub struct KeySlot {
 #[derive(Resource, Default)]
 pub struct KeyCapture {
     slot: Option<Entity>,
-    /// The key that ends the capture came: it ends in `PostUpdate`, so that the Escape handlers
-    /// of `Update` still see it active in the frame of that key.
+    /// The modifier pressed on the slot, bound when it is released if nothing else came first.
+    modifier: Option<KeyCode>,
+    /// Set by the key that binds or cancels: the capture still counts as active until it ends in
+    /// `PostUpdate`, so that the Escape handlers of `Update` ignore that key.
     ending: bool,
 }
 
 impl KeyCapture {
+    /// A capture starting on `slot`.
+    fn on(slot: Entity) -> Self {
+        KeyCapture {
+            slot: Some(slot),
+            ..default()
+        }
+    }
+
     /// Whether a slot waits for a key: the Escape handlers stand down meanwhile.
     pub fn is_active(&self) -> bool {
         self.slot.is_some()
@@ -122,6 +136,21 @@ fn key_label(key: KeyCode) -> String {
         }
     };
     named.to_string()
+}
+
+/// Whether `key` is a modifier, which a capture binds on its release.
+fn is_modifier(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::ShiftLeft
+            | KeyCode::ShiftRight
+            | KeyCode::ControlLeft
+            | KeyCode::ControlRight
+            | KeyCode::AltLeft
+            | KeyCode::AltRight
+            | KeyCode::SuperLeft
+            | KeyCode::SuperRight
+    )
 }
 
 /// The accessible label of a slot: "Jump, primary key".
@@ -382,8 +411,9 @@ fn style_key_slots(
 }
 
 /// The keys pressed on a focused slot. While it captures, every key stops here: the first one
-/// pressed is bound to the slot, or cancels the capture if it is Escape. Otherwise Enter starts
-/// the capture, and Delete or Backspace clears the slot.
+/// pressed is bound to the slot, or cancels the capture if it is Escape; a modifier is bound
+/// when it is released, if no other key came first. Otherwise Enter starts the capture, and
+/// Delete or Backspace clears the slot.
 fn slot_key(
     mut event: On<FocusedInput<KeyboardInput>>,
     slots: Query<&KeySlot>,
@@ -398,11 +428,23 @@ fn slot_key(
     let input = event.input.clone();
     if capture.slot == Some(entity) {
         event.propagate(false);
-        if capture.ending || input.state != ButtonState::Pressed || input.repeat {
+        let key = input.key_code;
+        if capture.ending || input.repeat || matches!(key, KeyCode::Unidentified(_)) {
             return;
         }
-        if input.key_code != KeyCode::Escape {
-            set_key(&mut key_map, action, slot, input.key_code);
+        let pressed = input.state == ButtonState::Pressed;
+        // a modifier alone binds on its release, so that a shortcut such as Alt+Tab does not
+        let bound = match (pressed, is_modifier(key)) {
+            (true, true) => {
+                capture.modifier = Some(key);
+                return;
+            }
+            (true, false) => key != KeyCode::Escape,
+            (false, _) if capture.modifier == Some(key) => true,
+            (false, _) => return,
+        };
+        if bound {
+            set_key(&mut key_map, action, slot, key);
             write_keybindings(&key_map, &paths);
         }
         capture.ending = true;
@@ -414,10 +456,7 @@ fn slot_key(
     match input.key_code {
         KeyCode::Enter if !input.repeat => {
             event.propagate(false);
-            *capture = KeyCapture {
-                slot: Some(entity),
-                ending: false,
-            };
+            *capture = KeyCapture::on(entity);
         }
         KeyCode::Delete | KeyCode::Backspace => {
             event.propagate(false);
@@ -446,10 +485,7 @@ fn slot_click(
     }
     match click.button {
         PointerButton::Primary => {
-            *capture = KeyCapture {
-                slot: Some(entity),
-                ending: false,
-            };
+            *capture = KeyCapture::on(entity);
         }
         PointerButton::Secondary => {
             clear_key(&mut key_map, action, slot);
@@ -459,10 +495,19 @@ fn slot_click(
     }
 }
 
-/// Ends the capture that got its key, or whose slot is gone.
-fn end_capture(mut capture: ResMut<KeyCapture>, slots: Query<(), With<KeySlot>>) {
+/// Ends the capture that got its key, whose slot is gone, or whose window lost the keyboard.
+fn end_capture(
+    mut capture: ResMut<KeyCapture>,
+    slots: Query<(), With<KeySlot>>,
+    mut focus_lost: MessageReader<KeyboardFocusLost>,
+    mut window_focus: MessageReader<WindowFocused>,
+) {
+    // the keys released in another window never come: a modifier held when the window lost the
+    // keyboard must not be bound when it comes back
+    let window_left =
+        focus_lost.read().count() > 0 || window_focus.read().any(|focused| !focused.focused);
     let gone = capture.slot.is_some_and(|slot| !slots.contains(slot));
-    if capture.ending || gone {
+    if capture.is_active() && (capture.ending || gone || window_left) {
         *capture = KeyCapture::default();
     }
 }
