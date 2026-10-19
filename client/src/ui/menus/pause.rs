@@ -13,10 +13,11 @@ use bevy::{
     ui_widgets::{observe, Activate},
 };
 use bevy_renet::RenetClient;
+use shared::SaveCounter;
 
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
-use crate::network::leave::{leaving, LeaveGame};
+use crate::network::leave::{leaving, LeaveGame, Leaving};
 use crate::network::save::send_save_request_to_server;
 use crate::network::session::{end_session, SessionOrigin};
 use crate::network::LocalSaves;
@@ -64,7 +65,7 @@ pub const SAVING: &str = "Saving...";
 /// The toast once the world is saved.
 pub const WORLD_SAVED: &str = "World saved";
 
-/// The toast when the world was not saved in time.
+/// The toast when the world was not saved, or not in time.
 pub const SAVE_FAILED: &str = "Could not save the world";
 
 /// How long "Save now" waits for the world to be written before saying it could not be saved.
@@ -118,6 +119,16 @@ pub struct SaveNow {
     pub since: Instant,
 }
 
+/// The saves of the world played last, watched for a failing autosave: the counts last seen,
+/// and whether a failure was told since the last save written.
+#[derive(Resource)]
+struct AutosaveWatch {
+    saves: SaveCounter,
+    saved: u64,
+    failed: u64,
+    told: bool,
+}
+
 /// `Some(true)` once the counter passed `from`, `Some(false)` once a save `failed` since, or
 /// after SAVE_TIMEOUT, else `None`.
 pub fn save_outcome(from: u64, now: u64, failed: bool, elapsed: Duration) -> Option<bool> {
@@ -169,6 +180,15 @@ pub fn pause_plugin(app: &mut App) {
             .run_if(not(leaving)),
     )
     .add_systems(Update, show_leaving.run_if(leaving))
+    // a failure "Save now" waits for is its to tell; the last save of a world left, or of its
+    // server finishing in the background, is still told in the menus
+    .add_systems(
+        Update,
+        watch_autosaves
+            .before(watch_save_now)
+            .run_if(resource_exists::<AutosaveWatch>),
+    )
+    .add_systems(OnEnter(GameState::Game), watch_the_saves_of_the_world)
     .add_systems(OnExit(GameState::Game), |mut commands: Commands| {
         commands.remove_resource::<SaveNow>();
     })
@@ -460,6 +480,49 @@ fn show_leaving(
     }
 }
 
+/// Watches the saves of the world entered, if the embedded server counts them.
+fn watch_the_saves_of_the_world(saves: Option<Res<LocalSaves>>, mut commands: Commands) {
+    let Some(saves) = saves else {
+        return;
+    };
+    commands.insert_resource(AutosaveWatch {
+        saved: saves.0.get(),
+        failed: saves.0.failures(),
+        saves: saves.0.clone(),
+        told: false,
+    });
+}
+
+/// Says in an error toast that the world could not be saved, at the first failed save after one
+/// written (or since the game began): a disk that keeps failing is told once, not at every
+/// autosave. A failure while "Save now" waits is told by it, except while leaving, when "Save
+/// now" says nothing any more.
+fn watch_autosaves(
+    mut watch: ResMut<AutosaveWatch>,
+    save_now: Option<Res<SaveNow>>,
+    leaving: Option<Res<Leaving>>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let (saved, failed) = (watch.saves.get(), watch.saves.failures());
+    if saved > watch.saved {
+        watch.told = false;
+    }
+    if failed > watch.failed && !watch.told {
+        watch.told = true;
+        if save_now.is_none() || leaving.is_some() {
+            show_toast(
+                &mut commands,
+                SAVE_FAILED,
+                ToastKind::Error,
+                load_font(&assets),
+            );
+        }
+    }
+    watch.saved = saved;
+    watch.failed = failed;
+}
+
 /// Closes the pause menu asked to close; nothing has the focus in the game.
 fn close_pause_menu(
     menus: Query<Entity, (With<PauseMenu>, With<ClosePause>)>,
@@ -492,9 +555,7 @@ fn hide_hud_under_menus(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::network::leave::Leaving;
     use bevy::state::app::StatesPlugin;
-    use shared::SaveCounter;
     use std::collections::BTreeMap;
 
     fn app(ui_mode: UIMode) -> App {
@@ -726,6 +787,45 @@ mod tests {
 
         assert_eq!(save_now(&mut app), (SAVING.to_string(), true));
         assert_eq!(toasts(&mut app, Role::Status), []);
+    }
+
+    #[test]
+    fn a_failing_autosave_is_told_once_until_a_save_is_written() {
+        let saves = SaveCounter::default();
+        let mut app = saving_app(&saves);
+        app.world_mut().remove_resource::<SaveNow>();
+        app.update();
+        let failed = Some(SAVE_FAILED.to_string());
+
+        saves.bump_failure();
+        app.update();
+        assert_eq!(toasts(&mut app, Role::Alert), std::slice::from_ref(&failed));
+        // the disk still fails at the next autosave: nothing new to say
+        saves.bump_failure();
+        app.update();
+        assert_eq!(toasts(&mut app, Role::Alert).len(), 1);
+
+        saves.bump();
+        app.update();
+        saves.bump_failure();
+        app.update();
+        assert_eq!(toasts(&mut app, Role::Alert).len(), 2);
+
+        // a failure while Save now waits is told by Save now, once
+        saves.bump();
+        app.update();
+        app.world_mut().insert_resource(SaveNow {
+            from: saves.get(),
+            failures: saves.failures(),
+            since: Instant::now(),
+        });
+        saves.bump_failure();
+        app.update();
+        assert_eq!(
+            toasts(&mut app, Role::Alert),
+            [failed.clone(), failed.clone(), failed]
+        );
+        assert!(!app.world().contains_resource::<SaveNow>());
     }
 
     #[test]
