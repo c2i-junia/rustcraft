@@ -2317,6 +2317,7 @@ name = "client"
 version = "0.0.0"
 dependencies = [
  "accesskit",
+ "arboard",
  "bevy",
  "bevy-inspector-egui",
  "bevy_egui",
