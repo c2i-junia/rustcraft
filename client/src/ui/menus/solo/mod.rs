@@ -34,6 +34,7 @@ use crate::ui::theme::{
     SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
+use crate::ui::widgets::dialog::{CloseRequest, DialogRoot};
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, ListCard};
@@ -503,11 +504,13 @@ fn neighbour(names: &[String], name: &str) -> Option<String> {
 
 /// Lists the worlds of the disk again, and selects and focuses the card of `focus`, else the
 /// first card, and shows `error` under the buttons of the detail pane. Without a world, the
-/// detail pane hides, its buttons leave the tab order and New world takes the focus.
+/// detail pane hides, its buttons leave the tab order and New world takes the focus. A dialog
+/// still open (not closing) keeps the focus.
 #[allow(clippy::too_many_arguments)]
 fn show_changed_worlds(
     changed: On<WorldsChanged>,
     lists: Query<Entity, With<WorldList>>,
+    open_dialogs: Query<(), (With<DialogRoot>, Without<CloseRequest>)>,
     mut panes: Query<&mut Node, With<WorldDetail>>,
     mut actions: Query<&mut TabIndex, With<WorldAction>>,
     facts: Query<Entity, With<WorldFacts>>,
@@ -524,6 +527,11 @@ fn show_changed_worlds(
     let font: Handle<Font> = assets.load(FONT_PATH);
     let worlds = list_worlds(&paths.game_folder_path.join(SAVE_PATH));
     let cards = show_worlds(&mut commands, list, &worlds, changed.error, &font);
+    let mut focus_on = |entity| {
+        if open_dialogs.is_empty() {
+            focus.set(entity, FocusCause::Navigated);
+        }
+    };
     let chosen = changed
         .focus
         .as_ref()
@@ -533,13 +541,13 @@ fn show_changed_worlds(
         // the list sends no `CardSelected` for a card selected here: the pane is filled now
         (Some(&card), Ok(facts)) => {
             commands.entity(card).insert((Selected, TabIndex(0)));
-            focus.set(card, FocusCause::Navigated);
+            focus_on(card);
             show_detail(&mut commands, facts, &worlds[chosen], &font);
             true
         }
         _ => {
             if let Ok(button) = new_world.single() {
-                focus.set(button, FocusCause::Navigated);
+                focus_on(button);
             }
             false
         }

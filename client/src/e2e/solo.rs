@@ -786,6 +786,32 @@ fn a_rename_that_only_changes_the_case_renames_the_world() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_failed_rename_says_why_and_keeps_the_focus_in_its_dialog() {
+    // A folder without a world.ron is not listed, yet its name is taken on disk
+    let folder = three_worlds();
+    fs::create_dir(folder.path().join(SAVE_PATH).join("Taken")).unwrap();
+    let mut h = open_world_list(folder);
+    open_rename(&mut h, "Survie");
+    h.type_text("Taken");
+    h.press(KeyCode::Enter);
+    let failure = L::text("A folder with this name already exists");
+    h.wait_for(&failure, SCREEN);
+    assert!(h.is_visible(&L::role(Role::Dialog, "Rename \"Survie\"")));
+    assert_eq!(h.focus_label().as_deref(), Some("Name"));
+    assert_eq!(selected_world(&mut h).as_deref(), Some("Survie"));
+    assert_eq!(
+        card_names(&mut h),
+        ["Creative build", "Survie", "Test world 3"]
+    );
+    // the field still takes what is typed
+    h.type_text("2");
+    h.frames(2);
+    assert_eq!(h.value_of::<WorldNameInput>(), "Taken2");
+    assert!(!h.is_visible(&failure));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn back_and_escape_return_to_the_main_menu() {
     let mut h = world_list();
     h.click(&L::role(Role::Button, "Back"));

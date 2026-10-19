@@ -431,12 +431,12 @@ fn create_world_on_submit(
     match create_world(&saves, &name, seed.unwrap_or_else(rand::random)) {
         Ok(()) => {
             info!("Created the world {name:?}");
+            // closing first: the card of the new world takes the focus
+            close_dialog(&mut commands, root, false);
             commands.trigger(WorldsChanged {
                 focus: Some(name),
                 error: None,
             });
-            // the card of the new world takes the focus
-            close_dialog(&mut commands, root, false);
         }
         Err(e) => {
             error!("Could not create the world {name:?}: {e}");
@@ -448,9 +448,9 @@ fn create_world_on_submit(
 }
 
 /// Renames the world of the Rename dialog on disk, checking its name again, then closes it and
-/// lists the worlds with the focus on the renamed one; on a failure nothing changed, and the
-/// dialog stays open and says why under the name. A dialog already closing was submitted before
-/// in this update.
+/// lists the worlds with the focus on the renamed one; on a failure the dialog stays open and
+/// says why under the name, and the worlds are listed again. A dialog already closing was
+/// submitted before in this update.
 fn rename_world_on_submit(
     submit: On<DialogSubmit>,
     forms: Query<&WorldForm, Without<CloseRequest>>,
@@ -473,18 +473,24 @@ fn rename_world_on_submit(
     match rename_world(&saves, from, &to) {
         Ok(()) => {
             info!("Renamed the world {from:?} to {to:?}");
+            // closing first: the card of the renamed world takes the focus
+            close_dialog(&mut commands, root, false);
             commands.trigger(WorldsChanged {
                 focus: Some(to),
                 error: None,
             });
-            // the card of the renamed world takes the focus
-            close_dialog(&mut commands, root, false);
         }
+        // a rename put back may have failed too: the cards show what is on disk, and the
+        // dialog, still open, keeps the focus
         Err(e) => {
             error!("Could not rename the world {from:?} to {to:?}: {e}");
             commands
                 .entity(form.name)
                 .insert(FieldError(Some(rename_failure(&e).to_string())));
+            commands.trigger(WorldsChanged {
+                focus: Some(from.clone()),
+                error: None,
+            });
         }
     }
 }
@@ -698,6 +704,28 @@ mod tests {
         assert!(!saves.join("Survie").exists());
         assert_eq!(world.get::<FieldError>(name).unwrap().0, None);
     }
+
+    #[test]
+    fn a_failed_rename_lists_the_worlds_again_and_keeps_its_dialog() {
+        let mut world = World::new();
+        // no world on disk: the rename fails
+        let (_folder, root, name) = rename_form(&mut world, "Survie", "Base");
+        world.init_resource::<Changes>();
+        world.add_observer(|changed: On<WorldsChanged>, mut changes: ResMut<Changes>| {
+            changes.0.push((changed.focus.clone(), changed.error));
+        });
+        world.commands().trigger(DialogSubmit { entity: root });
+        world.flush();
+        let changes = &world.resource::<Changes>().0;
+        assert_eq!(changes, &[(Some("Survie".to_string()), None)]);
+        let error = world.get::<FieldError>(name).unwrap();
+        assert_eq!(error.0.as_deref(), Some("Could not rename the world"));
+        assert!(world.get::<CloseRequest>(root).is_none());
+    }
+
+    /// The `WorldsChanged` triggered, in order: their focus and error.
+    #[derive(Resource, Default)]
+    struct Changes(Vec<(Option<String>, Option<&'static str>)>);
 
     #[test]
     fn a_failed_create_says_why_in_a_few_words() {
