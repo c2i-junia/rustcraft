@@ -448,9 +448,7 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
         .breaking_progress;
     assert_eq!(progress, 0);
 
-    // A new click in gameplay does place a block there, once the hotbar hidden under the pause
-    // menu shows again
-    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
+    // A new click in gameplay does place a block there
     hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
     h.wait_until("the placed block", SERVER, |w| is_block(w, cell));
 }

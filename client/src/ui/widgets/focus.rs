@@ -8,7 +8,8 @@ use bevy::{
         },
         navigator::find_best_candidate,
         tab_navigation::{TabIndex, TabNavigationPlugin},
-        FocusCause, FocusedInput, InputFocus, InputFocusVisible, IsFocused, IsFocusedHelper,
+        AcquireFocus, FocusCause, FocusedInput, InputFocus, InputFocusVisible, IsFocused,
+        IsFocusedHelper,
     },
     math::CompassOctant,
     prelude::*,
@@ -36,6 +37,25 @@ pub(super) fn plugin(app: &mut App) {
     app.add_plugins((TabNavigationPlugin, DirectionalNavigationPlugin))
         .add_systems(PostUpdate, show_focus_ring)
         .add_observer(arrow_nav);
+}
+
+/// Keeps the focus inside the modal `root`: a click on it that no focusable entity took (a button
+/// stops the event) leaves the focus where it is when that is inside `root`, and else gives it
+/// to `fallback`, rather than to nothing, from where Tab would leave the modal.
+pub fn keep_focus_inside(commands: &mut Commands, root: Entity, fallback: Option<Entity>) {
+    commands.entity(root).observe(
+        move |mut event: On<AcquireFocus>,
+              parents: Query<&ChildOf>,
+              mut focus: ResMut<InputFocus>| {
+            event.propagate(false);
+            let inside =
+                std::iter::successors(focus.get(), |e| parents.get(*e).ok().map(ChildOf::parent))
+                    .any(|e| e == root);
+            if let (false, Some(fallback)) = (inside, fallback) {
+                focus.set(fallback, FocusCause::Pressed);
+            }
+        },
+    );
 }
 
 /// Colours the ring of each `FocusRing` according to the focus.

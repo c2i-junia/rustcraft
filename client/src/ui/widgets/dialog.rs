@@ -15,9 +15,7 @@ use bevy::{
         keyboard::{Key, KeyboardInput},
         ButtonState,
     },
-    input_focus::{
-        tab_navigation::TabGroup, AcquireFocus, AutoFocus, FocusCause, FocusedInput, InputFocus,
-    },
+    input_focus::{tab_navigation::TabGroup, AutoFocus, FocusCause, FocusedInput, InputFocus},
     prelude::*,
     text::EditableText,
     ui::{FocusPolicy, InteractionDisabled},
@@ -25,6 +23,7 @@ use bevy::{
 };
 
 use super::button::{button, ButtonVariant};
+use super::focus::keep_focus_inside;
 use super::hints::{hint_bar, Hint, HintBar};
 use super::text_field::{Cancel, FieldError, Submit, TextFieldParts, TextFieldSystems};
 use crate::ui::theme::{
@@ -453,22 +452,7 @@ fn build_dialog(
                 commands.entity(root).insert(CloseRequest::new(None));
             });
     }
-    // a click that no button took (a button stops the event) keeps the focus on the dialog
-    commands.entity(root).observe(
-        move |mut event: On<AcquireFocus>,
-              parents: Query<&ChildOf>,
-              mut focus: ResMut<InputFocus>| {
-            event.propagate(false);
-            let inside =
-                std::iter::successors(focus.get(), |e| parents.get(*e).ok().map(ChildOf::parent))
-                    .any(|e| e == root);
-            if !inside {
-                if let Some(chosen) = first {
-                    focus.set(chosen, FocusCause::Pressed);
-                }
-            }
-        },
-    );
+    keep_focus_inside(commands, root, first);
     DialogParts {
         root,
         actions: buttons,

@@ -4,10 +4,8 @@
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
-    input_focus::{
-        tab_navigation::TabGroup, AcquireFocus, AutoFocus, FocusCause, InputFocus,
-        InputFocusVisible,
-    },
+    camera::visibility::VisibilitySystems,
+    input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus, InputFocusVisible},
     prelude::*,
     ui_widgets::{observe, Activate},
 };
@@ -19,16 +17,19 @@ use crate::network::save::send_save_request_to_server;
 use crate::network::session::{end_session, SessionOrigin};
 use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
 use crate::ui::menus::settings::controls::KeyCapture;
-use crate::ui::menus::settings::{settings_open, spawn_settings, SettingsContext, SettingsRoot};
+use crate::ui::menus::settings::{
+    close_settings, settings_open, spawn_settings, SettingsContext, SettingsRoot,
+};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XL,
     SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::dialog_open;
-use crate::ui::widgets::focus::ArrowNav;
+use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::text_field::text_field_focused;
 
@@ -111,16 +112,25 @@ pub fn pause_buttons(origin: Option<&SessionOrigin>) -> &'static [PauseButton] {
 pub fn pause_plugin(app: &mut App) {
     app.add_systems(
         Update,
-        (
-            toggle_pause_menu
-                .after(GameSet::UiMode)
-                .run_if(not(dialog_open))
-                .run_if(not(text_field_focused)),
-            hide_hud_under_menus,
-        )
-            .run_if(in_state(GameState::Game)),
+        toggle_pause_menu
+            .after(GameSet::UiMode)
+            .run_if(in_state(GameState::Game))
+            .run_if(not(dialog_open))
+            .run_if(not(text_field_focused)),
     )
-    .add_systems(PostUpdate, close_pause_menu);
+    // the HUD hides in the frame the menus first show, and shows again in the frame they are
+    // gone
+    .add_systems(
+        PostUpdate,
+        (
+            close_pause_menu,
+            (hide_hud_under_menus, show_reticle)
+                .after(close_pause_menu)
+                .after(close_settings)
+                .before(VisibilitySystems::VisibilityPropagate)
+                .run_if(in_state(GameState::Game)),
+        ),
+    );
 }
 
 /// Whether the pause menu is open.
@@ -163,13 +173,8 @@ fn toggle_pause_menu(
     }
 }
 
-/// Spawns the pause menu of the session started from `origin`, the focus on Back to game, and
-/// returns its root.
-fn spawn_pause_menu(
-    commands: &mut Commands,
-    assets: &AssetServer,
-    origin: Option<&SessionOrigin>,
-) -> Entity {
+/// Spawns the pause menu of the session started from `origin`, the focus on Back to game.
+fn spawn_pause_menu(commands: &mut Commands, assets: &AssetServer, origin: Option<&SessionOrigin>) {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let root = commands
         .spawn((
@@ -282,21 +287,7 @@ fn spawn_pause_menu(
         hint_bar(&PAUSE_HINTS, font, assets.load(MONO_FONT_PATH)),
         ChildOf(root),
     ));
-    // a click that no button took (a button stops the event) keeps the focus in the menu
-    commands.entity(root).observe(
-        move |mut event: On<AcquireFocus>,
-              parents: Query<&ChildOf>,
-              mut focus: ResMut<InputFocus>| {
-            event.propagate(false);
-            let inside =
-                std::iter::successors(focus.get(), |e| parents.get(*e).ok().map(ChildOf::parent))
-                    .any(|e| e == root);
-            if let (false, Some(first)) = (inside, first) {
-                focus.set(first, FocusCause::Pressed);
-            }
-        },
-    );
-    root
+    keep_focus_inside(commands, root, first);
 }
 
 /// Carries out the button of the pause menu that was activated.

@@ -10,7 +10,7 @@ use crate::ui::hud::debug::*;
 use crate::ui::hud::hotbar::{
     select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name,
 };
-use crate::ui::hud::reticle::{show_reticle, spawn_reticle};
+use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::pause_plugin;
 
 pub mod chat;
@@ -56,7 +56,6 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                show_reticle,
                 (
                     toggle_chat_system,
                     fade_chat_messages_system,

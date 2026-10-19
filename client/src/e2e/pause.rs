@@ -85,8 +85,12 @@ impl Harness {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_pause_menu_opens_on_back_to_game_and_escape_returns_to_the_game() {
     let mut h = enter_world(GameFolder::new().with_world("Pause"), "Pause");
-    h.press(KeyCode::Escape);
-    h.wait_for(&pause_menu(), SCREEN);
+    // nothing to aim at, and no hotbar beneath the hints, from the frame the menu first shows
+    h.key_down(KeyCode::Escape);
+    assert!(h.is_visible(&pause_menu()));
+    assert!(!h.is_visible(&L::marker::<HudBottom>()));
+    assert_eq!(h.reticle_bars(), 0);
+    h.key_up(KeyCode::Escape);
     // the world under the title
     assert!(h.is_visible(&L::text("Pause").within(pause_menu())));
     assert_eq!(h.focus_label().as_deref(), Some("Back to game"));
@@ -105,15 +109,14 @@ fn the_pause_menu_opens_on_back_to_game_and_escape_returns_to_the_game() {
         "{heights:?}"
     );
     assert!(h.is_visible(&L::text("Esc").within(L::marker::<HintBar>())));
-    // nothing to aim at, and no hotbar beneath the hints
-    assert!(!h.is_visible(&L::marker::<HudBottom>()));
-    assert_eq!(h.reticle_bars(), 0);
 
-    h.press(KeyCode::Escape);
+    // the hotbar and the reticle are back in the frame the menu is gone
+    h.key_down(KeyCode::Escape);
     assert_eq!(h.count::<PauseMenu>(), 0);
-    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
     assert!(h.is_visible(&L::marker::<HudBottom>()));
     assert_eq!(h.reticle_bars(), 2);
+    h.key_up(KeyCode::Escape);
+    assert!(*h.world().resource::<UIMode>() == UIMode::Closed);
     // the Escape that closed it does not open it again
     h.frames(2);
     assert_eq!(h.count::<PauseMenu>(), 0);

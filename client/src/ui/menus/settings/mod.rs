@@ -87,7 +87,7 @@ pub struct FooterActions;
 /// A request to close the settings, on their root, applied in `PostUpdate`: the key or the click
 /// that asked for it must not also act on the screen beneath.
 #[derive(Component)]
-struct CloseSettings;
+pub(crate) struct CloseSettings;
 
 /// The key hints of the Audio and Interface tabs, whose controls change with the arrows: Enter
 /// does nothing there.
@@ -354,7 +354,7 @@ fn settings_escape(
 
 /// Closes the settings asked to close: from the main menu, back to it; in game, back to the
 /// pause menu, which stayed open beneath them, the focus on the button that opened them.
-fn close_settings(
+pub(crate) fn close_settings(
     roots: Query<(Entity, &SettingsRoot), With<CloseSettings>>,
     entities: &Entities,
     mut menu_state: ResMut<NextState<MenuState>>,

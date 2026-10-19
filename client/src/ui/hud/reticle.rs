@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use super::UIMode;
+use super::InventoryRoot;
 use crate::state::GameState;
 use crate::ui::menus::pause::{pause_open, PauseMenu};
 use crate::ui::menus::settings::{settings_open, SettingsRoot};
@@ -55,15 +55,17 @@ pub fn spawn_reticle(mut commands: Commands) {
         });
 }
 
-/// Hides the reticle while a dialog is open, from the frame the pause menu or the settings
-/// open: there is nothing to aim at, and it would show through the panel. The chat leaves it.
+/// Hides the reticle while the inventory, the pause menu or the settings are open, from the
+/// frame they show to the frame they are gone: there is nothing to aim at, and it would show
+/// through the panel. The chat leaves it.
 pub fn show_reticle(
-    ui_mode: Res<UIMode>,
+    inventory: Query<&Visibility, (With<InventoryRoot>, Without<Reticle>)>,
     menus: Query<(), With<PauseMenu>>,
     settings: Query<(), With<SettingsRoot>>,
     mut reticle: Query<&mut Visibility, With<Reticle>>,
 ) {
-    let shown = if *ui_mode == UIMode::Opened || pause_open(menus) || settings_open(settings) {
+    let inventory_open = inventory.iter().any(|v| *v == Visibility::Visible);
+    let shown = if inventory_open || pause_open(menus) || settings_open(settings) {
         Visibility::Hidden
     } else {
         Visibility::Inherited
