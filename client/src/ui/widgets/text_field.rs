@@ -37,11 +37,13 @@ pub struct TextField<'a> {
     pub reserve_error: bool,
 }
 
-/// The entities of a text field: `root` to place it, `input` to observe it and read its value.
+/// The entities of a text field: `root` to place it, `input` to observe it and read its value,
+/// `frame` around the input to draw over it.
 #[derive(Clone, Copy)]
 pub struct TextFieldParts {
     pub root: Entity,
     pub input: Entity,
+    pub frame: Entity,
 }
 
 /// Triggered on the `input` of a text field when Enter is pressed in it, with its value.
@@ -216,7 +218,7 @@ pub fn spawn_text_field(commands: &mut Commands, field: &TextField) -> TextField
         message,
         reserve_error: field.reserve_error,
     });
-    TextFieldParts { root, input }
+    TextFieldParts { root, input, frame }
 }
 
 /// The systems of the text fields: they trigger `Submit` and `Cancel` in `PostUpdate`.

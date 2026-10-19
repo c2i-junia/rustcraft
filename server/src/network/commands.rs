@@ -1,8 +1,6 @@
 //! The chat commands: a chat message that starts with `/` is run by the server for its author,
 //! who alone gets the answer, instead of being relayed.
 
-use serde::de::value::{Error as ValueError, StrDeserializer};
-use serde::Deserialize;
 use shared::players::Inventory;
 use shared::world::{ItemId, ItemStack};
 use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
@@ -46,7 +44,7 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             _ => Err(TIME_USAGE.to_string()),
         },
         ["give", item, count] => {
-            let item = parse_item(item).ok_or_else(|| format!("Unknown item: {item}"))?;
+            let item = ItemId::from_name(item).ok_or_else(|| format!("Unknown item: {item}"))?;
             let count = count
                 .parse()
                 .ok()
@@ -57,21 +55,6 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         ["give", ..] => Err(GIVE_USAGE.to_string()),
         _ => Err(format!("Unknown command: /{line}")),
     }
-}
-
-/// The item called `name`: `oak_log` like in Minecraft, in any case, or `OakLog` like the
-/// variant.
-fn parse_item(name: &str) -> Option<ItemId> {
-    let variant = |name: &str| ItemId::deserialize(StrDeserializer::<ValueError>::new(name)).ok();
-    variant(name).or_else(|| {
-        let mut pascal = String::new();
-        for word in name.split('_') {
-            let mut chars = word.chars();
-            pascal.extend(chars.next()?.to_uppercase());
-            pascal.push_str(&chars.as_str().to_lowercase());
-        }
-        variant(&pascal)
-    })
 }
 
 /// Runs `command` for a player whose inventory is `inventory`, and returns the answer.
@@ -188,6 +171,20 @@ mod tests {
                 "{count}"
             );
         }
+    }
+
+    #[test]
+    fn the_usages_are_those_the_chat_shows() {
+        let usage = |name| {
+            let command = shared::commands::COMMANDS
+                .iter()
+                .find(|command| command.name == name)
+                .unwrap();
+            format!("Usage: {}", command.usage())
+        };
+        assert_eq!(shared::commands::COMMANDS.len(), 2);
+        assert_eq!(TIME_USAGE, usage("time"));
+        assert_eq!(GIVE_USAGE, usage("give"));
     }
 
     #[test]

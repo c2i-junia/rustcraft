@@ -17,6 +17,7 @@ use bevy_renet::RenetClient;
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use shared::messages::{ChatMessageRequest, ClientToServerMessage, FullChatMessage};
 
+use super::chat_completion::{spawn_command_completion, CommandCompletion};
 use super::hotbar::ITEM_NAME_BAND;
 use super::inventory::HOTBAR_TOP;
 use super::UIMode;
@@ -212,8 +213,9 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
         .observe(page_the_log)
         .observe(recall_on_arrows)
         .observe(close_chat_on::<Submit>)
-        .observe(close_chat_on::<Cancel>)
+        .observe(hide_suggestions_or_close_chat)
         .observe(close_chat_on::<FocusLost>);
+    spawn_command_completion(&mut commands, field, &asset_server);
 }
 
 /// `HH:MM` of a UTC timestamp in milliseconds, at `offset`.
@@ -585,10 +587,11 @@ fn page_the_log(
 
 /// Up and Down in the field put the sent messages in it, older and newer, with the caret at the
 /// end; past the newest, the text typed before. Bevy moves the caret on these keys first: the
-/// recalled text replaces the field after that move.
+/// recalled text replaces the field after that move. While the completion lists suggestions, the
+/// arrows choose among them instead, and a recalled command shows none until it is edited.
 fn recall_on_arrows(
     mut event: On<FocusedInput<KeyboardInput>>,
-    mut texts: Query<&mut EditableText>,
+    mut texts: Query<(&mut EditableText, &mut CommandCompletion)>,
     mut sent: Query<&mut SentMessages>,
 ) {
     let key = &event.input;
@@ -596,11 +599,12 @@ fn recall_on_arrows(
         return;
     }
     let field = event.focused_entity;
-    let (Ok(mut text), Ok(mut sent)) = (texts.get_mut(field), sent.single_mut()) else {
+    let (Ok((mut text, mut completion)), Ok(mut sent)) = (texts.get_mut(field), sent.single_mut())
+    else {
         return;
     };
     // while the IME composes, the arrows belong to it
-    if text.is_composing() {
+    if text.is_composing() || !completion.suggestions().is_empty() {
         return;
     }
     let recalled = match key.key_code {
@@ -612,6 +616,7 @@ fn recall_on_arrows(
     if let Some(recalled) = recalled {
         // replacing the whole text leaves the caret at its end
         set_text(&mut text, recalled);
+        completion.dismiss(recalled);
     }
 }
 
@@ -646,17 +651,50 @@ fn send_chat_message(
     }
 }
 
-/// Closes the chat when its field is submitted, cancelled or loses the focus: the chat is
-/// hidden, its field emptied and unfocused, and its log back at its last line. Nothing typed is
-/// kept for the next time, and the recall ends.
+/// Escape in the field puts the suggestions of the completion away while they show, and else
+/// closes the chat.
+fn hide_suggestions_or_close_chat(
+    cancel: On<Cancel>,
+    mut completions: Query<&mut CommandCompletion>,
+    chat_root: Query<(&mut Visibility, &mut SentMessages), With<ChatRoot>>,
+    texts: Query<&mut EditableText>,
+    logs: Query<&mut ScrollPosition, With<ChatLog>>,
+    focus: ResMut<InputFocus>,
+) {
+    let input = cancel.entity;
+    if let Ok(mut completion) = completions.get_mut(input) {
+        if completion.is_shown() {
+            let value = texts
+                .get(input)
+                .map(|text| text.value().to_string())
+                .unwrap_or_default();
+            completion.dismiss(&value);
+            return;
+        }
+    }
+    close_chat(input, chat_root, texts, logs, focus);
+}
+
+/// Closes the chat when its field is submitted or loses the focus.
 fn close_chat_on<E: EntityEvent>(
     event: On<E>,
+    chat_root: Query<(&mut Visibility, &mut SentMessages), With<ChatRoot>>,
+    texts: Query<&mut EditableText>,
+    logs: Query<&mut ScrollPosition, With<ChatLog>>,
+    focus: ResMut<InputFocus>,
+) {
+    close_chat(event.event_target(), chat_root, texts, logs, focus);
+}
+
+/// Closes the chat of the field `input`: the chat is hidden, its field emptied and unfocused, and
+/// its log back at its last line. Nothing typed is kept for the next time, and the recall ends.
+fn close_chat(
+    input: Entity,
     mut chat_root: Query<(&mut Visibility, &mut SentMessages), With<ChatRoot>>,
     mut texts: Query<&mut EditableText>,
     mut logs: Query<&mut ScrollPosition, With<ChatLog>>,
     mut focus: ResMut<InputFocus>,
 ) {
-    let input = event.event_target();
     if let Ok((mut visibility, mut sent)) = chat_root.single_mut() {
         *visibility = Visibility::Hidden;
         sent.end_recall();

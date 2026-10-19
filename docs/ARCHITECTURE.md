@@ -144,7 +144,8 @@ orders the systems of `Update`:
 1. **Receive**: connection events, then the messages of each client, one handler per kind of
    message (`network/handlers.rs`). A client that is not authenticated may only ask to be.
    A chat message that starts with `/` is a command (`network/commands.rs`): the server runs
-   it and answers its author alone.
+   it and answers its author alone. Their syntax is in `shared/src/commands.rs`, which the
+   client completes them from.
 2. **Simulate**: the inputs are applied to the world. Chunks are generated within the render
    distance of the players before the inputs, and next to their chunk after each input. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
@@ -263,6 +264,14 @@ to write in, at the bottom-left above the hotbar; closed, the recent lines stay 
 for 7 s, then fade. The pixel font lacks many accented letters (é, è...): a message with a
 character the pixel font lacks is drawn whole in Fira Mono, never with a missing letter in the
 middle, and so is the text being written (`font_for`, `match_the_field_font`).
+
+A command being typed is completed (`ui/hud/chat_completion.rs`): a panel over the field shows
+the usage of the command with the argument being typed, or what the server would answer to a
+wrong line, and lists the values the word may become; the field shows the rest of the chosen
+one, or the arguments left, in grey after the caret. Tab takes it, Up and Down choose another
+while the panel lists some (else they recall the sent messages), and Escape hides the panel
+before it closes the chat. The panel is spawned once and only written to: a node spawned in
+`PostUpdate` is laid out a frame late, and the panel would flicker at each letter.
 
 ## Saves
 

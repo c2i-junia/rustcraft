@@ -34,7 +34,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
 - World saving and loading.
-- In-game chat, with commands open to every player: `/time set <day|night>` and `/give <item> <count>` (e.g. `/give oak_log 64`).
+- In-game chat, with commands open to every player: `/time set <day|night>` and `/give <item> <count>` (e.g. `/give oak_log 64`), completed as they are typed (Tab, ↑↓).
 - Customizable keybindings, and a render distance set in Settings > Video or with O and P.
 
 <br>
