@@ -36,6 +36,7 @@ pub enum ActionCategory {
 }
 
 impl ActionCategory {
+    /// Every category, in display order.
     pub const ALL: [ActionCategory; 4] = [
         ActionCategory::Movement,
         ActionCategory::Interface,
@@ -43,6 +44,7 @@ impl ActionCategory {
         ActionCategory::Debug,
     ];
 
+    /// The heading of the category on the Controls tab.
     pub fn label(self) -> &'static str {
         match self {
             ActionCategory::Movement => "Movement",

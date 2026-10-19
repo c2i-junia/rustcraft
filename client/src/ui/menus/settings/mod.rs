@@ -287,10 +287,7 @@ fn show_tab(
         SettingsTab::Controls => &CONTROLS_HINTS,
         _ => &SETTINGS_HINTS,
     };
-    commands.spawn((
-        hint_bar(hints, font.clone(), glyph_font.clone()),
-        ChildOf(root),
-    ));
+    spawn_hints(&mut commands, root, hints, &assets);
     match tab {
         SettingsTab::Controls => {
             spawn_controls_tab(&mut commands, panel, &key_map, (font, glyph_font))
@@ -298,6 +295,17 @@ fn show_tab(
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
         SettingsTab::Interface => spawn_interface_tab(&mut commands, panel, &interface, font),
     }
+}
+
+/// Spawns the key hints `hints` at the bottom of the settings `root`, and returns the bar.
+fn spawn_hints(
+    commands: &mut Commands,
+    root: Entity,
+    hints: &[Hint],
+    assets: &AssetServer,
+) -> Entity {
+    let bar = hint_bar(hints, assets.load(FONT_PATH), assets.load(MONO_FONT_PATH));
+    commands.spawn((bar, ChildOf(root))).id()
 }
 
 /// Escape closes the settings, unless a key slot is waiting for a key: Escape then cancels that.

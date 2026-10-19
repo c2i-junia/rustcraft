@@ -12,7 +12,7 @@ use bevy::{
     input_focus::{tab_navigation::TabIndex, FocusGained, FocusLost, FocusedInput},
     picking::hover::Hovered,
     prelude::*,
-    ui_widgets::{ScrollArea, ScrollIntoView},
+    ui_widgets::{ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar, ScrollbarThumb},
     window::WindowFocused,
 };
 use shared::GameFolderPaths;
@@ -23,10 +23,12 @@ use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, FONT_M, FONT_S,
-    MUTED, RAISE, RAISE_HOVER, SPACE_M, SPACE_S, SPACE_XS, TEXT,
+    MUTED, RAISE, RAISE_HOVER, SLOT, SPACE_M, SPACE_S, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
-use crate::ui::widgets::hints::{key_cap, Hint};
+use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
+
+use super::{spawn_hints, SettingsRoot};
 
 /// The slot `slot` of the keys of `action`: 0 for the primary key, 1 for the secondary one.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
@@ -65,9 +67,9 @@ impl KeyCapture {
 pub const PRESS_A_KEY: &str = "Press a key...";
 
 /// The key hints of the Controls tab.
-pub const CONTROLS_HINTS: [Hint; 5] = [
+pub const CONTROLS_HINTS: [Hint; 4] = [
     Hint {
-        keys: "Tab",
+        keys: "↑↓ ←→",
         action: "Move",
     },
     Hint {
@@ -82,18 +84,34 @@ pub const CONTROLS_HINTS: [Hint; 5] = [
         keys: "Esc",
         action: "Back",
     },
+];
+
+/// The key hints while a slot waits for a key.
+pub const CAPTURE_HINTS: [Hint; 2] = [
     Hint {
-        keys: "↑↓",
-        action: "Move",
+        keys: "Any key",
+        action: "Bind",
+    },
+    Hint {
+        keys: "Esc",
+        action: "Cancel",
     },
 ];
+
+/// Marks the hint bar of the settings while it shows `CAPTURE_HINTS`.
+#[derive(Component)]
+struct CaptureHints;
 
 /// The width of a key slot, and of the header of its column.
 const SLOT_WIDTH: f32 = 120.0;
 /// The height of a key slot: a key cap and the bevel around it.
 const SLOT_HEIGHT: f32 = 34.0;
-/// The room around the list for the focus ring of the slots, which the list would clip.
+/// The room around the slots for their focus ring, which the list would clip.
 const RING_ROOM: f32 = FOCUS_RING_WIDTH + FOCUS_RING_OFFSET;
+/// The width of the scrollbar of the list.
+const SCROLLBAR_WIDTH: f32 = 8.0;
+/// The shortest the thumb of the scrollbar gets.
+const SCROLLBAR_MIN_THUMB: f32 = 24.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<KeyCapture>()
@@ -101,6 +119,7 @@ pub(super) fn plugin(app: &mut App) {
             Update,
             (
                 style_key_slots,
+                swap_hints,
                 show_keys
                     .run_if(resource_changed::<KeyMap>.or_else(resource_changed::<KeyCapture>)),
             )
@@ -109,8 +128,8 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(PostUpdate, end_capture);
 }
 
-/// How a key is written on the screen: `KeyW` is `W`, `ShiftLeft` is `Left Shift`, the arrow
-/// keys are arrows.
+/// How a key is written on the screen: `KeyW` is `W`, `ShiftLeft` is `Left Shift`,
+/// `NumpadSubtract` is `Num -`, the arrow keys are arrows.
 fn key_label(key: KeyCode) -> String {
     let named = match key {
         KeyCode::Space => "Space",
@@ -129,10 +148,23 @@ fn key_label(key: KeyCode) -> String {
         KeyCode::ArrowRight => "→",
         _ => {
             let name = format!("{key:?}");
-            return match name.strip_prefix("Digit") {
-                Some(digit) => digit.to_string(),
-                None => name.replace("Key", ""),
-            };
+            if let Some(digit) = name.strip_prefix("Digit") {
+                return digit.to_string();
+            }
+            if let Some(pad) = name.strip_prefix("Numpad") {
+                let short = match pad {
+                    "Subtract" => "-",
+                    "Add" => "+",
+                    "Multiply" => "*",
+                    "Divide" => "/",
+                    "Decimal" => ".",
+                    "Comma" => ",",
+                    "Equal" => "=",
+                    other => other,
+                };
+                return format!("Num {short}");
+            }
+            return name.replace("Key", "");
         }
     };
     named.to_string()
@@ -157,6 +189,16 @@ fn is_modifier(key: KeyCode) -> bool {
 fn slot_label(action: GameAction, slot: usize) -> String {
     let which = if slot == 0 { "primary" } else { "secondary" };
     format!("{}, {which} key", action.name())
+}
+
+/// The bevel of a recessed surface: dark at the top and left.
+fn sunken_bevel() -> BorderColor {
+    BorderColor {
+        top: BEVEL_LO,
+        left: BEVEL_LO,
+        bottom: BEVEL_HI,
+        right: BEVEL_HI,
+    }
 }
 
 /// The bevel of a raised control.
@@ -207,18 +249,17 @@ pub fn spawn_controls_tab(
                 flex_grow: 1.0,
                 min_height: px(0),
                 row_gap: px(SPACE_XS),
-                // the room for the rings goes into the margin of the panel: the texts and the
-                // slots line up with the rest of the panel
-                margin: UiRect::horizontal(px(-RING_ROOM)),
                 ..default()
             },
             ChildOf(panel),
         ))
         .id();
+    // the headers sit over the slots: clear of the frame of the list, its padding and its
+    // scrollbar
     let header = commands
         .spawn((
             Node {
-                padding: UiRect::horizontal(px(RING_ROOM)),
+                padding: UiRect::right(px(BEVEL_WIDTH + RING_ROOM + SPACE_XS + SCROLLBAR_WIDTH)),
                 ..line()
             },
             ChildOf(content),
@@ -242,6 +283,33 @@ pub fn spawn_controls_tab(
             children![label(column, &font, FONT_S, MUTED)],
         ));
     }
+    let frame = commands
+        .spawn((
+            Node {
+                flex_grow: 1.0,
+                min_height: px(0),
+                column_gap: px(SPACE_XS),
+                ..default()
+            },
+            ChildOf(content),
+        ))
+        .id();
+    // a recessed well, whose edge clips the rows going out of view. The bevel is around the
+    // list, not on it: `ScrollIntoView` does not count the border of the list
+    let well = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                min_width: px(0),
+                border: UiRect::all(px(BEVEL_WIDTH)),
+                ..default()
+            },
+            BackgroundColor(SLOT),
+            sunken_bevel(),
+            ChildOf(frame),
+        ))
+        .id();
     let list = commands
         .spawn((
             ScrollArea,
@@ -251,28 +319,59 @@ pub fn spawn_controls_tab(
                 flex_grow: 1.0,
                 min_height: px(0),
                 overflow: Overflow::scroll_y(),
-                row_gap: px(SPACE_XS),
-                padding: UiRect::all(px(RING_ROOM)),
+                padding: UiRect::horizontal(px(RING_ROOM)),
                 ..default()
             },
-            ChildOf(content),
+            ChildOf(well),
         ))
         .id();
-    for category in ActionCategory::ALL {
-        let first = category == ActionCategory::ALL[0];
-        commands.spawn((
-            label(category.label(), &font, FONT_S, MUTED),
-            Node {
-                margin: UiRect::top(px(if first { 0.0 } else { SPACE_M })),
+    commands.spawn((
+        Scrollbar::new(list, ControlOrientation::Vertical, SCROLLBAR_MIN_THUMB),
+        Node {
+            width: px(SCROLLBAR_WIDTH),
+            border: UiRect::all(px(BEVEL_WIDTH)),
+            ..default()
+        },
+        BackgroundColor(SLOT),
+        sunken_bevel(),
+        ChildOf(frame),
+        children![(
+            ScrollbarThumb {
+                border: UiRect::all(px(BEVEL_WIDTH)),
                 ..default()
             },
-            ChildOf(list),
-        ));
-        for action in GameAction::LISTED
+            BackgroundColor(RAISE),
+            raised_bevel(),
+        )],
+    ));
+    for category in ActionCategory::ALL {
+        let first = category == ActionCategory::ALL[0];
+        // the label goes with the first row: a row brought into view brings it too
+        let group = commands
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::top(px(if first { SPACE_S } else { SPACE_M })),
+                    ..default()
+                },
+                ChildOf(list),
+                children![label(category.label(), &font, FONT_S, MUTED)],
+            ))
+            .id();
+        let actions = GameAction::LISTED
             .into_iter()
-            .filter(|action| action.category() == category)
-        {
-            let row = commands.spawn((line(), ChildOf(list))).id();
+            .filter(|action| action.category() == category);
+        for (index, action) in actions.enumerate() {
+            let parent = if index == 0 { group } else { list };
+            let row = commands
+                .spawn((
+                    Node {
+                        padding: UiRect::vertical(px(RING_ROOM)),
+                        ..line()
+                    },
+                    ChildOf(parent),
+                ))
+                .id();
             commands.spawn((
                 label(action.name(), &font, FONT_M, TEXT),
                 Node {
@@ -309,6 +408,8 @@ fn spawn_key_slot(commands: &mut Commands, slot: KeySlot) -> Entity {
                 border: UiRect::all(px(BEVEL_WIDTH)),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
+                // a long key name stays inside
+                overflow: Overflow::clip(),
                 ..default()
             },
             BackgroundColor(RAISE),
@@ -316,17 +417,32 @@ fn spawn_key_slot(commands: &mut Commands, slot: KeySlot) -> Entity {
         ))
         .observe(slot_key)
         .observe(slot_click)
-        .observe(|gained: On<FocusGained>, mut commands: Commands| {
-            commands.trigger(ScrollIntoView {
-                entity: gained.entity,
-            });
-        })
+        .observe(show_focused_row)
         .observe(|lost: On<FocusLost>, mut capture: ResMut<KeyCapture>| {
             if capture.slot == Some(lost.entity) {
                 *capture = KeyCapture::default();
             }
         })
         .id()
+}
+
+/// Scrolls the list to show the whole row of the focused slot, with the room of its ring, and the
+/// label of its category above the first row of a category.
+fn show_focused_row(
+    gained: On<FocusGained>,
+    parents: Query<&ChildOf>,
+    lists: Query<(), With<ScrollArea>>,
+    mut commands: Commands,
+) {
+    // the item of the list that holds the slot: its row, or the group of a first row
+    let mut item = gained.entity;
+    while let Ok(parent) = parents.get(item) {
+        if lists.contains(parent.parent()) {
+            commands.trigger(ScrollIntoView { entity: item });
+            return;
+        }
+        item = parent.parent();
+    }
 }
 
 /// The key in the slot `slot` of `action`, if any.
@@ -495,6 +611,33 @@ fn slot_click(
     }
 }
 
+/// Shows `CAPTURE_HINTS` in the hint bar of the settings while a slot waits for a key, and
+/// `CONTROLS_HINTS` otherwise.
+fn swap_hints(
+    capture: Res<KeyCapture>,
+    bars: Query<(Entity, &ChildOf, Has<CaptureHints>), With<HintBar>>,
+    roots: Query<(), With<SettingsRoot>>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    for (bar, child_of, capturing) in &bars {
+        let root = child_of.parent();
+        if !roots.contains(root) || capturing == capture.is_active() {
+            continue;
+        }
+        commands.entity(bar).despawn();
+        let hints: &[Hint] = if capture.is_active() {
+            &CAPTURE_HINTS
+        } else {
+            &CONTROLS_HINTS
+        };
+        let new_bar = spawn_hints(&mut commands, root, hints, &assets);
+        if capture.is_active() {
+            commands.entity(new_bar).insert(CaptureHints);
+        }
+    }
+}
+
 /// Ends the capture that got its key, whose slot is gone, or whose window lost the keyboard.
 fn end_capture(
     mut capture: ResMut<KeyCapture>,
@@ -526,6 +669,10 @@ mod tests {
             (KeyCode::ControlRight, "Right Ctrl"),
             (KeyCode::F3, "F3"),
             (KeyCode::ArrowLeft, "←"),
+            (KeyCode::NumpadSubtract, "Num -"),
+            (KeyCode::NumpadAdd, "Num +"),
+            (KeyCode::Numpad0, "Num 0"),
+            (KeyCode::NumpadEnter, "Num Enter"),
         ];
         for (key, label) in cases {
             assert_eq!(key_label(key), label, "{key:?}");

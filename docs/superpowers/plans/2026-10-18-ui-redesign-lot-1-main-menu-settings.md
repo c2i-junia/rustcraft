@@ -396,7 +396,8 @@ E2e, `e2e/widgets.rs`:
   #[derive(Resource, Default)] pub struct KeyCapture { slot: Option<Entity>, ending: bool }
   impl KeyCapture { pub fn is_active(&self) -> bool }
   pub const PRESS_A_KEY: &str = "Press a key...";
-  pub const CONTROLS_HINTS: [Hint; 5];          // Tab Move, Enter Change key, Del Clear, Esc Back, ↑↓ Move
+  pub const CONTROLS_HINTS: [Hint; 4];          // ↑↓ ←→ Move, Enter Change key, Del Clear, Esc Back
+  pub const CAPTURE_HINTS: [Hint; 2];           // while capturing: Any key Bind, Esc Cancel
   fn key_label(key: KeyCode) -> String;
   fn slot_label(action: GameAction, slot: usize) -> String;   // "Jump, primary key" / "Jump, secondary key"
   pub fn spawn_controls_tab(commands: &mut Commands, panel: Entity, key_map: &KeyMap, fonts: (Handle<Font>, Handle<Font>));

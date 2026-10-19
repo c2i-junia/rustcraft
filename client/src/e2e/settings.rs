@@ -6,6 +6,8 @@ use accesskit::{NodeId, Role};
 use bevy::a11y::AccessibilityNode;
 use bevy::input::keyboard::{KeyCode, KeyboardFocusLost};
 use bevy::prelude::*;
+use bevy::ui::UiGlobalTransform;
+use bevy::ui_widgets::{ScrollArea, Scrollbar, ScrollbarThumb};
 
 use super::harness::{Harness, Options, SCREEN};
 use super::locator::Locator as L;
@@ -17,7 +19,7 @@ use crate::state::KeyMap;
 use crate::ui::button::MenuState;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
-use crate::ui::theme::RAISE_HOVER;
+use crate::ui::theme::{FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, RAISE_HOVER};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -373,14 +375,20 @@ fn the_keyboard_alone_rebinds_cancels_and_clears() {
         Some("Move backward, primary key")
     );
 
+    assert!(h.is_visible(&L::text("Change key")));
+
     // Escape cancels the capture, and only the capture
     h.press(KeyCode::Enter);
     h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.wait_for(&L::text("Any key"), SCREEN);
+    assert!(h.is_visible(&L::text("Cancel")));
+    assert!(!h.is_visible(&L::text("Change key")));
     h.press(KeyCode::Escape);
     assert_eq!(h.menu_state(), MenuState::Settings);
     h.frames(2);
     assert_eq!(h.menu_state(), MenuState::Settings);
     assert!(!h.is_visible(&L::text(PRESS_A_KEY)));
+    assert!(h.is_visible(&L::text("Change key")));
     assert!(h.is_visible(&L::text("S").within(backward())));
 
     h.press(KeyCode::Enter);
@@ -457,17 +465,82 @@ fn a_right_click_clears_a_slot_and_a_click_elsewhere_cancels_a_capture() {
     assert!(h.world().resource::<KeyMap>().map[&GameAction::Jump].is_empty());
 }
 
+/// The rectangle of the element, in physical pixels.
+#[track_caller]
+fn rect_of(h: &mut Harness, locator: &L) -> Rect {
+    let entity = h.get(locator);
+    rect_of_entity(h, entity)
+}
+
+fn rect_of_entity(h: &Harness, entity: Entity) -> Rect {
+    let center = h
+        .world()
+        .get::<UiGlobalTransform>(entity)
+        .unwrap()
+        .translation;
+    let size = h.world().get::<ComputedNode>(entity).unwrap().size();
+    Rect::from_center_size(center, size)
+}
+
+/// The rectangle of the thumb of the controls' scrollbar, which the scrollbar lays out itself.
+fn thumb_rect(h: &mut Harness) -> Rect {
+    let thumb = h
+        .world_mut()
+        .query_filtered::<Entity, With<ScrollbarThumb>>()
+        .single(h.world())
+        .unwrap();
+    rect_of_entity(h, thumb)
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_focused_slot_and_its_ring_stay_in_view() {
+    let small = Options {
+        width: 800,
+        height: 600,
+        ..default()
+    };
+    let mut h = settings_with(GameFolder::new(), small);
+    h.wait_for(&L::text("Move forward"), SCREEN);
+    h.press(KeyCode::Tab);
+    for _ in 0..8 {
+        h.press(KeyCode::ArrowDown);
+    }
+    h.frames(2);
+    assert_eq!(h.focus_label().as_deref(), Some("Inventory, primary key"));
+    let scale = h.world().resource::<UiScale>().0;
+    let ring = (FOCUS_RING_WIDTH + FOCUS_RING_OFFSET) * scale;
+    let slot = rect_of(&mut h, &key_slot("Inventory", "primary")).inflate(ring);
+    let list = rect_of(&mut h, &L::marker::<ScrollArea>());
+    let inside = |r: Rect| list.contains(r.min + 0.5) && list.contains(r.max - 0.5);
+    assert!(inside(slot), "{slot:?} in {list:?}");
+    // the label of its category too
+    let label = rect_of(
+        &mut h,
+        &L::text("Interface").within(L::marker::<ScrollArea>()),
+    );
+    assert!(inside(label), "{label:?} in {list:?}");
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_wheel_scrolls_the_controls_list_under_the_cursor() {
     let mut h = controls();
     let first = L::text("Move forward");
     let before = h.center_of(&first);
+    // the scrollbar shows how much of the list is in view
+    let (thumb, track) = (
+        thumb_rect(&mut h),
+        rect_of(&mut h, &L::marker::<Scrollbar>()),
+    );
+    assert!(thumb.height() < track.height(), "{thumb:?} in {track:?}");
     h.hover(&first);
     h.scroll(-3.);
     h.frames(2);
     let scrolled = h.center_of(&first);
     assert!(scrolled.y < before.y, "{before} then {scrolled}");
+    let moved = thumb_rect(&mut h);
+    assert!(moved.min.y > thumb.min.y, "{thumb:?} then {moved:?}");
 
     // over the tabs, the wheel moves nothing
     h.hover(&L::role(Role::Tab, "Audio"));
