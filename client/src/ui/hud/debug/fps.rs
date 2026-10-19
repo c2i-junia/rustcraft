@@ -16,9 +16,17 @@ pub(crate) fn fps_color(fps: f64) -> Color {
 }
 
 /// Whether a frame rate is on screen, in the debug overlay or the FPS counter: the run
-/// condition of `fps_text_update_system`.
-pub fn fps_text_shown(texts: Query<&InheritedVisibility, With<FpsText>>) -> bool {
-    texts.iter().any(|visibility| visibility.get())
+/// condition of `fps_text_update_system`. A span has no visibility of its own: it is shown
+/// with the text it belongs to.
+pub fn fps_text_shown(
+    spans: Query<(Option<&InheritedVisibility>, Option<&ChildOf>), With<FpsText>>,
+    visibilities: Query<&InheritedVisibility>,
+) -> bool {
+    spans.iter().any(|(visibility, parent)| {
+        visibility
+            .or_else(|| parent.and_then(|parent| visibilities.get(parent.parent()).ok()))
+            .is_some_and(|visibility| visibility.get())
+    })
 }
 
 pub fn fps_text_update_system(
@@ -62,6 +70,18 @@ mod tests {
         assert!(!world.run_system_once(fps_text_shown).unwrap());
         world.entity_mut(text).insert(InheritedVisibility::VISIBLE);
         assert!(world.run_system_once(fps_text_shown).unwrap());
+    }
+
+    #[test]
+    fn a_frame_rate_span_is_shown_with_its_text() {
+        let mut world = World::new();
+        let text = world
+            .spawn((Text::new("FPS: "), InheritedVisibility::VISIBLE))
+            .id();
+        world.spawn((FpsText, TextSpan::new("N/A"), ChildOf(text)));
+        assert!(world.run_system_once(fps_text_shown).unwrap());
+        world.entity_mut(text).insert(InheritedVisibility::HIDDEN);
+        assert!(!world.run_system_once(fps_text_shown).unwrap());
     }
 
     #[test]
