@@ -5,6 +5,7 @@ use std::fmt::{self, Display};
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
+use bevy::prelude::Resource;
 use shared::DEFAULT_PORT;
 
 /// The address of a server: its host, as typed, and its port.
@@ -98,6 +99,16 @@ pub fn parse_server_address(typed: &str) -> Result<ServerAddress, &'static str> 
         host: host.to_string(),
         port,
     })
+}
+
+/// How the screens resolve an address to join: `resolve`, replaced by tests.
+#[derive(Resource, Clone, Copy)]
+pub struct AddressResolver(pub fn(&ServerAddress) -> io::Result<SocketAddr>);
+
+impl Default for AddressResolver {
+    fn default() -> Self {
+        AddressResolver(resolve)
+    }
 }
 
 /// The first IPv4 address of `address`. Blocks on DNS: call it from a thread.

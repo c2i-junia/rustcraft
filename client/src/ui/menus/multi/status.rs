@@ -58,6 +58,12 @@ impl StatusBoard {
         );
     }
 
+    /// Forgets every server but those at `ips`, dropping their probes in flight.
+    pub fn keep_only<'a>(&mut self, ips: impl Iterator<Item = &'a str>) {
+        let kept: Vec<String> = ips.map(status_key).collect();
+        self.0.retain(|key, _| kept.contains(key));
+    }
+
     /// Whether `ip` was ever asked.
     pub fn knows(&self, ip: &str) -> bool {
         self.0.contains_key(&status_key(ip))

@@ -31,7 +31,7 @@ use super::background::menu_background;
 use super::servers::{read_servers, ServerItem};
 use super::{neighbour, text, MenuState};
 use crate::constants::SERVER_LIST_SAVE_NAME;
-use crate::network::address::{parse_server_address, resolve};
+use crate::network::address::{parse_server_address, AddressResolver};
 use crate::network::status::{InFlight, ServerStatus, StatusProbe};
 use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
@@ -41,7 +41,7 @@ use crate::ui::theme::{
     SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::{CloseRequest, DialogRoot};
+use crate::ui::widgets::dialog::{dialog_open, CloseRequest, DialogRoot};
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{
@@ -169,10 +169,18 @@ pub fn multi_plugin(app: &mut App) {
     dialogs::plugin(app);
     status::plugin(app);
     app.init_resource::<StatusProbe>()
+        .init_resource::<AddressResolver>()
         .add_systems(OnEnter(MenuState::Multi), multi_setup)
         .add_systems(
             Update,
-            (finish_join, follow_focus_with_hints).run_if(in_state(MenuState::Multi)),
+            (
+                // after Ctrl+N, which drops a join along with opening its dialog
+                finish_join
+                    .run_if(not(dialog_open))
+                    .after(dialogs::open_add_server_on_ctrl_n),
+                follow_focus_with_hints,
+            )
+                .run_if(in_state(MenuState::Multi)),
         )
         .add_observer(show_changed_servers)
         .add_observer(join_or_remove_on_key)
@@ -584,6 +592,8 @@ fn show_changed_servers(
     let path = paths.game_folder_path.join(SERVER_LIST_SAVE_NAME);
     let read = read_servers(&path);
     let servers = read.as_deref().unwrap_or_default();
+    // a server gone, or added again, is asked afresh: no stale status, no orphan probe
+    board.keep_only(servers.iter().map(|server| server.ip.as_str()));
     for server in servers {
         if !board.knows(&server.ip) {
             board.ping(&server.ip, *probe);
@@ -668,6 +678,7 @@ fn show_selected_server(
     let font = assets.load(FONT_PATH);
     show_detail(&mut commands, facts, &card.0, &status, &font);
     allow_join(&mut commands, &status);
+    cancel_join(&mut commands);
     show_server_error(&mut errors, None);
 }
 
@@ -679,6 +690,7 @@ fn start_join(
     root: Entity,
     server: &ServerItem,
     status: &ServerStatus,
+    resolver: AddressResolver,
     errors: &mut ErrorLines,
 ) {
     if !can_join(status) {
@@ -692,7 +704,27 @@ fn start_join(
     let host = address.host.clone();
     commands.entity(root).insert(PendingJoin {
         host,
-        address: InFlight::spawn(move || resolve(&address)),
+        address: InFlight::spawn(move || (resolver.0)(&address)),
+    });
+}
+
+/// Drops the join still looking up its address, if there is one, and the line that says so:
+/// the player has moved on, to another server or to a dialog.
+pub(super) fn cancel_join(commands: &mut Commands) {
+    commands.queue(|world: &mut World| {
+        let mut pending = world.query_filtered::<Entity, With<PendingJoin>>();
+        let roots: Vec<Entity> = pending.iter(world).collect();
+        if roots.is_empty() {
+            return;
+        }
+        for root in roots {
+            world.entity_mut(root).remove::<PendingJoin>();
+        }
+        let mut lines = world.query_filtered::<(&mut Text, &mut Node), With<ServerError>>();
+        for (mut text, mut node) in lines.iter_mut(world) {
+            text.0.clear();
+            node.display = Display::None;
+        }
     });
 }
 
@@ -722,7 +754,7 @@ fn finish_join(
     }
 }
 
-/// Hands `address` over to the connection, as the legacy Connect did.
+/// Sets `address` as the server to connect to and leaves the menus for the connecting screen.
 pub fn join_server(
     address: SocketAddr,
     target: &mut TargetServer,
@@ -745,6 +777,7 @@ fn join_or_remove_on_key(
     lists: Query<Entity, With<ServerList>>,
     children: Query<&Children>,
     mut errors: ErrorLines,
+    resolver: Res<AddressResolver>,
     keys: Res<ButtonInput<KeyCode>>,
     focus: Res<InputFocus>,
     assets: Res<AssetServer>,
@@ -763,7 +796,14 @@ fn join_or_remove_on_key(
         KeyCode::Enter if !control => {
             if let Ok((root, board)) = roots.single() {
                 let status = board.status(&card.0.ip);
-                start_join(&mut commands, root, &card.0, &status, &mut errors);
+                start_join(
+                    &mut commands,
+                    root,
+                    &card.0,
+                    &status,
+                    *resolver,
+                    &mut errors,
+                );
             }
         }
         KeyCode::Delete => {
@@ -786,6 +826,7 @@ fn act_on_selected_server(
     children: Query<&Children>,
     cards: Query<&ServerCard>,
     mut errors: ErrorLines,
+    resolver: Res<AddressResolver>,
     focus: Res<InputFocus>,
     assets: Res<AssetServer>,
     mut commands: Commands,
@@ -797,7 +838,14 @@ fn act_on_selected_server(
         ServerAction::Join => {
             if let Ok((root, board)) = roots.single() {
                 let status = board.status(&card.0.ip);
-                start_join(&mut commands, root, &card.0, &status, &mut errors);
+                start_join(
+                    &mut commands,
+                    root,
+                    &card.0,
+                    &status,
+                    *resolver,
+                    &mut errors,
+                );
             }
         }
         ServerAction::Remove => {

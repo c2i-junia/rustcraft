@@ -1,8 +1,13 @@
 //! The server list: the server cards with their status and the detail pane, adding, removing
 //! and joining servers.
 
+use std::collections::HashSet;
 use std::fs;
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use accesskit::Role;
@@ -21,8 +26,10 @@ use super::helpers::{ctrl, is_in, main_menu_with};
 use super::locator::Locator as L;
 use super::seed::{fixed_status, slow_status, GameFolder};
 use crate::constants::SERVER_LIST_SAVE_NAME;
-use crate::network::address::{EMPTY_ADDRESS, INVALID_ADDRESS, INVALID_PORT};
-use crate::network::status::StatusProbe;
+use crate::network::address::{
+    AddressResolver, ServerAddress, EMPTY_ADDRESS, INVALID_ADDRESS, INVALID_PORT,
+};
+use crate::network::status::{ServerStatus, StatusProbe};
 use crate::network::TargetServer;
 use crate::state::GameState;
 use crate::ui::menus::multi::dialogs::{ServerAddressInput, ServerNameInput, ADD_SERVER_TITLE};
@@ -403,6 +410,132 @@ fn join_hands_a_host_name_over_with_the_default_port() {
     h.wait_for(&L::text_containing("Connecting to server"), SCREEN);
     h.click(&L::text("[Cancel]"));
     h.wait_for_game_state(GameState::Menu, SCREEN);
+}
+
+/// Whether `gated_resolve` may answer.
+static LOOKUP_OPEN: AtomicBool = AtomicBool::new(false);
+/// How many times `gated_resolve` has answered.
+static LOOKUPS_DONE: AtomicUsize = AtomicUsize::new(0);
+
+/// Resolves every host to this computer, once the test opens `LOOKUP_OPEN`.
+fn gated_resolve(address: &ServerAddress) -> io::Result<SocketAddr> {
+    while !LOOKUP_OPEN.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_millis(1));
+    }
+    LOOKUPS_DONE.fetch_add(1, Ordering::SeqCst);
+    Ok(SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        address.port,
+    ))
+}
+
+/// Lets `gated_resolve` answer, waits until it answered for the `done`th time, closes it again,
+/// and runs a few frames, in which a join still pending would be handed over.
+#[track_caller]
+fn finish_the_lookup(h: &mut Harness, done: usize) {
+    LOOKUP_OPEN.store(true, Ordering::SeqCst);
+    let start = Instant::now();
+    while LOOKUPS_DONE.load(Ordering::SeqCst) < done {
+        assert!(start.elapsed() < SCREEN, "the lookup never ended");
+        thread::sleep(Duration::from_millis(1));
+    }
+    LOOKUP_OPEN.store(false, Ordering::SeqCst);
+    h.frames(5);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_join_still_looking_up_is_dropped_by_another_card_or_a_dialog() {
+    let folder =
+        GameFolder::new().with_servers(&[("Home", "home.example"), ("Survival", "10.0.0.1:8000")]);
+    let mut h = open_server_list_with(folder, StatusProbe(fixed_status));
+    h.world_mut()
+        .insert_resource(AddressResolver(gated_resolve));
+    h.wait_for(&card("Survival"), SCREEN);
+    wait_for_answers(&mut h);
+    let looking_up = || L::text("Looking up home.example...").within(pane());
+
+    h.click(&pane_button("Join"));
+    assert!(h.is_visible(&looking_up()));
+    h.click(&card("Survival"));
+    assert!(!h.is_visible(&looking_up()));
+    finish_the_lookup(&mut h, 1);
+    assert_eq!(target_address(&h), None);
+    assert_eq!(h.game_state(), GameState::Menu);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+
+    h.click(&card("Home"));
+    h.click(&pane_button("Join"));
+    assert!(h.is_visible(&looking_up()));
+    add_dialog(&mut h);
+    finish_the_lookup(&mut h, 2);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&looking_up()));
+    assert_eq!(target_address(&h), None);
+    assert_eq!(h.game_state(), GameState::Menu);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+}
+
+/// Finds no host.
+fn no_such_host(address: &ServerAddress) -> io::Result<SocketAddr> {
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("no {}", address.host),
+    ))
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_host_that_is_not_found_is_said_in_the_pane() {
+    let mut h = status_list();
+    h.world_mut().insert_resource(AddressResolver(no_such_host));
+    h.click(&card("Typo"));
+    h.click(&pane_button("Join"));
+    h.wait_for(
+        &L::text("Cannot find nowhere.invalid").within(pane()),
+        SCREEN,
+    );
+    h.frames(2);
+    assert_eq!(target_address(&h), None);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+}
+
+/// The addresses `answer_once` was asked.
+static ASKED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+/// Answers as `fixed_status` the first time an address is asked, and only after a long while
+/// then.
+fn answer_once(ip: &str) -> ServerStatus {
+    let first = ASKED
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashSet::new)
+        .insert(ip.to_string());
+    if !first {
+        thread::sleep(Duration::from_secs(5));
+    }
+    fixed_status(ip)
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_server_removed_then_added_again_is_asked_again() {
+    let mut h = open_server_list_with(
+        GameFolder::new().with_status_servers(),
+        StatusProbe(answer_once),
+    );
+    h.wait_for(&card("Typo"), SCREEN);
+    wait_for_answers(&mut h);
+    remove_through_the_pane(&mut h, "Survival");
+    add_dialog(&mut h);
+    h.type_text("Again");
+    h.press(KeyCode::Tab);
+    h.type_text("10.0.0.1:8000");
+    h.press(KeyCode::Enter);
+    h.wait_for(&card("Again"), SCREEN);
+    assert!(h.is_visible(&L::text("Pinging...").within(card("Again"))));
+    assert!(!h.is_visible(&L::text("3 / 20").within(card("Again"))));
 }
 
 #[test]

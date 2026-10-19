@@ -14,7 +14,7 @@ use super::super::servers::{
     ServerItem, MAX_SERVER_NAME_LENGTH,
 };
 use super::super::MenuState;
-use super::{AddServerButton, ServerCard};
+use super::{cancel_join, AddServerButton, ServerCard};
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::MAX_ADDRESS_LENGTH;
 use crate::ui::assets::FONT_PATH;
@@ -104,6 +104,7 @@ pub fn open_add_server_dialog(
     focus: &InputFocus,
     others: Vec<ServerItem>,
 ) -> Entity {
+    cancel_join(commands);
     let font: Handle<Font> = assets.load(FONT_PATH);
     let mut field = |label, placeholder, max_characters| {
         spawn_text_field(
@@ -274,6 +275,7 @@ pub fn open_remove_server_dialog(
     server: &ServerItem,
     next: Option<String>,
 ) -> Entity {
+    cancel_join(commands);
     let title = format!("Remove \"{}\"?", server.name);
     let body = format!("{} will leave your server list.", server.ip);
     let dialog = Dialog {
