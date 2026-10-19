@@ -81,7 +81,7 @@ fn open_server_list_with(folder: GameFolder, probe: StatusProbe) -> Harness {
 
 /// Runs frames until no card says it is pinging its server.
 #[track_caller]
-fn wait_for_answers(h: &mut Harness) {
+pub(super) fn wait_for_answers(h: &mut Harness) {
     let start = Instant::now();
     while h.is_visible(&L::text("Pinging...")) {
         assert!(start.elapsed() < SCREEN, "the servers never answered");

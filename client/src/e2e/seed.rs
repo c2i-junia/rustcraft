@@ -17,8 +17,8 @@ use crate::network::status::ServerStatus;
 use crate::ui::menus::servers::ServerItem;
 
 /// The status of the server at `ip` without the network, as tests ask it: two servers online,
-/// one of another version, one offline, one host that does not resolve, and one more online for
-/// a changed address; anything else is offline.
+/// one of another version, one offline, one host that does not resolve, one more online for a
+/// changed address, and one address that is not one; anything else is offline.
 pub fn fixed_status(ip: &str) -> ServerStatus {
     let online = |players, max_players, ms| ServerStatus::Online {
         players,
@@ -31,6 +31,7 @@ pub fn fixed_status(ip: &str) -> ServerStatus {
         "10.0.0.3:8000" => ServerStatus::Incompatible,
         "nowhere.invalid" => ServerStatus::UnknownHost,
         "10.0.0.9" => online(1, 8, 20),
+        "10.0.0.5:0" => ServerStatus::BadAddress,
         _ => ServerStatus::Offline,
     }
 }

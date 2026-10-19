@@ -32,6 +32,27 @@ The enums that travel in messages or are written in chunk files are append only:
 position is their encoding. Tests pin every value (`world/blocks.rs`, `world/items.rs`,
 `messages/mod.rs`), and `PROTOCOL_ID` must be bumped with any change.
 
+## Network
+
+The game goes through netcode (renet) on one UDP port, the game port (`shared::DEFAULT_PORT`,
+8000, by default). The server list asks a server for its status before anyone joins it, on a
+second UDP port, the game port + 1 (`shared::status::status_port`), where a thread of the
+dedicated server answers (`server/src/network/status.rs`); the integrated server of solo opens
+none. The status is not on the game socket because `NetcodeServerTransport` reads that socket
+itself and drops whatever is not netcode: a second reader would race it for packets.
+
+A request and a reply are both `STATUS_PACKET_LEN` = 32 bytes (`shared/src/status.rs`): the
+magic `RCST`, `STATUS_FORMAT`, the kind and a nonce, and in a reply the server's `PROTOCOL_ID`,
+its players and its maximum. A reply is never larger than its request, so the port cannot
+amplify a spoofed request, and the server drops anything but a well-formed request of exactly
+32 bytes. The client (`client/src/network/status.rs`) asks from a connected socket, sends a new
+nonce every 500 ms, takes only a reply that carries one of them, measures the latency from the
+send of that nonce, and says "Offline" after 2 s, or at once when the port is refused. The
+exchange is versioned by its own `STATUS_FORMAT`, not by `PROTOCOL_ID`, which it leaves
+unchanged: a reply whose protocol differs from the client's makes the server "Incompatible",
+and the client never joins it. Format 1 never changes; a new layout gets a new format, and
+servers keep answering the older ones.
+
 ## Prediction and reconciliation
 
 The player simulation in `shared/src/players` runs on both sides, and both must get the same
@@ -115,10 +136,16 @@ selectable cards: a card is selected by taking the focus, the list is one tab st
 card), and ↑ ↓ Home End move between the cards. `dialog.rs` also builds form dialogs, with text
 fields above the buttons: Enter in a field or the primary action triggers `DialogSubmit`, and
 the caller confirms the submission by closing the dialog with `close_dialog`; Escape in a field
-closes the dialog. A field built with `reserve_error` (`text_field.rs`) keeps the room of its
+closes the dialog. Once its fields hold their first values, and after each change, a form
+dialog triggers `FormChanged` with their values and which ones were touched; the screen checks
+them and hands the messages and whether the form can be submitted to `apply_form_check`. A field
+built with `reserve_error` (`text_field.rs`) keeps the room of its
 one-line error message, so that a message appearing moves nothing. The Singleplayer screen
 (`ui/menus/solo/`) rebuilds its world list from the disk after every change, with
-`list_worlds`, which the main menu's Continue card reads too. A dialog and a key capture take
+`list_worlds`, which the main menu's Continue card reads too. The Multiplayer screen
+(`ui/menus/multi/`) rebuilds its server list from `servers.ron` after every change, and asks
+the statuses and resolves the host names on threads (`InFlight`), so a frame never waits for the
+network. A dialog and a key capture take
 Escape through `FocusedInput<KeyboardInput>` and finish in `PostUpdate`; the handlers that
 read `ButtonInput<KeyCode>` in `Update` (the Escape of the main menu, of the world and server
 lists, of the settings and of the pause menu, and the New world opener, Ctrl+N) skip while a
