@@ -310,7 +310,9 @@ mod tests {
     #[test]
     fn add_tops_up_a_later_partial_stack_before_an_earlier_empty_slot() {
         let mut inventory = Inventory::new();
-        inventory.inner.insert(3, stack(ItemId::Dirt, max_stack() - 4));
+        inventory
+            .inner
+            .insert(3, stack(ItemId::Dirt, max_stack() - 4));
         inventory.add_item_to_inventory(stack(ItemId::Dirt, 10));
         assert_eq!(inventory.inner[&3], stack(ItemId::Dirt, max_stack()));
         assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 6));
