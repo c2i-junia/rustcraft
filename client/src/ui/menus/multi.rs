@@ -68,16 +68,13 @@ pub fn multiplayer_menu_setup(mut commands: Commands, asset_server: Res<AssetSer
                 InputField {
                     placeholder: "Server name",
                     max_characters: Some(32),
-                    ..default()
                 },
                 InputField {
                     placeholder: "Server IP",
                     max_characters: Some(64),
-                    ..default()
                 },
             ],
             add_label: "Add server",
-            stacked: false,
         },
     );
     commands.entity(screen.list).insert(ServerList::default());

@@ -109,11 +109,21 @@ confirmation) takes the focus, Escape closes it, the focus comes back where it w
 closes in `PostUpdate`. `hints.rs` is the key-hint bar at the bottom of a menu and its key caps,
 whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of options on a
 `RadioGroup`; `slider.rs` moves by 5 % steps with the arrows and the wheel, which only moves the
-slider under the cursor (`scroll.rs` turns the wheel and the trackpad into whole steps). A
-dialog and a key capture take Escape through `FocusedInput<KeyboardInput>` and finish in
-`PostUpdate`; the Escape handlers that read `ButtonInput<KeyCode>` in `Update` (the main menu's,
-the list screens', the settings', the pause menu's) skip while a dialog is open, a text field
-has the focus, a key is being captured or, for the pause menu, the settings are open. The
+slider under the cursor (`scroll.rs` turns the wheel and the trackpad into whole steps).
+`list.rs` is a scroll list with its scrollbar, shown only while the items overflow, and its
+selectable cards: a card is selected by taking the focus, the list is one tab stop (the selected
+card), and ↑ ↓ Home End move between the cards. `dialog.rs` also builds form dialogs, with text
+fields above the buttons: Enter in a field or the primary action triggers `DialogSubmit`, and
+the caller confirms the submission by closing the dialog with `close_dialog`; Escape in a field
+closes the dialog. A field built with `reserve_error` (`text_field.rs`) keeps the room of its
+one-line error message, so that a message appearing moves nothing. The Singleplayer screen
+(`ui/menus/solo/`) rebuilds its world list from the disk after every change, with
+`list_worlds`, which the main menu's Continue card reads too. A dialog and a key capture take
+Escape through `FocusedInput<KeyboardInput>` and finish in `PostUpdate`; the handlers that
+read `ButtonInput<KeyCode>` in `Update` (the Escape of the main menu, of the world and server
+lists, of the settings and of the pause menu, and the New world opener, Ctrl+N) skip while a
+dialog is open, a text field has the focus, a key is being captured or, for the pause menu, the
+settings are open. The
 settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
 game from the pause menu. The screens still built on `Interaction` buttons move over to the
 widgets lot by lot.
@@ -134,6 +144,11 @@ of the tick; only the changed chunks are written. Worlds saved by older versions
 on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
 `chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,
 `world/load_from_file.rs`).
+
+The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
+`world.ron` when a world is created, so that the world is listed at once; a rename renames the
+folder and the name in `world.ron`, keeping its format version and its date; a delete removes
+the folder, after a confirmation.
 
 ## End-to-end tests
 

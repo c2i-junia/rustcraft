@@ -1,20 +1,25 @@
 //! Snapshots of every screen at three resolutions, for a human to review.
 
-use std::time::Duration;
+use std::fs;
+use std::time::{Duration, SystemTime};
 
 use accesskit::Role;
 use bevy::input::keyboard::KeyCode;
+use bevy::math::Vec2;
+use server::WORLD_FILE;
 use shared::world::{grid_slot, ItemId};
 
 use super::game::{enter_world, slot};
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
+use super::helpers::ctrl_n;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use super::settings::key_slot;
+use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH};
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
-use crate::ui::menus::solo::WORLDS_TITLE;
+use crate::ui::menus::worlds::WORLD_EXISTS;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 
 /// The resolutions the screens are reviewed at.
@@ -22,6 +27,36 @@ const RESOLUTIONS: [(u32, u32); 3] = [(800, 600), (1280, 720), (1920, 1080)];
 
 /// A day, in seconds.
 const DAY: u64 = 24 * 60 * 60;
+
+/// The longest name a world can have: 32 of the widest letter.
+const LONG_NAME: &str = "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW";
+
+/// The folder of the menus: `Review` for the Continue card, last played, then older worlds, one
+/// with the longest name and one whose `world.ron` cannot be read.
+fn menus_folder() -> GameFolder {
+    let folder = GameFolder::new()
+        .with_played_world("Review", 0, Duration::from_secs(3 * DAY))
+        .with_seeded_world(
+            "Creative build",
+            1,
+            11 * DAY_DURATION_IN_TICKS,
+            Duration::from_secs(5 * DAY),
+        )
+        .with_seeded_world(LONG_NAME, 4294967295, 0, Duration::from_secs(10 * DAY))
+        .with_world("Broken");
+    let broken = folder
+        .path()
+        .join(SAVE_PATH)
+        .join("Broken")
+        .join(WORLD_FILE);
+    fs::write(&broken, "not a world").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&broken)
+        .and_then(|file| file.set_modified(SystemTime::now() - Duration::from_secs(30 * DAY)))
+        .unwrap();
+    folder
+}
 
 impl Harness {
     /// Runs frames until every image of the UI is loaded, then saves the snapshot `name`.
@@ -36,6 +71,57 @@ impl Harness {
     fn snapshot_in_game(&mut self, name: &str) {
         self.frames(10);
         self.snapshot(name);
+    }
+
+    /// Reviews the Singleplayer screen from the main menu, with the worlds of `menus_folder`:
+    /// the list, the New world dialog and its error, the Delete and Rename dialogs, and the
+    /// longest name, selected by the keyboard, in the pane and in the dialogs. Goes back to the
+    /// main menu.
+    fn review_worlds(&mut self) {
+        let card = |name: &str| L::role(Role::ListItem, name);
+        self.click(&L::text("Singleplayer"));
+        self.wait_for(&card("Review"), SCREEN);
+        // the cursor in a corner, so that it hovers nothing
+        self.hover_at(Vec2::ZERO);
+        self.settled_snapshot("solo");
+        ctrl_n(self);
+        self.settled_snapshot("solo_new_world");
+        self.type_text("Review");
+        self.wait_for(&L::text(WORLD_EXISTS), SCREEN);
+        self.settled_snapshot("solo_new_world_error");
+        self.press(KeyCode::Escape);
+        // the focus is back on the card of Review
+        self.press(KeyCode::Delete);
+        self.wait_for(&L::role(Role::Dialog, "Delete \"Review\"?"), SCREEN);
+        self.settled_snapshot("solo_delete");
+        self.press(KeyCode::Escape);
+        self.click(&L::role(Role::Button, "Rename"));
+        self.wait_for(&L::role(Role::Dialog, "Rename \"Review\""), SCREEN);
+        self.settled_snapshot("solo_rename");
+        self.press(KeyCode::Escape);
+
+        // by the keyboard, for the focus ring around the selected card
+        self.click(&card("Review"));
+        self.press(KeyCode::ArrowDown);
+        self.press(KeyCode::ArrowDown);
+        self.wait_for(&L::text("Seed 4294967295"), SCREEN);
+        self.hover_at(Vec2::ZERO);
+        self.settled_snapshot("solo_long_name");
+        self.press(KeyCode::Delete);
+        self.wait_for(
+            &L::role(Role::Dialog, &format!("Delete \"{LONG_NAME}\"?")),
+            SCREEN,
+        );
+        self.settled_snapshot("solo_long_name_delete");
+        self.press(KeyCode::Escape);
+        self.click(&L::role(Role::Button, "Rename"));
+        self.wait_for(
+            &L::role(Role::Dialog, &format!("Rename \"{LONG_NAME}\"")),
+            SCREEN,
+        );
+        self.settled_snapshot("solo_long_name_rename");
+        self.press(KeyCode::Escape);
+        self.click(&L::role(Role::Button, "Back"));
     }
 
     /// Opens the screen behind `button`, waits for `title`, takes the snapshot `name`, and goes
@@ -53,8 +139,7 @@ impl Harness {
 #[ignore = "review snapshots: UI_SNAPSHOTS=1 cargo test -p client review -- --ignored"]
 fn every_screen_at_three_resolutions() {
     // The menus, with one client that is resized and a world for the Continue card
-    let folder = GameFolder::new().with_played_world("Review", 0, Duration::from_secs(3 * DAY));
-    let mut h = Harness::start(folder, Options::default());
+    let mut h = Harness::start(menus_folder(), Options::default());
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     for (width, height) in RESOLUTIONS {
         h.resize(width, height);
@@ -64,7 +149,7 @@ fn every_screen_at_three_resolutions() {
         h.wait_for(&L::role(Role::Dialog, QUIT_TITLE), SCREEN);
         h.settled_snapshot("quit_dialog");
         h.press(KeyCode::Escape);
-        h.review_screen("Singleplayer", WORLDS_TITLE, "solo", "Back");
+        h.review_worlds();
         h.wait_for(&L::text("Singleplayer"), SCREEN);
         h.review_screen("Multiplayer", "Server list", "multi", "Back to menu");
         h.wait_for(&L::text("Settings"), SCREEN);
@@ -106,6 +191,18 @@ fn every_screen_at_three_resolutions() {
         h.settled_snapshot("settings_interface");
         h.click(&L::role(Role::Button, "Back"));
         h.wait_for(&L::text("Singleplayer"), SCREEN);
+    }
+    drop(h);
+
+    // The Singleplayer screen without a world
+    let mut h = Harness::start(GameFolder::new(), Options::default());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.click(&L::text("Singleplayer"));
+    for (width, height) in RESOLUTIONS {
+        h.resize(width, height);
+        h.wait_for(&L::text("No worlds yet"), SCREEN);
+        h.hover_at(Vec2::ZERO);
+        h.settled_snapshot("solo_empty");
     }
     drop(h);
 

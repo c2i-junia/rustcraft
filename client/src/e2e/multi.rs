@@ -200,6 +200,23 @@ fn back_and_escape_return_to_the_main_menu() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn escape_in_a_field_leaves_the_field_then_the_screen() {
+    let mut h = server_list();
+    h.click(&L::role(Role::TextInput, "Server name"));
+    h.type_text("Ho");
+    h.press(KeyCode::Escape);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+    h.frames(2);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+    assert_eq!(h.world().resource::<InputFocus>().get(), None);
+
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn connecting_to_a_server_enters_the_game() {
     // The server runs on its own thread and is left running when the test ends: a dedicated
     // server has no way to stop. Its folder belongs to the test, which deletes it at the end.
