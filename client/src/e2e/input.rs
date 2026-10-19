@@ -77,10 +77,21 @@ impl Harness {
     /// Types `c` from the physical key `key`, as a layout other than QWERTY would: on AZERTY,
     /// `/` is Shift with the physical key `Period`.
     pub fn type_on(&mut self, key: KeyCode, c: char) {
+        self.key_down_on(key, c);
+        self.key_up_on(key, c);
+    }
+
+    /// Holds the physical key `key` down for a frame, as the layout's character `c`.
+    pub fn key_down_on(&mut self, key: KeyCode, c: char) {
         let logical = Key::Character(c.to_string().into());
-        for state in [ButtonState::Pressed, ButtonState::Released] {
-            self.send_key(key, logical.clone(), Some(c), state);
-        }
+        self.send_key(key, logical, Some(c), ButtonState::Pressed);
+    }
+
+    /// Releases the physical key `key` for a frame, as the layout's character `c`: with the
+    /// modifiers of the release, which may differ from those of the press.
+    pub fn key_up_on(&mut self, key: KeyCode, c: char) {
+        let logical = Key::Character(c.to_string().into());
+        self.send_key(key, logical, Some(c), ButtonState::Released);
     }
 
     /// Scrolls the wheel by `lines`, positive going up.

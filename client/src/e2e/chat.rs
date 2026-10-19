@@ -186,7 +186,29 @@ fn up_and_down_recall_sent_messages_and_a_slash_opens_the_chat() {
     assert!(h.is_visible(&L::marker::<ChatRoot>()));
     assert_eq!(h.value_of::<ChatInput>(), "/");
     h.press(KeyCode::Escape);
+    // Shift let go first: AZERTY releases its Shift+`:` as `:`
+    h.key_down_on(KeyCode::Period, '/');
+    h.key_up_on(KeyCode::Period, ':');
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    assert_eq!(h.value_of::<ChatInput>(), "/");
+    h.press(KeyCode::Escape);
     h.type_on(KeyCode::Slash, '!');
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+
+    // a chat key pressed while typing does not open the chat again once released after sending
+    h.press(KeyCode::KeyT);
+    h.type_text("got it");
+    h.key_down(KeyCode::KeyT);
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("got it"), SERVER);
+    h.key_up(KeyCode::KeyT);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    h.press(KeyCode::KeyT);
+    h.type_text("a");
+    h.key_down_on(KeyCode::Period, '/');
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("a/"), SERVER);
+    h.key_up_on(KeyCode::Period, '/');
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
 
     // only in the game: not over the inventory

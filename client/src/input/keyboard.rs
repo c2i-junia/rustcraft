@@ -42,21 +42,6 @@ pub fn is_action_just_pressed(
     false
 }
 
-pub fn is_action_just_released(
-    action: GameAction,
-    keyboard_input: &ButtonInput<KeyCode>,
-    key_map: &KeyMap,
-) -> bool {
-    if let Some(key_codes) = key_map.map.get(&action) {
-        for key_code in key_codes {
-            if keyboard_input.just_released(*key_code) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// How many keys an action has: a primary one and a secondary one.
 pub const MAX_KEYS_PER_ACTION: usize = 2;
 

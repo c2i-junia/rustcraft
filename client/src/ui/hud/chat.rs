@@ -20,7 +20,6 @@ use super::hotbar::ITEM_NAME_BAND;
 use super::inventory::HOTBAR_TOP;
 use super::UIMode;
 use crate::input::data::GameAction;
-use crate::input::keyboard::is_action_just_released;
 use crate::network::CachedChatConversation;
 use crate::network::SendGameMessageExtension;
 use crate::state::KeyMap;
@@ -255,44 +254,80 @@ fn scroll_to_bottom(log: &mut ScrollPosition) {
 }
 
 /// Opens the chat on its key when no dialog is open, with the focus on its field and the log at
-/// its last line.
+/// its last line. On release, so that the key that opens the chat is not typed into it, and only
+/// the release of a key pressed in the game: a chat key still held as a message is sent, typed
+/// into it, does not open the chat again.
 pub fn toggle_chat_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
+    mut armed: bevy::ecs::system::Local<Option<KeyCode>>,
     ui_mode: Res<UIMode>,
     mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
     chat_input: Query<Entity, With<ChatInput>>,
     mut logs: Query<&mut ScrollPosition, With<ChatLog>>,
     mut focus: ResMut<InputFocus>,
 ) {
+    if *ui_mode != UIMode::Closed {
+        *armed = None;
+        return;
+    }
+    let keys = key_map.map.get(&GameAction::OpenChat);
+    if let Some(&pressed) = keys
+        .into_iter()
+        .flatten()
+        .find(|&&key| keyboard_input.just_pressed(key))
+    {
+        *armed = Some(pressed);
+    }
+    let Some(key) = *armed else {
+        return;
+    };
+    if !keyboard_input.just_released(key) {
+        return;
+    }
+    *armed = None;
     let (Ok(mut visibility), Ok(input)) = (chat_root.single_mut(), chat_input.single()) else {
         return;
     };
-
-    // On release, so that the key that opens the chat is not typed into it
-    if *ui_mode == UIMode::Closed
-        && is_action_just_released(GameAction::OpenChat, &keyboard_input, &key_map)
-    {
-        open_chat(&mut visibility, input, &mut focus, &mut logs);
-    }
+    open_chat(&mut visibility, input, &mut focus, &mut logs);
 }
 
 /// Opens the chat on the character `/` in the game, with `/` typed in its field and the caret
-/// after it. The character, not a key, so that it works on every layout; on release, as the
-/// chat key, so that neither the key nor its repeat is typed in the field.
+/// after it. The character, not a key, so that it works on every layout: a press giving `/`
+/// arms its physical key, whose release opens the chat whatever it gives then (AZERTY's
+/// Shift+`:` released Shift first gives `:`). On release, as the chat key, so that neither the
+/// key nor its repeat is typed in the field; a release whose press was not in the game, such as
+/// the end of a `/` typed in the chat, opens nothing.
 pub fn open_chat_on_slash(
     mut keys: MessageReader<KeyboardInput>,
+    mut armed: bevy::ecs::system::Local<Option<KeyCode>>,
     ui_mode: Res<UIMode>,
     mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
     mut chat_input: Query<(Entity, &mut EditableText), With<ChatInput>>,
     mut logs: Query<&mut ScrollPosition, With<ChatLog>>,
     mut focus: ResMut<InputFocus>,
 ) {
-    // read on every frame, so that a slash released over a dialog never opens the chat later
-    let slash = keys.read().any(|key| {
-        key.state == ButtonState::Released && key.logical_key == Key::Character("/".into())
-    });
-    if !slash || *ui_mode != UIMode::Closed {
+    // read on every frame, so that a slash typed over a dialog never opens the chat later
+    let in_game = *ui_mode == UIMode::Closed;
+    if !in_game {
+        *armed = None;
+    }
+    let mut open = false;
+    for key in keys.read() {
+        match key.state {
+            ButtonState::Pressed
+                if in_game && !key.repeat && key.logical_key == Key::Character("/".into()) =>
+            {
+                *armed = Some(key.key_code);
+            }
+            ButtonState::Released if *armed == Some(key.key_code) => {
+                *armed = None;
+                open = true;
+            }
+            _ => {}
+        }
+    }
+    if !open {
         return;
     }
     let (Ok(mut visibility), Ok((input, mut text))) =
