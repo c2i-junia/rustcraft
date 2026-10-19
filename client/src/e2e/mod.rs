@@ -1,5 +1,6 @@
 //! End-to-end tests of the client: the whole app runs headless, and the tests drive its screens.
 
+mod bench;
 mod capture;
 mod chat;
 mod connecting;
