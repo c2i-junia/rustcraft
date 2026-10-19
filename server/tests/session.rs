@@ -11,6 +11,7 @@ use shared::messages::{
 };
 use shared::players::inventory::InventoryAction;
 use shared::players::{Inventory, Player};
+use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
     global_block_to_chunk_pos, grid_slot, raycast, to_local_pos, BlockData, BlockDirection,
     BlockId, Chunk, ChunkMap, FaceDirectionExt, ItemId, ItemStack,
@@ -34,6 +35,8 @@ const FLAT_SPAWN_SEED: u32 = 69;
 struct TestServer {
     tmp: tempfile::TempDir,
     addr: std::net::SocketAddr,
+    /// Where the server answers status requests, when it does.
+    status_addr: Option<std::net::SocketAddr>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -54,7 +57,32 @@ impl TestServer {
         Self::start_with(tempfile::tempdir().unwrap(), world_name, false)
     }
 
+    /// Same, and it answers status requests on the port next to its game port.
+    fn start_dedicated_with_status(world_name: &str) -> Self {
+        let (socket, status) =
+            server::acquire_local_socket_pair(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
+        Self::start_on(
+            tempfile::tempdir().unwrap(),
+            world_name,
+            false,
+            socket,
+            Some(status),
+        )
+    }
+
     fn start_with(tmp: tempfile::TempDir, world_name: &str, is_solo: bool) -> Self {
+        let socket =
+            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
+        Self::start_on(tmp, world_name, is_solo, socket, None)
+    }
+
+    fn start_on(
+        tmp: tempfile::TempDir,
+        world_name: &str,
+        is_solo: bool,
+        socket: UdpSocket,
+        status: Option<UdpSocket>,
+    ) -> Self {
         // A new world gets a fixed seed: a random one may put a tree or the sea at the spawn
         let world_dir = tmp.path().join("saves").join(world_name);
         if !world_dir.join("world.ron").exists() {
@@ -71,17 +99,20 @@ impl TestServer {
             game_folder_path: tmp.path().to_path_buf(),
             assets_folder_path: tmp.path().join("assets"),
         };
-        let socket =
-            server::acquire_local_ephemeral_udp_socket(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
         let addr = socket.local_addr().unwrap();
+        let status_addr = status.as_ref().map(|status| status.local_addr().unwrap());
         let config = GameServerConfig {
             world_name: world_name.to_string(),
             is_solo,
         };
-        let handle = thread::spawn(move || server::init(socket, config, paths).unwrap());
+        let handle = thread::spawn(move || match status {
+            Some(status) => server::init_with_status(socket, status, config, paths).unwrap(),
+            None => server::init(socket, config, paths).unwrap(),
+        });
         Self {
             tmp,
             addr,
+            status_addr,
             handle: Some(handle),
         }
     }
@@ -1399,4 +1430,88 @@ fn a_furnace_is_crafted_at_a_table() {
     let mut expected = Inventory::new();
     expected.inner.insert(2, stack(ItemId::Furnace, 1));
     assert_eq!(inventory, expected);
+}
+
+/// The answer of the status port at `addr` to a request carrying `nonce`, asked from a fresh
+/// socket, or nothing within 500 ms.
+fn ask_status(addr: std::net::SocketAddr, nonce: u64) -> Option<StatusReply> {
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket.connect(addr).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    socket.send(&StatusRequest { nonce }.encode()).unwrap();
+    let mut buffer = [0; 64];
+    let len = socket.recv(&mut buffer).ok()?;
+    StatusReply::decode(&buffer[..len])
+}
+
+/// Asks the status port at `addr` until a reply satisfies `done`, and returns that reply.
+/// Fails the test after `WAIT_TIMEOUT`.
+fn wait_for_status(
+    addr: std::net::SocketAddr,
+    nonce: u64,
+    what: &str,
+    done: impl Fn(&StatusReply) -> bool,
+) -> StatusReply {
+    let start = Instant::now();
+    loop {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "no status reply {what} within {WAIT_TIMEOUT:?}"
+        );
+        if let Some(reply) = ask_status(addr, nonce).filter(&done) {
+            return reply;
+        }
+    }
+}
+
+#[test]
+fn the_status_port_counts_the_players_and_ignores_garbage() {
+    let server = TestServer::start_dedicated_with_status(WORLD_NAME);
+    let status_addr = server.status_addr.unwrap();
+
+    let request = StatusRequest { nonce: 1 }.encode();
+    let mut longer = request.to_vec();
+    longer.push(0);
+    let reply = StatusReply {
+        nonce: 1,
+        protocol: PROTOCOL_ID,
+        players: 0,
+        max_players: 64,
+    }
+    .encode();
+    let garbage = UdpSocket::bind("127.0.0.1:0").unwrap();
+    garbage.connect(status_addr).unwrap();
+    for packet in [
+        &b""[..],
+        b"hello",
+        &[0; 32],
+        &request[..31],
+        &longer,
+        &reply,
+    ] {
+        garbage.send(packet).unwrap();
+    }
+
+    // The garbage queued before this request was read first: its answers would be waiting
+    let first = wait_for_status(status_addr, 42, "from the started server", |_| true);
+    assert_eq!(first.nonce, 42);
+    assert_eq!(first.protocol, PROTOCOL_ID);
+    assert_eq!(first.players, 0);
+    assert_eq!(first.max_players, 64);
+    garbage
+        .set_read_timeout(Some(Duration::from_millis(300)))
+        .unwrap();
+    let mut buffer = [0; 64];
+    assert!(
+        garbage.recv(&mut buffer).is_err(),
+        "a malformed status request was answered"
+    );
+
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut client, "player");
+    wait_for_status(status_addr, 43, "counting the player", |reply| {
+        reply.players == 1
+    });
 }

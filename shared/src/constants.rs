@@ -4,6 +4,8 @@ use bevy::prelude::*;
 /// `ItemId`, ...) changes, so that a client and a server of different builds refuse to talk
 /// instead of misreading each other.
 pub const PROTOCOL_ID: u64 = 5;
+/// The UDP port a server listens on when none is given, and that an address without one means.
+pub const DEFAULT_PORT: u16 = 8000;
 pub const TICKS_PER_SECOND: u64 = 20;
 pub const CHUNK_SIZE: i32 = 16;
 pub const MAX_INVENTORY_SLOTS: u32 = 4 * 9;

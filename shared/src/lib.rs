@@ -9,6 +9,7 @@ pub mod constants;
 pub mod messages;
 pub mod paths;
 pub mod players;
+pub mod status;
 pub mod utils;
 pub mod world;
 

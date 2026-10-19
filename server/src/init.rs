@@ -2,6 +2,7 @@ use crate::{
     network::{
         cleanup::cleanup_all_players_from_world,
         dispatcher::{self, setup_resources_and_events},
+        status::{publish_player_count, spawn_status_responder, StatusCounter},
     },
     world::{
         data::{world_dir, ServerWorldMap},
@@ -18,10 +19,12 @@ use serde::{Deserialize, Serialize};
 use shared::{
     get_shared_renet_config,
     messages::PlayerId,
+    status::status_port,
     world::{ChunkMap, WorldSeed},
     GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
+use std::sync::{atomic::AtomicU32, Arc};
 use std::time::{Duration, SystemTime};
 use std::{
     collections::{HashMap, HashSet},
@@ -58,6 +61,30 @@ pub fn acquire_local_ephemeral_udp_socket(ip: IpAddr) -> std::io::Result<UdpSock
 
 pub fn acquire_socket_by_port(ip: IpAddr, port: u16) -> std::io::Result<UdpSocket> {
     UdpSocket::bind(SocketAddr::new(ip, port))
+}
+
+/// A game socket on an ephemeral port of `ip` and its status socket on the next port; retries
+/// up to 16 times when that port is taken.
+pub fn acquire_local_socket_pair(ip: IpAddr) -> std::io::Result<(UdpSocket, UdpSocket)> {
+    const ATTEMPTS: usize = 16;
+    let mut last_error = None;
+    for _ in 0..ATTEMPTS {
+        let game = acquire_local_ephemeral_udp_socket(ip)?;
+        // The last port has no neighbour: draw another one
+        let Some(port) = status_port(game.local_addr()?.port()) else {
+            continue;
+        };
+        match acquire_socket_by_port(ip, port) {
+            Ok(status) => return Ok((game, status)),
+            Err(err) => last_error = Some(err),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            "no ephemeral UDP port had a free port next to it",
+        )
+    }))
 }
 
 /// Largest number of clients connected at once.
@@ -103,6 +130,25 @@ fn set_fixed_timestep(app: &mut App) {
 /// already has one.
 pub fn init(
     socket: UdpSocket,
+    config: GameServerConfig,
+    game_folder_paths: GameFolderPaths,
+) -> Result<(), String> {
+    run(socket, None, config, game_folder_paths)
+}
+
+/// Like `init`, and answers status requests on `status` while the server runs.
+pub fn init_with_status(
+    socket: UdpSocket,
+    status: UdpSocket,
+    config: GameServerConfig,
+    game_folder_paths: GameFolderPaths,
+) -> Result<(), String> {
+    run(socket, Some(status), config, game_folder_paths)
+}
+
+fn run(
+    socket: UdpSocket,
+    status: Option<UdpSocket>,
     config: GameServerConfig,
     game_folder_paths: GameFolderPaths,
 ) -> Result<(), String> {
@@ -153,6 +199,18 @@ pub fn init(
 
     dispatcher::register_systems(&mut app);
 
+    if let Some(status) = status {
+        let players = Arc::new(AtomicU32::new(0));
+        // The responder holds a weak reference: it stops once the app is dropped
+        if let Err(err) =
+            spawn_status_responder(status, Arc::downgrade(&players), MAX_CLIENTS as u32)
+        {
+            warn!("Could not answer status requests: {err}; the server list will show this server offline");
+        }
+        app.insert_resource(StatusCounter(players));
+        app.add_systems(Update, publish_player_count);
+    }
+
     app.run();
     Ok(())
 }
@@ -188,6 +246,7 @@ fn load_world(
 mod tests {
     use super::*;
     use bevy::time::TimeUpdateStrategy;
+    use std::net::Ipv4Addr;
 
     #[derive(Resource, Default)]
     struct FixedRuns(Vec<Duration>);
@@ -213,6 +272,16 @@ mod tests {
         let runs = &app.world().resource::<FixedRuns>().0;
         assert_eq!(runs.len() as u64, TICKS_PER_SECOND);
         assert!(runs.iter().all(|delta| *delta == tick));
+    }
+
+    #[test]
+    fn the_socket_pair_is_two_neighbouring_ports() {
+        let (game, status) = acquire_local_socket_pair(Ipv4Addr::LOCALHOST.into()).unwrap();
+
+        assert_eq!(
+            status.local_addr().unwrap().port(),
+            game.local_addr().unwrap().port() + 1
+        );
     }
 
     #[test]
