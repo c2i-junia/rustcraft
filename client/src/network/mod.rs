@@ -11,6 +11,7 @@ pub mod extensions;
 mod inputs;
 pub mod save;
 mod setup;
+pub mod status;
 mod world;
 
 pub use chat::*;
