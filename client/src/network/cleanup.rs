@@ -21,12 +21,14 @@ pub fn terminate_server_connection(
     client: Option<ResMut<RenetClient>>,
     transport: Option<ResMut<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
+    address: Option<Res<LocalServerAddress>>,
 ) {
     info!("Terminating server connection");
     let can_drop_connection = stop_session(
         client.map(ResMut::into_inner),
         transport.map(ResMut::into_inner),
         local_server.map(ResMut::into_inner),
+        goes_to_local_server(&target, address.as_deref()),
     );
     if can_drop_connection {
         drop_connection(&mut commands);
@@ -57,6 +59,8 @@ pub fn close_session_on_app_exit(
     client: Option<ResMut<RenetClient>>,
     transport: Option<ResMut<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
+    target: Res<TargetServer>,
+    address: Option<Res<LocalServerAddress>>,
 ) {
     info!("App exiting, closing the session");
     // The connection is kept: the netcode plugin still needs the transport to disconnect.
@@ -64,22 +68,33 @@ pub fn close_session_on_app_exit(
         client.map(ResMut::into_inner),
         transport.map(ResMut::into_inner),
         local_server.map(ResMut::into_inner),
+        goes_to_local_server(&target, address.as_deref()),
     );
 }
 
+/// Whether the connection of the session goes to the embedded server: the session opened a
+/// world rather than joined a server.
+fn goes_to_local_server(target: &TargetServer, address: Option<&LocalServerAddress>) -> bool {
+    matches!((target.address, address), (Some(target), Some(local)) if target == local.0)
+}
+
 /// Tells the server that the player leaves, sending the message right away since the regular
-/// send system may not run again, then waits for the embedded server thread to finish saving.
+/// send system may not run again, then, when that server is the embedded one
+/// (`to_local_server`), waits for its thread to finish saving.
 ///
 /// `Exit` cannot be sent before the connection is established. The embedded server is then
 /// left running and its handle is kept, so that `finish_stopping_local_server` can stop it
-/// later. The handle is also kept when the server does not stop in time.
+/// later. So is the handle of an embedded server left running by an earlier session while this
+/// one joined another server, without waiting for it, and that of a server that does not stop
+/// in time.
 ///
 /// Returns whether the client and the transport are no longer needed. They are still needed
-/// in the case above, to send `Exit` once connected.
+/// to send `Exit` once connected to an embedded server that was not told yet.
 fn stop_session(
     client: Option<&mut RenetClient>,
     transport: Option<&mut NetcodeClientTransport>,
     local_server: Option<&mut LocalServerHandle>,
+    to_local_server: bool,
 ) -> bool {
     let mut exit_sent = false;
     if let (Some(client), Some(transport)) = (client, transport) {
@@ -98,13 +113,14 @@ fn stop_session(
     let Some(handle) = local_server.0.take() else {
         return true;
     };
-    if exit_sent || handle.is_finished() {
+    if (exit_sent && to_local_server) || handle.is_finished() {
         local_server.0 = wait_for_local_server(handle, LOCAL_SERVER_STOP_TIMEOUT);
         true
     } else {
         warn!("The local server was not told to stop, it is still running");
         local_server.0 = Some(handle);
-        false
+        // a connection to another server cannot tell it
+        !to_local_server
     }
 }
 
@@ -210,13 +226,16 @@ mod tests {
     use crate::world::ClientWorldMap;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::state::app::StatesPlugin;
-    use bevy_renet::netcode::ClientAuthentication;
+    use bevy_renet::netcode::{
+        ClientAuthentication, NetcodeServerTransport, ServerAuthentication, ServerConfig,
+    };
+    use bevy_renet::RenetServer;
     use shared::messages::AuthRegisterRequest;
     use shared::messages::PlayerSpawnEvent;
     use shared::{
         get_shared_renet_config, GameFolderPaths, GameServerConfig, PROTOCOL_ID, STC_AUTH_CHANNEL,
     };
-    use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
     use std::path::PathBuf;
     use std::time::SystemTime;
 
@@ -591,6 +610,79 @@ mod tests {
             .0
             .is_none());
         std::fs::remove_dir_all(&session.game_folder).unwrap();
+    }
+
+    /// A client connected to a bare server of the test, at the address returned, which is no
+    /// local server. The server is dropped: the client stays connected until it times out.
+    fn connected_to_another_server() -> (RenetClient, NetcodeClientTransport, SocketAddr) {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        let config = ServerConfig {
+            current_time: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap(),
+            max_clients: 1,
+            protocol_id: PROTOCOL_ID,
+            public_addresses: vec![addr],
+            authentication: ServerAuthentication::Unsecure,
+        };
+        let mut server = RenetServer::new(get_shared_renet_config());
+        let mut server_transport = NetcodeServerTransport::new(config, socket).unwrap();
+        let (mut client, mut transport) = open_connection(addr, 16).unwrap();
+        let step = Duration::from_millis(5);
+        let start = Instant::now();
+        while !client.is_connected() {
+            assert!(start.elapsed() < TIMEOUT, "never connected");
+            client.update(step);
+            transport.update(step, &mut client).unwrap();
+            transport.send_packets(&mut client).unwrap();
+            server.update(step);
+            server_transport.update(step, &mut server).unwrap();
+            server_transport.send_packets(&mut server);
+            std::thread::sleep(step);
+        }
+        (client, transport, addr)
+    }
+
+    /// A server joined while the world of an earlier session still closes: leaving it tells
+    /// that server, not the world's, and so does not wait for the world.
+    #[test]
+    fn a_session_to_another_server_ends_without_waiting_for_an_earlier_world() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let running = std::thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(())
+        });
+        let (client, transport, addr) = connected_to_another_server();
+        let mut app = App::new();
+        app.init_resource::<UnacknowledgedInputs>()
+            .init_resource::<PlayerTickInputsBuffer>()
+            .insert_resource(client)
+            .insert_resource(transport)
+            .insert_resource(LocalServerHandle(Some(running)))
+            .insert_resource(LocalServerAddress("127.0.0.1:9".parse().unwrap()))
+            .insert_resource(TargetServer {
+                address: Some(addr),
+                username: Some("Tester".into()),
+                session_token: Some(16),
+                state: TargetServerState::FullyReady,
+            });
+
+        let start = Instant::now();
+        app.world_mut()
+            .run_system_once(terminate_server_connection)
+            .unwrap();
+
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "waited {:?}",
+            start.elapsed()
+        );
+        let handle = app.world().resource::<LocalServerHandle>().0.as_ref();
+        assert!(handle.is_some_and(|handle| !handle.is_finished()));
+        // the world's server is told to stop on a connection of its own
+        assert!(!has_connection(&app));
+        release.send(()).unwrap();
     }
 
     #[test]
