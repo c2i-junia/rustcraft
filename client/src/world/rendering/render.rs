@@ -192,6 +192,19 @@ pub fn request_remesh_of_changed_blocks_system(
     }
 }
 
+/// Whether the chunk at `chunk_pos` is to be meshed: it is loaded, and it has blocks or shows
+/// faces it has to clear. Half the chunks a player receives are air, with nothing to show.
+fn needs_mesh(world_map: &ClientWorldMap, chunk_pos: IVec3) -> bool {
+    let Some(chunk) = world_map.blocks.chunk(chunk_pos) else {
+        return false;
+    };
+    let shows_faces = world_map
+        .render
+        .get(&chunk_pos)
+        .is_some_and(|render| render.entity.is_some() || render.liquid_entity.is_some());
+    !chunk.is_empty() || shows_faces
+}
+
 /// Meshes the chunks that were asked for, nearest to the player first, on the task pool, and
 /// shows each mesh once its task is done.
 pub fn world_render_system(
@@ -217,12 +230,20 @@ pub fn world_render_system(
     };
 
     if !requested_chunks.is_empty() {
-        let mut chunks: Vec<IVec3> = requested_chunks.drain().collect();
+        let mut chunks: Vec<IVec3> = requested_chunks
+            .drain()
+            .filter(|chunk_pos| needs_mesh(&world_map, *chunk_pos))
+            .collect();
         let player_position = player.single().map_or(Vec3::ZERO, |t| t.translation);
         sort_nearest_first(
             &mut chunks,
             world_position_to_chunk_position(player_position),
         );
+        // A newer mesh of a chunk makes the one still being made useless: dropping its task
+        // cancels it
+        queued_meshes
+            .meshes
+            .retain(|task| !chunks.contains(&task.chunk_pos));
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
             &block_atlas.tiles,
@@ -256,6 +277,11 @@ pub fn world_render_system(
     });
 }
 
+/// How many chunk meshes were started, for the benchmarks.
+#[cfg(test)]
+pub(crate) static MESHES_STARTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Starts meshing each of `chunks` that is loaded, in this order. The tasks share one copy of
 /// the chunks they read: theirs and those around each that `read_by_mesh` gives, as a mesh
 /// depends on the neighbours of its chunk. Copying the whole world instead would stall the
@@ -284,6 +310,8 @@ pub(super) fn spawn_meshing_tasks(
         .into_iter()
         .filter(|chunk_pos| blocks.is_chunk_loaded(*chunk_pos))
         .map(|chunk_pos| {
+            #[cfg(test)]
+            MESHES_STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let blocks = Arc::clone(&shared_blocks);
             let tiles = Arc::clone(&shared_tiles);
             MeshingTask {
@@ -395,6 +423,26 @@ mod tests {
             "mining {} kinds of block: {hits} meshes before, {meshes} now",
             mined.len()
         );
+    }
+
+    #[test]
+    fn an_empty_chunk_is_meshed_only_to_clear_what_it_showed() {
+        let mut map = ClientWorldMap::default();
+        map.blocks.insert_chunk(IVec3::ZERO, Chunk::new());
+        map.blocks.insert_chunk(IVec3::X, Chunk::new());
+        map.blocks.set_block(
+            IVec3::new(CHUNK_SIZE, 0, 0),
+            BlockData::new(BlockId::Stone, BlockDirection::Front),
+        );
+        map.render.insert(IVec3::ZERO, ChunkRender::new());
+        assert!(!needs_mesh(&map, IVec3::ZERO), "empty, nothing shown");
+        assert!(needs_mesh(&map, IVec3::X), "a block");
+        assert!(!needs_mesh(&map, IVec3::Y), "not loaded");
+
+        // Its last block broken, a chunk clears the faces it shows
+        let mut world = World::new();
+        map.render.get_mut(&IVec3::ZERO).unwrap().entity = Some(world.spawn_empty().id());
+        assert!(needs_mesh(&map, IVec3::ZERO));
     }
 
     #[test]
