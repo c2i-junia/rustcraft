@@ -40,10 +40,11 @@ pub struct PlayerUpdateEvent {
     pub movement: MovementState,
     pub orientation: Quat,
     pub last_ack_time: u64,
-    pub inventory: Inventory,
+    /// The inventory of the player, sent to that player only: the others never show it.
+    pub inventory: Option<Inventory>,
     /// What the chest `inventory.open_chest` holds once the server has simulated the input
     /// `last_ack_time`: the client takes it with the inventory. Boxed, as it is larger than
-    /// every other message.
+    /// every other message. Sent to that player only, as the inventory.
     pub open_chest: Option<Box<Container>>,
 }
 

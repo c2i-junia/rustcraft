@@ -167,10 +167,14 @@ pub fn update_players_system(
             &mut tick_buffer.buffer,
             &world_map.blocks,
         );
+        transform.translation = player.position;
         // The inventory and the open chest resume from the server's, with the actions it has
         // not applied yet
-        player.inventory = event.inventory.clone();
-        if let (Some(chest), Some(contents)) = (event.inventory.open_chest, &event.open_chest) {
+        let Some(server_inventory) = &event.inventory else {
+            continue;
+        };
+        player.inventory = server_inventory.clone();
+        if let (Some(chest), Some(contents)) = (server_inventory.open_chest, &event.open_chest) {
             world_map
                 .blocks
                 .insert_container(chest, (**contents).clone());
@@ -189,7 +193,6 @@ pub fn update_players_system(
             );
         }
         inventory.clone_from(&player.inventory);
-        transform.translation = player.position;
     }
 }
 
@@ -314,7 +317,7 @@ mod tests {
             },
             orientation: Quat::IDENTITY,
             last_ack_time: 15,
-            inventory: Inventory::new(),
+            inventory: Some(Inventory::new()),
             open_chest: None,
         });
         app.update();
@@ -348,7 +351,7 @@ mod tests {
             movement: MovementState::default(),
             orientation: Quat::IDENTITY,
             last_ack_time: 10,
-            inventory: server_inventory,
+            inventory: Some(server_inventory),
             open_chest: None,
         });
         app.update();
@@ -392,7 +395,7 @@ mod tests {
             movement: MovementState::default(),
             orientation: Quat::IDENTITY,
             last_ack_time: 10,
-            inventory: server_inventory,
+            inventory: Some(server_inventory),
             open_chest: Some(Box::new(server_chest)),
         });
         app.update();
@@ -603,7 +606,7 @@ mod tests {
                 movement: self.server_player.movement_state(),
                 orientation: Quat::IDENTITY,
                 last_ack_time: self.server_player.last_input_processed,
-                inventory: Inventory::new(),
+                inventory: Some(Inventory::new()),
                 open_chest: None,
             };
             for _ in 0..=u32::from(self.repeats_updates) {

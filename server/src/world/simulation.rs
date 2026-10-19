@@ -99,25 +99,32 @@ pub fn handle_player_inputs_system(
 }
 
 /// Sends every player's state to every client, once the tick has simulated the inputs and
-/// given the players the items they picked up.
+/// given the players the items they picked up. A player is sent its own inventory and open
+/// chest; the others only see it move.
 pub fn broadcast_player_updates_system(
     world_map: Res<ServerWorldMap>,
     mut server: ResMut<RenetServer>,
 ) {
     for player in world_map.players.values() {
-        server.broadcast_game_message(shared::messages::ServerToClientMessage::PlayerUpdate(
-            PlayerUpdateEvent {
+        let update = |inventory, open_chest| {
+            shared::messages::ServerToClientMessage::PlayerUpdate(PlayerUpdateEvent {
                 id: player.id,
                 movement: player.movement_state(),
                 orientation: player.camera_transform.rotation,
                 last_ack_time: player.last_input_processed,
-                inventory: player.inventory.clone(),
-                open_chest: player
-                    .inventory
-                    .open_chest
-                    .and_then(|chest| world_map.chunks.container(chest).cloned().map(Box::new)),
-            },
-        ));
+                inventory,
+                open_chest,
+            })
+        };
+        let open_chest = player
+            .inventory
+            .open_chest
+            .and_then(|chest| world_map.chunks.container(chest).cloned().map(Box::new));
+        server.broadcast_game_message_except(player.id, update(None, None));
+        server.send_game_message(
+            player.id,
+            update(Some(player.inventory.clone()), open_chest),
+        );
     }
 }
 

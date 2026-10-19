@@ -314,3 +314,43 @@ fn bench_inputs_generation() {
         median(samples)
     );
 }
+
+/// The bytes the updates of twenty players with a full inventory take on the wire each tick,
+/// every client being sent the update of every player.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_player_updates() {
+    use shared::messages::PlayerUpdateEvent;
+    use shared::world::{ItemId, ItemStack, ItemType};
+    const PLAYERS: usize = 20;
+    let mut player = Player::new(1, "p".into(), Vec3::ZERO, Transform::default());
+    for slot in 0..shared::MAX_INVENTORY_SLOTS {
+        player.inventory.inner.insert(
+            slot,
+            ItemStack {
+                item_id: ItemId::Dirt,
+                item_type: ItemType::Block(shared::world::BlockId::Dirt),
+                nb: 64,
+            },
+        );
+    }
+    let size = |inventory| {
+        game_message_to_payload(ServerToClientMessage::PlayerUpdate(PlayerUpdateEvent {
+            id: player.id,
+            movement: player.movement_state(),
+            orientation: player.camera_transform.rotation,
+            last_ack_time: 1234,
+            inventory,
+            open_chest: None,
+        }))
+        .len()
+    };
+    let with = size(Some(player.inventory.clone()));
+    let without = size(None);
+    println!(
+        "player updates, {PLAYERS} players: {with} bytes with the inventory, {without} without; \
+         {} KiB a tick if all carry it, {} KiB if only its owner's does",
+        PLAYERS * PLAYERS * with / 1024,
+        (PLAYERS * with + PLAYERS * (PLAYERS - 1) * without) / 1024
+    );
+}

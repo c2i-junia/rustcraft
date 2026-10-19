@@ -10,6 +10,11 @@ use shared::{
 pub trait SendGameMessageExtension {
     fn send_game_message(&mut self, client_id: ClientId, message: ServerToClientMessage);
     fn broadcast_game_message(&mut self, message: ServerToClientMessage);
+    fn broadcast_game_message_except(
+        &mut self,
+        client_id: ClientId,
+        message: ServerToClientMessage,
+    );
     fn receive_game_message(
         &mut self,
         client_id: ClientId,
@@ -43,6 +48,16 @@ impl SendGameMessageExtension for RenetServer {
             info!("Broadcasting game message of size: {}", format_bytes(size));
         }
         self.broadcast_message(channel, payload);
+    }
+
+    fn broadcast_game_message_except(
+        &mut self,
+        client_id: ClientId,
+        message: ServerToClientMessage,
+    ) {
+        let channel = message.get_channel_id();
+        let payload = shared::game_message_to_payload(message);
+        self.broadcast_message_except(client_id, channel, payload);
     }
 
     fn receive_game_message_by_channel(

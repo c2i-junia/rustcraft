@@ -1116,6 +1116,30 @@ fn a_block_broken_in_one_session_is_still_broken_after_a_restart() {
     second.join_after_exit();
 }
 
+#[test]
+fn a_player_is_sent_its_own_inventory_and_not_the_others() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut a = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut a, "first");
+    let mut b = TestClient::connect(server.addr, PLAYER_ID + 1);
+    authenticate(&mut b, "second");
+
+    let inventory_of = |client: &mut TestClient, id| {
+        client.wait_for("a PlayerUpdate", |m| match m {
+            ServerToClientMessage::PlayerUpdate(u) if u.id == id => Some(u.inventory.clone()),
+            _ => None,
+        })
+    };
+    assert!(inventory_of(&mut a, PLAYER_ID).is_some());
+    assert_eq!(inventory_of(&mut a, PLAYER_ID + 1), None);
+    assert!(inventory_of(&mut b, PLAYER_ID + 1).is_some());
+    assert_eq!(inventory_of(&mut b, PLAYER_ID), None);
+
+    a.send(ClientToServerMessage::Exit);
+    a.send_packets();
+    server.join_after_exit();
+}
+
 /// Hits the block at `target` with `camera` until it breaks, one hit per message.
 fn break_aimed_block(client: &mut TestClient, camera: Transform, target: IVec3) {
     let breaking_started = Instant::now();
@@ -1352,7 +1376,7 @@ fn send_inventory_actions(
     let id = client.id;
     client.wait_for("PlayerUpdate acknowledging the actions", |m| match m {
         ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == time_ms => {
-            Some(u.inventory.clone())
+            u.inventory.clone()
         }
         _ => None,
     })
@@ -1506,7 +1530,7 @@ fn a_furnace_is_crafted_at_a_table() {
 
     let mut expected = Inventory::new();
     expected.inner.insert(2, stack(ItemId::Furnace, 1));
-    assert_eq!(inventory, expected);
+    assert_eq!(inventory, Some(expected));
 }
 
 /// The answer of the status port at `addr` to a request carrying `nonce`, asked from a fresh
