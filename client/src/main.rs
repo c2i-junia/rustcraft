@@ -19,6 +19,7 @@ mod world;
 use app::ClientSettings;
 use bevy::{
     app::PluginGroupBuilder,
+    asset::io::file::FileAssetReader,
     log::{LogPlugin, DEFAULT_FILTER},
     prelude::*,
     render::{
@@ -35,6 +36,7 @@ use bevy_inspector_egui::{
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
 use shared::get_game_folder_paths;
+use std::path::{Path, PathBuf};
 #[cfg(debug_assertions)]
 use ui::hud::debug::{debug_overlay_shown, inspector::inspector_ui};
 use ui::menus;
@@ -52,7 +54,7 @@ struct Args {
     #[arg(
         short,
         long,
-        help = "Allows overriding of the asset folder path, defaults to <game_folder_path>/data"
+        help = "Allows overriding of the asset folder path, defaults to the data folder shipped with the game"
     )]
     assets_folder_path: Option<String>,
 
@@ -71,7 +73,14 @@ fn main() {
     } else {
         TEXTURE_PATH_BASE
     };
-    let game_folder_paths = get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
+    let explicit_assets_folder = args.assets_folder_path.is_some();
+    let mut game_folder_paths =
+        get_game_folder_paths(args.game_folder_path, args.assets_folder_path);
+    if !explicit_assets_folder {
+        if let Some(folder) = bundled_assets_folder(&FileAssetReader::get_base_path()) {
+            game_folder_paths.assets_folder_path = folder;
+        }
+    }
 
     let mut app = App::new();
     app.add_plugins(engine_plugins());
@@ -81,6 +90,10 @@ fn main() {
     info!(
         "Starting application with game folder: {}",
         game_folder_paths.game_folder_path.display()
+    );
+    info!(
+        "Reading the assets from: {}",
+        game_folder_paths.assets_folder_path.display()
     );
 
     #[cfg(debug_assertions)]
@@ -94,6 +107,17 @@ fn main() {
         },
     );
     app.run();
+}
+
+/// The folder of the assets shipped with the game, relative to Bevy's base path: next to
+/// `bin/` in a release, at the root of the repository under `cargo run`.
+const DATA_FOLDER: &str = "../data";
+
+/// The assets shipped with the game, when they are there. The textures are then read from
+/// the folder Bevy loads the fonts and the sounds from, wherever the game was unpacked.
+fn bundled_assets_folder(base_path: &Path) -> Option<PathBuf> {
+    let folder = base_path.join(DATA_FOLDER);
+    folder.is_dir().then_some(folder)
 }
 
 /// Bevy's default plugins, set up for a pixel-art game in a native window.
@@ -111,7 +135,7 @@ fn engine_plugins() -> PluginGroupBuilder {
             ..default()
         })
         .set(AssetPlugin {
-            file_path: "../data".to_string(),
+            file_path: DATA_FOLDER.to_string(),
             // The textures are loaded by absolute path from the assets folder, which the
             // command line can place anywhere: paths outside `file_path` must be allowed.
             unapproved_path_mode: bevy::asset::UnapprovedPathMode::Allow,
@@ -150,4 +174,30 @@ fn add_debug_inspector(app: &mut App) {
         EguiPrimaryContextPass,
         inspector_ui.run_if(debug_overlay_shown),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_data_folder_next_to_the_binaries_is_used() {
+        let release = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(release.path().join("bin")).unwrap();
+        std::fs::create_dir_all(release.path().join("data")).unwrap();
+
+        let folder = bundled_assets_folder(&release.path().join("bin")).unwrap();
+        assert_eq!(
+            folder.canonicalize().unwrap(),
+            release.path().join("data").canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn without_a_data_folder_nothing_is_bundled() {
+        let release = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(release.path().join("bin")).unwrap();
+
+        assert_eq!(bundled_assets_folder(&release.path().join("bin")), None);
+    }
 }
