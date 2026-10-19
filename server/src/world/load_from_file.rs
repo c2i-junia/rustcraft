@@ -11,6 +11,7 @@ use std::path::Path;
 use crate::world::chunk_files::{
     has_chunk_files, read_chunks, read_chunks_with, write_chunk, CHUNKS_DIR,
 };
+use crate::world::container_files::{read_containers, CONTAINERS_DIR};
 use crate::world::data::{world_dir, SAVE_PATH};
 use crate::world::format::{write_meta, WorldData, WorldMeta, FORMAT_VERSION, WORLD_FILE};
 use crate::world::legacy::{decode_chunk_v1, LegacyWorldData};
@@ -18,7 +19,8 @@ use std::path::PathBuf;
 
 /// What a `world.ron` turned out to hold.
 enum WorldFile {
-    /// The current layout: only the metadata, the chunks are in `chunks/`.
+    /// The current layout: only the metadata, the chunks are in `chunks/` and the contents of
+    /// the chests in `containers/`. Version 2, which had no chests, reads the same.
     Current(WorldMeta),
     /// The current layout, with chunk files of format version 1, whose blocks have no level.
     V1(WorldMeta),
@@ -85,12 +87,16 @@ pub fn load_world_data(
     Ok(world_data)
 }
 
-/// The world of `meta`, with the chunk files of the folder of the world `dir`.
+/// The world of `meta`, with the chunk and chest files of the folder of the world `dir`.
 fn read_chunks_of(dir: &Path, meta: WorldMeta) -> Result<WorldData, String> {
     let chunks_dir = dir.join(CHUNKS_DIR);
     let map = read_chunks(&chunks_dir).map_err(|err| format!("{}: {err}", chunks_dir.display()))?;
+    let containers_dir = dir.join(CONTAINERS_DIR);
+    let containers = read_containers(&containers_dir)
+        .map_err(|err| format!("{}: {err}", containers_dir.display()))?;
     Ok(WorldData {
         map,
+        containers,
         mobs: meta.mobs,
         seed: meta.seed,
         name: meta.name,
@@ -116,7 +122,7 @@ fn parse_world_file(contents: &str) -> Result<WorldFile, String> {
         1 => from_str::<WorldMeta>(contents)
             .map(WorldFile::V1)
             .map_err(|err| format!("not a valid world file ({err})")),
-        FORMAT_VERSION => from_str::<WorldMeta>(contents)
+        2 | FORMAT_VERSION => from_str::<WorldMeta>(contents)
             .map(WorldFile::Current)
             .map_err(|err| format!("not a valid world file ({err})")),
         newer => Err(format!(
@@ -521,6 +527,54 @@ mod tests {
     }
 
     #[test]
+    fn the_chests_of_a_world_are_loaded_with_it() {
+        use crate::world::container_files::write_containers;
+        use shared::world::Container;
+        use std::collections::HashMap;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let (saved, _) = sample_world();
+        let dir = world_dir_of(&tmp);
+        write_meta(&dir, &WorldMeta::from(&saved)).unwrap();
+        let mut container = Container::default();
+        container.slots[3] = Some(ItemStack {
+            item_id: ItemId::Stick,
+            item_type: ItemId::Stick.get_default_type(),
+            nb: 9,
+        });
+        fs::create_dir_all(dir.join(CONTAINERS_DIR)).unwrap();
+        let containers = vec![(IVec3::new(1, 2, 3), container.clone())];
+        write_containers(&dir.join(CONTAINERS_DIR), IVec3::new(-1, 4, 2), &containers).unwrap();
+
+        let loaded = load_world_data(WORLD, &paths).unwrap();
+
+        assert_eq!(
+            loaded.containers,
+            HashMap::from([(IVec3::new(-15, 66, 35), container)])
+        );
+    }
+
+    #[test]
+    fn a_world_of_format_version_2_loads_as_it_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let (saved, chunk) = sample_world();
+        let dir = world_dir_of(&tmp);
+        let mut meta = WorldMeta::from(&saved);
+        meta.format_version = 2;
+        write_meta(&dir, &meta).unwrap();
+        fs::create_dir_all(dir.join(CHUNKS_DIR)).unwrap();
+        write_chunk(&dir.join(CHUNKS_DIR), IVec3::new(-1, 4, 2), &chunk).unwrap();
+
+        let loaded = load_world_data(WORLD, &paths).unwrap();
+
+        assert_eq!(loaded.map[&IVec3::new(-1, 4, 2)], chunk);
+        assert!(loaded.containers.is_empty());
+        assert_eq!(file_names(&dir), ["chunks", "players", "world.ron"]);
+    }
+
+    #[test]
     fn a_world_without_chunk_files_loads_with_no_chunk() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = paths(&tmp);
@@ -616,13 +670,13 @@ mod tests {
     fn a_world_in_a_newer_format_version_is_refused_and_left_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let text =
-            r#"(format_version: 3, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
+            r#"(format_version: 4, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
         let paths = write_world_file(&tmp, text);
 
         let err = load_world_data(WORLD, &paths).err().unwrap().to_string();
 
         assert!(err.contains("world.ron"), "{err}");
-        assert!(err.contains("version 3"), "{err}");
+        assert!(err.contains("version 4"), "{err}");
         assert_eq!(
             fs::read_to_string(world_dir_of(&tmp).join("world.ron")).unwrap(),
             text

@@ -5,7 +5,7 @@
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use shared::world::{Chunk, DroppedItem, MobId, ServerMob, WorldSeed};
+use shared::world::{Chunk, Container, DroppedItem, MobId, ServerMob, WorldSeed};
 use std::collections::HashMap;
 use std::{fs::File, io::Write, path::Path};
 
@@ -14,12 +14,13 @@ pub const WORLD_FILE: &str = "world.ron";
 
 /// Version of the layout written by this code: `world.ron` is the metadata only and the chunks
 /// are in the files of `chunks/`. The single-file formats that preceded it have no version.
-/// Version 1 had the same layout, but its blocks had no level.
+/// Version 1 had the same layout, but its blocks had no level. Version 2 had no `containers/`:
+/// it reads as a version 3 world without chests.
 ///
 /// Bump it when the files written to a world's folder change in a way an older reader would
 /// misread (the layout, `WorldMeta`, the chunk encoding), and add a conversion from the
 /// previous version on load. Adding a `BlockId` at the end of its enum needs no bump.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// What `world.ron` holds: everything about a world but its chunks and players.
 #[derive(Serialize, Deserialize)]
@@ -53,6 +54,9 @@ impl WorldMeta {
 #[derive(Serialize, Deserialize, Default)]
 pub struct WorldData {
     pub map: HashMap<IVec3, Chunk>,
+    /// The contents of the chests, by global position. The single-file formats had none.
+    #[serde(skip)]
+    pub containers: HashMap<IVec3, Container>,
     pub mobs: HashMap<MobId, ServerMob>,
     pub seed: WorldSeed,
     pub name: String,

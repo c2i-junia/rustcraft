@@ -21,7 +21,7 @@ use shared::{
     get_shared_renet_config,
     messages::PlayerId,
     status::status_port,
-    world::{ChunkMap, WorldSeed},
+    world::{to_global_pos, BlockId, Chunk, ChunkMap, Container, WorldSeed},
     GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
@@ -227,10 +227,7 @@ fn load_world(
     let world_data =
         load_world_data(world_name, game_folder_paths).map_err(|err| err.to_string())?;
 
-    let mut chunks = ChunkMap::default();
-    for (chunk_pos, chunk) in world_data.map {
-        chunks.insert_chunk(chunk_pos, chunk);
-    }
+    let chunks = chunks_with_their_chests(world_data.map, world_data.containers);
     let mut world_map = ServerWorldMap {
         // the folder the world was loaded from, whatever name its file claims
         name: world_name.to_string(),
@@ -246,6 +243,31 @@ fn load_world(
     cleanup_all_players_from_world(&mut world_map);
 
     Ok((world_map, world_data.seed, world_data.time))
+}
+
+/// The loaded chunks, with the contents of their chests. Contents found where no chest stands
+/// are dropped, and a chest found without contents is empty.
+fn chunks_with_their_chests(
+    map: HashMap<IVec3, Chunk>,
+    mut containers: HashMap<IVec3, Container>,
+) -> ChunkMap {
+    let mut chunks = ChunkMap::default();
+    for (chunk_pos, chunk) in map {
+        let chests: Vec<IVec3> = chunk
+            .iter()
+            .filter(|(_, block)| block.id == BlockId::Chest)
+            .map(|(local, _)| to_global_pos(&chunk_pos, &local))
+            .collect();
+        chunks.insert_chunk(chunk_pos, chunk);
+        for pos in chests {
+            let container = containers.remove(&pos).unwrap_or_default();
+            chunks.insert_container(pos, container);
+        }
+    }
+    for pos in containers.keys() {
+        warn!("Dropping the contents of a chest at {pos}, where no chest stands");
+    }
+    chunks
 }
 
 #[cfg(test)]
@@ -278,6 +300,37 @@ mod tests {
         let runs = &app.world().resource::<FixedRuns>().0;
         assert_eq!(runs.len() as u64, TICKS_PER_SECOND);
         assert!(runs.iter().all(|delta| *delta == tick));
+    }
+
+    #[test]
+    fn loaded_chests_get_their_contents_or_empty_ones_and_stray_contents_are_dropped() {
+        use shared::world::{BlockData, BlockDirection, ItemId, ItemStack};
+
+        let mut chunk = Chunk::new();
+        for local in [IVec3::new(1, 0, 0), IVec3::new(2, 0, 0)] {
+            chunk.set(local, BlockData::new(BlockId::Chest, BlockDirection::Front));
+        }
+        let mut held = Container::default();
+        held.slots[0] = Some(ItemStack {
+            item_id: ItemId::Stone,
+            item_type: ItemId::Stone.get_default_type(),
+            nb: 2,
+        });
+        let containers = HashMap::from([
+            (IVec3::new(17, 0, 0), held.clone()),
+            (IVec3::new(19, 0, 0), held.clone()),
+        ]);
+
+        let mut chunks = chunks_with_their_chests(HashMap::from([(IVec3::X, chunk)]), containers);
+
+        assert_eq!(chunks.container(IVec3::new(17, 0, 0)), Some(&held));
+        assert_eq!(
+            chunks.container(IVec3::new(18, 0, 0)),
+            Some(&Container::default())
+        );
+        assert_eq!(chunks.container(IVec3::new(19, 0, 0)), None);
+        assert!(chunks.take_changed_containers().is_empty());
+        assert!(chunks.take_changed_blocks().is_empty());
     }
 
     #[test]

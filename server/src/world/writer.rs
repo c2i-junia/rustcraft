@@ -17,12 +17,14 @@ use shared::world::Chunk;
 use shared::SaveCounter;
 
 use super::chunk_files::{chunk_file_name, write_chunk, CHUNKS_DIR};
+use super::container_files::{write_containers, ChunkContainers, CONTAINERS_DIR};
 use super::format::{write_meta, WorldMeta, WORLD_FILE};
 
-/// What one save writes: the metadata of the world and a copy of each chunk to write.
+/// What one save writes: the metadata of the world and a copy of each chunk to write, with the
+/// contents of its chests.
 pub struct SaveJob {
     pub meta: WorldMeta,
-    pub chunks: Vec<(IVec3, Chunk)>,
+    pub chunks: Vec<(IVec3, Chunk, ChunkContainers)>,
 }
 
 /// What writing one job did.
@@ -60,17 +62,32 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
         return JobOutcome {
             meta_written,
             chunks_dir_ok: false,
-            failed_chunks: job.chunks.into_iter().map(|(pos, _)| pos).collect(),
+            failed_chunks: job.chunks.into_iter().map(|(pos, ..)| pos).collect(),
         };
     }
 
     let total = job.chunks.len();
     let mut failed = Vec::new();
-    for (chunk_pos, chunk) in job.chunks {
+    let containers_dir = world_dir.join(CONTAINERS_DIR);
+    for (chunk_pos, chunk, containers) in job.chunks {
         if let Err(err) = write_chunk(&chunks_dir, chunk_pos, &chunk) {
             error!(
                 "Failed to write {}: {err}",
                 chunks_dir.join(chunk_file_name(chunk_pos)).display()
+            );
+            failed.push(chunk_pos);
+            continue;
+        }
+        // The folder only exists in a world that has had a chest
+        let written = match containers.is_empty() {
+            true => Ok(()),
+            false => std::fs::create_dir_all(&containers_dir),
+        }
+        .and_then(|()| write_containers(&containers_dir, chunk_pos, &containers));
+        if let Err(err) = written {
+            error!(
+                "Failed to write {}: {err}",
+                containers_dir.join(chunk_file_name(chunk_pos)).display()
             );
             failed.push(chunk_pos);
         }
@@ -208,7 +225,10 @@ mod tests {
     fn job(positions: &[IVec3]) -> SaveJob {
         SaveJob {
             meta: meta(1),
-            chunks: positions.iter().map(|&p| (p, stone_chunk())).collect(),
+            chunks: positions
+                .iter()
+                .map(|&p| (p, stone_chunk(), Vec::new()))
+                .collect(),
         }
     }
 
@@ -228,12 +248,49 @@ mod tests {
     }
 
     #[test]
+    fn the_chests_of_a_chunk_are_written_with_it_and_removed_once_gone() {
+        use crate::world::container_files::read_containers;
+        use shared::world::Container;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let containers_dir = tmp.path().join(CONTAINERS_DIR);
+        let with_chest = SaveJob {
+            meta: meta(1),
+            chunks: vec![(
+                IVec3::X,
+                stone_chunk(),
+                vec![(IVec3::ONE, Container::default())],
+            )],
+        };
+        let outcome = write_job(tmp.path(), with_chest);
+        assert!(outcome.is_complete());
+        assert_eq!(
+            read_containers(&containers_dir)
+                .unwrap()
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![IVec3::new(17, 1, 1)]
+        );
+
+        assert!(write_job(tmp.path(), job(&[IVec3::X])).is_complete());
+        assert!(read_containers(&containers_dir).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_world_without_chests_has_no_containers_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(write_job(tmp.path(), job(&[IVec3::ZERO])).is_complete());
+        assert!(!tmp.path().join(CONTAINERS_DIR).exists());
+    }
+
+    #[test]
     fn jobs_are_written_in_order_so_the_last_snapshot_wins() {
         let tmp = tempfile::tempdir().unwrap();
         let writer = WorldWriter::spawn(tmp.path().to_path_buf(), None).unwrap();
         let old = SaveJob {
             meta: meta(1),
-            chunks: vec![(IVec3::ZERO, Chunk::new())],
+            chunks: vec![(IVec3::ZERO, Chunk::new(), Vec::new())],
         };
         assert!(writer.submit(old).is_ok());
         assert!(writer.submit(job(&[IVec3::ZERO])).is_ok());

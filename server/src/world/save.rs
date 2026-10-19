@@ -1,11 +1,12 @@
 use crate::init::ServerTime;
+use crate::world::container_files::ChunkContainers;
 use crate::world::format::{write_atomically, WorldMeta};
 use crate::world::writer::{SaveJob, WorldWriter};
 use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
-use shared::world::WorldSeed;
+use shared::world::{to_local_pos, WorldSeed};
 use shared::{GameFolderPaths, TICKS_PER_SECOND};
 use std::path::Path;
 
@@ -87,7 +88,16 @@ fn queue_save(
     }
     let chunks = dirty
         .into_iter()
-        .filter_map(|pos| Some((pos, world_map.chunks.chunk(pos)?.clone())))
+        .filter_map(|pos| {
+            let chunk = world_map.chunks.chunk(pos)?.clone();
+            let mut containers: ChunkContainers = world_map
+                .chunks
+                .containers_of_chunk(pos)
+                .map(|(global, container)| (to_local_pos(&global), container.clone()))
+                .collect();
+            containers.sort_by_key(|(local, _)| (local.x, local.y, local.z));
+            Some((pos, chunk, containers))
+        })
         .collect();
     let job = SaveJob {
         meta: WorldMeta {
@@ -104,7 +114,7 @@ fn queue_save(
         );
         world_map
             .dirty_chunks
-            .extend(job.chunks.into_iter().map(|(pos, _)| pos));
+            .extend(job.chunks.into_iter().map(|(pos, ..)| pos));
     }
 }
 
@@ -247,6 +257,35 @@ mod tests {
             assert_eq!(
                 (meta.name.as_str(), meta.time, meta.format_version),
                 ("w", 10, FORMAT_VERSION)
+            );
+        }
+
+        #[test]
+        fn a_save_writes_the_contents_of_the_chests_of_the_dirty_chunks() {
+            use crate::world::container_files::{read_containers, CONTAINERS_DIR};
+            use shared::world::Container;
+
+            let tmp = tempfile::tempdir().unwrap();
+            let mut map = world_map(2);
+            let chest = IVec3::new(17, 2, 3);
+            map.chunks
+                .set_block(chest, BlockData::new(BlockId::Chest, BlockDirection::Front));
+            map.chunks.insert_container(chest, Container::default());
+            map.dirty_chunks.insert(IVec3::X);
+            let mut app = app(
+                map,
+                WorldWriter::spawn(tmp.path().into(), None).unwrap(),
+                10,
+            );
+            app.world_mut().write_message(SaveRequestEvent::World);
+
+            app.update();
+            flush(&mut app);
+
+            let containers = read_containers(&tmp.path().join(CONTAINERS_DIR)).unwrap();
+            assert_eq!(
+                containers,
+                std::collections::HashMap::from([(chest, Container::default())])
             );
         }
 

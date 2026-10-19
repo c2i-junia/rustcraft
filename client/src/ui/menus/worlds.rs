@@ -667,7 +667,7 @@ mod tests {
         create_world(&saves, "Nouveau", 7).unwrap();
 
         let meta = meta_of(&saves, "Nouveau");
-        assert_eq!(meta.format_version, 2);
+        assert_eq!(meta.format_version, FORMAT_VERSION);
         assert_eq!(meta.name, "Nouveau");
         assert_eq!(meta.seed.0, 7);
         assert_eq!(meta.time, 0);

@@ -98,6 +98,23 @@ pub fn read_chunks_with(
     chunks_dir: &Path,
     decode: fn(&[u8]) -> Result<Chunk, String>,
 ) -> io::Result<HashMap<IVec3, Chunk>> {
+    read_files_named_by_chunk(
+        chunks_dir,
+        MAX_CHUNK_FILE_SIZE,
+        decode,
+        "the chunk will be generated again",
+    )
+}
+
+/// Reads every file of `chunks_dir` named like a chunk file, as `read_chunks` does: a file
+/// larger than `max_size` or that `decode` refuses is logged, with `when_skipped` saying what
+/// that means, and skipped.
+pub(super) fn read_files_named_by_chunk<T>(
+    chunks_dir: &Path,
+    max_size: u64,
+    decode: fn(&[u8]) -> Result<T, String>,
+    when_skipped: &str,
+) -> io::Result<HashMap<IVec3, T>> {
     let entries = match std::fs::read_dir(chunks_dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HashMap::new()),
@@ -133,12 +150,12 @@ pub fn read_chunks_with(
             }
             continue;
         };
-        match read_chunk_file(&path, decode) {
+        match read_chunk_file(&path, max_size, decode) {
             Ok(chunk) => {
                 chunks.insert(chunk_pos, chunk);
             }
             Err(err) => warn!(
-                "Skipping the unreadable chunk file {}, the chunk will be generated again: {err}",
+                "Skipping the unreadable file {}, {when_skipped}: {err}",
                 path.display()
             ),
         }
@@ -146,16 +163,17 @@ pub fn read_chunks_with(
     Ok(chunks)
 }
 
-fn read_chunk_file(
+fn read_chunk_file<T>(
     path: &Path,
-    decode: fn(&[u8]) -> Result<Chunk, String>,
-) -> Result<Chunk, String> {
+    max_size: u64,
+    decode: fn(&[u8]) -> Result<T, String>,
+) -> Result<T, String> {
     let size = std::fs::metadata(path)
         .map_err(|err| err.to_string())?
         .len();
-    if size > MAX_CHUNK_FILE_SIZE {
+    if size > max_size {
         return Err(format!(
-            "{size} bytes, more than the {MAX_CHUNK_FILE_SIZE} of any chunk"
+            "{size} bytes, more than the {max_size} of any valid file"
         ));
     }
     decode(&std::fs::read(path).map_err(|err| err.to_string())?)

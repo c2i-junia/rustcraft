@@ -100,6 +100,7 @@ impl From<LegacyWorldData> for WorldData {
 
         WorldData {
             map: chunks,
+            containers: HashMap::new(),
             mobs: legacy.mobs,
             seed: legacy.seed,
             name: legacy.name,

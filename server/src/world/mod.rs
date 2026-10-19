@@ -1,5 +1,6 @@
 pub mod broadcast_world;
 pub mod chunk_files;
+pub mod container_files;
 pub(crate) mod data;
 pub mod dropped_items;
 pub mod flow;
