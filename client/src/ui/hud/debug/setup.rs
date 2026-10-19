@@ -126,12 +126,12 @@ pub fn toggle_hud_system(
     }
 }
 
-#[cfg(test)]
+// The inspector exists only in debug builds
+#[cfg(all(test, debug_assertions))]
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
-    #[cfg(debug_assertions)]
     #[test]
     fn the_inspector_runs_only_while_the_debug_overlay_is_shown() {
         let mut world = World::new();
