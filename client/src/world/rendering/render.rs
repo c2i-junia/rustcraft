@@ -14,7 +14,7 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::{
-    world::{global_block_to_chunk_pos, world_position_to_chunk_position, ChunkMap},
+    world::{global_block_to_chunk_pos, world_position_to_chunk_position, BlockData, ChunkMap},
     CHUNK_SIZE,
 };
 
@@ -25,7 +25,7 @@ use crate::{
     world::{self, MaterialResource, WorldRenderRequestUpdateEvent},
 };
 
-use crate::world::{ChunkRender, ClientWorldMap};
+use crate::world::{BlockChanged, ChunkRender, ClientWorldMap};
 
 use super::meshing::ChunkMeshResponse;
 
@@ -146,16 +146,45 @@ fn sort_nearest_first(chunks: &mut [IVec3], center: IVec3) {
     chunks.sort_by_key(|chunk| chunk.distance_squared(center));
 }
 
+/// Whether a block that went from `before` to `after` is drawn the same: only the hits it took
+/// changed, and its cracks stay at the same stage.
+fn drawn_the_same(before: Option<BlockData>, after: Option<BlockData>) -> bool {
+    let (Some(before), Some(after)) = (before, after) else {
+        return false;
+    };
+    let cracks =
+        |block: &BlockData| (block.breaking_progress > 0).then(|| block.get_breaking_level());
+    let unhit = |block: BlockData| BlockData {
+        breaking_progress: 0,
+        ..block
+    };
+    unhit(before) == unhit(after) && cracks(&before) == cracks(&after)
+}
+
 /// Asks for a new mesh of every chunk that a block changed since the last call: by the server,
-/// or by this client's own prediction.
+/// or by this client's own prediction. A hit that leaves the cracks of a block at the same stage
+/// changes nothing on screen: mining a block would otherwise mesh its chunk again on each hit.
 pub fn request_remesh_of_changed_blocks_system(
     mut world_map: ResMut<ClientWorldMap>,
+    mut block_changes: MessageReader<BlockChanged>,
     mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
 ) {
+    // A position is left out only when every change told of it looks the same: a change
+    // nobody told of is meshed
+    let mut drawn_again = HashSet::new();
+    let mut unchanged_look = HashSet::new();
+    for change in block_changes.read() {
+        if drawn_the_same(change.before, change.after) {
+            unchanged_look.insert(change.position);
+        } else {
+            drawn_again.insert(change.position);
+        }
+    }
     let chunks_to_remesh: HashSet<IVec3> = world_map
         .blocks
         .take_changed_blocks()
         .into_iter()
+        .filter(|pos| !unchanged_look.contains(pos) || drawn_again.contains(pos))
         .flat_map(chunks_touched_by_block)
         .collect();
     for chunk_pos in chunks_to_remesh {
@@ -298,8 +327,94 @@ pub fn chunk_force_reload_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::message::Messages;
+    use bevy::ecs::system::RunSystemOnce;
     use bevy::ecs::world::CommandQueue;
     use bevy::mesh::PrimitiveTopology;
+    use shared::world::{BlockData, BlockDirection, BlockId, Chunk};
+
+    /// The chunks a remesh is asked for after the block at (5, 5, 5) goes from `before` to
+    /// `after`, as told by a `BlockChanged`.
+    fn remeshed_after(before: BlockData, after: BlockData) -> usize {
+        let mut world = World::new();
+        let mut map = ClientWorldMap::default();
+        map.blocks.insert_chunk(IVec3::ZERO, Chunk::new());
+        map.blocks.set_block(IVec3::splat(5), before);
+        map.blocks.take_changed_blocks();
+        map.blocks.set_block(IVec3::splat(5), after);
+        world.insert_resource(map);
+        world.init_resource::<Messages<BlockChanged>>();
+        world.init_resource::<Messages<WorldRenderRequestUpdateEvent>>();
+        world.write_message(BlockChanged {
+            position: IVec3::splat(5),
+            before: Some(before),
+            after: Some(after),
+            by_local_player: true,
+        });
+        world
+            .run_system_once(request_remesh_of_changed_blocks_system)
+            .unwrap();
+        world
+            .resource_mut::<Messages<WorldRenderRequestUpdateEvent>>()
+            .drain()
+            .count()
+    }
+
+    /// How many meshes of its chunk mining each block takes, one hit at a time, before and
+    /// after the hits that do not change the cracks were left out.
+    #[test]
+    #[ignore = "benchmark: run it with --ignored"]
+    fn bench_mining_remeshes() {
+        let (mut hits, mut meshes) = (0, 0);
+        let mined = [
+            BlockId::Dirt,
+            BlockId::Grass,
+            BlockId::Sand,
+            BlockId::Stone,
+            BlockId::Cobblestone,
+            BlockId::OakLog,
+            BlockId::OakPlanks,
+            BlockId::OakLeaves,
+        ];
+        for id in mined {
+            let break_time = id.get_break_time().unwrap();
+            let hit = |progress| BlockData {
+                breaking_progress: progress,
+                ..BlockData::new(id, BlockDirection::Front)
+            };
+            // The last hit breaks the block, which always changes its chunk
+            hits += break_time as usize;
+            meshes += 1
+                + (1..break_time)
+                    .filter(|&progress| {
+                        !drawn_the_same(Some(hit(progress - 1)), Some(hit(progress)))
+                    })
+                    .count();
+        }
+        println!(
+            "mining {} kinds of block: {hits} meshes before, {meshes} now",
+            mined.len()
+        );
+    }
+
+    #[test]
+    fn a_hit_remeshes_only_when_the_cracks_of_the_block_change() {
+        let hit = |progress| BlockData {
+            breaking_progress: progress,
+            ..BlockData::new(BlockId::Stone, BlockDirection::Front)
+        };
+        let level = |progress| hit(progress).get_breaking_level();
+        // Two hits a stage, as stone takes 20
+        assert_eq!((level(2), level(3), level(4)), (1, 1, 2));
+        assert_eq!(remeshed_after(hit(2), hit(3)), 0, "same stage");
+        assert_eq!(remeshed_after(hit(3), hit(4)), 1, "next stage");
+        assert_eq!(remeshed_after(hit(0), hit(1)), 1, "the cracks appear");
+        let turned = BlockData {
+            direction: BlockDirection::Back,
+            ..hit(3)
+        };
+        assert_eq!(remeshed_after(hit(2), turned), 1, "turned");
+    }
 
     fn sorted(mut chunks: Vec<IVec3>) -> Vec<IVec3> {
         chunks.sort_by_key(|c| (c.x, c.y, c.z));
