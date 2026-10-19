@@ -6,6 +6,7 @@
 //! ```
 
 use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -49,11 +50,15 @@ fn median(mut samples: Vec<f64>) -> f64 {
 fn bench_generation() {
     let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
     let mut by_kind: HashMap<&str, Vec<f64>> = HashMap::new();
+    let mut checksum = DefaultHasher::new();
     let start = Instant::now();
     for chunk_pos in render_cube(radius) {
         let one = Instant::now();
         let chunk = black_box(generate_chunk(chunk_pos, SEED));
         let time = micros(one);
+        for (pos, block) in chunk.iter() {
+            (chunk_pos, pos, block.id as u32).hash(&mut checksum);
+        }
         let full = chunk.iter().count();
         let kind = match full {
             0 => "air",
@@ -64,8 +69,9 @@ fn bench_generation() {
     }
     let total = start.elapsed().as_secs_f64() * 1e3;
     println!(
-        "generation: {} chunks (radius {radius}) in {total:.1} ms on one thread",
-        render_cube(radius).len()
+        "generation: {} chunks (radius {radius}) in {total:.1} ms on one thread, checksum {:016x}",
+        render_cube(radius).len(),
+        checksum.finish()
     );
     for (kind, samples) in by_kind {
         println!(
