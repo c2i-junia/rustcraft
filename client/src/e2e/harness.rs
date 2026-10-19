@@ -50,7 +50,8 @@ fn latch_exit(mut exits: MessageReader<AppExit>, mut latch: ResMut<ExitLatch>) {
 pub struct Options {
     pub width: u32,
     pub height: u32,
-    pub player_name: String,
+    /// `None` starts as on a first launch: the saved name, else none.
+    pub player_name: Option<String>,
 }
 
 impl Default for Options {
@@ -58,7 +59,7 @@ impl Default for Options {
         Self {
             width: 1280,
             height: 720,
-            player_name: "Tester".to_string(),
+            player_name: Some("Tester".to_string()),
         }
     }
 }

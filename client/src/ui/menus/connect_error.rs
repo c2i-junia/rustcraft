@@ -116,8 +116,8 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
         ),
         ConnectError::InvalidName { .. } => (
             "Your name is not accepted".to_string(),
-            "Player names have 1 to 32 characters and no control characters. Start the game \
-             with another --player-name."
+            "Player names have 1 to 32 characters and no control characters. Change yours on \
+             the main menu."
                 .to_string(),
         ),
         ConnectError::LostWhileLoading => (
@@ -399,7 +399,7 @@ mod tests {
              be using the name \"Tester\".",
         );
         let invalid_name = "Player names have 1 to 32 characters and no control characters. \
-                            Start the game with another --player-name.";
+                            Change yours on the main menu.";
         for origin in [&server, &world()] {
             says(
                 ConnectError::InvalidName { name: "".into() },

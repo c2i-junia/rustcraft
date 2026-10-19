@@ -56,7 +56,11 @@ struct Args {
     )]
     assets_folder_path: Option<String>,
 
-    #[arg(short, long, help = "Player name to use for the game")]
+    #[arg(
+        short,
+        long,
+        help = "Player name to use for the game, instead of the one saved in player.ron"
+    )]
     player_name: Option<String>,
 }
 
@@ -86,7 +90,7 @@ fn main() {
         ClientSettings {
             game_folder_paths,
             texture_path: texture_path.to_string(),
-            player_name: args.player_name.unwrap_or_else(|| "Player".to_string()),
+            player_name: args.player_name,
         },
     );
     app.run();

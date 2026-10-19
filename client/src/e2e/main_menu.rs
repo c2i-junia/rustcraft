@@ -5,16 +5,20 @@ use std::time::{Duration, Instant};
 
 use accesskit::Role;
 use bevy::prelude::*;
-use bevy::ui::UiGlobalTransform;
+use bevy::ui::{InteractionDisabled, UiGlobalTransform};
 
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::{is_in, main_menu, main_menu_with};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::constants::DAY_DURATION_IN_TICKS;
+use crate::constants::{DAY_DURATION_IN_TICKS, PLAYER_NAME_PATH};
+use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
 use crate::state::GameState;
 use crate::ui::assets::TITLE_IMAGE_PATH;
 use crate::ui::menus::multi::SERVERS_TITLE;
+use crate::ui::menus::player_name::{
+    PlayerNameInput, CHOOSE_NAME_TITLE, DEFAULT_PLAYER_NAME, PLAYER_NAME_TITLE,
+};
 use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
 use crate::ui::menus::MenuState;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
@@ -283,4 +287,104 @@ fn the_logo_starts_where_the_buttons_start() {
     let letters = left_of(world, logo) + ink as f32 * logo_width / image.width() as f32;
     let buttons = left_of(world, button);
     assert!((letters - buttons).abs() < 1., "{letters} and {buttons}");
+}
+
+/// The name saved in the game folder of `h`.
+fn saved_name(h: &Harness) -> Option<String> {
+    std::fs::read_to_string(h.folder().join(PLAYER_NAME_PATH)).ok()
+}
+
+/// A client started as on a first launch: no name given.
+fn first_launch(folder: GameFolder) -> Harness {
+    let options = Options {
+        player_name: None,
+        ..Options::default()
+    };
+    let mut h = Harness::start(folder, options);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_first_launch_asks_for_a_name_and_saves_it() {
+    let mut h = first_launch(GameFolder::new());
+    let dialog = || L::role(Role::Dialog, CHOOSE_NAME_TITLE);
+    h.wait_for(&dialog(), SCREEN);
+    h.frames(2);
+    h.snapshot("choose_your_name");
+    let save = h.get(&L::role(Role::Button, "Save").within(dialog()));
+    assert!(h.world().get::<InteractionDisabled>(save).is_some());
+
+    h.type_text("Steve");
+    h.frames(2);
+    assert!(h.world().get::<InteractionDisabled>(save).is_none());
+    h.press(KeyCode::Enter);
+    h.frames(3);
+
+    assert!(!h.is_visible(&dialog()));
+    assert_eq!(h.world().resource::<CurrentPlayerProfile>().name, "Steve");
+    assert!(h.is_visible(&L::role(Role::Button, "Steve")));
+    assert!(saved_name(&h).unwrap().contains("\"Steve\""));
+    assert_eq!(h.focus_label().as_deref(), Some("Singleplayer"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_first_launch_dismissed_plays_as_player_and_saves_nothing() {
+    let mut h = first_launch(GameFolder::new());
+    h.wait_for(&L::role(Role::Dialog, CHOOSE_NAME_TITLE), SCREEN);
+    h.press(KeyCode::Escape);
+    h.frames(3);
+    assert!(!h.is_visible(&L::role(Role::Dialog, CHOOSE_NAME_TITLE)));
+    assert_eq!(
+        h.world().resource::<CurrentPlayerProfile>().name,
+        DEFAULT_PLAYER_NAME
+    );
+    assert_eq!(saved_name(&h), None);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_saved_name_is_used_without_asking() {
+    let folder = GameFolder::new().with_file(PLAYER_NAME_PATH, "(name: \"Alex\")");
+    let mut h = first_launch(folder);
+    h.frames(5);
+    assert!(h.find(&L::role(Role::Dialog, CHOOSE_NAME_TITLE)).is_empty());
+    assert_eq!(h.world().resource::<CurrentPlayerProfile>().name, "Alex");
+    assert!(h.is_visible(&L::role(Role::Button, "Alex")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_name_given_on_the_command_line_wins_over_the_saved_one() {
+    let folder = GameFolder::new().with_file(PLAYER_NAME_PATH, "(name: \"Alex\")");
+    let h = main_menu_with(folder);
+    assert_eq!(h.world().resource::<CurrentPlayerProfile>().name, "Tester");
+    assert!(saved_name(&h).unwrap().contains("\"Alex\""));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_name_button_changes_the_name() {
+    let mut h = main_menu();
+    h.click(&L::role(Role::Button, "Tester"));
+    let dialog = || L::role(Role::Dialog, PLAYER_NAME_TITLE);
+    h.wait_for(&dialog(), SCREEN);
+    h.frames(2);
+    assert_eq!(h.value_of::<PlayerNameInput>(), "Tester");
+    let save = h.get(&L::role(Role::Button, "Save").within(dialog()));
+    assert!(h.world().get::<InteractionDisabled>(save).is_some());
+
+    h.type_text("Notch");
+    h.frames(2);
+    h.press(KeyCode::Enter);
+    h.frames(3);
+
+    assert!(!h.is_visible(&dialog()));
+    let profile = h.world().resource::<CurrentPlayerProfile>();
+    assert_eq!(profile.name, "Notch");
+    assert_eq!(profile.id, hash_string_to_u64("Notch"));
+    assert!(h.is_visible(&L::role(Role::Button, "Notch")));
+    assert!(saved_name(&h).unwrap().contains("\"Notch\""));
 }

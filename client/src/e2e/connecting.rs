@@ -345,7 +345,7 @@ fn a_server_that_never_answers_times_out_then_says_it_runs_another_version() {
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn an_invalid_player_name_is_said_before_connecting() {
     let options = Options {
-        player_name: "".into(),
+        player_name: Some("".into()),
         ..default()
     };
     let mut h = Harness::start(nowhere(), options);

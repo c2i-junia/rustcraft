@@ -20,6 +20,7 @@ pub const BINDS_PATH: &str = "keybindings.ron";
 pub const AUDIO_SETTINGS_PATH: &str = "audio.ron";
 pub const INTERFACE_SETTINGS_PATH: &str = "interface.ron";
 pub const VIDEO_SETTINGS_PATH: &str = "video.ron";
+pub const PLAYER_NAME_PATH: &str = "player.ron";
 
 pub const GRASS_COLOR: [f32; 4] = [0.1, 1.0, 0.3, 1.0];
 
