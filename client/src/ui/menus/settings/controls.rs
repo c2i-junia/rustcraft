@@ -12,7 +12,10 @@ use bevy::{
     input_focus::{tab_navigation::TabIndex, FocusGained, FocusLost, FocusedInput},
     picking::hover::Hovered,
     prelude::*,
-    ui_widgets::{ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar, ScrollbarThumb},
+    ui_widgets::{
+        ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar, ScrollbarDragState,
+        ScrollbarThumb,
+    },
     window::WindowFocused,
 };
 use shared::GameFolderPaths;
@@ -119,6 +122,7 @@ pub(super) fn plugin(app: &mut App) {
             Update,
             (
                 style_key_slots,
+                style_thumb,
                 swap_hints,
                 show_keys
                     .run_if(resource_changed::<KeyMap>.or_else(resource_changed::<KeyCapture>)),
@@ -340,7 +344,8 @@ pub fn spawn_controls_tab(
                 border: UiRect::all(px(BEVEL_WIDTH)),
                 ..default()
             },
-            BackgroundColor(RAISE),
+            Hovered::default(),
+            BackgroundColor(BEVEL_HI),
             raised_bevel(),
         )],
     ));
@@ -506,6 +511,20 @@ fn show_keys(
             key.map_or(SlotContent::Empty, SlotContent::Key)
         };
         show_in_slot(&mut commands, entity, content, &font, &glyph_font);
+    }
+}
+
+/// Lightens the thumb of the scrollbar while it is under the cursor or dragged.
+fn style_thumb(
+    mut thumbs: Query<(&Hovered, &ScrollbarDragState, &mut BackgroundColor), With<ScrollbarThumb>>,
+) {
+    for (hovered, drag, mut background) in &mut thumbs {
+        let fill = if hovered.get() || drag.dragging {
+            MUTED
+        } else {
+            BEVEL_HI
+        };
+        background.set_if_neq(BackgroundColor(fill));
     }
 }
 

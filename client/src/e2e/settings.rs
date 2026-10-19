@@ -19,7 +19,7 @@ use crate::state::KeyMap;
 use crate::ui::button::MenuState;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
-use crate::ui::theme::{FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, RAISE_HOVER};
+use crate::ui::theme::{BEVEL_HI, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -482,6 +482,15 @@ fn rect_of_entity(h: &Harness, entity: Entity) -> Rect {
     Rect::from_center_size(center, size)
 }
 
+/// The fill of the thumb of the controls' scrollbar.
+fn thumb_fill(h: &mut Harness) -> Color {
+    h.world_mut()
+        .query_filtered::<&BackgroundColor, With<ScrollbarThumb>>()
+        .single(h.world())
+        .unwrap()
+        .0
+}
+
 /// The rectangle of the thumb of the controls' scrollbar, which the scrollbar lays out itself.
 fn thumb_rect(h: &mut Harness) -> Rect {
     let thumb = h
@@ -541,6 +550,11 @@ fn the_wheel_scrolls_the_controls_list_under_the_cursor() {
     assert!(scrolled.y < before.y, "{before} then {scrolled}");
     let moved = thumb_rect(&mut h);
     assert!(moved.min.y > thumb.min.y, "{thumb:?} then {moved:?}");
+    // the thumb stands out from its track, and lightens under the cursor
+    assert_eq!(thumb_fill(&mut h), BEVEL_HI);
+    h.hover_at(moved.center());
+    h.frames(2);
+    assert_eq!(thumb_fill(&mut h), MUTED);
 
     // over the tabs, the wheel moves nothing
     h.hover(&L::role(Role::Tab, "Audio"));
