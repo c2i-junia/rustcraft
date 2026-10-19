@@ -26,9 +26,11 @@ use super::worlds::{
     elapsed_since, format_size, list_worlds, played_ago, start_world, thumbnail_color, WorldSummary,
 };
 use super::{
-    follow_focus_with_hints, list_hint_bar, neighbour, text, ListFocus, ListHints, MenuState,
+    follow_focus_with_hints, list_hint_bar, neighbour, returning_card, text, ListFocus, ListHints,
+    MenuState,
 };
 use crate::constants::SAVE_PATH;
+use crate::network::session::SessionEnd;
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::{
@@ -154,8 +156,8 @@ pub fn solo_plugin(app: &mut App) {
         .add_observer(act_on_selected_world);
 }
 
-/// Spawns the screen, then lists the worlds.
-fn solo_setup(mut commands: Commands, assets: Res<AssetServer>) {
+/// Spawns the screen, then lists the worlds, the card of a cancelled session's world focused.
+fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<AssetServer>) {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let root = commands
         .spawn((
@@ -238,9 +240,10 @@ fn solo_setup(mut commands: Commands, assets: Res<AssetServer>) {
     ));
     commands.spawn((list_hint_bar::<SoloHints>(&assets), ChildOf(root)));
     commands.trigger(WorldsChanged {
-        focus: None,
+        focus: returning_card(end.as_deref(), true),
         error: None,
     });
+    commands.remove_resource::<SessionEnd>();
 }
 
 /// Spawns the detail pane in `body`: the facts of the selected world, Play, Rename, Delete, and the line
@@ -610,7 +613,13 @@ fn play_or_delete_on_key(
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     match input.key_code {
         KeyCode::Enter if !control => {
-            start_world(&card.0.name, &mut selected, &mut game, &mut menu);
+            start_world(
+                &card.0.name,
+                &mut selected,
+                &mut commands,
+                &mut game,
+                &mut menu,
+            );
         }
         KeyCode::Delete => {
             let next = neighbour(&card_names(&lists, &children, &cards), &card.0.name);
@@ -641,7 +650,13 @@ fn act_on_selected_world(
         return;
     };
     match action {
-        WorldAction::Play => start_world(&card.0.name, &mut selected, &mut game, &mut menu),
+        WorldAction::Play => start_world(
+            &card.0.name,
+            &mut selected,
+            &mut commands,
+            &mut game,
+            &mut menu,
+        ),
         WorldAction::Rename => {
             let others = cards
                 .iter()

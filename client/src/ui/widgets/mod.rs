@@ -11,6 +11,7 @@ pub mod dialog;
 pub mod focus;
 pub mod hints;
 pub mod list;
+pub mod progress;
 pub mod scale;
 pub mod scroll;
 pub mod segmented;
@@ -47,6 +48,7 @@ pub fn widgets_plugin(app: &mut App) {
     dialog::plugin(app);
     focus::plugin(app);
     list::plugin(app);
+    progress::plugin(app);
     scale::plugin(app);
     segmented::plugin(app);
     slider::plugin(app);

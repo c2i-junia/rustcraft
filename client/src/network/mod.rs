@@ -21,10 +21,11 @@ pub use extensions::SendGameMessageExtension;
 pub use inputs::*;
 pub use setup::*;
 
-/// The connection to the server: the client buffers, the polling of its messages, the upload of
-/// the player inputs and the stop of the embedded server. The transport itself is set up by
-/// `add_base_netcode`.
+/// The connection to the server: the watch of the session being opened, the client buffers, the
+/// polling of its messages, the upload of the player inputs and the stop of the embedded server.
+/// The transport itself is set up by `add_base_netcode`.
 pub fn network_plugin(app: &mut App) {
+    session::session_plugin(app);
     app.init_resource::<CurrentPlayerProfile>()
         .init_resource::<PlayerTickInputsBuffer>()
         .init_resource::<CurrentFrameInputs>()

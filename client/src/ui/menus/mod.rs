@@ -1,8 +1,8 @@
 pub mod background;
+pub mod connecting;
 pub mod home;
 pub mod multi;
 pub mod pause;
-pub mod server_connect_loading;
 pub mod servers;
 pub mod settings;
 pub mod solo;
@@ -11,11 +11,11 @@ pub mod worlds;
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 pub use home::*;
-pub use server_connect_loading::*;
 
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
 
+use crate::network::session::SessionEnd;
 use crate::state::{GameState, MenuCamera};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::widgets::dialog::{dialog_open, CloseRequest, DialogRoot};
@@ -59,33 +59,59 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Menu))
                 .run_if(not(dialog_open))
                 .run_if(not(text_field_focused)),
-        )
-        // The loading screen is shown while connecting, between the menu and the game
-        .add_systems(
-            Update,
-            update_server_connect_loading_screen.run_if(in_state(GameState::PreGameLoading)),
         );
+    connecting::connecting_plugin(app);
     settings::settings_plugin(app);
     solo::solo_plugin(app);
     multi::multi_plugin(app);
 }
 
-/// Spawns the camera of the menus and opens the main menu.
-fn menu_setup(mut menu_state: ResMut<NextState<MenuState>>, mut commands: Commands) {
+/// Spawns the camera of the menus and opens their first screen.
+fn menu_setup(
+    end: Option<Res<SessionEnd>>,
+    mut menu_state: ResMut<NextState<MenuState>>,
+    mut commands: Commands,
+) {
     commands.spawn((
         Camera2d,
         MenuCamera,
         PrimaryEguiContext,
         DespawnOnExit(GameState::Menu),
     ));
-    menu_state.set(MenuState::Main);
+    menu_state.set(first_menu(end.as_deref()));
 }
 
+/// The first screen of the menus: the list a cancelled session came from, else the main menu
+/// (the error card from Task 4).
+pub fn first_menu(end: Option<&SessionEnd>) -> MenuState {
+    match end {
+        Some(SessionEnd {
+            origin,
+            error: None,
+        }) if origin.is_world() => MenuState::Solo,
+        Some(SessionEnd { error: None, .. }) => MenuState::Multi,
+        _ => MenuState::Main,
+    }
+}
+
+/// The card a list screen focuses on opening: its session's origin, which it then forgets.
+/// `world` tells the world list from the server list.
+fn returning_card(end: Option<&SessionEnd>, world: bool) -> Option<String> {
+    end.filter(|end| end.origin.is_world() == world)
+        .map(|end| end.origin.name().to_string())
+}
+
+/// Escape on a list screen goes back to the main menu, unless the menus are left this frame
+/// (a join or a world started in the same frame).
 fn escape_button(
     keys: Res<ButtonInput<KeyCode>>,
     menu_state: ResMut<State<MenuState>>,
     mut next_menu_state: ResMut<NextState<MenuState>>,
+    game: Res<NextState<GameState>>,
 ) {
+    if !matches!(*game, NextState::Unchanged) {
+        return;
+    }
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
             MenuState::Solo | MenuState::Multi => next_menu_state.set(MenuState::Main),
@@ -239,7 +265,81 @@ impl ListFocus<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    use bevy::state::app::StatesPlugin;
+
     use super::*;
+    use crate::network::session::{SessionEnd, SessionOrigin};
+
+    #[test]
+    fn the_menus_open_where_a_cancelled_session_came_from() {
+        let cancelled = |origin| SessionEnd {
+            origin,
+            error: None,
+        };
+        let world = SessionOrigin::World {
+            name: "Survie".into(),
+        };
+        let server = SessionOrigin::Server {
+            name: "Friends".into(),
+            ip: "127.0.0.1:8000".into(),
+            address: "127.0.0.1:8000".parse().unwrap(),
+        };
+        assert_eq!(first_menu(None), MenuState::Main);
+        assert_eq!(first_menu(Some(&cancelled(world))), MenuState::Solo);
+        assert_eq!(first_menu(Some(&cancelled(server))), MenuState::Multi);
+    }
+
+    #[test]
+    fn a_list_focuses_the_card_its_session_came_from() {
+        let cancelled = SessionEnd {
+            origin: SessionOrigin::World {
+                name: "Survie".into(),
+            },
+            error: None,
+        };
+        assert_eq!(
+            returning_card(Some(&cancelled), true).as_deref(),
+            Some("Survie")
+        );
+        assert_eq!(returning_card(Some(&cancelled), false), None);
+        assert_eq!(returning_card(None, true), None);
+    }
+
+    /// What Escape on the Multiplayer screen asks of the menus, in a frame that has already
+    /// asked to leave them for the connecting card when `leaving`.
+    fn escape_on_multi(leaving: bool) -> NextState<MenuState> {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin)
+            .init_state::<GameState>()
+            .insert_state(MenuState::Multi)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(
+                Update,
+                (
+                    move |mut game: ResMut<NextState<GameState>>| {
+                        if leaving {
+                            game.set(GameState::PreGameLoading);
+                        }
+                    },
+                    escape_button,
+                )
+                    .chain(),
+            );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+        app.world().resource::<NextState<MenuState>>().clone()
+    }
+
+    #[test]
+    fn escape_stands_down_in_the_frame_the_menus_are_left() {
+        assert!(matches!(
+            escape_on_multi(false),
+            NextState::Pending(MenuState::Main)
+        ));
+        assert!(matches!(escape_on_multi(true), NextState::Unchanged));
+    }
 
     #[test]
     fn a_deleted_card_hands_the_focus_to_the_next_else_the_previous() {

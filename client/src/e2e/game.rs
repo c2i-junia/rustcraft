@@ -1,5 +1,5 @@
-//! The game, through the integrated server: the connection screen, the HUD, the hotbar, the
-//! inventory and its crafting grid, the chat, the pause menu, and leaving.
+//! The game, through the integrated server: the HUD, the hotbar, the inventory and its crafting
+//! grid, the chat, the pause menu, and leaving.
 
 use std::fs;
 
@@ -129,20 +129,6 @@ impl Harness {
         let atlas = self.world().resource::<MaterialResource>().items.as_ref()?;
         Some(atlas.sprite(&format!("{item:?}"))?.index)
     }
-}
-
-#[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_connection_screen_shows_then_cancel_returns_to_the_menu() {
-    // Nothing answers on the discard port
-    let folder = GameFolder::new().with_servers(&[("Nowhere", "127.0.0.1:9")]);
-    let mut h = Harness::start(folder, Options::default());
-    h.wait_for(&L::text("Multiplayer"), STARTUP);
-    h.click(&L::text("Multiplayer"));
-    h.join_server_card("Nowhere");
-    h.wait_for(&L::text_containing("Connecting to server"), SCREEN);
-    h.click(&L::text("[Cancel]"));
-    h.wait_for_game_state(GameState::Menu, SCREEN);
 }
 
 #[test]

@@ -318,9 +318,16 @@ fn play_last_world(
     mut selected: ResMut<SelectedWorld>,
     mut game: ResMut<NextState<GameState>>,
     mut menu: ResMut<NextState<MenuState>>,
+    mut commands: Commands,
 ) {
     if let Ok(card) = cards.single() {
-        start_world(&card.world, &mut selected, &mut game, &mut menu);
+        start_world(
+            &card.world,
+            &mut selected,
+            &mut commands,
+            &mut game,
+            &mut menu,
+        );
     }
 }
 
@@ -331,12 +338,19 @@ pub fn continue_on_ctrl_enter(
     mut selected: ResMut<SelectedWorld>,
     mut game: ResMut<NextState<GameState>>,
     mut menu: ResMut<NextState<MenuState>>,
+    mut commands: Commands,
 ) {
     if !(keys.just_pressed(KeyCode::Enter) && ctrl_held(&keys)) {
         return;
     }
     if let Ok(card) = cards.single() {
-        start_world(&card.world, &mut selected, &mut game, &mut menu);
+        start_world(
+            &card.world,
+            &mut selected,
+            &mut commands,
+            &mut game,
+            &mut menu,
+        );
     }
 }
 

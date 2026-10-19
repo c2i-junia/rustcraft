@@ -15,6 +15,7 @@ use shared::world::WorldSeed;
 use super::solo::SelectedWorld;
 use super::MenuState;
 use crate::constants::DAY_DURATION_IN_TICKS;
+use crate::network::session::SessionOrigin;
 use crate::state::GameState;
 use crate::ui::theme::RAISE;
 
@@ -349,14 +350,21 @@ pub fn thumbnail_color(seed: Option<u32>) -> Color {
     })
 }
 
-/// Leaves the menus to play the world `name`.
+/// Leaves the menus to play the world `name`, unless the game already leaves them this frame.
 pub fn start_world(
     name: &str,
     selected: &mut SelectedWorld,
+    commands: &mut Commands,
     game: &mut NextState<GameState>,
     menu: &mut NextState<MenuState>,
 ) {
+    if !matches!(game, NextState::Unchanged) {
+        return;
+    }
     selected.name = Some(name.to_string());
+    commands.insert_resource(SessionOrigin::World {
+        name: name.to_string(),
+    });
     game.set(GameState::PreGameLoading);
     menu.set(MenuState::Disabled);
 }

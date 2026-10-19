@@ -2,7 +2,7 @@
 //! from, the step it is at, and why it ended, as plain functions the systems call.
 
 use std::net::SocketAddr;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeDisconnectReason;
@@ -10,8 +10,10 @@ use shared::messages::sanitize_username;
 use shared::world::ChunkMap;
 use shared::BROADCAST_CHUNK_RADIUS;
 
+use super::{TargetServer, TargetServerState};
+use crate::state::GameState;
+
 /// Where the session being opened or played was started from.
-#[allow(dead_code)] // start_world and join_server, Task 2
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub enum SessionOrigin {
     World {
@@ -27,7 +29,6 @@ pub enum SessionOrigin {
 
 impl SessionOrigin {
     /// The name of the world or of the server, as its list shows it.
-    #[allow(dead_code)] // The connecting card, Task 2
     pub fn name(&self) -> &str {
         match self {
             SessionOrigin::World { name } | SessionOrigin::Server { name, .. } => name,
@@ -42,7 +43,6 @@ impl SessionOrigin {
 
 /// How a session ended other than by the pause menu; read by the menus when they open.
 /// `error: None` is a cancel.
-#[allow(dead_code)] // end_session, Task 2
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
 pub struct SessionEnd {
     pub origin: SessionOrigin,
@@ -73,8 +73,10 @@ pub enum ConnectError {
     /// The server has no room for another player.
     Full,
     /// The server dropped the connection before the authentication: its `name` may be in use.
+    /// `name` is the player's name as sent, once `sanitize_username` accepted it.
     Refused { name: String },
-    /// The player's `name` is not one a server accepts.
+    /// The player's `name` is not one a server accepts. `name` is the player's name as given,
+    /// which `sanitize_username` refuses.
     InvalidName { name: String },
     /// The connection dropped after the authentication, before the game.
     LostWhileLoading,
@@ -91,6 +93,80 @@ pub enum ConnectError {
     ServerStopped,
     /// The connection dropped in game.
     ConnectionLost,
+}
+
+/// The session being opened: its step and when it last changed. Exists in `PreGameLoading` only.
+#[derive(Resource)]
+pub struct ConnectWatch {
+    pub step: ConnectStep,
+    #[allow(dead_code)] // watch_connection, Task 4
+    since: Instant,
+}
+
+/// Watches the session being opened and tells its step.
+pub fn session_plugin(app: &mut App) {
+    app.add_systems(OnEnter(GameState::PreGameLoading), start_watching)
+        .add_systems(OnExit(GameState::PreGameLoading), stop_watching)
+        .add_systems(
+            Update,
+            track_connection.run_if(in_state(GameState::PreGameLoading)),
+        );
+}
+
+/// Ends the session as `error` (`None`: cancelled) unless it already ended this frame: inserts
+/// `SessionEnd` and sets `GameState::Menu`. Returns whether it did.
+pub fn end_session(
+    commands: &mut Commands,
+    game: &mut NextState<GameState>,
+    origin: &SessionOrigin,
+    error: Option<ConnectError>,
+) -> bool {
+    // whichever end comes first in the frame wins, in whatever order the systems run
+    if !matches!(game, NextState::Unchanged) {
+        return false;
+    }
+    commands.insert_resource(SessionEnd {
+        origin: origin.clone(),
+        error,
+    });
+    game.set(GameState::Menu);
+    true
+}
+
+/// Starts watching the session at its first step.
+fn start_watching(origin: Option<Res<SessionOrigin>>, mut commands: Commands) {
+    let Some(origin) = origin else {
+        return;
+    };
+    commands.insert_resource(ConnectWatch {
+        step: connect_step(&origin, false, None),
+        since: Instant::now(),
+    });
+}
+
+fn stop_watching(mut commands: Commands) {
+    commands.remove_resource::<ConnectWatch>();
+}
+
+/// Moves the watch to the step the session is at, and restarts its clock when it changed.
+fn track_connection(
+    watch: Option<ResMut<ConnectWatch>>,
+    origin: Option<Res<SessionOrigin>>,
+    target: Res<TargetServer>,
+) {
+    let (Some(mut watch), Some(origin)) = (watch, origin) else {
+        return;
+    };
+    let authenticated = matches!(
+        target.state,
+        TargetServerState::ConnectionEstablished | TargetServerState::FullyReady
+    );
+    let step = connect_step(&origin, authenticated, None);
+    // only a new step marks the watch changed: the card redraws on a change
+    if watch.step != step {
+        watch.step = step;
+        watch.since = Instant::now();
+    }
 }
 
 /// How far a session got before its connection dropped.
@@ -135,6 +211,11 @@ pub fn failure_of(
                 },
             }
         }
+        // the client's own disconnect is a cancel, which ends the session before its connection
+        // is watched: it never reaches the card
+        (Reached::Connecting, Some(NetcodeDisconnectReason::DisconnectedByClient)) => {
+            ConnectError::NoAnswer
+        }
         (Reached::Connecting, _) => ConnectError::NoAnswer,
         (Reached::Authenticated, _) => ConnectError::LostWhileLoading,
         (Reached::InGame, Some(NetcodeDisconnectReason::DisconnectedByServer)) => {
@@ -145,7 +226,6 @@ pub fn failure_of(
 }
 
 /// The step of a session; `chunks` is `None` while the local player has not spawned.
-#[allow(dead_code)] // track_connection, Task 2
 pub fn connect_step(
     origin: &SessionOrigin,
     authenticated: bool,
@@ -166,7 +246,6 @@ pub fn connect_step(
 }
 
 /// How far the progress bar is filled at `step` (Decision 3), from 0 to 1.
-#[allow(dead_code)] // The connecting card, Task 2
 pub fn progress(step: ConnectStep) -> f32 {
     match step {
         ConnectStep::StartingWorld | ConnectStep::Connecting => 0.1,
@@ -215,6 +294,7 @@ pub fn reconnect_to_world(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
     use bevy_renet::netcode::NetcodeDisconnectReason as Reason;
     use shared::world::Chunk;
 
@@ -238,6 +318,8 @@ mod tests {
             Some(Reason::ConnectionRequestTimedOut),
             Some(Reason::ConnectionResponseTimedOut),
             Some(Reason::ConnectTokenExpired),
+            Some(Reason::ConnectionTimedOut),
+            Some(Reason::DisconnectedByClient),
             None,
         ] {
             assert_eq!(
@@ -271,6 +353,8 @@ mod tests {
         for reason in [
             Some(Reason::DisconnectedByServer),
             Some(Reason::ConnectionTimedOut),
+            Some(Reason::ConnectionDenied),
+            Some(Reason::DisconnectedByClient),
             None,
         ] {
             assert_eq!(
@@ -294,6 +378,36 @@ mod tests {
                 "{reason:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_first_end_of_a_session_wins() {
+        let mut world = World::new();
+        world.init_resource::<NextState<GameState>>();
+        let ended = world
+            .run_system_once(
+                |mut commands: Commands, mut game: ResMut<NextState<GameState>>| {
+                    let origin = server();
+                    let first = end_session(
+                        &mut commands,
+                        &mut game,
+                        &origin,
+                        Some(ConnectError::NoAnswer),
+                    );
+                    let second = end_session(&mut commands, &mut game, &origin, None);
+                    (first, second)
+                },
+            )
+            .unwrap();
+        assert_eq!(ended, (true, false));
+        assert_eq!(
+            world.resource::<SessionEnd>().error,
+            Some(ConnectError::NoAnswer)
+        );
+        assert!(matches!(
+            world.resource::<NextState<GameState>>(),
+            NextState::Pending(GameState::Menu)
+        ));
     }
 
     #[test]
@@ -350,6 +464,18 @@ mod tests {
         );
         assert!(values[4] <= 1.0);
         assert_eq!(progress(ConnectStep::StartingWorld), 0.1);
+        // no chunk to wait for is all of them; more than expected is no more than all
+        let all = 0.2 + 0.7;
+        let empty = progress(ConnectStep::LoadingChunks {
+            received: 0,
+            total: 0,
+        });
+        assert!((empty - all).abs() < 1e-6, "{empty}");
+        let over = progress(ConnectStep::LoadingChunks {
+            received: 30,
+            total: 27,
+        });
+        assert!((over - all).abs() < 1e-6, "{over}");
     }
 
     #[test]

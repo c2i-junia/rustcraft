@@ -111,7 +111,7 @@ fn card_names(h: &mut Harness) -> Vec<String> {
 }
 
 /// The name of the server of the selected card.
-fn selected_server(h: &mut Harness) -> Option<String> {
+pub(super) fn selected_server(h: &mut Harness) -> Option<String> {
     let world = h.world_mut();
     let mut selected = world.query_filtered::<&ServerCard, With<Selected>>();
     let names: Vec<String> = selected
@@ -407,10 +407,11 @@ fn join_hands_a_host_name_over_with_the_default_port() {
     h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
     let default = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8000);
     assert_eq!(target_address(&h), Some(default));
-    // its font loaded, the connecting screen lays out again: [Cancel] moves until then
-    h.wait_for(&L::text_containing("Connecting to server"), SCREEN);
-    h.click(&L::text("[Cancel]"));
+    h.click(&L::role(Role::Button, "Cancel"));
     h.wait_for_game_state(GameState::Menu, SCREEN);
+    h.frames(2);
+    assert_eq!(h.menu_state(), MenuState::Multi);
+    assert_eq!(selected_server(&mut h).as_deref(), Some("Home"));
 }
 
 /// Whether `gated_resolve` may answer.

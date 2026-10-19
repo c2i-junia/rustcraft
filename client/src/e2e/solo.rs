@@ -83,7 +83,7 @@ fn card_names(h: &mut Harness) -> Vec<String> {
 }
 
 /// The name of the world of the selected card.
-fn selected_world(h: &mut Harness) -> Option<String> {
+pub(super) fn selected_world(h: &mut Harness) -> Option<String> {
     let world = h.world_mut();
     let mut selected = world.query_filtered::<&WorldCard, With<Selected>>();
     let names: Vec<String> = selected

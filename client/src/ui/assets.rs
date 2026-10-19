@@ -3,7 +3,6 @@ use bevy::prelude::*;
 // Path to fonts
 pub const FONT_PATH: &str = "./fonts/RustCraftRegular-Bmg3.otf";
 pub const MONO_FONT_PATH: &str = "fonts/FiraMono-Medium.ttf";
-pub const SANS_FONT_PATH: &str = "fonts/FiraSans-SemiBold.ttf";
 
 // Path to icons
 pub const BACKGROUND_IMAGE_PATH: &str = "./graphics/background.png";

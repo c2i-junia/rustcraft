@@ -29,11 +29,12 @@ use shared::GameFolderPaths;
 use super::background::menu_background;
 use super::servers::{read_servers, ServerItem};
 use super::{
-    follow_focus_with_hints, list_hint_bar, neighbour, text, ListEmpty, ListFocus, ListHints,
-    ListUnreadable, MenuState,
+    follow_focus_with_hints, list_hint_bar, neighbour, returning_card, text, ListEmpty, ListFocus,
+    ListHints, ListUnreadable, MenuState,
 };
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::{parse_server_address, AddressResolver};
+use crate::network::session::{SessionEnd, SessionOrigin};
 use crate::network::status::{InFlight, ServerStatus, StatusProbe};
 use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
@@ -100,9 +101,11 @@ pub struct RefreshButton;
 #[derive(Component)]
 struct BackButton;
 
-/// A join waiting for its address to resolve, on the screen's root: leaving the screen drops it.
+/// A join of `server` waiting for its address to resolve, on the screen's root: leaving the
+/// screen drops it.
 #[derive(Component)]
 struct PendingJoin {
+    server: ServerItem,
     host: String,
     address: InFlight<io::Result<SocketAddr>>,
 }
@@ -222,8 +225,9 @@ pub fn multi_plugin(app: &mut App) {
         .add_observer(act_on_selected_server);
 }
 
-/// Spawns the screen, then lists the servers, which asks them for their status.
-fn multi_setup(mut commands: Commands, assets: Res<AssetServer>) {
+/// Spawns the screen, then lists the servers, which asks them for their status, the card of a
+/// cancelled session's server focused.
+fn multi_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<AssetServer>) {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let root = commands
         .spawn((
@@ -314,9 +318,10 @@ fn multi_setup(mut commands: Commands, assets: Res<AssetServer>) {
     ));
     commands.spawn((list_hint_bar::<MultiHints>(&assets), ChildOf(root)));
     commands.trigger(ServersChanged {
-        focus: None,
+        focus: returning_card(end.as_deref(), false),
         error: None,
     });
+    commands.remove_resource::<SessionEnd>();
 }
 
 /// Spawns the detail pane in `body`: the facts of the selected server, Join, Edit and Remove, and
@@ -743,6 +748,7 @@ fn start_join(
     show_server_error(errors, looking_up);
     let host = address.host.clone();
     commands.entity(root).insert(PendingJoin {
+        server: server.clone(),
         host,
         address: InFlight::spawn(
             Err(io::Error::other("cannot start the lookup")),
@@ -772,7 +778,7 @@ pub(super) fn cancel_join(commands: &mut Commands) {
 }
 
 /// Hands the address of a join over to the connection once it is resolved, or says the host
-/// was not found.
+/// was not found. A join resolved in the frame the screen is left, by Escape, is dropped.
 fn finish_join(
     pending: Query<(Entity, &PendingJoin)>,
     mut errors: ErrorLines,
@@ -786,8 +792,18 @@ fn finish_join(
             continue;
         };
         commands.entity(root).remove::<PendingJoin>();
+        if !matches!(*menu, NextState::Unchanged) {
+            continue;
+        }
         match result {
-            Ok(address) => join_server(address, &mut target, &mut game, &mut menu),
+            Ok(address) => join_server(
+                &join.server,
+                address,
+                &mut target,
+                &mut commands,
+                &mut game,
+                &mut menu,
+            ),
             Err(e) => {
                 warn!("Cannot find the server {:?}: {e}", join.host);
                 let message = format!("Cannot find {}", join.host);
@@ -797,14 +813,25 @@ fn finish_join(
     }
 }
 
-/// Sets `address` as the server to connect to and leaves the menus for the connecting screen.
+/// Sets `address`, which the address of `server` resolved to, as the server to connect to and
+/// leaves the menus for the connecting card, unless the game already leaves them this frame.
 pub fn join_server(
+    server: &ServerItem,
     address: SocketAddr,
     target: &mut TargetServer,
+    commands: &mut Commands,
     game: &mut NextState<GameState>,
     menu: &mut NextState<MenuState>,
 ) {
+    if !matches!(game, NextState::Unchanged) {
+        return;
+    }
     info!("Joining the server at {address}");
+    commands.insert_resource(SessionOrigin::Server {
+        name: server.name.clone(),
+        ip: server.ip.clone(),
+        address,
+    });
     target.address = Some(address);
     target.state = TargetServerState::Initial;
     game.set(GameState::PreGameLoading);
@@ -937,8 +964,8 @@ mod tests {
     use super::*;
     use crate::network::status::InFlight;
 
-    #[test]
-    fn a_join_resolved_after_the_screen_closed_hands_nothing_over() {
+    /// A bare app with the states and the target server, without a screen.
+    fn bare_app() -> App {
         let mut app = App::new();
         app.add_plugins(StatesPlugin)
             .init_state::<GameState>()
@@ -948,13 +975,28 @@ mod tests {
                 username: None,
                 session_token: None,
                 state: TargetServerState::Initial,
-            })
-            .add_systems(Update, finish_join);
-        let address: SocketAddr = "10.0.0.1:8000".parse().unwrap();
-        let pending = || PendingJoin {
+            });
+        app
+    }
+
+    /// A join of `10.0.0.1:8000` whose address is resolved.
+    fn resolved_join() -> PendingJoin {
+        PendingJoin {
+            server: ServerItem {
+                name: "Friends".to_string(),
+                ip: "10.0.0.1:8000".to_string(),
+            },
             host: "10.0.0.1".to_string(),
-            address: InFlight::ready(Ok(address)),
-        };
+            address: InFlight::ready(Ok("10.0.0.1:8000".parse().unwrap())),
+        }
+    }
+
+    #[test]
+    fn a_join_resolved_after_the_screen_closed_hands_nothing_over() {
+        let mut app = bare_app();
+        app.add_systems(Update, finish_join);
+        let address: SocketAddr = "10.0.0.1:8000".parse().unwrap();
+        let pending = resolved_join;
         let root = app.world_mut().spawn(pending()).id();
         app.world_mut().despawn(root);
         app.update();
@@ -977,5 +1019,27 @@ mod tests {
             *app.world().resource::<State<GameState>>().get(),
             GameState::PreGameLoading
         );
+    }
+
+    #[test]
+    fn a_join_resolved_in_the_frame_escape_leaves_hands_nothing_over() {
+        let mut app = bare_app();
+        app.add_systems(
+            Update,
+            (
+                |mut menu: ResMut<NextState<MenuState>>| menu.set(MenuState::Main),
+                finish_join,
+            )
+                .chain(),
+        );
+        app.world_mut().spawn(resolved_join());
+        app.update();
+        assert_eq!(app.world().resource::<TargetServer>().address, None);
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Unchanged
+        ));
+        let mut joins = app.world_mut().query::<&PendingJoin>();
+        assert_eq!(joins.iter(app.world()).count(), 0);
     }
 }

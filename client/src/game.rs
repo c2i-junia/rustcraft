@@ -14,7 +14,7 @@ use crate::network::{
 use crate::player::player_plugin;
 use crate::state::{GameSet, GameState, PreLoadingCompletion};
 use crate::ui::hud::hud_plugin;
-use crate::ui::menus::setup_server_connect_loading_screen;
+use crate::ui::menus::connecting::setup_connecting_card;
 use crate::world::{setup_materials, world_plugin, ClientWorldMap};
 
 /// Assembles the domain plugins, and holds what spans several of them: the session lifecycle
@@ -51,7 +51,7 @@ pub fn game_plugin(app: &mut App) {
             launch_local_server_system,
             init_server_connection,
             setup_materials,
-            setup_server_connect_loading_screen,
+            setup_connecting_card,
         )
             .chain(),
     )
