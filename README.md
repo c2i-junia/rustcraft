@@ -136,7 +136,7 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 - **Connection to "…" lost**, **"…" stopped**: the server stopped answering, or shut down.
   Check your network, or ask whoever runs the server, then try again.
 - **Cannot open "…"** (a world): the world could not be loaded, and the card gives the reason,
-  often its `world.ron`; or it is still closing from the last session, and opens again in a
+  often its `world.ron`; or the last world played is still closing, and this one opens in a
   moment.
 
 <br>

@@ -135,7 +135,7 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
         ),
         ConnectError::WorldBusy => (
             format!("Cannot open \"{name}\""),
-            "The world is still closing from the last session. Try again in a moment.".to_string(),
+            "The last world is still closing. Try again in a moment.".to_string(),
         ),
         ConnectError::NoConnection(reason) => (
             "Cannot connect".to_string(),
@@ -450,7 +450,7 @@ mod tests {
             ConnectError::WorldBusy,
             &world,
             "Cannot open \"Survie\"",
-            "The world is still closing from the last session. Try again in a moment.",
+            "The last world is still closing. Try again in a moment.",
         );
         says(
             ConnectError::NoConnection("no socket".into()),
