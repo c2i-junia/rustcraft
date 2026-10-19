@@ -89,12 +89,18 @@ fn bench_join_meshing() {
 ///
 /// `BENCH_WORLD` is the folder of a saved world to copy and play, as the player `BENCH_PLAYER`
 /// (default `PlayerOne`); without it, a new world is generated. The render distance is 8.
+/// `BENCH_DISK` is the folder to put the game folder in: by default it is in the temporary
+/// folder, often in memory, where syncing a file costs nothing.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_world_lifecycle() {
     use super::harness::{Options, STARTUP};
 
-    let folder = GameFolder::new().with_file("video.ron", "(render_distance: 8)");
+    let folder = match std::env::var_os("BENCH_DISK") {
+        Some(disk) => GameFolder::new_in(std::path::Path::new(&disk)),
+        None => GameFolder::new(),
+    }
+    .with_file("video.ron", "(render_distance: 8)");
     let (folder, world) = match std::env::var("BENCH_WORLD") {
         Ok(source) => (
             folder.with_world_copy("Saved", std::path::Path::new(&source)),

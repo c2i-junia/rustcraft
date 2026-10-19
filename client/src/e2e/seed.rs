@@ -55,6 +55,13 @@ impl GameFolder {
         }
     }
 
+    /// A temporary game folder in `parent`, such as a folder on the disk the game saves to.
+    pub fn new_in(parent: &Path) -> Self {
+        Self {
+            dir: Arc::new(TempDir::new_in(parent).expect("a temporary game folder")),
+        }
+    }
+
     pub fn path(&self) -> &Path {
         self.dir.path()
     }
