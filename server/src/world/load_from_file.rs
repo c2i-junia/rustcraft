@@ -138,7 +138,7 @@ fn parse_world_file(contents: &str) -> Result<WorldFile, String> {
         1 => from_str::<WorldMeta>(contents)
             .map(WorldFile::V1)
             .map_err(|err| format!("not a valid world file ({err})")),
-        2 | FORMAT_VERSION => from_str::<WorldMeta>(contents)
+        2 | 3 | FORMAT_VERSION => from_str::<WorldMeta>(contents)
             .map(WorldFile::Current)
             .map_err(|err| format!("not a valid world file ({err})")),
         newer => Err(format!(
@@ -687,13 +687,13 @@ mod tests {
     fn a_world_in_a_newer_format_version_is_refused_and_left_alone() {
         let tmp = tempfile::tempdir().unwrap();
         let text =
-            r#"(format_version: 4, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
+            r#"(format_version: 5, name: "world", seed: (1), time: 0, mobs: {}, biomes: [])"#;
         let paths = write_world_file(&tmp, text);
 
         let err = load_world_data(WORLD, &paths).err().unwrap().to_string();
 
         assert!(err.contains("world.ron"), "{err}");
-        assert!(err.contains("version 4"), "{err}");
+        assert!(err.contains("version 5"), "{err}");
         assert_eq!(
             fs::read_to_string(world_dir_of(&tmp).join("world.ron")).unwrap(),
             text

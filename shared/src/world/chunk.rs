@@ -101,41 +101,83 @@ impl fmt::Debug for Chunk {
     }
 }
 
-/// A chunk is serialized as its sequence of `CHUNK_VOLUME` cells, air included: a plain
-/// sequence is as compact as it gets once compressed, and stays readable in RON.
+/// A chunk is serialized as the runs of equal cells it is made of, in the order of the cells:
+/// a sequence of `(length, cell)`. Encoding and decoding cell by cell cost about 60 and 85 µs a
+/// chunk, a few runs cost a few µs, and most chunks are a few hundred runs (one for air).
+///
+/// The cells one by one, `CHUNK_VOLUME` of them, air included, are read too: that is how the
+/// chunks of the worlds of format version 3 and older are written. They are what a chunk is in
+/// a human-readable format such as RON, and what a chunk made of `CHUNK_VOLUME` runs is written
+/// as, so that a sequence of `CHUNK_VOLUME` elements is always cells.
 impl Serialize for Chunk {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(self.cells.iter())
+        if serializer.is_human_readable() {
+            return serializer.collect_seq(self.cells.iter());
+        }
+        let mut runs: Vec<(u16, &Option<BlockData>)> = Vec::new();
+        for cell in self.cells.iter() {
+            match runs.last_mut() {
+                Some((length, last)) if *last == cell => *length += 1,
+                _ => runs.push((1, cell)),
+            }
+        }
+        match runs.len() {
+            CHUNK_VOLUME => serializer.collect_seq(self.cells.iter()),
+            _ => serializer.collect_seq(runs),
+        }
     }
 }
 
 impl<'de> Deserialize<'de> for Chunk {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct CellsVisitor;
+        struct ChunkVisitor {
+            human_readable: bool,
+        }
 
-        impl<'de> Visitor<'de> for CellsVisitor {
+        impl<'de> Visitor<'de> for ChunkVisitor {
             type Value = Chunk;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "a sequence of exactly {CHUNK_VOLUME} cells")
+                write!(
+                    f,
+                    "runs of cells adding up to {CHUNK_VOLUME}, or exactly {CHUNK_VOLUME} cells"
+                )
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Chunk, A::Error> {
                 // Never reads past the expected length: the announced one comes from the network.
                 let mut chunk = Chunk::new();
-                for (index, cell) in chunk.cells.iter_mut().enumerate() {
-                    *cell = seq
-                        .next_element()?
-                        .ok_or_else(|| de::Error::invalid_length(index, &self))?;
+                let cells =
+                    self.human_readable || seq.size_hint().is_none_or(|n| n == CHUNK_VOLUME);
+                if cells {
+                    for (index, cell) in chunk.cells.iter_mut().enumerate() {
+                        *cell = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(index, &self))?;
+                    }
+                    if seq.next_element::<Option<BlockData>>()?.is_some() {
+                        return Err(de::Error::invalid_length(CHUNK_VOLUME + 1, &self));
+                    }
+                    return Ok(chunk);
                 }
-                if seq.next_element::<Option<BlockData>>()?.is_some() {
-                    return Err(de::Error::invalid_length(CHUNK_VOLUME + 1, &self));
+                let mut filled = 0;
+                while let Some((length, cell)) = seq.next_element::<(u16, Option<BlockData>)>()? {
+                    let end = filled + usize::from(length);
+                    if length == 0 || end > CHUNK_VOLUME {
+                        return Err(de::Error::invalid_length(end, &self));
+                    }
+                    chunk.cells[filled..end].fill(cell);
+                    filled = end;
+                }
+                if filled != CHUNK_VOLUME {
+                    return Err(de::Error::invalid_length(filled, &self));
                 }
                 Ok(chunk)
             }
         }
 
-        deserializer.deserialize_seq(CellsVisitor)
+        let human_readable = deserializer.is_human_readable();
+        deserializer.deserialize_seq(ChunkVisitor { human_readable })
     }
 }
 
@@ -308,6 +350,53 @@ mod tests {
         let chunk = sample();
         let bytes = bincode::serialize(&chunk).unwrap();
         assert_eq!(bincode::deserialize::<Chunk>(&bytes).unwrap(), chunk);
+    }
+
+    #[test]
+    fn a_chunk_is_written_as_its_runs_and_as_cells_in_ron() {
+        let chunk = sample();
+        let runs = bincode::serialize(&chunk).unwrap();
+        let cells = bincode::serialize(&chunk.cells).unwrap();
+        assert!(runs.len() * 50 < cells.len(), "{} bytes", runs.len());
+
+        let text = ron::ser::to_string(&chunk).unwrap();
+        assert_eq!(text.matches("None").count(), CHUNK_VOLUME - 3);
+        assert_eq!(ron::de::from_str::<Chunk>(&text).unwrap(), chunk);
+    }
+
+    #[test]
+    fn a_chunk_of_as_many_runs_as_cells_round_trips() {
+        let mut chunk = Chunk::new();
+        for (index, cell) in chunk.cells.iter_mut().enumerate() {
+            if index % 2 == 0 {
+                *cell = Some(block(BlockId::Stone));
+            }
+        }
+        let bytes = bincode::serialize(&chunk).unwrap();
+        assert_eq!(bincode::deserialize::<Chunk>(&bytes).unwrap(), chunk);
+    }
+
+    #[test]
+    fn runs_that_do_not_add_up_to_a_chunk_are_rejected() {
+        let stone = Some(block(BlockId::Stone));
+        for runs in [
+            vec![],
+            vec![(4095, stone)],
+            vec![(4095, stone), (2, None)],
+            vec![(0, stone), (4096, None)],
+            vec![(u16::MAX, None)],
+        ] {
+            let bytes = bincode::serialize(&runs).unwrap();
+            assert!(bincode::deserialize::<Chunk>(&bytes).is_err(), "{runs:?}");
+        }
+        let whole = bincode::serialize(&vec![(4000u16, stone), (96, None)]).unwrap();
+        assert_eq!(
+            bincode::deserialize::<Chunk>(&whole)
+                .unwrap()
+                .iter()
+                .count(),
+            4000
+        );
     }
 
     #[test]

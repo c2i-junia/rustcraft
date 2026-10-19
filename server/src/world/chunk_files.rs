@@ -319,6 +319,22 @@ mod tests {
     }
 
     #[test]
+    fn a_chunk_written_cell_by_cell_by_format_version_3_is_read() {
+        let chunk = sample_chunk();
+        let mut cells = Vec::new();
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                for z in 0..CHUNK_SIZE {
+                    cells.push(chunk.get(IVec3::new(x, y, z)).copied());
+                }
+            }
+        }
+        let version_3 = game_message_to_payload(&cells);
+        assert!(version_3.len() > encode_chunk(&chunk).len());
+        assert_eq!(decode_chunk(&version_3).unwrap(), chunk);
+    }
+
+    #[test]
     fn an_empty_chunk_encodes_small() {
         assert!(encode_chunk(&Chunk::new()).len() < 200);
     }
