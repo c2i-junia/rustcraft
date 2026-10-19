@@ -138,49 +138,52 @@ impl Harness {
         } = options;
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         let mut app = App::new();
-        app.add_plugins(
-            DefaultPlugins
-                .set(ImagePlugin::default_nearest())
-                // The game still plays its sounds, but nothing reaches the speakers
-                .set(AudioPlugin {
-                    global_volume: GlobalVolume::new(Volume::SILENT),
+        let plugins = DefaultPlugins
+            .set(ImagePlugin::default_nearest())
+            // The game still plays its sounds, but nothing reaches the speakers
+            .set(AudioPlugin {
+                global_volume: GlobalVolume::new(Volume::SILENT),
+                ..default()
+            })
+            .set(AssetPlugin {
+                file_path: data.to_string_lossy().into_owned(),
+                unapproved_path_mode: UnapprovedPathMode::Allow,
+                ..default()
+            })
+            .set(RenderPlugin {
+                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
+                    // The software renderer, lavapipe
+                    force_fallback_adapter: true,
+                    features: WgpuFeatures::POLYGON_MODE_LINE,
+                    // The Vulkan validation layer deadlocks the process when it exits
+                    // while render threads still run
+                    instance_flags: InstanceFlags::empty(),
                     ..default()
-                })
-                .set(AssetPlugin {
-                    file_path: data.to_string_lossy().into_owned(),
-                    unapproved_path_mode: UnapprovedPathMode::Allow,
+                })),
+                // Every pipeline is ready for the first frame
+                synchronous_pipeline_compilation: true,
+                ..default()
+            })
+            // Without winit the window has no surface, but it still gives the UI a cursor
+            // and a resolution
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    resolution: WindowResolution::new(width, height),
                     ..default()
-                })
-                .set(RenderPlugin {
-                    render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                        // The software renderer, lavapipe
-                        force_fallback_adapter: true,
-                        features: WgpuFeatures::POLYGON_MODE_LINE,
-                        // The Vulkan validation layer deadlocks the process when it exits
-                        // while render threads still run
-                        instance_flags: InstanceFlags::empty(),
-                        ..default()
-                    })),
-                    // Every pipeline is ready for the first frame
-                    synchronous_pipeline_compilation: true,
-                    ..default()
-                })
-                // Without winit the window has no surface, but it still gives the UI a cursor
-                // and a resolution
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        resolution: WindowResolution::new(width, height),
-                        ..default()
-                    }),
-                    exit_condition: ExitCondition::DontExit,
-                    // as the game's: the close button asks to quit
-                    close_when_requested: false,
-                    ..default()
-                })
-                .disable::<WinitPlugin>()
-                .disable::<GilrsPlugin>()
-                .disable::<LogPlugin>(),
-        );
+                }),
+                exit_condition: ExitCondition::DontExit,
+                // as the game's: the close button asks to quit
+                close_when_requested: false,
+                ..default()
+            })
+            .disable::<WinitPlugin>()
+            .disable::<GilrsPlugin>();
+        // `BENCH_TRACE` keeps the logger, which writes the spans of a build with the
+        // `bevy/trace_chrome` feature into a trace file
+        app.add_plugins(match std::env::var_os("BENCH_TRACE") {
+            Some(_) => plugins,
+            None => plugins.disable::<LogPlugin>(),
+        });
 
         let mut image = Image::new_fill(
             Extent3d {
