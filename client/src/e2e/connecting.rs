@@ -314,6 +314,11 @@ fn an_invalid_player_name_is_said_before_connecting() {
     h.frames(2);
     assert_eq!(h.menu_state(), MenuState::Multi);
     assert_eq!(selected_server(&mut h).as_deref(), Some("Nowhere"));
+
+    // the session that ended took its connection away: the next one says the same without one
+    assert!(!h.world().contains_resource::<RenetClient>());
+    h.join_server_card("Nowhere");
+    h.wait_for(&error_card("Your name is not accepted"), SCREEN);
 }
 
 #[test]

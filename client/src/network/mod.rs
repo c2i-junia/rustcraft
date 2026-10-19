@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_renet::RenetClient;
 
 use crate::state::GameState;
 use buffered_client::{CurrentFrameInputs, PlayerTickInputsBuffer, SyncTime};
@@ -40,10 +41,13 @@ pub fn network_plugin(app: &mut App) {
         .init_resource::<SyncTime>()
         .init_resource::<UnacknowledgedInputs>()
         .add_observer(network_failure_handler)
+        // a session that ended before it connected (a name no server accepts, a world still
+        // closing) has no connection: the last session's was removed when it ended
         .add_systems(
             Update,
-            establish_authenticated_connection_to_server
-                .run_if(in_state(GameState::PreGameLoading)),
+            establish_authenticated_connection_to_server.run_if(
+                in_state(GameState::PreGameLoading).and_then(resource_exists::<RenetClient>),
+            ),
         )
         // the chunks around the spawn come in before the game
         .add_systems(
