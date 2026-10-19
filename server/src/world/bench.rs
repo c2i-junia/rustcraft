@@ -243,3 +243,37 @@ fn bench_join_generation() {
         ticks.iter().sum::<f64>()
     );
 }
+
+/// A player joins a generated world: the ticks of the broadcast send its render distance.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_join_sending() {
+    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    let mut chunks = ChunkMap::default();
+    for chunk_pos in render_cube(radius) {
+        chunks.insert_chunk(chunk_pos, generate_chunk(chunk_pos, SEED));
+    }
+    let mut sent = HashSet::new();
+    let mut ticks = 0;
+    let mut bytes = 0;
+    let mut largest = 0;
+    while sent.len() < render_cube(radius).len() && ticks < 10_000 {
+        let (_, _, new_chunks) =
+            world_messages_around(&chunks, &[], PLAYER_CHUNK, radius, &mut sent);
+        let message = game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
+            tick: ticks,
+            time: ticks,
+            new_map: new_chunks,
+            mobs: HashMap::new(),
+        }));
+        bytes += message.len();
+        largest = largest.max(message.len());
+        ticks += 1;
+    }
+    println!(
+        "join sending: {ticks} ticks = {:.1} s at 20 Hz, {} KiB in all, largest message {} KiB",
+        ticks as f64 / 20.,
+        bytes / 1024,
+        largest / 1024
+    );
+}

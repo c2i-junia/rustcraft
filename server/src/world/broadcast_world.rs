@@ -185,16 +185,18 @@ fn client_world_messages(
 }
 
 /// The chunks, nearest first, that a client has not received yet, at most
-/// `MAX_CHUNKS_PER_BROADCAST`. They are recorded in `sent`.
+/// `MAX_CHUNKS_PER_BROADCAST` holding blocks: an empty chunk weighs a few bytes on the wire, so
+/// the empty ones among them do not count. They are recorded in `sent`.
 fn get_world_map_chunks_to_send(
     chunks: &ChunkMap,
     active_chunks: &[IVec3],
     sent: &mut HashSet<IVec3>,
 ) -> HashMap<IVec3, Chunk> {
     let mut map: HashMap<IVec3, Chunk> = HashMap::new();
+    let mut with_blocks = 0;
 
     for &c in active_chunks {
-        if map.len() >= MAX_CHUNKS_PER_BROADCAST {
+        if with_blocks >= MAX_CHUNKS_PER_BROADCAST {
             break;
         }
 
@@ -203,6 +205,9 @@ fn get_world_map_chunks_to_send(
             continue;
         };
         if sent.insert(c) {
+            if !chunk.is_empty() {
+                with_blocks += 1;
+            }
             map.insert(c, chunk.clone());
         }
     }
@@ -289,9 +294,20 @@ mod tests {
         assert_eq!(second.keys().copied().collect::<Vec<_>>(), vec![IVec3::X]);
     }
 
+    /// `row_of_chunks`, with a block in each chunk.
+    fn row_of_full_chunks(count: i32) -> ChunkMap {
+        let mut chunks = row_of_chunks(count);
+        for x in 0..count {
+            chunks.set_block(IVec3::new(x * CHUNK_SIZE, 0, 0), stone());
+        }
+        // As generated: no change logged
+        chunks.take_changed_blocks();
+        chunks
+    }
+
     #[test]
     fn at_most_ten_chunks_are_sent_per_call_nearest_first() {
-        let chunks = row_of_chunks(25);
+        let chunks = row_of_full_chunks(25);
         let mut sent = HashSet::new();
 
         let first = get_world_map_chunks_to_send(&chunks, &active_row(25), &mut sent);
@@ -301,6 +317,22 @@ mod tests {
         assert!((0..10).all(|x| first.contains_key(&IVec3::new(x, 0, 0))));
         assert_eq!(second.len(), 10);
         assert!((10..20).all(|x| second.contains_key(&IVec3::new(x, 0, 0))));
+    }
+
+    #[test]
+    fn empty_chunks_do_not_count_towards_the_ten() {
+        // Empty chunks at even x, chunks with a block at odd x
+        let mut chunks = row_of_chunks(40);
+        for x in (1..40).step_by(2) {
+            chunks.set_block(IVec3::new(x * CHUNK_SIZE, 0, 0), stone());
+        }
+        let mut sent = HashSet::new();
+
+        let first = get_world_map_chunks_to_send(&chunks, &active_row(40), &mut sent);
+
+        // Ten chunks with blocks, at x = 1 to 19, and the empty chunks among them
+        assert_eq!(first.values().filter(|c| !c.is_empty()).count(), 10);
+        assert_eq!(xs(first.keys()), (0..20).collect::<Vec<_>>());
     }
 
     /// What a client holds: the chunks and updates it received, applied in order.
@@ -429,7 +461,7 @@ mod tests {
 
     #[test]
     fn a_chunk_held_back_by_the_limit_is_sent_whole_with_the_change_and_no_update() {
-        let mut chunks = row_of_chunks(12);
+        let mut chunks = row_of_full_chunks(12);
         let active = active_row(12);
         let mut sent = HashSet::new();
         let first = get_world_map_chunks_to_send(&chunks, &active, &mut sent);
