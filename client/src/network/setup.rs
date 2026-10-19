@@ -18,7 +18,8 @@ use crate::state::{GameState, PlayerNameSupplied};
 use crate::ui::hud::debug::WorldBiomes;
 use crate::world::time::ClientTime;
 use crate::world::{
-    BlockChanged, RenderDistance, ServerRenderDistanceLimit, WorldRenderRequestUpdateEvent,
+    BlockChanged, ChunkLoadEvent, RenderDistance, ServerRenderDistanceLimit,
+    WorldRenderRequestUpdateEvent,
 };
 use shared::messages::{
     AuthRegisterRequest, DroppedItemsUpdate, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent,
@@ -275,6 +276,7 @@ pub fn poll_network_messages(
     mut client: ResMut<RenetClient>,
     mut world: ResMut<ClientWorldMap>,
     mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
+    mut ev_chunk_load: MessageWriter<ChunkLoadEvent>,
     mut ev_player_spawn: MessageWriter<PlayerSpawnEvent>,
     mut ev_mob_update: MessageWriter<MobUpdateEvent>,
     mut ev_player_update: MessageWriter<PlayerUpdateEvent>,
@@ -288,6 +290,7 @@ pub fn poll_network_messages(
         &mut client,
         &mut world,
         &mut ev_render,
+        &mut ev_chunk_load,
         &mut ev_player_spawn,
         &mut ev_mob_update,
         &mut ev_player_update,

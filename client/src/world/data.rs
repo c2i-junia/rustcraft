@@ -68,6 +68,13 @@ pub enum WorldRenderRequestUpdateEvent {
     ChunkToReload(IVec3),
 }
 
+/// A chunk came into `ClientWorldMap` from the server, or was unloaded from it.
+#[derive(Message, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ChunkLoadEvent {
+    Loaded(IVec3),
+    Unloaded(IVec3),
+}
+
 /// A block of `ClientWorldMap` changed: the local player predicted it, or the server sent it.
 #[derive(Message, Debug, Copy, Clone, PartialEq)]
 pub struct BlockChanged {

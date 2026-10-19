@@ -13,7 +13,7 @@ use shared::STC_AUTH_CHANNEL;
 use crate::world::time::ClientTime;
 use crate::world::ClientWorldMap;
 
-use crate::world::{BlockChanged, WorldRenderRequestUpdateEvent};
+use crate::world::{BlockChanged, ChunkLoadEvent, WorldRenderRequestUpdateEvent};
 
 use super::CachedChatConversation;
 use super::SendGameMessageExtension;
@@ -23,6 +23,7 @@ pub fn update_world_from_network(
     client: &mut ResMut<RenetClient>,
     world: &mut ResMut<ClientWorldMap>,
     ev_render: &mut MessageWriter<WorldRenderRequestUpdateEvent>,
+    ev_chunk_load: &mut MessageWriter<ChunkLoadEvent>,
     ev_player_spawn: &mut MessageWriter<PlayerSpawnEvent>,
     ev_mob_update: &mut MessageWriter<MobUpdateEvent>,
     ev_player_update: &mut MessageWriter<PlayerUpdateEvent>,
@@ -41,6 +42,7 @@ pub fn update_world_from_network(
 
                 for (pos, chunk) in world_update.new_map {
                     world.blocks.insert_chunk(pos, chunk);
+                    ev_chunk_load.write(ChunkLoadEvent::Loaded(pos));
                     // Meshes requested before this chunk arrived are outdated
                     world
                         .render
@@ -63,6 +65,7 @@ pub fn update_world_from_network(
                 debug!("Unloading {} chunks", chunks.len());
                 for chunk_pos in chunks {
                     world.unload_chunk(chunk_pos, commands);
+                    ev_chunk_load.write(ChunkLoadEvent::Unloaded(chunk_pos));
                 }
             }
             ServerToClientMessage::BlockUpdates(updates) => {

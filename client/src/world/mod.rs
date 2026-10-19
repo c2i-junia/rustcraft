@@ -30,6 +30,7 @@ pub fn world_plugin(app: &mut App) {
         .add_plugins(chunk_material_plugin)
         .add_message::<WorldRenderRequestUpdateEvent>()
         .add_message::<BlockChanged>()
+        .add_message::<ChunkLoadEvent>()
         .add_systems(
             Update,
             create_all_atlases.run_if(in_state(GameState::PreGameLoading)),
