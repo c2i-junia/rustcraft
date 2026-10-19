@@ -1,4 +1,5 @@
 use crate::state::KeyMap;
+use crate::ui::hud::hotbar::HOTBAR_KEYS;
 use crate::{constants::BINDS_PATH, input::data::GameAction};
 use bevy::prelude::*;
 use bevy::{input::ButtonInput, prelude::KeyCode};
@@ -152,8 +153,18 @@ pub fn clear_key(map: &mut KeyMap, action: GameAction, slot: usize) {
 /// Pairs that share a key on purpose: Space jumps on foot and flies up in fly mode.
 pub const SHARED_KEYS: [(GameAction, GameAction); 1] = [(GameAction::Jump, GameAction::FlyUp)];
 
-/// For each action, the keys it shares with other actions, and with which.
-pub fn conflicts(map: &KeyMap) -> BTreeMap<GameAction, Vec<(KeyCode, GameAction)>> {
+/// What else a key bound to an action does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyUse {
+    /// Another action bound to it.
+    Action(GameAction),
+    /// Selecting the hotbar slot of this index, hard-wired to the digits: `Digit1` is slot 0.
+    HotbarSlot(usize),
+}
+
+/// For each action, the keys it shares with other actions or with the hotbar digits, and with
+/// which. Escape always pauses: it is the key of the action `Escape`.
+pub fn conflicts(map: &KeyMap) -> BTreeMap<GameAction, Vec<(KeyCode, KeyUse)>> {
     let shared_on_purpose = |a: GameAction, b: GameAction| {
         SHARED_KEYS.contains(&(a, b)) || SHARED_KEYS.contains(&(b, a))
     };
@@ -164,8 +175,11 @@ pub fn conflicts(map: &KeyMap) -> BTreeMap<GameAction, Vec<(KeyCode, GameAction)
             for (&other, other_keys) in &map.map {
                 if other != action && other_keys.contains(&key) && !shared_on_purpose(action, other)
                 {
-                    shared.push((key, other));
+                    shared.push((key, KeyUse::Action(other)));
                 }
+            }
+            if let Some(slot) = HOTBAR_KEYS.iter().position(|&digit| digit == key) {
+                shared.push((key, KeyUse::HotbarSlot(slot)));
             }
         }
         if !shared.is_empty() {
@@ -318,11 +332,43 @@ mod tests {
         let expected = BTreeMap::from([
             (
                 GameAction::Jump,
-                vec![(KeyCode::KeyW, GameAction::MoveForward)],
+                vec![(KeyCode::KeyW, KeyUse::Action(GameAction::MoveForward))],
             ),
             (
                 GameAction::MoveForward,
-                vec![(KeyCode::KeyW, GameAction::Jump)],
+                vec![(KeyCode::KeyW, KeyUse::Action(GameAction::Jump))],
+            ),
+        ]);
+        assert_eq!(conflicts(&map), expected);
+    }
+
+    #[test]
+    fn the_keys_wired_in_code_are_conflicts_too() {
+        let mut map = default_bindings();
+        map.map.insert(
+            GameAction::ToggleInventory,
+            vec![KeyCode::KeyE, KeyCode::Digit1],
+        );
+        map.map.insert(GameAction::OpenChat, vec![KeyCode::Digit9]);
+        // Escape always pauses
+        map.map
+            .insert(GameAction::ReloadChunks, vec![KeyCode::Escape]);
+        let expected = BTreeMap::from([
+            (
+                GameAction::Escape,
+                vec![(KeyCode::Escape, KeyUse::Action(GameAction::ReloadChunks))],
+            ),
+            (
+                GameAction::ToggleInventory,
+                vec![(KeyCode::Digit1, KeyUse::HotbarSlot(0))],
+            ),
+            (
+                GameAction::OpenChat,
+                vec![(KeyCode::Digit9, KeyUse::HotbarSlot(8))],
+            ),
+            (
+                GameAction::ReloadChunks,
+                vec![(KeyCode::Escape, KeyUse::Action(GameAction::Escape))],
             ),
         ]);
         assert_eq!(conflicts(&map), expected);

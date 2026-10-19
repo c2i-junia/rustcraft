@@ -25,7 +25,7 @@ use shared::GameFolderPaths;
 
 use crate::input::data::{ActionCategory, GameAction};
 use crate::input::keyboard::{
-    clear_key, conflicts, default_bindings, set_key, write_keybindings, MAX_KEYS_PER_ACTION,
+    clear_key, conflicts, default_bindings, set_key, write_keybindings, KeyUse, MAX_KEYS_PER_ACTION,
 };
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
@@ -210,19 +210,33 @@ fn key_name(key: KeyCode) -> String {
     }
 }
 
-/// What the row of an action sharing the keys `shared` with other actions says: one sentence
-/// per key, in the order the keys first come, naming the other actions of that key: "W is also
-/// bound to Move forward and Jump".
-fn conflict_message(shared: &[(KeyCode, GameAction)]) -> String {
-    let mut keys: Vec<(KeyCode, Vec<&str>)> = Vec::new();
+/// What the row of an action sharing the keys `shared` with other actions or the hotbar says:
+/// one sentence per key, in the order the keys first come, naming the other actions of that key
+/// ("W is also bound to Move forward and Jump"), and one per hotbar digit ("1 also selects
+/// hotbar slot 1").
+fn conflict_message(shared: &[(KeyCode, KeyUse)]) -> String {
+    // the other actions of a key, or the hotbar slot of a digit
+    let mut sentences: Vec<(KeyCode, Vec<&str>, Option<usize>)> = Vec::new();
     for &(key, other) in shared {
-        match keys.iter_mut().find(|(k, _)| *k == key) {
-            Some((_, names)) => names.push(other.name()),
-            None => keys.push((key, vec![other.name()])),
+        match other {
+            KeyUse::Action(other) => {
+                match sentences
+                    .iter_mut()
+                    .find(|(k, _, slot)| *k == key && slot.is_none())
+                {
+                    Some((_, names, _)) => names.push(other.name()),
+                    None => sentences.push((key, vec![other.name()], None)),
+                }
+            }
+            KeyUse::HotbarSlot(slot) => sentences.push((key, Vec::new(), Some(slot))),
         }
     }
-    keys.iter()
-        .map(|(key, names)| format!("{} is also bound to {}", key_name(*key), and_list(names)))
+    sentences
+        .iter()
+        .map(|(key, names, slot)| match slot {
+            Some(slot) => format!("{} also selects hotbar slot {}", key_name(*key), slot + 1),
+            None => format!("{} is also bound to {}", key_name(*key), and_list(names)),
+        })
         .collect::<Vec<_>>()
         .join(" · ")
 }
@@ -870,38 +884,57 @@ mod tests {
     #[test]
     fn a_conflict_message_names_the_key_and_the_other_action() {
         assert_eq!(
-            conflict_message(&[(KeyCode::KeyW, GameAction::MoveForward)]),
+            conflict_message(&[(KeyCode::KeyW, KeyUse::Action(GameAction::MoveForward))]),
             "W is also bound to Move forward"
         );
         assert_eq!(
             conflict_message(&[
-                (KeyCode::KeyW, GameAction::MoveForward),
-                (KeyCode::KeyE, GameAction::ToggleInventory),
+                (KeyCode::KeyW, KeyUse::Action(GameAction::MoveForward)),
+                (KeyCode::KeyE, KeyUse::Action(GameAction::ToggleInventory)),
             ]),
             "W is also bound to Move forward · E is also bound to Inventory"
         );
         // the font of the texts has no arrows: only key caps draw them
         assert_eq!(
-            conflict_message(&[(KeyCode::ArrowUp, GameAction::MoveForward)]),
+            conflict_message(&[(KeyCode::ArrowUp, KeyUse::Action(GameAction::MoveForward))]),
             "Up arrow is also bound to Move forward"
         );
         // one sentence per key, naming every other action of that key
         assert_eq!(
             conflict_message(&[
-                (KeyCode::ArrowUp, GameAction::MoveForward),
-                (KeyCode::ArrowUp, GameAction::MoveBackward),
+                (KeyCode::ArrowUp, KeyUse::Action(GameAction::MoveForward)),
+                (KeyCode::ArrowUp, KeyUse::Action(GameAction::MoveBackward)),
             ]),
             "Up arrow is also bound to Move forward and Move backward"
         );
         assert_eq!(
             conflict_message(&[
-                (KeyCode::KeyW, GameAction::MoveForward),
-                (KeyCode::KeyE, GameAction::ToggleInventory),
-                (KeyCode::KeyW, GameAction::MoveBackward),
-                (KeyCode::KeyW, GameAction::OpenChat),
+                (KeyCode::KeyW, KeyUse::Action(GameAction::MoveForward)),
+                (KeyCode::KeyE, KeyUse::Action(GameAction::ToggleInventory)),
+                (KeyCode::KeyW, KeyUse::Action(GameAction::MoveBackward)),
+                (KeyCode::KeyW, KeyUse::Action(GameAction::OpenChat)),
             ]),
             "W is also bound to Move forward, Move backward and Chat \
              · E is also bound to Inventory"
+        );
+    }
+
+    #[test]
+    fn a_conflict_message_names_the_hotbar_slot_of_a_digit() {
+        assert_eq!(
+            conflict_message(&[(KeyCode::Digit1, KeyUse::HotbarSlot(0))]),
+            "1 also selects hotbar slot 1"
+        );
+        // a sentence of its own, beside the one naming the other actions of the key
+        assert_eq!(
+            conflict_message(&[
+                (KeyCode::Digit3, KeyUse::Action(GameAction::Jump)),
+                (KeyCode::Digit3, KeyUse::Action(GameAction::OpenChat)),
+                (KeyCode::Digit3, KeyUse::HotbarSlot(2)),
+                (KeyCode::Escape, KeyUse::Action(GameAction::Escape)),
+            ]),
+            "3 is also bound to Jump and Chat · 3 also selects hotbar slot 3 \
+             · Escape is also bound to Pause"
         );
     }
 
