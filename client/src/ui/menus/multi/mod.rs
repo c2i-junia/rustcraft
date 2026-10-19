@@ -29,7 +29,8 @@ use shared::GameFolderPaths;
 use super::background::menu_background;
 use super::servers::{read_servers, ServerItem};
 use super::{
-    follow_focus_with_hints, list_hint_bar, neighbour, text, ListFocus, ListHints, MenuState,
+    follow_focus_with_hints, list_hint_bar, neighbour, text, ListFocus, ListHints, ListUnreadable,
+    MenuState,
 };
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::{parse_server_address, AddressResolver};
@@ -155,9 +156,23 @@ pub const SCREEN_HINTS: [Hint; 5] = [
     BACK_HINT,
 ];
 
+/// The key hints while `servers.ron` cannot be read: Add server and Refresh do nothing then.
+const UNREADABLE_HINTS: [Hint; 3] = [
+    Hint {
+        keys: "Tab",
+        action: "Move",
+    },
+    Hint {
+        keys: "Enter",
+        action: "Select",
+    },
+    BACK_HINT,
+];
+
 impl ListHints for MultiHints {
     const CARDS: &'static [Hint] = &CARD_HINTS;
     const SCREEN: &'static [Hint] = &SCREEN_HINTS;
+    const UNREADABLE: &'static [Hint] = &UNREADABLE_HINTS;
 }
 
 /// The width of the detail pane.
@@ -604,6 +619,11 @@ fn show_changed_servers(
             Vec::new()
         }
     };
+    if read.is_ok() {
+        commands.entity(list).remove::<ListUnreadable>();
+    } else {
+        commands.entity(list).insert(ListUnreadable);
+    }
     let mut add_server = None;
     for (button, is_add) in &title_buttons {
         if read.is_ok() {

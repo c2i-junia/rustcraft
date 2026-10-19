@@ -654,6 +654,12 @@ fn an_unreadable_server_list_is_said_and_never_overwritten() {
     assert!(is_disabled(&mut h, &L::role(Role::Button, "Add server")));
     assert!(is_disabled(&mut h, &L::role(Role::Button, "Refresh")));
     assert_eq!(h.focus_label().as_deref(), Some("Back"));
+    // the hints name no key the screen ignores
+    let bar = || L::marker::<HintBar>();
+    h.frames(2);
+    assert!(h.is_visible(&L::text("Back").within(bar())));
+    assert!(!h.is_visible(&L::text("Add server").within(bar())));
+    assert!(!h.is_visible(&L::text("Refresh").within(bar())));
 
     ctrl(&mut h, KeyCode::KeyN);
     h.frames(2);

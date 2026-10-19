@@ -124,11 +124,18 @@ fn neighbour(names: &[String], name: &str) -> Option<String> {
 }
 
 /// The key hints of a list screen, named by the marker of its hint bar: those shown while a card
-/// of the list has the focus, and those shown otherwise.
+/// of the list has the focus, those shown otherwise, and those shown while the list cannot be
+/// read.
 trait ListHints: Component + Default {
     const CARDS: &'static [Hint];
     const SCREEN: &'static [Hint];
+    const UNREADABLE: &'static [Hint] = Self::SCREEN;
 }
+
+/// On the list of a list screen whose file cannot be read: its hint bar shows
+/// `ListHints::UNREADABLE`, without the keys that do nothing then.
+#[derive(Component)]
+struct ListUnreadable;
 
 /// Which key hints the hint bar of a list screen shows.
 #[derive(Component, PartialEq, Eq, Clone, Copy)]
@@ -137,6 +144,8 @@ enum HintsShown {
     Cards,
     /// Anything else has it, or the list is empty.
     Elsewhere,
+    /// The list cannot be read.
+    Unreadable,
 }
 
 /// The hint bar of the list screen `S`, with the hints for anything but a card.
@@ -153,15 +162,18 @@ fn list_hint_bar<S: ListHints>(assets: &AssetServer) -> impl Bundle {
 }
 
 /// Keeps the hint bar of the list screen `S` on the hints of the cards while a card has the
-/// focus, and on those of the screen otherwise.
+/// focus, on those of an unreadable list while it is one, and on those of the screen otherwise.
 fn follow_focus_with_hints<S: ListHints>(
     focus: Res<InputFocus>,
     cards: Query<(), With<ListCard>>,
+    unreadable: Query<(), With<ListUnreadable>>,
     bars: Query<(Entity, &HintsShown, &ChildOf), With<S>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
-    let wanted = if focus.get().is_some_and(|entity| cards.contains(entity)) {
+    let wanted = if !unreadable.is_empty() {
+        HintsShown::Unreadable
+    } else if focus.get().is_some_and(|entity| cards.contains(entity)) {
         HintsShown::Cards
     } else {
         HintsShown::Elsewhere
@@ -175,6 +187,7 @@ fn follow_focus_with_hints<S: ListHints>(
     let hints = match wanted {
         HintsShown::Cards => S::CARDS,
         HintsShown::Elsewhere => S::SCREEN,
+        HintsShown::Unreadable => S::UNREADABLE,
     };
     commands.entity(bar).despawn();
     commands.spawn((
