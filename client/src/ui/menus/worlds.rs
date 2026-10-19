@@ -238,7 +238,6 @@ pub fn create_world(saves: &Path, name: &str, seed: u32) -> io::Result<()> {
 /// not playing). A `world.ron` of a newer format version is left as it is, since it may hold
 /// fields this version does not know. Another world named `to` is never replaced, but `to` may
 /// be `from` in another case. On an error nothing is changed.
-#[allow(dead_code)] // called by the rename dialog, Task 6
 pub fn rename_world(saves: &Path, from: &str, to: &str) -> io::Result<()> {
     for name in [from, to] {
         if !is_single_path_component(name) {

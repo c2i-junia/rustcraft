@@ -292,6 +292,34 @@ fn a_failed_delete_shows_what_is_left_on_disk_and_says_why() {
     assert!(!h.is_visible(&failure));
 }
 
+#[cfg(unix)]
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_failed_delete_of_the_last_world_says_why_in_the_empty_list() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let folder = GameFolder::new().with_seeded_world("Survie", 3, 0, DAY);
+    let mut h = open_world_list(folder);
+    let survie = h.folder().join(SAVE_PATH).join("Survie");
+    let locked = survie.join("locked");
+    fs::create_dir(&locked).unwrap();
+    fs::write(locked.join("region"), "x").unwrap();
+    h.click_when_ready(&card("Survie"));
+    h.click(&pane_delete());
+    let dialog = L::role(Role::Dialog, "Delete \"Survie\"?");
+    h.wait_for(&dialog, SCREEN);
+    let confirm = h.center_of(&L::role(Role::Button, "Delete").within(dialog));
+    fs::remove_file(survie.join(WORLD_FILE)).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    h.click_at(confirm);
+    h.frames(2);
+    // put back before anything can panic: a failed test drops nothing
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(h.is_visible(&L::text("No worlds yet")));
+    assert!(h.is_visible(&L::text(DELETE_PERMISSION)));
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn escape_from_delete_gives_the_focus_back_to_its_opener() {
@@ -662,6 +690,60 @@ fn after_a_create_new_world_opens_with_a_fresh_name() {
     h.wait_for(&card("Two"), SCREEN);
     assert_eq!(h.find(&card("One")).len(), 1);
     assert_eq!(h.find(&card("Two")).len(), 1);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn rename_renames_the_folder_and_keeps_the_place_of_the_world() {
+    let mut h = world_list();
+    let rename = L::role(Role::Button, "Rename");
+    let dialog = || L::role(Role::Dialog, "Rename \"Survie\"");
+    h.click_when_ready(&card("Survie"));
+    h.click(&rename);
+    h.wait_for(&dialog(), SCREEN);
+    h.frames(2);
+    assert_eq!(h.value_of::<WorldNameInput>(), "Survie");
+    let confirm = L::role(Role::Button, "Rename").within(dialog());
+    let disabled = |h: &mut Harness| {
+        let button = h.get(&confirm);
+        h.world().get::<InteractionDisabled>(button).is_some()
+    };
+    assert!(disabled(&mut h));
+    assert!(!h.is_visible(&L::text(WORLD_EXISTS)));
+
+    h.type_text("Creative build");
+    h.frames(2);
+    assert!(h.is_visible(&L::text(WORLD_EXISTS)));
+    assert!(disabled(&mut h));
+    for _ in 0..14 {
+        h.press(KeyCode::Backspace);
+    }
+    h.type_text("Base");
+    h.frames(2);
+    assert!(!disabled(&mut h));
+    h.press(KeyCode::Enter);
+    h.frames(3);
+
+    assert!(!h.is_visible(&dialog()));
+    assert_eq!(world_meta(&h, "Base").name, "Base");
+    assert!(!h.folder().join(SAVE_PATH).join("Survie").exists());
+    assert_eq!(
+        card_names(&mut h),
+        ["Creative build", "Base", "Test world 3"]
+    );
+    assert_eq!(h.focus_label().as_deref(), Some("Base"));
+    assert!(h.is_visible(&L::text("played 3 days ago").within(card("Base"))));
+
+    h.click(&rename);
+    h.wait_for(&L::role(Role::Dialog, "Rename \"Base\""), SCREEN);
+    h.press(KeyCode::Escape);
+    assert_eq!(
+        card_names(&mut h),
+        ["Creative build", "Base", "Test world 3"]
+    );
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert!(h.is_visible(&L::text("Creative build").within(L::marker::<ContinueCard>())));
 }
 
 #[test]

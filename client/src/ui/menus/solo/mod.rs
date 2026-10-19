@@ -1,5 +1,5 @@
 //! The Singleplayer screen: the saved worlds as cards, last played first, and a detail pane for
-//! the selected one with Play and Delete. New world (Ctrl+N) sits in the title bar.
+//! the selected one with Play, Rename and Delete. New world (Ctrl+N) sits in the title bar.
 //!
 //! The cards are always built again from the disk (`list_worlds`) once a world was created or
 //! deleted: the first card is the world of the main menu's Continue card.
@@ -38,7 +38,7 @@ use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, ListCard};
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
-use dialogs::{open_delete_world_dialog, open_new_world_dialog, WorldsChanged};
+use dialogs::{open_delete_world_dialog, open_new_world_dialog, open_rename_dialog, WorldsChanged};
 
 /// The world the game plays, set when the player chooses one.
 #[derive(Resource, Default, Debug, Clone)]
@@ -69,6 +69,7 @@ struct WorldFacts;
 #[derive(Component, Clone, Copy)]
 pub enum WorldAction {
     Play,
+    Rename,
     Delete,
 }
 
@@ -244,7 +245,7 @@ fn solo_setup(mut commands: Commands, assets: Res<AssetServer>) {
     });
 }
 
-/// Spawns the detail pane in `body`: the facts of the selected world, Play, Delete, and the line
+/// Spawns the detail pane in `body`: the facts of the selected world, Play, Rename, Delete, and the line
 /// of a failure.
 fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>) {
     let pane = commands
@@ -298,6 +299,10 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
                 button("Play", ButtonVariant::Primary, font.clone()),
                 WorldAction::Play,
             ),
+            (
+                button("Rename", ButtonVariant::Default, font.clone()),
+                WorldAction::Rename,
+            ),
             // red only in the confirmation: Play stays the one strong action
             (
                 button("Delete", ButtonVariant::Default, font.clone()),
@@ -346,30 +351,36 @@ fn thumbnail(seed: Option<u32>, side: f32) -> impl Bundle {
 }
 
 /// Despawns the cards and spawns one per world, in order; returns them. Shows the empty state when
-/// there is none.
+/// there is none, with `error` under it: the detail pane, which shows it otherwise, is hidden.
 fn show_worlds(
     commands: &mut Commands,
     list: Entity,
     worlds: &[WorldSummary],
+    error: Option<&str>,
     font: &Handle<Font>,
 ) -> Vec<Entity> {
     commands.entity(list).despawn_related::<Children>();
     if worlds.is_empty() {
-        commands.spawn((
-            Node {
-                flex_grow: 1.0,
-                flex_direction: FlexDirection::Column,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                row_gap: px(SPACE_S),
-                ..default()
-            },
-            ChildOf(list),
-            children![
-                text("No worlds yet", FONT_L, TEXT, font),
-                text("Create one with New world (Ctrl+N).", FONT_S, MUTED, font),
-            ],
-        ));
+        let empty = commands
+            .spawn((
+                Node {
+                    flex_grow: 1.0,
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    row_gap: px(SPACE_S),
+                    ..default()
+                },
+                ChildOf(list),
+                children![
+                    text("No worlds yet", FONT_L, TEXT, font),
+                    text("Create one with New world (Ctrl+N).", FONT_S, MUTED, font),
+                ],
+            ))
+            .id();
+        if let Some(message) = error {
+            commands.spawn((text(message, FONT_S, DANGER, font), ChildOf(empty)));
+        }
         return Vec::new();
     }
     worlds
@@ -512,7 +523,7 @@ fn show_changed_worlds(
     };
     let font: Handle<Font> = assets.load(FONT_PATH);
     let worlds = list_worlds(&paths.game_folder_path.join(SAVE_PATH));
-    let cards = show_worlds(&mut commands, list, &worlds, &font);
+    let cards = show_worlds(&mut commands, list, &worlds, changed.error, &font);
     let chosen = changed
         .focus
         .as_ref()
@@ -617,6 +628,14 @@ fn act_on_selected_world(
     };
     match action {
         WorldAction::Play => start_world(&card.0.name, &mut selected, &mut game, &mut menu),
+        WorldAction::Rename => {
+            let others = cards
+                .iter()
+                .map(|other| other.0.name.clone())
+                .filter(|name| name != &card.0.name)
+                .collect();
+            open_rename_dialog(&mut commands, &assets, &focus, &card.0.name, others);
+        }
         WorldAction::Delete => {
             let next = neighbour(&card_names(&lists, &children, &cards), &card.0.name);
             open_delete_world_dialog(&mut commands, &assets, &focus, &card.0, next);

@@ -14,7 +14,7 @@ use shared::GameFolderPaths;
 
 use super::super::worlds::{
     check_world_name, create_world, delete_world, format_size, free_world_name, parse_seed,
-    WorldSummary, MAX_WORLD_NAME_LENGTH,
+    rename_world, WorldSummary, MAX_WORLD_NAME_LENGTH,
 };
 use super::super::MenuState;
 use super::WorldCard;
@@ -49,6 +49,22 @@ const NEW_WORLD_HINTS: [Hint; 3] = [
     Hint {
         keys: "Enter",
         action: "Create",
+    },
+    Hint {
+        keys: "Esc",
+        action: "Cancel",
+    },
+];
+
+/// The key hints of the Rename dialog.
+const RENAME_HINTS: [Hint; 3] = [
+    Hint {
+        keys: "Tab",
+        action: "Move",
+    },
+    Hint {
+        keys: "Enter",
+        action: "Rename",
     },
     Hint {
         keys: "Esc",
@@ -191,6 +207,65 @@ pub fn open_new_world_dialog(
     parts.root
 }
 
+/// Opens the Rename dialog of `world`: its name field holds the current name, entirely selected.
+/// `others` are the names of the other worlds on disk. Rename stays disabled while the name is
+/// unchanged. Returns the root of the dialog.
+pub fn open_rename_dialog(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    focus: &InputFocus,
+    world: &str,
+    others: Vec<String>,
+) -> Entity {
+    let font: Handle<Font> = assets.load(FONT_PATH);
+    let name = spawn_text_field(
+        commands,
+        &TextField {
+            label: "Name",
+            placeholder: "",
+            max_characters: Some(MAX_WORLD_NAME_LENGTH),
+            font: font.clone(),
+            font_size: FONT_M,
+            reserve_error: true,
+        },
+    );
+    let current = world.to_string();
+    commands
+        .entity(name.input)
+        .insert((WorldNameInput, SelectAllOnFocus))
+        .entry::<EditableText>()
+        .and_modify(move |mut text| set_text(&mut text, &current));
+    let title = format!("Rename \"{world}\"");
+    let dialog = Dialog {
+        title: &title,
+        body: "",
+        actions: &[
+            ("Cancel", ButtonVariant::Default),
+            ("Rename", ButtonVariant::Primary),
+        ],
+        focused: 0,
+    };
+    let parts = spawn_form_dialog(
+        commands,
+        &dialog,
+        &[("Name", name)],
+        &RENAME_HINTS,
+        font,
+        focus,
+    );
+    commands
+        .entity(parts.root)
+        .insert(WorldForm::new(
+            name.input,
+            None,
+            parts.actions[1],
+            others,
+            Some(world.to_string()),
+        ))
+        .observe(rename_world_on_submit);
+    parts.root
+}
+
 /// Opens the New world dialog on Ctrl+N, with the names of the listed worlds.
 pub fn open_new_world_on_ctrl_n(
     keys: Res<ButtonInput<KeyCode>>,
@@ -304,6 +379,20 @@ fn create_failure(error: &io::Error) -> &'static str {
     }
 }
 
+/// What the name field says when `rename_world` failed: a short text by kind, like
+/// `create_failure`.
+fn rename_failure(error: &io::Error) -> &'static str {
+    match error.kind() {
+        io::ErrorKind::StorageFull => "The disk is full",
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
+            "No permission to rename this world"
+        }
+        io::ErrorKind::AlreadyExists => "A folder with this name already exists",
+        io::ErrorKind::ResourceBusy => "The world is in use",
+        _ => "Could not rename the world",
+    }
+}
+
 /// What the detail pane says when `delete_world` failed: a short text by kind, like
 /// `create_failure`.
 fn delete_failure(error: &io::Error) -> &'static str {
@@ -354,6 +443,48 @@ fn create_world_on_submit(
             commands
                 .entity(form.name)
                 .insert(FieldError(Some(create_failure(&e).to_string())));
+        }
+    }
+}
+
+/// Renames the world of the Rename dialog on disk, checking its name again, then closes it and
+/// lists the worlds with the focus on the renamed one; on a failure nothing changed, and the
+/// dialog stays open and says why under the name. A dialog already closing was submitted before
+/// in this update.
+fn rename_world_on_submit(
+    submit: On<DialogSubmit>,
+    forms: Query<&WorldForm, Without<CloseRequest>>,
+    texts: Query<&EditableText>,
+    paths: Res<GameFolderPaths>,
+    mut commands: Commands,
+) {
+    let root = submit.entity;
+    let Ok(form) = forms.get(root) else {
+        return;
+    };
+    let typed = value_of(&texts, form.name);
+    let (None, true) = check_name(form, &typed) else {
+        return;
+    };
+    let (Some(from), Ok(to)) = (&form.current, check_world_name(&typed, &form.others)) else {
+        return;
+    };
+    let saves = paths.game_folder_path.join(SAVE_PATH);
+    match rename_world(&saves, from, &to) {
+        Ok(()) => {
+            info!("Renamed the world {from:?} to {to:?}");
+            commands.trigger(WorldsChanged {
+                focus: Some(to),
+                error: None,
+            });
+            // the card of the renamed world takes the focus
+            close_dialog(&mut commands, root, false);
+        }
+        Err(e) => {
+            error!("Could not rename the world {from:?} to {to:?}: {e}");
+            commands
+                .entity(form.name)
+                .insert(FieldError(Some(rename_failure(&e).to_string())));
         }
     }
 }
@@ -479,6 +610,51 @@ mod tests {
         world.flush();
         assert!(folder.path().join(SAVE_PATH).join("Fresh").is_dir());
         assert_eq!(world.get::<FieldError>(name).unwrap().0, None);
+    }
+
+    #[test]
+    fn a_failed_rename_says_why_in_a_few_words() {
+        let cases = [
+            (io::ErrorKind::StorageFull, "The disk is full"),
+            (
+                io::ErrorKind::PermissionDenied,
+                "No permission to rename this world",
+            ),
+            (io::ErrorKind::ResourceBusy, "The world is in use"),
+            (io::ErrorKind::Other, "Could not rename the world"),
+        ];
+        for (kind, message) in cases {
+            assert_eq!(rename_failure(&io::Error::from(kind)), message, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn the_unchanged_name_of_a_renamed_world_cannot_be_submitted() {
+        let mut world = World::new();
+        let folder = tempfile::TempDir::new().unwrap();
+        world.insert_resource(GameFolderPaths {
+            game_folder_path: folder.path().to_path_buf(),
+            assets_folder_path: folder.path().to_path_buf(),
+        });
+        let saves = folder.path().join(SAVE_PATH);
+        create_world(&saves, "Survie", 1).unwrap();
+        let name = world
+            .spawn((EditableText::new(" Survie "), FieldError(None)))
+            .id();
+        let primary = world.spawn_empty().id();
+        let root = world
+            .spawn(WorldForm::new(
+                name,
+                None,
+                primary,
+                Vec::new(),
+                Some("Survie".into()),
+            ))
+            .observe(rename_world_on_submit)
+            .id();
+        world.commands().trigger(DialogSubmit { entity: root });
+        world.flush();
+        assert!(saves.join("Survie").is_dir());
     }
 
     #[test]
