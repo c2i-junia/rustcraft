@@ -27,14 +27,15 @@ use crate::input::keyboard::{
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_M, FONT_S, MUTED, RAISE, RAISE_HOVER,
-    SPACE_M, SPACE_S, SPACE_XS, TEXT,
+    ACCENT, BEVEL_WIDTH, DANGER, FONT_M, FONT_S, MUTED, RAISE, RAISE_HOVER, SPACE_M, SPACE_S,
+    SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, RING_ROOM, SCROLLBAR_WIDTH};
+use crate::ui::widgets::{raised_bevel, sunken_bevel};
 
 use super::{spawn_hints, SettingsRoot};
 
@@ -260,26 +261,6 @@ fn is_modifier(key: KeyCode) -> bool {
 fn slot_label(action: GameAction, slot: usize) -> String {
     let which = if slot == 0 { "primary" } else { "secondary" };
     format!("{}, {which} key", action.name())
-}
-
-/// The bevel of a recessed surface: dark at the top and left.
-fn sunken_bevel() -> BorderColor {
-    BorderColor {
-        top: BEVEL_LO,
-        left: BEVEL_LO,
-        bottom: BEVEL_HI,
-        right: BEVEL_HI,
-    }
-}
-
-/// The bevel of a raised control.
-fn raised_bevel() -> BorderColor {
-    BorderColor {
-        top: BEVEL_HI,
-        left: BEVEL_HI,
-        bottom: BEVEL_LO,
-        right: BEVEL_LO,
-    }
 }
 
 /// A text of the tab.

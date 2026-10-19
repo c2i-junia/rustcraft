@@ -12,7 +12,7 @@ use bevy::{
     ui_widgets::{RadioButton, RadioGroup, ValueChange},
 };
 
-use super::{focus::FocusRing, text_field::sunken_bevel};
+use super::{focus::FocusRing, sunken_bevel};
 use crate::ui::theme::{
     ACCENT, BEVEL_WIDTH, FONT_M, PANEL, RAISE_HOVER, SLOT, SPACE_M, SPACE_XS, TEXT,
 };

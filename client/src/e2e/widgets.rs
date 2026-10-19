@@ -33,7 +33,9 @@ use crate::ui::widgets::dialog::{
 };
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
-use crate::ui::widgets::list::{list_card, spawn_scroll_list, CardSelected, ListCard};
+use crate::ui::widgets::list::{
+    spawn_list_card, spawn_scroll_list, CardSelected, ListCard, RING_ROOM,
+};
 use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderParts, SliderReadout};
 use crate::ui::widgets::slot::{slot, SlotSelected};
@@ -1431,8 +1433,8 @@ fn selections(h: &mut Harness) -> Vec<String> {
 }
 
 /// Spawns a 300x200 column above the main menu holding a scroll list of twelve 48 px cards,
-/// "Card 1" to "Card 12", then an "After" button, and records the cards the list reports as
-/// selected. Returns the list.
+/// "Card 1" to "Card 12", then an "After" button, with a "Before" button holding the focus on its
+/// right, and records the cards the list reports as selected. Returns the list.
 fn card_probe(h: &mut Harness) -> Entity {
     h.world_mut().init_resource::<Selections>();
     h.world_mut().add_observer(
@@ -1452,14 +1454,34 @@ fn card_probe(h: &mut Harness) -> Entity {
             ..default()
         },
     );
+    // first in the tab order, beside the column rather than in it
+    let aside = h
+        .world_mut()
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(320.0),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+    h.world_mut().spawn((
+        button("Before", ButtonVariant::Default, Handle::default()),
+        AutoFocus,
+        ChildOf(aside),
+    ));
     let parts = spawn_scroll_list(&mut h.world_mut().commands());
     h.world_mut().flush();
     h.world_mut().entity_mut(parts.frame).insert(ChildOf(root));
     for n in 1..=12 {
-        let mut card = h
-            .world_mut()
-            .spawn((list_card(&format!("Card {n}")), ChildOf(parts.list)));
-        card.get_mut::<Node>().unwrap().height = Val::Px(48.0);
+        let card = spawn_list_card(
+            &mut h.world_mut().commands(),
+            parts.list,
+            &format!("Card {n}"),
+        );
+        h.world_mut().flush();
+        h.world_mut().get_mut::<Node>(card).unwrap().height = Val::Px(48.0);
     }
     h.world_mut().spawn((
         button("After", ButtonVariant::Default, Handle::default()),
@@ -1495,6 +1517,19 @@ fn rect_of_entity(h: &Harness, entity: Entity) -> Rect {
     Rect::from_center_size(center, size)
 }
 
+/// Asserts that card `n` and its focus ring lie inside the list.
+#[track_caller]
+fn assert_ring_in_list(h: &mut Harness, n: usize, list: Entity) {
+    let ring = RING_ROOM * h.world().resource::<UiScale>().0;
+    let entity = h.get(&card(n));
+    let (card, list) = (
+        rect_of_entity(h, entity).inflate(ring),
+        rect_of_entity(h, list),
+    );
+    let inside = list.contains(card.min + 0.5) && list.contains(card.max - 0.5);
+    assert!(inside, "card {n}: {card:?} in {list:?}");
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_card_is_selected_by_click_and_by_arrows() {
@@ -1522,18 +1557,18 @@ fn a_card_is_selected_by_click_and_by_arrows() {
         selections(&mut h),
         ["Card 2", "Card 3", "Card 1", "Card 12"]
     );
-    // the last card was scrolled into view
-    h.frames(1);
-    let last = h.get(&card(12));
-    let (last, list) = (rect_of_entity(&h, last), rect_of_entity(&h, list));
-    let inside = |r: Rect| list.contains(r.min + 0.5) && list.contains(r.max - 0.5);
-    assert!(inside(last), "{last:?} in {list:?}");
+    // the first and the last card come into view with their whole ring
+    for (key, n) in [(KeyCode::Home, 1), (KeyCode::End, 12)] {
+        h.press(key);
+        h.frames(1);
+        assert_ring_in_list(&mut h, n, list);
+    }
     // no wrap
     h.press(KeyCode::ArrowDown);
     h.frames(1);
     assert_eq!(h.focus_label().as_deref(), Some("Card 12"));
     assert_eq!(selected_cards(&mut h), ["Card 12"]);
-    assert_eq!(selections(&mut h).len(), 4);
+    assert_eq!(selections(&mut h).len(), 6);
 }
 
 #[test]
@@ -1557,13 +1592,31 @@ fn the_list_is_one_tab_stop_on_its_selected_card() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_unselected_list_takes_tab_on_its_first_card() {
+    let mut h = main_menu();
+    card_probe(&mut h);
+    assert_eq!(h.focus_label().as_deref(), Some("Before"));
+    assert!(selected_cards(&mut h).is_empty());
+    h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("Card 1"));
+    h.frames(1);
+    assert_eq!(selections(&mut h), ["Card 1"]);
+    h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("After"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn hovering_a_card_lightens_it_and_the_selected_one_has_an_accent_border() {
     let mut h = main_menu();
     card_probe(&mut h);
     h.click(&card(2));
-    h.hover(&card(3));
-    h.frames(2);
+    // the top of Card 3, whose bottom is below the end of the list
     let (two, three) = (h.get(&card(2)), h.get(&card(3)));
+    let rect = rect_of_entity(&h, three);
+    let inset = 10.0 * h.world().resource::<UiScale>().0;
+    h.hover_at(Vec2::new(rect.center().x, rect.min.y + inset));
+    h.frames(2);
     assert_eq!(
         h.world().get::<BackgroundColor>(three).unwrap().0,
         RAISE_HOVER

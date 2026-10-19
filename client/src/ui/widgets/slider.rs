@@ -17,7 +17,7 @@ use bevy::{
     },
 };
 
-use super::{focus::FocusRing, scroll::scroll_steps, text_field::sunken_bevel};
+use super::{focus::FocusRing, scroll::scroll_steps, sunken_bevel};
 use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_M, RAISE, SLOT, SPACE_M, TEXT,
 };

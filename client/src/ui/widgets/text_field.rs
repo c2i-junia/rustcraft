@@ -16,10 +16,8 @@ use bevy::{
     ui::UiSystems,
 };
 
-use super::focus::FocusRing;
-use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_S, MUTED, SLOT, SPACE_S, SPACE_XS, TEXT,
-};
+use super::{focus::FocusRing, sunken_bevel};
+use crate::ui::theme::{ACCENT, BEVEL_WIDTH, DANGER, FONT_S, MUTED, SLOT, SPACE_S, SPACE_XS, TEXT};
 
 /// The height of the line a field keeps for its error: one line of `FONT_S`.
 const ERROR_LINE_HEIGHT: f32 = FONT_S * 1.2;
@@ -246,16 +244,6 @@ pub fn text_field_focused(focus: Res<InputFocus>, fields: Query<(), With<Editabl
 pub fn set_text(text: &mut EditableText, value: &str) {
     text.queue_edit(TextEdit::SelectAll);
     text.queue_edit(TextEdit::Insert(value.into()));
-}
-
-/// The bevel of a field at rest: dark at the top and left, light at the bottom and right.
-pub(super) fn sunken_bevel() -> BorderColor {
-    BorderColor {
-        top: BEVEL_LO,
-        left: BEVEL_LO,
-        bottom: BEVEL_HI,
-        right: BEVEL_HI,
-    }
 }
 
 /// Asks for a Submit on Enter and for a Cancel on Escape. They are triggered in `PostUpdate`,
