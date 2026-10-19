@@ -3,6 +3,7 @@
 
     worldgen_preview.py map   <dump> <out.png>   top view: shaded relief coloured by top block
     worldgen_preview.py biome <dump> <out.png>   top view coloured by biome
+    worldgen_preview.py height <dump> <out.png>  top view coloured by height, sea in blue
     worldgen_preview.py view  <dump> <out.png>   oblique view of the map, from the south
     worldgen_preview.py slice <dump> <out.png>   vertical slice, one pixel per block
     worldgen_preview.py layer <dump> <out.png>   horizontal layer, one pixel per block
@@ -91,6 +92,22 @@ def relief(heights):
     return np.clip(shade, 0.45, 1.35)
 
 
+# Height bands of the `height` view: (from height, colour)
+HEIGHT_BANDS = [
+    (0, (60, 110, 60)), (70, (110, 150, 70)), (84, (170, 170, 90)), (100, (160, 120, 80)),
+    (120, (130, 110, 110)), (140, (235, 235, 240)),
+]
+
+
+def height_map(block, floor):
+    colours = np.zeros(floor.shape + (3,), np.float32)
+    for start, colour in HEIGHT_BANDS:
+        colours[floor >= start] = colour
+    colours[block == WATER] = (52, 92, 196)
+    colours *= relief(floor)[..., None]
+    return np.clip(colours, 0, 255).astype(np.uint8)
+
+
 def coloured_map(top, block, floor):
     colours = palette(BLOCKS)[block]
     water = block == WATER
@@ -150,10 +167,12 @@ def main():
     if len(sys.argv) != 4:
         sys.exit(__doc__)
     mode, path, out = sys.argv[1:]
-    if mode in ("map", "biome", "view"):
+    if mode in ("map", "biome", "view", "height"):
         top, block, floor, biome = read_map(path)
         if mode == "map":
             image = coloured_map(top, block, floor)
+        elif mode == "height":
+            image = height_map(block, floor)
         elif mode == "biome":
             image = (palette(BIOMES)[biome] * relief(floor)[..., None]).clip(0, 255).astype(np.uint8)
         else:

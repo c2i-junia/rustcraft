@@ -13,6 +13,8 @@ use shared::messages::{
 use shared::players::Player;
 use shared::utils::unix_time_ms;
 use shared::world::WorldSeed;
+
+use crate::world::generation::WorldGenerator;
 use shared::{GameFolderPaths, GameServerConfig};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
@@ -79,7 +81,14 @@ pub(super) fn auth_register_request(
     }
 
     if !world_map.players.contains_key(&client_id) {
-        match load_player_data(&world_map.name, &client_id, username, game_folder_paths) {
+        let spawn = || WorldGenerator::new(seed.0).spawn_position();
+        match load_player_data(
+            &world_map.name,
+            &client_id,
+            username,
+            game_folder_paths,
+            spawn,
+        ) {
             Ok(player) => world_map.players.insert(client_id, player),
             Err(err) => {
                 error!("Refusing player {client_id}: {err}");

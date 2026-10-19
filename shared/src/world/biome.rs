@@ -5,7 +5,8 @@ const OCEAN_SHARE: f64 = 0.27;
 /// Humidity from which a column is in the sea: the ocean biomes start here.
 pub const OCEAN_HUMIDITY: f64 = 1.0 - OCEAN_SHARE;
 
-/// The biome of a column from its climate, both in `[0, 1]`.
+/// The biome of a column from its climate, both in `[0, 1]`. The mountain biomes come from the
+/// altitude instead (see `TerrainNoises::column_shape`).
 pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
     if humidity > (1.0 - (OCEAN_SHARE / 3.0)) {
         return BiomeType::DeepOcean;
@@ -25,14 +26,12 @@ pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
     } else if temperature > 0.3 {
         if humidity > 2.0 * OCEAN_HUMIDITY / 3.0 {
             BiomeType::FlowerPlains
-        } else if humidity > OCEAN_HUMIDITY / 3.0 {
-            BiomeType::Plains
         } else {
-            BiomeType::MediumMountain
+            BiomeType::Plains
         }
     } else if humidity > OCEAN_HUMIDITY / 2.0 {
         BiomeType::IcePlain
     } else {
-        BiomeType::HighMountainGrass
+        BiomeType::Plains
     }
 }

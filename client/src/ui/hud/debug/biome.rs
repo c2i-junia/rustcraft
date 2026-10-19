@@ -38,7 +38,7 @@ mod tests {
         let text = world.spawn((BiomeText, Text::new("Biome: N/A"))).id();
         world.spawn((
             CurrentPlayerMarker {},
-            Transform::from_xyz(24.6, 70.0, 179.4),
+            Transform::from_xyz(478.6, 70.0, 622.4),
         ));
         world.run_system_once(biome_text_update_system).unwrap();
         // No seed yet: the line is left as it is

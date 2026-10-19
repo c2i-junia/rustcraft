@@ -266,7 +266,7 @@ fn sync_dir(dir: &Path) {
     }
 }
 
-/// Loads the saved player `player_id` of `world_name`, or a new player at the default spawn.
+/// Loads the saved player `player_id` of `world_name`, or a new player at `spawn()`.
 ///
 /// Only what is worth persisting is taken from the file: position, camera, fly mode and
 /// inventory. A file that cannot be read is reported and moved aside to `<name>.ron.corrupt`
@@ -278,6 +278,7 @@ pub fn load_player_data(
     player_id: &PlayerId,
     player_name: &str,
     game_folder_paths: &GameFolderPaths,
+    spawn: impl FnOnce() -> Vec3,
 ) -> Result<Player, String> {
     let file_path: PathBuf = game_folder_paths
         .game_folder_path
@@ -288,7 +289,7 @@ pub fn load_player_data(
     let mut player = Player::new(
         *player_id,
         player_name.to_string(),
-        Vec3::new(0., 80., 0.),
+        Vec3::ZERO,
         Transform::default(),
     );
 
@@ -297,6 +298,7 @@ pub fn load_player_data(
             "Player data file not found: {}. Spawning a new player.",
             file_path.display()
         );
+        player.position = spawn();
         return Ok(player);
     }
 
@@ -331,6 +333,7 @@ pub fn load_player_data(
                         file_path.display()
                     )
                 })?;
+            player.position = spawn();
         }
     }
 
@@ -346,6 +349,11 @@ mod tests {
     use shared::world::{ItemId, ItemStack};
 
     const WORLD: &str = "world";
+    const SPAWN: Vec3 = Vec3::new(0.5, 70., 0.5);
+
+    fn spawn() -> Vec3 {
+        SPAWN
+    }
 
     fn paths(tmp: &tempfile::TempDir) -> GameFolderPaths {
         let players_dir = tmp.path().join(SAVE_PATH).join(WORLD).join("players");
@@ -386,7 +394,7 @@ mod tests {
         saved.inventory.inner.insert(5, dirt(3));
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "new name", &paths).unwrap();
+        let loaded = load_player_data(WORLD, &7, "new name", &paths, spawn).unwrap();
 
         assert_eq!(loaded.id, 7);
         assert_eq!(loaded.name, "new name");
@@ -404,7 +412,7 @@ mod tests {
         saved.inventory.open_table = Some(bevy::math::IVec3::new(1, 2, 3));
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "crafter", &paths).unwrap();
+        let loaded = load_player_data(WORLD, &7, "crafter", &paths, spawn).unwrap();
 
         assert_eq!(loaded.inventory.open_table, None);
     }
@@ -412,9 +420,9 @@ mod tests {
     #[test]
     fn missing_file_spawns_a_new_player() {
         let tmp = tempfile::tempdir().unwrap();
-        let loaded = load_player_data(WORLD, &7, "fresh", &paths(&tmp)).unwrap();
+        let loaded = load_player_data(WORLD, &7, "fresh", &paths(&tmp), spawn).unwrap();
 
-        assert_eq!(loaded.position, Vec3::new(0., 80., 0.));
+        assert_eq!(loaded.position, SPAWN);
         assert!(!loaded.is_flying);
         assert!(loaded.inventory.inner.is_empty());
     }
@@ -426,9 +434,9 @@ mod tests {
         let file = player_file(&tmp, 7);
         fs::write(&file, "this is not ron").unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "fresh", &paths).unwrap();
+        let loaded = load_player_data(WORLD, &7, "fresh", &paths, spawn).unwrap();
 
-        assert_eq!(loaded.position, Vec3::new(0., 80., 0.));
+        assert_eq!(loaded.position, SPAWN);
         assert!(!file.exists());
         let corrupt = file.with_extension("ron.corrupt");
         assert_eq!(fs::read_to_string(corrupt).unwrap(), "this is not ron");
@@ -445,7 +453,7 @@ mod tests {
         fs::create_dir(&squatter).unwrap();
         fs::write(squatter.join("keep"), "x").unwrap();
 
-        let result = load_player_data(WORLD, &7, "fresh", &paths);
+        let result = load_player_data(WORLD, &7, "fresh", &paths, spawn);
 
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(file).unwrap(), "this is not ron");

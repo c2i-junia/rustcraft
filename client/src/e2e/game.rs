@@ -320,7 +320,7 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
         .query_filtered::<Entity, With<CurrentPlayerMarker>>()
         .single(world)
         .unwrap();
-    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.6;
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.9;
     h.wait_until("the ground within reach", SERVER, |w| {
         aimed_cells(w, camera, player).is_some_and(|(target, _)| {
             let feet = w.get::<Transform>(player).unwrap().translation;
@@ -392,7 +392,7 @@ fn a_broken_block_drops_an_item_that_the_player_picks_up() {
         .query_filtered::<Entity, With<CurrentPlayerMarker>>()
         .single(world)
         .unwrap();
-    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.6;
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.9;
     h.wait_until("the ground within reach", SERVER, |w| {
         aimed_cells(w, camera, player).is_some_and(|(target, _)| {
             let centre = w.get::<Transform>(player).unwrap().translation;
@@ -478,7 +478,7 @@ fn a_chest_keeps_what_is_put_in_it() {
         .query_filtered::<Entity, With<CurrentPlayerMarker>>()
         .single(world)
         .unwrap();
-    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.6;
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.9;
     h.wait_until("the ground within reach", SERVER, |w| {
         aimed_cells(w, camera, player).is_some_and(|(target, _)| {
             let centre = w.get::<Transform>(player).unwrap().translation;

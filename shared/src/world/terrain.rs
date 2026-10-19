@@ -24,6 +24,23 @@ const HILLS_FLAT: f64 = 4.0;
 const HILLS_ROUGH: f64 = 16.0;
 const ROUGHNESS_WAVELENGTH: f64 = 700.0;
 
+/// Where the mountain ranges stand: along the lines where a slow noise crosses zero, so that
+/// they form long winding chains. `RANGES_FROM` and `RANGES_FULL` are values of
+/// `1 - |noise|`: they set how wide a chain is. The ranges stay inland, fading out as the
+/// humidity nears that of the coast.
+const RANGES_WAVELENGTH: f64 = 1600.0;
+const RANGES_FROM: f64 = 0.76;
+const RANGES_FULL: f64 = 0.93;
+const RANGES_INLAND_HUMIDITY: f64 = 0.3;
+/// Height by which a whole range lifts the land, then height of its ridges above that.
+const RANGES_LIFT: f64 = 14.0;
+const RIDGES_HEIGHT: f64 = 80.0;
+const RIDGES_WAVELENGTH: f64 = 320.0;
+
+/// The mountain biomes are altitude bands: from these heights, whatever the climate.
+pub const MOUNTAIN_FROM: i32 = 84;
+pub const HIGH_MOUNTAIN_FROM: i32 = 100;
+
 /// The sea floor sinks from just below the sea at the coast to this depth below it, as the
 /// humidity rises from the coast to its maximum.
 const OCEAN_DEPTH: f64 = 18.0;
@@ -37,6 +54,8 @@ const SALT_WARP_X: u64 = 3;
 const SALT_WARP_Z: u64 = 4;
 const SALT_HILLS: u64 = 5;
 const SALT_ROUGHNESS: u64 = 6;
+const SALT_RANGES: u64 = 7;
+const SALT_RIDGES: u64 = 8;
 
 /// What the noises decide for one world column, before it is filled with blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +68,9 @@ pub struct ColumnShape {
 /// Octaves of SuperSimplex noise, each with twice the frequency and half the weight of the
 /// previous one, averaged so that the sum stays within `[-1, 1]`.
 struct Fractal {
-    octaves: Vec<SuperSimplex>,
+    /// Each octave and the offset of its coordinates: a noise is zero at its origin whatever
+    /// its seed, which would make the origin of every world alike.
+    octaves: Vec<(SuperSimplex, [f64; 2])>,
     frequency: f64,
 }
 
@@ -58,7 +79,10 @@ impl Fractal {
         let octaves = (0..octaves)
             .map(|octave| {
                 let hash = splitmix64(splitmix64(splitmix64(seed as u64) ^ salt) ^ octave);
-                SuperSimplex::new((hash >> 32) as u32)
+                // two offsets in [0, 1024) from the low bits, which the noise seed leaves aside
+                let offset = |bits: u64| (bits & 0xffff) as f64 / 64.0;
+                let offset = [offset(hash), offset(hash >> 16)];
+                (SuperSimplex::new((hash >> 32) as u32), offset)
             })
             .collect();
         Self {
@@ -70,8 +94,23 @@ impl Fractal {
     fn get(&self, x: f64, z: f64) -> f64 {
         let (mut sum, mut total) = (0.0, 0.0);
         let (mut weight, mut frequency) = (1.0, self.frequency);
-        for octave in &self.octaves {
-            sum += weight * octave.get([x * frequency, z * frequency]);
+        for (octave, [dx, dz]) in &self.octaves {
+            sum += weight * octave.get([x * frequency + dx, z * frequency + dz]);
+            total += weight;
+            weight *= 0.5;
+            frequency *= 2.0;
+        }
+        sum / total
+    }
+
+    /// Like `get`, but each octave folded into ridges: `(1 - |noise|)²`, highest where the
+    /// noise crosses zero. In `[0, 1]`.
+    fn ridged(&self, x: f64, z: f64) -> f64 {
+        let (mut sum, mut total) = (0.0, 0.0);
+        let (mut weight, mut frequency) = (1.0, self.frequency);
+        for (octave, [dx, dz]) in &self.octaves {
+            let ridge = 1.0 - octave.get([x * frequency + dx, z * frequency + dz]).abs();
+            sum += weight * ridge * ridge;
             total += weight;
             weight *= 0.5;
             frequency *= 2.0;
@@ -106,6 +145,8 @@ pub struct TerrainNoises {
     warp_z: Fractal,
     hills: Fractal,
     roughness: Fractal,
+    ranges: Fractal,
+    ridges: Fractal,
 }
 
 impl TerrainNoises {
@@ -117,6 +158,8 @@ impl TerrainNoises {
             warp_z: Fractal::new(seed, SALT_WARP_Z, 2, CLIMATE_WARP_WAVELENGTH),
             hills: Fractal::new(seed, SALT_HILLS, 4, HILLS_WAVELENGTH),
             roughness: Fractal::new(seed, SALT_ROUGHNESS, 2, ROUGHNESS_WAVELENGTH),
+            ranges: Fractal::new(seed, SALT_RANGES, 2, RANGES_WAVELENGTH),
+            ridges: Fractal::new(seed, SALT_RIDGES, 4, RIDGES_WAVELENGTH),
         }
     }
 
@@ -124,10 +167,15 @@ impl TerrainNoises {
     pub fn column_shape(&self, x: i32, z: i32) -> ColumnShape {
         let (x, z) = (x as f64, z as f64);
         let climate = self.climate(x, z);
-        ColumnShape {
-            height: self.height(x, z, &climate).round() as i32,
-            biome: determine_biome(climate.temperature, climate.humidity),
-        }
+        let height = self.height(x, z, &climate).round() as i32;
+        let biome = if height >= HIGH_MOUNTAIN_FROM {
+            BiomeType::HighMountainGrass
+        } else if height >= MOUNTAIN_FROM {
+            BiomeType::MediumMountain
+        } else {
+            determine_biome(climate.temperature, climate.humidity)
+        };
+        ColumnShape { height, biome }
     }
 
     fn climate(&self, x: f64, z: f64) -> Climate {
@@ -145,9 +193,21 @@ impl TerrainNoises {
     fn height(&self, x: f64, z: f64, climate: &Climate) -> f64 {
         let roughness = smoothstep(-0.35, 0.35, self.roughness.get(x, z));
         let hills = self.hills.get(x, z);
-        let land = LAND_HEIGHT + hills * lerp(HILLS_FLAT, HILLS_ROUGH, roughness);
+        let mut land = LAND_HEIGHT + hills * lerp(HILLS_FLAT, HILLS_ROUGH, roughness);
 
         let humidity = climate.humidity;
+        let inland = 1.0
+            - smoothstep(
+                OCEAN_HUMIDITY - RANGES_INLAND_HUMIDITY,
+                OCEAN_HUMIDITY - COAST_WIDTH,
+                humidity,
+            );
+        let chain = 1.0 - self.ranges.get(x, z).abs();
+        let range = smoothstep(RANGES_FROM, RANGES_FULL, chain) * inland;
+        if range > 0.0 {
+            land += range * (RANGES_LIFT + RIDGES_HEIGHT * self.ridges.ridged(x, z));
+        }
+
         let depth = smoothstep(OCEAN_HUMIDITY, 1.0, humidity);
         let sea_floor = SEA_LEVEL as f64 - 2.0 - OCEAN_DEPTH * depth + 3.0 * hills;
 
@@ -200,15 +260,43 @@ mod tests {
 
     #[test]
     fn the_ground_never_steps_at_the_border_of_two_biomes() {
+        // only the mountains may be steeper
         let terrain = TerrainNoises::new(42);
         for z in (-1024..1024).step_by(64) {
             let heights: Vec<i32> = (-1024..1024)
                 .map(|x| terrain.column_shape(x, z).height)
                 .collect();
             for (x, pair) in (-1024..).zip(heights.windows(2)) {
-                assert!((pair[0] - pair[1]).abs() <= 4, "({x}, {z}): {pair:?}");
+                if pair[0].max(pair[1]) < MOUNTAIN_FROM {
+                    assert!((pair[0] - pair[1]).abs() <= 4, "({x}, {z}): {pair:?}");
+                }
             }
         }
+    }
+
+    #[test]
+    fn mountains_rise_far_above_the_plains_and_are_named_by_their_altitude() {
+        let terrain = TerrainNoises::new(42);
+        let mut highest = i32::MIN;
+        for z in (-1024..1024).step_by(4) {
+            for x in (-1024..1024).step_by(4) {
+                let shape = terrain.column_shape(x, z);
+                highest = highest.max(shape.height);
+                let mountain = matches!(
+                    shape.biome,
+                    BiomeType::MediumMountain | BiomeType::HighMountainGrass
+                );
+                assert_eq!(
+                    mountain,
+                    shape.height >= MOUNTAIN_FROM,
+                    "({x}, {z}): {shape:?}"
+                );
+                if shape.height >= HIGH_MOUNTAIN_FROM {
+                    assert_eq!(shape.biome, BiomeType::HighMountainGrass);
+                }
+            }
+        }
+        assert!(highest >= 140, "the highest column is at {highest}");
     }
 
     #[test]

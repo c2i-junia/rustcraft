@@ -32,8 +32,8 @@ const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 const PUMP_INTERVAL: Duration = Duration::from_millis(5);
 const PLAYER_ID: u64 = 42;
 const WORLD_NAME: &str = "session-test";
-/// A seed whose terrain is bare grass around the spawn column, at y = 64.
-const FLAT_SPAWN_SEED: u32 = 69;
+/// A seed whose terrain is bare and level around the spawn column: a snow plain, at y = 67.
+const FLAT_SPAWN_SEED: u32 = 147;
 
 struct TestServer {
     tmp: tempfile::TempDir,
