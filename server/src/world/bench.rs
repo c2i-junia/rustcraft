@@ -12,11 +12,13 @@ use std::time::Instant;
 
 use bevy::prelude::*;
 use shared::messages::{ServerToClientMessage, WorldUpdate};
+use shared::players::Player;
 use shared::world::{Chunk, ChunkMap};
 use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE};
 
 use super::broadcast_world::world_messages_around;
 use super::generation::generate_chunk;
+use super::simulation::{generate_missing_chunks, GENERATED_CHUNKS_PER_TICK};
 
 const SEED: u32 = 42;
 /// The chunk of a player standing on the plains of `SEED`, around height 64.
@@ -205,4 +207,39 @@ fn bench_block_lookups() {
         samples.push(micros(start) * 1e3 / positions.len() as f64);
     }
     println!("get_block: median {:.1} ns per lookup", median(samples));
+}
+
+/// A player joins an empty world: the ticks of the server generate its render distance. The
+/// longest tick is the freeze every player sees.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_join_generation() {
+    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    let mut players = HashMap::new();
+    let position = (PLAYER_CHUNK * CHUNK_SIZE).as_vec3() + Vec3::splat(8.);
+    players.insert(
+        1,
+        Player::new(1, "p".into(), position, Transform::default()),
+    );
+    let mut chunks = ChunkMap::default();
+    let mut dirty = HashSet::new();
+    let mut ticks = Vec::new();
+    while ticks.len() < 1000 && chunks.chunk_positions().count() < render_cube(radius).len() {
+        let start = Instant::now();
+        generate_missing_chunks(
+            &players,
+            |_| radius,
+            &mut chunks,
+            &mut dirty,
+            SEED,
+            GENERATED_CHUNKS_PER_TICK,
+        );
+        ticks.push(start.elapsed().as_secs_f64() * 1e3);
+    }
+    println!(
+        "join generation: {} ticks, longest {:.1} ms, in all {:.1} ms",
+        ticks.len(),
+        ticks.iter().copied().fold(0., f64::max),
+        ticks.iter().sum::<f64>()
+    );
 }

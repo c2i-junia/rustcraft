@@ -19,21 +19,32 @@ pub struct PlayerInputsEvent {
     pub input: PlayerFrameInput,
 }
 
-/// Generates the chunks within `radius` of every player. A generated chunk is dirty: it has to
-/// be saved, as inserting it is not logged as a block change.
-fn generate_missing_chunks(
+/// How many chunks the render distances of the players get generated per tick, at most: a
+/// joining player would otherwise freeze the server for its whole render distance at once.
+pub(super) const GENERATED_CHUNKS_PER_TICK: usize = 32;
+
+/// Generates the chunks within `radius` of every player, at most `budget` of them, the nearest
+/// to each player first. A generated chunk is dirty: it has to be saved, as inserting it is
+/// not logged as a block change.
+pub(super) fn generate_missing_chunks(
     players: &std::collections::HashMap<PlayerId, Player>,
     radius: impl Fn(PlayerId) -> i32,
     chunks: &mut ChunkMap,
     dirty_chunks: &mut std::collections::HashSet<IVec3>,
     seed: u32,
+    budget: usize,
 ) {
-    for c in get_all_active_chunks(players, radius) {
-        if !chunks.is_chunk_loaded(c) {
-            info!("Generated chunk: {:?}", c);
-            chunks.insert_chunk(c, generate_chunk(c, seed));
-            dirty_chunks.insert(c);
-        }
+    let missing: Vec<IVec3> = get_all_active_chunks(players, radius)
+        .into_iter()
+        .filter(|c| !chunks.is_chunk_loaded(*c))
+        .take(budget)
+        .collect();
+    if !missing.is_empty() {
+        debug!("Generating {} chunks", missing.len());
+    }
+    for c in missing {
+        chunks.insert_chunk(c, generate_chunk(c, seed));
+        dirty_chunks.insert(c);
     }
 }
 
@@ -56,6 +67,7 @@ pub fn handle_player_inputs_system(
         chunks,
         dirty_chunks,
         seed.0,
+        GENERATED_CHUNKS_PER_TICK,
     );
 
     for ev in events.read() {
@@ -74,7 +86,7 @@ pub fn handle_player_inputs_system(
         // The simulation holds a player still while its chunk or the one below is missing, and
         // a falling player can cross a chunk within one batch of inputs. The chunks next to
         // the player's are enough: the rest of the render distance waits for the next tick
-        generate_missing_chunks(players, |_| 1, chunks, dirty_chunks, seed.0);
+        generate_missing_chunks(players, |_| 1, chunks, dirty_chunks, seed.0, usize::MAX);
     }
 }
 
@@ -116,7 +128,7 @@ mod tests {
         chunks.insert_chunk(IVec3::ZERO, shared::world::Chunk::new());
         let mut dirty = std::collections::HashSet::new();
 
-        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1);
+        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1, usize::MAX);
 
         assert!(!dirty.contains(&IVec3::ZERO));
         assert!(dirty.contains(&IVec3::X));
@@ -125,5 +137,29 @@ mod tests {
             get_all_active_chunks(&players, |_| 2).len()
         );
         assert!(dirty.iter().all(|&c| chunks.is_chunk_loaded(c)));
+    }
+
+    #[test]
+    fn a_tick_generates_its_budget_of_chunks_nearest_first() {
+        let mut players = std::collections::HashMap::new();
+        players.insert(
+            1,
+            Player::new(1, "p".into(), Vec3::new(8., 8., 8.), Transform::default()),
+        );
+        let mut chunks = ChunkMap::default();
+        let mut dirty = std::collections::HashSet::new();
+
+        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1, 7);
+        // The chunk of the player and its six face neighbours
+        assert_eq!(dirty.len(), 7);
+        assert!(dirty.iter().all(|c| c.abs().element_sum() <= 1));
+
+        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1, 7);
+        assert_eq!(
+            dirty.len(),
+            14,
+            "the next tick goes on where the last stopped"
+        );
+        assert!(dirty.iter().all(|c| c.abs().max_element() <= 1));
     }
 }
