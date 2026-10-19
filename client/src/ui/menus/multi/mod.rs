@@ -39,12 +39,12 @@ use crate::network::status::{InFlight, ServerStatus, StatusProbe};
 use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
 use crate::ui::assets::FONT_PATH;
+use crate::ui::menus::modal_open;
 use crate::ui::theme::{
     BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{cards_of, spawn_list_card, spawn_scroll_list, CardSelected};
@@ -214,7 +214,7 @@ pub fn multi_plugin(app: &mut App) {
             (
                 // after Ctrl+N, which drops a join along with opening its dialog
                 finish_join
-                    .run_if(not(dialog_open))
+                    .run_if(not(modal_open))
                     .after(dialogs::open_add_server_on_ctrl_n),
                 follow_focus_with_hints::<MultiHints>,
             )

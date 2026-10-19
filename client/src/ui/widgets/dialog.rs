@@ -26,7 +26,6 @@ use super::button::{button, ButtonVariant};
 use super::focus::keep_focus_inside;
 use super::hints::{hint_bar, Hint, HintBar};
 use super::text_field::{Cancel, FieldError, Submit, TextFieldParts, TextFieldSystems};
-use crate::network::leave::Quitting;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M,
     SPACE_S, SPACE_XL, SPACE_XS, TEXT,
@@ -159,12 +158,6 @@ pub(super) fn plugin(app: &mut App) {
             .after(TextFieldSystems),
     )
     .add_systems(Update, notice_form_changes);
-}
-
-/// Whether a dialog is open, or the card of the quit shows (`Quitting`): the key handlers of the
-/// screens behind it stand down.
-pub fn dialog_open(dialogs: Query<(), With<DialogRoot>>, quitting: Option<Res<Quitting>>) -> bool {
-    !dialogs.is_empty() || quitting.is_some()
 }
 
 /// Spawns `dialog` over the whole window and returns its root. `focus` is the current focus,

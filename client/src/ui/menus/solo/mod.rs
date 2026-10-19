@@ -246,8 +246,8 @@ fn solo_setup(end: Option<Res<SessionEnd>>, mut commands: Commands, assets: Res<
     commands.remove_resource::<SessionEnd>();
 }
 
-/// Spawns the detail pane in `body`: the facts of the selected world, Play, Rename, Delete, and the line
-/// of a failure.
+/// Spawns the detail pane in `body`: the facts of the selected world, Play, Rename, Delete, and
+/// the line of a failure.
 fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>) {
     let pane = commands
         .spawn((

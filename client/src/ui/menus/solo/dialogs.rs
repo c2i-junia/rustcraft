@@ -20,11 +20,12 @@ use super::super::MenuState;
 use super::WorldCard;
 use crate::constants::SAVE_PATH;
 use crate::ui::assets::FONT_PATH;
+use crate::ui::menus::modal_open;
 use crate::ui::theme::FONT_M;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
-    apply_form_check, close_dialog, dialog_open, spawn_dialog, spawn_form_dialog, CloseRequest,
-    Dialog, DialogClosed, DialogSubmit, FormChanged,
+    apply_form_check, close_dialog, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog,
+    DialogClosed, DialogSubmit, FormChanged,
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
@@ -124,7 +125,7 @@ pub(super) fn plugin(app: &mut App) {
         Update,
         open_new_world_on_ctrl_n
             .run_if(in_state(MenuState::Solo))
-            .run_if(not(dialog_open))
+            .run_if(not(modal_open))
             .run_if(not(text_field_focused)),
     );
 }

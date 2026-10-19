@@ -159,7 +159,8 @@ fn quit_once_stopped(
 }
 
 /// Spawns the card shown while the world is saved before quitting: over everything, dialogs
-/// included, modal, nothing on it to focus. It is not despawned with a state: the app exits with it.
+/// included, modal, nothing on it to focus. It is not despawned with a state: the app exits
+/// with it.
 pub fn spawn_quitting_card(commands: &mut Commands, assets: &AssetServer) -> Entity {
     let font: Handle<Font> = assets.load(FONT_PATH);
     let text = |content: &str, size: f32, color: Color| {

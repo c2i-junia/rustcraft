@@ -18,11 +18,12 @@ use super::{cancel_join, AddServerButton, ServerCard};
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::MAX_ADDRESS_LENGTH;
 use crate::ui::assets::FONT_PATH;
+use crate::ui::menus::modal_open;
 use crate::ui::theme::FONT_M;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
-    apply_form_check, close_dialog, dialog_open, spawn_dialog, spawn_form_dialog, CloseRequest,
-    Dialog, DialogClosed, DialogSubmit, FormChanged,
+    apply_form_check, close_dialog, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog,
+    DialogClosed, DialogSubmit, FormChanged,
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
@@ -113,7 +114,7 @@ pub(super) fn plugin(app: &mut App) {
         Update,
         open_add_server_on_ctrl_n
             .run_if(in_state(MenuState::Multi))
-            .run_if(not(dialog_open))
+            .run_if(not(modal_open))
             .run_if(not(text_field_focused)),
     );
 }

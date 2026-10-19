@@ -20,12 +20,12 @@ use crate::audio::settings::AudioSettings;
 use crate::state::{GameState, KeyMap};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
+use crate::ui::menus::modal_open;
 use crate::ui::settings::InterfaceSettings;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_XL, PANEL, SPACE_L, SPACE_M, SPACE_XL, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
@@ -119,7 +119,7 @@ pub fn settings_plugin(app: &mut App) {
             (
                 settings_escape
                     .run_if(settings_open)
-                    .run_if(not(dialog_open))
+                    .run_if(not(modal_open))
                     .run_if(not(text_field_focused)),
                 show_scale_limit.run_if(any_with_component::<interface::ScaleLimitNote>),
             ),

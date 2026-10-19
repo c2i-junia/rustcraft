@@ -16,10 +16,11 @@ pub use home::*;
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
 
+use crate::network::leave::Quitting;
 use crate::network::session::SessionEnd;
 use crate::state::{GameState, MenuCamera};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
-use crate::ui::widgets::dialog::{dialog_open, CloseRequest, DialogRoot};
+use crate::ui::widgets::dialog::{CloseRequest, DialogRoot};
 use crate::ui::widgets::hints::{hint_bar, Hint};
 use crate::ui::widgets::list::ListCard;
 use crate::ui::widgets::text_field::text_field_focused;
@@ -46,21 +47,21 @@ pub fn menu_plugin(app: &mut App) {
             Update,
             open_quit_dialog_on_escape
                 .run_if(in_state(MenuState::Main))
-                .run_if(not(dialog_open))
+                .run_if(not(modal_open))
                 .run_if(not(text_field_focused)),
         )
         .add_systems(
             Update,
             continue_on_ctrl_enter
                 .run_if(in_state(MenuState::Main))
-                .run_if(not(dialog_open)),
+                .run_if(not(modal_open)),
         )
         .add_observer(activate_main_menu_button)
         .add_systems(
             Update,
             escape_button
                 .run_if(in_state(GameState::Menu))
-                .run_if(not(dialog_open))
+                .run_if(not(modal_open))
                 .run_if(not(text_field_focused)),
         );
     connecting::connecting_plugin(app);
@@ -68,6 +69,12 @@ pub fn menu_plugin(app: &mut App) {
     settings::settings_plugin(app);
     solo::solo_plugin(app);
     multi::multi_plugin(app);
+}
+
+/// Whether a dialog is open, or the card of the quit shows (`Quitting`): the key handlers of the
+/// screens behind them stand down.
+pub fn modal_open(dialogs: Query<(), With<DialogRoot>>, quitting: Option<Res<Quitting>>) -> bool {
+    !dialogs.is_empty() || quitting.is_some()
 }
 
 /// Spawns the camera of the menus and opens their first screen.

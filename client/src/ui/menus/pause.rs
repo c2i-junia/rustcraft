@@ -26,6 +26,7 @@ use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::fade_chat_messages_system;
 use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
+use crate::ui::menus::modal_open;
 use crate::ui::menus::settings::controls::KeyCapture;
 use crate::ui::menus::settings::{
     close_settings, settings_open, spawn_settings, SettingsContext, SettingsRoot,
@@ -35,7 +36,6 @@ use crate::ui::theme::{
     SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
-use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::text_field::{text_field_focused, TextFieldSystems};
@@ -166,7 +166,7 @@ pub fn pause_plugin(app: &mut App) {
         toggle_pause_menu
             .after(GameSet::UiMode)
             .run_if(in_state(GameState::Game))
-            .run_if(not(dialog_open))
+            .run_if(not(modal_open))
             .run_if(not(text_field_focused))
             .run_if(not(leaving)),
     )

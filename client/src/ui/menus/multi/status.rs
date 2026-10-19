@@ -11,8 +11,8 @@ use super::{allow_join, show_detail, ServerCard, ServerFacts};
 use crate::network::address::parse_server_address;
 use crate::network::status::{latency_bars, InFlight, ServerStatus, StatusProbe};
 use crate::ui::assets::FONT_PATH;
+use crate::ui::menus::modal_open;
 use crate::ui::theme::{BEVEL_HI, DANGER, FONT_S, MUTED, OK, SPACE_S, TEXT};
-use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::text_field::text_field_focused;
 
 /// The side of the status dot of a card.
@@ -242,7 +242,7 @@ pub(super) fn plugin(app: &mut App) {
         // the cards say they are pinging in the frame of F5, before any answer can come
         (
             refresh_on_f5
-                .run_if(not(dialog_open))
+                .run_if(not(modal_open))
                 .run_if(not(text_field_focused)),
             collect_statuses,
         )

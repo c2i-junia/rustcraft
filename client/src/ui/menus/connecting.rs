@@ -19,12 +19,12 @@ use crate::network::session::{
 use crate::network::LastWorldClosing;
 use crate::state::GameState;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::menus::modal_open;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, MUTED, OK, PANEL, SPACE_L, SPACE_S, SPACE_XL,
     SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::hints::{hint_bar, Hint};
 use crate::ui::widgets::progress::{progress_bar, ProgressBar};
 use crate::ui::widgets::raised_bevel;
@@ -109,7 +109,7 @@ pub fn connecting_plugin(app: &mut App) {
                 .after(track_connection)
                 .run_if(resource_exists_and_changed::<ConnectWatch>),
             blink_current_step,
-            cancel_on_escape.run_if(not(dialog_open)),
+            cancel_on_escape.run_if(not(modal_open)),
         )
             .run_if(in_state(GameState::PreGameLoading)),
     )
