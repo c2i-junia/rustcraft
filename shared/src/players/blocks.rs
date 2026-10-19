@@ -30,6 +30,8 @@ impl CallerType {
 pub const INTERACTION_DISTANCE: f32 = 5.0;
 /// Time the left button must be held on a block for one mining hit, a server tick.
 pub const HIT_MS: u64 = 50;
+/// Time between two blocks placed while the right button is held, four server ticks.
+pub const PLACE_REPEAT_MS: u64 = 200;
 const CUBE_SIZE: f32 = 1.0;
 
 /// Why an interaction changed nothing.
@@ -86,9 +88,10 @@ pub fn simulate_player_block_interactions(
     caller_type: CallerType,
 ) -> Vec<BrokenBlock> {
     let mut broken = Vec::new();
-    // Placing acts once per input, but breaking counts the time the button is held, so that
-    // a block takes as long to break at any frame rate.
+    // Both count the time the button is held, so that a block takes as long to break, and
+    // blocks are placed as often, at any frame rate.
     let hits = mining_hits(player, action);
+    let may_place = place_ready(player, action);
     for network_action in &action.inputs {
         let (verb, outcome) = match network_action {
             NetworkAction::LeftClick if hits == 0 => continue,
@@ -96,7 +99,12 @@ pub fn simulate_player_block_interactions(
                 "break",
                 break_block(player, world_map, action, hits).map(|block| broken.extend(block)),
             ),
-            NetworkAction::RightClick => ("place", place_block(player, world_map, action)),
+            NetworkAction::RightClick if !may_place => continue,
+            NetworkAction::RightClick => (
+                "place",
+                place_block(player, world_map, action)
+                    .map(|()| player.place_wait_ms = PLACE_REPEAT_MS),
+            ),
             _ => continue,
         };
         let Err(refused) = outcome else {
@@ -129,6 +137,19 @@ fn mining_hits(player: &mut Player, action: &PlayerFrameInput) -> u8 {
     player.mining_carry_ms %= HIT_MS;
     // At most (HIT_MS - 1 + MAX_FRAME_DELTA_MS) / HIT_MS, 2 hits
     hits as u8
+}
+
+/// Whether the right button in `action` may place a block: at once when pressed, then once per
+/// `PLACE_REPEAT_MS` while held. Releasing it drops the wait.
+fn place_ready(player: &mut Player, action: &PlayerFrameInput) -> bool {
+    if !action.is_pressed(NetworkAction::RightClick) {
+        player.place_wait_ms = 0;
+        return false;
+    }
+    player.place_wait_ms = player
+        .place_wait_ms
+        .saturating_sub(action.delta_ms.min(MAX_FRAME_DELTA_MS));
+    player.place_wait_ms == 0
 }
 
 /// The block the player aims at, if it is within reach. An out of reach refusal names
@@ -468,6 +489,49 @@ mod tests {
                 "sneaking: {sneaking}"
             );
         }
+    }
+
+    #[test]
+    fn holding_the_right_button_places_a_block_once_per_repeat_time() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        let mut player = place_across_a_chunk_border(&mut world);
+        player.inventory.inner.insert(
+            0,
+            ItemStack {
+                item_id: ItemId::Dirt,
+                item_type: ItemId::Dirt.get_default_type(),
+                nb: 2,
+            },
+        );
+        let camera = Transform::from_translation(player.position);
+        let mut input = PlayerFrameInput {
+            delta_ms: 16,
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+        let mut released = input.clone();
+        released.inputs.clear();
+        let hold = |player: &mut Player, world: &mut ChunkMap, input: &PlayerFrameInput| {
+            simulate_player_block_interactions(player, world, input, CallerType::Server)
+        };
+        let next = IVec3::new(0, 0, 1);
+
+        // The first block was placed at once; the next one waits while the button is held
+        let mut held_ms = 0;
+        while world.get_block(next).is_none() {
+            assert!(held_ms <= PLACE_REPEAT_MS, "not placed after {held_ms} ms");
+            hold(&mut player, &mut world, &input);
+            held_ms += input.delta_ms;
+        }
+        assert!(held_ms >= PLACE_REPEAT_MS, "placed after {held_ms} ms");
+
+        // Released and pressed again, a block is placed at once
+        world.remove_block(next);
+        hold(&mut player, &mut world, &released);
+        input.delta_ms = 1;
+        hold(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(next).map(|b| b.id), Some(BlockId::Dirt));
     }
 
     #[test]

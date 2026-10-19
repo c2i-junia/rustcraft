@@ -135,6 +135,9 @@ pub struct Player {
     /// Time the left button was held that did not add up to a mining hit yet, in ms.
     #[serde(skip)]
     pub mining_carry_ms: u64,
+    /// Time the right button must still be held before the next block is placed, in ms.
+    #[serde(skip)]
+    pub place_wait_ms: u64,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -182,6 +185,7 @@ impl Player {
             width: PLAYER_WIDTH,
             last_input_processed: 0,
             mining_carry_ms: 0,
+            place_wait_ms: 0,
         }
     }
 }
