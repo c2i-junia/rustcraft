@@ -112,6 +112,34 @@ pub enum BlockHitbox {
 }
 
 impl BlockId {
+    /// Every block, in the order of their encoding.
+    pub const ALL: [BlockId; 24] = [
+        BlockId::Dirt,
+        BlockId::Debug,
+        BlockId::Grass,
+        BlockId::Stone,
+        BlockId::OakLog,
+        BlockId::OakPlanks,
+        BlockId::OakLeaves,
+        BlockId::Sand,
+        BlockId::Cactus,
+        BlockId::Ice,
+        BlockId::Glass,
+        BlockId::Bedrock,
+        BlockId::Dandelion,
+        BlockId::Poppy,
+        BlockId::TallGrass,
+        BlockId::Cobblestone,
+        BlockId::Snow,
+        BlockId::SpruceLeaves,
+        BlockId::SpruceLog,
+        BlockId::Water,
+        BlockId::CraftingTable,
+        BlockId::SprucePlanks,
+        BlockId::Furnace,
+        BlockId::Chest,
+    ];
+
     pub fn get_hitbox(&self) -> BlockHitbox {
         match *self {
             Self::Water | Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::None,
@@ -245,32 +273,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 24] = [
-        BlockId::Dirt,
-        BlockId::Debug,
-        BlockId::Grass,
-        BlockId::Stone,
-        BlockId::OakLog,
-        BlockId::OakPlanks,
-        BlockId::OakLeaves,
-        BlockId::Sand,
-        BlockId::Cactus,
-        BlockId::Ice,
-        BlockId::Glass,
-        BlockId::Bedrock,
-        BlockId::Dandelion,
-        BlockId::Poppy,
-        BlockId::TallGrass,
-        BlockId::Cobblestone,
-        BlockId::Snow,
-        BlockId::SpruceLeaves,
-        BlockId::SpruceLog,
-        BlockId::Water,
-        BlockId::CraftingTable,
-        BlockId::SprucePlanks,
-        BlockId::Furnace,
-        BlockId::Chest,
-    ];
+    const ALL_BLOCKS: [BlockId; 24] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
