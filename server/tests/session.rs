@@ -1058,11 +1058,13 @@ fn a_block_broken_in_one_session_is_still_broken_after_a_restart() {
             "the block was not broken within {WAIT_TIMEOUT:?}: camera {camera:?}, target {target}"
         );
         client.send(left_click_frame(time_ms, camera));
+        // Water next to the block may flow into it within the tick that breaks it: the update
+        // then carries the water instead of air
         let broken = client.wait_for("a BlockUpdates for the target", |m| match m {
             ServerToClientMessage::BlockUpdates(batch) => batch
                 .iter()
                 .find(|u| u.position == target)
-                .map(|u| u.block.is_none()),
+                .map(|u| u.block.is_none_or(|block| block.id == BlockId::Water)),
             _ => None,
         });
         if broken {
@@ -1123,11 +1125,13 @@ fn break_aimed_block(client: &mut TestClient, camera: Transform, target: IVec3) 
             "the block was not broken within {WAIT_TIMEOUT:?}: camera {camera:?}, target {target}"
         );
         client.send(left_click_frame(time_ms, camera));
+        // Water next to the block may flow into it within the tick that breaks it: the update
+        // then carries the water instead of air
         let broken = client.wait_for("a BlockUpdates for the target", |m| match m {
             ServerToClientMessage::BlockUpdates(batch) => batch
                 .iter()
                 .find(|u| u.position == target)
-                .map(|u| u.block.is_none()),
+                .map(|u| u.block.is_none_or(|block| block.id == BlockId::Water)),
             _ => None,
         });
         if broken {
