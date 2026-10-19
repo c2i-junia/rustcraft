@@ -166,7 +166,7 @@ impl<T: Send + 'static> InFlight<T> {
         Self(slot)
     }
 
-    /// The result once `f` has returned, the first time it is asked only.
+    /// The result once `f` has returned, the first time it is asked only. Never, if `f` panics.
     pub fn take(&self) -> Option<T> {
         self.0.lock().unwrap().take()
     }
@@ -281,11 +281,8 @@ mod tests {
             query_status_at(closed, STATUS_TIMEOUT),
             ServerStatus::Offline
         );
-        assert!(
-            start.elapsed() < STATUS_TIMEOUT + Duration::from_millis(500),
-            "{:?}",
-            start.elapsed()
-        );
+        // A refused port is told at once, before the first resend
+        assert!(start.elapsed() < RESEND_EVERY, "{:?}", start.elapsed());
     }
 
     #[test]
