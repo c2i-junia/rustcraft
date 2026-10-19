@@ -23,12 +23,14 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::thread::JoinHandle;
+use std::time::Instant;
 use std::{net::UdpSocket, thread, time::SystemTime};
 
 use crate::world::ClientWorldMap;
 use shared::GameFolderPaths;
 
 use super::cleanup::{close_session_on_app_exit, join_local_server, ExitSent};
+use super::leave::STOP_TIMEOUT;
 use super::SendGameMessageExtension;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,9 +138,18 @@ pub struct LocalServerAddress(pub SocketAddr);
 #[derive(Resource, Clone)]
 pub struct LocalSaves(pub SaveCounter);
 
-/// Starts the embedded server of the selected world, or ends the session: `WorldBusy` while the
-/// server of the last session still runs, `WorldFailed` without a world, `NoConnection` without
-/// a socket.
+/// The world opened waits for the server of the last one, told to stop, to finish saving: since
+/// the world was asked for.
+#[derive(Resource)]
+pub struct LastWorldClosing {
+    pub since: Instant,
+}
+
+/// Starts the embedded server of the selected world, or ends the session: `WorldFailed` without
+/// a world, `NoConnection` without a socket. While the server of the last session still runs,
+/// the world waits for it (`LastWorldClosing`) when it was told to stop (`ExitSent`), and runs
+/// again every frame until that server is joined; `WorldBusy` after `STOP_TIMEOUT`, or at once
+/// for a server never told.
 pub fn launch_local_server_system(
     mut commands: Commands,
     mut target: ResMut<TargetServer>,
@@ -146,19 +157,14 @@ pub fn launch_local_server_system(
     paths: Res<GameFolderPaths>,
     local_server: Option<ResMut<LocalServerHandle>>,
     origin: Option<Res<SessionOrigin>>,
+    exit_sent: Option<Res<ExitSent>>,
+    closing: Option<Res<LastWorldClosing>>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
     if target.address.is_some() {
         debug!("Skipping launch local server");
         return;
     }
-
-    let mut fail = |error: ConnectError| match origin.as_deref() {
-        Some(origin) => {
-            end_session(&mut commands, &mut game_state, origin, Some(error));
-        }
-        None => game_state.set(GameState::Menu),
-    };
 
     // Two servers on the same save folder would corrupt it; one that already stopped is joined.
     if let Some(mut local_server) = local_server {
@@ -168,11 +174,32 @@ pub fn launch_local_server_system(
             }
         }
         if local_server.0.is_some() {
+            let since = closing
+                .as_ref()
+                .map_or_else(Instant::now, |closing| closing.since);
+            if exit_sent.is_some() && since.elapsed() < STOP_TIMEOUT {
+                if closing.is_none() {
+                    info!("Waiting for the last world to be saved before opening this one");
+                    commands.insert_resource(LastWorldClosing { since });
+                }
+                return;
+            }
             error!("The previous local server is still running, not starting another one");
-            fail(ConnectError::WorldBusy);
+            commands.remove_resource::<LastWorldClosing>();
+            fail_launch(
+                &mut commands,
+                &mut game_state,
+                origin.as_deref(),
+                ConnectError::WorldBusy,
+            );
             return;
         }
     }
+    commands.remove_resource::<LastWorldClosing>();
+
+    let mut fail = |error: ConnectError| {
+        fail_launch(&mut commands, &mut game_state, origin.as_deref(), error);
+    };
 
     let Some(world_name) = selected_world.name.clone() else {
         error!("No world selected, unable to launch the local server");
@@ -240,6 +267,21 @@ pub fn poll_network_messages(
     );
 }
 
+/// Ends the session whose world could not be launched as `error`, or goes back to the menu.
+fn fail_launch(
+    commands: &mut Commands,
+    game_state: &mut NextState<GameState>,
+    origin: Option<&SessionOrigin>,
+    error: ConnectError,
+) {
+    match origin {
+        Some(origin) => {
+            end_session(commands, game_state, origin, Some(error));
+        }
+        None => game_state.set(GameState::Menu),
+    }
+}
+
 /// Opens a connection to the server at `addr` as `client_id`: a new client and its transport.
 pub fn open_connection(
     addr: SocketAddr,
@@ -266,15 +308,17 @@ pub fn open_connection(
 }
 
 /// Connects to the server of the session, or ends it with `NoConnection`. Stands down when the
-/// session already ended this frame: the launch of its world failed.
+/// session already ended this frame, the launch of its world failed, and while its world waits
+/// for the last one to close (`LastWorldClosing`): it connects once that world is launched.
 pub fn init_server_connection(
     mut commands: Commands,
     target: Res<TargetServer>,
     current_player_id: Res<CurrentPlayerProfile>,
     origin: Option<Res<SessionOrigin>>,
+    closing: Option<Res<LastWorldClosing>>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
-    if !matches!(*game_state, NextState::Unchanged) {
+    if !matches!(*game_state, NextState::Unchanged) || closing.is_some() {
         return;
     }
     let connection = match target.address {

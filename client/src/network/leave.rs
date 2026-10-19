@@ -12,7 +12,9 @@ use super::cleanup::{send_exit, ExitSent};
 use super::LocalServerHandle;
 use crate::state::GameState;
 
-/// How long the game waits for the local server to save and stop before the title opens anyway.
+/// How long a world may take to save and stop: the game waits that long for the local server
+/// before the title opens anyway, and so do the quit, the app's last frame and a world opened
+/// while the last one closes.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The game is being left on purpose: Exit was sent, the game waits for the local server to stop.

@@ -96,8 +96,13 @@ a connection that gives up while the thread still loads (a world slower than net
 15 s) is opened again, and the authentication sent again. A local server is told to stop
 whenever its session ends: on Cancel, on an error, and when the player leaves the game. One that
 cannot be told yet, because its connection is not up, is stopped from the menus, the error card
-included, once it is (`finish_stopping_local_server`); opening a world while the last one is still closing says so
-(`WorldBusy`) rather than starting a second server on the same save.
+included, once it is (`finish_stopping_local_server`). Opening a world while the server of the
+last one, told to stop, still saves waits for it on the connecting card ("Closing the last
+world...") up to `STOP_TIMEOUT` (10 s), then says so (`WorldBusy`) rather than starting a second
+server on the same save; one never told to stop says so at once. The window's close button and
+the main menu's Quit ask to quit (`ui/quit.rs`): a world being played or still starting is left,
+and the app exits once its server stopped, or after `STOP_TIMEOUT`; a second close quits at
+once.
 
 ## Prediction and reconciliation
 
@@ -241,5 +246,6 @@ the folder, after a confirmation.
   a client with a higher frame rate breaks blocks faster.
 - Mobs are a prototype: one fox, spawned at a fixed tick.
 - An item that does not fit in a full inventory is lost.
-- Quitting the game while a world is still starting stops its server thread wherever it is in
-  the load, with the process: the server cannot be told to stop before it accepts the player.
+- A world still loading 10 s after the quit is stopped with the process: its server cannot be
+  told to stop before it accepts the player. Its files are written atomically, so the save stays
+  readable.

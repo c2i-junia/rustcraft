@@ -18,7 +18,7 @@ use bevy::{
 use super::connecting::spawn_test_server;
 use super::game::{enter_world, enter_world_with};
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
-use super::helpers::is_in;
+use super::helpers::{is_in, main_menu_with};
 use super::locator::{is_inside, is_shown, Locator as L};
 use super::multi::selected_server;
 use super::seed::GameFolder;
@@ -31,6 +31,7 @@ use crate::ui::menus::pause::{PauseButton, PauseMenu, PAUSE_TITLE, SAVING, WORLD
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::settings::SettingsRoot;
 use crate::ui::menus::MenuState;
+use crate::ui::quit::QUITTING_TITLE;
 use crate::ui::theme::{ACCENT, RAISE, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
 
@@ -269,7 +270,7 @@ fn the_pause_menu_resumes_saves_and_leaves() {
 /// Holds the end of the thread of the local server, which still saves and stops as it would,
 /// until the sender returned is used: the world of a test is saved in a few milliseconds, sooner
 /// than the frames of a check.
-fn hold_the_local_server(h: &mut Harness) -> Sender<()> {
+pub(super) fn hold_the_local_server(h: &mut Harness) -> Sender<()> {
     let (release, wait) = channel::<()>();
     let mut local_server = h.world_mut().resource_mut::<LocalServerHandle>();
     let server = local_server.0.take().expect("the local server runs");
@@ -391,4 +392,53 @@ fn the_pause_menu_of_a_server_disconnects_back_to_its_card() {
         h.frames(1);
     }
     assert_eq!(server.join().unwrap(), Ok(()));
+}
+
+/// Runs frames until the app asked to exit, within `SERVER`.
+#[track_caller]
+fn wait_for_exit(h: &mut Harness) {
+    let start = Instant::now();
+    while !h.has_exited() {
+        assert!(start.elapsed() < SERVER, "the app never quit");
+        h.frames(1);
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn closing_the_window_in_a_world_saves_then_quits() {
+    let mut h = enter_world(GameFolder::new().with_world("Close"), "Close");
+    let meta = h.folder().join(SAVE_PATH).join("Close/world.ron");
+    let written = || fs::metadata(&meta).unwrap().modified().unwrap();
+    h.press(KeyCode::Escape);
+    h.wait_for(&pause_menu(), SCREEN);
+    let release = hold_the_local_server(&mut h);
+    let before = written();
+    h.click(&button("Save and quit to title"));
+    // a close while the world is written waits for it too, with no confirmation
+    h.request_close();
+    assert!(h.is_visible(&L::text(QUITTING_TITLE)));
+    assert!(!h.has_exited());
+
+    release.send(()).unwrap();
+    wait_for_exit(&mut h);
+    assert!(h.world().resource::<LocalServerHandle>().0.is_none());
+    assert!(written() > before);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn closing_the_window_while_a_world_starts_waits_for_it() {
+    let mut h = main_menu_with(GameFolder::new().with_world("Slow"));
+    h.click(&L::text("Singleplayer"));
+    h.play_world("Slow");
+    h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
+    assert_eq!(h.game_state(), GameState::PreGameLoading);
+    h.request_close();
+    assert!(h.is_visible(&L::text(QUITTING_TITLE)));
+    assert!(!h.has_exited());
+
+    // the world is told to stop once it accepts the connection, and joined, not killed
+    wait_for_exit(&mut h);
+    assert!(h.world().resource::<LocalServerHandle>().0.is_none());
 }

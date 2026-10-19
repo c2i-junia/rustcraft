@@ -18,6 +18,7 @@ use crate::ui::menus::multi::SERVERS_TITLE;
 use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
 use crate::ui::menus::MenuState;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
+use crate::ui::quit::QuittingCard;
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
 
@@ -57,6 +58,15 @@ fn quit_exits_the_game() {
     assert!(!h.has_exited());
     h.click(&L::role(Role::Button, "Quit"));
     assert!(h.has_exited());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn closing_the_window_in_the_menus_quits_at_once() {
+    let mut h = main_menu();
+    h.request_close();
+    assert!(h.has_exited());
+    assert!(h.find(&L::marker::<QuittingCard>()).is_empty());
 }
 
 #[test]

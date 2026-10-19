@@ -22,6 +22,7 @@ use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::is_in;
 use super::locator::{is_inside, Locator as L};
 use super::multi::selected_server;
+use super::pause::hold_the_local_server;
 use super::raw_client::RawClient;
 use super::seed::GameFolder;
 use super::solo::selected_world;
@@ -30,11 +31,11 @@ use crate::network::session::{
     chunks_around, ConnectStep, ConnectTimeout, ConnectWatch, SessionEnd, CONNECT_TIMEOUT,
 };
 use crate::network::status::{query_status, ServerStatus, StatusProbe};
-use crate::network::{LocalServerHandle, TargetServer, TargetServerState};
+use crate::network::{TargetServer, TargetServerState};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::menus::connect_error::TRY_AGAIN;
-use crate::ui::menus::connecting::ConnectingCard;
+use crate::ui::menus::connecting::{ConnectingCard, CLOSING_LAST_WORLD};
 use crate::ui::menus::MenuState;
 use crate::ui::widgets::dialog::DialogPanel;
 use crate::world::ClientWorldMap;
@@ -236,6 +237,8 @@ fn a_world_cancelled_while_loading_chunks_opens_again_from_nothing() {
         w.get_resource::<ConnectWatch>()
             .is_some_and(|watch| matches!(watch.step, ConnectStep::LoadingChunks { .. }))
     });
+    // the cancelled world's server still saves when the world opens again
+    let release = hold_the_local_server(&mut h);
     // Escape cancels on the frame it is pressed, before the game can be entered: a click takes
     // a frame more
     h.press(KeyCode::Escape);
@@ -255,13 +258,22 @@ fn a_world_cancelled_while_loading_chunks_opens_again_from_nothing() {
     h.frames(2);
     assert_eq!(h.menu_state(), MenuState::Solo);
 
-    // the server of the cancelled world saves in the background: the world opens again once
-    // it stopped
-    h.wait_until("the cancelled world's server to stop", SERVER, |w| {
-        w.resource::<LocalServerHandle>().0.is_none()
-    });
+    // opened again at once, the world waits on its card for the cancelled world's server, and
+    // Cancel still goes back to the list
+    let closing = L::text(CLOSING_LAST_WORLD).within(L::marker::<ConnectingCard>());
     h.play_world("Survie");
-    h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
+    h.wait_for(&closing, SCREEN);
+    h.frames(3);
+    assert_eq!(h.game_state(), GameState::PreGameLoading);
+    h.click(&L::role(Role::Button, "Cancel"));
+    h.wait_for_game_state(GameState::Menu, SCREEN);
+    h.frames(2);
+    assert_eq!(h.menu_state(), MenuState::Solo);
+
+    // once that server stopped, the world starts
+    h.play_world("Survie");
+    h.wait_for(&closing, SCREEN);
+    release.send(()).unwrap();
     h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
     let center = player_chunk(&mut h);
     let blocks = &h.world().resource::<ClientWorldMap>().blocks;

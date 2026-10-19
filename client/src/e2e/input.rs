@@ -74,6 +74,17 @@ impl Harness {
         }
     }
 
+    /// Types `c` from the physical key `key`, as a layout other than QWERTY would: on AZERTY,
+    /// `/` is Shift with the physical key `Period`.
+    // first used by the chat's tests (Task 6 of lot 6)
+    #[allow(dead_code)]
+    pub fn type_on(&mut self, key: KeyCode, c: char) {
+        let logical = Key::Character(c.to_string().into());
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            self.send_key(key, logical.clone(), Some(c), state);
+        }
+    }
+
     /// Scrolls the wheel by `lines`, positive going up.
     pub fn scroll(&mut self, lines: f32) {
         self.wheel(MouseScrollUnit::Line, lines);

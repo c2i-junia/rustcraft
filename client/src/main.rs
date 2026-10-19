@@ -121,6 +121,8 @@ fn engine_plugins() -> PluginGroupBuilder {
                 present_mode: PresentMode::AutoVsync,
                 ..default()
             }),
+            // the close button asks to quit: a world being played is saved first
+            close_when_requested: false,
             ..default()
         })
 }

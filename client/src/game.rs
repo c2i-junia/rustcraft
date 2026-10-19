@@ -12,7 +12,7 @@ use crate::network::session::{
 };
 use crate::network::{
     init_server_connection, launch_local_server_system, network_plugin,
-    terminate_server_connection, TargetServer, TargetServerState,
+    terminate_server_connection, LastWorldClosing, TargetServer, TargetServerState,
 };
 use crate::player::player_plugin;
 use crate::state::{GameSet, GameState, PreLoadingCompletion};
@@ -59,6 +59,21 @@ pub fn game_plugin(app: &mut App) {
             setup_connecting_card,
         )
             .chain(),
+    )
+    // a world waiting for the last one to close is launched, then connected to, once it closed
+    .add_systems(
+        Update,
+        (launch_local_server_system, init_server_connection)
+            .chain()
+            .before(track_connection)
+            .run_if(in_state(GameState::PreGameLoading))
+            .run_if(resource_exists::<LastWorldClosing>),
+    )
+    .add_systems(
+        OnExit(GameState::PreGameLoading),
+        |mut commands: Commands| {
+            commands.remove_resource::<LastWorldClosing>();
+        },
     )
     .add_systems(
         Update,

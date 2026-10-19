@@ -18,6 +18,7 @@ use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
+use crate::ui::quit::QuitRequested;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XXL, TEXT,
@@ -369,7 +370,8 @@ pub fn open_quit_dialog_on_escape(
     }
 }
 
-/// Opens the quit confirmation, Cancel focused; its Quit exits the game.
+/// Opens the quit confirmation, Cancel focused; its Quit asks to quit, as the window's close
+/// button does: a world still saving is waited for.
 fn open_quit_dialog(commands: &mut Commands, asset_server: &Res<AssetServer>, focus: &InputFocus) {
     let dialog = Dialog {
         title: QUIT_TITLE,
@@ -381,11 +383,11 @@ fn open_quit_dialog(commands: &mut Commands, asset_server: &Res<AssetServer>, fo
         focused: 0,
     };
     let root = spawn_dialog(commands, &dialog, load_font(asset_server), focus);
-    commands.entity(root).observe(
-        |closed: On<DialogClosed>, mut exit: MessageWriter<AppExit>| {
+    commands
+        .entity(root)
+        .observe(|closed: On<DialogClosed>, mut commands: Commands| {
             if closed.action == Some(1) {
-                exit.write(AppExit::Success);
+                commands.trigger(QuitRequested);
             }
-        },
-    );
+        });
 }

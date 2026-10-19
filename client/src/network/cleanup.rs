@@ -1,7 +1,9 @@
+use crate::network::leave::STOP_TIMEOUT;
 use crate::network::{
     open_connection, CurrentPlayerProfile, LocalServerAddress, LocalServerHandle,
     SendGameMessageExtension, TargetServer, TargetServerState,
 };
+use crate::ui::quit::Quitting;
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeClientTransport;
 use bevy_renet::RenetClient;
@@ -65,12 +67,12 @@ fn drop_connection(commands: &mut Commands) {
     commands.remove_resource::<NetcodeClientTransport>();
 }
 
-/// How long the app, as it exits, waits for the embedded server it told to stop to save.
-const LOCAL_SERVER_STOP_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Closes the session when the app exits (window closed, quit button), which never goes
-/// through `OnExit(GameState::Game)`. Runs before the netcode plugin disconnects the
-/// transport.
+/// Closes the session when the app exits, which never goes through `OnExit(GameState::Game)`.
+/// Runs before the netcode plugin disconnects the transport.
+///
+/// A quit asked by the window or the main menu (`Quitting`) already waited for the world to be
+/// saved, or was asked to quit at once: only an exit that did not come through it (Ctrl+C in the
+/// terminal) waits here, up to `STOP_TIMEOUT`, for the embedded server it told to stop.
 pub fn close_session_on_app_exit(
     client: Option<ResMut<RenetClient>>,
     transport: Option<ResMut<NetcodeClientTransport>>,
@@ -78,6 +80,7 @@ pub fn close_session_on_app_exit(
     target: Res<TargetServer>,
     address: Option<Res<LocalServerAddress>>,
     exit_sent: Option<Res<ExitSent>>,
+    quitting: Option<Res<Quitting>>,
 ) {
     info!("App exiting, closing the session");
     let mut local_server = local_server.map(ResMut::into_inner);
@@ -89,10 +92,13 @@ pub fn close_session_on_app_exit(
         goes_to_local_server(&target, address.as_deref()),
         exit_sent.is_some(),
     );
+    if quitting.is_some() {
+        return;
+    }
     // the app's last frame: the process must not end while the world is written
     if let (LocalServerLeft::Told, Some(local_server)) = (left, local_server) {
         if let Some(handle) = local_server.0.take() {
-            local_server.0 = wait_for_local_server(handle, LOCAL_SERVER_STOP_TIMEOUT);
+            local_server.0 = wait_for_local_server(handle, STOP_TIMEOUT);
         }
     }
 }
@@ -281,9 +287,9 @@ mod tests {
     use crate::network::add_base_netcode;
     use crate::network::establish_authenticated_connection_to_server;
     use crate::network::init_server_connection;
-    use crate::network::launch_local_server_system;
     use crate::network::session::{session_plugin, ConnectError, SessionEnd, SessionOrigin};
     use crate::network::status::StatusProbe;
+    use crate::network::{launch_local_server_system, LastWorldClosing};
     use crate::state::GameState;
     use crate::world::time::ClientTime;
     use crate::world::ClientWorldMap;
@@ -453,7 +459,7 @@ mod tests {
         session.app.update();
 
         assert!(
-            start.elapsed() < LOCAL_SERVER_STOP_TIMEOUT,
+            start.elapsed() < STOP_TIMEOUT,
             "the local server took too long to stop"
         );
         session.assert_saved_and_stopped(7);
@@ -484,7 +490,7 @@ mod tests {
         session.app.update();
 
         assert!(
-            start.elapsed() < LOCAL_SERVER_STOP_TIMEOUT,
+            start.elapsed() < STOP_TIMEOUT,
             "the local server took too long to stop"
         );
         let target = session.app.world().resource::<TargetServer>();
@@ -828,6 +834,124 @@ mod tests {
             .unwrap();
 
         assert!(!has_connection(&app));
+    }
+
+    /// A bare app opening the world `world`, with no world selected (the launch ends there,
+    /// after the busy check), the server of the last world `last` still running.
+    fn reopening_app(last: std::thread::JoinHandle<Result<(), String>>) -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::PreGameLoading)
+            .insert_resource(LocalServerHandle(Some(last)))
+            .insert_resource(SelectedWorld { name: None })
+            .insert_resource(SessionOrigin::World {
+                name: "world".to_string(),
+            })
+            .insert_resource(GameFolderPaths {
+                game_folder_path: std::env::temp_dir().join("rustcraft-never-used"),
+                assets_folder_path: std::env::temp_dir().join("rustcraft-never-used"),
+            })
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: TargetServerState::Initial,
+            })
+            .add_systems(Update, launch_local_server_system);
+        app
+    }
+
+    /// The last world was told to stop and still saves: the world opened waits for it on its
+    /// card, then starts once its thread is joined.
+    #[test]
+    fn a_world_reopened_while_the_last_one_closes_waits_for_it() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let closing = std::thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(())
+        });
+        let mut app = reopening_app(closing);
+        app.insert_resource(ExitSent);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(app.world().contains_resource::<LastWorldClosing>());
+        assert!(!app.world().contains_resource::<SessionEnd>());
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::PreGameLoading
+        );
+
+        release.send(()).unwrap();
+        update_until(&mut app, "the launch", |app| {
+            app.world().contains_resource::<SessionEnd>()
+        });
+        // past the busy check: the launch only missed a world to start
+        assert_eq!(
+            app.world().resource::<SessionEnd>().error,
+            Some(ConnectError::WorldFailed("No world was selected".into()))
+        );
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+        assert!(!app.world().contains_resource::<LastWorldClosing>());
+    }
+
+    /// The last world did not stop within `STOP_TIMEOUT` of the request: the world opened says
+    /// so, and the last one finishes in the background.
+    #[test]
+    fn a_world_reopened_waits_for_the_last_one_only_so_long() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let closing = std::thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(())
+        });
+        let mut app = reopening_app(closing);
+        app.insert_resource(ExitSent)
+            .insert_resource(LastWorldClosing {
+                since: Instant::now() - STOP_TIMEOUT,
+            });
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<SessionEnd>().error,
+            Some(ConnectError::WorldBusy)
+        );
+        let handle = app.world().resource::<LocalServerHandle>().0.as_ref();
+        assert!(handle.is_some_and(|handle| !handle.is_finished()));
+        release.send(()).unwrap();
+    }
+
+    /// The quit already waited for the local server, or was asked to quit at once: the app's
+    /// last frame does not wait again.
+    #[test]
+    fn a_quit_never_waits_again_as_the_app_exits() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let parked = std::thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(())
+        });
+        let mut app = App::new();
+        app.insert_resource(LocalServerHandle(Some(parked)))
+            .insert_resource(ExitSent)
+            .insert_resource(Quitting {
+                since: Instant::now(),
+            })
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: TargetServerState::Initial,
+            });
+        let start = Instant::now();
+        app.world_mut()
+            .run_system_once(close_session_on_app_exit)
+            .unwrap();
+        assert!(
+            start.elapsed() < Duration::from_millis(50),
+            "waited {:?}",
+            start.elapsed()
+        );
+        assert!(app.world().resource::<LocalServerHandle>().0.is_some());
+        release.send(()).unwrap();
     }
 
     #[test]

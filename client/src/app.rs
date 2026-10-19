@@ -9,6 +9,7 @@ use crate::input::keyboard::get_bindings;
 use crate::network;
 use crate::state::{GameState, PlayerNameSupplied, TexturePath};
 use crate::ui::menus::{self, solo::SelectedWorld};
+use crate::ui::quit::quit_plugin;
 use crate::ui::settings::load_interface_settings;
 use crate::ui::widgets::widgets_plugin;
 use crate::world::ClientWorldMap;
@@ -44,5 +45,6 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
             menus::menu_plugin,
             game::game_plugin,
             audio::audio_plugin,
+            quit_plugin,
         ));
 }

@@ -15,7 +15,7 @@ use super::leave::Leaving;
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{
     authenticated, establish_authenticated_connection_to_server, open_connection,
-    CurrentPlayerProfile, LocalServerHandle, TargetServer, TargetServerState,
+    CurrentPlayerProfile, LastWorldClosing, LocalServerHandle, TargetServer, TargetServerState,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
@@ -60,6 +60,8 @@ pub struct SessionEnd {
 /// The step a session is at, from its start to the game.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectStep {
+    /// The local server of the last world, told to stop, still saves: the world waits for it.
+    ClosingLastWorld,
     /// The local server of a world loads it, then accepts the client.
     StartingWorld,
     /// The client connects to a server and authenticates.
@@ -198,6 +200,7 @@ pub(crate) fn track_connection(
     target: Res<TargetServer>,
     world: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
+    closing: Option<Res<LastWorldClosing>>,
 ) {
     let (Some(mut watch), Some(origin)) = (watch, origin) else {
         return;
@@ -206,7 +209,11 @@ pub(crate) fn track_connection(
         let center = world_position_to_chunk_position(player.translation);
         chunks_around(&world.blocks, center, BROADCAST_CHUNK_RADIUS)
     });
-    let step = connect_step(&origin, authenticated(target), chunks);
+    let step = if closing.is_some() {
+        ConnectStep::ClosingLastWorld
+    } else {
+        connect_step(&origin, authenticated(target), chunks)
+    };
     // only a new step marks the watch changed: the card redraws on a change
     if watch.step != step {
         watch.step = step;
@@ -221,7 +228,9 @@ pub(crate) fn track_connection(
 /// end of a session wins.
 ///
 /// A world still starting has no timeout: its server thread is the watchdog. When its
-/// connection gives up first (netcode's connect token, 15 s), a new one is opened.
+/// connection gives up first (netcode's connect token, 15 s), a new one is opened. A world
+/// waiting for the last one to close (`LastWorldClosing`) is not watched: the server running is
+/// the last world's, and the launch bounds the wait.
 ///
 /// The timeout counts from the last new step, not from the start: on a busy server the chunks
 /// around the spawn may come after those of the other players, and each one that comes is a
@@ -237,13 +246,14 @@ fn watch_connection(
     profile: Res<CurrentPlayerProfile>,
     timeout: Res<ConnectTimeout>,
     probe: Res<StatusProbe>,
+    closing: Option<Res<LastWorldClosing>>,
     mut game: ResMut<NextState<GameState>>,
     mut commands: Commands,
 ) {
     let (Some(mut watch), Some(origin)) = (watch, origin) else {
         return;
     };
-    if !matches!(*game, NextState::Unchanged) {
+    if !matches!(*game, NextState::Unchanged) || closing.is_some() {
         return;
     }
     // the handle is that of this session's world: no other one starts while it is held
@@ -472,6 +482,7 @@ pub fn connect_step(
 /// How far the progress bar is filled at `step` (Decision 3), from 0 to 1.
 pub fn progress(step: ConnectStep) -> f32 {
     match step {
+        ConnectStep::ClosingLastWorld => 0.0,
         ConnectStep::StartingWorld | ConnectStep::Connecting => 0.1,
         ConnectStep::LoadingChunks { received, total } => {
             let loaded = if total == 0 {
@@ -696,6 +707,8 @@ mod tests {
         );
         assert!(values[4] <= 1.0);
         assert_eq!(progress(ConnectStep::StartingWorld), 0.1);
+        // nothing of the session has begun while the last world closes
+        assert_eq!(progress(ConnectStep::ClosingLastWorld), 0.0);
         // no chunk to wait for is all of them; more than expected is no more than all
         let all = 0.2 + 0.7;
         let empty = progress(ConnectStep::LoadingChunks {

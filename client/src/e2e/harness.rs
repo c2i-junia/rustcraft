@@ -15,7 +15,7 @@ use bevy::{
         settings::{InstanceFlags, RenderCreation, WgpuFeatures, WgpuSettings},
         RenderPlugin,
     },
-    window::{ExitCondition, WindowResolution},
+    window::{ExitCondition, PrimaryWindow, WindowCloseRequested, WindowResolution},
     winit::WinitPlugin,
 };
 use shared::GameFolderPaths;
@@ -172,6 +172,8 @@ impl Harness {
                         ..default()
                     }),
                     exit_condition: ExitCondition::DontExit,
+                    // as the game's: the close button asks to quit
+                    close_when_requested: false,
                     ..default()
                 })
                 .disable::<WinitPlugin>()
@@ -270,6 +272,17 @@ impl Harness {
     /// The game folder of the client.
     pub fn folder(&self) -> &Path {
         self.folder.path()
+    }
+
+    /// Clicks the close button of the window: asks the app to close it, and runs a frame.
+    pub fn request_close(&mut self) {
+        let world = self.world_mut();
+        let window = world
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(world)
+            .unwrap();
+        world.write_message(WindowCloseRequested { window });
+        self.frames(1);
     }
 
     /// Whether the app asked to exit at any point.

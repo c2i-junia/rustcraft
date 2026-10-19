@@ -13,7 +13,10 @@ use bevy::{
 
 use super::background::menu_background;
 use super::text;
-use crate::network::session::{end_session, progress, ConnectStep, ConnectWatch, SessionOrigin};
+use crate::network::session::{
+    end_session, progress, track_connection, ConnectStep, ConnectWatch, SessionOrigin,
+};
+use crate::network::LastWorldClosing;
 use crate::state::GameState;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::theme::{
@@ -62,7 +65,9 @@ const MARKER_SIDE: f32 = 10.0;
 /// How long the marker of the current step shows, then hides, in seconds.
 pub(crate) const BLINK: f32 = 0.5;
 /// The row of the chunks.
-const CHUNKS_ROW: usize = 1;
+const CHUNKS_ROW: usize = 2;
+/// The label of the first step of a world opened while the last one closes.
+pub const CLOSING_LAST_WORLD: &str = "Closing the last world...";
 
 /// The title of the card: `Opening "Survie"` for a world, `Joining "Friends"` for a server.
 pub fn connecting_title(origin: &SessionOrigin) -> String {
@@ -72,22 +77,24 @@ pub fn connecting_title(origin: &SessionOrigin) -> String {
     }
 }
 
-/// The labels of the steps of a session, in order.
-pub fn step_labels(origin: &SessionOrigin) -> [&'static str; 3] {
+/// The labels of the steps of a session, in order. The first row, the wait for the last world
+/// to close, only shows on the card of a world that waits for it.
+pub fn step_labels(origin: &SessionOrigin) -> [&'static str; 4] {
     let first = if origin.is_world() {
         "Starting the world"
     } else {
         "Connecting"
     };
-    [first, "Loading chunks", "Spawning"]
+    [CLOSING_LAST_WORLD, first, "Loading chunks", "Spawning"]
 }
 
 /// The row of `step`.
 fn step_row(step: ConnectStep) -> usize {
     match step {
-        ConnectStep::StartingWorld | ConnectStep::Connecting => 0,
+        ConnectStep::ClosingLastWorld => 0,
+        ConnectStep::StartingWorld | ConnectStep::Connecting => 1,
         ConnectStep::LoadingChunks { .. } => CHUNKS_ROW,
-        ConnectStep::Spawning => 2,
+        ConnectStep::Spawning => 3,
     }
 }
 
@@ -95,7 +102,11 @@ pub fn connecting_plugin(app: &mut App) {
     app.add_systems(
         Update,
         (
-            show_step.run_if(resource_exists_and_changed::<ConnectWatch>),
+            // the step of the frame: the card of a world waiting for the last one never shows
+            // it starting first
+            show_step
+                .after(track_connection)
+                .run_if(resource_exists_and_changed::<ConnectWatch>),
             blink_current_step,
             cancel_on_escape,
         )
@@ -104,9 +115,11 @@ pub fn connecting_plugin(app: &mut App) {
     .add_observer(cancel_on_activate);
 }
 
-/// Spawns the card of the session being opened, every step pending until `show_step`.
+/// Spawns the card of the session being opened, every step pending until `show_step`; with the
+/// wait for the last world to close first when it does (`LastWorldClosing`).
 pub fn setup_connecting_card(
     origin: Option<Res<SessionOrigin>>,
+    closing: Option<Res<LastWorldClosing>>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -181,7 +194,8 @@ pub fn setup_connecting_card(
             ChildOf(card),
         ))
         .id();
-    for (index, label) in step_labels(&origin).into_iter().enumerate() {
+    let skipped = if closing.is_some() { 0 } else { 1 };
+    for (index, label) in step_labels(&origin).into_iter().enumerate().skip(skipped) {
         let row = commands
             .spawn((
                 StepRow(index),
