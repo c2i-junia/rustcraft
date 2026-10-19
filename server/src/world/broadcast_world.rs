@@ -103,34 +103,37 @@ pub fn broadcast_world_state(
 const CHUNKS_PER_MESSAGE: usize = 32;
 
 /// The messages that carry `new_map` to a client whose player is in `player_chunk`, encoded,
-/// nearest chunks first. The first one carries the mobs.
+/// nearest chunks first. The first one carries the mobs. Each message copies its chunks and
+/// is encoded on its own task.
 fn encode_world_updates(
-    new_map: HashMap<IVec3, Chunk>,
+    new_map: HashMap<IVec3, &Chunk>,
     player_chunk: IVec3,
     tick: u64,
     time: u64,
     mobs: &HashMap<MobId, ServerMob>,
 ) -> Vec<Vec<u8>> {
-    let mut chunks: Vec<(IVec3, Chunk)> = new_map.into_iter().collect();
+    let mut chunks: Vec<(IVec3, &Chunk)> = new_map.into_iter().collect();
     chunks.sort_by_key(|(pos, _)| (*pos - player_chunk).length_squared());
-    let mut updates = Vec::new();
-    let mut chunks = chunks.into_iter().peekable();
-    while chunks.peek().is_some() {
-        updates.push(ServerToClientMessage::WorldUpdate(WorldUpdate {
+    let encode = |index: usize, chunks: &[(IVec3, &Chunk)]| {
+        game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
             tick,
             time,
-            new_map: chunks.by_ref().take(CHUNKS_PER_MESSAGE).collect(),
-            mobs: match updates.is_empty() {
-                true => mobs.clone(),
-                false => HashMap::new(),
+            new_map: chunks
+                .iter()
+                .map(|&(pos, chunk)| (pos, chunk.clone()))
+                .collect(),
+            mobs: match index {
+                0 => mobs.clone(),
+                _ => HashMap::new(),
             },
-        }));
-    }
-    match updates.len() {
-        0 | 1 => updates.into_iter().map(game_message_to_payload).collect(),
+        }))
+    };
+    match chunks.len() {
+        0 => Vec::new(),
+        1..=CHUNKS_PER_MESSAGE => vec![encode(0, &chunks)],
         _ => ComputeTaskPool::get_or_init(TaskPool::default).scope(|scope| {
-            for update in updates {
-                scope.spawn(async move { game_message_to_payload(update) });
+            for (index, part) in chunks.chunks(CHUNKS_PER_MESSAGE).enumerate() {
+                scope.spawn(async move { encode(index, part) });
             }
         }),
     }
@@ -163,13 +166,13 @@ fn send_nearby_mobs(
 ///
 /// A client that holds every chunk within reach of a player who stays in the same chunk is
 /// only sent the updates: the chunks around are not looked at again on every tick.
-pub(super) fn world_messages_around(
-    chunks: &ChunkMap,
+pub(super) fn world_messages_around<'a>(
+    chunks: &'a ChunkMap,
     changed: &[IVec3],
     player_chunk: IVec3,
     render_distance: i32,
     sent: &mut SentChunks,
-) -> (Vec<IVec3>, Vec<BlockUpdate>, HashMap<IVec3, Chunk>) {
+) -> (Vec<IVec3>, Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
     let around = (player_chunk, render_distance);
     if sent.complete_around == Some(around) {
         let (updates, _) = client_world_messages(chunks, changed, &[], &mut sent.chunks);
@@ -211,12 +214,12 @@ fn take_chunks_to_unload(
 /// chunks are recorded in `sent`: a chunk sent now already holds the changes, and every chunk
 /// the client has gets its changes as updates, so the client never misses one and is never
 /// sent an update for a chunk it lacks.
-fn client_world_messages(
-    chunks: &ChunkMap,
+fn client_world_messages<'a>(
+    chunks: &'a ChunkMap,
     changed: &[IVec3],
     active_chunks: &[IVec3],
     sent: &mut HashSet<IVec3>,
-) -> (Vec<BlockUpdate>, HashMap<IVec3, Chunk>) {
+) -> (Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
     let updates = changed
         .iter()
         .filter(|pos| sent.contains(&global_block_to_chunk_pos(pos)))
@@ -232,12 +235,12 @@ fn client_world_messages(
 /// The chunks, nearest first, that a client has not received yet, at most
 /// `MAX_CHUNKS_PER_BROADCAST` holding blocks: an empty chunk weighs a few bytes on the wire, so
 /// the empty ones among them do not count. They are recorded in `sent`.
-fn get_world_map_chunks_to_send(
-    chunks: &ChunkMap,
+fn get_world_map_chunks_to_send<'a>(
+    chunks: &'a ChunkMap,
     active_chunks: &[IVec3],
     sent: &mut HashSet<IVec3>,
-) -> HashMap<IVec3, Chunk> {
-    let mut map: HashMap<IVec3, Chunk> = HashMap::new();
+) -> HashMap<IVec3, &'a Chunk> {
+    let mut map: HashMap<IVec3, &Chunk> = HashMap::new();
     let mut with_blocks = 0;
 
     for &c in active_chunks {
@@ -253,7 +256,7 @@ fn get_world_map_chunks_to_send(
             if !chunk.is_empty() {
                 with_blocks += 1;
             }
-            map.insert(c, chunk.clone());
+            map.insert(c, chunk);
         }
     }
 
@@ -389,7 +392,7 @@ mod tests {
     /// What a client holds: the chunks and updates it received, applied in order.
     fn deliver(
         client: &mut ChunkMap,
-        (updates, new_chunks): (Vec<BlockUpdate>, HashMap<IVec3, Chunk>),
+        (updates, new_chunks): (Vec<BlockUpdate>, HashMap<IVec3, &Chunk>),
     ) {
         for update in updates {
             match update.block {
@@ -400,7 +403,7 @@ mod tests {
             }
         }
         for (pos, chunk) in new_chunks {
-            client.insert_chunk(pos, chunk);
+            client.insert_chunk(pos, chunk.clone());
         }
     }
 
@@ -652,9 +655,9 @@ mod tests {
     /// The x of each chunk, sorted.
     #[test]
     fn new_chunks_are_split_into_messages_nearest_first_with_the_mobs_in_the_first() {
-        let new_map: HashMap<IVec3, Chunk> = (0..70)
-            .map(|x| (IVec3::new(x, 0, 0), Chunk::new()))
-            .collect();
+        let air = Chunk::new();
+        let new_map: HashMap<IVec3, &Chunk> =
+            (0..70).map(|x| (IVec3::new(x, 0, 0), &air)).collect();
         let fox = ServerMob {
             kind: shared::world::MobKind::Fox,
             target: shared::world::MobTarget::None,
@@ -706,11 +709,11 @@ mod tests {
     const KEPT: i32 = RENDER_DISTANCE + UNLOAD_MARGIN;
 
     /// What the client of a player in the chunk `(x, 0, 0)` is sent when no block changed.
-    fn walk_to(
-        chunks: &ChunkMap,
+    fn walk_to<'a>(
+        chunks: &'a ChunkMap,
         x: i32,
         sent: &mut SentChunks,
-    ) -> (Vec<IVec3>, HashMap<IVec3, Chunk>) {
+    ) -> (Vec<IVec3>, HashMap<IVec3, &'a Chunk>) {
         let (unloads, updates, new_chunks) =
             world_messages_around(chunks, &[], IVec3::new(x, 0, 0), RENDER_DISTANCE, sent);
         assert!(updates.is_empty());
@@ -802,14 +805,17 @@ mod tests {
             }
         }
         let mut sent = SentChunks::default();
+        // The positions of the new chunks
         let mut around = |chunks: &ChunkMap, changed: &[IVec3], player_chunk| {
-            world_messages_around(chunks, changed, player_chunk, 1, &mut sent)
+            let (unloads, updates, new_chunks) =
+                world_messages_around(chunks, changed, player_chunk, 1, &mut sent);
+            (unloads, updates, new_chunks.into_keys().collect::<Vec<_>>())
         };
 
         assert_eq!(around(&chunks, &[], IVec3::ZERO).2.len(), 26);
         chunks.insert_chunk(missing, Chunk::new());
         let (_, _, new_chunks) = around(&chunks, &[], IVec3::ZERO);
-        assert_eq!(new_chunks.keys().collect::<Vec<_>>(), vec![&missing]);
+        assert_eq!(new_chunks, vec![missing]);
 
         // Complete: a change still comes as an update
         let pos = IVec3::new(3, 2, 1);

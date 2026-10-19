@@ -268,7 +268,10 @@ fn bench_join_sending() {
         let message = game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
             tick: ticks,
             time: ticks,
-            new_map: new_chunks,
+            new_map: new_chunks
+                .into_iter()
+                .map(|(pos, chunk)| (pos, chunk.clone()))
+                .collect(),
             mobs: HashMap::new(),
         }));
         bytes += message.len();
