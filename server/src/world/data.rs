@@ -29,6 +29,9 @@ pub struct ServerWorldMap {
     pub sent_items: HashMap<PlayerId, HashSet<DroppedItemId>>,
     /// The chunks that are new or changed since they were last handed to the writer.
     pub dirty_chunks: HashSet<IVec3>,
+    /// The folder of the world, whose files hold the saved chunks not loaded yet: a chunk is
+    /// read from there when a player first needs it. `None` generates every chunk.
+    pub saved: Option<PathBuf>,
 }
 
 /// What one client has received of the world.

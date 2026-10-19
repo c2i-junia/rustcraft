@@ -235,6 +235,7 @@ fn bench_join_generation() {
             |_| radius,
             &mut chunks,
             &mut dirty,
+            None,
             SEED,
             GENERATED_CHUNKS_PER_TICK,
         );
@@ -298,13 +299,29 @@ fn bench_inputs_generation() {
         );
     }
     let mut dirty = HashSet::new();
-    generate_missing_chunks(&players, |_| 1, &mut chunks, &mut dirty, SEED, usize::MAX);
+    generate_missing_chunks(
+        &players,
+        |_| 1,
+        &mut chunks,
+        &mut dirty,
+        None,
+        SEED,
+        usize::MAX,
+    );
     let mut samples = Vec::new();
     for _ in 0..200 {
         let start = Instant::now();
         for _ in 0..3 {
             for player in &players {
-                generate_missing_chunks([player], |_| 1, &mut chunks, &mut dirty, SEED, usize::MAX);
+                generate_missing_chunks(
+                    [player],
+                    |_| 1,
+                    &mut chunks,
+                    &mut dirty,
+                    None,
+                    SEED,
+                    usize::MAX,
+                );
             }
         }
         samples.push(micros(start));

@@ -8,13 +8,15 @@ use shared::GameFolderPaths;
 use std::fs;
 use std::path::Path;
 
-use crate::world::chunk_files::{
-    has_chunk_files, read_chunks, read_chunks_with, write_chunk, CHUNKS_DIR,
-};
-use crate::world::container_files::{read_containers, CONTAINERS_DIR};
+use crate::world::chunk_files::{has_chunk_files, read_chunks_with, write_chunk, CHUNKS_DIR};
 use crate::world::data::{world_dir, SAVE_PATH};
 use crate::world::format::{write_meta, WorldData, WorldMeta, FORMAT_VERSION, WORLD_FILE};
 use crate::world::legacy::{decode_chunk_v1, LegacyWorldData};
+#[cfg(test)]
+use crate::world::{
+    chunk_files::read_chunks,
+    container_files::{read_containers, CONTAINERS_DIR},
+};
 use std::path::PathBuf;
 
 /// What a `world.ron` turned out to hold.
@@ -28,11 +30,28 @@ enum WorldFile {
     SingleFile(WorldData),
 }
 
-/// Loads the world `file_name`: its metadata and every chunk file. A world saved in one of the
-/// two single-file formats is first converted to the current layout. A world that does not
-/// exist yet is a new one. Anything unreadable in `world.ron` is an error, so that a world is
-/// never regenerated over a save; only a damaged chunk file is skipped.
+/// Loads the world `file_name`: its metadata and every chunk file, as `open_world` does but
+/// with the chunks and the chests read at once.
+#[cfg(test)]
 pub fn load_world_data(
+    file_name: &str,
+    game_folder_paths: &GameFolderPaths,
+) -> Result<WorldData, Box<dyn std::error::Error>> {
+    let world = open_world(file_name, game_folder_paths)?;
+    let dir = world_dir(game_folder_paths, file_name)?;
+    if !world.map.is_empty() {
+        // a single-file world, converted: its chunks are already in memory
+        return Ok(world);
+    }
+    Ok(read_chunks_of(&dir, world)?)
+}
+
+/// Opens the world `file_name`: its metadata only, the chunks are read from their files when
+/// they are needed (`read_chunk`). A world saved in one of the two single-file formats is first
+/// converted to the current layout, and keeps the chunks it held in memory. A world that does
+/// not exist yet is a new one. Anything unreadable in `world.ron` is an error, so that a world
+/// is never regenerated over a save; only a damaged chunk file is skipped.
+pub fn open_world(
     file_name: &str,
     game_folder_paths: &GameFolderPaths,
 ) -> Result<WorldData, Box<dyn std::error::Error>> {
@@ -69,11 +88,11 @@ pub fn load_world_data(
         parse_world_file(&contents).map_err(|err| format!("{}: {err}", file_path.display()))?;
 
     let world_data = match world_file {
-        WorldFile::Current(meta) => read_chunks_of(&dir, meta)?,
+        WorldFile::Current(meta) => WorldData::from(meta),
         WorldFile::V1(meta) => {
             convert_v1_chunks(&dir, &meta)
                 .map_err(|err| format!("could not convert {}: {err}", dir.display()))?;
-            read_chunks_of(&dir, meta)?
+            WorldData::from(meta)
         }
         WorldFile::SingleFile(world_data) => {
             convert_single_file_world(&dir, &world_data)
@@ -87,8 +106,9 @@ pub fn load_world_data(
     Ok(world_data)
 }
 
-/// The world of `meta`, with the chunk and chest files of the folder of the world `dir`.
-fn read_chunks_of(dir: &Path, meta: WorldMeta) -> Result<WorldData, String> {
+/// `world`, with the chunk and chest files of the folder of the world `dir`.
+#[cfg(test)]
+fn read_chunks_of(dir: &Path, world: WorldData) -> Result<WorldData, String> {
     let chunks_dir = dir.join(CHUNKS_DIR);
     let map = read_chunks(&chunks_dir).map_err(|err| format!("{}: {err}", chunks_dir.display()))?;
     let containers_dir = dir.join(CONTAINERS_DIR);
@@ -97,11 +117,7 @@ fn read_chunks_of(dir: &Path, meta: WorldMeta) -> Result<WorldData, String> {
     Ok(WorldData {
         map,
         containers,
-        mobs: meta.mobs,
-        seed: meta.seed,
-        name: meta.name,
-        time: meta.time,
-        dropped_items: meta.dropped_items,
+        ..world
     })
 }
 

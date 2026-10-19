@@ -79,6 +79,20 @@ impl From<&WorldData> for WorldMeta {
     }
 }
 
+/// The world of `meta`, without its chunks.
+impl From<WorldMeta> for WorldData {
+    fn from(meta: WorldMeta) -> Self {
+        Self {
+            mobs: meta.mobs,
+            seed: meta.seed,
+            name: meta.name,
+            time: meta.time,
+            dropped_items: meta.dropped_items,
+            ..Self::default()
+        }
+    }
+}
+
 /// Writes `world.ron` of the world stored in `world_dir`.
 pub fn write_meta(world_dir: &Path, meta: &WorldMeta) -> Result<(), Box<dyn std::error::Error>> {
     let serialized = ron::ser::to_string_pretty(meta, PrettyConfig::new())?;

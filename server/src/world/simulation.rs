@@ -3,13 +3,22 @@ use bevy_renet::{renet::ClientId, RenetServer};
 use shared::{
     messages::{PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{blocks::CallerType, simulation::simulate_player_actions, Player},
-    world::{ChunkMap, WorldSeed},
+    world::{Chunk, ChunkMap, WorldSeed},
 };
+use std::path::Path;
 
 use crate::{
     network::extensions::SendGameMessageExtension,
-    world::{data::ServerWorldMap, generation::generate_chunk},
+    world::{
+        chunk_files::{read_chunk, CHUNKS_DIR},
+        container_files::{
+            insert_with_chests, read_chunk_containers, ChunkContainers, CONTAINERS_DIR,
+        },
+        data::ServerWorldMap,
+        generation::generate_chunk,
+    },
 };
+use bevy::tasks::{ComputeTaskPool, TaskPool};
 
 use super::broadcast_world::get_all_active_chunks;
 
@@ -19,18 +28,62 @@ pub struct PlayerInputsEvent {
     pub input: PlayerFrameInput,
 }
 
-/// How many chunks the render distances of the players get generated per tick, at most: a
-/// joining player would otherwise freeze the server for its whole render distance at once.
-pub(super) const GENERATED_CHUNKS_PER_TICK: usize = 32;
+/// How many chunks the render distances of the players get loaded or generated per tick, at
+/// most: a joining player would otherwise freeze the server for its whole render distance at
+/// once.
+pub(super) const GENERATED_CHUNKS_PER_TICK: usize = 1024;
 
-/// Generates the chunks within `radius` of each of `players`, at most `budget` of them, the
-/// nearest to each player first. A generated chunk is dirty: it has to be saved, as inserting
-/// it is not logged as a block change.
+/// Chunks made on one task of the pool: fewer are made on the tick's thread.
+const CHUNKS_PER_TASK: usize = 16;
+
+/// A chunk that was not loaded, read from its file or generated.
+enum Made {
+    Read(Chunk, ChunkContainers),
+    Generated(Chunk),
+}
+
+/// The chunk at `chunk_pos`: from its file in the folder of the world `saved`, else generated.
+fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, seed: u32) -> Made {
+    if let Some(dir) = saved {
+        if let Some(chunk) = read_chunk(&dir.join(CHUNKS_DIR), chunk_pos) {
+            let chests = read_chunk_containers(&dir.join(CONTAINERS_DIR), chunk_pos);
+            return Made::Read(chunk, chests);
+        }
+    }
+    Made::Generated(generate_chunk(chunk_pos, seed))
+}
+
+/// Makes `chunks` on the threads of the compute pool, in their order.
+fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
+    if chunks.len() <= CHUNKS_PER_TASK {
+        return chunks.iter().map(|&c| make_chunk(c, saved, seed)).collect();
+    }
+    ComputeTaskPool::get_or_init(TaskPool::default)
+        .scope(|scope| {
+            for batch in chunks.chunks(CHUNKS_PER_TASK) {
+                scope.spawn(async move {
+                    batch
+                        .iter()
+                        .map(|&c| make_chunk(c, saved, seed))
+                        .collect::<Vec<_>>()
+                });
+            }
+        })
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Loads the chunks within `radius` of each of `players`, at most `budget` of them, the nearest
+/// to each player first: from their files in the folder of the world `saved`, else generated.
+/// A generated chunk is dirty: it has to be saved, as inserting it is not logged as a block
+/// change. A chunk read from its file is not.
 pub(super) fn generate_missing_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
     chunks: &mut ChunkMap,
     dirty_chunks: &mut std::collections::HashSet<IVec3>,
+    saved: Option<&Path>,
     seed: u32,
     budget: usize,
 ) {
@@ -39,12 +92,18 @@ pub(super) fn generate_missing_chunks<'a>(
         .filter(|c| !chunks.is_chunk_loaded(*c))
         .take(budget)
         .collect();
-    if !missing.is_empty() {
-        debug!("Generating {} chunks", missing.len());
+    if missing.is_empty() {
+        return;
     }
-    for c in missing {
-        chunks.insert_chunk(c, generate_chunk(c, seed));
-        dirty_chunks.insert(c);
+    debug!("Loading {} chunks", missing.len());
+    for (c, made) in missing.iter().zip(make_chunks(&missing, saved, seed)) {
+        match made {
+            Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
+            Made::Generated(chunk) => {
+                chunks.insert_chunk(*c, chunk);
+                dirty_chunks.insert(*c);
+            }
+        }
     }
 }
 
@@ -60,12 +119,14 @@ pub fn handle_player_inputs_system(
     let dropped_items = &mut world_map.dropped_items;
     let dirty_chunks = &mut world_map.dirty_chunks;
     let render_distances = &world_map.render_distances;
+    let saved = world_map.saved.as_deref();
 
     generate_missing_chunks(
         &*players,
         |id| render_distances.get(id),
         chunks,
         dirty_chunks,
+        saved,
         seed.0,
         GENERATED_CHUNKS_PER_TICK,
     );
@@ -92,6 +153,7 @@ pub fn handle_player_inputs_system(
             |_| 1,
             chunks,
             dirty_chunks,
+            saved,
             seed.0,
             usize::MAX,
         );
@@ -143,7 +205,15 @@ mod tests {
         chunks.insert_chunk(IVec3::ZERO, shared::world::Chunk::new());
         let mut dirty = std::collections::HashSet::new();
 
-        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1, usize::MAX);
+        generate_missing_chunks(
+            &players,
+            |_| 2,
+            &mut chunks,
+            &mut dirty,
+            None,
+            1,
+            usize::MAX,
+        );
 
         assert!(!dirty.contains(&IVec3::ZERO));
         assert!(dirty.contains(&IVec3::X));
@@ -164,17 +234,73 @@ mod tests {
         let mut chunks = ChunkMap::default();
         let mut dirty = std::collections::HashSet::new();
 
-        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1, 7);
+        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, None, 1, 7);
         // The chunk of the player and its six face neighbours
         assert_eq!(dirty.len(), 7);
         assert!(dirty.iter().all(|c| c.abs().element_sum() <= 1));
 
-        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, 1, 7);
+        generate_missing_chunks(&players, |_| 2, &mut chunks, &mut dirty, None, 1, 7);
         assert_eq!(
             dirty.len(),
             14,
             "the next tick goes on where the last stopped"
         );
         assert!(dirty.iter().all(|c| c.abs().max_element() <= 1));
+    }
+
+    #[test]
+    fn a_saved_chunk_is_read_from_its_file_with_its_chests_and_is_not_dirty() {
+        use crate::world::chunk_files::write_chunk;
+        use crate::world::container_files::write_containers;
+        use shared::world::{BlockData, BlockDirection, BlockId, Container};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut saved = Chunk::new();
+        saved.set(
+            IVec3::new(1, 2, 3),
+            BlockData::new(BlockId::Chest, BlockDirection::Front),
+        );
+        let chunks_dir = dir.path().join(CHUNKS_DIR);
+        let containers_dir = dir.path().join(CONTAINERS_DIR);
+        std::fs::create_dir_all(&chunks_dir).unwrap();
+        std::fs::create_dir_all(&containers_dir).unwrap();
+        write_chunk(&chunks_dir, IVec3::ZERO, &saved).unwrap();
+        let mut held = Container::default();
+        held.slots[3] = Some(shared::world::ItemStack {
+            item_id: shared::world::ItemId::Dirt,
+            item_type: shared::world::ItemId::Dirt.get_default_type(),
+            nb: 5,
+        });
+        write_containers(
+            &containers_dir,
+            IVec3::ZERO,
+            &vec![(IVec3::new(1, 2, 3), held.clone())],
+        )
+        .unwrap();
+
+        let mut players = std::collections::HashMap::new();
+        players.insert(
+            1,
+            Player::new(1, "p".into(), Vec3::new(8., 8., 8.), Transform::default()),
+        );
+        let mut chunks = ChunkMap::default();
+        let mut dirty = std::collections::HashSet::new();
+        generate_missing_chunks(
+            &players,
+            |_| 1,
+            &mut chunks,
+            &mut dirty,
+            Some(dir.path()),
+            1,
+            usize::MAX,
+        );
+
+        assert_eq!(chunks.chunk(IVec3::ZERO), Some(&saved));
+        assert_eq!(chunks.container(IVec3::new(1, 2, 3)), Some(&held));
+        assert!(
+            !dirty.contains(&IVec3::ZERO),
+            "a chunk read is saved already"
+        );
+        assert_eq!(dirty.len(), 26, "the chunks without a file are generated");
     }
 }

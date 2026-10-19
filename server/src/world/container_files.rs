@@ -2,18 +2,21 @@
 //! named like the file of the chunk and encoded the same way: bincode, then lz4. Only a chunk
 //! that holds a chest has one.
 
+#[cfg(test)]
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 
-use bevy::math::IVec3;
+use bevy::{log::warn, math::IVec3};
 use shared::{
     game_message_to_payload, payload_to_game_message_limited,
-    world::{to_global_pos, Chunk, Container, CHEST_SLOTS},
+    world::{to_global_pos, BlockId, Chunk, ChunkMap, Container, CHEST_SLOTS},
     CHUNK_SIZE,
 };
 
-use super::chunk_files::{chunk_file_name, read_files_named_by_chunk};
+#[cfg(test)]
+use super::chunk_files::read_files_named_by_chunk;
+use super::chunk_files::{chunk_file_name, read_file_of_chunk};
 use super::format::write_atomically;
 
 /// Name of the folder of a world that holds the contents of its chests.
@@ -72,6 +75,7 @@ pub fn write_containers(
 
 /// Reads every file of `containers_dir`, as `read_chunks` reads the chunks: a damaged file is
 /// logged and skipped, its chests are found empty. Returns the contents by global position.
+#[cfg(test)]
 pub fn read_containers(containers_dir: &Path) -> io::Result<HashMap<IVec3, Container>> {
     let by_chunk = read_files_named_by_chunk(
         containers_dir,
@@ -89,10 +93,79 @@ pub fn read_containers(containers_dir: &Path) -> io::Result<HashMap<IVec3, Conta
         .collect())
 }
 
+/// Loads `chunk` at `chunk_pos` into `chunks` with the contents of its chests, `chests`. A chest
+/// found without contents is empty, and contents found where no chest stands are dropped.
+pub fn insert_with_chests(
+    chunks: &mut ChunkMap,
+    chunk_pos: IVec3,
+    chunk: Chunk,
+    mut chests: ChunkContainers,
+) {
+    let found: Vec<IVec3> = chunk
+        .iter()
+        .filter(|(_, block)| block.id == BlockId::Chest)
+        .map(|(local, _)| local)
+        .collect();
+    chunks.insert_chunk(chunk_pos, chunk);
+    for local in found {
+        let container = match chests.iter().position(|(at, _)| *at == local) {
+            Some(index) => chests.swap_remove(index).1,
+            None => Container::default(),
+        };
+        chunks.insert_container(to_global_pos(&chunk_pos, &local), container);
+    }
+    for (local, _) in chests {
+        warn!(
+            "Dropping the contents of a chest at {}, where no chest stands",
+            to_global_pos(&chunk_pos, &local)
+        );
+    }
+}
+
+/// The chests of the chunk at `chunk_pos`, read from its file in `containers_dir`: none when it
+/// has no file, and none, logged, when the file is damaged.
+pub fn read_chunk_containers(containers_dir: &Path, chunk_pos: IVec3) -> ChunkContainers {
+    read_file_of_chunk(
+        containers_dir,
+        chunk_pos,
+        MAX_FILE_SIZE,
+        decode_containers,
+        "its chests will be found empty",
+    )
+    .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use shared::world::{ItemId, ItemStack};
+
+    #[test]
+    fn loaded_chests_get_their_contents_or_empty_ones_and_stray_contents_are_dropped() {
+        use shared::world::{BlockData, BlockDirection};
+
+        let mut chunk = Chunk::new();
+        for local in [IVec3::new(1, 0, 0), IVec3::new(2, 0, 0)] {
+            chunk.set(local, BlockData::new(BlockId::Chest, BlockDirection::Front));
+        }
+        let held = holding(ItemId::Stone, 2);
+        let chests = vec![
+            (IVec3::new(1, 0, 0), held.clone()),
+            (IVec3::new(3, 0, 0), held.clone()),
+        ];
+
+        let mut chunks = ChunkMap::default();
+        insert_with_chests(&mut chunks, IVec3::X, chunk, chests);
+
+        assert_eq!(chunks.container(IVec3::new(17, 0, 0)), Some(&held));
+        assert_eq!(
+            chunks.container(IVec3::new(18, 0, 0)),
+            Some(&Container::default())
+        );
+        assert_eq!(chunks.container(IVec3::new(19, 0, 0)), None);
+        assert!(chunks.take_changed_containers().is_empty());
+        assert!(chunks.take_changed_blocks().is_empty());
+    }
 
     fn holding(item_id: ItemId, nb: u32) -> Container {
         let mut container = Container::default();

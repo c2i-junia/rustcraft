@@ -89,8 +89,70 @@ pub fn has_chunk_files(chunks_dir: &Path) -> io::Result<bool> {
 /// logged and skipped: the chunk it stood for is generated again. The temporary file of an
 /// interrupted write (a chunk file name plus `.tmp`) is deleted. Only a folder that cannot
 /// be listed is an error.
+#[cfg(test)]
 pub fn read_chunks(chunks_dir: &Path) -> io::Result<HashMap<IVec3, Chunk>> {
     read_chunks_with(chunks_dir, decode_chunk)
+}
+
+/// Reads the file of the chunk at `chunk_pos` in `chunks_dir`, or `None` when it has none. A
+/// file that cannot be read or decoded is logged and skipped, as by `read_chunks`.
+pub fn read_chunk(chunks_dir: &Path, chunk_pos: IVec3) -> Option<Chunk> {
+    read_file_of_chunk(
+        chunks_dir,
+        chunk_pos,
+        MAX_CHUNK_FILE_SIZE,
+        decode_chunk,
+        "the chunk will be generated again",
+    )
+}
+
+/// Reads the file named after `chunk_pos` in `dir`, as `read_files_named_by_chunk` reads each
+/// of its files: a missing file is `None`, and so is one that is too large or that `decode`
+/// refuses, which is logged with `when_skipped`.
+pub(super) fn read_file_of_chunk<T>(
+    dir: &Path,
+    chunk_pos: IVec3,
+    max_size: u64,
+    decode: fn(&[u8]) -> Result<T, String>,
+    when_skipped: &str,
+) -> Option<T> {
+    let path = dir.join(chunk_file_name(chunk_pos));
+    match read_chunk_file(&path, max_size, decode) {
+        Ok(value) => Some(value),
+        Err(_) if !path.exists() => None,
+        Err(err) => {
+            warn!(
+                "Skipping the unreadable file {}, {when_skipped}: {err}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+/// Deletes the temporary files that interrupted writes left in `dir`: a chunk file name plus
+/// `.tmp`.
+pub fn remove_interrupted_writes(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_orphan = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_suffix(TEMPORARY_SUFFIX))
+            .is_some_and(|name| parse_chunk_file_name(name).is_some());
+        if is_orphan && path.is_file() {
+            match std::fs::remove_file(&path) {
+                Ok(()) => debug!(
+                    "Removed the file left by an interrupted write: {}",
+                    path.display()
+                ),
+                Err(err) => warn!("Could not remove {}: {err}", path.display()),
+            }
+        }
+    }
 }
 
 /// `read_chunks`, with the files decoded by `decode`.

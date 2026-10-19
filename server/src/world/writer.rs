@@ -16,7 +16,7 @@ use bevy::{
 use shared::world::Chunk;
 use shared::SaveCounter;
 
-use super::chunk_files::{chunk_file_name, write_chunk, CHUNKS_DIR};
+use super::chunk_files::{chunk_file_name, remove_interrupted_writes, write_chunk, CHUNKS_DIR};
 use super::container_files::{write_containers, ChunkContainers, CONTAINERS_DIR};
 use super::format::{write_meta, WorldMeta, WORLD_FILE};
 
@@ -116,7 +116,15 @@ impl WorldWriter {
     /// Starts a writer that saves into `world_dir`, and counts in `saves` each job written in
     /// full and each one that was not.
     pub fn spawn(world_dir: PathBuf, saves: Option<SaveCounter>) -> std::io::Result<Self> {
+        let mut cleaned = false;
         Self::spawn_with(move |job| {
+            // The chunks are read when needed, not listed on load: the files of interrupted
+            // writes are removed here, before the first save
+            if !cleaned {
+                remove_interrupted_writes(&world_dir.join(CHUNKS_DIR));
+                remove_interrupted_writes(&world_dir.join(CONTAINERS_DIR));
+                cleaned = true;
+            }
             let outcome = write_job(&world_dir, job);
             match (&saves, outcome.is_complete()) {
                 (Some(saves), true) => saves.bump(),
