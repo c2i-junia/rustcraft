@@ -1,11 +1,11 @@
 //! The Interface tab of the settings: the UI scale, with a note when the window is too small for
-//! it, and the FPS counter, each saved as soon as it is chosen.
+//! it, the FPS counter and the minimap, each saved as soon as it is chosen.
 
 use bevy::{prelude::*, window::PrimaryWindow};
 use shared::GameFolderPaths;
 
 use crate::ui::settings::{
-    write_interface_settings, FpsCounterChoice, InterfaceSettings, UiScaleChoice,
+    write_interface_settings, FpsCounterChoice, InterfaceSettings, MinimapChoice, UiScaleChoice,
 };
 use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_M, SPACE_XS, TEXT};
 use crate::ui::widgets::scale::ui_scale_for;
@@ -52,7 +52,8 @@ fn spawn_row(commands: &mut Commands, parent: Entity, label: &str, font: &Handle
     row
 }
 
-/// Spawns the UI scale control and its note, then the FPS counter control, under `panel`.
+/// Spawns the UI scale control and its note, then the FPS counter and the minimap controls,
+/// under `panel`.
 pub fn spawn_interface_tab(
     commands: &mut Commands,
     panel: Entity,
@@ -111,11 +112,28 @@ pub fn spawn_interface_tab(
         options: &labels,
         selected,
     };
-    let group = spawn_segmented(commands, &segmented, font);
+    let group = spawn_segmented(commands, &segmented, font.clone());
     commands
         .entity(group)
         .insert(ChildOf(row))
         .observe(choose_fps_counter);
+
+    let row = spawn_row(commands, panel, "Minimap", &font);
+    let labels = MinimapChoice::ALL.map(MinimapChoice::label);
+    let selected = MinimapChoice::ALL
+        .iter()
+        .position(|&choice| choice == settings.minimap)
+        .unwrap_or_default();
+    let segmented = Segmented {
+        label: "Minimap",
+        options: &labels,
+        selected,
+    };
+    let group = spawn_segmented(commands, &segmented, font);
+    commands
+        .entity(group)
+        .insert(ChildOf(row))
+        .observe(choose_minimap);
 }
 
 /// Applies and saves the chosen UI scale.
@@ -135,6 +153,16 @@ fn choose_fps_counter(
     paths: Res<GameFolderPaths>,
 ) {
     settings.fps_counter = FpsCounterChoice::ALL[change.index];
+    write_interface_settings(&settings, &paths);
+}
+
+/// Applies and saves whether the minimap shows.
+fn choose_minimap(
+    change: On<SegmentChange>,
+    mut settings: ResMut<InterfaceSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    settings.minimap = MinimapChoice::ALL[change.index];
     write_interface_settings(&settings, &paths);
 }
 

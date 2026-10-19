@@ -104,6 +104,9 @@ paru -S rustcraft
 |                   | Recall sent messages   | ↑ / ↓ in the chat           |
 |                   | Scroll the chat        | PageUp / PageDown, mouse wheel |
 |                   |                        |                             |
+| **Minimap**       | Show / hide the minimap | M                         |
+|                   | Zoom in / out          | = / -                       |
+|                   |                        |                             |
 | **Miscellaneous** | Game menu             | Escape                      |
 |                   | Reload Chunks (rebuild their meshes) | R            |
 |                   | Toggle debug overlay  | F3                          |

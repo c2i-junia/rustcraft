@@ -84,12 +84,32 @@ impl FpsCounterChoice {
     }
 }
 
+/// Whether the minimap shows in the top-right corner of the game.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MinimapChoice {
+    Off,
+    #[default]
+    On,
+}
+
+impl MinimapChoice {
+    pub const ALL: [MinimapChoice; 2] = [MinimapChoice::Off, MinimapChoice::On];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MinimapChoice::Off => "Off",
+            MinimapChoice::On => "On",
+        }
+    }
+}
+
 /// The interface settings, saved in `interface.ron`.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InterfaceSettings {
     pub ui_scale: UiScaleChoice,
     pub fps_counter: FpsCounterChoice,
+    pub minimap: MinimapChoice,
 }
 
 /// The saved settings, or the default ones when none were saved or the file cannot be read.
@@ -136,6 +156,7 @@ mod tests {
         let settings = InterfaceSettings {
             ui_scale: UiScaleChoice::X1_5,
             fps_counter: FpsCounterChoice::Graph,
+            minimap: MinimapChoice::Off,
         };
         write_interface_settings(&settings, &paths);
         let reloaded = load_interface_settings(&paths);
@@ -159,6 +180,26 @@ mod tests {
             fs::write(&file, content).unwrap();
             assert_eq!(
                 load_interface_settings(&paths).ui_scale,
+                expected,
+                "{content}"
+            );
+        }
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+    }
+
+    #[test]
+    fn the_minimap_shows_unless_saved_off() {
+        let paths = temp_paths("interface-minimap");
+        let file = paths.game_folder_path.join(INTERFACE_SETTINGS_PATH);
+        assert_eq!(load_interface_settings(&paths).minimap, MinimapChoice::On);
+        for (content, expected) in [
+            // a file saved before the minimap existed
+            ("(ui_scale: X2, fps_counter: Graph)", MinimapChoice::On),
+            ("(minimap: Off)", MinimapChoice::Off),
+        ] {
+            fs::write(&file, content).unwrap();
+            assert_eq!(
+                load_interface_settings(&paths).minimap,
                 expected,
                 "{content}"
             );

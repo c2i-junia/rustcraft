@@ -12,6 +12,7 @@ mod input;
 mod inventory;
 mod locator;
 mod main_menu;
+mod minimap;
 mod multi;
 mod pause;
 mod raw_client;

@@ -24,6 +24,7 @@ use crate::network::LocalSaves;
 use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::fade_chat_messages_system;
+use crate::ui::hud::minimap::MinimapRoot;
 use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
 use crate::ui::menus::modal_open;
@@ -564,9 +565,12 @@ fn close_pause_menu(
     }
 }
 
-/// Hides the hotbar and its item name under the overlays: nothing there concerns them, and the
-/// hint bar would cover them in part.
-fn hide_hud_under_menus(overlays: Overlays, mut hud: Query<&mut Visibility, With<HudBottom>>) {
+/// Hides the hotbar, its item name and the minimap under the overlays: nothing there concerns
+/// them, and the hint bar would cover the hotbar in part.
+fn hide_hud_under_menus(
+    overlays: Overlays,
+    mut hud: Query<&mut Visibility, Or<(With<HudBottom>, With<MinimapRoot>)>>,
+) {
     let shown = if overlay_open(overlays) {
         Visibility::Hidden
     } else {

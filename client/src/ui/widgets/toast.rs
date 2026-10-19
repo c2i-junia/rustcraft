@@ -1,11 +1,11 @@
 //! Toasts: short messages at the top-right of the window, which go by themselves after
-//! `TOAST_DURATION`. They stack downward, take no click and no focus, and outlive the screen
-//! that showed them.
+//! `TOAST_DURATION`. They stack downward, below what holds the top-right corner of the game
+//! (`ToastsBelow`), take no click and no focus, and outlive the screen that showed them.
 
 use std::time::Duration;
 
 use accesskit::Role;
-use bevy::{a11y::AccessibilityNode, prelude::*};
+use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiSystems};
 
 use super::raised_bevel;
 use crate::ui::theme::{BEVEL_WIDTH, DANGER, FONT_S, OK, PANEL, SPACE_L, SPACE_M, SPACE_S, TEXT};
@@ -42,8 +42,13 @@ pub struct Toast {
 #[derive(Component)]
 struct ToastStack;
 
+/// A node at the top-right of the window that the toasts stay below.
+#[derive(Component)]
+pub struct ToastsBelow;
+
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(Update, despawn_old_toasts);
+    app.add_systems(Update, despawn_old_toasts)
+        .add_systems(PostUpdate, keep_toasts_below.before(UiSystems::Layout));
 }
 
 /// Shows `text` in a toast under the ones already shown, for `TOAST_DURATION`. The oldest goes
@@ -138,6 +143,34 @@ fn toast_stack() -> impl Bundle {
     )
 }
 
+/// The top of the toast stack, in logical px: `SPACE_L` from the top of the window, or under
+/// the bottoms of the nodes it keeps below, also in logical px, when lower.
+fn toast_top(bottoms: impl IntoIterator<Item = f32>) -> f32 {
+    bottoms
+        .into_iter()
+        .map(|bottom| bottom + SPACE_S)
+        .fold(SPACE_L, f32::max)
+}
+
+/// Moves the toast stack below the nodes it keeps below, as they were laid out last frame.
+fn keep_toasts_below(
+    below: Query<(&ComputedNode, &UiGlobalTransform, &InheritedVisibility), With<ToastsBelow>>,
+    mut stacks: Query<&mut Node, With<ToastStack>>,
+) {
+    let bottoms = below
+        .iter()
+        .filter(|(node, _, visibility)| visibility.get() && node.size().y > 0.0)
+        .map(|(node, transform, _)| {
+            (transform.translation.y + node.size().y / 2.0) * node.inverse_scale_factor()
+        });
+    let top = px(toast_top(bottoms));
+    for mut stack in &mut stacks {
+        if stack.top != top {
+            stack.top = top;
+        }
+    }
+}
+
 /// Despawns the toasts whose time is up.
 fn despawn_old_toasts(
     toasts: Query<(Entity, &Toast)>,
@@ -158,6 +191,14 @@ mod tests {
 
     use super::*;
     use crate::state::GameState;
+
+    #[test]
+    fn the_toasts_stay_below_the_top_right_corner_of_the_game() {
+        assert_eq!(toast_top([]), SPACE_L);
+        // a node that ends higher leaves the toasts where they are
+        assert_eq!(toast_top([4.0]), SPACE_L);
+        assert_eq!(toast_top([170.0, 40.0]), 170.0 + SPACE_S);
+    }
 
     #[test]
     fn a_toast_has_the_role_of_its_kind() {

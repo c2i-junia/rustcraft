@@ -10,7 +10,8 @@ use shared::GameFolderPaths;
 use super::debug::{debug_font, debug_line, fps_color, FpsText};
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
-use crate::state::{GameState, KeyMap};
+use crate::state::KeyMap;
+use crate::ui::hud::corner::TopRightColumn;
 use crate::ui::settings::{write_interface_settings, FpsCounterChoice, InterfaceSettings};
 use crate::ui::theme::{BEVEL_HI, MUTED, PANEL, SLOT, SPACE_S, SPACE_XS, TEXT};
 
@@ -129,22 +130,21 @@ fn bucket_of(elapsed: std::time::Duration) -> u64 {
 
 /// Spawns the FPS counter, its number updated by `fps_text_update_system` like the one of the
 /// debug overlay.
-pub fn spawn_fps_counter(mut commands: Commands, assets: Res<AssetServer>) {
+pub fn spawn_fps_counter(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    column: Single<Entity, With<TopRightColumn>>,
+) {
     let font = debug_font(&assets);
     let muted = |text: String| (Text::new(text), font.clone(), TextColor(MUTED));
     let root = commands
         .spawn((
             FpsCounter,
-            DespawnOnExit(GameState::Game),
             BackgroundColor(PANEL),
-            // Shown by `show_fps_counter`, and under the panels like the debug overlay
+            // Shown by `show_fps_counter`, under the minimap
             Visibility::Hidden,
-            GlobalZIndex(-1),
-            Pickable::IGNORE,
             Node {
-                position_type: PositionType::Absolute,
-                right: Val::Percent(1.),
-                top: Val::Percent(1.),
+                display: Display::None,
                 padding: UiRect::all(px(SPACE_XS)),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(SPACE_S),
@@ -159,6 +159,7 @@ pub fn spawn_fps_counter(mut commands: Commands, assets: Res<AssetServer>) {
                     TextColor(TEXT)
                 )],
             )],
+            ChildOf(*column),
         ))
         .id();
     let graph = commands
@@ -262,18 +263,23 @@ pub fn spawn_fps_counter(mut commands: Commands, assets: Res<AssetServer>) {
 }
 
 /// Shows the FPS counter, and its graph, as the settings ask.
+#[allow(clippy::type_complexity)]
 pub fn show_fps_counter(
     settings: Res<InterfaceSettings>,
-    mut counters: Query<&mut Visibility, With<FpsCounter>>,
-    mut graphs: Query<&mut Node, With<FpsGraph>>,
+    mut counters: Query<(&mut Node, &mut Visibility), (With<FpsCounter>, Without<FpsGraph>)>,
+    mut graphs: Query<&mut Node, (With<FpsGraph>, Without<FpsCounter>)>,
 ) {
-    let shown = if settings.fps_counter == FpsCounterChoice::Off {
-        Visibility::Hidden
+    // Hidden too, so that its frame rate is not written (`fps_text_shown`)
+    let (shown, visibility) = if settings.fps_counter == FpsCounterChoice::Off {
+        (Display::None, Visibility::Hidden)
     } else {
-        Visibility::Visible
+        (Display::Flex, Visibility::Inherited)
     };
-    for mut visibility in &mut counters {
-        visibility.set_if_neq(shown);
+    for (mut node, mut counter_visibility) in &mut counters {
+        if node.display != shown {
+            node.display = shown;
+        }
+        counter_visibility.set_if_neq(visibility);
     }
     let display = if settings.fps_counter == FpsCounterChoice::Graph {
         Display::Flex

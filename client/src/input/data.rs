@@ -25,6 +25,9 @@ pub enum GameAction {
     RenderDistanceMinus,
     RenderDistancePlus,
     ReloadChunks,
+    ToggleMinimap,
+    MinimapZoomIn,
+    MinimapZoomOut,
 }
 
 /// The groups the actions are listed in on the Controls tab.
@@ -58,7 +61,7 @@ impl ActionCategory {
 
 impl GameAction {
     /// Every action but Escape, which always pauses and cannot be rebound, in display order.
-    pub const LISTED: [GameAction; 19] = [
+    pub const LISTED: [GameAction; 22] = [
         GameAction::MoveForward,
         GameAction::MoveBackward,
         GameAction::MoveLeft,
@@ -70,6 +73,9 @@ impl GameAction {
         GameAction::ToggleInventory,
         GameAction::OpenChat,
         GameAction::CycleFpsCounter,
+        GameAction::ToggleMinimap,
+        GameAction::MinimapZoomIn,
+        GameAction::MinimapZoomOut,
         GameAction::ToggleViewMode,
         GameAction::RenderDistanceMinus,
         GameAction::RenderDistancePlus,
@@ -95,6 +101,9 @@ impl GameAction {
             GameAction::ToggleInventory => "Inventory",
             GameAction::OpenChat => "Chat",
             GameAction::CycleFpsCounter => "FPS counter",
+            GameAction::ToggleMinimap => "Minimap",
+            GameAction::MinimapZoomIn => "Zoom in the minimap",
+            GameAction::MinimapZoomOut => "Zoom out the minimap",
             GameAction::ToggleViewMode => "Camera view",
             GameAction::RenderDistanceMinus => "Lower render distance",
             GameAction::RenderDistancePlus => "Raise render distance",
@@ -120,7 +129,10 @@ impl GameAction {
             GameAction::Escape
             | GameAction::ToggleInventory
             | GameAction::OpenChat
-            | GameAction::CycleFpsCounter => ActionCategory::Interface,
+            | GameAction::CycleFpsCounter
+            | GameAction::ToggleMinimap
+            | GameAction::MinimapZoomIn
+            | GameAction::MinimapZoomOut => ActionCategory::Interface,
             GameAction::ToggleViewMode
             | GameAction::RenderDistanceMinus
             | GameAction::RenderDistancePlus => ActionCategory::View,
@@ -142,7 +154,7 @@ mod tests {
     #[test]
     fn every_listed_action_has_a_human_name_and_a_category() {
         let distinct: BTreeSet<_> = GameAction::LISTED.iter().collect();
-        assert_eq!(distinct.len(), 19);
+        assert_eq!(distinct.len(), 22);
         assert!(!GameAction::LISTED.contains(&GameAction::Escape));
         assert_eq!(GameAction::MoveForward.name(), "Move forward");
         assert_eq!(GameAction::ToggleFps.name(), "Debug overlay");

@@ -267,6 +267,21 @@ a toast, or "Could not save the world" after a failure or 10 s; an autosave that
 too, once. While the game is left, every button is disabled and the leaving one reads
 "Saving...".
 
+The top-right corner of the game is one column (`ui/hud/corner.rs`): the minimap, then the FPS
+counter, so that they never overlap; the toasts keep below it (`ToastsBelow`). The minimap
+(`ui/hud/minimap/`) is drawn on the CPU from `ClientWorldMap`, with no message of its own:
+`MinimapSurface` keeps the top visible block of each column (glass and plants are seen through,
+water keeps its depth over its floor), one tile of 16 × 16 per column of chunks. A column is
+scanned again when one of its chunks arrives or goes (`ChunkLoadEvent`, written by
+`network/world.rs`), at most `COLUMNS_PER_FRAME` columns a frame and the nearest to the player
+first; a `BlockChanged` scans its own cell only. `compose` turns the surface into the 128 × 128
+pixels of an `Image`, a block per pixel (or 2, or 4, zoomed out), north up, in the colours of the
+top textures of the blocks (`MinimapColors`), the relief shaded from the north; it is drawn again
+only when the player steps onto another column, the zoom changes or the surface does. The arrow
+of the player, turned by the camera, the dots of the other players and of the mobs and the
+coordinates are UI nodes over it. Like the hotbar, it hides under the pause menu and the
+settings; `M` and the Interface tab show or hide it (`InterfaceSettings::minimap`).
+
 The chat (`ui/hud/chat.rs`) is a log of the last 100 messages with their times, over the field
 to write in, at the bottom-left above the hotbar; closed, the recent lines stay over the game
 for 7 s, then fade. The pixel font lacks many accented letters (é, è...): a message with a

@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::chat::*;
 use crate::ui::hud::chat_completion::chat_completion_plugin;
+use crate::ui::hud::corner::spawn_top_right_column;
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
 use crate::ui::hud::fps_counter::{
@@ -14,6 +15,7 @@ use crate::ui::hud::fps_counter::{
 use crate::ui::hud::hotbar::{
     select_hotbar_slot_with_keys, select_hotbar_slot_with_wheel, show_selected_item_name,
 };
+use crate::ui::hud::minimap::{minimap_plugin, spawn_minimap};
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::pause_plugin;
 use crate::ui::theme::WIREFRAME;
@@ -21,18 +23,20 @@ use bevy::ui::UiSystems;
 
 pub mod chat;
 pub mod chat_completion;
+pub mod corner;
 pub mod debug;
 pub mod fps_counter;
 pub mod hotbar;
 pub mod inventory;
+pub mod minimap;
 pub mod reticle;
 mod ui_mode;
 
 pub use inventory::*;
 pub use ui_mode::*;
 
-/// Everything drawn over the game: reticle, hotbar, inventory, chat, pause menu, FPS counter and
-/// the debug overlays.
+/// Everything drawn over the game: reticle, hotbar, inventory, chat, pause menu, minimap, FPS
+/// counter and the debug overlays.
 pub fn hud_plugin(app: &mut App) {
     app.add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins(WireframePlugin::default())
@@ -58,7 +62,10 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(
             OnEnter(GameState::Game),
-            (reset_frame_times, spawn_fps_counter),
+            (
+                reset_frame_times,
+                (spawn_top_right_column, spawn_minimap, spawn_fps_counter).chain(),
+            ),
         )
         .add_systems(
             Update,
@@ -149,4 +156,5 @@ pub fn hud_plugin(app: &mut App) {
         );
     pause_plugin(app);
     chat_completion_plugin(app);
+    minimap_plugin(app);
 }
