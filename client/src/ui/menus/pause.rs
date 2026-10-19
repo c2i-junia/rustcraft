@@ -418,10 +418,12 @@ fn act_on_pause_button(
 }
 
 /// Says in a toast whether the save asked by "Save now" was written, and gives the button back.
-/// A menu opened again while the world is being saved shows the button waiting.
+/// A menu opened again while the world is being saved shows the button waiting. A failure it
+/// told, even one it gave up waiting for, is told: the autosave watch does not tell it again.
 fn watch_save_now(
     save: Res<SaveNow>,
     saves: Res<LocalSaves>,
+    autosaves: Option<ResMut<AutosaveWatch>>,
     buttons: Query<(Entity, &PauseButton, Has<InteractionDisabled>)>,
     assets: Res<AssetServer>,
     mut commands: Commands,
@@ -451,6 +453,10 @@ fn watch_save_now(
     let (text, kind) = if saved {
         (WORLD_SAVED, ToastKind::Info)
     } else {
+        if let Some(mut autosaves) = autosaves {
+            autosaves.told = true;
+            autosaves.failed = saves.0.failures();
+        }
         (SAVE_FAILED, ToastKind::Error)
     };
     show_toast(&mut commands, text, kind, load_font(&assets));
@@ -826,6 +832,28 @@ mod tests {
             [failed.clone(), failed.clone(), failed]
         );
         assert!(!app.world().contains_resource::<SaveNow>());
+    }
+
+    /// Save now gave up waiting and said the save failed: the failure that comes in later is
+    /// the same one, and is not told again.
+    #[test]
+    fn a_failure_told_by_save_now_is_not_told_again() {
+        let saves = SaveCounter::default();
+        let mut app = saving_app(&saves);
+        app.world_mut().remove_resource::<SaveNow>();
+        app.update();
+        app.world_mut().insert_resource(SaveNow {
+            from: saves.get(),
+            failures: saves.failures(),
+            since: Instant::now() - SAVE_TIMEOUT,
+        });
+        app.update();
+        let failed = Some(SAVE_FAILED.to_string());
+        assert_eq!(toasts(&mut app, Role::Alert), std::slice::from_ref(&failed));
+
+        saves.bump_failure();
+        app.update();
+        assert_eq!(toasts(&mut app, Role::Alert), std::slice::from_ref(&failed));
     }
 
     #[test]
