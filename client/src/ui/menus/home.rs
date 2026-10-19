@@ -70,6 +70,9 @@ pub const CONTINUE_HINT: Hint = Hint {
 
 /// The size of the title image, shown at its own size: its pixels stay crisp.
 const LOGO_SIZE: Vec2 = Vec2::new(601.0, 94.0);
+/// The transparent columns on the left of the title image, which the logo is moved left by so
+/// that its letters line up with the buttons.
+const LOGO_LEFT_MARGIN: f32 = 5.0;
 
 /// The width of the panel of the Continue card.
 const CARD_WIDTH: f32 = 300.0;
@@ -110,6 +113,7 @@ pub fn home_setup(
         Node {
             width: px(LOGO_SIZE.x),
             height: px(LOGO_SIZE.y),
+            margin: UiRect::left(px(-LOGO_LEFT_MARGIN)),
             ..default()
         },
         ChildOf(content),

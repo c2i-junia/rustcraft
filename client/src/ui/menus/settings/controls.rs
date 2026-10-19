@@ -209,14 +209,30 @@ fn key_name(key: KeyCode) -> String {
     }
 }
 
-/// What the row of an action sharing the keys `shared` with other actions says:
-/// "W is also bound to Move forward", one sentence per key and action.
+/// What the row of an action sharing the keys `shared` with other actions says: one sentence
+/// per key, in the order the keys first come, naming the other actions of that key: "W is also
+/// bound to Move forward and Jump".
 fn conflict_message(shared: &[(KeyCode, GameAction)]) -> String {
-    shared
-        .iter()
-        .map(|&(key, other)| format!("{} is also bound to {}", key_name(key), other.name()))
+    let mut keys: Vec<(KeyCode, Vec<&str>)> = Vec::new();
+    for &(key, other) in shared {
+        match keys.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, names)) => names.push(other.name()),
+            None => keys.push((key, vec![other.name()])),
+        }
+    }
+    keys.iter()
+        .map(|(key, names)| format!("{} is also bound to {}", key_name(*key), and_list(names)))
         .collect::<Vec<_>>()
         .join(" · ")
+}
+
+/// "A", "A and B", "A, B and C".
+fn and_list(names: &[&str]) -> String {
+    match names.split_last() {
+        Some((last, [])) => last.to_string(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
+    }
 }
 
 /// Whether `key` is a modifier, which a capture binds on its release.
@@ -850,6 +866,24 @@ mod tests {
         assert_eq!(
             conflict_message(&[(KeyCode::ArrowUp, GameAction::MoveForward)]),
             "Up arrow is also bound to Move forward"
+        );
+        // one sentence per key, naming every other action of that key
+        assert_eq!(
+            conflict_message(&[
+                (KeyCode::ArrowUp, GameAction::MoveForward),
+                (KeyCode::ArrowUp, GameAction::MoveBackward),
+            ]),
+            "Up arrow is also bound to Move forward and Move backward"
+        );
+        assert_eq!(
+            conflict_message(&[
+                (KeyCode::KeyW, GameAction::MoveForward),
+                (KeyCode::KeyE, GameAction::ToggleInventory),
+                (KeyCode::KeyW, GameAction::MoveBackward),
+                (KeyCode::KeyW, GameAction::OpenChat),
+            ]),
+            "W is also bound to Move forward, Move backward and Chat \
+             · E is also bound to Inventory"
         );
     }
 

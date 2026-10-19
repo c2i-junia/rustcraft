@@ -2,7 +2,7 @@
 //!
 //! `spawn_dialog` builds it; observe `DialogClosed` (a global observer) to learn which action
 //! closed it, or that Escape did. The focus stays inside while it is open and goes back to where
-//! it was when it closes.
+//! it was when it closes. Its own key hints replace those of the screen while it is open.
 
 use accesskit::Role;
 use bevy::{
@@ -20,6 +20,7 @@ use bevy::{
 };
 
 use super::button::{button, ButtonVariant};
+use super::hints::{hint_bar, Hint, HintBar};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XL, TEXT,
 };
@@ -53,13 +54,33 @@ pub struct DialogClosed {
     pub action: Option<usize>,
 }
 
+/// The key hints of every dialog. None has an arrow, so the key caps need no glyph font.
+const DIALOG_HINTS: [Hint; 3] = [
+    Hint {
+        keys: "Tab",
+        action: "Move",
+    },
+    Hint {
+        keys: "Enter",
+        action: "Select",
+    },
+    Hint {
+        keys: "Esc",
+        action: "Cancel",
+    },
+];
+
+/// The hint bar of a dialog, which hides the hint bars of the screens while it is there.
+#[derive(Component)]
+struct DialogHints;
+
 /// Asks to close the dialog, with this action. It is carried out in `PostUpdate`, so that the
 /// systems of `Update` still see the dialog open in the update of the key.
 #[derive(Component)]
 struct CloseRequest(Option<usize>);
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, close_dialogs);
+    app.add_systems(PostUpdate, (close_dialogs, hide_screen_hints).chain());
 }
 
 /// Whether a dialog is open: the Escape handlers of the screens behind it stand down.
@@ -106,6 +127,11 @@ pub fn spawn_dialog(
         },
         BackgroundColor(BEVEL_LO.with_alpha(0.6)),
         FocusPolicy::Block,
+        ChildOf(root),
+    ));
+    commands.spawn((
+        hint_bar(&DIALOG_HINTS, font.clone(), font.clone()),
+        DialogHints,
         ChildOf(root),
     ));
     let panel = commands
@@ -213,6 +239,22 @@ fn close_dialogs(
         if let Some(previous) = dialog.restore_focus.filter(|e| existing.contains(*e)) {
             focus.set(previous, FocusCause::Navigated);
         }
+    }
+}
+
+/// Hides the hint bars of the screens while a dialog shows its own, and shows them again when
+/// the last dialog has closed.
+fn hide_screen_hints(
+    dialogs: Query<(), With<DialogRoot>>,
+    mut bars: Query<&mut Visibility, (With<HintBar>, Without<DialogHints>)>,
+) {
+    let visibility = if dialogs.is_empty() {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut bar in &mut bars {
+        bar.set_if_neq(visibility);
     }
 }
 

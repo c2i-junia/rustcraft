@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use accesskit::Role;
 use bevy::prelude::*;
+use bevy::ui::UiGlobalTransform;
 
 use super::harness::{Harness, Options, SCREEN, SERVER};
 use super::helpers::{is_in, main_menu};
@@ -12,6 +13,7 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::constants::DAY_DURATION_IN_TICKS;
 use crate::state::GameState;
+use crate::ui::assets::TITLE_IMAGE_PATH;
 use crate::ui::button::MenuState;
 use crate::ui::menus::solo::SelectedWorld;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
@@ -68,6 +70,9 @@ fn escape_asks_before_quitting_with_cancel_focused() {
     h.frames(1);
     let cancel = h.get(&L::role(Role::Button, "Cancel"));
     assert_eq!(h.world().get::<Outline>(cancel).unwrap().color, ACCENT);
+    // and its own key hints, in place of the menu's
+    let hints = L::marker::<HintBar>();
+    assert_eq!(h.text_of(&hints), "Tab Move Enter Select Esc Cancel");
 
     // Escape closes the dialog, and the same key does not open it again
     h.press(KeyCode::Escape);
@@ -76,6 +81,11 @@ fn escape_asks_before_quitting_with_cancel_focused() {
     assert!(!h.is_visible(&L::text(QUIT_TITLE)), "the dialog reopened");
     assert!(!h.has_exited());
     assert_eq!(h.focus_label().as_deref(), Some("Singleplayer"));
+    assert!(
+        h.text_of(&hints).ends_with("Esc Quit"),
+        "{}",
+        h.text_of(&hints)
+    );
 
     // Enter on Cancel closes it
     h.press(KeyCode::Escape);
@@ -229,4 +239,45 @@ fn continue_plays_the_last_world_by_ctrl_enter_and_by_click() {
     );
     h.click(&L::role(Role::Button, "Play"));
     h.wait_for_game_state(GameState::Game, SERVER);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_logo_starts_where_the_buttons_start() {
+    let full_hd = Options {
+        width: 1920,
+        height: 1080,
+        ..default()
+    };
+    let mut h = Harness::start(GameFolder::new(), full_hd);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for_ui_images();
+    h.frames(1);
+    let left_of = |world: &World, entity: Entity| {
+        let size = world.get::<ComputedNode>(entity).unwrap().size();
+        world
+            .get::<UiGlobalTransform>(entity)
+            .unwrap()
+            .translation
+            .x
+            - size.x / 2.
+    };
+    let button = h.get(&L::role(Role::Button, "Singleplayer"));
+    let world = h.world_mut();
+    let title: Handle<Image> = world.resource::<AssetServer>().load(TITLE_IMAGE_PATH);
+    let logo = world
+        .query::<(Entity, &ImageNode)>()
+        .iter(world)
+        .find(|(_, node)| node.image.id() == title.id())
+        .map(|(entity, _)| entity)
+        .expect("the logo");
+    // the first column of the image where the letters start: its edges are transparent
+    let image = world.resource::<Assets<Image>>().get(&title).unwrap();
+    let ink = (0..image.width())
+        .find(|&x| (0..image.height()).any(|y| image.get_color_at(x, y).unwrap().alpha() > 0.5))
+        .unwrap();
+    let logo_width = world.get::<ComputedNode>(logo).unwrap().size().x;
+    let letters = left_of(world, logo) + ink as f32 * logo_width / image.width() as f32;
+    let buttons = left_of(world, button);
+    assert!((letters - buttons).abs() < 1., "{letters} and {buttons}");
 }
