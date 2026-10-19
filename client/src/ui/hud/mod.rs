@@ -57,7 +57,12 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                (toggle_chat_system, display_chat_messages_system).chain(),
+                (
+                    toggle_chat_system,
+                    open_chat_on_slash,
+                    display_chat_messages_system,
+                )
+                    .chain(),
                 // Before the simulation, which predicts the clicks of the frame
                 (
                     toggle_inventory_system,

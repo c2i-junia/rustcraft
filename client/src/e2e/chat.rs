@@ -139,6 +139,68 @@ fn the_chat_sends_a_message_and_escape_closes_it() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn up_and_down_recall_sent_messages_and_a_slash_opens_the_chat() {
+    let mut h = enter_world(GameFolder::new().with_world("Recall"), "Recall");
+    h.send_chat("first");
+    h.send_chat("second");
+
+    // Up walks back through the sent messages, Down forward, then back to the draft
+    h.press(KeyCode::KeyT);
+    h.type_text("dra");
+    h.press(KeyCode::ArrowUp);
+    assert_eq!(h.value_of::<ChatInput>(), "second");
+    h.press(KeyCode::ArrowUp);
+    h.press(KeyCode::ArrowUp);
+    assert_eq!(h.value_of::<ChatInput>(), "first");
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.value_of::<ChatInput>(), "second");
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.value_of::<ChatInput>(), "dra");
+    // Escape keeps no draft, and the recall starts again from the newest
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::KeyT);
+    assert_eq!(h.value_of::<ChatInput>(), "");
+    h.press(KeyCode::ArrowUp);
+    assert_eq!(h.value_of::<ChatInput>(), "second");
+    // the caret is at the end of the recalled message
+    h.type_text("!");
+    assert_eq!(h.value_of::<ChatInput>(), "second!");
+    h.press(KeyCode::Escape);
+
+    // the arrows in the game open nothing
+    h.press(KeyCode::ArrowUp);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+
+    // a slash opens the chat with the slash typed, and is sent as typed
+    h.type_text("/");
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    assert_eq!(h.value_of::<ChatInput>(), "/");
+    assert_eq!(h.focus_label().as_deref(), Some("Chat"));
+    h.type_text("help");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("/help"), SERVER);
+    assert!(h.chat_shows("/help"));
+
+    // the character opens it, from whichever key of the layout
+    h.type_on(KeyCode::Digit7, '/');
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    assert_eq!(h.value_of::<ChatInput>(), "/");
+    h.press(KeyCode::Escape);
+    h.type_on(KeyCode::Slash, '!');
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+
+    // only in the game: not over the inventory
+    h.press(KeyCode::KeyE);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+    h.type_text("/");
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    h.press(KeyCode::KeyE);
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_chat_keeps_its_history_with_times_and_scrolls() {
     let mut h = enter_world(GameFolder::new().with_world("History"), "History");
     // a single line sits at the bottom of the log, over the game and in the open chat

@@ -3,7 +3,10 @@
 
 use std::time::{Duration, Instant};
 
-use bevy::input::{keyboard::KeyboardInput, ButtonState};
+use bevy::input::{
+    keyboard::{Key, KeyboardInput},
+    ButtonState,
+};
 use bevy::input_focus::{
     tab_navigation::TabGroup, AcquireFocus, FocusCause, FocusLost, FocusedInput, InputFocus,
 };
@@ -25,7 +28,7 @@ use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
 use crate::ui::theme::{BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_L, SPACE_S, SPACE_XS, TEXT};
 use crate::ui::widgets::list::spawn_scroll_list;
-use crate::ui::widgets::text_field::{spawn_text_field, Cancel, Submit, TextField};
+use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit, TextField};
 
 /// The messages the log keeps; the oldest go first.
 pub const CHAT_MAX_MESSAGES: usize = 100;
@@ -71,12 +74,73 @@ pub struct ChatLine {
 #[derive(Component)]
 pub struct ChatInput;
 
+/// The messages sent in this game, oldest first, and where Up/Down are among them. On the chat
+/// root.
+#[derive(Component, Default)]
+pub struct SentMessages {
+    sent: Vec<String>,
+    /// The message the field shows, while Up/Down walk them.
+    recalled: Option<usize>,
+    /// The text of the field before the first Up, given back past the newest message.
+    draft: String,
+}
+
+impl SentMessages {
+    /// The messages kept; the oldest go first.
+    pub const MAX: usize = 50;
+
+    /// Keeps `message`, unless it repeats the last one, and ends the recall.
+    pub fn record(&mut self, message: &str) {
+        if self.sent.last().map(String::as_str) != Some(message) {
+            self.sent.push(message.to_string());
+            let dropped = self.sent.len().saturating_sub(Self::MAX);
+            self.sent.drain(..dropped);
+        }
+        self.end_recall();
+    }
+
+    /// The message before the one recalled, or the newest one, keeping `current` as the draft
+    /// then; the oldest stays. `None` when nothing was sent.
+    pub fn older(&mut self, current: &str) -> Option<&str> {
+        let index = match self.recalled {
+            Some(index) => index.saturating_sub(1),
+            None => {
+                let newest = self.sent.len().checked_sub(1)?;
+                self.draft = current.to_string();
+                newest
+            }
+        };
+        self.recalled = Some(index);
+        Some(&self.sent[index])
+    }
+
+    /// The message after the one recalled, or past the newest the draft, which ends the recall.
+    /// `None` when nothing is recalled.
+    pub fn newer(&mut self) -> Option<&str> {
+        let index = self.recalled? + 1;
+        if index < self.sent.len() {
+            self.recalled = Some(index);
+            Some(&self.sent[index])
+        } else {
+            self.recalled = None;
+            Some(&self.draft)
+        }
+    }
+
+    /// Forgets the draft: the next Up starts again from the newest message.
+    pub fn end_recall(&mut self) {
+        self.recalled = None;
+        self.draft.clear();
+    }
+}
+
 pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
     let root = commands
         .spawn((
             Name::new("ChatRoot"),
             DespawnOnExit(crate::state::GameState::Game),
             ChatRoot,
+            SentMessages::default(),
             UiDialog,
             // Tab stays in the field
             TabGroup::modal(),
@@ -141,6 +205,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
         .insert(ChatInput)
         .observe(send_chat_message)
         .observe(page_the_log)
+        .observe(recall_on_arrows)
         .observe(close_chat_on::<Submit>)
         .observe(close_chat_on::<Cancel>)
         .observe(close_chat_on::<FocusLost>);
@@ -208,11 +273,48 @@ pub fn toggle_chat_system(
     if *ui_mode == UIMode::Closed
         && is_action_just_released(GameAction::OpenChat, &keyboard_input, &key_map)
     {
-        *visibility = Visibility::Visible;
-        focus.set(input, FocusCause::Navigated);
-        for mut log in &mut logs {
-            scroll_to_bottom(&mut log);
-        }
+        open_chat(&mut visibility, input, &mut focus, &mut logs);
+    }
+}
+
+/// Opens the chat on the character `/` in the game, with `/` typed in its field and the caret
+/// after it. The character, not a key, so that it works on every layout; on release, as the
+/// chat key, so that neither the key nor its repeat is typed in the field.
+pub fn open_chat_on_slash(
+    mut keys: MessageReader<KeyboardInput>,
+    ui_mode: Res<UIMode>,
+    mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
+    mut chat_input: Query<(Entity, &mut EditableText), With<ChatInput>>,
+    mut logs: Query<&mut ScrollPosition, With<ChatLog>>,
+    mut focus: ResMut<InputFocus>,
+) {
+    // read on every frame, so that a slash released over a dialog never opens the chat later
+    let slash = keys.read().any(|key| {
+        key.state == ButtonState::Released && key.logical_key == Key::Character("/".into())
+    });
+    if !slash || *ui_mode != UIMode::Closed {
+        return;
+    }
+    let (Ok(mut visibility), Ok((input, mut text))) =
+        (chat_root.single_mut(), chat_input.single_mut())
+    else {
+        return;
+    };
+    open_chat(&mut visibility, input, &mut focus, &mut logs);
+    set_text(&mut text, "/");
+}
+
+/// Shows the chat, with the focus on its field `input` and the log at its last line.
+fn open_chat(
+    visibility: &mut Visibility,
+    input: Entity,
+    focus: &mut InputFocus,
+    logs: &mut Query<&mut ScrollPosition, With<ChatLog>>,
+) {
+    *visibility = Visibility::Visible;
+    focus.set(input, FocusCause::Navigated);
+    for mut log in logs {
+        scroll_to_bottom(&mut log);
     }
 }
 
@@ -414,6 +516,38 @@ fn page_the_log(
     }
 }
 
+/// Up and Down in the field put the sent messages in it, older and newer, with the caret at the
+/// end; past the newest, the text typed before. Bevy moves the caret on these keys first: the
+/// recalled text replaces the field after that move.
+fn recall_on_arrows(
+    mut event: On<FocusedInput<KeyboardInput>>,
+    mut texts: Query<&mut EditableText>,
+    mut sent: Query<&mut SentMessages>,
+) {
+    let key = &event.input;
+    if key.state != ButtonState::Pressed {
+        return;
+    }
+    let field = event.focused_entity;
+    let (Ok(mut text), Ok(mut sent)) = (texts.get_mut(field), sent.single_mut()) else {
+        return;
+    };
+    // while the IME composes, the arrows belong to it
+    if text.is_composing() {
+        return;
+    }
+    let recalled = match key.key_code {
+        KeyCode::ArrowUp => sent.older(&text.value().to_string()),
+        KeyCode::ArrowDown => sent.newer(),
+        _ => return,
+    };
+    event.propagate(false);
+    if let Some(recalled) = recalled {
+        // replacing the whole text leaves the caret at its end
+        set_text(&mut text, recalled);
+    }
+}
+
 /// A press in the chat, on its log or its scrollbar, keeps the focus in the field, and with it
 /// the chat open. A press anywhere else clears the focus, which closes the chat.
 fn keep_the_focus_in_the_chat(
@@ -429,28 +563,36 @@ fn keep_the_focus_in_the_chat(
     }
 }
 
-/// Sends the message submitted in the chat field, unless it is blank.
-fn send_chat_message(submit: On<Submit>, mut client: ResMut<RenetClient>) {
+/// Sends the message submitted in the chat field, unless it is blank, and keeps it for Up.
+fn send_chat_message(
+    submit: On<Submit>,
+    mut client: ResMut<RenetClient>,
+    mut sent: Query<&mut SentMessages>,
+) {
     if !submit.value.trim().is_empty() {
         client.send_game_message(ClientToServerMessage::ChatMessage(ChatMessageRequest {
             content: submit.value.clone(),
         }));
+        for mut sent in &mut sent {
+            sent.record(&submit.value);
+        }
     }
 }
 
 /// Closes the chat when its field is submitted, cancelled or loses the focus: the chat is
 /// hidden, its field emptied and unfocused, and its log back at its last line. Nothing typed is
-/// kept for the next time.
+/// kept for the next time, and the recall ends.
 fn close_chat_on<E: EntityEvent>(
     event: On<E>,
-    mut chat_root: Query<&mut Visibility, With<ChatRoot>>,
+    mut chat_root: Query<(&mut Visibility, &mut SentMessages), With<ChatRoot>>,
     mut texts: Query<&mut EditableText>,
     mut logs: Query<&mut ScrollPosition, With<ChatLog>>,
     mut focus: ResMut<InputFocus>,
 ) {
     let input = event.event_target();
-    if let Ok(mut visibility) = chat_root.single_mut() {
+    if let Ok((mut visibility, mut sent)) = chat_root.single_mut() {
         *visibility = Visibility::Hidden;
+        sent.end_recall();
     }
     if let Ok(mut text) = texts.get_mut(input) {
         text.clear();
@@ -541,6 +683,32 @@ mod tests {
             .resource::<CachedChatConversation>()
             .unread
             .is_empty());
+    }
+
+    #[test]
+    fn up_and_down_walk_the_sent_messages() {
+        let mut sent = SentMessages::default();
+        for message in ["a", "b", "b"] {
+            sent.record(message);
+        }
+        assert_eq!(sent.older("dr"), Some("b"));
+        assert_eq!(sent.older("b"), Some("a"));
+        // the oldest stays
+        assert_eq!(sent.older("a"), Some("a"));
+        assert_eq!(sent.newer(), Some("b"));
+        // past the newest, the text typed before recalling
+        assert_eq!(sent.newer(), Some("dr"));
+        assert_eq!(sent.newer(), None);
+
+        let mut sent = SentMessages::default();
+        for index in 1..=60 {
+            sent.record(&index.to_string());
+        }
+        let mut oldest = None;
+        for _ in 0..60 {
+            oldest = sent.older("").map(str::to_string);
+        }
+        assert_eq!(oldest.as_deref(), Some("11"));
     }
 
     #[test]
@@ -635,6 +803,25 @@ mod tests {
         let mut text = EditableText::new("ca");
         // typed this frame, applied by Bevy after the style of the field is read
         text.queue_edit(TextEdit::Insert("é".into()));
+        let field = app.world_mut().spawn((ChatInput, text)).id();
+        app.update();
+        let assets = app.world().resource::<AssetServer>().clone();
+        let mono = assets.load::<Font>(MONO_FONT_PATH);
+        assert_eq!(
+            app.world().get::<TextFont>(field).unwrap().font,
+            FontSource::Handle(mono)
+        );
+    }
+
+    #[test]
+    fn a_recalled_message_has_its_font_on_its_first_frame() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Font>()
+            .add_systems(Update, match_the_field_font);
+        let mut text = EditableText::new("ca");
+        // what Up puts in the field, applied by Bevy after the style of the field is read
+        set_text(&mut text, "été");
         let field = app.world_mut().spawn((ChatInput, text)).id();
         app.update();
         let assets = app.world().resource::<AssetServer>().clone();
