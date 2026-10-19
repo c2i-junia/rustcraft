@@ -19,6 +19,9 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - [Controls](#controls)
 - [Multiplayer](#multiplayer)
 - [Saves](#saves)
+- [Command-line options](#command-line-options)
+    - [Client](#client)
+    - [Server](#server)
 - [How to Build](#how-to-build)
     - [Prerequisites](#prerequisites)
     - [Running the Project](#running-the-project)
@@ -158,6 +161,38 @@ Each world has its own folder under `saves/`: `world.ron` holds the metadata (na
 The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance).
 
 The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, changes it. `--player-name <name>` plays under another name for one run, without saving it. Each world keeps a player's position and inventory under their name: a new name starts afresh.
+
+<br>
+
+# Command-line options
+
+Both executables print their options with `--help` and their version with `--version`. Under `cargo run`, the options go after `--`, as in `run1.sh`: `cargo run -p client --bin client -- --player-name PlayerOne`.
+
+The game folder holds the saves and the settings. By default it is `$XDG_DATA_HOME/rustcraft` (`~/.local/share/rustcraft`) on Linux, `%APPDATA%\rustcraft` on Windows and `~/Library/Application Support/rustcraft` on macOS.
+
+## Client
+
+`rustcraft [OPTIONS]`
+
+| **Option** | **Description** |
+|------------|-----------------|
+| `-g`, `--game-folder-path <path>` | The game folder to use instead of the default one. Several clients on one machine each need their own, as in `run1.sh` and `run2.sh`. |
+| `-a`, `--assets-folder-path <path>` | The folder the textures are read from. By default, the `data` folder shipped with the game. |
+| `-p`, `--player-name <name>` | Plays under this name for one run, without saving it, instead of the one in `player.ron`. |
+| `--use-custom-textures` | Reads the block and item textures from `graphics/custom_textures/` of the assets folder instead of `graphics/base_textures/`. |
+
+## Server
+
+`rustcraft-server [OPTIONS]`
+
+| **Option** | **Default** | **Description** |
+|------------|-------------|-----------------|
+| `-p`, `--port <port>` | `8000` | The UDP port of the game. The server also answers the status requests of the server list on `port + 1` (see [Multiplayer](#multiplayer)). |
+| `-w`, `--world <name>` | `default` | The world to load from `saves/<name>` in the game folder, created when it does not exist yet. |
+| `-g`, `--game-folder-path <path>` | see above | The game folder to use instead of the default one. |
+| `--max-render-distance <chunks>` | `6` | The largest render distance a player may ask for, in chunks. |
+
+Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
 
 <br>
 
