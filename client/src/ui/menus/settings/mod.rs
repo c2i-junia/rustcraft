@@ -8,16 +8,18 @@ pub mod interface;
 use accesskit::{NodeId, Role};
 use bevy::{
     a11y::AccessibilityNode,
-    input_focus::{tab_navigation::TabGroup, AutoFocus},
+    input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus},
     prelude::*,
+    ui::FocusPolicy,
     ui_widgets::{observe, Activate},
 };
 
 use super::background::menu_background;
 use super::MenuState;
 use crate::audio::settings::AudioSettings;
-use crate::state::KeyMap;
+use crate::state::{GameState, KeyMap};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::hud::UiDialog;
 use crate::ui::settings::InterfaceSettings;
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_XL, PANEL, SPACE_L, SPACE_M, SPACE_XL, TEXT,
@@ -36,9 +38,7 @@ use interface::{show_scale_limit, spawn_interface_tab};
 pub enum SettingsContext {
     /// From the main menu, as the screen `MenuState::Settings`.
     Menu,
-    /// From the pause menu, over the game.
-    // The pause menu (Lot 1, Task 9) is the first to open the settings in game
-    #[allow(dead_code)]
+    /// From the pause menu, over the game, which goes on beneath them.
     Game,
 }
 
@@ -151,12 +151,22 @@ pub fn spawn_settings(
                 TabGroup::new(0),
             ))
             .id(),
+        // over the pause menu (5), whose legacy buttons it keeps from the clicks and the hover
         SettingsContext::Game => commands
-            .spawn(Node {
-                width: percent(100),
-                height: percent(100),
-                ..default()
-            })
+            .spawn((
+                UiDialog,
+                Node {
+                    width: percent(100),
+                    height: percent(100),
+                    ..default()
+                },
+                BackgroundColor(BEVEL_LO.with_alpha(0.7)),
+                FocusPolicy::Block,
+                Visibility::Visible,
+                GlobalZIndex(6),
+                TabGroup::modal(),
+                DespawnOnExit(GameState::Game),
+            ))
             .id(),
     };
     commands.entity(root).insert(SettingsRoot { context });
@@ -338,17 +348,22 @@ fn settings_escape(
     }
 }
 
-/// Closes the settings asked to close: from the main menu, back to it.
+/// Closes the settings asked to close: from the main menu, back to it; in game, back to the
+/// pause menu, which stayed open beneath them.
 fn close_settings(
     roots: Query<(Entity, &SettingsRoot), With<CloseSettings>>,
     mut menu_state: ResMut<NextState<MenuState>>,
+    mut focus: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
     for (root, settings) in &roots {
         commands.entity(root).remove::<CloseSettings>();
         match settings.context {
             SettingsContext::Menu => menu_state.set(MenuState::Main),
-            SettingsContext::Game => commands.entity(root).despawn(),
+            SettingsContext::Game => {
+                commands.entity(root).despawn();
+                focus.clear();
+            }
         }
     }
 }

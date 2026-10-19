@@ -106,6 +106,10 @@ fn every_screen_at_three_resolutions() {
         h.press(KeyCode::Escape);
         h.wait_for(&L::text("Resume"), SCREEN);
         h.snapshot_in_game("pause");
+        h.click(&L::text("Settings"));
+        h.wait_for(&L::text("Move forward"), SCREEN);
+        h.snapshot_in_game("pause_settings");
+        h.press(KeyCode::Escape);
         h.press(KeyCode::Escape);
     }
 }

@@ -15,6 +15,7 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::state::{GameState, KeyMap};
 
 use crate::ui::hud::{InventoryRoot, UIMode, UiDialog};
+use crate::ui::menus::settings::{spawn_settings, SettingsContext, SettingsRoot};
 
 #[derive(Component)]
 pub struct PauseMenu;
@@ -22,6 +23,7 @@ pub struct PauseMenu;
 #[derive(Component)]
 pub enum PauseButtonAction {
     Resume,
+    Settings,
     Save,
     Menu,
 }
@@ -61,6 +63,7 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<AssetServer>) {
             .with_children(|wrapper| {
                 for (msg, action) in [
                     ("Resume", PauseButtonAction::Resume),
+                    ("Settings", PauseButtonAction::Settings),
                     ("Save", PauseButtonAction::Save),
                     ("Back to menu", PauseButtonAction::Menu),
                 ] {
@@ -105,6 +108,7 @@ pub fn render_pause_menu(
         Query<(&PauseButtonAction, &mut BorderColor, Ref<Interaction>)>,
         Query<&mut Visibility, With<PauseMenu>>,
         Query<&mut Visibility, (With<InventoryRoot>, Without<PauseMenu>)>,
+        Query<(), With<SettingsRoot>>,
     ),
     input: Res<ButtonInput<KeyCode>>,
     ui_mode: Res<UIMode>,
@@ -112,10 +116,14 @@ pub fn render_pause_menu(
     key_map: Res<KeyMap>,
     mut client: ResMut<RenetClient>,
 ) {
-    let (mut button, mut visibility, mut inventory) = queries;
+    let (mut button, mut visibility, mut inventory, settings) = queries;
     let Ok(mut vis) = visibility.single_mut() else {
         return;
     };
+    // The settings over the pause menu take Escape and the clicks for themselves
+    if !settings.is_empty() {
+        return;
+    }
 
     if is_action_just_pressed(crate::input::data::GameAction::Escape, &input, &key_map) {
         if *vis == Visibility::Hidden {
@@ -148,6 +156,8 @@ pub fn render_pause_menu(
                 PauseButtonAction::Save => {
                     send_save_request_to_server(&mut client);
                 }
+                // `open_settings_from_pause` opens them
+                PauseButtonAction::Settings => {}
             },
             Interaction::Hovered => {
                 *bcolor = BorderColor::all(Color::WHITE);
@@ -156,6 +166,22 @@ pub fn render_pause_menu(
                 *bcolor = BorderColor::all(Color::BLACK);
             }
         }
+    }
+}
+
+/// Opens the settings over the game, and over the pause menu, which stays open beneath them,
+/// when the player presses "Settings".
+pub fn open_settings_from_pause(
+    buttons: Query<(&PauseButtonAction, &Interaction), Changed<Interaction>>,
+    settings: Query<(), With<SettingsRoot>>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let pressed = buttons.iter().any(|(action, interaction)| {
+        matches!(action, PauseButtonAction::Settings) && *interaction == Interaction::Pressed
+    });
+    if pressed && settings.is_empty() {
+        spawn_settings(&mut commands, &assets, SettingsContext::Game);
     }
 }
 
@@ -217,5 +243,19 @@ mod tests {
         let mut app = app(UIMode::Typing);
         press_escape(&mut app);
         assert_eq!(visibility_of::<PauseMenu>(&mut app), Visibility::Hidden);
+    }
+
+    #[test]
+    fn escape_with_the_settings_open_leaves_the_pause_menu_open() {
+        let mut app = app(UIMode::Opened);
+        *app.world_mut()
+            .query_filtered::<&mut Visibility, With<PauseMenu>>()
+            .single_mut(app.world_mut())
+            .unwrap() = Visibility::Visible;
+        app.world_mut().spawn(SettingsRoot {
+            context: SettingsContext::Game,
+        });
+        press_escape(&mut app);
+        assert_eq!(visibility_of::<PauseMenu>(&mut app), Visibility::Visible);
     }
 }

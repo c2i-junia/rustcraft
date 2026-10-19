@@ -3,6 +3,8 @@
 
 use std::fs;
 
+use accesskit::Role;
+
 use bevy::{
     input::{keyboard::KeyCode, mouse::MouseButtonInput, ButtonState},
     pbr::wireframe::WireframeConfig,
@@ -30,6 +32,8 @@ use crate::ui::hud::{
     CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
 };
 use crate::ui::menus::pause::PauseMenu;
+use crate::ui::menus::settings::controls::PRESS_A_KEY;
+use crate::ui::menus::settings::SettingsRoot;
 use crate::ui::widgets::slot::SlotIcon;
 use crate::world::{ClientWorldMap, MaterialResource};
 
@@ -495,6 +499,34 @@ fn the_pause_menu_resumes_saves_and_leaves() {
     let meta = h.folder().join(SAVE_PATH).join("Pause/world.ron");
     let written = || fs::metadata(&meta).unwrap().modified().unwrap();
     let seeded = written();
+
+    // The settings open over the game, which goes on beneath them
+    h.press(KeyCode::Escape);
+    h.click(&L::text("Settings"));
+    h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
+    assert!(is_in(h.world(), GameState::Game));
+    assert!(*h.world().resource::<UIMode>() == UIMode::Opened);
+    // The buttons of the pause menu beneath them are out of the cursor's reach
+    h.hover(&L::text("Save"));
+    let save = h.get(&L::text("Save"));
+    let save = h.world().get::<ChildOf>(save).unwrap().parent();
+    assert_eq!(h.world().get::<Interaction>(save), Some(&Interaction::None));
+    // A key bound in the settings does not also do what it does in the game
+    h.click(&L::role(Role::Button, "Jump, secondary key"));
+    h.wait_for(&L::text(PRESS_A_KEY), SCREEN);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("E").within(L::row("Jump")), SCREEN);
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    h.press(KeyCode::Delete);
+    h.click(&L::role(Role::Tab, "Audio"));
+    h.wait_for(&L::role(Role::Slider, "Master"), SCREEN);
+    // Escape closes the settings, and only them
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<SettingsRoot>()));
+    h.frames(2);
+    assert!(h.is_visible(&L::text("Resume")));
+    h.click(&L::text("Resume"));
+    // No click on the settings reached the "Save" beneath them
     assert!(!player.exists());
     h.press(KeyCode::Escape);
     h.click(&L::text("Save"));
