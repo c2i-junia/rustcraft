@@ -294,8 +294,9 @@ pub fn load_player_data(
             player.camera_transform = saved.camera_transform;
             player.is_flying = saved.is_flying;
             player.inventory = saved.inventory;
-            // A table is used only while the player is there
+            // A table or a chest is used only while the player is there
             player.inventory.open_table = None;
+            player.inventory.open_chest = None;
         }
         Err(err) => {
             let mut corrupt_path = path.as_os_str().to_owned();

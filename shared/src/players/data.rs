@@ -20,6 +20,9 @@ pub struct Inventory {
     /// The crafting table the player is using, if any.
     #[serde(default)]
     pub open_table: Option<IVec3>,
+    /// The chest the player is using, if any. Never at the same time as a table.
+    #[serde(default)]
+    pub open_chest: Option<IVec3>,
 }
 
 impl Default for Inventory {
@@ -34,6 +37,7 @@ impl Inventory {
             inner: HashMap::new(),
             floating: None,
             open_table: None,
+            open_chest: None,
         }
     }
 

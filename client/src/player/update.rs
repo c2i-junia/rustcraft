@@ -139,7 +139,7 @@ pub fn update_players_system(
     mut unacknowledged_inputs: ResMut<UnacknowledgedInputs>,
     mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
     client: Res<TargetServer>,
-    world_map: Res<ClientWorldMap>,
+    mut world_map: ResMut<ClientWorldMap>,
     mut inventory: ResMut<Inventory>,
 ) {
     // No update can concern us before the server gave us our id
@@ -167,15 +167,26 @@ pub fn update_players_system(
             &mut tick_buffer.buffer,
             &world_map.blocks,
         );
-        // The inventory resumes from the server's, with the actions it has not applied yet
+        // The inventory and the open chest resume from the server's, with the actions it has
+        // not applied yet
         player.inventory = event.inventory.clone();
+        if let (Some(chest), Some(contents)) = (event.inventory.open_chest, &event.open_chest) {
+            world_map
+                .blocks
+                .insert_container(chest, (**contents).clone());
+        }
         let not_applied = unacknowledged_inputs
             .0
             .iter()
             .chain(tick_buffer.buffer.iter())
             .filter(|input| input.time_ms > event.last_ack_time);
         for input in not_applied {
-            simulate_inventory_actions(&mut player, &world_map.blocks, input, CallerType::Client);
+            simulate_inventory_actions(
+                &mut player,
+                &mut world_map.blocks,
+                input,
+                CallerType::Client,
+            );
         }
         inventory.clone_from(&player.inventory);
         transform.translation = player.position;
@@ -304,6 +315,7 @@ mod tests {
             orientation: Quat::IDENTITY,
             last_ack_time: 15,
             inventory: Inventory::new(),
+            open_chest: None,
         });
         app.update();
 
@@ -337,6 +349,7 @@ mod tests {
             orientation: Quat::IDENTITY,
             last_ack_time: 10,
             inventory: server_inventory,
+            open_chest: None,
         });
         app.update();
 
@@ -347,6 +360,53 @@ mod tests {
             expected
         );
         assert_eq!(*app.world().resource::<Inventory>(), expected);
+    }
+
+    #[test]
+    fn unacknowledged_chest_actions_are_replayed_once_on_the_chest_the_server_sends() {
+        use shared::players::inventory::{InventoryAction, CHEST_SLOT_START};
+        use shared::world::{Container, ItemId, ItemStack};
+
+        let chest = IVec3::new(0, 0, -2);
+        let stone = ItemStack {
+            item_id: ItemId::Stone,
+            item_type: ItemId::Stone.get_default_type(),
+            nb: 4,
+        };
+        let (mut app, player) = app_with_player();
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        blocks.fill_box(chest, chest, BlockId::Chest);
+        // The client already predicted the click: the stone is in its cursor, not in its chest
+        blocks.insert_container(chest, Container::default());
+        app.world_mut().resource_mut::<ClientWorldMap>().blocks = blocks;
+        app.world_mut().resource_mut::<UnacknowledgedInputs>().0[1]
+            .inventory_actions
+            .push(InventoryAction::LeftClickSlot(CHEST_SLOT_START));
+        let mut server_inventory = Inventory::new();
+        server_inventory.open_chest = Some(chest);
+        let mut server_chest = Container::default();
+        server_chest.slots[0] = Some(stone);
+
+        app.world_mut().write_message(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: MovementState::default(),
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: server_inventory,
+            open_chest: Some(Box::new(server_chest)),
+        });
+        app.update();
+
+        let inventory = &app.world().get::<Player>(player).unwrap().inventory;
+        assert_eq!(inventory.floating, Some(stone));
+        assert_eq!(inventory.open_chest, Some(chest));
+        assert_eq!(
+            app.world()
+                .resource::<ClientWorldMap>()
+                .blocks
+                .container(chest),
+            Some(&Container::default())
+        );
     }
 
     #[test]
@@ -544,6 +604,7 @@ mod tests {
                 orientation: Quat::IDENTITY,
                 last_ack_time: self.server_player.last_input_processed,
                 inventory: Inventory::new(),
+                open_chest: None,
             };
             for _ in 0..=u32::from(self.repeats_updates) {
                 self.to_client

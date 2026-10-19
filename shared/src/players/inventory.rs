@@ -1,11 +1,11 @@
 //! What an inventory action does: the clicks on the slots of the open inventory, which move
 //! items between the slots and the stack held by the cursor (the floating stack), crafting
-//! from the grid, using a crafting table, and closing it. Run by the client (prediction) and by
-//! the server (authority).
+//! from the grid, using a crafting table or a chest, and closing it. Run by the client
+//! (prediction) and by the server (authority).
 
 use std::ops::Range;
 
-use bevy::math::IVec3;
+use bevy::math::{IVec3, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -15,14 +15,22 @@ use crate::{
         Inventory, Player,
     },
     world::{
-        grid_slot, match_recipe, BlockId, ChunkMap, CraftingGrid, ItemId, ItemStack, ItemType,
-        CRAFTING_GRID_SIZE,
+        grid_slot, match_recipe, BlockId, ChunkMap, Container, CraftingGrid, ItemId, ItemStack,
+        ItemType, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
 
 /// Width and height of the crafting grid of the inventory alone.
 pub const INVENTORY_GRID_SIZE: u32 = 2;
+
+/// The slots of an open chest follow those of the crafting grid.
+pub const CHEST_SLOT_START: u32 = CRAFTING_GRID_START + CRAFTING_GRID_SIZE * CRAFTING_GRID_SIZE;
+
+/// The slots of an open chest, in the numbering of the inventory actions.
+pub fn chest_slots() -> Range<u32> {
+    CHEST_SLOT_START..CHEST_SLOT_START + CHEST_SLOTS
+}
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
 /// the network. Bump `PROTOCOL_ID` with any change.
@@ -46,6 +54,9 @@ pub enum InventoryAction {
         slot: u32,
         hotbar: u32,
     },
+    /// Right click on the chest at this position: its slots can be used while it stays within
+    /// reach.
+    OpenChest(IVec3),
 }
 
 /// Why an inventory action changed nothing.
@@ -59,6 +70,8 @@ pub enum InventoryRefusal {
     CursorFull,
     /// There is no crafting table within reach at this position.
     NoTable(IVec3),
+    /// There is no chest within reach at this position.
+    NoChest(IVec3),
     /// The cursor holds a stack, which a swap with the hotbar would leave out.
     HoldingAStack,
 }
@@ -81,37 +94,62 @@ impl Inventory {
 
 /// Width and height of the crafting grid in use: 3 while the open table is a crafting table
 /// within reach, 2 otherwise.
-pub fn grid_size(inventory: &Inventory, table_in_reach: impl Fn(IVec3) -> bool) -> u32 {
+pub fn grid_size(inventory: &Inventory, in_reach: impl Fn(IVec3, BlockId) -> bool) -> u32 {
     match inventory.open_table {
-        Some(table) if table_in_reach(table) => CRAFTING_GRID_SIZE,
+        Some(table) if in_reach(table, BlockId::CraftingTable) => CRAFTING_GRID_SIZE,
         _ => INVENTORY_GRID_SIZE,
     }
 }
 
+/// Whether `pos` holds a block `id` within the reach of a player at `position`.
+fn block_in_reach(world_map: &ChunkMap, position: Vec3, pos: IVec3, id: BlockId) -> bool {
+    world_map.get_block(pos).is_some_and(|block| block.id == id)
+        && (pos.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
+}
+
 /// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`.
+/// The actions on the open chest change its contents in `world_map`, when it holds them.
 pub fn simulate_inventory_actions(
     player: &mut Player,
-    world_map: &ChunkMap,
+    world_map: &mut ChunkMap,
     input: &PlayerFrameInput,
     caller_type: CallerType,
 ) {
     let position = player.position;
-    let table_in_reach = |table: IVec3| {
-        world_map
-            .get_block(table)
-            .is_some_and(|block| block.id == BlockId::CraftingTable)
-            && (table.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
-    };
-    // A table the player walked away from, or that was broken, is closed: the dialog shrinks
-    if let Some(table) = player.inventory.open_table {
-        if !table_in_reach(table) {
-            player.inventory.open_table = None;
+    // A table or a chest the player walked away from, or that was broken, is closed: the
+    // dialog shrinks
+    let inventory = &mut player.inventory;
+    if let Some(table) = inventory.open_table {
+        if !block_in_reach(world_map, position, table, BlockId::CraftingTable) {
+            inventory.open_table = None;
+        }
+    }
+    if let Some(chest) = inventory.open_chest {
+        if !block_in_reach(world_map, position, chest, BlockId::Chest) {
+            inventory.open_chest = None;
         }
     }
     let actions = input.inventory_actions.iter();
     for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
-        if let Err(refusal) = apply_inventory_action(&mut player.inventory, action, table_in_reach)
-        {
+        // A client learns the contents of a chest from the server, after opening it
+        let mut chest = player
+            .inventory
+            .open_chest
+            .and_then(|pos| Some((pos, world_map.container(pos)?.clone())));
+        let applied = apply_inventory_action(
+            &mut player.inventory,
+            action,
+            |pos, id| block_in_reach(world_map, position, pos, id),
+            chest.as_mut().map(|(_, contents)| contents),
+        );
+        if let Some((pos, contents)) = chest {
+            if world_map.container(pos) != Some(&contents) {
+                if let Some(stored) = world_map.container_mut(pos) {
+                    *stored = contents;
+                }
+            }
+        }
+        if let Err(refusal) = applied {
             log::debug!(
                 "{} Player {} could not apply {action:?}: {refusal:?}",
                 caller_type.as_str(),
@@ -121,28 +159,62 @@ pub fn simulate_inventory_actions(
     }
 }
 
-/// Applies `action` to `inventory`. `table_in_reach` tells whether a position holds a crafting
-/// table the player can use.
+/// Applies `action` to `inventory`. `in_reach` tells whether a position holds a block of this
+/// kind the player can use. `chest` is what the open chest holds, `None` when it is unknown:
+/// its slots cannot be used then.
 pub fn apply_inventory_action(
     inventory: &mut Inventory,
     action: InventoryAction,
-    table_in_reach: impl Fn(IVec3) -> bool,
+    in_reach: impl Fn(IVec3, BlockId) -> bool,
+    chest: Option<&mut Container>,
 ) -> Result<(), InventoryRefusal> {
-    let size = grid_size(inventory, &table_in_reach);
+    let Some(chest) = chest.filter(|_| inventory.open_chest.is_some()) else {
+        return apply_action(inventory, action, in_reach, false);
+    };
+    // The stacks of the chest are lent to the inventory, in its chest slots, while the action
+    // is applied: every click works the same on them
+    debug_assert!(chest_slots().all(|slot| !inventory.inner.contains_key(&slot)));
+    for (slot, stack) in chest_slots().zip(&chest.slots) {
+        if let Some(stack) = stack {
+            inventory.inner.insert(slot, *stack);
+        }
+    }
+    let applied = apply_action(inventory, action, in_reach, true);
+    for (slot, stack) in chest_slots().zip(&mut chest.slots) {
+        *stack = inventory.inner.remove(&slot);
+    }
+    applied
+}
+
+/// `apply_inventory_action`, with the stacks of the open chest in the chest slots of
+/// `inventory` when `chest_lent`.
+fn apply_action(
+    inventory: &mut Inventory,
+    action: InventoryAction,
+    in_reach: impl Fn(IVec3, BlockId) -> bool,
+    chest_lent: bool,
+) -> Result<(), InventoryRefusal> {
+    let size = grid_size(inventory, &in_reach);
     let mut floating = inventory.floating.take();
     let applied = match action {
-        InventoryAction::LeftClickSlot(slot) => check_slot(inventory, slot, size, floating)
-            .map(|()| left_click_slot(inventory, slot, &mut floating)),
-        InventoryAction::RightClickSlot(slot) => check_slot(inventory, slot, size, floating)
-            .map(|()| right_click_slot(inventory, slot, &mut floating)),
+        InventoryAction::LeftClickSlot(slot) => {
+            check_slot(inventory, slot, size, floating, chest_lent)
+                .map(|()| left_click_slot(inventory, slot, &mut floating))
+        }
+        InventoryAction::RightClickSlot(slot) => {
+            check_slot(inventory, slot, size, floating, chest_lent)
+                .map(|()| right_click_slot(inventory, slot, &mut floating))
+        }
         InventoryAction::QuickMoveSlot(slot) => {
-            check_slot(inventory, slot, size, floating).map(|()| quick_move_slot(inventory, slot))
+            check_slot(inventory, slot, size, floating, chest_lent)
+                .map(|()| quick_move_slot(inventory, slot, chest_lent))
         }
         InventoryAction::SwapWithHotbar { slot, hotbar } => {
-            swap_with_hotbar(inventory, slot, hotbar, size, floating)
+            swap_with_hotbar(inventory, slot, hotbar, size, floating, chest_lent)
         }
         InventoryAction::Close => {
             inventory.open_table = None;
+            inventory.open_chest = None;
             if let Some(stack) = floating {
                 floating = put_back(inventory, stack);
             }
@@ -157,11 +229,21 @@ pub fn apply_inventory_action(
         }
         InventoryAction::TakeCraftResult => take_craft_result(inventory, &mut floating, size),
         InventoryAction::OpenCraftingTable(table) => {
-            if table_in_reach(table) {
+            if in_reach(table, BlockId::CraftingTable) {
                 inventory.open_table = Some(table);
+                inventory.open_chest = None;
                 Ok(())
             } else {
                 Err(InventoryRefusal::NoTable(table))
+            }
+        }
+        InventoryAction::OpenChest(chest) => {
+            if in_reach(chest, BlockId::Chest) {
+                inventory.open_chest = Some(chest);
+                inventory.open_table = None;
+                Ok(())
+            } else {
+                Err(InventoryRefusal::NoChest(chest))
             }
         }
     };
@@ -209,12 +291,24 @@ fn add_to_range(inventory: &mut Inventory, mut stack: ItemStack, range: Range<u3
 }
 
 /// Shift+click on `slot`: moves its stack from the hotbar to the backpack or the other way
-/// round, and from a crafting grid cell into the whole inventory. What does not fit stays.
-fn quick_move_slot(inventory: &mut Inventory, slot: u32) {
+/// round, and from a crafting grid cell into the whole inventory. With a chest open, it moves
+/// it from the inventory to the chest and from the chest to the inventory. What does not fit
+/// stays.
+fn quick_move_slot(inventory: &mut Inventory, slot: u32, chest_open: bool) {
     let Some(stack) = inventory.inner.remove(&slot) else {
         return;
     };
-    let kept = if slot < HOTBAR_SLOTS {
+    let range = if chest_slots().contains(&slot) {
+        Some(0..MAX_INVENTORY_SLOTS)
+    } else if chest_open && slot < MAX_INVENTORY_SLOTS {
+        Some(chest_slots())
+    } else {
+        None
+    };
+    let kept = if let Some(range) = range {
+        let kept = add_to_range(inventory, stack, range);
+        (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+    } else if slot < HOTBAR_SLOTS {
         let kept = add_to_range(inventory, stack, HOTBAR_SLOTS..MAX_INVENTORY_SLOTS);
         (kept > 0).then_some(ItemStack { nb: kept, ..stack })
     } else if slot < MAX_INVENTORY_SLOTS {
@@ -235,6 +329,7 @@ fn swap_with_hotbar(
     hotbar: u32,
     size: u32,
     floating: Option<ItemStack>,
+    chest_open: bool,
 ) -> Result<(), InventoryRefusal> {
     if hotbar >= HOTBAR_SLOTS {
         return Err(InventoryRefusal::InvalidSlot(hotbar));
@@ -242,7 +337,8 @@ fn swap_with_hotbar(
     if floating.is_some() {
         return Err(InventoryRefusal::HoldingAStack);
     }
-    if slot >= MAX_INVENTORY_SLOTS && !grid_slots(size).any(|cell| cell == slot) {
+    let in_chest = chest_open && chest_slots().contains(&slot);
+    if slot >= MAX_INVENTORY_SLOTS && !grid_slots(size).any(|cell| cell == slot) && !in_chest {
         return Err(InventoryRefusal::InvalidSlot(slot));
     }
     let in_slot = inventory.inner.remove(&slot);
@@ -298,17 +394,23 @@ fn take_craft_result(
     Ok(())
 }
 
-/// A click may reach the inventory and the grid in use. Cells beyond it may only be emptied,
-/// with nothing in the cursor.
+/// A click may reach the inventory, the grid in use and the open chest. Cells beyond the grid
+/// may only be emptied, with nothing in the cursor.
 fn check_slot(
     inventory: &Inventory,
     slot: u32,
     size: u32,
     floating: Option<ItemStack>,
+    chest_open: bool,
 ) -> Result<(), InventoryRefusal> {
     let takes_a_leftover =
         is_beyond_the_grid(slot, size) && floating.is_none() && inventory.inner.contains_key(&slot);
-    if slot < MAX_INVENTORY_SLOTS || grid_slots(size).any(|cell| cell == slot) || takes_a_leftover {
+    let in_chest = chest_open && chest_slots().contains(&slot);
+    if slot < MAX_INVENTORY_SLOTS
+        || grid_slots(size).any(|cell| cell == slot)
+        || takes_a_leftover
+        || in_chest
+    {
         Ok(())
     } else {
         Err(InventoryRefusal::InvalidSlot(slot))
@@ -431,7 +533,7 @@ mod tests {
     }
 
     fn apply(inventory: &mut Inventory, action: InventoryAction) {
-        apply_inventory_action(inventory, action, |_| false).unwrap();
+        apply_inventory_action(inventory, action, |_, _| false, None).unwrap();
     }
 
     #[test]
@@ -555,7 +657,8 @@ mod tests {
             apply_inventory_action(
                 &mut inventory,
                 InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50),
-                |_| false
+                |_, _| false,
+                None
             ),
             Err(InventoryRefusal::InvalidSlot(MAX_INVENTORY_SLOTS + 50))
         );
@@ -563,7 +666,8 @@ mod tests {
             apply_inventory_action(
                 &mut inventory,
                 InventoryAction::RightClickSlot(1000),
-                |_| false
+                |_, _| false,
+                None
             ),
             Err(InventoryRefusal::InvalidSlot(1000))
         );
@@ -645,7 +749,12 @@ mod tests {
             let before = inventory.clone();
 
             assert_eq!(
-                apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult, |_| false),
+                apply_inventory_action(
+                    &mut inventory,
+                    InventoryAction::TakeCraftResult,
+                    |_, _| false,
+                    None
+                ),
                 Err(InventoryRefusal::CursorFull)
             );
             assert_eq!(inventory, before);
@@ -656,7 +765,12 @@ mod tests {
     fn taking_the_result_of_no_recipe_is_refused() {
         let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 1));
         assert_eq!(
-            apply_inventory_action(&mut inventory, InventoryAction::TakeCraftResult, |_| false),
+            apply_inventory_action(
+                &mut inventory,
+                InventoryAction::TakeCraftResult,
+                |_, _| false,
+                None
+            ),
             Err(InventoryRefusal::NoRecipe)
         );
     }
@@ -670,7 +784,8 @@ mod tests {
             apply_inventory_action(
                 &mut inventory,
                 InventoryAction::LeftClickSlot(grid_slot(0, 2)),
-                |_| false
+                |_, _| false,
+                None
             ),
             Err(InventoryRefusal::InvalidSlot(grid_slot(0, 2)))
         );
@@ -721,7 +836,7 @@ mod tests {
         (player, world)
     }
 
-    fn act(player: &mut Player, world: &ChunkMap, actions: Vec<InventoryAction>) {
+    fn act(player: &mut Player, world: &mut ChunkMap, actions: Vec<InventoryAction>) {
         let input = PlayerFrameInput {
             inventory_actions: actions,
             ..Default::default()
@@ -739,7 +854,7 @@ mod tests {
         inventory.floating = Some(stack(ItemId::Cobblestone, 1));
     }
 
-    fn furnace_from_a_table(player: &mut Player, world: &ChunkMap) -> Option<ItemStack> {
+    fn furnace_from_a_table(player: &mut Player, world: &mut ChunkMap) -> Option<ItemStack> {
         act(
             player,
             world,
@@ -753,18 +868,18 @@ mod tests {
 
     #[test]
     fn a_table_opens_only_within_reach() {
-        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
         assert_eq!(player.inventory.open_table, Some(TABLE));
 
-        let (mut player, world) = player_by(BlockId::CraftingTable, FAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, FAR);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
         assert_eq!(player.inventory.open_table, None);
@@ -772,10 +887,10 @@ mod tests {
 
     #[test]
     fn a_block_that_is_not_a_table_does_not_open() {
-        let (mut player, world) = player_by(BlockId::Stone, NEAR);
+        let (mut player, mut world) = player_by(BlockId::Stone, NEAR);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
         assert_eq!(player.inventory.open_table, None);
@@ -783,16 +898,16 @@ mod tests {
 
     #[test]
     fn the_3x3_grid_is_usable_while_a_table_is_open() {
-        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
         almost_a_furnace(&mut player.inventory);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
 
         assert_eq!(
-            furnace_from_a_table(&mut player, &world),
+            furnace_from_a_table(&mut player, &mut world),
             Some(stack(ItemId::Furnace, 1))
         );
         assert!(player.inventory.inner.is_empty());
@@ -800,7 +915,7 @@ mod tests {
 
     #[test]
     fn a_ring_of_cobblestone_makes_nothing_without_a_table() {
-        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
         almost_a_furnace(&mut player.inventory);
         player
             .inventory
@@ -808,7 +923,11 @@ mod tests {
             .insert(grid_slot(2, 2), stack(ItemId::Cobblestone, 1));
         player.inventory.floating = None;
 
-        act(&mut player, &world, vec![InventoryAction::TakeCraftResult]);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::TakeCraftResult],
+        );
 
         assert_eq!(player.inventory.floating, None);
         assert_eq!(player.inventory.inner.len(), 8);
@@ -820,30 +939,30 @@ mod tests {
         almost_a_furnace(&mut player.inventory);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
         world.remove_block(TABLE);
 
         assert_eq!(
-            furnace_from_a_table(&mut player, &world),
+            furnace_from_a_table(&mut player, &mut world),
             Some(stack(ItemId::Cobblestone, 1))
         );
     }
 
     #[test]
     fn a_table_out_of_reach_takes_the_3x3_grid_away() {
-        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
         almost_a_furnace(&mut player.inventory);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
         player.position = FAR;
 
         assert_eq!(
-            furnace_from_a_table(&mut player, &world),
+            furnace_from_a_table(&mut player, &mut world),
             Some(stack(ItemId::Cobblestone, 1))
         );
     }
@@ -877,7 +996,8 @@ mod tests {
             apply_inventory_action(
                 &mut inventory,
                 InventoryAction::LeftClickSlot(grid_slot(2, 2)),
-                |_| false
+                |_, _| false,
+                None
             ),
             Err(InventoryRefusal::InvalidSlot(grid_slot(2, 2)))
         );
@@ -886,25 +1006,25 @@ mod tests {
 
     #[test]
     fn a_table_out_of_reach_is_closed_at_the_next_input() {
-        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![InventoryAction::OpenCraftingTable(TABLE)],
         );
         player.position = FAR;
 
-        act(&mut player, &world, vec![]);
+        act(&mut player, &mut world, vec![]);
 
         assert_eq!(player.inventory.open_table, None);
     }
 
     #[test]
     fn close_forgets_the_open_table() {
-        let (mut player, world) = player_by(BlockId::CraftingTable, NEAR);
+        let (mut player, mut world) = player_by(BlockId::CraftingTable, NEAR);
         act(
             &mut player,
-            &world,
+            &mut world,
             vec![
                 InventoryAction::OpenCraftingTable(TABLE),
                 InventoryAction::Close,
@@ -924,7 +1044,7 @@ mod tests {
 
         simulate_inventory_actions(
             &mut player,
-            &ChunkMap::default(),
+            &mut ChunkMap::default(),
             &input,
             CallerType::Server,
         );
@@ -950,7 +1070,7 @@ mod tests {
 
         simulate_inventory_actions(
             &mut player,
-            &ChunkMap::default(),
+            &mut ChunkMap::default(),
             &input,
             CallerType::Server,
         );
@@ -1068,7 +1188,7 @@ mod tests {
             slot: 12,
             hotbar: 2,
         };
-        let refusal = apply_inventory_action(&mut inventory, swap, |_| false);
+        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None);
 
         assert_eq!(refusal, Err(InventoryRefusal::HoldingAStack));
         assert_eq!(inventory, before);
@@ -1083,7 +1203,7 @@ mod tests {
             slot: cell,
             hotbar: 0,
         };
-        let refusal = apply_inventory_action(&mut inventory, swap, |_| false);
+        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None);
 
         assert_eq!(refusal, Err(InventoryRefusal::InvalidSlot(cell)));
     }
@@ -1096,8 +1216,233 @@ mod tests {
             slot: 12,
             hotbar: HOTBAR_SLOTS,
         };
-        let refusal = apply_inventory_action(&mut inventory, swap, |_| false);
+        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None);
 
         assert_eq!(refusal, Err(InventoryRefusal::InvalidSlot(HOTBAR_SLOTS)));
+    }
+
+    const CHEST: IVec3 = TABLE;
+
+    /// A player by an open chest at `CHEST`, which holds `contents`.
+    fn by_an_open_chest(contents: Container) -> (Player, ChunkMap) {
+        let (mut player, mut world) = player_by(BlockId::Chest, NEAR);
+        world.insert_container(CHEST, contents);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenChest(CHEST)],
+        );
+        assert_eq!(player.inventory.open_chest, Some(CHEST));
+        world.take_changed_containers();
+        (player, world)
+    }
+
+    fn holding(slot: u32, stack: ItemStack) -> Container {
+        let mut contents = Container::default();
+        contents.slots[slot as usize] = Some(stack);
+        contents
+    }
+
+    fn chest_slot(index: u32) -> u32 {
+        CHEST_SLOT_START + index
+    }
+
+    #[test]
+    fn the_chest_slots_follow_the_crafting_grid() {
+        assert_eq!(chest_slots(), 45..72);
+        assert_eq!(CHEST_SLOT_START, grid_slot(2, 2) + 1);
+    }
+
+    #[test]
+    fn a_chest_opens_only_within_reach_and_closes_the_table() {
+        let (mut player, mut world) = player_by(BlockId::Chest, FAR);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenChest(CHEST)],
+        );
+        assert_eq!(player.inventory.open_chest, None);
+
+        let (mut player, mut world) = player_by(BlockId::Stone, NEAR);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenChest(CHEST)],
+        );
+        assert_eq!(player.inventory.open_chest, None);
+
+        let (mut player, mut world) = player_by(BlockId::Chest, NEAR);
+        player.inventory.open_table = Some(IVec3::ZERO);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenChest(CHEST)],
+        );
+        assert_eq!(player.inventory.open_chest, Some(CHEST));
+        assert_eq!(player.inventory.open_table, None);
+    }
+
+    #[test]
+    fn clicks_move_items_between_the_chest_and_the_inventory() {
+        let (mut player, mut world) = by_an_open_chest(holding(4, stack(ItemId::Stone, 10)));
+        player.inventory.inner.insert(0, stack(ItemId::Dirt, 3));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::RightClickSlot(chest_slot(4)),
+                InventoryAction::LeftClickSlot(9),
+                InventoryAction::LeftClickSlot(0),
+                InventoryAction::LeftClickSlot(chest_slot(26)),
+            ],
+        );
+
+        let mut expected = holding(4, stack(ItemId::Stone, 5));
+        expected.slots[26] = Some(stack(ItemId::Dirt, 3));
+        assert_eq!(world.container(CHEST), Some(&expected));
+        assert_eq!(player.inventory.inner.len(), 1);
+        assert_eq!(player.inventory.inner[&9], stack(ItemId::Stone, 5));
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(world.take_changed_containers(), vec![CHEST]);
+    }
+
+    #[test]
+    fn shift_click_moves_a_stack_into_the_chest_and_back() {
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Dirt, 60)));
+        player.inventory.inner.insert(3, stack(ItemId::Dirt, 10));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::QuickMoveSlot(3)],
+        );
+
+        let mut expected = holding(0, stack(ItemId::Dirt, 64));
+        expected.slots[1] = Some(stack(ItemId::Dirt, 6));
+        assert_eq!(world.container(CHEST), Some(&expected));
+        assert!(player.inventory.inner.is_empty());
+
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::QuickMoveSlot(chest_slot(1))],
+        );
+
+        assert_eq!(
+            world.container(CHEST),
+            Some(&holding(0, stack(ItemId::Dirt, 64)))
+        );
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Dirt, 6));
+    }
+
+    #[test]
+    fn a_number_key_swaps_a_chest_slot_with_the_hotbar() {
+        let (mut player, mut world) = by_an_open_chest(holding(2, stack(ItemId::Stone, 1)));
+        player.inventory.inner.insert(5, stack(ItemId::Dirt, 3));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::SwapWithHotbar {
+                slot: chest_slot(2),
+                hotbar: 5,
+            }],
+        );
+
+        assert_eq!(
+            world.container(CHEST),
+            Some(&holding(2, stack(ItemId::Dirt, 3)))
+        );
+        assert_eq!(player.inventory.inner[&5], stack(ItemId::Stone, 1));
+    }
+
+    #[test]
+    fn the_chest_slots_are_refused_without_an_open_chest_and_shift_click_stays_in_the_inventory() {
+        let (mut player, mut world) = player_by(BlockId::Chest, NEAR);
+        world.insert_container(CHEST, holding(0, stack(ItemId::Stone, 1)));
+        player.inventory.inner.insert(0, stack(ItemId::Dirt, 3));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::LeftClickSlot(chest_slot(0)),
+                InventoryAction::QuickMoveSlot(0),
+            ],
+        );
+
+        assert_eq!(
+            world.container(CHEST),
+            Some(&holding(0, stack(ItemId::Stone, 1)))
+        );
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(
+            player.inventory.inner[&HOTBAR_SLOTS],
+            stack(ItemId::Dirt, 3)
+        );
+        assert!(world.take_changed_containers().is_empty());
+    }
+
+    #[test]
+    fn the_slots_of_a_chest_whose_contents_are_unknown_are_refused() {
+        // A client opening a chest, before the server sent what it holds
+        let (mut player, mut world) = player_by(BlockId::Chest, NEAR);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenChest(CHEST)],
+        );
+        player.inventory.floating = Some(stack(ItemId::Dirt, 3));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(chest_slot(0))],
+        );
+
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Dirt, 3)));
+        assert!(player.inventory.inner.is_empty());
+        assert_eq!(player.inventory.open_chest, Some(CHEST));
+    }
+
+    #[test]
+    fn closing_keeps_the_contents_in_the_chest() {
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Stone, 8)));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::LeftClickSlot(chest_slot(0)),
+                InventoryAction::LeftClickSlot(chest_slot(1)),
+                InventoryAction::Close,
+            ],
+        );
+
+        assert_eq!(player.inventory.open_chest, None);
+        assert!(player.inventory.inner.is_empty());
+        assert_eq!(
+            world.container(CHEST),
+            Some(&holding(1, stack(ItemId::Stone, 8)))
+        );
+    }
+
+    #[test]
+    fn a_chest_out_of_reach_or_broken_is_closed() {
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Stone, 8)));
+        player.position = FAR;
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(chest_slot(0))],
+        );
+        assert_eq!(player.inventory.open_chest, None);
+        assert_eq!(player.inventory.floating, None);
+
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Stone, 8)));
+        world.remove_block(CHEST);
+        act(&mut player, &mut world, Vec::new());
+        assert_eq!(player.inventory.open_chest, None);
     }
 }

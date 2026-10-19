@@ -123,6 +123,7 @@ mod tests {
             orientation: Default::default(),
             last_ack_time: 0,
             inventory: Default::default(),
+            open_chest: None,
         };
         for (message, expected) in [
             (ServerToClientMessage::AuthRegisterResponse(response), 0),
@@ -169,6 +170,7 @@ mod tests {
             (InventoryAction::OpenCraftingTable(IVec3::ZERO), 4),
             (InventoryAction::QuickMoveSlot(0), 5),
             (InventoryAction::SwapWithHotbar { slot: 0, hotbar: 0 }, 6),
+            (InventoryAction::OpenChest(IVec3::ZERO), 7),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

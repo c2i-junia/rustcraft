@@ -92,6 +92,10 @@ pub fn broadcast_player_updates_system(
                 orientation: player.camera_transform.rotation,
                 last_ack_time: player.last_input_processed,
                 inventory: player.inventory.clone(),
+                open_chest: player
+                    .inventory
+                    .open_chest
+                    .and_then(|chest| world_map.chunks.container(chest).cloned().map(Box::new)),
             },
         ));
     }

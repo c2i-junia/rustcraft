@@ -118,7 +118,7 @@ pub fn handle_block_interactions(
 pub fn predict_inventory_system(
     mut player: Query<&mut Player, With<CurrentPlayerMarker>>,
     frame_inputs: Res<CurrentFrameInputs>,
-    world_map: Res<ClientWorldMap>,
+    mut world_map: ResMut<ClientWorldMap>,
     mut inventory: ResMut<Inventory>,
 ) {
     let Ok(mut player) = player.single_mut() else {
@@ -129,7 +129,7 @@ pub fn predict_inventory_system(
     }
     simulate_inventory_actions(
         &mut player,
-        &world_map.blocks,
+        &mut world_map.blocks,
         &frame_inputs.0,
         CallerType::Client,
     );

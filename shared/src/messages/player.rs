@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
+use crate::world::Container;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -40,6 +41,10 @@ pub struct PlayerUpdateEvent {
     pub orientation: Quat,
     pub last_ack_time: u64,
     pub inventory: Inventory,
+    /// What the chest `inventory.open_chest` holds once the server has simulated the input
+    /// `last_ack_time`: the client takes it with the inventory. Boxed, as it is larger than
+    /// every other message.
+    pub open_chest: Option<Box<Container>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
