@@ -1,6 +1,6 @@
 use crate::init::ServerTime;
 use crate::network::extensions::SendGameMessageExtension;
-use crate::world::data::ServerWorldMap;
+use crate::world::data::{SentChunks, ServerWorldMap};
 use crate::world::dropped_items::dropped_items_update;
 use bevy::math::IVec3;
 use bevy::prelude::*;
@@ -75,7 +75,7 @@ pub fn broadcast_world_state(
             &world_map.dropped_items,
             &changed_items,
             &removed_items,
-            sent_chunks,
+            &sent_chunks.chunks,
             world_map.sent_items.entry(player.id).or_default(),
         );
         if !items.is_empty() {
@@ -127,16 +127,28 @@ fn send_nearby_mobs(
 /// What the client of a player in `player_chunk` must be sent: the chunks it must forget, then
 /// the updates of its chunks, then the chunks within `render_distance` it lacks. The unloads
 /// come first, so that no update is sent for a chunk the client is told to forget.
+///
+/// A client that holds every chunk within reach of a player who stays in the same chunk is
+/// only sent the updates: the chunks around are not looked at again on every tick.
 pub(super) fn world_messages_around(
     chunks: &ChunkMap,
     changed: &[IVec3],
     player_chunk: IVec3,
     render_distance: i32,
-    sent: &mut HashSet<IVec3>,
+    sent: &mut SentChunks,
 ) -> (Vec<IVec3>, Vec<BlockUpdate>, HashMap<IVec3, Chunk>) {
-    let unloads = take_chunks_to_unload(player_chunk, render_distance, sent);
+    let around = (player_chunk, render_distance);
+    if sent.complete_around == Some(around) {
+        let (updates, _) = client_world_messages(chunks, changed, &[], &mut sent.chunks);
+        return (Vec::new(), updates, HashMap::new());
+    }
+    let unloads = take_chunks_to_unload(player_chunk, render_distance, &mut sent.chunks);
     let nearby = get_player_nearby_chunks_coords(player_chunk, render_distance);
-    let (updates, new_chunks) = client_world_messages(chunks, changed, &nearby, sent);
+    let (updates, new_chunks) = client_world_messages(chunks, changed, &nearby, &mut sent.chunks);
+    sent.complete_around = nearby
+        .iter()
+        .all(|c| sent.chunks.contains(c))
+        .then_some(around);
     (unloads, updates, new_chunks)
 }
 
@@ -613,7 +625,7 @@ mod tests {
     fn walk_to(
         chunks: &ChunkMap,
         x: i32,
-        sent: &mut HashSet<IVec3>,
+        sent: &mut SentChunks,
     ) -> (Vec<IVec3>, HashMap<IVec3, Chunk>) {
         let (unloads, updates, new_chunks) =
             world_messages_around(chunks, &[], IVec3::new(x, 0, 0), RENDER_DISTANCE, sent);
@@ -641,7 +653,7 @@ mod tests {
     #[test]
     fn only_the_render_distance_is_sent_and_the_margin_is_kept_but_never_sent_first() {
         let chunks = chunks_between(-KEPT - 2, KEPT + 2);
-        let mut sent = HashSet::new();
+        let mut sent = SentChunks::default();
 
         let (unloads, new_chunks) = walk_to(&chunks, 0, &mut sent);
         assert!(unloads.is_empty());
@@ -659,13 +671,13 @@ mod tests {
         let (unloads, new_chunks) = walk_to(&chunks, 2, &mut sent);
         assert_eq!(xs(&unloads), vec![-RENDER_DISTANCE]);
         assert_eq!(xs(new_chunks.keys()), vec![RENDER_DISTANCE + 2]);
-        assert!(!sent.contains(&IVec3::new(-RENDER_DISTANCE, 0, 0)));
+        assert!(!sent.chunks.contains(&IVec3::new(-RENDER_DISTANCE, 0, 0)));
     }
 
     #[test]
     fn walking_to_and_fro_across_a_border_neither_unloads_nor_sends() {
         let chunks = chunks_between(-KEPT - 2, KEPT + 2);
-        let mut sent = HashSet::new();
+        let mut sent = SentChunks::default();
         walk_to(&chunks, 0, &mut sent);
         walk_to(&chunks, 1, &mut sent);
 
@@ -679,7 +691,7 @@ mod tests {
     fn an_unloaded_chunk_is_sent_again_when_the_player_comes_back() {
         let chunks = chunks_between(-KEPT - 2, KEPT + 2);
         let west = IVec3::new(-RENDER_DISTANCE, 0, 0);
-        let mut sent = HashSet::new();
+        let mut sent = SentChunks::default();
         walk_to(&chunks, 0, &mut sent);
 
         let (unloads, _) = walk_to(&chunks, UNLOAD_MARGIN + 1, &mut sent);
@@ -692,9 +704,46 @@ mod tests {
     }
 
     #[test]
+    fn a_client_holding_its_render_distance_is_only_sent_updates_until_its_player_moves() {
+        // Every chunk within 1 of the origin but one, which is generated later
+        let missing = IVec3::new(1, 1, 1);
+        let mut chunks = ChunkMap::default();
+        for x in -2..=2 {
+            for y in -2..=2 {
+                for z in -2..=2 {
+                    if IVec3::new(x, y, z) != missing {
+                        chunks.insert_chunk(IVec3::new(x, y, z), Chunk::new());
+                    }
+                }
+            }
+        }
+        let mut sent = SentChunks::default();
+        let mut around = |chunks: &ChunkMap, changed: &[IVec3], player_chunk| {
+            world_messages_around(chunks, changed, player_chunk, 1, &mut sent)
+        };
+
+        assert_eq!(around(&chunks, &[], IVec3::ZERO).2.len(), 26);
+        chunks.insert_chunk(missing, Chunk::new());
+        let (_, _, new_chunks) = around(&chunks, &[], IVec3::ZERO);
+        assert_eq!(new_chunks.keys().collect::<Vec<_>>(), vec![&missing]);
+
+        // Complete: a change still comes as an update
+        let pos = IVec3::new(3, 2, 1);
+        chunks.set_block(pos, stone());
+        let changed = chunks.take_changed_blocks();
+        let (unloads, updates, new_chunks) = around(&chunks, &changed, IVec3::ZERO);
+        assert!(unloads.is_empty() && new_chunks.is_empty());
+        assert_eq!(updates.len(), 1);
+
+        // Another chunk: the chunks a step further are sent
+        let (_, _, new_chunks) = around(&chunks, &[], IVec3::NEG_X);
+        assert_eq!(new_chunks.len(), 9);
+    }
+
+    #[test]
     fn a_walking_client_holds_what_the_server_thinks_and_no_update_misses_its_chunk() {
         let mut chunks = chunks_between(-KEPT - 4, KEPT + 4);
-        let mut sent = HashSet::new();
+        let mut sent = SentChunks::default();
         let mut client = ChunkMap::default();
 
         for (step, x) in [0, 1, 2, 3, 2, 1, 0, -1, -2, -1, 0].into_iter().enumerate() {
@@ -722,7 +771,7 @@ mod tests {
             deliver(&mut client, (updates, new_chunks));
 
             let held: HashSet<IVec3> = client.chunk_positions().collect();
-            assert_eq!(held, sent, "step {step}");
+            assert_eq!(held, sent.chunks, "step {step}");
             for chunk in &held {
                 assert_eq!(client.chunk(*chunk), chunks.chunk(*chunk), "step {step}");
                 assert!(chunk_distance(*chunk, IVec3::new(x, 0, 0)) <= KEPT);
@@ -733,8 +782,8 @@ mod tests {
     #[test]
     fn a_lowered_render_distance_unloads_and_a_raised_one_sends_more() {
         let chunks = chunks_between(-6, 6);
-        let mut sent = HashSet::new();
-        let around = |distance, sent: &mut HashSet<IVec3>| {
+        let mut sent = SentChunks::default();
+        let around = |distance, sent: &mut SentChunks| {
             let (unloads, _, new_chunks) =
                 world_messages_around(&chunks, &[], IVec3::ZERO, distance, sent);
             (xs(&unloads), xs(new_chunks.keys()))

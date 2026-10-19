@@ -17,6 +17,7 @@ use shared::world::{Chunk, ChunkMap};
 use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE};
 
 use super::broadcast_world::world_messages_around;
+use super::data::SentChunks;
 use super::generation::generate_chunk;
 use super::simulation::{generate_missing_chunks, GENERATED_CHUNKS_PER_TICK};
 
@@ -95,7 +96,10 @@ fn bench_broadcast_steady() {
     for chunk_pos in render_cube(radius) {
         chunks.insert_chunk(chunk_pos, Chunk::new());
     }
-    let mut sent: HashSet<IVec3> = render_cube(radius).into_iter().collect();
+    let mut sent = SentChunks {
+        chunks: render_cube(radius).into_iter().collect(),
+        complete_around: None,
+    };
     let mut samples = Vec::new();
     for _ in 0..2000 {
         let start = Instant::now();
@@ -253,11 +257,11 @@ fn bench_join_sending() {
     for chunk_pos in render_cube(radius) {
         chunks.insert_chunk(chunk_pos, generate_chunk(chunk_pos, SEED));
     }
-    let mut sent = HashSet::new();
+    let mut sent = SentChunks::default();
     let mut ticks = 0;
     let mut bytes = 0;
     let mut largest = 0;
-    while sent.len() < render_cube(radius).len() && ticks < 10_000 {
+    while sent.chunks.len() < render_cube(radius).len() && ticks < 10_000 {
         let (_, _, new_chunks) =
             world_messages_around(&chunks, &[], PLAYER_CHUNK, radius, &mut sent);
         let message = game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {

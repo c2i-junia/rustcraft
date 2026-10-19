@@ -19,8 +19,8 @@ pub const SAVE_PATH: &str = "saves/";
 pub struct ServerWorldMap {
     pub name: String,
     pub chunks: ChunkMap,
-    /// For each connected client, the chunks it has received.
-    pub sent_chunks: HashMap<PlayerId, HashSet<IVec3>>,
+    /// For each connected client, what it has received of the world.
+    pub sent_chunks: HashMap<PlayerId, SentChunks>,
     pub render_distances: RenderDistances,
     pub players: HashMap<PlayerId, Player>,
     pub mobs: HashMap<MobId, ServerMob>,
@@ -29,6 +29,17 @@ pub struct ServerWorldMap {
     pub sent_items: HashMap<PlayerId, HashSet<DroppedItemId>>,
     /// The chunks that are new or changed since they were last handed to the writer.
     pub dirty_chunks: HashSet<IVec3>,
+}
+
+/// What one client has received of the world.
+#[derive(Default, Debug)]
+pub struct SentChunks {
+    /// The chunks it has received.
+    pub chunks: HashSet<IVec3>,
+    /// The chunk of its player and the render distance when it last held every chunk within
+    /// that distance: until either changes, it lacks nothing. The server never drops a chunk,
+    /// so this stays true.
+    pub complete_around: Option<(IVec3, i32)>,
 }
 
 /// The render distance of each authenticated player, in chunks, as the server grants it.

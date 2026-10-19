@@ -35,15 +35,20 @@ pub fn cleanup_player_from_world(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::data::SentChunks;
     use bevy::math::IVec3;
     use std::collections::HashSet;
 
     fn world_with_two_clients() -> ServerWorldMap {
         let mut world_map = ServerWorldMap::default();
         for id in [1, 2] {
-            world_map
-                .sent_chunks
-                .insert(id, HashSet::from([IVec3::ZERO, IVec3::X]));
+            world_map.sent_chunks.insert(
+                id,
+                SentChunks {
+                    chunks: HashSet::from([IVec3::ZERO, IVec3::X]),
+                    complete_around: None,
+                },
+            );
             world_map.render_distances.set(id, 4, 6);
         }
         world_map
