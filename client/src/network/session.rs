@@ -107,6 +107,10 @@ pub struct ConnectWatch {
 pub fn session_plugin(app: &mut App) {
     app.add_systems(OnEnter(GameState::PreGameLoading), start_watching)
         .add_systems(OnExit(GameState::PreGameLoading), stop_watching)
+        // a session in the game has not ended: no menu may read an end left from before
+        .add_systems(OnEnter(GameState::Game), |mut commands: Commands| {
+            commands.remove_resource::<SessionEnd>();
+        })
         .add_systems(
             Update,
             track_connection.run_if(in_state(GameState::PreGameLoading)),

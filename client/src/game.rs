@@ -78,12 +78,60 @@ fn clear_resources(mut world_map: ResMut<ClientWorldMap>) {
     world_map.render = HashMap::new();
 }
 
+/// Enters the game once the textures are loaded and the player spawned, unless the session
+/// ended in this frame (a cancel): the first end of a session wins.
 fn check_pre_loading_complete(
     loading: Res<PreLoadingCompletion>,
     mut game_state: ResMut<NextState<GameState>>,
     target_server: Res<TargetServer>,
 ) {
+    if !matches!(*game_state, NextState::Unchanged) {
+        return;
+    }
     if loading.textures_loaded && target_server.state == TargetServerState::FullyReady {
         game_state.set(GameState::Game);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::state::app::StatesPlugin;
+
+    use super::*;
+    use crate::network::session::{end_session, SessionEnd, SessionOrigin};
+
+    #[test]
+    fn a_cancel_in_the_frame_loading_completes_keeps_the_game_out() {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin)
+            .init_state::<GameState>()
+            .insert_resource(PreLoadingCompletion {
+                textures_loaded: true,
+            })
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: TargetServerState::FullyReady,
+            })
+            .add_systems(
+                Update,
+                (
+                    |mut commands: Commands, mut game: ResMut<NextState<GameState>>| {
+                        let origin = SessionOrigin::World {
+                            name: "Survie".into(),
+                        };
+                        end_session(&mut commands, &mut game, &origin, None);
+                    },
+                    check_pre_loading_complete,
+                )
+                    .chain(),
+            );
+        app.update();
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Pending(GameState::Menu)
+        ));
+        assert!(app.world().contains_resource::<SessionEnd>());
     }
 }
