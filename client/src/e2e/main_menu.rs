@@ -64,6 +64,10 @@ fn escape_asks_before_quitting_with_cancel_focused() {
     h.wait_for(&L::text(QUIT_TITLE), SCREEN);
     assert_eq!(h.focus_label().as_deref(), Some("Cancel"));
     assert!(!h.has_exited());
+    // opened from the keyboard, the dialog shows where Enter goes
+    h.frames(1);
+    let cancel = h.get(&L::role(Role::Button, "Cancel"));
+    assert_eq!(h.world().get::<Outline>(cancel).unwrap().color, ACCENT);
 
     // Escape closes the dialog, and the same key does not open it again
     h.press(KeyCode::Escape);

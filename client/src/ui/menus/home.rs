@@ -2,7 +2,7 @@
 //! and a confirmation before quitting.
 
 use bevy::{
-    input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus},
+    input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus, InputFocusVisible},
     prelude::*,
     ui_widgets::{observe, Activate},
 };
@@ -336,15 +336,18 @@ pub fn continue_on_ctrl_enter(
     }
 }
 
-/// Asks "Quit Rustcraft?" when Escape is pressed on the main menu with no dialog open.
+/// Asks "Quit Rustcraft?" when Escape is pressed on the main menu with no dialog open. Opened
+/// from the keyboard, the dialog shows the focus ring on Cancel, where Enter goes.
 pub fn open_quit_dialog_on_escape(
     keys: Res<ButtonInput<KeyCode>>,
     asset_server: Res<AssetServer>,
     focus: Res<InputFocus>,
+    mut focus_visible: ResMut<InputFocusVisible>,
     mut commands: Commands,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         open_quit_dialog(&mut commands, &asset_server, &focus);
+        focus_visible.0 = true;
     }
 }
 
