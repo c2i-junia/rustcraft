@@ -12,7 +12,7 @@ use tempfile::TempDir;
 
 use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::network::hash_string_to_u64;
-use crate::ui::menus::multi::ServerItem;
+use crate::ui::menus::servers::ServerItem;
 
 /// A temporary game folder, deleted when its last clone is dropped.
 #[derive(Clone)]

@@ -18,7 +18,8 @@ use super::seed::GameFolder;
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::multi::{ServerIpInput, ServerItem, ServerNameInput, INVALID_ADDRESS};
+use crate::ui::menus::multi::{ServerIpInput, ServerNameInput, INVALID_ADDRESS};
+use crate::ui::menus::servers::ServerItem;
 
 /// A client on the server list, with the saved servers `localhost` and `Friends`.
 fn server_list() -> Harness {

@@ -1,4 +1,5 @@
 use super::list_screen::*;
+use super::servers::{self, read_servers, ServerItem};
 use super::MenuState;
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::{TargetServer, TargetServerState};
@@ -6,9 +7,8 @@ use crate::state::GameState;
 use crate::ui::widgets::text_field::{FieldError, Submit};
 use bevy::prelude::*;
 use bevy::text::EditableText;
-use ron::{from_str, ser::PrettyConfig};
 use shared::GameFolderPaths;
-use std::{fs, io, net::SocketAddr, path::Path};
+use std::net::SocketAddr;
 
 /// Parses the address of a server as typed by the user: an IP address and a port, such as
 /// `127.0.0.1:8000`. Host names are not resolved.
@@ -27,12 +27,6 @@ fn new_server(name: &str, ip: &str) -> Result<ServerItem, &'static str> {
         name: name.to_string(),
         ip: ip.to_string(),
     })
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct ServerItem {
-    pub name: String,
-    pub ip: String,
 }
 
 #[derive(Component, Default)]
@@ -111,28 +105,6 @@ pub fn add_server_item(
     list.servers.push((row.row, ServerItem { name, ip }));
 }
 
-/// Reads the saved servers. A missing or empty file is an empty list.
-fn read_servers(path: &Path) -> Result<Vec<ServerItem>, String> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e.to_string()),
-    };
-    if text.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    from_str(&text).map_err(|e| e.to_string())
-}
-
-fn write_servers(path: &Path, servers: &[ServerItem]) -> Result<(), String> {
-    let pretty_config = PrettyConfig::new()
-        .with_depth_limit(3)
-        .with_separate_tuple_members(true)
-        .with_enumerate_arrays(true);
-    let data = ron::ser::to_string_pretty(&servers, pretty_config).map_err(|e| e.to_string())?;
-    fs::write(path, data).map_err(|e| e.to_string())
-}
-
 pub fn load_server_list(
     mut commands: Commands,
     assets: Res<AssetServer>,
@@ -153,13 +125,7 @@ pub fn load_server_list(
         }
     };
 
-    // The local server is always offered, in first place, unless the list already has it.
-    let localhost = ServerItem {
-        name: "localhost".into(),
-        ip: "127.0.0.1:8000".into(),
-    };
-    let default = (!servers.iter().any(|srv| srv.ip == localhost.ip)).then_some(localhost);
-    for srv in default.into_iter().chain(servers) {
+    for srv in servers {
         add_server_item(
             srv.name,
             srv.ip,
@@ -185,7 +151,7 @@ pub fn save_server_list(list: Query<&ServerList>, game_folder_path: Res<GameFold
         return;
     }
     let servers: Vec<ServerItem> = list.servers.iter().map(|(_, srv)| srv.clone()).collect();
-    match write_servers(&save_path, &servers) {
+    match servers::write_servers(&save_path, &servers) {
         Ok(()) => info!("Server list saved to {save_path:?}"),
         Err(e) => error!("Failed to save the server list to {save_path:?}: {e}"),
     }
@@ -306,6 +272,7 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::state::app::StatesPlugin;
+    use std::fs;
     use std::path::PathBuf;
 
     #[test]
@@ -501,32 +468,10 @@ mod tests {
     }
 
     #[test]
-    fn localhost_is_added_first_when_missing_and_only_once() {
-        let mut menu = Menu::new("default", &[("zulu", "127.0.0.1:9001")]);
-        assert_eq!(menu.shown(), ["localhost", "zulu"]);
-        assert_eq!(menu.saved(), ["localhost", "zulu"]);
-
-        // Loading what was saved does not add it a second time.
-        let mut again = Menu::new(
-            "default-again",
-            &[("localhost", "127.0.0.1:8000"), ("zulu", "1.2.3.4:5")],
-        );
-        assert_eq!(again.shown(), ["localhost", "zulu"]);
-        assert_eq!(again.saved(), ["localhost", "zulu"]);
-    }
-
-    #[test]
-    fn an_empty_or_missing_server_file_is_an_empty_list() {
-        let path = std::env::temp_dir().join(format!(
-            "rustcraft-servers-empty-{}.ron",
-            std::process::id()
-        ));
-        assert!(read_servers(&path).unwrap().is_empty());
-        fs::write(&path, " \n").unwrap();
-        assert!(read_servers(&path).unwrap().is_empty());
-        fs::write(&path, "not ron").unwrap();
-        assert!(read_servers(&path).is_err());
-        let _ = fs::remove_file(&path);
+    fn a_saved_list_without_localhost_is_shown_as_it_is() {
+        let mut menu = Menu::new("no-localhost", &[("zulu", "127.0.0.1:9001")]);
+        assert_eq!(menu.shown(), ["zulu"]);
+        assert_eq!(menu.saved(), ["zulu"]);
     }
 
     #[test]

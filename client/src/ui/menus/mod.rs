@@ -4,6 +4,7 @@ pub mod list_screen;
 pub mod multi;
 pub mod pause;
 pub mod server_connect_loading;
+pub mod servers;
 pub mod settings;
 pub mod solo;
 pub mod worlds;

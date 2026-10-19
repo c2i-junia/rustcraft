@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::state::GameState;
 use buffered_client::{CurrentFrameInputs, PlayerTickInputsBuffer, SyncTime};
 
+pub mod address;
 pub mod buffered_client;
 mod chat;
 mod cleanup;
