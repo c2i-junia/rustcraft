@@ -143,6 +143,8 @@ orders the systems of `Update`:
 
 1. **Receive**: connection events, then the messages of each client, one handler per kind of
    message (`network/handlers.rs`). A client that is not authenticated may only ask to be.
+   A chat message that starts with `/` is a command (`network/commands.rs`): the server runs
+   it and answers its author alone.
 2. **Simulate**: the inputs are applied to the world. Chunks are generated within the render
    distance of the players before the inputs, and next to their chunk after each input. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them

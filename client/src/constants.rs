@@ -10,7 +10,6 @@ pub const MAX_CHUNK_RENDER_DISTANCE_RADIUS: u32 = 8;
 
 pub const CELESTIAL_SIZE: f32 = 10.;
 pub const CELESTIAL_DISTANCE: f32 = 50.; // Low value for testing ; will be increased later
-pub const DAY_DURATION_IN_TICKS: u64 = 20 * 60; // 20 ticks per second * 60 seconds = 1 minute
 
 pub const MAX_HOTBAR_SLOTS: u32 = shared::HOTBAR_SLOTS;
 

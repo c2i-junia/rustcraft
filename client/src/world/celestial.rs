@@ -3,13 +3,14 @@ use crate::state::GameState;
 use crate::world::materials::MaterialResource;
 use crate::world::time::ClientTime;
 use crate::{
-    constants::{CELESTIAL_DISTANCE, CELESTIAL_SIZE, DAY_DURATION_IN_TICKS},
+    constants::{CELESTIAL_DISTANCE, CELESTIAL_SIZE},
     world::GlobalMaterial,
 };
 use bevy::{
     light::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
 };
+use shared::DAY_DURATION_IN_TICKS;
 use std::f32::consts::PI;
 
 /// The anchor of the sun and the moon: rotating it moves both across the sky.
@@ -106,5 +107,33 @@ pub fn update_celestial_bodies(
     // Apply the rotation to celestial bodies
     for mut tr in query.iter_mut() {
         tr.rotation = Quat::from_rotation_x(angle);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::{MIDNIGHT_IN_DAY, NOON_IN_DAY};
+
+    /// Where the sun is drawn, relative to the player, at `tick`.
+    fn sun_position_at(tick: u64) -> Vec3 {
+        let mut app = App::new();
+        app.insert_resource(ClientTime(tick))
+            .add_systems(Update, update_celestial_bodies);
+        let root = app
+            .world_mut()
+            .spawn((CelestialRoot, Transform::default()))
+            .id();
+        app.update();
+        let rotation = app.world().get::<Transform>(root).unwrap().rotation;
+        rotation * Vec3::new(0., 0., CELESTIAL_DISTANCE)
+    }
+
+    #[test]
+    fn the_sun_is_at_its_highest_at_noon_and_lowest_at_midnight() {
+        let noon = sun_position_at(5 * DAY_DURATION_IN_TICKS + NOON_IN_DAY);
+        assert!(noon.y > CELESTIAL_DISTANCE * 0.99, "{noon}");
+        let midnight = sun_position_at(5 * DAY_DURATION_IN_TICKS + MIDNIGHT_IN_DAY);
+        assert!(midnight.y < -CELESTIAL_DISTANCE * 0.99, "{midnight}");
     }
 }

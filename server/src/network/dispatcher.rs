@@ -165,7 +165,7 @@ fn handle_client_messages_system(
     ),
     config: Res<GameServerConfig>,
     mut world_map: ResMut<ServerWorldMap>,
-    time: Res<ServerTime>,
+    mut time: ResMut<ServerTime>,
     game_folder_paths: Res<GameFolderPaths>,
 ) {
     for client_id in server.clients_id() {
@@ -203,7 +203,14 @@ fn handle_client_messages_system(
                     }
                 }
                 ClientToServerMessage::ChatMessage(chat_msg) => {
-                    handlers::chat_message(clients, client_id, chat_msg, &mut chat_conversation);
+                    handlers::chat_message(
+                        clients,
+                        client_id,
+                        chat_msg,
+                        &mut chat_conversation,
+                        &mut world_map,
+                        &mut time,
+                    );
                 }
                 ClientToServerMessage::Exit => {
                     handlers::exit(

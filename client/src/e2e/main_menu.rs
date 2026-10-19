@@ -11,7 +11,7 @@ use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::{is_in, main_menu, main_menu_with};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::constants::{DAY_DURATION_IN_TICKS, PLAYER_NAME_PATH};
+use crate::constants::PLAYER_NAME_PATH;
 use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
 use crate::state::GameState;
 use crate::ui::assets::TITLE_IMAGE_PATH;
@@ -25,6 +25,7 @@ use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 use crate::ui::quit::QuittingCard;
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
+use shared::DAY_DURATION_IN_TICKS;
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]

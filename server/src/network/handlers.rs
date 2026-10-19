@@ -7,7 +7,8 @@ use bevy_renet::renet::{ClientId, DisconnectReason};
 use bevy_renet::RenetServer;
 use shared::messages::{
     sanitize_username, AuthRegisterRequest, AuthRegisterResponse, ChatConversation,
-    ChatMessageRequest, PlayerFrameInput, PlayerSave, PlayerSpawnEvent, ServerToClientMessage,
+    ChatMessageRequest, FullChatMessage, PlayerFrameInput, PlayerSave, PlayerSpawnEvent,
+    ServerToClientMessage,
 };
 use shared::players::Player;
 use shared::utils::unix_time_ms;
@@ -16,6 +17,7 @@ use shared::{GameFolderPaths, GameServerConfig};
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::network::broadcast_chat::record_chat_message;
 use crate::network::cleanup::cleanup_player_from_world;
+use crate::network::commands::{command_line, parse_command, run_command, SERVER_AUTHOR};
 use crate::network::extensions::SendGameMessageExtension;
 use crate::world::data::ServerWorldMap;
 use crate::world::load_from_file::load_player_data;
@@ -140,11 +142,37 @@ pub(super) fn chat_message(
     client_id: ClientId,
     chat_msg: ChatMessageRequest,
     chat_conversation: &mut ChatConversation,
+    world_map: &mut ServerWorldMap,
+    time: &mut ServerTime,
 ) {
     let Clients { server, lobby } = clients;
     let Some(current_author) = lobby.players.get(&client_id) else {
         return;
     };
+
+    if let Some(line) = command_line(&chat_msg.content) {
+        // An authenticated client always has its player in the world
+        let Some(player) = world_map.players.get_mut(&client_id) else {
+            return;
+        };
+        let clock = time.0;
+        let answer = match parse_command(line) {
+            Ok(command) => run_command(command, time, &mut player.inventory),
+            Err(error) => error,
+        };
+        if time.0 != clock {
+            for &id in lobby.players.keys() {
+                server.send_game_message(id, ServerToClientMessage::TimeSet(time.0));
+            }
+        }
+        let answer = FullChatMessage {
+            author: SERVER_AUTHOR.to_string(),
+            content: answer,
+            timestamp: unix_time_ms(),
+        };
+        server.send_game_message(client_id, ServerToClientMessage::ChatMessage(answer));
+        return;
+    }
 
     let Some(message) = record_chat_message(
         chat_conversation,
