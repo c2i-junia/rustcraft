@@ -9,7 +9,7 @@ use std::path::{self, Path};
 use std::time::{Duration, SystemTime};
 
 use bevy::prelude::*;
-use server::{write_meta, WorldMeta, WORLD_FILE};
+use server::{write_meta, WorldMeta, FORMAT_VERSION, WORLD_FILE};
 use shared::world::WorldSeed;
 
 use super::solo::SelectedWorld;
@@ -91,18 +91,23 @@ fn folder_size(folder: &Path) -> u64 {
         .sum()
 }
 
-/// A size as a file manager says it: kilobytes rounded up under 1 MiB, then megabytes and
-/// gigabytes with one decimal.
+/// A size as a file manager says it: kilobytes rounded up, then megabytes and gigabytes with
+/// one decimal. A unit takes over where the one below would say 1024.
 #[allow(dead_code)] // shown by the world cards, Task 5
 pub fn format_size(bytes: u64) -> String {
     const KIB: u64 = 1024;
-    const MIB: u64 = 1024 * KIB;
-    const GIB: u64 = 1024 * MIB;
-    match bytes {
-        0..MIB => format!("{} KB", bytes.div_ceil(KIB)),
-        MIB..GIB => format!("{:.1} MB", bytes as f64 / MIB as f64),
-        _ => format!("{:.1} GB", bytes as f64 / GIB as f64),
+    let kb = bytes.div_ceil(KIB);
+    if kb < KIB {
+        return format!("{kb} KB");
     }
+    // the size in tenths of `unit`, rounded to the nearest
+    let tenths = |unit: u64| (u128::from(bytes) * 10 + u128::from(unit / 2)) / u128::from(unit);
+    let mb = tenths(KIB * KIB);
+    if mb < 10 * u128::from(KIB) {
+        return format!("{}.{} MB", mb / 10, mb % 10);
+    }
+    let gb = tenths(KIB * KIB * KIB);
+    format!("{}.{} GB", gb / 10, gb % 10)
 }
 
 /// The longest name a new world may have.
@@ -110,6 +115,8 @@ pub const MAX_WORLD_NAME_LENGTH: usize = 32;
 
 /// Shown under the name field when it is empty.
 pub const EMPTY_WORLD_NAME: &str = "Enter a name";
+/// Shown under the name field when Windows keeps the typed name for a device, such as `CON`.
+pub const RESERVED_WORLD_NAME: &str = "Windows reserves this name: choose another";
 /// Shown under the name field when the typed name breaks the rule of `is_valid_world_name`.
 pub const INVALID_WORLD_NAME: &str = "Use only A-Z, a-z, 0-9, spaces, _ and -";
 /// Shown under the name field when another world already has the typed name, whatever its case.
@@ -136,6 +143,24 @@ fn is_single_path_component(name: &str) -> bool {
     )
 }
 
+/// Whether Windows keeps `name` for a device (`CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`,
+/// `LPT1` to `LPT9`), whatever its case and extension: no folder can have it there.
+fn is_reserved_on_windows(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name);
+    let numbered = |prefix: &str| {
+        stem.len() == 4
+            && stem
+                .get(..3)
+                .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9')
+    };
+    ["CON", "PRN", "AUX", "NUL"]
+        .iter()
+        .any(|device| stem.eq_ignore_ascii_case(device))
+        || numbered("COM")
+        || numbered("LPT")
+}
+
 /// The error of a name that is not a single path component.
 fn invalid_name(name: &str) -> io::Error {
     io::Error::new(
@@ -144,13 +169,16 @@ fn invalid_name(name: &str) -> io::Error {
     )
 }
 
-/// The `typed` name trimmed, or the message to show when it is empty, breaks the rule of
-/// `is_valid_world_name`, or is one of `others`, the names of the other worlds, whatever its
-/// case (Windows and macOS folders ignore it).
+/// The `typed` name trimmed, or the message to show when it is empty, is kept by Windows for a
+/// device, breaks the rule of `is_valid_world_name`, or is one of `others`, the names of the
+/// other worlds, whatever its case (Windows and macOS folders ignore it).
 pub fn check_world_name(typed: &str, others: &[String]) -> Result<String, &'static str> {
     let name = typed.trim();
     if name.is_empty() {
         return Err(EMPTY_WORLD_NAME);
+    }
+    if is_reserved_on_windows(name) {
+        return Err(RESERVED_WORLD_NAME);
     }
     if !is_valid_world_name(name) {
         return Err(INVALID_WORLD_NAME);
@@ -172,13 +200,25 @@ pub fn free_world_name(others: &[String]) -> String {
         .unwrap_or_default()
 }
 
-/// The seed `typed` in the seed field: none when it is empty, which means a random one.
+/// The seed `typed` in the seed field, digits only: none when it is empty, which means a random
+/// one.
 #[allow(dead_code)] // read by the New world dialog, Task 4
 pub fn parse_seed(typed: &str) -> Result<Option<u32>, &'static str> {
     if typed.is_empty() {
         return Ok(None);
     }
+    if !typed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(INVALID_SEED);
+    }
     typed.parse().map(Some).map_err(|_| INVALID_SEED)
+}
+
+/// The error of a failed `write_meta`, of its own kind when it is an I/O error.
+fn io_error(err: Box<dyn std::error::Error>) -> io::Error {
+    match err.downcast::<io::Error>() {
+        Ok(err) => *err,
+        Err(err) => io::Error::other(err.to_string()),
+    }
 }
 
 /// Creates the world `name` in `saves` with this `seed`: its folder, never an existing one, and
@@ -194,14 +234,15 @@ pub fn create_world(saves: &Path, name: &str, seed: u32) -> io::Result<()> {
     let meta = WorldMeta::new(name.to_string(), WorldSeed(seed), 0, HashMap::new());
     write_meta(&folder, &meta).map_err(|err| {
         let _ = fs::remove_dir_all(&folder);
-        io::Error::other(err.to_string())
+        io_error(err)
     })
 }
 
 /// Renames the world `from` of `saves` to `to`: its folder, then the name in its `world.ron`
 /// when that can be read, keeping its format version and its modification time (renaming is
-/// not playing). Another world named `to` is never replaced, but `to` may be `from` in another
-/// case.
+/// not playing). A `world.ron` of a newer format version is left as it is, since it may hold
+/// fields this version does not know. Another world named `to` is never replaced, but `to` may
+/// be `from` in another case. On an error nothing is changed.
 #[allow(dead_code)] // called by the rename dialog, Task 6
 pub fn rename_world(saves: &Path, from: &str, to: &str) -> io::Result<()> {
     for name in [from, to] {
@@ -218,17 +259,32 @@ pub fn rename_world(saves: &Path, from: &str, to: &str) -> io::Result<()> {
     }
     fs::rename(saves.join(from), &target)?;
 
-    let Some(mut meta) = read_meta(&target) else {
+    let Some(mut meta) = read_meta(&target).filter(|meta| meta.format_version <= FORMAT_VERSION)
+    else {
         return Ok(());
     };
     let world_ron = target.join(WORLD_FILE);
-    let played = fs::metadata(&world_ron)?.modified()?;
+    let played = fs::metadata(&world_ron).and_then(|meta| meta.modified());
     meta.name = to.to_string();
-    write_meta(&target, &meta).map_err(|err| io::Error::other(err.to_string()))?;
-    fs::File::options()
-        .write(true)
-        .open(&world_ron)?
-        .set_modified(played)
+    if let Err(err) = write_meta(&target, &meta) {
+        if let Err(back) = fs::rename(&target, saves.join(from)) {
+            error!(
+                "Could not rename {} back to {from:?}: {back}",
+                target.display()
+            );
+        }
+        return Err(io_error(err));
+    }
+    let restored = played.and_then(|played| {
+        fs::File::options()
+            .write(true)
+            .open(&world_ron)?
+            .set_modified(played)
+    });
+    if let Err(err) = restored {
+        warn!("Renamed {from:?} to {to:?}, but could not restore the date of its world.ron: {err}");
+    }
+    Ok(())
 }
 
 /// Deletes the world `name` of `saves` with every file of its folder. A name that is not a
@@ -505,6 +561,13 @@ mod tests {
             (1_048_576, "1.0 MB"),
             (1_572_864, "1.5 MB"),
             (3 << 30, "3.0 GB"),
+            // never 1024 of a unit: the next unit takes over
+            (1_047_552, "1023 KB"),
+            (1_047_553, "1.0 MB"),
+            (1_048_575, "1.0 MB"),
+            (1_073_689_395, "1023.9 MB"),
+            (1_073_689_396, "1.0 GB"),
+            ((1 << 30) - 1, "1.0 GB"),
         ];
         for (bytes, said) in cases {
             assert_eq!(format_size(bytes), said, "for {bytes} bytes");
@@ -542,6 +605,36 @@ mod tests {
     }
 
     #[test]
+    fn names_windows_reserves_are_refused() {
+        for reserved in [
+            "CON",
+            "con",
+            "Prn",
+            "AUX",
+            "nul",
+            "COM1",
+            "com9",
+            "LPT1",
+            "lpt9",
+            "aux.txt",
+            "Con.tar.gz",
+        ] {
+            assert_eq!(
+                check_world_name(reserved, &[]),
+                Err(RESERVED_WORLD_NAME),
+                "{reserved:?}"
+            );
+        }
+        for allowed in ["COM0", "COM10", "LPT", "Console", "nul2", "My CON"] {
+            assert_eq!(
+                check_world_name(allowed, &[]),
+                Ok(allowed.to_string()),
+                "{allowed:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_free_name_is_offered() {
         let names = |names: &[&str]| {
             names
@@ -562,13 +655,13 @@ mod tests {
         assert_eq!(parse_seed(""), Ok(None));
         assert_eq!(parse_seed("0"), Ok(Some(0)));
         assert_eq!(parse_seed("4294967295"), Ok(Some(u32::MAX)));
-        for invalid in ["4294967296", "12a"] {
+        for invalid in ["4294967296", "12a", "+5", "-1", " 5"] {
             assert_eq!(parse_seed(invalid), Err(INVALID_SEED), "{invalid:?}");
         }
     }
 
     /// The `world.ron` of the world `name`, read as `WorldMeta`.
-    fn read_meta(saves: &Path, name: &str) -> WorldMeta {
+    fn meta_of(saves: &Path, name: &str) -> WorldMeta {
         let contents = fs::read_to_string(saves.join(name).join(WORLD_FILE)).unwrap();
         ron::de::from_str(&contents).unwrap()
     }
@@ -580,7 +673,7 @@ mod tests {
 
         create_world(&saves, "Nouveau", 7).unwrap();
 
-        let meta = read_meta(&saves, "Nouveau");
+        let meta = meta_of(&saves, "Nouveau");
         assert_eq!(meta.format_version, 2);
         assert_eq!(meta.name, "Nouveau");
         assert_eq!(meta.seed.0, 7);
@@ -591,6 +684,32 @@ mod tests {
         assert_eq!(worlds[0].name, "Nouveau");
         assert_eq!(worlds[0].day, Some(1));
         assert_eq!(worlds[0].seed, Some(7));
+    }
+
+    /// A folder under `base` whose path is `length` bytes long, made of short components.
+    #[cfg(target_os = "linux")]
+    fn path_of_length(base: &Path, length: usize) -> std::path::PathBuf {
+        let mut path = base.to_path_buf();
+        while path.as_os_str().len() < length {
+            let left = length - path.as_os_str().len() - 1;
+            path.push("x".repeat(left.min(200)));
+        }
+        assert_eq!(path.as_os_str().len(), length);
+        path
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_world_whose_world_ron_cannot_be_written_is_not_left_behind() {
+        let folder = tempfile::tempdir().unwrap();
+        // The world's folder fits in PATH_MAX (4096 with its terminating NUL), its
+        // world.ron.tmp does not: the folder is made, then the write fails
+        let saves = path_of_length(folder.path(), 4090 - "/Nouveau".len());
+
+        assert!(create_world(&saves, "Nouveau", 1).is_err());
+
+        assert!(saves.is_dir());
+        assert!(!saves.join("Nouveau").exists());
     }
 
     #[test]
@@ -622,7 +741,7 @@ mod tests {
 
         assert!(!saves.path().join("Survie").exists());
         assert!(saves.path().join("Base/chunks/0_0_0.bin").is_file());
-        assert_eq!(read_meta(saves.path(), "Base").name, "Base");
+        assert_eq!(meta_of(saves.path(), "Base").name, "Base");
         assert_eq!(list_worlds(saves.path())[0].played, played);
     }
 
@@ -636,7 +755,7 @@ mod tests {
         rename_world(saves.path(), "Old", "Older").unwrap();
         rename_world(saves.path(), "Broken", "Mended").unwrap();
 
-        let meta = read_meta(saves.path(), "Older");
+        let meta = meta_of(saves.path(), "Older");
         assert_eq!(meta.format_version, 1);
         assert_eq!(meta.name, "Older");
         let contents = fs::read_to_string(saves.path().join("Mended").join(WORLD_FILE)).unwrap();
@@ -652,11 +771,42 @@ mod tests {
 
         let err = rename_world(saves.path(), "A", "B").unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
-        assert_eq!(read_meta(saves.path(), "A").seed.0, 1);
-        assert_eq!(read_meta(saves.path(), "B").seed.0, 2);
+        assert_eq!(meta_of(saves.path(), "A").seed.0, 1);
+        assert_eq!(meta_of(saves.path(), "B").seed.0, 2);
 
         rename_world(saves.path(), "A", "a").unwrap();
         assert_eq!(listed_names(saves.path()), ["a", "B"]);
+    }
+
+    #[test]
+    fn a_rename_whose_world_ron_cannot_be_written_changes_nothing() {
+        let saves = tempfile::tempdir().unwrap();
+        save_world(saves.path(), "Survie", 7, 0, HOUR);
+        let world_ron = saves.path().join("Survie").join(WORLD_FILE);
+        let before = fs::read_to_string(&world_ron).unwrap();
+        // A directory squatting on the temporary name makes the write of world.ron fail
+        fs::create_dir(saves.path().join("Survie/world.ron.tmp")).unwrap();
+
+        let err = rename_world(saves.path(), "Survie", "Base").unwrap_err();
+
+        assert_ne!(err.kind(), io::ErrorKind::Other, "the kind is kept: {err}");
+        assert!(!saves.path().join("Base").exists());
+        assert_eq!(fs::read_to_string(&world_ron).unwrap(), before);
+    }
+
+    #[test]
+    fn renaming_leaves_the_world_ron_of_a_newer_version_alone() {
+        let saves = tempfile::tempdir().unwrap();
+        let newer = format!(
+            "(format_version: {}, name: \"Next\", seed: (3), time: 0, mobs: {{}})",
+            FORMAT_VERSION + 1
+        );
+        write_world_ron(saves.path(), "Next", &newer, HOUR);
+
+        rename_world(saves.path(), "Next", "Later").unwrap();
+
+        let contents = fs::read_to_string(saves.path().join("Later").join(WORLD_FILE)).unwrap();
+        assert_eq!(contents, newer);
     }
 
     #[test]
