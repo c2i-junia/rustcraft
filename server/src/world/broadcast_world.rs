@@ -229,13 +229,13 @@ fn get_world_map_chunks_to_send(
 
 /// The chunks within the `radius` of each player, each listed once, in the order the players
 /// reach them.
-pub fn get_all_active_chunks(
-    players: &HashMap<PlayerId, Player>,
+pub fn get_all_active_chunks<'a>(
+    players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
 ) -> Vec<IVec3> {
     let mut seen = HashSet::new();
     players
-        .iter()
+        .into_iter()
         .flat_map(|(&id, player)| {
             let chunk = world_position_to_chunk_position(player.position);
             get_player_nearby_chunks_coords(chunk, radius(id))

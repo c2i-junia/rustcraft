@@ -281,3 +281,36 @@ fn bench_join_sending() {
         largest / 1024
     );
 }
+
+/// The chunks around each player that the simulation needs, checked after each batch of inputs
+/// of twenty players who send three batches per tick: the work of one tick.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_inputs_generation() {
+    let mut players = HashMap::new();
+    let mut chunks = ChunkMap::default();
+    for id in 0..20u64 {
+        let chunk = PLAYER_CHUNK + IVec3::new(id as i32 * 4, 0, 0);
+        let position = (chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(8.);
+        players.insert(
+            id,
+            Player::new(id, "p".into(), position, Transform::default()),
+        );
+    }
+    let mut dirty = HashSet::new();
+    generate_missing_chunks(&players, |_| 1, &mut chunks, &mut dirty, SEED, usize::MAX);
+    let mut samples = Vec::new();
+    for _ in 0..200 {
+        let start = Instant::now();
+        for _ in 0..3 {
+            for player in &players {
+                generate_missing_chunks([player], |_| 1, &mut chunks, &mut dirty, SEED, usize::MAX);
+            }
+        }
+        samples.push(micros(start));
+    }
+    println!(
+        "inputs generation, 20 players: median {:.1} µs per tick",
+        median(samples)
+    );
+}

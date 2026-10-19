@@ -23,11 +23,11 @@ pub struct PlayerInputsEvent {
 /// joining player would otherwise freeze the server for its whole render distance at once.
 pub(super) const GENERATED_CHUNKS_PER_TICK: usize = 32;
 
-/// Generates the chunks within `radius` of every player, at most `budget` of them, the nearest
-/// to each player first. A generated chunk is dirty: it has to be saved, as inserting it is
-/// not logged as a block change.
-pub(super) fn generate_missing_chunks(
-    players: &std::collections::HashMap<PlayerId, Player>,
+/// Generates the chunks within `radius` of each of `players`, at most `budget` of them, the
+/// nearest to each player first. A generated chunk is dirty: it has to be saved, as inserting
+/// it is not logged as a block change.
+pub(super) fn generate_missing_chunks<'a>(
+    players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
     chunks: &mut ChunkMap,
     dirty_chunks: &mut std::collections::HashSet<IVec3>,
@@ -62,7 +62,7 @@ pub fn handle_player_inputs_system(
     let render_distances = &world_map.render_distances;
 
     generate_missing_chunks(
-        players,
+        &*players,
         |id| render_distances.get(id),
         chunks,
         dirty_chunks,
@@ -85,8 +85,16 @@ pub fn handle_player_inputs_system(
 
         // The simulation holds a player still while its chunk or the one below is missing, and
         // a falling player can cross a chunk within one batch of inputs. The chunks next to
-        // the player's are enough: the rest of the render distance waits for the next tick
-        generate_missing_chunks(players, |_| 1, chunks, dirty_chunks, seed.0, usize::MAX);
+        // the player's are enough: the rest of the render distance waits for the next tick.
+        // The other players did not move
+        generate_missing_chunks(
+            [(&ev.client_id, &*player)],
+            |_| 1,
+            chunks,
+            dirty_chunks,
+            seed.0,
+            usize::MAX,
+        );
     }
 }
 
