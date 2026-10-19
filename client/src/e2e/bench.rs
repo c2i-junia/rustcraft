@@ -142,6 +142,7 @@ fn bench_world_lifecycle() {
 fn load_with_ctrl_enter(h: &mut super::harness::Harness) -> serde_json::Value {
     use std::sync::atomic::Ordering;
 
+    use crate::network::session::{ConnectStep, ConnectWatch};
     use crate::player::CurrentPlayerMarker;
     use crate::world::rendering::render::MESHES_SHOWN;
     use crate::world::ClientWorldMap;
@@ -151,7 +152,22 @@ fn load_with_ctrl_enter(h: &mut super::harness::Harness) -> serde_json::Value {
     let shown_before = MESHES_SHOWN.load(Ordering::Relaxed);
     let start = Instant::now();
     ctrl(h, KeyCode::Enter);
-    h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
+    // The steps of the connecting card, as they change
+    let mut steps: Vec<(String, f64)> = Vec::new();
+    h.wait_until("the game", SERVER, |w| {
+        let step = w
+            .get_resource::<ConnectWatch>()
+            .map(|watch| match watch.step {
+                ConnectStep::LoadingChunks { .. } => "LoadingChunks".to_string(),
+                step => format!("{step:?}"),
+            });
+        if let Some(step) = step {
+            if steps.last().is_none_or(|(last, _)| *last != step) {
+                steps.push((step, start.elapsed().as_secs_f64()));
+            }
+        }
+        is_in(w, GameState::Game)
+    });
     let in_game = start.elapsed().as_secs_f64();
 
     let wanted = (2 * RADIUS + 1).pow(3) as usize;
@@ -196,6 +212,7 @@ fn load_with_ctrl_enter(h: &mut super::harness::Harness) -> serde_json::Value {
     frames.sort_by(f64::total_cmp);
     let percentile = |p: f64| frames[((frames.len() - 1) as f64 * p) as usize];
     serde_json::json!({
+        "steps": steps,
         "in_game_s": in_game,
         "first_mesh_s": first_mesh,
         "all_chunks_s": all_chunks,
