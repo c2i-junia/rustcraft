@@ -48,7 +48,6 @@ pub struct ScrollListParts {
 }
 
 /// A card of a list, in its `CardSlot`.
-#[allow(dead_code)] // the world cards (Lot 2, Task 5)
 #[derive(Component)]
 pub struct ListCard;
 
@@ -58,7 +57,6 @@ pub struct ListCard;
 pub struct CardSlot;
 
 /// Triggered on the list when another card is selected.
-#[allow(dead_code)] // the world cards (Lot 2, Task 5)
 #[derive(EntityEvent)]
 pub struct CardSelected {
     /// The list.
@@ -145,7 +143,6 @@ pub fn spawn_scroll_list(commands: &mut Commands) -> ScrollListParts {
 
 /// Spawns a card labelled `label` for screen readers at the end of `list`, in its slot, and
 /// returns the card, under which the caller spawns what it shows.
-#[allow(dead_code)] // the world cards (Lot 2, Task 5)
 pub fn spawn_list_card(commands: &mut Commands, list: Entity, label: &str) -> Entity {
     let slot = commands
         .spawn((

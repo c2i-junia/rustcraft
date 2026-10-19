@@ -8,14 +8,14 @@ use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
-use super::helpers::{is_in, main_menu};
+use super::helpers::{is_in, main_menu, main_menu_with};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::constants::DAY_DURATION_IN_TICKS;
 use crate::state::GameState;
 use crate::ui::assets::TITLE_IMAGE_PATH;
 use crate::ui::button::MenuState;
-use crate::ui::menus::solo::SelectedWorld;
+use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
@@ -25,7 +25,7 @@ use crate::ui::widgets::hints::HintBar;
 fn singleplayer_opens_the_world_list() {
     let mut h = main_menu();
     h.click(&L::text("Singleplayer"));
-    h.wait_for(&L::text("World list"), SCREEN);
+    h.wait_for(&L::text(WORLDS_TITLE), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Solo);
 }
 
@@ -169,14 +169,6 @@ fn two_harnesses_run_side_by_side() {
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 
-/// A client on the main menu, with the game folder `folder`.
-#[track_caller]
-fn main_menu_with(folder: GameFolder) -> Harness {
-    let mut h = Harness::start(folder, Options::default());
-    h.wait_for(&L::text("Singleplayer"), STARTUP);
-    h
-}
-
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn continue_shows_the_last_played_world() {
@@ -220,7 +212,7 @@ fn continue_plays_the_last_world_by_ctrl_enter_and_by_click() {
     while h.game_state() != GameState::Game {
         assert_ne!(h.menu_state(), MenuState::Solo);
         assert!(
-            !h.is_visible(&L::text("World list")),
+            !h.is_visible(&L::text(WORLDS_TITLE)),
             "the world list opened"
         );
         assert!(start.elapsed() < SERVER, "timed out waiting for the game");

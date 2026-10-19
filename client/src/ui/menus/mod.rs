@@ -42,12 +42,6 @@ pub fn menu_plugin(app: &mut App) {
                 .run_if(not(dialog_open)),
         )
         .add_observer(activate_main_menu_button)
-        // Systems to handle the play menu screen
-        .add_systems(
-            OnEnter(MenuState::Solo),
-            (solo::solo_menu_setup, solo::list_worlds).chain(),
-        )
-        .add_systems(Update, solo::solo_action.run_if(in_state(MenuState::Solo)))
         .add_systems(
             OnEnter(MenuState::Multi),
             (multi::multiplayer_menu_setup, multi::load_server_list).chain(),

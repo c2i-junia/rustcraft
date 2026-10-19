@@ -5,13 +5,15 @@ use bevy::{
     a11y::AccessibilityNode,
     input::keyboard::KeyCode,
     input_focus::InputFocus,
+    math::Rect,
     prelude::{Component, Entity, Name, State, With, World},
     text::EditableText,
     ui::{ComputedNode, UiGlobalTransform},
 };
 
-use super::harness::{Harness, SCREEN, STARTUP};
+use super::harness::{Harness, Options, SCREEN, STARTUP};
 use super::locator::Locator as L;
+use super::seed::GameFolder;
 use crate::state::GameState;
 use crate::ui::menus::solo::dialogs::NEW_WORLD_TITLE;
 
@@ -19,6 +21,14 @@ use crate::ui::menus::solo::dialogs::NEW_WORLD_TITLE;
 #[track_caller]
 pub fn main_menu() -> Harness {
     let mut h = Harness::new();
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h
+}
+
+/// A client on the main menu, with the game folder `folder`.
+#[track_caller]
+pub fn main_menu_with(folder: GameFolder) -> Harness {
+    let mut h = Harness::start(folder, Options::default());
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     h
 }
@@ -94,6 +104,16 @@ impl Harness {
             .unwrap()
             .value()
             .to_string()
+    }
+
+    /// The rectangle of the element, in physical pixels.
+    #[track_caller]
+    pub fn rect_of(&mut self, locator: &L) -> Rect {
+        let entity = self.get(locator);
+        let world = self.world();
+        let center = world.get::<UiGlobalTransform>(entity).unwrap().translation;
+        let size = world.get::<ComputedNode>(entity).unwrap().size();
+        Rect::from_center_size(center, size)
     }
 
     /// The accessible label of the focused entity.

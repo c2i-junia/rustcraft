@@ -29,7 +29,6 @@ pub struct WorldSummary {
     /// When the world was last saved.
     pub played: SystemTime,
     /// The bytes of every file of the world's folder.
-    #[allow(dead_code)] // read by the world cards, Task 5
     pub size: u64,
 }
 
@@ -93,7 +92,6 @@ fn folder_size(folder: &Path) -> u64 {
 
 /// A size as a file manager says it: kilobytes rounded up, then megabytes and gigabytes with
 /// one decimal. A unit takes over where the one below would say 1024.
-#[allow(dead_code)] // shown by the world cards, Task 5
 pub fn format_size(bytes: u64) -> String {
     const KIB: u64 = 1024;
     let kb = bytes.div_ceil(KIB);

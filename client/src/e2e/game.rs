@@ -50,8 +50,7 @@ pub fn enter_world_with(folder: GameFolder, world: &str, options: Options) -> Ha
     let mut h = Harness::start(folder, options);
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     h.click(&L::text("Singleplayer"));
-    h.wait_for_icons(world);
-    h.click(&L::name(&format!("Play {world}")));
+    h.play_world(world);
     h.wait_for_game_state(GameState::Game, SERVER);
     h.wait_for(&L::marker::<Hotbar>(), SCREEN);
     h

@@ -45,10 +45,16 @@ impl GameFolder {
     /// Adds a saved world like `with_world`, at the game time `time`, last played `played_ago`:
     /// its `world.ron` was last modified then.
     pub fn with_played_world(self, name: &str, time: u64, played_ago: Duration) -> Self {
+        self.with_seeded_world(name, 42, time, played_ago)
+    }
+
+    /// Adds a saved world like `with_played_world`, of the seed `seed`.
+    pub fn with_seeded_world(self, name: &str, seed: u32, time: u64, played_ago: Duration) -> Self {
         let world = self.path().join(SAVE_PATH).join(name);
         fs::create_dir_all(&world).expect("a world folder");
-        let meta =
-            format!("(format_version: 2, name: {name:?}, seed: (42), time: {time}, mobs: {{}})");
+        let meta = format!(
+            "(format_version: 2, name: {name:?}, seed: ({seed}), time: {time}, mobs: {{}})"
+        );
         let path = world.join("world.ron");
         fs::write(&path, meta).expect("a world.ron");
         fs::File::options()

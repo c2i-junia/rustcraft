@@ -1,5 +1,5 @@
 //! The dialogs of the world list. New world checks the name and the seed as they are typed, and
-//! writes the world to disk as soon as it is submitted.
+//! writes the world to disk as soon as it is submitted. Delete asks first.
 
 use std::io;
 
@@ -13,16 +13,18 @@ use bevy::{
 use shared::GameFolderPaths;
 
 use super::super::worlds::{
-    check_world_name, create_world, free_world_name, parse_seed, MAX_WORLD_NAME_LENGTH,
+    check_world_name, create_world, delete_world, format_size, free_world_name, parse_seed,
+    WorldSummary, MAX_WORLD_NAME_LENGTH,
 };
 use super::super::MenuState;
-use super::WorldList;
+use super::{show_world_error, WorldCard, WorldError};
 use crate::constants::SAVE_PATH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::FONT_M;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
-    close_dialog, dialog_open, spawn_form_dialog, Dialog, DialogSubmit,
+    close_dialog, dialog_open, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog, DialogClosed,
+    DialogSubmit,
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
@@ -73,9 +75,30 @@ struct WorldForm {
     /// The name of the world being renamed: kept unchanged, it is not an error, but there is
     /// nothing to submit.
     current: Option<String>,
-    /// The texts of the name and seed fields when they were last checked. `EditableText` is
-    /// changed on every frame by its layout, so the texts themselves tell when to check again.
-    checked: (String, String),
+    /// The texts of the name and seed fields when they were last checked, `None` before the
+    /// first check. `EditableText` is changed on every frame by its layout, so the texts
+    /// themselves tell when to check again; starting from `None` rather than from empty texts,
+    /// a form opened with empty fields is checked at once.
+    checked: Option<(String, String)>,
+}
+
+impl WorldForm {
+    fn new(
+        name: Entity,
+        seed: Option<Entity>,
+        primary: Entity,
+        others: Vec<String>,
+        current: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            seed,
+            primary,
+            others,
+            current,
+            checked: None,
+        }
+    }
 }
 
 /// Triggered once the worlds on disk changed: the screen lists them again and focuses the card
@@ -152,14 +175,13 @@ pub fn open_new_world_dialog(
     );
     commands
         .entity(parts.root)
-        .insert(WorldForm {
-            name: name.input,
-            seed: Some(seed.input),
-            primary: parts.actions[1],
+        .insert(WorldForm::new(
+            name.input,
+            Some(seed.input),
+            parts.actions[1],
             others,
-            current: None,
-            checked: Default::default(),
-        })
+            None,
+        ))
         .observe(create_world_on_submit);
     parts.root
 }
@@ -167,16 +189,24 @@ pub fn open_new_world_dialog(
 /// Opens the New world dialog on Ctrl+N, with the names of the listed worlds.
 pub fn open_new_world_on_ctrl_n(
     keys: Res<ButtonInput<KeyCode>>,
-    lists: Query<&WorldList>,
+    cards: Query<&WorldCard>,
     assets: Res<AssetServer>,
     focus: Res<InputFocus>,
     mut commands: Commands,
 ) {
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     if control && keys.just_pressed(KeyCode::KeyN) {
-        let others = lists.iter().flat_map(WorldList::names).collect();
+        let others = cards.iter().map(|card| card.0.name.clone()).collect();
         open_new_world_dialog(&mut commands, &assets, &focus, others);
     }
+}
+
+/// Whether the text field `input` has edits waiting: they are applied in `PostUpdate`, so its
+/// value is about to change.
+fn being_edited(texts: &Query<&EditableText>, input: Entity) -> bool {
+    texts
+        .get(input)
+        .is_ok_and(|text| !text.pending_edits.is_empty())
 }
 
 /// The value of the text field `input`.
@@ -210,12 +240,22 @@ fn validate_world_forms(
     mut commands: Commands,
 ) {
     for mut form in &mut forms {
+        // a field filled on open would show "Enter a name" for a frame
+        if being_edited(&texts, form.name)
+            || form.seed.is_some_and(|seed| being_edited(&texts, seed))
+        {
+            continue;
+        }
         let name = value_of(&texts, form.name);
         let seed = form
             .seed
             .map(|seed| value_of(&texts, seed))
             .unwrap_or_default();
-        if form.checked.0 == name && form.checked.1 == seed {
+        if form
+            .checked
+            .as_ref()
+            .is_some_and(|checked| checked.0 == name && checked.1 == seed)
+        {
             continue;
         }
         let (name_error, name_ok) = check_name(&form, &name);
@@ -242,7 +282,7 @@ fn validate_world_forms(
                 commands.entity(form.primary).insert(InteractionDisabled);
             }
         }
-        form.checked = (name, seed);
+        form.checked = Some((name, seed));
     }
 }
 
@@ -259,11 +299,12 @@ fn create_failure(error: &io::Error) -> &'static str {
     }
 }
 
-/// Creates the world of the New world dialog on disk, checking its fields again, then closes it;
-/// on a failure the dialog stays open and says why under the name.
+/// Creates the world of the New world dialog on disk, checking its fields again, then closes it
+/// and lists the worlds with the focus on the new one; on a failure the dialog stays open and
+/// says why under the name. A dialog already closing was submitted before in this update.
 fn create_world_on_submit(
     submit: On<DialogSubmit>,
-    forms: Query<&WorldForm>,
+    forms: Query<&WorldForm, Without<CloseRequest>>,
     texts: Query<&EditableText>,
     paths: Res<GameFolderPaths>,
     mut commands: Commands,
@@ -287,7 +328,8 @@ fn create_world_on_submit(
         Ok(()) => {
             info!("Created the world {name:?}");
             commands.trigger(WorldsChanged { focus: Some(name) });
-            close_dialog(&mut commands, root, true);
+            // the card of the new world takes the focus
+            close_dialog(&mut commands, root, false);
         }
         Err(e) => {
             error!("Could not create the world {name:?}: {e}");
@@ -298,9 +340,113 @@ fn create_world_on_submit(
     }
 }
 
+/// Asks before deleting `world`, Cancel focused. Delete deletes it and lists the worlds again,
+/// the focus on the card of `next`; a failure shows under the buttons of the detail pane.
+pub fn open_delete_world_dialog(
+    commands: &mut Commands,
+    assets: &AssetServer,
+    focus: &InputFocus,
+    world: &WorldSummary,
+    next: Option<String>,
+) -> Entity {
+    let title = format!("Delete \"{}\"?", world.name);
+    let body = format!(
+        "Its {} of saves will be deleted for good.",
+        format_size(world.size)
+    );
+    let dialog = Dialog {
+        title: &title,
+        body: &body,
+        actions: &[
+            ("Cancel", ButtonVariant::Default),
+            ("Delete", ButtonVariant::Danger),
+        ],
+        focused: 0,
+    };
+    let root = spawn_dialog(commands, &dialog, assets.load(FONT_PATH), focus);
+    let name = world.name.clone();
+    commands.entity(root).observe(
+        move |closed: On<DialogClosed>,
+              paths: Res<GameFolderPaths>,
+              mut errors: Query<(&mut Text, &mut Node), With<WorldError>>,
+              mut commands: Commands| {
+            if closed.action != Some(1) {
+                return;
+            }
+            let saves = paths.game_folder_path.join(SAVE_PATH);
+            match delete_world(&saves, &name) {
+                Ok(()) => commands.trigger(WorldsChanged {
+                    focus: next.clone(),
+                }),
+                Err(e) => {
+                    error!("Could not delete the world {name:?}: {e}");
+                    let message = format!("Could not delete the world: {e}");
+                    show_world_error(&mut errors, Some(message));
+                }
+            }
+        },
+    );
+    root
+}
+
 #[cfg(test)]
 mod tests {
+    use bevy::text::TextEdit;
+
     use super::*;
+    use crate::ui::menus::worlds::EMPTY_WORLD_NAME;
+
+    /// A world form without a seed whose name field holds `text`, and its primary action.
+    fn form(world: &mut World, text: EditableText) -> (Entity, Entity, Entity) {
+        let name = world.spawn((text, FieldError(None))).id();
+        let primary = world.spawn_empty().id();
+        let root = world
+            .spawn(WorldForm::new(name, None, primary, Vec::new(), None))
+            .id();
+        (root, name, primary)
+    }
+
+    #[test]
+    fn a_form_opened_with_an_empty_name_is_checked_at_once() {
+        let mut app = App::new();
+        app.add_systems(Update, validate_world_forms);
+        let (_, name, primary) = form(app.world_mut(), EditableText::default());
+        app.update();
+        let error = app.world().get::<FieldError>(name).unwrap();
+        assert_eq!(error.0.as_deref(), Some(EMPTY_WORLD_NAME));
+        assert!(app.world().get::<InteractionDisabled>(primary).is_some());
+    }
+
+    #[test]
+    fn a_name_still_being_filled_is_not_checked_yet() {
+        let mut app = App::new();
+        app.add_systems(Update, validate_world_forms);
+        let mut text = EditableText::default();
+        text.queue_edit(TextEdit::Insert("Fresh".into()));
+        let (_, name, primary) = form(app.world_mut(), text);
+        app.update();
+        assert_eq!(app.world().get::<FieldError>(name).unwrap().0, None);
+        assert!(app.world().get::<InteractionDisabled>(primary).is_none());
+    }
+
+    #[test]
+    fn a_second_submit_of_a_closing_dialog_creates_nothing() {
+        let folder = tempfile::TempDir::new().unwrap();
+        let mut world = World::new();
+        world.insert_resource(GameFolderPaths {
+            game_folder_path: folder.path().to_path_buf(),
+            assets_folder_path: folder.path().to_path_buf(),
+        });
+        let (root, name, _) = form(&mut world, EditableText::new("Fresh"));
+        world.entity_mut(root).observe(create_world_on_submit);
+        // two submits in the same update, such as Enter and a click on Create
+        let mut commands = world.commands();
+        commands.trigger(DialogSubmit { entity: root });
+        commands.trigger(DialogSubmit { entity: root });
+        world.flush();
+        assert!(folder.path().join(SAVE_PATH).join("Fresh").is_dir());
+        assert_eq!(world.get::<FieldError>(name).unwrap().0, None);
+    }
 
     #[test]
     fn a_failed_create_says_why_in_a_few_words() {

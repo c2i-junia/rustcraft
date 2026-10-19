@@ -25,13 +25,6 @@ use crate::ui::widgets::tooltip::TooltipRoot;
 const CHANNEL_TOLERANCE: u8 = 16;
 
 impl Harness {
-    /// The rectangle of the element, in physical pixels.
-    #[track_caller]
-    fn rect_of(&mut self, locator: &L) -> Rect {
-        let entity = self.get(locator);
-        rect_of(self.world(), entity)
-    }
-
     /// The rectangles of the visible elements the locator finds, in physical pixels.
     fn rects_of(&mut self, locator: &L) -> Vec<Rect> {
         let found = self.find(locator);

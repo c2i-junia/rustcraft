@@ -96,9 +96,10 @@ const DIALOG_HINTS: [Hint; 3] = [
 struct DialogHints;
 
 /// Asks to close the dialog. It is carried out in `PostUpdate`, so that the systems of `Update`
-/// still see the dialog open in the update of the key.
+/// still see the dialog open in the update of the key. A dialog with it is closing: a second
+/// submission in the same update has nothing left to do.
 #[derive(Component)]
-struct CloseRequest {
+pub struct CloseRequest {
     /// The action it closes with, `None` for Escape.
     action: Option<usize>,
     /// Whether the focus goes back where it was before the dialog opened.

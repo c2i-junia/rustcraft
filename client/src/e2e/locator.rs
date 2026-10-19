@@ -340,6 +340,7 @@ mod tests {
     use super::*;
     use crate::e2e::harness::SCREEN;
     use crate::e2e::helpers::main_menu;
+    use crate::ui::menus::solo::WORLDS_TITLE;
     use Locator as L;
 
     impl Harness {
@@ -408,10 +409,10 @@ mod tests {
     fn a_text_of_a_closed_screen_is_not_found() {
         let mut h = main_menu();
         h.click(&L::text("Singleplayer"));
-        h.wait_for(&L::text("World list"), SCREEN);
-        h.click(&L::text("Back to menu"));
+        h.wait_for(&L::text(WORLDS_TITLE), SCREEN);
+        h.click(&L::role(Role::Button, "Back"));
         h.wait_for(&L::text("Singleplayer"), SCREEN);
-        assert!(h.find(&L::text("World list")).is_empty());
+        assert!(h.find(&L::text(WORLDS_TITLE)).is_empty());
     }
 
     #[test]

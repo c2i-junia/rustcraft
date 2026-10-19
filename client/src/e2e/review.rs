@@ -14,6 +14,7 @@ use super::settings::key_slot;
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
+use crate::ui::menus::solo::WORLDS_TITLE;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 
 /// The resolutions the screens are reviewed at.
@@ -38,12 +39,12 @@ impl Harness {
     }
 
     /// Opens the screen behind `button`, waits for `title`, takes the snapshot `name`, and goes
-    /// back with the button `back`.
+    /// back with the button labelled `back`.
     fn review_screen(&mut self, button: &str, title: &str, name: &str, back: &str) {
         self.click(&L::text(button));
         self.wait_for(&L::text(title), SCREEN);
         self.settled_snapshot(name);
-        self.click(&L::text(back));
+        self.click(&L::role(Role::Button, back));
     }
 }
 
@@ -63,7 +64,7 @@ fn every_screen_at_three_resolutions() {
         h.wait_for(&L::role(Role::Dialog, QUIT_TITLE), SCREEN);
         h.settled_snapshot("quit_dialog");
         h.press(KeyCode::Escape);
-        h.review_screen("Singleplayer", "New world", "solo", "Back to menu");
+        h.review_screen("Singleplayer", WORLDS_TITLE, "solo", "Back");
         h.wait_for(&L::text("Singleplayer"), SCREEN);
         h.review_screen("Multiplayer", "Server list", "multi", "Back to menu");
         h.wait_for(&L::text("Settings"), SCREEN);
