@@ -1,11 +1,16 @@
-//! The saved worlds as the menus show them: the last one played, its day, and how long ago.
+//! The saved worlds as the menus show them and change them on disk: the list, newest first,
+//! with each world's day, seed, size and how long ago it was played; creating, renaming and
+//! deleting a world.
 
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{self, Path};
 use std::time::{Duration, SystemTime};
 
 use bevy::prelude::*;
-use server::{WorldMeta, WORLD_FILE};
+use server::{write_meta, WorldMeta, WORLD_FILE};
+use shared::world::WorldSeed;
 
 use super::solo::SelectedWorld;
 use super::MenuState;
@@ -14,6 +19,7 @@ use crate::state::GameState;
 use crate::ui::theme::RAISE;
 
 /// What the menus show of a saved world.
+#[derive(Clone, Debug)]
 pub struct WorldSummary {
     /// The name of the world's folder, which is what playing it loads.
     pub name: String,
@@ -22,31 +28,232 @@ pub struct WorldSummary {
     pub day: Option<u64>,
     /// When the world was last saved.
     pub played: SystemTime,
+    /// The bytes of every file of the world's folder.
+    #[allow(dead_code)] // read by the world cards, Task 5
+    pub size: u64,
 }
 
-/// The world whose `world.ron` was modified last. `name` is the folder name (what Play loads);
-/// seed and day come from `world.ron`, and are `None` when it cannot be read.
-pub fn last_played_world(saves: &Path) -> Option<WorldSummary> {
-    let (played, name) = fs::read_dir(saves)
-        .ok()?
+/// The folders of `saves` holding a `world.ron`, newest `world.ron` first, ties by name
+/// ascending. `name` is the folder name (what Play loads); seed and day come from `world.ron`,
+/// and are `None` when it cannot be read. Names that are not UTF-8 are skipped; a missing or
+/// unreadable `saves` gives none. Creates nothing.
+pub fn list_worlds(saves: &Path) -> Vec<WorldSummary> {
+    let Ok(entries) = fs::read_dir(saves) else {
+        return Vec::new();
+    };
+    let mut worlds: Vec<WorldSummary> = entries
         .filter_map(|entry| {
             let entry = entry.ok()?;
-            let played = fs::metadata(entry.path().join(WORLD_FILE))
+            let folder = entry.path();
+            let played = fs::metadata(folder.join(WORLD_FILE))
                 .and_then(|meta| meta.modified())
                 .ok()?;
-            Some((played, entry.file_name().into_string().ok()?))
+            let name = entry.file_name().into_string().ok()?;
+            let meta = read_meta(&folder);
+            Some(WorldSummary {
+                name,
+                seed: meta.as_ref().map(|meta| meta.seed.0),
+                day: meta.as_ref().map(|meta| day_of(meta.time)),
+                played,
+                size: folder_size(&folder),
+            })
         })
-        // the name breaks a tie, so that the same folder always gives the same world
-        .max()?;
-    let meta = fs::read_to_string(saves.join(&name).join(WORLD_FILE))
-        .ok()
-        .and_then(|contents| ron::de::from_str::<WorldMeta>(&contents).ok());
-    Some(WorldSummary {
-        name,
-        seed: meta.as_ref().map(|meta| meta.seed.0),
-        day: meta.as_ref().map(|meta| day_of(meta.time)),
-        played,
+        .collect();
+    // the name breaks a tie, so that the same folder always lists the same way
+    worlds.sort_by(|a, b| b.played.cmp(&a.played).then_with(|| a.name.cmp(&b.name)));
+    worlds
+}
+
+/// The world whose `world.ron` was modified last: the first of `list_worlds`.
+pub fn last_played_world(saves: &Path) -> Option<WorldSummary> {
+    list_worlds(saves).into_iter().next()
+}
+
+/// The `world.ron` of the world stored in `folder`, if it can be read as `WorldMeta`.
+fn read_meta(folder: &Path) -> Option<WorldMeta> {
+    let contents = fs::read_to_string(folder.join(WORLD_FILE)).ok()?;
+    ron::de::from_str(&contents).ok()
+}
+
+/// The bytes of every file under `folder`. Links are not followed, and what cannot be read
+/// counts for nothing.
+fn folder_size(folder: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|entry| match entry.metadata() {
+            Ok(meta) if meta.is_dir() => folder_size(&entry.path()),
+            Ok(meta) if meta.is_file() => meta.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// A size as a file manager says it: kilobytes rounded up under 1 MiB, then megabytes and
+/// gigabytes with one decimal.
+#[allow(dead_code)] // shown by the world cards, Task 5
+pub fn format_size(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    const GIB: u64 = 1024 * MIB;
+    match bytes {
+        0..MIB => format!("{} KB", bytes.div_ceil(KIB)),
+        MIB..GIB => format!("{:.1} MB", bytes as f64 / MIB as f64),
+        _ => format!("{:.1} GB", bytes as f64 / GIB as f64),
+    }
+}
+
+/// The longest name a new world may have.
+pub const MAX_WORLD_NAME_LENGTH: usize = 32;
+
+/// Shown under the name field when it is empty.
+pub const EMPTY_WORLD_NAME: &str = "Enter a name";
+/// Shown under the name field when the typed name breaks the rule of `is_valid_world_name`.
+pub const INVALID_WORLD_NAME: &str = "Use only A-Z, a-z, 0-9, spaces, _ and -";
+/// Shown under the name field when another world already has the typed name, whatever its case.
+pub const WORLD_EXISTS: &str = "A world with this name already exists";
+/// Shown under the seed field when the typed seed is not a `u32`.
+pub const INVALID_SEED: &str = "Use a number from 0 to 4294967295";
+
+/// A world name becomes a folder name under the saves folder, so it must be a single plain
+/// path component: letters, digits, spaces, `_` and `-`, 1 to 32 characters.
+fn is_valid_world_name(name: &str) -> bool {
+    (1..=MAX_WORLD_NAME_LENGTH).contains(&name.chars().count())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '-'))
+}
+
+/// Worlds that already exist on disk may have any name, but changing one must stay inside the
+/// saves folder: the name has to be a single normal path component.
+fn is_single_path_component(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(path::Component::Normal(component)), None) if component == name
+    )
+}
+
+/// The error of a name that is not a single path component.
+fn invalid_name(name: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("invalid world name {name:?}"),
+    )
+}
+
+/// The `typed` name trimmed, or the message to show when it is empty, breaks the rule of
+/// `is_valid_world_name`, or is one of `others`, the names of the other worlds, whatever its
+/// case (Windows and macOS folders ignore it).
+pub fn check_world_name(typed: &str, others: &[String]) -> Result<String, &'static str> {
+    let name = typed.trim();
+    if name.is_empty() {
+        return Err(EMPTY_WORLD_NAME);
+    }
+    if !is_valid_world_name(name) {
+        return Err(INVALID_WORLD_NAME);
+    }
+    if others.iter().any(|other| other.eq_ignore_ascii_case(name)) {
+        return Err(WORLD_EXISTS);
+    }
+    Ok(name.to_string())
+}
+
+/// The first of "New world", "New world 2", "New world 3"… that none of `others` has, whatever
+/// its case.
+#[allow(dead_code)] // fills the New world dialog, Task 4
+pub fn free_world_name(others: &[String]) -> String {
+    let taken = |name: &str| others.iter().any(|other| other.eq_ignore_ascii_case(name));
+    std::iter::once("New world".to_string())
+        .chain((2..).map(|index| format!("New world {index}")))
+        .find(|name| !taken(name))
+        .unwrap_or_default()
+}
+
+/// The seed `typed` in the seed field: none when it is empty, which means a random one.
+#[allow(dead_code)] // read by the New world dialog, Task 4
+pub fn parse_seed(typed: &str) -> Result<Option<u32>, &'static str> {
+    if typed.is_empty() {
+        return Ok(None);
+    }
+    typed.parse().map(Some).map_err(|_| INVALID_SEED)
+}
+
+/// Creates the world `name` in `saves` with this `seed`: its folder, never an existing one, and
+/// its `world.ron`, so that it is listed at once. On a failed write the folder is removed.
+#[allow(dead_code)] // called by the New world dialog, Task 4
+pub fn create_world(saves: &Path, name: &str, seed: u32) -> io::Result<()> {
+    if !is_single_path_component(name) {
+        return Err(invalid_name(name));
+    }
+    fs::create_dir_all(saves)?;
+    let folder = saves.join(name);
+    fs::create_dir(&folder)?;
+    let meta = WorldMeta::new(name.to_string(), WorldSeed(seed), 0, HashMap::new());
+    write_meta(&folder, &meta).map_err(|err| {
+        let _ = fs::remove_dir_all(&folder);
+        io::Error::other(err.to_string())
     })
+}
+
+/// Renames the world `from` of `saves` to `to`: its folder, then the name in its `world.ron`
+/// when that can be read, keeping its format version and its modification time (renaming is
+/// not playing). Another world named `to` is never replaced, but `to` may be `from` in another
+/// case.
+#[allow(dead_code)] // called by the rename dialog, Task 6
+pub fn rename_world(saves: &Path, from: &str, to: &str) -> io::Result<()> {
+    for name in [from, to] {
+        if !is_single_path_component(name) {
+            return Err(invalid_name(name));
+        }
+    }
+    let target = saves.join(to);
+    if !to.eq_ignore_ascii_case(from) && fs::symlink_metadata(&target).is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("a world named {to:?} already exists"),
+        ));
+    }
+    fs::rename(saves.join(from), &target)?;
+
+    let Some(mut meta) = read_meta(&target) else {
+        return Ok(());
+    };
+    let world_ron = target.join(WORLD_FILE);
+    let played = fs::metadata(&world_ron)?.modified()?;
+    meta.name = to.to_string();
+    write_meta(&target, &meta).map_err(|err| io::Error::other(err.to_string()))?;
+    fs::File::options()
+        .write(true)
+        .open(&world_ron)?
+        .set_modified(played)
+}
+
+/// Deletes the world `name` of `saves` with every file of its folder. A name that is not a
+/// single path component is refused, so that nothing outside `saves` is deleted; a world that
+/// was never saved has nothing to delete.
+pub fn delete_world(saves: &Path, name: &str) -> io::Result<()> {
+    if !is_single_path_component(name) {
+        return Err(invalid_name(name));
+    }
+
+    // Delete the entire world directory
+    let world_dir = saves.join(name);
+
+    match fs::remove_dir_all(&world_dir) {
+        Ok(()) => info!("Deleted world directory: {}", world_dir.display()),
+        // Nothing was ever saved for this world: there is nothing to delete
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(io::Error::new(
+                e.kind(),
+                format!("could not delete {}: {e}", world_dir.display()),
+            ))
+        }
+    }
+    Ok(())
 }
 
 /// The in-game day at the game time `time`, counted from 1.
@@ -107,8 +314,6 @@ pub fn start_world(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::WorldSeed;
-    use std::collections::HashMap;
 
     const HOUR: Duration = Duration::from_secs(60 * 60);
     const DAY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -209,7 +414,7 @@ mod tests {
             write_world_ron_at(saves.path(), name, "", same);
         }
 
-        assert_eq!(last_played_world(saves.path()).unwrap().name, "Charlie");
+        assert_eq!(last_played_world(saves.path()).unwrap().name, "Alpha");
     }
 
     #[test]
@@ -231,5 +436,354 @@ mod tests {
             }
         }
         assert_eq!(thumbnail_color(None), RAISE);
+    }
+
+    /// The names of the worlds `list_worlds` gives, in its order.
+    fn listed_names(saves: &Path) -> Vec<String> {
+        list_worlds(saves)
+            .into_iter()
+            .map(|world| world.name)
+            .collect()
+    }
+
+    #[test]
+    fn the_worlds_are_listed_by_last_played_then_by_name() {
+        let saves = tempfile::tempdir().unwrap();
+        save_world(saves.path(), "Old", 1, 0, 5 * DAY);
+        save_world(saves.path(), "Recent", 2, 0, 2 * HOUR);
+        let same = SystemTime::now() - DAY;
+        write_world_ron_at(saves.path(), "Bravo", "", same);
+        write_world_ron_at(saves.path(), "Alpha", "", same);
+        fs::create_dir(saves.path().join("Not a world")).unwrap();
+        fs::write(saves.path().join("file"), "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let bad = saves.path().join(std::ffi::OsStr::from_bytes(b"bad\xff"));
+            fs::create_dir(&bad).unwrap();
+            fs::write(bad.join(WORLD_FILE), "").unwrap();
+        }
+
+        assert_eq!(
+            listed_names(saves.path()),
+            ["Recent", "Alpha", "Bravo", "Old"]
+        );
+    }
+
+    #[test]
+    fn a_missing_or_unreadable_saves_folder_lists_no_world_and_creates_nothing() {
+        let folder = tempfile::tempdir().unwrap();
+        let saves = folder.path().join("saves");
+
+        assert!(list_worlds(&saves).is_empty());
+        assert!(!saves.exists());
+
+        fs::write(&saves, "").unwrap();
+        assert!(list_worlds(&saves).is_empty());
+    }
+
+    #[test]
+    fn the_size_counts_every_file_of_the_world() {
+        let saves = tempfile::tempdir().unwrap();
+        write_world_ron(saves.path(), "Survie", &"x".repeat(10), HOUR);
+        let world = saves.path().join("Survie");
+        fs::create_dir_all(world.join("chunks")).unwrap();
+        fs::write(world.join("chunks/a.bin"), vec![0u8; 2000]).unwrap();
+        fs::create_dir_all(world.join("players")).unwrap();
+        fs::write(world.join("players/1.ron"), "x".repeat(30)).unwrap();
+
+        assert_eq!(list_worlds(saves.path())[0].size, 2040);
+    }
+
+    #[test]
+    fn sizes_read_like_a_file_manager_says_them() {
+        let cases = [
+            (0, "0 KB"),
+            (1, "1 KB"),
+            (1024, "1 KB"),
+            (1025, "2 KB"),
+            (1_048_576, "1.0 MB"),
+            (1_572_864, "1.5 MB"),
+            (3 << 30, "3.0 GB"),
+        ];
+        for (bytes, said) in cases {
+            assert_eq!(format_size(bytes), said, "for {bytes} bytes");
+        }
+    }
+
+    #[test]
+    fn world_names_are_checked_and_trimmed() {
+        let others = ["Survie".to_string()];
+        assert_eq!(
+            check_world_name("  Base  ", &others),
+            Ok("Base".to_string())
+        );
+        for empty in ["", "   "] {
+            assert_eq!(check_world_name(empty, &others), Err(EMPTY_WORLD_NAME));
+        }
+        for invalid in ["bad/name", "é", "a.b", &"x".repeat(33)] {
+            assert_eq!(
+                check_world_name(invalid, &others),
+                Err(INVALID_WORLD_NAME),
+                "{invalid:?}"
+            );
+        }
+        for taken in ["survie", "SURVIE "] {
+            assert_eq!(
+                check_world_name(taken, &others),
+                Err(WORLD_EXISTS),
+                "{taken:?}"
+            );
+        }
+        assert_eq!(
+            check_world_name("Survie2", &others),
+            Ok("Survie2".to_string())
+        );
+    }
+
+    #[test]
+    fn a_free_name_is_offered() {
+        let names = |names: &[&str]| {
+            names
+                .iter()
+                .map(|name| name.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(free_world_name(&[]), "New world");
+        assert_eq!(free_world_name(&names(&["new world"])), "New world 2");
+        assert_eq!(
+            free_world_name(&names(&["New world", "New world 2"])),
+            "New world 3"
+        );
+    }
+
+    #[test]
+    fn a_seed_is_a_number_or_nothing() {
+        assert_eq!(parse_seed(""), Ok(None));
+        assert_eq!(parse_seed("0"), Ok(Some(0)));
+        assert_eq!(parse_seed("4294967295"), Ok(Some(u32::MAX)));
+        for invalid in ["4294967296", "12a"] {
+            assert_eq!(parse_seed(invalid), Err(INVALID_SEED), "{invalid:?}");
+        }
+    }
+
+    /// The `world.ron` of the world `name`, read as `WorldMeta`.
+    fn read_meta(saves: &Path, name: &str) -> WorldMeta {
+        let contents = fs::read_to_string(saves.join(name).join(WORLD_FILE)).unwrap();
+        ron::de::from_str(&contents).unwrap()
+    }
+
+    #[test]
+    fn creating_a_world_writes_its_world_ron_at_once() {
+        let folder = tempfile::tempdir().unwrap();
+        let saves = folder.path().join("saves");
+
+        create_world(&saves, "Nouveau", 7).unwrap();
+
+        let meta = read_meta(&saves, "Nouveau");
+        assert_eq!(meta.format_version, 2);
+        assert_eq!(meta.name, "Nouveau");
+        assert_eq!(meta.seed.0, 7);
+        assert_eq!(meta.time, 0);
+        assert!(meta.mobs.is_empty());
+        let worlds = list_worlds(&saves);
+        assert_eq!(worlds.len(), 1);
+        assert_eq!(worlds[0].name, "Nouveau");
+        assert_eq!(worlds[0].day, Some(1));
+        assert_eq!(worlds[0].seed, Some(7));
+    }
+
+    #[test]
+    fn creating_never_writes_into_an_existing_folder() {
+        let saves = tempfile::tempdir().unwrap();
+        write_world_ron(saves.path(), "Survie", "precious", HOUR);
+
+        let err = create_world(saves.path(), "Survie", 1).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        let contents = fs::read_to_string(saves.path().join("Survie").join(WORLD_FILE)).unwrap();
+        assert_eq!(contents, "precious");
+
+        for outside in ["..", "a/b"] {
+            let err = create_world(saves.path(), outside, 1).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{outside:?}");
+        }
+    }
+
+    #[test]
+    fn renaming_moves_the_folder_and_the_name_and_keeps_the_played_time() {
+        let saves = tempfile::tempdir().unwrap();
+        save_world(saves.path(), "Survie", 7, 0, 3 * DAY);
+        let chunks = saves.path().join("Survie/chunks");
+        fs::create_dir(&chunks).unwrap();
+        fs::write(chunks.join("0_0_0.bin"), "x").unwrap();
+        let played = list_worlds(saves.path())[0].played;
+
+        rename_world(saves.path(), "Survie", "Base").unwrap();
+
+        assert!(!saves.path().join("Survie").exists());
+        assert!(saves.path().join("Base/chunks/0_0_0.bin").is_file());
+        assert_eq!(read_meta(saves.path(), "Base").name, "Base");
+        assert_eq!(list_worlds(saves.path())[0].played, played);
+    }
+
+    #[test]
+    fn renaming_keeps_the_format_version_and_leaves_an_unreadable_world_ron_alone() {
+        let saves = tempfile::tempdir().unwrap();
+        let version_1 = "(format_version: 1, name: \"Old\", seed: (3), time: 0, mobs: {})";
+        write_world_ron(saves.path(), "Old", version_1, HOUR);
+        write_world_ron(saves.path(), "Broken", "garbage", HOUR);
+
+        rename_world(saves.path(), "Old", "Older").unwrap();
+        rename_world(saves.path(), "Broken", "Mended").unwrap();
+
+        let meta = read_meta(saves.path(), "Older");
+        assert_eq!(meta.format_version, 1);
+        assert_eq!(meta.name, "Older");
+        let contents = fs::read_to_string(saves.path().join("Mended").join(WORLD_FILE)).unwrap();
+        assert_eq!(contents, "garbage");
+        assert!(!saves.path().join("Broken").exists());
+    }
+
+    #[test]
+    fn renaming_onto_another_world_is_refused_but_a_change_of_case_is_not() {
+        let saves = tempfile::tempdir().unwrap();
+        save_world(saves.path(), "A", 1, 0, HOUR);
+        save_world(saves.path(), "B", 2, 0, DAY);
+
+        let err = rename_world(saves.path(), "A", "B").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(read_meta(saves.path(), "A").seed.0, 1);
+        assert_eq!(read_meta(saves.path(), "B").seed.0, 2);
+
+        rename_world(saves.path(), "A", "a").unwrap();
+        assert_eq!(listed_names(saves.path()), ["a", "B"]);
+    }
+
+    #[test]
+    fn renaming_refuses_names_that_leave_the_saves_folder() {
+        let saves = tempfile::tempdir().unwrap();
+        save_world(saves.path(), "Survie", 1, 0, HOUR);
+
+        for (from, to) in [("Survie", "../x"), ("Survie", ""), ("../x", "Survie")] {
+            let err = rename_world(saves.path(), from, to).unwrap_err();
+            assert_eq!(
+                err.kind(),
+                io::ErrorKind::InvalidInput,
+                "{from:?} to {to:?}"
+            );
+        }
+        assert!(saves.path().join("Survie").is_dir());
+    }
+
+    #[test]
+    fn world_names_are_a_single_plain_component() {
+        for valid in ["a", "My World", "new_world_1", "a-b", &"x".repeat(32)] {
+            assert!(is_valid_world_name(valid), "{valid:?} should be valid");
+        }
+        for invalid in [
+            "",
+            ".",
+            "..",
+            "/",
+            "a/b",
+            "..\\x",
+            "/etc",
+            "C:\\x",
+            "a.b",
+            "é",
+            &"x".repeat(33),
+        ] {
+            assert!(
+                !is_valid_world_name(invalid),
+                "{invalid:?} should be invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn existing_worlds_can_be_deleted_whatever_their_name_if_it_is_one_component() {
+        for name in ["a", "world.v2", "é", "a b", "..x", "x.."] {
+            assert!(
+                is_single_path_component(name),
+                "{name:?} should be accepted"
+            );
+        }
+        for name in ["", ".", "..", "/", "a/b", "a/", "/etc", "../x"] {
+            assert!(
+                !is_single_path_component(name),
+                "{name:?} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_world_with_a_name_outside_the_creation_rule_is_deleted() {
+        let saves = tempfile::tempdir().unwrap();
+        write_world_ron(saves.path(), "world.v2", "", HOUR);
+
+        delete_world(saves.path(), "world.v2").unwrap();
+        assert!(!saves.path().join("world.v2").exists());
+    }
+
+    #[test]
+    fn deleting_a_world_removes_its_chunk_files_and_players_too() {
+        let saves = tempfile::tempdir().unwrap();
+        let saves = saves.path();
+        write_world_ron(saves, "full", "", HOUR);
+        fs::create_dir_all(saves.join("full/chunks")).unwrap();
+        fs::write(saves.join("full/chunks/-1_4_0.bin"), "x").unwrap();
+        fs::create_dir_all(saves.join("full/players")).unwrap();
+        fs::write(saves.join("full/players/7.ron"), "x").unwrap();
+        write_world_ron(saves, "other", "", HOUR);
+
+        delete_world(saves, "full").unwrap();
+
+        assert!(!saves.join("full").exists());
+        assert!(saves.join("other").join(WORLD_FILE).is_file());
+    }
+
+    #[test]
+    fn deleting_refuses_names_that_leave_the_saves_folder() {
+        let folder = tempfile::tempdir().unwrap();
+        let game = folder.path().join("game");
+        let saves = game.join("saves");
+        write_world_ron(&saves, "keep", "", HOUR);
+        write_world_ron(&saves, "gone", "", HOUR);
+        let outside = game.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+
+        for name in ["..", "../outside", "../x", "/", ""] {
+            let err = delete_world(&saves, name).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{name:?}");
+        }
+        assert!(outside.is_dir() && saves.join("keep").is_dir());
+
+        delete_world(&saves, "gone").unwrap();
+        assert!(!saves.join("gone").exists() && saves.join("keep").is_dir());
+    }
+
+    #[test]
+    fn deleting_a_world_that_is_already_gone_succeeds() {
+        let folder = tempfile::tempdir().unwrap();
+        delete_world(&folder.path().join("saves"), "never-saved").unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_world_that_cannot_be_deleted_is_an_error() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let saves = tempfile::tempdir().unwrap();
+        let saves = saves.path();
+        write_world_ron(saves, "locked", "", HOUR);
+        // Nothing can be removed from a folder that is not writable
+        let read_only = fs::Permissions::from_mode(0o555);
+        fs::set_permissions(saves.join("locked"), read_only).unwrap();
+
+        let result = delete_world(saves, "locked");
+
+        fs::set_permissions(saves.join("locked"), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert!(saves.join("locked").join(WORLD_FILE).is_file());
     }
 }

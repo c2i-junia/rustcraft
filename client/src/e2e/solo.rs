@@ -8,7 +8,8 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::state::GameState;
 use crate::ui::button::MenuState;
-use crate::ui::menus::solo::{WorldNameInput, INVALID_WORLD_NAME, WORLD_EXISTS};
+use crate::ui::menus::solo::WorldNameInput;
+use crate::ui::menus::worlds::{INVALID_WORLD_NAME, WORLD_EXISTS};
 
 /// A client on the world list, with the worlds `Survie`, `Creative build` and `Test world 3`.
 fn world_list() -> Harness {
