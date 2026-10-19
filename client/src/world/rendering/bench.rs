@@ -701,7 +701,7 @@ fn bench_drawing() {
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_minimap() {
     use crate::ui::hud::minimap::colors::MinimapColors;
-    use crate::ui::hud::minimap::compose::{compose, MAP_SIZE};
+    use crate::ui::hud::minimap::compose::{compose, compose_world, MAP_SIZE};
     use crate::ui::hud::minimap::surface::MinimapSurface;
     use crate::ui::hud::minimap::ZOOMS;
 
@@ -746,12 +746,32 @@ fn bench_minimap() {
             }
             drawn.insert(format!("zoom_{zoom}"), summary(samples));
         }
+
+        // The whole surface drawn for the world map, as while it is open
+        let (min, max) = surface.bounds().unwrap();
+        let size = (max - min + IVec2::ONE) * CHUNK_SIZE;
+        let mut world_pixels = vec![0; (size.x * size.y * 4) as usize];
+        let mut world_map = Vec::new();
+        for _ in 0..REMESHES {
+            let start = Instant::now();
+            compose_world(
+                &surface,
+                &colors,
+                min * CHUNK_SIZE,
+                size.x as u32,
+                &mut world_pixels,
+            );
+            world_map.push(millis(start));
+            black_box(&world_pixels);
+        }
         scenes.push(json!({
             "scene": scene.name,
             "columns": columns,
             "scan_all_ms": summary(scan_all),
             "scan_one_column_ms": summary(scan_column),
             "compose_ms": drawn,
+            "world_map_px": [size.x, size.y],
+            "compose_world_ms": summary(world_map),
         }));
     }
     let results = json!({ "scenes": scenes });
