@@ -720,7 +720,10 @@ fn start_join(
     let host = address.host.clone();
     commands.entity(root).insert(PendingJoin {
         host,
-        address: InFlight::spawn(move || (resolver.0)(&address)),
+        address: InFlight::spawn(
+            Err(io::Error::other("cannot start the lookup")),
+            move || (resolver.0)(&address),
+        ),
     });
 }
 

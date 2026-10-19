@@ -114,7 +114,11 @@ pub fn query_status_at(status: SocketAddr, timeout: Duration) -> ServerStatus {
                     ServerStatus::Incompatible
                 };
             }
-            Err(err) if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
+                ) => {}
             // Nothing listens there (ConnectionReset is how Windows says it), or the socket
             // failed: no answer will come
             Err(_) => return ServerStatus::Offline,
@@ -147,13 +151,21 @@ impl Default for StatusProbe {
 pub struct InFlight<T>(Arc<Mutex<Option<T>>>);
 
 impl<T: Send + 'static> InFlight<T> {
-    pub fn spawn(f: impl FnOnce() -> T + Send + 'static) -> Self {
+    /// Runs `f` on a thread named "status probe". If the thread cannot be started, `fallback`
+    /// is the result at once.
+    pub fn spawn(fallback: T, f: impl FnOnce() -> T + Send + 'static) -> Self {
         let slot = Arc::new(Mutex::new(None));
         let result = Arc::clone(&slot);
-        thread::spawn(move || {
-            let value = f();
-            *result.lock().unwrap() = Some(value);
-        });
+        let spawned = thread::Builder::new()
+            .name("status probe".into())
+            .spawn(move || {
+                let value = f();
+                *result.lock().unwrap() = Some(value);
+            });
+        if let Err(e) = spawned {
+            warn!("Cannot start a thread for a network request: {e}");
+            *slot.lock().unwrap() = Some(fallback);
+        }
         Self(slot)
     }
 
@@ -297,7 +309,7 @@ mod tests {
 
     #[test]
     fn in_flight_gives_its_result_once() {
-        let in_flight = InFlight::spawn(|| 5);
+        let in_flight = InFlight::spawn(0, || 5);
         let start = Instant::now();
 
         let result = loop {

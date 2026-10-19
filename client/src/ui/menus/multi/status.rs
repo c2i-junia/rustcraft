@@ -48,7 +48,7 @@ impl StatusBoard {
     /// Starts asking `ip` with `probe`, replacing (and so abandoning) a probe in flight.
     pub fn ping(&mut self, ip: &str, probe: StatusProbe) {
         let typed = ip.to_string();
-        let in_flight = InFlight::spawn(move || (probe.0)(&typed));
+        let in_flight = InFlight::spawn(ServerStatus::Offline, move || (probe.0)(&typed));
         self.0.insert(
             status_key(ip),
             Probe {
