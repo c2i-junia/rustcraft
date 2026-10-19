@@ -92,6 +92,7 @@ mod tests {
             players: vec![],
             max_render_distance: 0,
             seed: 0,
+            mod_commands: vec![],
         };
         let chat = FullChatMessage {
             content: String::new(),

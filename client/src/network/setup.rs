@@ -15,6 +15,7 @@ use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
+use crate::ui::hud::chat_completion::ModCommands;
 use crate::ui::hud::debug::WorldBiomes;
 use crate::world::time::ClientTime;
 use crate::world::{
@@ -450,6 +451,7 @@ pub fn establish_authenticated_connection_to_server(
                 client_time.0 = message.tick;
                 commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
                 commands.insert_resource(WorldBiomes(BiomeNoises::new(message.seed)));
+                commands.insert_resource(ModCommands(message.mod_commands));
                 // `timestamp_ms` is not used yet: the clock starts at the server's tick as it
                 // was when the response left, so it lags by the latency
                 for player in message.players {

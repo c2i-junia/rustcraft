@@ -122,8 +122,9 @@ pub struct Completion {
 }
 
 /// What to suggest for `line`, the text of the chat before the caret, or `None` when it is not a
-/// command.
-pub fn complete(line: &str) -> Option<Completion> {
+/// command. `mod_commands` are the commands the mods of the server add: their arguments are not
+/// known, so any is accepted.
+pub fn complete(line: &str, mod_commands: &[String]) -> Option<Completion> {
     let typed = line.strip_prefix('/')?;
     let word_start = typed
         .char_indices()
@@ -138,15 +139,25 @@ pub fn complete(line: &str) -> Option<Completion> {
     };
 
     let Some((&name, typed_args)) = before.split_first() else {
-        let names = COMMANDS.iter().map(|command| {
-            let detail = command.usage_words()[1..].join(" ");
-            (command.name.to_string(), detail)
-        });
+        let names = COMMANDS
+            .iter()
+            .map(|command| {
+                let detail = command.usage_words()[1..].join(" ");
+                (command.name.to_string(), detail)
+            })
+            .chain(
+                mod_commands
+                    .iter()
+                    .map(|name| (name.clone(), String::new())),
+            );
         completion.suggestions = suggest(word, names);
         // every command but one typed in full takes arguments
         completion.more = find(word).is_none_or(|command| !command.args.is_empty());
         if let Some(command) = find(word) {
             completion.usage = command.usage_words();
+            completion.current = Some(0);
+        } else if mod_commands.iter().any(|name| name == word) {
+            completion.usage = vec![format!("/{word}")];
             completion.current = Some(0);
         } else if completion.suggestions.is_empty() && !word.is_empty() {
             completion.error = Some(format!("Unknown command: /{word}"));
@@ -154,7 +165,11 @@ pub fn complete(line: &str) -> Option<Completion> {
         return Some(completion);
     };
     let Some(command) = find(name) else {
-        completion.error = Some(format!("Unknown command: /{name}"));
+        if mod_commands.iter().any(|mod_command| mod_command == name) {
+            completion.usage = vec![format!("/{name}")];
+        } else {
+            completion.error = Some(format!("Unknown command: /{name}"));
+        }
         return Some(completion);
     };
     completion.usage = command.usage_words();
@@ -224,14 +239,14 @@ mod tests {
 
     #[test]
     fn only_a_line_starting_with_a_slash_is_completed() {
-        assert_eq!(complete("hello"), None);
-        assert_eq!(complete(" /time"), None);
-        assert!(complete("/").is_some());
+        assert_eq!(complete("hello", &[]), None);
+        assert_eq!(complete(" /time", &[]), None);
+        assert!(complete("/", &[]).is_some());
     }
 
     #[test]
     fn a_slash_alone_suggests_every_command_with_its_arguments() {
-        let completion = complete("/").unwrap();
+        let completion = complete("/", &[]).unwrap();
         assert_eq!(completion.word_start, 1);
         assert_eq!(texts(&completion), ["give", "time"]);
         assert_eq!(completion.suggestions[0].detail, "<item> <count>");
@@ -242,11 +257,11 @@ mod tests {
 
     #[test]
     fn the_name_of_a_command_is_completed_from_its_start() {
-        let completion = complete("/ti").unwrap();
+        let completion = complete("/ti", &[]).unwrap();
         assert_eq!(texts(&completion), ["time"]);
         assert_eq!(completion.suggestions[0].matched, 0..2);
         // typed in full, it is not suggested again, and its usage shows
-        let completion = complete("/time").unwrap();
+        let completion = complete("/time", &[]).unwrap();
         assert!(completion.suggestions.is_empty());
         assert_eq!(completion.usage, ["/time", "set", "<day|night>"]);
         assert_eq!(completion.current, Some(0));
@@ -255,22 +270,35 @@ mod tests {
 
     #[test]
     fn an_unknown_command_is_told_as_it_is_typed() {
-        let completion = complete("/fly").unwrap();
+        let completion = complete("/fly", &[]).unwrap();
         assert!(completion.suggestions.is_empty());
         assert_eq!(completion.error.as_deref(), Some("Unknown command: /fly"));
-        let completion = complete("/fly high").unwrap();
+        let completion = complete("/fly high", &[]).unwrap();
         assert_eq!(completion.error.as_deref(), Some("Unknown command: /fly"));
     }
 
     #[test]
+    fn the_commands_of_the_mods_are_suggested_and_take_any_argument() {
+        let mods = ["tower".to_string()];
+        assert!(texts(&complete("/", &mods).unwrap()).contains(&"tower"));
+        assert_eq!(texts(&complete("/to", &mods).unwrap()), ["tower"]);
+        let completion = complete("/tower", &mods).unwrap();
+        assert_eq!(completion.error, None);
+        assert_eq!(completion.usage, ["/tower"]);
+        let completion = complete("/tower 12 high", &mods).unwrap();
+        assert_eq!(completion.error, None);
+        assert_eq!(completion.usage, ["/tower"]);
+    }
+
+    #[test]
     fn the_arguments_are_suggested_in_turn() {
-        let completion = complete("/time ").unwrap();
+        let completion = complete("/time ", &[]).unwrap();
         assert_eq!(completion.word_start, 6);
         assert_eq!(texts(&completion), ["set"]);
         assert_eq!(completion.current, Some(1));
         assert!(completion.more);
 
-        let completion = complete("/time set n").unwrap();
+        let completion = complete("/time set n", &[]).unwrap();
         assert_eq!(completion.word_start, 10);
         assert_eq!(texts(&completion), ["night"]);
         assert_eq!(completion.current, Some(2));
@@ -279,10 +307,10 @@ mod tests {
 
     #[test]
     fn items_that_start_with_the_word_come_before_those_that_contain_it() {
-        let completion = complete("/give LOG").unwrap();
+        let completion = complete("/give LOG", &[]).unwrap();
         assert_eq!(texts(&completion), ["oak_log", "spruce_log"]);
         assert_eq!(completion.suggestions[0].matched, 4..7);
-        let completion = complete("/give s").unwrap();
+        let completion = complete("/give s", &[]).unwrap();
         assert_eq!(
             texts(&completion)[..6],
             [
@@ -296,29 +324,29 @@ mod tests {
         );
         // `stone` is a value, and `cobblestone` contains it
         assert_eq!(
-            texts(&complete("/give stone").unwrap()),
+            texts(&complete("/give stone", &[]).unwrap()),
             ["stone", "cobblestone"]
         );
-        assert_eq!(complete("/give").unwrap().suggestions, []);
+        assert_eq!(complete("/give", &[]).unwrap().suggestions, []);
         assert_eq!(
-            complete("/give ").unwrap().suggestions.len(),
+            complete("/give ", &[]).unwrap().suggestions.len(),
             ItemId::ALL.len()
         );
     }
 
     #[test]
     fn a_count_is_not_suggested_but_its_place_is_shown() {
-        let completion = complete("/give dirt ").unwrap();
+        let completion = complete("/give dirt ", &[]).unwrap();
         assert!(completion.suggestions.is_empty());
         assert_eq!(completion.usage, ["/give", "<item>", "<count>"]);
         assert_eq!(completion.current, Some(2));
         assert_eq!(completion.error, None);
-        assert_eq!(complete("/give dirt 64").unwrap().error, None);
+        assert_eq!(complete("/give dirt 64", &[]).unwrap().error, None);
     }
 
     #[test]
     fn a_wrong_argument_is_told_with_the_answer_of_the_server() {
-        let error = |line| complete(line).unwrap().error;
+        let error = |line| complete(line, &[]).unwrap().error;
         assert_eq!(
             error("/give diamond 3").as_deref(),
             Some("Unknown item: diamond")

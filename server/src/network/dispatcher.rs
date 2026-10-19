@@ -201,6 +201,7 @@ fn handle_client_messages_system(
                         *seed,
                         &game_folder_paths,
                         config.max_render_distance,
+                        &mods,
                     );
                     // The client was refused: drop the rest of its messages
                     if flow.is_break() {

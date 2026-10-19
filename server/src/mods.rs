@@ -128,6 +128,13 @@ impl Mods {
         }
     }
 
+    /// The names of the commands of the mods, in alphabetical order.
+    pub fn command_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.host().commands.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     fn host(&self) -> AppDataRefMut<'_, Host> {
         self.lua.app_data_mut().expect("the host is set by `new`")
     }
@@ -300,5 +307,6 @@ mod tests {
 
         let answer = mods.run_command("tower 1", "steve", &mut world_with_steve());
         assert_eq!(answer.as_deref(), Some("Tower of 1 blocks"));
+        assert_eq!(mods.command_names(), ["tower"]);
     }
 }

@@ -73,11 +73,15 @@ pub struct CommandCompletion {
     dismissed: Option<String>,
 }
 
+/// The chat commands the mods of the server add, as it told them when the player joined.
+#[derive(Resource, Default)]
+pub struct ModCommands(pub Vec<String>);
+
 impl CommandCompletion {
     /// Follows the text of the field: `line` before the caret, `None` while text is selected or
     /// composed. A new line starts from its first suggestion; a text other than the one the
     /// panel was put away for brings it back.
-    fn update(&mut self, value: &str, line: Option<&str>) {
+    fn update(&mut self, value: &str, line: Option<&str>, mod_commands: &[String]) {
         if self
             .dismissed
             .as_deref()
@@ -88,7 +92,7 @@ impl CommandCompletion {
         self.at_end = line.is_some_and(|line| line.len() == value.len());
         if self.line.as_deref() != line {
             self.line = line.map(str::to_string);
-            self.completion = line.and_then(complete);
+            self.completion = line.and_then(|line| complete(line, mod_commands));
             self.selected = 0;
             self.first = 0;
             self.chosen = false;
@@ -405,7 +409,11 @@ pub fn spawn_command_completion(
 /// Follows the text of the chat field, once the edits of the frame are applied.
 fn follow_the_chat_field(
     mut fields: Query<(&EditableText, &mut CommandCompletion), Changed<EditableText>>,
+    mod_commands: Option<Res<ModCommands>>,
 ) {
+    let mod_commands = mod_commands
+        .as_ref()
+        .map_or(&[][..], |commands| &commands.0[..]);
     for (text, mut completion) in &mut fields {
         let value = text.value().to_string();
         let selection = text.editor().raw_selection();
@@ -419,7 +427,7 @@ fn follow_the_chat_field(
             .as_deref()
             .is_some_and(|dismissed| dismissed != value);
         if completion.line.as_deref() != line || completion.at_end != at_end || undismissed {
-            completion.update(&value, line);
+            completion.update(&value, line, mod_commands);
         }
     }
 }
@@ -671,7 +679,7 @@ mod tests {
     /// The completion of `line`, typed with the caret at its end.
     fn typed(line: &str) -> CommandCompletion {
         let mut completion = CommandCompletion::default();
-        completion.update(line, Some(line));
+        completion.update(line, Some(line), &[]);
         completion
     }
 
@@ -699,10 +707,10 @@ mod tests {
     #[test]
     fn the_ghost_shows_only_with_the_caret_at_the_end() {
         let mut completion = CommandCompletion::default();
-        completion.update("/give dirt", Some("/give"));
+        completion.update("/give dirt", Some("/give"), &[]);
         assert_eq!(completion.ghost(), "");
         // text selected
-        completion.update("/give dirt", None);
+        completion.update("/give dirt", None, &[]);
         assert!(!completion.is_shown());
     }
 
@@ -743,9 +751,9 @@ mod tests {
         let mut completion = typed("/give ");
         completion.dismiss("/give ");
         assert!(!completion.is_shown());
-        completion.update("/give ", Some("/give "));
+        completion.update("/give ", Some("/give "), &[]);
         assert!(!completion.is_shown());
-        completion.update("/give d", Some("/give d"));
+        completion.update("/give d", Some("/give d"), &[]);
         assert!(completion.is_shown());
     }
 }

@@ -60,6 +60,7 @@ pub(super) fn auth_register_request(
     seed: WorldSeed,
     game_folder_paths: &GameFolderPaths,
     max_render_distance: u32,
+    mods: &Mods,
 ) -> ControlFlow<()> {
     let Clients { server, lobby } = clients;
 
@@ -111,6 +112,7 @@ pub(super) fn auth_register_request(
         players,
         max_render_distance,
         seed: seed.0,
+        mod_commands: mods.command_names(),
     };
     server.send_game_message(client_id, auth_res.into());
 

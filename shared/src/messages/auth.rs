@@ -26,6 +26,8 @@ pub struct AuthRegisterResponse {
     pub max_render_distance: u32,
     /// The seed of the world, from which the client finds the biome the player is in.
     pub seed: u32,
+    /// The chat commands the mods of the server add, by name.
+    pub mod_commands: Vec<String>,
 }
 
 impl From<AuthRegisterResponse> for ServerToClientMessage {
