@@ -218,6 +218,7 @@ mod tests {
     use crate::menus::solo::SelectedWorld;
     use crate::network::add_base_netcode;
     use crate::network::establish_authenticated_connection_to_server;
+    use crate::network::init_server_connection;
     use crate::network::launch_local_server_system;
     use crate::network::session::{session_plugin, ConnectError, SessionEnd, SessionOrigin};
     use crate::network::status::StatusProbe;
@@ -683,6 +684,33 @@ mod tests {
         // the world's server is told to stop on a connection of its own
         assert!(!has_connection(&app));
         release.send(()).unwrap();
+    }
+
+    /// The launch of the world ended the session (`WorldBusy`, no socket): the connection that
+    /// follows it in `OnEnter(PreGameLoading)` stands down.
+    #[test]
+    fn no_connection_is_opened_once_the_session_ended() {
+        let mut app = App::new();
+        app.init_resource::<NextState<GameState>>()
+            .insert_resource(CurrentPlayerProfile {
+                id: 17,
+                name: "Tester".into(),
+            })
+            .insert_resource(TargetServer {
+                address: Some("127.0.0.1:9".parse().unwrap()),
+                username: None,
+                session_token: None,
+                state: TargetServerState::Initial,
+            });
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+
+        app.world_mut()
+            .run_system_once(init_server_connection)
+            .unwrap();
+
+        assert!(!has_connection(&app));
     }
 
     #[test]

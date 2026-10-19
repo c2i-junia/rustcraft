@@ -256,7 +256,8 @@ pub fn open_connection(
     Ok((RenetClient::new(get_shared_renet_config()), transport))
 }
 
-/// Connects to the server of the session, or ends it with `NoConnection`.
+/// Connects to the server of the session, or ends it with `NoConnection`. Stands down when the
+/// session already ended this frame: the launch of its world failed.
 pub fn init_server_connection(
     mut commands: Commands,
     target: Res<TargetServer>,
@@ -264,6 +265,9 @@ pub fn init_server_connection(
     origin: Option<Res<SessionOrigin>>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
+    if !matches!(*game_state, NextState::Unchanged) {
+        return;
+    }
     let connection = match target.address {
         Some(addr) => open_connection(addr, current_player_id.id),
         None => Err("no server to connect to".to_string()),
