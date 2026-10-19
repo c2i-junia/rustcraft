@@ -88,7 +88,8 @@ impl VoxelShape {
             | BlockId::SpruceLog
             | BlockId::Cactus
             | BlockId::CraftingTable
-            | BlockId::Furnace => {
+            | BlockId::Furnace
+            | BlockId::Chest => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
                 shape.faces[BOTTOM].texture += "Top";
@@ -298,10 +299,11 @@ mod tests {
     }
 
     #[test]
-    fn crafting_table_and_furnace_have_their_own_top_texture() {
+    fn crafting_table_furnace_and_chest_have_their_own_top_texture() {
         for (id, top, side) in [
             (BlockId::CraftingTable, "CraftingTableTop", "CraftingTable"),
             (BlockId::Furnace, "FurnaceTop", "Furnace"),
+            (BlockId::Chest, "ChestTop", "Chest"),
         ] {
             let shape = shape_of(id);
             assert_eq!(shape.faces[TOP].texture, top);

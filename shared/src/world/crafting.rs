@@ -52,6 +52,26 @@ const RECIPES: &[Recipe] = &[
         output: ItemId::Furnace,
         nb: 1,
     },
+    Recipe {
+        width: 3,
+        cells: &[
+            OAK, OAK, OAK,
+            OAK, None, OAK,
+            OAK, OAK, OAK,
+        ],
+        output: ItemId::Chest,
+        nb: 1,
+    },
+    Recipe {
+        width: 3,
+        cells: &[
+            SPRUCE, SPRUCE, SPRUCE,
+            SPRUCE, None, SPRUCE,
+            SPRUCE, SPRUCE, SPRUCE,
+        ],
+        output: ItemId::Chest,
+        nb: 1,
+    },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -150,6 +170,22 @@ mod tests {
                 COBBLE, COBBLE, COBBLE, COBBLE, None, COBBLE, COBBLE, COBBLE, COBBLE
             ])),
             made(ItemId::Furnace, 1)
+        );
+    }
+
+    #[test]
+    fn a_ring_of_planks_makes_a_chest() {
+        for planks in [OAK, SPRUCE] {
+            assert_eq!(
+                match_recipe(&grid([
+                    planks, planks, planks, planks, None, planks, planks, planks, planks
+                ])),
+                made(ItemId::Chest, 1)
+            );
+        }
+        assert_eq!(
+            match_recipe(&grid([OAK, OAK, OAK, OAK, None, OAK, OAK, OAK, SPRUCE])),
+            None
         );
     }
 

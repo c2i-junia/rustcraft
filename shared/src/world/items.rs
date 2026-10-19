@@ -45,11 +45,12 @@ pub enum ItemId {
     CraftingTable,
     SprucePlanks,
     Furnace,
+    Chest,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 22] = [
+    pub const ALL: [ItemId; 23] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -72,6 +73,7 @@ impl ItemId {
         Self::CraftingTable,
         Self::SprucePlanks,
         Self::Furnace,
+        Self::Chest,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -128,6 +130,7 @@ impl ItemId {
             Self::CraftingTable => ItemType::Block(BlockId::CraftingTable),
             Self::SprucePlanks => ItemType::Block(BlockId::SprucePlanks),
             Self::Furnace => ItemType::Block(BlockId::Furnace),
+            Self::Chest => ItemType::Block(BlockId::Chest),
 
             Self::Snowball | Self::Stick => ItemType::Generic,
         }
@@ -179,6 +182,7 @@ mod tests {
             (ItemId::CraftingTable, 19),
             (ItemId::SprucePlanks, 20),
             (ItemId::Furnace, 21),
+            (ItemId::Chest, 22),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -204,7 +208,8 @@ mod tests {
                 | ItemId::Stick
                 | ItemId::CraftingTable
                 | ItemId::SprucePlanks
-                | ItemId::Furnace => {}
+                | ItemId::Furnace
+                | ItemId::Chest => {}
             }
         }
         for (id, expected) in table {

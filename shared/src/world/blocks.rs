@@ -47,6 +47,7 @@ pub enum BlockId {
     CraftingTable,
     SprucePlanks,
     Furnace,
+    Chest,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -154,6 +155,7 @@ impl BlockId {
             Self::CraftingTable => 10,
             Self::SprucePlanks => 10,
             Self::Furnace => 15,
+            Self::Chest => 10,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -198,6 +200,7 @@ impl BlockId {
             BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
             BlockId::SprucePlanks => vec![(1, ItemId::SprucePlanks, 1)],
             BlockId::Furnace => vec![(1, ItemId::Furnace, 1)],
+            BlockId::Chest => vec![(1, ItemId::Chest, 1)],
             _ => vec![],
         }
     }
@@ -236,7 +239,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 23] = [
+    const ALL_BLOCKS: [BlockId; 24] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -260,6 +263,7 @@ mod tests {
         BlockId::CraftingTable,
         BlockId::SprucePlanks,
         BlockId::Furnace,
+        BlockId::Chest,
     ];
 
     /// Blocks that cannot be broken by hand.
@@ -290,7 +294,8 @@ mod tests {
             | BlockId::Water
             | BlockId::CraftingTable
             | BlockId::SprucePlanks
-            | BlockId::Furnace => {}
+            | BlockId::Furnace
+            | BlockId::Chest => {}
         }
     }
 
@@ -361,6 +366,7 @@ mod tests {
                 BlockId::CraftingTable => 20,
                 BlockId::SprucePlanks => 21,
                 BlockId::Furnace => 22,
+                BlockId::Chest => 23,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -372,6 +378,7 @@ mod tests {
             (BlockId::CraftingTable, ItemId::CraftingTable),
             (BlockId::SprucePlanks, ItemId::SprucePlanks),
             (BlockId::Furnace, ItemId::Furnace),
+            (BlockId::Chest, ItemId::Chest),
         ] {
             assert_eq!(block.get_drops(1), HashMap::from([(item, 1)]));
             assert_eq!(item.get_default_type(), ItemType::Block(block));
