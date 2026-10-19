@@ -8,6 +8,7 @@ use crate::game;
 use crate::input::keyboard::get_bindings;
 use crate::network;
 use crate::state::{GameState, PlayerNameSupplied, TexturePath};
+use crate::ui::menus::player_name::{load_player_name, AskPlayerName, DEFAULT_PLAYER_NAME};
 use crate::ui::menus::{self, solo::SelectedWorld};
 use crate::ui::quit::quit_plugin;
 use crate::ui::settings::load_interface_settings;
@@ -19,7 +20,8 @@ use crate::world::ClientWorldMap;
 pub struct ClientSettings {
     pub game_folder_paths: GameFolderPaths,
     pub texture_path: String,
-    pub player_name: String,
+    /// Overrides the saved name; with neither, the main menu asks for one.
+    pub player_name: Option<String>,
 }
 
 /// Adds the game to an app that already has the engine plugins: the netcode, the resources, and
@@ -30,6 +32,13 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
         texture_path,
         player_name,
     } = settings;
+    let player_name = match player_name.or_else(|| load_player_name(&game_folder_paths)) {
+        Some(name) => name,
+        None => {
+            app.insert_resource(AskPlayerName);
+            DEFAULT_PLAYER_NAME.to_string()
+        }
+    };
     network::add_base_netcode(app);
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))

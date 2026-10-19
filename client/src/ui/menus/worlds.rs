@@ -14,10 +14,10 @@ use shared::world::WorldSeed;
 
 use super::solo::SelectedWorld;
 use super::MenuState;
-use crate::constants::DAY_DURATION_IN_TICKS;
 use crate::network::session::SessionOrigin;
 use crate::state::GameState;
 use crate::ui::theme::{RAISE, THUMBNAIL_COLORS};
+use shared::DAY_DURATION_IN_TICKS;
 
 /// What the menus show of a saved world.
 #[derive(Clone, Debug)]

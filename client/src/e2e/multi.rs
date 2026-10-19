@@ -862,6 +862,43 @@ fn add_server_opens_a_dialog_with_a_free_name_ready_to_replace() {
     assert_eq!(h.value_of::<ServerNameInput>(), "Home");
 }
 
+/// Ctrl+C copies the selection of a field into the clipboard of the system, Ctrl+X cuts it, and
+/// Ctrl+V pastes what the system holds: an address copied from a browser goes into the dialog.
+/// Skipped where there is no clipboard (no display); the clipboard is restored after.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_fields_copy_cut_and_paste_through_the_system_clipboard() {
+    let Ok(mut clipboard) = arboard::Clipboard::new() else {
+        eprintln!("no clipboard on this system: skipped");
+        return;
+    };
+    let before = clipboard.get_text().ok();
+    let mut h = server_list();
+    add_dialog(&mut h);
+    clipboard.set_text("10.0.0.2:8000").unwrap();
+    h.press(KeyCode::Tab);
+    ctrl(&mut h, KeyCode::KeyV);
+    h.frames(1);
+    assert_eq!(h.value_of::<ServerAddressInput>(), "10.0.0.2:8000");
+
+    h.click(&L::role(Role::TextInput, "Name"));
+    ctrl(&mut h, KeyCode::KeyA);
+    h.type_text("Home");
+    ctrl(&mut h, KeyCode::KeyA);
+    ctrl(&mut h, KeyCode::KeyC);
+    h.frames(1);
+    assert_eq!(clipboard.get_text().unwrap(), "Home");
+    assert_eq!(h.value_of::<ServerNameInput>(), "Home");
+    ctrl(&mut h, KeyCode::KeyX);
+    h.frames(1);
+    assert_eq!(clipboard.get_text().unwrap(), "Home");
+    assert_eq!(h.value_of::<ServerNameInput>(), "");
+
+    if let Some(text) = before {
+        let _ = clipboard.set_text(text);
+    }
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn tab_and_enter_add_a_server() {

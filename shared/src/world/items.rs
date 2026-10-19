@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Serialize};
 
 use super::{BlockId, GameElementId};
@@ -47,6 +48,60 @@ pub enum ItemId {
 }
 
 impl ItemId {
+    /// Every item, in the order of the variants.
+    pub const ALL: [ItemId; 22] = [
+        Self::Dirt,
+        Self::Grass,
+        Self::Stone,
+        Self::OakLog,
+        Self::OakPlanks,
+        Self::OakLeaves,
+        Self::Sand,
+        Self::Cactus,
+        Self::Ice,
+        Self::Glass,
+        Self::Bedrock,
+        Self::Dandelion,
+        Self::TallGrass,
+        Self::Poppy,
+        Self::Cobblestone,
+        Self::Snow,
+        Self::Snowball,
+        Self::SpruceLog,
+        Self::Stick,
+        Self::CraftingTable,
+        Self::SprucePlanks,
+        Self::Furnace,
+    ];
+
+    /// The name of the item in the commands, like in Minecraft: `oak_log`.
+    pub fn name(&self) -> String {
+        let mut name = String::new();
+        for c in format!("{self:?}").chars() {
+            if c.is_uppercase() && !name.is_empty() {
+                name.push('_');
+            }
+            name.extend(c.to_lowercase());
+        }
+        name
+    }
+
+    /// The item called `name`: `oak_log` like in Minecraft, in any case, or `OakLog` like the
+    /// variant.
+    pub fn from_name(name: &str) -> Option<ItemId> {
+        let variant =
+            |name: &str| ItemId::deserialize(StrDeserializer::<ValueError>::new(name)).ok();
+        variant(name).or_else(|| {
+            let mut pascal = String::new();
+            for word in name.split('_') {
+                let mut chars = word.chars();
+                pascal.extend(chars.next()?.to_uppercase());
+                pascal.push_str(&chars.as_str().to_lowercase());
+            }
+            variant(&pascal)
+        })
+    }
+
     pub fn get_max_stack(&self) -> u32 {
         64
     }
@@ -161,5 +216,29 @@ mod tests {
                 bump PROTOCOL_ID."
             );
         }
+    }
+
+    #[test]
+    fn all_lists_every_item_in_order() {
+        for (index, item) in ItemId::ALL.iter().enumerate() {
+            assert_eq!(bincode::options().serialize(item).unwrap(), [index as u8]);
+        }
+        // the variant after the last one listed does not exist
+        let past = [ItemId::ALL.len() as u8];
+        assert!(bincode::options().deserialize::<ItemId>(&past).is_err());
+    }
+
+    #[test]
+    fn an_item_is_named_like_in_minecraft_and_found_by_its_name() {
+        assert_eq!(ItemId::OakLog.name(), "oak_log");
+        assert_eq!(ItemId::Dirt.name(), "dirt");
+        for item in ItemId::ALL {
+            assert_eq!(ItemId::from_name(&item.name()), Some(item), "{item:?}");
+        }
+        assert_eq!(ItemId::from_name("OAK_LOG"), Some(ItemId::OakLog));
+        assert_eq!(ItemId::from_name("OakLog"), Some(ItemId::OakLog));
+        // only the names of the items, not anything serde would accept
+        assert_eq!(ItemId::from_name("oak__log"), None);
+        assert_eq!(ItemId::from_name("diamond"), None);
     }
 }

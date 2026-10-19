@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::chat::*;
+use crate::ui::hud::chat_completion::chat_completion_plugin;
 use crate::ui::hud::debug::targeted_block::block_text_update_system;
 use crate::ui::hud::debug::*;
 use crate::ui::hud::fps_counter::{
@@ -19,6 +20,7 @@ use crate::ui::theme::WIREFRAME;
 use bevy::ui::UiSystems;
 
 pub mod chat;
+pub mod chat_completion;
 pub mod debug;
 pub mod fps_counter;
 pub mod hotbar;
@@ -141,4 +143,5 @@ pub fn hud_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Game).and_then(in_gameplay)),
         );
     pause_plugin(app);
+    chat_completion_plugin(app);
 }

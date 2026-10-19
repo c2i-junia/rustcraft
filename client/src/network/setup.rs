@@ -279,6 +279,7 @@ pub fn poll_network_messages(
     mut ev_block_changed: MessageWriter<BlockChanged>,
     mut ev_dropped_items: MessageWriter<DroppedItemsUpdate>,
     mut chat: ResMut<CachedChatConversation>,
+    mut client_time: ResMut<ClientTime>,
 ) {
     update_world_from_network(
         &mut commands,
@@ -291,6 +292,7 @@ pub fn poll_network_messages(
         &mut ev_block_changed,
         &mut ev_dropped_items,
         &mut chat,
+        &mut client_time,
     );
 }
 

@@ -1,5 +1,5 @@
 //! The main menu: the logo, the buttons to the other screens, the card of the last world played,
-//! and a confirmation before quitting.
+//! the player's name, and a confirmation before quitting.
 
 use bevy::{
     input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus, InputFocusVisible},
@@ -10,6 +10,7 @@ use bevy::{
 use shared::GameFolderPaths;
 
 use super::background::menu_background;
+use super::player_name::{change_name_on_activate, PlayerNameButton};
 use super::solo::SelectedWorld;
 use super::worlds::{
     elapsed_since, last_played_world, played_ago, start_world, thumbnail_color, WorldSummary,
@@ -17,11 +18,12 @@ use super::worlds::{
 use super::MenuState;
 use crate::constants::SAVE_PATH;
 use crate::network::leave::QuitRequested;
+use crate::network::CurrentPlayerProfile;
 use crate::state::GameState;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
-    SPACE_XL, SPACE_XXL, TEXT,
+    SPACE_XL, SPACE_XS, SPACE_XXL, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
@@ -87,6 +89,7 @@ pub fn home_setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     paths: Res<GameFolderPaths>,
+    profile: Res<CurrentPlayerProfile>,
 ) {
     let font = load_font(&asset_server);
     let glyph_font = asset_server.load(MONO_FONT_PATH);
@@ -175,6 +178,21 @@ pub fn home_setup(
         }
         None => &MAIN_HINTS,
     };
+    // the version, and under it the player's name, whose text lines up with it
+    let corner = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(SPACE_XXL),
+                right: px(SPACE_XXL),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexEnd,
+                row_gap: px(SPACE_XS),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
     commands.spawn((
         Text(format!("v{}", env!("CARGO_PKG_VERSION"))),
         TextFont {
@@ -183,14 +201,17 @@ pub fn home_setup(
             ..default()
         },
         TextColor(MUTED),
-        Node {
-            position_type: PositionType::Absolute,
-            top: px(SPACE_XXL),
-            right: px(SPACE_XXL),
-            ..default()
-        },
-        ChildOf(root),
+        ChildOf(corner),
     ));
+    commands
+        .spawn((
+            button(&profile.name, ButtonVariant::Ghost, font.clone()),
+            PlayerNameButton,
+            observe(change_name_on_activate),
+            ChildOf(corner),
+        ))
+        .entry::<Node>()
+        .and_modify(|mut node| node.margin = UiRect::right(px(-SPACE_L - BEVEL_WIDTH)));
     commands.spawn((hint_bar(hints, font, glyph_font), ChildOf(root)));
 }
 

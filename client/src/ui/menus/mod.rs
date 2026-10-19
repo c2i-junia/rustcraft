@@ -4,6 +4,7 @@ pub mod connecting;
 pub mod home;
 pub mod multi;
 pub mod pause;
+pub mod player_name;
 pub mod servers;
 pub mod settings;
 pub mod solo;
@@ -12,6 +13,7 @@ pub mod worlds;
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 pub use home::*;
+use player_name::{ask_player_name_on_first_launch, AskPlayerName};
 
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
@@ -42,7 +44,15 @@ pub fn menu_plugin(app: &mut App) {
     app.init_state::<MenuState>()
         .add_systems(OnEnter(GameState::Menu), menu_setup)
         // Systems to handle the main menu screen
-        .add_systems(OnEnter(MenuState::Main), home_setup)
+        .add_systems(
+            OnEnter(MenuState::Main),
+            // after the main menu, whose focus the dialog gives back when it closes
+            (
+                home_setup,
+                ask_player_name_on_first_launch.run_if(resource_exists::<AskPlayerName>),
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             open_quit_dialog_on_escape

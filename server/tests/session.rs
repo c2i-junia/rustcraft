@@ -20,8 +20,9 @@ use shared::world::{
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
-    ChannelResolvableExt, GameFolderPaths, GameServerConfig, MAX_INVENTORY_SLOTS, PROTOCOL_ID,
-    STC_AUTH_CHANNEL, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
+    ChannelResolvableExt, GameFolderPaths, GameServerConfig, DAY_DURATION_IN_TICKS,
+    MAX_INVENTORY_SLOTS, MIDNIGHT_IN_DAY, NOON_IN_DAY, PROTOCOL_ID, STC_AUTH_CHANNEL,
+    STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL,
 };
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::thread::{self, JoinHandle};
@@ -1585,4 +1586,93 @@ fn the_status_port_counts_the_players_and_ignores_garbage() {
     wait_for_status(status_addr, 43, "counting the player", |reply| {
         reply.players == 1
     });
+}
+
+/// Waits for the answer of the server to a command.
+fn command_answer(client: &mut TestClient, content: &str) {
+    let answer = received_chat(client, content);
+    assert_eq!(answer.author, "Server");
+}
+
+fn time_set(client: &mut TestClient) -> u64 {
+    client.wait_for("TimeSet", |m| match m {
+        ServerToClientMessage::TimeSet(tick) => Some(*tick),
+        _ => None,
+    })
+}
+
+#[test]
+fn time_set_moves_every_client_to_midnight_or_noon_and_answers_its_author_only() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    authenticate(&mut alice, "alice");
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    authenticate(&mut bob, "bob");
+
+    alice.send(chat_message("/time set night"));
+    let night = time_set(&mut alice);
+    assert_eq!(night % DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY);
+    assert_eq!(time_set(&mut bob), night);
+    command_answer(&mut alice, "Time set to night");
+
+    alice.send(chat_message("/time set day"));
+    let day = time_set(&mut alice);
+    assert_eq!(day % DAY_DURATION_IN_TICKS, NOON_IN_DAY);
+    assert!(day > night, "the clock went back from {night} to {day}");
+    assert_eq!(time_set(&mut bob), day);
+    command_answer(&mut alice, "Time set to day");
+
+    alice.send(chat_message("/time set noon"));
+    command_answer(&mut alice, "Usage: /time set <day|night>");
+
+    // The chat is ordered: once this message arrived, the earlier ones would have too
+    alice.send(chat_message("hello bob"));
+    received_chat(&mut alice, "hello bob");
+    received_chat(&mut bob, "hello bob");
+    assert!(
+        !bob.inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::ChatMessage(_))),
+        "bob received a command or its answer: {:?}",
+        bob.inbox
+    );
+
+    alice.send(ClientToServerMessage::Exit);
+    alice.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
+fn give_adds_the_items_to_the_inventory_of_its_author() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::Dirt, 5));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    client.send(chat_message("/give diamond 1"));
+    command_answer(&mut client, "Unknown item: diamond");
+    client.send(chat_message("/give dirt 70"));
+    command_answer(&mut client, "Gave 70 Dirt");
+    let inventory = send_inventory_actions(&mut client, 1, vec![]);
+    let mut expected = Inventory::new();
+    expected.inner.insert(0, stack(ItemId::Dirt, 64));
+    expected.inner.insert(1, stack(ItemId::Dirt, 11));
+    assert_eq!(inventory, expected);
+
+    // What does not fit is lost, and the answer says so
+    let room = (MAX_INVENTORY_SLOTS - 2) * 64;
+    client.send(chat_message("/give stone 99999"));
+    command_answer(
+        &mut client,
+        &format!(
+            "Gave {room} Stone, {} did not fit in the inventory",
+            99999 - room
+        ),
+    );
+    let inventory = send_inventory_actions(&mut client, 2, vec![]);
+    for slot in 2..MAX_INVENTORY_SLOTS {
+        expected.inner.insert(slot, stack(ItemId::Stone, 64));
+    }
+    assert_eq!(inventory, expected);
 }

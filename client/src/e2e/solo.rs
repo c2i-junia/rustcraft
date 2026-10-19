@@ -18,7 +18,7 @@ use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::{ctrl_n, main_menu_with};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH};
+use crate::constants::SAVE_PATH;
 use crate::state::GameState;
 use crate::ui::menus::solo::dialogs::DELETE_PERMISSION;
 use crate::ui::menus::solo::dialogs::{WorldNameInput, WorldSeedInput, NEW_WORLD_TITLE};
@@ -31,6 +31,7 @@ use crate::ui::menus::MenuState;
 use crate::ui::theme::RAISE_HOVER;
 use crate::ui::widgets::hints::HintBar;
 use crate::ui::widgets::list::cards_of;
+use shared::DAY_DURATION_IN_TICKS;
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);

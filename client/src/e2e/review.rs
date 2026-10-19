@@ -21,7 +21,7 @@ use super::locator::Locator as L;
 use super::multi::wait_for_answers;
 use super::seed::{fixed_status, GameFolder};
 use super::settings::key_slot;
-use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH, SERVER_LIST_SAVE_NAME};
+use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::input::keyboard::default_bindings;
 use crate::network::address::{AddressResolver, ServerAddress};
 use crate::network::leave::Leaving;
@@ -40,6 +40,7 @@ use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::worlds::WORLD_EXISTS;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 use crate::ui::quit::spawn_quitting_card;
+use shared::DAY_DURATION_IN_TICKS;
 
 /// The resolutions the screens are reviewed at: the smallest, the design height, and `UiScale`
 /// 1.5 and 2.

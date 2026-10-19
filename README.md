@@ -34,7 +34,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
 - World saving and loading.
-- In-game chat.
+- In-game chat, with commands open to every player: `/time set <day|night>` and `/give <item> <count>` (e.g. `/give oak_log 64`), completed as they are typed (Tab, ↑↓).
 - Customizable keybindings, and a render distance set in Settings > Video or with O and P.
 
 <br>
@@ -139,10 +139,10 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 - **"…" runs another version**: join with the same version of Rustcraft as the server.
 - **"…" is full**: the server has no room for another player; try again later.
 - **"…" refused you**: the server closed the connection before letting you in, most often
-  because a player with your name is already on it. Start the game with another name:
-  `rustcraft --player-name <name>`.
+  because a player with your name is already on it. Change your name with the button under the
+  version on the main menu, or start the game with another one: `rustcraft --player-name <name>`.
 - **Your name is not accepted**: a player name has 1 to 32 characters and no control
-  characters. Start the game with another `--player-name`.
+  characters. Change it on the main menu, or start the game with another `--player-name`.
 - **Connection to "…" lost**, **"…" stopped**: the server stopped answering, or shut down.
   Check your network, or ask whoever runs the server, then try again.
 - **Cannot open "…"** (a world): the world could not be loaded, and the card gives the reason,
@@ -156,6 +156,8 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per chunk and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
 The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance).
+
+The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, changes it. `--player-name <name>` plays under another name for one run, without saving it. Each world keeps a player's position and inventory under their name: a new name starts afresh.
 
 <br>
 

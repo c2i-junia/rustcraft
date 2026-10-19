@@ -40,6 +40,8 @@ pub enum ServerToClientMessage {
     /// forgets it sent them, and sends them again once the player comes back.
     ChunkUnloads(Vec<IVec3>),
     DroppedItems(DroppedItemsUpdate),
+    /// The server's clock jumped to this tick (`/time set`).
+    TimeSet(u64),
 }
 
 #[cfg(test)]
@@ -138,6 +140,7 @@ mod tests {
                 ServerToClientMessage::DroppedItems(DroppedItemsUpdate::default()),
                 8,
             ),
+            (ServerToClientMessage::TimeSet(0), 9),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

@@ -10,6 +10,7 @@ use shared::messages::{
 use shared::world::SIX_OFFSETS;
 use shared::STC_AUTH_CHANNEL;
 
+use crate::world::time::ClientTime;
 use crate::world::ClientWorldMap;
 
 use crate::world::{BlockChanged, WorldRenderRequestUpdateEvent};
@@ -28,6 +29,7 @@ pub fn update_world_from_network(
     ev_block_changed: &mut MessageWriter<BlockChanged>,
     ev_dropped_items: &mut MessageWriter<DroppedItemsUpdate>,
     chat: &mut ResMut<CachedChatConversation>,
+    client_time: &mut ResMut<ClientTime>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
         match msg {
@@ -100,6 +102,9 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::ChatMessage(message) => {
                 chat.unread.push(message);
+            }
+            ServerToClientMessage::TimeSet(tick) => {
+                client_time.0 = tick;
             }
         }
     }

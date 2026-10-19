@@ -4,7 +4,9 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-bevy = { version = "=0.19.1", features = ["serialize"] }
+# system_clipboard: the text fields copy and paste through the clipboard of the system, not one of
+# their own
+bevy = { version = "=0.19.1", features = ["serialize", "system_clipboard"] }
 # The accessibility roles of the widgets, which Bevy does not re-export
 accesskit = "0.24"
 rand = "0.8.5"
@@ -37,3 +39,5 @@ shared = { path = "../shared", features = ["test-helpers"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"
 serde_json = "1"
+# The version Bevy uses, to read and write the clipboard of the system in the tests
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }

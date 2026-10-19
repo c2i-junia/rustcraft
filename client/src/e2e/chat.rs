@@ -17,6 +17,7 @@ use super::seed::GameFolder;
 use crate::network::CachedChatConversation;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT, CHAT_WIDTH};
+use crate::ui::hud::chat_completion::{Ghost, SuggestionPanel};
 use crate::ui::hud::debug::{DebugOptions, HudRoot};
 use crate::ui::hud::fps_counter::FpsCounter;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
@@ -186,12 +187,15 @@ fn up_and_down_recall_sent_messages_and_a_slash_opens_the_chat() {
     h.type_on(KeyCode::Digit7, '/');
     assert!(h.is_visible(&L::marker::<ChatRoot>()));
     assert_eq!(h.value_of::<ChatInput>(), "/");
+    // the first Escape puts the suggestions of the commands away, the second closes the chat
+    h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     // Shift let go first: AZERTY releases its Shift+`:` as `:`
     h.key_down_on(KeyCode::Period, '/');
     h.key_up_on(KeyCode::Period, ':');
     assert!(h.is_visible(&L::marker::<ChatRoot>()));
     assert_eq!(h.value_of::<ChatInput>(), "/");
+    h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.type_on(KeyCode::Slash, '!');
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
@@ -482,4 +486,96 @@ fn clicking_outside_the_chat_closes_it() {
 
     h.press(KeyCode::KeyE);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+}
+
+impl Harness {
+    /// The grey text after the caret of the chat field, when it shows.
+    fn ghost(&mut self) -> Option<String> {
+        if !self.is_visible(&L::marker::<Ghost>()) {
+            return None;
+        }
+        let world = self.world_mut();
+        let text = world
+            .query_filtered::<&Text, With<Ghost>>()
+            .single(world)
+            .unwrap();
+        Some(text.0.clone())
+    }
+
+    /// Whether the panel of the suggestions shows a row reading `row`.
+    fn suggests(&mut self, row: &str) -> bool {
+        self.is_visible(&L::text(row).within(L::marker::<SuggestionPanel>()))
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn commands_are_completed_as_they_are_typed() {
+    let mut h = enter_world(GameFolder::new().with_world("Complete"), "Complete");
+
+    // a slash lists the commands with their arguments
+    h.type_text("/");
+    assert!(h.is_visible(&L::marker::<SuggestionPanel>()));
+    assert!(h.suggests("give <item> <count>"));
+    assert!(h.suggests("time set <day|night>"));
+    h.frames(10);
+    h.snapshot("slash");
+
+    // the rest of the first suggestion shows after the caret, and Tab takes it with a space
+    h.type_text("g");
+    assert_eq!(h.ghost().as_deref(), Some("ive"));
+    h.press(KeyCode::Tab);
+    assert_eq!(h.value_of::<ChatInput>(), "/give ");
+    assert_eq!(h.focus_label().as_deref(), Some("Chat"));
+    assert!(h.is_visible(&L::text("/give <item> <count>")));
+    assert_eq!(h.ghost().as_deref(), Some("<item> <count>"));
+    h.frames(10);
+    h.snapshot("items");
+
+    // Down chooses the next one, which Tab takes
+    h.type_text("oa");
+    assert!(h.suggests("oak_leaves"));
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(h.ghost().as_deref(), Some("k_log"));
+    h.frames(10);
+    h.snapshot("chosen");
+    h.press(KeyCode::Tab);
+    assert_eq!(h.value_of::<ChatInput>(), "/give oak_log ");
+    assert_eq!(h.ghost().as_deref(), Some("<count>"));
+    h.type_text("5");
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("Gave 5 OakLog"), SERVER);
+
+    // a command recalled shows no suggestions: the arrows walk the sent messages, Escape closes
+    h.press(KeyCode::KeyT);
+    h.press(KeyCode::ArrowUp);
+    assert_eq!(h.value_of::<ChatInput>(), "/give oak_log 5");
+    assert!(!h.is_visible(&L::marker::<SuggestionPanel>()));
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+
+    // a wrong line is told before it is sent, and Escape puts the panel away first
+    h.type_text("/give diamond");
+    assert!(h.is_visible(&L::text("Unknown item: diamond")));
+    assert_eq!(h.ghost(), None);
+    h.frames(10);
+    h.snapshot("error");
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<SuggestionPanel>()));
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    h.press(KeyCode::Escape);
+    assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+
+    // a click takes a suggestion
+    h.type_text("/t");
+    h.click(&L::text("time set <day|night>"));
+    assert_eq!(h.value_of::<ChatInput>(), "/time ");
+    assert!(h.is_visible(&L::marker::<ChatRoot>()));
+    h.press(KeyCode::Tab);
+    h.type_text("n");
+    h.press(KeyCode::Tab);
+    assert_eq!(h.value_of::<ChatInput>(), "/time set night");
+    assert!(!h.is_visible(&L::marker::<SuggestionPanel>()) || !h.suggests("night"));
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text_containing("Time set to night"), SERVER);
 }
