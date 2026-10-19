@@ -40,6 +40,7 @@ use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::{create_all_atlases, setup_materials, AtlasHandles, MaterialResource};
 
+/// The size of the window the goldens are drawn in.
 pub const WIDTH: u32 = 1024;
 pub const HEIGHT: u32 = 768;
 

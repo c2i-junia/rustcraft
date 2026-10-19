@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use shared::players::ViewMode;
 use shared::world::{raycast, FaceDirectionExt};
 
+use crate::ui::theme::DANGER;
 use crate::world::ClientWorldMap;
 
 use super::DebugOptions;
@@ -41,6 +42,6 @@ pub fn raycast_debug_update_system(
         let start = raycast_response.position.as_vec3();
         let end = start + normal;
 
-        gizmos.line(start, end, Color::srgb(1.0, 0.0, 0.0));
+        gizmos.line(start, end, DANGER);
     }
 }

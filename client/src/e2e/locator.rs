@@ -3,7 +3,9 @@
 use std::time::{Duration, Instant};
 
 use accesskit::Role;
-use bevy::{a11y::AccessibilityNode, prelude::*, ui::UiGlobalTransform};
+use bevy::{
+    a11y::AccessibilityNode, prelude::*, ui::UiGlobalTransform, ui_widgets::Button as UiButton,
+};
 
 use super::harness::Harness;
 use crate::ui::hud::InventoryCell;
@@ -244,7 +246,7 @@ fn row_of(world: &World, text: Entity) -> Option<Entity> {
 /// Whether `entity` or something under it is a `Text` or a `Button`.
 fn has_text_or_button(world: &World, entity: Entity) -> bool {
     world.get::<Text>(entity).is_some()
-        || world.get::<Button>(entity).is_some()
+        || world.get::<UiButton>(entity).is_some()
         || world
             .get::<Children>(entity)
             .is_some_and(|c| c.iter().any(|child| has_text_or_button(world, child)))

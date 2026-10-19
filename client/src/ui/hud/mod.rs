@@ -1,4 +1,3 @@
-use bevy::color::palettes::basic::WHITE;
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
@@ -12,6 +11,7 @@ use crate::ui::hud::hotbar::{
 };
 use crate::ui::hud::reticle::spawn_reticle;
 use crate::ui::menus::pause::pause_plugin;
+use crate::ui::theme::WIREFRAME;
 use bevy::ui::UiSystems;
 
 pub mod chat;
@@ -37,7 +37,7 @@ pub fn hud_plugin(app: &mut App) {
             global: false,
             // Controls the default color of all wireframes. Used as the default color for global wireframes.
             // Can be changed per mesh using the `WireframeColor` component.
-            default_color: WHITE.into(),
+            default_color: WIREFRAME,
             ..default()
         })
         .insert_resource(UIMode::Closed)

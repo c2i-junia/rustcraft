@@ -95,7 +95,13 @@ paru -S rustcraft
 |                   | Take half / place one  | Space                       |
 |                   | Move to the backpack / hotbar | Shift+Enter          |
 |                   |                        |                             |
-| **Miscellaneous** | Open Chat             | T                           |
+| **Chat**          | Open the chat         | T                           |
+|                   | Open the chat with a slash | /                      |
+|                   | Send / close           | Enter / Escape              |
+|                   | Recall sent messages   | ↑ / ↓ in the chat           |
+|                   | Scroll the chat        | PageUp / PageDown, mouse wheel |
+|                   |                        |                             |
+| **Miscellaneous** | Game menu             | Escape                      |
 |                   | Reload Chunks (rebuild their meshes) | R            |
 |                   | Toggle debug overlay  | F3                          |
 |                   | Toggle Perspective    | F5                          |
@@ -104,7 +110,6 @@ paru -S rustcraft
 |                   | Toggle Raycast Debug  | F7                          |
 |                   | Decrease Mob Draw Distance | O                      |
 |                   | Increase Mob Draw Distance | P                      |
-|                   | Pause / back          | Escape                      |
 
 <br>
 
@@ -143,7 +148,7 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 
 # Saves
 
-Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per chunk and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
+Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per chunk and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
 The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron` and `interface.ron` (UI scale).
 

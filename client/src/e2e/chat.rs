@@ -17,7 +17,7 @@ use super::seed::GameFolder;
 use crate::network::CachedChatConversation;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT};
-use crate::ui::hud::debug::HudRoot;
+use crate::ui::hud::debug::{DebugOptions, HudRoot};
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{InventoryRoot, UIMode};
 use crate::ui::theme::SPACE_S;
@@ -65,7 +65,7 @@ impl Harness {
     }
 
     /// Has the server send the messages `line <index>` of `Bot`, one for each index.
-    fn receive_chat(&mut self, indices: std::ops::Range<usize>) {
+    pub(super) fn receive_chat(&mut self, indices: std::ops::Range<usize>) {
         let now = unix_time_ms();
         self.world_mut()
             .resource_mut::<CachedChatConversation>()
@@ -391,8 +391,9 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     // Neither the digit, the debug keys nor the wheel reach the game
     h.type_text("3");
-    h.press(KeyCode::F3);
-    h.press(KeyCode::F6);
+    for key in [KeyCode::F3, KeyCode::F4, KeyCode::F6, KeyCode::F7] {
+        h.press(key);
+    }
     h.scroll(-1.);
     assert_eq!(
         h.world_mut()
@@ -404,6 +405,7 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     );
     assert!(!h.is_visible(&L::marker::<HudRoot>()));
     assert!(!h.world().resource::<WireframeConfig>().global);
+    assert!(!h.world().resource::<DebugOptions>().any_enabled());
     assert_eq!(h.value_of::<ChatInput>(), "e3");
 
     // Escape closes the chat, and the pause menu does not open
@@ -420,10 +422,12 @@ fn typing_in_the_chat_keeps_the_game_keys_quiet() {
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     h.press(KeyCode::Escape);
     assert!(h.is_visible(&L::role(Role::Button, "Back to game")));
-    h.press(KeyCode::F3);
-    h.press(KeyCode::F6);
+    for key in [KeyCode::F3, KeyCode::F4, KeyCode::F6, KeyCode::F7] {
+        h.press(key);
+    }
     assert!(!h.is_visible(&L::marker::<HudRoot>()));
     assert!(!h.world().resource::<WireframeConfig>().global);
+    assert!(!h.world().resource::<DebugOptions>().any_enabled());
     h.press(KeyCode::Escape);
     h.press(KeyCode::F3);
     assert!(h.is_visible(&L::marker::<HudRoot>()));

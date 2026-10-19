@@ -1,5 +1,6 @@
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
+use crate::ui::theme::WIREFRAME;
 use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
 use bevy::mesh::PrimitiveTopology;
@@ -31,7 +32,7 @@ pub fn setup_chunk_ghost(
             Vec3::ZERO,
         ))),
         MeshMaterial3d::from(materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 1.0, 1.0),
+            base_color: WIREFRAME,
             unlit: true,
             ..default()
         })),

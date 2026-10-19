@@ -1,12 +1,13 @@
-//! Snapshots of every screen at three resolutions, for a human to review.
+//! Snapshots of every screen at four resolutions, for a human to review.
 
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use accesskit::Role;
+use bevy::asset::AssetServer;
 use bevy::input::keyboard::KeyCode;
 use bevy::math::Vec2;
 use bevy::time::{Real, Time};
@@ -23,20 +24,25 @@ use super::settings::key_slot;
 use crate::constants::{DAY_DURATION_IN_TICKS, SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::input::keyboard::default_bindings;
 use crate::network::address::{AddressResolver, ServerAddress};
+use crate::network::leave::Leaving;
 use crate::network::session::{ConnectStep, ConnectWatch, SessionOrigin};
 use crate::network::status::{ServerStatus, StatusProbe};
 use crate::network::{CurrentPlayerProfile, LocalServerHandle, TargetServer};
 use crate::state::{GameState, KeyMap};
+use crate::ui::hud::UIMode;
 use crate::ui::menus::connecting::{ConnectingCard, BLINK};
 use crate::ui::menus::multi::dialogs::ADD_SERVER_TITLE;
 use crate::ui::menus::multi::ServerDetail;
+use crate::ui::menus::pause::WORLD_SAVED;
 use crate::ui::menus::servers::SERVER_EXISTS;
 use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::worlds::WORLD_EXISTS;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
+use crate::ui::quit::spawn_quitting_card;
 
-/// The resolutions the screens are reviewed at.
-const RESOLUTIONS: [(u32, u32); 3] = [(800, 600), (1280, 720), (1920, 1080)];
+/// The resolutions the screens are reviewed at: the smallest, the design height, and `UiScale`
+/// 1.5 and 2.
+const RESOLUTIONS: [(u32, u32); 4] = [(800, 600), (1280, 720), (1920, 1080), (2560, 1440)];
 
 /// A day, in seconds.
 const DAY: u64 = 24 * 60 * 60;
@@ -98,17 +104,23 @@ fn menus_folder() -> GameFolder {
 }
 
 impl Harness {
-    /// Runs frames until every image of the UI is loaded, then saves the snapshot `name`.
+    /// Runs frames until every image of the UI is loaded, checks that every control shows the
+    /// focus, then saves the snapshot `name`.
+    #[track_caller]
     fn settled_snapshot(&mut self, name: &str) {
         self.wait_for_ui_images();
+        self.assert_focus_rings();
         self.snapshot(name);
     }
 
-    /// Lets the game draw a few frames, then saves the snapshot `name`. The atlas of the items
-    /// is built at runtime and never counts as loaded, unlike the images of the menus, so
-    /// `wait_for_ui_images` would time out: only the frames are waited for.
+    /// Lets the game draw a few frames, checks that every control shows the focus, then saves the
+    /// snapshot `name`. The atlas of the items is built at runtime and never counts as loaded,
+    /// unlike the images of the menus, so `wait_for_ui_images` would time out: only the frames
+    /// are waited for.
+    #[track_caller]
     fn snapshot_in_game(&mut self, name: &str) {
         self.frames(10);
+        self.assert_focus_rings();
         self.snapshot(name);
     }
 
@@ -452,18 +464,44 @@ fn every_screen_at_three_resolutions() {
         h.click(&L::cell(11));
         h.press(KeyCode::KeyE);
 
-        h.press(KeyCode::KeyT);
-        h.type_text("hello");
-        h.snapshot_in_game("chat");
-        h.press(KeyCode::Escape);
-
         h.press(KeyCode::Escape);
         h.wait_for(&L::role(Role::Button, "Back to game"), SCREEN);
         h.snapshot_in_game("pause");
         h.click(&L::text("Settings"));
         h.wait_for(&L::text("Move forward"), SCREEN);
         h.snapshot_in_game("settings_in_game");
+        // the focus back on Settings, with its ring
         h.press(KeyCode::Escape);
+        h.wait_for(&L::role(Role::Button, "Back to game"), SCREEN);
+        h.snapshot_in_game("pause_after_settings");
+        h.click(&L::role(Role::Button, "Save now"));
+        h.wait_for(&L::role(Role::Status, WORLD_SAVED), SERVER);
+        h.snapshot_in_game("toast_saved");
+        // leaving, as Save and quit to title shows it, without leaving
+        h.world_mut().insert_resource(Leaving {
+            since: Instant::now(),
+        });
+        h.snapshot_in_game("pause_saving");
+        h.world_mut().remove_resource::<Leaving>();
         h.press(KeyCode::Escape);
+        h.wait_until("the pause menu closed", SCREEN, |w| {
+            *w.resource::<UIMode>() == UIMode::Closed
+        });
+
+        h.receive_chat(0..30);
+        h.press(KeyCode::KeyT);
+        h.type_text("hello");
+        h.snapshot_in_game("chat");
+        h.press(KeyCode::Escape);
+        h.snapshot_in_game("chat_recent");
+        h.type_text("/");
+        h.snapshot_in_game("chat_slash");
+        h.press(KeyCode::Escape);
+
+        let assets = h.world().resource::<AssetServer>().clone();
+        let card = spawn_quitting_card(&mut h.world_mut().commands(), &assets);
+        h.world_mut().flush();
+        h.snapshot_in_game("quitting");
+        h.world_mut().despawn(card);
     }
 }

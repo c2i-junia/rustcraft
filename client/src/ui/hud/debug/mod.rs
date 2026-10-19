@@ -29,6 +29,12 @@ pub struct DebugOptions {
 }
 
 impl DebugOptions {
+    /// Whether the chunk (F4) or the raycast (F7) debug is on.
+    #[cfg(test)]
+    pub fn any_enabled(&self) -> bool {
+        self.is_chunk_debug_mode_enabled || self.is_raycast_debug_mode_enabled
+    }
+
     pub fn toggle_chunk_debug_mode(&mut self) {
         self.is_chunk_debug_mode_enabled = !self.is_chunk_debug_mode_enabled;
     }

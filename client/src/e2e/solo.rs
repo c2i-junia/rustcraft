@@ -232,6 +232,8 @@ fn delete_asks_first_and_the_focus_moves_to_the_next_world() {
     h.wait_for(&dialog, SCREEN);
     assert!(h.is_visible(&L::text("Its 1 KB of saves will be deleted for good.")));
     assert_eq!(h.focus_label().as_deref(), Some("Cancel"));
+    // opened by a key, after a click: the ring shows where Enter goes
+    assert!(h.world().resource::<InputFocusVisible>().0);
 
     h.press(KeyCode::Escape);
     assert!(!h.is_visible(&dialog));

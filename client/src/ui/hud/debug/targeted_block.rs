@@ -1,5 +1,6 @@
 use crate::constants::INTERACTION_DISTANCE;
 use crate::player::CurrentPlayerMarker;
+use crate::ui::theme::TEXT;
 use crate::world::ClientWorldMap;
 use bevy::prelude::*;
 use shared::players::ViewMode;
@@ -16,7 +17,7 @@ pub fn block_text_update_system(
     camera_query: Query<&Transform, With<Camera>>,
     view_mode: Res<ViewMode>,
 ) {
-    let mut col = Color::srgb(1.0, 1.0, 1.0);
+    let mut col = TEXT;
     let mut txt = "<none>".to_string();
 
     let Ok(camera_transform) = camera_query.single() else {
@@ -41,7 +42,7 @@ pub fn block_text_update_system(
         // Check if block is close enough to the player
         let block_pos = Vec3::new(pos.x as f32, pos.y as f32, pos.z as f32);
         if (block_pos - *player_translation).length() < INTERACTION_DISTANCE {
-            col = Color::WHITE;
+            col = TEXT;
             txt = format!("{:?} pos = ({}, {}, {})", res.block, pos.x, pos.y, pos.z);
         }
     }

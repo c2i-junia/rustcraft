@@ -162,8 +162,8 @@ impl Harness {
         self.frames(1);
     }
 
-    /// Moves the cursor to `position`, in physical pixels: for the `Interaction` of the UI, on the
-    /// window, and for picking, as a window event in logical pixels.
+    /// Moves the cursor to `position`, in physical pixels: on the window, for what follows the
+    /// cursor (the held stack, the tooltips), and for picking, as a window event in logical pixels.
     pub(super) fn move_cursor(&mut self, position: Vec2) {
         let window = self.window();
         let mut state = self.world_mut().get_mut::<Window>(window).unwrap();

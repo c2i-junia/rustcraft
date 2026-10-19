@@ -1,8 +1,5 @@
 //! The design tokens of the UI: colours, sizes, font sizes and spacings.
 
-// The tokens are used as the widgets and screens are rebuilt on them
-#![allow(dead_code)]
-
 use bevy::prelude::*;
 
 /// Background of the panels, opaque: a translucent panel shows the world through, as the
@@ -28,6 +25,22 @@ pub const DANGER_HOVER: Color = Color::srgb_u8(0xEA, 0x72, 0x5C);
 pub const DANGER: Color = Color::srgb_u8(0xE3, 0x59, 0x3F);
 pub const TEXT: Color = Color::srgb_u8(0xEF, 0xE9, 0xDA);
 pub const MUTED: Color = Color::srgb_u8(0x9A, 0xA2, 0xAE);
+/// The bars of the reticle, over their `BEVEL_LO` outline.
+pub const RETICLE: Color = Color::WHITE;
+/// The wireframes of the debug overlay, drawn over the world.
+pub const WIREFRAME: Color = Color::WHITE;
+/// The tint of the dirt texture behind the menus: about 45 % of its brightness on screen, so
+/// that the text over it reads. The tint multiplies in linear space, hence more than 0.45 in sRGB.
+pub const DIRT_TINT: Color = Color::srgb(0.6, 0.6, 0.6);
+/// The earthy colours a world's thumbnail takes: grass, dirt, sand, stone, clay and pine.
+pub const THUMBNAIL_COLORS: [Color; 6] = [
+    Color::srgb_u8(0x5D, 0x8A, 0x3A),
+    Color::srgb_u8(0x86, 0x60, 0x3A),
+    Color::srgb_u8(0xC9, 0xB2, 0x7A),
+    Color::srgb_u8(0x7D, 0x7F, 0x82),
+    Color::srgb_u8(0xA0, 0x58, 0x3A),
+    Color::srgb_u8(0x2F, 0x5D, 0x50),
+];
 
 pub const FOCUS_RING_WIDTH: f32 = 3.0;
 pub const FOCUS_RING_OFFSET: f32 = 2.0;

@@ -18,6 +18,9 @@ pub struct HintBar;
 
 /// The height of the bar of key hints: screens keep their content clear of it.
 pub const HINT_BAR_HEIGHT: f32 = 44.0;
+/// The room above and below the label of a key cap, less than `SPACE_XS` so that the caps stay
+/// within the bar.
+const KEY_CAP_PADDING_Y: f32 = 2.0;
 
 /// Whether `keys` has an arrow (U+2190 to U+2193), which the sans font lacks: the key cap then
 /// uses the glyph font.
@@ -82,7 +85,7 @@ pub fn key_cap(keys: &str, font: Handle<Font>, glyph_font: Handle<Font>) -> impl
     (
         Node {
             border: UiRect::all(px(BEVEL_WIDTH)),
-            padding: UiRect::axes(px(SPACE_XS), px(2)),
+            padding: UiRect::axes(px(SPACE_XS), px(KEY_CAP_PADDING_Y)),
             ..default()
         },
         BackgroundColor(SLOT),

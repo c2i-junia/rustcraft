@@ -4,7 +4,7 @@ use super::InventoryRoot;
 use crate::state::GameState;
 use crate::ui::menus::pause::{pause_open, PauseMenu};
 use crate::ui::menus::settings::{settings_open, SettingsRoot};
-use crate::ui::theme::BEVEL_LO;
+use crate::ui::theme::{BEVEL_LO, RETICLE};
 
 /// The root of the reticle.
 #[derive(Component)]
@@ -50,8 +50,8 @@ pub fn spawn_reticle(mut commands: Commands) {
             // The outline first, so that the bars are drawn over it
             parent.spawn(bar(22.0, 4.0, BEVEL_LO));
             parent.spawn(bar(4.0, 22.0, BEVEL_LO));
-            parent.spawn(bar(20.0, 2.0, Color::WHITE));
-            parent.spawn(bar(2.0, 20.0, Color::WHITE));
+            parent.spawn(bar(20.0, 2.0, RETICLE));
+            parent.spawn(bar(2.0, 20.0, RETICLE));
         });
 }
 

@@ -9,7 +9,7 @@ use accesskit::{NodeId, Role};
 use bevy::{
     a11y::AccessibilityNode,
     ecs::entity::Entities,
-    input_focus::{tab_navigation::TabGroup, AutoFocus, FocusCause, InputFocus},
+    input_focus::{tab_navigation::TabGroup, AutoFocus, FocusCause, InputFocus, InputFocusVisible},
     prelude::*,
     ui_widgets::{observe, Activate},
 };
@@ -353,12 +353,15 @@ fn settings_escape(
 }
 
 /// Closes the settings asked to close: from the main menu, back to it; in game, back to the
-/// pause menu, which stayed open beneath them, the focus on the button that opened them.
+/// pause menu, which stayed open beneath them, the focus on the button that opened them, with
+/// its ring when a key closed them.
 pub(crate) fn close_settings(
     roots: Query<(Entity, &SettingsRoot), With<CloseSettings>>,
     entities: &Entities,
+    keys: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<NextState<MenuState>>,
     mut focus: ResMut<InputFocus>,
+    mut visible: ResMut<InputFocusVisible>,
     mut commands: Commands,
 ) {
     for (root, settings) in &roots {
@@ -368,7 +371,12 @@ pub(crate) fn close_settings(
             SettingsContext::Game => {
                 commands.entity(root).despawn();
                 match settings.restore_focus.filter(|&e| entities.contains(e)) {
-                    Some(opener) => focus.set(opener, FocusCause::Navigated),
+                    Some(opener) => {
+                        focus.set(opener, FocusCause::Navigated);
+                        if keys.get_just_pressed().next().is_some() {
+                            visible.0 = true;
+                        }
+                    }
                     None => focus.clear(),
                 }
             }
@@ -386,6 +394,8 @@ mod tests {
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .init_state::<MenuState>()
             .init_resource::<InputFocus>()
+            .init_resource::<InputFocusVisible>()
+            .init_resource::<ButtonInput<KeyCode>>()
             .add_systems(PostUpdate, close_settings);
         app
     }

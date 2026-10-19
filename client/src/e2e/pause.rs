@@ -163,6 +163,8 @@ fn the_keyboard_alone_drives_the_pause_menu() {
         h.world().get::<PauseButton>(focused),
         Some(&PauseButton::Settings)
     );
+    // closed by a key: the ring shows where Enter goes
+    assert_eq!(h.focus_ring(), ACCENT);
 
     // Tab stays in the menu, and so does a click beside its buttons
     for _ in 0..5 {

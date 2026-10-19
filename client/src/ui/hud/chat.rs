@@ -31,6 +31,7 @@ use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit,
 
 /// The messages the log keeps; the oldest go first.
 pub const CHAT_MAX_MESSAGES: usize = 100;
+/// The width of the log and the field of the chat.
 pub const CHAT_WIDTH: f32 = 420.0;
 /// The lines the open log shows, and the most recent lines the closed chat shows.
 pub const CHAT_LOG_LINES: usize = 10;

@@ -15,10 +15,13 @@ use bevy::{
         keyboard::{Key, KeyboardInput},
         ButtonState,
     },
-    input_focus::{tab_navigation::TabGroup, AutoFocus, FocusCause, FocusedInput, InputFocus},
+    input_focus::{
+        tab_navigation::TabGroup, AutoFocus, FocusCause, FocusedInput, InputFocus,
+        InputFocusVisible,
+    },
     prelude::*,
     text::EditableText,
-    ui::{FocusPolicy, InteractionDisabled},
+    ui::InteractionDisabled,
     ui_widgets::Activate,
 };
 
@@ -33,6 +36,8 @@ use crate::ui::theme::{
 
 /// The z-index of a dialog: over the screens and the in-game overlays.
 pub const DIALOG_Z: i32 = 50;
+/// The narrowest a dialog's panel is, so that a short message still makes a panel.
+const DIALOG_MIN_WIDTH: f32 = 360.0;
 
 /// What `spawn_dialog` builds.
 pub struct Dialog<'a> {
@@ -306,7 +311,6 @@ fn build_dialog(
             ..default()
         },
         BackgroundColor(BEVEL_LO.with_alpha(0.6)),
-        FocusPolicy::Block,
         ChildOf(root),
     ));
     commands.spawn((
@@ -322,7 +326,7 @@ fn build_dialog(
                 padding: UiRect::all(px(SPACE_XL)),
                 row_gap: px(SPACE_L),
                 border: UiRect::all(px(BEVEL_WIDTH)),
-                min_width: px(360),
+                min_width: px(DIALOG_MIN_WIDTH),
                 max_width: percent(90),
                 ..default()
             },
@@ -432,6 +436,15 @@ fn build_dialog(
     };
     if let Some(first) = first {
         commands.entity(first).insert(AutoFocus);
+        // opened by a key, even after a click: the ring shows where Enter goes
+        commands.queue(|world: &mut World| {
+            let typed = world
+                .get_resource::<ButtonInput<KeyCode>>()
+                .is_some_and(|keys| keys.get_just_pressed().next().is_some());
+            if typed {
+                world.insert_resource(InputFocusVisible(true));
+            }
+        });
     }
     for (_, field) in fields {
         commands

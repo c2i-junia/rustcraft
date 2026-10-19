@@ -7,7 +7,7 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::state::{GameState, KeyMap};
 use crate::ui::assets::MONO_FONT_PATH;
 use crate::ui::hud::UIMode;
-use crate::ui::theme::{FONT_S, PANEL, TEXT};
+use crate::ui::theme::{FONT_S, PANEL, SPACE_XS, TEXT};
 use bevy::prelude::*;
 
 /// Marker to find the container entity so we can show/hide the FPS counter
@@ -47,7 +47,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
                 // Sized by the text
                 bottom: Val::Auto,
                 right: Val::Auto,
-                padding: UiRect::all(Val::Px(4.0)),
+                padding: UiRect::all(px(SPACE_XS)),
                 flex_direction: FlexDirection::Column,
                 ..default()
             },
@@ -55,22 +55,14 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
         .id();
 
     let text_fps = commands
-        .spawn(debug_line("FPS: ", Color::WHITE, font.clone()))
-        .with_child((
-            FpsText,
-            TextSpan::new("N/A"),
-            font.clone(),
-            TextColor(Color::WHITE),
-        ))
+        .spawn(debug_line("FPS: ", TEXT, font.clone()))
+        .with_child((FpsText, TextSpan::new("N/A"), font.clone(), TextColor(TEXT)))
         .id();
     let coords_text = commands
-        .spawn((CoordsText, debug_line("...", Color::WHITE, font.clone())))
+        .spawn((CoordsText, debug_line("...", TEXT, font.clone())))
         .id();
     let chunks_number_text = commands
-        .spawn((
-            ChunksNumberText,
-            debug_line("...", Color::WHITE, font.clone()),
-        ))
+        .spawn((ChunksNumberText, debug_line("...", TEXT, font.clone())))
         .id();
     let block_text = commands
         .spawn((
@@ -79,10 +71,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
         ))
         .id();
     let time_text = commands
-        .spawn((
-            TimeText,
-            debug_line("Time: N/A", Color::WHITE, font.clone()),
-        ))
+        .spawn((TimeText, debug_line("Time: N/A", TEXT, font.clone())))
         .id();
 
     commands.entity(root).add_children(&[

@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use bevy::{
+    a11y::AccessibilityNode,
     camera::RenderTarget,
+    input_focus::tab_navigation::TabIndex,
     picking::PickingSettings,
     prelude::*,
     render::{
@@ -16,7 +18,9 @@ use bevy::{
 use image::RgbImage;
 
 use super::harness::{Harness, SCREEN};
+use super::locator::is_shown;
 use crate::ui::golden::assert_image_matches;
+use crate::ui::widgets::focus::FocusRing;
 
 /// The frames that capturing the screen may take.
 const MAX_FRAMES: usize = 500;
@@ -30,7 +34,51 @@ fn snapshot_path(test: &str, name: &str, width: u32, height: u32) -> PathBuf {
         .join(format!("{name}_{width}x{height}.png"))
 }
 
+/// The visible controls that Tab reaches (`TabIndex >= 0`) but that never show the focus: neither
+/// they nor their parent has a `FocusRing`. A text field rings its frame, the parent of its
+/// input.
+fn controls_without_ring(world: &mut World) -> Vec<Entity> {
+    let controls: Vec<Entity> = world
+        .query::<(Entity, &TabIndex)>()
+        .iter(world)
+        .filter(|(_, index)| index.0 >= 0)
+        .map(|(entity, _)| entity)
+        .collect();
+    let ringed = |entity: Entity| world.get::<FocusRing>(entity).is_some();
+    controls
+        .into_iter()
+        .filter(|&control| is_shown(world, control))
+        .filter(|&control| {
+            !ringed(control)
+                && !world
+                    .get::<ChildOf>(control)
+                    .is_some_and(|parent| ringed(parent.parent()))
+        })
+        .collect()
+}
+
+/// What names `entity` in a message: its role and label, or its `Name`.
+fn describe(world: &World, entity: Entity) -> String {
+    if let Some(node) = world.get::<AccessibilityNode>(entity) {
+        return format!("{:?} {:?}", node.role(), node.label().unwrap_or_default());
+    }
+    world
+        .get::<Name>(entity)
+        .map_or_else(|| format!("{entity}"), |name| name.to_string())
+}
+
 impl Harness {
+    /// Checks that every visible control Tab reaches shows the focus with a ring.
+    #[track_caller]
+    pub fn assert_focus_rings(&mut self) {
+        let world = self.world_mut();
+        let missing: Vec<String> = controls_without_ring(world)
+            .into_iter()
+            .map(|control| describe(world, control))
+            .collect();
+        assert!(missing.is_empty(), "focusable without a ring: {missing:?}");
+    }
+
     /// The image of the screen, drawn off screen. The hover is kept as it is meanwhile: the
     /// cursor is on the window, which the cameras no longer draw into, so the picking would find
     /// nothing under it and the tooltip and the hovered slot would not be in the picture.
@@ -150,11 +198,15 @@ mod tests {
 
     use std::time::Duration;
 
-    use super::snapshot_path;
+    use bevy::input_focus::tab_navigation::TabIndex;
+    use bevy::prelude::*;
+
+    use super::{controls_without_ring, snapshot_path};
     use crate::e2e::harness::{Harness, Options, STARTUP};
     use crate::e2e::locator::Locator as L;
     use crate::e2e::seed::GameFolder;
     use crate::ui::menus::MenuState;
+    use crate::ui::widgets::focus::FocusRing;
 
     #[test]
     #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
@@ -188,6 +240,30 @@ mod tests {
         assert!((0.0..400.0).contains(&quit.x), "Quit game is at {quit}");
         assert!((0.0..600.0).contains(&quit.y), "Quit game is at {quit}");
         assert_eq!(h.screenshot().dimensions(), (800, 600));
+    }
+
+    #[test]
+    fn a_control_tab_reaches_that_never_shows_the_focus_is_found() {
+        let shown = || {
+            (
+                Node::default(),
+                ComputedNode {
+                    size: Vec2::splat(10.0),
+                    ..default()
+                },
+                InheritedVisibility::VISIBLE,
+            )
+        };
+        let mut world = World::new();
+        world.spawn((shown(), TabIndex(0), FocusRing));
+        // a text field rings its frame, the parent of its input
+        let frame = world.spawn((shown(), FocusRing)).id();
+        world.spawn((shown(), TabIndex(0), ChildOf(frame)));
+        // out of the tab order, or hidden
+        world.spawn((shown(), TabIndex(-1)));
+        world.spawn((Node::default(), TabIndex(0), InheritedVisibility::HIDDEN));
+        let bare = world.spawn((shown(), TabIndex(0))).id();
+        assert_eq!(controls_without_ring(&mut world), vec![bare]);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use super::MenuState;
 use crate::constants::DAY_DURATION_IN_TICKS;
 use crate::network::session::SessionOrigin;
 use crate::state::GameState;
-use crate::ui::theme::RAISE;
+use crate::ui::theme::{RAISE, THUMBNAIL_COLORS};
 
 /// What the menus show of a saved world.
 #[derive(Clone, Debug)]
@@ -332,16 +332,6 @@ pub fn played_ago(elapsed: Duration) -> String {
     let plural = if count == 1 { "" } else { "s" };
     format!("played {count} {unit}{plural} ago")
 }
-
-/// The earthy colours a world's thumbnail takes: grass, dirt, sand, stone, clay and pine.
-const THUMBNAIL_COLORS: [Color; 6] = [
-    Color::srgb_u8(0x5D, 0x8A, 0x3A),
-    Color::srgb_u8(0x86, 0x60, 0x3A),
-    Color::srgb_u8(0xC9, 0xB2, 0x7A),
-    Color::srgb_u8(0x7D, 0x7F, 0x82),
-    Color::srgb_u8(0xA0, 0x58, 0x3A),
-    Color::srgb_u8(0x2F, 0x5D, 0x50),
-];
 
 /// The colour of a world's thumbnail, which its seed picks; a world of unknown seed is grey.
 pub fn thumbnail_color(seed: Option<u32>) -> Color {

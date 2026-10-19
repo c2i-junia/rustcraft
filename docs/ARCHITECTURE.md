@@ -99,10 +99,21 @@ cannot be told yet, because its connection is not up, is stopped from the menus,
 included, once it is (`finish_stopping_local_server`). Opening a world while the server of the
 last one, told to stop, still saves waits for it on the connecting card ("Closing the last
 world...") up to `STOP_TIMEOUT` (10 s), then says so (`WorldBusy`) rather than starting a second
-server on the same save; one never told to stop says so at once. The window's close button and
-the main menu's Quit ask to quit (`ui/quit.rs`): a world being played or still starting is left,
-and the app exits once its server stopped, or after `STOP_TIMEOUT`; a second close quits at
-once.
+server on the same save; one never told to stop says so at once.
+
+Leaving a world never blocks a frame (`client/src/network/leave.rs`). Save and quit to title
+triggers `LeaveGame`: `Exit` is sent to the local server at once, `ExitSent` records it so that
+the end of the session does not send it again, and `Leaving` keeps the game running behind the
+pause menu's "Saving..." until the server has saved and stopped, or for `STOP_TIMEOUT`, when the
+title opens anyway and the server finishes in the background. Quitting saves a world first: the
+window's close button and the main menu's Quit trigger `QuitRequested` (`ui/quit.rs`), and with
+a world being played or still starting, a card says the world is being saved, the world is left
+as by `LeaveGame` (a world still starting is cancelled, then told to stop once it accepts the
+connection), and the app exits once its server stopped, or after `STOP_TIMEOUT`. A second close
+quits at once. "Save now" knows when the world is written from a `SaveCounter`
+(`shared/src/lib.rs`), counters of the saves written and failed that the embedded server bumps
+and the client of the same process reads: nothing goes over the network, so the protocol is
+unchanged, and a dedicated server's saves are not counted.
 
 ## Prediction and reconciliation
 
@@ -184,7 +195,9 @@ whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of op
 slider under the cursor (`scroll.rs` turns the wheel and the trackpad into whole steps).
 `list.rs` is a scroll list with its scrollbar, shown only while the items overflow, and its
 selectable cards: a card is selected by taking the focus, the list is one tab stop (the selected
-card), and ↑ ↓ Home End move between the cards. `dialog.rs` also builds form dialogs, with text
+card), and ↑ ↓ Home End move between the cards. A notch of the wheel moves a list by its own
+`WheelStep` rather than Bevy's 100 px: one card in the world and server lists, one row in the
+controls, three lines in the chat; a trackpad's pixels pass through unchanged. `dialog.rs` also builds form dialogs, with text
 fields above the buttons: Enter in a field or the primary action triggers `DialogSubmit`, and
 the caller confirms the submission by closing the dialog with `close_dialog`; Escape in a field
 closes the dialog. Once its fields hold their first values, and after each change, a form
@@ -208,8 +221,27 @@ follows the value its screen sets on `ProgressBar`, told as a percentage to acce
 connecting card (`ui/menus/connecting.rs`) and the error card (`ui/menus/connect_error.rs`)
 share a width and the centre of the window, so that the one takes the place of the other; the
 error card is a dialog spawned with `spawn_dialog_with_hints`, whose hints replace the dialog's
-own (no `Tab Move` when the card has a single action). The pause menu is the last screen still
-built on `Interaction` buttons; it moves over to the widgets in the last lot.
+own (no `Tab Move` when the card has a single action). `button.rs` builds every button, and
+`set_label` changes the text of one together with its accessible label. `toast.rs` shows short
+messages at the top-right of the window (`show_toast`, an `Info` or an `Error`), which go by
+themselves after 3 s, take no click and no focus, and outlive the screen that showed them.
+
+The pause menu (`ui/menus/pause.rs`) is a modal, spawned when Escape opens it in the game and
+despawned when it closes, so that it always opens on Back to game and Tab stays inside it. Its
+title is "Game menu", not "Paused": the server keeps ticking beneath it. A world has Back to
+game, Settings, Save now and Save and quit to title; a server has Back to game, Settings and
+Disconnect, as a server is not the player's to save. The hotbar, its item name and the reticle
+are hidden beneath it and beneath the settings it opens over the game. Save now sends the save
+request and waits for the embedded server's `SaveCounter` to move, then says "World saved" in
+a toast, or "Could not save the world" after a failure or 10 s; an autosave that fails says so
+too, once. While the game is left, every button is disabled and the leaving one reads
+"Saving...".
+
+The chat (`ui/hud/chat.rs`) is a log of the last 100 messages with their times, over the field
+to write in, at the bottom-left above the hotbar; closed, the recent lines stay over the game
+for 7 s, then fade. The pixel font has no accented letters: a message with a character the
+pixel font lacks is drawn whole in Fira Mono, never with a missing letter in the middle, and so
+is the text being written (`font_for`, `match_the_field_font`).
 
 ## Saves
 
@@ -249,3 +281,7 @@ the folder, after a confirmation.
 - A world still loading 10 s after the quit is stopped with the process: its server cannot be
   told to stop before it accepts the player. Its files are written atomically, so the save stays
   readable.
+- Chinese, Japanese and Korean characters and emoji are in neither font, the pixel font nor Fira
+  Mono: they show as missing glyphs in the chat.
+- An accented letter pasted into the chat field may show for one frame in the pixel font, as a
+  missing glyph, before the field switches to Fira Mono.

@@ -2,9 +2,18 @@ use bevy::diagnostic::DiagnosticsStore;
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 
+use crate::ui::theme::{DANGER, OK, TEXT};
+
 /// Marker to find the text entity so we can update it
 #[derive(Component)]
 pub struct FpsText;
+
+/// The colour of the frame rate `fps`: `DANGER` at 30 and below, `OK` at 120 and above, and a
+/// blend of the two between.
+fn fps_color(fps: f64) -> Color {
+    let ok = ((fps - 30.0) / (120.0 - 30.0)).clamp(0.0, 1.0) as f32;
+    DANGER.mix(&OK, ok)
+}
 
 pub fn fps_text_update_system(
     diagnostics: Res<DiagnosticsStore>,
@@ -21,26 +30,28 @@ pub fn fps_text_update_system(
             // number changes rapidly.
             **span = format!("{value:>4.0}");
 
-            // Adjust text color based on FPS value
-            color.0 = if value >= 120.0 {
-                // Above 120 FPS, use green color
-                Color::srgb(0.0, 1.0, 0.0)
-            } else if value >= 60.0 {
-                // Between 60-120 FPS, gradually transition from yellow to green
-                Color::srgb((1.0 - (value - 60.0) / (120.0 - 60.0)) as f32, 1.0, 0.0)
-            } else if value >= 30.0 {
-                // Between 30-60 FPS, gradually transition from red to yellow
-                Color::srgb(1.0, ((value - 30.0) / (60.0 - 30.0)) as f32, 0.0)
-            } else {
-                // Below 30 FPS, use red color
-                Color::srgb(1.0, 0.0, 0.0)
-            };
+            color.0 = fps_color(value);
         } else {
             // Display "N/A" if we can't get a FPS measurement
             **span = " N/A".into();
 
-            // Reset text color to white if no FPS is available
-            color.0 = Color::WHITE;
+            color.0 = TEXT;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fps_color;
+    use crate::ui::theme::{DANGER, OK};
+
+    #[test]
+    fn the_fps_go_from_the_danger_colour_to_the_ok_one() {
+        assert_eq!(fps_color(120.0), OK);
+        assert_eq!(fps_color(200.0), OK);
+        assert_eq!(fps_color(30.0), DANGER);
+        assert_eq!(fps_color(10.0), DANGER);
+        assert_ne!(fps_color(60.0), OK);
+        assert_ne!(fps_color(60.0), DANGER);
     }
 }

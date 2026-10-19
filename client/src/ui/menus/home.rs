@@ -77,6 +77,8 @@ const LOGO_LEFT_MARGIN: f32 = 5.0;
 
 /// The width of the panel of the Continue card.
 const CARD_WIDTH: f32 = 300.0;
+/// The width of the column of buttons, the widest label with room on each side.
+const BUTTON_COLUMN_WIDTH: f32 = 280.0;
 /// The side of the thumbnail of the Continue card.
 const THUMBNAIL_SIZE: f32 = 48.0;
 
@@ -136,7 +138,7 @@ pub fn home_setup(
             Node {
                 flex_direction: FlexDirection::Column,
                 row_gap: px(SPACE_S),
-                width: px(280),
+                width: px(BUTTON_COLUMN_WIDTH),
                 ..default()
             },
             ChildOf(row),

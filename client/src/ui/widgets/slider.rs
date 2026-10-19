@@ -26,9 +26,12 @@ use crate::ui::theme::{
 pub const SLIDER_STEP: f32 = 0.05;
 /// The width of the label before a slider; other settings line up with it.
 pub const LABEL_WIDTH: f32 = 180.0;
+/// The size of the track of a slider.
 const TRACK_WIDTH: f32 = 400.0;
 const TRACK_HEIGHT: f32 = 20.0;
+/// The width of the thumb, as tall as the track.
 const THUMB_WIDTH: f32 = 12.0;
+/// The width of the value after a slider, enough for "100%".
 const READOUT_WIDTH: f32 = 64.0;
 
 /// What `spawn_slider` builds.
