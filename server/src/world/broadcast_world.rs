@@ -9,9 +9,10 @@ use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{
-    global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap, MobId, ServerMob,
+    chunk_distance, global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap,
+    MobId, ServerMob,
 };
-use shared::{BROADCAST_CHUNK_RADIUS, CHUNK_SIZE};
+use shared::{CHUNK_SIZE, UNLOAD_MARGIN};
 use std::collections::{HashMap, HashSet};
 
 /// Most chunks sent to one client by one broadcast.
@@ -37,22 +38,33 @@ pub fn broadcast_world_state(
         .dirty_chunks
         .extend(changed.iter().map(global_block_to_chunk_pos));
 
-    let active_chunks = get_all_active_chunks(players, BROADCAST_CHUNK_RADIUS);
-
     for client in server.clients_id() {
         let Some(player) = players.get(&client) else {
             continue;
         };
 
-        send_nearby_mobs(&mut server, client, player.position, &world_map.mobs);
+        let render_distance = world_map.render_distances.get(player.id);
+        send_nearby_mobs(
+            &mut server,
+            client,
+            player.position,
+            render_distance,
+            &world_map.mobs,
+        );
 
-        let (block_updates, new_map) = client_world_messages(
+        let (unloads, block_updates, new_map) = world_messages_around(
             chunks,
             &changed,
-            &active_chunks,
+            world_position_to_chunk_position(player.position),
+            render_distance,
             world_map.sent_chunks.entry(player.id).or_default(),
         );
 
+        // One channel carries the three, in this order: a chunk is unloaded before it can be
+        // sent again
+        if !unloads.is_empty() {
+            server.send_game_message(client, ServerToClientMessage::ChunkUnloads(unloads));
+        }
         if !block_updates.is_empty() {
             server.send_game_message(client, ServerToClientMessage::BlockUpdates(block_updates));
         }
@@ -68,14 +80,15 @@ pub fn broadcast_world_state(
     }
 }
 
-/// Sends `client` the state of the mobs within broadcast distance of its player.
+/// Sends `client` the state of the mobs within the render distance of its player.
 fn send_nearby_mobs(
     server: &mut RenetServer,
     client: ClientId,
     player_position: Vec3,
+    render_distance: i32,
     mobs: &HashMap<MobId, ServerMob>,
 ) {
-    let reach = (BROADCAST_CHUNK_RADIUS * CHUNK_SIZE) as f32;
+    let reach = (render_distance * CHUNK_SIZE) as f32;
     for (id, mob) in mobs {
         if mob.position.distance(player_position) < reach {
             server.send_game_message(
@@ -87,6 +100,43 @@ fn send_nearby_mobs(
             );
         }
     }
+}
+
+/// What the client of a player in `player_chunk` must be sent: the chunks it must forget, then
+/// the updates of its chunks, then the chunks within `render_distance` it lacks. The unloads
+/// come first, so that no update is sent for a chunk the client is told to forget.
+fn world_messages_around(
+    chunks: &ChunkMap,
+    changed: &[IVec3],
+    player_chunk: IVec3,
+    render_distance: i32,
+    sent: &mut HashSet<IVec3>,
+) -> (Vec<IVec3>, Vec<BlockUpdate>, HashMap<IVec3, Chunk>) {
+    let unloads = take_chunks_to_unload(player_chunk, render_distance, sent);
+    let nearby = get_player_nearby_chunks_coords(player_chunk, render_distance);
+    let (updates, new_chunks) = client_world_messages(chunks, changed, &nearby, sent);
+    (unloads, updates, new_chunks)
+}
+
+/// The chunks of `sent` more than `render_distance + UNLOAD_MARGIN` chunks from
+/// `player_chunk`, in no order. They are removed from `sent`, so that they are sent again once
+/// the player comes back. The chunks of the margin are kept but never sent first: walking to
+/// and fro across a chunk border neither unloads nor sends anything. A lowered render
+/// distance unloads the same way.
+fn take_chunks_to_unload(
+    player_chunk: IVec3,
+    render_distance: i32,
+    sent: &mut HashSet<IVec3>,
+) -> Vec<IVec3> {
+    let mut unloads = Vec::new();
+    sent.retain(|&chunk| {
+        let kept = chunk_distance(chunk, player_chunk) <= render_distance + UNLOAD_MARGIN;
+        if !kept {
+            unloads.push(chunk);
+        }
+        kept
+    });
+    unloads
 }
 
 /// What one client must be sent: the current state of the changed blocks in the chunks it
@@ -138,14 +188,19 @@ fn get_world_map_chunks_to_send(
     map
 }
 
-/// The chunks within `radius` chunks of a player, each listed once, in the order the players
+/// The chunks within the `radius` of each player, each listed once, in the order the players
 /// reach them.
-pub fn get_all_active_chunks(players: &HashMap<PlayerId, Player>, radius: i32) -> Vec<IVec3> {
+pub fn get_all_active_chunks(
+    players: &HashMap<PlayerId, Player>,
+    radius: impl Fn(PlayerId) -> i32,
+) -> Vec<IVec3> {
     let mut seen = HashSet::new();
     players
-        .values()
-        .map(|player| world_position_to_chunk_position(player.position))
-        .flat_map(|chunk| get_player_nearby_chunks_coords(chunk, radius))
+        .iter()
+        .flat_map(|(&id, player)| {
+            let chunk = world_position_to_chunk_position(player.position);
+            get_player_nearby_chunks_coords(chunk, radius(id))
+        })
         .filter(|chunk| seen.insert(*chunk))
         .collect()
 }
@@ -452,6 +507,231 @@ mod tests {
         }
     }
 
+    /// Loaded chunks at x in `min..=max`, on the line y = z = 0.
+    fn chunks_between(min: i32, max: i32) -> ChunkMap {
+        ChunkMap::with_loaded_region(
+            IVec3::new(min * CHUNK_SIZE, 0, 0),
+            IVec3::new((max + 1) * CHUNK_SIZE - 1, 0, 0),
+        )
+    }
+
+    /// The x of each chunk, sorted.
+    fn xs<'a>(chunks: impl IntoIterator<Item = &'a IVec3>) -> Vec<i32> {
+        let mut xs: Vec<i32> = chunks.into_iter().map(|chunk| chunk.x).collect();
+        xs.sort();
+        xs
+    }
+
+    /// The render distance of the players of these tests.
+    const RENDER_DISTANCE: i32 = 2;
+    /// The farthest a chunk a client has may be from its player.
+    const KEPT: i32 = RENDER_DISTANCE + UNLOAD_MARGIN;
+
+    /// What the client of a player in the chunk `(x, 0, 0)` is sent when no block changed.
+    fn walk_to(
+        chunks: &ChunkMap,
+        x: i32,
+        sent: &mut HashSet<IVec3>,
+    ) -> (Vec<IVec3>, HashMap<IVec3, Chunk>) {
+        let (unloads, updates, new_chunks) =
+            world_messages_around(chunks, &[], IVec3::new(x, 0, 0), RENDER_DISTANCE, sent);
+        assert!(updates.is_empty());
+        (unloads, new_chunks)
+    }
+
+    #[test]
+    fn the_chunks_beyond_the_margin_are_unloaded_and_forgotten() {
+        let kept = [
+            IVec3::ZERO,
+            IVec3::new(KEPT, 0, 0),
+            IVec3::new(KEPT, KEPT, -KEPT),
+        ];
+        let far = [IVec3::new(KEPT + 1, 0, 0), IVec3::new(0, -KEPT - 1, 0)];
+        let mut sent: HashSet<IVec3> = kept.into_iter().chain(far).collect();
+
+        let mut unloads = take_chunks_to_unload(IVec3::ZERO, RENDER_DISTANCE, &mut sent);
+
+        unloads.sort_by_key(|c| (c.x, c.y, c.z));
+        assert_eq!(unloads, vec![far[1], far[0]]);
+        assert_eq!(sent, HashSet::from(kept));
+    }
+
+    #[test]
+    fn only_the_render_distance_is_sent_and_the_margin_is_kept_but_never_sent_first() {
+        let chunks = chunks_between(-KEPT - 2, KEPT + 2);
+        let mut sent = HashSet::new();
+
+        let (unloads, new_chunks) = walk_to(&chunks, 0, &mut sent);
+        assert!(unloads.is_empty());
+        assert_eq!(
+            xs(new_chunks.keys()),
+            (-RENDER_DISTANCE..=RENDER_DISTANCE).collect::<Vec<_>>()
+        );
+
+        // one chunk east: the westmost chunk falls in the margin and stays
+        let (unloads, new_chunks) = walk_to(&chunks, 1, &mut sent);
+        assert!(unloads.is_empty());
+        assert_eq!(xs(new_chunks.keys()), vec![RENDER_DISTANCE + 1]);
+
+        // one more: it is now beyond the margin
+        let (unloads, new_chunks) = walk_to(&chunks, 2, &mut sent);
+        assert_eq!(xs(&unloads), vec![-RENDER_DISTANCE]);
+        assert_eq!(xs(new_chunks.keys()), vec![RENDER_DISTANCE + 2]);
+        assert!(!sent.contains(&IVec3::new(-RENDER_DISTANCE, 0, 0)));
+    }
+
+    #[test]
+    fn walking_to_and_fro_across_a_border_neither_unloads_nor_sends() {
+        let chunks = chunks_between(-KEPT - 2, KEPT + 2);
+        let mut sent = HashSet::new();
+        walk_to(&chunks, 0, &mut sent);
+        walk_to(&chunks, 1, &mut sent);
+
+        for x in [0, 1, 0, 1, 0] {
+            let (unloads, new_chunks) = walk_to(&chunks, x, &mut sent);
+            assert!(unloads.is_empty() && new_chunks.is_empty(), "at {x}");
+        }
+    }
+
+    #[test]
+    fn an_unloaded_chunk_is_sent_again_when_the_player_comes_back() {
+        let chunks = chunks_between(-KEPT - 2, KEPT + 2);
+        let west = IVec3::new(-RENDER_DISTANCE, 0, 0);
+        let mut sent = HashSet::new();
+        walk_to(&chunks, 0, &mut sent);
+
+        let (unloads, _) = walk_to(&chunks, UNLOAD_MARGIN + 1, &mut sent);
+        assert_eq!(unloads, vec![west]);
+
+        let (unloads, new_chunks) = walk_to(&chunks, 0, &mut sent);
+        assert!(new_chunks.contains_key(&west));
+        // the chunks the walk east brought are in the margin again, or beyond it
+        assert!(unloads.iter().all(|c| c.x > KEPT));
+    }
+
+    #[test]
+    fn a_walking_client_holds_what_the_server_thinks_and_no_update_misses_its_chunk() {
+        let mut chunks = chunks_between(-KEPT - 4, KEPT + 4);
+        let mut sent = HashSet::new();
+        let mut client = ChunkMap::default();
+
+        for (step, x) in [0, 1, 2, 3, 2, 1, 0, -1, -2, -1, 0].into_iter().enumerate() {
+            // a block changes in every chunk of the row, those about to be unloaded included
+            for chunk_x in -KEPT - 4..=KEPT + 4 {
+                let pos = IVec3::new(chunk_x * CHUNK_SIZE + step as i32 % CHUNK_SIZE, 0, 0);
+                chunks.set_block(pos, stone());
+            }
+            let changed = chunks.take_changed_blocks();
+            let (unloads, updates, new_chunks) = world_messages_around(
+                &chunks,
+                &changed,
+                IVec3::new(x, 0, 0),
+                RENDER_DISTANCE,
+                &mut sent,
+            );
+
+            for chunk in unloads {
+                assert!(client.remove_chunk(chunk).is_some(), "step {step}: {chunk}");
+            }
+            for update in &updates {
+                let chunk = global_block_to_chunk_pos(&update.position);
+                assert!(client.is_chunk_loaded(chunk), "step {step}: {chunk}");
+            }
+            deliver(&mut client, (updates, new_chunks));
+
+            let held: HashSet<IVec3> = client.chunk_positions().collect();
+            assert_eq!(held, sent, "step {step}");
+            for chunk in &held {
+                assert_eq!(client.chunk(*chunk), chunks.chunk(*chunk), "step {step}");
+                assert!(chunk_distance(*chunk, IVec3::new(x, 0, 0)) <= KEPT);
+            }
+        }
+    }
+
+    #[test]
+    fn a_lowered_render_distance_unloads_and_a_raised_one_sends_more() {
+        let chunks = chunks_between(-6, 6);
+        let mut sent = HashSet::new();
+        let around = |distance, sent: &mut HashSet<IVec3>| {
+            let (unloads, _, new_chunks) =
+                world_messages_around(&chunks, &[], IVec3::ZERO, distance, sent);
+            (xs(&unloads), xs(new_chunks.keys()))
+        };
+        around(4, &mut sent);
+
+        // down to 1: the margin keeps the chunks at 2
+        let (unloads, new_chunks) = around(1, &mut sent);
+        assert_eq!(unloads, vec![-4, -3, 3, 4]);
+        assert!(new_chunks.is_empty());
+
+        // up to 3: the chunks at 2 are still there, those at 3 come again
+        let (unloads, new_chunks) = around(3, &mut sent);
+        assert!(unloads.is_empty());
+        assert_eq!(new_chunks, vec![-3, 3]);
+    }
+
+    /// The messages of the chunk channel the server queued for `client`.
+    fn received_world_messages(
+        server: &mut RenetServer,
+        client: ClientId,
+    ) -> Vec<ServerToClientMessage> {
+        let mut connection = bevy_renet::renet::RenetClient::new(shared::get_shared_renet_config());
+        for packet in server.get_packets_to_send(client).unwrap() {
+            connection.process_packet(&packet);
+        }
+        std::iter::from_fn(|| connection.receive_message(shared::STC_CHUNK_DATA_CHANNEL))
+            .map(|payload| shared::payload_to_game_message(&payload).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn each_client_is_sent_the_chunks_within_its_own_render_distance_of_its_own_player() {
+        let far = 10;
+        // client: (chunk of its player, render distance)
+        let clients = [(1, (0, 2)), (2, (far, 1))];
+        let mut players = HashMap::new();
+        let mut render_distances = crate::world::data::RenderDistances::default();
+        for (id, (chunk_x, distance)) in clients {
+            render_distances.set(id, distance, 6);
+            let position = Vec3::new((chunk_x * CHUNK_SIZE) as f32 + 0.5, 0.5, 0.5);
+            players.insert(
+                id,
+                Player::new(id, "p".into(), position, Transform::default()),
+            );
+        }
+        let mut server = RenetServer::new(shared::get_shared_renet_config());
+        server.add_connection(1);
+        server.add_connection(2);
+        let mut app = App::new();
+        app.insert_resource(server)
+            .insert_resource(ServerTime(0))
+            .insert_resource(ServerWorldMap {
+                chunks: chunks_between(-KEPT, far + KEPT),
+                players,
+                render_distances,
+                ..default()
+            });
+
+        app.add_systems(Update, broadcast_world_state);
+        app.update();
+
+        let mut server = app.world_mut().resource_mut::<RenetServer>();
+        for (client, (center, distance)) in clients {
+            let chunks: Vec<IVec3> = received_world_messages(&mut server, client)
+                .into_iter()
+                .flat_map(|message| match message {
+                    ServerToClientMessage::WorldUpdate(update) => {
+                        update.new_map.into_keys().collect::<Vec<_>>()
+                    }
+                    other => panic!("client {client}: unexpected {other:?}"),
+                })
+                .collect();
+            let distance = distance as i32;
+            let expected: Vec<i32> = (center - distance..=center + distance).collect();
+            assert_eq!(xs(&chunks), expected, "client {client}");
+        }
+    }
+
     #[test]
     fn active_chunks_of_several_players_have_no_duplicates() {
         let mut players = HashMap::new();
@@ -466,7 +746,7 @@ mod tests {
                 ),
             );
         }
-        let active = get_all_active_chunks(&players, 1);
+        let active = get_all_active_chunks(&players, |_| 1);
         let unique: HashSet<&IVec3> = active.iter().collect();
         assert_eq!(active.len(), unique.len());
         // chunk columns -1..=1 and 0..=2 around the two players, three chunks high and deep

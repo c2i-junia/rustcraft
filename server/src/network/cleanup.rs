@@ -11,6 +11,7 @@ pub fn cleanup_all_players_from_world(world_map: &mut ServerWorldMap) {
         p.last_input_processed = 0;
     }
     world_map.sent_chunks.clear();
+    world_map.render_distances = Default::default();
 }
 
 pub fn cleanup_player_from_world(
@@ -26,6 +27,7 @@ pub fn cleanup_player_from_world(
     }
 
     world_map.sent_chunks.remove(player_id);
+    world_map.render_distances.remove(*player_id);
 }
 
 #[cfg(test)]
@@ -40,6 +42,7 @@ mod tests {
             world_map
                 .sent_chunks
                 .insert(id, HashSet::from([IVec3::ZERO, IVec3::X]));
+            world_map.render_distances.set(id, 4, 6);
         }
         world_map
     }
@@ -49,6 +52,7 @@ mod tests {
         let mut world_map = world_with_two_clients();
         cleanup_all_players_from_world(&mut world_map);
         assert!(world_map.sent_chunks.is_empty());
+        assert_eq!(world_map.render_distances.get(1), 1);
     }
 
     #[test]
@@ -76,5 +80,7 @@ mod tests {
         let world_map = world.resource::<ServerWorldMap>();
         assert!(!world_map.sent_chunks.contains_key(&1));
         assert!(world_map.sent_chunks.contains_key(&2));
+        assert_eq!(world_map.render_distances.get(1), 1);
+        assert_eq!(world_map.render_distances.get(2), 4);
     }
 }

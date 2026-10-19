@@ -1,8 +1,8 @@
-//! The themed slider: a label, a sunken track with an accent fill and a raised thumb, and a
-//! percentage, for a value from 0 to 1.
+//! The themed slider: a label, a sunken track with an accent fill and a raised thumb, and the
+//! value, on the `SliderScale` of the field: a percentage by default.
 //!
-//! A click on the track sets the value there, the arrows and the wheel move it by `SLIDER_STEP`;
-//! the wheel only moves the slider under the cursor. Callers observe `On<ValueChange<f32>>` on
+//! A click on the track sets the value there, the arrows and the wheel move it by a step of the
+//! scale; the wheel only moves the slider under the cursor. Callers observe `On<ValueChange<f32>>` on
 //! the `slider` of `spawn_slider`; `is_final` is false while it is dragged.
 
 use bevy::{
@@ -12,8 +12,8 @@ use bevy::{
     text::Justify,
     ui::{InteractionDisabled, UiSystems},
     ui_widgets::{
-        slider_self_update, SetSliderValue, Slider, SliderRange, SliderStep, SliderThumb,
-        SliderValue, SliderValueChange, TrackClick,
+        slider_self_update, SetSliderValue, Slider, SliderPrecision, SliderRange, SliderStep,
+        SliderThumb, SliderValue, SliderValueChange, TrackClick,
     },
 };
 
@@ -22,7 +22,7 @@ use crate::ui::theme::{
     ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_M, RAISE, SLOT, SPACE_M, TEXT,
 };
 
-/// How much an arrow key or a notch of the wheel moves a slider.
+/// How much an arrow key or a notch of the wheel moves a percentage slider.
 pub const SLIDER_STEP: f32 = 0.05;
 /// The width of the label before a slider; other settings line up with it.
 pub const LABEL_WIDTH: f32 = 180.0;
@@ -34,12 +34,37 @@ const THUMB_WIDTH: f32 = 12.0;
 /// The width of the value after a slider, enough for "100%".
 const READOUT_WIDTH: f32 = 64.0;
 
+/// The values a slider goes through, and how it shows them.
+#[derive(Clone, Copy)]
+pub struct SliderScale {
+    pub min: f32,
+    pub max: f32,
+    /// How much an arrow key or a notch of the wheel moves it.
+    pub step: f32,
+    /// Whether a drag or a click only lands on whole numbers.
+    pub whole: bool,
+    /// The value as shown after the slider, at most as wide as "100%".
+    pub readout: fn(f32) -> String,
+}
+
+impl SliderScale {
+    /// From 0 to 1, shown as a percentage.
+    pub const PERCENT: SliderScale = SliderScale {
+        min: 0.,
+        max: 1.,
+        step: SLIDER_STEP,
+        whole: false,
+        readout: percent_label,
+    };
+}
+
 /// What `spawn_slider` builds.
 pub struct SliderField<'a> {
     /// The label shown before the slider, which is also its accessible label.
     pub label: &'a str,
-    /// From 0 to 1.
+    /// Within the range of `scale`.
     pub value: f32,
+    pub scale: SliderScale,
 }
 
 /// The entities of a slider: `root` to place it, `slider` to observe it.
@@ -62,6 +87,7 @@ struct SliderLook {
     fill: Entity,
     thumb: Entity,
     readout: Entity,
+    format: fn(f32) -> String,
 }
 
 /// Spawns a slider row, without a parent: put `root` in place.
@@ -86,6 +112,8 @@ pub fn spawn_slider(
         Text::new(field.label),
         text_font.clone(),
         TextColor(TEXT),
+        // measured as wrapped on two lines otherwise, which puts it above the middle of the row
+        TextLayout::no_wrap(),
         Node {
             width: px(LABEL_WIDTH),
             ..default()
@@ -100,8 +128,8 @@ pub fn spawn_slider(
                 ..default()
             },
             SliderValue(field.value),
-            SliderRange::new(0., 1.),
-            SliderStep(SLIDER_STEP),
+            SliderRange::new(field.scale.min, field.scale.max),
+            SliderStep(field.scale.step),
             TabIndex(0),
             FocusRing,
             Hovered::default(),
@@ -120,6 +148,9 @@ pub fn spawn_slider(
         .observe(slider_self_update)
         .observe(wheel_steps)
         .id();
+    if field.scale.whole {
+        commands.entity(slider).insert(SliderPrecision(0));
+    }
     let fill = commands
         .spawn((
             Node {
@@ -156,7 +187,7 @@ pub fn spawn_slider(
     let readout = commands
         .spawn((
             SliderReadout,
-            Text::new(percent_label(field.value)),
+            Text::new((field.scale.readout)(field.value)),
             text_font,
             TextColor(TEXT),
             TextLayout::justify(Justify::Right),
@@ -171,6 +202,7 @@ pub fn spawn_slider(
         fill,
         thumb,
         readout,
+        format: field.scale.readout,
     });
     SliderParts { root, slider }
 }
@@ -230,7 +262,7 @@ fn place_slider_parts(
             thumb.left = px(thumb_left);
         }
         if let Ok(mut readout) = texts.get_mut(look.readout) {
-            readout.0 = percent_label(value.0);
+            readout.0 = (look.format)(value.0);
         }
     }
 }

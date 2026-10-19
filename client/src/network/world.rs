@@ -17,6 +17,7 @@ use super::CachedChatConversation;
 use super::SendGameMessageExtension;
 
 pub fn update_world_from_network(
+    commands: &mut Commands,
     client: &mut ResMut<RenetClient>,
     world: &mut ResMut<ClientWorldMap>,
     ev_render: &mut MessageWriter<WorldRenderRequestUpdateEvent>,
@@ -52,6 +53,12 @@ pub fn update_world_from_network(
                 for (id, mob) in world_update.mobs {
                     debug!("ServerMob received: {:?}", mob);
                     ev_mob_update.write(MobUpdateEvent { id, mob });
+                }
+            }
+            ServerToClientMessage::ChunkUnloads(chunks) => {
+                debug!("Unloading {} chunks", chunks.len());
+                for chunk_pos in chunks {
+                    world.unload_chunk(chunk_pos, commands);
                 }
             }
             ServerToClientMessage::BlockUpdates(updates) => {

@@ -5,6 +5,7 @@ pub mod player;
 mod world;
 
 pub use auth::*;
+use bevy::math::IVec3;
 pub use chat::*;
 use mob::MobUpdateEvent;
 pub use player::*;
@@ -22,6 +23,8 @@ pub enum ClientToServerMessage {
     Exit,
     PlayerInputs(Vec<PlayerFrameInput>),
     SaveWorldRequest,
+    /// The player changed its render distance, in chunks.
+    SetRenderDistance(u32),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -33,6 +36,9 @@ pub enum ServerToClientMessage {
     PlayerSpawn(PlayerSpawnEvent),
     MobUpdate(MobUpdateEvent),
     PlayerUpdate(PlayerUpdateEvent),
+    /// The chunks the client must forget: its player went too far from them. The server
+    /// forgets it sent them, and sends them again once the player comes back.
+    ChunkUnloads(Vec<IVec3>),
 }
 
 #[cfg(test)]
@@ -56,6 +62,7 @@ mod tests {
     fn client_to_server_variants_are_pinned() {
         let request = AuthRegisterRequest {
             username: String::new(),
+            render_distance: 0,
         };
         let chat = ChatMessageRequest {
             content: String::new(),
@@ -66,6 +73,7 @@ mod tests {
             (ClientToServerMessage::Exit, 2),
             (ClientToServerMessage::PlayerInputs(vec![]), 3),
             (ClientToServerMessage::SaveWorldRequest, 4),
+            (ClientToServerMessage::SetRenderDistance(0), 5),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -79,6 +87,7 @@ mod tests {
             tick: 0,
             timestamp_ms: 0,
             players: vec![],
+            max_render_distance: 0,
         };
         let chat = FullChatMessage {
             content: String::new(),
@@ -123,6 +132,7 @@ mod tests {
             (ServerToClientMessage::PlayerSpawn(spawn), 4),
             (ServerToClientMessage::MobUpdate(mob), 5),
             (ServerToClientMessage::PlayerUpdate(update), 6),
+            (ServerToClientMessage::ChunkUnloads(vec![]), 7),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

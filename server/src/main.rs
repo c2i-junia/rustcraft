@@ -5,7 +5,7 @@ use bevy::log::{error, tracing_subscriber::EnvFilter, warn};
 use clap::Parser;
 use server::acquire_socket_by_port;
 use shared::status::status_port;
-use shared::{get_game_folder_paths, GameServerConfig, DEFAULT_PORT};
+use shared::{get_game_folder_paths, GameServerConfig, DEFAULT_MAX_RENDER_DISTANCE, DEFAULT_PORT};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -18,6 +18,10 @@ struct Args {
 
     #[arg(short, long)]
     game_folder_path: Option<String>,
+
+    /// The largest render distance a player may ask for, in chunks
+    #[arg(long, default_value_t = DEFAULT_MAX_RENDER_DISTANCE)]
+    max_render_distance: u32,
 }
 
 fn main() -> ExitCode {
@@ -56,6 +60,7 @@ fn main() -> ExitCode {
         world_name: args.world,
         is_solo: false,
         saves: None,
+        max_render_distance: args.max_render_distance,
     };
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
     let result = match status {

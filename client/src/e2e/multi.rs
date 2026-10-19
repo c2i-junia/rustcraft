@@ -355,6 +355,7 @@ fn the_keyboard_alone_adds_a_server_sees_it_online_and_joins() {
         world_name: "dedicated".to_string(),
         is_solo: false,
         saves: None,
+        max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
     };
     let (stopped, server_error) = std::sync::mpsc::channel();
     std::thread::spawn(move || {

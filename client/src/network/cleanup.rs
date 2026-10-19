@@ -369,6 +369,7 @@ mod tests {
                 world_name: name.to_string(),
                 is_solo: true,
                 saves: None,
+                max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
             };
             let server = std::thread::spawn(move || server::init(socket, config, paths));
 
@@ -418,7 +419,13 @@ mod tests {
             self.app
                 .world_mut()
                 .resource_mut::<RenetClient>()
-                .send_game_message(AuthRegisterRequest { username }.into());
+                .send_game_message(
+                    AuthRegisterRequest {
+                        username,
+                        render_distance: shared::MIN_RENDER_DISTANCE,
+                    }
+                    .into(),
+                );
             update_until(&mut self.app, "the authentication", |app| {
                 let mut client = app.world_mut().resource_mut::<RenetClient>();
                 client
@@ -569,6 +576,7 @@ mod tests {
             .add_message::<PlayerSpawnEvent>()
             .insert_resource(ClientTime(0))
             .init_resource::<ClientWorldMap>()
+            .init_resource::<crate::world::RenderDistance>()
             .init_resource::<StatusProbe>()
             .insert_resource(SessionOrigin::World {
                 name: "slow-test".to_string(),

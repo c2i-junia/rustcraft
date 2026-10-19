@@ -184,6 +184,7 @@ fn handle_client_messages_system(
                         &chat_conversation,
                         &time,
                         &game_folder_paths,
+                        config.max_render_distance,
                     );
                     // The client was refused: drop the rest of its messages
                     if flow.is_break() {
@@ -212,6 +213,14 @@ fn handle_client_messages_system(
                 }
                 ClientToServerMessage::SaveWorldRequest => {
                     handlers::save_world_request(client_id, &config, &mut ev_save_request);
+                }
+                ClientToServerMessage::SetRenderDistance(asked) => {
+                    handlers::set_render_distance(
+                        client_id,
+                        asked,
+                        &mut world_map,
+                        config.max_render_distance,
+                    );
                 }
             }
         }
@@ -246,6 +255,7 @@ fn message_kind(message: &ClientToServerMessage) -> &'static str {
         ClientToServerMessage::Exit => "Exit",
         ClientToServerMessage::PlayerInputs(_) => "PlayerInputs",
         ClientToServerMessage::SaveWorldRequest => "SaveWorldRequest",
+        ClientToServerMessage::SetRenderDistance(_) => "SetRenderDistance",
     }
 }
 
@@ -297,6 +307,7 @@ mod tests {
                 world_name: "w".into(),
                 is_solo: true,
                 saves: None,
+                max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
             })
             .insert_resource(GameFolderPaths {
                 game_folder_path: tmp.path().join("game"),

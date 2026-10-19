@@ -14,11 +14,15 @@ use super::harness::{Harness, Options, SCREEN, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::audio::settings::AudioSettings;
-use crate::constants::{AUDIO_SETTINGS_PATH, BINDS_PATH, INTERFACE_SETTINGS_PATH};
+use crate::constants::{
+    AUDIO_SETTINGS_PATH, BINDS_PATH, DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS, INTERFACE_SETTINGS_PATH,
+    MAX_CHUNK_RENDER_DISTANCE_RADIUS, VIDEO_SETTINGS_PATH,
+};
 use crate::input::data::GameAction;
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
 use crate::ui::hud::fps_counter::{FpsCounter, FpsGraph, FrameBar, GraphStat};
+use crate::ui::menus::pause::PAUSE_TITLE;
 use crate::ui::menus::settings::controls::{PRESS_A_KEY, SEARCH_LABEL};
 use crate::ui::menus::MenuState;
 use crate::ui::settings::{FpsCounterChoice, InterfaceSettings, UiScaleChoice};
@@ -26,6 +30,7 @@ use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
 };
 use crate::ui::widgets::hints::HintBar;
+use crate::world::{RenderDistance, ServerRenderDistanceLimit};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -94,6 +99,19 @@ impl Harness {
 fn master() -> L {
     L::role(Role::Slider, "Master")
 }
+
+/// The render distance slider of the video tab.
+fn render_distance() -> L {
+    L::role(Role::Slider, "Render distance")
+}
+
+/// The value shown after the render distance slider.
+fn render_distance_readout(chunks: u32) -> L {
+    L::text(&chunks.to_string()).within(L::row("Render distance"))
+}
+
+/// What the note under the render distance says when the server grants it.
+const RENDER_DISTANCE_NOTE: &str = "Chunks loaded in every direction around you";
 
 /// The UI scale control of the interface tab.
 fn ui_scale_control() -> L {
@@ -178,11 +196,14 @@ fn the_keyboard_alone_walks_the_tabs() {
     let mut h = controls();
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
     h.press(KeyCode::ArrowRight);
-    h.wait_for(&master(), SCREEN);
+    h.wait_for(&render_distance(), SCREEN);
     h.press(KeyCode::Tab);
-    assert_eq!(h.focus_label().as_deref(), Some("Master"));
+    assert_eq!(h.focus_label().as_deref(), Some("Render distance"));
     h.press(KeyCode::ArrowLeft);
-    h.wait_for(&L::text("95%").within(L::row("Master")), SCREEN);
+    h.wait_for(
+        &render_distance_readout(DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS - 1),
+        SCREEN,
+    );
 }
 
 #[test]
@@ -236,6 +257,86 @@ fn the_audio_screen_matches_its_golden() {
     let mut h = audio();
     h.hover_nothing();
     h.assert_screenshot("menu_audio");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_render_distance_moves_by_whole_chunks_within_its_bounds_and_is_kept() {
+    let folder = GameFolder::new();
+    let mut h = settings_with(folder.clone(), Options::default());
+    h.open_tab_showing("Video", &render_distance());
+    h.wait_for(
+        &render_distance_readout(DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS),
+        SCREEN,
+    );
+    assert!(h.is_visible(&L::text(RENDER_DISTANCE_NOTE)));
+
+    h.click(&render_distance());
+    for _ in 0..MAX_CHUNK_RENDER_DISTANCE_RADIUS {
+        h.press(KeyCode::ArrowLeft);
+    }
+    h.wait_for(&render_distance_readout(1), SCREEN);
+    h.press(KeyCode::ArrowRight);
+    h.wait_for(&render_distance_readout(2), SCREEN);
+    h.scroll(1.);
+    h.wait_for(&render_distance_readout(3), SCREEN);
+    assert_eq!(h.world().resource::<RenderDistance>().distance, 3);
+    for _ in 0..MAX_CHUNK_RENDER_DISTANCE_RADIUS {
+        h.press(KeyCode::ArrowRight);
+    }
+    h.wait_for(
+        &render_distance_readout(MAX_CHUNK_RENDER_DISTANCE_RADIUS),
+        SCREEN,
+    );
+    let saved: RenderDistance = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!(saved.distance, MAX_CHUNK_RENDER_DISTANCE_RADIUS);
+    // from the main menu, no server limits it
+    assert!(h.is_visible(&L::text(RENDER_DISTANCE_NOTE)));
+    drop(h);
+
+    // the choice is kept for the next start
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(
+        h.world().resource::<RenderDistance>().distance,
+        MAX_CHUNK_RENDER_DISTANCE_RADIUS
+    );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn in_game_the_render_distance_says_when_the_server_grants_less() {
+    let mut h = super::game::enter_world(GameFolder::new().with_world("Far"), "Far");
+    // as a server that grants 3 would have answered
+    h.world_mut().insert_resource(ServerRenderDistanceLimit(3));
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::role(Role::Dialog, PAUSE_TITLE), SCREEN);
+    h.click(&L::role(Role::Button, "Settings"));
+    h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
+    h.open_tab_showing("Video", &render_distance());
+
+    h.click(&render_distance());
+    for _ in 0..MAX_CHUNK_RENDER_DISTANCE_RADIUS {
+        h.press(KeyCode::ArrowLeft);
+    }
+    for _ in 0..3 {
+        h.press(KeyCode::ArrowRight);
+    }
+    h.wait_for(&render_distance_readout(4), SCREEN);
+    h.wait_for(&L::text("Limited to 3 by this server"), SCREEN);
+
+    h.press(KeyCode::ArrowLeft);
+    h.wait_for(&L::text(RENDER_DISTANCE_NOTE), SCREEN);
+    assert_eq!(h.world().resource::<RenderDistance>().distance, 3);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_video_screen_matches_its_golden() {
+    let mut h = settings();
+    h.open_tab_showing("Video", &render_distance());
+    h.hover_nothing();
+    h.assert_screenshot("menu_video");
 }
 
 #[test]

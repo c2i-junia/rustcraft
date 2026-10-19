@@ -56,6 +56,7 @@ pub(super) fn spawn_test_server(world: &str) -> (SocketAddr, JoinHandle<Result<(
         world_name: world.to_string(),
         is_solo: true,
         saves: None,
+        max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
     };
     let server = std::thread::spawn(move || {
         let _folder = folder;

@@ -235,6 +235,7 @@ fn load_world(
         name: world_name.to_string(),
         chunks,
         sent_chunks: HashMap::new(),
+        render_distances: Default::default(),
         players: HashMap::new(),
         mobs: world_data.mobs,
         dirty_chunks: HashSet::new(),
@@ -300,6 +301,7 @@ mod tests {
                 world_name: "w".into(),
                 is_solo: true,
                 saves: None,
+                max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
             },
             GameFolderPaths {
                 game_folder_path: tmp.path().into(),

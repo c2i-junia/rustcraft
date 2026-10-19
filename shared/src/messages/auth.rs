@@ -5,6 +5,8 @@ use super::{ClientToServerMessage, PlayerSpawnEvent, ServerToClientMessage};
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct AuthRegisterRequest {
     pub username: String,
+    /// The render distance the player asks for, in chunks.
+    pub render_distance: u32,
 }
 
 impl From<AuthRegisterRequest> for ClientToServerMessage {
@@ -20,6 +22,8 @@ pub struct AuthRegisterResponse {
     pub tick: u64,
     pub timestamp_ms: u64,
     pub players: Vec<PlayerSpawnEvent>, // all players (including the new one)
+    /// The largest render distance this server grants, in chunks.
+    pub max_render_distance: u32,
 }
 
 impl From<AuthRegisterResponse> for ServerToClientMessage {

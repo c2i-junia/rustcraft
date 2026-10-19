@@ -130,6 +130,21 @@ mod tests {
     }
 
     #[test]
+    fn chunk_unloads_round_trip_on_the_world_channel() {
+        use bevy::math::IVec3;
+
+        let chunks = vec![IVec3::new(-4, 0, 7), IVec3::new(3, -1, 2)];
+        let message = ServerToClientMessage::ChunkUnloads(chunks.clone());
+        assert_eq!(message.get_channel_id(), STC_CHUNK_DATA_CHANNEL);
+
+        let payload = game_message_to_payload(message);
+        match payload_to_game_message::<ServerToClientMessage>(&payload).unwrap() {
+            ServerToClientMessage::ChunkUnloads(decoded) => assert_eq!(decoded, chunks),
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
     fn decoding_an_empty_slice_is_an_error() {
         assert!(payload_to_game_message::<ClientToServerMessage>(&[]).is_err());
     }

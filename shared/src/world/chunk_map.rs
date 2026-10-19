@@ -27,6 +27,15 @@ impl ChunkMap {
         self.chunks.insert(chunk_pos, chunk);
     }
 
+    /// Removes the chunk at `chunk_pos`, and the changes logged for its blocks: nobody is to
+    /// hear about the blocks of a chunk that is gone. This is not a block change.
+    pub fn remove_chunk(&mut self, chunk_pos: IVec3) -> Option<Chunk> {
+        let chunk = self.chunks.remove(&chunk_pos)?;
+        self.changed
+            .retain(|pos| global_block_to_chunk_pos(pos) != chunk_pos);
+        Some(chunk)
+    }
+
     pub fn chunk(&self, chunk_pos: IVec3) -> Option<&Chunk> {
         self.chunks.get(&chunk_pos)
     }
@@ -232,6 +241,22 @@ mod tests {
             Some(&block(BlockId::Stone))
         );
         assert!(map.take_changed_blocks().is_empty());
+    }
+
+    #[test]
+    fn remove_chunk_drops_it_and_the_changes_of_its_blocks_only() {
+        let mut map = loaded(IVec3::ZERO, IVec3::new(31, 15, 15));
+        let kept = IVec3::new(20, 1, 1);
+        map.set_block(IVec3::new(3, 4, 5), block(BlockId::Stone));
+        map.set_block(kept, block(BlockId::Dirt));
+
+        assert!(map.remove_chunk(IVec3::ZERO).is_some());
+
+        assert!(!map.is_chunk_loaded(IVec3::ZERO));
+        assert!(map.is_chunk_loaded(IVec3::X));
+        assert_eq!(map.get_block(kept), Some(&block(BlockId::Dirt)));
+        assert_eq!(map.take_changed_blocks(), vec![kept]);
+        assert!(map.remove_chunk(IVec3::ZERO).is_none());
     }
 
     #[test]

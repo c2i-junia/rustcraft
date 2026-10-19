@@ -56,4 +56,6 @@ pub struct GameServerConfig {
     /// Counts the saves written and failed, for the client that runs this server in its own
     /// process.
     pub saves: Option<SaveCounter>,
+    /// The largest render distance a player may ask for, in chunks.
+    pub max_render_distance: u32,
 }

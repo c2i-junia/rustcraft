@@ -115,7 +115,11 @@ fn pump(
 
         if client.is_connected() && !asked {
             if let Some(username) = name.clone() {
-                client.send_game_message(AuthRegisterRequest { username }.into());
+                let request = AuthRegisterRequest {
+                    username,
+                    render_distance: shared::MIN_RENDER_DISTANCE,
+                };
+                client.send_game_message(request.into());
             }
             asked = true;
         }

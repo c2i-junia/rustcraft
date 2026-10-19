@@ -14,8 +14,9 @@ use shared::players::inventory::InventoryAction;
 use shared::players::{Inventory, Player};
 use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
-    global_block_to_chunk_pos, grid_slot, raycast, to_local_pos, BlockData, BlockDirection,
-    BlockId, Chunk, ChunkMap, FaceDirectionExt, ItemId, ItemStack,
+    chunk_distance, global_block_to_chunk_pos, grid_slot, raycast, to_local_pos,
+    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, Chunk, ChunkMap,
+    FaceDirectionExt, ItemId, ItemStack,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -106,6 +107,7 @@ impl TestServer {
             world_name: world_name.to_string(),
             is_solo,
             saves: None,
+            max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
         };
         let handle = thread::spawn(move || match status {
             Some(status) => server::init_with_status(socket, status, config, paths).unwrap(),
@@ -218,6 +220,11 @@ impl TestClient {
                     self.chunk_arrivals.push(*pos);
                 }
             }
+            ServerToClientMessage::ChunkUnloads(chunks) => {
+                for pos in chunks {
+                    self.world.remove_chunk(*pos);
+                }
+            }
             ServerToClientMessage::BlockUpdates(updates) => {
                 for update in updates {
                     match update.block {
@@ -307,6 +314,7 @@ fn solo_session_from_auth_to_exit() {
     client.send(
         AuthRegisterRequest {
             username: "tester".to_string(),
+            render_distance: 2,
         }
         .into(),
     );
@@ -373,6 +381,7 @@ fn solo_session_from_auth_to_exit() {
 fn auth_request(username: &str) -> ClientToServerMessage {
     AuthRegisterRequest {
         username: username.to_string(),
+        render_distance: 2,
     }
     .into()
 }
@@ -720,6 +729,7 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
         world_name: WORLD_NAME.to_string(),
         is_solo: true,
         saves: None,
+        max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
     };
 
     let err = server::init(socket, config, paths).unwrap_err();
@@ -730,6 +740,63 @@ fn corrupt_world_file_stops_the_server_without_touching_it() {
         "error does not start with the file: {err}"
     );
     assert_eq!(std::fs::read_to_string(world_file).unwrap(), "not a world");
+}
+
+#[test]
+fn the_chunks_follow_the_render_distance_the_player_asks_for() {
+    let server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    client.wait_connected();
+    client.send(
+        AuthRegisterRequest {
+            username: "viewer".to_string(),
+            render_distance: 1,
+        }
+        .into(),
+    );
+    let id = client.id;
+    let spawn = client.wait_for("PlayerSpawn for our id", |m| match m {
+        ServerToClientMessage::PlayerSpawn(s) if s.id == id => Some(s.data.position),
+        _ => None,
+    });
+    let center = world_position_to_chunk_position(spawn);
+    // Pumps until the client holds `count` chunks, and returns the farthest one's distance
+    let hold = |client: &mut TestClient, count: usize| {
+        let start = Instant::now();
+        while client.world.chunk_positions().count() != count {
+            assert!(
+                start.elapsed() < WAIT_TIMEOUT,
+                "the client holds {} chunks, not {count}",
+                client.world.chunk_positions().count()
+            );
+            client.pump();
+        }
+        client
+            .world
+            .chunk_positions()
+            .map(|chunk| chunk_distance(chunk, center))
+            .max()
+    };
+
+    assert_eq!(hold(&mut client, 27), Some(1));
+    // a few more ticks bring nothing farther
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(300) {
+        client.pump();
+    }
+    assert_eq!(hold(&mut client, 27), Some(1));
+
+    client.send(ClientToServerMessage::SetRenderDistance(3));
+    assert_eq!(hold(&mut client, 7 * 7 * 7), Some(3));
+
+    // down to 1: the chunks at 3 are unloaded, the margin keeps those at 2
+    client.send(ClientToServerMessage::SetRenderDistance(1));
+    let unloads = client.wait_for("ChunkUnloads", |m| match m {
+        ServerToClientMessage::ChunkUnloads(chunks) => Some(chunks.len()),
+        _ => None,
+    });
+    assert_eq!(unloads, 7 * 7 * 7 - 5 * 5 * 5);
+    assert_eq!(hold(&mut client, 5 * 5 * 5), Some(2));
 }
 
 #[test]

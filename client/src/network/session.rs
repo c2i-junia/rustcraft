@@ -9,7 +9,7 @@ use bevy_renet::netcode::{NetcodeClientTransport, NetcodeDisconnectReason};
 use bevy_renet::RenetClient;
 use shared::messages::sanitize_username;
 use shared::world::{world_position_to_chunk_position, ChunkMap};
-use shared::BROADCAST_CHUNK_RADIUS;
+use shared::SPAWN_CHUNK_RADIUS;
 
 use super::leave::Leaving;
 use super::status::{InFlight, ServerStatus, StatusProbe};
@@ -207,7 +207,7 @@ pub(crate) fn track_connection(
     };
     let chunks = player.single().ok().map(|player| {
         let center = world_position_to_chunk_position(player.translation);
-        chunks_around(&world.blocks, center, BROADCAST_CHUNK_RADIUS)
+        chunks_around(&world.blocks, center, SPAWN_CHUNK_RADIUS)
     });
     let step = if closing.is_some() {
         ConnectStep::ClosingLastWorld
@@ -472,7 +472,7 @@ pub fn connect_step(
             ConnectStep::Connecting
         };
     }
-    let side = (2 * BROADCAST_CHUNK_RADIUS + 1) as u32;
+    let side = (2 * SPAWN_CHUNK_RADIUS + 1) as u32;
     match chunks.unwrap_or((0, side.pow(3))) {
         (received, total) if received < total => ConnectStep::LoadingChunks { received, total },
         _ => ConnectStep::Spawning,
@@ -531,6 +531,9 @@ mod tests {
     use bevy_renet::netcode::NetcodeDisconnectReason as Reason;
     use shared::get_shared_renet_config;
     use shared::world::Chunk;
+
+    /// The chunks a client waits for around its spawn.
+    const SPAWN_CHUNKS: u32 = ((2 * SPAWN_CHUNK_RADIUS + 1) as u32).pow(3);
 
     use crate::network::status::ServerStatus;
     use crate::ui::menus::connect_error::back_label;
@@ -667,7 +670,7 @@ mod tests {
             connect_step(&world(), true, None),
             ConnectStep::LoadingChunks {
                 received: 0,
-                total: 27
+                total: SPAWN_CHUNKS
             }
         );
         assert_eq!(
@@ -749,9 +752,10 @@ mod tests {
         app.world_mut()
             .spawn((CurrentPlayerMarker {}, Transform::from_xyz(8., 40., 8.)));
         let mut cube = Vec::new();
-        for x in -1..=1 {
-            for y in 1..=3 {
-                for z in -1..=1 {
+        let r = SPAWN_CHUNK_RADIUS;
+        for x in -r..=r {
+            for y in 2 - r..=2 + r {
+                for z in -r..=r {
                     cube.push(IVec3::new(x, y, z));
                 }
             }
@@ -769,7 +773,7 @@ mod tests {
             app.world().resource::<ConnectWatch>().step,
             ConnectStep::LoadingChunks {
                 received: 12,
-                total: 27
+                total: SPAWN_CHUNKS
             }
         );
 
@@ -888,7 +892,7 @@ mod tests {
         let mut app = watched(
             ConnectStep::LoadingChunks {
                 received: 0,
-                total: 27,
+                total: SPAWN_CHUNKS,
             },
             ELEVEN,
             never_asked,

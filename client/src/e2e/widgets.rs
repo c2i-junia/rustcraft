@@ -39,7 +39,9 @@ use crate::ui::widgets::list::{
     spawn_list_card, spawn_scroll_list, CardSelected, ListCard, WheelStep, RING_ROOM,
 };
 use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
-use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderParts, SliderReadout};
+use crate::ui::widgets::slider::{
+    spawn_slider, SliderField, SliderParts, SliderReadout, SliderScale,
+};
 use crate::ui::widgets::slot::{slot, SlotSelected};
 use crate::ui::widgets::tabs::{spawn_tabs, TabChange, Tabs};
 use crate::ui::widgets::text_field::{
@@ -1206,7 +1208,11 @@ fn spawn_sliders(h: &mut Harness, sliders: &[(&str, f32)]) -> Vec<SliderParts> {
     let parts: Vec<_> = sliders
         .iter()
         .map(|&(label, value)| {
-            let field = SliderField { label, value };
+            let field = SliderField {
+                label,
+                value,
+                scale: SliderScale::PERCENT,
+            };
             let parts = spawn_slider(&mut h.world_mut().commands(), &field, Handle::default());
             h.world_mut().flush();
             h.world_mut().entity_mut(parts.root).insert(ChildOf(root));

@@ -68,9 +68,9 @@ impl ChannelResolvableExt for ClientToServerMessage {
 impl ChannelResolvableExt for ServerToClientMessage {
     fn get_channel_id(&self) -> u8 {
         match self {
-            ServerToClientMessage::WorldUpdate(_) | ServerToClientMessage::BlockUpdates(_) => {
-                STC_CHUNK_DATA_CHANNEL
-            }
+            ServerToClientMessage::WorldUpdate(_)
+            | ServerToClientMessage::BlockUpdates(_)
+            | ServerToClientMessage::ChunkUnloads(_) => STC_CHUNK_DATA_CHANNEL,
             ServerToClientMessage::AuthRegisterResponse(_) => STC_AUTH_CHANNEL,
             _ => STC_STANDARD_CHANNEL,
         }

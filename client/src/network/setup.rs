@@ -15,7 +15,9 @@ use crate::network::world::update_world_from_network;
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::world::time::ClientTime;
-use crate::world::{BlockChanged, WorldRenderRequestUpdateEvent};
+use crate::world::{
+    BlockChanged, RenderDistance, ServerRenderDistanceLimit, WorldRenderRequestUpdateEvent,
+};
 use shared::messages::{
     AuthRegisterRequest, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
 };
@@ -248,6 +250,8 @@ pub fn launch_local_server_system(
             world_name,
             is_solo: true,
             saves: Some(saves),
+            // the player's own world: whatever the player may choose
+            max_render_distance: crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS,
         };
         let result = server::init(socket, config, paths);
         if let Err(err) = &result {
@@ -264,6 +268,7 @@ pub fn launch_local_server_system(
 }
 
 pub fn poll_network_messages(
+    mut commands: Commands,
     mut client: ResMut<RenetClient>,
     mut world: ResMut<ClientWorldMap>,
     mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
@@ -274,6 +279,7 @@ pub fn poll_network_messages(
     mut chat: ResMut<CachedChatConversation>,
 ) {
     update_world_from_network(
+        &mut commands,
         &mut client,
         &mut world,
         &mut ev_render,
@@ -382,6 +388,8 @@ pub fn establish_authenticated_connection_to_server(
     transport: Option<Res<NetcodeClientTransport>>,
     mut target: ResMut<TargetServer>,
     current_profile: Res<CurrentPlayerProfile>,
+    render_distance: Res<RenderDistance>,
+    mut commands: Commands,
     mut ev_spawn: MessageWriter<PlayerSpawnEvent>,
     mut client_time: ResMut<ClientTime>,
     mut refusal_logged: Local<bool>,
@@ -400,7 +408,10 @@ pub fn establish_authenticated_connection_to_server(
             .get_or_insert_with(|| current_profile.name.clone())
             .clone();
 
-        let auth_msg = AuthRegisterRequest { username };
+        let auth_msg = AuthRegisterRequest {
+            username,
+            render_distance: render_distance.distance,
+        };
         info!("Sending auth request: {:?}", auth_msg);
         client.send_game_message(auth_msg.into());
         target.state = TargetServerState::Establishing;
@@ -427,6 +438,7 @@ pub fn establish_authenticated_connection_to_server(
                 target.session_token = Some(message.session_token);
                 target.state = TargetServerState::ConnectionEstablished;
                 client_time.0 = message.tick;
+                commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
                 // `timestamp_ms` is not used yet: the clock starts at the server's tick as it
                 // was when the response left, so it lags by the latency
                 for player in message.players {

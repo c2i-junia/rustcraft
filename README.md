@@ -35,7 +35,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Inventory system with a functional hotbar.
 - World saving and loading.
 - In-game chat.
-- Customizable keybindings, and a key pair (O and P) that sets how far away mobs are drawn.
+- Customizable keybindings, and a render distance set in Settings > Video or with O and P.
 
 <br>
 
@@ -124,6 +124,11 @@ A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP 
 Open both in a firewall or a router: a server whose status port cannot be reached, or an older
 server that has none, shows as "Offline" in the list, and can still be joined.
 
+Each player sets its render distance, from 1 to 8 chunks, in Settings > Video or with O and
+P; the server sends the chunks within it, up to `--max-render-distance` chunks (6 by default),
+and the Video tab says when it grants less. A world of Singleplayer grants all 8. A distance of `d` is (2d + 1)³ chunks per
+player, so a high maximum costs the server memory and generation time.
+
 While a world opens or a server is joined, a card shows each step and can be cancelled with
 Escape. When it fails, a card says why, with the way back to the list and, when it may help,
 "Try again":
@@ -150,7 +155,7 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 
 Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per chunk and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
-The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron` and `interface.ron` (UI scale).
+The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance).
 
 <br>
 

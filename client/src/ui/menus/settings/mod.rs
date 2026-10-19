@@ -1,9 +1,10 @@
-//! The settings screen: one panel with a tab per kind of setting, Controls, Audio and Interface.
-//! Every change applies and is saved at once.
+//! The settings screen: one panel with a tab per kind of setting, Controls, Video, Audio and
+//! Interface. Every change applies and is saved at once.
 
 pub mod audio;
 pub mod controls;
 pub mod interface;
+pub mod video;
 
 use accesskit::{NodeId, Role};
 use bevy::{
@@ -30,9 +31,11 @@ use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
+use crate::world::RenderDistance;
 use audio::spawn_audio_tab;
 use controls::{spawn_controls_tab, KeyCapture, KeySearch, KeySearchField, CONTROLS_HINTS};
 use interface::{show_scale_limit, spawn_interface_tab};
+use video::{show_render_distance_note, spawn_video_tab};
 
 /// Where the settings are open.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -57,13 +60,15 @@ pub struct SettingsRoot {
 pub enum SettingsTab {
     #[default]
     Controls,
+    Video,
     Audio,
     Interface,
 }
 
 impl SettingsTab {
-    pub const ALL: [SettingsTab; 3] = [
+    pub const ALL: [SettingsTab; 4] = [
         SettingsTab::Controls,
+        SettingsTab::Video,
         SettingsTab::Audio,
         SettingsTab::Interface,
     ];
@@ -71,6 +76,7 @@ impl SettingsTab {
     pub fn label(self) -> &'static str {
         match self {
             SettingsTab::Controls => "Controls",
+            SettingsTab::Video => "Video",
             SettingsTab::Audio => "Audio",
             SettingsTab::Interface => "Interface",
         }
@@ -94,8 +100,8 @@ struct SettingsTabs;
 #[derive(Component)]
 pub(crate) struct CloseSettings;
 
-/// The key hints of the Audio and Interface tabs, whose controls change with the arrows: Enter
-/// does nothing there.
+/// The key hints of the Video, Audio and Interface tabs, whose controls change with the arrows:
+/// Enter does nothing there.
 pub const SETTINGS_HINTS: [Hint; 3] = [
     Hint {
         keys: "Tab",
@@ -130,6 +136,7 @@ pub fn settings_plugin(app: &mut App) {
                     .run_if(settings_open)
                     .run_if(not(modal_open)),
                 show_scale_limit.run_if(any_with_component::<interface::ScaleLimitNote>),
+                show_render_distance_note.run_if(any_with_component::<video::RenderDistanceNote>),
             ),
         )
         .add_systems(PostUpdate, close_settings);
@@ -305,6 +312,7 @@ fn show_tab(
     search: Res<KeySearch>,
     audio: Res<AudioSettings>,
     interface: Res<InterfaceSettings>,
+    render_distance: Res<RenderDistance>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -328,7 +336,7 @@ fn show_tab(
     }
     let hints: &[Hint] = match tab {
         SettingsTab::Controls => &CONTROLS_HINTS,
-        SettingsTab::Audio | SettingsTab::Interface => &SETTINGS_HINTS,
+        SettingsTab::Video | SettingsTab::Audio | SettingsTab::Interface => &SETTINGS_HINTS,
     };
     spawn_hints(&mut commands, root, hints, &assets);
     match tab {
@@ -339,6 +347,7 @@ fn show_tab(
             &search,
             (font, glyph_font),
         ),
+        SettingsTab::Video => spawn_video_tab(&mut commands, panel, &render_distance, font),
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
         SettingsTab::Interface => spawn_interface_tab(&mut commands, panel, &interface, font),
     }

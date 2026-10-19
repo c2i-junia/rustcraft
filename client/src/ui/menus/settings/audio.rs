@@ -4,7 +4,7 @@ use bevy::{prelude::*, ui_widgets::ValueChange};
 use shared::GameFolderPaths;
 
 use crate::audio::settings::{write_audio_settings, AudioSettings, Channel};
-use crate::ui::widgets::slider::{spawn_slider, SliderField};
+use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderScale};
 
 /// The slider of the volume of a channel.
 #[derive(Component)]
@@ -21,6 +21,7 @@ pub fn spawn_audio_tab(
         let field = SliderField {
             label: channel.label(),
             value: settings.get(channel),
+            scale: SliderScale::PERCENT,
         };
         let parts = spawn_slider(commands, &field, font.clone());
         commands.entity(parts.root).insert(ChildOf(panel));

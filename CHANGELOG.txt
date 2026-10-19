@@ -21,6 +21,8 @@ Date: 11.10.2026
     - Fixed crashes when a texture pack lacks a texture, when a port is already in use and when the connection cannot be opened: the game logs the error and goes back to the menu.
     - Fixed blocks breaking faster at higher frame rates: a block now takes the same time to break on any screen.
     - The mob draw distance can no longer go below one chunk.
+    - Added a render distance, from 1 to 8 chunks, set in Settings > Video or with O and P: the server sends the chunks within it around each player and unloads the farther ones. A dedicated server caps it with --max-render-distance (6 by default).
+    - Fixed every player receiving the chunks around all the other players.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

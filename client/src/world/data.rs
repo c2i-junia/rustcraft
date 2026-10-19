@@ -49,6 +49,19 @@ pub struct ClientWorldMap {
     pub render: HashMap<IVec3, ChunkRender>,
 }
 
+impl ClientWorldMap {
+    /// Forgets the chunk at `chunk_pos`: its blocks and its meshes, which are despawned. A mesh
+    /// still being made for it is dropped when done, as the chunk has no render any more.
+    pub fn unload_chunk(&mut self, chunk_pos: IVec3, commands: &mut Commands) {
+        self.blocks.remove_chunk(chunk_pos);
+        if let Some(render) = self.render.remove(&chunk_pos) {
+            for entity in [render.entity, render.liquid_entity].into_iter().flatten() {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+}
+
 #[derive(Message, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub enum WorldRenderRequestUpdateEvent {
     /// Mesh this chunk again, and only this one. Ignored when the chunk is not loaded.
@@ -67,7 +80,45 @@ pub struct BlockChanged {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::world::CommandQueue;
+    use shared::world::Chunk;
     use std::time::Duration;
+
+    #[test]
+    fn an_unloaded_chunk_loses_its_blocks_render_and_entities_and_the_others_keep_theirs() {
+        let mut world = World::new();
+        let mut map = ClientWorldMap::default();
+        let spawn_render = |world: &mut World, map: &mut ClientWorldMap, pos: IVec3| {
+            map.blocks.insert_chunk(pos, Chunk::new());
+            let render = ChunkRender {
+                entity: Some(world.spawn_empty().id()),
+                liquid_entity: Some(world.spawn_empty().id()),
+                ..ChunkRender::new()
+            };
+            map.render.insert(pos, render.clone());
+            render
+        };
+        let gone = spawn_render(&mut world, &mut map, IVec3::ZERO);
+        let kept = spawn_render(&mut world, &mut map, IVec3::X);
+
+        let mut queue = CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &world);
+        map.unload_chunk(IVec3::ZERO, &mut commands);
+        // a chunk the client does not have is ignored
+        map.unload_chunk(IVec3::new(7, 7, 7), &mut commands);
+        queue.apply(&mut world);
+
+        assert!(!map.blocks.is_chunk_loaded(IVec3::ZERO));
+        assert!(!map.render.contains_key(&IVec3::ZERO));
+        for entity in [gone.entity, gone.liquid_entity].into_iter().flatten() {
+            assert!(world.get_entity(entity).is_err());
+        }
+        assert!(map.blocks.is_chunk_loaded(IVec3::X));
+        assert!(map.render.contains_key(&IVec3::X));
+        for entity in [kept.entity, kept.liquid_entity].into_iter().flatten() {
+            assert!(world.get_entity(entity).is_ok());
+        }
+    }
 
     #[test]
     fn only_a_mesh_requested_after_the_displayed_one_may_replace_it() {

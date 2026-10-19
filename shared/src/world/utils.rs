@@ -38,6 +38,12 @@ pub fn global_block_to_chunk_pos(global_block_pos: &IVec3) -> IVec3 {
     )
 }
 
+/// How many chunks apart two chunks are, along the axis where they are farthest apart: the
+/// chunks within `d` of a chunk form a cube of side `2d + 1` around it.
+pub fn chunk_distance(a: IVec3, b: IVec3) -> i32 {
+    (a - b).abs().max_element()
+}
+
 pub const SIX_OFFSETS: [IVec3; 6] = [
     IVec3::new(1, 0, 0),
     IVec3::new(-1, 0, 0),
@@ -107,6 +113,18 @@ mod tests {
         assert_eq!(
             global_block_to_chunk_pos(&IVec3::new(15, -1, -16)),
             IVec3::new(0, -1, -1)
+        );
+    }
+
+    #[test]
+    fn chunk_distance_is_the_largest_gap_along_an_axis() {
+        assert_eq!(chunk_distance(IVec3::ZERO, IVec3::ZERO), 0);
+        assert_eq!(chunk_distance(IVec3::ZERO, IVec3::new(-3, 0, 0)), 3);
+        assert_eq!(chunk_distance(IVec3::ZERO, IVec3::new(0, 2, 0)), 2);
+        assert_eq!(chunk_distance(IVec3::new(1, 1, 1), IVec3::new(-1, 3, 0)), 2);
+        assert_eq!(
+            chunk_distance(IVec3::new(5, -2, 4), IVec3::new(4, -1, 3)),
+            1
         );
     }
 

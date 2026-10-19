@@ -66,10 +66,11 @@ While the connecting card shows (`GameState::PreGameLoading`), `ConnectWatch` ho
 the session: Starting the world (the local server loads, then accepts the player) or Connecting
 (netcode, then the authentication), then Loading chunks `n / 27`, then Spawning (the textures
 and the local player). From the authentication on, the client reads the server's messages and
-counts the chunks within `shared::BROADCAST_CHUNK_RADIUS` (1) of the local player's chunk, the
-(2r + 1)³ = 27 chunks the server sends around a player; it enters the game once all of them are
-in, so a player never spawns over the void. The radius is therefore part of the protocol: a
-change of it bumps `PROTOCOL_ID`. Entering the game asks a mesh for every chunk held, and a
+counts the chunks within `shared::SPAWN_CHUNK_RADIUS` (1) of the local player's chunk, the
+(2r + 1)³ = 27 chunks nearest to it; it enters the game once all of them are in, so a player
+never spawns over the void. Every render distance reaches that radius and the server sends the
+nearest chunks first, so they come before the rest. The radius is therefore part of the
+protocol: a change of it bumps `PROTOCOL_ID`. Entering the game asks a mesh for every chunk held, and a
 cancel forgets them. The mob and player updates and the `BlockChanged` messages that arrive
 while loading are dropped: the server sends the mobs and the players again on every broadcast,
 and a changed block is written into the map anyway, only its sound and particles are lost.
@@ -142,11 +143,29 @@ orders the systems of `Update`:
 
 1. **Receive**: connection events, then the messages of each client, one handler per kind of
    message (`network/handlers.rs`). A client that is not authenticated may only ask to be.
-2. **Simulate**: the inputs are applied to the world. Chunks are generated around the players
-   before and after each input. Then the water flows (`world/flow.rs`): every 5 ticks, the
+2. **Simulate**: the inputs are applied to the world. Chunks are generated within the render
+   distance of the players before the inputs, and next to their chunk after each input. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
    (`shared/src/world/liquid.rs`).
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
+
+   Each client gets the chunks within the render distance of its own player, along the axis
+   where they are farthest apart (`chunk_distance`), nearest first and at most 10 per tick.
+   The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (8), in the Video
+   tab of the settings or with the O and P keys (`RenderDistance`, saved in `video.ron`): the
+   authentication request carries it and `SetRenderDistance` changes it. The answer to the
+   authentication carries the server's maximum (`ServerRenderDistanceLimit`), which the Video
+   tab names in game when it is below the choice; a world of Singleplayer grants 8. The server keeps it between
+   `MIN_RENDER_DISTANCE` (1) and its `--max-render-distance` (`DEFAULT_MAX_RENDER_DISTANCE`,
+   6), in `RenderDistances`. `sent_chunks` records what each client has. A chunk more than
+   the render distance plus `UNLOAD_MARGIN` away is unloaded, after a move as after a lowered
+   render distance: the server forgets it sent it and tells the client in a
+   `ChunkUnloads`, which removes it and despawns its meshes. A chunk of the margin is kept but
+   never sent first, so that walking to and fro across a chunk border neither unloads nor
+   sends anything. The server decides, as the client's predicted position runs ahead of the
+   server's: a client that unloaded on its own could drop a chunk the server believes sent,
+   and never get it back. `ChunkUnloads`, `BlockUpdates` and `WorldUpdate` share one ordered
+   channel and go in that order, so that no update is sent for a chunk being unloaded.
 4. **Save**: on request or every 60 seconds, the metadata and the changed chunks are handed
    to the writer thread.
 

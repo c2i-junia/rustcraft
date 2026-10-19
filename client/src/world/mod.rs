@@ -25,7 +25,8 @@ pub fn world_plugin(app: &mut App) {
         .insert_resource(MaterialResource { ..default() })
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
-        .insert_resource(RenderDistance { ..default() })
+        // loaded from the game folder by `add_client`
+        .init_resource::<RenderDistance>()
         .add_plugins(chunk_material_plugin)
         .add_message::<WorldRenderRequestUpdateEvent>()
         .add_message::<BlockChanged>()
@@ -43,7 +44,9 @@ pub fn world_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                render_distance_update_system.after(GameSet::UiMode),
+                (render_distance_update_system, send_render_distance_system)
+                    .chain()
+                    .after(GameSet::UiMode),
                 chunk_force_reload_system.after(GameSet::UiMode),
                 update_celestial_bodies,
             )

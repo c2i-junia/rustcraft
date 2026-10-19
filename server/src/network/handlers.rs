@@ -54,6 +54,7 @@ pub(super) fn auth_register_request(
     chat_conversation: &ChatConversation,
     time: &ServerTime,
     game_folder_paths: &GameFolderPaths,
+    max_render_distance: u32,
 ) -> ControlFlow<()> {
     let Clients { server, lobby } = clients;
 
@@ -82,6 +83,9 @@ pub(super) fn auth_register_request(
             }
         };
     }
+    world_map
+        .render_distances
+        .set(client_id, auth_req.render_distance, max_render_distance);
     lobby
         .players
         .insert(client_id, LobbyPlayer::new(username.to_string()));
@@ -100,6 +104,7 @@ pub(super) fn auth_register_request(
         tick: time.0,
         timestamp_ms: unix_time_ms(),
         players,
+        max_render_distance,
     };
     server.send_game_message(client_id, auth_res.into());
 
@@ -196,6 +201,21 @@ pub(super) fn player_inputs(
         ev_player_inputs.write(PlayerInputsEvent { client_id, input });
     }
     dropped
+}
+
+pub(super) fn set_render_distance(
+    client_id: ClientId,
+    asked: u32,
+    world_map: &mut ServerWorldMap,
+    max_render_distance: u32,
+) {
+    world_map
+        .render_distances
+        .set(client_id, asked, max_render_distance);
+    debug!(
+        "Client {client_id} asked for a render distance of {asked}, granted {}",
+        world_map.render_distances.get(client_id)
+    );
 }
 
 pub(super) fn save_world_request(
