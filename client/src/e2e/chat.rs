@@ -16,11 +16,11 @@ use super::locator::{is_inside, Locator as L};
 use super::seed::GameFolder;
 use crate::network::CachedChatConversation;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
-use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT};
+use crate::ui::hud::chat::{ChatInput, ChatLine, ChatLog, ChatRoot, CHAT_LINE_HEIGHT, CHAT_WIDTH};
 use crate::ui::hud::debug::{DebugOptions, HudRoot};
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{InventoryRoot, UIMode};
-use crate::ui::theme::SPACE_S;
+use crate::ui::theme::{SPACE_L, SPACE_S};
 
 impl Harness {
     /// Whether a visible line of the chat contains `part`. The lines stay on screen for a
@@ -376,6 +376,28 @@ fn the_chat_sits_above_the_hotbar_and_its_item_name() {
             window.contains(chat.min) && window.contains(chat.max),
             "{chat:?} at {width}x{height}"
         );
+        // never as far as the reticle, at the centre; as wide as it may be when there is room
+        if width == 800 {
+            assert!(
+                chat.max.x <= width as f32 / 2.0 - SPACE_L * scale + 0.5,
+                "{chat:?} reaches the reticle at {width}x{height}"
+            );
+        } else {
+            assert!(
+                (chat.width() - CHAT_WIDTH * scale).abs() < 0.5,
+                "{chat:?} at {width}x{height}"
+            );
+        }
+        // the log and the field follow the chat
+        for part in [
+            h.rect_of(&L::marker::<ChatLog>()),
+            h.rect_of(&L::marker::<ChatInput>()),
+        ] {
+            assert!(
+                part.max.x <= chat.max.x + 0.5,
+                "{part:?} leaves {chat:?} at {width}x{height}"
+            );
+        }
         h.press(KeyCode::Escape);
     }
 }

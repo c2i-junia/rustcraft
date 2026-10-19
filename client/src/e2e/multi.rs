@@ -778,11 +778,16 @@ fn the_wheel_scrolls_only_the_list_under_the_cursor() {
     let first = card("server 01");
     h.wait_for(&first, SCREEN);
     let before = h.center_of(&first).y;
+    // a notch of the wheel moves the list by one card
+    let card_step = h.center_of(&card("server 02")).y - before;
     h.hover(&first);
-    h.scroll(-5.);
+    h.scroll(-1.);
+    h.frames(2);
+    assert_eq!(h.center_of(&first).y, before - card_step);
+    h.scroll(-4.);
     h.frames(2);
     let after = h.center_of(&first).y;
-    assert!(after < before, "the list stayed at {before}, then {after}");
+    assert_eq!(after, before - 5.0 * card_step);
 
     h.hover(&pane());
     h.scroll(-5.);

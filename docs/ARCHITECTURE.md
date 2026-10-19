@@ -171,8 +171,8 @@ The client has one plugin per domain, registered by `game_plugin`: `camera`, `in
 `network`, `player`, `ui::hud` and `world`. The menus have their own plugin
 (`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
 too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audio` turns into
-sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. `GameState` goes from `Menu` to `PreGameLoading` (connection and
-textures) to `Game`.
+sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. `GameState`
+goes from `Menu` to `PreGameLoading` (connection and textures) to `Game`.
 
 ## UI widgets
 
@@ -197,25 +197,25 @@ slider under the cursor (`scroll.rs` turns the wheel and the trackpad into whole
 selectable cards: a card is selected by taking the focus, the list is one tab stop (the selected
 card), and ↑ ↓ Home End move between the cards. A notch of the wheel moves a list by its own
 `WheelStep` rather than Bevy's 100 px: one card in the world and server lists, one row in the
-controls, three lines in the chat; a trackpad's pixels pass through unchanged. `dialog.rs` also builds form dialogs, with text
-fields above the buttons: Enter in a field or the primary action triggers `DialogSubmit`, and
-the caller confirms the submission by closing the dialog with `close_dialog`; Escape in a field
-closes the dialog. Once its fields hold their first values, and after each change, a form
-dialog triggers `FormChanged` with their values and which ones were touched; the screen checks
-them and hands the messages and whether the form can be submitted to `apply_form_check`. A field
-built with `reserve_error` (`text_field.rs`) keeps the room of its
-one-line error message, so that a message appearing moves nothing. The Singleplayer screen
-(`ui/menus/solo/`) rebuilds its world list from the disk after every change, with
+controls, three lines in the chat; a trackpad's pixels pass through unchanged. `dialog.rs` also
+builds form dialogs, with text fields above the buttons: Enter in a field or the primary action
+triggers `DialogSubmit`, and the caller confirms the submission by closing the dialog with
+`close_dialog`; Escape in a field closes the dialog. Once its fields hold their first values,
+and after each change, a form dialog triggers `FormChanged` with their values and which ones
+were touched; the screen checks them and hands the messages and whether the form can be
+submitted to `apply_form_check`. A field built with `reserve_error` (`text_field.rs`) keeps the
+room of its one-line error message, so that a message appearing moves nothing. The Singleplayer
+screen (`ui/menus/solo/`) rebuilds its world list from the disk after every change, with
 `list_worlds`, which the main menu's Continue card reads too. The Multiplayer screen
-(`ui/menus/multi/`) rebuilds its server list from `servers.ron` after every change, and asks
-the statuses and resolves the host names on threads (`InFlight`), so a frame never waits for the
-network. A dialog and a key capture take
-Escape through `FocusedInput<KeyboardInput>` and finish in `PostUpdate`; the handlers that
-read `ButtonInput<KeyCode>` in `Update` (the Escape of the main menu, of the world and server
-lists, of the settings and of the pause menu, and the New world opener, Ctrl+N) skip while a
-dialog is open, a text field has the focus, a key is being captured or, for the pause menu, the
-settings are open. The connecting card reads Escape the same way: no dialog or field exists
-there. The settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
+(`ui/menus/multi/`) rebuilds its server list from `servers.ron` after every change, and asks the
+statuses and resolves the host names on threads (`InFlight`), so a frame never waits for the
+network. A dialog and a key capture take Escape through `FocusedInput<KeyboardInput>` and finish
+in `PostUpdate`; the handlers that read `ButtonInput<KeyCode>` in `Update` (the Escape of the
+main menu, of the world and server lists, of the settings and of the pause menu, and the New
+world opener, Ctrl+N) skip while a modal is open (`modal_open`: a dialog, or the quitting card),
+a text field has the focus, a key is being captured or, for the pause menu, the settings are
+open. The connecting card reads Escape the same way: no dialog or field exists there. The
+settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
 game from the pause menu. `progress.rs` is a progress bar: a sunken track whose `OK` fill
 follows the value its screen sets on `ProgressBar`, told as a percentage to accessibility. The
 connecting card (`ui/menus/connecting.rs`) and the error card (`ui/menus/connect_error.rs`)
@@ -239,9 +239,9 @@ too, once. While the game is left, every button is disabled and the leaving one 
 
 The chat (`ui/hud/chat.rs`) is a log of the last 100 messages with their times, over the field
 to write in, at the bottom-left above the hotbar; closed, the recent lines stay over the game
-for 7 s, then fade. The pixel font has no accented letters: a message with a character the
-pixel font lacks is drawn whole in Fira Mono, never with a missing letter in the middle, and so
-is the text being written (`font_for`, `match_the_field_font`).
+for 7 s, then fade. The pixel font lacks many accented letters (é, è...): a message with a
+character the pixel font lacks is drawn whole in Fira Mono, never with a missing letter in the
+middle, and so is the text being written (`font_for`, `match_the_field_font`).
 
 ## Saves
 
@@ -267,7 +267,13 @@ the folder, after a confirmation.
 
 ## End-to-end tests
 
-`main.rs` builds the `App` and hands the wiring of the client to `app::add_client` (`client/src/app.rs`). The end-to-end tests (`client/src/e2e/`, compiled for tests only) call the same function on an `App` with a surfaceless window, so they run the client that players run: a `Harness` finds elements by their text, `Name`, marker or accessibility role, injects the mouse (including the window events of picking) and keyboard as messages, and draws the cameras into an image for the golden screenshots and the review snapshots. In game, the tests go through the integrated server, on wall-clock time. How to write one is in the README.
+`main.rs` builds the `App` and hands the wiring of the client to `app::add_client`
+(`client/src/app.rs`). The end-to-end tests (`client/src/e2e/`, compiled for tests only) call
+the same function on an `App` with a surfaceless window, so they run the client that players
+run: a `Harness` finds elements by their text, `Name`, marker or accessibility role, injects the
+mouse (including the window events of picking) and keyboard as messages, and draws the cameras
+into an image for the golden screenshots and the review snapshots. In game, the tests go through
+the integrated server, on wall-clock time. How to write one is in the README.
 
 ## Known limits
 

@@ -6,6 +6,13 @@ use crate::ui::menus::pause::{pause_open, PauseMenu};
 use crate::ui::menus::settings::{settings_open, SettingsRoot};
 use crate::ui::theme::{BEVEL_LO, RETICLE};
 
+/// The length of a bar of the reticle, in logical px.
+const BAR_LENGTH: f32 = 20.0;
+/// The thickness of a bar of the reticle.
+const BAR_THICKNESS: f32 = 2.0;
+/// The width of the dark outline around each bar, on every side.
+const OUTLINE: f32 = 1.0;
+
 /// The root of the reticle.
 #[derive(Component)]
 pub struct Reticle;
@@ -48,10 +55,11 @@ pub fn spawn_reticle(mut commands: Commands) {
         ))
         .with_children(|parent| {
             // The outline first, so that the bars are drawn over it
-            parent.spawn(bar(22.0, 4.0, BEVEL_LO));
-            parent.spawn(bar(4.0, 22.0, BEVEL_LO));
-            parent.spawn(bar(20.0, 2.0, RETICLE));
-            parent.spawn(bar(2.0, 20.0, RETICLE));
+            let (long, thick) = (BAR_LENGTH + 2.0 * OUTLINE, BAR_THICKNESS + 2.0 * OUTLINE);
+            parent.spawn(bar(long, thick, BEVEL_LO));
+            parent.spawn(bar(thick, long, BEVEL_LO));
+            parent.spawn(bar(BAR_LENGTH, BAR_THICKNESS, RETICLE));
+            parent.spawn(bar(BAR_THICKNESS, BAR_LENGTH, RETICLE));
         });
 }
 

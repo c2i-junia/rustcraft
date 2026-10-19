@@ -84,6 +84,7 @@ pub fn hud_plugin(app: &mut App) {
             (
                 // before Bevy reads the font of the field and applies its edits
                 match_the_field_font.before(UiSystems::Content),
+                fit_chat_width.before(UiSystems::Layout),
                 settle_chat_scroll.after(UiSystems::Layout),
             )
                 .run_if(in_state(GameState::Game)),

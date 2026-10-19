@@ -12,6 +12,7 @@ use bevy::input_focus::{
 };
 use bevy::prelude::*;
 use bevy::text::{EditableText, FontSource, LineBreak, LineHeight, TextEdit};
+use bevy::window::PrimaryWindow;
 use bevy_renet::RenetClient;
 use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use shared::messages::{ChatMessageRequest, ClientToServerMessage, FullChatMessage};
@@ -31,8 +32,10 @@ use crate::ui::widgets::text_field::{set_text, spawn_text_field, Cancel, Submit,
 
 /// The messages the log keeps; the oldest go first.
 pub const CHAT_MAX_MESSAGES: usize = 100;
-/// The width of the log and the field of the chat.
+/// The width of the log and the field of the chat, when the window has room for it.
 pub const CHAT_WIDTH: f32 = 420.0;
+/// The room between the left edge of the window and the chat.
+const CHAT_LEFT: f32 = SPACE_L;
 /// The lines the open log shows, and the most recent lines the closed chat shows.
 pub const CHAT_LOG_LINES: usize = 10;
 /// How long a line stays whole over the game once received, before it fades.
@@ -146,7 +149,7 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
             TabGroup::modal(),
             Node {
                 position_type: PositionType::Absolute,
-                left: px(SPACE_L),
+                left: px(CHAT_LEFT),
                 // above the hotbar and the name of its item, at every size
                 bottom: px(HOTBAR_TOP + ITEM_NAME_BAND + SPACE_S),
                 width: px(CHAT_WIDTH),
@@ -247,6 +250,30 @@ fn font_for(text: &str) -> &'static str {
         FONT_PATH
     } else {
         MONO_FONT_PATH
+    }
+}
+
+/// The width of the chat in a UI `ui_width` logical px wide: `CHAT_WIDTH`, or less, so that it
+/// ends `SPACE_L` before the centre of the window, where the reticle is.
+fn chat_width(ui_width: f32) -> f32 {
+    CHAT_WIDTH.min(ui_width / 2.0 - CHAT_LEFT - SPACE_L)
+}
+
+/// Fits the chat to the window, as it is resized or the UI scale changes: the log and the field
+/// follow its width.
+pub fn fit_chat_width(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
+    mut roots: Query<&mut Node, With<ChatRoot>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let width = px(chat_width(window.width() / ui_scale.0));
+    for mut node in &mut roots {
+        if node.width != width {
+            node.width = width;
+        }
     }
 }
 

@@ -732,11 +732,16 @@ fn the_wheel_scrolls_the_controls_list_under_the_cursor() {
         rect_of(&mut h, &L::marker::<Scrollbar>()),
     );
     assert!(thumb.height() < track.height(), "{thumb:?} in {track:?}");
+    // a notch of the wheel moves the list by one row
+    let row_step = h.center_of(&L::text("Move backward")).y - before.y;
     h.hover(&first);
-    h.scroll(-3.);
+    h.scroll(-1.);
+    h.frames(2);
+    assert_eq!(h.center_of(&first).y, before.y - row_step);
+    h.scroll(-2.);
     h.frames(2);
     let scrolled = h.center_of(&first);
-    assert!(scrolled.y < before.y, "{before} then {scrolled}");
+    assert_eq!(scrolled.y, before.y - 3.0 * row_step);
     let moved = thumb_rect(&mut h);
     assert!(moved.min.y > thumb.min.y, "{thumb:?} then {moved:?}");
     // the thumb stands out from its track, and lightens under the cursor

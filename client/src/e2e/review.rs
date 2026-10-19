@@ -29,6 +29,7 @@ use crate::network::session::{ConnectStep, ConnectWatch, SessionOrigin};
 use crate::network::status::{ServerStatus, StatusProbe};
 use crate::network::{CurrentPlayerProfile, LocalServerHandle, TargetServer};
 use crate::state::{GameState, KeyMap};
+use crate::ui::hud::chat::{ChatLine, CHAT_FADE, CHAT_FADE_AFTER};
 use crate::ui::hud::UIMode;
 use crate::ui::menus::connecting::{ConnectingCard, BLINK};
 use crate::ui::menus::multi::dialogs::ADD_SERVER_TITLE;
@@ -503,5 +504,13 @@ fn every_screen_at_three_resolutions() {
         h.world_mut().flush();
         h.snapshot_in_game("quitting");
         h.world_mut().despawn(card);
+
+        // the lines received have faded by the next size, whose HUD is bare
+        let faded = Instant::now() - (CHAT_FADE_AFTER + CHAT_FADE);
+        let world = h.world_mut();
+        for mut line in world.query::<&mut ChatLine>().iter_mut(world) {
+            line.received = faded;
+        }
+        h.frames(1);
     }
 }
