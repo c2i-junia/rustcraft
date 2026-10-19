@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_renet::renet::RenetClient;
 use bincode::ErrorKind;
 use shared::{
-    game_message_to_payload, get_customized_server_to_client_channels,
+    game_message_to_payload,
     messages::{ClientToServerMessage, ServerToClientMessage},
     ChannelResolvableExt,
 };
@@ -10,10 +10,6 @@ use shared::{
 pub trait SendGameMessageExtension {
     fn send_game_message(&mut self, message: ClientToServerMessage);
     fn receive_game_message_by_channel(
-        &mut self,
-        channel: u8,
-    ) -> Option<Result<ServerToClientMessage, Box<ErrorKind>>>;
-    fn receive_game_message_except_channel(
         &mut self,
         channel: u8,
     ) -> Option<Result<ServerToClientMessage, Box<ErrorKind>>>;
@@ -41,23 +37,6 @@ impl SendGameMessageExtension for RenetClient {
                     warn!("Error deserializing message: {:?}", e);
                     return Some(Err(e));
                 }
-            }
-        }
-        None
-    }
-
-    fn receive_game_message_except_channel(
-        &mut self,
-        excluded_channel_id: u8,
-    ) -> Option<Result<ServerToClientMessage, Box<ErrorKind>>> {
-        let channels = get_customized_server_to_client_channels();
-        for channel in channels {
-            if channel.channel_id == excluded_channel_id {
-                continue;
-            }
-            let res = self.receive_game_message_by_channel(channel.channel_id);
-            if let Some(res) = res {
-                return Some(res);
             }
         }
         None

@@ -1,14 +1,16 @@
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use crate::world::ChunkRender;
 use bevy::prelude::*;
+use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 use bevy_renet::RenetClient;
 use shared::messages::{
     mob::MobUpdateEvent, BlockUpdate, DroppedItemsUpdate, PlayerSpawnEvent, PlayerUpdateEvent,
     ServerToClientMessage,
 };
 use shared::world::SIX_OFFSETS;
-use shared::STC_AUTH_CHANNEL;
+use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
 
 use crate::world::time::ClientTime;
 use crate::world::ClientWorldMap;
@@ -17,6 +19,51 @@ use crate::world::{BlockChanged, ChunkLoadEvent, WorldRenderRequestUpdateEvent};
 
 use super::CachedChatConversation;
 use super::SendGameMessageExtension;
+
+/// A message of the chunk channel this large or larger is decoded on the task pool: decoding
+/// the chunks of a large one would stall the frame. A smaller one, a block update, is decoded
+/// at once when nothing is waiting before it.
+const DECODED_APART_BYTES: usize = 4 * 1024;
+
+/// The messages of the chunk channel being decoded on the task pool, in the order they came:
+/// they are applied in that order, each once it and those before it are decoded.
+#[derive(Resource, Default)]
+pub struct DecodingChunkMessages(VecDeque<Task<Option<ServerToClientMessage>>>);
+
+impl DecodingChunkMessages {
+    /// Forgets the messages being decoded, those of a session that ended.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    /// Takes the messages that came on the chunk channel, and returns those ready to apply, in
+    /// order.
+    fn receive(&mut self, client: &mut RenetClient) -> Vec<ServerToClientMessage> {
+        let mut ready = Vec::new();
+        while let Some(payload) = client.receive_message(STC_CHUNK_DATA_CHANNEL) {
+            if self.0.is_empty() && payload.len() < DECODED_APART_BYTES {
+                ready.extend(decode(&payload));
+                continue;
+            }
+            self.0
+                .push_back(AsyncComputeTaskPool::get().spawn(async move { decode(&payload) }));
+        }
+        while let Some(task) = self.0.front_mut() {
+            let Some(message) = block_on(future::poll_once(task)) else {
+                break;
+            };
+            self.0.pop_front();
+            ready.extend(message);
+        }
+        ready
+    }
+}
+
+fn decode(payload: &[u8]) -> Option<ServerToClientMessage> {
+    payload_to_game_message(payload)
+        .inspect_err(|err| warn!("Error deserializing message: {err:?}"))
+        .ok()
+}
 
 pub fn update_world_from_network(
     commands: &mut Commands,
@@ -31,8 +78,14 @@ pub fn update_world_from_network(
     ev_dropped_items: &mut MessageWriter<DroppedItemsUpdate>,
     chat: &mut ResMut<CachedChatConversation>,
     client_time: &mut ResMut<ClientTime>,
+    decoding: &mut DecodingChunkMessages,
 ) {
-    while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
+    let mut messages = Vec::new();
+    while let Some(Ok(msg)) = client.receive_game_message_by_channel(STC_STANDARD_CHANNEL) {
+        messages.push(msg);
+    }
+    messages.extend(decoding.receive(client));
+    for msg in messages {
         match msg {
             ServerToClientMessage::WorldUpdate(world_update) => {
                 debug!(

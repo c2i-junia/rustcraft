@@ -22,6 +22,7 @@ pub use cleanup::*;
 pub use extensions::SendGameMessageExtension;
 pub use inputs::*;
 pub use setup::*;
+pub use world::DecodingChunkMessages;
 
 /// Whether the server accepted the player: `ConnectionEstablished` or `FullyReady`.
 pub fn authenticated(target: Res<TargetServer>) -> bool {
@@ -38,6 +39,7 @@ pub fn network_plugin(app: &mut App) {
     session::session_plugin(app);
     leave::leave_plugin(app);
     app.init_resource::<CurrentPlayerProfile>()
+        .init_resource::<DecodingChunkMessages>()
         .init_resource::<PlayerTickInputsBuffer>()
         .init_resource::<CurrentFrameInputs>()
         .init_resource::<SyncTime>()

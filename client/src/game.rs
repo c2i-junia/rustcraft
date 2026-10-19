@@ -13,7 +13,8 @@ use crate::network::session::{
 };
 use crate::network::{
     init_server_connection, launch_local_server_system, network_plugin,
-    terminate_server_connection, LastWorldClosing, TargetServer, TargetServerState,
+    terminate_server_connection, DecodingChunkMessages, LastWorldClosing, TargetServer,
+    TargetServerState,
 };
 use crate::player::player_plugin;
 use crate::state::{GameSet, GameState, PreLoadingCompletion};
@@ -104,9 +105,13 @@ pub(crate) fn add_session_exits(app: &mut App) {
     );
 }
 
-fn clear_resources(mut world_map: ResMut<ClientWorldMap>) {
+fn clear_resources(
+    mut world_map: ResMut<ClientWorldMap>,
+    mut decoding: ResMut<DecodingChunkMessages>,
+) {
     world_map.blocks = ChunkMap::default();
     world_map.render = HashMap::new();
+    decoding.clear();
 }
 
 /// Enters the game once the textures are loaded, the player spawned and the chunks around it
@@ -187,7 +192,8 @@ mod tests {
             })
             .init_resource::<UnacknowledgedInputs>()
             .init_resource::<PlayerTickInputsBuffer>()
-            .init_resource::<ClientWorldMap>();
+            .init_resource::<ClientWorldMap>()
+            .init_resource::<DecodingChunkMessages>();
         add_session_exits(&mut app);
         let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
         map.blocks.insert_chunk(IVec3::ZERO, Chunk::new());

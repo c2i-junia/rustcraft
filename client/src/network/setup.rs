@@ -12,7 +12,7 @@ use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CH
 
 use crate::menus::solo::SelectedWorld;
 use crate::network::session::{end_session, ConnectError, SessionOrigin};
-use crate::network::world::update_world_from_network;
+use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::ui::hud::chat_completion::ModCommands;
@@ -285,6 +285,7 @@ pub fn poll_network_messages(
     mut ev_dropped_items: MessageWriter<DroppedItemsUpdate>,
     mut chat: ResMut<CachedChatConversation>,
     mut client_time: ResMut<ClientTime>,
+    mut decoding: ResMut<DecodingChunkMessages>,
 ) {
     update_world_from_network(
         &mut commands,
@@ -299,6 +300,7 @@ pub fn poll_network_messages(
         &mut ev_dropped_items,
         &mut chat,
         &mut client_time,
+        &mut decoding,
     );
 }
 
