@@ -15,11 +15,10 @@ use std::net::SocketAddr;
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
-    ecs::system::SystemParam,
     input::{keyboard::KeyboardInput, ButtonState},
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
-        FocusCause, FocusedInput, InputFocus, InputFocusVisible,
+        FocusedInput, InputFocus,
     },
     prelude::*,
     ui::{InteractionDisabled, Selected},
@@ -29,24 +28,24 @@ use shared::GameFolderPaths;
 
 use super::background::menu_background;
 use super::servers::{read_servers, ServerItem};
-use super::{neighbour, text, MenuState};
+use super::{
+    follow_focus_with_hints, list_hint_bar, neighbour, text, ListFocus, ListHints, MenuState,
+};
 use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::{parse_server_address, AddressResolver};
 use crate::network::status::{InFlight, ServerStatus, StatusProbe};
 use crate::network::{TargetServer, TargetServerState};
 use crate::state::GameState;
-use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::{
     BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::{dialog_open, CloseRequest, DialogRoot};
+use crate::ui::widgets::dialog::dialog_open;
 use crate::ui::widgets::focus::ArrowNav;
-use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
-use crate::ui::widgets::list::{
-    cards_of, spawn_list_card, spawn_scroll_list, CardSelected, ListCard,
-};
+use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
+use crate::ui::widgets::list::{cards_of, spawn_list_card, spawn_scroll_list, CardSelected};
 use crate::ui::widgets::raised_bevel;
 use dialogs::{open_add_server_dialog, open_remove_server_dialog, ServersChanged};
 use status::{
@@ -104,14 +103,9 @@ struct PendingJoin {
     address: InFlight<io::Result<SocketAddr>>,
 }
 
-/// Which key hints the hint bar of the screen shows.
-#[derive(Component, PartialEq, Eq)]
-enum MultiHints {
-    /// A card has the focus.
-    Cards,
-    /// Anything else has it, or there is no server.
-    Elsewhere,
-}
+/// The hint bar of the screen.
+#[derive(Component, Default)]
+struct MultiHints;
 
 const REFRESH_HINT: Hint = Hint {
     keys: "F5",
@@ -158,6 +152,11 @@ pub const SCREEN_HINTS: [Hint; 5] = [
     BACK_HINT,
 ];
 
+impl ListHints for MultiHints {
+    const CARDS: &'static [Hint] = &CARD_HINTS;
+    const SCREEN: &'static [Hint] = &SCREEN_HINTS;
+}
+
 /// The width of the detail pane.
 const DETAIL_WIDTH: f32 = 280.0;
 
@@ -178,7 +177,7 @@ pub fn multi_plugin(app: &mut App) {
                 finish_join
                     .run_if(not(dialog_open))
                     .after(dialogs::open_add_server_on_ctrl_n),
-                follow_focus_with_hints,
+                follow_focus_with_hints::<MultiHints>,
             )
                 .run_if(in_state(MenuState::Multi)),
         )
@@ -277,11 +276,7 @@ fn multi_setup(mut commands: Commands, assets: Res<AssetServer>) {
             ),
         )],
     ));
-    commands.spawn((
-        hint_bar(&SCREEN_HINTS, font, assets.load(MONO_FONT_PATH)),
-        MultiHints::Elsewhere,
-        ChildOf(root),
-    ));
+    commands.spawn((list_hint_bar::<MultiHints>(&assets), ChildOf(root)));
     commands.trigger(ServersChanged {
         focus: None,
         error: None,
@@ -533,32 +528,6 @@ fn card_names(
         .filter_map(|card| cards.get(card).ok())
         .map(|card| card.0.name.clone())
         .collect()
-}
-
-/// Where the focus goes once the cards were built again. A dialog still open (not closing) keeps
-/// it.
-#[derive(SystemParam)]
-struct ListFocus<'w, 's> {
-    focus: ResMut<'w, InputFocus>,
-    visible: ResMut<'w, InputFocusVisible>,
-    keys: Res<'w, ButtonInput<KeyCode>>,
-    open_dialogs: Query<'w, 's, (), (With<DialogRoot>, Without<CloseRequest>)>,
-}
-
-impl ListFocus<'_, '_> {
-    /// Puts the focus on `entity`; on a card reached by the keyboard, with its ring.
-    fn set(&mut self, entity: Entity, card: bool) {
-        if !self.open_dialogs.is_empty() {
-            return;
-        }
-        self.focus.set(entity, FocusCause::Navigated);
-        // reached by the keyboard, the card shows its ring; a click leaves it hidden
-        let typed = self.keys.get_just_pressed().next().is_some()
-            || self.keys.get_just_released().next().is_some();
-        if card && typed {
-            self.visible.0 = true;
-        }
-    }
 }
 
 /// Lists the servers of `servers.ron` again, asks those the board does not know for their
@@ -878,38 +847,6 @@ fn open_add_server(
 ) {
     let others = cards.iter().map(|card| card.0.clone()).collect();
     open_add_server_dialog(&mut commands, &assets, &focus, others);
-}
-
-/// Keeps the hint bar on the hints of the cards while a card has the focus, and on those of the
-/// screen otherwise.
-fn follow_focus_with_hints(
-    focus: Res<InputFocus>,
-    cards: Query<(), With<ListCard>>,
-    bars: Query<(Entity, &MultiHints, &ChildOf)>,
-    assets: Res<AssetServer>,
-    mut commands: Commands,
-) {
-    let wanted = if focus.get().is_some_and(|entity| cards.contains(entity)) {
-        MultiHints::Cards
-    } else {
-        MultiHints::Elsewhere
-    };
-    let Ok((bar, shown, child_of)) = bars.single() else {
-        return;
-    };
-    if *shown == wanted {
-        return;
-    }
-    let hints: &[Hint] = match wanted {
-        MultiHints::Cards => &CARD_HINTS,
-        MultiHints::Elsewhere => &SCREEN_HINTS,
-    };
-    commands.entity(bar).despawn();
-    commands.spawn((
-        hint_bar(hints, assets.load(FONT_PATH), assets.load(MONO_FONT_PATH)),
-        wanted,
-        ChildOf(child_of.parent()),
-    ));
 }
 
 #[cfg(test)]

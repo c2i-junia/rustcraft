@@ -13,7 +13,7 @@ use bevy::{
     input::{keyboard::KeyboardInput, ButtonState},
     input_focus::{
         tab_navigation::{TabGroup, TabIndex},
-        FocusCause, FocusedInput, InputFocus, InputFocusVisible,
+        FocusedInput, InputFocus,
     },
     prelude::*,
     ui::Selected,
@@ -25,21 +25,20 @@ use super::background::menu_background;
 use super::worlds::{
     elapsed_since, format_size, list_worlds, played_ago, start_world, thumbnail_color, WorldSummary,
 };
-use super::{neighbour, text, MenuState};
+use super::{
+    follow_focus_with_hints, list_hint_bar, neighbour, text, ListFocus, ListHints, MenuState,
+};
 use crate::constants::SAVE_PATH;
 use crate::state::GameState;
-use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::{
     BEVEL_WIDTH, DANGER, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
-use crate::ui::widgets::dialog::{CloseRequest, DialogRoot};
 use crate::ui::widgets::focus::ArrowNav;
-use crate::ui::widgets::hints::{hint_bar, Hint, HINT_BAR_HEIGHT};
-use crate::ui::widgets::list::{
-    cards_of, spawn_list_card, spawn_scroll_list, CardSelected, ListCard,
-};
+use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
+use crate::ui::widgets::list::{cards_of, spawn_list_card, spawn_scroll_list, CardSelected};
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 use dialogs::{open_delete_world_dialog, open_new_world_dialog, open_rename_dialog, WorldsChanged};
 
@@ -85,14 +84,9 @@ pub struct WorldError;
 #[derive(Component)]
 pub struct NewWorldButton;
 
-/// Which key hints the hint bar of the screen shows.
-#[derive(Component, PartialEq, Eq)]
-enum SoloHints {
-    /// A card has the focus.
-    Cards,
-    /// Anything else has it, or there is no world.
-    Elsewhere,
-}
+/// The hint bar of the screen.
+#[derive(Component, Default)]
+struct SoloHints;
 
 const NEW_WORLD_HINT: Hint = Hint {
     keys: "Ctrl+N",
@@ -135,6 +129,11 @@ pub const SCREEN_HINTS: [Hint; 4] = [
     BACK_HINT,
 ];
 
+impl ListHints for SoloHints {
+    const CARDS: &'static [Hint] = &CARD_HINTS;
+    const SCREEN: &'static [Hint] = &SCREEN_HINTS;
+}
+
 /// The width of the detail pane.
 const DETAIL_WIDTH: f32 = 280.0;
 /// The side of the thumbnail of a card.
@@ -148,7 +147,7 @@ pub fn solo_plugin(app: &mut App) {
     app.add_systems(OnEnter(MenuState::Solo), solo_setup)
         .add_systems(
             Update,
-            follow_focus_with_hints.run_if(in_state(MenuState::Solo)),
+            follow_focus_with_hints::<SoloHints>.run_if(in_state(MenuState::Solo)),
         )
         .add_observer(show_changed_worlds)
         .add_observer(play_or_delete_on_key)
@@ -237,11 +236,7 @@ fn solo_setup(mut commands: Commands, assets: Res<AssetServer>) {
             ),
         )],
     ));
-    commands.spawn((
-        hint_bar(&SCREEN_HINTS, font, assets.load(MONO_FONT_PATH)),
-        SoloHints::Elsewhere,
-        ChildOf(root),
-    ));
+    commands.spawn((list_hint_bar::<SoloHints>(&assets), ChildOf(root)));
     commands.trigger(WorldsChanged {
         focus: None,
         error: None,
@@ -527,15 +522,12 @@ fn card_names(
 fn show_changed_worlds(
     changed: On<WorldsChanged>,
     lists: Query<Entity, With<WorldList>>,
-    open_dialogs: Query<(), (With<DialogRoot>, Without<CloseRequest>)>,
     mut panes: Query<&mut Node, With<WorldDetail>>,
     mut actions: Query<&mut TabIndex, With<WorldAction>>,
     facts: Query<Entity, With<WorldFacts>>,
     new_world: Query<Entity, With<NewWorldButton>>,
     mut errors: Query<(&mut Text, &mut Node), (With<WorldError>, Without<WorldDetail>)>,
-    mut focus: ResMut<InputFocus>,
-    mut focus_visible: ResMut<InputFocusVisible>,
-    keys: Res<ButtonInput<KeyCode>>,
+    mut list_focus: ListFocus,
     paths: Res<GameFolderPaths>,
     assets: Res<AssetServer>,
     mut commands: Commands,
@@ -546,11 +538,6 @@ fn show_changed_worlds(
     let font: Handle<Font> = assets.load(FONT_PATH);
     let worlds = list_worlds(&paths.game_folder_path.join(SAVE_PATH));
     let cards = show_worlds(&mut commands, list, &worlds, changed.error, &font);
-    let mut focus_on = |entity| {
-        if open_dialogs.is_empty() {
-            focus.set(entity, FocusCause::Navigated);
-        }
-    };
     let chosen = changed
         .focus
         .as_ref()
@@ -560,19 +547,13 @@ fn show_changed_worlds(
         // the list sends no `CardSelected` for a card selected here: the pane is filled now
         (Some(&card), Ok(facts)) => {
             commands.entity(card).insert((Selected, TabIndex(0)));
-            focus_on(card);
-            // reached by the keyboard, the card shows its ring; a click leaves it hidden
-            let typed = keys.get_just_pressed().next().is_some()
-                || keys.get_just_released().next().is_some();
-            if open_dialogs.is_empty() && typed {
-                focus_visible.0 = true;
-            }
+            list_focus.set(card, true);
             show_detail(&mut commands, facts, &worlds[chosen], &font);
             true
         }
         _ => {
             if let Ok(button) = new_world.single() {
-                focus_on(button);
+                list_focus.set(button, false);
             }
             false
         }
@@ -686,36 +667,4 @@ fn open_new_world(
 ) {
     let others = cards.iter().map(|card| card.0.name.clone()).collect();
     open_new_world_dialog(&mut commands, &assets, &focus, others);
-}
-
-/// Keeps the hint bar on the hints of the cards while a card has the focus, and on those of the
-/// screen otherwise.
-fn follow_focus_with_hints(
-    focus: Res<InputFocus>,
-    cards: Query<(), With<ListCard>>,
-    bars: Query<(Entity, &SoloHints, &ChildOf)>,
-    assets: Res<AssetServer>,
-    mut commands: Commands,
-) {
-    let wanted = if focus.get().is_some_and(|entity| cards.contains(entity)) {
-        SoloHints::Cards
-    } else {
-        SoloHints::Elsewhere
-    };
-    let Ok((bar, shown, child_of)) = bars.single() else {
-        return;
-    };
-    if *shown == wanted {
-        return;
-    }
-    let hints: &[Hint] = match wanted {
-        SoloHints::Cards => &CARD_HINTS,
-        SoloHints::Elsewhere => &SCREEN_HINTS,
-    };
-    commands.entity(bar).despawn();
-    commands.spawn((
-        hint_bar(hints, assets.load(FONT_PATH), assets.load(MONO_FONT_PATH)),
-        wanted,
-        ChildOf(child_of.parent()),
-    ));
 }

@@ -13,8 +13,14 @@ use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 pub use home::*;
 pub use server_connect_loading::*;
 
+use bevy::ecs::system::SystemParam;
+use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
+
 use crate::state::{GameState, MenuCamera};
-use crate::ui::widgets::dialog::dialog_open;
+use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::widgets::dialog::{dialog_open, CloseRequest, DialogRoot};
+use crate::ui::widgets::hints::{hint_bar, Hint};
+use crate::ui::widgets::list::ListCard;
 use crate::ui::widgets::text_field::text_field_focused;
 
 /// The screen of the menus shown, `Disabled` outside the menus.
@@ -115,6 +121,94 @@ fn neighbour(names: &[String], name: &str) -> Option<String> {
                 .and_then(|previous| names.get(previous))
         })
         .cloned()
+}
+
+/// The key hints of a list screen, named by the marker of its hint bar: those shown while a card
+/// of the list has the focus, and those shown otherwise.
+trait ListHints: Component + Default {
+    const CARDS: &'static [Hint];
+    const SCREEN: &'static [Hint];
+}
+
+/// Which key hints the hint bar of a list screen shows.
+#[derive(Component, PartialEq, Eq, Clone, Copy)]
+enum HintsShown {
+    /// A card has the focus.
+    Cards,
+    /// Anything else has it, or the list is empty.
+    Elsewhere,
+}
+
+/// The hint bar of the list screen `S`, with the hints for anything but a card.
+fn list_hint_bar<S: ListHints>(assets: &AssetServer) -> impl Bundle {
+    (
+        hint_bar(
+            S::SCREEN,
+            assets.load(FONT_PATH),
+            assets.load(MONO_FONT_PATH),
+        ),
+        HintsShown::Elsewhere,
+        S::default(),
+    )
+}
+
+/// Keeps the hint bar of the list screen `S` on the hints of the cards while a card has the
+/// focus, and on those of the screen otherwise.
+fn follow_focus_with_hints<S: ListHints>(
+    focus: Res<InputFocus>,
+    cards: Query<(), With<ListCard>>,
+    bars: Query<(Entity, &HintsShown, &ChildOf), With<S>>,
+    assets: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    let wanted = if focus.get().is_some_and(|entity| cards.contains(entity)) {
+        HintsShown::Cards
+    } else {
+        HintsShown::Elsewhere
+    };
+    let Ok((bar, &shown, child_of)) = bars.single() else {
+        return;
+    };
+    if shown == wanted {
+        return;
+    }
+    let hints = match wanted {
+        HintsShown::Cards => S::CARDS,
+        HintsShown::Elsewhere => S::SCREEN,
+    };
+    commands.entity(bar).despawn();
+    commands.spawn((
+        hint_bar(hints, assets.load(FONT_PATH), assets.load(MONO_FONT_PATH)),
+        wanted,
+        S::default(),
+        ChildOf(child_of.parent()),
+    ));
+}
+
+/// Where the focus goes once the cards of a list screen were built again. A dialog still open
+/// (not closing) keeps it.
+#[derive(SystemParam)]
+struct ListFocus<'w, 's> {
+    focus: ResMut<'w, InputFocus>,
+    visible: ResMut<'w, InputFocusVisible>,
+    keys: Res<'w, ButtonInput<KeyCode>>,
+    open_dialogs: Query<'w, 's, (), (With<DialogRoot>, Without<CloseRequest>)>,
+}
+
+impl ListFocus<'_, '_> {
+    /// Puts the focus on `entity`; on a card reached by the keyboard, with its ring.
+    fn set(&mut self, entity: Entity, card: bool) {
+        if !self.open_dialogs.is_empty() {
+            return;
+        }
+        self.focus.set(entity, FocusCause::Navigated);
+        // reached by the keyboard, the card shows its ring; a click leaves it hidden
+        let typed = self.keys.get_just_pressed().next().is_some()
+            || self.keys.get_just_released().next().is_some();
+        if card && typed {
+            self.visible.0 = true;
+        }
+    }
 }
 
 #[cfg(test)]
