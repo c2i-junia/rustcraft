@@ -7,11 +7,13 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeDisconnectReason;
 use shared::messages::sanitize_username;
-use shared::world::ChunkMap;
+use shared::world::{world_position_to_chunk_position, ChunkMap};
 use shared::BROADCAST_CHUNK_RADIUS;
 
-use super::{TargetServer, TargetServerState};
+use super::{authenticated, establish_authenticated_connection_to_server, TargetServer};
+use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
+use crate::world::ClientWorldMap;
 
 /// Where the session being opened or played was started from.
 #[derive(Resource, Clone, Debug, PartialEq, Eq)]
@@ -103,6 +105,17 @@ pub struct ConnectWatch {
     since: Instant,
 }
 
+#[cfg(test)]
+impl ConnectWatch {
+    /// A watch at `step` since now.
+    pub(crate) fn at(step: ConnectStep) -> Self {
+        Self {
+            step,
+            since: Instant::now(),
+        }
+    }
+}
+
 /// Watches the session being opened and tells its step.
 pub fn session_plugin(app: &mut App) {
     app.add_systems(OnEnter(GameState::PreGameLoading), start_watching)
@@ -113,7 +126,11 @@ pub fn session_plugin(app: &mut App) {
         })
         .add_systems(
             Update,
-            track_connection.run_if(in_state(GameState::PreGameLoading)),
+            // the frame the server accepts the player shows `Loading chunks`, even when every
+            // chunk comes in the next one
+            track_connection
+                .after(establish_authenticated_connection_to_server)
+                .run_if(in_state(GameState::PreGameLoading)),
         );
 }
 
@@ -152,20 +169,23 @@ fn stop_watching(mut commands: Commands) {
     commands.remove_resource::<ConnectWatch>();
 }
 
-/// Moves the watch to the step the session is at, and restarts its clock when it changed.
-fn track_connection(
+/// Moves the watch to the step the session is at, and restarts its clock when it changed. The
+/// chunks are counted around the local player once it has spawned.
+pub(crate) fn track_connection(
     watch: Option<ResMut<ConnectWatch>>,
     origin: Option<Res<SessionOrigin>>,
     target: Res<TargetServer>,
+    world: Res<ClientWorldMap>,
+    player: Query<&Transform, With<CurrentPlayerMarker>>,
 ) {
     let (Some(mut watch), Some(origin)) = (watch, origin) else {
         return;
     };
-    let authenticated = matches!(
-        target.state,
-        TargetServerState::ConnectionEstablished | TargetServerState::FullyReady
-    );
-    let step = connect_step(&origin, authenticated, None);
+    let chunks = player.single().ok().map(|player| {
+        let center = world_position_to_chunk_position(player.translation);
+        chunks_around(&world.blocks, center, BROADCAST_CHUNK_RADIUS)
+    });
+    let step = connect_step(&origin, authenticated(target), chunks);
     // only a new step marks the watch changed: the card redraws on a change
     if watch.step != step {
         watch.step = step;
@@ -267,7 +287,6 @@ pub fn progress(step: ConnectStep) -> f32 {
 
 /// How many of the chunks within `radius` of the chunk `center` `map` holds, and how many
 /// there are.
-#[allow(dead_code)] // Chunks before the game, Task 3
 pub fn chunks_around(map: &ChunkMap, center: IVec3, radius: i32) -> (u32, u32) {
     let range = -radius..=radius;
     let mut received = 0;
@@ -301,6 +320,8 @@ mod tests {
     use bevy::ecs::system::RunSystemOnce;
     use bevy_renet::netcode::NetcodeDisconnectReason as Reason;
     use shared::world::Chunk;
+
+    use crate::network::TargetServerState;
 
     fn world() -> SessionOrigin {
         SessionOrigin::World {
@@ -489,6 +510,55 @@ mod tests {
             map.insert_chunk(pos, Chunk::new());
         }
         assert_eq!(chunks_around(&map, IVec3::ZERO, 1), (2, 27));
+    }
+
+    #[test]
+    fn the_step_counts_the_chunks_around_the_local_player() {
+        let mut app = App::new();
+        app.insert_resource(world())
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: TargetServerState::FullyReady,
+            })
+            .insert_resource(ConnectWatch::at(ConnectStep::StartingWorld))
+            .init_resource::<ClientWorldMap>()
+            .add_systems(Update, track_connection);
+        // in the chunk (0, 2, 0)
+        app.world_mut()
+            .spawn((CurrentPlayerMarker {}, Transform::from_xyz(8., 40., 8.)));
+        let mut cube = Vec::new();
+        for x in -1..=1 {
+            for y in 1..=3 {
+                for z in -1..=1 {
+                    cube.push(IVec3::new(x, y, z));
+                }
+            }
+        }
+        let load = |app: &mut App, chunks: &[IVec3]| {
+            let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
+            for &pos in chunks {
+                map.blocks.insert_chunk(pos, Chunk::new());
+            }
+        };
+
+        load(&mut app, &cube[..12]);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ConnectWatch>().step,
+            ConnectStep::LoadingChunks {
+                received: 12,
+                total: 27
+            }
+        );
+
+        load(&mut app, &cube[12..]);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ConnectWatch>().step,
+            ConnectStep::Spawning
+        );
     }
 
     #[test]

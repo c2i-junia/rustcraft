@@ -21,6 +21,14 @@ pub use extensions::SendGameMessageExtension;
 pub use inputs::*;
 pub use setup::*;
 
+/// Whether the server accepted the player: `ConnectionEstablished` or `FullyReady`.
+pub fn authenticated(target: Res<TargetServer>) -> bool {
+    matches!(
+        target.state,
+        TargetServerState::ConnectionEstablished | TargetServerState::FullyReady
+    )
+}
+
 /// The connection to the server: the watch of the session being opened, the client buffers, the
 /// polling of its messages, the upload of the player inputs and the stop of the embedded server.
 /// The transport itself is set up by `add_base_netcode`.
@@ -37,9 +45,13 @@ pub fn network_plugin(app: &mut App) {
             establish_authenticated_connection_to_server
                 .run_if(in_state(GameState::PreGameLoading)),
         )
+        // the chunks around the spawn come in before the game
         .add_systems(
             FixedPreUpdate,
-            poll_network_messages.run_if(in_state(GameState::Game)),
+            poll_network_messages.run_if(
+                in_state(GameState::Game)
+                    .or_else(in_state(GameState::PreGameLoading).and_then(authenticated)),
+            ),
         )
         .add_systems(
             FixedUpdate,

@@ -34,7 +34,10 @@ pub fn world_plugin(app: &mut App) {
         )
         .add_systems(
             OnEnter(GameState::Game),
-            setup_main_lighting.before(spawn_reticle),
+            (
+                setup_main_lighting.before(spawn_reticle),
+                remesh_every_chunk,
+            ),
         )
         .add_systems(
             Update,
@@ -56,4 +59,59 @@ pub fn world_plugin(app: &mut App) {
             FixedPostUpdate,
             time_update_system.run_if(in_state(GameState::Game)),
         );
+}
+
+/// Asks a mesh for every chunk held on entering the game: requests written while loading were
+/// not read.
+fn remesh_every_chunk(
+    world: Res<ClientWorldMap>,
+    mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
+) {
+    ev_render.write_batch(
+        world
+            .blocks
+            .chunk_positions()
+            .map(WorldRenderRequestUpdateEvent::ChunkToReload),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::state::app::StatesPlugin;
+    use shared::world::Chunk;
+
+    use super::*;
+
+    #[test]
+    fn chunks_received_while_loading_are_meshed_in_game() {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin)
+            .insert_state(GameState::PreGameLoading)
+            .add_message::<WorldRenderRequestUpdateEvent>()
+            .init_resource::<ClientWorldMap>()
+            .add_systems(OnEnter(GameState::Game), remesh_every_chunk);
+        let chunks = [IVec3::ZERO, IVec3::new(0, -1, 0)];
+        let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
+        for pos in chunks {
+            map.blocks.insert_chunk(pos, Chunk::new());
+        }
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Game);
+        app.update();
+
+        let requests: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<WorldRenderRequestUpdateEvent>>()
+            .drain()
+            .collect();
+        for pos in chunks {
+            assert!(
+                requests.contains(&WorldRenderRequestUpdateEvent::ChunkToReload(pos)),
+                "{pos} in {requests:?}"
+            );
+        }
+    }
 }

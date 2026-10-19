@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use shared::messages::{PlayerSpawnEvent, PlayerUpdateEvent};
-use shared::players::{Inventory, ViewMode};
+use shared::players::{Inventory, Player, ViewMode};
 
 use crate::state::{GameSet, GameState};
 
@@ -62,5 +62,24 @@ pub fn player_plugin(app: &mut App) {
         .add_systems(
             PreUpdate,
             pre_input_update_system.run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            OnTransition {
+                exited: GameState::PreGameLoading,
+                entered: GameState::Menu,
+            },
+            despawn_players,
         );
+}
+
+/// The players spawn on the loading screen and live until the game is left (`DespawnOnExit`).
+/// Cancelling the loading screen never enters the game, so they and their labels are despawned
+/// on that transition too: the next session would take its own player for one already there.
+fn despawn_players(
+    mut commands: Commands,
+    players: Query<Entity, Or<(With<Player>, With<PlayerLabel>)>>,
+) {
+    for entity in &players {
+        commands.entity(entity).despawn();
+    }
 }
