@@ -1,5 +1,6 @@
 use crate::network::{
-    LocalServerHandle, SendGameMessageExtension, TargetServer, TargetServerState,
+    open_connection, LocalServerAddress, LocalServerHandle, SendGameMessageExtension, TargetServer,
+    TargetServerState,
 };
 use bevy::prelude::*;
 use bevy_renet::netcode::NetcodeClientTransport;
@@ -108,13 +109,15 @@ fn stop_session(
 }
 
 /// Stops an embedded server that was still running when its session ended, as soon as the
-/// connection to it is established, then removes the connection. Does not block: runs every
-/// frame in the menu.
+/// connection to it is established, then removes the connection. A connection that gave up
+/// before the server answered, a world slow to load, is opened again. Does not block: runs
+/// every frame in the menu.
 pub fn finish_stopping_local_server(
     mut commands: Commands,
     client: Option<ResMut<RenetClient>>,
     transport: Option<ResMut<NetcodeClientTransport>>,
     local_server: Option<ResMut<LocalServerHandle>>,
+    address: Option<Res<LocalServerAddress>>,
 ) {
     let Some(mut local_server) = local_server else {
         return;
@@ -124,31 +127,53 @@ pub fn finish_stopping_local_server(
     };
     if handle.is_finished() {
         if let Some(handle) = local_server.0.take() {
-            if handle.join().is_err() {
-                error!("Local server thread panicked");
-            }
+            join_local_server(handle);
         }
         drop_connection(&mut commands);
         return;
     }
 
-    if let (Some(mut client), Some(mut transport)) = (client, transport) {
-        if client.is_connected() {
-            info!("Stopping the local server left running by a cancelled connection");
-            client.send_game_message(ClientToServerMessage::Exit);
-            if let Err(err) = transport.send_packets(&mut client) {
-                error!("Could not send the exit message: {err}");
+    let (Some(mut client), Some(mut transport)) = (client, transport) else {
+        return;
+    };
+    if client.is_disconnected() {
+        let Some(LocalServerAddress(addr)) = address.as_deref() else {
+            return;
+        };
+        info!("The connection to the local server left running gave up, opening another");
+        match open_connection(*addr, transport.client_id()) {
+            Ok((client, transport)) => {
+                commands.insert_resource(client);
+                commands.insert_resource(transport);
             }
-            drop_connection(&mut commands);
+            Err(err) => error!("Could not open a connection to the local server: {err}"),
         }
+        return;
+    }
+    if client.is_connected() {
+        info!("Stopping the local server left running by a cancelled connection");
+        client.send_game_message(ClientToServerMessage::Exit);
+        if let Err(err) = transport.send_packets(&mut client) {
+            error!("Could not send the exit message: {err}");
+        }
+        drop_connection(&mut commands);
+    }
+}
+
+/// Joins the thread of an embedded server that finished, and logs why it stopped when it failed.
+fn join_local_server(handle: std::thread::JoinHandle<Result<(), String>>) {
+    match handle.join() {
+        Ok(Ok(())) => (),
+        Ok(Err(err)) => error!("Local server stopped on an error: {err}"),
+        Err(_) => error!("Local server thread panicked"),
     }
 }
 
 /// Waits for the server thread to stop. Gives the handle back when it did not stop in time.
 fn wait_for_local_server(
-    handle: std::thread::JoinHandle<()>,
+    handle: std::thread::JoinHandle<Result<(), String>>,
     timeout: Duration,
-) -> Option<std::thread::JoinHandle<()>> {
+) -> Option<std::thread::JoinHandle<Result<(), String>>> {
     let deadline = Instant::now() + timeout;
     while !handle.is_finished() {
         if Instant::now() >= deadline {
@@ -157,9 +182,7 @@ fn wait_for_local_server(
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    if handle.join().is_err() {
-        error!("Local server thread panicked");
-    }
+    join_local_server(handle);
     None
 }
 
@@ -169,6 +192,7 @@ mod tests {
     use crate::menus::solo::SelectedWorld;
     use crate::network::add_base_netcode;
     use crate::network::launch_local_server_system;
+    use crate::network::session::{ConnectError, SessionEnd, SessionOrigin};
     use crate::state::GameState;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::state::app::StatesPlugin;
@@ -224,14 +248,15 @@ mod tests {
                 world_name: name.to_string(),
                 is_solo: true,
             };
-            let server = std::thread::spawn(move || server::init(socket, config, paths).unwrap());
+            let server = std::thread::spawn(move || server::init(socket, config, paths));
 
             let mut app = App::new();
             app.add_plugins(MinimalPlugins);
             add_base_netcode(&mut app);
             app.init_resource::<UnacknowledgedInputs>()
                 .init_resource::<PlayerTickInputsBuffer>();
-            app.insert_resource(LocalServerHandle(Some(server)));
+            app.insert_resource(LocalServerHandle(Some(server)))
+                .insert_resource(LocalServerAddress(addr));
             app.world_mut().resource_mut::<TargetServer>().address = Some(addr);
             let now = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -361,6 +386,28 @@ mod tests {
         session.assert_saved_and_stopped(9);
     }
 
+    /// The connection gave up before the server answered, a world slow to load: a new one is
+    /// opened to tell the server to stop.
+    #[test]
+    fn a_server_left_running_is_stopped_even_after_the_connection_gave_up() {
+        let mut session = SoloSession::connecting("gave-up-test", 12);
+        session
+            .app
+            .world_mut()
+            .resource_mut::<NetcodeClientTransport>()
+            .disconnect();
+        session
+            .app
+            .add_systems(Update, finish_stopping_local_server);
+
+        update_until(&mut session.app, "the local server to stop", |app| {
+            app.world().resource::<LocalServerHandle>().0.is_none()
+        });
+        let world_dir = session.game_folder.join("saves").join("gave-up-test");
+        assert!(world_dir.join("world.ron").is_file(), "world not saved");
+        std::fs::remove_dir_all(&session.game_folder).unwrap();
+    }
+
     fn has_connection(app: &App) -> bool {
         app.world().get_resource::<RenetClient>().is_some()
             || app
@@ -427,6 +474,7 @@ mod tests {
         let (release, wait) = std::sync::mpsc::channel::<()>();
         let running = std::thread::spawn(move || {
             let _ = wait.recv();
+            Ok(())
         });
 
         let mut app = App::new();
@@ -435,6 +483,9 @@ mod tests {
             .insert_resource(LocalServerHandle(Some(running)))
             .insert_resource(SelectedWorld {
                 name: Some("world".to_string()),
+            })
+            .insert_resource(SessionOrigin::World {
+                name: "world".to_string(),
             })
             .insert_resource(GameFolderPaths {
                 game_folder_path: std::env::temp_dir().join("rustcraft-never-used"),
@@ -454,6 +505,10 @@ mod tests {
             app.world().resource::<NextState<GameState>>(),
             NextState::Pending(GameState::Menu)
         ));
+        assert_eq!(
+            app.world().resource::<SessionEnd>().error,
+            Some(ConnectError::WorldBusy)
+        );
         let handle = app.world().resource::<LocalServerHandle>().0.as_ref();
         assert!(handle.is_some_and(|handle| !handle.is_finished()));
 

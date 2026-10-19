@@ -108,7 +108,7 @@ pub(crate) struct FormFields {
 
 /// The box of a dialog, which holds its title, body and actions.
 #[derive(Component)]
-struct DialogPanel;
+pub(crate) struct DialogPanel;
 
 /// The key hints of every dialog. None has an arrow, so the key caps need no glyph font.
 const DIALOG_HINTS: [Hint; 3] = [

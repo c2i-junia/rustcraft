@@ -93,6 +93,14 @@ impl GameFolder {
         self
     }
 
+    /// Adds a world whose `world.ron` cannot be read: the server stops on it.
+    pub fn with_broken_world(self, name: &str) -> Self {
+        let world = self.path().join(SAVE_PATH).join(name);
+        fs::create_dir_all(&world).expect("a world folder");
+        fs::write(world.join("world.ron"), "not ron").expect("a world.ron");
+        self
+    }
+
     /// Saves the inventory of `player` in `world`: each item is `(slot, item, count)`.
     pub fn with_items(self, world: &str, player: &str, items: &[(u32, ItemId, u32)]) -> Self {
         let id = hash_string_to_u64(player);

@@ -2,11 +2,12 @@
 //! card of a session that failed, Try again and Back.
 
 use accesskit::Role;
+use std::fs;
 use std::time::{Duration, Instant};
 
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
-use bevy::text::FontSource;
+use bevy::text::{FontSource, TextLayoutInfo};
 use bevy::ui::InteractionDisabled;
 use bevy_renet::netcode::NetcodeClientTransport;
 
@@ -19,6 +20,7 @@ use super::locator::{is_inside, Locator as L};
 use super::multi::selected_server;
 use super::seed::GameFolder;
 use super::solo::selected_world;
+use crate::constants::SAVE_PATH;
 use crate::network::session::{
     chunks_around, ConnectStep, ConnectTimeout, ConnectWatch, CONNECT_TIMEOUT,
 };
@@ -28,6 +30,7 @@ use crate::state::GameState;
 use crate::ui::menus::connect_error::TRY_AGAIN;
 use crate::ui::menus::connecting::ConnectingCard;
 use crate::ui::menus::MenuState;
+use crate::ui::widgets::dialog::DialogPanel;
 use crate::world::ClientWorldMap;
 
 /// A game folder with the server `Nowhere`, on the discard port, where nothing answers.
@@ -306,4 +309,88 @@ fn an_invalid_player_name_is_said_before_connecting() {
     h.frames(2);
     assert_eq!(h.menu_state(), MenuState::Multi);
     assert_eq!(selected_server(&mut h).as_deref(), Some("Nowhere"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_world_that_cannot_load_says_why_and_returns_to_its_card() {
+    let folder = GameFolder::new()
+        .with_world("Alpha")
+        .with_broken_world("Broken");
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.click(&L::text("Singleplayer"));
+    h.play_world("Broken");
+    let title = "Cannot open \"Broken\"";
+    h.wait_for(&error_card(title), SERVER);
+    assert!(h.is_visible(&L::text_containing("could not be loaded").within(error_card(title))));
+    // opening the world again would stop the same way: only the way back is offered
+    h.frames(1);
+    assert!(!h.is_visible(&L::text(TRY_AGAIN).within(error_card(title))));
+    assert_eq!(h.focus_label().as_deref(), Some("Back to Worlds"));
+
+    h.press(KeyCode::Escape);
+    h.wait_until("the world list", SCREEN, |w| {
+        *w.resource::<State<MenuState>>().get() == MenuState::Solo
+    });
+    h.frames(2);
+    assert_eq!(selected_world(&mut h).as_deref(), Some("Broken"));
+
+    // the server that stopped was waited for: the world is not said to be still closing
+    h.play_world("Broken");
+    h.wait_for(&error_card(title), SERVER);
+    assert!(!h.is_visible(&L::text_containing("still closing")));
+
+    // the world is deleted while its card shows: the list focuses another one
+    fs::remove_dir_all(h.folder().join(SAVE_PATH).join("Broken")).unwrap();
+    h.press(KeyCode::Enter);
+    h.wait_until("the world list", SCREEN, |w| {
+        *w.resource::<State<MenuState>>().get() == MenuState::Solo
+    });
+    h.frames(2);
+    assert_eq!(selected_world(&mut h).as_deref(), Some("Alpha"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_long_error_stays_inside_its_card_at_800x600() {
+    let name = "W".repeat(32);
+    let options = Options {
+        width: 800,
+        height: 600,
+        ..default()
+    };
+    let mut h = Harness::start(GameFolder::new().with_broken_world(&name), options);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.click(&L::text("Singleplayer"));
+    h.play_world(&name);
+    let title = format!("Cannot open \"{name}\"");
+    h.wait_for(&error_card(&title), SERVER);
+    h.frames(1);
+    let panel = L::marker::<DialogPanel>().within(error_card(&title));
+    let panel_rect = h.rect_of(&panel);
+    let panel = h.get(&panel);
+    let room = h
+        .world()
+        .get::<ComputedNode>(panel)
+        .unwrap()
+        .content_box()
+        .width();
+    for text in [
+        L::text(&title).within(error_card(&title)),
+        L::text_containing("could not be loaded").within(error_card(&title)),
+    ] {
+        let rect = h.rect_of(&text);
+        assert!(
+            panel_rect.contains(rect.min) && panel_rect.contains(rect.max),
+            "{text:?} at {rect:?} leaves the card at {panel_rect:?}"
+        );
+        // the glyphs, not the node, which the dialog keeps inside itself whatever its text
+        let entity = h.get(&text);
+        let glyphs = h.world().get::<TextLayoutInfo>(entity).unwrap().size.x;
+        assert!(
+            glyphs <= room,
+            "{text:?} is {glyphs} px wide in a card of {room} px"
+        );
+    }
 }

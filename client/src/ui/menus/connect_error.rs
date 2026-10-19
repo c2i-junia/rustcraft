@@ -48,11 +48,15 @@ pub const ERROR_HINTS: [Hint; 3] = [
 ];
 
 /// Whether trying again may succeed: not with a name no server accepts, nor on a server of
-/// another version. A card that cannot succeed offers only the way back.
+/// another version, nor with a world its server stopped on (an unreadable, corrupt or newer
+/// world file), which stops it the same way again. A card that cannot succeed offers only the
+/// way back.
 pub fn can_try_again(error: &ConnectError) -> bool {
     !matches!(
         error,
-        ConnectError::InvalidName { .. } | ConnectError::Incompatible
+        ConnectError::InvalidName { .. }
+            | ConnectError::Incompatible
+            | ConnectError::WorldFailed(_)
     )
 }
 
@@ -291,6 +295,7 @@ mod tests {
         for error in [
             ConnectError::InvalidName { name: "".into() },
             ConnectError::Incompatible,
+            ConnectError::WorldFailed("bad ron".into()),
         ] {
             assert!(!can_try_again(&error), "{error:?}");
         }
@@ -301,7 +306,7 @@ mod tests {
                 name: "Tester".into(),
             },
             ConnectError::LostWhileLoading,
-            ConnectError::WorldFailed("bad ron".into()),
+            // the last session's world closes in a moment
             ConnectError::WorldBusy,
             ConnectError::NoConnection("no socket".into()),
             ConnectError::ServerStopped,

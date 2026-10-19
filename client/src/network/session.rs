@@ -13,7 +13,8 @@ use shared::BROADCAST_CHUNK_RADIUS;
 
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{
-    authenticated, establish_authenticated_connection_to_server, CurrentPlayerProfile, TargetServer,
+    authenticated, establish_authenticated_connection_to_server, open_connection,
+    CurrentPlayerProfile, LocalServerHandle, TargetServer,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
@@ -86,10 +87,8 @@ pub enum ConnectError {
     /// The connection dropped after the authentication, before the game.
     LostWhileLoading,
     /// The local server could not load the world, for this reason.
-    #[allow(dead_code)] // When a world cannot start, Task 5
     WorldFailed(String),
     /// The local server of the last session still runs.
-    #[allow(dead_code)] // When a world cannot start, Task 5
     WorldBusy,
     /// No socket could be opened, for this reason.
     NoConnection(String),
@@ -211,10 +210,14 @@ pub(crate) fn track_connection(
     }
 }
 
-/// Ends a session that failed: the transport dropped (`failure_of`), `CONNECT_TIMEOUT` without a
-/// new step while `Connecting` or `LoadingChunks`, then for a server's `NoAnswer` the status
-/// verdict: a server of another version says so. Stands down while the session already ends
-/// this frame, a cancel: the first end of a session wins.
+/// Ends a session that failed: the local server of a world stopped (`WorldFailed`), the
+/// transport dropped (`failure_of`), `CONNECT_TIMEOUT` without a new step while `Connecting` or
+/// `LoadingChunks`, then for a server's `NoAnswer` the status verdict: a server of another
+/// version says so. Stands down while the session already ends this frame, a cancel: the first
+/// end of a session wins.
+///
+/// A world still starting has no timeout: its server thread is the watchdog. When its
+/// connection gives up first (netcode's connect token, 15 s), a new one is opened.
 ///
 /// The timeout counts from the last new step, not from the start: on a busy server the chunks
 /// around the spawn may come after those of the other players, and each one that comes is a
@@ -225,6 +228,7 @@ fn watch_connection(
     origin: Option<Res<SessionOrigin>>,
     client: Option<Res<RenetClient>>,
     transport: Option<Res<NetcodeClientTransport>>,
+    local_server: Option<ResMut<LocalServerHandle>>,
     target: Res<TargetServer>,
     profile: Res<CurrentPlayerProfile>,
     timeout: Res<ConnectTimeout>,
@@ -236,6 +240,12 @@ fn watch_connection(
         return;
     };
     if !matches!(*game, NextState::Unchanged) {
+        return;
+    }
+    // the handle is that of this session's world: no other one starts while it is held
+    let mut local_server = local_server.filter(|_| origin.is_world());
+    if let Some(error) = local_server.as_deref_mut().and_then(local_server_stopped) {
+        end_session(&mut commands, &mut game, &origin, Some(error));
         return;
     }
     if let Some(verdict) = &watch.verdict {
@@ -257,6 +267,24 @@ fn watch_connection(
     if !dropped && !stalled {
         return;
     }
+    let running = local_server.is_some_and(|local_server| local_server.0.is_some());
+    if dropped && reconnect_to_world(&origin, watch.step, running) {
+        if let Some(addr) = target.address {
+            match open_connection(addr, profile.id) {
+                Ok((client, transport)) => {
+                    info!("The world is still starting, connecting to it again");
+                    commands.insert_resource(client);
+                    commands.insert_resource(transport);
+                    watch.since = Instant::now();
+                }
+                Err(reason) => {
+                    let error = Some(ConnectError::NoConnection(reason));
+                    end_session(&mut commands, &mut game, &origin, error);
+                }
+            }
+            return;
+        }
+    }
     let reached = if authenticated(target) {
         Reached::Authenticated
     } else {
@@ -275,6 +303,20 @@ fn watch_connection(
         return;
     }
     end_session(&mut commands, &mut game, &origin, Some(error));
+}
+
+/// The error of the local server of a world whose thread finished, which it joins: the world
+/// is no longer opening. `None` while it runs.
+fn local_server_stopped(local_server: &mut LocalServerHandle) -> Option<ConnectError> {
+    if !local_server.0.as_ref()?.is_finished() {
+        return None;
+    }
+    let reason = match local_server.0.take()?.join() {
+        Ok(Err(reason)) => reason,
+        Ok(Ok(())) | Err(_) => "The world stopped while opening".to_string(),
+    };
+    warn!("The local server stopped while the world was opening: {reason}");
+    Some(ConnectError::WorldFailed(reason))
 }
 
 /// Whether servers accept the player's name: `sanitize_username` keeps it.
@@ -413,7 +455,6 @@ pub fn chunks_around(map: &ChunkMap, center: IVec3, radius: i32) -> (u32, u32) {
 }
 
 /// Whether a dropped connection is opened again: a world still starting whose server runs.
-#[allow(dead_code)] // When a world cannot start, Task 5
 pub fn reconnect_to_world(
     origin: &SessionOrigin,
     step: ConnectStep,
@@ -432,6 +473,7 @@ mod tests {
 
     use crate::network::status::ServerStatus;
     use crate::network::TargetServerState;
+    use std::thread::JoinHandle;
 
     fn world() -> SessionOrigin {
         SessionOrigin::World {
@@ -805,6 +847,85 @@ mod tests {
         }
         assert!(!app.world().contains_resource::<SessionEnd>());
         assert!(app.world().resource::<ConnectWatch>().verdict.is_none());
+    }
+
+    /// A bare app watching the world `Broken` starting since long ago, its local server
+    /// `server`, the client `client`.
+    fn world_watched(server: JoinHandle<Result<(), String>>, client: RenetClient) -> App {
+        let mut app = App::new();
+        app.init_resource::<NextState<GameState>>()
+            .insert_resource(SessionOrigin::World {
+                name: "Broken".into(),
+            })
+            .insert_resource(TargetServer {
+                address: Some("127.0.0.1:9".parse().unwrap()),
+                username: None,
+                session_token: None,
+                state: TargetServerState::Establishing,
+            })
+            .insert_resource(client)
+            .insert_resource(CurrentPlayerProfile {
+                id: 1,
+                name: "Tester".into(),
+            })
+            .insert_resource(StatusProbe(never_asked))
+            .init_resource::<ConnectTimeout>()
+            .insert_resource(LocalServerHandle(Some(server)))
+            .insert_resource(ConnectWatch {
+                step: ConnectStep::StartingWorld,
+                since: Instant::now() - ELEVEN,
+                verdict: None,
+            })
+            .add_systems(Update, watch_connection);
+        app
+    }
+
+    #[test]
+    fn a_world_whose_server_stopped_says_why() {
+        let server = std::thread::spawn(|| Err("Failed to load world Broken: bad".to_string()));
+        let client = RenetClient::new(get_shared_renet_config());
+        let mut app = world_watched(server, client);
+        assert_eq!(
+            ended(&mut app),
+            Some(ConnectError::WorldFailed(
+                "Failed to load world Broken: bad".into()
+            ))
+        );
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+
+        // a panicking server reads the same, but the dev profile (Cranelift) cannot unwind one
+        let server = std::thread::spawn(|| Ok(()));
+        let client = RenetClient::new(get_shared_renet_config());
+        let mut app = world_watched(server, client);
+        assert_eq!(
+            ended(&mut app),
+            Some(ConnectError::WorldFailed(
+                "The world stopped while opening".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_world_still_starting_gets_a_new_connection() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let _ = wait.recv();
+            Ok(())
+        });
+        let mut client = RenetClient::new(get_shared_renet_config());
+        client.disconnect();
+        let mut app = world_watched(server, client);
+        assert!(!ends_soon(&mut app));
+        assert!(app.world().contains_resource::<NetcodeClientTransport>());
+        assert!(!app.world().resource::<RenetClient>().is_disconnected());
+        let watch = app.world().resource::<ConnectWatch>();
+        assert!(
+            watch.since.elapsed() < ELEVEN,
+            "{:?}",
+            watch.since.elapsed()
+        );
+
+        release.send(()).unwrap();
     }
 
     #[test]

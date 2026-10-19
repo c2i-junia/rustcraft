@@ -122,16 +122,25 @@ pub fn add_base_netcode(app: &mut App) {
     });
 }
 
-/// The thread of the embedded solo server, kept to wait for it when the app exits.
+/// The thread of the embedded solo server, with the error it stopped on.
 #[derive(Resource)]
-pub struct LocalServerHandle(pub Option<JoinHandle<()>>);
+pub struct LocalServerHandle(pub Option<JoinHandle<Result<(), String>>>);
 
+/// The address the embedded solo server listens on: a server left running by a session that
+/// ended is told to stop there, once the session's own address is forgotten.
+#[derive(Resource)]
+pub struct LocalServerAddress(pub SocketAddr);
+
+/// Starts the embedded server of the selected world, or ends the session: `WorldBusy` while the
+/// server of the last session still runs, `WorldFailed` without a world, `NoConnection` without
+/// a socket.
 pub fn launch_local_server_system(
     mut commands: Commands,
     mut target: ResMut<TargetServer>,
     selected_world: Res<SelectedWorld>,
     paths: Res<GameFolderPaths>,
     local_server: Option<Res<LocalServerHandle>>,
+    origin: Option<Res<SessionOrigin>>,
     mut game_state: ResMut<NextState<GameState>>,
 ) {
     if target.address.is_some() {
@@ -139,16 +148,25 @@ pub fn launch_local_server_system(
         return;
     }
 
+    let mut fail = |error: ConnectError| match origin.as_deref() {
+        Some(origin) => {
+            end_session(&mut commands, &mut game_state, origin, Some(error));
+        }
+        None => game_state.set(GameState::Menu),
+    };
+
     // Two servers on the same save folder would corrupt it.
     if local_server.is_some_and(|local_server| local_server.0.is_some()) {
         error!("The previous local server is still running, not starting another one");
-        game_state.set(GameState::Menu);
+        fail(ConnectError::WorldBusy);
         return;
     }
 
     let Some(world_name) = selected_world.name.clone() else {
         error!("No world selected, unable to launch the local server");
-        game_state.set(GameState::Menu);
+        fail(ConnectError::WorldFailed(
+            "No world was selected".to_string(),
+        ));
         return;
     };
     info!("Launching local server with world: {}", world_name);
@@ -159,7 +177,7 @@ pub fn launch_local_server_system(
         Ok(socket) => socket,
         Err(err) => {
             error!("Could not open a socket for the local server: {err}");
-            game_state.set(GameState::Menu);
+            fail(ConnectError::NoConnection(err.to_string()));
             return;
         }
     };
@@ -171,11 +189,14 @@ pub fn launch_local_server_system(
             world_name,
             is_solo: true,
         };
-        if let Err(err) = server::init(socket, config, paths) {
+        let result = server::init(socket, config, paths);
+        if let Err(err) = &result {
             error!("Local server did not start: {err}");
         }
+        result
     });
     commands.insert_resource(LocalServerHandle(Some(handle)));
+    commands.insert_resource(LocalServerAddress(addr));
 
     target.address = Some(addr);
 }
