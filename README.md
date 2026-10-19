@@ -115,9 +115,9 @@ cannot be joined. An address is a host name or an IPv4 address, with or without 
 (`play.example.com`, `10.0.0.2:8000`); the port is 8000 when it is left out.
 
 A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP port `port`
-(8000 by default), and answers the status requests of the server list on UDP port `port + 1`. Open both in a firewall or a router:
-a server whose status port cannot be reached, or an older server that has none, shows as
-"Offline" in the list, and can still be joined.
+(8000 by default), and answers the status requests of the server list on UDP port `port + 1`.
+Open both in a firewall or a router: a server whose status port cannot be reached, or an older
+server that has none, shows as "Offline" in the list, and can still be joined.
 
 <br>
 
