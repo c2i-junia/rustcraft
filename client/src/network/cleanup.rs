@@ -583,11 +583,12 @@ mod tests {
             })
             .add_systems(Update, establish_authenticated_connection_to_server);
         session_plugin(&mut session.app);
-        // the authentication request is queued on the first connection, which then gives up
+        // nothing is sent before netcode connects: the first connection gives up with no
+        // authentication request queued on it
         session.app.update();
         assert_eq!(
             session.app.world().resource::<TargetServer>().state,
-            TargetServerState::Establishing
+            TargetServerState::Initial
         );
         session
             .app

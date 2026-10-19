@@ -413,7 +413,9 @@ pub fn establish_authenticated_connection_to_server(
         return;
     }
 
-    if target.state == TargetServerState::Initial {
+    // A message sent before netcode connects is dropped, and sent again only after the resend
+    // time of its channel
+    if target.state == TargetServerState::Initial && client.is_connected() {
         let username = target
             .username
             .get_or_insert_with(|| current_profile.name.clone())
