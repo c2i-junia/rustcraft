@@ -269,7 +269,7 @@ E2e, `e2e/widgets.rs` (`card_probe(h)`: a 300×200 group holding `spawn_scroll_l
 - Modify: `client/src/ui/menus/solo/mod.rs` (rewrite), `client/src/ui/menus/solo/dialogs.rs` (delete dialog), `client/src/ui/menus/mod.rs` (the legacy `solo_action` / `list_worlds` systems go), `client/src/e2e/{solo,seed,helpers,game,main_menu,locator,review}.rs`, `client/tests/golden/menu_solo.png`, `client/tests/golden/menu_solo_empty.png` (new)
 
 **Interfaces:**
-- Consumes: `spawn_scroll_list`, `list_card`, `CardSelected`, `button`, `hint_bar`, `HINT_BAR_HEIGHT`, `menu_background`, `spawn_dialog`, `DialogClosed`, `list_worlds`, `delete_world`, `format_size`, `played_ago`, `elapsed_since`, `thumbnail_color`, `start_world`, `WorldsChanged`, `open_new_world_dialog`.
+- Consumes: `spawn_scroll_list`, `spawn_list_card(commands, list, label) -> Entity` (Task 3 fix: each card sits in a `CardSlot` wrapper with ring room; spawn the card content under the returned card), `CardSelected`, `button`, `hint_bar`, `HINT_BAR_HEIGHT`, `menu_background`, `spawn_dialog`, `DialogClosed`, `list_worlds`, `delete_world`, `format_size`, `played_ago`, `elapsed_since`, `thumbnail_color`, `start_world`, `WorldsChanged`, `open_new_world_dialog`.
 - Produces, in `solo/mod.rs`:
   ```rust
   #[derive(Resource, Default, Debug, Clone)] pub struct SelectedWorld { pub name: Option<String> }   // unchanged
