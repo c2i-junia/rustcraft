@@ -342,8 +342,9 @@ fn spawn_detail_pane(commands: &mut Commands, body: Entity, font: &Handle<Font>)
                 button("Join", ButtonVariant::Primary, font.clone()),
                 ServerAction::Join,
             ),
+            // red only in the confirmation: Join stays the one strong action
             (
-                button("Remove", ButtonVariant::Danger, font.clone()),
+                button("Remove", ButtonVariant::Default, font.clone()),
                 ServerAction::Remove,
             ),
         ],
