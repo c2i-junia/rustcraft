@@ -52,6 +52,14 @@ pub struct CraftingGridCell {
     pub col: u32,
 }
 
+/// The crafting grid, its arrow and its result: hidden while a chest is open.
+#[derive(Component)]
+pub struct CraftingRow;
+
+/// The 3x9 slots of the open chest, above the backpack: shown while a chest is open.
+#[derive(Component)]
+pub struct ChestGrid;
+
 /// The cell showing what the crafting grid makes; a click on it takes it.
 #[derive(Component)]
 pub struct CraftResultCell;

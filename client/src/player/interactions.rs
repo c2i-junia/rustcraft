@@ -16,7 +16,7 @@ use super::CurrentPlayerMarker;
 
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
 /// breaking it or placing a block against it, and reports the blocks that changed. A right
-/// click on a crafting table opens it instead, unless the player sneaks.
+/// click on a crafting table or a chest opens it instead, unless the player sneaks.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
@@ -74,15 +74,18 @@ pub fn handle_block_interactions(
     if sneaking {
         frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
     }
-    let aims_at_a_table = world_map
+    let opens = match world_map
         .blocks
         .get_block(target.position)
-        .is_some_and(|block| block.id == BlockId::CraftingTable);
-    if aims_at_a_table && !sneaking && mouse_input.just_pressed(MouseButton::Right) {
-        frame_inputs
-            .0
-            .inventory_actions
-            .push(InventoryAction::OpenCraftingTable(target.position));
+        .map(|block| block.id)
+    {
+        Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(target.position)),
+        Some(BlockId::Chest) => Some(InventoryAction::OpenChest(target.position)),
+        _ => None,
+    };
+    let opens = opens.filter(|_| !sneaking && mouse_input.just_pressed(MouseButton::Right));
+    if let Some(open) = opens {
+        frame_inputs.0.inventory_actions.push(open);
         if let Ok(mut visibility) = inventory_root.single_mut() {
             *visibility = Visibility::Visible;
         }

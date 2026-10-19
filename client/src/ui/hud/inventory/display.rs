@@ -1,4 +1,4 @@
-use super::{item_name, CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
+use super::{item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -6,29 +6,32 @@ use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::{
-    CraftResultCell, CraftingGridCell, FloatingStack, InventoryCell, InventoryDialog,
-    InventoryRoot, InventoryTitle, UIMode,
+    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, InventoryCell,
+    InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
 };
 use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
 use crate::ui::widgets::slot::{count_label, Slot, SlotCount, SlotIcon, SlotSelected, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
-use crate::world::MaterialResource;
+use crate::world::{ClientWorldMap, MaterialResource};
 use bevy::input_focus::tab_navigation::TabIndex;
 use bevy::input_focus::{FocusCause, InputFocus, InputFocusVisible};
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy::window::PrimaryWindow;
-use shared::players::inventory::{craft_result, InventoryAction, INVENTORY_GRID_SIZE};
+use shared::players::inventory::{
+    chest_slots, craft_result, InventoryAction, CHEST_SLOT_START, INVENTORY_GRID_SIZE,
+};
 use shared::players::Inventory;
 use shared::world::{grid_slot, ItemStack, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
 
-/// What a click does on a slot of the hotbar, of the backpack, of the crafting grid and on the
-/// result.
+/// What a click does on a slot of the hotbar, of the backpack, of the crafting grid or of a chest
+/// (`HINT_GRID`), on a slot of the inventory while a chest is open, and on the result.
 pub const HINT_HOTBAR: &str = "Shift+click: move to the backpack";
 pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
+pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
 pub const HINT_RESULT: &str = "Click: craft";
 
 /// Opens the inventory when no dialog is open, and closes it when it is open.
@@ -127,14 +130,16 @@ pub fn click_inventory_cells_system(
 /// slot clears the focus, and a crafting cell that disappears lets go of it: it goes back to the
 /// last focused cell while it is shown, or to the selected slot, so that the keyboard always has
 /// a cell to start from. The slots of the closed inventory leave the Tab and arrow navigation, as
-/// do the hidden cells of the crafting grid, so that Tab in the game never lands on the hotbar.
+/// do the hidden cells, of the crafting grid or of the chest, so that Tab in the game never lands
+/// on the hotbar.
 pub fn sync_inventory_focus(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
     mut slots: Query<
-        (Entity, &mut TabIndex, Option<&InventoryCell>, Option<&Node>),
+        (Entity, &mut TabIndex, Option<&InventoryCell>),
         Or<(With<InventoryCell>, With<CraftResultCell>)>,
     >,
+    nodes: Query<&Node>,
     dialog: Query<(), With<InventoryDialog>>,
     parents: Query<&ChildOf>,
     mut was_open: Local<bool>,
@@ -143,9 +148,18 @@ pub fn sync_inventory_focus(
     mut focus_visible: ResMut<InputFocusVisible>,
 ) {
     let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
-    let shown = |node: Option<&Node>| node.is_none_or(|node| node.display != Display::None);
-    for (_, mut index, _, node) in &mut slots {
-        index.set_if_neq(TabIndex(if is_open && shown(node) { 0 } else { -1 }));
+    // A cell is hidden by its own node, or by that of a row holding it
+    let shown = |cell: Entity| {
+        std::iter::once(cell)
+            .chain(parents.iter_ancestors(cell))
+            .all(|entity| {
+                nodes
+                    .get(entity)
+                    .map_or(true, |node| node.display != Display::None)
+            })
+    };
+    for (cell, mut index, _) in &mut slots {
+        index.set_if_neq(TabIndex(if is_open && shown(cell) { 0 } else { -1 }));
     }
     let in_dialog = focus.get().is_some_and(|focused| {
         parents
@@ -154,7 +168,7 @@ pub fn sync_inventory_focus(
     });
     let on_hidden_cell = focus
         .get()
-        .is_some_and(|focused| slots.get(focused).is_ok_and(|(.., node)| !shown(node)));
+        .is_some_and(|focused| slots.contains(focused) && !shown(focused));
 
     if is_open {
         if !*was_open {
@@ -166,13 +180,13 @@ pub fn sync_inventory_focus(
         } else {
             let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
             let selected_cell = || {
-                slots.iter().find_map(|(entity, _, cell, _)| {
+                slots.iter().find_map(|(entity, _, cell)| {
                     cell.is_some_and(|cell| Some(cell.id) == selected)
                         .then_some(entity)
                 })
             };
             let target = last_focused
-                .filter(|&cell| slots.get(cell).is_ok_and(|(.., node)| shown(node)))
+                .filter(|&cell| slots.contains(cell) && shown(cell))
                 .or_else(selected_cell);
             if let Some(target) = target {
                 focus.set(target, FocusCause::Navigated);
@@ -210,6 +224,7 @@ pub fn close_inventory_system(
 /// inventory is open or not.
 pub fn display_inventory_system(
     inventory: Res<Inventory>,
+    world_map: Res<ClientWorldMap>,
     materials: Res<MaterialResource>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
@@ -255,8 +270,10 @@ pub fn display_inventory_system(
 
     for (mut is_selected, cell, mut tooltip, children) in &mut cells {
         is_selected.set_if_neq(SlotSelected(selected == Some(cell.id)));
-        let stack = inventory.inner.get(&cell.id).copied();
-        let hint = if cell.id < MAX_HOTBAR_SLOTS {
+        let stack = stack_in(cell.id, &inventory, &world_map);
+        let hint = if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
+            HINT_TO_CHEST
+        } else if cell.id < MAX_HOTBAR_SLOTS {
             HINT_HOTBAR
         } else if cell.id < MAX_INVENTORY_SLOTS {
             HINT_BACKPACK
@@ -270,6 +287,16 @@ pub fn display_inventory_system(
         }
         show_stack(stack, children, &mut counts, &mut icons, &materials);
     }
+}
+
+/// What the cell of `slot` shows: a slot of the open chest shows what the chest holds, once the
+/// server sent it.
+fn stack_in(slot: u32, inventory: &Inventory, world_map: &ClientWorldMap) -> Option<ItemStack> {
+    if !chest_slots().contains(&slot) {
+        return inventory.inner.get(&slot).copied();
+    }
+    let chest = world_map.blocks.container(inventory.open_chest?)?;
+    chest.slots[(slot - CHEST_SLOT_START) as usize]
 }
 
 /// Draws the panel, a raised bevel on its background, while the inventory is open: closed, only
@@ -301,25 +328,46 @@ pub fn style_inventory_panel(
 }
 
 /// Shows the cells of the crafting grid in use and, in the result cell, what the grid makes.
-/// The grid is 3x3 and the dialog named after the table while a crafting table is open.
+/// The grid is 3x3 and the dialog named after the table while a crafting table is open. While a
+/// chest is open, its slots take the place of the crafting grid, and the dialog its name.
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
+    mut rows: Query<
+        (&mut Node, Has<ChestGrid>),
+        (
+            Or<(With<ChestGrid>, With<CraftingRow>)>,
+            Without<CraftingGridCell>,
+        ),
+    >,
     mut result: Query<(&Children, &mut Tooltip), With<CraftResultCell>>,
     mut title: Query<&mut Text, (With<InventoryTitle>, Without<SlotCount>)>,
     mut counts: Query<&mut Text, With<SlotCount>>,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
 ) {
-    // The server checks that the table is still within reach; the dialog follows its updates
-    let (size, name) = match inventory.open_table {
-        Some(_) => (CRAFTING_GRID_SIZE, CRAFTING_TABLE_TITLE),
-        None => (INVENTORY_GRID_SIZE, INVENTORY_TITLE),
+    // The server checks that the table or the chest is still within reach; the dialog follows
+    // its updates
+    let (size, name) = match (inventory.open_chest, inventory.open_table) {
+        (Some(_), _) => (INVENTORY_GRID_SIZE, CHEST_TITLE),
+        (None, Some(_)) => (CRAFTING_GRID_SIZE, CRAFTING_TABLE_TITLE),
+        (None, None) => (INVENTORY_GRID_SIZE, INVENTORY_TITLE),
     };
     if let Ok(mut title) = title.single_mut() {
         if title.0 != name {
             title.0 = name.to_string();
+        }
+    }
+    let chest_open = inventory.open_chest.is_some();
+    for (mut node, is_chest) in &mut rows {
+        let display = match (is_chest, chest_open) {
+            (true, true) => Display::Grid,
+            (false, false) => Display::Flex,
+            _ => Display::None,
+        };
+        if node.display != display {
+            node.display = display;
         }
     }
     for (cell, mut node) in &mut grid_cells {
@@ -430,6 +478,7 @@ mod tests {
         fn new(inventory_visibility: Visibility, slots: &[u32]) -> Self {
             let mut world = World::new();
             world.insert_resource(Inventory::new());
+            world.init_resource::<ClientWorldMap>();
             world.insert_resource(MaterialResource::default());
             world.insert_resource(ButtonInput::<MouseButton>::default());
             world.insert_resource(ButtonInput::<KeyCode>::default());
@@ -894,6 +943,85 @@ mod tests {
         assert_eq!(hud.sent_actions(), [InventoryAction::TakeCraftResult]);
     }
 
+    /// Opens a chest at (1, 2, 3) that holds `contents`, as the server sent it.
+    fn open_chest(hud: &mut Hud, contents: shared::world::Container) {
+        let chest = IVec3::new(1, 2, 3);
+        let mut blocks = shared::world::ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        blocks.fill_box(chest, chest, shared::world::BlockId::Chest);
+        blocks.insert_container(chest, contents);
+        hud.world.resource_mut::<ClientWorldMap>().blocks = blocks;
+        hud.world.resource_mut::<Inventory>().open_chest = Some(chest);
+    }
+
+    #[test]
+    fn a_chest_cell_shows_what_the_open_chest_holds() {
+        let slot = CHEST_SLOT_START + 4;
+        let mut hud = Hud::new(Visibility::Visible, &[slot]);
+        assert_eq!(hud.shown(slot).0, "");
+
+        let mut contents = shared::world::Container::default();
+        contents.slots[4] = Some(dirt_stack(7));
+        open_chest(&mut hud, contents);
+
+        assert_eq!(hud.shown(slot).0, "7");
+    }
+
+    #[test]
+    fn the_chest_takes_the_place_of_the_crafting_row_and_names_the_dialog() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let title = hud
+            .world
+            .spawn((InventoryTitle, Text::new("Inventory")))
+            .id();
+        let crafting = hud.world.spawn((CraftingRow, Node::default())).id();
+        let chest = hud
+            .world
+            .spawn((
+                ChestGrid,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .id();
+        let display = |hud: &Hud, entity| hud.world.get::<Node>(entity).unwrap().display;
+
+        open_chest(&mut hud, Default::default());
+        hud.show_crafting();
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, CHEST_TITLE);
+        assert_eq!(display(&hud, crafting), Display::None);
+        assert_eq!(display(&hud, chest), Display::Grid);
+
+        hud.world.resource_mut::<Inventory>().open_chest = None;
+        hud.show_crafting();
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, INVENTORY_TITLE);
+        assert_eq!(display(&hud, crafting), Display::Flex);
+        assert_eq!(display(&hud, chest), Display::None);
+    }
+
+    #[test]
+    fn with_a_chest_open_shift_click_moves_between_the_inventory_and_the_chest() {
+        let chest_slot = CHEST_SLOT_START;
+        let mut hud = Hud::new(Visibility::Visible, &[0, MAX_HOTBAR_SLOTS, chest_slot]);
+        let mut contents = shared::world::Container::default();
+        contents.slots[0] = Some(dirt_stack(2));
+        open_chest(&mut hud, contents);
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .extend([(0, dirt_stack(1)), (MAX_HOTBAR_SLOTS, dirt_stack(1))]);
+
+        for (slot, hint) in [
+            (0, HINT_TO_CHEST),
+            (MAX_HOTBAR_SLOTS, HINT_TO_CHEST),
+            (chest_slot, HINT_GRID),
+        ] {
+            let cell = hud.cell(slot);
+            let tooltip = hud.tooltip_of(cell);
+            assert_eq!(tooltip.hint, hint, "slot {slot}");
+        }
+    }
+
     #[test]
     fn the_grid_shows_only_its_2x2_corner_without_a_table() {
         let mut hud = Hud::new(Visibility::Visible, &[]);
@@ -1107,6 +1235,43 @@ mod tests {
     }
 
     #[test]
+    fn the_cells_of_a_hidden_row_leave_the_navigation() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let mut dialog = hud.world.query_filtered::<Entity, With<InventoryDialog>>();
+        let dialog = dialog.single(&hud.world).unwrap();
+        let row = hud
+            .world
+            .spawn((
+                ChestGrid,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+                ChildOf(dialog),
+            ))
+            .id();
+        let cell = hud
+            .world
+            .spawn((
+                InventoryCell {
+                    id: CHEST_SLOT_START,
+                },
+                TabIndex(0),
+                Node::default(),
+                ChildOf(row),
+            ))
+            .id();
+        let sync = hud.world.register_system(sync_inventory_focus);
+
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(*hud.world.get::<TabIndex>(cell).unwrap(), TabIndex(-1));
+
+        hud.world.get_mut::<Node>(row).unwrap().display = Display::Grid;
+        hud.world.run_system(sync).unwrap();
+        assert_eq!(*hud.world.get::<TabIndex>(cell).unwrap(), TabIndex(0));
+    }
+
+    #[test]
     fn the_focus_leaves_a_crafting_cell_that_disappears() {
         let mut hud = Hud::new(Visibility::Visible, &[]);
         let mut dialog = hud.world.query_filtered::<Entity, With<InventoryDialog>>();
@@ -1225,14 +1390,18 @@ mod tests {
             },
         );
         world.insert_resource(inventory);
+        world.init_resource::<ClientWorldMap>();
         world.init_resource::<UiScale>();
         world.init_resource::<InputFocus>();
         world.init_resource::<InputFocusVisible>();
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();
-        // The slots of the inventory, then the 3x3 crafting grid
-        assert_eq!(cells.iter(world).count() as u32, MAX_INVENTORY_SLOTS + 9);
+        // The slots of the inventory, then the 3x3 crafting grid and the slots of a chest
+        assert_eq!(
+            cells.iter(world).count() as u32,
+            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS
+        );
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon
         let shown = |world: &mut World, slot: u32| -> (String, Option<usize>) {

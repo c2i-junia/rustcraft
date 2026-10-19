@@ -3,8 +3,8 @@ use crate::state::GameState;
 use crate::ui::assets::load_font;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::{
-    CraftResultCell, CraftingGridCell, FloatingStack, HudBottom, InventoryCell, InventoryDialog,
-    InventoryRoot, InventoryTitle, UiDialog,
+    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, HudBottom,
+    InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, UiDialog,
 };
 use crate::ui::theme::{
     BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, MUTED, SPACE_L, SPACE_M, SPACE_S, SPACE_XS, TEXT,
@@ -15,11 +15,13 @@ use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
 use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::prelude::*;
+use shared::players::inventory::chest_slots;
 use shared::world::{grid_slot, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
 
 pub const INVENTORY_TITLE: &str = "Inventory";
 pub const CRAFTING_TABLE_TITLE: &str = "Crafting Table";
+pub const CHEST_TITLE: &str = "Chest";
 
 /// The height of the hotbar above the bottom of the window, in logical px.
 const HOTBAR_BOTTOM: f32 = SPACE_L;
@@ -114,6 +116,7 @@ pub fn setup_inventory(
                             inventory
                                 .spawn((InventoryTitle, panel_text(INVENTORY_TITLE, &font, TEXT)));
                             spawn_crafting_row(inventory, atlas, &font);
+                            spawn_chest_grid(inventory, atlas, &font);
                             spawn_backpack(inventory, atlas, &font);
                         });
                     spawn_hotbar(panel, atlas, &font);
@@ -135,6 +138,31 @@ pub fn setup_inventory(
         Pickable::IGNORE,
         children![slot_icon(icon(atlas)), slot_count(font)],
     ));
+}
+
+/// The 3x9 slots of the open chest, hidden until one is open.
+fn spawn_chest_grid(parent: &mut ChildSpawnerCommands, atlas: &AtlasWrapper, font: &Handle<Font>) {
+    parent
+        .spawn((
+            ChestGrid,
+            Node {
+                display: Display::None,
+                grid_template_columns: RepeatedGridTrack::auto(MAX_HOTBAR_SLOTS as u16),
+                row_gap: px(SPACE_XS),
+                column_gap: px(SPACE_XS),
+                ..default()
+            },
+        ))
+        .with_children(|grid| {
+            for (index, id) in chest_slots().enumerate() {
+                let label = format!("Chest slot {}", index + 1);
+                grid.spawn((
+                    InventoryCell { id },
+                    Tooltip::default(),
+                    slot(&label, None, icon(atlas), font.clone()),
+                ));
+            }
+        });
 }
 
 /// The 3x9 slots after those of the hotbar.
@@ -214,11 +242,14 @@ fn spawn_crafting_row(
     font: &Handle<Font>,
 ) {
     parent
-        .spawn(Node {
-            align_items: AlignItems::Center,
-            column_gap: px(SPACE_L),
-            ..default()
-        })
+        .spawn((
+            CraftingRow,
+            Node {
+                align_items: AlignItems::Center,
+                column_gap: px(SPACE_L),
+                ..default()
+            },
+        ))
         .with_children(|row| {
             // The grid has as many rows and columns as its shown cells reach
             row.spawn(Node {

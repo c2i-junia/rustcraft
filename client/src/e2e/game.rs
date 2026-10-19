@@ -11,6 +11,7 @@ use bevy::{
     ui::ComputedStackIndex,
     window::{PrimaryWindow, WindowEvent},
 };
+use shared::players::inventory::CHEST_SLOT_START;
 use shared::players::{Inventory, ViewMode};
 use shared::world::{grid_slot, raycast, FaceDirectionExt, ItemId};
 
@@ -26,7 +27,7 @@ use crate::ui::hud::chat::ChatRoot;
 use crate::ui::hud::debug::HudRoot;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{
-    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot,
+    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, CHEST_TITLE,
 };
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::widgets::slot::SlotIcon;
@@ -446,6 +447,88 @@ fn a_broken_block_drops_an_item_that_the_player_picks_up() {
     h.key_up(KeyCode::KeyW);
     h.frames(30);
     assert_eq!(dropped_items(h.world_mut()), 0);
+}
+
+/// What the chest at `position` holds in its slot `index`, as the client knows it.
+fn in_chest(w: &World, position: IVec3, index: usize) -> Shown {
+    let chest = w.resource::<ClientWorldMap>().blocks.container(position)?;
+    chest.slots[index].map(|stack| (stack.item_id, stack.nb))
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_chest_keeps_what_is_put_in_it() {
+    let folder = GameFolder::new().with_world("Chest").with_items(
+        "Chest",
+        "Tester",
+        &[(0, ItemId::Chest, 1), (10, ItemId::Stone, 5)],
+    );
+    let mut h = enter_world(folder, "Chest");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Chest, 1))
+    });
+
+    // Look down, at the ground ahead of the player
+    let world = h.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<CameraController>>()
+        .single(world)
+        .unwrap();
+    let player = world
+        .query_filtered::<Entity, With<CurrentPlayerMarker>>()
+        .single(world)
+        .unwrap();
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.6;
+    h.wait_until("the ground within reach", SERVER, |w| {
+        aimed_cells(w, camera, player).is_some_and(|(target, _)| {
+            let centre = w.get::<Transform>(player).unwrap().translation;
+            target.as_vec3().distance(centre) < 3.
+        })
+    });
+    // Settled on the ground
+    h.frames(30);
+
+    // Place the chest, whatever the ground is: it is aimed at then, and opens on a right click
+    let (_, chest) = aimed_cells(h.world(), camera, player).unwrap();
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_until("the placed chest", SERVER, |w| {
+        is_block(w, chest) && slot(w, 0).is_none()
+    });
+    h.frames(5);
+    assert_eq!(aimed_cells(h.world(), camera, player).unwrap().0, chest);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_for(&L::text(CHEST_TITLE), SCREEN);
+    h.wait_until("its empty slots", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .container(chest)
+            .is_some_and(|contents| contents.is_empty())
+    });
+
+    // Shift+click moves the stone into the chest
+    h.key_down(KeyCode::ShiftLeft);
+    h.click(&L::cell(10));
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the stone in the chest", SERVER, |w| {
+        in_chest(w, chest, 0) == Some((ItemId::Stone, 5)) && slot(w, 10).is_none()
+    });
+    // The server agrees: its updates keep it there
+    h.frames(30);
+    assert_eq!(in_chest(h.world(), chest, 0), Some((ItemId::Stone, 5)));
+
+    // Closed and opened again, the chest still holds it, and a click takes it out
+    h.press(KeyCode::KeyE);
+    h.frames(3);
+    assert!(!h.is_visible(&L::text(CHEST_TITLE)));
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_for(&L::text(CHEST_TITLE), SCREEN);
+    h.click(&L::cell(CHEST_SLOT_START));
+    h.wait_until("the stone in the cursor", SERVER, |w| {
+        floating(w) == Some((ItemId::Stone, 5)) && in_chest(w, chest, 0).is_none()
+    });
+    h.click(&L::cell(CHEST_SLOT_START + 26));
+    h.frames(30);
+    assert_eq!(in_chest(h.world(), chest, 26), Some((ItemId::Stone, 5)));
 }
 
 #[test]

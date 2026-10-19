@@ -12,6 +12,7 @@ use crate::ui::hud::{
     InventoryRoot,
 };
 use crate::ui::widgets::slot::style_slots;
+use crate::world::ClientWorldMap;
 
 fn stack(item_id: ItemId, nb: u32) -> ItemStack {
     ItemStack {
@@ -23,8 +24,14 @@ fn stack(item_id: ItemId, nb: u32) -> ItemStack {
 
 /// Renders the hotbar and, if `open`, the inventory panel, as they show `inventory`.
 fn assert_inventory_matches(name: &str, inventory: Inventory, open: bool) {
+    assert_panel_matches(name, inventory, ClientWorldMap::default(), open);
+}
+
+/// `assert_inventory_matches`, with the chests the client knows in `world_map`.
+fn assert_panel_matches(name: &str, inventory: Inventory, world_map: ClientWorldMap, open: bool) {
     let mut golden = UiGolden::new();
     golden.world_mut().insert_resource(inventory);
+    golden.world_mut().insert_resource(world_map);
     golden.run_system(setup_inventory);
     if open {
         let mut root = golden
@@ -95,4 +102,30 @@ fn the_inventory_shows_the_items_left_beyond_its_grid() {
         .inner
         .insert(grid_slot(2, 2), stack(ItemId::Cobblestone, 1));
     assert_inventory_matches("inventory_leftovers_beyond_the_grid", inventory, true);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_open_chest_shows_its_slots_above_the_backpack() {
+    use shared::world::{ChunkMap, Container};
+
+    let chest = IVec3::new(1, 2, 3);
+    let mut blocks = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+    blocks.fill_box(chest, chest, shared::world::BlockId::Chest);
+    let mut contents = Container::default();
+    contents.slots[0] = Some(stack(ItemId::Cobblestone, 64));
+    contents.slots[10] = Some(stack(ItemId::OakLog, 12));
+    contents.slots[26] = Some(stack(ItemId::Stick, 3));
+    blocks.insert_container(chest, contents);
+    let mut inventory = Inventory::new();
+    inventory.open_chest = Some(chest);
+    inventory.inner.insert(0, stack(ItemId::Dirt, 20));
+    inventory
+        .inner
+        .insert(MAX_HOTBAR_SLOTS, stack(ItemId::OakPlanks, 4));
+    let world_map = ClientWorldMap {
+        blocks,
+        ..default()
+    };
+    assert_panel_matches("chest", inventory, world_map, true);
 }
