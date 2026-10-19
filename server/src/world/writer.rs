@@ -16,9 +16,13 @@ use bevy::{
 use shared::world::Chunk;
 use shared::SaveCounter;
 
-use super::chunk_files::{chunk_file_name, remove_interrupted_writes, write_chunk, CHUNKS_DIR};
-use super::container_files::{write_containers, ChunkContainers, CONTAINERS_DIR};
-use super::format::{write_meta, WorldMeta, WORLD_FILE};
+use super::chunk_files::{
+    chunk_file_name, remove_interrupted_writes, write_chunk_pending, CHUNKS_DIR,
+};
+use super::container_files::{
+    remove_containers, write_containers_pending, ChunkContainers, CONTAINERS_DIR,
+};
+use super::format::{commit, write_meta_pending, PendingFile, WorldMeta, WORLD_FILE};
 
 /// What one save writes: the metadata of the world and a copy of each chunk to write, with the
 /// contents of its chests.
@@ -42,56 +46,122 @@ impl JobOutcome {
     }
 }
 
-/// Writes `job` into the folder `world_dir`. The metadata goes first, so that the seed of a new
-/// world is on disk before any of its chunks. Every failure is logged with its path.
+/// How many threads encode and write the files of the chunks of a job.
+const WRITER_THREADS: usize = 8;
+
+/// The files of a chunk written to be committed, and whether the file of its chests is to be
+/// removed once they are committed.
+struct ChunkFiles {
+    chunk_pos: IVec3,
+    files: Vec<PendingFile>,
+    remove_containers: bool,
+}
+
+/// Writes `job` into the folder `world_dir`. Every file is written aside, then all are synced
+/// at once and put in place, the metadata first, so that the seed of a new world is on disk
+/// before any of its chunks. Every failure is logged with its path.
 pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
-    let meta_written = match write_meta(world_dir, &job.meta) {
-        Ok(()) => true,
-        Err(err) => {
+    let meta = write_meta_pending(world_dir, &job.meta)
+        .inspect_err(|err| {
             error!(
                 "Failed to write {}: {err}",
                 world_dir.join(WORLD_FILE).display()
             );
-            false
-        }
-    };
+        })
+        .ok();
 
     let chunks_dir = world_dir.join(CHUNKS_DIR);
     if let Err(err) = std::fs::create_dir_all(&chunks_dir) {
         error!("Failed to create {}: {err}", chunks_dir.display());
         return JobOutcome {
-            meta_written,
+            meta_written: commit_meta(world_dir, meta),
             chunks_dir_ok: false,
             failed_chunks: job.chunks.into_iter().map(|(pos, ..)| pos).collect(),
         };
     }
 
     let total = job.chunks.len();
-    let mut failed = Vec::new();
     let containers_dir = world_dir.join(CONTAINERS_DIR);
-    for (chunk_pos, chunk, containers) in job.chunks {
-        if let Err(err) = write_chunk(&chunks_dir, chunk_pos, &chunk) {
-            error!(
-                "Failed to write {}: {err}",
-                chunks_dir.join(chunk_file_name(chunk_pos)).display()
-            );
-            failed.push(chunk_pos);
-            continue;
+    let mut failed = Vec::new();
+    let mut written = Vec::new();
+    let per_thread = total.div_ceil(WRITER_THREADS).max(1);
+    std::thread::scope(|scope| {
+        let threads: Vec<_> = job
+            .chunks
+            .chunks(per_thread)
+            .map(|part| {
+                let (chunks_dir, containers_dir) = (&chunks_dir, &containers_dir);
+                scope.spawn(move || {
+                    part.iter()
+                        .map(|(chunk_pos, chunk, containers)| {
+                            write_chunk_files(
+                                chunks_dir,
+                                containers_dir,
+                                *chunk_pos,
+                                chunk,
+                                containers,
+                            )
+                            .ok_or(*chunk_pos)
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        for thread in threads {
+            for files in thread.join().expect("writing the files of chunks panicked") {
+                match files {
+                    Ok(files) => written.push(files),
+                    Err(chunk_pos) => failed.push(chunk_pos),
+                }
+            }
         }
-        // The folder only exists in a world that has had a chest
-        let written = match containers.is_empty() {
-            true => Ok(()),
-            false => std::fs::create_dir_all(&containers_dir),
-        }
-        .and_then(|()| write_containers(&containers_dir, chunk_pos, &containers));
-        if let Err(err) = written {
-            error!(
-                "Failed to write {}: {err}",
-                containers_dir.join(chunk_file_name(chunk_pos)).display()
-            );
-            failed.push(chunk_pos);
+    });
+
+    let mut owners = Vec::new();
+    let mut pending = Vec::new();
+    if let Some(meta) = meta {
+        owners.push(None);
+        pending.push(meta);
+    }
+    for chunk in &mut written {
+        for file in chunk.files.drain(..) {
+            owners.push(Some(chunk.chunk_pos));
+            pending.push(file);
         }
     }
+    let paths: Vec<_> = pending.iter().map(|file| file.path().to_owned()).collect();
+    let mut meta_written = false;
+    for ((owner, path), result) in owners
+        .into_iter()
+        .zip(paths)
+        .zip(commit(world_dir, pending))
+    {
+        match (owner, result) {
+            (None, Ok(())) => meta_written = true,
+            (_, Err(err)) => {
+                error!("Failed to write {}: {err}", path.display());
+                failed.extend(owner);
+            }
+            (Some(_), Ok(())) => {}
+        }
+    }
+    // Once the chunk without a chest is in place: a crash before leaves the chest it had,
+    // still with its contents
+    for chunk in written {
+        if !chunk.remove_containers || failed.contains(&chunk.chunk_pos) {
+            continue;
+        }
+        if let Err(err) = remove_containers(&containers_dir, chunk.chunk_pos) {
+            error!(
+                "Failed to write {}: {err}",
+                containers_dir
+                    .join(chunk_file_name(chunk.chunk_pos))
+                    .display()
+            );
+            failed.push(chunk.chunk_pos);
+        }
+    }
+    failed.dedup();
     info!(
         "World [{}] saved: {} of {total} chunks written",
         job.meta.name,
@@ -102,6 +172,59 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
         chunks_dir_ok: true,
         failed_chunks: failed,
     }
+}
+
+/// Commits the metadata alone, when no chunk can be written. Whether it is in place.
+fn commit_meta(world_dir: &std::path::Path, meta: Option<PendingFile>) -> bool {
+    let Some(meta) = meta else {
+        return false;
+    };
+    let path = meta.path().to_owned();
+    match commit(world_dir, vec![meta]).pop() {
+        Some(Ok(())) => true,
+        Some(Err(err)) => {
+            error!("Failed to write {}: {err}", path.display());
+            false
+        }
+        None => false,
+    }
+}
+
+/// Writes the files of one chunk aside, `None` when one of them failed, which is logged.
+fn write_chunk_files(
+    chunks_dir: &std::path::Path,
+    containers_dir: &std::path::Path,
+    chunk_pos: IVec3,
+    chunk: &Chunk,
+    containers: &ChunkContainers,
+) -> Option<ChunkFiles> {
+    let chunk_file = write_chunk_pending(chunks_dir, chunk_pos, chunk)
+        .inspect_err(|err| {
+            error!(
+                "Failed to write {}: {err}",
+                chunks_dir.join(chunk_file_name(chunk_pos)).display()
+            );
+        })
+        .ok()?;
+    let mut files = vec![chunk_file];
+    // The folder only exists in a world that has had a chest
+    if !containers.is_empty() {
+        let containers_file = std::fs::create_dir_all(containers_dir)
+            .and_then(|()| write_containers_pending(containers_dir, chunk_pos, containers))
+            .inspect_err(|err| {
+                error!(
+                    "Failed to write {}: {err}",
+                    containers_dir.join(chunk_file_name(chunk_pos)).display()
+                );
+            })
+            .ok()?;
+        files.push(containers_file);
+    }
+    Some(ChunkFiles {
+        chunk_pos,
+        files,
+        remove_containers: containers.is_empty(),
+    })
 }
 
 #[derive(Resource)]

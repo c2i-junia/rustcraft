@@ -18,6 +18,9 @@ clap = { version = "4.5.19", features = ["derive"] }
 ulid = "1.1.4"
 mlua = { version = "0.12", features = ["luau", "send"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+
 # Define the library target
 [lib]
 name = "server"

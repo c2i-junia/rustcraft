@@ -354,7 +354,8 @@ fn solo_session_from_auth_to_exit() {
     });
     assert_eq!(update.last_ack_time, 1234);
 
-    // 4. Save: the files must exist before we ask the server to exit
+    // 4. Save: the files must exist before we ask the server to exit. The chunk files are
+    // written aside, `.tmp`, then all put in place at once
     client.send(ClientToServerMessage::SaveWorldRequest);
     client.send_packets();
     let world_dir = server.world_dir();
@@ -362,7 +363,10 @@ fn solo_session_from_auth_to_exit() {
     let start = Instant::now();
     while !(world_dir.join("world.ron").is_file()
         && player_file.is_file()
-        && !server.chunk_files().is_empty())
+        && server
+            .chunk_files()
+            .iter()
+            .any(|name| name.ends_with(".bin")))
     {
         assert!(
             start.elapsed() < WAIT_TIMEOUT,
@@ -370,9 +374,6 @@ fn solo_session_from_auth_to_exit() {
         );
         client.pump();
     }
-    let names = server.chunk_files();
-    assert!(names.iter().any(|name| name.ends_with(".bin")), "{names:?}");
-
     // 5. Exit
     client.send(ClientToServerMessage::Exit);
     // Only send: the server disconnects us as it shuts down.

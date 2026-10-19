@@ -2,12 +2,15 @@
 //! the types of `world.ron`. The files of the chunks are in `chunk_files`, those of the
 //! players in `save`.
 
+use bevy::log::debug;
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 use shared::world::{Chunk, Container, DroppedItem, MobId, ServerMob, WorldSeed};
 use std::collections::HashMap;
-use std::{fs::File, io::Write, path::Path};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 /// Name of the file of a world that holds its metadata.
 pub const WORLD_FILE: &str = "world.ron";
@@ -100,6 +103,18 @@ pub fn write_meta(world_dir: &Path, meta: &WorldMeta) -> Result<(), Box<dyn std:
     Ok(())
 }
 
+/// Writes `world.ron` of the world stored in `world_dir` as a file to commit.
+pub fn write_meta_pending(
+    world_dir: &Path,
+    meta: &WorldMeta,
+) -> Result<PendingFile, Box<dyn std::error::Error>> {
+    let serialized = ron::ser::to_string_pretty(meta, PrettyConfig::new())?;
+    Ok(write_pending(
+        &world_dir.join(WORLD_FILE),
+        serialized.as_bytes(),
+    )?)
+}
+
 /// Suffix of the temporary file an atomic write goes through.
 pub const TEMPORARY_SUFFIX: &str = ".tmp";
 
@@ -114,6 +129,64 @@ pub fn write_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     file.write_all(contents)?;
     file.sync_all()?;
     std::fs::rename(tmp_path, path)
+}
+
+/// A file written to `<path>.tmp`, neither synced nor in place yet: `commit` makes a batch of
+/// them durable, then puts each in place.
+pub struct PendingFile {
+    tmp: PathBuf,
+    path: PathBuf,
+}
+
+impl PendingFile {
+    /// The file it replaces once committed.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Writes `contents` to `<path>.tmp`, to be committed with others.
+pub fn write_pending(path: &Path, contents: &[u8]) -> io::Result<PendingFile> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(TEMPORARY_SUFFIX);
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, contents)?;
+    Ok(PendingFile {
+        tmp,
+        path: path.to_owned(),
+    })
+}
+
+/// Syncs the files of `pending`, all on the file system of `dir`, then renames each over the
+/// file it replaces, in order: as with `write_atomically`, a crash leaves either the old file or
+/// the new one, never a truncated one. On Linux it is one sync of the file system for the whole
+/// batch, where syncing each file costs milliseconds. The result of each file, in order.
+pub fn commit(dir: &Path, pending: Vec<PendingFile>) -> Vec<io::Result<()>> {
+    let synced = sync_file_system(dir);
+    if let Err(err) = &synced {
+        debug!("Syncing the files one by one: {err}");
+    }
+    pending
+        .into_iter()
+        .map(|file| {
+            if synced.is_err() {
+                OpenOptions::new().write(true).open(&file.tmp)?.sync_all()?;
+            }
+            std::fs::rename(&file.tmp, &file.path)
+        })
+        .collect()
+}
+
+/// Writes to disk everything written to the file system of `dir`.
+#[cfg(target_os = "linux")]
+fn sync_file_system(dir: &Path) -> io::Result<()> {
+    rustix::fs::syncfs(File::open(dir)?)?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn sync_file_system(_: &Path) -> io::Result<()> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 #[cfg(test)]
@@ -131,6 +204,26 @@ mod tests {
         write_atomically(&path, b"second, longer").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"second, longer");
         assert!(!tmp.path().join("data.ron.tmp").exists());
+    }
+
+    #[test]
+    fn pending_files_replace_theirs_only_once_committed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (first, second) = (tmp.path().join("a.bin"), tmp.path().join("b.bin"));
+        write_atomically(&first, b"old").unwrap();
+
+        let pending = vec![
+            write_pending(&first, b"new").unwrap(),
+            write_pending(&second, b"added").unwrap(),
+        ];
+        assert_eq!(std::fs::read(&first).unwrap(), b"old");
+        assert!(!second.exists());
+
+        assert!(commit(tmp.path(), pending).iter().all(Result::is_ok));
+        assert_eq!(std::fs::read(&first).unwrap(), b"new");
+        assert_eq!(std::fs::read(&second).unwrap(), b"added");
+        let names: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().collect();
+        assert_eq!(names.len(), 2, "a temporary file is left: {names:?}");
     }
 
     #[test]

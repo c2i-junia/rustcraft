@@ -17,7 +17,9 @@ use shared::{
 #[cfg(test)]
 use super::chunk_files::read_files_named_by_chunk;
 use super::chunk_files::{chunk_file_name, read_file_of_chunk};
+#[cfg(test)]
 use super::format::write_atomically;
+use super::format::{write_pending, PendingFile};
 
 /// Name of the folder of a world that holds the contents of its chests.
 pub const CONTAINERS_DIR: &str = "containers";
@@ -58,6 +60,7 @@ pub fn decode_containers(bytes: &[u8]) -> Result<ChunkContainers, String> {
 
 /// Writes the chests of the chunk at `chunk_pos` into `containers_dir`, atomically, or removes
 /// its file when it holds none, so that a broken chest does not come back.
+#[cfg(test)]
 pub fn write_containers(
     containers_dir: &Path,
     chunk_pos: IVec3,
@@ -67,7 +70,25 @@ pub fn write_containers(
     if !containers.is_empty() {
         return write_atomically(&path, &encode_containers(containers));
     }
-    match std::fs::remove_file(&path) {
+    remove_containers(containers_dir, chunk_pos)
+}
+
+/// Writes the chests of the chunk at `chunk_pos`, which holds some, into `containers_dir`, to be
+/// committed.
+pub fn write_containers_pending(
+    containers_dir: &Path,
+    chunk_pos: IVec3,
+    containers: &ChunkContainers,
+) -> io::Result<PendingFile> {
+    write_pending(
+        &containers_dir.join(chunk_file_name(chunk_pos)),
+        &encode_containers(containers),
+    )
+}
+
+/// Removes the file of the chests of the chunk at `chunk_pos`, if there is one.
+pub fn remove_containers(containers_dir: &Path, chunk_pos: IVec3) -> io::Result<()> {
+    match std::fs::remove_file(containers_dir.join(chunk_file_name(chunk_pos))) {
         Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
         _ => Ok(()),
     }

@@ -11,7 +11,7 @@ use bevy::{
 };
 use shared::{game_message_to_payload, payload_to_game_message, world::Chunk, CHUNK_SIZE};
 
-use super::format::{write_atomically, TEMPORARY_SUFFIX};
+use super::format::{write_atomically, write_pending, PendingFile, TEMPORARY_SUFFIX};
 
 /// Name of the folder of a world that holds its chunk files.
 pub const CHUNKS_DIR: &str = "chunks";
@@ -59,6 +59,18 @@ pub fn decode_chunk(bytes: &[u8]) -> Result<Chunk, String> {
 /// Writes the file of the chunk at `chunk_pos` into `chunks_dir`, atomically.
 pub fn write_chunk(chunks_dir: &Path, chunk_pos: IVec3, chunk: &Chunk) -> io::Result<()> {
     write_atomically(
+        &chunks_dir.join(chunk_file_name(chunk_pos)),
+        &encode_chunk(chunk),
+    )
+}
+
+/// Writes the file of the chunk at `chunk_pos` into `chunks_dir`, to be committed.
+pub fn write_chunk_pending(
+    chunks_dir: &Path,
+    chunk_pos: IVec3,
+    chunk: &Chunk,
+) -> io::Result<PendingFile> {
+    write_pending(
         &chunks_dir.join(chunk_file_name(chunk_pos)),
         &encode_chunk(chunk),
     )
