@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use bevy::text::{FontSource, TextLayoutInfo};
 use bevy::ui::InteractionDisabled;
 use bevy_renet::netcode::NetcodeClientTransport;
+use bevy_renet::RenetClient;
 
 use shared::players::Player;
 use shared::world::world_position_to_chunk_position;
@@ -25,9 +26,10 @@ use super::seed::GameFolder;
 use super::solo::selected_world;
 use crate::constants::SAVE_PATH;
 use crate::network::session::{
-    chunks_around, ConnectStep, ConnectTimeout, ConnectWatch, CONNECT_TIMEOUT,
+    chunks_around, ConnectStep, ConnectTimeout, ConnectWatch, SessionEnd, CONNECT_TIMEOUT,
 };
-use crate::network::status::{ServerStatus, StatusProbe};
+use crate::network::status::{query_status, ServerStatus, StatusProbe};
+use crate::network::{TargetServer, TargetServerState};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::menus::connect_error::TRY_AGAIN;
@@ -422,8 +424,10 @@ fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_car
     // another player already plays as `Tester`, the name of the player
     let intruder = RawClient::join(addr, 77, Some("Tester"));
     intruder.wait_ready(SERVER);
-    let folder =
-        GameFolder::new().with_servers(&[("Local test", &format!("127.0.0.1:{}", addr.port()))]);
+    let ip = format!("127.0.0.1:{}", addr.port());
+    let folder = GameFolder::new()
+        .with_servers(&[("Local test", &ip)])
+        .with_world("Survie");
     let mut h = Harness::start(folder, Options::default());
     h.wait_for(&L::text("Multiplayer"), STARTUP);
     h.click(&L::text("Multiplayer"));
@@ -438,8 +442,15 @@ fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_car
     assert!(h.is_visible(&L::text_containing("\"Tester\"").within(error_card(refused))));
     assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
 
-    // the name is free once the other player left
+    // the name is free once the server no longer counts the other player
     intruder.leave();
+    let start = Instant::now();
+    while !matches!(query_status(&ip), ServerStatus::Online { players: 0, .. }) {
+        assert!(
+            start.elapsed() < SERVER,
+            "the server still counts the other player"
+        );
+    }
     h.press(KeyCode::Enter);
     h.wait_for(&card_title("Joining \"Local test\""), SCREEN);
     h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
@@ -454,6 +465,25 @@ fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_car
     });
     h.frames(2);
     assert_eq!(selected_server(&mut h).as_deref(), Some("Local test"));
+    // the session is torn down: nothing of it is left for the next one
+    let world = h.world();
+    assert!(!world.contains_resource::<RenetClient>());
+    assert!(!world.contains_resource::<NetcodeClientTransport>());
+    assert!(!world.contains_resource::<SessionEnd>());
+    assert_eq!(
+        world.resource::<TargetServer>().state,
+        TargetServerState::Initial
+    );
+    let map = world.resource::<ClientWorldMap>();
+    assert_eq!(map.blocks.chunk_positions().count(), 0);
+    assert!(map.render.is_empty());
     // its folder is deleted once the server saved and stopped
     assert_eq!(server.join().unwrap(), Ok(()));
+
+    // and the next session opens
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.click(&L::text("Singleplayer"));
+    h.play_world("Survie");
+    h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
 }

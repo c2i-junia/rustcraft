@@ -498,7 +498,13 @@ mod tests {
     use shared::world::Chunk;
 
     use crate::network::status::ServerStatus;
+    use crate::ui::menus::connect_error::back_label;
+    use bevy_renet::netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
+    use bevy_renet::RenetServer;
+    use shared::PROTOCOL_ID;
+    use std::net::UdpSocket;
     use std::thread::JoinHandle;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn world() -> SessionOrigin {
         SessionOrigin::World {
@@ -982,11 +988,11 @@ mod tests {
         ));
     }
 
-    /// A bare app in the game on the server `Friends`, with the client `client` and no transport.
-    fn in_game(client: RenetClient) -> App {
+    /// A bare app in the game of `origin`, with the client `client` and no transport.
+    fn in_game(origin: SessionOrigin, client: RenetClient) -> App {
         let mut app = App::new();
         app.init_resource::<NextState<GameState>>()
-            .insert_resource(server())
+            .insert_resource(origin)
             .insert_resource(client)
             .insert_resource(CurrentPlayerProfile {
                 id: 1,
@@ -1000,7 +1006,7 @@ mod tests {
     fn leaving_on_purpose_is_never_an_error() {
         let mut client = RenetClient::new(get_shared_renet_config());
         client.disconnect();
-        let mut app = in_game(client);
+        let mut app = in_game(server(), client);
         // the pause menu leaves the game in the frame the connection drops
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
@@ -1013,7 +1019,7 @@ mod tests {
     fn a_connection_dropped_in_game_ends_the_session() {
         let mut client = RenetClient::new(get_shared_renet_config());
         client.disconnect();
-        let mut app = in_game(client);
+        let mut app = in_game(server(), client);
         app.update();
         assert_eq!(
             app.world()
@@ -1025,5 +1031,54 @@ mod tests {
             app.world().resource::<NextState<GameState>>(),
             NextState::Pending(GameState::Menu)
         ));
+    }
+
+    /// A client whose server, a bare one of the test, closed its connection once connected.
+    fn closed_by_its_server() -> (RenetClient, NetcodeClientTransport) {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        let config = ServerConfig {
+            current_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+            max_clients: 1,
+            protocol_id: PROTOCOL_ID,
+            public_addresses: vec![addr],
+            authentication: ServerAuthentication::Unsecure,
+        };
+        let mut server = RenetServer::new(get_shared_renet_config());
+        let mut server_transport = NetcodeServerTransport::new(config, socket).unwrap();
+        let (mut client, mut transport) = open_connection(addr, 1).unwrap();
+        let step = Duration::from_millis(5);
+        let start = Instant::now();
+        while !client.is_disconnected() {
+            assert!(start.elapsed() < Duration::from_secs(5), "never closed");
+            client.update(step);
+            // fails once disconnected, which the loop reads from the client
+            let _ = transport.update(step, &mut client);
+            let _ = transport.send_packets(&mut client);
+            server.update(step);
+            server_transport.update(step, &mut server).unwrap();
+            if client.is_connected() {
+                server_transport.disconnect_all(&mut server);
+            }
+            server_transport.send_packets(&mut server);
+            std::thread::sleep(step);
+        }
+        (client, transport)
+    }
+
+    #[test]
+    fn a_world_whose_server_dies_in_game_says_it_stopped_and_leads_back_to_the_worlds() {
+        let (client, transport) = closed_by_its_server();
+        assert_eq!(
+            transport.disconnect_reason(),
+            Some(Reason::DisconnectedByServer)
+        );
+        let mut app = in_game(world(), client);
+        app.insert_resource(transport);
+        app.update();
+        let end = app.world().resource::<SessionEnd>();
+        assert_eq!(end.error, Some(ConnectError::ServerStopped));
+        assert_eq!(end.origin, world());
+        assert_eq!(back_label(&end.origin), "Back to Worlds");
     }
 }
