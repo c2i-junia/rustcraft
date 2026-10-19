@@ -28,7 +28,7 @@ use crate::ui::widgets::dialog::{
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
-    set_text, spawn_text_field, text_field_focused, FieldError, TextField,
+    set_text, spawn_text_field, text_field_focused, value_of, FieldError, TextField,
 };
 
 /// The title of the New world dialog.
@@ -265,14 +265,6 @@ pub fn open_new_world_on_ctrl_n(
         let others = cards.iter().map(|card| card.0.name.clone()).collect();
         open_new_world_dialog(&mut commands, &assets, &focus, others);
     }
-}
-
-/// The value of the text field `input`.
-fn value_of(texts: &Query<&EditableText>, input: Entity) -> String {
-    texts
-        .get(input)
-        .map(|text| text.value().to_string())
-        .unwrap_or_default()
 }
 
 /// What is wrong with the name `typed` in `form`, and whether it can be submitted. The unchanged

@@ -26,7 +26,7 @@ use crate::ui::widgets::dialog::{
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
-    set_text, spawn_text_field, text_field_focused, FieldError, TextField,
+    set_text, spawn_text_field, text_field_focused, value_of, FieldError, TextField,
 };
 
 /// The title of the Add server dialog.
@@ -179,14 +179,6 @@ pub fn open_add_server_on_ctrl_n(
     }
     let others = cards.iter().map(|card| card.0.clone()).collect();
     open_add_server_dialog(&mut commands, &assets, &focus, others);
-}
-
-/// The value of the text field `input`.
-fn value_of(texts: &Query<&EditableText>, input: Entity) -> String {
-    texts
-        .get(input)
-        .map(|text| text.value().to_string())
-        .unwrap_or_default()
 }
 
 /// Checks the fields of a server dialog whose values changed: shows why a field is wrong under

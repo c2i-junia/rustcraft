@@ -245,6 +245,14 @@ pub fn set_text(text: &mut EditableText, value: &str) {
     text.queue_edit(TextEdit::Insert(value.into()));
 }
 
+/// The value of the text field `input`, empty when it is not one.
+pub fn value_of(texts: &Query<&EditableText>, input: Entity) -> String {
+    texts
+        .get(input)
+        .map(|text| text.value().to_string())
+        .unwrap_or_default()
+}
+
 /// Asks for a Submit on Enter and for a Cancel on Escape. They are triggered in `PostUpdate`,
 /// after the edits of this update: a character typed in the same update as Enter is submitted,
 /// and the systems of `Update` still see the field focused in the update of the key.
