@@ -512,7 +512,7 @@ fn escape_closes(mut event: On<FocusedInput<KeyboardInput>>, mut commands: Comma
 /// focus back where it was, if that still exists and the request says so.
 fn close_dialogs(
     requests: Query<(Entity, &DialogRoot, &CloseRequest)>,
-    existing: Query<()>,
+    nodes: Query<(&Node, Option<&ChildOf>)>,
     mut focus: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
@@ -525,8 +525,28 @@ fn close_dialogs(
         if !request.restore_focus {
             continue;
         }
-        if let Some(previous) = dialog.restore_focus.filter(|e| existing.contains(*e)) {
-            focus.set(previous, FocusCause::Navigated);
+        // a node gone or hidden cannot take the focus back: nothing has it, and the screen's own
+        // rule chooses
+        match dialog.restore_focus.filter(|e| shown(*e, &nodes)) {
+            Some(previous) => focus.set(previous, FocusCause::Navigated),
+            None => focus.clear(),
+        }
+    }
+}
+
+/// Whether `entity` exists and neither it nor an ancestor is `Display::None`.
+fn shown(entity: Entity, nodes: &Query<(&Node, Option<&ChildOf>)>) -> bool {
+    let mut current = entity;
+    loop {
+        let Ok((node, parent)) = nodes.get(current) else {
+            return false;
+        };
+        if node.display == Display::None {
+            return false;
+        }
+        match parent {
+            Some(parent) => current = parent.parent(),
+            None => return true,
         }
     }
 }
@@ -738,5 +758,64 @@ mod tests {
         assert_eq!(world.get::<FieldError>(name).unwrap().0, None);
         assert_eq!(world.get::<FieldError>(seed).unwrap().0, None);
         assert!(world.get::<InteractionDisabled>(primary).is_none());
+    }
+
+    /// Closes a dialog that restores the focus to `previous`, spawned by `spawn_previous`, while
+    /// the dialog itself has the focus. Returns the focus afterwards, and `previous`.
+    fn close_with_focus_on(
+        spawn_previous: impl FnOnce(&mut World) -> Entity,
+    ) -> (Option<Entity>, Entity) {
+        let mut app = App::new();
+        app.init_resource::<InputFocus>()
+            .add_systems(Update, close_dialogs);
+        let world = app.world_mut();
+        let previous = spawn_previous(world);
+        let dialog = world
+            .spawn((
+                DialogRoot {
+                    restore_focus: Some(previous),
+                    primary: None,
+                },
+                CloseRequest::new(None),
+            ))
+            .id();
+        world
+            .resource_mut::<InputFocus>()
+            .set(dialog, FocusCause::Navigated);
+        app.update();
+        (app.world().resource::<InputFocus>().get(), previous)
+    }
+
+    #[test]
+    fn closing_a_dialog_gives_the_focus_back_to_a_shown_node() {
+        let (focus, previous) = close_with_focus_on(|world| {
+            let screen = world.spawn(Node::default()).id();
+            world.spawn((Node::default(), ChildOf(screen))).id()
+        });
+        assert_eq!(focus, Some(previous));
+    }
+
+    #[test]
+    fn closing_a_dialog_clears_the_focus_when_the_node_is_hidden_or_gone() {
+        let hidden = Node {
+            display: Display::None,
+            ..default()
+        };
+        // itself hidden
+        let (focus, _) = close_with_focus_on(|world| world.spawn(hidden.clone()).id());
+        assert_eq!(focus, None);
+        // an ancestor hidden
+        let (focus, _) = close_with_focus_on(|world| {
+            let pane = world.spawn(hidden.clone()).id();
+            world.spawn((Node::default(), ChildOf(pane))).id()
+        });
+        assert_eq!(focus, None);
+        // gone
+        let (focus, _) = close_with_focus_on(|world| {
+            let gone = world.spawn(Node::default()).id();
+            world.despawn(gone);
+            gone
+        });
+        assert_eq!(focus, None);
     }
 }
