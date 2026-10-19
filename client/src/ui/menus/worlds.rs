@@ -29,7 +29,7 @@ pub struct WorldSummary {
     pub day: Option<u64>,
     /// When the world was last saved.
     pub played: SystemTime,
-    /// The bytes of every file of the world's folder.
+    /// The bytes of every file of the world's folder, 0 from `last_played_world`.
     pub size: u64,
 }
 
@@ -38,6 +38,12 @@ pub struct WorldSummary {
 /// and are `None` when it cannot be read. Names that are not UTF-8 are skipped; a missing or
 /// unreadable `saves` gives none. Creates nothing.
 pub fn list_worlds(saves: &Path) -> Vec<WorldSummary> {
+    summaries(saves, true)
+}
+
+/// The worlds of `list_worlds`, whose folders are measured only when `measured`: a world of
+/// thousands of chunk files takes tens of milliseconds to measure.
+fn summaries(saves: &Path, measured: bool) -> Vec<WorldSummary> {
     let Ok(entries) = fs::read_dir(saves) else {
         return Vec::new();
     };
@@ -55,7 +61,7 @@ pub fn list_worlds(saves: &Path) -> Vec<WorldSummary> {
                 seed: meta.as_ref().map(|meta| meta.seed.0),
                 day: meta.as_ref().map(|meta| day_of(meta.time)),
                 played,
-                size: folder_size(&folder),
+                size: if measured { folder_size(&folder) } else { 0 },
             })
         })
         .collect();
@@ -64,9 +70,9 @@ pub fn list_worlds(saves: &Path) -> Vec<WorldSummary> {
     worlds
 }
 
-/// The world whose `world.ron` was modified last: the first of `list_worlds`.
+/// The world whose `world.ron` was modified last: the first of `list_worlds`, without its size.
 pub fn last_played_world(saves: &Path) -> Option<WorldSummary> {
-    list_worlds(saves).into_iter().next()
+    summaries(saves, false).into_iter().next()
 }
 
 /// The `world.ron` of the world stored in `folder`, if it can be read as `WorldMeta`.
