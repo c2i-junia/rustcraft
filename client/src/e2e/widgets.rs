@@ -2,6 +2,7 @@
 
 use accesskit::Role;
 use bevy::{
+    a11y::AccessibilityNode,
     ecs::system::RunSystemOnce,
     input::{
         keyboard::{Key, KeyboardInput},
@@ -13,8 +14,8 @@ use bevy::{
     },
     prelude::*,
     text::EditableText,
-    ui::{Checked, InteractionDisabled},
-    ui_widgets::Activate,
+    ui::{Checked, InteractionDisabled, Selected},
+    ui_widgets::{Activate, ScrollbarThumb},
     window::PrimaryWindow,
 };
 
@@ -32,6 +33,7 @@ use crate::ui::widgets::dialog::{
 };
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
+use crate::ui::widgets::list::{list_card, spawn_scroll_list, CardSelected, ListCard};
 use crate::ui::widgets::segmented::{spawn_segmented, Segment, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderParts, SliderReadout};
 use crate::ui::widgets::slot::{slot, SlotSelected};
@@ -1418,4 +1420,177 @@ fn tabs_switch_by_click_and_by_arrows() {
     h.frames(2);
     let c = h.get(&L::role(Role::Tab, "C"));
     assert_eq!(h.world().get::<BackgroundColor>(c).unwrap().0, RAISE_HOVER);
+}
+
+/// The labels of the cards the card list of a test reported as selected.
+#[derive(Resource, Default)]
+struct Selections(Vec<String>);
+
+fn selections(h: &mut Harness) -> Vec<String> {
+    h.world().resource::<Selections>().0.clone()
+}
+
+/// Spawns a 300x200 column above the main menu holding a scroll list of twelve 48 px cards,
+/// "Card 1" to "Card 12", then an "After" button, and records the cards the list reports as
+/// selected. Returns the list.
+fn card_probe(h: &mut Harness) -> Entity {
+    h.world_mut().init_resource::<Selections>();
+    h.world_mut().add_observer(
+        |selected: On<CardSelected>,
+         labels: Query<&AccessibilityNode>,
+         mut selections: ResMut<Selections>| {
+            let label = labels.get(selected.card).unwrap().label().unwrap();
+            selections.0.push(label.to_string());
+        },
+    );
+    let root = spawn_group(
+        h,
+        Node {
+            width: Val::Px(300.0),
+            height: Val::Px(200.0),
+            flex_direction: FlexDirection::Column,
+            ..default()
+        },
+    );
+    let parts = spawn_scroll_list(&mut h.world_mut().commands());
+    h.world_mut().flush();
+    h.world_mut().entity_mut(parts.frame).insert(ChildOf(root));
+    for n in 1..=12 {
+        let mut card = h
+            .world_mut()
+            .spawn((list_card(&format!("Card {n}")), ChildOf(parts.list)));
+        card.get_mut::<Node>().unwrap().height = Val::Px(48.0);
+    }
+    h.world_mut().spawn((
+        button("After", ButtonVariant::Default, Handle::default()),
+        ChildOf(root),
+    ));
+    h.frames(3);
+    parts.list
+}
+
+fn card(n: usize) -> L {
+    L::role(Role::ListItem, &format!("Card {n}"))
+}
+
+/// The labels of the selected cards.
+fn selected_cards(h: &mut Harness) -> Vec<String> {
+    let mut cards = h
+        .world_mut()
+        .query_filtered::<&AccessibilityNode, (With<ListCard>, With<Selected>)>();
+    cards
+        .iter(h.world())
+        .map(|node| node.label().unwrap().to_string())
+        .collect()
+}
+
+/// The rectangle of the entity, in physical pixels.
+fn rect_of_entity(h: &Harness, entity: Entity) -> Rect {
+    let center = h
+        .world()
+        .get::<UiGlobalTransform>(entity)
+        .unwrap()
+        .translation;
+    let size = h.world().get::<ComputedNode>(entity).unwrap().size();
+    Rect::from_center_size(center, size)
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_card_is_selected_by_click_and_by_arrows() {
+    let mut h = main_menu();
+    let list = card_probe(&mut h);
+    h.click(&card(2));
+    h.frames(2);
+    assert_eq!(selected_cards(&mut h), ["Card 2"]);
+    assert_eq!(selections(&mut h), ["Card 2"]);
+    for (key, expected) in [
+        (KeyCode::ArrowDown, "Card 3"),
+        (KeyCode::Home, "Card 1"),
+        (KeyCode::End, "Card 12"),
+    ] {
+        h.press(key);
+        h.frames(1);
+        assert_eq!(h.focus_label().as_deref(), Some(expected), "{key:?}");
+        assert_eq!(selected_cards(&mut h), [expected], "{key:?}");
+        assert_eq!(
+            selections(&mut h).last().map(String::as_str),
+            Some(expected)
+        );
+    }
+    assert_eq!(
+        selections(&mut h),
+        ["Card 2", "Card 3", "Card 1", "Card 12"]
+    );
+    // the last card was scrolled into view
+    h.frames(1);
+    let last = h.get(&card(12));
+    let (last, list) = (rect_of_entity(&h, last), rect_of_entity(&h, list));
+    let inside = |r: Rect| list.contains(r.min + 0.5) && list.contains(r.max - 0.5);
+    assert!(inside(last), "{last:?} in {list:?}");
+    // no wrap
+    h.press(KeyCode::ArrowDown);
+    h.frames(1);
+    assert_eq!(h.focus_label().as_deref(), Some("Card 12"));
+    assert_eq!(selected_cards(&mut h), ["Card 12"]);
+    assert_eq!(selections(&mut h).len(), 4);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_list_is_one_tab_stop_on_its_selected_card() {
+    let mut h = main_menu();
+    card_probe(&mut h);
+    h.click(&card(2));
+    for _ in 0..3 {
+        h.press(KeyCode::ArrowDown);
+    }
+    h.frames(1);
+    assert_eq!(h.focus_label().as_deref(), Some("Card 5"));
+    h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("After"));
+    h.key_down(KeyCode::ShiftLeft);
+    h.press(KeyCode::Tab);
+    h.key_up(KeyCode::ShiftLeft);
+    assert_eq!(h.focus_label().as_deref(), Some("Card 5"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn hovering_a_card_lightens_it_and_the_selected_one_has_an_accent_border() {
+    let mut h = main_menu();
+    card_probe(&mut h);
+    h.click(&card(2));
+    h.hover(&card(3));
+    h.frames(2);
+    let (two, three) = (h.get(&card(2)), h.get(&card(3)));
+    assert_eq!(
+        h.world().get::<BackgroundColor>(three).unwrap().0,
+        RAISE_HOVER
+    );
+    assert_eq!(border_of(&mut h, two), [ACCENT; 4]);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_wheel_scrolls_the_card_list_under_the_cursor() {
+    let mut h = main_menu();
+    let list = card_probe(&mut h);
+    let thumb = h
+        .world_mut()
+        .query_filtered::<Entity, With<ScrollbarThumb>>()
+        .single(h.world())
+        .unwrap();
+    let before = rect_of_entity(&h, thumb);
+    h.hover(&card(1));
+    h.scroll(-3.);
+    h.frames(2);
+    let scrolled = h.world().get::<ScrollPosition>(list).unwrap().y;
+    assert!(scrolled > 0.0, "{scrolled}");
+    let moved = rect_of_entity(&h, thumb);
+    assert!(moved.min.y > before.min.y, "{before:?} then {moved:?}");
+    h.hover(&L::role(Role::Button, "After"));
+    h.scroll(-3.);
+    h.frames(2);
+    assert_eq!(h.world().get::<ScrollPosition>(list).unwrap().y, scrolled);
 }

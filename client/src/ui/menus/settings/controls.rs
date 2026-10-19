@@ -15,10 +15,7 @@ use bevy::{
     picking::hover::Hovered,
     prelude::*,
     ui::Pressed,
-    ui_widgets::{
-        observe, Activate, ControlOrientation, ScrollArea, ScrollIntoView, Scrollbar,
-        ScrollbarDragState, ScrollbarThumb,
-    },
+    ui_widgets::{observe, Activate, ScrollArea, ScrollIntoView},
     window::WindowFocused,
 };
 use shared::GameFolderPaths;
@@ -30,13 +27,14 @@ use crate::input::keyboard::{
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, FONT_M,
-    FONT_S, MUTED, RAISE, RAISE_HOVER, SLOT, SPACE_M, SPACE_S, SPACE_XS, TEXT,
+    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_M, FONT_S, MUTED, RAISE, RAISE_HOVER,
+    SPACE_M, SPACE_S, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
+use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, RING_ROOM, SCROLLBAR_WIDTH};
 
 use super::{spawn_hints, SettingsRoot};
 
@@ -129,12 +127,6 @@ struct CaptureHints;
 const SLOT_WIDTH: f32 = 120.0;
 /// The height of a key slot: a key cap and the bevel around it.
 const SLOT_HEIGHT: f32 = 34.0;
-/// The room around the slots for their focus ring, which the list would clip.
-const RING_ROOM: f32 = FOCUS_RING_WIDTH + FOCUS_RING_OFFSET;
-/// The width of the scrollbar of the list.
-const SCROLLBAR_WIDTH: f32 = 8.0;
-/// The shortest the thumb of the scrollbar gets.
-const SCROLLBAR_MIN_THUMB: f32 = 24.0;
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<KeyCapture>()
@@ -142,7 +134,6 @@ pub(super) fn plugin(app: &mut App) {
             Update,
             (
                 style_key_slots,
-                style_thumb,
                 swap_hints,
                 show_keys
                     .run_if(resource_changed::<KeyMap>.or_else(resource_changed::<KeyCapture>)),
@@ -364,68 +355,9 @@ pub fn spawn_controls_tab(
             children![label(column, &font, FONT_S, MUTED)],
         ));
     }
-    let frame = commands
-        .spawn((
-            Node {
-                flex_grow: 1.0,
-                min_height: px(0),
-                column_gap: px(SPACE_XS),
-                ..default()
-            },
-            ChildOf(content),
-        ))
-        .id();
-    // a recessed well, whose edge clips the rows going out of view. The bevel is around the
-    // list, not on it: `ScrollIntoView` does not count the border of the list
-    let well = commands
-        .spawn((
-            Node {
-                flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
-                min_width: px(0),
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                ..default()
-            },
-            BackgroundColor(SLOT),
-            sunken_bevel(),
-            ChildOf(frame),
-        ))
-        .id();
-    let list = commands
-        .spawn((
-            ScrollArea,
-            ArrowNav,
-            Node {
-                flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
-                min_height: px(0),
-                overflow: Overflow::scroll_y(),
-                padding: UiRect::horizontal(px(RING_ROOM)),
-                ..default()
-            },
-            ChildOf(well),
-        ))
-        .id();
-    commands.spawn((
-        Scrollbar::new(list, ControlOrientation::Vertical, SCROLLBAR_MIN_THUMB),
-        Node {
-            width: px(SCROLLBAR_WIDTH),
-            border: UiRect::all(px(BEVEL_WIDTH)),
-            ..default()
-        },
-        BackgroundColor(SLOT),
-        sunken_bevel(),
-        ChildOf(frame),
-        children![(
-            ScrollbarThumb {
-                border: UiRect::all(px(BEVEL_WIDTH)),
-                ..default()
-            },
-            Hovered::default(),
-            BackgroundColor(BEVEL_HI),
-            raised_bevel(),
-        )],
-    ));
+    let ScrollListParts { frame, list } = spawn_scroll_list(commands);
+    commands.entity(frame).insert(ChildOf(content));
+    commands.entity(list).insert(ArrowNav);
     for category in ActionCategory::ALL {
         let first = category == ActionCategory::ALL[0];
         // the label goes with the first row: a row brought into view brings it too
@@ -676,20 +608,6 @@ fn show_conflicts(
         } else {
             commands.entity(entity).remove::<Conflicting>();
         }
-    }
-}
-
-/// Lightens the thumb of the scrollbar while it is under the cursor or dragged.
-fn style_thumb(
-    mut thumbs: Query<(&Hovered, &ScrollbarDragState, &mut BackgroundColor), With<ScrollbarThumb>>,
-) {
-    for (hovered, drag, mut background) in &mut thumbs {
-        let fill = if hovered.get() || drag.dragging {
-            MUTED
-        } else {
-            BEVEL_HI
-        };
-        background.set_if_neq(BackgroundColor(fill));
     }
 }
 
