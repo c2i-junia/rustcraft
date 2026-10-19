@@ -94,6 +94,8 @@ pub enum Sound {
     Land,
     /// A button of the interface is pressed.
     Click,
+    /// The local player picks up an item lying in the world.
+    Pickup,
 }
 
 impl Sound {
@@ -108,7 +110,7 @@ impl Sound {
                     Sound::Place(material),
                 ]
             })
-            .chain([Sound::Land, Sound::Click])
+            .chain([Sound::Land, Sound::Click, Sound::Pickup])
     }
 
     pub fn channel(self) -> Channel {
@@ -133,6 +135,8 @@ impl Sound {
             Sound::Place(material) => vec![format!("sounds/place/{}.ogg", material.file_name())],
             Sound::Land => vec!["sounds/player/land.ogg".to_string()],
             Sound::Click => vec!["sounds/ui/click.ogg".to_string()],
+            // No sound of its own yet: the click is short and soft enough
+            Sound::Pickup => vec!["sounds/ui/click.ogg".to_string()],
         }
     }
 }

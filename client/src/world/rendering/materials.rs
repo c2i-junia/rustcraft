@@ -233,9 +233,14 @@ pub fn create_all_atlases(
     if material_resource.items.is_none() {
         if let Some(items) = build_texture_atlas(&mut atlases.1, &mut images, &mut texture_atlases)
         {
+            // The pictures of the items lying in the world turn round: both sides are drawn
             material_resource.global_materials.insert(
                 GlobalMaterial::Items,
-                materials.add(atlas_material(&items, AlphaMode::Blend)),
+                materials.add(StandardMaterial {
+                    cull_mode: None,
+                    double_sided: true,
+                    ..atlas_material(&items, AlphaMode::Mask(0.5))
+                }),
             );
             material_resource.items = Some(items);
         }

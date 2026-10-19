@@ -90,7 +90,10 @@ fn queue_save(
         .filter_map(|pos| Some((pos, world_map.chunks.chunk(pos)?.clone())))
         .collect();
     let job = SaveJob {
-        meta: WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone()),
+        meta: WorldMeta {
+            dropped_items: world_map.dropped_items.to_saved(),
+            ..WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone())
+        },
         chunks,
     };
 

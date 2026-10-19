@@ -1,6 +1,7 @@
 use crate::init::ServerTime;
 use crate::network::extensions::SendGameMessageExtension;
 use crate::world::data::ServerWorldMap;
+use crate::world::dropped_items::dropped_items_update;
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
@@ -37,6 +38,7 @@ pub fn broadcast_world_state(
     world_map
         .dirty_chunks
         .extend(changed.iter().map(global_block_to_chunk_pos));
+    let (changed_items, removed_items) = world_map.dropped_items.take_changes();
 
     for client in server.clients_id() {
         let Some(player) = players.get(&client) else {
@@ -52,13 +54,25 @@ pub fn broadcast_world_state(
             &world_map.mobs,
         );
 
+        let sent_chunks = world_map.sent_chunks.entry(player.id).or_default();
         let (unloads, block_updates, new_map) = world_messages_around(
             chunks,
             &changed,
             world_position_to_chunk_position(player.position),
             render_distance,
-            world_map.sent_chunks.entry(player.id).or_default(),
+            sent_chunks,
         );
+        // A client is told of the items in the chunks it has, those sent now included
+        let items = dropped_items_update(
+            &world_map.dropped_items,
+            &changed_items,
+            &removed_items,
+            sent_chunks,
+            world_map.sent_items.entry(player.id).or_default(),
+        );
+        if !items.is_empty() {
+            server.send_game_message(client, ServerToClientMessage::DroppedItems(items));
+        }
 
         // One channel carries the three, in this order: a chunk is unloaded before it can be
         // sent again

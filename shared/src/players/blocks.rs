@@ -5,7 +5,7 @@ use crate::{
     players::{movement::MAX_FRAME_DELTA_MS, Player},
     world::{
         global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, ChunkMap,
-        FaceDirectionExt, ItemStack, ItemType, RaycastResponse,
+        FaceDirectionExt, ItemType, RaycastResponse,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -71,19 +71,31 @@ impl Refused {
     }
 }
 
+/// A block a player broke. Its items are not given to the player: the server drops them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BrokenBlock {
+    pub position: IVec3,
+    pub block: BlockId,
+}
+
+/// Breaks and places the blocks `action` asks for, and returns the blocks it broke.
 pub fn simulate_player_block_interactions(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
-) {
+) -> Vec<BrokenBlock> {
+    let mut broken = Vec::new();
     // Placing acts once per input, but breaking counts the time the button is held, so that
     // a block takes as long to break at any frame rate.
     let hits = mining_hits(player, action);
     for network_action in &action.inputs {
         let (verb, outcome) = match network_action {
             NetworkAction::LeftClick if hits == 0 => continue,
-            NetworkAction::LeftClick => ("break", break_block(player, world_map, action, hits)),
+            NetworkAction::LeftClick => (
+                "break",
+                break_block(player, world_map, action, hits).map(|block| broken.extend(block)),
+            ),
             NetworkAction::RightClick => ("place", place_block(player, world_map, action)),
             _ => continue,
         };
@@ -102,6 +114,7 @@ pub fn simulate_player_block_interactions(
             world_map.touch_block(position);
         }
     }
+    broken
 }
 
 /// Mining hits the time held in `action` adds up to; what is left of it is kept for the next
@@ -147,14 +160,15 @@ fn aimed_block(
     Ok(target)
 }
 
-/// `hits` hits on the aimed block: it breaks once it took as many hits as its break time. The
-/// hits left over by a broken block are lost, and never reach the block behind it.
+/// `hits` hits on the aimed block: it breaks once it took as many hits as its break time, and is
+/// returned then. The hits left over by a broken block are lost, and never reach the block
+/// behind it.
 fn break_block(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     hits: u8,
-) -> Result<(), Refused> {
+) -> Result<Option<BrokenBlock>, Refused> {
     let position = aimed_block(player, world_map, action, |target| target.position)?.position;
 
     let Some(mut block) = world_map.get_block(position).copied() else {
@@ -167,25 +181,14 @@ fn break_block(
     block.breaking_progress = block.breaking_progress.saturating_add(hits);
     if block.breaking_progress < break_time {
         world_map.set_block(position, block);
-        return Ok(());
+        return Ok(None);
     }
 
     world_map.remove_block(position);
-    for (item_id, nb) in block.id.get_drops(1) {
-        let lost = player.inventory.add_item_to_inventory(ItemStack {
-            item_id,
-            item_type: item_id.get_default_type(),
-            nb,
-        });
-        if lost > 0 {
-            log::info!(
-                "Player {} has no room for {lost} of the {nb} {item_id:?} dropped by {:?}",
-                player.id,
-                block.id
-            );
-        }
-    }
-    Ok(())
+    Ok(Some(BrokenBlock {
+        position,
+        block: block.id,
+    }))
 }
 
 /// Places the block held in the selected hotbar slot against the aimed face.
@@ -254,7 +257,7 @@ fn block_overlaps_player(block_position: IVec3, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{BlockId, ItemId};
+    use crate::world::{BlockId, ItemId, ItemStack};
     use bevy::math::IVec3;
     use bevy::prelude::Transform;
 
@@ -335,12 +338,28 @@ mod tests {
         let (mut player, mut world, input) = left_click_on(BlockId::Dandelion);
         let steps = BlockId::Dandelion.get_break_time().unwrap();
         for _ in 1..steps {
-            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+            let broken = simulate_player_block_interactions(
+                &mut player,
+                &mut world,
+                &input,
+                CallerType::Server,
+            );
+            assert!(broken.is_empty());
             assert!(world.get_block(TARGET).is_some());
         }
-        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        let broken =
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
         assert!(world.get_block(TARGET).is_none());
         assert_eq!(world.take_changed_blocks(), vec![TARGET]);
+        assert_eq!(
+            broken,
+            vec![BrokenBlock {
+                position: TARGET,
+                block: BlockId::Dandelion
+            }]
+        );
+        // The items are dropped by the server, not given to the player
+        assert!(player.inventory.inner.is_empty());
     }
 
     #[test]

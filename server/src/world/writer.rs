@@ -135,10 +135,10 @@ impl WorldWriter {
 
     /// Queues `job`. Gives it back when the writer thread is gone, so that nothing is lost
     /// silently.
-    pub fn submit(&self, job: SaveJob) -> Result<(), SaveJob> {
+    pub fn submit(&self, job: SaveJob) -> Result<(), Box<SaveJob>> {
         match &self.jobs {
-            Some(jobs) => jobs.send(job).map_err(|err| err.0),
-            None => Err(job),
+            Some(jobs) => jobs.send(job).map_err(|err| Box::new(err.0)),
+            None => Err(Box::new(job)),
         }
     }
 

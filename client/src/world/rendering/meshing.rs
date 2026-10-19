@@ -118,6 +118,29 @@ impl MeshCreator {
     }
 }
 
+/// The mesh of `block` shown as an item lying on the ground: the faces of a whole block, one
+/// block wide and centred on the origin, drawn with the chunk material. `None` for a block that
+/// is not a whole cube, such as a flower, which is shown as a picture instead.
+pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> Option<Mesh> {
+    let block = BlockData::new(block, BlockDirection::Front);
+    let look = BlockLook::new(&block, tiles);
+    if look
+        .shape
+        .faces
+        .iter()
+        .any(|face| matches!(face.direction, FaceDirection::Inset))
+    {
+        return None;
+    }
+    let mut mesh = MeshCreator::default();
+    for (face, tile) in look.shape.faces.iter().zip(&look.tiles) {
+        if let Some(tile) = tile {
+            mesh.push_face(face, *tile, 1.0, Vec3::splat(-0.5), &block.direction);
+        }
+    }
+    mesh.build()
+}
+
 /// Cells on a side of a `Neighbourhood`: the chunk and one layer around it.
 const SIDE: i32 = CHUNK_SIZE + 2;
 

@@ -6,6 +6,7 @@ use crate::{
     },
     world::{
         data::{world_dir, ServerWorldMap},
+        dropped_items::DroppedItems,
         load_from_file::load_world_data,
         save::Autosave,
         writer::WorldWriter,
@@ -238,6 +239,8 @@ fn load_world(
         render_distances: Default::default(),
         players: HashMap::new(),
         mobs: world_data.mobs,
+        dropped_items: DroppedItems::from_saved(world_data.dropped_items),
+        sent_items: HashMap::new(),
         dirty_chunks: HashSet::new(),
     };
     cleanup_all_players_from_world(&mut world_map);

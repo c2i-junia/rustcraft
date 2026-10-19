@@ -4,7 +4,8 @@ use crate::world::ChunkRender;
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
 use shared::messages::{
-    mob::MobUpdateEvent, BlockUpdate, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
+    mob::MobUpdateEvent, BlockUpdate, DroppedItemsUpdate, PlayerSpawnEvent, PlayerUpdateEvent,
+    ServerToClientMessage,
 };
 use shared::world::SIX_OFFSETS;
 use shared::STC_AUTH_CHANNEL;
@@ -25,6 +26,7 @@ pub fn update_world_from_network(
     ev_mob_update: &mut MessageWriter<MobUpdateEvent>,
     ev_player_update: &mut MessageWriter<PlayerUpdateEvent>,
     ev_block_changed: &mut MessageWriter<BlockChanged>,
+    ev_dropped_items: &mut MessageWriter<DroppedItemsUpdate>,
     chat: &mut ResMut<CachedChatConversation>,
 ) {
     while let Some(Ok(msg)) = client.receive_game_message_except_channel(STC_AUTH_CHANNEL) {
@@ -93,6 +95,9 @@ pub fn update_world_from_network(
                 ev_player_update.write(update);
             }
             ServerToClientMessage::AuthRegisterResponse(_) => {}
+            ServerToClientMessage::DroppedItems(update) => {
+                ev_dropped_items.write(update);
+            }
             ServerToClientMessage::ChatMessage(message) => {
                 chat.unread.push(message);
             }

@@ -95,6 +95,7 @@ fn read_chunks_of(dir: &Path, meta: WorldMeta) -> Result<WorldData, String> {
         seed: meta.seed,
         name: meta.name,
         time: meta.time,
+        dropped_items: meta.dropped_items,
     })
 }
 

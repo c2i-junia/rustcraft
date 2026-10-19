@@ -5,6 +5,7 @@ use bevy::audio::{DefaultSpatialScale, SpatialScale};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
+use crate::dropped_items::ItemPickedUp;
 use crate::state::{GameSet, GameState};
 
 mod blocks;
@@ -33,6 +34,7 @@ pub fn audio_plugin(app: &mut App) {
                     blocks::block_sounds,
                     footsteps::local_footsteps,
                     footsteps::other_players_footsteps,
+                    pickup_sounds,
                 )
                     .after(GameSet::Reconciliation)
                     .run_if(in_state(GameState::Game)),
@@ -40,6 +42,13 @@ pub fn audio_plugin(app: &mut App) {
             )
                 .chain(),
         );
+}
+
+/// A pop for every item the local player picks up.
+fn pickup_sounds(mut pickups: MessageReader<ItemPickedUp>, mut sounds: MessageWriter<PlaySound>) {
+    for _ in pickups.read() {
+        sounds.write(PlaySound::here(Sound::Pickup));
+    }
 }
 
 /// A click for every widget button activated.

@@ -160,8 +160,8 @@ impl BlockId {
     }
 
     /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
-    /// drop table; a table of one entry, like every current one, always gives that entry, so
-    /// the client's prediction and the server agree.
+    /// drop table; a table of one entry, like every current one, always gives that entry. Only
+    /// the server rolls it: the items it drops are what the clients are told of.
     pub fn get_drops(&self, nb_drops: u32) -> HashMap<ItemId, u32> {
         let table = self.get_drop_table();
         let total_chance: u32 = table.iter().map(|(chance, ..)| chance).sum();

@@ -1,6 +1,7 @@
 pub mod broadcast_world;
 pub mod chunk_files;
 pub(crate) mod data;
+pub mod dropped_items;
 pub mod flow;
 pub mod format;
 pub mod generation;

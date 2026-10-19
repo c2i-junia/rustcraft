@@ -5,6 +5,7 @@ use shared::world::ChunkMap;
 use shared::TICKS_PER_SECOND;
 
 use crate::camera::camera_plugin;
+use crate::dropped_items::dropped_items_plugin;
 use crate::input::input_plugin;
 use crate::mob::mob_plugin;
 use crate::network::session::{
@@ -25,6 +26,7 @@ use crate::world::{setup_materials, world_plugin, ClientWorldMap};
 pub fn game_plugin(app: &mut App) {
     app.add_plugins((
         camera_plugin,
+        dropped_items_plugin,
         hud_plugin,
         input_plugin,
         mob_plugin,

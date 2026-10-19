@@ -19,7 +19,8 @@ use crate::world::{
     BlockChanged, RenderDistance, ServerRenderDistanceLimit, WorldRenderRequestUpdateEvent,
 };
 use shared::messages::{
-    AuthRegisterRequest, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent, ServerToClientMessage,
+    AuthRegisterRequest, DroppedItemsUpdate, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent,
+    ServerToClientMessage,
 };
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -276,6 +277,7 @@ pub fn poll_network_messages(
     mut ev_mob_update: MessageWriter<MobUpdateEvent>,
     mut ev_player_update: MessageWriter<PlayerUpdateEvent>,
     mut ev_block_changed: MessageWriter<BlockChanged>,
+    mut ev_dropped_items: MessageWriter<DroppedItemsUpdate>,
     mut chat: ResMut<CachedChatConversation>,
 ) {
     update_world_from_network(
@@ -287,6 +289,7 @@ pub fn poll_network_messages(
         &mut ev_mob_update,
         &mut ev_player_update,
         &mut ev_block_changed,
+        &mut ev_dropped_items,
         &mut chat,
     );
 }

@@ -4,6 +4,7 @@ mod app;
 mod audio;
 mod camera;
 mod constants;
+mod dropped_items;
 #[cfg(test)]
 mod e2e;
 mod game;

@@ -5,7 +5,7 @@
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use shared::world::{Chunk, MobId, ServerMob, WorldSeed};
+use shared::world::{Chunk, DroppedItem, MobId, ServerMob, WorldSeed};
 use std::collections::HashMap;
 use std::{fs::File, io::Write, path::Path};
 
@@ -29,6 +29,10 @@ pub struct WorldMeta {
     pub seed: WorldSeed,
     pub time: u64,
     pub mobs: HashMap<MobId, ServerMob>,
+    /// Missing from the worlds saved before items could lie on the ground. The former feature
+    /// of the same kind wrote `item_stacks`, which is ignored.
+    #[serde(default)]
+    pub dropped_items: Vec<DroppedItem>,
 }
 
 impl WorldMeta {
@@ -39,6 +43,7 @@ impl WorldMeta {
             seed,
             time,
             mobs,
+            dropped_items: Vec::new(),
         }
     }
 }
@@ -52,16 +57,21 @@ pub struct WorldData {
     pub seed: WorldSeed,
     pub name: String,
     pub time: u64,
+    #[serde(default)]
+    pub dropped_items: Vec<DroppedItem>,
 }
 
 impl From<&WorldData> for WorldMeta {
     fn from(world: &WorldData) -> Self {
-        Self::new(
-            world.name.clone(),
-            world.seed,
-            world.time,
-            world.mobs.clone(),
-        )
+        Self {
+            dropped_items: world.dropped_items.clone(),
+            ..Self::new(
+                world.name.clone(),
+                world.seed,
+                world.time,
+                world.mobs.clone(),
+            )
+        }
     }
 }
 
@@ -116,6 +126,32 @@ mod tests {
         assert!(write_atomically(&path, b"lost").is_err());
 
         assert_eq!(std::fs::read(&path).unwrap(), b"precious");
+    }
+
+    #[test]
+    fn the_dropped_items_are_saved_and_read_back_and_default_to_none() {
+        use shared::world::{DroppedItem, ItemId, ItemStack};
+        let dirt = ItemStack {
+            item_id: ItemId::Dirt,
+            item_type: ItemId::Dirt.get_default_type(),
+            nb: 3,
+        };
+        let item = DroppedItem::new(
+            dirt,
+            bevy::math::Vec3::new(1.0, 64.5, 2.0),
+            Default::default(),
+        );
+        let meta = WorldMeta {
+            dropped_items: vec![item.clone()],
+            ..WorldMeta::new("w".into(), WorldSeed(1), 0, HashMap::new())
+        };
+        let read: WorldMeta = ron::de::from_str(&ron::ser::to_string(&meta).unwrap()).unwrap();
+        assert_eq!(read.dropped_items, vec![item]);
+
+        let before: WorldMeta =
+            ron::de::from_str(r#"(format_version: 2, name: "w", seed: (1), time: 0, mobs: {})"#)
+                .unwrap();
+        assert!(before.dropped_items.is_empty());
     }
 
     #[test]

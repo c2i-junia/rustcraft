@@ -39,6 +39,7 @@ pub enum ServerToClientMessage {
     /// The chunks the client must forget: its player went too far from them. The server
     /// forgets it sent them, and sends them again once the player comes back.
     ChunkUnloads(Vec<IVec3>),
+    DroppedItems(DroppedItemsUpdate),
 }
 
 #[cfg(test)]
@@ -133,6 +134,10 @@ mod tests {
             (ServerToClientMessage::MobUpdate(mob), 5),
             (ServerToClientMessage::PlayerUpdate(update), 6),
             (ServerToClientMessage::ChunkUnloads(vec![]), 7),
+            (
+                ServerToClientMessage::DroppedItems(DroppedItemsUpdate::default()),
+                8,
+            ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -170,5 +175,12 @@ mod tests {
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);
         assert_eq!(variant_index(&MobAction::Walk), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobAction::Flee), 1, "{ENCODING_WARNING}");
+        for (removal, expected) in [
+            (ItemRemoval::Gone, 0),
+            (ItemRemoval::PickedUp(0), 1),
+            (ItemRemoval::Merged(0), 2),
+        ] {
+            assert_eq!(variant_index(&removal), expected, "{ENCODING_WARNING}");
+        }
     }
 }

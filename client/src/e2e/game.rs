@@ -19,6 +19,7 @@ use super::locator::{is_shown, Locator as L};
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::constants::SAVE_PATH;
+use crate::dropped_items::DroppedItemRoot;
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::hud::chat::ChatRoot;
@@ -360,6 +361,91 @@ fn the_click_that_closes_a_ui_does_not_reach_the_world() {
     // A new click in gameplay does place a block there
     hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
     h.wait_until("the placed block", SERVER, |w| is_block(w, cell));
+}
+
+/// How many items lying in the world the client shows.
+fn dropped_items(w: &mut World) -> usize {
+    w.query::<&DroppedItemRoot>().iter(w).count()
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_broken_block_drops_an_item_that_the_player_picks_up() {
+    let folder = GameFolder::new().with_world("Drops").with_items(
+        "Drops",
+        "Tester",
+        &[(0, ItemId::Dirt, 1)],
+    );
+    let mut h = enter_world(folder, "Drops");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Dirt, 1))
+    });
+
+    // Look down, at the ground ahead of the player
+    let world = h.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<CameraController>>()
+        .single(world)
+        .unwrap();
+    let player = world
+        .query_filtered::<Entity, With<CurrentPlayerMarker>>()
+        .single(world)
+        .unwrap();
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.6;
+    h.wait_until("the ground within reach", SERVER, |w| {
+        aimed_cells(w, camera, player).is_some_and(|(target, _)| {
+            let centre = w.get::<Transform>(player).unwrap().translation;
+            target.as_vec3().distance(centre) < 3.
+        })
+    });
+    // Settled on the ground
+    h.frames(30);
+
+    // Place the dirt, whatever the ground is, and aim at it
+    let (_, target) = aimed_cells(h.world(), camera, player).unwrap();
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 6);
+    h.wait_until("the placed dirt", SERVER, |w| {
+        is_block(w, target) && slot(w, 0).is_none()
+    });
+    assert_eq!(aimed_cells(h.world(), camera, player).unwrap().0, target);
+
+    // Mine it: the block goes, and nothing reaches the inventory at once
+    let center = h.center_of(&L::marker::<Hotbar>());
+    h.move_cursor(center);
+    h.frames(1);
+    let window = h
+        .world_mut()
+        .query_filtered::<Entity, With<PrimaryWindow>>()
+        .single(h.world())
+        .unwrap();
+    let click = |state| MouseButtonInput {
+        button: MouseButton::Left,
+        state,
+        window,
+    };
+    let pressed = click(ButtonState::Pressed);
+    h.world_mut().write_message(pressed);
+    h.world_mut()
+        .write_message(WindowEvent::MouseButtonInput(pressed));
+    h.wait_until("the mined block to break", SERVER, |w| !is_block(w, target));
+    let released = click(ButtonState::Released);
+    h.world_mut().write_message(released);
+    h.world_mut()
+        .write_message(WindowEvent::MouseButtonInput(released));
+    assert_eq!(slot(h.world(), 0), None);
+
+    // Its item appears where the block was, then the player walks to it and picks it up
+    h.wait_until("the dropped item", SERVER, |w| {
+        w.try_query::<&DroppedItemRoot>()
+            .is_some_and(|mut items| items.iter(w).count() == 1)
+    });
+    h.key_down(KeyCode::KeyW);
+    h.wait_until("the picked up item", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Dirt, 1))
+    });
+    h.key_up(KeyCode::KeyW);
+    h.frames(30);
+    assert_eq!(dropped_items(h.world_mut()), 0);
 }
 
 #[test]

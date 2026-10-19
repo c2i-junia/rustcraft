@@ -3,10 +3,12 @@ use std::path::{Component, Path, PathBuf};
 
 use bevy::math::IVec3;
 use bevy_ecs::resource::Resource;
+
+use super::dropped_items::DroppedItems;
 use shared::{
     messages::PlayerId,
     players::Player,
-    world::{ChunkMap, MobId, ServerMob},
+    world::{ChunkMap, DroppedItemId, MobId, ServerMob},
     GameFolderPaths, MIN_RENDER_DISTANCE,
 };
 
@@ -22,6 +24,9 @@ pub struct ServerWorldMap {
     pub render_distances: RenderDistances,
     pub players: HashMap<PlayerId, Player>,
     pub mobs: HashMap<MobId, ServerMob>,
+    pub dropped_items: DroppedItems,
+    /// For each connected client, the dropped items it has been told of.
+    pub sent_items: HashMap<PlayerId, HashSet<DroppedItemId>>,
     /// The chunks that are new or changed since they were last handed to the writer.
     pub dirty_chunks: HashSet<IVec3>,
 }

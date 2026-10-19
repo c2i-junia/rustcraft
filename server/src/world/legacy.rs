@@ -104,6 +104,7 @@ impl From<LegacyWorldData> for WorldData {
             seed: legacy.seed,
             name: legacy.name,
             time: legacy.time,
+            dropped_items: Vec::new(),
         }
     }
 }

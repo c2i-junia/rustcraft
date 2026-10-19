@@ -40,12 +40,13 @@ fn generate_missing_chunks(
 pub fn handle_player_inputs_system(
     mut events: MessageReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
-    mut server: ResMut<RenetServer>,
     seed: Res<WorldSeed>,
 ) {
+    let mut rng = rand::thread_rng();
     let world_map = world_map.as_mut();
     let players = &mut world_map.players;
     let chunks = &mut world_map.chunks;
+    let dropped_items = &mut world_map.dropped_items;
     let dirty_chunks = &mut world_map.dirty_chunks;
     let render_distances = &world_map.render_distances;
 
@@ -63,7 +64,10 @@ pub fn handle_player_inputs_system(
             continue;
         };
 
-        simulate_player_actions(player, chunks, &ev.input, CallerType::Server);
+        let broken = simulate_player_actions(player, chunks, &ev.input, CallerType::Server);
+        for block in &broken {
+            dropped_items.drop_block_items(block, &mut rng);
+        }
 
         player.last_input_processed = ev.input.time_ms;
 
@@ -72,8 +76,15 @@ pub fn handle_player_inputs_system(
         // the player's are enough: the rest of the render distance waits for the next tick
         generate_missing_chunks(players, |_| 1, chunks, dirty_chunks, seed.0);
     }
+}
 
-    for player in players.values() {
+/// Sends every player's state to every client, once the tick has simulated the inputs and
+/// given the players the items they picked up.
+pub fn broadcast_player_updates_system(
+    world_map: Res<ServerWorldMap>,
+    mut server: ResMut<RenetServer>,
+) {
+    for player in world_map.players.values() {
         server.broadcast_game_message(shared::messages::ServerToClientMessage::PlayerUpdate(
             PlayerUpdateEvent {
                 id: player.id,

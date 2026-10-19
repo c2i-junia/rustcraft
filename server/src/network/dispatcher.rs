@@ -4,8 +4,11 @@ use crate::network::broadcast_chat::*;
 use crate::world;
 use crate::world::broadcast_world::broadcast_world_state;
 use crate::world::data::ServerWorldMap;
+use crate::world::dropped_items::{dropped_items_physics_system, pickup_dropped_items_system};
 use crate::world::save::SaveRequestEvent;
-use crate::world::simulation::{handle_player_inputs_system, PlayerInputsEvent};
+use crate::world::simulation::{
+    broadcast_player_updates_system, handle_player_inputs_system, PlayerInputsEvent,
+};
 use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
 use bevy_renet::{RenetServer, RenetServerEvent};
@@ -96,13 +99,17 @@ pub fn register_systems(app: &mut App) {
         Update,
         (
             handle_player_inputs_system,
+            pickup_dropped_items_system,
             crate::mob::manage_mob_spawning_system,
             world::flow::water_flow_system,
         )
             .chain()
             .in_set(ServerSet::Simulate),
     )
-    .add_systems(Update, broadcast_world_state.in_set(ServerSet::Broadcast))
+    .add_systems(
+        Update,
+        (broadcast_player_updates_system, broadcast_world_state).in_set(ServerSet::Broadcast),
+    )
     .add_systems(
         Update,
         world::save::save_world_system.in_set(ServerSet::Save),
@@ -110,8 +117,12 @@ pub fn register_systems(app: &mut App) {
 
     app.add_systems(PostUpdate, update_server_time);
 
-    // `FixedUpdate` runs before `Update`: the mobs move before the inputs of the tick are read
-    app.add_systems(FixedUpdate, mob_behavior_system);
+    // `FixedUpdate` runs before `Update`: the mobs and the items move before the inputs of the
+    // tick are read
+    app.add_systems(
+        FixedUpdate,
+        (mob_behavior_system, dropped_items_physics_system),
+    );
 }
 
 fn handle_connection_events_system(
