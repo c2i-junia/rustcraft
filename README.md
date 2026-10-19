@@ -103,13 +103,15 @@ paru -S rustcraft
 |                   | Toggle Raycast Debug  | F7                          |
 |                   | Decrease Mob Draw Distance | O                      |
 |                   | Increase Mob Draw Distance | P                      |
-|                   | Exit Game             | Escape                      |
+|                   | Pause / back          | Escape                      |
 
 <br>
 
 # Saves
 
 Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per chunk and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`.
+
+The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron` and `interface.ron` (UI scale).
 
 <br>
 

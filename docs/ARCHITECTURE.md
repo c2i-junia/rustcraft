@@ -104,8 +104,19 @@ is on an `EditableText`. `slot.rs` is an item slot: its icon at twice the size o
 its count, its number in the hotbar and its selection. `tooltip.rs` is the one tooltip by the
 cursor, for any hovered entity with a `Tooltip`. The inventory is one panel whose bottom row is
 the hotbar, and every change to it is an `InventoryAction` predicted by the client and applied
-by the server. The screens still built on `Interaction` buttons move over to the widgets lot by
-lot.
+by the server. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
+confirmation) takes the focus, Escape closes it, the focus comes back where it was, and it
+closes in `PostUpdate`. `hints.rs` is the key-hint bar at the bottom of a menu and its key caps,
+whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of options on a
+`RadioGroup`; `slider.rs` moves by 5 % steps with the arrows and the wheel, which only moves the
+slider under the cursor (`scroll.rs` turns the wheel and the trackpad into whole steps). A
+dialog and a key capture take Escape through `FocusedInput<KeyboardInput>` and finish in
+`PostUpdate`; the Escape handlers that read `ButtonInput<KeyCode>` in `Update` (the main menu's,
+the list screens', the settings', the pause menu's) skip while a dialog is open, a text field
+has the focus, a key is being captured or, for the pause menu, the settings are open. The
+settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
+game from the pause menu. The screens still built on `Interaction` buttons move over to the
+widgets lot by lot.
 
 ## Saves
 

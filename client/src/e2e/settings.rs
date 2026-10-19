@@ -316,7 +316,7 @@ fn the_controls_match_their_golden() {
 }
 
 /// The key slot `slot` ("primary" or "secondary") of the action `action`.
-fn key_slot(action: &str, slot: &str) -> L {
+pub(super) fn key_slot(action: &str, slot: &str) -> L {
     L::role(Role::Button, &format!("{action}, {slot} key"))
 }
 
