@@ -537,20 +537,57 @@ fn a_key_bound_twice_is_shown_on_both_rows_and_reset_restores_the_defaults() {
     assert_eq!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
     assert_eq!(border(&mut h, &key_slot("Move forward", "primary")), DANGER);
     assert_ne!(border(&mut h, &key_slot("Jump", "primary")), DANGER);
-    // and shown again when the tab is
+    // and shown again when the tab is; the reset button is only on the Controls tab
+    let reset = L::role(Role::Button, "Reset to defaults");
     h.open_tab_showing("Audio", &master());
+    assert!(!h.is_visible(&reset));
     h.open_tab_showing(
         "Controls",
         &L::text("W is also bound to Move forward").within(L::row("Jump")),
     );
     h.frames(2);
     assert_eq!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
+    // beside Back, on the right
+    let (reset_at, back_at) = (
+        h.center_of(&reset),
+        h.center_of(&L::role(Role::Button, "Back")),
+    );
+    assert_eq!(reset_at.y, back_at.y);
+    assert!(reset_at.x > back_at.x);
 
-    h.click(&L::role(Role::Button, "Reset to defaults"));
+    // the reset asks first, Cancel focused: Escape and Cancel change nothing
+    let file = h.folder().join(BINDS_PATH);
+    let before = fs::read_to_string(&file).unwrap();
+    let dialog = || L::role(Role::Dialog, "Reset key bindings?");
+    h.click(&reset);
+    h.wait_for(&dialog(), SCREEN);
+    assert!(h.is_visible(&L::text("Every action gets its default keys back.")));
+    assert_eq!(h.focus_label().as_deref(), Some("Cancel"));
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&dialog()));
+    assert_eq!(h.menu_state(), MenuState::Settings);
+    h.click(&reset);
+    h.wait_for(&dialog(), SCREEN);
+    h.click(&L::role(Role::Button, "Cancel").within(dialog()));
+    h.frames(2);
+    assert!(!h.is_visible(&dialog()));
+    assert_eq!(h.focus_label().as_deref(), Some("Reset to defaults"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), before);
+    assert_eq!(
+        h.world().resource::<KeyMap>().map[&GameAction::Jump],
+        [KeyCode::Space, KeyCode::KeyW]
+    );
+
+    h.click(&reset);
+    h.wait_for(&dialog(), SCREEN);
+    h.click(&L::role(Role::Button, "Reset").within(dialog()));
     h.wait_until("the default bindings", SCREEN, |w| {
         w.resource::<KeyMap>().map == default_bindings().map
     });
     h.frames(2);
+    assert!(!h.is_visible(&dialog()));
+    assert_eq!(h.focus_label().as_deref(), Some("Reset to defaults"));
     assert!(!h.is_visible(&any_conflict));
     assert_ne!(border(&mut h, &key_slot("Jump", "secondary")), DANGER);
     let saved: KeyMap = h.saved(BINDS_PATH);

@@ -1,8 +1,8 @@
 //! The Controls tab of the settings: the actions by category, each with a primary and a secondary
 //! key slot. Enter or a click on a slot waits for the key to bind to it, which Escape cancels;
 //! Delete, Backspace or a right click clears it. A key bound to two actions is shown on both
-//! rows, never refused, and "Reset to defaults" brings back the default keys. Every change is
-//! saved at once.
+//! rows, never refused, and "Reset to defaults", beside Back, brings back the default keys once
+//! the player confirms. Every change is saved at once.
 
 use accesskit::Role;
 use bevy::{
@@ -11,7 +11,7 @@ use bevy::{
         keyboard::{KeyboardFocusLost, KeyboardInput},
         ButtonState,
     },
-    input_focus::{tab_navigation::TabIndex, FocusGained, FocusLost, FocusedInput},
+    input_focus::{tab_navigation::TabIndex, FocusGained, FocusLost, FocusedInput, InputFocus},
     picking::hover::Hovered,
     prelude::*,
     ui_widgets::{
@@ -33,6 +33,7 @@ use crate::ui::theme::{
     FONT_S, MUTED, RAISE, RAISE_HOVER, SLOT, SPACE_M, SPACE_S, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
+use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 
@@ -54,7 +55,7 @@ pub struct ConflictMessage(pub GameAction);
 #[derive(Component)]
 struct Conflicting;
 
-/// The button bringing back the default keys of every action.
+/// The button bringing back the default keys of every action, after a confirmation.
 #[derive(Component)]
 pub struct ResetBindings;
 
@@ -281,12 +282,12 @@ fn line() -> Node {
     }
 }
 
-/// Spawns the headers of the key columns, the scrolling list of the actions and the reset button
-/// under `panel`.
+/// Spawns the headers of the key columns and the scrolling list of the actions under `panel`, and
+/// the reset button under `footer`, the right end of the footer of the settings.
 /// `fonts` are the font of the texts and the one that draws the arrows of the key caps.
 pub fn spawn_controls_tab(
     commands: &mut Commands,
-    panel: Entity,
+    (panel, footer): (Entity, Entity),
     key_map: &KeyMap,
     fonts: (Handle<Font>, Handle<Font>),
 ) {
@@ -452,25 +453,38 @@ pub fn spawn_controls_tab(
         }
     }
     commands.spawn((
-        Node {
-            justify_content: JustifyContent::FlexEnd,
-            // as far from the list as from the Back button
-            margin: UiRect::top(px(SPACE_M - SPACE_XS)),
-            ..default()
-        },
-        ChildOf(content),
-        children![(
-            button("Reset to defaults", ButtonVariant::Default, font),
-            ResetBindings,
-            observe(reset_bindings),
-        )],
+        button("Reset to defaults", ButtonVariant::Default, font),
+        ResetBindings,
+        observe(ask_reset),
+        ChildOf(footer),
     ));
 }
 
-/// Binds the default keys to every action, and saves them.
-fn reset_bindings(_: On<Activate>, mut key_map: ResMut<KeyMap>, paths: Res<GameFolderPaths>) {
-    *key_map = default_bindings();
-    write_keybindings(&key_map, &paths);
+/// The title of the confirmation of the reset.
+const RESET_TITLE: &str = "Reset key bindings?";
+
+/// Asks to confirm the reset, Cancel focused; Reset binds the default keys to every action and
+/// saves them. The focus goes back to the reset button either way.
+fn ask_reset(activate: On<Activate>, assets: Res<AssetServer>, mut commands: Commands) {
+    let dialog = Dialog {
+        title: RESET_TITLE,
+        body: "Every action gets its default keys back.",
+        actions: &[
+            ("Cancel", ButtonVariant::Default),
+            ("Reset", ButtonVariant::Danger),
+        ],
+        focused: 0,
+    };
+    let focus = InputFocus::from_entity(activate.entity);
+    let root = spawn_dialog(&mut commands, &dialog, assets.load(FONT_PATH), &focus);
+    commands.entity(root).observe(
+        |closed: On<DialogClosed>, mut key_map: ResMut<KeyMap>, paths: Res<GameFolderPaths>| {
+            if closed.action == Some(1) {
+                *key_map = default_bindings();
+                write_keybindings(&key_map, &paths);
+            }
+        },
+    );
 }
 
 /// Spawns an empty key slot, which the player focuses, clicks and types into.

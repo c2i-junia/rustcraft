@@ -77,6 +77,10 @@ impl SettingsTab {
 #[derive(Component)]
 pub struct SettingsPanel;
 
+/// The right end of the footer of the settings, beside Back: the actions of the current tab.
+#[derive(Component)]
+pub struct FooterActions;
+
 /// A request to close the settings, on their root, applied in `PostUpdate`: the key or the click
 /// that asked for it must not also act on the screen beneath.
 #[derive(Component)]
@@ -234,14 +238,20 @@ pub fn spawn_settings(
         ChildOf(panel),
     ));
     commands.spawn((
-        Node::default(),
+        Node {
+            justify_content: JustifyContent::SpaceBetween,
+            ..default()
+        },
         ChildOf(panel),
-        children![(
-            button("Back", ButtonVariant::Default, font.clone()),
-            observe(move |_: On<Activate>, mut commands: Commands| {
-                commands.entity(root).insert(CloseSettings);
-            }),
-        )],
+        children![
+            (
+                button("Back", ButtonVariant::Default, font.clone()),
+                observe(move |_: On<Activate>, mut commands: Commands| {
+                    commands.entity(root).insert(CloseSettings);
+                }),
+            ),
+            (FooterActions, Node::default()),
+        ],
     ));
     // the first tab shows, with its key hints, as if the player had chosen it
     commands.trigger(TabChange {
@@ -252,11 +262,12 @@ pub fn spawn_settings(
 }
 
 /// Replaces the content of the settings panel by the content of the chosen tab, which labels it,
-/// and the key hints by those of the tab.
+/// the actions of the footer and the key hints by those of the tab.
 #[allow(clippy::too_many_arguments)]
 fn show_tab(
     change: On<TabChange>,
     panel: Single<(Entity, &mut AccessibilityNode), With<SettingsPanel>>,
+    footer: Single<Entity, With<FooterActions>>,
     tabs: Query<(Entity, &TabButton, &ChildOf)>,
     root: Single<Entity, With<SettingsRoot>>,
     hint_bars: Query<(Entity, &ChildOf), With<HintBar>>,
@@ -275,6 +286,7 @@ fn show_tab(
         node.set_labelled_by(vec![NodeId(button.to_bits())]);
     }
     commands.entity(panel).despawn_related::<Children>();
+    commands.entity(*footer).despawn_related::<Children>();
     let font: Handle<Font> = assets.load(FONT_PATH);
     let glyph_font: Handle<Font> = assets.load(MONO_FONT_PATH);
     let root = *root;
@@ -289,9 +301,12 @@ fn show_tab(
     };
     spawn_hints(&mut commands, root, hints, &assets);
     match tab {
-        SettingsTab::Controls => {
-            spawn_controls_tab(&mut commands, panel, &key_map, (font, glyph_font))
-        }
+        SettingsTab::Controls => spawn_controls_tab(
+            &mut commands,
+            (panel, *footer),
+            &key_map,
+            (font, glyph_font),
+        ),
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
         SettingsTab::Interface => spawn_interface_tab(&mut commands, panel, &interface, font),
     }
