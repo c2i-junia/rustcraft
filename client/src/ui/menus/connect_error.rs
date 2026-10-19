@@ -31,7 +31,7 @@ pub const TRY_AGAIN: &str = "Try again";
 /// The index of Try again among the actions of the card: after Back.
 const TRY_AGAIN_ACTION: usize = 1;
 
-/// The key hints of the card.
+/// The key hints of the card; without `Tab Move` when the card has a single action.
 pub const ERROR_HINTS: [Hint; 3] = [
     Hint {
         keys: "Tab",
@@ -46,6 +46,25 @@ pub const ERROR_HINTS: [Hint; 3] = [
         action: "Back",
     },
 ];
+
+/// Whether trying again may succeed: not with a name no server accepts, nor on a server of
+/// another version. A card that cannot succeed offers only the way back.
+pub fn can_try_again(error: &ConnectError) -> bool {
+    !matches!(
+        error,
+        ConnectError::InvalidName { .. } | ConnectError::Incompatible
+    )
+}
+
+/// The key hints of a card with Try again (`retry`), or with the way back only, where Tab has
+/// nowhere to go.
+fn card_hints(retry: bool) -> &'static [Hint] {
+    if retry {
+        &ERROR_HINTS
+    } else {
+        &ERROR_HINTS[1..]
+    }
+}
 
 /// The action back to the list the session came from.
 pub fn back_label(origin: &SessionOrigin) -> &'static str {
@@ -139,8 +158,8 @@ pub fn connect_error_plugin(app: &mut App) {
     app.add_systems(OnEnter(MenuState::ConnectError), connect_error_setup);
 }
 
-/// Spawns the card of the session's error over the dirt, Try again focused with its ring: the
-/// card was not opened by a click, and Enter acts on it.
+/// Spawns the card of the session's error over the dirt, its last action focused with its ring
+/// (Try again, else the way back): the card was not opened by a click, and Enter acts on it.
 fn connect_error_setup(
     end: Option<Res<SessionEnd>>,
     assets: Res<AssetServer>,
@@ -165,19 +184,20 @@ fn connect_error_setup(
         ))
         .id();
     let (title, body) = error_text(error, origin);
+    let retry = can_try_again(error);
+    let back = (back_label(origin), ButtonVariant::Default);
+    let actions = [back, (TRY_AGAIN, ButtonVariant::Primary)];
+    let actions = if retry { &actions[..] } else { &actions[..1] };
     let dialog = Dialog {
         title: &title,
         body: &body,
-        actions: &[
-            (back_label(origin), ButtonVariant::Default),
-            (TRY_AGAIN, ButtonVariant::Primary),
-        ],
-        focused: TRY_AGAIN_ACTION,
+        actions,
+        focused: actions.len() - 1,
     };
     let card = spawn_dialog_with_hints(
         &mut commands,
         &dialog,
-        &ERROR_HINTS,
+        card_hints(retry),
         assets.load(FONT_PATH),
         &focus,
     );
@@ -210,6 +230,11 @@ fn act_on_error_card(
         } else {
             MenuState::Multi
         });
+        return;
+    }
+    // the game already leaves the menus this frame: the session is not opened again, and its
+    // end stays for the screen that opens
+    if !matches!(*game, NextState::Unchanged) {
         return;
     }
     commands.remove_resource::<SessionEnd>();
@@ -259,6 +284,76 @@ mod tests {
             (title.to_string(), body.to_string()),
             "{error:?}"
         );
+    }
+
+    #[test]
+    fn only_a_failure_that_may_pass_offers_try_again() {
+        for error in [
+            ConnectError::InvalidName { name: "".into() },
+            ConnectError::Incompatible,
+        ] {
+            assert!(!can_try_again(&error), "{error:?}");
+        }
+        for error in [
+            ConnectError::NoAnswer,
+            ConnectError::Full,
+            ConnectError::Refused {
+                name: "Tester".into(),
+            },
+            ConnectError::LostWhileLoading,
+            ConnectError::WorldFailed("bad ron".into()),
+            ConnectError::WorldBusy,
+            ConnectError::NoConnection("no socket".into()),
+            ConnectError::ServerStopped,
+            ConnectError::ConnectionLost,
+        ] {
+            assert!(can_try_again(&error), "{error:?}");
+        }
+        let keys = |retry| {
+            card_hints(retry)
+                .iter()
+                .map(|hint| hint.keys)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(true), ["Tab", "Enter", "Esc"]);
+        assert_eq!(keys(false), ["Enter", "Esc"]);
+    }
+
+    #[test]
+    fn a_try_again_that_stands_down_keeps_the_error() {
+        let mut app = App::new();
+        app.init_resource::<NextState<GameState>>()
+            .init_resource::<NextState<MenuState>>()
+            .init_resource::<SelectedWorld>()
+            .insert_resource(TargetServer {
+                address: None,
+                username: None,
+                session_token: None,
+                state: crate::network::TargetServerState::Initial,
+            })
+            .insert_resource(SessionEnd {
+                origin: server(),
+                error: Some(ConnectError::NoAnswer),
+            });
+        // the game already leaves the menus this frame
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        let card = app
+            .world_mut()
+            .spawn_empty()
+            .observe(act_on_error_card)
+            .id();
+        app.world_mut().trigger(DialogClosed {
+            entity: card,
+            action: Some(TRY_AGAIN_ACTION),
+        });
+        app.world_mut().flush();
+        assert!(app.world().contains_resource::<SessionEnd>());
+        assert!(matches!(
+            app.world().resource::<NextState<MenuState>>(),
+            NextState::Unchanged
+        ));
     }
 
     #[test]

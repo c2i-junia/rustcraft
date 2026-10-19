@@ -19,7 +19,9 @@ use super::locator::{is_inside, Locator as L};
 use super::multi::selected_server;
 use super::seed::GameFolder;
 use super::solo::selected_world;
-use crate::network::session::{chunks_around, ConnectStep, ConnectWatch};
+use crate::network::session::{
+    chunks_around, ConnectStep, ConnectTimeout, ConnectWatch, CONNECT_TIMEOUT,
+};
 use crate::network::status::{ServerStatus, StatusProbe};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
@@ -243,18 +245,25 @@ fn a_server_that_never_answers_times_out_then_says_it_runs_another_version() {
     h.join_server_card("Nowhere");
     let no_answer = error_card("Cannot reach \"Nowhere\"");
     h.wait_for(&no_answer, SERVER);
-    assert!(t0.elapsed() >= Duration::from_secs(4), "{:?}", t0.elapsed());
+    assert!(t0.elapsed() >= CONNECT_TIMEOUT, "{:?}", t0.elapsed());
     assert!(h.is_visible(&L::text_containing("127.0.0.1:9").within(no_answer)));
     assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
     assert_eq!(h.menu_state(), MenuState::ConnectError);
     assert_eq!(h.game_state(), GameState::Menu);
 
-    // the server answers its status now, in another version
+    // the server answers its status now, in another version; the real timeout was waited once
     h.world_mut()
         .insert_resource(StatusProbe(|_| ServerStatus::Incompatible));
+    h.world_mut()
+        .insert_resource(ConnectTimeout(Duration::from_millis(500)));
     h.press(KeyCode::Enter);
     h.wait_for(&card_title("Joining \"Nowhere\""), SCREEN);
-    h.wait_for(&error_card("\"Nowhere\" runs another version"), SERVER);
+    let incompatible = error_card("\"Nowhere\" runs another version");
+    h.wait_for(&incompatible, SERVER);
+    // trying again cannot help: only the way back is offered
+    h.frames(1);
+    assert!(!h.is_visible(&L::text(TRY_AGAIN).within(incompatible)));
+    assert_eq!(h.focus_label().as_deref(), Some("Back to Servers"));
 
     h.press(KeyCode::Escape);
     h.wait_for_game_state(GameState::Menu, SCREEN);
@@ -278,9 +287,14 @@ fn an_invalid_player_name_is_said_before_connecting() {
     h.wait_for(&L::text("Multiplayer"), STARTUP);
     h.click(&L::text("Multiplayer"));
     h.join_server_card("Nowhere");
-    h.wait_for(&error_card("Your name is not accepted"), SCREEN);
+    let invalid_name = error_card("Your name is not accepted");
+    h.wait_for(&invalid_name, SCREEN);
     // no packet left: no connection was opened
     assert!(!h.world().contains_resource::<NetcodeClientTransport>());
+    // trying again cannot help: only the way back is offered
+    h.frames(1);
+    assert!(!h.is_visible(&L::text(TRY_AGAIN).within(invalid_name)));
+    assert_eq!(h.focus_label().as_deref(), Some("Back to Servers"));
 
     h.hover_at(Vec2::ZERO);
     h.assert_screenshot("connect_error");
