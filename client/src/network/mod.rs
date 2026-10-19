@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_renet::RenetClient;
+use bevy_renet::{RenetClient, RenetReceive};
 
 use crate::state::GameState;
 use buffered_client::{CurrentFrameInputs, PlayerTickInputsBuffer, SyncTime};
@@ -51,10 +51,11 @@ pub fn network_plugin(app: &mut App) {
                 in_state(GameState::PreGameLoading).and_then(resource_exists::<RenetClient>),
             ),
         )
-        // the chunks around the spawn come in before the game
+        // the chunks around the spawn come in before the game; read every frame, as soon as
+        // they arrive, rather than at the tick rate
         .add_systems(
-            FixedPreUpdate,
-            poll_network_messages.run_if(
+            PreUpdate,
+            poll_network_messages.after(RenetReceive).run_if(
                 in_state(GameState::Game)
                     .or_else(in_state(GameState::PreGameLoading).and_then(authenticated)),
             ),
