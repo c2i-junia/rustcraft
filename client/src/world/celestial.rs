@@ -110,10 +110,66 @@ pub fn update_celestial_bodies(
     }
 }
 
+/// Only the body above the horizon, whose light shines down, casts shadows: the shadows of the
+/// other one would be drawn every frame for nothing, as its light comes from under the ground.
+pub fn celestial_shadows_system(
+    roots: Query<(&Transform, &Children), With<CelestialRoot>>,
+    mut lights: Query<(&Transform, &mut DirectionalLight), Without<CelestialRoot>>,
+) {
+    for (root, children) in &roots {
+        for child in children {
+            let Ok((transform, mut light)) = lights.get_mut(*child) else {
+                continue;
+            };
+            let shines_down = (root.rotation * transform.rotation * Vec3::NEG_Z).y < 0.;
+            if light.shadow_maps_enabled != shines_down {
+                light.shadow_maps_enabled = shines_down;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
     use shared::{MIDNIGHT_IN_DAY, NOON_IN_DAY};
+
+    /// Whether the sun and the moon cast shadows at `tick`, both casting before the update.
+    fn casters_at(tick: u64) -> (bool, bool) {
+        let mut world = World::new();
+        world.insert_resource(ClientTime(tick));
+        let light = || DirectionalLight {
+            shadow_maps_enabled: true,
+            ..default()
+        };
+        let sun = world.spawn((SunLight, light(), Transform::IDENTITY)).id();
+        let moon = world
+            .spawn((
+                MoonLight,
+                light(),
+                Transform::from_rotation(Quat::from_rotation_y(PI)),
+            ))
+            .id();
+        world
+            .spawn((CelestialRoot, Transform::default()))
+            .add_children(&[sun, moon]);
+        world.run_system_once(update_celestial_bodies).unwrap();
+        world.run_system_once(celestial_shadows_system).unwrap();
+        let casts = |entity| {
+            world
+                .get::<DirectionalLight>(entity)
+                .unwrap()
+                .shadow_maps_enabled
+        };
+        (casts(sun), casts(moon))
+    }
+
+    #[test]
+    fn only_the_body_above_the_horizon_casts_shadows() {
+        assert_eq!(casters_at(NOON_IN_DAY), (true, false));
+        assert_eq!(casters_at(MIDNIGHT_IN_DAY), (false, true));
+    }
 
     /// Where the sun is drawn, relative to the player, at `tick`.
     fn sun_position_at(tick: u64) -> Vec3 {

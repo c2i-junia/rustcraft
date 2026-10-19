@@ -50,6 +50,7 @@ use super::render::{spawn_meshing_tasks, update_chunk};
 use crate::camera::SKY_COLOR;
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
+use crate::world::celestial::{celestial_shadows_system, CelestialRoot};
 use crate::world::{
     chunk_material_plugin, create_all_atlases, setup_materials, AtlasHandles, ChunkRender,
     MaterialResource,
@@ -494,27 +495,33 @@ impl Drawing {
             target,
         ));
         // The sun of the morning, as `setup_main_lighting` makes it. `BENCH_LIGHTS=game` adds
-        // the moon below the horizon, casting shadows as the game's does; `none` draws no
+        // the moon below the horizon, opposite the sun around their anchor, and lets the
+        // game's `celestial_shadows_system` choose which casts shadows; `none` draws no
         // shadows at all.
         let lights = std::env::var("BENCH_LIGHTS").unwrap_or_default();
         let sun = Quat::from_euler(EulerRot::YXZ, 0.7, -0.8, 0.);
-        drawing.world_mut().spawn((
-            DirectionalLight {
-                illuminance: 5000.,
-                shadow_maps_enabled: lights != "none",
-                ..default()
-            },
-            Transform::from_rotation(sun),
-        ));
+        let light = |illuminance| DirectionalLight {
+            illuminance,
+            shadow_maps_enabled: lights != "none",
+            ..default()
+        };
         if lights == "game" {
-            drawing.world_mut().spawn((
-                DirectionalLight {
-                    illuminance: 100.,
-                    shadow_maps_enabled: true,
-                    ..default()
-                },
-                Transform::from_rotation(sun * Quat::from_rotation_y(std::f32::consts::PI)),
-            ));
+            let world = drawing.world_mut();
+            let sun_light = world.spawn((light(5000.), Transform::IDENTITY)).id();
+            let moon_light = world
+                .spawn((
+                    light(100.),
+                    Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                ))
+                .id();
+            world
+                .spawn((CelestialRoot, Transform::from_rotation(sun)))
+                .add_children(&[sun_light, moon_light]);
+            world.run_system_once(celestial_shadows_system).unwrap();
+        } else {
+            drawing
+                .world_mut()
+                .spawn((light(5000.), Transform::from_rotation(sun)));
         }
         drawing
     }
