@@ -64,7 +64,7 @@ pub fn acquire_socket_by_port(ip: IpAddr, port: u16) -> std::io::Result<UdpSocke
 }
 
 /// A game socket on an ephemeral port of `ip` and its status socket on the next port; retries
-/// up to 16 times when that port is taken.
+/// up to 16 times when that port cannot be bound.
 pub fn acquire_local_socket_pair(ip: IpAddr) -> std::io::Result<(UdpSocket, UdpSocket)> {
     const ATTEMPTS: usize = 16;
     let mut last_error = None;

@@ -21,6 +21,10 @@ const RECEIVE_TIMEOUT: Duration = Duration::from_millis(250);
 /// does not spin it.
 const ERROR_PAUSE: Duration = Duration::from_millis(10);
 
+/// The Windows error (`WSAEMSGSIZE`) of a datagram longer than the receive buffer, which
+/// Windows drops instead of truncating. No other platform has an error of this number.
+const WSAEMSGSIZE: i32 = 10040;
+
 /// The number of players the responder reports. The app owns the only strong reference: the
 /// responder stops once it is dropped.
 #[derive(Resource)]
@@ -74,6 +78,8 @@ pub(crate) fn spawn_status_responder(
                         if matches!(err.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
                     // How Windows reports the ICMP refusal of an earlier reply: nothing is wrong here
                     Err(err) if err.kind() == ErrorKind::ConnectionReset => {}
+                    // An oversized datagram on Windows: one malformed request, dropped
+                    Err(err) if err.raw_os_error() == Some(WSAEMSGSIZE) => {}
                     Err(err) => {
                         debug!("Could not receive a status request: {err}");
                         thread::sleep(ERROR_PAUSE);
@@ -93,7 +99,6 @@ pub(crate) fn publish_player_count(lobby: Res<ServerLobby>, counter: Res<StatusC
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::status::{StatusReply, StatusRequest};
     use std::time::Instant;
 
     #[test]

@@ -35,8 +35,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // The port actually bound, which `--port 0` leaves to the system
+    let game_port = socket.local_addr().map_or(args.port, |addr| addr.port());
     // Without a status port the server still runs: the server list shows it offline
-    let status = match status_port(args.port) {
+    let status = match status_port(game_port) {
         Some(port) => match acquire_socket_by_port(ip, port) {
             Ok(status) => Some(status),
             Err(err) => {
@@ -45,7 +47,7 @@ fn main() -> ExitCode {
             }
         },
         None => {
-            warn!("UDP port {} has no port next to it for the status; the server list will show this server offline", args.port);
+            warn!("UDP port {game_port} has no port next to it for the status; the server list will show this server offline");
             None
         }
     };
