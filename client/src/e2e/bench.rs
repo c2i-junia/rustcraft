@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use accesskit::Role;
-use bevy::prelude::*;
+use bevy::{input::mouse::MouseMotion, prelude::*};
 
 use super::game::enter_world;
 use super::harness::{SCREEN, SERVER};
@@ -114,8 +114,9 @@ fn bench_world_lifecycle() {
     let mut h = super::harness::Harness::start(
         folder,
         Options {
+            width: 1920,
+            height: 1080,
             player_name: Some(player),
-            ..Options::default()
         },
     );
     h.wait_for(&L::text("Singleplayer"), STARTUP);
@@ -125,6 +126,14 @@ fn bench_world_lifecycle() {
     let first_quit = save_and_quit(&mut h);
     h.frames(10);
     let again = load_with_ctrl_enter(&mut h);
+    let still = frame_times(&mut h, 300, |_| {});
+    h.key_down(KeyCode::KeyW);
+    let walking = frame_times(&mut h, 600, |h| {
+        h.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(4.0, 0.0),
+        });
+    });
+    h.key_up(KeyCode::KeyW);
 
     h.press(KeyCode::Escape);
     h.wait_for(&L::role(Role::Button, "Save now"), SCREEN);
@@ -141,6 +150,8 @@ fn bench_world_lifecycle() {
         "again": again,
         "save_now_s": save_now,
         "save_and_quit_after_save_now_s": quit_after_save,
+        "still": still,
+        "walking": walking,
     });
     println!("BENCH_RESULT {result}");
 }
@@ -228,6 +239,33 @@ fn load_with_ctrl_enter(h: &mut super::harness::Harness) -> serde_json::Value {
         "chunks": held,
         "meshes_shown": shown,
         "frames": frames.len(),
+        "frame_ms_p50": percentile(0.5),
+        "frame_ms_p99": percentile(0.99),
+        "frame_ms_max": percentile(1.0),
+    })
+}
+
+/// Times `count` frames, each after `before` acted on the game: their median, 99th percentile
+/// and longest, and how many there are per second.
+fn frame_times(
+    h: &mut super::harness::Harness,
+    count: usize,
+    mut before: impl FnMut(&mut super::harness::Harness),
+) -> serde_json::Value {
+    let start = Instant::now();
+    let mut frames: Vec<f64> = (0..count)
+        .map(|_| {
+            before(h);
+            let frame = Instant::now();
+            h.frames(1);
+            frame.elapsed().as_secs_f64() * 1e3
+        })
+        .collect();
+    let fps = count as f64 / start.elapsed().as_secs_f64();
+    frames.sort_by(f64::total_cmp);
+    let percentile = |p: f64| frames[((frames.len() - 1) as f64 * p) as usize];
+    serde_json::json!({
+        "fps": fps,
         "frame_ms_p50": percentile(0.5),
         "frame_ms_p99": percentile(0.99),
         "frame_ms_max": percentile(1.0),
