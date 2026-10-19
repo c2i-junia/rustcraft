@@ -117,14 +117,18 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                fps_text_update_system,
+                fps_text_update_system.run_if(fps_text_shown),
                 show_fps_counter,
                 (record_frame_time, draw_fps_graph).chain(),
-                coords_text_update_system,
-                biome_text_update_system,
-                loaded_chunks_text_update_system,
-                block_text_update_system,
-                time_text_update_system,
+                // The texts of the overlay are written only while it is shown
+                (
+                    coords_text_update_system,
+                    biome_text_update_system,
+                    loaded_chunks_text_update_system,
+                    block_text_update_system,
+                    time_text_update_system,
+                )
+                    .run_if(debug_overlay_shown),
                 chunk_ghost_update_system,
                 raycast_debug_update_system,
             )

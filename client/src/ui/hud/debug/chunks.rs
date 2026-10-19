@@ -44,7 +44,7 @@ pub fn chunk_ghost_update_system(
     player_query: Query<&Transform, (With<CurrentPlayerMarker>, Without<ChunkGhost>)>,
     debug_options: Res<DebugOptions>,
 ) {
-    let Ok(mut ghost) = ghost_query.single_mut() else {
+    let Ok((mut transform, mut visibility)) = ghost_query.single_mut() else {
         return;
     };
     let Ok(player) = player_query.single() else {
@@ -53,12 +53,16 @@ pub fn chunk_ghost_update_system(
 
     let mut chunk = shared::world::block_vec3_to_chunk_v3_coord(player.translation);
     chunk.y = 0.0;
-    ghost.0.translation = chunk * (CHUNK_SIZE as f32);
-    *ghost.1 = if debug_options.is_chunk_debug_mode_enabled {
+    // Written only when they change, as a write marks them changed for the frame
+    let translation = chunk * (CHUNK_SIZE as f32);
+    if transform.translation != translation {
+        transform.translation = translation;
+    }
+    visibility.set_if_neq(if debug_options.is_chunk_debug_mode_enabled {
         Visibility::Visible
     } else {
         Visibility::Hidden
-    };
+    });
 }
 
 fn create_repeated_wireframe_mesh(size: f32, height: f32, layers: u32, position: Vec3) -> Mesh {

@@ -10,8 +10,8 @@ use crate::player::CurrentPlayerMarker;
 
 pub fn raycast_debug_update_system(
     mut gizmos: Gizmos,
-    world_map: ResMut<ClientWorldMap>,
-    p_transform: Query<&mut Transform, With<CurrentPlayerMarker>>,
+    world_map: Res<ClientWorldMap>,
+    p_transform: Query<&Transform, With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
     view_mode: Res<ViewMode>,
     debug_options: Res<DebugOptions>,
@@ -27,8 +27,6 @@ pub fn raycast_debug_update_system(
         return;
     };
     let player_translation = &player_transform.translation;
-
-    let world_map = world_map.into_inner();
 
     let maybe_block = raycast::raycast(
         &world_map.blocks,

@@ -15,6 +15,12 @@ pub(crate) fn fps_color(fps: f64) -> Color {
     DANGER.mix(&OK, ok)
 }
 
+/// Whether a frame rate is on screen, in the debug overlay or the FPS counter: the run
+/// condition of `fps_text_update_system`.
+pub fn fps_text_shown(texts: Query<&InheritedVisibility, With<FpsText>>) -> bool {
+    texts.iter().any(|visibility| visibility.get())
+}
+
 pub fn fps_text_update_system(
     diagnostics: Res<DiagnosticsStore>,
     mut query: Query<(&mut TextSpan, &mut TextColor), With<FpsText>>,
@@ -42,8 +48,21 @@ pub fn fps_text_update_system(
 
 #[cfg(test)]
 mod tests {
-    use super::fps_color;
+    use super::{fps_color, fps_text_shown, FpsText};
     use crate::ui::theme::{DANGER, OK};
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::prelude::*;
+
+    #[test]
+    fn the_frame_rate_is_written_only_while_one_is_on_screen() {
+        let mut world = World::new();
+        assert!(!world.run_system_once(fps_text_shown).unwrap());
+        let text = world.spawn((FpsText, InheritedVisibility::HIDDEN)).id();
+        world.spawn((FpsText, InheritedVisibility::HIDDEN));
+        assert!(!world.run_system_once(fps_text_shown).unwrap());
+        world.entity_mut(text).insert(InheritedVisibility::VISIBLE);
+        assert!(world.run_system_once(fps_text_shown).unwrap());
+    }
 
     #[test]
     fn the_fps_go_from_the_danger_colour_to_the_ok_one() {

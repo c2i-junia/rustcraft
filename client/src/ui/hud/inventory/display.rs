@@ -256,8 +256,11 @@ pub fn display_inventory_system(
         };
         if let Some(center) = focused_slot.or_else(cursor) {
             let top_left = center - SLOT_SIZE / 2.;
-            node.left = Val::Px(top_left.x);
-            node.top = Val::Px(top_left.y);
+            // A write marks the node changed, which lays the UI out again: only on a move
+            if node.left != Val::Px(top_left.x) || node.top != Val::Px(top_left.y) {
+                node.left = Val::Px(top_left.x);
+                node.top = Val::Px(top_left.y);
+            }
         }
         show_stack(
             inventory.floating,

@@ -93,9 +93,8 @@ pub fn in_gameplay(ui_mode: Res<UIMode>) -> bool {
     *ui_mode == UIMode::Closed
 }
 
-/// Whether the debug overlay is shown: the run condition of the egui inspector, which opens
-/// and closes with it.
-#[cfg(debug_assertions)]
+/// Whether the debug overlay is shown: the run condition of its texts, and of the egui
+/// inspector, which opens and closes with it.
 pub fn debug_overlay_shown(overlay: Query<&Visibility, With<HudRoot>>) -> bool {
     overlay
         .iter()
@@ -119,14 +118,13 @@ pub fn toggle_hud_system(
     }
 }
 
-// The inspector exists only in debug builds
-#[cfg(all(test, debug_assertions))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
-    fn the_inspector_runs_only_while_the_debug_overlay_is_shown() {
+    fn the_overlay_texts_and_the_inspector_run_only_while_the_overlay_is_shown() {
         let mut world = World::new();
         assert!(!world.run_system_once(debug_overlay_shown).unwrap());
 

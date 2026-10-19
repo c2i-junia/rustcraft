@@ -149,10 +149,16 @@ pub fn first_and_third_person_view_system(
     let Ok(material_handle) = player_query.single() else {
         return;
     };
-    if let Some(mut material) = materials.get_mut(&material_handle.handle) {
-        material.base_color = match *view_mode {
-            ViewMode::FirstPerson => HIDDEN_PLAYER_COLOR,
-            ViewMode::ThirdPerson => LOCAL_PLAYER_COLOR,
-        };
+    let color = match *view_mode {
+        ViewMode::FirstPerson => HIDDEN_PLAYER_COLOR,
+        ViewMode::ThirdPerson => LOCAL_PLAYER_COLOR,
+    };
+    // Reaching the material mutably marks it changed, and the renderer then prepares it again:
+    // only when its colour has to change
+    let current = materials.get(&material_handle.handle).map(|m| m.base_color);
+    if current.is_some_and(|current| current != color) {
+        if let Some(mut material) = materials.get_mut(&material_handle.handle) {
+            material.base_color = color;
+        }
     }
 }
