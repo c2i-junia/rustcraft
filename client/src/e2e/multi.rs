@@ -399,7 +399,9 @@ fn join_hands_a_host_name_over_with_the_default_port() {
     h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
     let default = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8000);
     assert_eq!(target_address(&h), Some(default));
-    h.click_when_ready(&L::text("[Cancel]"));
+    // its font loaded, the connecting screen lays out again: [Cancel] moves until then
+    h.wait_for(&L::text_containing("Connecting to server"), SCREEN);
+    h.click(&L::text("[Cancel]"));
     h.wait_for_game_state(GameState::Menu, SCREEN);
 }
 
