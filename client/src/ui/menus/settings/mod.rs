@@ -86,8 +86,9 @@ pub struct FooterActions;
 #[derive(Component)]
 struct CloseSettings;
 
-/// The key hints of the settings.
-pub const SETTINGS_HINTS: [Hint; 4] = [
+/// The key hints of the Audio and Interface tabs, whose controls change with the arrows: Enter
+/// does nothing there.
+pub const SETTINGS_HINTS: [Hint; 3] = [
     Hint {
         keys: "Tab",
         action: "Move",
@@ -95,10 +96,6 @@ pub const SETTINGS_HINTS: [Hint; 4] = [
     Hint {
         keys: "←→",
         action: "Change",
-    },
-    Hint {
-        keys: "Enter",
-        action: "Select",
     },
     Hint {
         keys: "Esc",
@@ -307,7 +304,7 @@ fn show_tab(
     }
     let hints: &[Hint] = match tab {
         SettingsTab::Controls => &CONTROLS_HINTS,
-        _ => &SETTINGS_HINTS,
+        SettingsTab::Audio | SettingsTab::Interface => &SETTINGS_HINTS,
     };
     spawn_hints(&mut commands, root, hints, &assets);
     match tab {

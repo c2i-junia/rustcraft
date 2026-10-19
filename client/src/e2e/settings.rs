@@ -23,6 +23,7 @@ use crate::ui::settings::{InterfaceSettings, UiScaleChoice};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
 };
+use crate::ui::widgets::hints::HintBar;
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -133,9 +134,21 @@ fn the_tabs_show_their_content_and_back_returns_to_the_menu() {
     assert_eq!(h.menu_state(), MenuState::Settings);
     assert!(h.is_visible(&L::role(Role::TabPanel, "Controls")));
 
+    // each tab has its own key hints: Enter does nothing on the Audio and Interface tabs
+    let hint = |text: &str| L::text(text).within(L::marker::<HintBar>());
+    assert!(h.is_visible(&hint("Change key")));
+    assert!(h.is_visible(&hint("Enter")));
+
     h.open_tab_showing("Audio", &master());
     assert_eq!(h.menu_state(), MenuState::Settings);
     assert!(!h.is_visible(&L::text("Move forward")));
+    for (keys, action) in [("Tab", "Move"), ("←→", "Change"), ("Esc", "Back")] {
+        assert!(h.is_visible(&hint(keys)), "{keys}");
+        assert!(h.is_visible(&hint(action)), "{action}");
+    }
+    assert!(!h.is_visible(&hint("Enter")));
+    assert!(!h.is_visible(&hint("Select")));
+    assert!(!h.is_visible(&hint("Change key")));
     // the panel is labelled by its tab
     let panel = h.get(&L::role(Role::TabPanel, "Audio"));
     let tab = h.get(&L::role(Role::Tab, "Audio"));
@@ -149,6 +162,9 @@ fn the_tabs_show_their_content_and_back_returns_to_the_menu() {
     h.open_tab_showing("Interface", &ui_scale_control());
     assert!(!h.is_visible(&master()));
     assert!(h.is_visible(&L::role(Role::TabPanel, "Interface")));
+    assert!(h.is_visible(&hint("Tab")));
+    assert!(!h.is_visible(&hint("Enter")));
+    assert!(!h.is_visible(&hint("Select")));
 
     h.back_to_the_menu();
 }
