@@ -5,7 +5,8 @@
 //! it was when it closes. Its own key hints replace those of the screen while it is open.
 //!
 //! `spawn_form_dialog` adds text fields above the buttons: observe `DialogSubmit` and close it
-//! with `close_dialog` once the submission succeeded.
+//! with `close_dialog` once the submission succeeded. Observe `FormChanged` to check the fields
+//! as they are typed, and show the result with `apply_form_check`.
 
 use accesskit::Role;
 use bevy::{
@@ -18,13 +19,14 @@ use bevy::{
         tab_navigation::TabGroup, AcquireFocus, AutoFocus, FocusCause, FocusedInput, InputFocus,
     },
     prelude::*,
+    text::EditableText,
     ui::{FocusPolicy, InteractionDisabled},
     ui_widgets::Activate,
 };
 
 use super::button::{button, ButtonVariant};
 use super::hints::{hint_bar, Hint, HintBar};
-use super::text_field::{Cancel, Submit, TextFieldParts, TextFieldSystems};
+use super::text_field::{Cancel, FieldError, Submit, TextFieldParts, TextFieldSystems};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M,
     SPACE_S, SPACE_XL, SPACE_XS, TEXT,
@@ -75,6 +77,37 @@ pub struct DialogSubmit {
     pub entity: Entity,
 }
 
+/// Triggered on the root of a form dialog once its fields hold their first values, then each
+/// time a value changed, never while a field has pending edits. `values` and `touched` follow
+/// the order of the fields; a field is touched once its value differed from its first value.
+#[derive(EntityEvent)]
+pub struct FormChanged {
+    pub entity: Entity,
+    pub values: Vec<String>,
+    // first read by the Add server dialog of the multiplayer screen
+    #[allow(dead_code)]
+    pub touched: Vec<bool>,
+}
+
+/// The fields of a form dialog and their values, on its root. Opaque outside: it is only named
+/// by `notice_form_changes`, which the tests of the screens add to a bare app.
+#[derive(Component)]
+pub(crate) struct FormFields {
+    /// The inputs of the fields, in order.
+    inputs: Vec<Entity>,
+    /// The action that submits the form.
+    primary: Option<Entity>,
+    /// The values of the fields once none had pending edits any more, `None` before.
+    first: Option<Vec<String>>,
+    /// The values of the fields when `FormChanged` was last triggered, `None` before the first.
+    /// `EditableText` is changed on every frame by its layout, so the values themselves tell
+    /// when they changed; starting from `None` rather than from empty values, a form opened
+    /// with empty fields is checked at once.
+    checked: Option<Vec<String>>,
+    /// Whether each field's value ever differed from its first value.
+    touched: Vec<bool>,
+}
+
 /// The key hints of every dialog. None has an arrow, so the key caps need no glyph font.
 const DIALOG_HINTS: [Hint; 3] = [
     Hint {
@@ -122,7 +155,8 @@ pub(super) fn plugin(app: &mut App) {
         (close_dialogs, hide_screen_hints)
             .chain()
             .after(TextFieldSystems),
-    );
+    )
+    .add_systems(Update, notice_form_changes);
 }
 
 /// Whether a dialog is open: the Escape handlers of the screens behind it stand down.
@@ -169,6 +203,40 @@ pub fn close_dialog(commands: &mut Commands, root: Entity, restore_focus: bool) 
                 restore_focus,
             });
         });
+}
+
+/// Shows `errors` under the fields of the form `root` (one per field, `None`: no message), and
+/// disables its primary action unless `submittable`. Changes only what differs.
+pub fn apply_form_check(
+    commands: &mut Commands,
+    root: Entity,
+    errors: Vec<Option<&'static str>>,
+    submittable: bool,
+) {
+    commands.queue(move |world: &mut World| {
+        let Some(form) = world.get::<FormFields>(root) else {
+            return;
+        };
+        let (inputs, primary) = (form.inputs.clone(), form.primary);
+        for (input, message) in inputs.into_iter().zip(errors) {
+            if let Some(mut error) = world.get_mut::<FieldError>(input) {
+                if error.0.as_deref() != message {
+                    error.0 = message.map(str::to_string);
+                }
+            }
+        }
+        let Some(mut primary) = primary.and_then(|primary| world.get_entity_mut(primary).ok())
+        else {
+            return;
+        };
+        if submittable == primary.contains::<InteractionDisabled>() {
+            if submittable {
+                primary.remove::<InteractionDisabled>();
+            } else {
+                primary.insert(InteractionDisabled);
+            }
+        }
+    });
 }
 
 /// Spawns a dialog, a form one when there are `fields`: `spawn_dialog` and `spawn_form_dialog`.
@@ -300,6 +368,15 @@ fn build_dialog(
         );
     }
     let primary_button = primary.map(|index| buttons[index]);
+    if !fields.is_empty() {
+        commands.entity(root).insert(FormFields {
+            inputs: fields.iter().map(|(_, field)| field.input).collect(),
+            primary: primary_button,
+            first: None,
+            checked: None,
+            touched: vec![false; fields.len()],
+        });
+    }
     for (index, &action) in buttons.iter().enumerate() {
         // the primary action of a form submits it, the others close the dialog
         if !fields.is_empty() && Some(index) == primary {
@@ -374,6 +451,50 @@ fn submit(
     }
 }
 
+/// Triggers `FormChanged` on each form dialog whose values changed since it was last triggered,
+/// unless one of its fields has edits waiting: they are applied in `PostUpdate`, so its value is
+/// about to change, and a field filled on open would be checked empty for a frame.
+pub(crate) fn notice_form_changes(
+    mut forms: Query<(Entity, &mut FormFields)>,
+    texts: Query<&EditableText>,
+    mut commands: Commands,
+) {
+    for (root, mut form) in &mut forms {
+        let pending = form.inputs.iter().any(|&input| {
+            texts
+                .get(input)
+                .is_ok_and(|text| !text.pending_edits.is_empty())
+        });
+        if pending {
+            continue;
+        }
+        let values: Vec<String> = form
+            .inputs
+            .iter()
+            .map(|&input| {
+                texts
+                    .get(input)
+                    .map(|text| text.value().to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
+        if form.checked.as_ref() == Some(&values) {
+            continue;
+        }
+        let form = &mut *form;
+        let first = form.first.get_or_insert_with(|| values.clone());
+        for ((touched, value), first) in form.touched.iter_mut().zip(&values).zip(first) {
+            *touched |= value != first;
+        }
+        form.checked = Some(values.clone());
+        commands.trigger(FormChanged {
+            entity: root,
+            values,
+            touched: form.touched.clone(),
+        });
+    }
+}
+
 /// Asks to close the dialog on Escape, which stops there: nothing behind the dialog sees it.
 fn escape_closes(mut event: On<FocusedInput<KeyboardInput>>, mut commands: Commands) {
     let key = &event.input;
@@ -428,8 +549,10 @@ fn hide_screen_hints(
 #[cfg(test)]
 mod tests {
     use bevy::ecs::world::CommandQueue;
+    use bevy::text::TextEdit;
 
     use super::*;
+    use crate::ui::widgets::text_field::{spawn_text_field, TextField};
 
     #[test]
     fn a_dialog_has_the_dialog_role_and_its_title() {
@@ -482,5 +605,137 @@ mod tests {
             let mut autofocus = world.query_filtered::<(), With<AutoFocus>>();
             assert_eq!(autofocus.iter(&world).count(), 0);
         }
+    }
+
+    /// The `FormChanged` triggered, in order: their values and touched fields.
+    #[derive(Resource, Default)]
+    struct Changes(Vec<(Vec<String>, Vec<bool>)>);
+
+    /// A bare app noticing the changes of a form dialog whose fields hold `""` and a pending
+    /// "Fresh". Returns the app, the dialog and its two inputs.
+    fn form_app() -> (App, DialogParts, [Entity; 2]) {
+        let mut app = App::new();
+        app.init_resource::<Changes>()
+            .add_systems(Update, notice_form_changes)
+            .add_observer(|changed: On<FormChanged>, mut changes: ResMut<Changes>| {
+                changes
+                    .0
+                    .push((changed.values.clone(), changed.touched.clone()));
+            });
+        let world = app.world_mut();
+        let mut commands = world.commands();
+        let mut field = |label| {
+            spawn_text_field(
+                &mut commands,
+                &TextField {
+                    label,
+                    placeholder: "",
+                    max_characters: None,
+                    font: Handle::default(),
+                    font_size: FONT_M,
+                    reserve_error: true,
+                },
+            )
+        };
+        let (name, seed) = (field("Name"), field("Seed"));
+        let dialog = Dialog {
+            title: "Probe form",
+            body: "",
+            actions: &[
+                ("Cancel", ButtonVariant::Default),
+                ("Create", ButtonVariant::Primary),
+            ],
+            focused: 0,
+        };
+        let parts = spawn_form_dialog(
+            &mut commands,
+            &dialog,
+            &[("Name", name), ("Seed", seed)],
+            &DIALOG_HINTS,
+            Handle::default(),
+            &InputFocus::default(),
+        );
+        world.flush();
+        world
+            .get_mut::<EditableText>(seed.input)
+            .unwrap()
+            .queue_edit(TextEdit::Insert("Fresh".into()));
+        (app, parts, [name.input, seed.input])
+    }
+
+    fn changes(app: &App) -> &[(Vec<String>, Vec<bool>)] {
+        &app.world().resource::<Changes>().0
+    }
+
+    /// A field's text holding `value` with nothing pending: `EditableText::new` queues a move of
+    /// the cursor, which the bare app never applies.
+    fn settled(value: &str) -> EditableText {
+        let mut text = EditableText::new(value);
+        text.pending_edits.clear();
+        text
+    }
+
+    fn values(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn a_form_is_checked_once_its_fields_hold_their_first_values() {
+        let (mut app, _, [_, seed]) = form_app();
+        // the bare app applies no edits: the second field stays pending
+        app.update();
+        assert!(changes(&app).is_empty());
+        app.world_mut().entity_mut(seed).insert(settled("Fresh"));
+        app.update();
+        assert_eq!(
+            changes(&app),
+            &[(values(&["", "Fresh"]), vec![false, false])]
+        );
+        app.update();
+        app.update();
+        assert_eq!(changes(&app).len(), 1);
+    }
+
+    #[test]
+    fn a_changed_value_is_reported_and_stays_touched() {
+        let (mut app, _, [_, seed]) = form_app();
+        app.world_mut().entity_mut(seed).insert(settled("Fresh"));
+        app.update();
+        app.world_mut().entity_mut(seed).insert(settled("Fresh2"));
+        app.update();
+        app.world_mut().entity_mut(seed).insert(settled("Fresh"));
+        app.update();
+        assert_eq!(
+            &changes(&app)[1..],
+            &[
+                (values(&["", "Fresh2"]), vec![false, true]),
+                (values(&["", "Fresh"]), vec![false, true]),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_form_check_sets_the_errors_and_the_primary() {
+        let (mut app, parts, [name, seed]) = form_app();
+        let primary = parts.actions[1];
+        let world = app.world_mut();
+        apply_form_check(
+            &mut world.commands(),
+            parts.root,
+            vec![Some("Bad"), None],
+            false,
+        );
+        world.flush();
+        assert_eq!(
+            world.get::<FieldError>(name).unwrap().0.as_deref(),
+            Some("Bad")
+        );
+        assert_eq!(world.get::<FieldError>(seed).unwrap().0, None);
+        assert!(world.get::<InteractionDisabled>(primary).is_some());
+        apply_form_check(&mut world.commands(), parts.root, vec![None, None], true);
+        world.flush();
+        assert_eq!(world.get::<FieldError>(name).unwrap().0, None);
+        assert_eq!(world.get::<FieldError>(seed).unwrap().0, None);
+        assert!(world.get::<InteractionDisabled>(primary).is_none());
     }
 }

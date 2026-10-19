@@ -23,8 +23,8 @@ use crate::ui::assets::FONT_PATH;
 use crate::ui::theme::FONT_M;
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
-    close_dialog, dialog_open, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog, DialogClosed,
-    DialogSubmit,
+    apply_form_check, close_dialog, dialog_open, spawn_dialog, spawn_form_dialog, CloseRequest,
+    Dialog, DialogClosed, DialogSubmit, FormChanged,
 };
 use crate::ui::widgets::hints::Hint;
 use crate::ui::widgets::text_field::{
@@ -87,35 +87,25 @@ struct WorldForm {
     name: Entity,
     /// The input of the seed field, if the dialog has one.
     seed: Option<Entity>,
-    /// The action that submits the dialog, disabled while a field is wrong.
-    primary: Entity,
     /// The names of the other worlds, which the name may not take.
     others: Vec<String>,
     /// The name of the world being renamed: kept unchanged, it is not an error, but there is
     /// nothing to submit.
     current: Option<String>,
-    /// The texts of the name and seed fields when they were last checked, `None` before the
-    /// first check. `EditableText` is changed on every frame by its layout, so the texts
-    /// themselves tell when to check again; starting from `None` rather than from empty texts,
-    /// a form opened with empty fields is checked at once.
-    checked: Option<(String, String)>,
 }
 
 impl WorldForm {
     fn new(
         name: Entity,
         seed: Option<Entity>,
-        primary: Entity,
         others: Vec<String>,
         current: Option<String>,
     ) -> Self {
         Self {
             name,
             seed,
-            primary,
             others,
             current,
-            checked: None,
         }
     }
 }
@@ -132,13 +122,10 @@ pub struct WorldsChanged {
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        (
-            open_new_world_on_ctrl_n
-                .run_if(in_state(MenuState::Solo))
-                .run_if(not(dialog_open))
-                .run_if(not(text_field_focused)),
-            validate_world_forms,
-        ),
+        open_new_world_on_ctrl_n
+            .run_if(in_state(MenuState::Solo))
+            .run_if(not(dialog_open))
+            .run_if(not(text_field_focused)),
     );
 }
 
@@ -196,13 +183,8 @@ pub fn open_new_world_dialog(
     );
     commands
         .entity(parts.root)
-        .insert(WorldForm::new(
-            name.input,
-            Some(seed.input),
-            parts.actions[1],
-            others,
-            None,
-        ))
+        .insert(WorldForm::new(name.input, Some(seed.input), others, None))
+        .observe(check_world_form)
         .observe(create_world_on_submit);
     parts.root
 }
@@ -262,10 +244,10 @@ pub fn open_rename_dialog(
         .insert(WorldForm::new(
             name.input,
             None,
-            parts.actions[1],
             others,
             Some(world.to_string()),
         ))
+        .observe(check_world_form)
         .observe(rename_world_on_submit);
     parts.root
 }
@@ -283,14 +265,6 @@ pub fn open_new_world_on_ctrl_n(
         let others = cards.iter().map(|card| card.0.name.clone()).collect();
         open_new_world_dialog(&mut commands, &assets, &focus, others);
     }
-}
-
-/// Whether the text field `input` has edits waiting: they are applied in `PostUpdate`, so its
-/// value is about to change.
-fn being_edited(texts: &Query<&EditableText>, input: Entity) -> bool {
-    texts
-        .get(input)
-        .is_ok_and(|text| !text.pending_edits.is_empty())
 }
 
 /// The value of the text field `input`.
@@ -313,61 +287,21 @@ fn check_name(form: &WorldForm, typed: &str) -> (Option<&'static str>, bool) {
     }
 }
 
-/// Checks the fields of each world dialog whose text changed since they were last checked:
-/// shows why a field is wrong under it, and disables the primary action while one is. A message
-/// set by a failed submit stays until the text changes.
-fn validate_world_forms(
-    mut forms: Query<&mut WorldForm>,
-    texts: Query<&EditableText>,
-    mut errors: Query<&mut FieldError>,
-    disabled: Query<(), With<InteractionDisabled>>,
-    mut commands: Commands,
-) {
-    for mut form in &mut forms {
-        // a field filled on open would show "Enter a name" for a frame
-        if being_edited(&texts, form.name)
-            || form.seed.is_some_and(|seed| being_edited(&texts, seed))
-        {
-            continue;
-        }
-        let name = value_of(&texts, form.name);
-        let seed = form
-            .seed
-            .map(|seed| value_of(&texts, seed))
-            .unwrap_or_default();
-        if form
-            .checked
-            .as_ref()
-            .is_some_and(|checked| checked.0 == name && checked.1 == seed)
-        {
-            continue;
-        }
-        let (name_error, name_ok) = check_name(&form, &name);
-        let mut fields = vec![(form.name, name_error)];
-        let mut ok = name_ok;
-        if let Some(seed_field) = form.seed {
-            let seed_error = parse_seed(&seed).err();
-            ok &= seed_error.is_none();
-            fields.push((seed_field, seed_error));
-        }
-        for (field, message) in fields {
-            if let Ok(mut error) = errors.get_mut(field) {
-                if error.0.as_deref() != message {
-                    error.0 = message.map(str::to_string);
-                }
-            }
-        }
-        if ok == disabled.contains(form.primary) {
-            if ok {
-                commands
-                    .entity(form.primary)
-                    .remove::<InteractionDisabled>();
-            } else {
-                commands.entity(form.primary).insert(InteractionDisabled);
-            }
-        }
-        form.checked = Some((name, seed));
+/// Checks the fields of a world dialog whose values changed: shows why a field is wrong under
+/// it, and disables the primary action while one is. A message set by a failed submit stays
+/// until a value changes.
+fn check_world_form(changed: On<FormChanged>, forms: Query<&WorldForm>, mut commands: Commands) {
+    let Ok(form) = forms.get(changed.entity) else {
+        return;
+    };
+    let (name_error, mut submittable) = check_name(form, &changed.values[0]);
+    let mut errors = vec![name_error];
+    if form.seed.is_some() {
+        let seed_error = parse_seed(&changed.values[1]).err();
+        submittable &= seed_error.is_none();
+        errors.push(seed_error);
     }
+    apply_form_check(&mut commands, changed.entity, errors, submittable);
 }
 
 /// What the name field says when `create_world` failed: a short text by kind, since the error
@@ -557,15 +491,15 @@ mod tests {
 
     use super::*;
     use crate::ui::menus::worlds::EMPTY_WORLD_NAME;
+    use crate::ui::widgets::dialog::notice_form_changes;
 
-    /// A world form without a seed whose name field holds `text`, and its primary action.
-    fn form(world: &mut World, text: EditableText) -> (Entity, Entity, Entity) {
+    /// A world form without a seed whose name field holds `text`: its root and its name field.
+    fn form(world: &mut World, text: EditableText) -> (Entity, Entity) {
         let name = world.spawn((text, FieldError(None))).id();
-        let primary = world.spawn_empty().id();
         let root = world
-            .spawn(WorldForm::new(name, None, primary, Vec::new(), None))
+            .spawn(WorldForm::new(name, None, Vec::new(), None))
             .id();
-        (root, name, primary)
+        (root, name)
     }
 
     #[test]
@@ -581,11 +515,53 @@ mod tests {
         }
     }
 
+    /// A bare app noticing the changes of a world dialog without a seed whose name field holds
+    /// `text`. Returns the app, the name field and the primary action.
+    fn checked_form(text: EditableText) -> (App, Entity, Entity) {
+        let mut app = App::new();
+        app.add_systems(Update, notice_form_changes);
+        let world = app.world_mut();
+        let mut commands = world.commands();
+        let name = spawn_text_field(
+            &mut commands,
+            &TextField {
+                label: "Name",
+                placeholder: "",
+                max_characters: Some(MAX_WORLD_NAME_LENGTH),
+                font: Handle::default(),
+                font_size: FONT_M,
+                reserve_error: true,
+            },
+        );
+        let dialog = Dialog {
+            title: NEW_WORLD_TITLE,
+            body: "",
+            actions: &[
+                ("Cancel", ButtonVariant::Default),
+                ("Create", ButtonVariant::Primary),
+            ],
+            focused: 0,
+        };
+        let parts = spawn_form_dialog(
+            &mut commands,
+            &dialog,
+            &[("Name", name)],
+            &NEW_WORLD_HINTS,
+            Handle::default(),
+            &InputFocus::default(),
+        );
+        commands
+            .entity(parts.root)
+            .insert(WorldForm::new(name.input, None, Vec::new(), None))
+            .observe(check_world_form);
+        world.flush();
+        world.entity_mut(name.input).insert(text);
+        (app, name.input, parts.actions[1])
+    }
+
     #[test]
     fn a_form_opened_with_an_empty_name_is_checked_at_once() {
-        let mut app = App::new();
-        app.add_systems(Update, validate_world_forms);
-        let (_, name, primary) = form(app.world_mut(), EditableText::default());
+        let (mut app, name, primary) = checked_form(EditableText::default());
         app.update();
         let error = app.world().get::<FieldError>(name).unwrap();
         assert_eq!(error.0.as_deref(), Some(EMPTY_WORLD_NAME));
@@ -594,11 +570,9 @@ mod tests {
 
     #[test]
     fn a_name_still_being_filled_is_not_checked_yet() {
-        let mut app = App::new();
-        app.add_systems(Update, validate_world_forms);
         let mut text = EditableText::default();
         text.queue_edit(TextEdit::Insert("Fresh".into()));
-        let (_, name, primary) = form(app.world_mut(), text);
+        let (mut app, name, primary) = checked_form(text);
         app.update();
         assert_eq!(app.world().get::<FieldError>(name).unwrap().0, None);
         assert!(app.world().get::<InteractionDisabled>(primary).is_none());
@@ -612,7 +586,7 @@ mod tests {
             game_folder_path: folder.path().to_path_buf(),
             assets_folder_path: folder.path().to_path_buf(),
         });
-        let (root, name, _) = form(&mut world, EditableText::new("Fresh"));
+        let (root, name) = form(&mut world, EditableText::new("Fresh"));
         world.entity_mut(root).observe(create_world_on_submit);
         // two submits in the same update, such as Enter and a click on Create
         let mut commands = world.commands();
@@ -652,12 +626,10 @@ mod tests {
         let name = world
             .spawn((EditableText::new(" Survie "), FieldError(None)))
             .id();
-        let primary = world.spawn_empty().id();
         let root = world
             .spawn(WorldForm::new(
                 name,
                 None,
-                primary,
                 Vec::new(),
                 Some("Survie".into()),
             ))
@@ -679,15 +651,8 @@ mod tests {
         let name = world
             .spawn((EditableText::new(typed), FieldError(None)))
             .id();
-        let primary = world.spawn_empty().id();
         let root = world
-            .spawn(WorldForm::new(
-                name,
-                None,
-                primary,
-                Vec::new(),
-                Some(from.into()),
-            ))
+            .spawn(WorldForm::new(name, None, Vec::new(), Some(from.into())))
             .observe(rename_world_on_submit)
             .id();
         (folder, root, name)
