@@ -316,6 +316,8 @@ fn build_dialog(
                 ..default()
             },
             TextColor(color),
+            // a word wider than the dialog, such as a long address, breaks rather than leaves it
+            TextLayout::linebreak(LineBreak::WordOrCharacter),
         )
     };
     commands.spawn((text(dialog.title, FONT_L, TEXT), ChildOf(panel)));

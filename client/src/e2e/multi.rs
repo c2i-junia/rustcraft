@@ -16,8 +16,9 @@ use bevy::{
     input::keyboard::KeyCode,
     input_focus::InputFocus,
     math::{Rect, Vec2},
-    prelude::{BackgroundColor, Children, Component, Entity, Query, With},
-    ui::{InteractionDisabled, Selected},
+    prelude::{BackgroundColor, ChildOf, Children, Component, Entity, Query, With},
+    text::TextLayoutInfo,
+    ui::{ComputedNode, InteractionDisabled, Selected},
 };
 use shared::{GameFolderPaths, GameServerConfig};
 
@@ -614,6 +615,34 @@ fn a_removed_localhost_stays_removed() {
     h.click_when_ready(&L::text("Multiplayer"));
     h.wait_for(&L::text("No servers yet"), SCREEN);
     assert_eq!(saved_file(&h), "[]");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_longest_address_wraps_inside_the_remove_dialog_at_800x600() {
+    let address = "wwwwwwwwwwwwwwwwwwwwwwwwwwwww.wwwwwwwwwwwwwwwwwwwwwwwwwwww:65535";
+    let folder = GameFolder::new().with_servers(&[("Long", address)]);
+    let mut h = open_server_list_with(folder, StatusProbe(fixed_status));
+    h.resize(800, 600);
+    h.click(&card("Long"));
+    h.press(KeyCode::Delete);
+    h.wait_for(&remove_dialog("Long"), SCREEN);
+    h.frames(2);
+    let body = L::text(&format!("{address} will leave your server list."));
+    let entity = h.get(&body);
+    let panel = h.world().get::<ChildOf>(entity).unwrap().parent();
+    let world = h.world();
+    // the glyphs, not the node, which the dialog keeps inside itself whatever its text
+    let glyphs = world.get::<TextLayoutInfo>(entity).unwrap().size.x;
+    let room = world
+        .get::<ComputedNode>(panel)
+        .unwrap()
+        .content_box()
+        .width();
+    assert!(
+        glyphs <= room,
+        "the body is {glyphs} px wide in a dialog of {room} px"
+    );
 }
 
 #[test]
