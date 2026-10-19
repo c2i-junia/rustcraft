@@ -3,6 +3,7 @@
 
 use accesskit::Role;
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, Instant};
 
 use bevy::input::keyboard::KeyCode;
@@ -13,11 +14,13 @@ use bevy_renet::netcode::NetcodeClientTransport;
 
 use shared::players::Player;
 use shared::world::world_position_to_chunk_position;
+use shared::{GameFolderPaths, GameServerConfig};
 
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::is_in;
 use super::locator::{is_inside, Locator as L};
 use super::multi::selected_server;
+use super::raw_client::RawClient;
 use super::seed::GameFolder;
 use super::solo::selected_world;
 use crate::constants::SAVE_PATH;
@@ -394,4 +397,63 @@ fn a_long_error_stays_inside_its_card_at_800x600() {
             "{text:?} is {glyphs} px wide in a card of {room} px"
         );
     }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_card() {
+    // A solo server, which any client's `Exit` stops: a dedicated server stops only with its
+    // process. It runs on its own thread, in a folder of the test.
+    let server_folder = GameFolder::new();
+    let (socket, status) = server::acquire_local_socket_pair(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .expect("the sockets of the server");
+    let addr = socket.local_addr().unwrap();
+    let paths = GameFolderPaths {
+        game_folder_path: server_folder.path().to_path_buf(),
+        assets_folder_path: server_folder.path().join("assets"),
+    };
+    let config = GameServerConfig {
+        world_name: "dedicated".to_string(),
+        is_solo: true,
+    };
+    let server =
+        std::thread::spawn(move || server::init_with_status(socket, status, config, paths));
+
+    // another player already plays as `Tester`, the name of the player
+    let intruder = RawClient::join(addr, 77, Some("Tester"));
+    intruder.wait_ready(SERVER);
+    let folder =
+        GameFolder::new().with_servers(&[("Local test", &format!("127.0.0.1:{}", addr.port()))]);
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
+    h.wait_for(
+        &L::text("1 / 64").within(L::role(Role::ListItem, "Local test")),
+        SERVER,
+    );
+
+    h.join_server_card("Local test");
+    let refused = "\"Local test\" refused you";
+    h.wait_for(&error_card(refused), SERVER);
+    assert!(h.is_visible(&L::text_containing("\"Tester\"").within(error_card(refused))));
+    assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
+
+    // the name is free once the other player left
+    intruder.leave();
+    h.press(KeyCode::Enter);
+    h.wait_for(&card_title("Joining \"Local test\""), SCREEN);
+    h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
+
+    RawClient::join(addr, 78, None).exit();
+    h.wait_for(&error_card("\"Local test\" stopped"), SERVER);
+    assert_eq!(h.game_state(), GameState::Menu);
+
+    h.press(KeyCode::Escape);
+    h.wait_until("the server list", SCREEN, |w| {
+        *w.resource::<State<MenuState>>().get() == MenuState::Multi
+    });
+    h.frames(2);
+    assert_eq!(selected_server(&mut h).as_deref(), Some("Local test"));
+    // its folder is deleted once the server saved and stopped
+    assert_eq!(server.join().unwrap(), Ok(()));
 }

@@ -11,6 +11,7 @@ mod inventory;
 mod locator;
 mod main_menu;
 mod multi;
+mod raw_client;
 mod review;
 mod seed;
 mod settings;

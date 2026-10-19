@@ -129,7 +129,7 @@ impl ConnectWatch {
     }
 }
 
-/// Watches the session being opened and tells its step.
+/// Watches the session being opened and tells its step, then the session in the game.
 pub fn session_plugin(app: &mut App) {
     app.init_resource::<ConnectTimeout>()
         .add_systems(OnEnter(GameState::PreGameLoading), start_watching)
@@ -147,7 +147,8 @@ pub fn session_plugin(app: &mut App) {
                 watch_connection.after(track_connection),
             )
                 .run_if(in_state(GameState::PreGameLoading)),
-        );
+        )
+        .add_systems(Update, watch_session.run_if(in_state(GameState::Game)));
 }
 
 /// Ends the session as `error` (`None`: cancelled) unless it already ended this frame: inserts
@@ -307,6 +308,30 @@ fn watch_connection(
     end_session(&mut commands, &mut game, &origin, Some(error));
 }
 
+/// Ends a session whose connection dropped in the game (`failure_of`): the server stopped or the
+/// connection was lost. Stands down while the game is already left this frame: leaving on
+/// purpose, from the pause menu, is never an error.
+fn watch_session(
+    client: Option<Res<RenetClient>>,
+    transport: Option<Res<NetcodeClientTransport>>,
+    origin: Option<Res<SessionOrigin>>,
+    profile: Res<CurrentPlayerProfile>,
+    mut game: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+) {
+    let Some(origin) = origin else {
+        return;
+    };
+    if !client.is_some_and(|client| client.is_disconnected()) {
+        return;
+    }
+    let reason = transport.and_then(|transport| transport.disconnect_reason());
+    let error = failure_of(Reached::InGame, reason, &profile.name);
+    if end_session(&mut commands, &mut game, &origin, Some(error.clone())) {
+        warn!("The connection dropped in the game ({reason:?}): {error:?}");
+    }
+}
+
 /// The error of the local server of a world whose thread finished, which it joins: the world
 /// is no longer opening. `None` while it runs.
 fn local_server_stopped(local_server: &mut LocalServerHandle) -> Option<ConnectError> {
@@ -354,7 +379,6 @@ pub enum Reached {
     /// Authenticated, not in the game yet.
     Authenticated,
     /// In the game.
-    #[allow(dead_code)] // watch_session, Task 6
     InGame,
 }
 
@@ -955,6 +979,51 @@ mod tests {
             &server(),
             ConnectStep::Connecting,
             true
+        ));
+    }
+
+    /// A bare app in the game on the server `Friends`, with the client `client` and no transport.
+    fn in_game(client: RenetClient) -> App {
+        let mut app = App::new();
+        app.init_resource::<NextState<GameState>>()
+            .insert_resource(server())
+            .insert_resource(client)
+            .insert_resource(CurrentPlayerProfile {
+                id: 1,
+                name: "Tester".into(),
+            })
+            .add_systems(Update, watch_session);
+        app
+    }
+
+    #[test]
+    fn leaving_on_purpose_is_never_an_error() {
+        let mut client = RenetClient::new(get_shared_renet_config());
+        client.disconnect();
+        let mut app = in_game(client);
+        // the pause menu leaves the game in the frame the connection drops
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        app.update();
+        assert!(!app.world().contains_resource::<SessionEnd>());
+    }
+
+    #[test]
+    fn a_connection_dropped_in_game_ends_the_session() {
+        let mut client = RenetClient::new(get_shared_renet_config());
+        client.disconnect();
+        let mut app = in_game(client);
+        app.update();
+        assert_eq!(
+            app.world()
+                .get_resource::<SessionEnd>()
+                .map(|end| end.error.clone()),
+            Some(Some(ConnectError::ConnectionLost))
+        );
+        assert!(matches!(
+            app.world().resource::<NextState<GameState>>(),
+            NextState::Pending(GameState::Menu)
         ));
     }
 }
