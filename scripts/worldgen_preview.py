@@ -52,6 +52,7 @@ BLOCKS = [
     ("JunglePlanks", (121, 81, 57)),
     ("JungleLeaves", (32, 109, 23)),
     ("Fern", (95, 159, 53)),
+    ("Vine", (88, 168, 48)),
 ]
 AIR = 255
 WATER = 19

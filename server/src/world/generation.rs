@@ -308,16 +308,22 @@ fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
 fn precedence(block: BlockId) -> u8 {
     match block {
         BlockId::Dandelion | BlockId::Poppy => 1,
-        BlockId::TallGrass | BlockId::Fern => 2,
+        BlockId::TallGrass | BlockId::Fern | BlockId::Vine => 2,
         BlockId::OakLeaves | BlockId::JungleLeaves => 3,
         BlockId::OakLog | BlockId::JungleLog | BlockId::Cactus => 4,
         _ => 5,
     }
 }
 
-/// Writes `block` at a world position if it falls inside the chunk and does not displace a
-/// block of higher or equal rank.
-fn place(chunk: &mut Chunk, chunk_origin: IVec3, world_pos: IVec3, block: BlockId) {
+/// Writes `block`, turned to `direction`, at a world position if it falls inside the chunk and
+/// does not displace a block of higher or equal rank.
+fn place(
+    chunk: &mut Chunk,
+    chunk_origin: IVec3,
+    world_pos: IVec3,
+    block: BlockId,
+    direction: BlockDirection,
+) {
     let local = world_pos - chunk_origin;
     if !Chunk::contains(local) {
         return;
@@ -326,8 +332,28 @@ fn place(chunk: &mut Chunk, chunk_origin: IVec3, world_pos: IVec3, block: BlockI
         .get(local)
         .is_some_and(|existing| precedence(existing.id) >= precedence(block));
     if !outranked {
-        chunk.set(local, BlockData::new(block, BlockDirection::Front));
+        chunk.set(local, BlockData::new(block, direction));
     }
+}
+
+/// Places a block of a structure as [`place`] does, but for a vine at or below the surface of
+/// its column: as a chain of vines hangs straight down, it stops at its first cell of terrain,
+/// and no vine hangs in the mouth of a cave. The columns of the cells inside the chunk, the only
+/// ones placed, are all in `columns`.
+fn place_structure_block(
+    chunk: &mut Chunk,
+    chunk_origin: IVec3,
+    columns: &ChunkColumns,
+    (pos, block, direction): (IVec3, BlockId, BlockDirection),
+) {
+    let local = pos - chunk_origin;
+    if block == BlockId::Vine
+        && Chunk::contains(local)
+        && pos.y <= columns.at(local.x, local.z).height
+    {
+        return;
+    }
+    place(chunk, chunk_origin, pos, block, direction);
 }
 
 fn random_of(seed: u32, column: &Column) -> ColumnRandom {
@@ -415,7 +441,8 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
     decorations
 }
 
-type Blocks = Vec<(IVec3, BlockId)>;
+/// Blocks of structures in world coordinates, each with its direction: the front but for vines.
+type Blocks = Vec<(IVec3, BlockId, BlockDirection)>;
 
 /// A 5x5 crown of leaves, 3 layers high starting at `bottom`: a diamond with a few extra
 /// leaves jittered onto the edge of its two lower layers.
@@ -430,7 +457,7 @@ fn crown_blocks(bottom: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
                     && random.unit(SALT_LEAF + leaf_index as u64) < 0.2;
                 if distance < 3 - layer || jittered {
                     let pos = bottom + IVec3::new(offset_x, layer, offset_z);
-                    blocks.push((pos, BlockId::OakLeaves));
+                    blocks.push((pos, BlockId::OakLeaves, BlockDirection::Front));
                 }
             }
         }
@@ -439,7 +466,7 @@ fn crown_blocks(bottom: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
 
 fn trunk_blocks(root: IVec3, trunk_height: i32, blocks: &mut Blocks) {
     for dy in 0..trunk_height {
-        blocks.push((root + IVec3::Y * dy, BlockId::OakLog));
+        blocks.push((root + IVec3::Y * dy, BlockId::OakLog, BlockDirection::Front));
     }
 }
 
@@ -460,13 +487,29 @@ fn big_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
         let branch_y = leaf_start_y - 1 - random.jitter(salt + 2);
         let length = 1 + random.below(salt + 3, 2);
         for x in branch_x..branch_x + length {
-            blocks.push((IVec3::new(x, branch_y, branch_z + 1), BlockId::OakLeaves));
-            blocks.push((IVec3::new(x, branch_y, branch_z - 1), BlockId::OakLeaves));
-            blocks.push((IVec3::new(x, branch_y + 1, branch_z), BlockId::OakLeaves));
-            blocks.push((IVec3::new(x, branch_y, branch_z), BlockId::OakLog));
+            blocks.push((
+                IVec3::new(x, branch_y, branch_z + 1),
+                BlockId::OakLeaves,
+                BlockDirection::Front,
+            ));
+            blocks.push((
+                IVec3::new(x, branch_y, branch_z - 1),
+                BlockId::OakLeaves,
+                BlockDirection::Front,
+            ));
+            blocks.push((
+                IVec3::new(x, branch_y + 1, branch_z),
+                BlockId::OakLeaves,
+                BlockDirection::Front,
+            ));
+            blocks.push((
+                IVec3::new(x, branch_y, branch_z),
+                BlockId::OakLog,
+                BlockDirection::Front,
+            ));
         }
         let tip = IVec3::new(branch_x + length, branch_y, branch_z);
-        blocks.push((tip, BlockId::OakLeaves));
+        blocks.push((tip, BlockId::OakLeaves, BlockDirection::Front));
     }
 
     trunk_blocks(root, trunk_height, blocks);
@@ -480,7 +523,7 @@ fn big_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
                 if !is_axis && !is_corner {
                     let pos =
                         IVec3::new(root.x + offset_x, leaf_start_y + layer, root.z + offset_z);
-                    blocks.push((pos, BlockId::OakLeaves));
+                    blocks.push((pos, BlockId::OakLeaves, BlockDirection::Front));
                 }
             }
         }
@@ -491,7 +534,7 @@ fn big_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
 fn cactus_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     let cactus_height = 2 + random.below(SALT_CACTUS_HEIGHT, 2);
     for dy in 0..cactus_height {
-        blocks.push((root + IVec3::Y * dy, BlockId::Cactus));
+        blocks.push((root + IVec3::Y * dy, BlockId::Cactus, BlockDirection::Front));
     }
 }
 
@@ -515,12 +558,12 @@ fn decoration_blocks(
     blocks: &mut Blocks,
 ) {
     match decoration {
-        Decoration::Flower(flower) => blocks.push((root, flower)),
-        Decoration::TallGrass => blocks.push((root, BlockId::TallGrass)),
+        Decoration::Flower(flower) => blocks.push((root, flower, BlockDirection::Front)),
+        Decoration::TallGrass => blocks.push((root, BlockId::TallGrass, BlockDirection::Front)),
         Decoration::Tree => tree_blocks(root, random, blocks),
         Decoration::BigTree => big_tree_blocks(root, random, blocks),
         Decoration::Cactus => cactus_blocks(root, random, blocks),
-        Decoration::Fern => blocks.push((root, BlockId::Fern)),
+        Decoration::Fern => blocks.push((root, BlockId::Fern, BlockDirection::Front)),
         Decoration::JungleTree => jungle::jungle_tree_blocks(root, random, blocks),
         Decoration::Bush => jungle::bush_blocks(root, random, blocks),
         Decoration::GiantTree => jungle::giant_tree_blocks(root, random, blocks),
@@ -807,8 +850,8 @@ impl WorldGenerator {
                         };
                         let mut blocks = Vec::new();
                         jungle::giant_tree_blocks(root, &random, &mut blocks);
-                        for (pos, block) in blocks {
-                            place(&mut chunk, chunk_origin, pos, block);
+                        for block in blocks {
+                            place_structure_block(&mut chunk, chunk_origin, columns, block);
                         }
                     }
                     continue;
@@ -829,6 +872,7 @@ impl WorldGenerator {
                                 chunk_origin,
                                 IVec3::new(column.x, y, column.z),
                                 block,
+                                BlockDirection::Front,
                             );
                         }
                     }
@@ -841,8 +885,8 @@ impl WorldGenerator {
                     0
                 };
                 if column.height + 1 - sunk < chunk_origin.y + CHUNK_SIZE {
-                    for (pos, block) in column_blocks(seed, column) {
-                        place(&mut chunk, chunk_origin, pos, block);
+                    for block in column_blocks(seed, column) {
+                        place_structure_block(&mut chunk, chunk_origin, columns, block);
                     }
                 }
             }
@@ -1096,7 +1140,7 @@ mod tests {
                     assert!(decoration.height() <= STRUCTURE_HEIGHT, "{decoration:?}");
                     let mut blocks = Vec::new();
                     decoration_blocks(decoration, root, &random, &mut blocks);
-                    for (pos, _) in blocks {
+                    for (pos, ..) in blocks {
                         assert!(
                             pos.y - column.height <= decoration.height(),
                             "{decoration:?}: {pos} over {}",
@@ -1132,7 +1176,7 @@ mod tests {
             let mut reached = i32::MIN;
             for column in &columns.columns {
                 reached = reached.max(column.height);
-                for (pos, _) in column_blocks(seed, column) {
+                for (pos, ..) in column_blocks(seed, column) {
                     reached = reached.max(pos.y);
                 }
             }
@@ -1142,7 +1186,7 @@ mod tests {
                 for dz in -GIANT_MARGIN..CHUNK_SIZE + GIANT_MARGIN {
                     let (x, z) = (origin.x + dx, origin.y + dz);
                     if generator.giant_roots(x, z) {
-                        for (pos, _) in column_blocks(seed, &generator.column(x, z)) {
+                        for (pos, ..) in column_blocks(seed, &generator.column(x, z)) {
                             reached = reached.max(pos.y);
                         }
                     }
@@ -1240,7 +1284,13 @@ mod tests {
             origin + IVec3::new(CHUNK_SIZE, 0, 0),
             origin + IVec3::new(0, 0, CHUNK_SIZE),
         ] {
-            place(&mut chunk, origin, outside, BlockId::Stone);
+            place(
+                &mut chunk,
+                origin,
+                outside,
+                BlockId::Stone,
+                BlockDirection::Front,
+            );
         }
         assert!(chunk.is_empty());
     }
@@ -1307,7 +1357,7 @@ mod tests {
     fn touched_chunks(blocks: &Blocks) -> Vec<IVec3> {
         let mut chunks: Vec<IVec3> = blocks
             .iter()
-            .map(|(pos, _)| pos.div_euclid(IVec3::splat(CHUNK_SIZE)))
+            .map(|(pos, ..)| pos.div_euclid(IVec3::splat(CHUNK_SIZE)))
             .collect();
         chunks.sort_by_key(|c| (c.x, c.y, c.z));
         chunks.dedup();
@@ -1326,7 +1376,7 @@ mod tests {
             .collect();
 
         let mut exact_per_chunk: HashMap<IVec3, usize> = HashMap::new();
-        for (pos, block) in &blocks {
+        for (pos, block, _) in &blocks {
             let chunk_pos = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
             let local = pos.rem_euclid(IVec3::splat(CHUNK_SIZE));
             let actual = chunks[&chunk_pos].get(local).map(|b| b.id);
@@ -1355,7 +1405,7 @@ mod tests {
     fn spans_two_chunks(blocks: &Blocks, axis: usize) -> bool {
         let coords: Vec<i32> = blocks
             .iter()
-            .map(|(p, _)| p[axis].div_euclid(CHUNK_SIZE))
+            .map(|(p, ..)| p[axis].div_euclid(CHUNK_SIZE))
             .collect();
         coords.iter().min() != coords.iter().max()
     }
@@ -1373,7 +1423,8 @@ mod tests {
         // the jungle of the seed 42 nearest to the origin
         for axis in [0, 2] {
             let column = find_tree(42, -340..-180, 0..130, |b| {
-                b.iter().any(|(_, block)| *block == BlockId::JungleLog) && spans_two_chunks(b, axis)
+                b.iter().any(|(_, block, _)| *block == BlockId::JungleLog)
+                    && spans_two_chunks(b, axis)
             });
             assert_tree_is_complete(42, &column);
         }
@@ -1614,7 +1665,7 @@ mod tests {
                     jungle_depth: 0.0,
                 };
                 let column = Column::new(seed, x, z, shape, 0, 0.0, None);
-                for (pos, _) in column_blocks(seed, &column) {
+                for (pos, ..) in column_blocks(seed, &column) {
                     // the vertical culling in generate_chunk relies on this
                     assert!(pos.y > column.height, "block below its root at {pos}");
                     widest = widest.max((pos.x - x).abs()).max((pos.z - z).abs());
@@ -1695,7 +1746,7 @@ mod tests {
                                 _ => "plant",
                             };
                             let (wide, high) = reached.entry(kind).or_default();
-                            for (pos, _) in blocks {
+                            for (pos, ..) in blocks {
                                 let (dx, dz) = ((pos.x - x).abs(), (pos.z - z).abs());
                                 let dy = pos.y - column.height;
                                 assert!(dx.max(dz) <= STRUCTURE_MARGIN, "{decoration:?}: {pos}");
@@ -1711,7 +1762,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(reached["jungle tree"], (2, Decoration::JungleTree.height()));
+        // its vines hang outside its crown, 5 wide
+        assert_eq!(
+            reached["jungle tree"],
+            (STRUCTURE_MARGIN, Decoration::JungleTree.height())
+        );
         assert_eq!(reached["bush"], (2, Decoration::Bush.height()));
         assert_eq!(reached["plant"], (0, 1));
         assert_eq!(Decoration::GiantTree.height(), STRUCTURE_HEIGHT);
@@ -1878,8 +1933,10 @@ mod tests {
             let blocks = column_blocks(seed, &giant);
             let top = blocks
                 .iter()
-                .filter(|(pos, block)| *block == BlockId::JungleLog && pos.xz() == giant_xz(&giant))
-                .map(|(pos, _)| pos.y)
+                .filter(|(pos, block, _)| {
+                    *block == BlockId::JungleLog && pos.xz() == giant_xz(&giant)
+                })
+                .map(|(pos, ..)| pos.y)
                 .max()
                 .unwrap();
             let root_chunk = (giant.height + 1).div_euclid(CHUNK_SIZE);
@@ -1923,7 +1980,7 @@ mod tests {
     /// columns away from it, and that chunk.
     fn ring_giant() -> (Column, IVec3) {
         for giant in giants_of_seed_42() {
-            for (pos, _) in column_blocks(42, &giant) {
+            for (pos, ..) in column_blocks(42, &giant) {
                 let chunk = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
                 let start = chunk.xz() * CHUNK_SIZE;
                 let away =
@@ -1963,7 +2020,7 @@ mod tests {
         );
 
         let mut inside = 0;
-        for (pos, block) in column_blocks(seed, &giant) {
+        for (pos, block, _) in column_blocks(seed, &giant) {
             if pos.div_euclid(IVec3::splat(CHUNK_SIZE)) != chunk_pos {
                 continue;
             }
@@ -1982,11 +2039,80 @@ mod tests {
     #[test]
     fn jungle_blocks_rank_with_their_oak_and_grass_siblings() {
         assert_eq!(precedence(BlockId::Fern), precedence(BlockId::TallGrass));
+        assert_eq!(precedence(BlockId::Vine), precedence(BlockId::TallGrass));
         assert_eq!(
             precedence(BlockId::JungleLeaves),
             precedence(BlockId::OakLeaves)
         );
         assert_eq!(precedence(BlockId::JungleLog), precedence(BlockId::OakLog));
+    }
+
+    #[test]
+    fn a_vine_is_never_placed_at_or_below_the_surface_of_its_column() {
+        let generator = WorldGenerator::new(42);
+        let chunk_pos = giant_chunk();
+        let columns = generator.compute_chunk_columns(chunk_pos.xz());
+        let origin = chunk_pos * CHUNK_SIZE;
+        let mut placed = 0;
+        for column in &columns.columns {
+            let (x, z) = (column.x - origin.x, column.z - origin.z);
+            if !(0..CHUNK_SIZE).contains(&x) || !(0..CHUNK_SIZE).contains(&z) {
+                continue;
+            }
+            for y in column.height - 1..=column.height + 1 {
+                let mut chunk = Chunk::new();
+                let pos = IVec3::new(column.x, y, column.z);
+                let vine = (pos, BlockId::Vine, BlockDirection::Left);
+                place_structure_block(&mut chunk, origin, &columns, vine);
+                let local = pos - origin;
+                if !Chunk::contains(local) {
+                    continue;
+                }
+                let expected = (y > column.height).then_some(BlockId::Vine);
+                assert_eq!(chunk.get(local).map(|b| b.id), expected, "{pos}");
+                placed += usize::from(expected.is_some());
+            }
+        }
+        assert!(placed > 0);
+    }
+
+    #[test]
+    fn vines_hang_from_something_and_never_into_the_ground() {
+        let generator = WorldGenerator::new(42);
+        let chunks = std::cell::RefCell::new(HashMap::new());
+        let block_at = |pos: IVec3| {
+            let chunk_pos = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
+            let mut chunks = chunks.borrow_mut();
+            let chunk = chunks
+                .entry(chunk_pos)
+                .or_insert_with(|| generator.generate_chunk(chunk_pos));
+            chunk.get(pos - chunk_pos * CHUNK_SIZE).copied()
+        };
+        let giant = giant_chunk();
+        let around_the_giant = (-1..=1).flat_map(|dx| {
+            (-1..=1).flat_map(move |dz| (0..=2).map(move |dy| giant + IVec3::new(dx, dy, dz)))
+        });
+        let mut vines = 0;
+        for chunk_pos in sample_chunks().into_iter().chain(around_the_giant) {
+            let chunk = generator.generate_chunk(chunk_pos);
+            for (local, block) in chunk.iter() {
+                if block.id != BlockId::Vine {
+                    continue;
+                }
+                vines += 1;
+                let pos = chunk_pos * CHUNK_SIZE + local;
+                let column = generator.column(pos.x, pos.z);
+                assert!(pos.y > column.height, "a vine in the ground at {pos}");
+                let holds = |pos: IVec3, blocks: &[BlockId]| {
+                    block_at(pos).is_some_and(|b| blocks.contains(&b.id))
+                };
+                let wood = [BlockId::JungleLeaves, BlockId::JungleLog];
+                let hangs = holds(pos + IVec3::Y, &[BlockId::Vine, wood[0], wood[1]])
+                    || holds(pos + block.direction.offset(), &wood);
+                assert!(hangs, "a vine hangs from nothing at {pos}");
+            }
+        }
+        assert!(vines > 50, "{vines} vines");
     }
 
     #[test]
@@ -2004,7 +2130,7 @@ mod tests {
                 for order in [[low, high], [high, low]] {
                     let mut chunk = Chunk::new();
                     for block in order {
-                        place(&mut chunk, IVec3::ZERO, cell, *block);
+                        place(&mut chunk, IVec3::ZERO, cell, *block, BlockDirection::Front);
                     }
                     assert_eq!(
                         chunk.get(cell).unwrap().id,

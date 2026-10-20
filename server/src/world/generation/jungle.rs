@@ -3,7 +3,7 @@
 //! giant roots, which also depends on the columns around.
 
 use bevy::prelude::*;
-use shared::world::{BiomeType, BlockId, ColumnShape, SEA_LEVEL};
+use shared::world::{BiomeType, BlockDirection, BlockId, ColumnShape, SEA_LEVEL};
 
 use super::{Blocks, ColumnRandom, PositionRandom, SALT_TREE_ROLL, SALT_TRUNK_HEIGHT};
 
@@ -18,6 +18,12 @@ const SALT_FIRST_BRANCH: u64 = 0x421;
 const SALT_GIANT_BRANCH: u64 = 0x430;
 /// One salt per cell of the 12 × 12 × 4 box of a giant's crown, from here.
 const SALT_CROWN_RIM: u64 = 0x800;
+/// Each of the 20 outward faces of the lowest layer of a jungle tree's crown, from here.
+const SALT_JUNGLE_VINE: u64 = 0x440;
+/// Each of the 8 faces of a giant's trunk, from here.
+const SALT_TRUNK_VINE: u64 = 0x460;
+/// Each of the 4 sides of each cell of the 12 × 12 widest layer of a giant's crown, from here.
+const SALT_RIM_VINE: u64 = 0xC00;
 
 /// The largest chance of a giant tree on a column, at the heart of the jungle.
 pub(super) const GIANT_CHANCE: f32 = 0.004;
@@ -36,6 +42,8 @@ pub(super) const GIANT_SINK: i32 = 3;
 pub(super) const GIANT_STEP: i32 = 2;
 /// The radii of the four layers of a giant's crown, from the one under the top of its trunk.
 const CROWN_RADII: [f32; 4] = [4.6, 5.4, 4.4, 2.6];
+/// The layer of `CROWN_RADII` vines hang from, the widest, at the height of the top of the trunk.
+const WIDEST_LAYER: usize = 1;
 /// The sides of a trunk, as `(x, z)` steps, each a quarter turn from the one before.
 const SIDES: [IVec2; 4] = [IVec2::X, IVec2::Y, IVec2::NEG_X, IVec2::NEG_Y];
 
@@ -44,15 +52,46 @@ fn grows(random: &ColumnRandom, salt: u64) -> bool {
     random.below(salt, 2) == 0
 }
 
+/// How long the vine hanging on a face is, if one does, one time in `one_in`: 1 to `longest`
+/// vines, from the single roll of the face, `salt`. 0 for none.
+fn vine_length(random: &ColumnRandom, salt: u64, one_in: u64, longest: u64) -> i32 {
+    let roll = random.below(salt, one_in * longest);
+    if roll < longest as i32 {
+        roll + 1
+    } else {
+        0
+    }
+}
+
+/// A chain of `length` vines hanging straight down from `top`, each held on the side `support`
+/// steps to, where the block holding the top one lies, but none below `lowest`.
+fn hang_vines(top: IVec3, support: IVec2, length: i32, lowest: i32, blocks: &mut Blocks) {
+    let direction = BlockDirection::toward(IVec3::new(support.x, 0, support.y))
+        .expect("a vine hangs on a side");
+    for dy in 0..length {
+        let pos = top - IVec3::Y * dy;
+        if pos.y < lowest {
+            break;
+        }
+        blocks.push((pos, BlockId::Vine, direction));
+    }
+}
+
 /// A trunk of 5 to 9 jungle logs from `root`. The two layers below its top log hold a 5 × 5
 /// square of leaves whose corners grow one time in two, the layer of the top log a 3 × 3
-/// square, and a plus of leaves lies above it.
+/// square, and a plus of leaves lies above it. One outward face in four of the leaves on the
+/// edge of the lowest layer holds a chain of 1 to 4 vines, which never hangs under the root.
 pub(super) fn jungle_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     let trunk_height = 5 + random.below(SALT_TRUNK_HEIGHT, 5);
     for dy in 0..trunk_height {
-        blocks.push((root + IVec3::Y * dy, BlockId::JungleLog));
+        blocks.push((
+            root + IVec3::Y * dy,
+            BlockId::JungleLog,
+            BlockDirection::Front,
+        ));
     }
     let top = root + IVec3::Y * (trunk_height - 1);
+    let mut lowest_layer = Vec::new();
     for layer in 0..2u64 {
         let mut corner = 0;
         for dx in -2i32..=2 {
@@ -67,17 +106,42 @@ pub(super) fn jungle_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mu
                     }
                 }
                 let pos = top + IVec3::new(dx, layer as i32 - 2, dz);
-                blocks.push((pos, BlockId::JungleLeaves));
+                blocks.push((pos, BlockId::JungleLeaves, BlockDirection::Front));
+                if layer == 0 {
+                    lowest_layer.push(IVec2::new(dx, dz));
+                }
+            }
+        }
+    }
+    // the 5 leaves along each side of the lowest layer, a corner on two sides
+    for (side_index, side) in SIDES.into_iter().enumerate() {
+        let along = side.perp();
+        for i in -2..=2 {
+            let leaf = side * 2 + along * i;
+            let face = (side_index * 5) as i32 + i + 2;
+            let length = vine_length(random, SALT_JUNGLE_VINE + face as u64, 4, 4);
+            if length > 0 && lowest_layer.contains(&leaf) {
+                let out = leaf + side;
+                let vine = top + IVec3::new(out.x, -2, out.y);
+                hang_vines(vine, -side, length, root.y, blocks);
             }
         }
     }
     for dx in -1i32..=1 {
         for dz in -1i32..=1 {
             if dx != 0 || dz != 0 {
-                blocks.push((top + IVec3::new(dx, 0, dz), BlockId::JungleLeaves));
+                blocks.push((
+                    top + IVec3::new(dx, 0, dz),
+                    BlockId::JungleLeaves,
+                    BlockDirection::Front,
+                ));
             }
             if dx.abs() + dz.abs() <= 1 {
-                blocks.push((top + IVec3::new(dx, 1, dz), BlockId::JungleLeaves));
+                blocks.push((
+                    top + IVec3::new(dx, 1, dz),
+                    BlockId::JungleLeaves,
+                    BlockDirection::Front,
+                ));
             }
         }
     }
@@ -86,7 +150,7 @@ pub(super) fn jungle_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mu
 /// A jungle log on `root`, in the middle of a diamond of leaves of radius 2 whose 8 outermost
 /// leaves grow one time in two, under a plus of leaves and, one time in two, one more leaf.
 pub(super) fn bush_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
-    blocks.push((root, BlockId::JungleLog));
+    blocks.push((root, BlockId::JungleLog, BlockDirection::Front));
     let mut edge = 0;
     for dx in -2i32..=2 {
         for dz in -2i32..=2 {
@@ -98,15 +162,27 @@ pub(super) fn bush_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Block
                 }
             }
             if distance > 0 && distance <= 2 {
-                blocks.push((root + IVec3::new(dx, 0, dz), BlockId::JungleLeaves));
+                blocks.push((
+                    root + IVec3::new(dx, 0, dz),
+                    BlockId::JungleLeaves,
+                    BlockDirection::Front,
+                ));
             }
             if distance <= 1 {
-                blocks.push((root + IVec3::new(dx, 1, dz), BlockId::JungleLeaves));
+                blocks.push((
+                    root + IVec3::new(dx, 1, dz),
+                    BlockId::JungleLeaves,
+                    BlockDirection::Front,
+                ));
             }
         }
     }
     if grows(random, SALT_BUSH_TOP) {
-        blocks.push((root + IVec3::Y * 2, BlockId::JungleLeaves));
+        blocks.push((
+            root + IVec3::Y * 2,
+            BlockId::JungleLeaves,
+            BlockDirection::Front,
+        ));
     }
 }
 
@@ -173,12 +249,31 @@ fn giant_candidate(x: i32, z: i32, roll: f32, shape: &impl Fn(i32, i32) -> Colum
 /// A giant tree rooted on `root` and on the three columns at `+x`, `+z` and `+x+z`: a 2 × 2
 /// trunk of 16 to 25 jungle logs above the root, sunk `GIANT_SINK` under it, its branches, and
 /// a crown of four frayed disks of leaves around the trunk's centre from one block under its
-/// top.
+/// top. One face of the trunk in five holds a chain of 1 to 7 vines hanging from under the
+/// crown.
 pub(super) fn giant_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     let height = 16 + random.below(SALT_TRUNK_HEIGHT, 10);
     for (dx, dz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
         for dy in -GIANT_SINK..height {
-            blocks.push((root + IVec3::new(dx, dy, dz), BlockId::JungleLog));
+            blocks.push((
+                root + IVec3::new(dx, dy, dz),
+                BlockId::JungleLog,
+                BlockDirection::Front,
+            ));
+        }
+    }
+    for (side_index, side) in SIDES.into_iter().enumerate() {
+        // the two trunk columns along that side
+        for along in 0..2 {
+            let column = IVec2::new(
+                if side.x == 0 { along } else { (side.x + 1) / 2 },
+                if side.y == 0 { along } else { (side.y + 1) / 2 },
+            );
+            let face = (side_index * 2) as u64 + along as u64;
+            let length = vine_length(random, SALT_TRUNK_VINE + face, 5, 7);
+            let out = column + side;
+            let vine = root + IVec3::new(out.x, height - 3, out.y);
+            hang_vines(vine, -side, length, root.y, blocks);
         }
     }
     giant_branch_blocks(root, height, random, blocks);
@@ -209,7 +304,7 @@ fn giant_branch_blocks(root: IVec3, height: i32, random: &ColumnRandom, blocks: 
             root + IVec3::new(out.x, y + i, out.y)
         };
         for i in 0..length {
-            blocks.push((log(i), BlockId::JungleLog));
+            blocks.push((log(i), BlockId::JungleLog, BlockDirection::Front));
         }
         let tip = log(length - 1);
         for (dy, radius) in [(0, 2.4f32), (1, 1.5)] {
@@ -217,7 +312,11 @@ fn giant_branch_blocks(root: IVec3, height: i32, random: &ColumnRandom, blocks: 
                 for dz in -2i32..=2 {
                     let on_disk = Vec2::new(dx as f32, dz as f32).length() <= radius;
                     if on_disk && (dx, dy, dz) != (0, 0, 0) {
-                        blocks.push((tip + IVec3::new(dx, dy, dz), BlockId::JungleLeaves));
+                        blocks.push((
+                            tip + IVec3::new(dx, dy, dz),
+                            BlockId::JungleLeaves,
+                            BlockDirection::Front,
+                        ));
                     }
                 }
             }
@@ -228,7 +327,8 @@ fn giant_branch_blocks(root: IVec3, height: i32, random: &ColumnRandom, blocks: 
 /// The four layers of a giant's crown, from one under `top`, the top log of the root column of
 /// its trunk: disks of `CROWN_RADII` around the trunk's centre, the corner its four columns
 /// share, whose rims (the outermost unit of each radius) are frayed, each leaf growing one time
-/// in two.
+/// in two. One face in three of the leaves of the widest layer that look out of its disk holds a
+/// chain of 1 to 7 vines.
 fn giant_crown_blocks(top: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     for (layer, radius) in CROWN_RADII.into_iter().enumerate() {
         let dy = layer as i32 - 1;
@@ -243,7 +343,25 @@ fn giant_crown_blocks(top: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
                 if distance > radius - 1.0 && !grows(random, SALT_CROWN_RIM + cell as u64) {
                     continue;
                 }
-                blocks.push((top + IVec3::new(dx, dy, dz), BlockId::JungleLeaves));
+                blocks.push((
+                    top + IVec3::new(dx, dy, dz),
+                    BlockId::JungleLeaves,
+                    BlockDirection::Front,
+                ));
+                if layer != WIDEST_LAYER {
+                    continue;
+                }
+                let leaf = IVec2::new(dx, dz);
+                for (side_index, side) in SIDES.into_iter().enumerate() {
+                    let out = leaf + side;
+                    if (out.as_vec2() - 0.5).length() <= radius {
+                        continue;
+                    }
+                    let face = 4 * ((dx + 5) * 12 + dz + 5) as u64 + side_index as u64;
+                    let length = vine_length(random, SALT_RIM_VINE + face, 3, 7);
+                    let vine = top + IVec3::new(out.x, dy, out.y);
+                    hang_vines(vine, -side, length, i32::MIN, blocks);
+                }
             }
         }
     }
@@ -269,7 +387,7 @@ mod tests {
                 shape(ROOT, &random, &mut blocks);
                 let by_offset: HashMap<IVec3, BlockId> = blocks
                     .iter()
-                    .map(|(pos, block)| (*pos - ROOT, *block))
+                    .map(|(pos, block, _)| (*pos - ROOT, *block))
                     .collect();
                 assert_eq!(by_offset.len(), blocks.len(), "a cell is claimed twice");
                 by_offset
@@ -327,10 +445,93 @@ mod tests {
                 corners.insert(missing.len());
             }
             let crown: usize = (top - 2..=top + 1).map(|dy| leaves(&tree, dy).len()).sum();
-            assert_eq!(tree.len() - trunk.len(), crown, "a leaf outside the crown");
+            let all_leaves = tree
+                .values()
+                .filter(|b| **b == BlockId::JungleLeaves)
+                .count();
+            assert_eq!(all_leaves, crown, "a leaf outside the crown");
         }
         assert_eq!(heights.len(), 5, "{heights:?}");
         assert!(corners.contains(&0) && corners.contains(&4), "{corners:?}");
+    }
+
+    /// The chains of vines among `blocks`, each pushed from its top down: their top cell, the
+    /// direction of their support and their length. Checks that each hangs straight down.
+    fn chains(blocks: &Blocks) -> Vec<(IVec3, BlockDirection, i32)> {
+        let mut chains: Vec<(IVec3, BlockDirection, i32)> = Vec::new();
+        for (pos, block, direction) in blocks {
+            if *block != BlockId::Vine {
+                continue;
+            }
+            match chains.last_mut() {
+                Some((top, toward, length))
+                    if *top - IVec3::Y * *length == *pos && toward == direction =>
+                {
+                    *length += 1
+                }
+                _ => chains.push((*pos, *direction, 1)),
+            }
+        }
+        chains
+    }
+
+    /// The sides of a cell, as horizontal steps.
+    const STEPS: [IVec3; 4] = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z];
+
+    #[test]
+    fn vines_hang_under_one_in_four_of_the_jungle_trees_lowest_edge_leaves() {
+        let (mut faces, mut hung, mut lengths) = (0, 0, HashSet::new());
+        for i in 0..400 {
+            let random = PositionRandom {
+                seed: 5,
+                coords: [i % 20, i / 20],
+            };
+            let mut blocks = Vec::new();
+            jungle_tree_blocks(ROOT, &random, &mut blocks);
+            let tree: HashMap<IVec3, BlockId> = blocks
+                .iter()
+                .map(|(pos, block, _)| (*pos - ROOT, *block))
+                .collect();
+            let top = (0..)
+                .take_while(|y| tree.get(&IVec3::new(0, *y, 0)) == Some(&BlockId::JungleLog))
+                .count() as i32
+                - 1;
+            let lowest = top - 2;
+            // the outward faces of the edge leaves of the lowest layer
+            let edge = leaves(&tree, lowest);
+            for leaf in &edge {
+                for step in STEPS {
+                    let out = *leaf + step.xz();
+                    faces += usize::from(out.abs().max_element() == 3);
+                }
+            }
+
+            let chains = chains(&blocks);
+            let vines = blocks
+                .iter()
+                .filter(|(_, b, _)| *b == BlockId::Vine)
+                .count();
+            assert_eq!(vines as i32, chains.iter().map(|c| c.2).sum::<i32>());
+            for (top_cell, toward, length) in chains {
+                let top_cell = top_cell - ROOT;
+                let leaf = top_cell + toward.offset();
+                assert_eq!(top_cell.y, lowest, "{top_cell}: not under the crown");
+                assert!(edge.contains(&leaf.xz()), "{top_cell}: no leaf on its side");
+                assert_eq!(
+                    top_cell.xz().abs().max_element(),
+                    3,
+                    "{top_cell}: not outward"
+                );
+                // never under the root
+                assert!((1..=4).contains(&length), "{length}");
+                assert!(top_cell.y - length + 1 >= 0, "{top_cell} down {length}");
+                hung += 1;
+                lengths.insert(length);
+            }
+        }
+        let share = hung as f32 / faces as f32;
+        assert!((0.2..0.3).contains(&share), "{share}");
+        assert_eq!(lengths.len(), 4, "{lengths:?}");
     }
 
     #[test]
@@ -387,7 +588,7 @@ mod tests {
                 let mut blocks = Vec::new();
                 giant_tree_blocks(ROOT, &random, &mut blocks);
                 let mut by_offset: HashMap<IVec3, BlockId> = HashMap::new();
-                for (pos, block) in blocks {
+                for (pos, block, _) in blocks {
                     let cell = by_offset.entry(pos - ROOT).or_insert(block);
                     if precedence(block) > precedence(*cell) {
                         *cell = block;
@@ -523,6 +724,75 @@ mod tests {
     }
 
     #[test]
+    fn vines_hang_on_one_giant_trunk_face_in_five_and_under_one_rim_leaf_in_three() {
+        let (mut trunk_faces, mut rim_faces) = (0, 0);
+        let (mut on_trunks, mut on_rims) = (HashSet::new(), HashSet::new());
+        let (mut trunk_vines, mut rim_vines) = (0, 0);
+        for seed in [3, 11, 42] {
+            for i in 0..300 {
+                let random = PositionRandom {
+                    seed,
+                    coords: [i % 20, i / 20],
+                };
+                let mut blocks = Vec::new();
+                giant_tree_blocks(ROOT, &random, &mut blocks);
+                // each cell holding the block of highest rank
+                let mut giant: HashMap<IVec3, BlockId> = HashMap::new();
+                for (pos, block, _) in &blocks {
+                    let cell = giant.entry(*pos - ROOT).or_insert(*block);
+                    if precedence(*block) > precedence(*cell) {
+                        *cell = *block;
+                    }
+                }
+                let top = (0..)
+                    .take_while(|y| giant.get(&IVec3::new(0, *y, 0)) == Some(&BlockId::JungleLog))
+                    .count() as i32
+                    - 1;
+                // the faces of the widest layer of the crown toward the outside of its disk
+                let widest = CROWN[1].1;
+                trunk_faces += 8;
+                for x in -5..=6 {
+                    for z in -5..=6 {
+                        let cell = IVec2::new(x, z);
+                        if from_trunk_centre(cell) > widest
+                            || giant.get(&IVec3::new(x, top, z)) != Some(&BlockId::JungleLeaves)
+                        {
+                            continue;
+                        }
+                        for step in STEPS {
+                            rim_faces += usize::from(from_trunk_centre(cell + step.xz()) > widest);
+                        }
+                    }
+                }
+
+                for (top_cell, toward, length) in chains(&blocks) {
+                    let top_cell = top_cell - ROOT;
+                    let support = top_cell + toward.offset();
+                    assert!((1..=7).contains(&length), "{length}");
+                    if TRUNK.contains(&support.xz()) {
+                        assert_eq!(top_cell.y, top - 2, "{top_cell}: not under the crown");
+                        on_trunks.insert(length);
+                        trunk_vines += 1;
+                    } else {
+                        assert_eq!(top_cell.y, top, "{top_cell}: not beside the widest layer");
+                        assert_eq!(giant.get(&support), Some(&BlockId::JungleLeaves));
+                        assert!(from_trunk_centre(support.xz()) <= widest, "{support}");
+                        assert!(from_trunk_centre(top_cell.xz()) > widest, "{top_cell}");
+                        on_rims.insert(length);
+                        rim_vines += 1;
+                    }
+                    assert!(!TRUNK.contains(&top_cell.xz()));
+                }
+            }
+        }
+        let trunk_share = trunk_vines as f32 / trunk_faces as f32;
+        assert!((0.17..0.23).contains(&trunk_share), "{trunk_share}");
+        let rim_share = rim_vines as f32 / rim_faces as f32;
+        assert!((0.3..0.37).contains(&rim_share), "{rim_share}");
+        assert_eq!((on_trunks.len(), on_rims.len()), (7, 7));
+    }
+
+    #[test]
     fn giants_stay_within_their_margin_and_under_their_height() {
         let (mut widest, mut highest, mut lowest) = (0, i32::MIN, i32::MAX);
         for seed in [0, 7, 42, 1234, u32::MAX] {
@@ -534,7 +804,7 @@ mod tests {
                     };
                     let mut blocks = Vec::new();
                     giant_tree_blocks(ROOT, &random, &mut blocks);
-                    for (pos, _) in blocks {
+                    for (pos, ..) in blocks {
                         let offset = pos - ROOT;
                         let wide = offset.x.abs().max(offset.z.abs());
                         // above the surface, which lies under the root

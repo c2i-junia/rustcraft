@@ -123,9 +123,9 @@ lot 4 of "Lots".
 - [x] Commit `feat(shared): a vine hangs on the side of the block it is placed against`.
 
 ### Task 3: Vines in the jungle (`server`)
-- [ ] Benchmarks before (done: see the commit message).
-- [ ] `Blocks` with a direction, `place` with it (no behaviour change; every test passes).
-- [ ] Tests (jungle.rs): `vines_hang_under_one_in_four_of_the_jungle_trees_lowest_edge_leaves`
+- [x] Benchmarks before (done: see the commit message).
+- [x] `Blocks` with a direction, `place` with it (no behaviour change; every test passes).
+- [x] Tests (jungle.rs): `vines_hang_under_one_in_four_of_the_jungle_trees_lowest_edge_leaves`
   (top cell beside an edge leaf of `top - 2`, outward, turned toward it, chains straight down,
   1–4 long, never under the root, about one face in four, every length seen),
   `vines_hang_on_one_giant_trunk_face_in_five_and_under_one_rim_leaf_in_three` (trunk chains
@@ -133,19 +133,20 @@ lot 4 of "Lots".
   turned toward their support, 1–7 long, the shares near 1/5 and 1/3, every length seen); the
   margin tests reach 3 for the jungle tree and keep `GIANT_MARGIN` and the heights for the
   giant. See them fail.
-- [ ] Tests (generation.rs): the vine in `jungle_blocks_rank_with_their_oak_and_grass_siblings`;
-  `vines_hang_from_their_support_and_never_into_the_ground` (sample chunks and the giant's:
-  vines found, each above the surface of its column, under a vine of the same direction or
-  beside leaves or a log on its support's side, or under leaves or a log). See them fail.
-- [ ] The vines of `jungle_tree_blocks` and `giant_tree_blocks`, the rank, the ground rule. See
+- [x] Tests (generation.rs): the vine in `jungle_blocks_rank_with_their_oak_and_grass_siblings`;
+  `a_vine_is_never_placed_at_or_below_the_surface_of_its_column` (`place_structure_block`);
+  `vines_hang_from_something_and_never_into_the_ground` (sample chunks and those around a
+  giant: vines found, each above the surface of its column, under a vine, leaves or a log, or
+  beside leaves or a log on its support's side). See them fail.
+- [x] The vines of `jungle_tree_blocks` and `giant_tree_blocks`, the rank, the ground rule. See
   them pass, with the determinism, margin, culling and completeness tests.
-- [ ] Benchmarks after.
+- [x] Benchmarks after.
 
 ### Task 4: Tools, preview, commit
-- [ ] `worldgen_dump.rs`, `worldgen_preview.py`.
-- [ ] Render a slice through a giant with its vines and a close top view; look at them; keep them
+- [x] `worldgen_dump.rs`, `worldgen_preview.py`.
+- [x] Render a slice through a giant with its vines and a close top view; look at them; keep them
   outside the repository (`vines_*`).
-- [ ] `CHANGELOG.txt`; tests, clippy, fmt; commit `feat: vines in the jungle`.
+- [x] `CHANGELOG.txt`; tests, clippy, fmt; commit `feat: vines in the jungle`.
 
 ### Task 5 (optional): A picture of a vine in the game
 - [ ] If the e2e harness can show a giant of the seed 42 at a fixed camera cheaply, an ignored
