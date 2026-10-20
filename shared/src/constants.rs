@@ -3,13 +3,14 @@ use bevy::prelude::*;
 /// Bump it whenever a network message or an enum sent in one (`BlockId`, `BlockDirection`,
 /// `ItemId`, ...) changes, so that a client and a server of different builds refuse to talk
 /// instead of misreading each other.
-pub const PROTOCOL_ID: u64 = 21;
+pub const PROTOCOL_ID: u64 = 22;
 /// The UDP port a server listens on when none is given, and that an address without one means.
 pub const DEFAULT_PORT: u16 = 8000;
 pub const TICKS_PER_SECOND: u64 = 20;
-/// Length of a day and night cycle: one minute. A cycle starts at sunset, so its first half is
-/// the night (`client/src/world/celestial.rs`).
-pub const DAY_DURATION_IN_TICKS: u64 = TICKS_PER_SECOND * 60;
+/// Length of a day and night cycle: twenty minutes, as in Minecraft. A cycle starts at sunset,
+/// so its first half is the night (`client/src/world/celestial.rs`). Bump `PROTOCOL_ID` with
+/// it: a client and a server must see the sun at the same place.
+pub const DAY_DURATION_IN_TICKS: u64 = TICKS_PER_SECOND * 60 * 20;
 /// When the sun is at its highest, counted from the start of a cycle.
 pub const NOON_IN_DAY: u64 = DAY_DURATION_IN_TICKS * 3 / 4;
 /// When the moon is at its highest, counted from the start of a cycle.
