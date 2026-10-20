@@ -32,7 +32,7 @@ use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
 use crate::world::clouds::mesh::CloudStyle;
-use crate::world::RenderDistance;
+use crate::world::{BiomeBlend, RenderDistance};
 use audio::spawn_audio_tab;
 use controls::{spawn_controls_tab, KeyCapture, KeySearch, KeySearchField, CONTROLS_HINTS};
 use interface::{show_scale_limit, spawn_interface_tab};
@@ -315,6 +315,7 @@ fn show_tab(
     interface: Res<InterfaceSettings>,
     render_distance: Res<RenderDistance>,
     clouds: Res<CloudStyle>,
+    biome_blend: Res<BiomeBlend>,
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -349,9 +350,12 @@ fn show_tab(
             &search,
             (font, glyph_font),
         ),
-        SettingsTab::Video => {
-            spawn_video_tab(&mut commands, panel, (&render_distance, *clouds), font)
-        }
+        SettingsTab::Video => spawn_video_tab(
+            &mut commands,
+            panel,
+            (&render_distance, *clouds, &biome_blend),
+            font,
+        ),
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
         SettingsTab::Interface => spawn_interface_tab(&mut commands, panel, &interface, font),
     }

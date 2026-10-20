@@ -1,6 +1,6 @@
 //! The Video tab of the settings: the render distance, applied and saved as soon as it is set,
 //! and a note under it, which says when the server of the game grants less; then the clouds,
-//! with a note saying what each style draws.
+//! with a note saying what each style draws, and the biome blend.
 
 use bevy::{prelude::*, ui_widgets::ValueChange};
 use shared::{GameFolderPaths, MIN_RENDER_DISTANCE};
@@ -12,11 +12,17 @@ use crate::ui::theme::{FONT_S, MUTED, SPACE_M, SPACE_XS};
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderScale, LABEL_WIDTH};
 use crate::world::clouds::mesh::CloudStyle;
-use crate::world::{write_video_settings, RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{
+    write_video_settings, BiomeBlend, RenderDistance, ServerRenderDistanceLimit, MAX_BIOME_BLEND,
+};
 
 /// The slider of the render distance.
 #[derive(Component)]
 pub struct RenderDistanceSlider;
+
+/// The slider of the biome blend.
+#[derive(Component)]
+pub struct BiomeBlendSlider;
 
 /// The note under the render distance.
 #[derive(Component)]
@@ -68,11 +74,31 @@ fn chunks_label(value: f32) -> String {
     format!("{}", value.round())
 }
 
-/// Spawns the render distance slider and the clouds control, each with its note, under `panel`.
+/// A column a step, from no blend to the largest.
+const BIOME_BLEND_SCALE: SliderScale = SliderScale {
+    min: 0.,
+    max: MAX_BIOME_BLEND as f32,
+    step: 1.,
+    whole: true,
+    readout: blend_label,
+};
+
+/// The biome blend as the square of columns a column takes the mean of: "5x5", as Minecraft
+/// shows it.
+fn blend_label(value: f32) -> String {
+    let side = BiomeBlend {
+        radius: value.round() as u32,
+    }
+    .side();
+    format!("{side}x{side}")
+}
+
+/// Spawns the render distance slider and the clouds control, each with its note, then the
+/// biome blend slider, under `panel`.
 pub fn spawn_video_tab(
     commands: &mut Commands,
     panel: Entity,
-    (render_distance, clouds): (&RenderDistance, CloudStyle),
+    (render_distance, clouds, biome_blend): (&RenderDistance, CloudStyle, &BiomeBlend),
     font: Handle<Font>,
 ) {
     // the slider, and its note under it
@@ -146,6 +172,19 @@ pub fn spawn_video_tab(
         note_node(),
         ChildOf(column),
     ));
+
+    let field = SliderField {
+        label: "Biome blend",
+        value: biome_blend.radius as f32,
+        scale: BIOME_BLEND_SCALE,
+    };
+    let parts = spawn_slider(commands, &field, font);
+    commands.entity(parts.root).insert(ChildOf(panel));
+    commands
+        .entity(parts.slider)
+        .insert(BiomeBlendSlider)
+        .observe(set_biome_blend)
+        .observe(save_on_release);
 }
 
 /// Applies and saves the chosen clouds, and says what they are. In game, the clouds are drawn
@@ -154,11 +193,12 @@ fn choose_clouds(
     change: On<SegmentChange>,
     mut clouds: ResMut<CloudStyle>,
     render_distance: Res<RenderDistance>,
+    biome_blend: Res<BiomeBlend>,
     paths: Res<GameFolderPaths>,
     mut notes: Query<&mut Text, With<CloudsNote>>,
 ) {
     *clouds = CLOUD_STYLES[change.index];
-    write_video_settings(&render_distance, *clouds, &paths);
+    write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
     for mut text in &mut notes {
         text.0 = clouds_note(*clouds).to_string();
     }
@@ -170,6 +210,7 @@ fn set_render_distance(
     change: On<ValueChange<f32>>,
     mut render_distance: ResMut<RenderDistance>,
     clouds: Res<CloudStyle>,
+    biome_blend: Res<BiomeBlend>,
     paths: Res<GameFolderPaths>,
 ) {
     let distance = change.value.round() as u32;
@@ -177,19 +218,38 @@ fn set_render_distance(
         render_distance.set(distance);
     }
     if change.is_final {
-        write_video_settings(&render_distance, *clouds, &paths);
+        write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
     }
 }
 
-/// Saves the render distance when the button is released on the slider: a click on the track
+/// Applies the biome blend of the slider, which colours the grass again (`climate.rs`), and
+/// saves it once the player is done with it.
+fn set_biome_blend(
+    change: On<ValueChange<f32>>,
+    render_distance: Res<RenderDistance>,
+    clouds: Res<CloudStyle>,
+    mut biome_blend: ResMut<BiomeBlend>,
+    paths: Res<GameFolderPaths>,
+) {
+    let radius = change.value.round() as u32;
+    if biome_blend.radius != radius {
+        biome_blend.set(radius);
+    }
+    if change.is_final {
+        write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
+    }
+}
+
+/// Saves the video settings when the button is released on a slider: a click on the track
 /// sets a value that the widget never reports as final.
 fn save_on_release(
     _: On<Pointer<Release>>,
     render_distance: Res<RenderDistance>,
     clouds: Res<CloudStyle>,
+    biome_blend: Res<BiomeBlend>,
     paths: Res<GameFolderPaths>,
 ) {
-    write_video_settings(&render_distance, *clouds, &paths);
+    write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
 }
 
 /// What the note under the render distance says: what the distance is, or that the server of
@@ -252,6 +312,13 @@ mod tests {
                 "No clouds"
             ]
         );
+    }
+
+    #[test]
+    fn the_biome_blend_reads_as_the_square_of_columns_it_takes() {
+        assert_eq!(blend_label(0.), "1x1");
+        assert_eq!(blend_label(2.), "5x5");
+        assert_eq!(blend_label(6.6), "15x15");
     }
 
     #[test]

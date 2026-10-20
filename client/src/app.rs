@@ -56,12 +56,13 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
         }
     };
     network::add_base_netcode(app);
-    let (render_distance, clouds) = load_video_settings(&game_folder_paths);
+    let (render_distance, clouds, biome_blend) = load_video_settings(&game_folder_paths);
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))
         .insert_resource(load_interface_settings(&game_folder_paths))
         .insert_resource(render_distance)
         .insert_resource(clouds)
+        .insert_resource(biome_blend)
         .insert_resource(SelectedWorld::default())
         .insert_resource(ClientWorldMap { ..default() })
         .insert_resource(TexturePath { path: texture_path })

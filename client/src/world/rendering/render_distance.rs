@@ -6,7 +6,7 @@ use crate::{
     network::SendGameMessageExtension,
     state::KeyMap,
     ui::hud::UIMode,
-    world::clouds::mesh::CloudStyle,
+    world::{clouds::mesh::CloudStyle, BiomeBlend},
 };
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
@@ -58,6 +58,8 @@ pub struct ServerRenderDistanceLimit(pub u32);
 pub struct VideoSettings {
     pub render_distance: u32,
     pub clouds: CloudStyle,
+    /// `BiomeBlend::radius`
+    pub biome_blend: u32,
 }
 
 impl Default for VideoSettings {
@@ -65,13 +67,14 @@ impl Default for VideoSettings {
         Self {
             render_distance: DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS,
             clouds: CloudStyle::default(),
+            biome_blend: BiomeBlend::default().radius,
         }
     }
 }
 
-/// The saved render distance and clouds, or the default ones when none were saved or the file
-/// cannot be read. A distance out of the bounds is brought back within them.
-pub fn load_video_settings(paths: &GameFolderPaths) -> (RenderDistance, CloudStyle) {
+/// The saved render distance, clouds and biome blend, or the default ones when none were saved
+/// or the file cannot be read. A setting out of its bounds is brought back within them.
+pub fn load_video_settings(paths: &GameFolderPaths) -> (RenderDistance, CloudStyle, BiomeBlend) {
     let path = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
     let saved: VideoSettings = fs::read_to_string(&path)
         .ok()
@@ -79,20 +82,24 @@ pub fn load_video_settings(paths: &GameFolderPaths) -> (RenderDistance, CloudSty
         .unwrap_or_default();
     let mut render_distance = RenderDistance::default();
     render_distance.set(saved.render_distance);
-    (render_distance, saved.clouds)
+    let mut blend = BiomeBlend::default();
+    blend.set(saved.biome_blend);
+    (render_distance, saved.clouds, blend)
 }
 
-/// Writes the render distance and the clouds to `video.ron` in the game folder: both, so that
-/// saving one keeps the other.
+/// Writes the render distance, the clouds and the biome blend to `video.ron` in the game
+/// folder: all of them, so that saving one keeps the others.
 pub fn write_video_settings(
     render_distance: &RenderDistance,
     clouds: CloudStyle,
+    blend: &BiomeBlend,
     paths: &GameFolderPaths,
 ) {
     let path = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
     let settings = VideoSettings {
         render_distance: render_distance.distance,
         clouds,
+        biome_blend: blend.radius,
     };
     let serialized = match ron::ser::to_string_pretty(&settings, PrettyConfig::new()) {
         Ok(serialized) => serialized,
@@ -110,6 +117,7 @@ pub fn write_video_settings(
 /// The keys that lower and raise the render distance, which is saved at once.
 pub fn render_distance_update_system(
     mut render_distance: ResMut<RenderDistance>,
+    blend: Res<BiomeBlend>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
     ui_mode: Res<UIMode>,
@@ -130,7 +138,7 @@ pub fn render_distance_update_system(
     }
 
     if *render_distance != before {
-        write_video_settings(&render_distance, *clouds, &paths);
+        write_video_settings(&render_distance, *clouds, &blend, &paths);
     }
 }
 
@@ -151,6 +159,7 @@ pub fn send_render_distance_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::MAX_BIOME_BLEND;
     use bevy_renet::RenetServer;
     use shared::{get_shared_renet_config, payload_to_game_message, CTS_STANDARD_CHANNEL};
 
@@ -230,23 +239,52 @@ mod tests {
     fn the_render_distance_is_saved_and_loaded_back_within_the_bounds() {
         let paths = temp_paths("video");
         let file = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
-        let distance = |paths: &GameFolderPaths| load_video_settings(paths).0.distance;
         assert_eq!(
             load_video_settings(&paths),
-            (RenderDistance::default(), CloudStyle::Fancy)
+            (
+                RenderDistance::default(),
+                CloudStyle::Fancy,
+                BiomeBlend::default()
+            )
         );
 
-        write_video_settings(&RenderDistance { distance: 5 }, CloudStyle::Fancy, &paths);
-        assert_eq!(distance(&paths), 5);
+        let blend = BiomeBlend { radius: 6 };
+        write_video_settings(
+            &RenderDistance { distance: 5 },
+            CloudStyle::Fancy,
+            &blend,
+            &paths,
+        );
+        assert_eq!(
+            load_video_settings(&paths),
+            (RenderDistance { distance: 5 }, CloudStyle::Fancy, blend)
+        );
 
-        for (content, expected) in [
-            ("garbage", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS),
-            ("()", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS),
-            ("(render_distance: 0)", MIN_RENDER_DISTANCE),
-            ("(render_distance: 500)", MAX_CHUNK_RENDER_DISTANCE_RADIUS),
+        let default_blend = BiomeBlend::default().radius;
+        for (content, distance, radius) in [
+            (
+                "garbage",
+                DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS,
+                default_blend,
+            ),
+            ("()", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS, default_blend),
+            ("(render_distance: 0)", MIN_RENDER_DISTANCE, default_blend),
+            (
+                "(render_distance: 500)",
+                MAX_CHUNK_RENDER_DISTANCE_RADIUS,
+                default_blend,
+            ),
+            ("(biome_blend: 0)", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS, 0),
+            (
+                "(biome_blend: 50)",
+                DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS,
+                MAX_BIOME_BLEND,
+            ),
         ] {
             fs::write(&file, content).unwrap();
-            assert_eq!(distance(&paths), expected, "{content}");
+            let (render_distance, _, blend) = load_video_settings(&paths);
+            assert_eq!(render_distance.distance, distance, "{content}");
+            assert_eq!(blend.radius, radius, "{content}");
         }
         fs::remove_dir_all(&paths.game_folder_path).unwrap();
     }
@@ -258,7 +296,14 @@ mod tests {
         fs::write(&file, "(render_distance: 8)").unwrap();
         let loaded = load_video_settings(&paths);
         fs::remove_dir_all(&paths.game_folder_path).unwrap();
-        assert_eq!(loaded, (RenderDistance { distance: 8 }, CloudStyle::Fancy));
+        assert_eq!(
+            loaded,
+            (
+                RenderDistance { distance: 8 },
+                CloudStyle::Fancy,
+                BiomeBlend::default()
+            )
+        );
     }
 
     #[test]
@@ -266,14 +311,18 @@ mod tests {
         let paths = temp_paths("video-clouds");
         for clouds in [CloudStyle::Fast, CloudStyle::Off, CloudStyle::Fancy] {
             let render_distance = RenderDistance { distance: 7 };
-            write_video_settings(&render_distance, clouds, &paths);
-            assert_eq!(load_video_settings(&paths), (render_distance, clouds));
+            let blend = BiomeBlend::default();
+            write_video_settings(&render_distance, clouds, &blend, &paths);
+            assert_eq!(
+                load_video_settings(&paths),
+                (render_distance, clouds, blend)
+            );
         }
         fs::remove_dir_all(&paths.game_folder_path).unwrap();
     }
 
     #[test]
-    fn the_render_distance_keys_keep_the_clouds_saved() {
+    fn the_render_distance_keys_keep_the_other_settings_saved() {
         let paths = temp_paths("video-keys");
         let mut keyboard = ButtonInput::<KeyCode>::default();
         let key_map = crate::input::keyboard::default_bindings();
@@ -285,11 +334,19 @@ mod tests {
             .insert_resource(UIMode::Closed)
             .insert_resource(RenderDistance { distance: 4 })
             .insert_resource(CloudStyle::Off)
+            .insert_resource(BiomeBlend { radius: 3 })
             .insert_resource(paths.clone())
             .add_systems(Update, render_distance_update_system);
         app.update();
         let loaded = load_video_settings(&paths);
         fs::remove_dir_all(&paths.game_folder_path).unwrap();
-        assert_eq!(loaded, (RenderDistance { distance: 5 }, CloudStyle::Off));
+        assert_eq!(
+            loaded,
+            (
+                RenderDistance { distance: 5 },
+                CloudStyle::Off,
+                BiomeBlend { radius: 3 }
+            )
+        );
     }
 }

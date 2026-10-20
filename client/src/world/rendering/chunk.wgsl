@@ -32,8 +32,9 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> block_textures: array<vec4<u32>, 256>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var block_layers: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var block_sampler: sampler;
-// The climate of the columns around the player, wrapped around (`climate.rs`): the temperature
-// in red, the humidity in green, and an alpha of 0 where it is not known yet.
+// The climate of the columns around the player, wrapped around (`climate.rs`): their place on
+// the colour maps from the bottom right corner, the temperature in red and the downfall times
+// the temperature in green, blended across biomes, and an alpha of 0 where it is not known yet.
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var climate_map: texture_2d<f32>;
 // The colours of the grass and of the leaves by climate, read as Minecraft reads its own.
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var grass_colors: texture_2d<f32>;
@@ -165,10 +166,9 @@ fn biome_color(in: VertexOutput, tint: u32, color: vec3<f32>) -> vec3<f32> {
     if climate.a == 0.0 {
         return color;
     }
-    // As Minecraft: the hotter to the left, and up as the humidity grows, the more so the
+    // As Minecraft: the hotter to the left, and up as the downfall grows, the more so the
     // hotter the climate
-    let temperature = climate.r;
-    let at = vec2(1.0 - temperature, 1.0 - climate.g * temperature);
+    let at = vec2(1.0 - climate.r, 1.0 - climate.g);
     if tint == BIOME_TINT_GRASS {
         return colormap_color(grass_colors, at);
     }

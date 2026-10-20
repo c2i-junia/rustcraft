@@ -25,6 +25,8 @@ pub fn world_plugin(app: &mut App) {
         })
         .insert_resource(MaterialResource { ..default() })
         .init_resource::<ClimateMap>()
+        // loaded from `video.ron` by `add_client`
+        .init_resource::<BiomeBlend>()
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
         // loaded from the game folder by `add_client`

@@ -53,7 +53,7 @@ use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::celestial::{celestial_shadows_system, CelestialRoot};
 use crate::world::{
     chunk_material_plugin, create_all_atlases, fill_climate_map, group_of, setup_materials,
-    AtlasHandles, ChunkRender, MaterialResource,
+    AtlasHandles, BiomeBlend, ChunkRender, MaterialResource,
 };
 
 const SEED: u32 = 42;
@@ -577,7 +577,12 @@ impl Drawing {
             .run_system_once(
                 move |materials: Res<MaterialResource>, mut images: ResMut<Assets<Image>>| {
                     if let Some(mut map) = images.get_mut(&materials.climate_map) {
-                        fill_climate_map(&mut map, &TerrainNoises::new(SEED), &columns);
+                        fill_climate_map(
+                            &mut map,
+                            &TerrainNoises::new(SEED),
+                            &columns,
+                            BiomeBlend::default(),
+                        );
                     }
                 },
             )

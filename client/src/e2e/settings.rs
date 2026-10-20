@@ -33,7 +33,9 @@ use crate::ui::theme::{
 use crate::ui::widgets::hints::HintBar;
 use crate::world::clouds::mesh::CloudStyle;
 use crate::world::clouds::Clouds;
-use crate::world::{RenderDistance, ServerRenderDistanceLimit, VideoSettings};
+use crate::world::{
+    BiomeBlend, RenderDistance, ServerRenderDistanceLimit, VideoSettings, MAX_BIOME_BLEND,
+};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -304,6 +306,39 @@ fn the_render_distance_moves_by_whole_chunks_within_its_bounds_and_is_kept() {
         h.world().resource::<RenderDistance>().distance,
         MAX_CHUNK_RENDER_DISTANCE_RADIUS
     );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_biome_blend_moves_a_column_at_a_time_and_is_kept_with_the_render_distance() {
+    let blend = || L::role(Role::Slider, "Biome blend");
+    let readout = |text: &str| L::text(text).within(L::row("Biome blend"));
+    let folder = GameFolder::new();
+    let mut h = settings_with(folder.clone(), Options::default());
+    h.open_tab_showing("Video", &blend());
+    h.wait_for(&readout("5x5"), SCREEN);
+
+    h.click(&blend());
+    for _ in 0..MAX_BIOME_BLEND {
+        h.press(KeyCode::ArrowLeft);
+    }
+    h.wait_for(&readout("1x1"), SCREEN);
+    for _ in 0..MAX_BIOME_BLEND + 2 {
+        h.press(KeyCode::ArrowRight);
+    }
+    h.wait_for(&readout("15x15"), SCREEN);
+    h.snapshot("biome_blend_max");
+    assert_eq!(h.world().resource::<BiomeBlend>().radius, MAX_BIOME_BLEND);
+    let saved: VideoSettings = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!(saved.biome_blend, MAX_BIOME_BLEND);
+    // Saving the blend keeps the render distance
+    assert_eq!(saved.render_distance, DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS);
+    drop(h);
+
+    // the choice is kept for the next start
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(h.world().resource::<BiomeBlend>().radius, MAX_BIOME_BLEND);
 }
 
 #[test]
