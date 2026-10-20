@@ -10,6 +10,7 @@ use bevy::{
 use shared::GameFolderPaths;
 
 use super::background::menu_background;
+use super::mods::MODS_TITLE;
 use super::player_name::{change_name_on_activate, PlayerNameButton};
 use super::solo::SelectedWorld;
 use super::worlds::{
@@ -35,6 +36,7 @@ use crate::ui::widgets::hints::{hint_bar, Hint};
 pub enum MainMenuButton {
     Singleplayer,
     Multiplayer,
+    Mods,
     Settings,
     Quit,
 }
@@ -150,6 +152,7 @@ pub fn home_setup(
     let buttons = [
         (MainMenuButton::Singleplayer, "Singleplayer"),
         (MainMenuButton::Multiplayer, "Multiplayer"),
+        (MainMenuButton::Mods, MODS_TITLE),
         (MainMenuButton::Settings, "Settings"),
     ];
     for (index, (action, label)) in buttons.into_iter().enumerate() {
@@ -330,6 +333,7 @@ pub fn activate_main_menu_button(
     match action {
         MainMenuButton::Singleplayer => menu_state.set(MenuState::Solo),
         MainMenuButton::Multiplayer => menu_state.set(MenuState::Multi),
+        MainMenuButton::Mods => menu_state.set(MenuState::Mods),
         MainMenuButton::Settings => menu_state.set(MenuState::Settings),
         MainMenuButton::Quit => open_quit_dialog(&mut commands, &asset_server, &focus),
     }

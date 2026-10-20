@@ -178,4 +178,26 @@ impl GameFolder {
             ("Typo", "nowhere.invalid"),
         ])
     }
+
+    /// Adds the file `path` of the mod `id` to the folder of the mods.
+    pub fn with_mod_file(self, id: &str, path: &str, contents: impl AsRef<[u8]>) -> Self {
+        let path = self.path().join("mods").join(id).join(path);
+        fs::create_dir_all(path.parent().expect("a folder")).expect("the folder of a mod");
+        fs::write(path, contents).expect("a file of a mod");
+        self
+    }
+
+    /// Adds the mod `id` called `name`, with its manifest and no code, needing `needs`.
+    pub fn with_mod(self, id: &str, name: &str, description: &str, needs: &[&str]) -> Self {
+        let dependencies: String = needs
+            .iter()
+            .map(|need| format!("{need} = \"*\"\n"))
+            .collect();
+        let manifest = format!(
+            "[mod]\nid = \"{id}\"\nname = \"{name}\"\nversion = \"1.0.0\"\n\
+             description = \"{description}\"\nauthors = [\"Ondine\"]\n\
+             [game]\napi = 1\n[dependencies]\n{dependencies}"
+        );
+        self.with_mod_file(id, "mod.toml", &manifest)
+    }
 }

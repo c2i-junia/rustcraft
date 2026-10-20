@@ -3,6 +3,7 @@ pub mod connect_error;
 pub mod connecting;
 pub mod death;
 pub mod home;
+pub mod mods;
 pub mod multi;
 pub mod pause;
 pub mod player_name;
@@ -34,6 +35,7 @@ pub enum MenuState {
     Main,
     Solo,
     Multi,
+    Mods,
     Settings,
     /// The error card of a session that failed.
     ConnectError,
@@ -80,6 +82,7 @@ pub fn menu_plugin(app: &mut App) {
     settings::settings_plugin(app);
     solo::solo_plugin(app);
     multi::multi_plugin(app);
+    mods::mods_plugin(app);
 }
 
 /// Whether a dialog is open, or the card of the quit shows (`Quitting`): the key handlers of the
@@ -137,7 +140,9 @@ fn escape_button(
     }
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
-            MenuState::Solo | MenuState::Multi => next_menu_state.set(MenuState::Main),
+            MenuState::Solo | MenuState::Multi | MenuState::Mods => {
+                next_menu_state.set(MenuState::Main)
+            }
             // The settings close themselves
             _ => (),
         }

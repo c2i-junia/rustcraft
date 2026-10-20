@@ -118,15 +118,20 @@ impl Harness {
     }
 
     /// Runs frames until every image of the UI is loaded: the buttons are only borders before.
-    /// Meant for the menus: in game, the atlas built at runtime never counts as loaded.
+    /// Meant for the menus: in game, the atlas built at runtime never counts as loaded. An image
+    /// made by the game itself, as the icon of a mod, counts once it is in the assets.
     #[track_caller]
     pub fn wait_for_ui_images(&mut self) {
         self.wait_until("the images of the UI", SCREEN, |w| {
             let server = w.resource::<AssetServer>();
+            let images = w.resource::<Assets<Image>>();
             let mut nodes = w.try_query::<&ImageNode>().unwrap();
-            nodes
-                .iter(w)
-                .all(|node| server.is_loaded_with_dependencies(&node.image))
+            // an image made in the game, as the icon of a mod, is never loaded by the server
+            nodes.iter(w).all(|node| {
+                server.is_loaded_with_dependencies(&node.image)
+                    || (server.get_load_state(&node.image).is_none()
+                        && images.contains(&node.image))
+            })
         });
     }
 

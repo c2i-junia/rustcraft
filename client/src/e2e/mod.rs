@@ -16,6 +16,7 @@ mod locator;
 mod main_menu;
 mod minimap;
 mod mobs;
+mod mods;
 mod multi;
 mod pause;
 mod raw_client;

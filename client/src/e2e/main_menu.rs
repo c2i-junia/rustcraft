@@ -135,6 +135,8 @@ fn the_keyboard_alone_opens_a_screen() {
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Multiplayer"));
     h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("Mods"));
+    h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
     assert_eq!(ring(&mut h, "Settings"), ACCENT);
 
