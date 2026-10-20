@@ -155,6 +155,34 @@ keyed by the world's name in solo and by the server address in multiplayer.
 12. (Lot 1) 800×600 is a drawer: fewer than 4 columns fit beside the panel there.
 13. (Lot 1) Over the open inventory, `/` focuses the search instead of doing nothing; the chat
     still opens on `/` only in the game.
+14. (Lot 2) `+ Fill grid` is on every card, disabled (muted, out of Tab) until the server can
+    fill the grid in lot 3, with the reason or the station beside it: the cards keep their size
+    when it gets enabled, rather than a button appearing.
+15. (Lot 2) In Creative, a click on a catalog item still only focuses it: lot 3 gives it its
+    Creative meaning. R / U work in both modes, and a click on a slot of a card opens its recipes
+    (right click: its uses) in both modes.
+16. (Lot 2) The footer is `LMB recipes  RMB uses  / search` in Survival and
+    `R recipes  U uses  / search` in Creative; `A bookmark` comes with lot 4, and the arrows'
+    cap of lot 1 left for room.
+17. (Lot 2) The key line of the tooltip is the text `R Recipes  U Uses` (tooltips have no key
+    caps), on the slots of the catalog and of the cards; the inventory's slots keep their
+    Shift+click hint. `You have the ingredients` is a fourth line of the tooltip widget, `note`,
+    in the OK green.
+18. (Lot 2) The stations read `Inventory 2x2` and `Crafting Table 3x3`: the game font has no `×`.
+19. (Lot 2) `Needs a Crafting Table` follows the grid in use: at a crafting table, a 3×3 recipe
+    whose ingredients are there shows its station, not a reason.
+20. (Lot 2) Closing the inventory leaves the recipe view and empties its history, as it closes
+    the drawer; only the query outlives it. `/` and Ctrl+F leave the view too.
+21. (Lot 2) R / U act on the focused slot while its ring shows, else on the hovered one, as the
+    number keys of the inventory do (the mockup took the hovered one first).
+22. (Lot 2) With the Craftable filter and an empty search, nothing craftable reads
+    `No craftable item.` (` in <Category>`) and `Gather more, or turn Craftable off.`, not
+    `No item matches "".`.
+23. (Lot 2) The gaps inside a card are 4 px, not the mockup's 12, so that a card fits the four
+    columns of 854×480. The Craftable chip ends the row of chips, which scrolls sideways: at
+    1280×720 it is out of view until the row scrolls.
+24. (Lot 2) A focus on cards that are rebuilt, or on the catalog the view hides, moves to the
+    back button; back on the catalog, it returns to the slot of the item that was shown.
 
 ## Testing
 

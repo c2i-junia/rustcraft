@@ -325,7 +325,11 @@ by the server. While a chest is open, its slots take the place of the crafting r
 browser (`ui/hud/item_browser/`) shows beside the open inventory, in `HudBottom` with it, every
 item of the game: `catalog.rs` orders and searches them, `layout.rs` gives the columns that fit
 the window (8 to 4, the panel sliding left to leave them room, else a drawer of up to 6 over the
-right edge), and nothing comes out of it yet. Tab walks the panel and the browser together. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
+right edge), and nothing comes out of it yet. It is also the recipe book: `view.rs` shows the
+recipes or the uses of an item instead of the catalog, as cards built when the view changes, from
+the read-only recipe API of `shared::world::crafting` (`recipes`, `recipes_for`, `uses_of`,
+`missing`, which counts the inventory and the crafting grid), with a history in
+`ItemBrowserState`; `recipes.rs` holds its texts. Tab walks the panel and the browser together. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
 confirmation) takes the focus, Escape closes it, the focus comes back where it was, and it
 closes in `PostUpdate`. `hints.rs` is the key-hint bar at the bottom of a menu and its key caps,
 whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of options on a
