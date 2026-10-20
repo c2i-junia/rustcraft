@@ -1,5 +1,7 @@
 // The clouds: unlit, each face as bright as its shade, faded out with the horizontal distance
-// to the camera. Neither the lights nor the fog of the chunks touch them.
+// to the camera. Neither the lights nor the fog of the chunks touch them. The same shader draws
+// their depth first, then their colour where the depth is equal: both must find the same
+// positions, hence `@invariant`.
 
 #import bevy_pbr::{
     mesh_functions::{get_world_from_local, mesh_position_local_to_world},
@@ -24,7 +26,7 @@ struct Vertex {
 }
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @invariant @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) shade: f32,
 }
@@ -44,5 +46,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let distance = length(in.world_position.xz - view.world_position.xz);
     let alpha = params.opacity * (1.0 - smoothstep(params.fade_start, params.fade_end, distance));
+    // Where the clouds are faded out, their depth would hide what is behind them
+    if alpha < 0.01 {
+        discard;
+    }
     return vec4(params.tint.rgb * in.shade, alpha);
 }

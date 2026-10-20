@@ -130,17 +130,29 @@ fn smoothstep(from: f32, to: f32, x: f32) -> f32 {
     t * t * (3. - 2. * t)
 }
 
+/// Spawns the clouds, drawn in colour, with a child that draws their depth first (see
+/// `CloudMaterial`).
 fn spawn_clouds(mut commands: Commands, mut materials: ResMut<Assets<CloudMaterial>>) {
-    commands.spawn((
-        Name::new("Clouds"),
-        Clouds::default(),
-        MeshMaterial3d(materials.add(CloudMaterial::default())),
-        Transform::default(),
-        Visibility::default(),
-        NotShadowCaster,
-        NotShadowReceiver,
-        DespawnOnExit(GameState::Game),
-    ));
+    commands
+        .spawn((
+            Name::new("Clouds"),
+            Clouds::default(),
+            MeshMaterial3d(materials.add(CloudMaterial::default())),
+            Transform::default(),
+            Visibility::default(),
+            NotShadowCaster,
+            NotShadowReceiver,
+            DespawnOnExit(GameState::Game),
+        ))
+        .with_child((
+            Name::new("Cloud depth"),
+            MeshMaterial3d(materials.add(CloudMaterial {
+                depth_only: true,
+                ..default()
+            })),
+            NotShadowCaster,
+            NotShadowReceiver,
+        ));
 }
 
 /// Slides the clouds to the drift of the clock, moving on between two ticks.
@@ -161,7 +173,7 @@ fn rebuild_clouds_system(
     cameras: Query<&Transform, (With<Camera3d>, Without<Clouds>)>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
-    mut clouds: Query<(Entity, &mut Clouds, &Transform)>,
+    mut clouds: Query<(Entity, &mut Clouds, &Transform, &Children)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
 ) {
@@ -171,7 +183,7 @@ fn rebuild_clouds_system(
     let reach = current_reach(&render_distance, server_limit);
     // so that the window covers the reach from anywhere in the cell of the camera
     let radius = (reach / CELL as f32).ceil() as i32 + 1;
-    for (entity, mut clouds, transform) in &mut clouds {
+    for (entity, mut clouds, transform, children) in &mut clouds {
         let window = (
             camera_cell(camera.translation, transform.translation.x),
             radius,
@@ -180,19 +192,23 @@ fn rebuild_clouds_system(
             continue;
         }
         clouds.window = Some(window);
-        match cloud_mesh(CloudStyle::Fancy, window.0, window.1) {
-            Some(mesh) => commands.entity(entity).insert(Mesh3d(meshes.add(mesh))),
-            None => commands.entity(entity).remove::<Mesh3d>(),
-        };
+        let mesh = cloud_mesh(CloudStyle::Fancy, window.0, window.1).map(|m| meshes.add(m));
+        // the depth is drawn with the same mesh
+        for drawing in children.iter().chain([entity]) {
+            match &mesh {
+                Some(mesh) => commands.entity(drawing).insert(Mesh3d(mesh.clone())),
+                None => commands.entity(drawing).remove::<Mesh3d>(),
+            };
+        }
     }
 }
 
-/// Gives the material of the clouds the tint of the hour and the fade of the reach.
+/// Gives the materials of the clouds the tint of the hour and the fade of the reach.
 fn cloud_uniforms_system(
     time: Res<ClientTime>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
-    clouds: Query<&MeshMaterial3d<CloudMaterial>, With<Clouds>>,
+    clouds: Query<&MeshMaterial3d<CloudMaterial>>,
     mut materials: ResMut<Assets<CloudMaterial>>,
 ) {
     let reach = current_reach(&render_distance, server_limit);
@@ -371,6 +387,47 @@ mod tests {
         assert!((5.0..=5. + tick).contains(&x), "{x}");
         // the camera is now over the cell west of the one it was over
         assert_ne!(mesh(&mut app), first);
+    }
+
+    /// The entities drawing the clouds and their materials, the depth first.
+    fn drawings(app: &mut App) -> Vec<(Entity, CloudMaterial)> {
+        let world = app.world_mut();
+        let handles: Vec<_> = world
+            .query::<(Entity, &MeshMaterial3d<CloudMaterial>)>()
+            .iter(world)
+            .map(|(entity, material)| (entity, material.0.clone()))
+            .collect();
+        let materials = world.resource::<Assets<CloudMaterial>>();
+        let mut drawings: Vec<_> = handles
+            .into_iter()
+            .map(|(entity, handle)| (entity, materials.get(&handle).unwrap().clone()))
+            .collect();
+        drawings.sort_by_key(|(_, material)| !material.depth_only);
+        drawings
+    }
+
+    #[test]
+    fn the_depth_of_the_clouds_is_drawn_just_before_their_colour() {
+        let mut app = app();
+        let [(depth, depth_material), (colour, colour_material)] =
+            drawings(&mut app).try_into().unwrap();
+        assert!(depth_material.depth_only && !colour_material.depth_only);
+        assert!(depth_material.depth_bias() < colour_material.depth_bias());
+        // the same mesh at the same place, the drift included
+        assert_eq!(app.world().get::<ChildOf>(depth).unwrap().parent(), colour);
+        assert_eq!(
+            app.world().get::<Transform>(depth),
+            Some(&Transform::IDENTITY)
+        );
+        let mesh_of = |app: &App, entity| app.world().get::<Mesh3d>(entity).cloned();
+        assert_eq!(mesh_of(&app, depth), mesh_of(&app, colour));
+        move_camera(&mut app, Vec3::new(CELL as f32 + 1., 70., 1.));
+        assert_eq!(mesh_of(&app, depth), mesh_of(&app, colour));
+        // both fade out alike
+        app.update();
+        let [(_, depth_material), (_, colour_material)] = drawings(&mut app).try_into().unwrap();
+        assert_eq!(depth_material.params, colour_material.params);
+        assert!(app.world().get::<NotShadowCaster>(depth).is_some());
     }
 
     #[test]
