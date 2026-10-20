@@ -36,7 +36,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Day/night cycle
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
-- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe. In Creative it hands out stacks of any item, and destroys the stack you hold.
+- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe. In Creative it hands out stacks of any item, and destroys the stack you hold. A over any item slot bookmarks its item: the bookmarks show above the list, kept for each world and each server.
 - World saving and loading.
 - Survival and creative game modes: in survival, players have 10 hearts, cannot fly and get hurt by falls of more than 3 blocks; a dead player respawns at the spawn of the world. New players start in survival.
 - Sprinting, sneaking and swimming.
@@ -114,6 +114,7 @@ paru -S rustcraft
 |                   | Recipes of an item     | R over any item slot; Left Click in the browser (Survival) |
 |                   | Uses of an item        | U over any item slot; Right Click in the browser (Survival) |
 |                   | Back                   | Escape or the back button   |
+|                   | Bookmark an item, or remove it | A over any item slot |
 |                   | Fill the crafting grid with a recipe | + Fill grid (Shift: as many times as possible) |
 |                   | Take a stack (Creative) | Left Click on an item      |
 |                   | Take one more (Creative) | Right Click on an item    |
@@ -187,7 +188,7 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 
 Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per region of 8×8×8 chunks and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
-The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance).
+The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
 
 The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, changes it. `--player-name <name>` plays under another name for one run, without saving it. Each world keeps a player's position and inventory under their name: a new name starts afresh.
 

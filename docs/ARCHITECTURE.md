@@ -339,7 +339,7 @@ book: `view.rs` shows the
 recipes or the uses of an item instead of the catalog, as cards built when the view changes, from
 the read-only recipe API of `shared::world::crafting` (`recipes`, `recipes_for`, `uses_of`,
 `missing`, which counts the inventory and the crafting grid), with a history in
-`ItemBrowserState`; `recipes.rs` holds its texts. Tab walks the panel and the browser together. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
+`ItemBrowserState`; `recipes.rs` holds its texts. `bookmarks.rs` keeps the items the player bookmarked with A, for the world being played: read from `item_browser.ron` in the game folder when a world is entered (keyed by `SessionOrigin`: a world by its name, a server by its address as typed), written at each change, and shown as a row of slots above the catalog that are catalog slots too (`CatalogSlot` with `BookmarkSlot`), so that every gesture of the catalog works on them. R, U and A act on the same slot, `KeyedSlot`: the focused one while its ring shows, else the hovered one. Tab walks the panel and the browser together. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
 confirmation) takes the focus, Escape closes it, the focus comes back where it was, and it
 closes in `PostUpdate`. `hints.rs` is the key-hint bar at the bottom of a menu and its key caps,
 whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of options on a

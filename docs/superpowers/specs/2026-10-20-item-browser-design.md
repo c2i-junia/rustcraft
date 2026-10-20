@@ -1,5 +1,8 @@
 # Item Browser — design
 
+**Status: complete.** The four lots below are implemented on `feat/item-browser` (lot 4, the
+bookmarks, last), with the deviations recorded under "Decisions".
+
 The proposal the user accepted on 2026-10-20 ("c'est parfait, implémente ça"): an item browser
 in the spirit of TooManyItems, JEI and REI, always open beside the inventory. In Creative it
 hands out items; in Survival it is the recipe book and can fill the crafting grid. The mockup and
@@ -213,6 +216,24 @@ keyed by the world's name in solo and by the server address in multiplayer.
 33. (Lot 3) The observers of the panel (`Submit` of the search, `Activate` of `+ Fill grid`) only
     leave a request in `BrowserRequests`: `catalog_actions` sends it in `Update`, before the
     simulation, where the actions of the frame are gathered and predicted.
+
+34. (Lot 4) `item_browser.ron` holds two maps of ordered lists, `worlds` by name and `servers` by
+    address, so that a world and a server of the same name never share a list. A server is known
+    by its address as typed in the server list (`SessionOrigin::Server::ip`), not by the socket
+    address it resolved to, which can change. An emptied list leaves the file; a missing or
+    broken file reads as no bookmark, and the next change overwrites it.
+35. (Lot 4) The bookmarks are neither filtered by the search, the category or Craftable nor
+    counted in `N / 33`, as in the mockup, and they hide while the recipe view shows. Their
+    slots are catalog slots, with the same tooltips and `OK` dots. A new bookmark goes last.
+36. (Lot 4) On a bookmarked item the tooltip's keys read `A Unbookmark`, as the mockup's
+    `showTip`; elsewhere `A Bookmark`.
+37. (Lot 4) The Survival footer is `LMB recipes  RMB uses  A bookmark`, as the spec and the
+    mockup: Decision 16's `/ search` leaves, the search field showing its own `/` cap. The
+    inventory goldens, which show the browser, change in that corner only.
+38. (Lot 4) A focus on a bookmark slot that A removes goes to the item's slot in the grid (or
+    nowhere when the search hides it), where A bookmarks it again.
+39. (Lot 4) The row of bookmarks is padded on its sides by the room of the focus ring, as the
+    grid is, so that its slots stand under the grid's columns.
 
 ## Testing
 
