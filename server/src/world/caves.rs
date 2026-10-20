@@ -1,6 +1,11 @@
-//! Caves: winding tunnels where two noises are both near zero, and wide chambers deep down
-//! where a third one peaks. The noises are sampled on a coarse grid aligned on the world and
-//! interpolated in between, so a cell is carved or not whichever chunk asks.
+//! Caves: winding tunnels where a floor meets a wall, and wide chambers deep down where a noise
+//! peaks. The floors are levels stacked every `LEVEL_SPACING / 2` blocks, raised and lowered by
+//! a slow noise so that they tilt but never stand up; the walls are the zero surfaces of a noise
+//! that changes slowly upwards, so they are steep. A tunnel therefore runs level or sloping,
+//! never straight up, and it climbs to the surface where its level meets rising ground. A
+//! third noise widens some tunnels into galleries and pinches others shut. The noises are
+//! sampled on a coarse grid aligned on the world and interpolated in between, so a cell is
+//! carved or not whichever chunk asks.
 
 use bevy::prelude::*;
 use noise::{NoiseFn, SuperSimplex};
@@ -9,19 +14,34 @@ use shared::{world::splitmix64, CHUNK_SIZE};
 /// Nothing is carved below this height, so that the bottom of the world stays whole.
 pub const CAVE_FLOOR: i32 = 6;
 
-/// Size of the tunnels' bends, across and up.
-const TUNNEL_WAVELENGTH: f64 = 48.0;
-const TUNNEL_WAVELENGTH_Y: f64 = 32.0;
-/// A cell is in a tunnel where the sum of the squares of the two tunnel noises is below this:
-/// it sets how wide the tunnels are.
-const TUNNEL_WIDTH: f64 = 0.012;
+/// The floors: `sin(2π (y + LEVEL_SHIFT × noise) / LEVEL_SPACING)` is zero on them, the noise
+/// having the wavelengths below. `LEVEL_SHIFT` sets how steep a floor gets; the noise changes
+/// so slowly upwards that the levels never cross.
+const LEVEL_SPACING: f64 = 48.0;
+const LEVEL_SHIFT: f64 = 28.0;
+const LEVEL_SHIFT_WAVELENGTH: f64 = 128.0;
+const LEVEL_SHIFT_WAVELENGTH_Y: f64 = 384.0;
+/// The walls: the zero surfaces of a noise of these wavelengths, across and up.
+const WALLS_WAVELENGTH: f64 = 72.0;
+const WALLS_WAVELENGTH_Y: f64 = 160.0;
+/// The floors are scaled by this before they are squared: it sets how high a tunnel is against
+/// how wide.
+const FLOORS_SCALE: f64 = 0.4;
+/// A cell is in a tunnel where the sum of the squares of the floors and the walls is below
+/// this, times a factor from `TUNNEL_SHUT` (a negative one closes the tunnel) to `TUNNEL_WIDE`
+/// that a slow noise sets.
+const TUNNEL_WIDTH: f64 = 0.02;
+const TUNNEL_SHUT: f64 = -0.4;
+const TUNNEL_WIDE: f64 = 2.6;
+const TUNNEL_SIZE_WAVELENGTH: f64 = 96.0;
 
 /// Chambers open where their noise exceeds `CHAMBER_FROM` below `CHAMBERS_BELOW`, the
 /// threshold rising over `CHAMBER_FADE` blocks under that height so that their roofs are not
 /// flat.
-const CHAMBER_WAVELENGTH: f64 = 40.0;
-const CHAMBER_FROM: f64 = 0.65;
-const CHAMBERS_BELOW: i32 = 40;
+const CHAMBER_WAVELENGTH: f64 = 56.0;
+const CHAMBER_WAVELENGTH_Y: f64 = 32.0;
+const CHAMBER_FROM: f64 = 0.6;
+const CHAMBERS_BELOW: i32 = 48;
 const CHAMBER_FADE: i32 = 16;
 
 /// The noises are sampled every this many blocks, on each axis, and interpolated in between.
@@ -33,17 +53,18 @@ const SAMPLES: usize = (CHUNK_SIZE / STEP) as usize + 1;
 const SALT_TUNNEL_A: u64 = 0x100;
 const SALT_TUNNEL_B: u64 = 0x101;
 const SALT_CHAMBERS: u64 = 0x102;
+const SALT_TUNNEL_SIZE: u64 = 0x103;
 
 /// One SuperSimplex noise, stretched to its wavelengths and offset by its seed: a noise is
 /// zero at its origin whatever its seed.
-struct Noise3 {
+pub(crate) struct Noise3 {
     noise: SuperSimplex,
     offset: [f64; 3],
     frequency: [f64; 3],
 }
 
 impl Noise3 {
-    fn new(seed: u32, salt: u64, wavelength: f64, wavelength_y: f64) -> Self {
+    pub(crate) fn new(seed: u32, salt: u64, wavelength: f64, wavelength_y: f64) -> Self {
         let hash = splitmix64(splitmix64(seed as u64) ^ salt);
         let offset = |bits: u64| (bits & 0xffff) as f64 / 64.0;
         Self {
@@ -53,7 +74,7 @@ impl Noise3 {
         }
     }
 
-    fn get(&self, pos: IVec3) -> f64 {
+    pub(crate) fn get(&self, pos: IVec3) -> f64 {
         let [fx, fy, fz] = self.frequency;
         let [ox, oy, oz] = self.offset;
         self.noise.get([
@@ -66,8 +87,9 @@ impl Noise3 {
 
 /// The noises of the caves of a world, built once from its seed.
 pub struct Caves {
-    tunnel_a: Noise3,
-    tunnel_b: Noise3,
+    level_shift: Noise3,
+    walls: Noise3,
+    tunnel_size: Noise3,
     chambers: Noise3,
 }
 
@@ -93,9 +115,25 @@ impl CaveMask {
 impl Caves {
     pub fn new(seed: u32) -> Self {
         Self {
-            tunnel_a: Noise3::new(seed, SALT_TUNNEL_A, TUNNEL_WAVELENGTH, TUNNEL_WAVELENGTH_Y),
-            tunnel_b: Noise3::new(seed, SALT_TUNNEL_B, TUNNEL_WAVELENGTH, TUNNEL_WAVELENGTH_Y),
-            chambers: Noise3::new(seed, SALT_CHAMBERS, CHAMBER_WAVELENGTH, CHAMBER_WAVELENGTH),
+            level_shift: Noise3::new(
+                seed,
+                SALT_TUNNEL_A,
+                LEVEL_SHIFT_WAVELENGTH,
+                LEVEL_SHIFT_WAVELENGTH_Y,
+            ),
+            walls: Noise3::new(seed, SALT_TUNNEL_B, WALLS_WAVELENGTH, WALLS_WAVELENGTH_Y),
+            tunnel_size: Noise3::new(
+                seed,
+                SALT_TUNNEL_SIZE,
+                TUNNEL_SIZE_WAVELENGTH,
+                TUNNEL_SIZE_WAVELENGTH,
+            ),
+            chambers: Noise3::new(
+                seed,
+                SALT_CHAMBERS,
+                CHAMBER_WAVELENGTH,
+                CHAMBER_WAVELENGTH_Y,
+            ),
         }
     }
 
@@ -107,20 +145,25 @@ impl Caves {
             return mask;
         }
         let deep = chunk_origin.y < CHAMBERS_BELOW;
-        let sample = |noise: &Noise3| {
+        let sample_with = |f: &dyn Fn(IVec3) -> f64| {
             let mut samples = [[[0.0; SAMPLES]; SAMPLES]; SAMPLES];
             for (i, plane) in samples.iter_mut().enumerate() {
                 for (j, row) in plane.iter_mut().enumerate() {
                     for (k, value) in row.iter_mut().enumerate() {
                         let step = IVec3::new(i as i32, j as i32, k as i32) * STEP;
-                        *value = noise.get(chunk_origin + step);
+                        *value = f(chunk_origin + step);
                     }
                 }
             }
             samples
         };
-        let tunnel_a = sample(&self.tunnel_a);
-        let tunnel_b = sample(&self.tunnel_b);
+        let sample = |noise: &Noise3| sample_with(&|pos| noise.get(pos));
+        let floors = sample_with(&|pos| {
+            let level = pos.y as f64 + LEVEL_SHIFT * self.level_shift.get(pos);
+            FLOORS_SCALE * (std::f64::consts::TAU * level / LEVEL_SPACING).sin()
+        });
+        let walls = sample(&self.walls);
+        let tunnel_size = sample(&self.tunnel_size);
         let chambers = deep.then(|| sample(&self.chambers));
 
         for y in 0..CHUNK_SIZE {
@@ -135,9 +178,11 @@ impl Caves {
             for z in 0..CHUNK_SIZE {
                 for x in 0..CHUNK_SIZE {
                     let local = IVec3::new(x, y, z);
-                    let a = interpolate(&tunnel_a, local);
-                    let b = interpolate(&tunnel_b, local);
-                    let tunnel = a * a + b * b < TUNNEL_WIDTH;
+                    let floor = interpolate(&floors, local);
+                    let wall = interpolate(&walls, local);
+                    let size = smoothstep(-0.4, 0.5, interpolate(&tunnel_size, local));
+                    let width = TUNNEL_WIDTH * (TUNNEL_SHUT + (TUNNEL_WIDE - TUNNEL_SHUT) * size);
+                    let tunnel = floor * floor + wall * wall < width;
                     let chamber = chambers.as_ref().is_some_and(|c| {
                         world_y < CHAMBERS_BELOW && interpolate(c, local) > chamber_from
                     });
@@ -149,6 +194,12 @@ impl Caves {
         }
         mask
     }
+}
+
+/// `0` up to `edge0`, `1` from `edge1`, and a smooth S-curve in between.
+fn smoothstep(edge0: f64, edge1: f64, value: f64) -> f64 {
+    let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// The value at `local` of noise samples taken every `STEP` blocks, trilinearly interpolated.
@@ -209,10 +260,16 @@ mod tests {
 
     #[test]
     fn the_caves_depend_only_on_the_seed() {
-        for chunk_pos in [IVec3::new(0, 2, 0), IVec3::new(-5, 1, 3)] {
-            let first = carved(&Caves::new(7), chunk_pos);
-            assert_eq!(first, carved(&Caves::new(7), chunk_pos));
-            assert_ne!(first, carved(&Caves::new(8), chunk_pos));
-        }
+        // a single chunk may hold no cave for either seed: compare a row of them
+        let row = |seed| -> Vec<Vec<IVec3>> {
+            let caves = Caves::new(seed);
+            (-4..4)
+                .map(|x| carved(&caves, IVec3::new(x, 1, 3)))
+                .collect()
+        };
+        let first = row(7);
+        assert!(first.iter().any(|cells| !cells.is_empty()));
+        assert_eq!(first, row(7));
+        assert_ne!(first, row(8));
     }
 }

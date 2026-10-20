@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use shared::{world::*, CHUNK_SIZE};
 
-use super::caves::{CaveMask, Caves, CAVE_FLOOR};
+use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR};
 
 mod ores;
 
@@ -86,6 +86,17 @@ const ROCK_LINE_JITTER: u64 = 3;
 /// even under the snow line.
 const ROCK_FACE: i32 = 3;
 
+/// What covers the ground under the water is chosen by a noise of patches this wide, which
+/// leans from sand toward gravel then stone by `BED_DEPTH_BIAS` per block of water above it.
+/// A bed sloping down by more than `BED_STEEP` blocks is bare stone.
+const BED_PATCH_WAVELENGTH: f64 = 24.0;
+const BED_DEPTH_BIAS: f64 = 0.03;
+const BED_GRAVEL_BELOW: f64 = -0.1;
+const BED_STONE_BELOW: f64 = -0.4;
+const BED_STEEP: i32 = 2;
+/// The salt of the bed patch noise, apart from those of the caves.
+const SALT_BED_PATCHES: u64 = 0x200;
+
 /// Terrain of one world column: the noise is evaluated once per column and reused.
 struct Column {
     x: i32,
@@ -99,13 +110,20 @@ struct Column {
 }
 
 impl Column {
-    /// `drop` is how far the column stands above its lowest neighbour.
-    fn new(seed: u32, x: i32, z: i32, shape: ColumnShape, drop: i32) -> Self {
+    /// `drop` is how far the column stands above its lowest neighbour, and `bed_patch` the
+    /// value there of the noise that picks what covers the ground under the water.
+    fn new(seed: u32, x: i32, z: i32, shape: ColumnShape, drop: i32, bed_patch: f64) -> Self {
         let random = PositionRandom {
             seed,
             coords: [x, z],
         };
-        let (surface, sub_surface) = ground_blocks(shape.height, shape.biome, drop, &random);
+        let ground = Ground {
+            height: shape.height,
+            biome_type: shape.biome,
+            drop,
+            bed_patch,
+        };
+        let (surface, sub_surface) = ground_blocks(&ground, &random);
         let mut column = Column {
             x,
             z,
@@ -137,20 +155,32 @@ fn cave_ceiling(column: &Column, drop: i32, random: &ColumnRandom) -> i32 {
     }
 }
 
-/// The surface and sub-surface blocks of a column: those of its biome, except under the sea
-/// and on the beach just above it, which are sand (a frozen shore stays snowy), and high in the
-/// mountains, which are bare stone, then snow over stone.
-fn ground_blocks(
+/// What the ground blocks of a column are chosen from.
+struct Ground {
     height: i32,
     biome_type: BiomeType,
+    /// How far the column stands above its lowest neighbour.
     drop: i32,
-    random: &ColumnRandom,
-) -> (BlockId, BlockId) {
-    let beach =
-        height < SEA_LEVEL || (height <= SEA_LEVEL + 1 && biome_type != BiomeType::IcePlain);
+    bed_patch: f64,
+}
+
+/// The surface and sub-surface blocks of a column: those of its biome, except under the water,
+/// where they are sand, gravel or stone (see [`bed_blocks`]), on the beach just above it, which
+/// is sand (a frozen shore stays snowy), and high in the mountains, which are bare stone, then
+/// snow over stone.
+fn ground_blocks(ground: &Ground, random: &ColumnRandom) -> (BlockId, BlockId) {
+    let Ground {
+        height,
+        biome_type,
+        drop,
+        ..
+    } = *ground;
+    let beach = height <= SEA_LEVEL + 1 && biome_type != BiomeType::IcePlain;
     let jitter = random.below(SALT_ROCK_LINE, 2 * ROCK_LINE_JITTER + 1) - ROCK_LINE_JITTER as i32;
     let rock_face = height >= MOUNTAIN_FROM && drop > ROCK_FACE;
-    if beach {
+    if height < SEA_LEVEL {
+        bed_blocks(ground)
+    } else if beach {
         (BlockId::Sand, BlockId::Sand)
     } else if height >= SNOW_LINE + jitter && !rock_face {
         (BlockId::Snow, BlockId::Stone)
@@ -159,6 +189,20 @@ fn ground_blocks(
     } else {
         let biome = get_biome_data(biome_type);
         (biome.surface_block, biome.sub_surface_block)
+    }
+}
+
+/// The ground under the water: sand in the shallows, giving way to gravel and stone as the
+/// water deepens, in patches, and bare stone where the bed is steep.
+fn bed_blocks(ground: &Ground) -> (BlockId, BlockId) {
+    let depth = SEA_LEVEL - ground.height;
+    let score = ground.bed_patch - BED_DEPTH_BIAS * depth as f64;
+    if ground.drop > BED_STEEP || score < BED_STONE_BELOW {
+        (BlockId::Stone, BlockId::Stone)
+    } else if score < BED_GRAVEL_BELOW {
+        (BlockId::Gravel, BlockId::Gravel)
+    } else {
+        (BlockId::Sand, BlockId::Sand)
     }
 }
 
@@ -369,6 +413,7 @@ pub struct WorldGenerator {
     seed: u32,
     terrain: TerrainNoises,
     caves: Caves,
+    bed_patches: Noise3,
 }
 
 impl WorldGenerator {
@@ -377,6 +422,7 @@ impl WorldGenerator {
             seed,
             terrain: TerrainNoises::new(seed),
             caves: Caves::new(seed),
+            bed_patches: Noise3::new(seed, SALT_BED_PATCHES, BED_PATCH_WAVELENGTH, 1.0),
         }
     }
 
@@ -426,12 +472,14 @@ impl WorldGenerator {
                     .map(|(ox, oz)| shape_at(dx + ox, dz + oz).height)
                     .min()
                     .unwrap();
+                let (x, z) = (chunk_origin.x + dx, chunk_origin.z + dz);
                 let column = Column::new(
                     seed,
-                    chunk_origin.x + dx,
-                    chunk_origin.z + dz,
+                    x,
+                    z,
                     shape,
                     shape.height - lowest,
+                    self.bed_patch(x, z),
                 );
 
                 if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
@@ -510,7 +558,18 @@ impl WorldGenerator {
             .map(|(dx, dz)| self.terrain.column_shape(x + dx, z + dz).height)
             .min()
             .unwrap();
-        Column::new(self.seed, x, z, shape, shape.height - lowest)
+        Column::new(
+            self.seed,
+            x,
+            z,
+            shape,
+            shape.height - lowest,
+            self.bed_patch(x, z),
+        )
+    }
+
+    fn bed_patch(&self, x: i32, z: i32) -> f64 {
+        self.bed_patches.get(IVec3::new(x, 0, z))
     }
 }
 
@@ -551,7 +610,8 @@ mod tests {
 
     #[test]
     fn terrain_is_pinned_for_a_fixed_seed() {
-        // One column of each biome, recorded when the mountains were added.
+        // One column of each biome, recorded when the mountains were added; the sea columns
+        // again when the beds got deeper, rougher, and covered with gravel and stone.
         let expected = [
             ((408, 316), (67, BiomeType::Plains, BlockId::Grass)),
             ((478, 622), (66, BiomeType::Forest, BlockId::Grass)),
@@ -567,19 +627,33 @@ mod tests {
             ((-878, -454), (70, BiomeType::Desert, BlockId::Sand)),
             ((828, 137), (79, BiomeType::IcePlain, BlockId::Snow)),
             ((-126, 239), (67, BiomeType::FlowerPlains, BlockId::Grass)),
-            ((-38, -183), (58, BiomeType::ShallowOcean, BlockId::Sand)),
-            ((890, 975), (54, BiomeType::Ocean, BlockId::Sand)),
-            ((-938, -559), (45, BiomeType::DeepOcean, BlockId::Sand)),
+            ((-38, -183), (55, BiomeType::ShallowOcean, BlockId::Stone)),
+            ((890, 975), (52, BiomeType::Ocean, BlockId::Gravel)),
+            ((-938, -559), (38, BiomeType::DeepOcean, BlockId::Stone)),
         ];
         for ((x, z), want) in expected {
             assert_eq!(probe(42, x, z), want, "column ({x}, {z})");
         }
     }
 
+    fn ground_of(
+        height: i32,
+        biome_type: BiomeType,
+        drop: i32,
+        bed_patch: f64,
+    ) -> (BlockId, BlockId) {
+        let ground = Ground {
+            height,
+            biome_type,
+            drop,
+            bed_patch,
+        };
+        ground_blocks(&ground, &random(1, [0, 0]))
+    }
+
     #[test]
-    fn the_shores_and_the_sea_floor_are_sand_except_on_frozen_shores() {
-        let random = random(1, [0, 0]);
-        let ground = |height, biome| ground_blocks(height, biome, 0, &random);
+    fn the_shores_are_sand_except_frozen_ones() {
+        let ground = |height, biome| ground_of(height, biome, 0, 0.0);
         let sand = (BlockId::Sand, BlockId::Sand);
         let plains = BiomeType::Plains;
         let ice = BiomeType::IcePlain;
@@ -588,9 +662,25 @@ mod tests {
             (BlockId::Grass, BlockId::Dirt)
         );
         assert_eq!(ground(SEA_LEVEL + 1, plains), sand);
-        assert_eq!(ground(SEA_LEVEL - 5, plains), sand);
+        assert_eq!(ground(SEA_LEVEL, plains), sand);
         assert_eq!(ground(SEA_LEVEL + 1, ice), (BlockId::Snow, BlockId::Ice));
         assert_eq!(ground(SEA_LEVEL - 1, ice), sand);
+    }
+
+    #[test]
+    fn the_bed_turns_from_sand_to_gravel_and_stone_as_the_water_deepens_or_steepens() {
+        let bed =
+            |depth, drop, patch| ground_of(SEA_LEVEL - depth, BiomeType::Ocean, drop, patch).0;
+        assert_eq!(bed(1, 0, 0.0), BlockId::Sand);
+        assert_eq!(bed(1, 0, -0.3), BlockId::Gravel);
+        assert_eq!(bed(1, 0, -0.6), BlockId::Stone);
+        // the same patch, under more and more water
+        assert_eq!(bed(2, 0, 0.1), BlockId::Sand);
+        assert_eq!(bed(10, 0, 0.1), BlockId::Gravel);
+        assert_eq!(bed(20, 0, 0.1), BlockId::Stone);
+        // a steep bed is bare whatever the patch
+        assert_eq!(bed(2, BED_STEEP + 1, 0.5), BlockId::Stone);
+        assert_eq!(bed(2, BED_STEEP, 0.5), BlockId::Sand);
     }
 
     #[test]
@@ -600,7 +690,15 @@ mod tests {
         let high = BiomeType::HighMountainGrass;
         for x in 0..50 {
             let random = random(1, [x, 0]);
-            let ground = |height, drop| ground_blocks(height, high, drop, &random);
+            let ground = |height, drop| {
+                let ground = Ground {
+                    height,
+                    biome_type: high,
+                    drop,
+                    bed_patch: 0.0,
+                };
+                ground_blocks(&ground, &random)
+            };
             let jitter = ROCK_LINE_JITTER as i32;
             assert_eq!(ground(STONE_LINE - jitter - 1, 0).0, BlockId::Grass);
             assert_eq!(ground(STONE_LINE + jitter, 0), stone);
@@ -985,7 +1083,7 @@ mod tests {
                     height: 70,
                     biome: BiomeType::Forest,
                 };
-                let column = Column::new(seed, x, z, shape, 0);
+                let column = Column::new(seed, x, z, shape, 0, 0.0);
                 for (pos, _) in column_blocks(seed, &column) {
                     // the vertical culling in generate_chunk relies on this
                     assert!(pos.y > column.height, "block below its root at {pos}");

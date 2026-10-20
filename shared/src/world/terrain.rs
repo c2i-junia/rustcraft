@@ -45,16 +45,25 @@ const RIDGES_WAVELENGTH: f64 = 320.0;
 const RIVERS_WAVELENGTH: f64 = 500.0;
 const RIVER_BED: f64 = 0.012;
 const RIVER_BANK: f64 = 0.025;
-const RIVER_DEPTH: f64 = 3.0;
+const RIVER_DEPTH: f64 = 4.0;
 const VALLEY_SLOPE: f64 = 300.0;
 
 /// Lakes fill bowls around the peaks of a noise: `LAKE_DEPTH` under the sea level where it
-/// exceeds `LAKES_FULL`, the land around rising no higher than `LAKE_SLOPE` per unit of it
-/// below. A bowl dug in high land stays dry, a smooth hollow.
+/// reaches `LAKES_FULL`, the land around rising no higher than `LAKE_SLOPE` per unit of it
+/// below, and the bed sinking `LAKE_DEEPENING` per unit of it above, so that the middle of a
+/// big lake is deep. A bowl dug in high land stays dry, a smooth hollow.
 const LAKES_WAVELENGTH: f64 = 200.0;
 const LAKES_FULL: f64 = 0.55;
 const LAKE_DEPTH: f64 = 5.0;
 const LAKE_SLOPE: f64 = 150.0;
+const LAKE_DEEPENING: f64 = 80.0;
+
+/// Ground under the water rises and sinks by up to `BED_ROUGHNESS` with a noise, fully once it
+/// lies `BED_ROUGHNESS_FROM` under the sea level and less above, so that no bed is flat and
+/// no bump reaches the surface.
+const BED_WAVELENGTH: f64 = 40.0;
+const BED_ROUGHNESS: f64 = 5.0;
+const BED_ROUGHNESS_FROM: f64 = 10.0;
 
 /// The mountain biomes are altitude bands: from these heights, whatever the climate.
 pub const MOUNTAIN_FROM: i32 = 84;
@@ -62,7 +71,7 @@ pub const HIGH_MOUNTAIN_FROM: i32 = 100;
 
 /// The sea floor sinks from just below the sea at the coast to this depth below it, as the
 /// humidity rises from the coast to its maximum.
-const OCEAN_DEPTH: f64 = 18.0;
+const OCEAN_DEPTH: f64 = 28.0;
 /// Humidity over which the land slopes down into the sea, on each side of the coast.
 const COAST_WIDTH: f64 = 0.025;
 
@@ -77,6 +86,7 @@ const SALT_RANGES: u64 = 7;
 const SALT_RIDGES: u64 = 8;
 const SALT_RIVERS: u64 = 9;
 const SALT_LAKES: u64 = 10;
+const SALT_BEDS: u64 = 11;
 
 /// What the noises decide for one world column, before it is filled with blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +180,7 @@ pub struct TerrainNoises {
     ridges: Fractal,
     rivers: Fractal,
     lakes: Fractal,
+    beds: Fractal,
 }
 
 impl TerrainNoises {
@@ -185,6 +196,7 @@ impl TerrainNoises {
             ridges: Fractal::new(seed, SALT_RIDGES, 4, RIDGES_WAVELENGTH),
             rivers: Fractal::new(seed, SALT_RIVERS, 3, RIVERS_WAVELENGTH),
             lakes: Fractal::new(seed, SALT_LAKES, 2, LAKES_WAVELENGTH),
+            beds: Fractal::new(seed, SALT_BEDS, 3, BED_WAVELENGTH),
         }
     }
 
@@ -247,8 +259,14 @@ impl TerrainNoises {
             sea + 1.0 + VALLEY_SLOPE * (river - RIVER_BANK)
         };
         land = lerp(land, land.min(valley), lowland);
-        let lake = (LAKES_FULL - self.lakes.get(x, z)).max(0.0);
-        let bowl = sea - LAKE_DEPTH + LAKE_SLOPE * lake;
+        let lake = LAKES_FULL - self.lakes.get(x, z);
+        let bowl = sea - LAKE_DEPTH
+            + lake
+                * if lake > 0.0 {
+                    LAKE_SLOPE
+                } else {
+                    LAKE_DEEPENING
+                };
         land = lerp(land, land.min(bowl), lowland);
 
         let depth = smoothstep(OCEAN_HUMIDITY, 1.0, humidity);
@@ -259,7 +277,15 @@ impl TerrainNoises {
             OCEAN_HUMIDITY + COAST_WIDTH,
             humidity,
         );
-        lerp(land, sea_floor, sea)
+        let ground = lerp(land, sea_floor, sea);
+
+        let depth = SEA_LEVEL as f64 - ground;
+        if depth > 0.0 {
+            let roughness = BED_ROUGHNESS * smoothstep(0.0, BED_ROUGHNESS_FROM, depth);
+            ground + roughness * self.beds.get(x, z)
+        } else {
+            ground
+        }
     }
 }
 
