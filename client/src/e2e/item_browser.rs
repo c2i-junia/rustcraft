@@ -10,9 +10,10 @@ use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::item_browser::{
-    CatalogSlot, ItemBrowser, ItemCount, ItemSearchField, SEARCH_LABEL,
+    CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, SEARCH_LABEL,
 };
 use crate::ui::hud::{InventoryDialog, InventoryRoot};
+use crate::ui::menus::pause::PauseMenu;
 use crate::ui::widgets::tooltip::TooltipRoot;
 
 /// The search field of the browser.
@@ -158,4 +159,68 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.wait_for(&L::text("Items"), SCREEN);
     assert_eq!(h.value_of::<ItemSearchField>(), "oak");
     assert_eq!(h.item_count(), "3 / 33");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_item_browser_becomes_a_drawer_in_a_small_window() {
+    let mut h = enter_world(GameFolder::new().with_world("Drawer"), "Drawer");
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+
+    // Four columns still fit beside the panel at 854x480
+    h.resize(854, 480);
+    h.frames(2);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    assert_eq!(h.catalog_columns(), 4);
+    assert!(!h.is_visible(&L::marker::<DrawerHandle>()));
+
+    // Not at 640x480: a handle at the right edge, at mid-height
+    h.resize(640, 480);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    let handle = h.rect_of(&L::marker::<DrawerHandle>());
+    assert_eq!(handle.max.x, 640.0, "{handle:?}");
+    assert!((handle.center().y - 240.0).abs() <= 1.0, "{handle:?}");
+
+    // B opens the drawer, flush right, over the panel; Escape closes it, not the inventory
+    h.press(KeyCode::KeyB);
+    h.frames(2);
+    let drawer = h.rect_of(&L::marker::<ItemBrowser>());
+    assert_eq!(drawer.max.x, 640.0, "{drawer:?}");
+    assert_eq!(h.catalog_columns(), 6);
+    assert!(!h.is_visible(&L::marker::<DrawerHandle>()));
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+    assert!(!h.is_visible(&L::marker::<PauseMenu>()));
+
+    // The handle opens it; a click on the inventory closes it, one inside it does not
+    h.click(&L::marker::<DrawerHandle>());
+    h.wait_for(&L::marker::<ItemBrowser>(), SCREEN);
+    h.click(&L::text("Items").within(L::marker::<ItemBrowser>()));
+    h.frames(2);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    h.click(&L::cell(0));
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+
+    // Closing the inventory closes the drawer: it opens closed
+    h.press(KeyCode::KeyB);
+    h.frames(2);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    h.press(KeyCode::KeyE);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    assert!(h.is_visible(&L::marker::<DrawerHandle>()));
+
+    // Wide again, it docks, and the handle goes
+    h.resize(1280, 720);
+    h.frames(2);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    assert!(!h.is_visible(&L::marker::<DrawerHandle>()));
 }

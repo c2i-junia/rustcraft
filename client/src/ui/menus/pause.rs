@@ -24,6 +24,7 @@ use crate::network::LocalSaves;
 use crate::state::{GameSet, GameState, KeyMap};
 use crate::ui::assets::{load_font, FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::chat::fade_chat_messages_system;
+use crate::ui::hud::item_browser::drawer_takes_escape;
 use crate::ui::hud::minimap::world_map::WorldMapRoot;
 use crate::ui::hud::minimap::MinimapRoot;
 use crate::ui::hud::reticle::show_reticle;
@@ -170,6 +171,8 @@ pub fn pause_plugin(app: &mut App) {
             .run_if(in_state(GameState::Game))
             .run_if(not(modal_open))
             .run_if(not(text_field_focused))
+            // the open drawer of the item browser closes first
+            .run_if(not(drawer_takes_escape))
             .run_if(not(leaving)),
     )
     // after the menu opens: a menu opened while saving never shows "Save now" enabled; never
@@ -239,7 +242,7 @@ pub fn overlay_open(overlays: Overlays) -> bool {
 /// close. The settings over the pause menu, and a key slot waiting for a key, take Escape for
 /// themselves.
 #[allow(clippy::too_many_arguments)]
-fn toggle_pause_menu(
+pub(crate) fn toggle_pause_menu(
     keys: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
     ui_mode: Res<UIMode>,

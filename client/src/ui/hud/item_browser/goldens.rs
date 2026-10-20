@@ -90,3 +90,23 @@ fn the_item_browser_docks_four_columns_at_854x480() {
         ItemBrowserState::default(),
     );
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_drawer_is_a_handle_at_640x480() {
+    assert_browser_matches(
+        "item_browser_drawer_closed_640x480",
+        (640, 480),
+        ItemBrowserState::default(),
+    );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_open_drawer_covers_the_right_of_the_inventory_at_640x480() {
+    let state = ItemBrowserState {
+        drawer_open: true,
+        ..default()
+    };
+    assert_browser_matches("item_browser_drawer_open_640x480", (640, 480), state);
+}

@@ -1,6 +1,6 @@
 use bevy::{
     input::mouse::MouseScrollUnit,
-    input_focus::{tab_navigation::TabIndex, FocusGained},
+    input_focus::{tab_navigation::TabIndex, FocusGained, InputFocus},
     picking::hover::Hovered,
     prelude::*,
     text::EditableText,
@@ -11,10 +11,10 @@ use bevy::{
 use super::catalog::{count_label, no_match_message, shown_in};
 use super::layout::{browser_layout, BrowserLayout};
 use super::{
-    CatalogGrid, CatalogSlot, CategoryChip, ItemBrowser, ItemBrowserState, ItemCount,
+    CatalogGrid, CatalogSlot, CategoryChip, DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount,
     ItemSearchField, NoMatch, NoMatchMessage,
 };
-use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot};
+use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot, UIMode};
 use crate::ui::theme::{
     ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, PANEL, RAISE, RAISE_HOVER, SPACE_L,
     TEXT,
@@ -143,12 +143,14 @@ type BrowserStops<'w, 's> = Query<
         Without<ItemBrowser>,
         Without<InventoryDialog>,
         Without<CatalogGrid>,
+        Without<DrawerHandle>,
     ),
 >;
 
 /// Shows the browser while the inventory is open, docked or as an open drawer, with the columns
-/// of its layout, and slides the open inventory panel to the left of the docked browser. Only
-/// what shows takes Tab: Bevy's navigation does not look at the visibility.
+/// of its layout, and slides the open inventory panel to the left of the docked browser. The
+/// handle of the drawer shows while the drawer is closed. Only what shows takes Tab: Bevy's
+/// navigation does not look at the visibility.
 #[allow(clippy::type_complexity)]
 pub fn show_item_browser(
     layout: Res<BrowserLayout>,
@@ -157,6 +159,14 @@ pub fn show_item_browser(
     bottom: Single<&ComputedNode, With<HudBottom>>,
     mut dialog: Single<(&mut Node, &ComputedNode), With<InventoryDialog>>,
     mut panel: Single<(&mut Node, &mut Visibility), (With<ItemBrowser>, Without<InventoryDialog>)>,
+    mut handle: Single<
+        (&mut Visibility, &mut TabIndex),
+        (
+            With<DrawerHandle>,
+            Without<ItemBrowser>,
+            Without<InventoryRoot>,
+        ),
+    >,
     mut grid: Single<
         &mut Node,
         (
@@ -169,6 +179,14 @@ pub fn show_item_browser(
 ) {
     let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
     let shown = open && (!layout.compact || state.drawer_open);
+    let handle_shown = open && layout.compact && !state.drawer_open;
+    let (handle_visibility, handle_index) = &mut *handle;
+    handle_visibility.set_if_neq(if handle_shown {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
+    handle_index.set_if_neq(TabIndex(if handle_shown { 0 } else { -1 }));
 
     let (node, visibility) = &mut *panel;
     visibility.set_if_neq(if shown {
@@ -205,6 +223,73 @@ pub fn show_item_browser(
     for (mut index, node) in &mut stops {
         let stop = shown && node.display != Display::None;
         index.set_if_neq(TabIndex(if stop { 0 } else { -1 }));
+    }
+}
+
+/// Whether Escape closes the drawer rather than the inventory: while it is open over the open
+/// inventory. Never in an app without the browser, as the pause menu's tests are.
+pub fn drawer_takes_escape(
+    state: Option<Res<ItemBrowserState>>,
+    layout: Option<Res<BrowserLayout>>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+) -> bool {
+    let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    let (Some(state), Some(layout)) = (state, layout) else {
+        return false;
+    };
+    open && layout.compact && state.drawer_open
+}
+
+/// The handle activated opens the drawer.
+pub fn open_drawer(_: On<Activate>, mut state: ResMut<ItemBrowserState>) {
+    state.drawer_open = true;
+}
+
+/// Opens and closes the drawer: B toggles it, Escape closes it, and so does a press of the mouse
+/// on neither the drawer nor its handle. The keys wait while the player types. The inventory
+/// closing closes it too: it opens closed. A focus inside the drawer it closes is let go of, for
+/// the inventory to take it back.
+#[allow(clippy::too_many_arguments)]
+pub fn drawer_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    ui_mode: Res<UIMode>,
+    layout: Res<BrowserLayout>,
+    mut state: ResMut<ItemBrowserState>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    panel: Single<(Entity, &Hovered), With<ItemBrowser>>,
+    handle: Single<&Hovered, With<DrawerHandle>>,
+    parents: Query<&ChildOf>,
+    mut focus: ResMut<InputFocus>,
+) {
+    let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    if !open || !layout.compact {
+        if state.drawer_open && !open {
+            state.drawer_open = false;
+        }
+        return;
+    }
+    let typing = *ui_mode == UIMode::Typing;
+    let (panel, over_panel) = *panel;
+    let toggle = !typing && keys.just_pressed(KeyCode::KeyB);
+    let escape = !typing && keys.just_pressed(KeyCode::Escape);
+    let outside = mouse.any_just_pressed([MouseButton::Left, MouseButton::Right])
+        && !over_panel.get()
+        && !handle.get();
+    let drawer_open = if toggle {
+        !state.drawer_open
+    } else {
+        state.drawer_open && !escape && !outside
+    };
+    if drawer_open == state.drawer_open {
+        return;
+    }
+    state.drawer_open = drawer_open;
+    let inside = focus
+        .get()
+        .is_some_and(|focused| parents.iter_ancestors(focused).any(|e| e == panel));
+    if !drawer_open && inside {
+        focus.clear();
     }
 }
 
@@ -307,6 +392,7 @@ mod tests {
         };
         world.spawn((InventoryDialog, Node::default(), dialog));
         world.spawn((ItemBrowser, Node::default(), Visibility::Hidden));
+        world.spawn((DrawerHandle, Visibility::Hidden, TabIndex(-1)));
         world.spawn((CatalogGrid, Node::default()));
         world.spawn((ItemSearchField, Node::default(), TabIndex(0)));
         world.spawn((CategoryChip(None), Node::default(), TabIndex(0)));
@@ -402,5 +488,24 @@ mod tests {
             px(276.0 - 389.0)
         );
         assert_eq!(single::<Node, ItemBrowser>(&mut world).width, px(470.0));
+    }
+
+    #[test]
+    fn escape_belongs_to_the_open_drawer() {
+        let takes_escape = |world: &mut World| world.run_system_once(drawer_takes_escape).unwrap();
+        // Docked: Escape closes the inventory
+        let mut world = browser(Visibility::Visible);
+        world.resource_mut::<ItemBrowserState>().drawer_open = true;
+        assert!(!takes_escape(&mut world));
+
+        world.insert_resource(browser_layout(Vec2::new(640.0, 480.0), 502.0));
+        assert!(takes_escape(&mut world));
+        world.resource_mut::<ItemBrowserState>().drawer_open = false;
+        assert!(!takes_escape(&mut world));
+
+        let mut world = browser(Visibility::Hidden);
+        world.insert_resource(browser_layout(Vec2::new(640.0, 480.0), 502.0));
+        world.resource_mut::<ItemBrowserState>().drawer_open = true;
+        assert!(!takes_escape(&mut world));
     }
 }

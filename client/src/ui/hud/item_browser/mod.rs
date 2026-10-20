@@ -7,8 +7,9 @@
 use bevy::prelude::*;
 use shared::world::{ItemCategory, ItemId};
 
-use crate::state::GameState;
+use crate::state::{GameSet, GameState};
 use crate::ui::hud::style_inventory_panel;
+use crate::ui::menus::pause::toggle_pause_menu;
 
 pub mod catalog;
 mod display;
@@ -65,6 +66,10 @@ pub struct CatalogSlot(pub ItemId);
 #[derive(Component)]
 pub struct NoMatch;
 
+/// The handle of the drawer, at the right edge while it is closed.
+#[derive(Component)]
+pub struct DrawerHandle;
+
 /// The first line of `NoMatch`, which names the search.
 #[derive(Component)]
 pub struct NoMatchMessage;
@@ -91,6 +96,14 @@ pub fn item_browser_plugin(app: &mut App) {
             )
                 .chain()
                 .after(style_inventory_panel)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            drawer_keys
+                .after(GameSet::UiMode)
+                .after(toggle_pause_menu)
+                .before(show_item_browser)
                 .run_if(in_state(GameState::Game)),
         )
         .add_observer(scroll_focused_into_view);
