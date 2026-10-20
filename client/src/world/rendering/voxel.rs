@@ -58,6 +58,9 @@ pub struct Face {
     /// The colour map that replaces the colour of the vertices in the world, where the climate
     /// is known. An item keeps the colour of the vertices.
     pub biome_tint: BiomeTint,
+    /// A texture drawn over `texture`, as the second element of a Minecraft model: the colour
+    /// of the face, from its vertices or its colour map, then colours the overlay only.
+    pub overlay: Option<String>,
 }
 
 const WHITE: [f32; 4] = [1.0; 4];
@@ -81,6 +84,7 @@ impl Face {
             uvs: uvs.to_vec(),
             texture: texture.to_string(),
             biome_tint: BiomeTint::None,
+            overlay: None,
         }
     }
 
@@ -93,6 +97,13 @@ impl Face {
     fn biome_tint(&mut self, biome_tint: BiomeTint, color: [f32; 4]) {
         self.tint(color);
         self.biome_tint = biome_tint;
+    }
+
+    /// Takes the overlay away, for a texture pack without it: its colour went to the overlay
+    /// only, so the face is not coloured either.
+    pub fn remove_overlay(&mut self) {
+        self.overlay = None;
+        self.biome_tint(BiomeTint::None, WHITE);
     }
 }
 
@@ -111,10 +122,16 @@ impl VoxelShape {
     pub fn create_from_block(block: &BlockData) -> VoxelShape {
         match block.id {
             BlockId::Grass => {
-                // Only the top of a grass block is green; its texture is grey and tinted
+                // As the model of the texture pack: the top is grey and tinted, the sides are
+                // dirt under a grey overlay that is tinted, and the bottom is dirt
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
                 shape.faces[TOP].biome_tint(BiomeTint::Grass, GRASS_COLOR);
+                shape.faces[BOTTOM].texture = "Dirt".into();
+                for side in shape.faces.iter_mut().skip(BOTTOM + 1) {
+                    side.biome_tint(BiomeTint::Grass, GRASS_COLOR);
+                    side.overlay = Some("GrassSideOverlay".into());
+                }
                 shape
             }
             BlockId::CraftingTable => {
@@ -304,6 +321,7 @@ impl VoxelShape {
                 ],
                 texture: format!("{:?}", block.id),
                 biome_tint: BiomeTint::None,
+                overlay: None,
             }],
         }
     }
@@ -343,8 +361,16 @@ mod tests {
         let grass = shape_of(BlockId::Grass);
         assert_eq!(grass.faces[TOP].texture, "GrassTop");
         assert_eq!(grass.faces[TOP].colors, vec![GRASS_COLOR; 4]);
-        assert_eq!(grass.faces[BOTTOM].texture, "Grass");
+        assert_eq!(grass.faces[BOTTOM].texture, "Dirt");
         assert_eq!(grass.faces[BOTTOM].colors, vec![WHITE; 4]);
+        assert_eq!(grass.faces[BOTTOM].overlay, None);
+        // The sides: dirt under the tinted overlay, as the model of the texture pack
+        for side in &grass.faces[BOTTOM + 1..] {
+            assert_eq!(side.texture, "Grass");
+            assert_eq!(side.overlay.as_deref(), Some("GrassSideOverlay"));
+            assert_eq!(side.biome_tint, BiomeTint::Grass);
+            assert_eq!(side.colors, vec![GRASS_COLOR; 4]);
+        }
 
         let log = shape_of(BlockId::OakLog);
         assert_eq!(log.faces[TOP].texture, "OakLogTop");
@@ -403,14 +429,17 @@ mod tests {
     }
 
     #[test]
-    fn only_the_top_of_a_grass_block_takes_the_colour_of_the_climate() {
+    fn all_but_the_bottom_of_a_grass_block_take_the_colour_of_the_climate() {
         let tints: Vec<_> = shape_of(BlockId::Grass)
             .faces
             .iter()
             .map(|face| face.biome_tint)
             .collect();
-        assert_eq!(tints[TOP], BiomeTint::Grass);
-        assert!(tints[1..].iter().all(|tint| *tint == BiomeTint::None));
+        assert_eq!(tints[BOTTOM], BiomeTint::None);
+        assert!(tints
+            .iter()
+            .enumerate()
+            .all(|(index, tint)| index == BOTTOM || *tint == BiomeTint::Grass));
         assert!(shape_of(BlockId::Stone)
             .faces
             .iter()

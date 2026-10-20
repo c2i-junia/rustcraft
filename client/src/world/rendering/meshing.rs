@@ -28,7 +28,7 @@ pub(crate) struct MeshCreator {
     normals: Vec<[i8; 4]>,
     uvs: Vec<[f32; 2]>,
     /// The block texture of each vertex, in `x`: its index in the table of `BlockLayers`. In
-    /// `y`, the colour map that colours it (`BiomeTint::index`).
+    /// `y`, how it is coloured: see `colouring`.
     tiles: Vec<[u16; 2]>,
     colors: Vec<[u8; 4]>,
 }
@@ -40,8 +40,8 @@ const NORMAL: MeshVertexAttribute = MeshVertexAttribute {
     ..Mesh::ATTRIBUTE_NORMAL
 };
 
-/// `Mesh::ATTRIBUTE_UV_1`, the block texture in `x` and its colour map in `y`, as fractions of
-/// `u16::MAX`, which `chunk.wgsl` multiplies back.
+/// `Mesh::ATTRIBUTE_UV_1`, the block texture in `x` and how it is coloured in `y`, as fractions
+/// of `u16::MAX`, which `chunk.wgsl` multiplies back.
 const TILE: MeshVertexAttribute = MeshVertexAttribute {
     format: VertexFormat::Unorm16x2,
     ..Mesh::ATTRIBUTE_UV_1
@@ -58,8 +58,8 @@ fn normal(normal: &[f32; 3]) -> [i8; 4] {
     [x, y, z, 0]
 }
 
-fn tile(tile: u32, biome_tint: BiomeTint) -> [u16; 2] {
-    [tile as u16, biome_tint.index()]
+fn tile(tile: u32, colouring: u16) -> [u16; 2] {
+    [tile as u16, colouring]
 }
 
 fn color(color: [f32; 4]) -> [u8; 4] {
@@ -71,6 +71,16 @@ fn color(color: [f32; 4]) -> [u8; 4] {
 /// 0 or 1: the pixels of the other side of the texture would show there.
 const UV_EDGE_INSET: f32 = 1. / 1024.;
 
+/// How many values `BiomeTint::index` takes, as `chunk.wgsl` reads them.
+const BIOME_TINTS: u16 = 4;
+
+/// `UV_1.y` of the vertices of a face coloured with the colour map `biome_tint`, under the
+/// block texture `overlay` if any: the index of the colour map, plus `BIOME_TINTS` times one
+/// more than the overlay. It fits, as the textures are at most `MAX_TILES`.
+fn colouring(biome_tint: BiomeTint, overlay: Option<u32>) -> u16 {
+    biome_tint.index() + BIOME_TINTS * overlay.map_or(0, |tile| tile as u16 + 1)
+}
+
 /// `uv` of a corner of a face moved towards the middle of the face, `centre`.
 fn inset_uv(uv: [f32; 2], centre: [f32; 2]) -> [f32; 2] {
     [0, 1].map(|axis| uv[axis] + UV_EDGE_INSET.copysign(centre[axis] - uv[axis]))
@@ -78,8 +88,15 @@ fn inset_uv(uv: [f32; 2], centre: [f32; 2]) -> [f32; 2] {
 
 impl MeshCreator {
     /// Appends `face` of a block at `origin` (in chunk coordinates) turned to `direction`,
-    /// drawn with the block texture `tile`.
-    fn push_face(&mut self, face: &Face, tile: u32, origin: Vec3, direction: &BlockDirection) {
+    /// drawn with the block texture `tile`, and `overlay` over it if any.
+    fn push_face(
+        &mut self,
+        face: &Face,
+        tile: u32,
+        overlay: Option<u32>,
+        origin: Vec3,
+        direction: &BlockDirection,
+    ) {
         let first_index = self.vertices.len() as u32;
         self.indices
             .extend(face.indices.iter().map(|index| index + first_index));
@@ -95,8 +112,11 @@ impl MeshCreator {
         self.colors.extend(face.colors.iter().map(|c| color(*c)));
         self.uvs
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
-        self.tiles
-            .extend(face.uvs.iter().map(|_| self::tile(tile, face.biome_tint)));
+        self.tiles.extend(
+            face.uvs
+                .iter()
+                .map(|_| self::tile(tile, colouring(face.biome_tint, overlay))),
+        );
     }
 
     /// Appends the face `face_index` of `CUBE` stretched over `size` blocks along the face, from
@@ -127,7 +147,7 @@ impl MeshCreator {
         self.tiles.extend(
             face.vertices
                 .iter()
-                .map(|_| tile(look.tile, look.biome_tint)),
+                .map(|_| tile(look.tile, colouring(look.biome_tint, look.overlay))),
         );
     }
 
@@ -186,10 +206,16 @@ pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> O
         return None;
     }
     let mut mesh = MeshCreator::default();
-    for (face, tile) in look.shape.faces.iter_mut().zip(&look.tiles) {
+    for ((face, tile), overlay) in look
+        .shape
+        .faces
+        .iter_mut()
+        .zip(&look.tiles)
+        .zip(&look.overlays)
+    {
         face.biome_tint = BiomeTint::None;
         if let Some(tile) = tile {
-            mesh.push_face(face, *tile, Vec3::splat(-0.5), &block.direction);
+            mesh.push_face(face, *tile, *overlay, Vec3::splat(-0.5), &block.direction);
         }
     }
     mesh.build()
@@ -269,11 +295,25 @@ impl Neighbourhood {
 struct BlockLook {
     shape: VoxelShape,
     tiles: Vec<Option<u32>>,
+    /// The block texture drawn over each face, if any.
+    overlays: Vec<Option<u32>>,
 }
 
 impl BlockLook {
     fn new(block: &BlockData, tiles: &HashMap<String, u32>) -> Self {
-        let shape = VoxelShape::create_from_block(block);
+        let mut shape = VoxelShape::create_from_block(block);
+        // A texture pack without an overlay: the face is drawn without it
+        let overlays = shape
+            .faces
+            .iter_mut()
+            .map(|face| {
+                let overlay = tiles.get(face.overlay.as_ref()?).copied();
+                if overlay.is_none() {
+                    face.remove_overlay();
+                }
+                overlay
+            })
+            .collect();
         // A texture pack without this texture nor a default one: nothing to draw
         let tiles = shape
             .faces
@@ -285,7 +325,11 @@ impl BlockLook {
                     .copied()
             })
             .collect();
-        Self { shape, tiles }
+        Self {
+            shape,
+            tiles,
+            overlays,
+        }
     }
 }
 
@@ -332,6 +376,7 @@ static CUBE: LazyLock<Cube> = LazyLock::new(|| {
 #[derive(Clone, Copy)]
 struct FaceLook {
     tile: u32,
+    overlay: Option<u32>,
     color: [f32; 4],
     biome_tint: BiomeTint,
     liquid: bool,
@@ -575,7 +620,8 @@ fn chunk_faces(
                 .then_some(corners[0]),
             None => Some(1.),
         };
-        for (face_index, (face, tile)) in shape.faces.iter().zip(&look.tiles).enumerate() {
+        let faces = shape.faces.iter().zip(&look.tiles).zip(&look.overlays);
+        for (face_index, ((face, tile), overlay)) in faces.enumerate() {
             let Some(tile) = *tile else {
                 continue;
             };
@@ -592,6 +638,7 @@ fn chunk_faces(
             if merges {
                 let look = FaceLook {
                     tile,
+                    overlay: *overlay,
                     color: face.colors[0],
                     biome_tint: face.biome_tint,
                     liquid: visibility == BlockTransparency::Liquid,
@@ -600,9 +647,9 @@ fn chunk_faces(
                 layers.add(face_index, local_block_pos, block.id, look);
                 continue;
             }
-            mesh_creator.push_face(face, tile, origin, &block.direction);
+            mesh_creator.push_face(face, tile, *overlay, origin, &block.direction);
             if let Some(cracks) = cracks {
-                mesh_creator.push_face(face, *cracks, origin, &block.direction);
+                mesh_creator.push_face(face, *cracks, None, origin, &block.direction);
             }
         }
     }
@@ -1084,8 +1131,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn each_vertex_names_the_block_texture_of_its_face_and_a_point_inside_it() {
+    /// The `UV_1` and normal of each vertex of the mesh of a lone grass block, drawn with
+    /// `tiles`.
+    fn grass_block_tiles(tiles: &[(&str, u32)]) -> Vec<([u16; 2], Vec3)> {
         let mut chunk = Chunk::new();
         chunk.set(
             IVec3::ONE,
@@ -1093,11 +1141,10 @@ mod tests {
         );
         let mut world = ChunkMap::default();
         world.insert_chunk(IVec3::ZERO, chunk.clone());
-        let tiles = HashMap::from([
-            ("_Default".to_string(), 0),
-            ("Grass".to_string(), 1),
-            ("GrassTop".to_string(), 2),
-        ]);
+        let tiles = tiles
+            .iter()
+            .map(|(name, tile)| (name.to_string(), *tile))
+            .collect();
         let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
             .solid_mesh
             .unwrap();
@@ -1106,17 +1153,43 @@ mod tests {
         else {
             panic!("no UVs");
         };
-
+        for uv in uvs {
+            assert!(uv.iter().all(|c| 0. < *c && *c < 1.), "{uv:?}");
+        }
         let Some(bevy::mesh::VertexAttributeValues::Unorm16x2(tiles)) = mesh.attribute(TILE) else {
             panic!("a chunk mesh has tiles");
         };
-        for (tile, normal) in tiles.iter().zip(normals_of(&mesh)) {
-            // Only the top is green, with the colour map of the grass
-            let expected = if normal.y > 0. { [2, 1] } else { [1, 0] };
-            assert_eq!(*tile, expected, "normal {normal:?}");
+        tiles.iter().copied().zip(normals_of(&mesh)).collect()
+    }
+
+    #[test]
+    fn each_vertex_names_the_block_texture_of_its_face_and_a_point_inside_it() {
+        let tiles = [
+            ("_Default", 0),
+            ("Grass", 1),
+            ("GrassTop", 2),
+            ("Dirt", 3),
+            ("GrassSideOverlay", 4),
+        ];
+        for (tile, normal) in grass_block_tiles(&tiles) {
+            // The top is coloured with the colour map of the grass, the sides under their
+            // overlay (one more than its tile, in fours), and the bottom is dirt
+            let expected = match normal.y {
+                1. => [2, 1],
+                -1. => [3, 0],
+                _ => [1, 1 + 4 * 5],
+            };
+            assert_eq!(tile, expected, "normal {normal:?}");
         }
-        for uv in uvs {
-            assert!(uv.iter().all(|c| 0. < *c && *c < 1.), "{uv:?}");
+    }
+
+    #[test]
+    fn a_texture_pack_without_the_overlay_draws_the_sides_uncoloured() {
+        let tiles = [("_Default", 0), ("Grass", 1), ("GrassTop", 2)];
+        for (tile, normal) in grass_block_tiles(&tiles) {
+            if normal.y == 0. {
+                assert_eq!(tile, [1, 0], "normal {normal:?}");
+            }
         }
     }
 

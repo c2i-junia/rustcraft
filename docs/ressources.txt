@@ -46,7 +46,10 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The animated texture of the water (blocks/Water.png, 16 frames), the pack's
    block/water_still.png, and its animation (blocks/Water.anim.ron) from its .mcmeta.
 -> The colour maps of the grass and of the leaves by climate
-   (data/graphics/base_textures/colormap/{grass,foliage}.png), the pack's colormap/.
+   (data/graphics/base_textures/colormap/{grass,foliage}.png), the pack's colormap/ smoothed
+   into gradients by scripts/smooth_colormap.py: the pack paints them as flat regions.
+-> The overlay of the sides of the grass block (blocks/GrassSideOverlay.png), the pack's
+   block/grass_block_side_overlay.png.
 -> The hearts of the health bar (data/graphics/hud/heart_*.png), the pack's
    gui/sprites/hud/heart/{container,full,half}.png.
 

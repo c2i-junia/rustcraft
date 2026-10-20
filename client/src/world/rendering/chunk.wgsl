@@ -1,7 +1,10 @@
 // The chunks are drawn with the block textures, the layers of a texture array: `uv_b.x` is the
 // index of the texture of a face in `block_textures`, and `uv` the place in it. A face that spans
 // several blocks has its `uv` go past 1, and the texture repeats across it. `uv_b.y` names the
-// colour map that colours the face from the climate of its column, if any (`BiomeTint`).
+// colour map that colours the face from the climate of its column, if any (`BiomeTint`), plus
+// `BIOME_TINTS` times one more than the index of the texture drawn over the face, if any: the
+// colour then goes to that overlay only (`colouring` in `meshing.rs`). Both come as fractions of
+// 65535 (`TILE` in `meshing.rs`).
 
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::alpha_discard
@@ -36,9 +39,10 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var grass_colors: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(105) var foliage_colors: texture_2d<f32>;
 
-// The values of `BiomeTint::index`
+// The values of `BiomeTint::index`, and how many it may take
 const BIOME_TINT_GRASS: u32 = 1u;
 const BIOME_TINT_FOLIAGE: u32 = 2u;
+const BIOME_TINTS: u32 = 4u;
 
 // How long the game has been drawing, in seconds, which plays the animated textures. The
 // prepass has no such binding: it draws their first frame, which only matters for the pixels
@@ -51,23 +55,38 @@ fn seconds() -> f32 {
 #endif
 }
 
-// The colour of the block texture at `in`, at its current frame. The layers have no mipmaps:
-// sampling the first level is the same, and allowed where the control flow differs between
-// fragments.
-fn block_color(in: VertexOutput) -> vec4<f32> {
-    // Rounded, as interpolating the index of the face may stray from it, if by little
-    // The index comes as a fraction of 65535 (`TILE` in `meshing.rs`)
-    let texture = block_textures[u32(round(in.uv_b.x * 65535.0))];
+// The colour of the block texture `index` at `uv`, at its current frame. The layers have no
+// mipmaps: sampling the first level is the same, and allowed where the control flow differs
+// between fragments.
+fn texture_color(index: u32, uv: vec2<f32>) -> vec4<f32> {
+    let texture = block_textures[index];
     let frames = max(texture.y, 1u);
     // In frames since the start, at 20 frame times a second
     let progress = seconds() * 20.0 / f32(max(texture.z, 1u));
     let frame = u32(progress) % frames;
-    let color = textureSampleLevel(block_layers, block_sampler, in.uv, texture.x + frame, 0.0);
+    let color = textureSampleLevel(block_layers, block_sampler, uv, texture.x + frame, 0.0);
     if texture.w == 0u || frames == 1u {
         return color;
     }
-    let next = textureSampleLevel(block_layers, block_sampler, in.uv, texture.x + (frame + 1u) % frames, 0.0);
+    let next = textureSampleLevel(block_layers, block_sampler, uv, texture.x + (frame + 1u) % frames, 0.0);
     return mix(color, next, fract(progress));
+}
+
+// The indices of `uv_b`, from fractions of 65535. They are rounded, as interpolating them may
+// stray from them, if by little.
+fn indices(in: VertexOutput) -> vec2<u32> {
+    return vec2<u32>(round(in.uv_b * 65535.0));
+}
+
+// The colour of the block texture of the face at `in`.
+fn block_color(in: VertexOutput) -> vec4<f32> {
+    return texture_color(indices(in).x, in.uv);
+}
+
+// The colour map of the face at `in` (`BiomeTint`), and one more than its overlay, 0 for none.
+fn colouring(in: VertexOutput) -> vec2<u32> {
+    let code = indices(in).y;
+    return vec2(code % BIOME_TINTS, code / BIOME_TINTS);
 }
 
 #ifdef PREPASS_PIPELINE
@@ -130,11 +149,9 @@ fn colormap_color(colormap: texture_2d<f32>, at: vec2<f32>) -> vec3<f32> {
     return textureLoad(colormap, vec2<i32>(round(at * last)), 0).rgb;
 }
 
-// The colour of the grass or of the leaves at `in`, from the climate of its column, or `color`
-// where the face has no colour map or the climate is not known yet.
-fn biome_color(in: VertexOutput, color: vec3<f32>) -> vec3<f32> {
-    // A fraction of 65535, as the index of the texture
-    let tint = u32(round(in.uv_b.y * 65535.0));
+// The colour of the grass or of the leaves at `in`, from the climate of its column with the
+// colour map `tint`, or `color` where the face has none or the climate is not known yet.
+fn biome_color(in: VertexOutput, tint: u32, color: vec3<f32>) -> vec3<f32> {
     if tint != BIOME_TINT_GRASS && tint != BIOME_TINT_FOLIAGE {
         return color;
     }
@@ -165,11 +182,21 @@ fn fragment(
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
     var in = vertex_output;
+    var texture = block_color(in);
 #ifdef VERTEX_COLORS
-    in.color = vec4(biome_color(in, in.color.rgb), in.color.a);
+    let tint_and_overlay = colouring(in);
+    let color = biome_color(in, tint_and_overlay.x, in.color.rgb);
+    if tint_and_overlay.y == 0u {
+        in.color = vec4(color, in.color.a);
+    } else {
+        // Only the overlay is coloured, drawn over the texture of the face
+        let overlay = texture_color(tint_and_overlay.y - 1u, in.uv);
+        texture = vec4(mix(texture.rgb, overlay.rgb * color, overlay.a), texture.a);
+        in.color = vec4(vec3(1.0), in.color.a);
+    }
 #endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-    pbr_input.material.base_color *= block_color(in);
+    pbr_input.material.base_color *= texture;
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
     var out: FragmentOutput;
