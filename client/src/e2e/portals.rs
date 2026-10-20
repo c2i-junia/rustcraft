@@ -29,11 +29,11 @@ const THROUGH: Vec3 = Vec3::new(12.0, 0.0, -5.0);
 
 /// Waits for the player to stand on the ground, then builds around it, the player looking north
 /// (-Z): an arena cleared of the terrain, with a stone floor, a wall 8 blocks ahead with the blue
-/// portal facing the player, and further, to the east, a wall with the orange portal facing
-/// north. Six blocks north of the orange portal stands a pillar of sand; between the portal and
-/// where its camera stands, south of its wall, a pillar of cactus, which the camera must not see.
-/// A second pillar of sand stands to the left of the blue portal, seen straight at the same
-/// depth.
+/// portal facing the player, and further, to the east, a wall as high as the orange portal,
+/// which faces north. Six blocks north of the orange portal stands a pillar of sand, 5 high;
+/// between the portal and where its camera stands, south of its wall, a pillar of cactus, which
+/// the camera must not see. A second pillar of sand stands to the left of the blue portal, seen
+/// straight at the same depth.
 fn build_scene(h: &mut Harness) -> Scene {
     h.wait_until("the player on the ground", SERVER, |w| {
         let mut players = w
@@ -100,12 +100,12 @@ fn build_scene(h: &mut Harness) -> Scene {
     );
     fill(
         IVec3::new(10, 0, -12),
-        IVec3::new(13, 3, -12),
+        IVec3::new(13, 2, -12),
         Some(BlockId::Cobblestone),
     );
     fill(
         IVec3::new(12, 0, -18),
-        IVec3::new(13, 2, -18),
+        IVec3::new(13, 4, -18),
         Some(BlockId::Sand),
     );
     fill(
@@ -114,8 +114,8 @@ fn build_scene(h: &mut Harness) -> Scene {
         Some(BlockId::Cactus),
     );
     fill(
-        IVec3::new(-7, 0, -14),
-        IVec3::new(-6, 2, -14),
+        IVec3::new(-7, 0, -13),
+        IVec3::new(-6, 4, -13),
         Some(BlockId::Sand),
     );
 
@@ -195,13 +195,15 @@ fn the_view_through_a_portal_is_the_other_side() {
     // The orange portal is seen from behind
     assert_eq!(active, [PortalColor::Blue]);
 
-    // The south face of the far pillar of sand, low, seen through the blue portal: its camera
-    // sees it past the cactus, which lies behind the orange portal, and past its wall
+    // The south face of the far pillar of sand, seen through the blue portal: its camera sees
+    // it past the cactus, which lies behind the orange portal, and past its wall. Above the top
+    // of that wall, so that the sun or the moon, low in the south, does not leave it in the
+    // wall's shadow
     let feet = scene.feet.as_vec3();
-    let far_sand = feet + Vec3::new(12.5, 0.3, -17.0);
+    let far_sand = feet + Vec3::new(12.5, 3.4, -17.0);
     let through = on_screen(&mut h, far_sand - THROUGH);
     // The near pillar of sand, seen straight, at the same depth
-    let near_sand = feet + Vec3::new(-6.0, 0.3, -12.0);
+    let near_sand = feet + Vec3::new(-6.0, 3.4, -12.0);
     let straight = on_screen(&mut h, near_sand);
     assert!((through.y - straight.y).abs() < 1.0);
 
@@ -212,10 +214,10 @@ fn the_view_through_a_portal_is_the_other_side() {
         through.x > through.z + 25.0,
         "not sand through the portal: {through}"
     );
-    // As bright and as warm as when seen straight: the view through the portal is tonemapped
-    // once, as the rest of the screen
+    // As bright and as warm as when seen straight, at the same depth: the view through the
+    // portal is lit, fogged and tonemapped as the rest of the screen
     assert!(
-        (through - straight).abs().max_element() < 16.0,
+        (through - straight).abs().max_element() < 8.0,
         "sand through the portal {through}, seen straight {straight}"
     );
 
