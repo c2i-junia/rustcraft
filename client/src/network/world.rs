@@ -1,7 +1,5 @@
 use std::collections::VecDeque;
-use std::time::Instant;
 
-use crate::world::ChunkRender;
 use bevy::prelude::*;
 use bevy::tasks::{block_on, futures_lite::future, ComputeTaskPool, Task};
 use bevy_renet::RenetClient;
@@ -108,12 +106,7 @@ pub fn update_world_from_network(
                 for (pos, chunk) in world_update.new_map {
                     world.blocks.insert_chunk(pos, chunk);
                     ev_chunk_load.write(ChunkLoadEvent::Loaded(pos));
-                    // Meshes requested before this chunk arrived are outdated
-                    world
-                        .render
-                        .entry(pos)
-                        .and_modify(|render| render.last_mesh_ts = Instant::now())
-                        .or_insert_with(ChunkRender::new);
+                    world.chunk_arrived(pos);
                     // The new chunk, and the neighbours whose faces toward it may now be hidden
                     ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(pos));
                     for offset in SIX_OFFSETS {

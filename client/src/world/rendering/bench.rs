@@ -52,8 +52,8 @@ use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::celestial::{celestial_shadows_system, CelestialRoot};
 use crate::world::{
-    chunk_material_plugin, create_all_atlases, setup_materials, AtlasHandles, ChunkRender,
-    MaterialResource,
+    chunk_material_plugin, create_all_atlases, group_of, setup_materials, AtlasHandles,
+    ChunkRender, MaterialResource,
 };
 
 const SEED: u32 = 42;
@@ -250,6 +250,19 @@ fn summary(mut samples: Vec<f64>) -> Value {
     })
 }
 
+/// `positions` gathered by their group, as the game meshes them.
+fn by_group(positions: &[IVec3]) -> Vec<(IVec2, Vec<IVec3>)> {
+    let mut groups: Vec<(IVec2, Vec<IVec3>)> = Vec::new();
+    for pos in positions {
+        let group = group_of(*pos);
+        match groups.iter_mut().find(|(g, _)| *g == group) {
+            Some((_, chunks)) => chunks.push(*pos),
+            None => groups.push((group, vec![*pos])),
+        }
+    }
+    groups
+}
+
 fn millis(since: Instant) -> f64 {
     since.elapsed().as_secs_f64() * 1e3
 }
@@ -311,7 +324,7 @@ fn bench_meshing() {
         let mut load_total = Vec::new();
         for round in 0..ROUNDS {
             let start = Instant::now();
-            let tasks = spawn_meshing_tasks(&world, &tiles, positions.clone());
+            let tasks = spawn_meshing_tasks(&world, &tiles, by_group(&positions));
             let main_thread = millis(start);
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -328,7 +341,15 @@ fn bench_meshing() {
         let mut remesh_total = Vec::new();
         for _ in 0..REMESHES {
             let start = Instant::now();
-            let tasks = spawn_meshing_tasks(&world, &tiles, vec![surface]);
+            let group = group_of(surface);
+            let tasks = spawn_meshing_tasks(
+                &world,
+                &tiles,
+                by_group(&positions)
+                    .into_iter()
+                    .filter(|(g, _)| *g == group)
+                    .collect(),
+            );
             remesh_main_thread.push(millis(start));
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -563,7 +584,7 @@ impl Drawing {
                         let mut render = ChunkRender::new();
                         update_chunk(
                             &mut render,
-                            &pos,
+                            pos * CHUNK_SIZE,
                             &materials,
                             &mut commands,
                             &mut meshes,

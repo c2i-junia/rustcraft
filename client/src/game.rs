@@ -141,7 +141,6 @@ mod tests {
     use crate::network::buffered_client::PlayerTickInputsBuffer;
     use crate::network::session::{end_session, SessionEnd, SessionOrigin};
     use crate::network::UnacknowledgedInputs;
-    use crate::world::ChunkRender;
 
     #[test]
     fn a_cancel_in_the_frame_loading_completes_keeps_the_game_out() {
@@ -197,7 +196,7 @@ mod tests {
         add_session_exits(&mut app);
         let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
         map.blocks.insert_chunk(IVec3::ZERO, Chunk::new());
-        map.render.insert(IVec3::ZERO, ChunkRender::new());
+        map.chunk_arrived(IVec3::ZERO);
         app.update();
 
         app.world_mut()

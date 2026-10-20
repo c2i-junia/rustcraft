@@ -5,7 +5,8 @@ use std::time::Instant;
 
 use bevy::math::IVec3;
 use bevy::prelude::Resource;
-use std::collections::HashMap;
+use shared::CHUNK_SIZE;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub enum GlobalMaterial {
@@ -16,9 +17,26 @@ pub enum GlobalMaterial {
     Items,
 }
 
-/// What the renderer keeps about a loaded chunk, next to its blocks.
+/// How many columns of chunks wide a group is, along x and z: the chunks of a group are drawn
+/// as one entity, or two with their liquids. A frame costs the CPU for each entity drawn, far
+/// more than for each face, and a large render distance shows tens of thousands of chunks.
+pub const GROUP_WIDTH: i32 = 4;
+
+/// The group of the chunk at `chunk_pos`.
+pub fn group_of(chunk_pos: IVec3) -> IVec2 {
+    chunk_pos.xz().div_euclid(IVec2::splat(GROUP_WIDTH))
+}
+
+/// The block where the group `group` starts, from which its vertices are placed.
+pub fn group_origin(group: IVec2) -> IVec3 {
+    IVec3::new(group.x, 0, group.y) * GROUP_WIDTH * CHUNK_SIZE
+}
+
+/// What the renderer keeps about a group of chunks (`group_of`) of which some are loaded.
 #[derive(Clone, Debug)]
 pub struct ChunkRender {
+    /// The loaded chunks of the group.
+    pub chunks: HashSet<IVec3>,
     pub entity: Option<Entity>,
     /// The entity of the liquid faces, apart because they are blended.
     pub liquid_entity: Option<Entity>,
@@ -33,6 +51,7 @@ pub struct ChunkRender {
 impl ChunkRender {
     pub fn new() -> Self {
         Self {
+            chunks: HashSet::new(),
             entity: None,
             liquid_entity: None,
             last_mesh_ts: Instant::now(),
@@ -51,19 +70,38 @@ impl ChunkRender {
 #[derive(Resource, Default)]
 pub struct ClientWorldMap {
     pub blocks: ChunkMap,
-    /// Maps global chunk positions to the render bookkeeping of the chunk
-    pub render: HashMap<IVec3, ChunkRender>,
+    /// The render bookkeeping of each group of chunks (`group_of`) of which some are loaded
+    pub render: HashMap<IVec2, ChunkRender>,
 }
 
 impl ClientWorldMap {
-    /// Forgets the chunk at `chunk_pos`: its blocks and its meshes, which are despawned. A mesh
-    /// still being made for it is dropped when done, as the chunk has no render any more.
+    /// Notes that the chunk at `chunk_pos` arrived: meshes of its group requested before are
+    /// outdated.
+    pub fn chunk_arrived(&mut self, chunk_pos: IVec3) {
+        let render = self
+            .render
+            .entry(group_of(chunk_pos))
+            .and_modify(|render| render.last_mesh_ts = Instant::now())
+            .or_insert_with(ChunkRender::new);
+        render.chunks.insert(chunk_pos);
+    }
+
+    /// Forgets the chunk at `chunk_pos`: its blocks, and the meshes of its group once it was the
+    /// last of the group, which are despawned. A mesh still being made for the group is dropped
+    /// when done then, as the group has no render any more. Otherwise the group is to be meshed
+    /// again.
     pub fn unload_chunk(&mut self, chunk_pos: IVec3, commands: &mut Commands) {
         self.blocks.remove_chunk(chunk_pos);
-        if let Some(render) = self.render.remove(&chunk_pos) {
+        let group = group_of(chunk_pos);
+        let Some(render) = self.render.get_mut(&group) else {
+            return;
+        };
+        render.chunks.remove(&chunk_pos);
+        if render.chunks.is_empty() {
             for entity in [render.entity, render.liquid_entity].into_iter().flatten() {
                 commands.entity(entity).despawn();
             }
+            self.render.remove(&group);
         }
     }
 }
@@ -98,39 +136,63 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn an_unloaded_chunk_loses_its_blocks_render_and_entities_and_the_others_keep_theirs() {
+    fn an_unloaded_chunk_leaves_its_group_and_the_last_one_takes_the_entities_with_it() {
         let mut world = World::new();
         let mut map = ClientWorldMap::default();
-        let spawn_render = |world: &mut World, map: &mut ClientWorldMap, pos: IVec3| {
+        let first = IVec3::ZERO;
+        let second = IVec3::new(GROUP_WIDTH - 1, 3, GROUP_WIDTH - 1);
+        let other = IVec3::X * GROUP_WIDTH;
+        for pos in [first, second, other] {
             map.blocks.insert_chunk(pos, Chunk::new());
-            let render = ChunkRender {
-                entity: Some(world.spawn_empty().id()),
-                liquid_entity: Some(world.spawn_empty().id()),
-                ..ChunkRender::new()
-            };
-            map.render.insert(pos, render.clone());
-            render
+            map.chunk_arrived(pos);
+        }
+        assert_eq!(map.render.len(), 2);
+        let mut entities = |map: &mut ClientWorldMap, pos| {
+            let render = map.render.get_mut(&group_of(pos)).unwrap();
+            render.entity = Some(world.spawn_empty().id());
+            render.liquid_entity = Some(world.spawn_empty().id());
+            [render.entity, render.liquid_entity]
         };
-        let gone = spawn_render(&mut world, &mut map, IVec3::ZERO);
-        let kept = spawn_render(&mut world, &mut map, IVec3::X);
+        let group = entities(&mut map, first);
+        let kept = entities(&mut map, other);
 
         let mut queue = CommandQueue::default();
         let mut commands = Commands::new(&mut queue, &world);
-        map.unload_chunk(IVec3::ZERO, &mut commands);
+        map.unload_chunk(first, &mut commands);
         // a chunk the client does not have is ignored
         map.unload_chunk(IVec3::new(7, 7, 7), &mut commands);
         queue.apply(&mut world);
-
-        assert!(!map.blocks.is_chunk_loaded(IVec3::ZERO));
-        assert!(!map.render.contains_key(&IVec3::ZERO));
-        for entity in [gone.entity, gone.liquid_entity].into_iter().flatten() {
-            assert!(world.get_entity(entity).is_err());
-        }
-        assert!(map.blocks.is_chunk_loaded(IVec3::X));
-        assert!(map.render.contains_key(&IVec3::X));
-        for entity in [kept.entity, kept.liquid_entity].into_iter().flatten() {
+        assert!(!map.blocks.is_chunk_loaded(first));
+        assert_eq!(map.render[&group_of(first)].chunks, HashSet::from([second]));
+        for entity in group.into_iter().flatten() {
             assert!(world.get_entity(entity).is_ok());
         }
+
+        let mut commands = Commands::new(&mut queue, &world);
+        map.unload_chunk(second, &mut commands);
+        queue.apply(&mut world);
+        assert!(!map.render.contains_key(&group_of(first)));
+        for entity in group.into_iter().flatten() {
+            assert!(world.get_entity(entity).is_err());
+        }
+        assert!(map.blocks.is_chunk_loaded(other));
+        for entity in kept.into_iter().flatten() {
+            assert!(world.get_entity(entity).is_ok());
+        }
+    }
+
+    #[test]
+    fn the_chunks_of_a_group_lie_side_by_side_at_every_height() {
+        assert_eq!(group_of(IVec3::new(0, -5, GROUP_WIDTH - 1)), IVec2::ZERO);
+        assert_eq!(group_of(IVec3::new(-1, 40, 0)), IVec2::new(-1, 0));
+        assert_eq!(
+            group_of(IVec3::new(GROUP_WIDTH, 0, -GROUP_WIDTH)),
+            IVec2::new(1, -1)
+        );
+        assert_eq!(
+            group_origin(IVec2::new(1, -1)),
+            IVec3::new(1, 0, -1) * GROUP_WIDTH * CHUNK_SIZE
+        );
     }
 
     #[test]

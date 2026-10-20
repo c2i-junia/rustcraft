@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::LazyLock;
-use std::{collections::HashMap, time::Instant};
 
 use bevy::{
     asset::RenderAssetUsages,
@@ -20,7 +20,7 @@ use super::voxel::{Face, FaceDirection, VoxelShape};
 
 /// The buffers of a chunk mesh while its faces are added one by one.
 #[derive(Default)]
-struct MeshCreator {
+pub(crate) struct MeshCreator {
     vertices: Vec<[f32; 3]>,
     indices: Vec<u32>,
     normals: Vec<[f32; 3]>,
@@ -100,6 +100,23 @@ impl MeshCreator {
         self.colors.extend(face.vertices.iter().map(|_| look.color));
         self.tiles
             .extend(face.vertices.iter().map(|_| [look.tile as f32, 0.]));
+    }
+
+    /// Appends the faces of `other`, moved by `offset`.
+    fn append(&mut self, other: MeshCreator, offset: Vec3) {
+        let first_index = self.vertices.len() as u32;
+        self.indices
+            .extend(other.indices.iter().map(|index| index + first_index));
+        self.vertices.extend(
+            other
+                .vertices
+                .iter()
+                .map(|vertex| <[f32; 3]>::from(Vec3::from(*vertex) + offset)),
+        );
+        self.normals.extend(other.normals);
+        self.uvs.extend(other.uvs);
+        self.tiles.extend(other.tiles);
+        self.colors.extend(other.colors);
     }
 
     /// The mesh of the faces added so far, `None` when there is none. It has no tangents: the
@@ -376,6 +393,7 @@ pub struct ChunkMeshResponse {
 ///
 /// Neighbouring faces of whole blocks that look the same are merged into one rectangle (greedy
 /// meshing), which keeps the meshes far smaller than one square per face.
+#[cfg(test)]
 pub(crate) fn generate_chunk_mesh(
     world_map: &ChunkMap,
     chunk: &Chunk,
@@ -385,7 +403,42 @@ pub(crate) fn generate_chunk_mesh(
     mesh_chunk(world_map, chunk, chunk_pos, tiles, true)
 }
 
+/// The faces of a chunk, solid and liquid, before they are drawn with those of its group.
+pub(crate) struct ChunkFaces(MeshCreator, MeshCreator);
+
+/// The faces of the chunk at `chunk_pos` that `generate_chunk_mesh` draws, `None` when it is
+/// not loaded.
+pub(crate) fn chunk_faces_at(
+    world_map: &ChunkMap,
+    chunk_pos: IVec3,
+    tiles: &HashMap<String, u32>,
+) -> Option<ChunkFaces> {
+    let chunk = world_map.chunk(chunk_pos)?;
+    let (solid, liquid) = chunk_faces(world_map, chunk, &chunk_pos, tiles, true);
+    Some(ChunkFaces(solid, liquid))
+}
+
+/// The meshes of the faces of `chunks`, each made by `chunk_faces_at` for the chunk at its
+/// position, drawn as one: a vertex is placed from the block `origin`.
+pub(crate) fn group_mesh(
+    chunks: impl IntoIterator<Item = (IVec3, ChunkFaces)>,
+    origin: IVec3,
+) -> ChunkMeshResponse {
+    let mut solid = MeshCreator::default();
+    let mut liquid = MeshCreator::default();
+    for (chunk_pos, ChunkFaces(chunk_solid, chunk_liquid)) in chunks {
+        let offset = (chunk_pos * CHUNK_SIZE - origin).as_vec3();
+        solid.append(chunk_solid, offset);
+        liquid.append(chunk_liquid, offset);
+    }
+    ChunkMeshResponse {
+        solid_mesh: solid.build(),
+        liquid_mesh: liquid.build(),
+    }
+}
+
 /// `generate_chunk_mesh`, with the faces merged or not.
+#[cfg(test)]
 fn mesh_chunk(
     world_map: &ChunkMap,
     chunk: &Chunk,
@@ -393,7 +446,24 @@ fn mesh_chunk(
     tiles: &HashMap<String, u32>,
     merge: bool,
 ) -> ChunkMeshResponse {
-    let start = Instant::now();
+    let start = std::time::Instant::now();
+    let (solid, liquid) = chunk_faces(world_map, chunk, chunk_pos, tiles, merge);
+    let response = ChunkMeshResponse {
+        solid_mesh: solid.build(),
+        liquid_mesh: liquid.build(),
+    };
+    trace!("Render time : {:?}", start.elapsed());
+    response
+}
+
+/// The solid and the liquid faces of `chunk` that `mesh_chunk` draws.
+fn chunk_faces(
+    world_map: &ChunkMap,
+    chunk: &Chunk,
+    chunk_pos: &IVec3,
+    tiles: &HashMap<String, u32>,
+    merge: bool,
+) -> (MeshCreator, MeshCreator) {
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
     let mut looks: HashMap<BlockId, BlockLook> = HashMap::new();
     let mut solid = MeshCreator::default();
@@ -475,12 +545,7 @@ fn mesh_chunk(
     }
 
     layers.merge_into(&mut solid, &mut liquid);
-    let response = ChunkMeshResponse {
-        solid_mesh: solid.build(),
-        liquid_mesh: liquid.build(),
-    };
-    trace!("Render time : {:?}", Instant::now() - start);
-    response
+    (solid, liquid)
 }
 
 fn is_block_surrounded(

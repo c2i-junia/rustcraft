@@ -223,7 +223,11 @@ fn a_world_opens_once_the_chunks_around_the_player_are_loaded() {
     assert_eq!(chunks_around(blocks, center, 1), (27, 27));
     h.wait_until("a mesh around the player", SCREEN, |w| {
         let map = w.resource::<ClientWorldMap>();
-        cube(center).any(|pos| map.render.get(&pos).is_some_and(|r| r.entity.is_some()))
+        cube(center).any(|pos| {
+            map.render
+                .get(&crate::world::group_of(pos))
+                .is_some_and(|r| r.entity.is_some())
+        })
     });
 }
 
