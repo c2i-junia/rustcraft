@@ -153,6 +153,17 @@ impl GameFolder {
         self
     }
 
+    /// Saves the player `player` of `world` standing at `position`, with nothing in hand.
+    pub fn with_player_at(self, world: &str, player: &str, position: Vec3) -> Self {
+        let id = hash_string_to_u64(player);
+        let saved = Player::new(id, player.to_string(), position, Transform::default());
+        let players = self.path().join(SAVE_PATH).join(world).join("players");
+        fs::create_dir_all(&players).expect("a players folder");
+        let data = ron::ser::to_string(&saved).expect("a serialised player");
+        fs::write(players.join(format!("{id}.ron")), data).expect("a player file");
+        self
+    }
+
     /// Saves the server list, as `(name, ip)` pairs.
     pub fn with_servers(self, servers: &[(&str, &str)]) -> Self {
         let list: Vec<ServerItem> = servers

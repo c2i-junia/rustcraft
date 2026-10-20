@@ -149,5 +149,5 @@ lot 4 of "Lots".
 - [x] `CHANGELOG.txt`; tests, clippy, fmt; commit `feat: vines in the jungle`.
 
 ### Task 5 (optional): A picture of a vine in the game
-- [ ] If the e2e harness can show a giant of the seed 42 at a fixed camera cheaply, an ignored
+- [x] If the e2e harness can show a giant of the seed 42 at a fixed camera cheaply, an ignored
   `UI_SNAPSHOTS=1` snapshot of its vines, looked at; otherwise said so in the report.

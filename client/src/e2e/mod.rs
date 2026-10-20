@@ -25,4 +25,5 @@ mod settings;
 mod shaders;
 mod solo;
 mod survival;
+mod vines;
 mod widgets;
