@@ -25,9 +25,10 @@ server stops when its player leaves and saves on request.
   connection may send per tick (`AVAILABLE_BYTES_PER_TICK`), and the size of the socket
   buffers, enlarged by both ends so that a burst of chunks is not dropped by the kernel.
 - `world/`: `Chunk` (a cube of `CHUNK_SIZE`³ cells, held as the one cell they all are when
-  they are of one kind, as the air above the ground and the stone below it, else as a dense
-  array, which its copies share until one of them changes: meshing, sending and saving a chunk
-  copy it for nothing), `ChunkMap` (the
+  they are of one kind, as the air above the ground and the stone below it, else as the kinds
+  of cells it holds and a byte per cell naming its kind, else, past 256 kinds, as a dense
+  array; its copies share the cells until one of them changes: meshing, sending and saving a
+  chunk copy it for nothing), `ChunkMap` (the
   loaded chunks and the log of the blocks that changed), blocks, items, mobs and the raycast.
   A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
   times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
@@ -200,10 +201,13 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    it and answers its author alone. Their syntax is in `shared/src/commands.rs`, which the
    client completes them from.
 2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the render
-   distance of the players before the inputs, for about 20 ms a tick at most
-   (`CHUNK_LOADING_PER_TICK`), the missing ones looked for a batch at a time, and made in
-   parallel on the server's own pool (`world/pool.rs`); and next to their chunk after each
-   input. While no player changes chunk, the chunks around them are not looked at again
+   distance of the players before the inputs, in the background (`ChunkLoader`): a tick
+   inserts the chunks made since the last one and asks for the missing ones, nearest first,
+   at most `CHUNKS_IN_FLIGHT` (8192) at once, which the server's own pool, of up to 16
+   threads (`world/pool.rs`), reads or generates between the ticks. A chunk next to an input
+   is made at once, on the tick. The generator computes the columns of the terrain once per
+   column of chunks (`ColumnsCache`) and samples the noises of the caves on a coarse grid it
+   interpolates (`world/caves.rs`). While no player changes chunk, the chunks around them are not looked at again
    (`LoadedAround`). A chunk is read from its file in
    the world's folder the first time a player needs it, else generated: opening a world reads
    no chunk. Then the water flows (`world/flow.rs`): every 5 ticks, the
@@ -258,10 +262,12 @@ The mobs and the dropped items move first, before the inputs of the tick are rea
    for each entity, far more than for each face. A group whose chunks changed gets a new
    mesh, built on the async compute pool, which has up to 8 threads
    (`app::task_pool_plugin`), with a task per chunk whose faces are put together. A chunk of
-   air, or buried in stone, is not meshed. While chunks arrive, a chunk waits for its
-   neighbours (`WaitingChunks`), which would each mesh it again; at most 128 groups are
+   air, or buried in stone, is not meshed. While chunks arrive, a group waits until its chunks
+   and those of the columns along its sides are in (`WaitingChunks`), which would each mesh it
+   again, so that a group is meshed once; at most 128 groups are
    meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
-   frame. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
+   frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
+   (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
    cast shadows; and a fog of the colour of the sky hides the edge of the render distance.
 
 The network is polled in `PreUpdate`, every frame, and the inputs are uploaded in
