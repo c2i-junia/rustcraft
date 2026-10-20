@@ -23,7 +23,7 @@ use crate::{
             insert_with_chests, read_chunk_containers, ChunkContainers, CONTAINERS_DIR,
         },
         data::ServerWorldMap,
-        generation::{generate_chunk, WorldGenerator},
+        generation::WorldGenerator,
     },
 };
 
@@ -55,20 +55,23 @@ enum Made {
 }
 
 /// The chunk at `chunk_pos`: from its file in the folder of the world `saved`, else generated.
-fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, seed: u32) -> Made {
+fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, generator: &WorldGenerator) -> Made {
     if let Some(dir) = saved {
         if let Some(chunk) = read_chunk(&dir.join(CHUNKS_DIR), chunk_pos) {
             let chests = read_chunk_containers(&dir.join(CONTAINERS_DIR), chunk_pos);
             return Made::Read(chunk, chests);
         }
     }
-    Made::Generated(generate_chunk(chunk_pos, seed))
+    Made::Generated(generator.generate_chunk(chunk_pos))
 }
 
 /// Makes `chunks` on the threads of the server pool, in their order.
-fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
+fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, generator: &WorldGenerator) -> Vec<Made> {
     if chunks.len() <= CHUNKS_PER_TASK {
-        return chunks.iter().map(|&c| make_chunk(c, saved, seed)).collect();
+        return chunks
+            .iter()
+            .map(|&c| make_chunk(c, saved, generator))
+            .collect();
     }
     server_pool()
         .scope(|scope| {
@@ -76,7 +79,7 @@ fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
                 scope.spawn(async move {
                     batch
                         .iter()
-                        .map(|&c| make_chunk(c, saved, seed))
+                        .map(|&c| make_chunk(c, saved, generator))
                         .collect::<Vec<_>>()
                 });
             }
@@ -90,8 +93,8 @@ fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
 /// about `CHUNK_LOADING_PER_TICK`, the nearest to each player first: from their files in the
 /// folder of the world `saved`, else generated.
 /// A generated chunk is dirty: it has to be saved, as inserting it is not logged as a block
-/// change; but not one made of a single kind of cell, such as the air above the ground or the
-/// stone below it, which is generated again at once. A chunk read from its file is not dirty.
+/// change; but not one made of a single kind of cell, such as the air above the ground, which
+/// is generated again at once. A chunk read from its file is not dirty.
 /// Says whether every chunk within reach is loaded now.
 pub(super) fn generate_missing_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
@@ -146,10 +149,7 @@ fn generate_missing_chunks_after<'a>(
             return left > 0;
         }
         left -= batch.len();
-        for (c, made) in batch
-            .iter()
-            .zip(make_chunks(&batch, saved, generator.seed()))
-        {
+        for (c, made) in batch.iter().zip(make_chunks(&batch, saved, generator)) {
             match made {
                 Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
                 Made::Generated(chunk) => {
