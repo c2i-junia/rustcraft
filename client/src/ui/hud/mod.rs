@@ -30,6 +30,7 @@ pub mod fps_counter;
 pub mod health;
 pub mod hotbar;
 pub mod inventory;
+pub mod item_browser;
 pub mod minimap;
 pub mod reticle;
 mod ui_mode;
