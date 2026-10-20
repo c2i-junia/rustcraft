@@ -3,8 +3,9 @@
 //! order. Dropping the writer waits for everything queued to be written.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
 use bevy::{
@@ -252,6 +253,8 @@ pub struct WorldWriter {
     jobs: Option<Sender<SaveJob>>,
     /// The chunks each finished job could not write.
     failures: Mutex<Receiver<Vec<IVec3>>>,
+    /// The jobs queued and not written yet, with what they could not write reported.
+    unfinished: Arc<AtomicUsize>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -285,6 +288,8 @@ impl WorldWriter {
     ) -> std::io::Result<Self> {
         let (jobs, queue) = mpsc::channel::<SaveJob>();
         let (report, failures) = mpsc::channel();
+        let unfinished = Arc::new(AtomicUsize::new(0));
+        let finished = Arc::clone(&unfinished);
         let thread = std::thread::Builder::new()
             .name("world-writer".into())
             .spawn(move || {
@@ -292,11 +297,13 @@ impl WorldWriter {
                 for job in queue {
                     // The tick thread may be gone already
                     let _ = report.send(handle(job));
+                    finished.fetch_sub(1, Ordering::Release);
                 }
             })?;
         Ok(Self {
             jobs: Some(jobs),
             failures: Mutex::new(failures),
+            unfinished,
             thread: Some(thread),
         })
     }
@@ -304,10 +311,20 @@ impl WorldWriter {
     /// Queues `job`. Gives it back when the writer thread is gone, so that nothing is lost
     /// silently.
     pub fn submit(&self, job: SaveJob) -> Result<(), Box<SaveJob>> {
-        match &self.jobs {
-            Some(jobs) => jobs.send(job).map_err(|err| Box::new(err.0)),
-            None => Err(Box::new(job)),
-        }
+        let Some(jobs) = &self.jobs else {
+            return Err(Box::new(job));
+        };
+        self.unfinished.fetch_add(1, Ordering::Acquire);
+        jobs.send(job).map_err(|err| {
+            self.unfinished.fetch_sub(1, Ordering::Release);
+            Box::new(err.0)
+        })
+    }
+
+    /// Whether every job queued is written, and what it could not write reported to
+    /// `take_failed_chunks`: a chunk may be read back from its file then.
+    pub fn is_idle(&self) -> bool {
+        self.unfinished.load(Ordering::Acquire) == 0
     }
 
     /// Stops the thread as a dead one would be, waiting for it.
@@ -382,6 +399,29 @@ mod tests {
                 .map(|&p| (p, stone_chunk(), Vec::new()))
                 .collect(),
         }
+    }
+
+    #[test]
+    fn the_writer_is_idle_once_every_job_queued_is_written() {
+        let (release, wait) = mpsc::channel::<()>();
+        let wait = Mutex::new(wait);
+        let writer = WorldWriter::spawn_with(move |_| {
+            wait.lock().unwrap().recv().unwrap();
+            vec![IVec3::X]
+        })
+        .unwrap();
+        assert!(writer.is_idle());
+
+        assert!(writer.submit(job(&[IVec3::X])).is_ok());
+        assert!(writer.submit(job(&[IVec3::X])).is_ok());
+        assert!(!writer.is_idle());
+        release.send(()).unwrap();
+        release.send(()).unwrap();
+        while !writer.is_idle() {
+            std::thread::yield_now();
+        }
+        // What the jobs could not write is reported by then
+        assert_eq!(writer.take_failed_chunks(), vec![IVec3::X, IVec3::X]);
     }
 
     #[test]
@@ -547,12 +587,15 @@ mod tests {
         let writer = WorldWriter {
             jobs: Some(jobs),
             failures: Mutex::new(failures),
+            unfinished: Default::default(),
             thread: None,
         };
 
         let given_back = writer.submit(job(&[IVec3::X])).err().unwrap();
 
         assert_eq!(given_back.chunks.len(), 1);
+        // Nothing was queued
+        assert!(writer.is_idle());
         drop(writer);
     }
 

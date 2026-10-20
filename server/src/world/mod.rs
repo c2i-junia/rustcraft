@@ -14,4 +14,5 @@ pub mod load_from_file;
 mod pool;
 pub mod save;
 pub mod simulation;
+pub mod unload;
 pub mod writer;

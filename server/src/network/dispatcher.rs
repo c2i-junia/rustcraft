@@ -125,7 +125,12 @@ pub fn register_systems(app: &mut App) {
     )
     .add_systems(
         FixedUpdate,
-        world::save::save_world_system.in_set(ServerSet::Save),
+        (
+            world::save::save_world_system,
+            world::unload::unload_far_chunks_system,
+        )
+            .chain()
+            .in_set(ServerSet::Save),
     );
 
     app.add_systems(FixedPostUpdate, update_server_time)
