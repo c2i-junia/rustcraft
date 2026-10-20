@@ -5,7 +5,7 @@ use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 use crate::world::blocks::FENCE;
 use crate::world::{
     global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockId, BlockTransparency,
-    Chunk, Container, Furnace,
+    Chunk, Container, Furnace, Portals,
 };
 
 /// The blocks of a world, on the server as on the client: the loaded chunks, and the global
@@ -16,6 +16,8 @@ use crate::world::{
 /// the contents of every chest, a client only those of the chest its player has open. The
 /// furnaces are held the same way, where a furnace, lit or out, stands.
 ///
+/// And it holds the portals of the world, whose chunks need not be loaded.
+///
 /// Positions named `pos` are global block positions, `chunk_pos` are chunk coordinates.
 #[derive(Default, Clone, Debug)]
 pub struct ChunkMap {
@@ -23,6 +25,7 @@ pub struct ChunkMap {
     changed: HashSet<IVec3>,
     containers: Held<Container>,
     furnaces: Held<Furnace>,
+    portals: Portals,
 }
 
 /// What blocks of one kind hold, by position, like the contents of the chests, and the
@@ -100,6 +103,14 @@ impl ChunkMap {
 
     pub fn chunk(&self, chunk_pos: IVec3) -> Option<&Chunk> {
         self.chunks.get(&chunk_pos)
+    }
+
+    pub fn portals(&self) -> &Portals {
+        &self.portals
+    }
+
+    pub fn portals_mut(&mut self) -> &mut Portals {
+        &mut self.portals
     }
 
     /// The positions of the loaded chunks, in no particular order.
