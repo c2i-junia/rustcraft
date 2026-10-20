@@ -313,8 +313,8 @@ mod tests {
     #[test]
     fn items_that_start_with_the_word_come_before_those_that_contain_it() {
         let completion = complete("/give LOG", &[]).unwrap();
-        assert_eq!(texts(&completion), ["oak_log", "spruce_log"]);
-        assert_eq!(completion.suggestions[0].matched, 4..7);
+        assert_eq!(texts(&completion), ["jungle_log", "oak_log", "spruce_log"]);
+        assert_eq!(completion.suggestions[0].matched, 7..10);
         let completion = complete("/give s", &[]).unwrap();
         assert_eq!(
             texts(&completion)[..6],

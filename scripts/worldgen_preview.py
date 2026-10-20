@@ -48,6 +48,9 @@ BLOCKS = [
     ("GoldOre", (250, 210, 40)),
     ("Gravel", (176, 146, 120)),
     ("Torch", (255, 214, 102)),
+    ("JungleLog", (89, 56, 41)),
+    ("JunglePlanks", (121, 81, 57)),
+    ("JungleLeaves", (32, 109, 23)),
 ]
 AIR = 255
 WATER = 19

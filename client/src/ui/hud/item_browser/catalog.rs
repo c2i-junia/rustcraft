@@ -113,7 +113,9 @@ mod tests {
                 ItemId::OakLog,
                 ItemId::OakPlanks,
                 ItemId::SpruceLog,
-                ItemId::SprucePlanks
+                ItemId::SprucePlanks,
+                ItemId::JungleLog,
+                ItemId::JunglePlanks
             ]
         );
     }
@@ -127,14 +129,18 @@ mod tests {
         );
         assert_eq!(
             found("PLANKS", None),
-            [ItemId::OakPlanks, ItemId::SprucePlanks]
+            [
+                ItemId::OakPlanks,
+                ItemId::SprucePlanks,
+                ItemId::JunglePlanks
+            ]
         );
         assert_eq!(
             found("ore", None),
             [ItemId::CoalOre, ItemId::IronOre, ItemId::GoldOre]
         );
-        assert_eq!(found("", None).len(), 36);
-        assert_eq!(found("  ", None).len(), 36);
+        assert_eq!(found("", None).len(), 39);
+        assert_eq!(found("  ", None).len(), 39);
         assert!(found("zzz", None).is_empty());
     }
 
@@ -145,7 +151,7 @@ mod tests {
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), 36);
+        assert_eq!(found("#", None).len(), 39);
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }

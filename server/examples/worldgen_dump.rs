@@ -35,6 +35,8 @@ fn is_ground(block: BlockId) -> bool {
             | BlockId::OakLog
             | BlockId::SpruceLeaves
             | BlockId::SpruceLog
+            | BlockId::JungleLeaves
+            | BlockId::JungleLog
             | BlockId::Cactus
             | BlockId::Dandelion
             | BlockId::Poppy

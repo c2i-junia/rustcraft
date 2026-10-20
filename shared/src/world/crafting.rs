@@ -31,8 +31,10 @@ struct Recipe {
 
 const OAK_LOG: Option<ItemId> = Some(ItemId::OakLog);
 const SPRUCE_LOG: Option<ItemId> = Some(ItemId::SpruceLog);
+const JUNGLE_LOG: Option<ItemId> = Some(ItemId::JungleLog);
 const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
 const SPRUCE: Option<ItemId> = Some(ItemId::SprucePlanks);
+const JUNGLE: Option<ItemId> = Some(ItemId::JunglePlanks);
 const COBBLE: Option<ItemId> = Some(ItemId::Cobblestone);
 const STICK: Option<ItemId> = Some(ItemId::Stick);
 const COAL: Option<ItemId> = Some(ItemId::Coal);
@@ -41,11 +43,14 @@ const COAL: Option<ItemId> = Some(ItemId::Coal);
 const RECIPES: &[Recipe] = &[
     Recipe { width: 1, cells: &[OAK_LOG], output: ItemId::OakPlanks, nb: 4 },
     Recipe { width: 1, cells: &[SPRUCE_LOG], output: ItemId::SprucePlanks, nb: 4 },
+    Recipe { width: 1, cells: &[JUNGLE_LOG], output: ItemId::JunglePlanks, nb: 4 },
     Recipe { width: 1, cells: &[OAK, OAK], output: ItemId::Stick, nb: 4 },
     Recipe { width: 1, cells: &[SPRUCE, SPRUCE], output: ItemId::Stick, nb: 4 },
+    Recipe { width: 1, cells: &[JUNGLE, JUNGLE], output: ItemId::Stick, nb: 4 },
     Recipe { width: 1, cells: &[COAL, STICK], output: ItemId::Torch, nb: 4 },
     Recipe { width: 2, cells: &[OAK, OAK, OAK, OAK], output: ItemId::CraftingTable, nb: 1 },
     Recipe { width: 2, cells: &[SPRUCE, SPRUCE, SPRUCE, SPRUCE], output: ItemId::CraftingTable, nb: 1 },
+    Recipe { width: 2, cells: &[JUNGLE, JUNGLE, JUNGLE, JUNGLE], output: ItemId::CraftingTable, nb: 1 },
     Recipe {
         width: 3,
         cells: &[
@@ -79,6 +84,16 @@ const RECIPES: &[Recipe] = &[
     Recipe {
         width: 3,
         cells: &[
+            JUNGLE, JUNGLE, JUNGLE,
+            JUNGLE, None, JUNGLE,
+            JUNGLE, JUNGLE, JUNGLE,
+        ],
+        output: ItemId::Chest,
+        nb: 1,
+    },
+    Recipe {
+        width: 3,
+        cells: &[
             OAK, OAK, OAK,
             None, STICK, None,
             None, STICK, None,
@@ -90,6 +105,16 @@ const RECIPES: &[Recipe] = &[
         width: 3,
         cells: &[
             SPRUCE, SPRUCE, SPRUCE,
+            None, STICK, None,
+            None, STICK, None,
+        ],
+        output: ItemId::WoodenPickaxe,
+        nb: 1,
+    },
+    Recipe {
+        width: 3,
+        cells: &[
+            JUNGLE, JUNGLE, JUNGLE,
             None, STICK, None,
             None, STICK, None,
         ],
@@ -117,6 +142,16 @@ const RECIPES: &[Recipe] = &[
         nb: 1,
     },
     Recipe {
+        width: 2,
+        cells: &[
+            JUNGLE, JUNGLE,
+            JUNGLE, STICK,
+            None, STICK,
+        ],
+        output: ItemId::WoodenAxe,
+        nb: 1,
+    },
+    Recipe {
         width: 1,
         cells: &[
             OAK,
@@ -130,6 +165,16 @@ const RECIPES: &[Recipe] = &[
         width: 1,
         cells: &[
             SPRUCE,
+            STICK,
+            STICK,
+        ],
+        output: ItemId::WoodenShovel,
+        nb: 1,
+    },
+    Recipe {
+        width: 1,
+        cells: &[
+            JUNGLE,
             STICK,
             STICK,
         ],
@@ -157,6 +202,16 @@ const RECIPES: &[Recipe] = &[
         nb: 1,
     },
     Recipe {
+        width: 2,
+        cells: &[
+            JUNGLE, JUNGLE,
+            None, STICK,
+            None, STICK,
+        ],
+        output: ItemId::WoodenHoe,
+        nb: 1,
+    },
+    Recipe {
         width: 1,
         cells: &[
             OAK,
@@ -171,6 +226,16 @@ const RECIPES: &[Recipe] = &[
         cells: &[
             SPRUCE,
             SPRUCE,
+            STICK,
+        ],
+        output: ItemId::WoodenSword,
+        nb: 1,
+    },
+    Recipe {
+        width: 1,
+        cells: &[
+            JUNGLE,
+            JUNGLE,
             STICK,
         ],
         output: ItemId::WoodenSword,
@@ -309,6 +374,7 @@ mod tests {
     const LOG: Option<ItemId> = Some(ItemId::OakLog);
     const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
     const SPRUCE: Option<ItemId> = Some(ItemId::SprucePlanks);
+    const JUNGLE: Option<ItemId> = Some(ItemId::JunglePlanks);
     const COBBLE: Option<ItemId> = Some(ItemId::Cobblestone);
 
     fn grid(cells: [Option<ItemId>; 9]) -> CraftingGrid {
@@ -336,11 +402,18 @@ mod tests {
             ])),
             made(ItemId::SprucePlanks, 4)
         );
+        let jungle_log = Some(ItemId::JungleLog);
+        assert_eq!(
+            match_recipe(&grid([
+                jungle_log, None, None, None, None, None, None, None, None
+            ])),
+            made(ItemId::JunglePlanks, 4)
+        );
     }
 
     #[test]
     fn two_planks_one_above_the_other_make_four_sticks() {
-        for planks in [OAK, SPRUCE] {
+        for planks in [OAK, SPRUCE, JUNGLE] {
             assert_eq!(
                 match_recipe(&grid([
                     planks, None, None, planks, None, None, None, None, None
@@ -370,7 +443,7 @@ mod tests {
 
     #[test]
     fn four_planks_in_a_square_make_a_crafting_table() {
-        for planks in [OAK, SPRUCE] {
+        for planks in [OAK, SPRUCE, JUNGLE] {
             assert_eq!(
                 match_recipe(&grid([
                     planks, planks, None, planks, planks, None, None, None, None
@@ -392,7 +465,7 @@ mod tests {
 
     #[test]
     fn a_ring_of_planks_makes_a_chest() {
-        for planks in [OAK, SPRUCE] {
+        for planks in [OAK, SPRUCE, JUNGLE] {
             assert_eq!(
                 match_recipe(&grid([
                     planks, planks, planks, planks, None, planks, planks, planks, planks
@@ -472,7 +545,7 @@ mod tests {
 
     #[test]
     fn planks_and_sticks_make_the_wooden_tools() {
-        for p in [OAK, SPRUCE] {
+        for p in [OAK, SPRUCE, JUNGLE] {
             for (cells, tool) in [
                 (
                     [p, p, p, None, STICK, None, None, STICK, None],
@@ -522,7 +595,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 20);
+        assert_eq!(all.len(), 29);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -537,15 +610,15 @@ mod tests {
         }
         let furnace = all.iter().find(|r| r.output.item_id == ItemId::Furnace);
         assert_eq!(furnace.map(|r| (r.width, r.height)), Some((3, 3)));
-        assert_eq!((all[2].width, all[2].height), (1, 2));
-        assert_eq!(all[2].output, made(ItemId::Stick, 4).unwrap());
+        assert_eq!((all[3].width, all[3].height), (1, 2));
+        assert_eq!(all[3].output, made(ItemId::Stick, 4).unwrap());
     }
 
     #[test]
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
-        assert_eq!(counts(ItemId::WoodenPickaxe), (2, 0));
-        assert_eq!(counts(ItemId::Stick), (2, 11));
+        assert_eq!(counts(ItemId::WoodenPickaxe), (3, 0));
+        assert_eq!(counts(ItemId::Stick), (3, 16));
         assert_eq!(counts(ItemId::OakPlanks), (1, 8));
         assert_eq!(counts(ItemId::Cobblestone), (0, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
@@ -621,6 +694,12 @@ mod tests {
         assert_eq!(
             match_recipe(&grid([
                 OAK, OAK, SPRUCE, None, STICK, None, None, STICK, None
+            ])),
+            None
+        );
+        assert_eq!(
+            match_recipe(&grid([
+                JUNGLE, JUNGLE, OAK, None, STICK, None, None, STICK, None
             ])),
             None
         );

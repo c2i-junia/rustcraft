@@ -42,6 +42,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    crafting table (blocks/CraftingTable*.png, items/CraftingTable.png) and of the chest
    (blocks/Chest*.png), cut from the pack's entity/chest/normal.png.
 -> The textures of the gravel (blocks/Gravel.png).
+-> The textures of the jungle wood (blocks/JungleLog.png, blocks/JungleLogTop.png,
+   blocks/JunglePlanks.png, blocks/JungleLeaves.png).
 -> The textures of the spawn eggs (items/FoxSpawnEgg.png, items/SheepSpawnEgg.png).
 -> The animated texture of the water (blocks/Water.png, 16 frames), the pack's
    block/water_still.png, and its animation (blocks/Water.anim.ron) from its .mcmeta.

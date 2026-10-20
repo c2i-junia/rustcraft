@@ -53,10 +53,12 @@ impl SoundMaterial {
             | BlockId::OakPlanks
             | BlockId::SpruceLog
             | BlockId::SprucePlanks
+            | BlockId::JungleLog
+            | BlockId::JunglePlanks
             | BlockId::CraftingTable
             | BlockId::Chest
             | BlockId::Torch => Self::Wood,
-            BlockId::OakLeaves | BlockId::SpruceLeaves => Self::Leaves,
+            BlockId::OakLeaves | BlockId::SpruceLeaves | BlockId::JungleLeaves => Self::Leaves,
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
             BlockId::Glass | BlockId::Ice => Self::Glass,
@@ -177,5 +179,21 @@ mod tests {
                 assert!(data.join(&file).is_file(), "{sound:?}: missing {file}");
             }
         }
+    }
+
+    #[test]
+    fn jungle_wood_sounds_like_wood_and_its_leaves_like_leaves() {
+        assert_eq!(
+            SoundMaterial::of(BlockId::JungleLog),
+            Some(SoundMaterial::Wood)
+        );
+        assert_eq!(
+            SoundMaterial::of(BlockId::JunglePlanks),
+            Some(SoundMaterial::Wood)
+        );
+        assert_eq!(
+            SoundMaterial::of(BlockId::JungleLeaves),
+            Some(SoundMaterial::Leaves)
+        );
     }
 }

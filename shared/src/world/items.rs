@@ -59,11 +59,14 @@ pub enum ItemId {
     FoxSpawnEgg,
     SheepSpawnEgg,
     Torch,
+    JungleLog,
+    JunglePlanks,
+    JungleLeaves,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 36] = [
+    pub const ALL: [ItemId; 39] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -100,6 +103,9 @@ impl ItemId {
         Self::FoxSpawnEgg,
         Self::SheepSpawnEgg,
         Self::Torch,
+        Self::JungleLog,
+        Self::JunglePlanks,
+        Self::JungleLeaves,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -181,12 +187,18 @@ impl ItemId {
             | Self::Snow
             | Self::Torch
             | Self::Bedrock => ItemCategory::Blocks,
-            Self::OakLog | Self::SpruceLog | Self::OakPlanks | Self::SprucePlanks => {
-                ItemCategory::Wood
-            }
-            Self::OakLeaves | Self::Cactus | Self::Dandelion | Self::Poppy | Self::TallGrass => {
-                ItemCategory::Nature
-            }
+            Self::OakLog
+            | Self::SpruceLog
+            | Self::JungleLog
+            | Self::OakPlanks
+            | Self::SprucePlanks
+            | Self::JunglePlanks => ItemCategory::Wood,
+            Self::OakLeaves
+            | Self::JungleLeaves
+            | Self::Cactus
+            | Self::Dandelion
+            | Self::Poppy
+            | Self::TallGrass => ItemCategory::Nature,
             Self::CoalOre | Self::IronOre | Self::GoldOre => ItemCategory::Ores,
             Self::Coal | Self::Stick | Self::Snowball => ItemCategory::Materials,
             Self::CraftingTable | Self::Furnace | Self::Chest => ItemCategory::Stations,
@@ -227,6 +239,9 @@ impl ItemId {
             Self::GoldOre => ItemType::Block(BlockId::GoldOre),
             Self::Gravel => ItemType::Block(BlockId::Gravel),
             Self::Torch => ItemType::Block(BlockId::Torch),
+            Self::JungleLog => ItemType::Block(BlockId::JungleLog),
+            Self::JunglePlanks => ItemType::Block(BlockId::JunglePlanks),
+            Self::JungleLeaves => ItemType::Block(BlockId::JungleLeaves),
 
             Self::Snowball | Self::Stick | Self::Coal | Self::FoxSpawnEgg | Self::SheepSpawnEgg => {
                 ItemType::Generic
@@ -374,6 +389,9 @@ mod tests {
             (ItemId::FoxSpawnEgg, 33),
             (ItemId::SheepSpawnEgg, 34),
             (ItemId::Torch, 35),
+            (ItemId::JungleLog, 36),
+            (ItemId::JunglePlanks, 37),
+            (ItemId::JungleLeaves, 38),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -413,7 +431,10 @@ mod tests {
                 | ItemId::Gravel
                 | ItemId::FoxSpawnEgg
                 | ItemId::SheepSpawnEgg
-                | ItemId::Torch => {}
+                | ItemId::Torch
+                | ItemId::JungleLog
+                | ItemId::JunglePlanks
+                | ItemId::JungleLeaves => {}
             }
         }
         for (id, expected) in table {
@@ -502,6 +523,17 @@ mod tests {
         for item in others {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn jungle_wood_is_filed_with_oak_wood() {
+        for (jungle, oak) in [
+            (ItemId::JungleLog, ItemId::OakLog),
+            (ItemId::JunglePlanks, ItemId::OakPlanks),
+            (ItemId::JungleLeaves, ItemId::OakLeaves),
+        ] {
+            assert_eq!(jungle.category(), oak.category(), "{jungle:?}");
         }
     }
 

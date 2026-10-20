@@ -56,37 +56,37 @@ the "Client" paragraph of "Architecture", and lot 1 of "Lots".
 ## Tasks
 
 ### Task 1: Blocks and items (`shared`)
-- [ ] Tests: add the three blocks to `block_encoding_is_pinned` (28, 29, 30), `ALL_BLOCKS` and
+- [x] Tests: add the three blocks to `block_encoding_is_pinned` (28, 29, 30), `ALL_BLOCKS` and
   its exhaustive match, and the three items to `item_encoding_is_pinned` (35, 36, 37). See
   them fail to compile.
-- [ ] Append the variants, grow `BlockId::ALL` and `ItemId::ALL`, map each item to its block
+- [x] Append the variants, grow `BlockId::ALL` and `ItemId::ALL`, map each item to its block
   in `get_default_type`. See them pass.
-- [ ] Tests: `jungle_wood_breaks_like_oak_wood` (break times, the axe for log and planks, the
+- [x] Tests: `jungle_wood_breaks_like_oak_wood` (break times, the axe for log and planks, the
   hoe and the sword for the leaves, no tool required), `jungle_wood_drops_itself_and_its_leaves_drop_nothing`
   and `jungle_leaves_are_seen_through_like_the_other_leaves`. See them fail.
-- [ ] Break times, `is_mined_faster_by`, drop tables, `get_visibility`. See them pass.
-- [ ] Fix the completion test that lists the logs: `/give LOG` now finds `jungle_log` too.
-- [ ] `PROTOCOL_ID` 19 → 20.
+- [x] Break times, `is_mined_faster_by`, drop tables, `get_visibility`. See them pass.
+- [x] Fix the completion test that lists the logs: `/give LOG` now finds `jungle_log` too.
+- [x] `PROTOCOL_ID` 19 → 20.
 
 ### Task 2: Recipes (`shared`)
-- [ ] Tests: `JUNGLE` planks in `a_log_makes_four_planks`, and in the loops over the planks of
+- [x] Tests: `JUNGLE` planks in `a_log_makes_four_planks`, and in the loops over the planks of
   the sticks, crafting table, chest and wooden tools tests; mixed jungle and oak planks make no
   tool. See them fail.
-- [ ] The nine jungle recipes. See them pass.
+- [x] The nine jungle recipes. See them pass.
 
 ### Task 3: Client
-- [ ] Tests: `jungle_wood_sounds_like_wood_and_its_leaves_like_leaves` (sounds.rs);
+- [x] Tests: `jungle_wood_sounds_like_wood_and_its_leaves_like_leaves` (sounds.rs);
   `the_jungle_log_has_its_own_top_texture` and
   `jungle_leaves_are_tinted_on_every_face_by_their_own_colour` (voxel.rs). See them fail.
-- [ ] `JUNGLE_LEAVES_COLOR`, the sound materials, the `VoxelShape` cases. See them pass.
-- [ ] Textures from Pixel Perfection: `block/jungle_log`, `jungle_log_top`, `jungle_planks`,
+- [x] `JUNGLE_LEAVES_COLOR`, the sound materials, the `VoxelShape` cases. See them pass.
+- [x] Textures from Pixel Perfection: `block/jungle_log`, `jungle_log_top`, `jungle_planks`,
   `jungle_leaves` → `blocks/JungleLog.png`, `JungleLogTop.png`, `JunglePlanks.png`,
   `JungleLeaves.png`, each checked 16×16.
-- [ ] Test: `the_jungle_leaves_icon_is_its_block_texture_tinted_as_in_the_world`. See it fail.
-- [ ] `items/JungleLeaves.png`, made by a script kept outside the repository. See it pass.
+- [x] Test: `the_jungle_leaves_icon_is_its_block_texture_tinted_as_in_the_world`. See it fail.
+- [x] `items/JungleLeaves.png`, made by a script kept outside the repository. See it pass.
 
 ### Task 4: Tools, credits and commit
-- [ ] `worldgen_preview.py` palette, `worldgen_dump.rs` `is_ground`.
-- [ ] Credit the four textures in `docs/ressources.txt`.
-- [ ] `cargo test`, clippy and fmt on `shared`, `client` and `server`; commit `feat: jungle
+- [x] `worldgen_preview.py` palette, `worldgen_dump.rs` `is_ground`.
+- [x] Credit the four textures in `docs/ressources.txt`.
+- [x] `cargo test`, clippy and fmt on `shared`, `client` and `server`; commit `feat: jungle
   logs, planks and leaves, and their recipes`, naming the textures and the pack.

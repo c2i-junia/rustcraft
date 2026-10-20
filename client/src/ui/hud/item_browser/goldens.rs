@@ -153,11 +153,11 @@ fn a_view_hides_the_catalog_and_builds_its_cards() {
     let state = viewing(PICKAXE_RECIPES, &[]);
     let mut golden = open_browser((1280, 720), planks_and_logs(), state);
     assert_eq!(count::<CatalogPart>(&mut golden), (3, 0));
-    assert_eq!(count::<RecipeCard>(&mut golden).0, 2);
+    assert_eq!(count::<RecipeCard>(&mut golden).0, 3);
     // Five ingredients and the output on each card
-    assert_eq!(count::<RecipeSlot>(&mut golden).0, 12);
-    // The two sticks of the oak card, everything on the spruce card
-    assert_eq!(count::<MissingTint>(&mut golden), (10, 2 + 5));
+    assert_eq!(count::<RecipeSlot>(&mut golden).0, 18);
+    // The two sticks of the oak card, everything on the spruce and jungle cards
+    assert_eq!(count::<MissingTint>(&mut golden), (15, 2 + 5 + 5));
 
     golden.world_mut().resource_mut::<ItemBrowserState>().back();
     show_frames(&mut golden);

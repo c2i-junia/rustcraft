@@ -53,6 +53,9 @@ pub enum BlockId {
     GoldOre,
     Gravel,
     Torch,
+    JungleLog,
+    JunglePlanks,
+    JungleLeaves,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -118,7 +121,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 29] = [
+    pub const ALL: [BlockId; 32] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -148,6 +151,9 @@ impl BlockId {
         BlockId::GoldOre,
         BlockId::Gravel,
         BlockId::Torch,
+        BlockId::JungleLog,
+        BlockId::JunglePlanks,
+        BlockId::JungleLeaves,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -206,6 +212,9 @@ impl BlockId {
             Self::GoldOre => 15,
             Self::Gravel => 6,
             Self::Torch => 1,
+            Self::JungleLog => 10,
+            Self::JunglePlanks => 10,
+            Self::JungleLeaves => 2,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -228,8 +237,10 @@ impl BlockId {
                 *self,
                 Self::OakLog
                     | Self::SpruceLog
+                    | Self::JungleLog
                     | Self::OakPlanks
                     | Self::SprucePlanks
+                    | Self::JunglePlanks
                     | Self::CraftingTable
                     | Self::Chest
             ),
@@ -238,7 +249,10 @@ impl BlockId {
                 Self::Dirt | Self::Grass | Self::Sand | Self::Snow | Self::Gravel
             ),
             ToolKind::Hoe | ToolKind::Sword => {
-                matches!(*self, Self::OakLeaves | Self::SpruceLeaves)
+                matches!(
+                    *self,
+                    Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves
+                )
             }
         }
     }
@@ -303,6 +317,8 @@ impl BlockId {
             BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
             BlockId::Gravel => vec![(1, ItemId::Gravel, 1)],
             BlockId::Torch => vec![(1, ItemId::Torch, 1)],
+            BlockId::JungleLog => vec![(1, ItemId::JungleLog, 1)],
+            BlockId::JunglePlanks => vec![(1, ItemId::JunglePlanks, 1)],
             _ => vec![],
         }
     }
@@ -323,7 +339,9 @@ impl BlockId {
             Self::Dandelion | Self::Poppy | Self::TallGrass | Self::Torch => {
                 BlockTransparency::Decoration
             }
-            Self::Glass | Self::OakLeaves | Self::SpruceLeaves => BlockTransparency::Transparent,
+            Self::Glass | Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves => {
+                BlockTransparency::Transparent
+            }
             Self::Water => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
         }
@@ -369,7 +387,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 29] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 32] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -405,7 +423,10 @@ mod tests {
             | BlockId::IronOre
             | BlockId::GoldOre
             | BlockId::Gravel
-            | BlockId::Torch => {}
+            | BlockId::Torch
+            | BlockId::JungleLog
+            | BlockId::JunglePlanks
+            | BlockId::JungleLeaves => {}
         }
     }
 
@@ -482,6 +503,9 @@ mod tests {
                 BlockId::GoldOre => 26,
                 BlockId::Gravel => 27,
                 BlockId::Torch => 28,
+                BlockId::JungleLog => 29,
+                BlockId::JunglePlanks => 30,
+                BlockId::JungleLeaves => 31,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -499,6 +523,65 @@ mod tests {
             assert_eq!(item.get_default_type(), ItemType::Block(block));
         }
         assert_eq!(ItemId::Stick.get_default_type(), ItemType::Generic);
+    }
+
+    #[test]
+    fn jungle_wood_breaks_like_oak_wood() {
+        for (jungle, oak) in [
+            (BlockId::JungleLog, BlockId::OakLog),
+            (BlockId::JunglePlanks, BlockId::OakPlanks),
+            (BlockId::JungleLeaves, BlockId::OakLeaves),
+        ] {
+            assert_eq!(jungle.get_break_time(), oak.get_break_time(), "{jungle:?}");
+            assert_eq!(jungle.get_required_tool(), None, "{jungle:?}");
+        }
+        assert!(BlockId::JungleLog.is_mined_faster_by(ToolKind::Axe));
+        assert!(BlockId::JunglePlanks.is_mined_faster_by(ToolKind::Axe));
+        assert!(BlockId::JungleLeaves.is_mined_faster_by(ToolKind::Hoe));
+        assert!(BlockId::JungleLeaves.is_mined_faster_by(ToolKind::Sword));
+        assert!(!BlockId::JungleLeaves.is_mined_faster_by(ToolKind::Axe));
+    }
+
+    #[test]
+    fn jungle_wood_drops_itself_and_its_leaves_drop_nothing() {
+        for (block, item) in [
+            (BlockId::JungleLog, ItemId::JungleLog),
+            (BlockId::JunglePlanks, ItemId::JunglePlanks),
+        ] {
+            assert_eq!(block.get_drops(1), HashMap::from([(item, 1)]));
+        }
+        assert!(BlockId::JungleLeaves.get_drops(1).is_empty());
+        for (block, item) in [
+            (BlockId::JungleLog, ItemId::JungleLog),
+            (BlockId::JunglePlanks, ItemId::JunglePlanks),
+            (BlockId::JungleLeaves, ItemId::JungleLeaves),
+        ] {
+            assert_eq!(item.get_default_type(), ItemType::Block(block));
+        }
+    }
+
+    #[test]
+    fn jungle_leaves_are_seen_through_like_the_other_leaves() {
+        assert_eq!(
+            BlockId::JungleLeaves.get_visibility(),
+            BlockTransparency::Transparent
+        );
+        // and dim the light as they do, while the wood stops it as the oak's
+        for (jungle, oak) in [
+            (BlockId::JungleLeaves, BlockId::OakLeaves),
+            (BlockId::JungleLog, BlockId::OakLog),
+            (BlockId::JunglePlanks, BlockId::OakPlanks),
+        ] {
+            assert_eq!(jungle.light_opacity(), oak.light_opacity(), "{jungle:?}");
+        }
+        assert_eq!(
+            BlockId::JungleLog.get_visibility(),
+            BlockTransparency::Solid
+        );
+        assert_eq!(
+            BlockId::JunglePlanks.get_visibility(),
+            BlockTransparency::Solid
+        );
     }
 
     #[test]

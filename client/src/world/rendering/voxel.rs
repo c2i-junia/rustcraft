@@ -189,6 +189,7 @@ impl VoxelShape {
             }
             BlockId::OakLog
             | BlockId::SpruceLog
+            | BlockId::JungleLog
             | BlockId::Cactus
             | BlockId::Furnace
             | BlockId::Chest => {
@@ -198,7 +199,7 @@ impl VoxelShape {
                 shape
             }
             // Like Minecraft's, the needles of the spruce are of one colour everywhere
-            BlockId::OakLeaves => Self::full_cube(block)
+            BlockId::OakLeaves | BlockId::JungleLeaves => Self::full_cube(block)
                 .biome_tinted(BiomeTint::Foliage)
                 .swaying(Sway::Whole),
             BlockId::SpruceLeaves => Self::full_cube(block)
@@ -568,6 +569,49 @@ mod tests {
             .faces
             .iter()
             .all(|face| face.biome_tint == BiomeTint::None));
+    }
+
+    #[test]
+    fn the_jungle_log_has_its_own_top_texture() {
+        let log = shape_of(BlockId::JungleLog);
+        assert_eq!(log.faces[TOP].texture, "JungleLogTop");
+        assert_eq!(log.faces[BOTTOM].texture, "JungleLogTop");
+        assert_eq!(log.faces[2].texture, "JungleLog");
+    }
+
+    #[test]
+    fn jungle_leaves_are_tinted_and_sway_like_oak_leaves() {
+        let (leaves, oak) = (
+            shape_of(BlockId::JungleLeaves),
+            shape_of(BlockId::OakLeaves),
+        );
+        assert_eq!(leaves.faces.len(), oak.faces.len());
+        for (face, oak_face) in leaves.faces.iter().zip(&oak.faces) {
+            assert_eq!(face.texture, "JungleLeaves");
+            assert_eq!(face.biome_tint, BiomeTint::Foliage);
+            assert_eq!(face.color, oak_face.color);
+            assert_eq!(face.sway, oak_face.sway);
+        }
+    }
+
+    /// An item with no texture of its own shows its block texture untinted, as the oak leaves
+    /// and the tall grass do. Checks that the item of `id` shows its block texture as that of
+    /// `sibling` does: neither has a texture of its own.
+    fn assert_the_icon_is_the_block_texture_as_for(id: BlockId, sibling: BlockId) {
+        let textures =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures");
+        for block in [id, sibling] {
+            assert!(textures.join(format!("blocks/{block:?}.png")).is_file());
+            assert!(
+                !textures.join(format!("items/{block:?}.png")).exists(),
+                "{block:?} has an icon of its own"
+            );
+        }
+    }
+
+    #[test]
+    fn the_jungle_leaves_icon_is_its_block_texture_as_for_the_oak_leaves() {
+        assert_the_icon_is_the_block_texture_as_for(BlockId::JungleLeaves, BlockId::OakLeaves);
     }
 
     #[test]
