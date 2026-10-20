@@ -14,7 +14,7 @@ use super::game::{enter_world, hold_click, slot};
 use super::harness::{Harness, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::camera::CameraController;
+use crate::camera::{CameraController, SKY_COLOR};
 use crate::player::CurrentPlayerMarker;
 use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
@@ -22,7 +22,7 @@ use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::CelestialRoot;
 use crate::world::ClientWorldMap;
 use shared::players::Player;
-use shared::world::{raycast, ItemId};
+use shared::world::{global_block_to_chunk_pos, raycast, ItemId};
 
 /// The scene, in blocks from the cell of the player's feet.
 struct Scene {
@@ -960,8 +960,8 @@ fn the_view_through_a_portal_reaches_a_far_place() {
         .filter(|(_, camera)| camera.is_active)
         .map(|(portal, _)| portal.color)
         .collect();
-    // The orange portal, 10 chunks away, faces the player too, beyond the fog
-    assert!(active.contains(&PortalColor::Blue), "{active:?}");
+    // The orange portal, 10 chunks away, faces the player too, but beyond its fog
+    assert_eq!(active, [PortalColor::Blue]);
 
     // The south face of the sand, seen through the blue portal: where it would be in front of
     // the blue portal, as it is in front of the orange one
@@ -973,6 +973,37 @@ fn the_view_through_a_portal_reaches_a_far_place() {
         color.x > color.z + 25.0,
         "not sand through the portal: {color}"
     );
+
+    // Around the wall, the sky only: the ground around the orange portal, sent for the blue
+    // one, is not drawn by the player's camera, beyond its fog
+    let sky = Vec3::from_array(SKY_COLOR.to_srgba().to_u8_array_no_alpha().map(f32::from));
+    let is_sky = |color: Vec3| (color - sky).abs().max_element() <= 2.0;
+    for x in [80.0, 250.0, 950.0, 1200.0] {
+        for y in [200.0, 280.0, 360.0, 440.0, 560.0, 600.0] {
+            let color = mean_color(&shot, Vec2::new(x, y));
+            assert!(is_sky(color), "not the sky at ({x}, {y}): {color}");
+        }
+    }
+    // Only the portal cameras draw it
+    let world = h.world_mut();
+    let sand_group = crate::world::group_of(global_block_to_chunk_pos(&sand));
+    let entity = world.resource::<ClientWorldMap>().render[&sand_group]
+        .entity
+        .unwrap();
+    assert_eq!(
+        world.get::<bevy::camera::visibility::RenderLayers>(entity),
+        Some(&bevy::camera::visibility::RenderLayers::layer(
+            crate::portal::PORTAL_CHUNKS_LAYER
+        ))
+    );
+    // Through the portal, the wall of the blue portal, seen from behind far beyond the portal
+    // camera's fog, is the sky too
+    let wall_back = portals
+        .through(&orange)
+        .unwrap()
+        .transform_point3(wall_there.as_vec3() + Vec3::new(0.5, 0.5, 0.0));
+    let color = mean_color(&shot, on_screen(&mut h, wall_back));
+    assert!(is_sky(color), "not the sky through the portal: {color}");
 
     // Up to the portal, then, once the sun goes down in the south, a look through the portal at
     // it: the sun is drawn where it is in the sky of the far place, not around the player
@@ -999,9 +1030,10 @@ fn the_view_through_a_portal_reaches_a_far_place() {
     // one: the player looks north, as high as the sun is
     let toward = |sun: Vec3| Vec3::new(-sun.x, sun.y, -sun.z);
     // The sun in the south, above the horizon, low enough to be seen through the opening: a day
-    // lasts a minute
+    // lasts a minute, and the sun sets in the south a quarter of a day after noon
+    h.command("/time set day");
     let eyes_now = eyes(h.world_mut());
-    h.wait_until("the sun low in the south", Duration::from_secs(90), |w| {
+    h.wait_until("the sun low in the south", Duration::from_secs(30), |w| {
         let mut roots = w
             .try_query_filtered::<&Transform, With<CelestialRoot>>()
             .unwrap();
