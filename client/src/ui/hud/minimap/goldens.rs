@@ -104,7 +104,7 @@ fn golden_in_the_made_up_world() -> UiGolden {
         .world_mut()
         .resource_scope(|world, mut surface: Mut<MinimapSurface>| {
             let map = world.resource::<ClientWorldMap>();
-            surface.scan_dirty(&map.blocks, IVec2::ZERO, usize::MAX);
+            surface.scan_dirty(&map.blocks, IVec2::ZERO, i32::MAX, usize::MAX);
         });
     golden
 }

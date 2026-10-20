@@ -19,6 +19,7 @@ use crate::ui::settings::{InterfaceSettings, MinimapChoice};
 use crate::ui::theme::{ACCENT, BEVEL_WIDTH, PANEL, SPACE_XS, TEXT};
 use crate::ui::widgets::raised_bevel;
 use crate::world::{BlockChanged, ChunkLoadEvent, ClientWorldMap};
+use shared::CHUNK_SIZE;
 
 pub mod colors;
 pub mod compose;
@@ -40,6 +41,10 @@ use world_map::{
 /// The blocks a pixel of the map shows a column of, from the nearest to the farthest view.
 pub const ZOOMS: [i32; 3] = [1, 2, 4];
 
+/// The columns of chunks around the player's the minimap can show, at its farthest view: one
+/// more for the column the player is in, and for the shading of a cell by its northern neighbour.
+const SHOWN_COLUMNS: i32 = MAP_SIZE as i32 / 2 * ZOOMS[ZOOMS.len() - 1] / CHUNK_SIZE + 1;
+
 /// The frame of the minimap, hidden with it.
 #[derive(Component)]
 pub struct MinimapRoot;
@@ -58,7 +63,7 @@ pub struct MinimapImage {
     pub handle: Handle<Image>,
     /// The index in `ZOOMS` of the zoom of the map.
     pub zoom: usize,
-    /// The centre, the zoom and the revision of the surface it shows.
+    /// The centre, the zoom and the revision of the surface near the player it shows.
     drawn: Option<(IVec2, i32, u64)>,
 }
 
@@ -262,7 +267,7 @@ fn follow_the_world(
             .single()
             .map(|transform| column_of(transform.translation).div_euclid(IVec2::splat(16)))
             .unwrap_or_default();
-        surface.scan_dirty(&world_map.blocks, near, COLUMNS_PER_FRAME);
+        surface.scan_dirty(&world_map.blocks, near, SHOWN_COLUMNS, COLUMNS_PER_FRAME);
     }
 }
 
@@ -287,7 +292,7 @@ fn draw_minimap(
     let state = (
         column_of(player.translation),
         image.blocks_per_pixel(),
-        surface.revision,
+        surface.near_revision,
     );
     if image.drawn == Some(state) {
         return;

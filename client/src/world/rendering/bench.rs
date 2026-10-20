@@ -743,11 +743,11 @@ fn bench_minimap() {
         for _ in 0..ROUNDS {
             surface = MinimapSurface::of(&world);
             let start = Instant::now();
-            surface.scan_dirty(&world, center, columns);
+            surface.scan_dirty(&world, center, i32::MAX, columns);
             scan_all.push(millis(start));
             let mut one = MinimapSurface::of(&world);
             let start = Instant::now();
-            one.scan_dirty(&world, center, 1);
+            one.scan_dirty(&world, center, i32::MAX, 1);
             scan_column.push(millis(start));
         }
 

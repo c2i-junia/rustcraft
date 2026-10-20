@@ -152,7 +152,7 @@ mod tests {
         map.set_block(IVec3::new(4, 0, 2), block(BlockId::Stone));
         map.set_block(IVec3::new(5, 0, 1), block(BlockId::Sand));
         let mut surface = MinimapSurface::of(&map);
-        surface.scan_dirty(&map, IVec2::ZERO, usize::MAX);
+        surface.scan_dirty(&map, IVec2::ZERO, i32::MAX, usize::MAX);
         let colors = MinimapColors::of([(BlockId::Stone, [1, 2, 3]), (BlockId::Sand, [9, 8, 7])]);
 
         let mut pixels = vec![0; (MAP_SIZE * MAP_SIZE * 4) as usize];
@@ -195,7 +195,7 @@ mod tests {
             }
         }
         let mut surface = MinimapSurface::of(&map);
-        surface.scan_dirty(&map, IVec2::ZERO, usize::MAX);
+        surface.scan_dirty(&map, IVec2::ZERO, i32::MAX, usize::MAX);
         let colors =
             MinimapColors::of([(BlockId::Stone, [1, 2, 3]), (BlockId::Sand, [90, 80, 70])]);
         assert_eq!(

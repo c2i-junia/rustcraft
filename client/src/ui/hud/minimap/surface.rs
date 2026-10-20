@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
-use shared::world::{BlockId, BlockTransparency, ChunkMap};
+use shared::world::{BlockId, BlockTransparency, Chunk, ChunkMap};
 use shared::CHUNK_SIZE;
 
 /// The deepest water the map tells apart, in blocks: deeper water looks the same.
@@ -46,6 +46,10 @@ pub struct MinimapSurface {
     dirty: HashSet<IVec2>,
     /// Changes whenever what the map shows changes, so that it is drawn again.
     pub revision: u64,
+    /// Changes whenever what the map shows changes near the player, within the reach given to
+    /// `scan_dirty`: the minimap shows no more, and the far columns of a large render distance,
+    /// scanned a few a frame, would draw it again on every frame.
+    pub near_revision: u64,
 }
 
 /// Whether the map sees through a block, to the block under it.
@@ -60,10 +64,26 @@ fn split(x: i32, z: i32) -> (IVec2, usize) {
     (column, cell as usize)
 }
 
-/// What the map shows at `x`, `z`, looking down through the loaded chunks of the column, at
-/// the heights `chunks`.
-fn scan_cell(map: &ChunkMap, chunks: &BTreeSet<i32>, x: i32, z: i32) -> Option<Surface> {
-    let (column, _) = split(x, z);
+/// The loaded chunks of the column of chunks `column` at the heights `chunks`, from the top, with
+/// their heights, but those of air: they are found once for the cells of the column.
+fn column_chunks<'a>(
+    map: &'a ChunkMap,
+    column: IVec2,
+    chunks: &BTreeSet<i32>,
+) -> Vec<(i32, &'a Chunk)> {
+    chunks
+        .iter()
+        .rev()
+        .filter_map(|&y| Some((y, map.chunk(IVec3::new(column.x, y, column.y))?)))
+        // Most chunks above the ground: nothing to see, and water above them is as deep as the
+        // map tells below
+        .filter(|(_, chunk)| chunk.uniform() != Some(None))
+        .collect()
+}
+
+/// What the map shows at `x`, `z`, looking down through `chunks`, the chunks of its column
+/// (`column_chunks`).
+fn scan_cell(chunks: &[(i32, &Chunk)], x: i32, z: i32) -> Option<Surface> {
     let local = IVec2::new(x.rem_euclid(CHUNK_SIZE), z.rem_euclid(CHUNK_SIZE));
     let mut water_top: Option<i32> = None;
     let water = |floor: BlockId, top: i32, depth: i32| Surface {
@@ -71,15 +91,7 @@ fn scan_cell(map: &ChunkMap, chunks: &BTreeSet<i32>, x: i32, z: i32) -> Option<S
         y: top,
         water_depth: depth.min(i32::from(MAX_WATER_DEPTH)) as u8,
     };
-    for &chunk_y in chunks.iter().rev() {
-        let Some(chunk) = map.chunk(IVec3::new(column.x, chunk_y, column.y)) else {
-            continue;
-        };
-        // Most chunks above the ground: nothing to see, and water above them is as deep as the
-        // map tells below
-        if chunk.uniform() == Some(None) {
-            continue;
-        }
+    for &(chunk_y, chunk) in chunks {
         for local_y in (0..CHUNK_SIZE).rev() {
             let y = chunk_y * CHUNK_SIZE + local_y;
             if let Some(top) = water_top {
@@ -173,6 +185,7 @@ impl MinimapSurface {
             self.tiles.remove(&column);
             self.dirty.remove(&column);
             self.revision += 1;
+            self.near_revision += 1;
         } else {
             self.dirty.insert(column);
         }
@@ -188,15 +201,18 @@ impl MinimapSurface {
         let Some(tile) = self.tiles.get_mut(&column) else {
             return;
         };
-        let surface = scan_cell(map, &tile.chunks, position.x, position.z);
+        let chunks = column_chunks(map, column, &tile.chunks);
+        let surface = scan_cell(&chunks, position.x, position.z);
         if tile.cells[cell] != surface {
             tile.cells[cell] = surface;
             self.revision += 1;
+            self.near_revision += 1;
         }
     }
 
-    /// Scans again at most `budget` dirty columns, the nearest to the column `near` first.
-    pub fn scan_dirty(&mut self, map: &ChunkMap, near: IVec2, budget: usize) {
+    /// Scans again at most `budget` dirty columns, the nearest to the column `near` first. Those
+    /// within `reach` columns of it move `near_revision` too.
+    pub fn scan_dirty(&mut self, map: &ChunkMap, near: IVec2, reach: i32, budget: usize) {
         let mut dirty: Vec<IVec2> = self.dirty.iter().copied().collect();
         let distance = |column: &IVec2| (*column - near).abs().max_element();
         // The nearest `budget`, without sorting the thousands of a large render distance
@@ -211,16 +227,20 @@ impl MinimapSurface {
                 continue;
             };
             let origin = column * CHUNK_SIZE;
+            let chunks = column_chunks(map, column, &tile.chunks);
             let mut changed = false;
             for (cell, surface) in tile.cells.iter_mut().enumerate() {
                 let x = origin.x + cell as i32 / CHUNK_SIZE;
                 let z = origin.y + cell as i32 % CHUNK_SIZE;
-                let scanned = scan_cell(map, &tile.chunks, x, z);
+                let scanned = scan_cell(&chunks, x, z);
                 changed |= *surface != scanned;
                 *surface = scanned;
             }
             if changed {
                 self.revision += 1;
+                if distance(&column) <= reach {
+                    self.near_revision += 1;
+                }
             }
         }
     }
@@ -257,7 +277,7 @@ mod tests {
     /// The surface of `map`, fully scanned.
     fn scanned(map: &ChunkMap) -> MinimapSurface {
         let mut surface = MinimapSurface::of(map);
-        surface.scan_dirty(map, IVec2::ZERO, usize::MAX);
+        surface.scan_dirty(map, IVec2::ZERO, i32::MAX, usize::MAX);
         surface
     }
 
@@ -372,7 +392,7 @@ mod tests {
         surface.chunk_unloaded(IVec3::new(0, 1, 0));
         // shown until the column is scanned again
         assert!(surface.has_dirty());
-        surface.scan_dirty(&map, IVec2::ZERO, 1);
+        surface.scan_dirty(&map, IVec2::ZERO, i32::MAX, 1);
         assert_eq!(surface.get(0, 0), solid(BlockId::Stone, 2));
 
         let revision = surface.revision;
@@ -389,11 +409,26 @@ mod tests {
         let near = IVec3::new(CHUNK_SIZE, 0, 0);
         let map = map_of(&[(far, BlockId::Stone), (near, BlockId::Stone)]);
         let mut surface = MinimapSurface::of(&map);
-        surface.scan_dirty(&map, IVec2::ZERO, 1);
+        surface.scan_dirty(&map, IVec2::ZERO, i32::MAX, 1);
         assert_eq!(surface.get(near.x, 0), solid(BlockId::Stone, 0));
         assert_eq!(surface.get(far.x, 0), None);
-        surface.scan_dirty(&map, IVec2::ZERO, 1);
+        surface.scan_dirty(&map, IVec2::ZERO, i32::MAX, 1);
         assert_eq!(surface.get(far.x, 0), solid(BlockId::Stone, 0));
         assert!(!surface.has_dirty());
+    }
+
+    #[test]
+    fn a_column_beyond_the_reach_moves_the_revision_but_not_the_near_one() {
+        let far = IVec3::new(5 * CHUNK_SIZE, 0, 0);
+        let near = IVec3::new(CHUNK_SIZE, 0, 0);
+        let map = map_of(&[(far, BlockId::Stone), (near, BlockId::Stone)]);
+        let mut surface = MinimapSurface::of(&map);
+
+        surface.scan_dirty(&map, IVec2::ZERO, 2, 1);
+        let (revision, near_revision) = (surface.revision, surface.near_revision);
+        assert!(near_revision > 0);
+        surface.scan_dirty(&map, IVec2::ZERO, 2, 1);
+        assert!(surface.revision > revision);
+        assert_eq!(surface.near_revision, near_revision);
     }
 }
