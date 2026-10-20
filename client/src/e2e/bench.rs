@@ -289,9 +289,9 @@ fn save_and_quit(h: &mut super::harness::Harness) -> f64 {
 
 /// A new world played at the render distance `BENCH_RD` (default 8): Ctrl+Enter, then every
 /// chunk received and drawn, then frames looking ahead and frames walking, which brings new
-/// chunks in. Says how long the world took to be drawn, how many chunks, entities and
-/// triangles it holds, the memory of the process, and the frame times. `BENCH_DISK` is as in
-/// `bench_world_lifecycle`.
+/// chunks in, then Save and quit to title. Says how long the world took to be drawn, how many
+/// chunks, entities and triangles it holds, the memory of the process, the frame times, and
+/// how long the quit took. `BENCH_DISK` is as in `bench_world_lifecycle`.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_render_distance() {
@@ -353,9 +353,14 @@ fn bench_render_distance() {
         }
     }
     let drawn = scene_stats(&mut h);
+    phase("still");
     let still = frame_times(&mut h, 600, |_| {});
+    phase("walking");
     let walking = walk_for(&mut h, 10.);
+    phase("quit");
     let after_walk = scene_stats(&mut h);
+    let memory = memory();
+    let quit = save_and_quit(&mut h);
 
     let result = serde_json::json!({
         "radius": radius,
@@ -366,9 +371,16 @@ fn bench_render_distance() {
         "still": still,
         "walking": walking,
         "after_walk": after_walk,
-        "memory": memory(),
+        "memory": memory,
+        "save_and_quit_s": quit,
     });
     println!("BENCH_RESULT {result}");
+}
+
+/// Says when a phase of a benchmark starts, in ms since the Unix epoch, to find it in a profile.
+fn phase(name: &str) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    println!("BENCH_PHASE {name} {}", now.unwrap_or_default().as_millis());
 }
 
 /// The chunks the client holds, the chunk entities and the vertices and triangles of their
