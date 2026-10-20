@@ -3,7 +3,7 @@
 //! server.
 
 use std::f32::consts::PI;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bevy::{camera::RenderTarget, prelude::*};
 use image::RgbImage;
@@ -19,6 +19,7 @@ use crate::player::CurrentPlayerMarker;
 use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::world::celestial::CelestialRoot;
 use crate::world::ClientWorldMap;
 use shared::players::Player;
 use shared::world::{raycast, ItemId};
@@ -526,16 +527,19 @@ fn difference(a: &RgbImage, b: &RgbImage) -> f32 {
     total as f32 / a.as_raw().len() as f32
 }
 
-/// Saves `shot` as `name` into `target/ui-snapshots/<test>/`, when `UI_SNAPSHOTS=1`.
-fn keep(shot: &RgbImage, name: &str) {
+/// Saves `shot` as `name` into `target/ui-snapshots/e2e__portals__<test>/`, when
+/// `UI_SNAPSHOTS=1`.
+fn keep(shot: &RgbImage, test: &str, name: &str) {
     if !std::env::var_os("UI_SNAPSHOTS").is_some_and(|value| value == "1") {
         return;
     }
     let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../target/ui-snapshots/e2e__portals__walking_through_a_portal_is_seamless");
+        .join(format!("../target/ui-snapshots/e2e__portals__{test}"));
     std::fs::create_dir_all(&folder).unwrap();
     shot.save(folder.join(format!("{name}.png"))).unwrap();
 }
+
+const WALKING: &str = "walking_through_a_portal_is_seamless";
 
 /// In solo, the player walks into its blue portal and out of its orange one, which faces a
 /// quarter turn to the left: its camera turns once, by that quarter turn, and nothing jumps:
@@ -659,7 +663,7 @@ fn walking_through_a_portal_is_seamless() {
             orange.signed_distance(at)
         );
         let shot = h.screenshot();
-        keep(&shot, &format!("{:02}", shots.len()));
+        keep(&shot, WALKING, &format!("{:02}", shots.len()));
         shots.push((crossed, shot));
         // Within 0.12 block of a portal, the camera of that portal has no oblique near plane,
         // inside the box of the twin. A glance along the wall, from there, sees through the
@@ -676,7 +680,7 @@ fn walking_through_a_portal_is_seamless() {
             set_yaw(&mut h, facing - 85f32.to_radians());
             h.frames(1);
             let shot = h.screenshot();
-            keep(&shot, &format!("glance_{}", glances.len()));
+            keep(&shot, WALKING, &format!("glance_{}", glances.len()));
             glances.push((twin, shot));
             set_yaw(&mut h, looking);
             h.frames(1);
@@ -774,5 +778,267 @@ fn walking_through_a_portal_is_seamless() {
     assert!(
         across <= 2.0 * others + 1.0,
         "the screen jumps across the portal: {across}, between frames {others}"
+    );
+}
+
+/// A mod with two commands, from the block its author is in: `/wall` builds a stone wall 4 wide
+/// and 5 high 8 blocks north, facing south, from a block below; `/landmark` builds a block of
+/// sand 3 blocks wide and 2 high, below the eyes, between 3 and 5 blocks north, in front of
+/// that wall.
+const FAR_MOD: &str = r#"
+    local rc = rustcraft
+    local function fill(p, x0, y0, z0, x1, y1, z1, block)
+        for x = x0, x1 do
+            for y = y0, y1 do
+                for z = z0, z1 do
+                    rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + z }, block)
+                end
+            end
+        end
+    end
+    rc.register_command("wall", function(ctx, args)
+        fill(rc.player_position(ctx.player), -2, -1, -8, 1, 3, -8, "stone")
+        return "Wall built"
+    end)
+    rc.register_command("landmark", function(ctx, args)
+        fill(rc.player_position(ctx.player), -1, -1, -5, 1, 0, -3, "sand")
+        return "Landmark built"
+    end)
+"#;
+
+/// How far south the player flies from the orange portal to place the blue one, in blocks: 10
+/// chunks, far beyond its render distance (`FAR_RENDER_DISTANCE`) and the margin.
+const FAR_FLIGHT: i32 = 160;
+const FAR_RENDER_DISTANCE: u32 = 3;
+
+/// In solo, with a render distance of 3 chunks, the player places its orange portal, has sand
+/// put in front of it, flies 10 chunks away and places its blue portal there: through the blue
+/// portal it sees the sand, whose chunks the server sends it only because the portal shows them.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_reaches_a_far_place() {
+    let folder = GameFolder::new()
+        .with_world("Far")
+        .with_player("Far", "Tester", |player| {
+            player.position = Vec3::new(0.5, 140.9, 0.5);
+            player.game_mode = shared::players::game_mode::GameMode::Creative;
+            player.is_flying = true;
+            player.inventory.inner.insert(
+                0,
+                shared::world::ItemStack {
+                    item_id: ItemId::PortalGun,
+                    item_type: ItemId::PortalGun.get_default_type(),
+                    nb: 1,
+                },
+            );
+        })
+        .with_mod("far", FAR_MOD)
+        .with_file(
+            crate::constants::VIDEO_SETTINGS_PATH,
+            &format!("(render_distance: {FAR_RENDER_DISTANCE})"),
+        );
+    let mut h = enter_world(folder, "Far");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    let in_the_air = |w: &World| {
+        local_player(w).is_some_and(|player| {
+            let map = &w.resource::<ClientWorldMap>().blocks;
+            player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
+        })
+    };
+    h.wait_until("the player in the air", SERVER, in_the_air);
+    look(&mut h, 0.0);
+
+    // The orange portal on a wall to the north, the sand in front of it
+    let here = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    // The cell of the wall at the height of the eyes, so that the portal is centred on them
+    let wall = |h: &mut Harness, at: IVec3| {
+        let world = h.world_mut();
+        let eyes = world
+            .query_filtered::<&Transform, With<CameraController>>()
+            .single(world)
+            .unwrap()
+            .translation;
+        IVec3::new(at.x, eyes.y.floor() as i32, at.z - 8)
+    };
+    let wall_here = wall(&mut h, here);
+    assert!((here.y - 1..=here.y + 3).contains(&wall_here.y));
+    h.command("/wall");
+    h.wait_until("the wall", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(wall_here)
+            .is_some()
+    });
+    h.aim_at(wall_here.as_vec3() + Vec3::new(0.5, 0.5, 1.0), wall_here);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.wait_until("the orange portal", SERVER, |w| {
+        own_portal(w, PortalColor::Orange).is_some()
+    });
+    // The front of the sand, below the eyes
+    let sand = here + IVec3::new(0, 0, -3);
+    h.command("/landmark");
+    h.wait_until("the sand", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(sand)
+            .is_some()
+    });
+
+    // South, far away
+    look(&mut h, 0.0);
+    h.key_down(KeyCode::KeyS);
+    h.wait_until("the far place", Duration::from_secs(300), |w| {
+        local_player(w).is_some_and(|player| player.position.z > (here.z + FAR_FLIGHT) as f32)
+    });
+    h.key_up(KeyCode::KeyS);
+    h.frames(20);
+    h.wait_until("the player in the air", SERVER, in_the_air);
+    // Out of reach: the client no longer has the sand
+    assert!(h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .get_block(sand)
+        .is_none());
+
+    // The blue portal on a wall to the north of the far place, facing the player
+    let there = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    let wall_there = wall(&mut h, there);
+    h.command("/wall");
+    h.wait_until("the far wall", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(wall_there)
+            .is_some()
+    });
+    h.aim_at(wall_there.as_vec3() + Vec3::new(0.5, 0.5, 1.0), wall_there);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.wait_until("the blue portal", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_some()
+    });
+
+    // The server sends the chunks around the orange portal, 10 chunks away
+    h.wait_until("the sand, through the portal", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(sand)
+            .is_some()
+    });
+    let blue = own_portal(h.world(), PortalColor::Blue).unwrap();
+    let portals = h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .portals()
+        .clone();
+    let orange = *portals.get(blue.owner, PortalColor::Orange).unwrap();
+    let player = local_player(h.world()).unwrap().position;
+    let target = Vec3::from(blue.frame().translation);
+    let world = h.world_mut();
+    let mut controller = world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap();
+    controller.angle_x = (-(target.x - player.x)).atan2(-(target.z - player.z));
+    controller.angle_y = 0.0;
+    // Meshed and drawn
+    h.frames(90);
+
+    let shot = h.screenshot();
+    keep(
+        &shot,
+        "the_view_through_a_portal_reaches_a_far_place",
+        "far_place",
+    );
+    h.snapshot("through_the_blue_portal_to_a_far_place");
+    let world = h.world_mut();
+    let active: Vec<PortalColor> = world
+        .query::<(&PortalCamera, &Camera)>()
+        .iter(world)
+        .filter(|(_, camera)| camera.is_active)
+        .map(|(portal, _)| portal.color)
+        .collect();
+    // The orange portal, 10 chunks away, faces the player too, beyond the fog
+    assert!(active.contains(&PortalColor::Blue), "{active:?}");
+
+    // The south face of the sand, seen through the blue portal: where it would be in front of
+    // the blue portal, as it is in front of the orange one
+    let face = sand.as_vec3() + Vec3::new(0.5, 0.5, 1.0);
+    let seen = portals.through(&orange).unwrap().transform_point3(face);
+    assert!(blue.signed_distance(seen) < 0.0);
+    let color = mean_color(&shot, on_screen(&mut h, seen));
+    assert!(
+        color.x > color.z + 25.0,
+        "not sand through the portal: {color}"
+    );
+
+    // Up to the portal, then, once the sun goes down in the south, a look through the portal at
+    // it: the sun is drawn where it is in the sky of the far place, not around the player
+    h.key_down(KeyCode::KeyW);
+    h.wait_until("the player near the portal", SERVER, |w| {
+        local_player(w).is_some_and(|player| blue.signed_distance(player.position) < 3.5)
+    });
+    h.key_up(KeyCode::KeyW);
+    let eyes = |w: &mut World| {
+        w.query_filtered::<&Transform, With<CameraController>>()
+            .single(w)
+            .unwrap()
+            .translation
+    };
+    let sun = |w: &mut World| {
+        let root = w
+            .query_filtered::<&Transform, With<CelestialRoot>>()
+            .single(w)
+            .unwrap()
+            .rotation;
+        root * Vec3::Z
+    };
+    // Looking through the blue portal, which faces south, is looking south out of the orange
+    // one: the player looks north, as high as the sun is
+    let toward = |sun: Vec3| Vec3::new(-sun.x, sun.y, -sun.z);
+    // The sun in the south, above the horizon, low enough to be seen through the opening: a day
+    // lasts a minute
+    let eyes_now = eyes(h.world_mut());
+    h.wait_until("the sun low in the south", Duration::from_secs(90), |w| {
+        let mut roots = w
+            .try_query_filtered::<&Transform, With<CelestialRoot>>()
+            .unwrap();
+        roots.single(w).is_ok_and(|root| {
+            let sun = root.rotation * Vec3::Z;
+            let ray = toward(sun);
+            let along = -blue.signed_distance(eyes_now) / ray.dot(blue.normal());
+            let hit = blue.local(eyes_now + ray * along);
+            sun.z > 0.0 && sun.y > 0.03 && hit.x.abs() < 0.7 && hit.y.abs() < 1.2
+        })
+    });
+    let look_at_sun = |h: &mut Harness| {
+        let direction = toward(sun(h.world_mut()));
+        let world = h.world_mut();
+        let mut controller = world
+            .query::<&mut CameraController>()
+            .single_mut(world)
+            .unwrap();
+        controller.angle_x = (-direction.x).atan2(-direction.z);
+        controller.angle_y = -direction.y.asin();
+    };
+    look_at_sun(&mut h);
+    h.frames(1);
+    look_at_sun(&mut h);
+    h.frames(1);
+    let shot = h.screenshot();
+    keep(
+        &shot,
+        "the_view_through_a_portal_reaches_a_far_place",
+        "far_place_sun",
+    );
+    let eyes = eyes(h.world_mut());
+    let direction = toward(sun(h.world_mut()));
+    assert!(blue.signed_distance(eyes + direction * 10.0) < 0.0);
+    let color = mean_color(&shot, on_screen(&mut h, eyes + direction * 100.0));
+    assert!(
+        color.x > color.z + 50.0 && color.y > color.z + 50.0,
+        "not the sun through the portal: {color}"
     );
 }
