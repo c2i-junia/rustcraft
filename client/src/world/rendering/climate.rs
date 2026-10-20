@@ -355,9 +355,12 @@ mod tests {
         assert_ne!(blended(border - 1), unblended(border - 1));
     }
 
-    /// The climate map of `app`, once every column asked for is written.
+    /// The climate map of `app`, once every column asked for is written. Fails the test after
+    /// 10 s: its tasks share the async pool of the process with the other tests, which may keep
+    /// them waiting for seconds.
     fn finished_map(app: &mut App) -> Image {
-        for _ in 0..1000 {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(10) {
             app.update();
             if app.world().resource::<ClimateMap>().tasks.is_empty() {
                 let handle = app

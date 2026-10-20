@@ -191,8 +191,10 @@ mod tests {
         for _ in 0..3 {
             let start = Instant::now();
             app.update();
+            // A frame that waited for the server would take `STOP_TIMEOUT`; one that does not
+            // may still take a hundred milliseconds on a machine busy with the other tests
             assert!(
-                start.elapsed() < Duration::from_millis(50),
+                start.elapsed() < STOP_TIMEOUT / 10,
                 "a frame took {:?}",
                 start.elapsed()
             );
