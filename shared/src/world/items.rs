@@ -179,6 +179,7 @@ impl ItemId {
             | Self::Glass
             | Self::Ice
             | Self::Snow
+            | Self::Torch
             | Self::Bedrock => ItemCategory::Blocks,
             Self::OakLog | Self::SpruceLog | Self::OakPlanks | Self::SprucePlanks => {
                 ItemCategory::Wood

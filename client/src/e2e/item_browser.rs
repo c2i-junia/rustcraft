@@ -128,8 +128,8 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
-    assert_eq!(h.item_count(), "35 / 35");
-    assert_eq!(h.shown_items().len(), 35);
+    assert_eq!(h.item_count(), "36 / 36");
+    assert_eq!(h.shown_items().len(), 36);
     assert_eq!(h.catalog_columns(), 8);
     let window = Rect::new(0.0, 0.0, 1280.0, 720.0);
     let browser = h.rect_of(&L::marker::<ItemBrowser>());
@@ -145,12 +145,12 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.click(&search_field());
     h.type_text("sp pl");
     h.frames(1);
-    assert_eq!(h.item_count(), "1 / 35");
+    assert_eq!(h.item_count(), "1 / 36");
     assert_eq!(h.shown_items(), [ItemId::SprucePlanks]);
     h.erase(5);
     h.type_text("#tools");
     h.frames(1);
-    assert_eq!(h.item_count(), "5 / 35");
+    assert_eq!(h.item_count(), "5 / 36");
 
     // Nothing matches
     h.type_text("zzz");
@@ -159,18 +159,18 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     assert!(h.shown_items().is_empty());
     h.erase(9);
     h.frames(1);
-    assert_eq!(h.item_count(), "35 / 35");
+    assert_eq!(h.item_count(), "36 / 36");
     assert!(!h.is_visible(&L::text("Esc clears the search.")));
 
     // A chip keeps one category
     h.click(&L::role(Role::Button, "Wood"));
     h.frames(1);
-    assert_eq!(h.item_count(), "4 / 35");
+    assert_eq!(h.item_count(), "4 / 36");
     let wood = h.get(&L::role(Role::Button, "Wood"));
     assert!(h.world().get::<Checked>(wood).is_some());
     h.click(&L::role(Role::Button, "All"));
     h.frames(1);
-    assert_eq!(h.item_count(), "35 / 35");
+    assert_eq!(h.item_count(), "36 / 36");
     assert!(h.world().get::<Checked>(wood).is_none());
 
     // The tooltip names the item and its category
@@ -195,7 +195,7 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     assert_eq!(floating(h.world()), None);
     h.press(KeyCode::Escape);
     h.frames(2);
-    assert!(h.is_visible(&L::text("35 / 35")));
+    assert!(h.is_visible(&L::text("36 / 36")));
     assert_eq!(h.world().resource::<InputFocus>().get(), Some(oak_log));
 
     // The search stays while the inventory is closed
@@ -210,7 +210,7 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     assert_eq!(h.value_of::<ItemSearchField>(), "oak");
-    assert_eq!(h.item_count(), "3 / 35");
+    assert_eq!(h.item_count(), "3 / 36");
 }
 
 #[test]
@@ -379,7 +379,7 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     assert_eq!(focused(&h), Some(h.get(&button("<- Items"))));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("2 / 35"), SCREEN);
+    h.wait_for(&L::text("2 / 36"), SCREEN);
     assert_eq!(focused(&h), Some(oak_planks));
 
     // Tab walks the inventory and the browser, and stays among them
@@ -437,14 +437,14 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     );
     h.click(&button("Craftable"));
     h.frames(1);
-    assert_eq!(h.item_count(), "3 / 35");
+    assert_eq!(h.item_count(), "3 / 36");
     let shown = h.shown_items();
     for item in [ItemId::OakPlanks, ItemId::Stick, ItemId::CraftingTable] {
         assert!(shown.contains(&item), "{item:?} not in {shown:?}");
     }
     h.click(&button("Craftable"));
     h.frames(1);
-    assert_eq!(h.item_count(), "35 / 35");
+    assert_eq!(h.item_count(), "36 / 36");
 
     // A click on an item shows its recipes, with what the inventory lacks
     h.click(&catalog_slot("Wooden Pickaxe"));
@@ -458,13 +458,13 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     ] {
         assert!(h.is_visible(&shown), "{shown:?}");
     }
-    assert!(!h.is_visible(&L::text("35 / 35")));
+    assert!(!h.is_visible(&L::text("36 / 36")));
 
     // An ingredient shows its recipes, a right click its uses, each going on the history
     let stick = h.first_card_slot("Stick");
     h.click_entity(stick, MouseButton::Left);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
-    assert!(h.is_visible(&button("Uses 10")));
+    assert!(h.is_visible(&button("Uses 11")));
     let planks = h.first_card_slot("Oak Planks");
     h.click_entity(planks, MouseButton::Right);
     h.wait_for(&button("<- Stick"), SCREEN);
@@ -483,7 +483,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.wait_for(&L::text("No recipe uses Wooden Pickaxe yet."), SCREEN);
     assert!(h.is_visible(&button("<- Items")));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("35 / 35"), SCREEN);
+    h.wait_for(&L::text("36 / 36"), SCREEN);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
     assert!(!h.is_visible(&L::marker::<PauseMenu>()));
 
@@ -499,7 +499,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     // `/` leaves the view for the search; then Escape leaves the search, and closes the inventory
     h.type_on(KeyCode::Slash, '/');
     h.frames(2);
-    assert!(h.is_visible(&L::text("35 / 35")));
+    assert!(h.is_visible(&L::text("36 / 36")));
     let field = h.get(&search_field());
     assert_eq!(h.world().resource::<InputFocus>().get(), Some(field));
     h.press(KeyCode::Escape);
@@ -534,7 +534,7 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.wait_until("the logs on the cursor", SCREEN, |w| {
         floating(w) == Some((ItemId::OakLog, 64))
     });
-    assert!(h.is_visible(&L::text("35 / 35")));
+    assert!(h.is_visible(&L::text("36 / 36")));
     assert!(!h.is_visible(&L::marker::<RecipePanel>()));
     h.click(&catalog_slot("Oak Log"));
     h.wait_until("an empty cursor", SCREEN, |w| floating(w).is_none());
@@ -552,16 +552,16 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     let stick = h.first_card_slot("Stick");
     h.hover_entity(stick);
     h.press(KeyCode::KeyR);
-    h.wait_for(&button("Uses 10"), SCREEN);
+    h.wait_for(&button("Uses 11"), SCREEN);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("35 / 35"), SCREEN);
+    h.wait_for(&L::text("36 / 36"), SCREEN);
     h.hover(&catalog_slot("Chest"));
     h.press(KeyCode::KeyR);
     h.wait_for(&button("Recipes 2"), SCREEN);
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("35 / 35"), SCREEN);
+    h.wait_for(&L::text("36 / 36"), SCREEN);
 
     // In a drawer, U opens the drawer on the uses; Escape then goes back, closes the drawer, and
     // closes the inventory
@@ -573,7 +573,7 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.wait_for(&button("Uses 8"), SCREEN);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("35 / 35"), SCREEN);
+    h.wait_for(&L::text("36 / 36"), SCREEN);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     h.press(KeyCode::Escape);
     h.frames(2);
@@ -783,7 +783,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
         SCREEN,
     );
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("35 / 35"), SCREEN);
+    h.wait_for(&L::text("36 / 36"), SCREEN);
 
     // A over a slot of the inventory too
     h.hover(&L::cell(0));
@@ -805,7 +805,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     h.wait_for(&button("Recipes 2"), SCREEN);
     assert!(!h.is_visible(&L::marker::<BookmarkBar>()));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("35 / 35"), SCREEN);
+    h.wait_for(&L::text("36 / 36"), SCREEN);
     assert!(h.is_visible(&bookmark_slot("Chest")));
 
     // The arrows reach them from the grid. A on the focused one removes it, and the focus goes

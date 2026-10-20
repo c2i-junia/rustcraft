@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 19);
+        assert_eq!(all.len(), 20);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -545,7 +545,7 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (2, 0));
-        assert_eq!(counts(ItemId::Stick), (2, 10));
+        assert_eq!(counts(ItemId::Stick), (2, 11));
         assert_eq!(counts(ItemId::OakPlanks), (1, 8));
         assert_eq!(counts(ItemId::Cobblestone), (0, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
