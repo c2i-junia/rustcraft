@@ -260,7 +260,10 @@ fn rim_mesh() -> Mesh {
 
 #[cfg(test)]
 mod tests {
-    use bevy::{core_pipeline::tonemapping::Tonemapping, state::app::StatesPlugin};
+    use bevy::{
+        camera::RenderTarget, core_pipeline::tonemapping::Tonemapping, state::app::StatesPlugin,
+        window::PrimaryWindow,
+    };
     use shared::world::FaceDirection;
 
     use super::*;
@@ -476,6 +479,102 @@ mod tests {
         place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 6.0));
         app.update();
         assert!(camera_of(&mut app, PortalColor::Blue).unwrap().1.is_active);
+    }
+
+    /// The fog of the camera of the blue portal, by its colour.
+    fn fog_of_blue_camera(app: &mut App) -> Option<Color> {
+        let world = app.world_mut();
+        world
+            .query::<(&PortalCamera, Option<&DistanceFog>)>()
+            .iter(world)
+            .find(|(camera, _)| camera.color == PortalColor::Blue)
+            .and_then(|(_, fog)| fog.map(|fog| fog.color))
+    }
+
+    fn set_player_fog(app: &mut App, color: Color) {
+        let world = app.world_mut();
+        let camera = world
+            .query_filtered::<Entity, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        world
+            .entity_mut(camera)
+            .insert(DistanceFog { color, ..default() });
+    }
+
+    #[test]
+    fn a_portal_camera_turned_on_has_the_fog_of_the_player_camera() {
+        let mut app = app();
+        set_player_fog(&mut app, Color::WHITE);
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        app.update();
+        app.update();
+        assert_eq!(fog_of_blue_camera(&mut app), Some(Color::WHITE));
+
+        // The fog changes, under water say, while the player looks away from the portal
+        place_player_camera(
+            &mut app,
+            Transform::from_xyz(1.0, 11.5, 6.0).looking_to(Vec3::Z, Vec3::Y),
+        );
+        app.update();
+        set_player_fog(&mut app, Color::BLACK);
+        app.update();
+        place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 6.0));
+        app.update();
+        app.update();
+        assert_eq!(fog_of_blue_camera(&mut app), Some(Color::BLACK));
+    }
+
+    #[test]
+    fn the_image_of_a_portal_camera_follows_the_size_of_the_window() {
+        let mut app = app();
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow))
+            .id();
+        let size = |app: &mut App| {
+            let world = app.world_mut();
+            let target = world
+                .query::<(&PortalCamera, &RenderTarget)>()
+                .iter(world)
+                .find(|(camera, _)| camera.color == PortalColor::Blue)
+                .map(|(_, target)| target.clone());
+            let Some(RenderTarget::Image(image)) = target else {
+                panic!("the blue camera draws into an image");
+            };
+            // The surface of the portal reads the same image
+            let materials: Vec<_> = world
+                .query::<(&PortalSurface, &MeshMaterial3d<PortalMaterial>)>()
+                .iter(world)
+                .filter(|(surface, _)| surface.color == PortalColor::Blue)
+                .map(|(_, material)| material.0.clone())
+                .collect();
+            let materials_assets = world.resource::<Assets<PortalMaterial>>();
+            for material in materials {
+                let image_of = materials_assets.get(&material).unwrap().image.clone();
+                assert_eq!(image_of.map(|i| i.id()), Some(image.handle.id()));
+            }
+            world
+                .resource::<Assets<Image>>()
+                .get(&image.handle)
+                .unwrap()
+                .size()
+        };
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        app.update();
+        app.update();
+        let first = app.world().get::<Window>(window).unwrap().physical_size();
+        assert_eq!(size(&mut app), first);
+
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set_physical_resolution(640, 360);
+        app.update();
+        assert_eq!(size(&mut app), UVec2::new(640, 360));
     }
 
     #[test]

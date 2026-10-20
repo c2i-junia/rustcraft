@@ -9,6 +9,7 @@ use bevy::{
         RenderTarget,
     },
     core_pipeline::tonemapping::Tonemapping,
+    ecs::system::SystemChangeTick,
     prelude::*,
     render::render_resource::TextureFormat,
     window::PrimaryWindow,
@@ -95,11 +96,12 @@ pub(super) fn place_portal_cameras(
             &mut Projection,
             &mut Camera,
             &mut Tonemapping,
-            Has<DistanceFog>,
+            Option<Ref<DistanceFog>>,
         ),
         Without<CameraController>,
     >,
     mut started: ResMut<PortalViewsStarted>,
+    ticks: SystemChangeTick,
     mut commands: Commands,
 ) {
     let Ok((main_transform, main_projection, main_camera, main_tonemapping, main_fog)) =
@@ -108,7 +110,7 @@ pub(super) fn place_portal_cameras(
         return;
     };
     let portals = world_map.blocks.portals();
-    for (entity, camera_of, mut transform, mut projection, mut camera, mut tonemapping, has_fog) in
+    for (entity, camera_of, mut transform, mut projection, mut camera, mut tonemapping, fog) in
         &mut cameras
     {
         let open = portals
@@ -135,14 +137,20 @@ pub(super) fn place_portal_cameras(
         // portal's only copies its image: the image must be tonemapped already, as the rest of
         // the screen is
         tonemapping.set_if_neq(*main_tonemapping);
-        match &main_fog {
-            Some(fog) if fog.is_changed() || !has_fog => {
-                commands.entity(entity).insert(DistanceFog::clone(fog));
+        // The fog may have changed while this camera was off: it is copied when the player's
+        // changed since this camera's was
+        match (&main_fog, fog) {
+            (Some(main_fog), Some(fog))
+                if !main_fog
+                    .last_changed()
+                    .is_newer_than(fog.last_changed(), ticks.this_run()) => {}
+            (Some(main_fog), _) => {
+                commands.entity(entity).insert(DistanceFog::clone(main_fog));
             }
-            None if has_fog => {
+            (None, Some(_)) => {
                 commands.entity(entity).remove::<DistanceFog>();
             }
-            _ => {}
+            (None, None) => {}
         }
     }
 }
