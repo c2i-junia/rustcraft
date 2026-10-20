@@ -8,18 +8,18 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::hint::black_box;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use shared::messages::{ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{render_distance_offsets, Chunk, ChunkMap};
-use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE};
+use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE, TICKS_PER_SECOND};
 
 use super::broadcast_world::world_messages_around;
 use super::data::SentChunks;
 use super::generation::{generate_chunk, WorldGenerator};
-use super::simulation::generate_missing_chunks;
+use super::simulation::{generate_missing_chunks, ChunkLoader};
 
 const SEED: u32 = 42;
 /// The chunk of a player standing on the plains of `SEED`, around height 64.
@@ -213,34 +213,55 @@ fn bench_block_lookups() {
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_join_generation() {
-    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    // BENCH_RD sets the render distance
+    let radius = std::env::var("BENCH_RD")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(DEFAULT_MAX_RENDER_DISTANCE as i32);
     let mut players = HashMap::new();
     let position = (PLAYER_CHUNK * CHUNK_SIZE).as_vec3() + Vec3::splat(8.);
     players.insert(
         1,
         Player::new(1, "p".into(), position, Transform::default()),
     );
+    let mut loader = ChunkLoader::new(SEED);
     let mut chunks = ChunkMap::default();
     let mut dirty = HashSet::new();
+    let mut asked = 0;
+    // the work of each tick, the ticks coming every 50 ms as in the game
     let mut ticks = Vec::new();
-    while ticks.len() < 1000 && chunks.chunk_positions().count() < render_cube(radius).len() {
-        let start = Instant::now();
-        generate_missing_chunks(
-            &players,
-            |_| radius,
-            &mut chunks,
-            &mut dirty,
-            None,
-            &WorldGenerator::new(SEED),
-            usize::MAX,
-        );
-        ticks.push(start.elapsed().as_secs_f64() * 1e3);
+    let tick = Duration::from_millis(1000 / TICKS_PER_SECOND);
+    let start = Instant::now();
+    loop {
+        let tick_start = Instant::now();
+        loader.insert_made(&mut chunks, &mut dirty);
+        let complete = loader.ask(&players, |_| radius, &chunks, None, &mut asked);
+        ticks.push(tick_start.elapsed().as_secs_f64() * 1e3);
+        if complete || ticks.len() == 10000 {
+            break;
+        }
+        std::thread::sleep(tick.saturating_sub(tick_start.elapsed()));
+    }
+    let wall = start.elapsed().as_secs_f64() * 1e3;
+    // what was generated, to check that a faster generation makes the same chunks
+    let mut positions: Vec<IVec3> = chunks.chunk_positions().collect();
+    positions.sort_by_key(|c| (c.x, c.y, c.z));
+    let mut checksum = DefaultHasher::new();
+    let mut uniform = 0;
+    for &chunk_pos in &positions {
+        let chunk = chunks.chunk(chunk_pos).unwrap();
+        uniform += chunk.uniform().is_some() as usize;
+        for (pos, block) in chunk.iter() {
+            (chunk_pos, pos, block.id as u32).hash(&mut checksum);
+        }
     }
     println!(
-        "join generation: {} ticks, longest {:.1} ms, in all {:.1} ms",
+        "join generation (radius {radius}): {} chunks, {uniform} of one kind of cell, in {wall:.0} \
+         ms, {} ticks, longest {:.1} ms, checksum {:016x}",
+        positions.len(),
         ticks.len(),
         ticks.iter().copied().fold(0., f64::max),
-        ticks.iter().sum::<f64>()
+        checksum.finish()
     );
 }
 
@@ -297,29 +318,14 @@ fn bench_inputs_generation() {
         );
     }
     let mut dirty = HashSet::new();
-    generate_missing_chunks(
-        &players,
-        |_| 1,
-        &mut chunks,
-        &mut dirty,
-        None,
-        &WorldGenerator::new(SEED),
-        usize::MAX,
-    );
+    let generator = WorldGenerator::new(SEED);
+    generate_missing_chunks(&players, |_| 1, &mut chunks, &mut dirty, None, &generator);
     let mut samples = Vec::new();
     for _ in 0..200 {
         let start = Instant::now();
         for _ in 0..3 {
             for player in &players {
-                generate_missing_chunks(
-                    [player],
-                    |_| 1,
-                    &mut chunks,
-                    &mut dirty,
-                    None,
-                    &WorldGenerator::new(SEED),
-                    usize::MAX,
-                );
+                generate_missing_chunks([player], |_| 1, &mut chunks, &mut dirty, None, &generator);
             }
         }
         samples.push(micros(start));
