@@ -95,7 +95,7 @@ recursion, sounds and the body (lot 5).
 - [ ] `player_movement_system` turns `CameraController::angle_x`.
 
 ### Task 4: Rendering
-- [ ] Tests: `the_closed_looks_know_the_plane_of_their_portal` (portal/mod.rs),
+- [ ] Tests: `the_colours_and_the_rims_know_the_plane_of_their_portal` (portal/mod.rs),
   `the_face_of_an_open_portal_is_not_outlined` (interactions). See them fail.
 - [ ] `PortalParams::plane`, the discard in `portal.wgsl`; the outline condition.
 

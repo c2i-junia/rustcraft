@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(cameras(&mut app), 0);
     }
 
-    /// The planes of the materials of the boxes drawn in a colour.
+    /// The planes of the materials of the boxes drawn in a colour, and of the rims.
     fn colour_planes(app: &mut App) -> Vec<Vec4> {
         let world = app.world_mut();
         let handles: Vec<_> = world
@@ -410,28 +410,28 @@ mod tests {
         handles
             .iter()
             .filter_map(|handle| materials.get(handle))
-            .filter(|material| material.look == PortalLook::Color)
+            .filter(|material| material.look != PortalLook::View)
             .map(|material| material.params.plane)
             .collect()
     }
 
     #[test]
-    fn the_closed_looks_know_the_plane_of_their_portal() {
+    fn the_colours_and_the_rims_know_the_plane_of_their_portal() {
         // The blue portal faces +Z, its plane z = 1; the orange one -X, its plane x = 20
         let blue_plane = Vec4::new(0.0, 0.0, 1.0, -1.0);
         let orange_plane = Vec4::new(-1.0, 0.0, 0.0, 20.0);
         let mut app = app();
         insert(&mut app, blue());
         app.update();
-        // The surface of the lone portal and its stand-in
-        assert_eq!(colour_planes(&mut app), [blue_plane, blue_plane]);
+        // The surface of the lone portal, its stand-in and its rim
+        assert_eq!(colour_planes(&mut app), [blue_plane; 3]);
 
         insert(&mut app, orange());
         app.update();
         let mut planes = colour_planes(&mut app);
         planes.sort_by(|a, b| a.x.total_cmp(&b.x));
-        // The stand-ins only, the surfaces showing the view
-        assert_eq!(planes, [orange_plane, blue_plane]);
+        // The stand-ins and the rims, the surfaces showing the view
+        assert_eq!(planes, [orange_plane, orange_plane, blue_plane, blue_plane]);
     }
 
     #[test]

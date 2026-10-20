@@ -79,9 +79,9 @@ pub struct PortalParams {
     /// The colour of the portal, in linear RGB.
     pub color: Vec4,
     /// The plane of the portal, `(normal, -normal · centre)`: a point is in front of it when
-    /// its dot product with `(point, 1)` is positive. A colour is not drawn for a camera behind
-    /// it: from there, the front of the portal cannot be seen, and a portal camera always stands
-    /// behind its twin, even inside its box.
+    /// its dot product with `(point, 1)` is positive. A colour or a rim is not drawn for a camera
+    /// behind it: from there, the front of the portal cannot be seen, and a portal camera always
+    /// stands behind its twin, even inside its box.
     pub plane: Vec4,
     pub look: u32,
 }
