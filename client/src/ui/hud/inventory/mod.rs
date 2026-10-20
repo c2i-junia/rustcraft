@@ -23,7 +23,8 @@ pub fn item_name(item: ItemId) -> String {
     name
 }
 
-/// The bottom of the screen, where the panel sits, centred.
+/// The node over the whole window holding the panel, at the bottom and centred, and the item
+/// browser.
 #[derive(Component)]
 pub struct HudBottom;
 

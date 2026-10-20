@@ -61,8 +61,15 @@ pub struct UiGolden {
 }
 
 impl UiGolden {
-    /// An app with the item and block atlases built, and a UI camera rendering to the image.
+    /// An app with the item and block atlases built, and a UI camera rendering to an image of
+    /// `WIDTH` by `HEIGHT`.
     pub fn new() -> Self {
+        Self::with_size(WIDTH, HEIGHT)
+    }
+
+    /// An app with the item and block atlases built, and a UI camera rendering to an image of
+    /// `width` by `height`.
+    pub fn with_size(width: u32, height: u32) -> Self {
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         let mut app = App::new();
         app.add_plugins(
@@ -139,8 +146,8 @@ impl UiGolden {
         );
 
         let size = Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
         let mut target = Image::new_fill(
@@ -176,6 +183,13 @@ impl UiGolden {
 
     fn update(&mut self) {
         self.apps.update();
+    }
+
+    /// Runs `n` frames: one lays the UI out.
+    pub fn frames(&mut self, n: usize) {
+        for _ in 0..n {
+            self.update();
+        }
     }
 
     /// Lays the UI out, draws it once its fonts are loaded, and checks it against the golden

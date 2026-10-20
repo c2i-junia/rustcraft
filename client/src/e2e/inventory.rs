@@ -13,6 +13,7 @@ use super::harness::{Harness, Options, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::HINT_BACKPACK;
 use crate::ui::hud::{
     CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
@@ -91,26 +92,35 @@ fn rect_of(world: &World, entity: Entity) -> Rect {
     Rect::from_center_size(center, size)
 }
 
-/// Asserts that every pixel inside `rect`, 2 px in from its edges, is about the same in both
-/// images.
+/// Asserts that every pixel inside `before_rect` of `before`, 2 px in from its edges, is about the
+/// same at its place in `after_rect` of `after`, a rectangle of the same size.
 #[track_caller]
-fn assert_same_pixels(before: &RgbImage, after: &RgbImage, rect: Rect) {
-    let inner = rect.inflate(-2.0);
+fn assert_same_pixels(before: &RgbImage, before_rect: Rect, after: &RgbImage, after_rect: Rect) {
+    let inner = before_rect.inflate(-2.0);
+    let offset = after_rect.min - before_rect.min;
+    let (dx, dy) = (offset.x as i64, offset.y as i64);
     for y in inner.min.y as u32..inner.max.y as u32 {
         for x in inner.min.x as u32..inner.max.x as u32 {
-            let (b, a) = (before.get_pixel(x, y), after.get_pixel(x, y));
+            let moved = ((x as i64 + dx) as u32, (y as i64 + dy) as u32);
+            let (b, a) = (before.get_pixel(x, y), after.get_pixel(moved.0, moved.1));
             let alike =
                 b.0.iter()
                     .zip(a.0)
                     .all(|(b, a)| b.abs_diff(a) <= CHANNEL_TOLERANCE);
-            assert!(alike, "the pixel ({x}, {y}) went from {b:?} to {a:?}");
+            assert!(
+                alike,
+                "the pixel ({x}, {y}) went from {b:?} to {a:?} at {moved:?}"
+            );
         }
     }
 }
 
+/// The hotbar keeps its cells whole when the inventory opens: their size and their height, and
+/// their pixels, at the place they slide to beside the item browser, or where they were when the
+/// browser is a drawer.
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_open_inventory_leaves_the_hotbar_alone_and_fits_the_window() {
+fn the_open_inventory_keeps_its_hotbar_whole_and_fits_beside_the_item_browser() {
     // The cobblestone left beyond the 2x2 grid gives the crafting row its 3x3 height, at the
     // first and smallest size: closing the inventory then empties the grid
     let folder = GameFolder::new().with_world("Panel").with_items(
@@ -148,21 +158,37 @@ fn the_open_inventory_leaves_the_hotbar_alone_and_fits_the_window() {
         assert!(!hovered, "the closed panel takes the hover at {size}");
 
         // Away from every cell, so that none of them is hovered
-        h.hover_at(Vec2::new(width as f32 - 1.0, 0.0));
+        h.hover_at(Vec2::new(0.0, 0.0));
         h.frames(2);
         let before = h.hotbar_rects();
         let before_shot = h.screenshot();
+        // Centred while closed
+        let centre = (before[0].min.x + before[8].max.x) / 2.0;
+        assert!((centre - width as f32 / 2.0).abs() <= 1.0, "at {size}");
 
         h.press(KeyCode::KeyE);
         h.frames(2);
         assert!(h.is_visible(&L::marker::<InventoryRoot>()));
 
-        // Neither moved, nor covered, nor dimmed
+        // Moved sideways only, all of it by the same amount, and neither covered nor dimmed: in a
+        // drawer, the browser leaves the panel where it was
         let hotbar = h.hotbar_rects();
-        assert_eq!(hotbar, before, "the hotbar moved at {size}");
+        let shift = hotbar[0].min.x - before[0].min.x;
+        let compact = !h.is_visible(&L::marker::<ItemBrowser>());
+        assert_eq!(compact, width == 800, "the browser docks at {size}");
+        if compact {
+            assert_eq!(shift, 0.0, "the hotbar moved at {size}");
+        } else {
+            assert!(shift < 0.0, "the panel stays centred at {size}");
+        }
         let after_shot = h.screenshot();
-        for &rect in &hotbar {
-            assert_same_pixels(&before_shot, &after_shot, rect);
+        for (after, before) in hotbar.iter().zip(&before) {
+            assert_eq!(
+                *after,
+                Rect::from_corners(before.min + Vec2::X * shift, before.max + Vec2::X * shift),
+                "the hotbar moved other than sideways at {size}"
+            );
+            assert_same_pixels(&before_shot, *before, &after_shot, *after);
         }
 
         let window = Rect::new(0.0, 0.0, width as f32, height as f32);
@@ -173,6 +199,17 @@ fn the_open_inventory_leaves_the_hotbar_alone_and_fits_the_window() {
             assert!(
                 window.contains(rect.min) && window.contains(rect.max),
                 "{rect:?} leaves the window at {size}"
+            );
+        }
+        if !compact {
+            let browser = h.rect_of(&L::marker::<ItemBrowser>());
+            assert!(
+                window.contains(browser.min) && window.contains(browser.max),
+                "the browser {browser:?} leaves the window at {size}"
+            );
+            assert!(
+                browser.intersect(panel).is_empty(),
+                "the browser {browser:?} covers the panel {panel:?} at {size}"
             );
         }
         // Everything else lies above the hotbar

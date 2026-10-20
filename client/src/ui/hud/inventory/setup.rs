@@ -70,13 +70,18 @@ pub fn setup_inventory(
         .spawn((
             HudBottom,
             DespawnOnExit(GameState::Game),
+            // Over the whole window: the panel at the bottom, centred, and the item browser
+            // beside it
             Node {
                 position_type: PositionType::Absolute,
                 left: px(0.),
                 right: px(0.),
-                bottom: px(HOTBAR_BOTTOM),
-                margin: UiRect::bottom(px(SPACE_S)),
-                justify_content: JustifyContent::Center,
+                top: px(0.),
+                bottom: px(0.),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::FlexEnd,
+                align_items: AlignItems::Center,
+                padding: UiRect::bottom(px(HOTBAR_BOTTOM + SPACE_S)),
                 ..default()
             },
             Pickable::IGNORE,

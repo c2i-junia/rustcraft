@@ -7,11 +7,7 @@ use shared::world::{grid_slot, ItemId, ItemStack};
 
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::ui::golden::UiGolden;
-use crate::ui::hud::{
-    display_crafting_system, display_inventory_system, setup_inventory, style_inventory_panel,
-    InventoryRoot,
-};
-use crate::ui::widgets::slot::style_slots;
+use crate::ui::hud::item_browser::goldens::show_open_inventory;
 use crate::world::ClientWorldMap;
 
 fn stack(item_id: ItemId, nb: u32) -> ItemStack {
@@ -32,17 +28,8 @@ fn assert_panel_matches(name: &str, inventory: Inventory, world_map: ClientWorld
     let mut golden = UiGolden::new();
     golden.world_mut().insert_resource(inventory);
     golden.world_mut().insert_resource(world_map);
-    golden.run_system(setup_inventory);
-    if open {
-        let mut root = golden
-            .world_mut()
-            .query_filtered::<&mut Visibility, With<InventoryRoot>>();
-        *root.single_mut(golden.world_mut()).unwrap() = Visibility::Visible;
-    }
-    golden.run_system(display_inventory_system);
-    golden.run_system(display_crafting_system);
-    golden.run_system(style_inventory_panel);
-    golden.run_system(style_slots);
+    // as in the game, with the item browser beside the open panel
+    show_open_inventory(&mut golden, open);
     golden.assert_matches(name);
 }
 

@@ -17,6 +17,9 @@ pub const BEVEL_WIDTH: f32 = 2.0;
 /// Background of the item slots and the text fields.
 pub const SLOT: Color = Color::srgb_u8(0x0C, 0x0E, 0x12);
 pub const ACCENT: Color = Color::srgb_u8(0xF0, 0xB5, 0x4A);
+/// The light and the dark edges of the bevel of a control in the `ACCENT` colour.
+pub const ACCENT_HI: Color = Color::srgb_u8(0xF6, 0xCF, 0x86);
+pub const ACCENT_LO: Color = Color::srgb_u8(0x8A, 0x65, 0x24);
 /// `OK` under the cursor.
 pub const OK_HOVER: Color = Color::srgb_u8(0x8F, 0xD8, 0x77);
 pub const OK: Color = Color::srgb_u8(0x78, 0xC7, 0x5F);

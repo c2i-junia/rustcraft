@@ -389,7 +389,10 @@ fn style_cards(
 
 /// Hides the scrollbar of a list whose items all fit, and shows it again once they overflow. The
 /// well then takes its room: it only grows while nothing overflows, so this never flickers.
-fn hide_idle_scrollbars(mut bars: Query<(&Scrollbar, &mut Node)>, areas: Query<&ComputedNode>) {
+pub(crate) fn hide_idle_scrollbars(
+    mut bars: Query<(&Scrollbar, &mut Node)>,
+    areas: Query<&ComputedNode>,
+) {
     for (bar, mut node) in &mut bars {
         // a list not laid out yet keeps its scrollbar: a list that overflows shows it at once
         let Some(area) = areas

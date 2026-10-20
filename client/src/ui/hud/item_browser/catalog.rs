@@ -5,11 +5,9 @@ use shared::world::{ItemCategory, ItemId};
 use crate::ui::hud::item_name;
 
 /// Under the message saying that nothing matches.
-#[allow(dead_code)] // first used by the item browser panel (Task 4)
 pub const NO_MATCH_HINT: &str = "Esc clears the search.";
 
 /// Every item, by category in the order of `ItemCategory::ALL`, then in the order of `ItemId::ALL`.
-#[allow(dead_code)] // first used by the item browser panel (Task 4)
 pub fn catalog() -> Vec<ItemId> {
     ItemCategory::ALL
         .into_iter()
@@ -38,19 +36,16 @@ pub fn matches(query: &str, item: ItemId) -> bool {
 }
 
 /// Whether the catalog shows `item` for the search `query` in `category`, `None` being All.
-#[allow(dead_code)] // first used by the item browser panel (Task 4)
 pub fn shown_in(query: &str, category: Option<ItemCategory>, item: ItemId) -> bool {
     category.is_none_or(|category| item.category() == category) && matches(query, item)
 }
 
 /// How many items the catalog shows, out of all of them.
-#[allow(dead_code)] // first used by the item browser panel (Task 4)
 pub fn count_label(shown: usize, total: usize) -> String {
     format!("{shown} / {total}")
 }
 
 /// What the catalog says when nothing answers `query` in `category`.
-#[allow(dead_code)] // first used by the item browser panel (Task 4)
 pub fn no_match_message(query: &str, category: Option<ItemCategory>) -> String {
     match category {
         Some(category) => format!("No item matches \"{query}\" in {}.", category.name()),
@@ -59,7 +54,6 @@ pub fn no_match_message(query: &str, category: Option<ItemCategory>) -> String {
 }
 
 /// The second line of the tooltip of an item: its category, and whether it is a tool.
-#[allow(dead_code)] // first used by the item browser panel (Task 4)
 pub fn category_detail(item: ItemId) -> String {
     let category = item.category().name();
     if item.tool().is_some() {

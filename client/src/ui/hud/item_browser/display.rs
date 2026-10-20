@@ -1,0 +1,406 @@
+use bevy::{
+    input::mouse::MouseScrollUnit,
+    input_focus::{tab_navigation::TabIndex, FocusGained},
+    picking::hover::Hovered,
+    prelude::*,
+    text::EditableText,
+    ui::Checked,
+    ui_widgets::{Activate, ScrollIntoView},
+};
+
+use super::catalog::{count_label, no_match_message, shown_in};
+use super::layout::{browser_layout, BrowserLayout};
+use super::{
+    CatalogGrid, CatalogSlot, CategoryChip, ItemBrowser, ItemBrowserState, ItemCount,
+    ItemSearchField, NoMatch, NoMatchMessage,
+};
+use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot};
+use crate::ui::theme::{
+    ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, PANEL, RAISE, RAISE_HOVER, SPACE_L,
+    TEXT,
+};
+use crate::ui::widgets::slot::{SlotIcon, SLOT_SIZE};
+
+/// How far a notch of the wheel moves the row of chips sideways, in logical px.
+const CHIPS_WHEEL_STEP: f32 = SLOT_SIZE;
+
+/// Keeps the search of the state up to date with its field.
+pub fn read_search(
+    fields: Query<&EditableText, (With<ItemSearchField>, Changed<EditableText>)>,
+    mut state: ResMut<ItemBrowserState>,
+) {
+    for text in &fields {
+        let query = text.value().to_string();
+        if state.query != query {
+            state.query = query;
+        }
+    }
+}
+
+/// A chip activated chooses its category.
+pub fn choose_category(
+    activate: On<Activate>,
+    chips: Query<&CategoryChip>,
+    mut state: ResMut<ItemBrowserState>,
+) {
+    if let Ok(chip) = chips.get(activate.entity) {
+        if state.category != chip.0 {
+            state.category = chip.0;
+        }
+    }
+}
+
+/// The wheel moves the row of chips sideways: Bevy's `ScrollArea` only moves a row with the
+/// sideways scroll of a trackpad.
+pub fn wheel_sideways(
+    scroll: On<Pointer<Scroll>>,
+    mut rows: Query<(&mut ScrollPosition, &ComputedNode)>,
+) {
+    let Ok((mut position, row)) = rows.get_mut(scroll.entity) else {
+        return;
+    };
+    let step = match scroll.unit {
+        MouseScrollUnit::Line => CHIPS_WHEEL_STEP,
+        MouseScrollUnit::Pixel => 1.0,
+    };
+    let end = (row.content_size().x - row.size().x) * row.inverse_scale_factor();
+    position.x = (position.x - scroll.y * step).clamp(0.0, end.max(0.0));
+}
+
+/// Lays the browser out for the window, which `HudBottom` covers, and the inventory panel.
+pub fn layout_item_browser(
+    bottom: Single<&ComputedNode, With<HudBottom>>,
+    dialog: Single<&ComputedNode, With<InventoryDialog>>,
+    mut layout: ResMut<BrowserLayout>,
+) {
+    let window = bottom.size() * bottom.inverse_scale_factor();
+    let inventory_width = dialog.size().x * dialog.inverse_scale_factor();
+    // Not laid out yet
+    if window.x <= 0.0 || inventory_width <= 0.0 {
+        return;
+    }
+    layout.set_if_neq(browser_layout(window, inventory_width));
+}
+
+/// Shows the icon of each new slot of the catalog: its item never changes.
+pub fn show_catalog_icons(
+    slots: Query<&Children, Added<CatalogSlot>>,
+    mut icons: Query<&mut Visibility, With<SlotIcon>>,
+) {
+    for children in &slots {
+        for child in children.iter() {
+            if let Ok(mut visibility) = icons.get_mut(child) {
+                visibility.set_if_neq(Visibility::Inherited);
+            }
+        }
+    }
+}
+
+/// Shows the slots of the items the search and the category keep, how many they are, and what
+/// the catalog says when there is none.
+pub fn filter_catalog(
+    state: Res<ItemBrowserState>,
+    mut slots: Query<(&CatalogSlot, &mut Node)>,
+    mut no_match: Query<&mut Node, (With<NoMatch>, Without<CatalogSlot>)>,
+    mut count: Query<&mut Text, With<ItemCount>>,
+    mut message: Query<&mut Text, (With<NoMatchMessage>, Without<ItemCount>)>,
+) {
+    let (mut shown, mut total) = (0, 0);
+    for (slot, mut node) in &mut slots {
+        total += 1;
+        let display = if shown_in(&state.query, state.category, slot.0) {
+            shown += 1;
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+    }
+    for mut text in &mut count {
+        text.0 = count_label(shown, total);
+    }
+    for mut node in &mut no_match {
+        node.display = if shown == 0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    for mut text in &mut message {
+        text.0 = no_match_message(&state.query, state.category);
+    }
+}
+
+/// The focusable parts of the browser, and whether each is a slot of the catalog.
+type BrowserStops<'w, 's> = Query<
+    'w,
+    's,
+    (&'static mut TabIndex, &'static Node),
+    (
+        Or<(With<ItemSearchField>, With<CategoryChip>, With<CatalogSlot>)>,
+        Without<ItemBrowser>,
+        Without<InventoryDialog>,
+        Without<CatalogGrid>,
+    ),
+>;
+
+/// Shows the browser while the inventory is open, docked or as an open drawer, with the columns
+/// of its layout, and slides the open inventory panel to the left of the docked browser. Only
+/// what shows takes Tab: Bevy's navigation does not look at the visibility.
+#[allow(clippy::type_complexity)]
+pub fn show_item_browser(
+    layout: Res<BrowserLayout>,
+    state: Res<ItemBrowserState>,
+    inventory_root: Query<&Visibility, (With<InventoryRoot>, Without<ItemBrowser>)>,
+    bottom: Single<&ComputedNode, With<HudBottom>>,
+    mut dialog: Single<(&mut Node, &ComputedNode), With<InventoryDialog>>,
+    mut panel: Single<(&mut Node, &mut Visibility), (With<ItemBrowser>, Without<InventoryDialog>)>,
+    mut grid: Single<
+        &mut Node,
+        (
+            With<CatalogGrid>,
+            Without<ItemBrowser>,
+            Without<InventoryDialog>,
+        ),
+    >,
+    mut stops: BrowserStops,
+) {
+    let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    let shown = open && (!layout.compact || state.drawer_open);
+
+    let (node, visibility) = &mut *panel;
+    visibility.set_if_neq(if shown {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
+    let (width, right) = (
+        px(layout.width),
+        px(if layout.compact { 0.0 } else { SPACE_L }),
+    );
+    if node.width != width || node.right != right {
+        node.width = width;
+        node.right = right;
+    }
+    let columns = RepeatedGridTrack::px(layout.columns.max(1) as u16, SLOT_SIZE);
+    if grid.grid_template_columns != columns {
+        grid.grid_template_columns = columns;
+    }
+
+    // `Val::Px` is in logical px: the computed sizes are divided by the scale
+    let (dialog_node, dialog_size) = &mut *dialog;
+    let left = if open && !layout.compact {
+        let window = bottom.size().x * bottom.inverse_scale_factor();
+        let inventory_width = dialog_size.size().x * dialog_size.inverse_scale_factor();
+        px(layout.inventory_left - (window - inventory_width) / 2.0)
+    } else {
+        Val::Auto
+    };
+    if dialog_node.left != left {
+        dialog_node.left = left;
+    }
+
+    for (mut index, node) in &mut stops {
+        let stop = shown && node.display != Display::None;
+        index.set_if_neq(TabIndex(if stop { 0 } else { -1 }));
+    }
+}
+
+/// The chosen chip takes the accent, with dark text; the others are raised, lighter under the
+/// cursor.
+pub fn style_chips(
+    state: Res<ItemBrowserState>,
+    mut chips: Query<(
+        Entity,
+        &CategoryChip,
+        &Hovered,
+        Has<Checked>,
+        &mut BackgroundColor,
+        &mut BorderColor,
+        &Children,
+    )>,
+    mut texts: Query<&mut TextColor>,
+    mut commands: Commands,
+) {
+    for (entity, chip, hovered, checked, mut background, mut border, children) in &mut chips {
+        let chosen = chip.0 == state.category;
+        let (fill, edge, text) = if chosen {
+            (
+                ACCENT,
+                BorderColor {
+                    top: ACCENT_HI,
+                    left: ACCENT_HI,
+                    bottom: ACCENT_LO,
+                    right: ACCENT_LO,
+                },
+                PANEL,
+            )
+        } else {
+            let hovered = hovered.get();
+            (
+                if hovered { RAISE_HOVER } else { RAISE },
+                BorderColor {
+                    top: BEVEL_HI,
+                    left: BEVEL_HI,
+                    bottom: BEVEL_LO,
+                    right: BEVEL_LO,
+                },
+                if hovered { TEXT } else { MUTED },
+            )
+        };
+        background.set_if_neq(BackgroundColor(fill));
+        border.set_if_neq(edge);
+        for child in children.iter() {
+            if let Ok(mut color) = texts.get_mut(child) {
+                color.set_if_neq(TextColor(text));
+            }
+        }
+        // Read by screen readers as the toggled state of the button
+        if chosen && !checked {
+            commands.entity(entity).insert(Checked);
+        } else if !chosen && checked {
+            commands.entity(entity).remove::<Checked>();
+        }
+    }
+}
+
+/// Brings a chip or a slot of the catalog into view when it takes the focus, from the arrows or
+/// Tab.
+pub fn scroll_focused_into_view(
+    gained: On<FocusGained>,
+    targets: Query<(), Or<(With<CatalogSlot>, With<CategoryChip>)>>,
+    mut commands: Commands,
+) {
+    // the event bubbles up from the focused entity: handle it once, on its first step
+    let entity = gained.original_event_target();
+    if gained.entity == entity && targets.contains(entity) {
+        commands.trigger(ScrollIntoView { entity });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::system::RunSystemOnce;
+    use shared::world::{ItemCategory, ItemId};
+
+    use super::*;
+    use crate::ui::hud::item_browser::catalog::catalog;
+
+    /// A world holding the parts of the browser that its systems read, without textures.
+    fn browser(inventory: Visibility) -> World {
+        let mut world = World::new();
+        world.init_resource::<ItemBrowserState>();
+        world.insert_resource(browser_layout(Vec2::new(1280.0, 720.0), 502.0));
+        world.spawn((InventoryRoot, inventory));
+        let window = ComputedNode {
+            size: Vec2::new(1280.0, 720.0),
+            inverse_scale_factor: 1.0,
+            ..default()
+        };
+        world.spawn((HudBottom, window));
+        let dialog = ComputedNode {
+            size: Vec2::new(502.0, 400.0),
+            inverse_scale_factor: 1.0,
+            ..default()
+        };
+        world.spawn((InventoryDialog, Node::default(), dialog));
+        world.spawn((ItemBrowser, Node::default(), Visibility::Hidden));
+        world.spawn((CatalogGrid, Node::default()));
+        world.spawn((ItemSearchField, Node::default(), TabIndex(0)));
+        world.spawn((CategoryChip(None), Node::default(), TabIndex(0)));
+        for item in catalog() {
+            world.spawn((CatalogSlot(item), Node::default(), TabIndex(0)));
+        }
+        world.spawn((ItemCount, Text::default()));
+        world.spawn((NoMatch, Node::default()));
+        world.spawn((NoMatchMessage, Text::default()));
+        world
+    }
+
+    fn set_search(world: &mut World, query: &str, category: Option<ItemCategory>) {
+        let mut state = world.resource_mut::<ItemBrowserState>();
+        state.query = query.to_string();
+        state.category = category;
+        world.run_system_once(filter_catalog).unwrap();
+    }
+
+    fn shown_slots(world: &mut World) -> Vec<ItemId> {
+        let mut slots = world.query::<(&CatalogSlot, &Node)>();
+        slots
+            .iter(world)
+            .filter(|(_, node)| node.display != Display::None)
+            .map(|(slot, _)| slot.0)
+            .collect()
+    }
+
+    fn single<C: Component + Clone, M: Component>(world: &mut World) -> C {
+        let mut query = world.query_filtered::<&C, With<M>>();
+        query.single(world).unwrap().clone()
+    }
+
+    #[test]
+    fn the_search_and_the_category_filter_the_slots_and_the_count() {
+        let mut world = browser(Visibility::Visible);
+        set_search(&mut world, "oak", None);
+        assert_eq!(
+            shown_slots(&mut world),
+            [ItemId::OakLog, ItemId::OakPlanks, ItemId::OakLeaves]
+        );
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 33");
+        assert_eq!(single::<Node, NoMatch>(&mut world).display, Display::None);
+
+        set_search(&mut world, "oak", Some(ItemCategory::Wood));
+        assert_eq!(shown_slots(&mut world).len(), 2);
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "2 / 33");
+
+        set_search(&mut world, "zzz", Some(ItemCategory::Wood));
+        assert!(shown_slots(&mut world).is_empty());
+        assert_eq!(single::<Node, NoMatch>(&mut world).display, Display::Flex);
+        assert_eq!(
+            single::<Text, NoMatchMessage>(&mut world).0,
+            "No item matches \"zzz\" in Wood."
+        );
+    }
+
+    /// The tab indices of the field, the chip and the slots, in that order.
+    fn tab_indices(world: &mut World) -> Vec<i32> {
+        let mut stops = world.query_filtered::<&TabIndex, Or<(
+            With<ItemSearchField>,
+            With<CategoryChip>,
+            With<CatalogSlot>,
+        )>>();
+        stops.iter(world).map(|index| index.0).collect()
+    }
+
+    #[test]
+    fn the_browser_shows_only_while_the_inventory_is_open() {
+        let mut world = browser(Visibility::Hidden);
+        world.run_system_once(filter_catalog).unwrap();
+        world.run_system_once(show_item_browser).unwrap();
+        assert_eq!(
+            single::<Visibility, ItemBrowser>(&mut world),
+            Visibility::Hidden
+        );
+        assert!(tab_indices(&mut world).iter().all(|&index| index == -1));
+        assert_eq!(single::<Node, InventoryDialog>(&mut world).left, Val::Auto);
+
+        let mut root = world.query_filtered::<&mut Visibility, With<InventoryRoot>>();
+        *root.single_mut(&mut world).unwrap() = Visibility::Visible;
+        set_search(&mut world, "oak", None);
+        world.run_system_once(show_item_browser).unwrap();
+        assert_eq!(
+            single::<Visibility, ItemBrowser>(&mut world),
+            Visibility::Inherited
+        );
+        let indices = tab_indices(&mut world);
+        assert_eq!(indices.iter().filter(|&&index| index == 0).count(), 2 + 3);
+        // Centred, the panel would be at 389: it slides to 276
+        assert_eq!(
+            single::<Node, InventoryDialog>(&mut world).left,
+            px(276.0 - 389.0)
+        );
+        assert_eq!(single::<Node, ItemBrowser>(&mut world).width, px(470.0));
+    }
+}

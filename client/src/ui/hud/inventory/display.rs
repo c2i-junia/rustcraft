@@ -5,6 +5,7 @@ use crate::input::keyboard::is_action_just_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
+use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::{
     ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, InventoryCell,
     InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
@@ -152,9 +153,9 @@ pub fn click_inventory_cells_system(
 /// key moves it, and takes it back when the inventory closes. While it is open, a click on no
 /// slot clears the focus, and a crafting cell that disappears lets go of it: it goes back to the
 /// last focused cell while it is shown, or to the selected slot, so that the keyboard always has
-/// a cell to start from. The slots of the closed inventory leave the Tab and arrow navigation, as
-/// do the hidden cells, of the crafting grid or of the chest, so that Tab in the game never lands
-/// on the hotbar.
+/// a cell to start from. A focus in the item browser beside the panel is kept as one inside it.
+/// The slots of the closed inventory leave the Tab and arrow navigation, as do the hidden cells,
+/// of the crafting grid or of the chest, so that Tab in the game never lands on the hotbar.
 pub fn sync_inventory_focus(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     hotbar: Query<&Hotbar>,
@@ -163,7 +164,7 @@ pub fn sync_inventory_focus(
         Or<(With<InventoryCell>, With<CraftResultCell>)>,
     >,
     nodes: Query<&Node>,
-    dialog: Query<(), With<InventoryDialog>>,
+    dialog: Query<(), Or<(With<InventoryDialog>, With<ItemBrowser>)>>,
     parents: Query<&ChildOf>,
     mut was_open: Local<bool>,
     mut last_focused: Local<Option<Entity>>,

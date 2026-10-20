@@ -174,4 +174,5 @@ pub fn hud_plugin(app: &mut App) {
     death_plugin(app);
     chat_completion_plugin(app);
     minimap_plugin(app);
+    item_browser::item_browser_plugin(app);
 }
