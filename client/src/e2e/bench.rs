@@ -286,3 +286,166 @@ fn save_and_quit(h: &mut super::harness::Harness) -> f64 {
     });
     quit.elapsed().as_secs_f64()
 }
+
+/// A new world played at the render distance `BENCH_RD` (default 8): Ctrl+Enter, then every
+/// chunk received and drawn, then frames looking ahead and frames walking, which brings new
+/// chunks in. Says how long the world took to be drawn, how many chunks, entities and
+/// triangles it holds, the memory of the process, and the frame times. `BENCH_DISK` is as in
+/// `bench_world_lifecycle`.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_render_distance() {
+    use std::sync::atomic::Ordering;
+
+    use super::harness::{Options, STARTUP};
+    use crate::world::rendering::render::MESHES_SHOWN;
+    use crate::world::ClientWorldMap;
+
+    let radius: u32 = std::env::var("BENCH_RD")
+        .ok()
+        .and_then(|rd| rd.parse().ok())
+        .unwrap_or(8);
+    let folder = match std::env::var_os("BENCH_DISK") {
+        Some(disk) => GameFolder::new_in(std::path::Path::new(&disk)),
+        None => GameFolder::new(),
+    }
+    .with_file("video.ron", &format!("(render_distance: {radius})"))
+    .with_world("Far");
+    let mut h = super::harness::Harness::start(
+        folder,
+        Options {
+            width: 1920,
+            height: 1080,
+            player_name: Some("PlayerOne".to_string()),
+        },
+    );
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.frames(10);
+
+    let start = Instant::now();
+    ctrl(&mut h, KeyCode::Enter);
+    h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
+    let in_game = start.elapsed().as_secs_f64();
+
+    // Drawn once neither the chunks held nor the meshes shown changed for two seconds
+    let shown_before = MESHES_SHOWN.load(Ordering::Relaxed);
+    let mut last = (usize::MAX, usize::MAX);
+    let mut last_change = start.elapsed().as_secs_f64();
+    let mut loading = Vec::new();
+    loop {
+        let frame = Instant::now();
+        h.frames(1);
+        loading.push(frame.elapsed().as_secs_f64() * 1e3);
+        let now = start.elapsed().as_secs_f64();
+        let held = h
+            .world()
+            .resource::<ClientWorldMap>()
+            .blocks
+            .chunk_positions()
+            .count();
+        let shown = MESHES_SHOWN.load(Ordering::Relaxed) - shown_before;
+        if (held, shown) != last {
+            last = (held, shown);
+            last_change = now;
+        }
+        if now - last_change > 2. || now > 600. {
+            break;
+        }
+    }
+    let drawn = scene_stats(&mut h);
+    let still = frame_times(&mut h, 600, |_| {});
+    let walking = walk_for(&mut h, 10.);
+    let after_walk = scene_stats(&mut h);
+
+    let result = serde_json::json!({
+        "radius": radius,
+        "in_game_s": in_game,
+        "all_drawn_s": last_change,
+        "loading": percentiles(&mut loading),
+        "drawn": drawn,
+        "still": still,
+        "walking": walking,
+        "after_walk": after_walk,
+        "memory": memory(),
+    });
+    println!("BENCH_RESULT {result}");
+}
+
+/// The chunks the client holds, the chunk entities and the vertices and triangles of their
+/// meshes.
+fn scene_stats(h: &mut super::harness::Harness) -> serde_json::Value {
+    use crate::world::ClientWorldMap;
+
+    let world = h.world_mut();
+    let map = world.resource::<ClientWorldMap>();
+    let chunks = map.blocks.chunk_positions().count();
+    let entities: Vec<Entity> = map
+        .render
+        .values()
+        .flat_map(|render| [render.entity, render.liquid_entity])
+        .flatten()
+        .collect();
+    let meshes = world.resource::<Assets<Mesh>>();
+    let (mut vertices, mut triangles) = (0, 0);
+    for &entity in &entities {
+        let Some(mesh) = world
+            .get::<Mesh3d>(entity)
+            .and_then(|handle| meshes.get(&handle.0))
+        else {
+            continue;
+        };
+        vertices += mesh.count_vertices();
+        triangles += mesh.indices().map_or(0, |indices| indices.len() / 3);
+    }
+    serde_json::json!({
+        "chunks": chunks,
+        "entities": entities.len(),
+        "vertices": vertices,
+        "triangles": triangles,
+    })
+}
+
+/// Walks ahead for `seconds`, turning slowly, and times the frames.
+fn walk_for(h: &mut super::harness::Harness, seconds: f64) -> serde_json::Value {
+    h.key_down(KeyCode::KeyW);
+    let start = Instant::now();
+    let mut frames = Vec::new();
+    while start.elapsed().as_secs_f64() < seconds {
+        h.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(0.5, 0.0),
+        });
+        let frame = Instant::now();
+        h.frames(1);
+        frames.push(frame.elapsed().as_secs_f64() * 1e3);
+    }
+    h.key_up(KeyCode::KeyW);
+    let fps = frames.len() as f64 / start.elapsed().as_secs_f64();
+    let mut result = percentiles(&mut frames);
+    result["fps"] = fps.into();
+    result
+}
+
+/// The median, 99th percentile and longest of `frames`, in ms, and how many there are.
+fn percentiles(frames: &mut [f64]) -> serde_json::Value {
+    frames.sort_by(f64::total_cmp);
+    let percentile = |p: f64| frames[((frames.len() - 1) as f64 * p) as usize];
+    serde_json::json!({
+        "frames": frames.len(),
+        "frame_ms_p50": percentile(0.5),
+        "frame_ms_p99": percentile(0.99),
+        "frame_ms_max": percentile(1.0),
+    })
+}
+
+/// The resident memory of the process and its peak, in MiB.
+fn memory() -> serde_json::Value {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix(name))
+            .and_then(|rest| rest.trim().trim_end_matches(" kB").parse::<f64>().ok())
+            .map(|kib| kib / 1024.)
+    };
+    serde_json::json!({ "rss_mib": field("VmRSS:"), "peak_mib": field("VmHWM:") })
+}
