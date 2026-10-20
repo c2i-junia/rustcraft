@@ -16,6 +16,7 @@ mod display;
 #[cfg(test)]
 pub(crate) mod goldens;
 pub mod layout;
+pub mod recipes;
 mod setup;
 
 pub use display::*;
@@ -36,6 +37,55 @@ pub struct ItemBrowserState {
     pub category: Option<ItemCategory>,
     /// Whether the drawer is open, when the browser is one.
     pub drawer_open: bool,
+    /// Whether the catalog keeps only the items craftable now, in Survival.
+    pub craftable: bool,
+    /// The recipes or the uses shown instead of the catalog, if any.
+    pub view: Option<ItemView>,
+    /// The views the back button and Escape go back to, the last one first.
+    pub history: Vec<ItemView>,
+}
+
+/// Which recipes of an item the view shows: those making it, or those it goes into.
+// First used by the recipe view (Task 4)
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RecipeTab {
+    Recipes,
+    Uses,
+}
+
+/// The recipes or the uses of an item.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ItemView {
+    pub item: ItemId,
+    pub tab: RecipeTab,
+}
+
+// First used by the recipe view (Task 4)
+#[allow(dead_code)]
+impl ItemBrowserState {
+    /// Shows `view`, the open one going on the history, and opens the drawer it is in.
+    pub fn open(&mut self, view: ItemView, compact: bool) {
+        if self.view != Some(view) {
+            if let Some(open) = self.view.replace(view) {
+                self.history.push(open);
+            }
+        }
+        if compact {
+            self.drawer_open = true;
+        }
+    }
+
+    /// Goes back to the last view of the history, or to the catalog.
+    pub fn back(&mut self) {
+        self.view = self.history.pop();
+    }
+
+    /// Goes back to the catalog, forgetting the history.
+    pub fn leave_view(&mut self) {
+        self.view = None;
+        self.history.clear();
+    }
 }
 
 /// The panel of the browser.
@@ -108,4 +158,41 @@ pub fn item_browser_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Game)),
         )
         .add_observer(scroll_focused_into_view);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn view(item: ItemId, tab: RecipeTab) -> ItemView {
+        ItemView { item, tab }
+    }
+
+    #[test]
+    fn opening_views_pushes_the_history_and_back_pops_it() {
+        let pickaxe = view(ItemId::WoodenPickaxe, RecipeTab::Recipes);
+        let stick = view(ItemId::Stick, RecipeTab::Recipes);
+        let mut state = ItemBrowserState::default();
+        state.open(pickaxe, false);
+        assert_eq!(state.view, Some(pickaxe));
+        assert!(state.history.is_empty());
+        assert!(!state.drawer_open);
+        state.open(stick, false);
+        assert_eq!(state.history, [pickaxe]);
+        state.open(stick, false);
+        assert_eq!(state.history, [pickaxe]);
+
+        state.back();
+        assert_eq!(state.view, Some(pickaxe));
+        assert!(state.history.is_empty());
+        state.back();
+        assert_eq!(state.view, None);
+
+        state.open(pickaxe, true);
+        state.open(stick, true);
+        assert!(state.drawer_open);
+        state.leave_view();
+        assert_eq!(state.view, None);
+        assert!(state.history.is_empty());
+    }
 }
