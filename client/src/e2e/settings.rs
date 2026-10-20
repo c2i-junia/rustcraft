@@ -422,7 +422,9 @@ fn in_game_the_render_distance_says_when_the_server_grants_less() {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_video_screen_matches_its_golden() {
-    let mut h = settings();
+    // the default render distance depends on the build: the golden shows a saved one
+    let folder = GameFolder::new().with_file(VIDEO_SETTINGS_PATH, "(render_distance: 12)");
+    let mut h = settings_with(folder, Options::default());
     h.open_tab_showing("Video", &render_distance());
     h.hover_nothing();
     h.assert_screenshot("menu_video");
