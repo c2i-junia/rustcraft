@@ -398,12 +398,17 @@ fn scene_stats(h: &mut super::harness::Harness) -> serde_json::Value {
         .flat_map(|render| [render.entity, render.liquid_entity])
         .flatten()
         .count();
+    let liquid_entities = renders
+        .clone()
+        .filter(|render| render.liquid_entity.is_some())
+        .count();
     let triangles: usize = renders
         .map(|render| render.triangles.iter().sum::<usize>())
         .sum();
     serde_json::json!({
         "chunks": map.blocks.chunk_positions().count(),
         "entities": entities,
+        "liquid_entities": liquid_entities,
         "triangles": triangles,
     })
 }
