@@ -75,6 +75,11 @@ fn scan_cell(map: &ChunkMap, chunks: &BTreeSet<i32>, x: i32, z: i32) -> Option<S
         let Some(chunk) = map.chunk(IVec3::new(column.x, chunk_y, column.y)) else {
             continue;
         };
+        // Most chunks above the ground: nothing to see, and water above them is as deep as the
+        // map tells below
+        if chunk.uniform() == Some(None) {
+            continue;
+        }
         for local_y in (0..CHUNK_SIZE).rev() {
             let y = chunk_y * CHUNK_SIZE + local_y;
             if let Some(top) = water_top {
@@ -193,8 +198,14 @@ impl MinimapSurface {
     /// Scans again at most `budget` dirty columns, the nearest to the column `near` first.
     pub fn scan_dirty(&mut self, map: &ChunkMap, near: IVec2, budget: usize) {
         let mut dirty: Vec<IVec2> = self.dirty.iter().copied().collect();
-        dirty.sort_by_key(|column| (*column - near).abs().max_element());
-        for column in dirty.into_iter().take(budget) {
+        let distance = |column: &IVec2| (*column - near).abs().max_element();
+        // The nearest `budget`, without sorting the thousands of a large render distance
+        if budget < dirty.len() {
+            dirty.select_nth_unstable_by_key(budget, distance);
+            dirty.truncate(budget);
+        }
+        dirty.sort_by_key(distance);
+        for column in dirty {
             self.dirty.remove(&column);
             let Some(tile) = self.tiles.get_mut(&column) else {
                 continue;
