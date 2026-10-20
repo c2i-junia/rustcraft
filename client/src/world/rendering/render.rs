@@ -14,7 +14,10 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::{
-    world::{global_block_to_chunk_pos, world_position_to_chunk_position, BlockData, ChunkMap},
+    world::{
+        global_block_to_chunk_pos, world_position_to_chunk_position, BlockData, BlockTransparency,
+        ChunkMap, SIX_OFFSETS,
+    },
     CHUNK_SIZE,
 };
 
@@ -192,8 +195,9 @@ pub fn request_remesh_of_changed_blocks_system(
     }
 }
 
-/// Whether the chunk at `chunk_pos` is to be meshed: it is loaded, and it has blocks or shows
-/// faces it has to clear. Half the chunks a player receives are air, with nothing to show.
+/// Whether the chunk at `chunk_pos` is to be meshed: it is loaded, and it has blocks whose faces
+/// may show or shows faces it has to clear. Most chunks a player receives are air, with nothing
+/// to show, or buried in the ground.
 fn needs_mesh(world_map: &ClientWorldMap, chunk_pos: IVec3) -> bool {
     let Some(chunk) = world_map.blocks.chunk(chunk_pos) else {
         return false;
@@ -202,7 +206,20 @@ fn needs_mesh(world_map: &ClientWorldMap, chunk_pos: IVec3) -> bool {
         .render
         .get(&chunk_pos)
         .is_some_and(|render| render.entity.is_some() || render.liquid_entity.is_some());
-    !chunk.is_empty() || shows_faces
+    (!chunk.is_empty() && !is_buried(&world_map.blocks, chunk_pos)) || shows_faces
+}
+
+/// Whether every face of the chunk at `chunk_pos` is hidden: it is filled with one opaque block,
+/// and so are the six chunks around it.
+fn is_buried(blocks: &ChunkMap, chunk_pos: IVec3) -> bool {
+    let opaque = |pos: IVec3| {
+        blocks
+            .chunk(pos)
+            .and_then(|chunk| chunk.uniform())
+            .flatten()
+            .is_some_and(|block| block.id.get_visibility() == BlockTransparency::Solid)
+    };
+    opaque(chunk_pos) && SIX_OFFSETS.iter().all(|offset| opaque(chunk_pos + *offset))
 }
 
 /// Meshes the chunks that were asked for, nearest to the player first, on the task pool, and
