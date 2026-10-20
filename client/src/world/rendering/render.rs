@@ -14,8 +14,8 @@ use bevy::{
     tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
 };
 use shared::world::{
-    global_block_to_chunk_pos, within_render_distance, world_position_to_chunk_position, BlockData,
-    BlockTransparency, ChunkMap, SIX_OFFSETS,
+    global_block_to_chunk_pos, vertical_render_distance, within_render_distance,
+    world_position_to_chunk_position, BlockData, BlockTransparency, ChunkMap, SIX_OFFSETS,
 };
 
 use crate::{
@@ -301,11 +301,11 @@ pub struct WaitingChunks {
 }
 
 impl WaitingChunks {
-    /// Of `requested`, the chunks to mesh now: while chunks keep arriving, a chunk whose six
-    /// neighbours within the render distance `distance` of the chunk `center` are not all in
-    /// waits for them, as each of them would mesh it again. Once no chunk arrived for
-    /// `STREAM_PAUSE`, those that wait are meshed too: the player may have moved, or the server
-    /// grant less.
+    /// Of `requested`, the chunks to mesh now: while chunks keep arriving, a chunk waits for
+    /// the chunks within the render distance `distance` of the chunk `center` that its mesh
+    /// depends on: its six neighbours, and those of its group and around it, as each of them
+    /// would mesh the whole group again. Once no chunk arrived for `STREAM_PAUSE`, those that
+    /// wait are meshed too: the player may have moved, or the server grant less.
     fn ready(
         &mut self,
         blocks: &ChunkMap,
@@ -323,9 +323,15 @@ impl WaitingChunks {
                     || !within_render_distance(neighbour, center, distance)
             })
         };
+        let mut complete: HashMap<IVec2, bool> = HashMap::new();
+        let mut group_complete = |group: IVec2| {
+            *complete
+                .entry(group)
+                .or_insert_with(|| group_is_complete(blocks, group, center, distance))
+        };
         let mut ready = Vec::new();
         for chunk in requested {
-            if !streaming || has_neighbours(chunk) {
+            if !streaming || (has_neighbours(chunk) && group_complete(group_of(chunk))) {
                 self.chunks.remove(&chunk);
                 ready.push(chunk);
             } else {
@@ -338,6 +344,28 @@ impl WaitingChunks {
         }
         ready
     }
+}
+
+/// Whether every chunk within the render distance `distance` of the chunk `center` is loaded,
+/// in the columns of the group `group` and in those along its sides, which its faces touch. The
+/// columns at its corners touch none: a chunk arriving there does not ask for the group again.
+fn group_is_complete(blocks: &ChunkMap, group: IVec2, center: IVec3, distance: i32) -> bool {
+    let inside = group * GROUP_WIDTH..group * GROUP_WIDTH + IVec2::splat(GROUP_WIDTH);
+    let first = inside.start - IVec2::ONE;
+    let last = inside.end;
+    let lowest = IVec2::new(center.x, center.z) - IVec2::splat(distance);
+    let highest = IVec2::new(center.x, center.z) + IVec2::splat(distance);
+    let (first, last) = (first.max(lowest), last.min(highest));
+    let vertical = vertical_render_distance(distance);
+    (first.x..=last.x).all(|x| {
+        (first.y..=last.y).all(|z| {
+            let corner = !(inside.start.x..inside.end.x).contains(&x)
+                && !(inside.start.y..inside.end.y).contains(&z);
+            corner
+                || (center.y - vertical..=center.y + vertical)
+                    .all(|y| blocks.is_chunk_loaded(IVec3::new(x, y, z)))
+        })
+    })
 }
 
 /// Meshes the chunks that were asked for, nearest to the player first, on the task pool, and
@@ -973,7 +1001,7 @@ mod tests {
     }
 
     #[test]
-    fn while_chunks_arrive_a_chunk_waits_for_its_neighbours_within_reach() {
+    fn while_chunks_arrive_a_chunk_waits_for_the_chunks_of_its_group_and_around_within_reach() {
         let mut blocks = ChunkMap::default();
         for x in -1..=1 {
             blocks.insert_chunk(IVec3::new(x, 0, 0), Chunk::new());
@@ -983,6 +1011,7 @@ mod tests {
             last_arrival: Some(start),
             ..default()
         };
+        // Within reach: the cube from -1 to 1
         let reach = (IVec3::ZERO, 1);
         let requested = [IVec3::ZERO, IVec3::X];
         // The neighbours of the middle chunk above, below and on the sides are missing
@@ -992,17 +1021,33 @@ mod tests {
         for offset in [IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
             blocks.insert_chunk(offset, Chunk::new());
         }
-        // Asked for again as its neighbours arrive; the one at the edge still lacks some within
-        // reach
+        // Its neighbours are in, the rest of its group and around it is not
+        assert!(waiting
+            .ready(&blocks, reach, [IVec3::ZERO].into_iter(), start)
+            .is_empty());
+        for x in -1..=1 {
+            for y in -1..=1 {
+                for z in -1..=1 {
+                    blocks.insert_chunk(IVec3::new(x, y, z), Chunk::new());
+                }
+            }
+        }
+        // Asked for again as the chunks arrive
         assert_eq!(
-            waiting.ready(&blocks, reach, [IVec3::ZERO].into_iter(), start),
-            vec![IVec3::ZERO]
+            waiting.ready(&blocks, reach, requested.into_iter(), start),
+            requested.to_vec()
         );
-        // The stream pauses: the edge is meshed as it is
+        assert!(waiting.chunks.is_empty());
+
+        // The stream pauses: a chunk that still waits is meshed as it is
+        let lacking = IVec3::new(5, 0, 0);
+        assert!(waiting
+            .ready(&blocks, (lacking, 1), [lacking].into_iter(), start)
+            .is_empty());
         let later = start + STREAM_PAUSE;
         assert_eq!(
-            waiting.ready(&blocks, reach, iter::empty(), later),
-            vec![IVec3::X]
+            waiting.ready(&blocks, (lacking, 1), iter::empty(), later),
+            vec![lacking]
         );
         assert!(waiting
             .ready(&blocks, reach, iter::empty(), later)
