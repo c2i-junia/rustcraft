@@ -304,7 +304,8 @@ The client has one plugin per domain, registered by `game_plugin`: `camera`, `in
 `network`, `player`, `ui::hud` and `world`. The menus have their own plugin
 (`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
 too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audio` turns into
-sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. `GameState`
+sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. The sheep
+model, `data/models/animated/Sheep.glb`, is built in Blender by `scripts/generate_sheep.py`. `GameState`
 goes from `Menu` to `PreGameLoading` (connection and textures) to `Game`.
 
 ## UI widgets

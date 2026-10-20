@@ -24,6 +24,7 @@ pub struct MobModel {
 }
 
 pub const FOX_PATH: &str = "models/animated/Fox.glb";
+/// Built by `scripts/generate_sheep.py`.
 pub const SHEEP_PATH: &str = "models/animated/Sheep.glb";
 
 pub fn model(kind: MobKind) -> MobModel {
