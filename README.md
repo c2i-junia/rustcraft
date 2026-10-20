@@ -121,6 +121,7 @@ paru -S rustcraft
 |                   | Reload Chunks (rebuild their meshes) | R            |
 |                   | Toggle debug overlay  | F3                          |
 |                   | Toggle Perspective    | F5                          |
+|                   | Zoom (hold)           | C                           |
 |                   | Toggle Chunk Debug    | F4                          |
 |                   | Toggle Block Debug    | F6                          |
 |                   | Toggle Raycast Debug  | F7                          |

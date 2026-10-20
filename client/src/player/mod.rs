@@ -63,7 +63,7 @@ pub fn player_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (crouch_bodies_system, sprint_fov_system)
+            (crouch_bodies_system, fov_system)
                 .after(GameSet::Reconciliation)
                 .before(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),

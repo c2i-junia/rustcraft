@@ -1,6 +1,8 @@
 //! Survival in the game, through the integrated server: the hearts, a deadly fall, the death
 //! screen and the respawn. And the stances: sprinting widens the view, sneaking lowers the eyes.
+//! And the zoom, which narrows the view and slows the mouse.
 
+use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::Player;
@@ -9,7 +11,7 @@ use super::game::enter_world;
 use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::camera::FOV_DEGREES;
+use crate::camera::{CameraController, FOV_DEGREES, ZOOM_SCALE};
 use crate::player::{CurrentPlayerMarker, PlayerBody, SNEAK_BODY_SCALE};
 use crate::ui::hud::health::{health_label, HealthBar};
 use crate::ui::hud::HudBottom;
@@ -155,4 +157,47 @@ fn sprinting_widens_the_view_and_sneaking_lowers_the_eyes() {
     h.wait_until("a standing body", SCREEN, |w| body_scale(w) == 1.0);
     h.frames(1);
     assert!((eyes(h.world()) - standing_eyes).abs() < 0.05);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn holding_c_zooms_and_slows_the_mouse() {
+    let mut h = enter_world(GameFolder::new().with_world("Zoom"), "Zoom");
+    h.wait_until("the player on the ground", SERVER, |w| player(w).on_ground);
+    let fov = |w: &World| {
+        let mut projections = w
+            .try_query_filtered::<&Projection, With<Camera3d>>()
+            .unwrap();
+        match projections.single(w).unwrap() {
+            Projection::Perspective(perspective) => perspective.fov,
+            _ => unreachable!(),
+        }
+    };
+    // How far a move of the mouse by 100 pixels turns the camera
+    let turn = |h: &mut Harness| {
+        let yaw = |w: &mut World| w.query::<&CameraController>().single(w).unwrap().angle_x;
+        let before = yaw(h.world_mut());
+        h.world_mut().write_message(MouseMotion {
+            delta: Vec2::new(100.0, 0.0),
+        });
+        h.frames(1);
+        (yaw(h.world_mut()) - before).abs()
+    };
+    let normal_turn = turn(&mut h);
+    assert!(normal_turn > 0.0);
+
+    h.key_down(KeyCode::KeyC);
+    h.wait_until("the zoom", SCREEN, |w| {
+        fov(w) == FOV_DEGREES.to_radians() * ZOOM_SCALE
+    });
+    let zoomed_turn = turn(&mut h);
+    assert!(
+        (zoomed_turn - normal_turn * ZOOM_SCALE).abs() < 1e-5,
+        "{zoomed_turn} zoomed, {normal_turn} not"
+    );
+
+    h.key_up(KeyCode::KeyC);
+    h.wait_until("the view back", SCREEN, |w| {
+        fov(w) == FOV_DEGREES.to_radians()
+    });
 }

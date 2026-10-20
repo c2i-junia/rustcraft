@@ -1,10 +1,10 @@
 //! What the stance of a player shows: a sneaking player crouches and the camera lowers its
-//! eyes with it, and a sprinting one sees wider.
+//! eyes with it, a sprinting one sees wider, and a zooming one narrower.
 
 use bevy::prelude::*;
 use shared::players::Player;
 
-use crate::camera::FOV_DEGREES;
+use crate::camera::{Zoom, FOV_DEGREES};
 
 use super::CurrentPlayerMarker;
 
@@ -62,9 +62,11 @@ pub fn crouch_bodies_system(
     }
 }
 
-/// Widens the field of view of the camera while the local player sprints.
-pub fn sprint_fov_system(
+/// Widens the field of view of the camera while the local player sprints, and narrows it while
+/// they zoom.
+pub fn fov_system(
     time: Res<Time>,
+    zoom: Res<Zoom>,
     player: Query<&Player, With<CurrentPlayerMarker>>,
     mut projections: Query<&mut Projection, With<Camera3d>>,
 ) {
@@ -76,7 +78,7 @@ pub fn sprint_fov_system(
     } else {
         1.0
     };
-    let target = FOV_DEGREES.to_radians() * scale;
+    let target = FOV_DEGREES.to_radians() * scale * zoom.scale();
     let t = easing(time.delta_secs());
     for mut projection in &mut projections {
         // Reached through `bypass_change_detection` first: a camera at its field of view must

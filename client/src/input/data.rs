@@ -31,6 +31,7 @@ pub enum GameAction {
     OpenMap,
     MinimapZoomIn,
     MinimapZoomOut,
+    Zoom,
 }
 
 /// The groups the actions are listed in on the Controls tab.
@@ -64,7 +65,7 @@ impl ActionCategory {
 
 impl GameAction {
     /// Every action but Escape, which always pauses and cannot be rebound, in display order.
-    pub const LISTED: [GameAction; 23] = [
+    pub const LISTED: [GameAction; 24] = [
         GameAction::MoveForward,
         GameAction::MoveBackward,
         GameAction::MoveLeft,
@@ -81,6 +82,7 @@ impl GameAction {
         GameAction::MinimapZoomIn,
         GameAction::MinimapZoomOut,
         GameAction::ToggleViewMode,
+        GameAction::Zoom,
         GameAction::RenderDistanceMinus,
         GameAction::RenderDistancePlus,
         GameAction::ToggleFps,
@@ -110,6 +112,7 @@ impl GameAction {
             GameAction::MinimapZoomIn => "Zoom in the map",
             GameAction::MinimapZoomOut => "Zoom out the map",
             GameAction::ToggleViewMode => "Camera view",
+            GameAction::Zoom => "Zoom",
             GameAction::RenderDistanceMinus => "Lower render distance",
             GameAction::RenderDistancePlus => "Raise render distance",
             GameAction::ToggleFps => "Debug overlay",
@@ -140,6 +143,7 @@ impl GameAction {
             | GameAction::MinimapZoomIn
             | GameAction::MinimapZoomOut => ActionCategory::Interface,
             GameAction::ToggleViewMode
+            | GameAction::Zoom
             | GameAction::RenderDistanceMinus
             | GameAction::RenderDistancePlus => ActionCategory::View,
             GameAction::ToggleFps
@@ -160,7 +164,7 @@ mod tests {
     #[test]
     fn every_listed_action_has_a_human_name_and_a_category() {
         let distinct: BTreeSet<_> = GameAction::LISTED.iter().collect();
-        assert_eq!(distinct.len(), 23);
+        assert_eq!(distinct.len(), 24);
         assert!(!GameAction::LISTED.contains(&GameAction::Escape));
         assert_eq!(GameAction::MoveForward.name(), "Move forward");
         assert_eq!(GameAction::ToggleFps.name(), "Debug overlay");

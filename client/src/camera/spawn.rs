@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 
-use super::{camera_control_system, underwater_fog_system, SKY_COLOR};
+use super::{camera_control_system, underwater_fog_system, zoom_system, Zoom, SKY_COLOR};
 
 use crate::state::{GameSet, GameState};
 
@@ -43,7 +43,14 @@ impl From<Quat> for CameraController {
 /// loading screen goes straight back to the menu without ever entering the game, so the
 /// camera has to be despawned on that transition too.
 pub fn camera_plugin(app: &mut App) {
-    app.add_systems(OnEnter(GameState::PreGameLoading), spawn_camera)
+    app.init_resource::<Zoom>()
+        .add_systems(OnEnter(GameState::PreGameLoading), spawn_camera)
+        .add_systems(
+            Update,
+            zoom_system
+                .in_set(GameSet::Input)
+                .run_if(in_state(GameState::Game)),
+        )
         .add_systems(
             Update,
             (camera_control_system, underwater_fog_system)
@@ -103,6 +110,8 @@ mod tests {
             .add_message::<bevy::input::mouse::MouseMotion>()
             .insert_resource(shared::players::ViewMode::FirstPerson)
             .insert_resource(crate::ui::hud::UIMode::Closed)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(crate::input::keyboard::default_bindings())
             .init_resource::<crate::world::ClientWorldMap>()
             .init_resource::<crate::world::RenderDistance>()
             .insert_resource(crate::world::time::ClientTime(0))
