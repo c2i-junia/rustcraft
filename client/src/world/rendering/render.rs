@@ -3,7 +3,7 @@ use std::iter;
 use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use bevy::{
@@ -15,8 +15,8 @@ use bevy::{
 };
 use shared::{
     world::{
-        global_block_to_chunk_pos, world_position_to_chunk_position, BlockData, BlockTransparency,
-        ChunkMap, SIX_OFFSETS,
+        global_block_to_chunk_pos, within_render_distance, world_position_to_chunk_position,
+        BlockData, BlockTransparency, ChunkMap, SIX_OFFSETS,
     },
     CHUNK_SIZE,
 };
@@ -28,7 +28,10 @@ use crate::{
     world::{self, MaterialResource, WorldRenderRequestUpdateEvent},
 };
 
-use crate::world::{BlockChanged, ChunkRender, ClientWorldMap};
+use crate::world::{
+    BlockChanged, ChunkLoadEvent, ChunkRender, ClientWorldMap, RenderDistance,
+    ServerRenderDistanceLimit,
+};
 
 use super::meshing::ChunkMeshResponse;
 
@@ -234,17 +237,74 @@ fn is_buried(blocks: &ChunkMap, chunk_pos: IVec3) -> bool {
     opaque(chunk_pos) && SIX_OFFSETS.iter().all(|offset| opaque(chunk_pos + *offset))
 }
 
+/// How long no chunk must arrive for the stream of chunks to be over: the server sends them at
+/// every tick, 50 ms apart, while it has some.
+const STREAM_PAUSE: Duration = Duration::from_millis(100);
+
+/// The chunks asked for that wait for their neighbours, and when the last chunk arrived.
+#[derive(Default)]
+pub struct WaitingChunks {
+    chunks: HashSet<IVec3>,
+    last_arrival: Option<Instant>,
+}
+
+impl WaitingChunks {
+    /// Of `requested`, the chunks to mesh now: while chunks keep arriving, a chunk whose six
+    /// neighbours within the render distance `distance` of the chunk `center` are not all in
+    /// waits for them, as each of them would mesh it again. Once no chunk arrived for
+    /// `STREAM_PAUSE`, those that wait are meshed too: the player may have moved, or the server
+    /// grant less.
+    fn ready(
+        &mut self,
+        blocks: &ChunkMap,
+        (center, distance): (IVec3, i32),
+        requested: impl Iterator<Item = IVec3>,
+        now: Instant,
+    ) -> Vec<IVec3> {
+        let streaming = self
+            .last_arrival
+            .is_some_and(|arrival| now.duration_since(arrival) < STREAM_PAUSE);
+        let has_neighbours = |chunk: IVec3| {
+            SIX_OFFSETS.iter().all(|offset| {
+                let neighbour = chunk + *offset;
+                blocks.is_chunk_loaded(neighbour)
+                    || !within_render_distance(neighbour, center, distance)
+            })
+        };
+        let mut ready = Vec::new();
+        for chunk in requested {
+            if !streaming || has_neighbours(chunk) {
+                self.chunks.remove(&chunk);
+                ready.push(chunk);
+            } else {
+                self.chunks.insert(chunk);
+            }
+        }
+        // A waiting chunk is asked for again with each neighbour that arrives
+        if !streaming {
+            ready.extend(self.chunks.drain());
+        }
+        ready
+    }
+}
+
 /// Meshes the chunks that were asked for, nearest to the player first, on the task pool, and
-/// shows each mesh once its task is done.
+/// shows each mesh once its task is done. While chunks arrive, a chunk waits for its neighbours
+/// (`WaitingChunks`).
+#[allow(clippy::too_many_arguments)]
 pub fn world_render_system(
     mut world_map: ResMut<ClientWorldMap>,
     material_resource: Res<MaterialResource>,
     mut ev_render: MessageReader<WorldRenderRequestUpdateEvent>,
+    mut chunk_loads: MessageReader<ChunkLoadEvent>,
     mut requested_chunks: Local<HashSet<IVec3>>,
+    mut waiting: Local<WaitingChunks>,
     mut queued_meshes: Local<QueuedMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
+    render_distance: Res<RenderDistance>,
+    server_limit: Option<Res<ServerRenderDistanceLimit>>,
 ) {
     // A set, so that a chunk asked for several times is meshed once
     requested_chunks.extend(
@@ -252,22 +312,40 @@ pub fn world_render_system(
             .read()
             .map(|WorldRenderRequestUpdateEvent::ChunkToReload(chunk_pos)| *chunk_pos),
     );
+    let now = Instant::now();
+    if chunk_loads
+        .read()
+        .any(|load| matches!(load, ChunkLoadEvent::Loaded(_)))
+    {
+        waiting.last_arrival = Some(now);
+    }
 
     // The requests wait until the textures are ready
     let Some(block_atlas) = material_resource.blocks.as_ref() else {
         return;
     };
 
-    if !requested_chunks.is_empty() {
-        let mut chunks: Vec<IVec3> = requested_chunks
-            .drain()
-            .filter(|chunk_pos| needs_mesh(&world_map, *chunk_pos))
-            .collect();
-        let player_position = player.single().map_or(Vec3::ZERO, |t| t.translation);
-        sort_nearest_first(
-            &mut chunks,
-            world_position_to_chunk_position(player_position),
-        );
+    let player_chunk =
+        world_position_to_chunk_position(player.single().map_or(Vec3::ZERO, |t| t.translation));
+    let distance = render_distance
+        .distance
+        .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32;
+    let requested = requested_chunks
+        .drain()
+        .filter(|chunk_pos| needs_mesh(&world_map, *chunk_pos))
+        .collect::<Vec<_>>();
+    let mut chunks: Vec<IVec3> = waiting
+        .ready(
+            &world_map.blocks,
+            (player_chunk, distance),
+            requested.into_iter(),
+            now,
+        )
+        .into_iter()
+        .filter(|chunk_pos| needs_mesh(&world_map, *chunk_pos))
+        .collect();
+    if !chunks.is_empty() {
+        sort_nearest_first(&mut chunks, player_chunk);
         // A newer mesh of a chunk makes the one still being made useless: dropping its task
         // cancels it
         let remeshed: HashSet<IVec3> = chunks.iter().copied().collect();
@@ -653,6 +731,58 @@ mod tests {
             response,
         );
         queue.apply(world);
+    }
+
+    #[test]
+    fn while_chunks_arrive_a_chunk_waits_for_its_neighbours_within_reach() {
+        let mut blocks = ChunkMap::default();
+        for x in -1..=1 {
+            blocks.insert_chunk(IVec3::new(x, 0, 0), Chunk::new());
+        }
+        let start = Instant::now();
+        let mut waiting = WaitingChunks {
+            last_arrival: Some(start),
+            ..default()
+        };
+        let reach = (IVec3::ZERO, 1);
+        let requested = [IVec3::ZERO, IVec3::X];
+        // The neighbours of the middle chunk above, below and on the sides are missing
+        assert!(waiting
+            .ready(&blocks, reach, requested.into_iter(), start)
+            .is_empty());
+        for offset in [IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
+            blocks.insert_chunk(offset, Chunk::new());
+        }
+        // Asked for again as its neighbours arrive; the one at the edge still lacks some within
+        // reach
+        assert_eq!(
+            waiting.ready(&blocks, reach, [IVec3::ZERO].into_iter(), start),
+            vec![IVec3::ZERO]
+        );
+        // The stream pauses: the edge is meshed as it is
+        let later = start + STREAM_PAUSE;
+        assert_eq!(
+            waiting.ready(&blocks, reach, iter::empty(), later),
+            vec![IVec3::X]
+        );
+        assert!(waiting
+            .ready(&blocks, reach, iter::empty(), later)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_chunk_at_the_edge_of_the_render_distance_does_not_wait_for_what_lies_beyond() {
+        let mut blocks = ChunkMap::default();
+        blocks.insert_chunk(IVec3::ZERO, Chunk::new());
+        let now = Instant::now();
+        let mut waiting = WaitingChunks {
+            last_arrival: Some(now),
+            ..default()
+        };
+        assert_eq!(
+            waiting.ready(&blocks, (IVec3::ZERO, 0), [IVec3::ZERO].into_iter(), now),
+            vec![IVec3::ZERO]
+        );
     }
 
     #[test]
