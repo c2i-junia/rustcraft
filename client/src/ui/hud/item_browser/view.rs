@@ -21,7 +21,7 @@ use super::recipes::{
     station_label, tab_label, view_title,
 };
 use super::{
-    BackButton, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
+    BackButton, BookmarkBar, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
     FillGridButton, ItemBrowserState, ItemCount, ItemView, MissingTint, RecipeCard, RecipeCards,
     RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, ViewedItem,
     ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
@@ -468,7 +468,7 @@ fn recipes_of(view: ItemView) -> Vec<RecipeView> {
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct ViewParts<'w, 's> {
     catalog_parts: Query<'w, 's, &'static mut Node, (With<CatalogPart>, Without<RecipePanel>)>,
-    catalog_roots: Query<'w, 's, Entity, With<CatalogPart>>,
+    catalog_roots: Query<'w, 's, Entity, Or<(With<CatalogPart>, With<BookmarkBar>)>>,
     panel: Single<'w, 's, (Entity, &'static mut Node), (With<RecipePanel>, Without<CatalogPart>)>,
     texts: Query<
         'w,
@@ -603,7 +603,7 @@ pub fn show_view(
     if built.0 == Some(view) {
         return;
     }
-    // the search too, after Enter in it
+    // the search and the bookmarks too, after Enter in the search or on a bookmark
     let catalog_focused = parts.catalog_roots.iter().any(inside);
     if inside(cards) || catalog_focused {
         focus.set(*parts.back, FocusCause::Navigated);

@@ -15,19 +15,22 @@ use shared::world::ItemId;
 
 use super::game::{enter_world, floating, slot};
 use super::harness::{Harness, SCREEN, SERVER};
-use super::helpers::ctrl;
+use super::helpers::{ctrl, is_in};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::constants::ITEM_BROWSER_PATH;
+use crate::state::GameState;
+use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::item_browser::bookmarks::ItemBrowserFile;
 use crate::ui::hud::item_browser::creative::TRASH_HINT;
 use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::item_browser::{
-    CatalogList, CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, RecipeCard,
-    RecipePanel, TrashSlot, SEARCH_LABEL,
+    BookmarkBar, BookmarkRow, BookmarkSlot, CatalogGrid, CatalogList, CatalogSlot, DrawerHandle,
+    ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipePanel, TrashSlot, SEARCH_LABEL,
 };
 use crate::ui::hud::{CraftResultCell, HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::ui::menus::pause::PauseMenu;
+use crate::ui::menus::MenuState;
 use crate::ui::theme::ACCENT;
 use crate::ui::widgets::tooltip::TooltipRoot;
 use shared::players::game_mode::GameMode;
@@ -45,6 +48,16 @@ fn catalog_slot(name: &str) -> L {
 /// The slots of `name` in the cards of the recipe view.
 fn card_slot(name: &str) -> L {
     L::role(Role::GridCell, name).within(L::marker::<RecipeCard>())
+}
+
+/// The slot of `name` in the grid of the catalog.
+fn catalog_grid_slot(name: &str) -> L {
+    L::role(Role::GridCell, name).within(L::marker::<CatalogGrid>())
+}
+
+/// The slot of `name` in the row of bookmarks.
+fn bookmark_slot(name: &str) -> L {
+    L::role(Role::GridCell, name).within(L::marker::<BookmarkRow>())
 }
 
 /// A button of the browser, a chip or the back button, by its label.
@@ -747,13 +760,16 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     };
 
     // A over a slot of the catalog bookmarks its item, says so, and saves it for this world
-    h.hover(&catalog_slot("Chest"));
+    h.hover(&catalog_grid_slot("Chest"));
     h.wait_for(
         &L::text("R Recipes  U Uses  A Bookmark").within(tooltip()),
         SCREEN,
     );
     h.press(KeyCode::KeyA);
     h.wait_for(&L::text("Bookmarked Chest"), SCREEN);
+    // the row of bookmarks shows above the grid, which moves down
+    h.frames(2);
+    h.hover(&catalog_grid_slot("Chest"));
     h.wait_for(
         &L::text("R Recipes  U Uses  A Unbookmark").within(tooltip()),
         SCREEN,
@@ -780,4 +796,62 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     h.press(KeyCode::KeyA);
     h.wait_for(&L::text("Removed Wooden Pickaxe from bookmarks"), SCREEN);
     assert_eq!(saved(&h).worlds["Bookmarks"], [ItemId::Chest]);
+
+    // The bookmarks show between the chips and the grid, and act as the catalog's slots
+    h.wait_for(&bookmark_slot("Chest"), SCREEN);
+    assert!(h.is_visible(&L::text("Bookmarks").within(L::marker::<BookmarkBar>())));
+    assert_eq!(h.find(&L::marker::<BookmarkSlot>()).len(), 1);
+    h.click(&bookmark_slot("Chest"));
+    h.wait_for(&button("Recipes 2"), SCREEN);
+    assert!(!h.is_visible(&L::marker::<BookmarkBar>()));
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("33 / 33"), SCREEN);
+    assert!(h.is_visible(&bookmark_slot("Chest")));
+
+    // The arrows reach them from the grid. A on the focused one removes it, and the focus goes
+    // to the slot of its item in the grid, where A bookmarks it again
+    let focused = |h: &Harness| h.world().resource::<InputFocus>().get();
+    h.type_on(KeyCode::Slash, '/');
+    h.press(KeyCode::ArrowDown);
+    h.frames(1);
+    h.press(KeyCode::ArrowUp);
+    h.frames(1);
+    assert_eq!(focused(&h), Some(h.get(&bookmark_slot("Chest"))));
+    h.press(KeyCode::KeyA);
+    h.wait_for(&L::text("Removed Chest from bookmarks"), SCREEN);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<BookmarkBar>()));
+    assert_eq!(focused(&h), Some(h.get(&catalog_grid_slot("Chest"))));
+    h.press(KeyCode::KeyA);
+    h.wait_for(&bookmark_slot("Chest"), SCREEN);
+    assert_eq!(saved(&h).worlds["Bookmarks"], [ItemId::Chest]);
+
+    // They are there again when the world is entered again, and only in that world
+    leave_and_enter(&mut h, "Bookmarks");
+    h.press(KeyCode::KeyE);
+    h.wait_for(&bookmark_slot("Chest"), SCREEN);
+    leave_and_enter(&mut h, "Elsewhere");
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<BookmarkBar>()));
+    assert!(h.find(&L::marker::<BookmarkSlot>()).is_empty());
+    let file = saved(&h);
+    assert_eq!(file.worlds.keys().collect::<Vec<_>>(), ["Bookmarks"]);
+    assert!(file.servers.is_empty());
+}
+
+/// Closes the inventory, saves and quits to the title, and plays the world `world`.
+fn leave_and_enter(h: &mut Harness, world: &str) {
+    h.press(KeyCode::KeyE);
+    h.frames(2);
+    h.press(KeyCode::Escape);
+    h.click(&button("Save and quit to title"));
+    h.wait_until("the title", SERVER, |w| {
+        is_in(w, GameState::Menu) && *w.resource::<State<MenuState>>().get() == MenuState::Main
+    });
+    h.click(&L::text("Singleplayer"));
+    h.play_world(world);
+    h.wait_for_game_state(GameState::Game, SERVER);
+    h.wait_for(&L::marker::<Hotbar>(), SCREEN);
 }

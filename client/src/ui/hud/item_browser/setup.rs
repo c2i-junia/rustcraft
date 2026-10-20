@@ -10,10 +10,10 @@ use super::creative::{TRASH_HINT, TRASH_LABEL};
 use super::recipes::item_keys_hint;
 use super::{
     choose_category, clear_or_leave_search, open_drawer, search_arrow_down, spawn_recipe_panel,
-    submit_search, toggle_craftable, BrowserTitle, CatalogGrid, CatalogList, CatalogPart,
-    CatalogSlot, CategoryChip, CraftableChip, CraftableDot, DrawerHandle, ItemBrowser,
-    ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
-    TrashSlot, ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    submit_search, toggle_craftable, BookmarkBar, BookmarkRow, BrowserTitle, CatalogGrid,
+    CatalogList, CatalogPart, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, DrawerHandle,
+    ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint,
+    NoMatchMessage, TrashSlot, ITEM_BROWSER_TITLE, SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
@@ -129,6 +129,7 @@ pub fn setup_item_browser(
     spawn_handle(&mut commands, *bottom, &font, &glyph_font);
     spawn_search_field(&mut commands, panel, &state, &font, &glyph_font);
     spawn_chips(&mut commands, panel, &font);
+    spawn_bookmark_bar(&mut commands, panel, &font);
     spawn_grid(&mut commands, panel, atlas, &font);
     spawn_recipe_panel(&mut commands, panel, atlas, &font, &glyph_font);
 
@@ -336,6 +337,9 @@ fn spawn_search_field(
     }
 }
 
+/// The label of the bookmarks, and of their row.
+pub const BOOKMARKS_LABEL: &str = "Bookmarks";
+
 /// The category chips, All first, then Craftable: they wrap, so that every one is in view.
 fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
     let row = commands
@@ -411,6 +415,81 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
         .observe(toggle_craftable);
 }
 
+/// The slot of `item` in the catalog, in `parent`: the grid or the row of bookmarks. Its tooltip
+/// and the dot of an item craftable now are kept up to date by `mark_craftable_items`.
+pub(super) fn spawn_catalog_slot(
+    commands: &mut Commands,
+    parent: Entity,
+    item: ItemId,
+    atlas: &AtlasWrapper,
+    font: &Handle<Font>,
+) -> Entity {
+    let name = item_name(item);
+    commands
+        .spawn((
+            CatalogSlot(item),
+            Tooltip {
+                title: name.clone(),
+                detail: category_detail(item),
+                note: String::new(),
+                hint: item_keys_hint(false),
+            },
+            slot(&name, None, icon(atlas, item), font.clone()),
+            ChildOf(parent),
+        ))
+        // after the icon and the count: drawn over them
+        .with_child((
+            CraftableDot,
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                top: px(1),
+                right: px(1),
+                width: px(DOT_SIZE),
+                height: px(DOT_SIZE),
+                border: UiRect::all(px(1)),
+                ..default()
+            },
+            BackgroundColor(OK),
+            BorderColor::all(BEVEL_LO),
+            Pickable::IGNORE,
+        ))
+        .id()
+}
+
+/// The bookmarks, hidden until there is one: a label over a row of slots, which wraps as the
+/// chips do. `show_bookmarks` fills the row.
+fn spawn_bookmark_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
+    commands.spawn((
+        BookmarkBar,
+        Node {
+            display: Display::None,
+            flex_shrink: 0.0,
+            flex_direction: FlexDirection::Column,
+            row_gap: px(SPACE_XS),
+            ..default()
+        },
+        ChildOf(panel),
+        children![
+            label(BOOKMARKS_LABEL, font, FONT_S, MUTED),
+            (
+                BookmarkRow,
+                // the role before the label: the label's default node must not win
+                AccessibilityNode(accesskit::Node::new(Role::Grid)),
+                AccessibleLabel::new(BOOKMARKS_LABEL),
+                Node {
+                    flex_wrap: FlexWrap::Wrap,
+                    column_gap: px(SPACE_XS),
+                    row_gap: px(SPACE_XS),
+                    // under the grid's columns, which leave room for the focus ring
+                    padding: UiRect::horizontal(px(RING_ROOM)),
+                    ..default()
+                },
+            ),
+        ],
+    ));
+}
+
 /// The scrolling grid of the catalog, a slot per item, and what it says when nothing matches.
 fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font: &Handle<Font>) {
     let ScrollListParts { frame, well, list } =
@@ -443,36 +522,7 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         ))
         .id();
     for item in catalog() {
-        let name = item_name(item);
-        commands
-            .spawn((
-                CatalogSlot(item),
-                Tooltip {
-                    title: name.clone(),
-                    detail: category_detail(item),
-                    note: String::new(),
-                    hint: item_keys_hint(false),
-                },
-                slot(&name, None, icon(atlas, item), font.clone()),
-                ChildOf(grid),
-            ))
-            // after the icon and the count: drawn over them
-            .with_child((
-                CraftableDot,
-                Node {
-                    display: Display::None,
-                    position_type: PositionType::Absolute,
-                    top: px(1),
-                    right: px(1),
-                    width: px(DOT_SIZE),
-                    height: px(DOT_SIZE),
-                    border: UiRect::all(px(1)),
-                    ..default()
-                },
-                BackgroundColor(OK),
-                BorderColor::all(BEVEL_LO),
-                Pickable::IGNORE,
-            ));
+        spawn_catalog_slot(commands, grid, item, atlas, font);
     }
     commands.spawn((
         NoMatch,

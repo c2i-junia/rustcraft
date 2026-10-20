@@ -23,7 +23,7 @@ use super::creative::{creative_action, creative_hint, destroyed_message, Gesture
 use super::layout::{browser_layout, BrowserLayout};
 use super::recipes::{craftable_now, item_keys_hint, CRAFTABLE_NOTE};
 use super::{
-    BackButton, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
+    BackButton, BookmarkSlot, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
     CraftableChip, CraftableDot, CraftableNow, DrawerHandle, ItemBrowser, ItemBrowserState,
     ItemCount, ItemSearchField, ItemView, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
     RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TrashSlot,
@@ -133,12 +133,13 @@ pub fn show_item_icons(
 }
 
 /// Shows the slots of the items the search and the category keep, and in Survival the Craftable
-/// chip, how many they are, and what the catalog says when there is none.
+/// chip, how many they are, and what the catalog says when there is none. The bookmarks are
+/// neither searched nor counted.
 #[allow(clippy::type_complexity)]
 pub fn filter_catalog(
     state: Res<ItemBrowserState>,
     craftable: Res<CraftableNow>,
-    mut slots: Query<(&CatalogSlot, &mut Node)>,
+    mut slots: Query<(&CatalogSlot, &mut Node), Without<BookmarkSlot>>,
     mut no_match: Query<&mut Node, (With<NoMatch>, Without<CatalogSlot>)>,
     mut count: Query<&mut Text, With<ItemCount>>,
     mut message: Query<&mut Text, (With<NoMatchMessage>, Without<ItemCount>)>,
@@ -868,6 +869,17 @@ mod tests {
             single::<Text, NoMatchMessage>(&mut world).0,
             "No item matches \"zzz\" in Wood."
         );
+    }
+
+    #[test]
+    fn bookmark_slots_are_neither_searched_nor_counted() {
+        let mut world = browser(Visibility::Visible);
+        let bookmark = world
+            .spawn((CatalogSlot(ItemId::Chest), BookmarkSlot, Node::default()))
+            .id();
+        set_search(&mut world, "oak", None);
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 33");
+        assert_eq!(world.get::<Node>(bookmark).unwrap().display, Display::Flex);
     }
 
     /// The tab indices of the field, the chip and the slots, in that order.

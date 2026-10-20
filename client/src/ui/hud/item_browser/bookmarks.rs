@@ -11,9 +11,14 @@ use serde::{Deserialize, Serialize};
 use shared::world::ItemId;
 use shared::GameFolderPaths;
 
+use super::setup::spawn_catalog_slot;
+use super::{BookmarkBar, BookmarkRow, BookmarkSlot, CatalogSlot, ItemBrowserState};
 use crate::constants::ITEM_BROWSER_PATH;
 use crate::network::session::SessionOrigin;
+use crate::ui::assets::load_font;
 use crate::ui::hud::item_name;
+use crate::world::MaterialResource;
+use bevy::input_focus::{FocusCause, InputFocus};
 
 /// Which list of `item_browser.ron` belongs to the world being played.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -134,6 +139,75 @@ pub fn load_bookmarks(
         .as_ref()
         .map_or_else(Vec::new, |key| read_bookmarks(&paths, key));
     *bookmarks = Bookmarks { key, items };
+}
+
+/// Shows the bookmarks above the catalog while there is one and no view shows, and rebuilds their
+/// slots when the list changes. A focus on a slot that goes moves to the new slot of its item,
+/// else to its slot in the grid.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn show_bookmarks(
+    bookmarks: Res<Bookmarks>,
+    state: Res<ItemBrowserState>,
+    materials: Res<MaterialResource>,
+    asset_server: Res<AssetServer>,
+    mut bar: Single<&mut Node, With<BookmarkBar>>,
+    row: Single<(Entity, Option<&Children>), With<BookmarkRow>>,
+    shown: Query<&CatalogSlot, With<BookmarkSlot>>,
+    grid: Query<(Entity, &CatalogSlot, &Node), (Without<BookmarkSlot>, Without<BookmarkBar>)>,
+    mut focus: ResMut<InputFocus>,
+    mut commands: Commands,
+) {
+    let display = if bookmarks.items.is_empty() || state.view.is_some() {
+        Display::None
+    } else {
+        Display::Flex
+    };
+    if bar.display != display {
+        bar.display = display;
+    }
+
+    let (row, children) = *row;
+    let slots: Vec<(Entity, ItemId)> = children
+        .into_iter()
+        .flat_map(|children| children.iter())
+        .filter_map(|slot| Some((slot, shown.get(slot).ok()?.0)))
+        .collect();
+    if slots
+        .iter()
+        .map(|&(_, item)| item)
+        .eq(bookmarks.items.iter().copied())
+    {
+        return;
+    }
+    let Some(atlas) = materials.items.as_ref() else {
+        return;
+    };
+    let font = load_font(&asset_server);
+    let focused = focus
+        .get()
+        .and_then(|focused| slots.iter().find(|&&(slot, _)| slot == focused))
+        .map(|&(_, item)| item);
+    commands.entity(row).despawn_related::<Children>();
+    let mut refocus = None;
+    for &item in &bookmarks.items {
+        let slot = spawn_catalog_slot(&mut commands, row, item, atlas, &font);
+        commands.entity(slot).insert(BookmarkSlot);
+        if focused == Some(item) {
+            refocus = Some(slot);
+        }
+    }
+    let Some(item) = focused else {
+        return;
+    };
+    let in_grid = || {
+        grid.iter().find_map(|(slot, shown, node)| {
+            (shown.0 == item && node.display != Display::None).then_some(slot)
+        })
+    };
+    match refocus.or_else(in_grid) {
+        Some(slot) => focus.set(slot, FocusCause::Navigated),
+        None => focus.clear(),
+    }
 }
 
 /// The toast saying that `item` was bookmarked, or removed from the bookmarks.

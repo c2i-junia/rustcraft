@@ -115,6 +115,19 @@ pub struct CatalogGrid;
 #[derive(Component)]
 pub struct CatalogSlot(pub ItemId);
 
+/// The bookmarks above the catalog, between the chips and the grid: their label and their row,
+/// shown while there is one and the catalog shows.
+#[derive(Component)]
+pub struct BookmarkBar;
+
+/// The row of the bookmark slots, which wraps.
+#[derive(Component)]
+pub struct BookmarkRow;
+
+/// A slot of the row of bookmarks. It is also the `CatalogSlot` of its item, and acts as one.
+#[derive(Component)]
+pub struct BookmarkSlot;
+
 /// What the catalog says when nothing matches the search.
 #[derive(Component)]
 pub struct NoMatch;
@@ -272,6 +285,11 @@ pub fn item_browser_plugin(app: &mut App) {
                     resource_changed::<ItemBrowserState>
                         .or_else(resource_changed::<bookmarks::Bookmarks>)
                         .or_else(any_match_filter::<Added<RecipePanel>>),
+                ),
+                bookmarks::show_bookmarks.run_if(
+                    resource_changed::<ItemBrowserState>
+                        .or_else(resource_changed::<bookmarks::Bookmarks>)
+                        .or_else(any_match_filter::<Added<BookmarkRow>>),
                 ),
                 style_recipe_cards.run_if(
                     resource_changed::<shared::players::Inventory>

@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use shared::players::{game_mode::GameMode, Inventory, Player};
 use shared::world::{ItemId, ItemStack};
 
-use super::bookmarks::Bookmarks;
+use super::bookmarks::{show_bookmarks, Bookmarks};
 use super::layout::BrowserLayout;
 use super::{
     filter_catalog, layout_item_browser, mark_craftable_items, setup_item_browser,
@@ -57,6 +57,7 @@ fn show_frames(golden: &mut UiGolden) {
         golden.run_system(mark_craftable_items);
         golden.run_system(show_mode_footer);
         golden.run_system(show_view);
+        golden.run_system(show_bookmarks);
         golden.run_system(show_item_icons);
         golden.run_system(mark_craftable_items);
         golden.run_system(style_recipe_cards);
@@ -213,6 +214,25 @@ fn the_item_browser_docks_eight_columns_at_1280x720() {
         (1280, 720),
         ItemBrowserState::default(),
     );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_bookmark_row_at_1280x720() {
+    let mut golden = UiGolden::with_size(1280, 720);
+    golden.world_mut().insert_resource(Bookmarks {
+        key: None,
+        items: vec![ItemId::WoodenPickaxe, ItemId::Chest],
+    });
+    golden.world_mut().insert_resource(inventory_of(&[
+        (0, ItemId::WoodenPickaxe, 1),
+        (1, ItemId::Cobblestone, 40),
+        (12, ItemId::OakLog, 12),
+    ]));
+    golden.world_mut().init_resource::<ClientWorldMap>();
+    golden.world_mut().init_resource::<ItemBrowserState>();
+    show_open_inventory(&mut golden, true);
+    golden.assert_matches("item_browser_bookmarks_1280x720");
 }
 
 #[test]
