@@ -36,6 +36,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Day/night cycle
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
+- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window.
 - World saving and loading.
 - Survival and creative game modes: in survival, players have 10 hearts, cannot fly and get hurt by falls of more than 3 blocks; a dead player respawns at the spawn of the world. New players start in survival.
 - Sprinting, sneaking and swimming.
@@ -104,6 +105,11 @@ paru -S rustcraft
 |                   | Take / place           | Enter                       |
 |                   | Take half / place one  | Space                       |
 |                   | Move to the backpack / hotbar | Shift+Enter          |
+|                   |                        |                             |
+| **Item browser**  | Search the items       | / or Ctrl+F, inventory open |
+|                   | Go to the first result | Enter or ↓ in the search    |
+|                   | Clear / leave the search | Escape                    |
+|                   | Open / close the drawer (small window) | B          |
 |                   |                        |                             |
 | **Chat**          | Open the chat         | T                           |
 |                   | Open the chat with a slash | /                      |

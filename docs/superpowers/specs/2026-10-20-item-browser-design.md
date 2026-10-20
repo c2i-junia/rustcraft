@@ -140,6 +140,21 @@ keyed by the world's name in solo and by the server address in multiplayer.
 4. Fill grid is server-side: the server moves the ingredients itself.
 5. Displayed name `Items`; `Item Browser` in code and docs. English only, like the rest of the UI.
 6. Lots 3 and 4 of the proposal (Creative, Fill grid) share one protocol bump.
+7. (Lot 1) The whole open inventory panel, hotbar row included, slides left when the docked
+   browser needs room: "opening never moves the hotbar" now holds only where the panel stays
+   centred, as in a drawer; the closed hotbar stays centred. The hotbar keeps its size, height
+   and pixels.
+8. (Lot 1) At 854×480 the formula gives 4 columns, not the 5 the mockup's prose says.
+9. (Lot 1) Escape outside the search field does not clear the query, as the mockup did: it
+   closes the drawer, then the inventory. In the field, it clears the query, then leaves the
+   field. The query is kept for the session.
+10. (Lot 1) The footer is `/ search  ↑↓ ←→ browse` in both modes, and the tooltip has no hint
+    line, until the actions of the later lots exist.
+11. (Lot 1) The `/` key cap sits at the right end of the search field: the placeholder of
+    `widgets::text_field` sits at its left.
+12. (Lot 1) 800×600 is a drawer: fewer than 4 columns fit beside the panel there.
+13. (Lot 1) Over the open inventory, `/` focuses the search instead of doing nothing; the chat
+    still opens on `/` only in the game.
 
 ## Testing
 

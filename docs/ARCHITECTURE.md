@@ -321,7 +321,11 @@ is on an `EditableText`. `slot.rs` is an item slot: its icon at twice the size o
 its count, its number in the hotbar, the durability bar of a worn tool and its selection. `tooltip.rs` is the one tooltip by the
 cursor, for any hovered entity with a `Tooltip`. The inventory is one panel whose bottom row is
 the hotbar, and every change to it is an `InventoryAction` predicted by the client and applied
-by the server. While a chest is open, its slots take the place of the crafting row. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
+by the server. While a chest is open, its slots take the place of the crafting row. The item
+browser (`ui/hud/item_browser/`) shows beside the open inventory, in `HudBottom` with it, every
+item of the game: `catalog.rs` orders and searches them, `layout.rs` gives the columns that fit
+the window (8 to 4, the panel sliding left to leave them room, else a drawer of up to 6 over the
+right edge), and nothing comes out of it yet. Tab walks the panel and the browser together. `dialog.rs` is a modal over the screen: its focused action (Cancel, in a
 confirmation) takes the focus, Escape closes it, the focus comes back where it was, and it
 closes in `PostUpdate`. `hints.rs` is the key-hint bar at the bottom of a menu and its key caps,
 whose arrows are drawn in Fira Mono. `tabs.rs` and `segmented.rs` are rows of options on a
