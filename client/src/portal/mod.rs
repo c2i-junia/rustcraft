@@ -567,6 +567,47 @@ mod tests {
     }
 
     #[test]
+    fn a_portal_cameras_fog_follows_the_distance_to_the_portal() {
+        let mut app = app();
+        let world = app.world_mut();
+        let camera = world
+            .query_filtered::<Entity, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(camera).insert(DistanceFog {
+            falloff: FogFalloff::Linear {
+                start: 200.0,
+                end: 384.0,
+            },
+            ..default()
+        });
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        let end_of_blue_fog = |app: &mut App| {
+            let world = app.world_mut();
+            let fog = world
+                .query::<(&PortalCamera, &DistanceFog)>()
+                .iter(world)
+                .find(|(camera, _)| camera.color == PortalColor::Blue)
+                .map(|(_, fog)| fog.falloff.clone());
+            match fog {
+                Some(FogFalloff::Linear { end, .. }) => end,
+                other => panic!("{other:?}"),
+            }
+        };
+        let view = (shared::world::PORTAL_VIEW_RADIUS * shared::CHUNK_SIZE) as f32;
+        app.update();
+        app.update();
+        // Five blocks from the middle of the blue portal
+        assert!((end_of_blue_fog(&mut app) - (5.0 + view)).abs() < 1e-3);
+
+        // Three blocks farther
+        place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 9.0));
+        app.update();
+        assert!((end_of_blue_fog(&mut app) - (8.0 + view)).abs() < 1e-3);
+    }
+
+    #[test]
     fn the_image_of_a_portal_camera_follows_the_size_of_the_window() {
         let mut app = app();
         let window = app

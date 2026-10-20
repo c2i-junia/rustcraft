@@ -122,6 +122,9 @@ pub fn underwater_fog_system(
     }
 }
 
+/// Where the fog of the sky starts, as a part of the render distance.
+pub const FOG_START: f32 = 0.6;
+
 #[cfg(test)]
 mod tests {
     use super::*;

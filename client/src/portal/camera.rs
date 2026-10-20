@@ -9,17 +9,17 @@ use bevy::{
         RenderTarget,
     },
     core_pipeline::tonemapping::Tonemapping,
-    ecs::system::SystemChangeTick,
     prelude::*,
     render::render_resource::TextureFormat,
     window::PrimaryWindow,
 };
-use shared::world::{Portal, PORTAL_HEIGHT, PORTAL_WIDTH};
+use shared::world::{Portal, PORTAL_HEIGHT, PORTAL_VIEW_RADIUS, PORTAL_WIDTH};
+use shared::CHUNK_SIZE;
 
 use super::material::PortalMaterial;
 use super::projection::portal_projection;
 use super::{PortalCamera, PortalSurface, STAND_IN_LAYER};
-use crate::camera::{CameraController, SKY_COLOR};
+use crate::camera::{CameraController, FOG_START, SKY_COLOR};
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
 
@@ -74,8 +74,8 @@ pub(super) fn sees(transform: &Transform, projection: &Projection, portal: &Port
 }
 
 /// Places each portal camera behind the twin of its portal, after the player's camera, with
-/// the twin's plane as its near plane, and the fog, the sky and the tonemapping of the player's
-/// camera. A camera whose portal is out of view, or seen from behind, does not draw.
+/// the twin's plane as its near plane, the sky and the tonemapping of the player's camera, and
+/// its fog (`portal_fog`). A camera whose portal is out of view, or seen from behind, does not draw.
 pub(super) fn place_portal_cameras(
     world_map: Res<ClientWorldMap>,
     main: Query<
@@ -84,7 +84,7 @@ pub(super) fn place_portal_cameras(
             &Projection,
             &Camera,
             &Tonemapping,
-            Option<Ref<DistanceFog>>,
+            Option<&DistanceFog>,
         ),
         (With<CameraController>, Without<PortalCamera>),
     >,
@@ -96,12 +96,11 @@ pub(super) fn place_portal_cameras(
             &mut Projection,
             &mut Camera,
             &mut Tonemapping,
-            Option<Ref<DistanceFog>>,
+            Option<&mut DistanceFog>,
         ),
         Without<CameraController>,
     >,
     mut started: ResMut<PortalViewsStarted>,
-    ticks: SystemChangeTick,
     mut commands: Commands,
 ) {
     let Ok((main_transform, main_projection, main_camera, main_tonemapping, main_fog)) =
@@ -137,15 +136,15 @@ pub(super) fn place_portal_cameras(
         // portal's only copies its image: the image must be tonemapped already, as the rest of
         // the screen is
         tonemapping.set_if_neq(*main_tonemapping);
-        // The fog may have changed while this camera was off: it is copied when the player's
-        // changed since this camera's was
-        match (&main_fog, fog) {
-            (Some(main_fog), Some(fog))
-                if !main_fog
-                    .last_changed()
-                    .is_newer_than(fog.last_changed(), ticks.this_run()) => {}
-            (Some(main_fog), _) => {
-                commands.entity(entity).insert(DistanceFog::clone(main_fog));
+        // The fog depends on how far the camera is from the twin, which changes as the player
+        // moves: it is set on every frame the camera draws
+        let behind = main_transform
+            .translation
+            .distance(portal.frame().translation.into());
+        match (main_fog, fog) {
+            (Some(main_fog), Some(mut fog)) => *fog = portal_fog(main_fog, behind),
+            (Some(main_fog), None) => {
+                commands.entity(entity).insert(portal_fog(main_fog, behind));
             }
             (None, Some(_)) => {
                 commands.entity(entity).remove::<DistanceFog>();
@@ -220,5 +219,64 @@ pub(super) fn resize_portal_images(
         {
             material.image = Some(image);
         }
+    }
+}
+
+/// The fog of the camera of a portal whose player's camera, of fog `main`, stands `behind` blocks
+/// from the portal, which puts the portal camera as far from the twin: it ends
+/// `PORTAL_VIEW_RADIUS` chunks behind the twin, where the chunks sent around it end, and starts
+/// as the player's does over its render distance. Never farther than the player's: a player
+/// sees no farther through a portal than around itself, and under water the fog of the water,
+/// between the eye and the portal, stays as near.
+pub(super) fn portal_fog(main: &DistanceFog, behind: f32) -> DistanceFog {
+    let view = (PORTAL_VIEW_RADIUS * CHUNK_SIZE) as f32;
+    let falloff = match main.falloff {
+        FogFalloff::Linear { start, end } => FogFalloff::Linear {
+            start: start.min(behind + FOG_START * view),
+            end: end.min(behind + view),
+        },
+        ref other => other.clone(),
+    };
+    DistanceFog {
+        falloff,
+        ..main.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linear(color: Color, start: f32, end: f32) -> DistanceFog {
+        DistanceFog {
+            color,
+            falloff: FogFalloff::Linear { start, end },
+            ..default()
+        }
+    }
+
+    fn falloff(fog: &DistanceFog) -> (f32, f32) {
+        let FogFalloff::Linear { start, end } = fog.falloff else {
+            panic!("a linear fog");
+        };
+        (start, end)
+    }
+
+    const VIEW: f32 = (PORTAL_VIEW_RADIUS * CHUNK_SIZE) as f32;
+
+    #[test]
+    fn a_portal_cameras_fog_ends_the_view_radius_behind_the_twin() {
+        let main = linear(SKY_COLOR, 0.6 * 384.0, 384.0);
+        let fog = portal_fog(&main, 5.0);
+        assert_eq!(fog.color, SKY_COLOR);
+        assert_eq!(falloff(&fog), (5.0 + FOG_START * VIEW, 5.0 + VIEW));
+    }
+
+    #[test]
+    fn under_water_or_with_a_short_render_distance_a_portal_cameras_fog_is_the_players() {
+        let water = linear(Color::srgb_u8(30, 62, 130), 2.0, 16.0);
+        assert_eq!(falloff(&portal_fog(&water, 5.0)), (2.0, 16.0));
+        let short = linear(SKY_COLOR, 0.6 * 32.0, 32.0);
+        assert_eq!(falloff(&portal_fog(&short, 5.0)), (0.6 * 32.0, 32.0));
     }
 }
