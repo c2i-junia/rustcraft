@@ -37,6 +37,7 @@ impl SoundMaterial {
         Some(match block {
             BlockId::Grass
             | BlockId::TallGrass
+            | BlockId::Fern
             | BlockId::Dandelion
             | BlockId::Poppy
             | BlockId::Cactus => Self::Grass,
@@ -179,6 +180,11 @@ mod tests {
                 assert!(data.join(&file).is_file(), "{sound:?}: missing {file}");
             }
         }
+    }
+
+    #[test]
+    fn the_fern_sounds_like_grass() {
+        assert_eq!(SoundMaterial::of(BlockId::Fern), Some(SoundMaterial::Grass));
     }
 
     #[test]

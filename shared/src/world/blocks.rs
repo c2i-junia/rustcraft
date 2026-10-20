@@ -56,6 +56,7 @@ pub enum BlockId {
     JungleLog,
     JunglePlanks,
     JungleLeaves,
+    Fern,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -121,7 +122,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 32] = [
+    pub const ALL: [BlockId; 33] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -154,13 +155,17 @@ impl BlockId {
         BlockId::JungleLog,
         BlockId::JunglePlanks,
         BlockId::JungleLeaves,
+        BlockId::Fern,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
         match *self {
-            Self::Water | Self::TallGrass | Self::Poppy | Self::Dandelion | Self::Torch => {
-                BlockHitbox::None
-            }
+            Self::Water
+            | Self::TallGrass
+            | Self::Fern
+            | Self::Poppy
+            | Self::Dandelion
+            | Self::Torch => BlockHitbox::None,
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -168,10 +173,9 @@ impl BlockId {
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
         match *self {
             Self::Water => BlockHitbox::None,
-            Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::splat(0.5).with_y(0.3),
-                Vec3A::splat(0.3),
-            )),
+            Self::TallGrass | Self::Fern | Self::Poppy | Self::Dandelion => BlockHitbox::Aabb(
+                Aabb3d::new(Vec3A::splat(0.5).with_y(0.3), Vec3A::splat(0.3)),
+            ),
             // The stick, a little wider to be easier to aim at
             Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::new(0.5, 0.3, 0.5),
@@ -215,6 +219,7 @@ impl BlockId {
             Self::JungleLog => 10,
             Self::JunglePlanks => 10,
             Self::JungleLeaves => 2,
+            Self::Fern => 1,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -305,6 +310,7 @@ impl BlockId {
             BlockId::Dandelion => vec![(1, ItemId::Dandelion, 1)],
             BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
             BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
+            BlockId::Fern => vec![(1, ItemId::Fern, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
             BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
@@ -336,7 +342,7 @@ impl BlockId {
 
     pub fn get_visibility(&self) -> BlockTransparency {
         match *self {
-            Self::Dandelion | Self::Poppy | Self::TallGrass | Self::Torch => {
+            Self::Dandelion | Self::Poppy | Self::TallGrass | Self::Fern | Self::Torch => {
                 BlockTransparency::Decoration
             }
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves => {
@@ -387,7 +393,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 32] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 33] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -426,7 +432,8 @@ mod tests {
             | BlockId::Torch
             | BlockId::JungleLog
             | BlockId::JunglePlanks
-            | BlockId::JungleLeaves => {}
+            | BlockId::JungleLeaves
+            | BlockId::Fern => {}
         }
     }
 
@@ -506,6 +513,7 @@ mod tests {
                 BlockId::JungleLog => 29,
                 BlockId::JunglePlanks => 30,
                 BlockId::JungleLeaves => 31,
+                BlockId::Fern => 32,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -582,6 +590,20 @@ mod tests {
             BlockId::JunglePlanks.get_visibility(),
             BlockTransparency::Solid
         );
+    }
+
+    #[test]
+    fn the_fern_behaves_like_tall_grass() {
+        let (fern, grass) = (BlockId::Fern, BlockId::TallGrass);
+        assert!(matches!(fern.get_hitbox(), BlockHitbox::None));
+        assert!(matches!(fern.get_ray_hitbox(), BlockHitbox::Aabb(_)));
+        assert_eq!(fern.get_break_time(), grass.get_break_time());
+        assert_eq!(fern.get_required_tool(), None);
+        assert_eq!(fern.get_visibility(), BlockTransparency::Decoration);
+        assert_eq!(fern.light_opacity(), grass.light_opacity());
+        assert_eq!(fern.get_drops(1), HashMap::from([(ItemId::Fern, 1)]));
+        assert_eq!(ItemId::Fern.get_default_type(), ItemType::Block(fern));
+        assert_eq!(ItemId::Fern.category(), ItemId::TallGrass.category());
     }
 
     #[test]

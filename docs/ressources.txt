@@ -44,6 +44,7 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The textures of the gravel (blocks/Gravel.png).
 -> The textures of the jungle wood (blocks/JungleLog.png, blocks/JungleLogTop.png,
    blocks/JunglePlanks.png, blocks/JungleLeaves.png).
+-> The texture of the fern (blocks/Fern.png).
 -> The textures of the spawn eggs (items/FoxSpawnEgg.png, items/SheepSpawnEgg.png).
 -> The animated texture of the water (blocks/Water.png, 16 frames), the pack's
    block/water_still.png, and its animation (blocks/Water.anim.ron) from its .mcmeta.

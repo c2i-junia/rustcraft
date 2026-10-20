@@ -215,7 +215,7 @@ impl VoxelShape {
             }
             BlockId::Poppy | BlockId::Dandelion => Self::flora(block).swaying(Sway::Top),
             BlockId::Torch => Self::torch(block),
-            BlockId::TallGrass => Self::flora(block)
+            BlockId::TallGrass | BlockId::Fern => Self::flora(block)
                 .biome_tinted(BiomeTint::Grass)
                 .swaying(Sway::Top),
             // Its texture is grey too
@@ -612,6 +612,25 @@ mod tests {
     #[test]
     fn the_jungle_leaves_icon_is_its_block_texture_as_for_the_oak_leaves() {
         assert_the_icon_is_the_block_texture_as_for(BlockId::JungleLeaves, BlockId::OakLeaves);
+    }
+
+    #[test]
+    fn the_fern_is_flora_tinted_like_the_grass() {
+        let fern = shape_of(BlockId::Fern);
+        let tall_grass = shape_of(BlockId::TallGrass);
+        assert_eq!(fern.faces.len(), tall_grass.faces.len());
+        for (face, grass_face) in fern.faces.iter().zip(&tall_grass.faces) {
+            assert_eq!(face.texture, "Fern");
+            assert_eq!(face.vertices, grass_face.vertices);
+            assert_eq!(face.biome_tint, BiomeTint::Grass);
+            assert_eq!(face.color, grass_face.color);
+            assert_eq!(face.sway, grass_face.sway);
+        }
+    }
+
+    #[test]
+    fn the_fern_icon_is_its_block_texture_as_for_the_tall_grass() {
+        assert_the_icon_is_the_block_texture_as_for(BlockId::Fern, BlockId::TallGrass);
     }
 
     #[test]

@@ -89,16 +89,16 @@ cocoa), "Bush", "New blocks" and "New items" (`Fern`), "Block behaviour" (fern),
   field of `ColumnShape`. See them pass, and the biome width, border and mountain tests too.
 
 ### Task 2: The fern (`shared`, `client`)
-- [ ] Tests: `Fern` in `block_encoding_is_pinned` (31), `ALL_BLOCKS`, `item_encoding_is_pinned`
+- [x] Tests: `Fern` in `block_encoding_is_pinned` (31), `ALL_BLOCKS`, `item_encoding_is_pinned`
   (38); `the_fern_behaves_like_tall_grass` (hitboxes, break time, drop, visibility, item type).
   See them fail.
-- [ ] The variants and their behaviour. See them pass.
-- [ ] Tests: `the_fern_sounds_like_grass` (sounds.rs), `the_fern_is_flora_tinted_like_the_grass`
+- [x] The variants and their behaviour. See them pass.
+- [x] Tests: `the_fern_sounds_like_grass` (sounds.rs), `the_fern_is_flora_tinted_like_the_grass`
   (voxel.rs). See them fail. The sound and shape cases. See them pass.
-- [ ] Texture `block/fern.png` → `blocks/Fern.png` (checked 16×16).
-- [ ] Test `the_fern_icon_is_its_block_texture_tinted_as_in_the_world`; see it fail; make
+- [x] Texture `block/fern.png` → `blocks/Fern.png` (checked 16×16).
+- [x] Test `the_fern_icon_is_its_block_texture_tinted_as_in_the_world`; see it fail; make
   `items/Fern.png` with a script kept outside the repository; see it pass.
-- [ ] Credit the texture in `docs/ressources.txt`; commit `feat: the fern`.
+- [x] Credit the texture in `docs/ressources.txt`; commit `feat: the fern`.
 
 ### Task 3: Structure height per column of chunks (`server`)
 - [ ] Benchmarks before.

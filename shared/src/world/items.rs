@@ -62,11 +62,12 @@ pub enum ItemId {
     JungleLog,
     JunglePlanks,
     JungleLeaves,
+    Fern,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 39] = [
+    pub const ALL: [ItemId; 40] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -106,6 +107,7 @@ impl ItemId {
         Self::JungleLog,
         Self::JunglePlanks,
         Self::JungleLeaves,
+        Self::Fern,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -198,7 +200,8 @@ impl ItemId {
             | Self::Cactus
             | Self::Dandelion
             | Self::Poppy
-            | Self::TallGrass => ItemCategory::Nature,
+            | Self::TallGrass
+            | Self::Fern => ItemCategory::Nature,
             Self::CoalOre | Self::IronOre | Self::GoldOre => ItemCategory::Ores,
             Self::Coal | Self::Stick | Self::Snowball => ItemCategory::Materials,
             Self::CraftingTable | Self::Furnace | Self::Chest => ItemCategory::Stations,
@@ -242,6 +245,7 @@ impl ItemId {
             Self::JungleLog => ItemType::Block(BlockId::JungleLog),
             Self::JunglePlanks => ItemType::Block(BlockId::JunglePlanks),
             Self::JungleLeaves => ItemType::Block(BlockId::JungleLeaves),
+            Self::Fern => ItemType::Block(BlockId::Fern),
 
             Self::Snowball | Self::Stick | Self::Coal | Self::FoxSpawnEgg | Self::SheepSpawnEgg => {
                 ItemType::Generic
@@ -392,6 +396,7 @@ mod tests {
             (ItemId::JungleLog, 36),
             (ItemId::JunglePlanks, 37),
             (ItemId::JungleLeaves, 38),
+            (ItemId::Fern, 39),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -434,7 +439,8 @@ mod tests {
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks
-                | ItemId::JungleLeaves => {}
+                | ItemId::JungleLeaves
+                | ItemId::Fern => {}
             }
         }
         for (id, expected) in table {
