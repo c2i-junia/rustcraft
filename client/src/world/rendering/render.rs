@@ -42,9 +42,52 @@ pub struct MeshingTask {
     pub thread: Task<ChunkMeshResponse>,
 }
 
+/// The most chunk meshes being made at once: enough to keep the threads of the task pool busy,
+/// few enough that looking at each of them in every frame costs nothing.
+const MESHES_IN_FLIGHT: usize = 256;
+
+/// The chunk meshes being made, and the chunks waiting to be meshed once one is done.
 #[derive(Debug, Default)]
 pub struct QueuedMeshes {
     pub meshes: Vec<MeshingTask>,
+    /// In no order, each once: the nearest to the player are taken first.
+    pending: Vec<IVec3>,
+    pending_set: HashSet<IVec3>,
+}
+
+impl QueuedMeshes {
+    /// Asks for a new mesh of each of `chunks`: a mesh of one of them still being made is
+    /// dropped, which cancels it, as it would be outdated.
+    fn request(&mut self, chunks: Vec<IVec3>) {
+        let remeshed: HashSet<IVec3> = chunks.iter().copied().collect();
+        self.meshes
+            .retain(|task| !remeshed.contains(&task.chunk_pos));
+        for chunk in chunks {
+            if self.pending_set.insert(chunk) {
+                self.pending.push(chunk);
+            }
+        }
+    }
+
+    /// Takes the waiting chunks nearest to `center` that the meshes being made leave room for,
+    /// nearest first.
+    fn take_nearest(&mut self, center: IVec3) -> Vec<IVec3> {
+        let room = MESHES_IN_FLIGHT.saturating_sub(self.meshes.len());
+        let count = room.min(self.pending.len());
+        if count == 0 {
+            return Vec::new();
+        }
+        if count < self.pending.len() {
+            self.pending
+                .select_nth_unstable_by_key(count - 1, |chunk| chunk.distance_squared(center));
+        }
+        let mut taken: Vec<IVec3> = self.pending.drain(..count).collect();
+        for chunk in &taken {
+            self.pending_set.remove(chunk);
+        }
+        sort_nearest_first(&mut taken, center);
+        taken
+    }
 }
 
 /// Shows `new_meshes` for the chunk: the chunk entities are kept and only their meshes
@@ -290,7 +333,7 @@ impl WaitingChunks {
 
 /// Meshes the chunks that were asked for, nearest to the player first, on the task pool, and
 /// shows each mesh once its task is done. While chunks arrive, a chunk waits for its neighbours
-/// (`WaitingChunks`).
+/// (`WaitingChunks`), and at most `MESHES_IN_FLIGHT` are meshed at once (`QueuedMeshes`).
 #[allow(clippy::too_many_arguments)]
 pub fn world_render_system(
     mut world_map: ResMut<ClientWorldMap>,
@@ -334,24 +377,19 @@ pub fn world_render_system(
         .drain()
         .filter(|chunk_pos| needs_mesh(&world_map, *chunk_pos))
         .collect::<Vec<_>>();
-    let mut chunks: Vec<IVec3> = waiting
-        .ready(
-            &world_map.blocks,
-            (player_chunk, distance),
-            requested.into_iter(),
-            now,
-        )
+    let ready = waiting.ready(
+        &world_map.blocks,
+        (player_chunk, distance),
+        requested.into_iter(),
+        now,
+    );
+    queued_meshes.request(ready);
+    let chunks: Vec<IVec3> = queued_meshes
+        .take_nearest(player_chunk)
         .into_iter()
         .filter(|chunk_pos| needs_mesh(&world_map, *chunk_pos))
         .collect();
     if !chunks.is_empty() {
-        sort_nearest_first(&mut chunks, player_chunk);
-        // A newer mesh of a chunk makes the one still being made useless: dropping its task
-        // cancels it
-        let remeshed: HashSet<IVec3> = chunks.iter().copied().collect();
-        queued_meshes
-            .meshes
-            .retain(|task| !remeshed.contains(&task.chunk_pos));
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
             &block_atlas.tiles,
@@ -731,6 +769,30 @@ mod tests {
             response,
         );
         queue.apply(world);
+    }
+
+    #[test]
+    fn the_waiting_chunks_nearest_to_the_player_are_meshed_first_as_many_as_there_is_room() {
+        let mut queued = QueuedMeshes::default();
+        let far: Vec<IVec3> = (0..MESHES_IN_FLIGHT as i32 * 2)
+            .map(|x| IVec3::new(x + 10, 0, 0))
+            .collect();
+        queued.request(far.clone());
+        // Asked for twice, waiting once
+        queued.request(vec![
+            IVec3::new(3, 0, 0),
+            IVec3::new(-2, 0, 0),
+            IVec3::new(3, 0, 0),
+        ]);
+
+        let taken = queued.take_nearest(IVec3::ZERO);
+        assert_eq!(taken.len(), MESHES_IN_FLIGHT);
+        assert_eq!(&taken[..2], &[IVec3::new(-2, 0, 0), IVec3::new(3, 0, 0)]);
+        assert_eq!(&taken[2..], &far[..MESHES_IN_FLIGHT - 2]);
+        // No mesh is being made in this test: there is room for as many again
+        assert_eq!(queued.take_nearest(IVec3::ZERO).len(), MESHES_IN_FLIGHT);
+        assert_eq!(queued.take_nearest(IVec3::ZERO).len(), 2);
+        assert!(queued.take_nearest(IVec3::ZERO).is_empty());
     }
 
     #[test]
