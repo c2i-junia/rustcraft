@@ -7,7 +7,7 @@ use bevy::math::{Affine3A, IVec3, Mat3, Vec3};
 use bevy_platform::collections::HashMap;
 
 use crate::messages::PlayerId;
-use crate::world::{FaceDirection, FaceDirectionExt};
+use crate::world::{BlockHitbox, BlockTransparency, ChunkMap, FaceDirection, FaceDirectionExt};
 
 /// How many wall cells wide a portal is.
 pub const PORTAL_WIDTH: i32 = 2;
@@ -57,6 +57,29 @@ impl Portal {
         let right = self.right().as_ivec3();
         (0..PORTAL_HEIGHT).flat_map(move |up| {
             (0..PORTAL_WIDTH).map(move |across| self.anchor + right * across + IVec3::Y * up)
+        })
+    }
+
+    /// The six cells in front of the wall cells, which the portal opens onto.
+    pub fn front_cells(&self) -> impl Iterator<Item = IVec3> + '_ {
+        let normal = self.face.to_ivec3();
+        self.cells().map(move |cell| cell + normal)
+    }
+
+    /// Whether the portal may stand where it is in `world`: its wall cells hold solid blocks
+    /// with a full hitbox (not glass or leaves, which the box of the portal, inside the wall,
+    /// would show through), and nothing collides in front of them (plants and liquids do not).
+    pub fn fits(&self, world: &ChunkMap) -> bool {
+        let wall = self.cells().all(|cell| {
+            world.get_block(cell).is_some_and(|block| {
+                matches!(block.id.get_hitbox(), BlockHitbox::FullBlock)
+                    && block.id.get_visibility() == BlockTransparency::Solid
+            })
+        });
+        wall && self.front_cells().all(|cell| {
+            world
+                .get_block(cell)
+                .is_none_or(|block| matches!(block.id.get_hitbox(), BlockHitbox::None))
         })
     }
 
@@ -129,6 +152,18 @@ impl Portals {
         )
     }
 
+    /// Whether `portal` shares a wall cell with a portal on the same face, but the one of its
+    /// owner and colour, which it would replace.
+    pub fn overlaps(&self, portal: &Portal) -> bool {
+        self.portals.values().any(|other| {
+            (other.owner, other.color) != (portal.owner, portal.color)
+                && other.face == portal.face
+                && other
+                    .cells()
+                    .any(|cell| portal.cells().any(|mine| mine == cell))
+        })
+    }
+
     /// Whether a portal lies on the face `face` of the block at `cell`: that face is not drawn,
     /// as the portal shows there.
     pub fn covers(&self, cell: IVec3, face: FaceDirection) -> bool {
@@ -138,9 +173,47 @@ impl Portals {
     }
 }
 
+/// The portal of `owner` and `color` that a shot hitting the face `face` of the cell `aimed`
+/// at the point `hit` places, if any. Of the six placements on that face that hold the aimed
+/// cell, it is the first that fits (`Portal::fits`) and overlaps no other portal, by the
+/// distance of the centre of its opening to `hit`. A horizontal face takes none.
+pub fn fit_portal(
+    world: &ChunkMap,
+    portals: &Portals,
+    owner: PlayerId,
+    color: PortalColor,
+    aimed: IVec3,
+    face: FaceDirection,
+    hit: Vec3,
+) -> Option<Portal> {
+    if matches!(face, FaceDirection::PlusY | FaceDirection::MinusY) {
+        return None;
+    }
+    let placement = |across: i32, up: i32| {
+        let mut portal = Portal {
+            owner,
+            color,
+            anchor: aimed,
+            face,
+        };
+        portal.anchor -= portal.right().as_ivec3() * across + IVec3::Y * up;
+        portal
+    };
+    let mut placements: Vec<Portal> = (0..PORTAL_WIDTH)
+        .flat_map(|across| (0..PORTAL_HEIGHT).map(move |up| placement(across, up)))
+        .collect();
+    let distance = |portal: &Portal| hit.distance_squared(portal.frame().translation.into());
+    // A stable sort: the order of the anchors breaks ties
+    placements.sort_by(|a, b| distance(a).total_cmp(&distance(b)));
+    placements
+        .into_iter()
+        .find(|portal| portal.fits(world) && !portals.overlaps(portal))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::BlockId;
 
     fn portal(color: PortalColor, anchor: IVec3, face: FaceDirection) -> Portal {
         Portal {
@@ -307,5 +380,194 @@ mod tests {
         );
         assert!((blue.signed_distance(Vec3::new(5.0, 0.0, 3.0)) - 2.0).abs() < 1e-5);
         assert!(blue.signed_distance(Vec3::new(1.0, 11.0, 0.5)) < 0.0);
+    }
+
+    /// A stone wall 4 wide and 4 high, facing +Z: x in 0..=3, y in 10..=13, z = 0.
+    fn wall() -> ChunkMap {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(-4, 0, -4), IVec3::new(8, 20, 8));
+        world.fill_box(IVec3::new(0, 10, 0), IVec3::new(3, 13, 0), BlockId::Stone);
+        world
+    }
+
+    /// The anchor of the blue portal of player 7 fitted on the wall at `aimed`, facing +Z, the
+    /// ray hitting the face at `(x, y)`.
+    fn fitted(world: &ChunkMap, portals: &Portals, aimed: IVec3, x: f32, y: f32) -> Option<IVec3> {
+        let hit = Vec3::new(x, y, 1.0);
+        fit_portal(
+            world,
+            portals,
+            7,
+            PortalColor::Blue,
+            aimed,
+            FaceDirection::PlusZ,
+            hit,
+        )
+        .map(|portal| portal.anchor)
+    }
+
+    #[test]
+    fn the_fit_is_the_placement_nearest_to_the_hit_point() {
+        let world = wall();
+        let none = Portals::default();
+        let aimed = IVec3::new(1, 11, 0);
+        assert_eq!(
+            fitted(&world, &none, aimed, 1.9, 11.9),
+            Some(IVec3::new(1, 10, 0))
+        );
+        assert_eq!(
+            fitted(&world, &none, aimed, 1.1, 11.1),
+            Some(IVec3::new(0, 10, 0))
+        );
+        assert_eq!(
+            fitted(&world, &none, aimed, 1.9, 11.95),
+            Some(IVec3::new(1, 10, 0))
+        );
+        // At the top of the wall, only the placements going down from the aimed cell fit
+        let top = IVec3::new(2, 13, 0);
+        assert_eq!(
+            fitted(&world, &none, top, 2.6, 13.9),
+            Some(IVec3::new(2, 11, 0))
+        );
+        let portal = fit_portal(
+            &world,
+            &none,
+            7,
+            PortalColor::Orange,
+            aimed,
+            FaceDirection::PlusZ,
+            Vec3::new(1.9, 11.9, 1.0),
+        )
+        .unwrap();
+        assert_eq!((portal.owner, portal.color), (7, PortalColor::Orange));
+        assert_eq!(portal.face, FaceDirection::PlusZ);
+    }
+
+    #[test]
+    fn a_placement_whose_wall_is_not_solid_full_blocks_gives_way_to_the_next() {
+        let none = Portals::default();
+        let aimed = IVec3::new(1, 11, 0);
+        for hole in [
+            None,
+            Some(BlockId::Glass),
+            Some(BlockId::OakLeaves),
+            Some(BlockId::Poppy),
+        ] {
+            let mut world = wall();
+            let cell = IVec3::new(2, 12, 0);
+            match hole {
+                Some(id) => world.fill_box(cell, cell, id),
+                None => {
+                    world.remove_block(cell);
+                }
+            }
+            // The two nearest placements hold (2, 12, 0), the third does not
+            assert_eq!(
+                fitted(&world, &none, aimed, 1.9, 11.9),
+                Some(IVec3::new(0, 10, 0)),
+                "{hole:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_placement_whose_front_collides_gives_way_to_the_next() {
+        let none = Portals::default();
+        let aimed = IVec3::new(1, 11, 0);
+        let front = IVec3::new(2, 12, 1);
+        let mut world = wall();
+        world.fill_box(front, front, BlockId::Dirt);
+        assert_eq!(
+            fitted(&world, &none, aimed, 1.9, 11.9),
+            Some(IVec3::new(0, 10, 0))
+        );
+        // Plants and water let the portal open onto them
+        for free in [BlockId::TallGrass, BlockId::Water] {
+            let mut world = wall();
+            world.fill_box(front, front, free);
+            assert_eq!(
+                fitted(&world, &none, aimed, 1.9, 11.9),
+                Some(IVec3::new(1, 10, 0)),
+                "{free:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_portal_of_another_colour_or_player_on_the_face_is_not_overlapped() {
+        let world = wall();
+        let aimed = IVec3::new(1, 11, 0);
+        let in_the_way = |owner, color| {
+            let mut portals = Portals::default();
+            portals.insert(Portal {
+                owner,
+                color,
+                anchor: IVec3::new(2, 10, 0),
+                face: FaceDirection::PlusZ,
+            });
+            portals
+        };
+        // Their own orange portal, the blue portal of another player: the nearest placement
+        // left of them is the only one
+        for portals in [
+            in_the_way(7, PortalColor::Orange),
+            in_the_way(8, PortalColor::Blue),
+        ] {
+            assert_eq!(
+                fitted(&world, &portals, aimed, 1.9, 11.9),
+                Some(IVec3::new(0, 10, 0))
+            );
+        }
+        // Their own blue portal is moved, wherever it was
+        let own = in_the_way(7, PortalColor::Blue);
+        assert_eq!(
+            fitted(&world, &own, aimed, 1.9, 11.9),
+            Some(IVec3::new(1, 10, 0))
+        );
+        // A portal on the other face of the same cells is no overlap
+        let mut behind = Portals::default();
+        behind.insert(Portal {
+            owner: 8,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(2, 10, 0),
+            face: FaceDirection::MinusZ,
+        });
+        assert_eq!(
+            fitted(&world, &behind, aimed, 1.9, 11.9),
+            Some(IVec3::new(1, 10, 0))
+        );
+    }
+
+    #[test]
+    fn nothing_fits_a_wall_too_narrow_or_a_horizontal_face() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(-4, 0, -4), IVec3::new(8, 20, 8));
+        world.fill_box(IVec3::new(0, 10, 0), IVec3::new(0, 13, 0), BlockId::Stone);
+        let none = Portals::default();
+        assert_eq!(fitted(&world, &none, IVec3::new(0, 11, 0), 0.5, 11.5), None);
+        let world = wall();
+        let floor = fit_portal(
+            &world,
+            &none,
+            7,
+            PortalColor::Blue,
+            IVec3::new(1, 13, 0),
+            FaceDirection::PlusY,
+            Vec3::new(1.5, 14.0, 0.5),
+        );
+        assert_eq!(floor, None);
+    }
+
+    #[test]
+    fn a_portal_fits_while_its_wall_stands_and_its_front_is_free() {
+        let mut world = wall();
+        let portal = portal(
+            PortalColor::Blue,
+            IVec3::new(1, 10, 0),
+            FaceDirection::PlusZ,
+        );
+        assert_eq!(portal.front_cells().count(), 6);
+        assert!(portal.front_cells().all(|cell| cell.z == 1));
+        assert!(portal.fits(&world));
+        world.fill_box(IVec3::new(1, 12, 1), IVec3::new(1, 12, 1), BlockId::Sand);
+        assert!(!portal.fits(&world));
     }
 }
