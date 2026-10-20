@@ -194,6 +194,18 @@ refused shot makes the server send them again, which corrects a wrong prediction
 portals go when it leaves, and a portal goes when, after the block changes of a tick, its wall
 or front no longer fits (`server/src/world/portals.rs`). Portals are not saved.
 
+Players go through the open portals in the movement simulation, which both sides run, so the
+server decides and the client predicts (`shared/src/players/movement.rs`). When the centre of a
+player goes, over one input, from in front of an open portal to behind it, through the opening
+(`Portals::crossed`), its position, velocity and camera go through `Portals::through`, and the
+simulation reports the yaw it turned by (`MovementOutcome::turned`). The client turns its
+camera by it when it predicts a frame, never when it replays inputs after a correction, and its
+next inputs carry the turned camera. While the centre of a player is in front of an open
+portal's opening, shrunk by half its width, that portal's wall cells do not collide with it
+(`Portals::letting_through`, `check_player_collision`), so that it walks into the wall up to the
+plane. In front means at most a millimetre behind the plane (`PORTAL_SLACK`), so that no
+rounding leaves a player that came out of a portal behind it, in its wall.
+
 The contents of a chest live in the `ChunkMap`, at its position (`shared/src/world/container.rs`):
 the server holds those of every chest, a client only those of the chest its player has open,
 which the server sends with each `PlayerUpdate`. While a chest is open, its 27 stacks are lent
@@ -382,7 +394,8 @@ never moves a player, so the prediction of the clients is left alone.
 
 1. **UiMode**: is a dialog open, or is the player typing?
 2. **Input**: the camera, the selected hotbar slot and the view mode of the frame.
-3. **Simulation**: block interactions, then movement, predicted on the local player.
+3. **Simulation**: block interactions, then movement, predicted on the local player; a
+   crossed portal turns the camera's yaw.
 4. **Reconciliation**: the states received from the server are applied.
 5. **Camera**: the camera is placed on the player.
 6. **Meshing** (in `PostUpdate`): the chunks are drawn by groups of 4 × 4 columns of chunks
@@ -409,7 +422,11 @@ before the main camera, into an image the size of the window, which the portal's
 where it is on the screen (`portal.wgsl`); it is on only while its portal is in view, from the
 front. The main camera sees layers 0 and 1, the portal cameras 0 and 2: a portal shows the live
 view on layer 1 and its colour on layer 2, so a portal seen through another shows its colour. A
-lone portal shows its colour. The chunks are culled on the GPU only, and Bevy 0.19 hands such a
+lone portal shows its colour. The colours and the rims are not drawn for a camera behind their
+portal's plane, from where the front of a portal cannot be seen: a portal camera always stands
+behind the twin, inside its box when it is within 0.12 block of its plane, where it keeps the
+plain projection. The aimed block is not outlined on the face of an open portal. The chunks are
+culled on the GPU only, and Bevy 0.19 hands such a
 mesh only to the views there are when it becomes visible: when a portal camera is turned on,
 the chunks are culled on the CPU for a frame (`show_chunks_to_new_views`).
 

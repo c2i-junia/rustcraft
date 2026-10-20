@@ -70,39 +70,39 @@ recursion, sounds and the body (lot 5).
 ## Tasks
 
 ### Task 1: The geometry of passing (`shared/src/world/portal.rs`)
-- [ ] Tests: `a_point_in_front_of_the_frame_is_let_through_only_within_it_shrunk`,
+- [x] Tests: `a_point_in_front_of_the_frame_is_let_through_only_within_it_shrunk`,
   `a_closed_portal_lets_nothing_through`, `a_segment_into_the_frame_crosses_the_portal`,
   `a_segment_outside_the_frame_from_behind_or_into_a_closed_portal_crosses_nothing`,
   `an_open_portal_opens_its_face_only`. See them fail.
-- [ ] `PORTAL_SLACK`, `Portal::local`, `Portals::{letting_through, crossed, opens}`.
+- [x] `PORTAL_SLACK`, `Portal::local`, `Portals::{letting_through, crossed, opens}`.
 
 ### Task 2: Collision and crossing in the simulation
-- [ ] `ChunkMap::check_collision_box_except`.
-- [ ] Tests (movement): `walking_into_an_open_portal_takes_the_player_out_of_its_twin`
+- [x] `ChunkMap::check_collision_box_except`.
+- [x] Tests (movement): `walking_into_an_open_portal_takes_the_player_out_of_its_twin`
   (position, camera turned, `turned` once), `the_wall_beside_the_opening_still_stops_the_player`,
   `a_flyer_crossing_the_plane_outside_the_frame_stays_on_its_side`,
   `a_portal_seen_from_behind_is_a_wall`, `a_closed_portal_is_a_wall`,
   `the_speed_goes_through_the_portal_turned_with_it`,
   `a_jump_through_a_portal_keeps_its_height`. See them fail.
-- [ ] `MovementOutcome`, the crossing at the end of `simulate_player_movement`, the exemption in
+- [x] `MovementOutcome`, the crossing at the end of `simulate_player_movement`, the exemption in
   `check_player_collision`. Callers updated (`simulation.rs`, footsteps test, client).
 
 ### Task 3: The client's camera
-- [ ] Tests (`client/src/player/update.rs`): `a_predicted_crossing_turns_the_camera`,
+- [x] Tests (`client/src/player/update.rs`): `a_predicted_crossing_turns_the_camera`,
   `a_replay_crossing_a_portal_does_not_turn_the_camera`,
   `a_walk_through_a_portal_is_predicted_without_a_single_correction` (the `Session`, with a
   stand-in for the input set that copies the camera's yaw into the frame). See them fail.
-- [ ] `player_movement_system` turns `CameraController::angle_x`.
+- [x] `player_movement_system` turns `CameraController::angle_x`.
 
 ### Task 4: Rendering
-- [ ] Tests: `the_colours_and_the_rims_know_the_plane_of_their_portal` (portal/mod.rs),
+- [x] Tests: `the_colours_and_the_rims_know_the_plane_of_their_portal` (portal/mod.rs),
   `the_face_of_an_open_portal_is_not_outlined` (interactions). See them fail.
-- [ ] `PortalParams::plane`, the discard in `portal.wgsl`; the outline condition.
+- [x] `PortalParams::plane`, the discard in `portal.wgsl`; the outline condition.
 
 ### Task 5: Passing in solo (e2e)
-- [ ] `GameFolder::with_player`; `e2e::portals::walking_through_a_portal_is_seamless`, with the
+- [x] `GameFolder::with_player`; `e2e::portals::walking_through_a_portal_is_seamless`, with the
   screenshot sequence. Look at the images.
 
 ### Task 6: Checks, docs, report
-- [ ] `cargo test`, clippy, fmt; `docs/ARCHITECTURE.md` (passing, in Network and in the client
+- [x] `cargo test`, clippy, fmt; `docs/ARCHITECTURE.md` (passing, in Network and in the client
   frame); report in `.superpowers/sdd/portals/lot-3-report.md`, screens in `lot-3-screens/`.
