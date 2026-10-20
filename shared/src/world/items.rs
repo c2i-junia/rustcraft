@@ -51,11 +51,15 @@ pub enum ItemId {
     WoodenShovel,
     WoodenHoe,
     WoodenSword,
+    Coal,
+    CoalOre,
+    IronOre,
+    GoldOre,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 28] = [
+    pub const ALL: [ItemId; 32] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -84,6 +88,10 @@ impl ItemId {
         Self::WoodenShovel,
         Self::WoodenHoe,
         Self::WoodenSword,
+        Self::Coal,
+        Self::CoalOre,
+        Self::IronOre,
+        Self::GoldOre,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -164,8 +172,11 @@ impl ItemId {
             Self::SprucePlanks => ItemType::Block(BlockId::SprucePlanks),
             Self::Furnace => ItemType::Block(BlockId::Furnace),
             Self::Chest => ItemType::Block(BlockId::Chest),
+            Self::CoalOre => ItemType::Block(BlockId::CoalOre),
+            Self::IronOre => ItemType::Block(BlockId::IronOre),
+            Self::GoldOre => ItemType::Block(BlockId::GoldOre),
 
-            Self::Snowball | Self::Stick => ItemType::Generic,
+            Self::Snowball | Self::Stick | Self::Coal => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -260,6 +271,10 @@ mod tests {
             (ItemId::WoodenShovel, 25),
             (ItemId::WoodenHoe, 26),
             (ItemId::WoodenSword, 27),
+            (ItemId::Coal, 28),
+            (ItemId::CoalOre, 29),
+            (ItemId::IronOre, 30),
+            (ItemId::GoldOre, 31),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -291,7 +306,11 @@ mod tests {
                 | ItemId::WoodenAxe
                 | ItemId::WoodenShovel
                 | ItemId::WoodenHoe
-                | ItemId::WoodenSword => {}
+                | ItemId::WoodenSword
+                | ItemId::Coal
+                | ItemId::CoalOre
+                | ItemId::IronOre
+                | ItemId::GoldOre => {}
             }
         }
         for (id, expected) in table {

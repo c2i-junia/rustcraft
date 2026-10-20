@@ -48,6 +48,9 @@ pub enum BlockId {
     SprucePlanks,
     Furnace,
     Chest,
+    CoalOre,
+    IronOre,
+    GoldOre,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -113,7 +116,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 24] = [
+    pub const ALL: [BlockId; 27] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -138,6 +141,9 @@ impl BlockId {
         BlockId::SprucePlanks,
         BlockId::Furnace,
         BlockId::Chest,
+        BlockId::CoalOre,
+        BlockId::IronOre,
+        BlockId::GoldOre,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -184,6 +190,9 @@ impl BlockId {
             Self::SprucePlanks => 10,
             Self::Furnace => 15,
             Self::Chest => 10,
+            Self::CoalOre => 12,
+            Self::IronOre => 15,
+            Self::GoldOre => 15,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -194,7 +203,13 @@ impl BlockId {
         match kind {
             ToolKind::Pickaxe => matches!(
                 *self,
-                Self::Stone | Self::Cobblestone | Self::Furnace | Self::Ice
+                Self::Stone
+                    | Self::Cobblestone
+                    | Self::Furnace
+                    | Self::Ice
+                    | Self::CoalOre
+                    | Self::IronOre
+                    | Self::GoldOre
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -216,7 +231,12 @@ impl BlockId {
     /// Broken otherwise, it still goes, but drops nothing.
     pub fn get_required_tool(&self) -> Option<ToolKind> {
         match *self {
-            Self::Stone | Self::Cobblestone | Self::Furnace => Some(ToolKind::Pickaxe),
+            Self::Stone
+            | Self::Cobblestone
+            | Self::Furnace
+            | Self::CoalOre
+            | Self::IronOre
+            | Self::GoldOre => Some(ToolKind::Pickaxe),
             _ => None,
         }
     }
@@ -261,6 +281,10 @@ impl BlockId {
             BlockId::SprucePlanks => vec![(1, ItemId::SprucePlanks, 1)],
             BlockId::Furnace => vec![(1, ItemId::Furnace, 1)],
             BlockId::Chest => vec![(1, ItemId::Chest, 1)],
+            BlockId::CoalOre => vec![(1, ItemId::Coal, 1)],
+            // they will smelt into ingots: until then, they drop themselves
+            BlockId::IronOre => vec![(1, ItemId::IronOre, 1)],
+            BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
             _ => vec![],
         }
     }
@@ -305,7 +329,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 24] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 27] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -336,7 +360,10 @@ mod tests {
             | BlockId::CraftingTable
             | BlockId::SprucePlanks
             | BlockId::Furnace
-            | BlockId::Chest => {}
+            | BlockId::Chest
+            | BlockId::CoalOre
+            | BlockId::IronOre
+            | BlockId::GoldOre => {}
         }
     }
 
@@ -408,6 +435,9 @@ mod tests {
                 BlockId::SprucePlanks => 21,
                 BlockId::Furnace => 22,
                 BlockId::Chest => 23,
+                BlockId::CoalOre => 24,
+                BlockId::IronOre => 25,
+                BlockId::GoldOre => 26,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -425,6 +455,30 @@ mod tests {
             assert_eq!(item.get_default_type(), ItemType::Block(block));
         }
         assert_eq!(ItemId::Stick.get_default_type(), ItemType::Generic);
+    }
+
+    #[test]
+    fn coal_ore_drops_coal_and_the_metal_ores_drop_themselves() {
+        assert_eq!(
+            BlockId::CoalOre.get_drops(1),
+            HashMap::from([(ItemId::Coal, 1)])
+        );
+        assert_eq!(ItemId::Coal.get_default_type(), ItemType::Generic);
+        for (block, item) in [
+            (BlockId::IronOre, ItemId::IronOre),
+            (BlockId::GoldOre, ItemId::GoldOre),
+        ] {
+            assert_eq!(block.get_drops(1), HashMap::from([(item, 1)]));
+        }
+        for (block, item) in [
+            (BlockId::CoalOre, ItemId::CoalOre),
+            (BlockId::IronOre, ItemId::IronOre),
+            (BlockId::GoldOre, ItemId::GoldOre),
+        ] {
+            assert_eq!(item.get_default_type(), ItemType::Block(block));
+            let stone = BlockId::Stone.get_break_time().unwrap();
+            assert!(block.get_break_time().unwrap() > stone, "{block:?}");
+        }
     }
 
     #[test]
@@ -558,8 +612,16 @@ mod tests {
     #[test]
     fn stone_blocks_need_a_pickaxe_and_the_others_nothing() {
         for id in ALL_BLOCKS {
-            let expected = matches!(id, BlockId::Stone | BlockId::Cobblestone | BlockId::Furnace)
-                .then_some(ToolKind::Pickaxe);
+            let expected = matches!(
+                id,
+                BlockId::Stone
+                    | BlockId::Cobblestone
+                    | BlockId::Furnace
+                    | BlockId::CoalOre
+                    | BlockId::IronOre
+                    | BlockId::GoldOre
+            )
+            .then_some(ToolKind::Pickaxe);
             assert_eq!(id.get_required_tool(), expected, "{id:?}");
         }
     }

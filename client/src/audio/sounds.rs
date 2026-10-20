@@ -45,7 +45,10 @@ impl SoundMaterial {
             | BlockId::Cobblestone
             | BlockId::Bedrock
             | BlockId::Debug
-            | BlockId::Furnace => Self::Stone,
+            | BlockId::Furnace
+            | BlockId::CoalOre
+            | BlockId::IronOre
+            | BlockId::GoldOre => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
