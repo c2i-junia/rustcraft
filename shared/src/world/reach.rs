@@ -48,9 +48,11 @@ impl ChunkReach {
         )
     }
 
-    /// Whether `chunk` is within the render distance.
-    pub fn within(&self, chunk: IVec3) -> bool {
-        self.own(chunk, 0)
+    /// Whether `chunk` is within the render distance plus `margin`: the player's own chunks,
+    /// the margin's included, which its own camera draws; the others are only seen through
+    /// portals.
+    pub fn within(&self, chunk: IVec3, margin: i32) -> bool {
+        self.own(chunk, margin)
     }
 
     /// The chunks of the twins of the open portals within the render distance plus `margin`,
@@ -225,6 +227,9 @@ mod tests {
         assert!(!near.keeps(beyond, 1));
         // The player's own, as before
         assert!(near.keeps(IVec3::new(0, 0, -DISTANCE - 1), 1));
+        assert!(near.within(IVec3::new(0, 0, -DISTANCE - 1), 1));
+        assert!(!near.within(IVec3::new(0, 0, -DISTANCE - 1), 0));
+        assert!(!near.within(FAR, 1));
         assert!(!near.keeps(IVec3::new(0, 0, -DISTANCE - 2), 1));
 
         // One chunk farther, the portal is beyond the margin too

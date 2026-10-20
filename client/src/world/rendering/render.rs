@@ -8,6 +8,7 @@ use std::{
 
 use bevy::{
     asset::Assets,
+    camera::visibility::{NoCpuCulling, RenderLayers},
     light::NotShadowCaster,
     math::IVec3,
     prelude::*,
@@ -15,11 +16,14 @@ use bevy::{
 };
 use shared::world::{
     global_block_to_chunk_pos, vertical_render_distance, within_render_distance,
-    world_position_to_chunk_position, BlockData, BlockTransparency, ChunkMap, SIX_OFFSETS,
+    world_position_to_chunk_position, BlockData, BlockTransparency, ChunkMap, ChunkReach,
+    SIX_OFFSETS,
 };
+use shared::UNLOAD_MARGIN;
 
 use crate::{
     input::{data::GameAction, keyboard::is_action_just_pressed},
+    portal::{camera::CpuCulledForAFrame, PORTAL_CHUNKS_LAYER},
     state::{GameState, KeyMap},
     ui::hud::UIMode,
     world::{self, MaterialResource, WorldRenderRequestUpdateEvent},
@@ -599,6 +603,66 @@ pub fn shadow_casters_system(
     }
 }
 
+/// Puts each group the player has within its own reach (`ChunkReach::within`, its render
+/// distance plus `UNLOAD_MARGIN`) on layer 0, which the player's camera draws, and the others,
+/// which the server sent for a portal (`ChunkReach::portal_chunks`), on `PORTAL_CHUNKS_LAYER`,
+/// which only the portal cameras draw: past the player's fog they would show as dark shapes on
+/// the sky, and cost a draw for nothing. A group changes layer as the player moves.
+pub fn portal_chunks_layers_system(
+    world_map: Res<ClientWorldMap>,
+    player: Query<&Transform, With<CurrentPlayerMarker>>,
+    render_distance: Res<RenderDistance>,
+    server_limit: Option<Res<ServerRenderDistanceLimit>>,
+    layers: Query<Option<&RenderLayers>>,
+    mut commands: Commands,
+) {
+    let Ok(player) = player.single() else {
+        return;
+    };
+    let distance = render_distance
+        .distance
+        .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32;
+    let reach = ChunkReach::new(
+        world_position_to_chunk_position(player.translation),
+        distance,
+        &Default::default(),
+    );
+    let player_layer = RenderLayers::layer(0);
+    let portal_layer = RenderLayers::layer(PORTAL_CHUNKS_LAYER);
+    for (group, render) in &world_map.render {
+        let wanted = if drawn_by_player(*group, &reach) {
+            &player_layer
+        } else {
+            &portal_layer
+        };
+        for entity in [render.entity, render.liquid_entity].into_iter().flatten() {
+            let Ok(layers) = layers.get(entity) else {
+                continue;
+            };
+            if layers.unwrap_or(&player_layer) == wanted {
+                continue;
+            }
+            // Bevy 0.19 hands a mesh culled on the GPU only to the views it was visible to:
+            // culled on the CPU for a frame, it is handed to those of its new layer
+            commands
+                .entity(entity)
+                .try_insert((wanted.clone(), CpuCulledForAFrame))
+                .try_remove::<NoCpuCulling>();
+        }
+    }
+}
+
+/// Whether some column of `group` is within the player's own reach, the margin included.
+fn drawn_by_player(group: IVec2, reach: &ChunkReach) -> bool {
+    let first = group * GROUP_WIDTH;
+    (0..GROUP_WIDTH).any(|x| {
+        (0..GROUP_WIDTH).any(|z| {
+            let column = IVec3::new(first.x + x, reach.center.y, first.y + z);
+            reach.within(column, UNLOAD_MARGIN)
+        })
+    })
+}
+
 /// How many group meshes were started, for the benchmarks.
 #[cfg(test)]
 pub(crate) static MESHES_STARTED: std::sync::atomic::AtomicUsize =
@@ -1128,6 +1192,80 @@ mod tests {
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(!casts(&world, near_entity) && !casts(&world, far_entity));
+    }
+
+    #[test]
+    fn the_groups_beyond_the_players_reach_are_drawn_by_the_portal_cameras_only() {
+        use crate::portal::camera::CpuCulledForAFrame;
+        use crate::portal::PORTAL_CHUNKS_LAYER;
+        use bevy::camera::visibility::{NoCpuCulling, RenderLayers};
+        let mut world = World::new();
+        let mut map = ClientWorldMap::default();
+        // The group of the player, and one 40 chunks east, each with a solid and a liquid entity
+        let far = IVec2::X * 40 / GROUP_WIDTH;
+        let mut entities_at = |world: &mut World, group: IVec2| {
+            let solid = world.spawn(NoCpuCulling).id();
+            let liquid = world.spawn(NoCpuCulling).id();
+            map.render.insert(
+                group,
+                ChunkRender {
+                    entity: Some(solid),
+                    liquid_entity: Some(liquid),
+                    ..ChunkRender::new()
+                },
+            );
+            [solid, liquid]
+        };
+        let near_entities = entities_at(&mut world, IVec2::ZERO);
+        let far_entities = entities_at(&mut world, far);
+        world.insert_resource(map);
+        world.insert_resource(RenderDistance { distance: 2 });
+        let player = world
+            .spawn((CurrentPlayerMarker {}, Transform::default()))
+            .id();
+        let mut system = IntoSystem::into_system(portal_chunks_layers_system);
+        system.initialize(&mut world);
+        let portal_only = |world: &World, entity| {
+            world
+                .get::<RenderLayers>(entity)
+                .is_some_and(|layers| *layers == RenderLayers::layer(PORTAL_CHUNKS_LAYER))
+        };
+        let drawn_by_player = |world: &World, entity| {
+            world
+                .get::<RenderLayers>(entity)
+                .is_none_or(|layers| *layers == RenderLayers::layer(0))
+        };
+        // A mesh that changes layer is culled on the CPU for a frame, so that every view takes it
+        let culled_anew = |world: &World, entity| {
+            world.get::<CpuCulledForAFrame>(entity).is_some()
+                && world.get::<NoCpuCulling>(entity).is_none()
+        };
+
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(near_entities.iter().all(|e| drawn_by_player(&world, *e)));
+        assert!(far_entities.iter().all(|e| portal_only(&world, *e)));
+        assert!(far_entities.iter().all(|e| culled_anew(&world, *e)));
+        assert!(near_entities.iter().all(|e| !culled_anew(&world, *e)));
+
+        // Nothing changes while the player stays
+        for entity in far_entities {
+            world
+                .entity_mut(entity)
+                .remove::<CpuCulledForAFrame>()
+                .insert(NoCpuCulling);
+        }
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(far_entities.iter().all(|e| !culled_anew(&world, *e)));
+
+        // The player goes to the far group: the two swap
+        world.get_mut::<Transform>(player).unwrap().translation.x = (40 * CHUNK_SIZE) as f32;
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(near_entities.iter().all(|e| portal_only(&world, *e)));
+        assert!(far_entities.iter().all(|e| drawn_by_player(&world, *e)));
+        assert!(far_entities.iter().all(|e| culled_anew(&world, *e)));
     }
 
     #[test]

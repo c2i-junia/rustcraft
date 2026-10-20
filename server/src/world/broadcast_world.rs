@@ -126,7 +126,7 @@ fn encode_world_updates(
     let twins = reach.twins();
     chunks.sort_by_key(|&(pos, _)| {
         let distance = |center: IVec3| (pos - center).length_squared();
-        if reach.within(pos) {
+        if reach.within(pos, 0) {
             (false, distance(reach.center))
         } else {
             let to_twin = twins.iter().map(|&twin| distance(twin)).min();
@@ -366,7 +366,7 @@ pub fn active_chunks<'a>(
     let behind_portals: Vec<IVec3> = reaches
         .iter()
         .flat_map(ChunkReach::portal_chunks)
-        .filter(|&chunk| !reaches.iter().any(|reach| reach.within(chunk)) && seen.insert(chunk))
+        .filter(|&chunk| !reaches.iter().any(|reach| reach.within(chunk, 0)) && seen.insert(chunk))
         .collect();
     let around: Vec<(IVec3, std::sync::Arc<[IVec3]>)> = reaches
         .iter()

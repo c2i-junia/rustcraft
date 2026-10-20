@@ -423,7 +423,12 @@ never moves a player, so the prediction of the clients is left alone.
    meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
-   cast shadows; and a fog of the colour of the sky hides the edge of the render distance.
+   cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
+   its colour (`SKY_FOG_COLOR`), tonemapped by the materials, is the clear colour, which is
+   not, so that a block wholly in the fog is the sky. The groups beyond the player's own reach
+   (`ChunkReach::within`, the margin included), sent only for a portal, are on layer 3, which
+   only the portal cameras draw (`portal_chunks_layers_system`); a group changes layer as the
+   player moves, culled on the CPU for that frame like a new view's chunks.
    The faces of the blocks a portal lies on are not meshed.
 
 Then the portals are drawn (`client/src/portal/`, in `PostUpdate` before `GameSet::Meshing`
@@ -434,7 +439,9 @@ player's camera would be if the space in front of the portal went on behind its 
 `projection.rs`), so that what lies between the twin and that camera is not drawn. It draws,
 before the main camera, into an image the size of the window, which the portal's surface reads
 where it is on the screen (`portal.wgsl`); it is on only while its portal is in view, from the
-front. The main camera sees layers 0 and 1, the portal cameras 0 and 2: a portal shows the live
+front, and within the player's fog: a portal wholly beyond it is not drawn and its camera is off
+(`beyond_fog`). The main camera sees layers 0 and 1, the portal cameras 0, 2 and 3 (the chunks
+only portals show): a portal shows the live
 view on layer 1 and its colour on layer 2, so a portal seen through another shows its colour. A
 lone portal shows its colour. The colours and the rims are not drawn for a camera behind their
 portal's plane, from where the front of a portal cannot be seen: a portal camera always stands

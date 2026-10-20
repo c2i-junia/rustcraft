@@ -25,8 +25,8 @@ use shared::world::{global_block_to_chunk_pos, Portal, PortalColor, PORTAL_HEIGH
 use crate::state::{GameSet, GameState};
 use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
 use camera::{
-    place_portal_cameras, portal_image, resize_portal_images, show_chunks_to_new_views,
-    spawn_portal_camera, PortalViewsStarted,
+    hide_portals_beyond_the_fog, place_portal_cameras, portal_image, resize_portal_images,
+    show_chunks_to_new_views, spawn_portal_camera, PortalViewsStarted,
 };
 use material::{portal_material_plugin, PortalLook, PortalMaterial};
 
@@ -37,6 +37,9 @@ use material::{portal_material_plugin, PortalLook, PortalMaterial};
 pub const SURFACE_LAYER: usize = 1;
 /// The layer of the stand-ins of the portals, in their colour: the portal cameras' only.
 pub const STAND_IN_LAYER: usize = 2;
+/// The layer of the chunks the player has only for what a portal shows, beyond its own reach
+/// (`world::rendering::portal_chunks_layers_system`): the portal cameras' only.
+pub const PORTAL_CHUNKS_LAYER: usize = 3;
 
 /// How far the rim reaches out on the wall from the edge of the opening, in blocks.
 const RIM_WIDTH: f32 = 0.22;
@@ -94,6 +97,7 @@ fn portal_systems(app: &mut App) {
             PostUpdate,
             (
                 sync_portals,
+                hide_portals_beyond_the_fog,
                 resize_portal_images,
                 place_portal_cameras,
                 show_chunks_to_new_views,
@@ -605,6 +609,46 @@ mod tests {
         place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 9.0));
         app.update();
         assert!((end_of_blue_fog(&mut app) - (8.0 + view)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_portal_beyond_the_players_fog_is_neither_drawn_nor_seen_through() {
+        let mut app = app();
+        let world = app.world_mut();
+        let camera = world
+            .query_filtered::<Entity, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(camera).insert(DistanceFog {
+            falloff: FogFalloff::Linear {
+                start: 12.0,
+                end: 20.0,
+            },
+            ..default()
+        });
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        app.update();
+        app.update();
+        let root_shown = |app: &App, color| {
+            let drawn = &app.world().resource::<DrawnPortals>().0[&(OWNER, color)];
+            app.world().get::<Visibility>(drawn.root) != Some(&Visibility::Hidden)
+        };
+        // Five blocks from the blue portal
+        assert!(camera_of(&mut app, PortalColor::Blue).unwrap().1.is_active);
+        assert!(root_shown(&app, PortalColor::Blue));
+
+        // Thirty blocks from it, looking at it: beyond the fog, which ends at 20
+        place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 31.0));
+        app.update();
+        assert!(!camera_of(&mut app, PortalColor::Blue).unwrap().1.is_active);
+        assert!(!root_shown(&app, PortalColor::Blue));
+
+        // Back
+        place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 6.0));
+        app.update();
+        assert!(camera_of(&mut app, PortalColor::Blue).unwrap().1.is_active);
+        assert!(root_shown(&app, PortalColor::Blue));
     }
 
     #[test]

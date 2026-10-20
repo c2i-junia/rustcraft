@@ -89,6 +89,7 @@ pub fn world_plugin(app: &mut App) {
                 request_remesh_of_changed_blocks_system,
                 world_render_system,
                 shadow_casters_system,
+                portal_chunks_layers_system,
             )
                 .chain()
                 .in_set(GameSet::Meshing)

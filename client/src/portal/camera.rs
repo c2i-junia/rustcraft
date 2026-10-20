@@ -18,7 +18,7 @@ use shared::CHUNK_SIZE;
 
 use super::material::PortalMaterial;
 use super::projection::portal_projection;
-use super::{PortalCamera, PortalSurface, STAND_IN_LAYER};
+use super::{DrawnPortals, PortalCamera, PortalSurface, PORTAL_CHUNKS_LAYER, STAND_IN_LAYER};
 use crate::camera::{CameraController, FOG_START, SKY_COLOR};
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
@@ -46,7 +46,9 @@ pub(super) fn spawn_portal_camera(
                 ..default()
             },
             RenderTarget::Image(image.into()),
-            RenderLayers::from_layers(&[0, STAND_IN_LAYER]),
+            // The world, the chunks the player has only for the portals, and the colours of the
+            // portals
+            RenderLayers::from_layers(&[0, STAND_IN_LAYER, PORTAL_CHUNKS_LAYER]),
             // The main camera's, set by `place_portal_cameras`
             Tonemapping::None,
             Projection::Perspective(default()),
@@ -73,10 +75,46 @@ pub(super) fn sees(transform: &Transform, projection: &Projection, portal: &Port
             .intersects_obb(&opening, &portal.frame(), true, false)
 }
 
+/// How far from its centre a portal's opening reaches: half its diagonal.
+const OPENING_REACH: f32 = 1.81;
+
+/// Whether `portal` is wholly beyond the end of the fog `fog` of a camera at `eye`, where
+/// nothing of it can be seen.
+pub(super) fn beyond_fog(eye: Vec3, fog: Option<&DistanceFog>, portal: &Portal) -> bool {
+    let Some(FogFalloff::Linear { end, .. }) = fog.map(|fog| &fog.falloff) else {
+        return false;
+    };
+    eye.distance(portal.frame().translation.into()) - OPENING_REACH > *end
+}
+
+/// Hides the portals wholly beyond the fog of the player's camera: drawn unfogged, they would
+/// show on the sky. A portal camera beyond it then does not see them either, which only matters
+/// for a portal far from the player near the twin of another.
+pub(super) fn hide_portals_beyond_the_fog(
+    drawn: Res<DrawnPortals>,
+    main: Query<(&Transform, Option<&DistanceFog>), With<CameraController>>,
+    mut roots: Query<&mut Visibility>,
+) {
+    let Ok((main_transform, main_fog)) = main.single() else {
+        return;
+    };
+    for drawn in drawn.0.values() {
+        let Ok(mut visibility) = roots.get_mut(drawn.root) else {
+            continue;
+        };
+        let shown = if beyond_fog(main_transform.translation, main_fog, &drawn.portal) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        visibility.set_if_neq(shown);
+    }
+}
+
 /// Places each portal camera behind the twin of its portal, after the player's camera, with
 /// the twin's plane as its near plane, the sky and the tonemapping of the player's camera, and
-/// its fog (`portal_fog`). A camera whose portal is out of view, or seen from behind, does not
-/// draw.
+/// its fog (`portal_fog`). A camera whose portal is out of view, seen from behind, or beyond the
+/// player's fog, does not draw.
 pub(super) fn place_portal_cameras(
     world_map: Res<ClientWorldMap>,
     main: Query<
@@ -120,7 +158,8 @@ pub(super) fn place_portal_cameras(
             camera.is_active = false;
             continue;
         };
-        let active = sees(main_transform, main_projection, portal);
+        let active = sees(main_transform, main_projection, portal)
+            && !beyond_fog(main_transform.translation, main_fog, portal);
         if camera.is_active != active {
             camera.is_active = active;
             started.0 |= active;
@@ -161,7 +200,7 @@ pub(super) struct PortalViewsStarted(bool);
 
 /// Marks a mesh whose `NoCpuCulling` was taken away for a frame by `show_chunks_to_new_views`.
 #[derive(Component)]
-pub(super) struct CpuCulledForAFrame;
+pub(crate) struct CpuCulledForAFrame;
 
 /// Shows the chunks to the portal cameras that started drawing. Bevy 0.19 hands a mesh culled
 /// on the GPU only (`NoCpuCulling`, as the chunks are) to the views there are when it becomes
