@@ -3,6 +3,12 @@
 Approved proposal: https://claude.ai/artifact/Vf21qDSy2ZTaLMYAZkt4gg (2026-10-20, every default
 kept). Branch `feat/jungle-biome`, worktree `feat-jungle-biome`.
 
+Rebased on 2026-10-21 onto main, which had gained the savanna, the grass and leaves coloured by
+the climate, the texture array, light levels with the torch, swaying plants, and the item
+browser: the rows "New blocks", "New items", "Block behaviour", "Sway", "Item browser", "Tint",
+"Textures" and "Protocol" say how the jungle follows them. The plans of the lots are left as
+they were written.
+
 ## Goal
 
 A hot and wet biome along the warm coasts: giant jungle trees with a 2 × 2 trunk standing
@@ -13,7 +19,7 @@ bushes, ferns and tall grass. It takes the wet half of today's hot forests.
 
 | Topic | Choice |
 |---|---|
-| Climate | `Jungle` when temperature > `JUNGLE_TEMPERATURE` (0.65) and humidity > `JUNGLE_HUMIDITY` (0.55), below the sea's humidity (0.73). The mountains still come from the altitude first: no jungle at or above 84. Seed 42: 5.8 % of the world, forest 12.8 % → 7.0 %; it only touches forest, shallow sea, rivers and lakes. |
+| Climate | `Jungle` when temperature > `JUNGLE_TEMPERATURE` (0.65) and humidity > `JUNGLE_HUMIDITY` (0.55), below the sea's humidity (0.73). The mountains still come from the altitude first: no jungle at or above 84. Seed 42: 5.8 % of the world, forest 12.8 % → 7.0 %; it only touches forest, shallow sea, rivers and lakes. Main's savanna, on the dry edge of the hot land, is untouched. |
 | Relief | Unchanged. The jungle is low because it follows the coast. |
 | Ground | Grass over dirt, like the forest. Beaches and river banks stay sand. |
 | Depth | A value in `[0, 1]` read from the climate already computed (no extra noise): `min(smoothstep(0.65, 0.75, temperature), smoothstep(0.55, 0.62, humidity))`, 0 at the border of the biome, 1 at its heart; 0 outside the jungle. It scales the densities, so that the forest turns into jungle gradually. |
@@ -22,13 +28,15 @@ bushes, ferns and tall grass. It takes the wet half of today's hot forests.
 | Spacing | Two giants never root within 8 columns (Chebyshev) of each other: among candidates, only the smallest roll grows (ties broken by coordinates). Decided from positions alone, like the rest. |
 | Jungle tree | Trunk of jungle logs, 5–9. Crown 5 × 5 of jungle leaves on the top two layers below the top (corners at random), 3 × 3 at the top, a plus on top. Vines under 1 in 4 of the lowest layer's edge leaves, outwards, 1–4 long. Cocoa (lot 5): on 1 tree in 3, 1–2 pods against the top of the trunk. |
 | Bush | One jungle log on the ground under a mound of jungle leaves: a diamond of radius 2 (edges at random), a plus above, sometimes one more leaf on top. |
-| New blocks | `JungleLog`, `JunglePlanks`, `JungleLeaves`, `Fern`, `Vine`, `Cocoa` (lot 5), appended to `BlockId`. |
-| New items | `JungleLog`, `JunglePlanks`, `JungleLeaves`, `Fern`, `Vine`, `CocoaBeans` (lot 5), appended to `ItemId`. |
-| Block behaviour | Like their oak and tall grass siblings. Log and planks: 10 steps, faster with an axe, drop themselves, wood sound. Leaves: 2 steps, faster with a hoe or a sword, transparent, drop nothing, leaves sound. Fern: like tall grass (cross, no hitbox, 1 step, drops itself). Vine: a plate 1/16 off the face that holds it, oriented by `BlockDirection`, no hitbox, decoration, 1 step, drops itself, placed against the side face aimed at (not on a top or bottom face), no climbing. Cocoa: an 8 × 9 × 8 pod hung 1/16 off a jungle log, oriented, 2 steps, drops 2 cocoa beans (no use yet; the beans are not placeable). |
+| New blocks | `JungleLog`, `JunglePlanks`, `JungleLeaves`, `Fern`, `Vine`, `Cocoa` (lot 5), appended to `BlockId` after main's `Torch` (28): 29 to 34. |
+| New items | `JungleLog`, `JunglePlanks`, `JungleLeaves`, `Fern`, `Vine`, `CocoaBeans` (lot 5), appended to `ItemId` after main's `Torch` (35): 36 to 41. |
+| Block behaviour | Like their oak and tall grass siblings. Log and planks: 10 steps, faster with an axe, drop themselves, wood sound. Leaves: 2 steps, faster with a hoe or a sword, transparent, drop nothing, leaves sound. Fern: like tall grass (cross, no hitbox, 1 step, drops itself). Vine: a plate 1/16 off the face that holds it, oriented by `BlockDirection`, no hitbox, decoration, 1 step, drops itself, placed against the side face aimed at (not on a top or bottom face), no climbing. Cocoa: an 8 × 9 × 8 pod hung 1/16 off a jungle log, oriented, 2 steps, drops 2 cocoa beans (no use yet; the beans are not placeable). Light: jungle log and planks stop it as the oak's do; jungle leaves dim it as the oak leaves do (`light_opacity` 1); fern, vine and cocoa let it through as the plants do (decorations, 0). |
+| Sway | Jungle leaves sway whole, as the oak leaves (`Sway::Whole`); the fern by its top, as the tall grass (`Sway::Top`); the vine and the cocoa, held on the side of a block, not at all. |
+| Item browser | Jungle log and planks are `Wood` and jungle leaves `Nature`, as their oak siblings; fern and vine `Nature`, as the tall grass; cocoa beans `Materials`, with the coal and the sticks. |
 | Recipes | The 9 wood recipes of oak and spruce, again for jungle: log → 4 planks; sticks, crafting table, chest, and the five wooden tools from jungle planks. |
-| Tint | Jungle leaves and vines: new `JUNGLE_LEAVES_COLOR = [0.05, 0.62, 0.05]` (linear, like `GRASS_COLOR`). Fern: `GRASS_COLOR`. Grass keeps its single tint (no per-biome tint). |
-| Textures | Pixel Perfection: `block/jungle_log`, `jungle_log_top`, `jungle_planks`, `jungle_leaves`, `fern`, `vine`, `cocoa_stage2`, `item/cocoa_beans` → `JungleLog.png`, `JungleLogTop.png`, `JunglePlanks.png`, `JungleLeaves.png`, `Fern.png`, `Vine.png`, `Cocoa.png`, `items/CocoaBeans.png`. Item icons of tinted blocks look like they do in the world, as for the existing leaves and grass. Credited in the commit and `docs/ressources.txt`. |
-| Protocol | `PROTOCOL_ID` 19 → 20 once, in lot 1; later lots of this branch append more variants without another bump (nothing is released in between). `FORMAT_VERSION` stays 5: appending does not change the saved encoding. Saved chunks do not change; a tree rooted in a new chunk is cut against an old one. |
+| Tint | Main's biome colours: `BiomeType::Jungle` has its place on the colour maps (`biome_climate`) as Minecraft's jungle, temperature 0.95 and downfall 0.9. Jungle leaves and vines: `BiomeTint::Foliage`, as the oak leaves, with `GRASS_COLOR` where the climate is not known. Fern: `BiomeTint::Grass`, as the tall grass. Cocoa: untinted. No colour of its own (the `JUNGLE_LEAVES_COLOR` of the first draft is gone). |
+| Textures | Pixel Perfection: `block/jungle_log`, `jungle_log_top`, `jungle_planks`, `jungle_leaves`, `fern`, `vine`, `cocoa_stage2`, `item/cocoa_beans` → `JungleLog.png`, `JungleLogTop.png`, `JunglePlanks.png`, `JungleLeaves.png`, `Fern.png`, `Vine.png`, `Cocoa.png`, `items/CocoaBeans.png`. Jungle leaves, fern and vine have no icon of their own: they show their block texture, as the oak leaves and the tall grass do. Credited in the commit and `docs/ressources.txt`. |
+| Protocol | `PROTOCOL_ID` 22 → 23 once, in lot 1 (main had reached 22 for the torch, the item browser and the 20-minute day); later lots of this branch append more variants without another bump (nothing is released in between). `FORMAT_VERSION` stays 5: appending does not change the saved encoding. Saved chunks do not change; a tree rooted in a new chunk is cut against an old one. |
 
 ## Architecture
 
@@ -58,14 +66,17 @@ not leave a pod inside its trunk, as happened 3 times in 67 on seed 42 with coco
 - `server/examples/worldgen_dump.rs` and `scripts/worldgen_preview.py` learn the new blocks and
   the jungle colour.
 
-**Client**: `VoxelShape` cases (jungle log with `JungleLogTop`, tinted jungle leaves, fern as
-flora, the vine plate, the cocoa box), sounds, minimap colours (leaves shaded like the others),
-item icons. The debug HUD shows `Biome: Jungle` with no change.
+**Client**: `VoxelShape` cases (jungle log with `JungleLogTop`, jungle leaves coloured by the
+foliage map, fern as flora, the vine plate, the cocoa box), the jungle's place in `biome_climate`,
+sounds, minimap colours (leaves shaded like the others). The shapes go through main's texture
+array, `FaceColor`, lighting and greedy meshing; a turned shape (vine, cocoa) turns about the
+centre of its cell with its normals, and stays one square per face, lit as a whole. The debug
+HUD shows `Biome: Jungle` with no change.
 
 ## Lots
 
 1. **Jungle wood**: `JungleLog`, `JunglePlanks`, `JungleLeaves` (blocks, items, textures,
-   break times, tools, drops, sounds, render, minimap), the 9 recipes, `PROTOCOL_ID` 20. To see:
+   break times, tools, drops, sounds, render, minimap), the 9 recipes, `PROTOCOL_ID` 23. To see:
    `/give jungle_log`, place, break, craft.
 2. **The biome**: `BiomeType::Jungle`, climate rule, depth, `Fern` (block and item), tall grass,
    bushes, jungle trees (without vines and cocoa), per-chunk-column structure height, world
