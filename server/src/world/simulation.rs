@@ -2,12 +2,19 @@ use bevy::prelude::*;
 use bevy_renet::{renet::ClientId, RenetServer};
 use shared::{
     messages::{PlayerFrameInput, PlayerId, PlayerUpdateEvent},
-    players::{blocks::CallerType, simulation::simulate_player_actions, Player},
+    players::{
+        blocks::CallerType,
+        game_mode::{fall_damage, DeathCause, MAX_HEALTH, REGENERATION_TICKS},
+        movement::FALL_LIMIT,
+        simulation::simulate_player_actions,
+        Player,
+    },
     world::{Chunk, ChunkMap, WorldSeed},
 };
 use std::path::Path;
 
 use crate::{
+    init::ServerTime,
     network::extensions::SendGameMessageExtension,
     world::{
         chunk_files::{read_chunk, CHUNKS_DIR},
@@ -129,6 +136,7 @@ pub fn handle_player_inputs_system(
     let dirty_chunks = &mut world_map.dirty_chunks;
     let render_distances = &world_map.render_distances;
     let saved = world_map.saved.as_deref();
+    let spawn = world_map.spawn;
 
     generate_missing_chunks(
         &*players,
@@ -146,9 +154,15 @@ pub fn handle_player_inputs_system(
             continue;
         };
 
-        let broken = simulate_player_actions(player, chunks, &ev.input, CallerType::Server);
-        for block in &broken {
+        let outcome = simulate_player_actions(player, chunks, &ev.input, CallerType::Server);
+        for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);
+        }
+        if let Some(fallen) = outcome.fallen {
+            player.hurt(fall_damage(fallen), DeathCause::Fall);
+        }
+        if player.position.y < FALL_LIMIT {
+            fall_out_of_the_world(player, spawn);
         }
 
         player.last_input_processed = ev.input.time_ms;
@@ -169,6 +183,28 @@ pub fn handle_player_inputs_system(
     }
 }
 
+/// A player below `FALL_LIMIT` is taken back to `spawn`, and dies on the way in survival.
+fn fall_out_of_the_world(player: &mut Player, spawn: Vec3) {
+    player.hurt(player.health, DeathCause::Void);
+    player.set_movement_state(shared::players::MovementState {
+        position: spawn,
+        is_flying: player.is_flying,
+        ..Default::default()
+    });
+}
+
+/// Every `REGENERATION_TICKS`, each living player gets a point of health back.
+pub fn regenerate_health_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
+    if !time.0.is_multiple_of(REGENERATION_TICKS) {
+        return;
+    }
+    for player in world_map.players.values_mut() {
+        if !player.is_dead() && player.health < MAX_HEALTH {
+            player.health += 1;
+        }
+    }
+}
+
 /// Sends every player's state to every client, once the tick has simulated the inputs and
 /// given the players the items they picked up. A player is sent its own inventory and open
 /// chest; the others only see it move.
@@ -185,6 +221,9 @@ pub fn broadcast_player_updates_system(
                 last_ack_time: player.last_input_processed,
                 inventory,
                 open_chest,
+                health: player.health,
+                game_mode: player.game_mode,
+                death_cause: player.death_cause,
             })
         };
         let open_chest = player
@@ -202,6 +241,56 @@ pub fn broadcast_player_updates_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::players::game_mode::GameMode;
+
+    #[test]
+    fn a_player_out_of_the_world_comes_back_at_the_spawn_and_dies_in_survival() {
+        let spawn = Vec3::new(0.5, 65.0, 0.5);
+        for (mode, dies) in [(GameMode::Survival, true), (GameMode::Creative, false)] {
+            let mut player = Player {
+                game_mode: mode,
+                position: Vec3::new(3.0, FALL_LIMIT - 1.0, 4.0),
+                velocity: Vec3::new(0.0, -40.0, 0.0),
+                ..Default::default()
+            };
+            fall_out_of_the_world(&mut player, spawn);
+            assert_eq!(player.position, spawn);
+            assert_eq!(player.velocity, Vec3::ZERO);
+            assert_eq!(player.is_dead(), dies, "{mode:?}");
+            if dies {
+                assert_eq!(player.death_cause, Some(DeathCause::Void));
+            }
+        }
+    }
+
+    #[test]
+    fn living_players_get_their_health_back_point_by_point() {
+        let mut app = App::new();
+        let mut world_map = ServerWorldMap::default();
+        let mut hurt = Player::new(1, "hurt".into(), Vec3::ZERO, Transform::default());
+        hurt.health = MAX_HEALTH - 2;
+        let mut dead = Player::new(2, "dead".into(), Vec3::ZERO, Transform::default());
+        dead.health = 0;
+        world_map.players.insert(1, hurt);
+        world_map.players.insert(2, dead);
+        app.insert_resource(world_map)
+            .insert_resource(ServerTime(1))
+            .add_systems(Update, regenerate_health_system);
+        let health = |app: &App, id| app.world().resource::<ServerWorldMap>().players[&id].health;
+
+        app.update();
+        assert_eq!(health(&app, 1), MAX_HEALTH - 2, "not a regeneration tick");
+        for tick in [
+            REGENERATION_TICKS,
+            2 * REGENERATION_TICKS,
+            3 * REGENERATION_TICKS,
+        ] {
+            app.world_mut().resource_mut::<ServerTime>().0 = tick;
+            app.update();
+        }
+        assert_eq!(health(&app, 1), MAX_HEALTH);
+        assert_eq!(health(&app, 2), 0);
+    }
 
     #[test]
     fn generated_chunks_are_dirty_and_existing_ones_are_not() {

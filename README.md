@@ -37,7 +37,9 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
 - World saving and loading.
-- In-game chat, with commands open to every player: `/time set <day|night>` and `/give <item> <count>` (e.g. `/give oak_log 64`), completed as they are typed (Tab, ↑↓).
+- Survival and creative game modes: in survival, players have 10 hearts, cannot fly and get hurt by falls of more than 3 blocks; a dead player respawns at the spawn of the world. New players start in survival.
+- Sprinting, sneaking and swimming.
+- In-game chat, with commands open to every player: `/time set <day|night>`, `/give <item> <count>` (e.g. `/give oak_log 64`) and `/gamemode <creative|survival>`, completed as they are typed (Tab, ↑↓).
 - Customizable keybindings, and a render distance set in Settings > Video or with O and P.
 
 <br>
@@ -75,9 +77,14 @@ paru -S rustcraft
 |                   | Strafe Right          | D / Arrow Right             |
 |                   | Walk Backward         | S / Arrow Down              |
 |                   | Walk Forward          | W / Arrow Up                |
-|                   | Toggle Fly Mode       | F                           |
+|                   | Sprint                | Left Ctrl while walking forward (it lasts until the player stops) |
+|                   | Sneak (slower, and never walks off an edge) | Left Shift |
+|                   | Swim where you look   | Sprint in the water         |
+|                   | Swim up / down        | Space / Left Shift in the water |
+|                   | Toggle Fly Mode (creative only) | F                 |
 |                   | Fly Up                | Space                       |
 |                   | Fly Down              | Left Shift                  |
+|                   | Fly faster            | Left Ctrl while flying forward |
 |                   |                        |                             |
 | **Gameplay**      | Destroy Block         | Left Mouse Button           |
 |                   | Place Block           | Right Mouse Button          |

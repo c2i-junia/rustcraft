@@ -25,6 +25,8 @@ pub enum ClientToServerMessage {
     SaveWorldRequest,
     /// The player changed its render distance, in chunks.
     SetRenderDistance(u32),
+    /// The player, dead, asks to come back at the spawn.
+    Respawn,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -47,6 +49,7 @@ pub enum ServerToClientMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::players::game_mode::{DeathCause, GameMode};
     use crate::players::inventory::InventoryAction;
     use crate::world::{MobAction, MobKind, MobTarget};
     use bevy::math::{IVec3, Vec3};
@@ -77,6 +80,7 @@ mod tests {
             (ClientToServerMessage::PlayerInputs(vec![]), 3),
             (ClientToServerMessage::SaveWorldRequest, 4),
             (ClientToServerMessage::SetRenderDistance(0), 5),
+            (ClientToServerMessage::Respawn, 6),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -126,6 +130,9 @@ mod tests {
             last_ack_time: 0,
             inventory: Default::default(),
             open_chest: None,
+            health: 0,
+            game_mode: Default::default(),
+            death_cause: None,
         };
         for (message, expected) in [
             (ServerToClientMessage::AuthRegisterResponse(response), 0),
@@ -176,6 +183,12 @@ mod tests {
             (InventoryAction::OpenChest(IVec3::ZERO), 7),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
+        }
+        for (mode, expected) in [(GameMode::Survival, 0), (GameMode::Creative, 1)] {
+            assert_eq!(variant_index(&mode), expected, "{ENCODING_WARNING}");
+        }
+        for (cause, expected) in [(DeathCause::Fall, 0), (DeathCause::Void, 1)] {
+            assert_eq!(variant_index(&cause), expected, "{ENCODING_WARNING}");
         }
         assert_eq!(variant_index(&MobKind::Fox), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");

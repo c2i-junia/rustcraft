@@ -7,11 +7,13 @@ use crate::state::{GameSet, GameState};
 mod controller;
 mod interactions;
 mod labels;
+mod stance;
 mod update;
 
 pub use controller::*;
 pub use interactions::*;
 pub use labels::*;
+pub use stance::*;
 pub use update::*;
 
 /// The local player and the other players: their spawn, movement, prediction and labels.
@@ -57,6 +59,13 @@ pub fn player_plugin(app: &mut App) {
             Update,
             update_players_system
                 .in_set(GameSet::Reconciliation)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            (crouch_bodies_system, sprint_fov_system)
+                .after(GameSet::Reconciliation)
+                .before(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(

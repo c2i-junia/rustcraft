@@ -9,15 +9,27 @@ use crate::{
     world::ChunkMap,
 };
 
-/// Applies one input of `player`, and returns the blocks it broke.
+/// What one input did that the server acts upon.
+#[derive(Debug, Default, PartialEq)]
+pub struct ActionsOutcome {
+    /// The blocks the player broke.
+    pub broken: Vec<BrokenBlock>,
+    /// How many blocks the player fell, when it landed.
+    pub fallen: Option<f32>,
+}
+
+/// Applies one input of `player`. A dead player does nothing.
 pub fn simulate_player_actions(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
-) -> Vec<BrokenBlock> {
+) -> ActionsOutcome {
+    if player.is_dead() {
+        return ActionsOutcome::default();
+    }
     let broken = simulate_player_block_interactions(player, world_map, action, caller_type);
     simulate_inventory_actions(player, world_map, action, caller_type);
-    simulate_player_movement(player, world_map, action);
-    broken
+    let fallen = simulate_player_movement(player, world_map, action);
+    ActionsOutcome { broken, fallen }
 }

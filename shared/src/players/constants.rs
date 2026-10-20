@@ -12,6 +12,10 @@ pub const SPEED: f32 = 5.0;
 pub const SPRINT_SPEED_MULTIPLIER: f32 = 1.3;
 /// Speed of a sprinting player in flight, against the flying speed: twice, as in Minecraft.
 pub const FLY_SPRINT_SPEED_MULTIPLIER: f32 = 2.0;
+/// Speed of a sneaking player relative to walking.
+pub const SNEAK_SPEED_MULTIPLIER: f32 = 0.3;
+/// How far below the feet a sneaking player looks for the ground it may not walk off.
+pub const SNEAK_GROUND_PROBE: f32 = 0.1;
 
 // In water, the gravity is weaker and a drag brakes the vertical velocity: the velocity tends
 // to `WATER_GRAVITY / WATER_DRAG` = -2 blocks/s, and a fall into water is soon slowed down.
@@ -24,3 +28,8 @@ pub const SWIM_UP_VELOCITY: f32 = 4.0;
 /// 1.2 blocks out of the water (v² / 2g = 8.5² / 60) and climb onto the shore.
 pub const WATER_EXIT_VELOCITY: f32 = 8.5;
 pub const WATER_SPEED_MULTIPLIER: f32 = 0.6;
+/// Downward velocity of a player holding sneak in water, in blocks/s.
+pub const SWIM_DOWN_VELOCITY: f32 = -4.0;
+/// Speed of a swimming player, along where it looks, in blocks/s: faster than walking in the
+/// water, slower than sprinting on land.
+pub const SWIM_SPEED: f32 = 4.5;

@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use shared::{world::*, CHUNK_SIZE};
+use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 
 use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR};
 
@@ -562,6 +562,26 @@ impl WorldGenerator {
 /// How far from the origin, in blocks, a new player's spawn is looked for.
 const SPAWN_SEARCH_RADIUS: i32 = 512;
 
+/// Room left under the feet of a player who spawns, so that its box is clear of the block.
+const SPAWN_GAP: f32 = 0.01;
+
+/// Where the players of a world of `seed` spawn and respawn (see
+/// [`WorldGenerator::spawn_position`]). It depends on the seed alone, so that it stays where it
+/// was however the world is built over.
+pub fn spawn_position(seed: u32) -> Vec3 {
+    WorldGenerator::new(seed).spawn_position()
+}
+
+/// The position of a player standing on the surface of the column `(x, z)` at `height`: the
+/// middle of its body.
+fn standing_on(x: i32, height: i32, z: i32) -> Vec3 {
+    Vec3::new(
+        x as f32 + 0.5,
+        height as f32 + 1.0 + PLAYER_HEIGHT / 2.0 + SPAWN_GAP,
+        z as f32 + 0.5,
+    )
+}
+
 impl WorldGenerator {
     /// Where a new player appears: above the column nearest to the origin that is dry, below
     /// the mountains, and free of anything growing on it or on the columns around it.
@@ -586,13 +606,13 @@ impl WorldGenerator {
                 let ring = [(i, -radius), (i, radius), (-radius, i), (radius, i)];
                 for (x, z) in ring {
                     if let Some(height) = open(x, z) {
-                        return Vec3::new(x as f32 + 0.5, height as f32 + 1.5, z as f32 + 0.5);
+                        return standing_on(x, height, z);
                     }
                 }
             }
         }
         let height = self.terrain.column_shape(0, 0).height.max(SEA_LEVEL);
-        Vec3::new(0.5, height as f32 + 1.5, 0.5)
+        standing_on(0, height, 0)
     }
 
     /// The column `(x, z)`, its steepness read from the shapes of its four neighbours.
@@ -960,7 +980,7 @@ mod tests {
         let (x, z) = (spawn.x.floor() as i32, spawn.z.floor() as i32);
         let column = generator.column(x, z);
         assert!(column.height > SEA_LEVEL && column.height < MOUNTAIN_FROM);
-        assert_eq!(spawn.y, column.height as f32 + 1.5);
+        assert_eq!(spawn, standing_on(x, column.height, z));
         assert!(x.abs().max(z.abs()) <= SPAWN_SEARCH_RADIUS);
         // nothing stands where the player appears, nor right above
         let feet = IVec3::new(x, column.height + 1, z);
@@ -1334,5 +1354,66 @@ mod tests {
             (1800..2200).contains(&below_tenth),
             "{below_tenth} of 20000"
         );
+    }
+
+    #[test]
+    fn the_spawn_stands_on_the_ground_and_not_on_a_tree() {
+        use shared::players::{collision::check_player_collision, Player};
+
+        for seed in [0, 1, 69, 1234, 987_654, 31_337] {
+            let spawn = spawn_position(seed);
+            let column = spawn.floor().as_ivec3().with_y(0);
+            assert!(
+                column.x.abs().max(column.z.abs()) <= SPAWN_SEARCH_RADIUS,
+                "seed {seed}: {spawn}"
+            );
+            let mut world = ChunkMap::default();
+            let spawn_chunk = column.div_euclid(IVec3::splat(CHUNK_SIZE));
+            for y in 0..12 {
+                for x in -1..=1 {
+                    for z in -1..=1 {
+                        let pos = spawn_chunk + IVec3::new(x, y, z);
+                        world.insert_chunk(pos, generate_chunk(pos, seed));
+                    }
+                }
+            }
+            let player = Player::new(0, "p".into(), spawn, Transform::default());
+            assert!(
+                !check_player_collision(&spawn, &player, &world),
+                "seed {seed}: the spawn {spawn} is in a block"
+            );
+            let below = (spawn - Vec3::Y * (PLAYER_HEIGHT / 2.0 + 0.5))
+                .floor()
+                .as_ivec3();
+            let ground = world.get_block(below).map(|block| block.id);
+            assert!(
+                ground
+                    .is_some_and(|id| id == BlockId::Water
+                        || matches!(id.get_hitbox(), BlockHitbox::FullBlock)),
+                "seed {seed}: nothing to stand on under {spawn}: {ground:?}"
+            );
+            assert!(
+                !matches!(
+                    ground,
+                    Some(BlockId::OakLeaves | BlockId::OakLog | BlockId::Cactus)
+                ),
+                "seed {seed}: spawned on {ground:?}"
+            );
+            // Nothing above it to stand on: it is the top of the column
+            for y in below.y + 1..=(HIGHEST_SURFACE + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
+                let block = world.get_block(below.with_y(y)).map(|block| block.id);
+                assert!(
+                    block
+                        .is_none_or(|id| matches!(id.get_hitbox(), BlockHitbox::None)
+                            && id != BlockId::Water),
+                    "seed {seed}: {block:?} at {y}, above the spawn"
+                );
+            }
+            assert_eq!(
+                spawn_position(seed),
+                spawn,
+                "the spawn depends on the seed only"
+            );
+        }
     }
 }

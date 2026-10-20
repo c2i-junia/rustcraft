@@ -1274,7 +1274,7 @@ mod tests {
         assert_eq!(
             search_row("fly", GameAction::FlyDown, &[KeyCode::ShiftLeft]),
             Some(RowMatch {
-                name: vec![0..3],
+                name: vec![8..11],
                 slots: vec![],
             })
         );

@@ -522,8 +522,8 @@ fn commands_are_completed_as_they_are_typed() {
     h.snapshot("slash");
 
     // the rest of the first suggestion shows after the caret, and Tab takes it with a space
-    h.type_text("g");
-    assert_eq!(h.ghost().as_deref(), Some("ive"));
+    h.type_text("gi");
+    assert_eq!(h.ghost().as_deref(), Some("ve"));
     h.press(KeyCode::Tab);
     assert_eq!(h.value_of::<ChatInput>(), "/give ");
     assert_eq!(h.focus_label().as_deref(), Some("Chat"));

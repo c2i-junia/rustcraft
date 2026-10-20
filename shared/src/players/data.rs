@@ -7,6 +7,7 @@ use bevy::{
 use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+use super::game_mode::{DeathCause, GameMode, MAX_HEALTH};
 use crate::{
     messages::PlayerId,
     world::{ItemId, ItemStack, ItemType},
@@ -167,6 +168,23 @@ pub struct Player {
     pub velocity: Vec3,
     pub on_ground: bool,
     pub is_flying: bool,
+    #[serde(default)]
+    pub is_sprinting: bool,
+    #[serde(default)]
+    pub is_sneaking: bool,
+    #[serde(default)]
+    pub is_swimming: bool,
+    /// Blocks fallen since the player last stood on the ground, swam or flew.
+    #[serde(default)]
+    pub fall_distance: f32,
+    #[serde(default)]
+    pub game_mode: GameMode,
+    /// From 0, dead, to `MAX_HEALTH`. Only the server changes it.
+    #[serde(default = "full_health")]
+    pub health: u32,
+    /// What killed the player, while it is dead.
+    #[serde(default)]
+    pub death_cause: Option<DeathCause>,
     pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
@@ -187,6 +205,14 @@ pub struct MovementState {
     pub velocity: Vec3,
     pub on_ground: bool,
     pub is_flying: bool,
+    pub is_sprinting: bool,
+    pub is_sneaking: bool,
+    pub is_swimming: bool,
+    pub fall_distance: f32,
+}
+
+fn full_health() -> u32 {
+    MAX_HEALTH
 }
 
 /// Size of a player's collision box, in blocks.
@@ -200,6 +226,10 @@ impl Player {
             velocity: self.velocity,
             on_ground: self.on_ground,
             is_flying: self.is_flying,
+            is_sprinting: self.is_sprinting,
+            is_sneaking: self.is_sneaking,
+            is_swimming: self.is_swimming,
+            fall_distance: self.fall_distance,
         }
     }
 
@@ -208,6 +238,38 @@ impl Player {
         self.velocity = state.velocity;
         self.on_ground = state.on_ground;
         self.is_flying = state.is_flying;
+        self.is_sprinting = state.is_sprinting;
+        self.is_sneaking = state.is_sneaking;
+        self.is_swimming = state.is_swimming;
+        self.fall_distance = state.fall_distance;
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.health == 0
+    }
+
+    /// Takes `damage` points of health, if the game mode lets it, and dies of `cause` when none
+    /// is left. A dead player takes no more.
+    pub fn hurt(&mut self, damage: u32, cause: DeathCause) {
+        if damage == 0 || self.is_dead() || !self.game_mode.takes_damage() {
+            return;
+        }
+        self.health = self.health.saturating_sub(damage);
+        if self.is_dead() {
+            self.death_cause = Some(cause);
+        }
+    }
+
+    /// Brings a dead player back to life at `spawn`, standing still and in full health.
+    pub fn respawn(&mut self, spawn: Vec3) {
+        self.set_movement_state(MovementState {
+            position: spawn,
+            on_ground: true,
+            is_flying: self.is_flying && self.game_mode.can_fly(),
+            ..Default::default()
+        });
+        self.health = MAX_HEALTH;
+        self.death_cause = None;
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -219,6 +281,13 @@ impl Player {
             velocity: Vec3::ZERO,
             on_ground: true,
             is_flying: false,
+            is_sprinting: false,
+            is_sneaking: false,
+            is_swimming: false,
+            fall_distance: 0.0,
+            game_mode: GameMode::default(),
+            health: MAX_HEALTH,
+            death_cause: None,
             inventory: Inventory::new(),
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,

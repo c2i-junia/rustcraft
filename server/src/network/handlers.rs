@@ -14,7 +14,6 @@ use shared::players::Player;
 use shared::utils::unix_time_ms;
 use shared::world::WorldSeed;
 
-use crate::world::generation::WorldGenerator;
 use shared::{GameFolderPaths, GameServerConfig};
 
 use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
@@ -81,13 +80,13 @@ pub(super) fn auth_register_request(
     }
 
     if !world_map.players.contains_key(&client_id) {
-        let spawn = || WorldGenerator::new(seed.0).spawn_position();
+        let spawn = world_map.spawn;
         match load_player_data(
             &world_map.name,
             &client_id,
             username,
-            game_folder_paths,
             spawn,
+            game_folder_paths,
         ) {
             Ok(player) => world_map.players.insert(client_id, player),
             Err(err) => {
@@ -172,7 +171,7 @@ pub(super) fn chat_message(
         };
         let clock = time.0;
         let answer = match parse_command(line) {
-            Ok(command) => run_command(command, time, &mut player.inventory),
+            Ok(command) => run_command(command, time, player),
             Err(error) => mods
                 .run_command(line, &current_author.name, world_map)
                 .unwrap_or(error),
@@ -264,6 +263,20 @@ pub(super) fn set_render_distance(
         "Client {client_id} asked for a render distance of {asked}, granted {}",
         world_map.render_distances.get(client_id)
     );
+}
+
+/// Brings the player of `client_id` back to the spawn, if it is dead.
+pub(super) fn respawn(client_id: ClientId, world_map: &mut ServerWorldMap) {
+    let spawn = world_map.spawn;
+    let Some(player) = world_map.players.get_mut(&client_id) else {
+        return;
+    };
+    if !player.is_dead() {
+        debug!("Ignoring a respawn request from client {client_id}, whose player is alive");
+        return;
+    }
+    info!("Player {} respawns at {spawn}", player.name);
+    player.respawn(spawn);
 }
 
 pub(super) fn save_world_request(

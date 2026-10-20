@@ -17,6 +17,7 @@ use crate::ui::hud::hotbar::{
 };
 use crate::ui::hud::minimap::{minimap_plugin, spawn_minimap};
 use crate::ui::hud::reticle::spawn_reticle;
+use crate::ui::menus::death::death_plugin;
 use crate::ui::menus::pause::pause_plugin;
 use crate::ui::theme::WIREFRAME;
 use bevy::ui::UiSystems;
@@ -26,6 +27,7 @@ pub mod chat_completion;
 pub mod corner;
 pub mod debug;
 pub mod fps_counter;
+pub mod health;
 pub mod hotbar;
 pub mod inventory;
 pub mod minimap;
@@ -58,7 +60,10 @@ pub fn hud_plugin(app: &mut App) {
             OnEnter(GameState::Game),
             (spawn_reticle, setup_hud, setup_chat).chain(),
         )
-        .add_systems(OnEnter(GameState::Game), setup_inventory)
+        .add_systems(
+            OnEnter(GameState::Game),
+            (setup_inventory, health::spawn_health_bar).chain(),
+        )
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(
             OnEnter(GameState::Game),
@@ -154,7 +159,18 @@ pub fn hud_plugin(app: &mut App) {
                 .after(GameSet::UiMode)
                 .run_if(in_state(GameState::Game).and_then(in_gameplay)),
         );
+    app.add_systems(
+        Update,
+        (
+            health::update_health_bar,
+            health::raise_item_name_over_the_hearts,
+        )
+            .chain()
+            .after(GameSet::Reconciliation)
+            .run_if(in_state(GameState::Game)),
+    );
     pause_plugin(app);
+    death_plugin(app);
     chat_completion_plugin(app);
     minimap_plugin(app);
 }

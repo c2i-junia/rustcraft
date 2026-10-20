@@ -45,18 +45,18 @@ pub fn pre_input_update_system(
     frame_inputs.reset(sync_time.curr_time_ms, sync_time.delta());
 }
 
-/// Whether the local player is simulated this frame: some time has passed since the last frame
-/// and its terrain has arrived. A frame that is not simulated is not sent either, so that the
-/// server only ever simulates the inputs the client predicted.
+/// Whether the local player is simulated this frame: some time has passed since the last frame,
+/// it is alive and its terrain has arrived. A frame that is not simulated is not sent either, so
+/// that the server only ever simulates the inputs the client predicted.
 pub fn local_player_is_simulated(
     frame_inputs: Res<CurrentFrameInputs>,
     player: Query<&Player, With<CurrentPlayerMarker>>,
     world_map: Res<ClientWorldMap>,
 ) -> bool {
     frame_inputs.0.delta_ms != 0
-        && player
-            .single()
-            .is_ok_and(|player| is_terrain_loaded(player.position, &world_map.blocks))
+        && player.single().is_ok_and(|player| {
+            !player.is_dead() && is_terrain_loaded(player.position, &world_map.blocks)
+        })
 }
 
 /// The movement keys, held down, and the action each of them sends to the server.

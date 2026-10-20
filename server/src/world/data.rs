@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-use bevy::math::IVec3;
+use bevy::math::{IVec3, Vec3};
 use bevy_ecs::resource::Resource;
 
 use super::dropped_items::DroppedItems;
@@ -34,6 +34,8 @@ pub struct ServerWorldMap {
     /// The folder of the world, whose files hold the saved chunks not loaded yet: a chunk is
     /// read from there when a player first needs it. `None` generates every chunk.
     pub saved: Option<PathBuf>,
+    /// Where a new player appears, and a dead one comes back (`generation::spawn_position`).
+    pub spawn: Vec3,
 }
 
 /// What one client has received of the world.

@@ -160,6 +160,29 @@ wears it, until it breaks itself (`shared/src/players/blocks.rs`). A block that 
 `BrokenBlock` is not `harvested`, and the server drops none of its items. The client predicts
 the wear like any change of the inventory.
 
+The stance of a player is part of the `MovementState` both sides carry over
+(`shared/src/players/movement.rs`): sprinting starts with `NetworkAction::Sprint` while moving
+forward and lasts until the player stops going forward or sneaks, sneaking is the sneak key on
+foot, and a sprint in a liquid is a swim, which goes where the camera looks. A sneaking player on
+the ground refuses a step after which nothing would be under its box. The vertical move is cut
+into steps of at most half a block, and a player that runs into a block is put against it: on
+top when it falls, which lands it, right under when it rises, which does not. The blocks fallen
+since the player last stood, swam or flew are carried over too, and `simulate_player_movement`
+returns them when it lands.
+
+The game mode (`shared/src/players/game_mode.rs`), the health and the cause of a death are the
+server's: they are saved with the player, sent in every `PlayerUpdate`, and the client takes
+them as they come, before it checks its prediction. The simulation reads the mode, which keeps
+a survival player from flying, but changes neither: the server hurts a player that landed
+(`fall_damage`, one point per block beyond 3) or fell below `FALL_LIMIT`, in survival only, and
+gives a living player a point back every `REGENERATION_TICKS` (`world/simulation.rs`). A dead
+player is not simulated: the server acknowledges its inputs without applying them, and the client
+neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the
+server, asked by `Respawn`, brings the player back. Players spawn and respawn at
+`ServerWorldMap::spawn`, computed once from the seed (`world/generation.rs`, `spawn_position`): on
+the column nearest x = 0, z = 0 that no tree or cactus tops. `/gamemode` changes the mode of its
+author.
+
 ## One server tick
 
 The server runs at 20 ticks per second. Its loop turns every 4 ms (`LOOP_PERIOD`): the
@@ -376,6 +399,8 @@ the integrated server, on wall-clock time. How to write one is in the README.
   a client with a higher frame rate breaks blocks faster.
 - Mobs are a prototype: one fox, spawned at a fixed tick.
 - An item that does not fit in a full inventory is lost.
+- A player who dies keeps its inventory, and nothing hurts it but falls.
+- Any player may change its own game mode with `/gamemode`: there are no operators yet.
 - A world still loading 10 s after the quit is stopped with the process: its server cannot be
   told to stop before it accepts the player. Its files are written atomically, so the save stays
   readable.

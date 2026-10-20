@@ -28,6 +28,7 @@ use crate::ui::hud::minimap::world_map::WorldMapRoot;
 use crate::ui::hud::minimap::MinimapRoot;
 use crate::ui::hud::reticle::show_reticle;
 use crate::ui::hud::{HudBottom, InventoryRoot, UIMode, UiDialog};
+use crate::ui::menus::death::DeathScreen;
 use crate::ui::menus::modal_open;
 use crate::ui::menus::settings::controls::KeyCapture;
 use crate::ui::menus::settings::{close_settings, spawn_settings, SettingsContext, SettingsRoot};
@@ -107,7 +108,7 @@ impl PauseButton {
     }
 
     /// Whether the button leaves the game: it sits apart from the others.
-    fn leaves(self) -> bool {
+    pub fn leaves(self) -> bool {
         matches!(self, PauseButton::SaveAndQuit | PauseButton::Disconnect)
     }
 }
@@ -214,7 +215,7 @@ pub fn pause_plugin(app: &mut App) {
 }
 
 /// The overlays the game's HUD hides under: the pause menu, the in-game settings, the card
-/// shown while quitting and the world map. An overlay over the game joins them here, so that the hotbar, the
+/// shown while quitting, the world map and the death screen. An overlay over the game joins them here, so that the hotbar, the
 /// reticle and the chat lines all hide under it.
 pub type Overlays<'w, 's> = Query<
     'w,
@@ -225,6 +226,7 @@ pub type Overlays<'w, 's> = Query<
         With<SettingsRoot>,
         With<QuittingCard>,
         With<WorldMapRoot>,
+        With<DeathScreen>,
     )>,
 >;
 
@@ -385,9 +387,10 @@ fn spawn_pause_menu(commands: &mut Commands, assets: &AssetServer, origin: Optio
     keep_focus_inside(commands, root, first);
 }
 
-/// Carries out the button of the pause menu that was activated.
+/// Carries out the button of the pause menu that was activated. The death screen has the
+/// leaving one too.
 #[allow(clippy::too_many_arguments)]
-fn act_on_pause_button(
+pub(crate) fn act_on_pause_button(
     event: On<Activate>,
     buttons: Query<&PauseButton>,
     menus: Query<Entity, With<PauseMenu>>,

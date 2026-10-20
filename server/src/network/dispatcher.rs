@@ -8,7 +8,8 @@ use crate::world::data::ServerWorldMap;
 use crate::world::dropped_items::{dropped_items_physics_system, pickup_dropped_items_system};
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{
-    broadcast_player_updates_system, handle_player_inputs_system, PlayerInputsEvent,
+    broadcast_player_updates_system, handle_player_inputs_system, regenerate_health_system,
+    PlayerInputsEvent,
 };
 use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
@@ -110,6 +111,7 @@ pub fn register_systems(app: &mut App) {
         FixedUpdate,
         (
             handle_player_inputs_system,
+            regenerate_health_system,
             pickup_dropped_items_system,
             crate::mob::manage_mob_spawning_system,
             world::flow::water_flow_system,
@@ -297,6 +299,9 @@ fn handle_client_messages_system(
                         config.max_render_distance,
                     );
                 }
+                ClientToServerMessage::Respawn => {
+                    handlers::respawn(client_id, &mut world_map);
+                }
             }
         }
         if dropped_inputs > 0 {
@@ -333,6 +338,7 @@ fn message_kind(message: &ClientToServerMessage) -> &'static str {
         ClientToServerMessage::PlayerInputs(_) => "PlayerInputs",
         ClientToServerMessage::SaveWorldRequest => "SaveWorldRequest",
         ClientToServerMessage::SetRenderDistance(_) => "SetRenderDistance",
+        ClientToServerMessage::Respawn => "Respawn",
     }
 }
 

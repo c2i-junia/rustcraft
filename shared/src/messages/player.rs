@@ -3,6 +3,7 @@ use bevy_platform::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
+use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
 use crate::world::Container;
 
@@ -17,7 +18,8 @@ pub enum NetworkAction {
     ToggleFlyMode,
     LeftClick,
     RightClick,
-    /// Sent while the player sprints: it only goes faster while it also moves forward.
+    /// Sent while the player sprints. It starts a sprint while moving forward, which the
+    /// simulation keeps as long as the player moves forward and does not sneak.
     Sprint,
 }
 
@@ -48,6 +50,10 @@ pub struct PlayerUpdateEvent {
     /// `last_ack_time`: the client takes it with the inventory. Boxed, as it is larger than
     /// every other message. Sent to that player only, as the inventory.
     pub open_chest: Option<Box<Container>>,
+    pub health: u32,
+    pub game_mode: GameMode,
+    /// What killed the player, while it is dead.
+    pub death_cause: Option<DeathCause>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

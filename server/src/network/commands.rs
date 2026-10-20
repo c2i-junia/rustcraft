@@ -1,7 +1,8 @@
 //! The chat commands: a chat message that starts with `/` is run by the server for its author,
 //! who alone gets the answer, instead of being relayed.
 
-use shared::players::Inventory;
+use shared::players::game_mode::GameMode;
+use shared::players::Player;
 use shared::world::{ItemId, ItemStack};
 use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
@@ -12,6 +13,7 @@ pub const SERVER_AUTHOR: &str = "Server";
 
 const TIME_USAGE: &str = "Usage: /time set <day|night>";
 const GIVE_USAGE: &str = "Usage: /give <item> <count>";
+const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeOfDay {
@@ -27,6 +29,8 @@ pub enum Command {
     SetTime(TimeOfDay),
     /// `/give <item> <count>`: to the author of the command.
     Give { item: ItemId, count: u32 },
+    /// `/gamemode <creative|survival>`: of the author of the command.
+    SetGameMode(GameMode),
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -53,12 +57,16 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             Ok(Command::Give { item, count })
         }
         ["give", ..] => Err(GIVE_USAGE.to_string()),
+        ["gamemode", mode] => GameMode::from_name(mode)
+            .map(Command::SetGameMode)
+            .ok_or_else(|| GAMEMODE_USAGE.to_string()),
+        ["gamemode", ..] => Err(GAMEMODE_USAGE.to_string()),
         _ => Err(format!("Unknown command: /{line}")),
     }
 }
 
-/// Runs `command` for a player whose inventory is `inventory`, and returns the answer.
-pub fn run_command(command: Command, time: &mut ServerTime, inventory: &mut Inventory) -> String {
+/// Runs `command` for `player`, its author, and returns the answer.
+pub fn run_command(command: Command, time: &mut ServerTime, player: &mut Player) -> String {
     match command {
         Command::SetTime(time_of_day) => {
             time.0 = next_tick_at(time.0, time_of_day);
@@ -69,7 +77,7 @@ pub fn run_command(command: Command, time: &mut ServerTime, inventory: &mut Inve
             format!("Time set to {name}")
         }
         Command::Give { item, count } => {
-            let lost = inventory.add_item_to_inventory(ItemStack {
+            let lost = player.inventory.add_item_to_inventory(ItemStack {
                 item_id: item,
                 item_type: item.get_default_type(),
                 nb: count,
@@ -80,6 +88,11 @@ pub fn run_command(command: Command, time: &mut ServerTime, inventory: &mut Inve
             } else {
                 format!("Gave {given} {item:?}, {lost} did not fit in the inventory")
             }
+        }
+        Command::SetGameMode(mode) => {
+            // The simulation lands a player that may no longer fly
+            player.game_mode = mode;
+            format!("Game mode set to {}", mode.name())
         }
     }
 }
@@ -182,9 +195,41 @@ mod tests {
                 .unwrap();
             format!("Usage: {}", command.usage())
         };
-        assert_eq!(shared::commands::COMMANDS.len(), 2);
+        assert_eq!(shared::commands::COMMANDS.len(), 3);
         assert_eq!(TIME_USAGE, usage("time"));
         assert_eq!(GIVE_USAGE, usage("give"));
+        assert_eq!(GAMEMODE_USAGE, usage("gamemode"));
+    }
+
+    #[test]
+    fn gamemode_takes_creative_or_survival() {
+        assert_eq!(
+            parse_command("gamemode creative"),
+            Ok(Command::SetGameMode(GameMode::Creative))
+        );
+        assert_eq!(
+            parse_command("gamemode Survival"),
+            Ok(Command::SetGameMode(GameMode::Survival))
+        );
+        for wrong in ["gamemode", "gamemode adventure", "gamemode creative now"] {
+            assert_eq!(
+                parse_command(wrong),
+                Err(GAMEMODE_USAGE.to_string()),
+                "{wrong}"
+            );
+        }
+    }
+
+    #[test]
+    fn gamemode_changes_the_mode_of_its_author() {
+        let mut player = Player::default();
+        let answer = run_command(
+            Command::SetGameMode(GameMode::Creative),
+            &mut ServerTime(0),
+            &mut player,
+        );
+        assert_eq!(player.game_mode, GameMode::Creative);
+        assert_eq!(answer, "Game mode set to creative");
     }
 
     #[test]

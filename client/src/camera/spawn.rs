@@ -60,6 +60,9 @@ pub fn camera_plugin(app: &mut App) {
         );
 }
 
+/// The vertical field of view of the camera, in degrees.
+pub const FOV_DEGREES: f32 = 60.0;
+
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
@@ -68,7 +71,7 @@ fn spawn_camera(mut commands: Commands) {
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
-            fov: f32::to_radians(60.0),
+            fov: FOV_DEGREES.to_radians(),
             ..default()
         }),
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0))

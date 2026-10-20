@@ -102,7 +102,7 @@ impl GameAction {
             GameAction::Escape => "Pause",
             GameAction::ToggleFlyMode => "Toggle flying",
             GameAction::FlyUp => "Fly up",
-            GameAction::FlyDown => "Fly down",
+            GameAction::FlyDown => "Sneak / fly down",
             GameAction::ToggleInventory => "Inventory",
             GameAction::OpenChat => "Chat",
             GameAction::CycleFpsCounter => "FPS counter",

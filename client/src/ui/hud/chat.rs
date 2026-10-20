@@ -18,6 +18,7 @@ use chrono::{DateTime, FixedOffset, Local, TimeZone};
 use shared::messages::{ChatMessageRequest, ClientToServerMessage, FullChatMessage};
 
 use super::chat_completion::{spawn_command_completion, CommandCompletion};
+use super::health::HEALTH_BAND;
 use super::hotbar::ITEM_NAME_BAND;
 use super::inventory::HOTBAR_TOP;
 use super::UIMode;
@@ -152,8 +153,8 @@ pub fn setup_chat(mut commands: Commands, asset_server: Res<AssetServer>) {
             Node {
                 position_type: PositionType::Absolute,
                 left: px(CHAT_LEFT),
-                // above the hotbar and the name of its item, at every size
-                bottom: px(HOTBAR_TOP + ITEM_NAME_BAND + SPACE_S),
+                // above the hotbar, the hearts and the name of its item, at every size
+                bottom: px(HOTBAR_TOP + HEALTH_BAND + ITEM_NAME_BAND + SPACE_S),
                 width: px(CHAT_WIDTH),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(SPACE_XS),

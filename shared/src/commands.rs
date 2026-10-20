@@ -83,6 +83,10 @@ impl CommandSyntax {
 /// Every command, by name.
 pub const COMMANDS: &[CommandSyntax] = &[
     CommandSyntax {
+        name: "gamemode",
+        args: &[Arg::Word(&["creative", "survival"])],
+    },
+    CommandSyntax {
         name: "give",
         args: &[Arg::Item, Arg::Count],
     },
@@ -248,9 +252,10 @@ mod tests {
     fn a_slash_alone_suggests_every_command_with_its_arguments() {
         let completion = complete("/", &[]).unwrap();
         assert_eq!(completion.word_start, 1);
-        assert_eq!(texts(&completion), ["give", "time"]);
-        assert_eq!(completion.suggestions[0].detail, "<item> <count>");
-        assert_eq!(completion.suggestions[1].detail, "set <day|night>");
+        assert_eq!(texts(&completion), ["gamemode", "give", "time"]);
+        assert_eq!(completion.suggestions[0].detail, "<creative|survival>");
+        assert_eq!(completion.suggestions[1].detail, "<item> <count>");
+        assert_eq!(completion.suggestions[2].detail, "set <day|night>");
         assert_eq!(completion.error, None);
         assert!(completion.usage.is_empty());
     }

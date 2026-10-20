@@ -130,6 +130,8 @@ mod tests {
             Vec3::new(0.5, FLOOR_TOP + PLAYER_HEIGHT / 2.0, 0.5),
             Transform::default(),
         );
+        // in creative, which may fly
+        player.game_mode = shared::players::game_mode::GameMode::Creative;
         let mut stride = Stride::default();
         (0..frames)
             .filter_map(|frame| {

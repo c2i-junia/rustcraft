@@ -6,7 +6,7 @@ use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
 use shared::players::ViewMode;
 use shared::world::{aabb_ray_hit, raycast_from_source_position_and_direction, ChunkMap};
 
-/// Height of the player's eyes above the centre of its box.
+/// Height of the player's eyes above the centre of its box, standing.
 const EYE_HEIGHT: f32 = 0.8;
 /// How far behind the player the camera is in third-person view.
 const THIRD_PERSON_DISTANCE: f32 = 10.0;
@@ -44,16 +44,32 @@ pub fn camera_control_system(
         (&mut Transform, &mut CameraController),
         (With<Camera>, Without<CurrentPlayerMarker>),
     >,
-    player_query: Query<&Transform, With<CurrentPlayerMarker>>,
+    player_query: Query<(&Transform, &Children), With<CurrentPlayerMarker>>,
+    bodies: Query<
+        &Transform,
+        (
+            With<PlayerBody>,
+            Without<Camera>,
+            Without<CurrentPlayerMarker>,
+        ),
+    >,
     view_mode: Res<ViewMode>,
     ui_mode: Res<UIMode>,
     world_map: Res<ClientWorldMap>,
 ) {
     // The window can be missing while the app is closing, the player while it is spawning
-    let (Ok(window), Ok(player_transform)) = (windows.single(), player_query.single()) else {
+    let (Ok(window), Ok((player_transform, children))) = (windows.single(), player_query.single())
+    else {
         return;
     };
     let player_position = player_transform.translation;
+    // The eyes go down with the body of a sneaking player
+    let eyes = bodies
+        .iter_many(children)
+        .next()
+        .map_or(Vec3::Y * EYE_HEIGHT, |body| {
+            body.translation + Vec3::Y * EYE_HEIGHT * body.scale.y
+        });
 
     // if the window is not focused, ignore camera movement
     if !window.focused || *ui_mode != UIMode::Closed {
@@ -70,7 +86,7 @@ pub fn camera_control_system(
         match *view_mode {
             ViewMode::FirstPerson => {
                 controller.distance = 0.0;
-                camera_transform.translation = player_position + Vec3::Y * EYE_HEIGHT;
+                camera_transform.translation = player_position + eyes;
                 // Horizontal rotation first, then the vertical one, inverted so that moving
                 // the mouse up looks up
                 camera_transform.rotation = Quat::from_rotation_y(controller.angle_x)

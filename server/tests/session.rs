@@ -612,6 +612,7 @@ fn a_second_authentication_request_changes_nothing() {
 
 /// Flies the player forward and up, then returns the position the server acknowledged.
 fn fly_away(client: &mut TestClient, first_time_ms: u64) -> Vec3 {
+    set_game_mode(client, "creative");
     let frame = |time_ms, actions: &[NetworkAction]| PlayerFrameInput {
         time_ms,
         delta_ms: 100,
@@ -640,6 +641,45 @@ fn fly_away(client: &mut TestClient, first_time_ms: u64) -> Vec3 {
             _ => None,
         },
     )
+}
+
+/// Runs `/gamemode <mode>` and waits for its answer, so that the inputs sent next are
+/// simulated in that mode.
+fn set_game_mode(client: &mut TestClient, mode: &str) {
+    client.send(chat_message(&format!("/gamemode {mode}")));
+    let expected = format!("Game mode set to {mode}");
+    client.wait_for("the answer to /gamemode", |m| match m {
+        ServerToClientMessage::ChatMessage(message) if message.content == expected => Some(()),
+        _ => None,
+    });
+}
+
+/// Sends one input of 100 ms per action set of `frames`, from `first_time_ms` on, and returns
+/// the update that acknowledges the last one.
+fn play(
+    client: &mut TestClient,
+    first_time_ms: u64,
+    frames: &[&[NetworkAction]],
+) -> shared::messages::PlayerUpdateEvent {
+    let inputs: Vec<PlayerFrameInput> = frames
+        .iter()
+        .zip(first_time_ms..)
+        .map(|(actions, time_ms)| PlayerFrameInput {
+            time_ms,
+            delta_ms: 100,
+            inputs: actions.iter().cloned().collect(),
+            ..Default::default()
+        })
+        .collect();
+    let last_time_ms = first_time_ms + frames.len() as u64 - 1;
+    client.send(ClientToServerMessage::PlayerInputs(inputs));
+    let id = client.id;
+    client.wait_for("PlayerUpdate acknowledging the last input", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == last_time_ms => {
+            Some(u.clone())
+        }
+        _ => None,
+    })
 }
 
 fn authenticate(client: &mut TestClient, username: &str) {
@@ -1705,4 +1745,96 @@ fn give_adds_the_items_to_the_inventory_of_its_author() {
         expected.inner.insert(slot, stack(ItemId::Stone, 64));
     }
     assert_eq!(inventory, expected);
+}
+
+#[test]
+fn a_survival_player_is_hurt_by_a_fall_dies_of_a_higher_one_and_respawns_at_the_spawn() {
+    use shared::players::game_mode::{DeathCause, GameMode, MAX_HEALTH};
+
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    client.wait_connected();
+    client.send(auth_request("faller"));
+    let id = client.id;
+    let spawn = client.wait_for("PlayerSpawn for our id", |m| match m {
+        ServerToClientMessage::PlayerSpawn(s) if s.id == id => Some(s.data.position),
+        _ => None,
+    });
+    let idle: &[NetworkAction] = &[];
+    let fly_up: &[NetworkAction] = &[NetworkAction::JumpOrFlyUp];
+    let mut time_ms = 1;
+    let mut play_frames = |client: &mut TestClient, frames: Vec<&[NetworkAction]>| {
+        let update = play(client, time_ms, &frames);
+        time_ms += frames.len() as u64;
+        update
+    };
+
+    // A new player is in survival, standing on the spawn in full health
+    let update = play_frames(&mut client, vec![idle; 10]);
+    assert_eq!(update.game_mode, GameMode::Survival);
+    assert_eq!(update.health, MAX_HEALTH);
+    assert!((update.movement.position - spawn).length() < 0.05);
+    let ground = update.movement.position.y;
+
+    // 10 blocks up: a flight of 20 blocks/s takes 5 frames of 100 ms. A survival player
+    // cannot fly: it has to be in creative
+    let mut toggle_and_fly = vec![&[NetworkAction::ToggleFlyMode][..]];
+    toggle_and_fly.extend([fly_up; 5]);
+    let update = play_frames(&mut client, toggle_and_fly.clone());
+    assert!(!update.movement.is_flying, "flew in survival");
+    // It only jumped: let it land
+    let update = play_frames(&mut client, vec![idle; 20]);
+    assert!((update.movement.position.y - ground).abs() < 0.05);
+    set_game_mode(&mut client, "creative");
+    let update = play_frames(&mut client, toggle_and_fly);
+    assert!(update.movement.is_flying);
+    assert!((update.movement.position.y - ground - 10.0).abs() < 0.05);
+
+    // Back in survival, it falls and lands 10 blocks below: 7 points of health
+    set_game_mode(&mut client, "survival");
+    let update = play_frames(&mut client, vec![idle; 30]);
+    assert!(update.movement.on_ground && !update.movement.is_flying);
+    // The health may have grown back by a point meanwhile
+    assert!(
+        (MAX_HEALTH - 7..=MAX_HEALTH - 6).contains(&update.health),
+        "health {}",
+        update.health
+    );
+    assert_eq!(update.death_cause, None);
+
+    // 30 blocks kill it
+    set_game_mode(&mut client, "creative");
+    let mut flight = vec![&[NetworkAction::ToggleFlyMode][..]];
+    flight.extend([fly_up; 15]);
+    play_frames(&mut client, flight);
+    set_game_mode(&mut client, "survival");
+    let update = play_frames(&mut client, vec![idle; 40]);
+    assert_eq!(update.health, 0);
+    assert_eq!(update.death_cause, Some(DeathCause::Fall));
+    let died_at = update.movement.position;
+
+    // A dead player does not move, and the health it gets back waits for its respawn
+    let update = play_frames(&mut client, vec![&[NetworkAction::MoveForward][..]; 10]);
+    assert_eq!(update.movement.position, died_at);
+    assert_eq!(update.health, 0);
+
+    client.send(ClientToServerMessage::Respawn);
+    let respawned = client.wait_for("PlayerUpdate after the respawn", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.health > 0 => Some(u.clone()),
+        _ => None,
+    });
+    assert_eq!(respawned.health, MAX_HEALTH);
+    assert_eq!(respawned.death_cause, None);
+    assert_eq!(respawned.movement.position, spawn);
+
+    // A living player asking again stays where it is
+    let update = play_frames(&mut client, vec![&[NetworkAction::MoveForward][..]; 5]);
+    client.send(ClientToServerMessage::Respawn);
+    let after = play_frames(&mut client, vec![idle; 1]);
+    let (after, before) = (after.movement.position, update.movement.position);
+    assert_eq!((after.x, after.z), (before.x, before.z));
+
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
 }

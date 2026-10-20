@@ -849,7 +849,7 @@ fn ctrl_f_searches_the_actions_by_name_or_key_and_escape_clears_then_leaves() {
 
     // a key's name finds the actions it is bound to; the other rows and categories hide
     h.type_text("space");
-    h.wait_for(&L::text("2 of 22"), SCREEN);
+    h.wait_for(&L::text("2 of 23"), SCREEN);
     assert!(h.is_visible(&L::text("Jump")));
     assert!(h.is_visible(&L::text("Fly up")));
     assert!(!h.is_visible(&L::text("Move forward")));
@@ -880,13 +880,13 @@ fn ctrl_f_searches_the_actions_by_name_or_key_and_escape_clears_then_leaves() {
     // every word, in any case
     h.ctrl_f();
     h.type_text("FLY tog");
-    h.wait_for(&L::text("1 of 22"), SCREEN);
+    h.wait_for(&L::text("1 of 23"), SCREEN);
     assert!(h.is_visible(&L::text("Toggle flying")));
 
     // Escape clears the search, then leaves the settings
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Move forward"), SCREEN);
-    assert!(!h.is_visible(&L::text("1 of 22")));
+    assert!(!h.is_visible(&L::text("1 of 23")));
     assert_eq!(h.menu_state(), MenuState::Settings);
     assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
     h.wait_for(&hint("Back"), SCREEN);
@@ -901,10 +901,10 @@ fn ctrl_f_comes_back_to_the_controls_and_the_search_outlives_the_tab() {
     let mut h = controls();
     h.ctrl_f();
     h.type_text("debug");
-    h.wait_for(&L::text("5 of 22"), SCREEN);
+    h.wait_for(&L::text("5 of 23"), SCREEN);
     h.open_tab_showing("Audio", &master());
     h.ctrl_f();
-    h.wait_for(&L::text("5 of 22"), SCREEN);
+    h.wait_for(&L::text("5 of 23"), SCREEN);
     assert_eq!(h.focus_label().as_deref(), Some(SEARCH_LABEL));
     assert!(h.is_visible(&L::text("Chunk borders")));
     assert!(!h.is_visible(&L::text("Jump")));
@@ -977,7 +977,7 @@ fn the_focused_slot_and_its_ring_stay_in_view() {
     // past the search field
     h.press(KeyCode::Tab);
     h.press(KeyCode::Tab);
-    for _ in 0..8 {
+    for _ in 0..9 {
         h.press(KeyCode::ArrowDown);
     }
     h.frames(2);

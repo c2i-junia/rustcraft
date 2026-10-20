@@ -9,6 +9,7 @@ use crate::{
         container_files::insert_with_chests,
         data::{world_dir, ServerWorldMap},
         dropped_items::DroppedItems,
+        generation::spawn_position,
         load_from_file::open_world,
         save::Autosave,
         writer::WorldWriter,
@@ -252,6 +253,7 @@ fn load_world(
         dirty_chunks: HashSet::new(),
         players_to_save: Vec::new(),
         saved: Some(world_dir(game_folder_paths, world_name)?),
+        spawn: spawn_position(world_data.seed.0),
     };
     cleanup_all_players_from_world(&mut world_map);
 

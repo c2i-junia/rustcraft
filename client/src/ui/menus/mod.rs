@@ -1,6 +1,7 @@
 pub mod background;
 pub mod connect_error;
 pub mod connecting;
+pub mod death;
 pub mod home;
 pub mod multi;
 pub mod pause;

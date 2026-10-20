@@ -1,3 +1,4 @@
+use super::{body_transform, PlayerBody};
 use crate::{
     camera::CameraController,
     network::{
@@ -76,15 +77,20 @@ pub fn spawn_players_system(
             OTHER_PLAYER_COLOR
         });
         let body = Cuboid::new(player.width, player.height, player.width);
+        let body = (
+            PlayerBody,
+            Mesh3d(meshes.add(Mesh::from(body))),
+            MeshMaterial3d(material.clone()),
+            body_transform(player.height, 1.0),
+        );
         let mut entity = commands.spawn((
             DespawnOnExit(GameState::Game),
             Transform::from_translation(player.position),
             Visibility::default(),
-            Mesh3d(meshes.add(Mesh::from(body))),
-            MeshMaterial3d(material.clone()),
             PlayerMaterialHandle { handle: material },
             player,
             Name::new(event.name.clone()),
+            children![body],
         ));
 
         if is_current_player {
@@ -154,9 +160,12 @@ pub fn update_players_system(
             continue;
         };
 
+        player.health = event.health;
+        player.game_mode = event.game_mode;
+        player.death_cause = event.death_cause;
         if event.id != my_id {
-            player.position = event.movement.position;
-            *transform = Transform::from_translation(event.movement.position);
+            player.set_movement_state(event.movement);
+            transform.translation = event.movement.position;
             continue;
         }
 
@@ -319,6 +328,9 @@ mod tests {
             last_ack_time: 15,
             inventory: Some(Inventory::new()),
             open_chest: None,
+            health: shared::players::game_mode::MAX_HEALTH,
+            game_mode: Default::default(),
+            death_cause: None,
         });
         app.update();
 
@@ -353,6 +365,9 @@ mod tests {
             last_ack_time: 10,
             inventory: Some(server_inventory),
             open_chest: None,
+            health: shared::players::game_mode::MAX_HEALTH,
+            game_mode: Default::default(),
+            death_cause: None,
         });
         app.update();
 
@@ -397,6 +412,9 @@ mod tests {
             last_ack_time: 10,
             inventory: Some(server_inventory),
             open_chest: Some(Box::new(server_chest)),
+            health: shared::players::game_mode::MAX_HEALTH,
+            game_mode: Default::default(),
+            death_cause: None,
         });
         app.update();
 
@@ -608,6 +626,9 @@ mod tests {
                 last_ack_time: self.server_player.last_input_processed,
                 inventory: Some(Inventory::new()),
                 open_chest: None,
+                health: self.server_player.health,
+                game_mode: self.server_player.game_mode,
+                death_cause: self.server_player.death_cause,
             };
             for _ in 0..=u32::from(self.repeats_updates) {
                 self.to_client
@@ -758,6 +779,8 @@ mod tests {
     fn a_move_made_by_the_server_alone(repeats_updates: bool) {
         let mut session = Session::new(Vec3::new(0.5, 64.9, 0.5));
         session.repeats_updates = repeats_updates;
+        // A creative player, which may fly, as the client learns from the first update
+        session.server_player.game_mode = shared::players::game_mode::GameMode::Creative;
         session.hold(KeyCode::KeyW, true);
 
         for frame in 0..200 {
