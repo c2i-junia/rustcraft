@@ -27,7 +27,7 @@ use crate::{
     },
 };
 
-use super::broadcast_world::get_all_active_chunks;
+use super::broadcast_world::active_chunks;
 use super::pool::server_pool;
 
 #[derive(Message, Debug)]
@@ -103,20 +103,21 @@ pub(super) fn generate_missing_chunks<'a>(
     budget: usize,
 ) -> bool {
     let start = Instant::now();
-    let missing: Vec<IVec3> = get_all_active_chunks(players, radius)
-        .into_iter()
-        .filter(|c| !chunks.is_chunk_loaded(*c))
-        .take(budget)
-        .collect();
-    if missing.is_empty() {
-        return true;
-    }
-    debug!("Loading up to {} chunks", missing.len());
-    for batch in missing.chunks(CHUNKS_PER_BATCH) {
-        if start.elapsed() > CHUNK_LOADING_PER_TICK {
-            return false;
+    let mut active = active_chunks(players, radius);
+    let mut left = budget;
+    loop {
+        // The missing chunks are found a batch at a time, from where the last batch ended: the
+        // chunks it loaded are behind
+        let batch: Vec<IVec3> = active
+            .by_ref()
+            .filter(|c| !chunks.is_chunk_loaded(*c))
+            .take(CHUNKS_PER_BATCH.min(left))
+            .collect();
+        if batch.is_empty() {
+            return left > 0;
         }
-        for (c, made) in batch.iter().zip(make_chunks(batch, saved, generator.seed())) {
+        left -= batch.len();
+        for (c, made) in batch.iter().zip(make_chunks(&batch, saved, generator.seed())) {
             match made {
                 Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
                 Made::Generated(chunk) => {
@@ -128,8 +129,10 @@ pub(super) fn generate_missing_chunks<'a>(
                 }
             }
         }
+        if start.elapsed() > CHUNK_LOADING_PER_TICK {
+            return false;
+        }
     }
-    missing.len() < budget
 }
 
 /// The chunk and the render distance of each player, the last time every chunk within their
@@ -276,6 +279,7 @@ pub fn broadcast_player_updates_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::broadcast_world::get_all_active_chunks;
     use shared::players::game_mode::GameMode;
 
     #[test]

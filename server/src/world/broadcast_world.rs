@@ -271,19 +271,34 @@ fn get_world_map_chunks_to_send<'a>(
 
 /// The chunks within the `radius` of each player, each listed once, in the order the players
 /// reach them.
+#[cfg(test)]
 pub fn get_all_active_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
 ) -> Vec<IVec3> {
-    let mut seen = HashSet::new();
-    players
+    active_chunks(players, radius).collect()
+}
+
+/// The chunks within the `radius` of each player, each once, in the order the players reach
+/// them, as they are asked for: the hundreds of thousands of a large render distance are not
+/// all listed when the first few are enough.
+pub fn active_chunks<'a>(
+    players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
+    radius: impl Fn(PlayerId) -> i32,
+) -> impl Iterator<Item = IVec3> {
+    let around: Vec<(IVec3, std::sync::Arc<[IVec3]>)> = players
         .into_iter()
-        .flat_map(|(&id, player)| {
+        .map(|(&id, player)| {
             let chunk = world_position_to_chunk_position(player.position);
-            get_player_nearby_chunks_coords(chunk, radius(id))
+            (chunk, render_distance_offsets(radius(id)))
         })
-        .filter(|chunk| seen.insert(*chunk))
-        .collect()
+        .collect();
+    // A single player reaches each chunk once
+    let mut seen = (around.len() > 1).then(HashSet::new);
+    around
+        .into_iter()
+        .flat_map(|(chunk, offsets)| (0..offsets.len()).map(move |i| chunk + offsets[i]))
+        .filter(move |chunk| seen.as_mut().is_none_or(|seen| seen.insert(*chunk)))
 }
 
 /// The chunks within `render_distance` of `player_chunk_position`, nearest first.
