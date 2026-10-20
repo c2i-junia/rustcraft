@@ -2,6 +2,7 @@
 //! the client's map, as décor the server knows nothing of; the portal gun places them with the
 //! server.
 
+use std::f32::consts::PI;
 use std::time::Instant;
 
 use bevy::{camera::RenderTarget, prelude::*};
@@ -537,9 +538,11 @@ fn keep(shot: &RgbImage, name: &str) {
 }
 
 /// In solo, the player walks into its blue portal and out of its orange one, which faces a
-/// quarter turn to the left: its camera turns once, by that quarter turn, and nothing jumps,
-/// neither the player, the server agreeing with what the client predicted, nor the screen,
-/// from the last frame in front of the blue portal to the first in front of the orange one.
+/// quarter turn to the left: its camera turns once, by that quarter turn, and nothing jumps:
+/// the player moves no more than a frame's walk from a frame to the next, the crossing measured
+/// through the portal, and the screen changes no more across the crossing than between two
+/// frames on one side. That the server simulates the crossing as the client predicts it,
+/// without a correction, is tested in `player::update`, not here.
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn walking_through_a_portal_is_seamless() {
@@ -605,6 +608,7 @@ fn walking_through_a_portal_is_seamless() {
         .portals()
         .clone();
     let through = portals.through(&blue).unwrap();
+    let orange = *portals.get(blue.owner, PortalColor::Orange).unwrap();
     assert_eq!(blue.face, FaceDirection::PlusZ);
 
     // Toward the middle of the blue portal, level
@@ -652,26 +656,28 @@ fn walking_through_a_portal_is_seamless() {
             "shot {}: {} in front of the blue portal, {} of the orange one",
             shots.len(),
             blue.signed_distance(at),
-            portals
-                .get(blue.owner, PortalColor::Orange)
-                .unwrap()
-                .signed_distance(at)
+            orange.signed_distance(at)
         );
         let shot = h.screenshot();
         keep(&shot, &format!("{:02}", shots.len()));
         shots.push((crossed, shot));
-        // Within 0.12 block of the blue portal, the camera of the blue portal has no oblique
-        // near plane, inside the box of the orange one. A glance along the wall, from there,
-        // sees through the blue portal what that camera sees between itself and the orange
-        // portal's plane
-        let distance = blue.signed_distance(at);
-        if !crossed && distance < MIN_OBLIQUE_DISTANCE {
+        // Within 0.12 block of a portal, the camera of that portal has no oblique near plane,
+        // inside the box of the twin. A glance along the wall, from there, sees through the
+        // portal what that camera sees between itself and the twin's plane. A sneaking step is
+        // 0.15 block at most, and the last one before the crossing and the first after it add
+        // up to one: either is within 0.075 block of its portal
+        let (portal, twin, facing) = if crossed {
+            (orange, PortalColor::Blue, yaw(h.world_mut()) + PI)
+        } else {
+            (blue, PortalColor::Orange, yaw(h.world_mut()))
+        };
+        if after == 0 && portal.signed_distance(at) < MIN_OBLIQUE_DISTANCE {
             let looking = yaw(h.world_mut());
-            set_yaw(&mut h, looking - 85f32.to_radians());
+            set_yaw(&mut h, facing - 85f32.to_radians());
             h.frames(1);
             let shot = h.screenshot();
-            keep(&shot, "glance");
-            glances.push(shot);
+            keep(&shot, &format!("glance_{}", glances.len()));
+            glances.push((twin, shot));
             set_yaw(&mut h, looking);
             h.frames(1);
         }
@@ -713,33 +719,44 @@ fn walking_through_a_portal_is_seamless() {
         assert!(from.distance(to) < 0.6, "a jump from {from} to {to}");
     }
     // Out of the orange portal, in front of it
-    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
     let end = trace.last().unwrap().0;
     assert!(orange.signed_distance(end) > 1.0, "{end}");
 
     // The screen across the crossing changes no more than between two frames on one side
     let crossing = shots.iter().position(|(crossed, _)| *crossed).unwrap();
-    // Nor does the colour of the orange portal flash on the blue one, as its camera comes
-    // within 0.12 block of the orange portal, where it would stand inside the orange box: the
-    // orange of the fox that may pass by is far less
-    println!("{} glances along the wall", glances.len());
-    for (index, shot) in shots
-        .iter()
-        .map(|(_, shot)| shot)
-        .chain(&glances)
-        .enumerate()
-    {
-        let orange = shot
+    // Nor does the colour of the twin flash on a portal, as its camera comes within 0.12 block
+    // of the twin, where it would stand inside the twin's box. The orange of the fox that may
+    // pass by is far less
+    assert!(
+        !glances.is_empty(),
+        "no shot within {MIN_OBLIQUE_DISTANCE} block of a portal"
+    );
+    let share = |shot: &RgbImage, color: PortalColor| {
+        let coloured = shot
             .pixels()
             .filter(|pixel| {
                 let [r, g, b] = pixel.0.map(i32::from);
-                r > g + 40 && g > b + 20
+                match color {
+                    PortalColor::Orange => r > g + 40 && g > b + 20,
+                    // More saturated than the sky
+                    PortalColor::Blue => b > r + 100 && b > g + 40,
+                }
             })
             .count();
-        let share = orange as f32 / (shot.width() * shot.height()) as f32;
+        coloured as f32 / (shot.width() * shot.height()) as f32
+    };
+    for (index, (_, shot)) in shots.iter().enumerate() {
+        let orange = share(shot, PortalColor::Orange);
+        assert!(
+            orange < 0.05,
+            "orange on {orange} of the screen in shot {index}"
+        );
+    }
+    for (twin, shot) in &glances {
+        let share = share(shot, *twin);
         assert!(
             share < 0.05,
-            "orange on {share} of the screen in shot {index}"
+            "{twin:?} on {share} of the screen in a glance"
         );
     }
     let differences: Vec<f32> = shots
