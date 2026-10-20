@@ -208,7 +208,7 @@ mod tests {
             ("garbage", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS),
             ("()", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS),
             ("(render_distance: 0)", MIN_RENDER_DISTANCE),
-            ("(render_distance: 50)", MAX_CHUNK_RENDER_DISTANCE_RADIUS),
+            ("(render_distance: 500)", MAX_CHUNK_RENDER_DISTANCE_RADIUS),
         ] {
             fs::write(&file, content).unwrap();
             assert_eq!(load_render_distance(&paths).distance, expected, "{content}");
