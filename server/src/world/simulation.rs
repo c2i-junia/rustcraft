@@ -25,9 +25,9 @@ use crate::{
         generation::{generate_chunk, WorldGenerator},
     },
 };
-use bevy::tasks::{ComputeTaskPool, TaskPool};
 
 use super::broadcast_world::get_all_active_chunks;
+use super::pool::server_pool;
 
 #[derive(Message, Debug)]
 pub struct PlayerInputsEvent {
@@ -60,12 +60,12 @@ fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, seed: u32) -> Made {
     Made::Generated(generate_chunk(chunk_pos, seed))
 }
 
-/// Makes `chunks` on the threads of the compute pool, in their order.
+/// Makes `chunks` on the threads of the server pool, in their order.
 fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
     if chunks.len() <= CHUNKS_PER_TASK {
         return chunks.iter().map(|&c| make_chunk(c, saved, seed)).collect();
     }
-    ComputeTaskPool::get_or_init(TaskPool::default)
+    server_pool()
         .scope(|scope| {
             for batch in chunks.chunks(CHUNKS_PER_TASK) {
                 scope.spawn(async move {

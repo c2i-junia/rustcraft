@@ -11,6 +11,7 @@ pub mod format;
 pub mod generation;
 mod legacy;
 pub mod load_from_file;
+mod pool;
 pub mod save;
 pub mod simulation;
 pub mod writer;

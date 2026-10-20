@@ -2,9 +2,9 @@ use crate::init::ServerTime;
 use crate::network::extensions::SendGameMessageExtension;
 use crate::world::data::{SentChunks, ServerWorldMap};
 use crate::world::dropped_items::dropped_items_update;
+use crate::world::pool::server_pool;
 use bevy::math::IVec3;
 use bevy::prelude::*;
-use bevy::tasks::{ComputeTaskPool, TaskPool};
 use bevy_ecs::system::ResMut;
 use bevy_renet::{renet::ClientId, RenetServer};
 use shared::messages::mob::MobUpdateEvent;
@@ -131,7 +131,7 @@ fn encode_world_updates(
     match chunks.len() {
         0 => Vec::new(),
         1..=CHUNKS_PER_MESSAGE => vec![encode(0, &chunks)],
-        _ => ComputeTaskPool::get_or_init(TaskPool::default).scope(|scope| {
+        _ => server_pool().scope(|scope| {
             for (index, part) in chunks.chunks(CHUNKS_PER_MESSAGE).enumerate() {
                 scope.spawn(async move { encode(index, part) });
             }
