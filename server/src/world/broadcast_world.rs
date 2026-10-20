@@ -18,7 +18,7 @@ use shared::{game_message_to_payload, CHUNK_SIZE, STC_CHUNK_DATA_CHANNEL, UNLOAD
 use std::collections::{HashMap, HashSet};
 
 /// Most chunks sent to one client by one broadcast.
-const MAX_CHUNKS_PER_BROADCAST: usize = 512;
+const MAX_CHUNKS_PER_BROADCAST: usize = 1024;
 
 pub fn broadcast_world_state(
     mut server: ResMut<RenetServer>,

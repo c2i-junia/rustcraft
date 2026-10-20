@@ -214,7 +214,7 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    Each client gets the chunks within the render distance of its own player along x and z,
    and within at most `MAX_VERTICAL_RENDER_DISTANCE` (8) of it along y, as the ground lies
    within a few chunks of height (`within_render_distance`): nearest first
-   (`render_distance_offsets`) and at most 512 per tick, not counting the chunks of one kind
+   (`render_distance_offsets`) and at most 1024 per tick, not counting the chunks of one kind
    of cell, in messages of 32 chunks encoded in parallel; the first one carries the mobs.
    The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (64), in the Video
    tab of the settings or with the O and P keys (`RenderDistance`, saved in `video.ron`): the
