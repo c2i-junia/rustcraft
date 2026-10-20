@@ -2,7 +2,7 @@
 //! a player ever came near, tens of thousands more at each walk with a large render distance.
 
 use bevy::prelude::*;
-use shared::world::{chunk_in_reach, vertical_render_distance, world_position_to_chunk_position};
+use shared::world::{world_position_to_chunk_position, ChunkReach};
 use shared::{TICKS_PER_SECOND, UNLOAD_MARGIN};
 
 use crate::init::ServerTime;
@@ -42,16 +42,18 @@ pub fn unload_far_chunks_system(
     }
 }
 
-/// Forgets the chunks of `world_map` beyond `KEPT_MARGIN` of the reach of every player but
-/// those not saved yet, and says how many.
+/// Forgets the chunks of `world_map` beyond `KEPT_MARGIN` of the reach of every player
+/// (`ChunkReach::keeps`, the chunks around the twins of the portals it sees included) but those
+/// not saved yet, and says how many.
 fn unload_far_chunks(world_map: &mut ServerWorldMap) -> usize {
-    let reach: Vec<(IVec3, i32)> = world_map
+    let reaches: Vec<ChunkReach> = world_map
         .players
         .values()
         .map(|player| {
-            (
+            ChunkReach::new(
                 world_position_to_chunk_position(player.position),
                 world_map.render_distances.get(player.id),
+                world_map.chunks.portals(),
             )
         })
         .collect();
@@ -59,16 +61,7 @@ fn unload_far_chunks(world_map: &mut ServerWorldMap) -> usize {
         .chunks
         .chunk_positions()
         .filter(|chunk| !world_map.dirty_chunks.contains(chunk))
-        .filter(|chunk| {
-            !reach.iter().any(|&(center, distance)| {
-                chunk_in_reach(
-                    *chunk,
-                    center,
-                    distance + KEPT_MARGIN,
-                    vertical_render_distance(distance) + KEPT_MARGIN,
-                )
-            })
-        })
+        .filter(|chunk| !reaches.iter().any(|reach| reach.keeps(*chunk, KEPT_MARGIN)))
         .collect();
     for chunk in &far {
         world_map.chunks.remove_chunk(*chunk);
@@ -142,6 +135,44 @@ mod tests {
         // Its reach starts at KEPT + 1
         let kept: Vec<i32> = (-KEPT..=KEPT + 3).collect();
         assert_eq!(loaded(&map), kept);
+    }
+
+    #[test]
+    fn the_server_keeps_the_chunks_around_the_twin_of_a_portal_within_reach() {
+        use shared::world::{FaceDirection, Portal, PortalColor, PORTAL_VIEW_RADIUS};
+        let mut map = world(KEPT + 1);
+        let twin = IVec3::new(40, 0, 0);
+        let around: Vec<i32> = (twin.x - PORTAL_VIEW_RADIUS - KEPT_MARGIN
+            ..=twin.x + PORTAL_VIEW_RADIUS + KEPT_MARGIN)
+            .collect();
+        for x in around
+            .iter()
+            .copied()
+            .chain([twin.x + PORTAL_VIEW_RADIUS + KEPT_MARGIN + 1])
+        {
+            map.chunks
+                .insert_chunk(IVec3::new(x, 0, 0), Default::default());
+        }
+        for (color, chunk) in [(PortalColor::Blue, IVec3::X), (PortalColor::Orange, twin)] {
+            map.chunks.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+            });
+        }
+
+        // Within the view radius of the twin and the margin, as the player's own: the chunk
+        // beyond, and the two beyond the player's reach, go
+        assert_eq!(unload_far_chunks(&mut map), 3);
+        let mut kept: Vec<i32> = (-KEPT..=KEPT).collect();
+        kept.extend(&around);
+        assert_eq!(loaded(&map), kept);
+
+        // Closed, the portal keeps nothing
+        map.chunks.portals_mut().remove(1, PortalColor::Orange);
+        unload_far_chunks(&mut map);
+        assert_eq!(loaded(&map), (-KEPT..=KEPT).collect::<Vec<_>>());
     }
 
     #[test]

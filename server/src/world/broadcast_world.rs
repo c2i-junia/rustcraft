@@ -12,7 +12,7 @@ use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate
 use shared::players::Player;
 use shared::world::{
     global_block_to_chunk_pos, render_distance_offsets, world_position_to_chunk_position, Chunk,
-    ChunkMap, ChunkReach, MobId, ServerMob,
+    ChunkMap, ChunkReach, MobId, Portals, ServerMob,
 };
 use shared::{game_message_to_payload, CHUNK_SIZE, STC_CHUNK_DATA_CHANNEL, UNLOAD_MARGIN};
 use std::collections::{HashMap, HashSet};
@@ -342,22 +342,35 @@ pub fn get_all_active_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
 ) -> Vec<IVec3> {
-    active_chunks(players, radius).collect()
+    active_chunks(players, radius, &Default::default()).collect()
 }
 
 /// The chunks within the `radius` of each player, each once, in the order the players reach
 /// them, as they are asked for: the hundreds of thousands of a large render distance are not
-/// all listed when the first few are enough.
+/// all listed when the first few are enough. Then those around the twins of the open portals
+/// within the radius of each player (`ChunkReach::portal_chunks`) that no player has within its
+/// radius, each once: 729 at most per twin, listed at once.
 pub fn active_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
+    portals: &Portals,
 ) -> impl Iterator<Item = IVec3> {
-    let around: Vec<(IVec3, std::sync::Arc<[IVec3]>)> = players
+    let reaches: Vec<ChunkReach> = players
         .into_iter()
         .map(|(&id, player)| {
             let chunk = world_position_to_chunk_position(player.position);
-            (chunk, render_distance_offsets(radius(id)))
+            ChunkReach::new(chunk, radius(id), portals)
         })
+        .collect();
+    let mut seen = HashSet::new();
+    let behind_portals: Vec<IVec3> = reaches
+        .iter()
+        .flat_map(ChunkReach::portal_chunks)
+        .filter(|&chunk| !reaches.iter().any(|reach| reach.within(chunk)) && seen.insert(chunk))
+        .collect();
+    let around: Vec<(IVec3, std::sync::Arc<[IVec3]>)> = reaches
+        .iter()
+        .map(|reach| (reach.center, render_distance_offsets(reach.distance)))
         .collect();
     // A single player reaches each chunk once
     let mut seen = (around.len() > 1).then(HashSet::new);
@@ -365,6 +378,7 @@ pub fn active_chunks<'a>(
         .into_iter()
         .flat_map(|(chunk, offsets)| (0..offsets.len()).map(move |i| chunk + offsets[i]))
         .filter(move |chunk| seen.as_mut().is_none_or(|seen| seen.insert(*chunk)))
+        .chain(behind_portals)
 }
 
 #[cfg(test)]

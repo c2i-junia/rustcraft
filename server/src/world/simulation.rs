@@ -9,7 +9,7 @@ use shared::{
         simulation::simulate_player_actions,
         Player,
     },
-    world::{world_position_to_chunk_position, Chunk, ChunkMap, ServerMob, WorldSeed},
+    world::{world_position_to_chunk_position, Chunk, ChunkMap, ChunkReach, ServerMob, WorldSeed},
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -99,7 +99,7 @@ pub(super) fn generate_missing_chunks<'a>(
     saved: Option<&Path>,
     generator: &WorldGenerator,
 ) {
-    let missing: Vec<IVec3> = active_chunks(players, radius)
+    let missing: Vec<IVec3> = active_chunks(players, radius, &Default::default())
         .filter(|c| !chunks.is_chunk_loaded(*c))
         .collect();
     for c in missing {
@@ -180,7 +180,7 @@ impl ChunkLoader {
         saved: Option<&Path>,
         asked: &mut usize,
     ) -> bool {
-        let mut active = active_chunks(players, radius).skip(*asked);
+        let mut active = active_chunks(players, radius, chunks.portals()).skip(*asked);
         let mut missing = Vec::new();
         let mut reached_all = false;
         while self.in_flight.len() + missing.len() < self.most_in_flight {
@@ -214,14 +214,14 @@ impl ChunkLoader {
     }
 }
 
-/// The chunk and the render distance of each player, with how many of the chunks within their
-/// reach, in the order they are reached, are all loaded or in flight, and whether they are all
-/// loaded. The server keeps the chunks within reach: while the players stay in the same
-/// chunks, the hundreds of thousands of chunks of a large render distance are not looked at
-/// again.
+/// The reach of each player (its chunk, its render distance and the portals), with how many of
+/// the chunks within their reach, in the order they are reached, are all loaded or in flight,
+/// and whether they are all loaded. The server keeps the chunks within reach: while the players
+/// stay in the same chunks and no portal changes, the hundreds of thousands of chunks of a
+/// large render distance are not looked at again.
 #[derive(Default)]
 pub struct LoadedAround {
-    around: Vec<(PlayerId, IVec3, i32)>,
+    around: Vec<(PlayerId, ChunkReach)>,
     asked: usize,
     complete: bool,
 }
@@ -262,10 +262,14 @@ pub fn handle_player_inputs_system(
         .values()
         .map(|player| {
             let chunk = world_position_to_chunk_position(player.position);
-            (player.id, chunk, render_distances.get(player.id))
+            let distance = render_distances.get(player.id);
+            (
+                player.id,
+                ChunkReach::new(chunk, distance, chunks.portals()),
+            )
         })
         .collect();
-    around.sort_by_key(|&(id, ..)| id);
+    around.sort_by_key(|(id, _)| *id);
     if loaded_around.around != around {
         *loaded_around = LoadedAround {
             around,
@@ -571,7 +575,7 @@ mod tests {
         );
         assert!(loaded(&chunks).iter().all(|c| c.abs().max_element() <= 1));
 
-        let within = active_chunks(&players, |_| 2).count();
+        let within = active_chunks(&players, |_| 2, &Default::default()).count();
         for _ in 0..within {
             if loader.ask(&players, |_| 2, &chunks, None, &mut asked) {
                 break;
@@ -581,12 +585,96 @@ mod tests {
         assert_eq!(loaded(&chunks).len(), within);
     }
 
+    /// Opens a pair of portals of the player 1: the blue one onto the chunk `blue`, the orange
+    /// one onto `orange`.
+    fn open_pair(chunks: &mut ChunkMap, blue: IVec3, orange: IVec3) {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        for (color, chunk) in [(PortalColor::Blue, blue), (PortalColor::Orange, orange)] {
+            chunks.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor: chunk * shared::CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+            });
+        }
+    }
+
+    const FAR_TWIN: IVec3 = IVec3::new(40, 0, 0);
+
+    #[test]
+    fn the_chunks_around_a_twin_are_loaded_after_those_of_the_players() {
+        use shared::world::{render_distance_offsets, within_render_distance, PORTAL_VIEW_RADIUS};
+        let players = player_at_the_origin();
+        let mut chunks = ChunkMap::default();
+        open_pair(&mut chunks, IVec3::X, FAR_TWIN);
+
+        let active: Vec<IVec3> = active_chunks(&players, |_| 1, chunks.portals()).collect();
+        let own = render_distance_offsets(1).len();
+        assert!(active[..own]
+            .iter()
+            .all(|c| within_render_distance(*c, IVec3::ZERO, 1)));
+        assert_eq!(active.len() - own, 9 * 9 * 9);
+        assert!(active[own..].iter().all(|c| within_render_distance(
+            *c,
+            FAR_TWIN,
+            PORTAL_VIEW_RADIUS
+        )));
+
+        let mut loader = ChunkLoader::new(1);
+        let mut dirty = HashSet::new();
+        let mut asked = 0;
+        while !loader.ask(&players, |_| 1, &chunks, None, &mut asked) {
+            insert_all_made(&mut loader, &mut chunks, &mut dirty);
+        }
+        assert!(active.iter().all(|c| chunks.is_chunk_loaded(*c)));
+    }
+
+    #[test]
+    fn a_portal_opened_once_the_reach_is_loaded_has_the_chunks_around_its_twin_loaded() {
+        let map = ServerWorldMap {
+            players: player_at_the_origin(),
+            ..default()
+        };
+        let mut app = App::new();
+        app.insert_resource(map)
+            .insert_resource(WorldSeed(1))
+            .add_message::<PlayerInputsEvent>()
+            .add_systems(Update, handle_player_inputs_system);
+        let loaded = |app: &App, chunk: IVec3| {
+            app.world()
+                .resource::<ServerWorldMap>()
+                .chunks
+                .is_chunk_loaded(chunk)
+        };
+        let update_until = |app: &mut App, what: &str, done: &dyn Fn(&App) -> bool| {
+            let start = std::time::Instant::now();
+            while !done(app) {
+                assert!(start.elapsed().as_secs() < 60, "never {what}");
+                app.update();
+                std::thread::yield_now();
+            }
+        };
+        let corner = IVec3::splat(shared::MIN_RENDER_DISTANCE as i32);
+        update_until(&mut app, "the reach", &|app| loaded(app, corner));
+        assert!(!loaded(&app, FAR_TWIN));
+
+        open_pair(
+            &mut app.world_mut().resource_mut::<ServerWorldMap>().chunks,
+            IVec3::X,
+            FAR_TWIN,
+        );
+        let far_corner = FAR_TWIN + IVec3::splat(shared::world::PORTAL_VIEW_RADIUS);
+        update_until(&mut app, "the twin's chunks", &|app| {
+            loaded(app, FAR_TWIN) && loaded(app, far_corner)
+        });
+    }
+
     #[test]
     fn the_chunks_known_to_be_loaded_are_skipped_and_counted() {
         let players = player_at_the_origin();
         let mut chunks = ChunkMap::default();
         let mut dirty = HashSet::new();
-        let within = active_chunks(&players, |_| 2).count();
+        let within = active_chunks(&players, |_| 2, &Default::default()).count();
         let mut loader = ChunkLoader::new(1);
 
         let mut asked = 0;
