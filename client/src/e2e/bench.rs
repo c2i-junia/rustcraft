@@ -298,7 +298,7 @@ fn bench_render_distance() {
     use std::sync::atomic::Ordering;
 
     use super::harness::{Options, STARTUP};
-    use crate::world::rendering::render::MESHES_SHOWN;
+    use crate::world::rendering::render::{MESHES_SHOWN, MESHES_STARTED};
     use crate::world::ClientWorldMap;
 
     let radius: u32 = std::env::var("BENCH_RD")
@@ -329,6 +329,7 @@ fn bench_render_distance() {
 
     // Drawn once neither the chunks held nor the meshes shown changed for two seconds
     let shown_before = MESHES_SHOWN.load(Ordering::Relaxed);
+    let started_before = MESHES_STARTED.load(Ordering::Relaxed);
     let mut last = (usize::MAX, usize::MAX);
     let mut last_change = start.elapsed().as_secs_f64();
     let mut loading = Vec::new();
@@ -352,7 +353,8 @@ fn bench_render_distance() {
             break;
         }
     }
-    let drawn = scene_stats(&mut h);
+    let mut drawn = scene_stats(&mut h);
+    drawn["meshes_started"] = (MESHES_STARTED.load(Ordering::Relaxed) - started_before).into();
     phase("still");
     let still = frame_times(&mut h, 600, |_| {});
     phase("walking");
@@ -394,7 +396,9 @@ fn scene_stats(h: &mut super::harness::Harness) -> serde_json::Value {
         .flat_map(|render| [render.entity, render.liquid_entity])
         .flatten()
         .count();
-    let triangles: usize = renders.map(|render| render.triangles.iter().sum::<usize>()).sum();
+    let triangles: usize = renders
+        .map(|render| render.triangles.iter().sum::<usize>())
+        .sum();
     serde_json::json!({
         "chunks": map.blocks.chunk_positions().count(),
         "entities": entities,
