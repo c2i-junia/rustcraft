@@ -24,8 +24,10 @@ server stops when its player leaves and saves on request.
 - `channels.rs`: the renet channels and the channel of each message, how many bytes a
   connection may send per tick (`AVAILABLE_BYTES_PER_TICK`), and the size of the socket
   buffers, enlarged by both ends so that a burst of chunks is not dropped by the kernel.
-- `world/`: `Chunk` (a dense cube of `CHUNK_SIZE`³ cells, which its copies share until one
-  of them changes: meshing, sending and saving a chunk copy it for nothing), `ChunkMap` (the
+- `world/`: `Chunk` (a cube of `CHUNK_SIZE`³ cells, held as the one cell they all are when
+  they are of one kind, as the air above the ground and the stone below it, else as a dense
+  array, which its copies share until one of them changes: meshing, sending and saving a chunk
+  copy it for nothing), `ChunkMap` (the
   loaded chunks and the log of the blocks that changed), blocks, items, mobs and the raycast.
   A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
   times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
@@ -198,22 +200,27 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    it and answers its author alone. Their syntax is in `shared/src/commands.rs`, which the
    client completes them from.
 2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the render
-   distance of the players before the inputs, at most 1024 a tick, made in parallel on the
-   compute pool, and next to their chunk after each input. A chunk is read from its file in
+   distance of the players before the inputs, for about 20 ms a tick at most
+   (`CHUNK_LOADING_PER_TICK`), the missing ones looked for a batch at a time, and made in
+   parallel on the server's own pool (`world/pool.rs`); and next to their chunk after each
+   input. While no player changes chunk, the chunks around them are not looked at again
+   (`LoadedAround`). A chunk is read from its file in
    the world's folder the first time a player needs it, else generated: opening a world reads
    no chunk. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
    (`shared/src/world/liquid.rs`).
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
 
-   Each client gets the chunks within the render distance of its own player, along the axis
-   where they are farthest apart (`chunk_distance`), nearest first and at most 512 per tick,
-   in messages of 32 chunks encoded in parallel; the first one carries the mobs.
-   The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (8), in the Video
+   Each client gets the chunks within the render distance of its own player along x and z,
+   and within at most `MAX_VERTICAL_RENDER_DISTANCE` (8) of it along y, as the ground lies
+   within a few chunks of height (`within_render_distance`): nearest first
+   (`render_distance_offsets`) and at most 512 per tick, not counting the chunks of one kind
+   of cell, in messages of 32 chunks encoded in parallel; the first one carries the mobs.
+   The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (64), in the Video
    tab of the settings or with the O and P keys (`RenderDistance`, saved in `video.ron`): the
    authentication request carries it and `SetRenderDistance` changes it. The answer to the
    authentication carries the server's maximum (`ServerRenderDistanceLimit`), which the Video
-   tab names in game when it is below the choice; a world of Singleplayer grants 8. The server keeps it between
+   tab names in game when it is below the choice; a world of Singleplayer grants 64. The server keeps it between
    `MIN_RENDER_DISTANCE` (1) and its `--max-render-distance` (`DEFAULT_MAX_RENDER_DISTANCE`,
    6), in `RenderDistances`. `sent_chunks` records what each client has. A chunk more than
    the render distance plus `UNLOAD_MARGIN` away is unloaded, after a move as after a lowered
@@ -225,7 +232,14 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    and never get it back. `ChunkUnloads`, `BlockUpdates` and `WorldUpdate` share one ordered
    channel and go in that order, so that no update is sent for a chunk being unloaded.
 4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
-   are handed to the writer thread.
+   are handed to the writer thread. A generated chunk is saved too, but not one of a single
+   kind of cell, which is generated again at once. Then, every 5 seconds, the chunks more than
+   `KEPT_MARGIN` beyond the reach of every player are forgotten (`world/unload.rs`), but those
+   not saved yet, and none while the writer has saves to write: their file could be read back
+   before it is written. A mob over chunks that are not loaded stays where it is.
+
+The systems of the server run one after the other on its thread: an integrated server would
+otherwise share the compute pool with its client, whose frames would wait for its ticks.
 
 The mobs and the dropped items move first, before the inputs of the tick are read.
 
@@ -239,12 +253,21 @@ The mobs and the dropped items move first, before the inputs of the tick are rea
 3. **Simulation**: block interactions, then movement, predicted on the local player.
 4. **Reconciliation**: the states received from the server are applied.
 5. **Camera**: the camera is placed on the player.
-6. **Meshing** (in `PostUpdate`): the chunks whose blocks changed get a new mesh, built on the
-   async compute pool, which has up to 8 threads (`app::task_pool_plugin`).
+6. **Meshing** (in `PostUpdate`): the chunks are drawn by groups of 4 × 4 columns of chunks
+   (`GROUP_WIDTH`), each one entity, and a second one for its liquids: a frame costs the CPU
+   for each entity, far more than for each face. A group whose chunks changed gets a new
+   mesh, built on the async compute pool, which has up to 8 threads
+   (`app::task_pool_plugin`), with a task per chunk whose faces are put together. A chunk of
+   air, or buried in stone, is not meshed. While chunks arrive, a chunk waits for its
+   neighbours (`WaitingChunks`), which would each mesh it again; at most 128 groups are
+   meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
+   frame. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
+   cast shadows; and a fog of the colour of the sky hides the edge of the render distance.
 
 The network is polled in `PreUpdate`, every frame, and the inputs are uploaded in
 `FixedUpdate`. A message of chunks of 4 KiB or more is decoded on the compute pool, and the
-messages are applied in the order they came (`DecodingChunkMessages`).
+messages are applied in the order they came (`DecodingChunkMessages`), about 1024 chunks a
+frame at most.
 
 The client has one plugin per domain, registered by `game_plugin`: `camera`, `input`, `mob`,
 `network`, `player`, `ui::hud` and `world`. The menus have their own plugin
