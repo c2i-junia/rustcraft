@@ -47,10 +47,13 @@ by its inner faces, glowing rim, visibility test).
    viewport.zw`, `COLOR` shows the portal's colour (darker towards the bottom), `RIM` fades
    from white at the opening to the colour, blended. The box is drawn by its inner faces (front
    faces culled).
-6. **Colour pipeline.** The portal camera has `Tonemapping::None` and renders into an
-   `Rgba8UnormSrgb` image: the image holds the scene in linear light, before tonemapping, and
-   the main camera, which tonemaps everything it draws, tonemaps it once. The portal camera
-   copies the main camera's fog and clear colour (its own fog comes with lot 4).
+6. **Colour pipeline.** The main camera draws without HDR, so each material tonemaps what it
+   draws, in its shader, and the portal's material only copies its image. The portal camera
+   therefore has the main camera's tonemapping, and renders into an `Rgba8UnormSrgb` image: its
+   pixels are already as shown. (With `Tonemapping::None` on the portal camera, sand in full
+   sun shows 239 in red through a portal against 194 seen straight; with the copy, within 2.)
+   The portal camera copies the main camera's fog and clear colour (its own fog comes with
+   lot 4).
 7. **The camera of a portal** exists while the portal is open, is placed in `PostUpdate`
    before transform propagation (`through(portal) · camera`), and is active only when the
    player's camera is in front of the portal's plane and its frustum meets the box. Its image
@@ -62,57 +65,67 @@ by its inner faces, glowing rim, visibility test).
 9. **Test hook.** `ClientWorldMap::blocks.portals_mut()` is the way in: an e2e test builds two
    walls in the client's map (the server does not know them: they are décor), inserts a blue
    and an orange portal, and aims at the blue one.
+10. **Chunks shown to a camera turned on.** Bevy 0.19 hands a mesh with `NoCpuCulling` (the
+    chunks) only to the views there are when it becomes visible, and an inactive camera loses
+    its visible entities: a portal camera turned on drew no chunk. When one is turned on, the
+    chunks lose their `NoCpuCulling` for one frame (`show_chunks_to_new_views`), which hands
+    them to every view, and get it back the next.
 
 ## Tasks
 
 ### Task 1: The model (`shared/src/world/portal.rs`)
-- [ ] Tests: `the_wall_cells_go_right_and_up_from_the_anchor`,
+- [x] Tests: `the_wall_cells_go_right_and_up_from_the_anchor`,
   `the_frame_is_at_the_centre_of_the_opening_facing_out`,
   `the_twin_is_the_other_colour_of_the_same_owner`, `a_lone_portal_has_no_twin`,
   `through_takes_the_front_of_a_portal_to_the_back_of_its_twin`,
   `through_turns_a_direction_into_the_portal_into_one_out_of_the_twin`,
   `through_and_back_is_the_identity`, `placing_a_colour_again_moves_it`,
   `a_portal_covers_the_front_faces_of_its_wall_cells_only`. See them fail.
-- [ ] `PortalColor`, `Portal { owner, color, anchor, face }`, `Portal::{normal, right, cells,
-  frame, plane_distance}`, `Portals::{insert, remove, get, iter, twin, through, covers,
+- [x] `PortalColor`, `Portal { owner, color, anchor, face }`, `Portal::{normal, right, cells,
+  frame, signed_distance}`, `Portals::{insert, remove, get, iter, twin, through, covers,
   is_empty}`.
-- [ ] `ChunkMap::{portals, portals_mut}`. Commit `feat(shared): ...`.
+- [x] `ChunkMap::{portals, portals_mut}`. Commit `feat(shared): ...`.
 
 ### Task 2: The wall under a portal is not meshed
-- [ ] Test (meshing): `the_face_a_portal_covers_is_not_meshed`. See it fail.
-- [ ] `chunk_faces` skips the covered faces; `spawn_meshing_tasks` copies the portals into the
+- [x] Test (meshing): `the_face_a_portal_covers_is_not_meshed`. See it fail.
+- [x] `chunk_faces` skips the covered faces; `spawn_meshing_tasks` copies the portals into the
   map it hands the tasks.
 
 ### Task 3: Projection (`client/src/portal/projection.rs`)
-- [ ] Tests: `a_point_behind_the_twins_plane_is_clipped`, `a_point_in_front_of_it_is_not`,
+- [x] Tests: `a_point_behind_the_twins_plane_is_clipped`, `a_point_in_front_of_it_is_not`,
   `depth_stays_reversed_beyond_the_plane`, `a_portal_seen_straight_on_is_clipped_too`,
   `within_0_12_block_of_the_plane_the_projection_is_plain`. See them fail;
   `portal_projection`; pass.
 
 ### Task 4: Material and shader
-- [ ] `PortalMaterial { params: PortalParams { color, look }, image }`, `portal.wgsl`, loaded
+- [x] `PortalMaterial { params: PortalParams { color, look }, image }`, `portal.wgsl`, loaded
   with `load_internal_asset!`; front faces culled for the box, none for the rim; `RIM` blended.
 
 ### Task 5: Surfaces, rim, cameras
-- [ ] Tests (App with `MinimalPlugins`, `StatesPlugin`, `AssetPlugin`, the assets):
+- [x] Tests (App with `MinimalPlugins`, `StatesPlugin`, `AssetPlugin`, the assets):
   `an_open_pair_gets_two_surfaces_and_two_cameras`,
   `a_lone_portal_shows_its_colour_and_has_no_camera`,
   `removing_the_twin_closes_the_portal`, `the_portal_camera_follows_through_the_portal`,
   `a_portal_off_screen_or_seen_from_behind_has_its_camera_inactive`,
   `the_wall_cells_are_meshed_again_when_the_portals_change`. See them fail.
-- [ ] `portal_plugin`: `sync_portals` (spawn/despawn per portal and camera, remesh requests),
+- [x] `portal_plugin`: `sync_portals` (spawn/despawn per portal and camera, remesh requests),
   `place_portal_cameras` (transform, projection, activity, fog, clear colour) in `PostUpdate`
   before `TransformSystems::Propagate`, `resize_portal_images`. Main camera on layers 0 and 1.
-- [ ] Camera queries filtered on `CameraController`; harness changes of decision 8.
+- [x] Camera queries filtered on `CameraController`; harness changes of decision 8.
 
 ### Task 6: Seen through
-- [ ] `e2e/portals.rs`: `the_view_through_a_portal_is_the_other_side` — two walls, a pair,
-  a marker pillar in front of the orange portal and one behind its wall; asserts the marker in
-  front shows inside the blue portal on screen and the one behind does not; review snapshot.
-  Look at the image.
-- [ ] `bench_portal_frame_time` (ignored): frame time with the portal in view and turned away,
+- [x] `e2e/portals.rs`: `the_view_through_a_portal_is_the_other_side` — two walls, a pair
+  (the orange portal facing the other way, so that `through` is a translation and both sides
+  are lit alike), a pillar of sand in front of the orange portal, one of cactus between it and
+  where its camera stands, and a second pillar of sand seen straight at the same depth; asserts
+  only the blue camera is on, the colour seen through the blue portal where the far sand
+  projects (above the top of the orange wall, out of its shadow at any hour) is sand and within
+  8 of the near sand's, and the lone blue portal shows blue;
+  review snapshots. Look at the images.
+- [x] `bench_portal_frame_time` (ignored): frame time with the portal in view, turned away, and
+  without portals, in turns over several rounds, the screen drawn into the screenshot image;
   lavapipe and `BENCH_GPU`.
 
 ### Task 7: Checks, docs, report
-- [ ] `cargo test`, clippy, fmt; `docs/ARCHITECTURE.md` (shared, client frame, a portals
+- [x] `cargo test`, clippy, fmt; `docs/ARCHITECTURE.md` (shared, client frame, a portals
   paragraph); report in `.superpowers/sdd/portals/lot-1-report.md`.

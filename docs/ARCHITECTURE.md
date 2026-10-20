@@ -29,8 +29,11 @@ server stops when its player leaves and saves on request.
   of cells it holds and a byte per cell naming its kind, else, past 256 kinds, as a dense
   array; its copies share the cells until one of them changes: meshing, sending and saving a
   chunk copy it for nothing), `ChunkMap` (the
-  loaded chunks and the log of the blocks that changed), blocks, items, mobs, the furnace and
-  the raycast.
+  loaded chunks, the log of the blocks that changed and the portals), blocks, items, mobs, the
+  furnace and the raycast. A portal (`world/portal.rs`) is 2 blocks wide and 3 high on the
+  vertical face of a wall, each player owning a blue one and an orange one; `Portals::through`
+  takes the space in front of a portal to the space in front of its twin, the other colour of
+  the same owner.
   A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
   times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
   is how RON and the saves of format version 3 hold a chunk.
@@ -378,6 +381,21 @@ never moves a player, so the prediction of the clients is left alone.
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
    cast shadows; and a fog of the colour of the sky hides the edge of the render distance.
+   The faces of the blocks a portal lies on are not meshed.
+
+Then the portals are drawn (`client/src/portal/`, in `PostUpdate` before `GameSet::Meshing`
+and the propagation of the transforms). A portal is a box hollowed into its wall, drawn by its
+inner faces, and a glowing rim. An open portal has a camera (`camera.rs`) that stands where the
+player's camera would be if the space in front of the portal went on behind its twin
+(`through · camera`), with the twin's plane as its near plane (Bevy's oblique `near_clip_plane`,
+`projection.rs`), so that what lies between the twin and that camera is not drawn. It draws,
+before the main camera, into an image the size of the window, which the portal's surface reads
+where it is on the screen (`portal.wgsl`); it is on only while its portal is in view, from the
+front. The main camera sees layers 0 and 1, the portal cameras 0 and 2: a portal shows the live
+view on layer 1 and its colour on layer 2, so a portal seen through another shows its colour. A
+lone portal shows its colour. The chunks are culled on the GPU only, and Bevy 0.19 hands such a
+mesh only to the views there are when it becomes visible: when a portal camera is turned on,
+the chunks are culled on the CPU for a frame (`show_chunks_to_new_views`).
 
 The sky follows the world clock (`ClientTime`): the sun and the moon turn around the player
 (`celestial.rs`), and the clear colour and the fog go from `SKY_COLOR` at noon to a warm
@@ -476,7 +494,8 @@ messages are applied in the order they came (`DecodingChunkMessages`), about 102
 frame at most.
 
 The client has one plugin per domain, registered by `game_plugin`: `camera`, `input`, `mob`,
-`network`, `player`, `ui::hud` and `world`. The menus have their own plugin
+`network`, `player`, `portal`, `ui::hud` and `world`. The player's camera is the one with a
+`CameraController`. The menus have their own plugin
 (`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
 too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audio` turns into
 sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. The sheep
