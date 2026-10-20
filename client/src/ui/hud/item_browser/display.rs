@@ -1,6 +1,13 @@
 use bevy::{
-    input::mouse::MouseScrollUnit,
-    input_focus::{tab_navigation::TabIndex, FocusGained, InputFocus},
+    input::{
+        keyboard::{Key, KeyboardInput},
+        mouse::MouseScrollUnit,
+        ButtonState,
+    },
+    input_focus::{
+        tab_navigation::TabIndex, FocusCause, FocusGained, FocusedInput, InputFocus,
+        InputFocusVisible,
+    },
     picking::hover::Hovered,
     prelude::*,
     text::EditableText,
@@ -20,6 +27,7 @@ use crate::ui::theme::{
     TEXT,
 };
 use crate::ui::widgets::slot::{SlotIcon, SLOT_SIZE};
+use crate::ui::widgets::text_field::{set_text, Cancel, Submit};
 
 /// How far a notch of the wheel moves the row of chips sideways, in logical px.
 const CHIPS_WHEEL_STEP: f32 = SLOT_SIZE;
@@ -290,6 +298,103 @@ pub fn drawer_keys(
         .is_some_and(|focused| parents.iter_ancestors(focused).any(|e| e == panel));
     if !drawer_open && inside {
         focus.clear();
+    }
+}
+
+/// Focuses the search, with its ring, on Ctrl+F, or on the character `/` typed while the
+/// inventory is open and the player is not typing already, and opens the drawer it is in. On the
+/// release of `/`, as the chat does, so that neither the key nor its repeat is typed in the field.
+#[allow(clippy::too_many_arguments)]
+pub fn focus_search(
+    mut key_events: MessageReader<KeyboardInput>,
+    keys: Res<ButtonInput<KeyCode>>,
+    ui_mode: Res<UIMode>,
+    layout: Res<BrowserLayout>,
+    mut state: ResMut<ItemBrowserState>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    field: Single<Entity, With<ItemSearchField>>,
+    mut armed: Local<Option<KeyCode>>,
+    mut focus: ResMut<InputFocus>,
+    mut focus_visible: ResMut<InputFocusVisible>,
+) {
+    // read on every frame, so that a slash typed in a field never focuses the search later
+    let ready =
+        *ui_mode == UIMode::Opened && matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    if !ready {
+        *armed = None;
+    }
+    let mut slash = false;
+    for key in key_events.read() {
+        match key.state {
+            ButtonState::Pressed
+                if ready && !key.repeat && key.logical_key == Key::Character("/".into()) =>
+            {
+                *armed = Some(key.key_code);
+            }
+            ButtonState::Released if *armed == Some(key.key_code) => {
+                *armed = None;
+                slash = true;
+            }
+            _ => {}
+        }
+    }
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    let ctrl_f = ready && ctrl && keys.just_pressed(KeyCode::KeyF);
+    if !slash && !ctrl_f {
+        return;
+    }
+    if layout.compact && !state.drawer_open {
+        state.drawer_open = true;
+    }
+    focus.set(*field, FocusCause::Navigated);
+    focus_visible.0 = true;
+}
+
+/// Puts the focus, with its ring, on the first item the catalog shows, if any.
+pub fn focus_first_result(
+    grid: Single<&Children, With<CatalogGrid>>,
+    slots: Query<&Node, With<CatalogSlot>>,
+    mut focus: ResMut<InputFocus>,
+    mut focus_visible: ResMut<InputFocusVisible>,
+) {
+    let first = grid.iter().find(|&slot| {
+        slots
+            .get(slot)
+            .is_ok_and(|node| node.display != Display::None)
+    });
+    if let Some(first) = first {
+        focus.set(first, FocusCause::Navigated);
+        focus_visible.0 = true;
+    }
+}
+
+/// Enter in the search goes to its first result.
+pub fn submit_search(_: On<Submit>, mut commands: Commands) {
+    commands.run_system_cached(focus_first_result);
+}
+
+/// Down in the search goes to its first result.
+pub fn search_arrow_down(input: On<FocusedInput<KeyboardInput>>, mut commands: Commands) {
+    let key = &input.input;
+    if key.key_code == KeyCode::ArrowDown && key.state == ButtonState::Pressed {
+        commands.run_system_cached(focus_first_result);
+    }
+}
+
+/// Escape in the search clears it, or leaves it once it is empty: the inventory takes the focus
+/// back.
+pub fn clear_or_leave_search(
+    cancel: On<Cancel>,
+    mut texts: Query<&mut EditableText>,
+    mut focus: ResMut<InputFocus>,
+) {
+    let Ok(mut text) = texts.get_mut(cancel.entity) else {
+        return;
+    };
+    if text.value() == "" {
+        focus.clear();
+    } else {
+        set_text(&mut text, "");
     }
 }
 

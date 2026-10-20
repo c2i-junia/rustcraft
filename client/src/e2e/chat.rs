@@ -216,11 +216,12 @@ fn up_and_down_recall_sent_messages_and_a_slash_opens_the_chat() {
     h.key_up_on(KeyCode::Period, '/');
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
 
-    // only in the game: not over the inventory
+    // only in the game: over the inventory, it goes to the search of the item browser
     h.press(KeyCode::KeyE);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
     h.type_text("/");
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
+    h.press(KeyCode::Escape);
     h.press(KeyCode::KeyE);
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));

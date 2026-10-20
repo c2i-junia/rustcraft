@@ -58,7 +58,8 @@ type DurabilityBars<'w, 's> = Query<
     ),
 >;
 
-/// Opens the inventory when no dialog is open, and closes it when it is open.
+/// Opens the inventory when no dialog is open, and closes it when it is open. Not while the player
+/// types: the key is then a letter of the text.
 pub fn toggle_inventory_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
@@ -68,7 +69,9 @@ pub fn toggle_inventory_system(
     let Ok(mut visibility) = inventory_root.single_mut() else {
         return;
     };
-    if !is_action_just_pressed(GameAction::ToggleInventory, &keyboard_input, &key_map) {
+    if *ui_mode == UIMode::Typing
+        || !is_action_just_pressed(GameAction::ToggleInventory, &keyboard_input, &key_map)
+    {
         return;
     }
     let is_hidden = *visibility == Visibility::Hidden;
@@ -87,10 +90,13 @@ pub fn toggle_inventory_system(
 /// click into a move of the whole stack. While the focus ring shows, the keys act on the ringed
 /// cell, wherever the cursor is: Enter is the left click, Space the right one, and a number key
 /// swaps it. Without the ring, the focus is not one the player can see: the keys leave it alone,
-/// and a number key goes to the cell under the cursor.
+/// and a number key goes to the cell under the cursor. While the player types, in the item
+/// browser's search, the keys are letters of the text: only the mouse acts.
+#[allow(clippy::too_many_arguments)]
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    ui_mode: Res<UIMode>,
     focus: Res<InputFocus>,
     focus_visible: Res<InputFocusVisible>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
@@ -103,10 +109,11 @@ pub fn click_inventory_cells_system(
     }
     let left = mouse_input.just_pressed(MouseButton::Left);
     let right = mouse_input.just_pressed(MouseButton::Right);
-    let enter = keyboard_input.just_pressed(KeyCode::Enter);
-    let space = keyboard_input.just_pressed(KeyCode::Space);
+    let keys = *ui_mode != UIMode::Typing;
+    let enter = keys && keyboard_input.just_pressed(KeyCode::Enter);
+    let space = keys && keyboard_input.just_pressed(KeyCode::Space);
     let shift = keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let hotbar = hotbar_key_index(&keyboard_input);
+    let hotbar = hotbar_key_index(&keyboard_input).filter(|_| keys);
     let focused = focus.get().filter(|_| focus_visible.0);
     let actions = &mut frame_inputs.0.inventory_actions;
 
@@ -558,6 +565,7 @@ mod tests {
             world.init_resource::<UiScale>();
             world.init_resource::<InputFocus>();
             world.init_resource::<InputFocusVisible>();
+            world.insert_resource(UIMode::Opened);
             world.spawn((
                 InventoryDialog,
                 BackgroundColor(Color::NONE),
@@ -1454,6 +1462,38 @@ mod tests {
         hud.click(0, MouseButton::Left);
 
         assert!(hud.sent_actions().is_empty());
+    }
+
+    /// While the player types in the item browser's search, the keys are text, not game keys.
+    #[test]
+    fn game_keys_wait_while_the_search_has_the_focus() {
+        let mut hud = Hud::new(Visibility::Visible, &[12]);
+        hud.world.insert_resource(UIMode::Typing);
+        hud.world
+            .insert_resource(crate::input::keyboard::default_bindings());
+
+        hud.world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyE);
+        hud.world.run_system_once(toggle_inventory_system).unwrap();
+        hud.world.resource_mut::<ButtonInput<KeyCode>>().clear();
+        let mut root = hud
+            .world
+            .query_filtered::<&Visibility, With<InventoryRoot>>();
+        assert_eq!(
+            root.single(&hud.world).unwrap(),
+            Visibility::Visible,
+            "E closed the inventory"
+        );
+
+        for key in [KeyCode::Digit3, KeyCode::Enter, KeyCode::Space] {
+            hud.press_key_over(Some(12), key);
+        }
+        assert!(hud.sent_actions().is_empty(), "{:?}", hud.sent_actions());
+
+        // The mouse still works
+        hud.click(12, MouseButton::Left);
+        assert_eq!(hud.sent_actions(), [InventoryAction::LeftClickSlot(12)]);
     }
 
     /// The hotbar and the inventory as the game builds them, with an atlas of two items.

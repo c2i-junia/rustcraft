@@ -7,9 +7,9 @@ use shared::world::{ItemCategory, ItemId};
 
 use super::catalog::{catalog, category_detail, NO_MATCH_HINT};
 use super::{
-    choose_category, open_drawer, CatalogGrid, CatalogSlot, CategoryChip, DrawerHandle,
-    ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, NoMatch, NoMatchMessage,
-    ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    choose_category, clear_or_leave_search, open_drawer, search_arrow_down, submit_search,
+    CatalogGrid, CatalogSlot, CategoryChip, DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount,
+    ItemSearchField, NoMatch, NoMatchMessage, ITEM_BROWSER_TITLE, SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
@@ -252,7 +252,11 @@ fn spawn_search_field(
         ChildOf(field.frame),
     ));
     let mut input = commands.entity(field.input);
-    input.insert(ItemSearchField);
+    input
+        .insert(ItemSearchField)
+        .observe(submit_search)
+        .observe(search_arrow_down)
+        .observe(clear_or_leave_search);
     if !state.query.is_empty() {
         let query = state.query.clone();
         input

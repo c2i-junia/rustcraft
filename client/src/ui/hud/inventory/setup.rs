@@ -86,6 +86,8 @@ pub fn setup_inventory(
             },
             Pickable::IGNORE,
             GlobalZIndex(1),
+            // Tab stays among the slots of the open panel and the item browser
+            TabGroup::modal(),
         ))
         .with_children(|bottom| {
             bottom
@@ -103,8 +105,7 @@ pub fn setup_inventory(
                     BorderColor::all(Color::NONE),
                     // Closed, its room above the hotbar is empty; the slots stay pickable
                     Pickable::IGNORE,
-                    // Tab and the arrows stay among its slots
-                    TabGroup::modal(),
+                    // The arrows stay among its slots
                     ArrowNav,
                 ))
                 .with_children(|panel| {

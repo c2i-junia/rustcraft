@@ -7,13 +7,15 @@ use shared::world::ItemId;
 
 use super::game::{enter_world, floating, slot};
 use super::harness::{Harness, SCREEN, SERVER};
+use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::item_browser::{
     CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, SEARCH_LABEL,
 };
-use crate::ui::hud::{InventoryDialog, InventoryRoot};
+use crate::ui::hud::{HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::ui::menus::pause::PauseMenu;
+use crate::ui::theme::ACCENT;
 use crate::ui::widgets::tooltip::TooltipRoot;
 
 /// The search field of the browser.
@@ -218,9 +220,130 @@ fn the_item_browser_becomes_a_drawer_in_a_small_window() {
     assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
     assert!(h.is_visible(&L::marker::<DrawerHandle>()));
 
+    // `/` opens it on the search; Escape leaves the search, then closes it
+    h.type_on(KeyCode::Slash, '/');
+    h.frames(2);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    let field = h.get(&search_field());
+    assert_eq!(h.world().resource::<InputFocus>().get(), Some(field));
+    h.press(KeyCode::Escape);
+    h.frames(1);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+
     // Wide again, it docks, and the handle goes
     h.resize(1280, 720);
     h.frames(2);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     assert!(!h.is_visible(&L::marker::<DrawerHandle>()));
+}
+
+/// Whether the focus is on `HudBottom` or inside it: the inventory panel or the item browser.
+fn focus_in_hud_bottom(w: &World) -> bool {
+    let Some(mut entity) = w.resource::<InputFocus>().get() else {
+        return false;
+    };
+    loop {
+        if w.get::<HudBottom>(entity).is_some() {
+            return true;
+        }
+        match w.get::<ChildOf>(entity) {
+            Some(parent) => entity = parent.parent(),
+            None => return false,
+        }
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
+    let folder = GameFolder::new().with_world("Keys").with_items(
+        "Keys",
+        "Tester",
+        &[(0, ItemId::Dirt, 5), (12, ItemId::Sand, 3)],
+    );
+    let mut h = enter_world(folder, "Keys");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 12) == Some((ItemId::Sand, 3))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    let field = h.get(&search_field());
+    let focused = |h: &Harness| h.world().resource::<InputFocus>().get();
+
+    // `/` focuses the search, and is not typed in it
+    h.type_on(KeyCode::Slash, '/');
+    h.frames(1);
+    assert_eq!(focused(&h), Some(field));
+    assert_eq!(h.value_of::<ItemSearchField>(), "");
+
+    // Over a slot, the game keys are only text: E, a digit, B and Space
+    h.hover(&L::cell(12));
+    h.type_text("e3b ");
+    h.frames(10);
+    assert_eq!(h.value_of::<ItemSearchField>(), "e3b ");
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+    assert_eq!(slot(h.world(), 12), Some((ItemId::Sand, 3)));
+    assert_eq!(slot(h.world(), 2), None);
+
+    // Escape clears the search, then leaves it for the inventory
+    h.press(KeyCode::Escape);
+    h.frames(1);
+    assert_eq!(h.value_of::<ItemSearchField>(), "");
+    assert_eq!(focused(&h), Some(field));
+    h.press(KeyCode::Escape);
+    h.frames(1);
+    assert_ne!(focused(&h), Some(field));
+    assert!(focus_in_hud_bottom(h.world()));
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+
+    // Ctrl+F focuses it too; Enter goes to the first result, its ring and its tooltip showing
+    ctrl(&mut h, KeyCode::KeyF);
+    h.frames(1);
+    assert_eq!(focused(&h), Some(field));
+    h.type_text("planks");
+    h.press(KeyCode::Enter);
+    h.frames(1);
+    let oak_planks = h.get(&catalog_slot("Oak Planks"));
+    assert_eq!(focused(&h), Some(oak_planks));
+    assert_eq!(h.world().get::<Outline>(oak_planks).unwrap().color, ACCENT);
+    h.wait_for(
+        &L::text("Oak Planks").within(L::marker::<TooltipRoot>()),
+        SCREEN,
+    );
+
+    // The arrows move between the results
+    h.press(KeyCode::ArrowRight);
+    let spruce_planks = h.get(&catalog_slot("Spruce Planks"));
+    assert_eq!(focused(&h), Some(spruce_planks));
+    h.press(KeyCode::ArrowLeft);
+    assert_eq!(focused(&h), Some(oak_planks));
+
+    // Down from the search goes to the first result too
+    h.click(&search_field());
+    h.press(KeyCode::ArrowDown);
+    assert_eq!(focused(&h), Some(oak_planks));
+
+    // Tab walks the inventory and the browser, and stays among them
+    let (mut in_browser, mut in_inventory) = (false, false);
+    for _ in 0..80 {
+        h.press(KeyCode::Tab);
+        let w = h.world();
+        assert!(
+            focus_in_hud_bottom(w),
+            "Tab left the inventory and the browser"
+        );
+        let focus = w.resource::<InputFocus>().get().unwrap();
+        in_browser |= w.get::<CatalogSlot>(focus).is_some();
+        in_inventory |= w.get::<InventoryCell>(focus).is_some();
+    }
+    assert!(in_browser && in_inventory);
+
+    // Closing lets go of the focus
+    h.press(KeyCode::KeyE);
+    h.frames(1);
+    assert_eq!(focused(&h), None);
 }

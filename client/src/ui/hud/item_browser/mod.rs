@@ -100,7 +100,8 @@ pub fn item_browser_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            drawer_keys
+            (focus_search, drawer_keys)
+                .chain()
                 .after(GameSet::UiMode)
                 .after(toggle_pause_menu)
                 .before(show_item_browser)

@@ -16,7 +16,8 @@ use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::HINT_BACKPACK;
 use crate::ui::hud::{
-    CraftResultCell, FloatingStack, InventoryCell, InventoryDialog, InventoryRoot, UIMode,
+    CraftResultCell, FloatingStack, HudBottom, InventoryCell, InventoryDialog, InventoryRoot,
+    UIMode,
 };
 use crate::ui::theme::ACCENT;
 use crate::ui::widgets::slot::SlotIcon;
@@ -60,13 +61,14 @@ fn focused_cell(w: &World) -> Option<u32> {
     w.get::<InventoryCell>(focus).map(|cell| cell.id)
 }
 
-/// Whether the focus is on the inventory panel or inside it.
+/// Whether the focus is inside the inventory panel or the item browser beside it, both in
+/// `HudBottom`.
 fn focus_in_panel(w: &World) -> bool {
     let Some(mut entity) = w.resource::<InputFocus>().get() else {
         return false;
     };
     loop {
-        if w.get::<InventoryDialog>(entity).is_some() {
+        if w.get::<HudBottom>(entity).is_some() {
             return true;
         }
         match w.get::<ChildOf>(entity) {
@@ -428,7 +430,7 @@ fn the_keyboard_alone_moves_stacks_in_the_inventory() {
     h.press(KeyCode::ArrowRight);
     assert_eq!(focused_cell(h.world()), Some(2));
 
-    // The panel keeps Tab to itself
+    // The panel and the item browser keep Tab to themselves
     for _ in 0..50 {
         h.press(KeyCode::Tab);
         assert!(focus_in_panel(h.world()), "Tab left the panel");
