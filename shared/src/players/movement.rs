@@ -1398,6 +1398,74 @@ mod tests {
         assert_stopped_at(&player, -3.0 + PLAYER_WIDTH / 2.0);
     }
 
+    /// Whether the box of `player` overlaps a block where it is.
+    fn inside_blocks(player: &Player, world: &ChunkMap) -> bool {
+        let half_size = Vec3::new(player.width, player.height, player.width) / 2.0;
+        world.check_collision_box(&bevy::math::bounding::Aabb3d::new(
+            player.position,
+            half_size,
+        ))
+    }
+
+    #[test]
+    fn a_player_left_in_the_wall_of_a_portal_that_closed_or_moved_walks_back_out() {
+        for change in ["closed", "moved"] {
+            let mut world = portal_world();
+            let portals = world.portals_mut();
+            match change {
+                "closed" => {
+                    portals.remove(7, PortalColor::Orange);
+                }
+                _ => portals.insert(Portal {
+                    owner: 7,
+                    color: PortalColor::Blue,
+                    anchor: IVec3::new(10, 64, 3),
+                    face: FaceDirection::MinusX,
+                }),
+            }
+            // Its box 0.2 block into the wall of the blue portal
+            let mut player = standing_player();
+            player.position = Vec3::new(1.0, FLOOR_TOP + 0.9, -2.8);
+            assert!(inside_blocks(&player, &world));
+
+            // Not deeper, nor down
+            walk_forward(&mut player, &world, Vec3::NEG_Z, 30);
+            assert!(
+                (player.position.z - -2.8).abs() < 1e-4,
+                "{change}: {}",
+                player.position
+            );
+            assert!((feet(&player) - FLOOR_TOP).abs() < 0.01, "{change}");
+
+            // But back out, and then the wall is a wall again
+            walk(&mut player, &world, Vec3::NEG_Z, 30, |_| {
+                vec![NetworkAction::MoveBackward]
+            });
+            assert!(player.position.z > -2.0, "{change}: {}", player.position);
+            assert!(!inside_blocks(&player, &world));
+            walk_forward(&mut player, &world, Vec3::NEG_Z, 60);
+            assert_stopped_at(&player, -3.0 + PLAYER_WIDTH / 2.0);
+        }
+    }
+
+    #[test]
+    fn a_player_inside_blocks_reaches_no_new_one() {
+        // Stuck in a pillar 1 block wide, by the side of a wall
+        let mut world = flat_world();
+        world.fill_box(IVec3::new(0, 64, 0), IVec3::new(0, 65, 0), BlockId::Stone);
+        world.fill_box(
+            IVec3::new(-3, 64, -2),
+            IVec3::new(3, 66, -2),
+            BlockId::Stone,
+        );
+        let mut player = standing_player();
+        player.position = Vec3::new(0.5, FLOOR_TOP + 0.9, 0.5);
+        // North, toward the wall: out of the pillar, but not into the wall
+        walk_forward(&mut player, &world, Vec3::NEG_Z, 60);
+        assert!(!inside_blocks(&player, &world));
+        assert_stopped_at(&player, -1.0 + PLAYER_WIDTH / 2.0);
+    }
+
     #[test]
     fn the_speed_goes_through_the_portal_turned_with_it() {
         let world = portal_world();

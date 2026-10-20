@@ -1,6 +1,6 @@
 use bevy_platform::collections::{HashMap, HashSet};
 
-use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
+use bevy::math::{bounding::Aabb3d, IVec3, Vec3, Vec3A};
 
 use crate::world::blocks::FENCE;
 use crate::world::{
@@ -326,6 +326,30 @@ impl ChunkMap {
                     BlockHitbox::Aabb(block_hitbox) => overlaps(block_hitbox),
                 }
             })
+    }
+
+    /// The volume `hitbox` shares with the hitboxes of the blocks, but in the cells `ignored`
+    /// holds.
+    pub fn collision_volume_except(&self, hitbox: &Aabb3d, ignored: impl Fn(IVec3) -> bool) -> f32 {
+        cells_overlapped(hitbox)
+            .filter(|pos| !ignored(*pos))
+            .map(|pos| {
+                let Some(block) = self.get_block(pos) else {
+                    return 0.0;
+                };
+                let cell = pos.as_vec3a();
+                let (min, max) = match block.id.get_hitbox() {
+                    BlockHitbox::FullBlock => (cell, cell + 1.0),
+                    BlockHitbox::None => return 0.0,
+                    BlockHitbox::Aabb(block_hitbox) => {
+                        (block_hitbox.min + cell, block_hitbox.max + cell)
+                    }
+                };
+                (hitbox.max.min(max) - hitbox.min.max(min))
+                    .max(Vec3A::ZERO)
+                    .element_product()
+            })
+            .sum()
     }
 
     /// Whether `hitbox` overlaps a cell that holds a liquid.

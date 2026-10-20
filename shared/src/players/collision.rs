@@ -1,35 +1,52 @@
-use bevy::math::{bounding::Aabb3d, Vec3};
+use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
 use crate::world::{ChunkMap, Portal};
 
 use super::Player;
+
+/// Room left for the rounding of the volumes `check_player_collision` compares, in cubic blocks.
+const VOLUME_ROUNDING: f32 = 1e-6;
 
 /// Whether the collision box of `player`, centred on `candidate_position`, would overlap a
 /// block. The wall cells of the open portals the player is in front of, within their opening
 /// (`Portals::letting_through`), do not count: the player goes into them, and through the
 /// portal. Where the player is now decides, not the candidate position, so that the move that
 /// takes it behind the plane of the portal is made.
+///
+/// A player already inside blocks, as one left in the wall of a portal that closed or moved, may
+/// make a move that reaches no block it is not in yet and goes no deeper into those it is in, so
+/// that it can get out. Both sides compute it alike, from the player and the world alone.
 pub fn check_player_collision(
     candidate_position: &Vec3,
     player: &Player,
     world_map: &ChunkMap,
 ) -> bool {
-    let hitbox = Aabb3d::new(
-        *candidate_position,
-        Vec3::new(player.width, player.height, player.width) / 2.0,
-    );
-    let mut letting_through = world_map
+    let half_size = Vec3::new(player.width, player.height, player.width) / 2.0;
+    let open: Vec<Portal> = world_map
         .portals()
         .letting_through(player.position, player.width / 2.0)
-        .peekable();
-    if letting_through.peek().is_none() {
-        return world_map.check_collision_box(&hitbox);
-    }
-    let open: Vec<Portal> = letting_through.copied().collect();
-    world_map.check_collision_box_except(&hitbox, |cell| {
+        .copied()
+        .collect();
+    let let_through = |cell: IVec3| {
         open.iter()
             .any(|portal| portal.cells().any(|wall| wall == cell))
-    })
+    };
+    let candidate = Aabb3d::new(*candidate_position, half_size);
+    if !world_map.check_collision_box_except(&candidate, let_through) {
+        return false;
+    }
+    let current = Aabb3d::new(player.position, half_size);
+    if !world_map.check_collision_box_except(&current, let_through) {
+        return true;
+    }
+    let (low, high) = (
+        current.min.floor().as_ivec3(),
+        current.max.floor().as_ivec3(),
+    );
+    let inside = |cell: IVec3| cell.cmpge(low).all() && cell.cmple(high).all();
+    world_map.check_collision_box_except(&candidate, |cell| let_through(cell) || inside(cell))
+        || world_map.collision_volume_except(&candidate, let_through)
+            > world_map.collision_volume_except(&current, let_through) + VOLUME_ROUNDING
 }
 
 /// Whether the collision box of `player` at `position` touches a liquid.
