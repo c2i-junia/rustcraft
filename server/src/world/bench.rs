@@ -13,28 +13,23 @@ use std::time::Instant;
 use bevy::prelude::*;
 use shared::messages::{ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
-use shared::world::{Chunk, ChunkMap};
+use shared::world::{render_distance_offsets, Chunk, ChunkMap};
 use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE};
 
 use super::broadcast_world::world_messages_around;
 use super::data::SentChunks;
 use super::generation::{generate_chunk, WorldGenerator};
-use super::simulation::{generate_missing_chunks, GENERATED_CHUNKS_PER_TICK};
+use super::simulation::generate_missing_chunks;
 
 const SEED: u32 = 42;
 /// The chunk of a player standing on the plains of `SEED`, around height 64.
 const PLAYER_CHUNK: IVec3 = IVec3::new(0, 4, 0);
 
 fn render_cube(radius: i32) -> Vec<IVec3> {
-    let mut chunks = Vec::new();
-    for x in -radius..=radius {
-        for y in -radius..=radius {
-            for z in -radius..=radius {
-                chunks.push(PLAYER_CHUNK + IVec3::new(x, y, z));
-            }
-        }
-    }
-    chunks
+    render_distance_offsets(radius)
+        .iter()
+        .map(|&offset| PLAYER_CHUNK + offset)
+        .collect()
 }
 
 fn micros(since: Instant) -> f64 {
@@ -237,7 +232,7 @@ fn bench_join_generation() {
             &mut dirty,
             None,
             &WorldGenerator::new(SEED),
-            GENERATED_CHUNKS_PER_TICK,
+            usize::MAX,
         );
         ticks.push(start.elapsed().as_secs_f64() * 1e3);
     }

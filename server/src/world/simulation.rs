@@ -12,6 +12,7 @@ use shared::{
     world::{world_position_to_chunk_position, Chunk, ChunkMap, WorldSeed},
 };
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crate::{
     init::ServerTime,
@@ -35,10 +36,14 @@ pub struct PlayerInputsEvent {
     pub input: PlayerFrameInput,
 }
 
-/// How many chunks the render distances of the players get loaded or generated per tick, at
+/// How long the render distances of the players may take to be loaded or generated in a tick, at
 /// most: a joining player would otherwise freeze the server for its whole render distance at
-/// once.
-pub(super) const GENERATED_CHUNKS_PER_TICK: usize = 1024;
+/// once. The chunks of one kind of cell, most of a large render distance, take next to nothing:
+/// a count of chunks would hold them back.
+const CHUNK_LOADING_PER_TICK: Duration = Duration::from_millis(20);
+
+/// Chunks loaded or generated together, between two looks at the time spent.
+const CHUNKS_PER_BATCH: usize = 512;
 
 /// Chunks made on one task of the pool: fewer are made on the tick's thread.
 const CHUNKS_PER_TASK: usize = 16;
@@ -81,12 +86,13 @@ fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
         .collect()
 }
 
-/// Loads the chunks within `radius` of each of `players`, at most `budget` of them, the nearest
-/// to each player first: from their files in the folder of the world `saved`, else generated.
+/// Loads the chunks within `radius` of each of `players`, at most `budget` of them and for at most
+/// about `CHUNK_LOADING_PER_TICK`, the nearest to each player first: from their files in the
+/// folder of the world `saved`, else generated.
 /// A generated chunk is dirty: it has to be saved, as inserting it is not logged as a block
 /// change; but not one made of a single kind of cell, such as the air above the ground or the
-/// stone below it, which is generated again at once. A chunk read from its file is not dirty. Says whether every chunk within reach is loaded
-/// now.
+/// stone below it, which is generated again at once. A chunk read from its file is not dirty.
+/// Says whether every chunk within reach is loaded now.
 pub(super) fn generate_missing_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
@@ -96,6 +102,7 @@ pub(super) fn generate_missing_chunks<'a>(
     generator: &WorldGenerator,
     budget: usize,
 ) -> bool {
+    let start = Instant::now();
     let missing: Vec<IVec3> = get_all_active_chunks(players, radius)
         .into_iter()
         .filter(|c| !chunks.is_chunk_loaded(*c))
@@ -104,19 +111,21 @@ pub(super) fn generate_missing_chunks<'a>(
     if missing.is_empty() {
         return true;
     }
-    debug!("Loading {} chunks", missing.len());
-    for (c, made) in missing
-        .iter()
-        .zip(make_chunks(&missing, saved, generator.seed()))
-    {
-        match made {
-            Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
-            Made::Generated(chunk) => {
-                // Generating a chunk of one kind of cell again costs nothing: it is not saved
-                if chunk.uniform().is_none() {
-                    dirty_chunks.insert(*c);
+    debug!("Loading up to {} chunks", missing.len());
+    for batch in missing.chunks(CHUNKS_PER_BATCH) {
+        if start.elapsed() > CHUNK_LOADING_PER_TICK {
+            return false;
+        }
+        for (c, made) in batch.iter().zip(make_chunks(batch, saved, generator.seed())) {
+            match made {
+                Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
+                Made::Generated(chunk) => {
+                    // Generating a chunk of one kind of cell again costs nothing: it is not saved
+                    if chunk.uniform().is_none() {
+                        dirty_chunks.insert(*c);
+                    }
+                    chunks.insert_chunk(*c, chunk);
                 }
-                chunks.insert_chunk(*c, chunk);
             }
         }
     }
@@ -168,7 +177,7 @@ pub fn handle_player_inputs_system(
             dirty_chunks,
             saved,
             generator,
-            GENERATED_CHUNKS_PER_TICK,
+            usize::MAX,
         )
     {
         *loaded_around = around;
