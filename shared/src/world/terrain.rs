@@ -75,6 +75,15 @@ const OCEAN_DEPTH: f64 = 28.0;
 /// Humidity over which the land slopes down into the sea, on each side of the coast.
 const COAST_WIDTH: f64 = 0.025;
 
+/// No surface lies lower than this: every noise is within `[-1, 1]`, and the deepest ground is
+/// the middle of a lake at the peak of its noise, with its bed lowered by the whole roughness.
+/// The sea floor and the river beds stop higher (`surface_bounds_hold` checks them all).
+pub const LOWEST_SURFACE: i32 =
+    (SEA_LEVEL as f64 - LAKE_DEPTH - LAKE_DEEPENING * (1.0 - LAKES_FULL) - BED_ROUGHNESS) as i32;
+/// No surface lies higher than this: the highest hill of the roughest land, under a mountain
+/// range at its fullest, on its highest ridge. Rivers, lakes and the sea only lower the land.
+pub const HIGHEST_SURFACE: i32 = (LAND_HEIGHT + HILLS_ROUGH + RANGES_LIFT + RIDGES_HEIGHT) as i32;
+
 // Salts: each noise of a world takes its seed from `(seed, salt, octave)`.
 const SALT_TEMPERATURE: u64 = 1;
 const SALT_HUMIDITY: u64 = 2;
@@ -366,6 +375,31 @@ mod tests {
             }
         }
         assert!(highest >= 140, "the highest column is at {highest}");
+    }
+
+    #[test]
+    fn surface_bounds_hold() {
+        let sea = SEA_LEVEL as f64;
+        let deepest_sea_floor = sea - 2.0 - OCEAN_DEPTH - 3.0 - BED_ROUGHNESS;
+        let deepest_river = sea - RIVER_DEPTH - BED_ROUGHNESS;
+        let lowest_hill = LAND_HEIGHT - HILLS_ROUGH;
+        for lowest in [deepest_sea_floor, deepest_river, lowest_hill] {
+            assert!(LOWEST_SURFACE as f64 <= lowest, "{lowest}");
+        }
+        let terrain = TerrainNoises::new(42);
+        let (mut lowest, mut highest) = (i32::MAX, i32::MIN);
+        for z in (-2048..2048).step_by(8) {
+            for x in (-2048..2048).step_by(8) {
+                let height = terrain.column_shape(x, z).height;
+                lowest = lowest.min(height);
+                highest = highest.max(height);
+            }
+        }
+        assert!(
+            (LOWEST_SURFACE..=HIGHEST_SURFACE).contains(&lowest)
+                && (LOWEST_SURFACE..=HIGHEST_SURFACE).contains(&highest),
+            "{lowest} to {highest}"
+        );
     }
 
     #[test]

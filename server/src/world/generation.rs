@@ -11,6 +11,11 @@ mod ores;
 /// therefore looks at the columns of the chunk plus this margin on each side.
 const STRUCTURE_MARGIN: i32 = 3;
 
+/// Highest block of a structure above the surface of its column: the crown of a big tree,
+/// whose 6-block trunk starts on the block above the surface and whose leaves reach 3 blocks
+/// above the top of the trunk (`1 + 6 - 2 + 2 + 2`).
+const STRUCTURE_HEIGHT: i32 = 9;
+
 // Salts: each random decision of a column hashes `(seed, x, z, salt)` with its own salt.
 const SALT_FLOWER_ROLL: u64 = 1;
 const SALT_FLOWER_KIND: u64 = 2;
@@ -435,6 +440,46 @@ impl WorldGenerator {
     /// a neighbouring column is cut at the chunk border the same way whichever chunk is
     /// generated first.
     pub fn generate_chunk(&self, chunk_pos: IVec3) -> Chunk {
+        let chunk_origin = chunk_pos * CHUNK_SIZE;
+        // Most chunks lie above everything or deep underground: they need no column noise
+        if chunk_origin.y > (HIGHEST_SURFACE + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
+            return Chunk::new();
+        }
+        // Below the sub-surface blocks of the lowest surface, which is also as low as the
+        // caves are kept from the water, the ground is stone that only caves and ores change
+        if chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE - CAVE_ROOF.max(4) {
+            return self.underground_chunk(chunk_pos);
+        }
+        self.generate_chunk_from_noise(chunk_pos)
+    }
+
+    /// A chunk below the lowest surface less the depth of the sub-surface blocks: stone, the
+    /// bedrock at height 0, the caves and the ores.
+    fn underground_chunk(&self, chunk_pos: IVec3) -> Chunk {
+        let chunk_origin = chunk_pos * CHUNK_SIZE;
+        let caves = self.caves.carve(chunk_origin);
+        let mut chunk = Chunk::new();
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                let block = if chunk_origin.y + y == 0 {
+                    BlockId::Bedrock
+                } else {
+                    BlockId::Stone
+                };
+                for z in 0..CHUNK_SIZE {
+                    let local = IVec3::new(x, y, z);
+                    if !caves.contains(local) {
+                        chunk.set(local, BlockData::new(block, BlockDirection::Front));
+                    }
+                }
+            }
+        }
+        ores::place_ores(self.seed, chunk_pos, &mut chunk);
+        chunk
+    }
+
+    /// `generate_chunk` for any chunk, from the noise of its columns.
+    fn generate_chunk_from_noise(&self, chunk_pos: IVec3) -> Chunk {
         let seed = self.seed;
         let chunk_origin = chunk_pos * CHUNK_SIZE;
 
@@ -709,6 +754,46 @@ mod tests {
                 ground(MOUNTAIN_FROM, ROCK_FACE),
                 (BlockId::Grass, BlockId::Dirt)
             );
+        }
+    }
+
+    #[test]
+    fn no_structure_grows_higher_than_its_bound() {
+        let seed = 42;
+        let generator = WorldGenerator::new(seed);
+        let mut highest = 0;
+        for x in -300..300 {
+            for z in -300..300 {
+                let column = generator.column(x, z);
+                for (pos, _) in column_blocks(seed, &column) {
+                    assert!(
+                        pos.y - column.height <= STRUCTURE_HEIGHT,
+                        "{pos} over {}",
+                        column.height
+                    );
+                    highest = highest.max(pos.y - column.height);
+                }
+            }
+        }
+        assert_eq!(
+            highest, STRUCTURE_HEIGHT,
+            "the forests have a big tree as tall as can be"
+        );
+    }
+
+    #[test]
+    fn chunks_without_noise_are_the_ones_the_noise_makes() {
+        let generator = WorldGenerator::new(42);
+        // plains, a deep sea, a mountain range and its peaks, a lake
+        for (cx, cz) in [(0, 0), (-59, -35), (-40, 40), (29, -26), (-16, 7)] {
+            for cy in -2..=13 {
+                let chunk_pos = IVec3::new(cx, cy, cz);
+                assert!(
+                    generator.generate_chunk(chunk_pos)
+                        == generator.generate_chunk_from_noise(chunk_pos),
+                    "chunk {chunk_pos}"
+                );
+            }
         }
     }
 
