@@ -1,10 +1,6 @@
 use crate::player::CurrentPlayerMarker;
+use crate::world::WorldBiomes;
 use bevy::prelude::*;
-use shared::world::TerrainNoises;
-
-/// The terrain noises of the world joined, built from the seed the server sent.
-#[derive(Resource)]
-pub struct WorldBiomes(pub TerrainNoises);
 
 #[derive(Component)]
 pub struct BiomeText;
@@ -30,6 +26,8 @@ pub fn biome_text_update_system(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+    use shared::world::TerrainNoises;
+    use std::sync::Arc;
 
     #[test]
     fn the_overlay_shows_the_biome_of_the_column_the_player_stands_in() {
@@ -45,7 +43,7 @@ mod tests {
         assert_eq!(world.get::<Text>(text).unwrap().0, "Biome: N/A");
 
         // A forest for the seed 42, pinned by `terrain_is_pinned_for_a_fixed_seed` on the server
-        world.insert_resource(WorldBiomes(TerrainNoises::new(42)));
+        world.insert_resource(WorldBiomes(Arc::new(TerrainNoises::new(42))));
         world.run_system_once(biome_text_update_system).unwrap();
         assert_eq!(world.get::<Text>(text).unwrap().0, "Biome: Forest");
     }

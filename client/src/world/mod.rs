@@ -24,6 +24,7 @@ pub fn world_plugin(app: &mut App) {
             ..default()
         })
         .insert_resource(MaterialResource { ..default() })
+        .init_resource::<ClimateMap>()
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
         // loaded from the game folder by `add_client`
@@ -37,6 +38,8 @@ pub fn world_plugin(app: &mut App) {
             Update,
             create_all_atlases.run_if(in_state(GameState::PreGameLoading)),
         )
+        // Whatever the state: the first chunks arrive while the game loads
+        .add_systems(Update, update_climate_map_system)
         .add_systems(
             OnEnter(GameState::Game),
             (

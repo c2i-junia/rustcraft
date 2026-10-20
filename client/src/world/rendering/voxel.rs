@@ -23,6 +23,28 @@ pub enum FaceDirection {
     Inset,
 }
 
+/// Which colour map of the texture pack colours a face, from the climate of its column: see
+/// `climate.rs`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum BiomeTint {
+    /// The face keeps the colour of its vertices.
+    #[default]
+    None,
+    Grass,
+    Foliage,
+}
+
+impl BiomeTint {
+    /// The number that names the colour map in `UV_1.y` of a chunk mesh, as `chunk.wgsl` reads it.
+    pub fn index(self) -> u16 {
+        match self {
+            BiomeTint::None => 0,
+            BiomeTint::Grass => 1,
+            BiomeTint::Foliage => 2,
+        }
+    }
+}
+
 /// Structure for cube voxel rendering
 #[derive(Clone)]
 pub struct Face {
@@ -33,6 +55,9 @@ pub struct Face {
     pub colors: Vec<[f32; 4]>,
     pub uvs: Vec<[f32; 2]>,
     pub texture: String,
+    /// The colour map that replaces the colour of the vertices in the world, where the climate
+    /// is known. An item keeps the colour of the vertices.
+    pub biome_tint: BiomeTint,
 }
 
 const WHITE: [f32; 4] = [1.0; 4];
@@ -55,11 +80,19 @@ impl Face {
             colors: vec![WHITE; 4],
             uvs: uvs.to_vec(),
             texture: texture.to_string(),
+            biome_tint: BiomeTint::None,
         }
     }
 
     fn tint(&mut self, color: [f32; 4]) {
         self.colors.fill(color);
+    }
+
+    /// Colours the face with the colour map `biome_tint` in the world, and with `color` where the
+    /// climate is not known.
+    fn biome_tint(&mut self, biome_tint: BiomeTint, color: [f32; 4]) {
+        self.tint(color);
+        self.biome_tint = biome_tint;
     }
 }
 
@@ -81,7 +114,7 @@ impl VoxelShape {
                 // Only the top of a grass block is green; its texture is grey and tinted
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
-                shape.faces[TOP].tint(GRASS_COLOR);
+                shape.faces[TOP].biome_tint(BiomeTint::Grass, GRASS_COLOR);
                 shape
             }
             BlockId::CraftingTable => {
@@ -104,9 +137,9 @@ impl VoxelShape {
                 shape.faces[BOTTOM].texture += "Top";
                 shape
             }
-            BlockId::OakLeaves | BlockId::SpruceLeaves => {
-                Self::full_cube(block).tinted(GRASS_COLOR)
-            }
+            // Like Minecraft's, the needles of the spruce are of one colour everywhere
+            BlockId::OakLeaves => Self::full_cube(block).biome_tinted(BiomeTint::Foliage),
+            BlockId::SpruceLeaves => Self::full_cube(block).tinted(GRASS_COLOR),
             BlockId::Debug => {
                 let mut shape = Self::full_cube(block);
                 let names = ["Top", "Down", "Front", "Back", "Left", "Right"];
@@ -116,7 +149,7 @@ impl VoxelShape {
                 shape
             }
             BlockId::Poppy | BlockId::Dandelion => Self::flora(block),
-            BlockId::TallGrass => Self::flora(block).tinted(GRASS_COLOR),
+            BlockId::TallGrass => Self::flora(block).biome_tinted(BiomeTint::Grass),
             // Its texture is grey too
             BlockId::Water => Self::full_cube(block).tinted(WATER_COLOR),
             _ => Self::full_cube(block),
@@ -147,6 +180,15 @@ impl VoxelShape {
     fn tinted(mut self, color: [f32; 4]) -> Self {
         for face in self.faces.iter_mut() {
             face.tint(color);
+        }
+        self
+    }
+
+    /// Every face coloured with the colour map `biome_tint`, or `GRASS_COLOR` where the climate is
+    /// not known.
+    fn biome_tinted(mut self, biome_tint: BiomeTint) -> Self {
+        for face in self.faces.iter_mut() {
+            face.biome_tint(biome_tint, GRASS_COLOR);
         }
         self
     }
@@ -261,6 +303,7 @@ impl VoxelShape {
                     [1., 0.],
                 ],
                 texture: format!("{:?}", block.id),
+                biome_tint: BiomeTint::None,
             }],
         }
     }
@@ -344,14 +387,34 @@ mod tests {
 
     #[test]
     fn leaves_and_tall_grass_are_tinted_on_every_face() {
-        for id in [BlockId::OakLeaves, BlockId::TallGrass] {
+        for (id, biome_tint) in [
+            (BlockId::OakLeaves, BiomeTint::Foliage),
+            (BlockId::TallGrass, BiomeTint::Grass),
+            (BlockId::SpruceLeaves, BiomeTint::None),
+        ] {
             for face in shape_of(id).faces {
                 assert!(
                     face.colors.iter().all(|color| *color == GRASS_COLOR),
                     "{id:?}"
                 );
+                assert_eq!(face.biome_tint, biome_tint, "{id:?}");
             }
         }
+    }
+
+    #[test]
+    fn only_the_top_of_a_grass_block_takes_the_colour_of_the_climate() {
+        let tints: Vec<_> = shape_of(BlockId::Grass)
+            .faces
+            .iter()
+            .map(|face| face.biome_tint)
+            .collect();
+        assert_eq!(tints[TOP], BiomeTint::Grass);
+        assert!(tints[1..].iter().all(|tint| *tint == BiomeTint::None));
+        assert!(shape_of(BlockId::Stone)
+            .faces
+            .iter()
+            .all(|face| face.biome_tint == BiomeTint::None));
     }
 
     #[test]

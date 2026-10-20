@@ -1,7 +1,7 @@
-use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT};
+use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
-use crate::world::GlobalMaterial;
+use crate::world::{new_climate_map, GlobalMaterial};
 use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
@@ -86,6 +86,8 @@ pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
 
 /// The block textures for `chunk.wgsl`: the array of their layers, and for each texture of the
 /// table its first layer, its number of frames, the time of a frame and whether frames fade.
+/// With them, what the grass and the leaves are coloured with: the climate around the player
+/// and the colour maps of the texture pack (see `climate.rs`).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct BlockLayers {
     #[uniform(100)]
@@ -93,6 +95,12 @@ pub struct BlockLayers {
     #[texture(101, dimension = "2d_array")]
     #[sampler(102)]
     pub layers: Handle<Image>,
+    #[texture(103)]
+    pub climate: Handle<Image>,
+    #[texture(104)]
+    pub grass_colors: Handle<Image>,
+    #[texture(105)]
+    pub foliage_colors: Handle<Image>,
 }
 
 impl MaterialExtension for BlockLayers {
@@ -118,6 +126,11 @@ pub struct MaterialResource {
     pub chunk_materials: HashMap<GlobalMaterial, Handle<ChunkMaterial>>,
     pub items: Option<AtlasWrapper>,
     pub blocks: Option<BlockTextures>,
+    /// The climate of the columns around the player: see `climate.rs`.
+    pub climate_map: Handle<Image>,
+    /// The colours of the grass and of the leaves by climate, from the texture pack.
+    pub grass_colors: Handle<Image>,
+    pub foliage_colors: Handle<Image>,
 }
 
 #[derive(Resource)]
@@ -142,6 +155,7 @@ impl<T> Default for AtlasHandles<T> {
 
 pub fn setup_materials(
     asset_server: Res<AssetServer>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut material_resource: ResMut<MaterialResource>,
     mut block_atlas_handles: ResMut<AtlasHandles<BlockId>>,
@@ -186,6 +200,39 @@ pub fn setup_materials(
         .collect();
     items.extend(block_textures);
     item_atlas_handles.handles = items;
+
+    material_resource.climate_map = images.add(new_climate_map());
+    let colormaps = textures_path.join("colormap");
+    material_resource.grass_colors =
+        load_colormap(&asset_server, &mut images, &colormaps.join("grass.png"));
+    material_resource.foliage_colors =
+        load_colormap(&asset_server, &mut images, &colormaps.join("foliage.png"));
+}
+
+/// Starts loading the colour map at `path`, or, for a texture pack without it, makes one of a
+/// single texel of `GRASS_COLOR`, which colours every climate alike.
+fn load_colormap(
+    asset_server: &AssetServer,
+    images: &mut Assets<Image>,
+    path: &Path,
+) -> Handle<Image> {
+    if path.is_file() {
+        return asset_server.load(path.to_string_lossy().into_owned());
+    }
+    info!(
+        "No colour map {}: the grass is of one colour",
+        path.display()
+    );
+    let [red, green, blue, alpha] = GRASS_COLOR;
+    images.add(Image::new_fill(
+        Extent3d::default(),
+        TextureDimension::D2,
+        &Color::linear_rgba(red, green, blue, alpha)
+            .to_srgba()
+            .to_u8_array(),
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    ))
 }
 
 /// Starts loading every PNG texture of `folder`, each with the name of its file without the
@@ -264,12 +311,16 @@ pub fn create_all_atlases(
     if material_resource.blocks.is_none() {
         if let Some((blocks, table)) = build_block_textures(&atlases.0, &mut images) {
             // The shader samples the layers itself: the standard material has no texture
+            let extension = BlockLayers {
+                table,
+                layers: blocks.array.clone(),
+                climate: material_resource.climate_map.clone(),
+                grass_colors: material_resource.grass_colors.clone(),
+                foliage_colors: material_resource.foliage_colors.clone(),
+            };
             let chunk_material = |base| ChunkMaterial {
                 base,
-                extension: BlockLayers {
-                    table,
-                    layers: blocks.array.clone(),
-                },
+                extension: extension.clone(),
             };
             material_resource.chunk_materials.insert(
                 GlobalMaterial::Blocks,

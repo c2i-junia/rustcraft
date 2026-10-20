@@ -42,7 +42,7 @@ use bevy::{
     winit::WinitPlugin,
 };
 use serde_json::{json, Value};
-use shared::world::{BlockId, ChunkMap, ItemId};
+use shared::world::{BlockId, ChunkMap, ItemId, TerrainNoises};
 use shared::{GameFolderPaths, CHUNK_SIZE};
 
 use super::meshing::{generate_chunk_mesh, ChunkMeshResponse};
@@ -52,8 +52,8 @@ use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::celestial::{celestial_shadows_system, CelestialRoot};
 use crate::world::{
-    chunk_material_plugin, create_all_atlases, group_of, setup_materials, AtlasHandles,
-    ChunkRender, MaterialResource,
+    chunk_material_plugin, create_all_atlases, fill_climate_map, group_of, setup_materials,
+    AtlasHandles, ChunkRender, MaterialResource,
 };
 
 const SEED: u32 = 42;
@@ -566,6 +566,22 @@ impl Drawing {
             .unwrap()
             .tiles
             .clone();
+        // The grass and the leaves take the colours of the climate, as in the game
+        let columns: Vec<IVec2> = world
+            .chunk_positions()
+            .map(|pos| pos.xz())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        self.world_mut()
+            .run_system_once(
+                move |materials: Res<MaterialResource>, mut images: ResMut<Assets<Image>>| {
+                    if let Some(mut map) = images.get_mut(&materials.climate_map) {
+                        fill_climate_map(&mut map, &TerrainNoises::new(SEED), &columns);
+                    }
+                },
+            )
+            .unwrap();
         let mut stats = MeshStats::default();
         let mut responses: Vec<_> = world
             .chunk_positions()

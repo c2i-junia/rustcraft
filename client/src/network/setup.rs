@@ -16,10 +16,9 @@ use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::ui::hud::chat_completion::ModCommands;
-use crate::ui::hud::debug::WorldBiomes;
 use crate::world::time::ClientTime;
 use crate::world::{
-    BlockChanged, ChunkLoadEvent, RenderDistance, ServerRenderDistanceLimit,
+    BlockChanged, ChunkLoadEvent, RenderDistance, ServerRenderDistanceLimit, WorldBiomes,
     WorldRenderRequestUpdateEvent,
 };
 use shared::messages::{
@@ -29,6 +28,7 @@ use shared::messages::{
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 use std::{net::UdpSocket, thread, time::SystemTime};
@@ -455,7 +455,7 @@ pub fn establish_authenticated_connection_to_server(
                 target.state = TargetServerState::ConnectionEstablished;
                 client_time.0 = message.tick;
                 commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
-                commands.insert_resource(WorldBiomes(TerrainNoises::new(message.seed)));
+                commands.insert_resource(WorldBiomes(Arc::new(TerrainNoises::new(message.seed))));
                 commands.insert_resource(ModCommands(message.mod_commands));
                 // `timestamp_ms` is not used yet: the clock starts at the server's tick as it
                 // was when the response left, so it lags by the latency

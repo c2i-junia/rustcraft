@@ -105,6 +105,18 @@ pub struct ColumnShape {
     pub biome: BiomeType,
 }
 
+/// The climate of one world column and the height of its surface, which the client tints the
+/// grass and the leaves with.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ColumnClimate {
+    /// In `[0, 1]`, from the coldest to the hottest.
+    pub temperature: f64,
+    /// In `[0, 1]`: the sea starts at `OCEAN_HUMIDITY`.
+    pub humidity: f64,
+    /// Height of the surface block.
+    pub height: i32,
+}
+
 /// Octaves of SuperSimplex noise, each with twice the frequency and half the weight of the
 /// previous one, averaged so that the sum stays within `[-1, 1]`.
 struct Fractal {
@@ -224,6 +236,18 @@ impl TerrainNoises {
         ColumnShape { height, biome }
     }
 
+    /// The climate of the world column `(x, z)` and the height of its surface: a pure function of
+    /// the seed and the coordinates, like `column_shape`.
+    pub fn column_climate(&self, x: i32, z: i32) -> ColumnClimate {
+        let (x, z) = (x as f64, z as f64);
+        let climate = self.climate(x, z);
+        ColumnClimate {
+            temperature: climate.temperature,
+            humidity: climate.humidity,
+            height: self.height(x, z, &climate).round() as i32,
+        }
+    }
+
     fn climate(&self, x: f64, z: f64) -> Climate {
         let warped_x = x + CLIMATE_WARP * self.warp_x.get(x, z);
         let warped_z = z + CLIMATE_WARP * self.warp_z.get(x, z);
@@ -308,6 +332,24 @@ mod tests {
         let second = TerrainNoises::new(42);
         for (x, z) in [(0, 0), (37, -91), (-1500, -1056), (1_000_000, -1_000_000)] {
             assert_eq!(first.column_shape(x, z), second.column_shape(x, z));
+        }
+    }
+
+    #[test]
+    fn the_climate_of_a_column_is_the_one_its_biome_comes_from() {
+        let noises = TerrainNoises::new(42);
+        for (x, z) in [(0, 0), (37, -91), (-1500, -1056), (4000, 250)] {
+            let climate = noises.column_climate(x, z);
+            let shape = noises.column_shape(x, z);
+            assert_eq!(climate.height, shape.height);
+            assert!((0.0..=1.0).contains(&climate.temperature));
+            assert!((0.0..=1.0).contains(&climate.humidity));
+            if shape.height < MOUNTAIN_FROM {
+                assert_eq!(
+                    determine_biome(climate.temperature, climate.humidity),
+                    shape.biome
+                );
+            }
         }
     }
 

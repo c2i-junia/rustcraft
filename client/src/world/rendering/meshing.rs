@@ -16,7 +16,7 @@ use shared::{
     CHUNK_SIZE,
 };
 
-use super::voxel::{Face, FaceDirection, VoxelShape};
+use super::voxel::{BiomeTint, Face, FaceDirection, VoxelShape};
 
 /// The buffers of a chunk mesh while its faces are added one by one. The normals, the tiles
 /// and the colors are held in the formats of `NORMAL`, `TILE` and `COLOR`, a fraction of
@@ -27,7 +27,8 @@ pub(crate) struct MeshCreator {
     indices: Vec<u32>,
     normals: Vec<[i8; 4]>,
     uvs: Vec<[f32; 2]>,
-    /// The block texture of each vertex, in `x`: its index in the table of `BlockLayers`.
+    /// The block texture of each vertex, in `x`: its index in the table of `BlockLayers`. In
+    /// `y`, the colour map that colours it (`BiomeTint::index`).
     tiles: Vec<[u16; 2]>,
     colors: Vec<[u8; 4]>,
 }
@@ -39,8 +40,8 @@ const NORMAL: MeshVertexAttribute = MeshVertexAttribute {
     ..Mesh::ATTRIBUTE_NORMAL
 };
 
-/// `Mesh::ATTRIBUTE_UV_1`, the block texture in `x`, as a fraction of `u16::MAX`, which
-/// `chunk.wgsl` multiplies back.
+/// `Mesh::ATTRIBUTE_UV_1`, the block texture in `x` and its colour map in `y`, as fractions of
+/// `u16::MAX`, which `chunk.wgsl` multiplies back.
 const TILE: MeshVertexAttribute = MeshVertexAttribute {
     format: VertexFormat::Unorm16x2,
     ..Mesh::ATTRIBUTE_UV_1
@@ -57,8 +58,8 @@ fn normal(normal: &[f32; 3]) -> [i8; 4] {
     [x, y, z, 0]
 }
 
-fn tile(tile: u32) -> [u16; 2] {
-    [tile as u16, 0]
+fn tile(tile: u32, biome_tint: BiomeTint) -> [u16; 2] {
+    [tile as u16, biome_tint.index()]
 }
 
 fn color(color: [f32; 4]) -> [u8; 4] {
@@ -94,7 +95,8 @@ impl MeshCreator {
         self.colors.extend(face.colors.iter().map(|c| color(*c)));
         self.uvs
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
-        self.tiles.extend(face.uvs.iter().map(|_| self::tile(tile)));
+        self.tiles
+            .extend(face.uvs.iter().map(|_| self::tile(tile, face.biome_tint)));
     }
 
     /// Appends the face `face_index` of `CUBE` stretched over `size` blocks along the face, from
@@ -122,8 +124,11 @@ impl MeshCreator {
         self.normals.extend(face.normals.iter().map(normal));
         let look_color = color(look.color);
         self.colors.extend(face.vertices.iter().map(|_| look_color));
-        self.tiles
-            .extend(face.vertices.iter().map(|_| tile(look.tile)));
+        self.tiles.extend(
+            face.vertices
+                .iter()
+                .map(|_| tile(look.tile, look.biome_tint)),
+        );
     }
 
     /// Appends the faces of `other`, moved by `offset`.
@@ -167,10 +172,11 @@ impl MeshCreator {
 
 /// The mesh of `block` shown as an item lying on the ground: the faces of a whole block, one
 /// block wide and centred on the origin, drawn with the chunk material. `None` for a block that
-/// is not a whole cube, such as a flower, which is shown as a picture instead.
+/// is not a whole cube, such as a flower, which is shown as a picture instead. An item keeps
+/// the colour of its vertices wherever it lies.
 pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> Option<Mesh> {
     let block = BlockData::new(block, BlockDirection::Front);
-    let look = BlockLook::new(&block, tiles);
+    let mut look = BlockLook::new(&block, tiles);
     if look
         .shape
         .faces
@@ -180,7 +186,8 @@ pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> O
         return None;
     }
     let mut mesh = MeshCreator::default();
-    for (face, tile) in look.shape.faces.iter().zip(&look.tiles) {
+    for (face, tile) in look.shape.faces.iter_mut().zip(&look.tiles) {
+        face.biome_tint = BiomeTint::None;
         if let Some(tile) = tile {
             mesh.push_face(face, *tile, Vec3::splat(-0.5), &block.direction);
         }
@@ -326,6 +333,7 @@ static CUBE: LazyLock<Cube> = LazyLock::new(|| {
 struct FaceLook {
     tile: u32,
     color: [f32; 4],
+    biome_tint: BiomeTint,
     liquid: bool,
     /// Where the top of the block is: below 1 under the surface of a liquid.
     height: f32,
@@ -585,6 +593,7 @@ fn chunk_faces(
                 let look = FaceLook {
                     tile,
                     color: face.colors[0],
+                    biome_tint: face.biome_tint,
                     liquid: visibility == BlockTransparency::Liquid,
                     height: face_height,
                 };
@@ -1098,12 +1107,29 @@ mod tests {
             panic!("no UVs");
         };
 
-        for (tile, normal) in tiles_of(&mesh).into_iter().zip(normals_of(&mesh)) {
-            let expected = if normal.y > 0. { 2 } else { 1 };
-            assert_eq!(tile, expected, "normal {normal:?}");
+        let Some(bevy::mesh::VertexAttributeValues::Unorm16x2(tiles)) = mesh.attribute(TILE) else {
+            panic!("a chunk mesh has tiles");
+        };
+        for (tile, normal) in tiles.iter().zip(normals_of(&mesh)) {
+            // Only the top is green, with the colour map of the grass
+            let expected = if normal.y > 0. { [2, 1] } else { [1, 0] };
+            assert_eq!(*tile, expected, "normal {normal:?}");
         }
         for uv in uvs {
             assert!(uv.iter().all(|c| 0. < *c && *c < 1.), "{uv:?}");
+        }
+    }
+
+    #[test]
+    fn an_item_keeps_the_colour_of_its_vertices_wherever_it_lies() {
+        let tiles = HashMap::from([("_Default".to_string(), 0)]);
+        for block in [BlockId::Grass, BlockId::OakLeaves] {
+            let mesh = block_item_mesh(block, &tiles).unwrap();
+            let Some(bevy::mesh::VertexAttributeValues::Unorm16x2(tiles)) = mesh.attribute(TILE)
+            else {
+                panic!("no tiles");
+            };
+            assert!(tiles.iter().all(|tile| tile[1] == 0), "{block:?}");
         }
     }
 

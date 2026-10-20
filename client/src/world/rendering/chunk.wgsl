@@ -1,6 +1,7 @@
 // The chunks are drawn with the block textures, the layers of a texture array: `uv_b.x` is the
 // index of the texture of a face in `block_textures`, and `uv` the place in it. A face that spans
-// several blocks has its `uv` go past 1, and the texture repeats across it.
+// several blocks has its `uv` go past 1, and the texture repeats across it. `uv_b.y` names the
+// colour map that colours the face from the climate of its column, if any (`BiomeTint`).
 
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::alpha_discard
@@ -28,6 +29,16 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> block_textures: array<vec4<u32>, 256>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var block_layers: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var block_sampler: sampler;
+// The climate of the columns around the player, wrapped around (`climate.rs`): the temperature
+// in red, the humidity in green, and an alpha of 0 where it is not known yet.
+@group(#{MATERIAL_BIND_GROUP}) @binding(103) var climate_map: texture_2d<f32>;
+// The colours of the grass and of the leaves by climate, read as Minecraft reads its own.
+@group(#{MATERIAL_BIND_GROUP}) @binding(104) var grass_colors: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(105) var foliage_colors: texture_2d<f32>;
+
+// The values of `BiomeTint::index`
+const BIOME_TINT_GRASS: u32 = 1u;
+const BIOME_TINT_FOLIAGE: u32 = 2u;
 
 // How long the game has been drawing, in seconds, which plays the animated textures. The
 // prepass has no such binding: it draws their first frame, which only matters for the pixels
@@ -113,12 +124,50 @@ fn fragment(in: VertexOutput) {
 
 #else
 
+// The colour at `at` of a colour map, from (0, 0) at its top left to (1, 1) at its bottom right.
+fn colormap_color(colormap: texture_2d<f32>, at: vec2<f32>) -> vec3<f32> {
+    let last = vec2<f32>(textureDimensions(colormap) - 1u);
+    return textureLoad(colormap, vec2<i32>(round(at * last)), 0).rgb;
+}
+
+// The colour of the grass or of the leaves at `in`, from the climate of its column, or `color`
+// where the face has no colour map or the climate is not known yet.
+fn biome_color(in: VertexOutput, color: vec3<f32>) -> vec3<f32> {
+    // A fraction of 65535, as the index of the texture
+    let tint = u32(round(in.uv_b.y * 65535.0));
+    if tint != BIOME_TINT_GRASS && tint != BIOME_TINT_FOLIAGE {
+        return color;
+    }
+    // A point of a face on the side of a block is on the edge of its column: a little back
+    // from the face, it is in the block
+    let column = floor(in.world_position.xz - in.world_normal.xz * 0.01);
+    let size = vec2<f32>(textureDimensions(climate_map));
+    // Wrapped with `floor`: `%` on negative integers reads the wrong texels on some GPUs
+    let texel = vec2<i32>(column - size * floor(column / size));
+    let climate = textureLoad(climate_map, texel, 0);
+    if climate.a == 0.0 {
+        return color;
+    }
+    // As Minecraft: the hotter to the left, and up as the humidity grows, the more so the
+    // hotter the climate
+    let temperature = climate.r;
+    let at = vec2(1.0 - temperature, 1.0 - climate.g * temperature);
+    if tint == BIOME_TINT_GRASS {
+        return colormap_color(grass_colors, at);
+    }
+    return colormap_color(foliage_colors, at);
+}
+
 // What `bevy_pbr::pbr` does in forward rendering, with the block textures
 @fragment
 fn fragment(
-    in: VertexOutput,
+    vertex_output: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
+    var in = vertex_output;
+#ifdef VERTEX_COLORS
+    in.color = vec4(biome_color(in, in.color.rgb), in.color.a);
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     pbr_input.material.base_color *= block_color(in);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
