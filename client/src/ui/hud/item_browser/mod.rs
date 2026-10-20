@@ -4,7 +4,7 @@
 //!
 //! It is also the recipe book: the recipes or the uses of an item replace the catalog in the same
 //! panel, from a click on an item in Survival or from R / U over any item slot, and its cards fill
-//! the crafting grid. In Creative, items come out of the catalog, and go back into it to be
+//! the crafting grid. A over any item slot bookmarks its item, for the world being played. In Creative, items come out of the catalog, and go back into it to be
 //! destroyed.
 
 use bevy::prelude::*;
@@ -14,6 +14,7 @@ use crate::state::{GameSet, GameState};
 use crate::ui::hud::style_inventory_panel;
 use crate::ui::menus::pause::toggle_pause_menu;
 
+pub mod bookmarks;
 pub mod catalog;
 pub mod creative;
 mod display;
@@ -241,9 +242,13 @@ pub fn item_browser_plugin(app: &mut App) {
         .init_resource::<layout::BrowserLayout>()
         .init_resource::<CraftableNow>()
         .init_resource::<BrowserRequests>()
+        .init_resource::<bookmarks::Bookmarks>()
         .add_systems(
             OnEnter(GameState::Game),
-            setup_item_browser.after(crate::ui::hud::setup_inventory),
+            (
+                setup_item_browser.after(crate::ui::hud::setup_inventory),
+                bookmarks::load_bookmarks,
+            ),
         )
         .add_systems(
             Update,
@@ -259,11 +264,13 @@ pub fn item_browser_plugin(app: &mut App) {
                 ),
                 (mark_craftable_items, show_mode_footer).run_if(
                     resource_changed::<CraftableNow>
+                        .or_else(resource_changed::<bookmarks::Bookmarks>)
                         .or_else(any_match_filter::<Added<CatalogSlot>>)
                         .or_else(any_match_filter::<Added<RecipeSlot>>),
                 ),
                 show_view.run_if(
                     resource_changed::<ItemBrowserState>
+                        .or_else(resource_changed::<bookmarks::Bookmarks>)
                         .or_else(any_match_filter::<Added<RecipePanel>>),
                 ),
                 style_recipe_cards.run_if(
@@ -280,7 +287,14 @@ pub fn item_browser_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (focus_search, drawer_keys, view_keys, click_items, item_keys)
+            (
+                focus_search,
+                drawer_keys,
+                view_keys,
+                click_items,
+                item_keys,
+                bookmark_key,
+            )
                 .chain()
                 .after(GameSet::UiMode)
                 .after(toggle_pause_menu)

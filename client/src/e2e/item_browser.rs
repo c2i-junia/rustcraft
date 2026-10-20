@@ -1,5 +1,6 @@
 //! The item browser beside the open inventory: the catalog, its search and its chips, its layout
-//! by window size and its drawer, and the keyboard.
+//! by window size and its drawer, the keyboard, its recipes, its Creative gestures and its
+//! bookmarks.
 
 use accesskit::Role;
 use bevy::{
@@ -17,6 +18,8 @@ use super::harness::{Harness, SCREEN, SERVER};
 use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
+use crate::constants::ITEM_BROWSER_PATH;
+use crate::ui::hud::item_browser::bookmarks::ItemBrowserFile;
 use crate::ui::hud::item_browser::creative::TRASH_HINT;
 use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::item_browser::{
@@ -409,7 +412,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
         &L::text("You have the ingredients").within(tooltip()),
         SCREEN,
     );
-    assert!(h.is_visible(&L::text("R Recipes  U Uses").within(tooltip())));
+    assert!(h.is_visible(&L::text("R Recipes  U Uses  A Bookmark").within(tooltip())));
 
     // The Craftable chip, at the end of the chips, which wrap, is in view and keeps what can be
     // crafted now
@@ -721,4 +724,60 @@ fn fill_grid_moves_a_recipe_into_the_grid() {
             && slot(w, grid_slot(0, 0)) == planks(2)
             && slot(w, grid_slot(1, 0)) == planks(2)
     });
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
+    let folder = GameFolder::new()
+        .with_world("Bookmarks")
+        .with_world("Elsewhere")
+        .with_items("Bookmarks", "Tester", &[(0, ItemId::WoodenPickaxe, 1)]);
+    let mut h = enter_world(folder, "Bookmarks");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::WoodenPickaxe, 1))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    let tooltip = L::marker::<TooltipRoot>;
+    let saved = |h: &Harness| -> ItemBrowserFile {
+        let text = std::fs::read_to_string(h.folder().join(ITEM_BROWSER_PATH)).unwrap();
+        ron::from_str(&text).unwrap()
+    };
+
+    // A over a slot of the catalog bookmarks its item, says so, and saves it for this world
+    h.hover(&catalog_slot("Chest"));
+    h.wait_for(
+        &L::text("R Recipes  U Uses  A Bookmark").within(tooltip()),
+        SCREEN,
+    );
+    h.press(KeyCode::KeyA);
+    h.wait_for(&L::text("Bookmarked Chest"), SCREEN);
+    h.wait_for(
+        &L::text("R Recipes  U Uses  A Unbookmark").within(tooltip()),
+        SCREEN,
+    );
+    assert_eq!(saved(&h).worlds["Bookmarks"], [ItemId::Chest]);
+
+    // The recipe view says so under the item's name
+    h.press(KeyCode::KeyR);
+    h.wait_for(
+        &L::text("Stations · bookmarked").within(L::marker::<RecipePanel>()),
+        SCREEN,
+    );
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("33 / 33"), SCREEN);
+
+    // A over a slot of the inventory too
+    h.hover(&L::cell(0));
+    h.press(KeyCode::KeyA);
+    h.wait_for(&L::text("Bookmarked Wooden Pickaxe"), SCREEN);
+    assert_eq!(
+        saved(&h).worlds["Bookmarks"],
+        [ItemId::Chest, ItemId::WoodenPickaxe]
+    );
+    h.press(KeyCode::KeyA);
+    h.wait_for(&L::text("Removed Wooden Pickaxe from bookmarks"), SCREEN);
+    assert_eq!(saved(&h).worlds["Bookmarks"], [ItemId::Chest]);
 }

@@ -7,7 +7,7 @@ use shared::world::{ItemCategory, ItemId};
 
 use super::catalog::{catalog, category_detail, NO_MATCH_HINT};
 use super::creative::{TRASH_HINT, TRASH_LABEL};
-use super::recipes::ITEM_KEYS_HINT;
+use super::recipes::item_keys_hint;
 use super::{
     choose_category, clear_or_leave_search, open_drawer, search_arrow_down, spawn_recipe_panel,
     submit_search, toggle_craftable, BrowserTitle, CatalogGrid, CatalogList, CatalogPart,
@@ -135,7 +135,8 @@ pub fn setup_item_browser(
     spawn_footer(&mut commands, panel, &font, &glyph_font);
 }
 
-/// The footer: in Survival the gestures of the catalog, where a click opens the recipes; in
+/// The footer: in Survival the gestures of the catalog, where a click opens the recipes, and A,
+/// which bookmarks; in
 /// Creative the trash, beside what it is for.
 fn spawn_footer(
     commands: &mut Commands,
@@ -170,7 +171,7 @@ fn spawn_footer(
             ChildOf(footer),
         ))
         .id();
-    for (index, (key, action)) in [("LMB", "recipes"), ("RMB", "uses"), ("/", "search")]
+    for (index, (key, action)) in [("LMB", "recipes"), ("RMB", "uses"), ("A", "bookmark")]
         .into_iter()
         .enumerate()
     {
@@ -450,7 +451,7 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
                     title: name.clone(),
                     detail: category_detail(item),
                     note: String::new(),
-                    hint: ITEM_KEYS_HINT.to_string(),
+                    hint: item_keys_hint(false),
                 },
                 slot(&name, None, icon(atlas, item), font.clone()),
                 ChildOf(grid),

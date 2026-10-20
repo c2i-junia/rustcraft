@@ -4,13 +4,28 @@
 use shared::players::Inventory;
 use shared::world::{craftable, missing, recipes_for, uses_of, ItemId, RecipeView};
 
+use super::catalog::category_detail;
 use super::{ItemView, RecipeTab};
 use crate::ui::hud::item_name;
 
 /// The line of the tooltip of an item craftable now, in Survival.
 pub const CRAFTABLE_NOTE: &str = "You have the ingredients";
-/// The keys of the tooltip of an item of the browser.
-pub const ITEM_KEYS_HINT: &str = "R Recipes  U Uses";
+/// The keys of the tooltip of an item of the browser; A removes a bookmarked item from the
+/// bookmarks.
+pub fn item_keys_hint(bookmarked: bool) -> String {
+    let bookmark = if bookmarked { "Unbookmark" } else { "Bookmark" };
+    format!("R Recipes  U Uses  A {bookmark}")
+}
+
+/// The line under the name of the item of the view: its category, and whether it is bookmarked.
+pub fn bookmarked_detail(item: ItemId, bookmarked: bool) -> String {
+    let detail = category_detail(item);
+    if bookmarked {
+        format!("{detail} · bookmarked")
+    } else {
+        detail
+    }
+}
 
 /// The title of the browser showing `tab`.
 pub fn view_title(tab: RecipeTab) -> &'static str {
@@ -136,7 +151,17 @@ mod tests {
         assert_eq!(station_label(&stick), "Inventory 2x2");
         assert_eq!(station_label(&pickaxe), "Crafting Table 3x3");
         assert_eq!(CRAFTABLE_NOTE, "You have the ingredients");
-        assert_eq!(ITEM_KEYS_HINT, "R Recipes  U Uses");
+        assert_eq!(item_keys_hint(false), "R Recipes  U Uses  A Bookmark");
+        assert_eq!(item_keys_hint(true), "R Recipes  U Uses  A Unbookmark");
+        assert_eq!(bookmarked_detail(ItemId::Chest, false), "Stations");
+        assert_eq!(
+            bookmarked_detail(ItemId::Chest, true),
+            "Stations · bookmarked"
+        );
+        assert_eq!(
+            bookmarked_detail(ItemId::WoodenAxe, true),
+            "Tools · Tool · bookmarked"
+        );
     }
 
     #[test]

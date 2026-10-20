@@ -58,7 +58,7 @@ pub fn bookmark_message(item: ItemId, added: bool) -> String; // "Bookmarked Che
 - [ ] **Step 2:** `timeout 600 cargo test -q -p client bookmarks` → fails to compile.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4:** tests pass, suite green.
-- [ ] **Step 5: Commit** — `feat(client): the bookmarks of the item browser, kept per world in item_browser.ron`
+- [ ] **Step 5: Commit** with Task 2: alone, the module is dead code, which `clippy -D warnings` refuses.
 
 ### Task 2: A toggles a bookmark; the texts name it
 
@@ -69,7 +69,7 @@ pub fn bookmark_message(item: ItemId, added: bool) -> String; // "Bookmarked Che
 - The Survival footer: `LMB recipes  RMB uses  A bookmark`, as the spec and the mockup (the search's `/` cap stays in the field).
 - [ ] **Step 1: Failing tests:** `recipes.rs` `the_texts_of_the_view` (hint, detail); `display.rs` `a_bookmarked_item_says_so_in_its_tooltip`; e2e journey, first part: hover Chest, A → toast `Bookmarked Chest`, tooltip `A Unbookmark`; R → `Stations · bookmarked`; `item_browser.ron` holds `worlds: {"Bookmarks": [Chest]}`; A over an inventory cell holding a pickaxe → bookmarked too.
 - [ ] **Step 2–4:** implement; Survival goldens change (footer): look, accept.
-- [ ] **Step 5: Commit** — `feat(client): A bookmarks the item of any slot, and the browser's texts say so`
+- [ ] **Step 5: Commit** (Tasks 1 and 2) — `feat(client): A bookmarks the item of any slot, kept per world in item_browser.ron`
 
 ### Task 3: The bookmark row
 

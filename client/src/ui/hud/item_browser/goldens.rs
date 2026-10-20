@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use shared::players::{game_mode::GameMode, Inventory, Player};
 use shared::world::{ItemId, ItemStack};
 
+use super::bookmarks::Bookmarks;
 use super::layout::BrowserLayout;
 use super::{
     filter_catalog, layout_item_browser, mark_craftable_items, setup_item_browser,
@@ -29,6 +30,7 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
     golden.world_mut().init_resource::<ItemBrowserState>();
     golden.world_mut().init_resource::<BrowserLayout>();
     golden.world_mut().init_resource::<CraftableNow>();
+    golden.world_mut().init_resource::<Bookmarks>();
     golden.run_system(setup_inventory);
     golden.run_system(setup_item_browser);
     if open {

@@ -13,11 +13,12 @@ use bevy::{
 use shared::players::{inventory::craft_result, Inventory};
 use shared::world::{recipes, recipes_for, uses_of, ItemId, RecipeView};
 
+use super::bookmarks::{bookmark_message, write_bookmarks, Bookmarks};
 use super::catalog::category_detail;
 use super::layout::BrowserLayout;
 use super::recipes::{
-    back_label, empty_view_message, recipe_problem, station_label, tab_label, view_title,
-    ITEM_KEYS_HINT,
+    back_label, bookmarked_detail, empty_view_message, item_keys_hint, recipe_problem,
+    station_label, tab_label, view_title,
 };
 use super::{
     BackButton, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
@@ -36,8 +37,10 @@ use crate::ui::widgets::focus::FocusRing;
 use crate::ui::widgets::hints::key_cap;
 use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM};
 use crate::ui::widgets::slot::{slot, ICON_SIZE, SLOT_SIZE};
+use crate::ui::widgets::toast::{show_toast, ToastKind};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, ClientWorldMap, MaterialResource};
+use shared::GameFolderPaths;
 
 /// The side of a cell of the grid of a card.
 pub const CARD_CELL: f32 = 40.0;
@@ -289,7 +292,7 @@ fn spawn_card_slot(
             title: name.clone(),
             detail: category_detail(item),
             note: String::new(),
-            hint: ITEM_KEYS_HINT.to_string(),
+            hint: item_keys_hint(false),
         },
         slot(&name, None, icon(atlas, item), font.clone()),
         ChildOf(parent),
@@ -497,6 +500,7 @@ pub struct ViewParts<'w, 's> {
 /// included), to the item's slot in the catalog.
 pub fn show_view(
     state: Res<ItemBrowserState>,
+    bookmarks: Res<Bookmarks>,
     materials: Res<MaterialResource>,
     asset_server: Res<AssetServer>,
     mut parts: ViewParts,
@@ -540,7 +544,9 @@ pub fn show_view(
             (true, _, None) => super::ITEM_BROWSER_TITLE.to_string(),
             (true, _, Some(view)) => view_title(view.tab).to_string(),
             (false, true, Some(view)) => item_name(view.item),
-            (false, false, Some(view)) => category_detail(view.item),
+            (false, false, Some(view)) => {
+                bookmarked_detail(view.item, bookmarks.contains(view.item))
+            }
             (false, _, None) => continue,
         };
         if text.0 != content {
@@ -814,23 +820,63 @@ pub fn click_items(
     }
 }
 
-/// R shows the recipes, U the uses, of the item of a slot: the focused one while its ring shows,
-/// else the one under the cursor, in the catalog, a card, the inventory, the crafting grid and
-/// its result, or a chest. In both modes, not while the player types.
-#[allow(clippy::too_many_arguments)]
+/// The slot the item keys act on, R, U and A: the focused one while its ring shows, else the
+/// one under the cursor, in the catalog (its bookmarks included), a card, the inventory, the
+/// crafting grid and its result, or a chest.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct KeyedSlot<'w, 's> {
+    focus: Res<'w, InputFocus>,
+    focus_visible: Res<'w, InputFocusVisible>,
+    inventory: Res<'w, Inventory>,
+    world_map: Res<'w, ClientWorldMap>,
+    catalog: Query<'w, 's, (Entity, &'static Hovered, &'static CatalogSlot)>,
+    cards: Query<'w, 's, (Entity, &'static Hovered, &'static RecipeSlot)>,
+    cells: Query<'w, 's, (Entity, &'static Hovered, &'static InventoryCell)>,
+    result: Query<'w, 's, (Entity, &'static Hovered), With<CraftResultCell>>,
+}
+
+impl KeyedSlot<'_, '_> {
+    /// The item of the slot the keys act on, if it holds one.
+    pub fn item(&self) -> Option<ItemId> {
+        // Every item slot, whether it is hovered, and its item
+        let slots = self
+            .catalog
+            .iter()
+            .map(|(entity, hovered, slot)| (entity, hovered.get(), Some(slot.0)))
+            .chain(
+                self.cards
+                    .iter()
+                    .map(|(entity, hovered, slot)| (entity, hovered.get(), Some(slot.item))),
+            )
+            .chain(self.cells.iter().map(|(entity, hovered, cell)| {
+                let stack = stack_in(cell.id, &self.inventory, &self.world_map);
+                (entity, hovered.get(), stack.map(|stack| stack.item_id))
+            }))
+            .chain(self.result.iter().map(|(entity, hovered)| {
+                let made = craft_result(&self.inventory, grid_in_use(&self.inventory));
+                (entity, hovered.get(), made.map(|stack| stack.item_id))
+            }));
+        let focused = self.focus.get().filter(|_| self.focus_visible.0);
+        let (mut on_focus, mut on_hover) = (None, None);
+        for (entity, hovered, item) in slots {
+            if focused == Some(entity) {
+                on_focus = item;
+            } else if hovered && on_hover.is_none() {
+                on_hover = item;
+            }
+        }
+        on_focus.or(on_hover)
+    }
+}
+
+/// R shows the recipes, U the uses, of the item of the `KeyedSlot`. In both modes, not while the
+/// player types.
 pub fn item_keys(
     keys: Res<ButtonInput<KeyCode>>,
     ui_mode: Res<UIMode>,
-    focus: Res<InputFocus>,
-    focus_visible: Res<InputFocusVisible>,
     layout: Res<BrowserLayout>,
-    inventory: Res<Inventory>,
-    world_map: Res<ClientWorldMap>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
-    catalog: Query<(Entity, &Hovered, &CatalogSlot)>,
-    cards: Query<(Entity, &Hovered, &RecipeSlot)>,
-    cells: Query<(Entity, &Hovered, &InventoryCell)>,
-    result: Query<(Entity, &Hovered), With<CraftResultCell>>,
+    slot: KeyedSlot,
     mut state: ResMut<ItemBrowserState>,
 ) {
     let tab = if keys.just_pressed(KeyCode::KeyR) {
@@ -843,35 +889,43 @@ pub fn item_keys(
     if *ui_mode == UIMode::Typing || !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
         return;
     }
-    // Every item slot, whether it is hovered, and its item
-    let slots = catalog
-        .iter()
-        .map(|(entity, hovered, slot)| (entity, hovered.get(), Some(slot.0)))
-        .chain(
-            cards
-                .iter()
-                .map(|(entity, hovered, slot)| (entity, hovered.get(), Some(slot.item))),
-        )
-        .chain(cells.iter().map(|(entity, hovered, cell)| {
-            let stack = stack_in(cell.id, &inventory, &world_map);
-            (entity, hovered.get(), stack.map(|stack| stack.item_id))
-        }))
-        .chain(result.iter().map(|(entity, hovered)| {
-            let made = craft_result(&inventory, grid_in_use(&inventory));
-            (entity, hovered.get(), made.map(|stack| stack.item_id))
-        }));
-    let focused = focus.get().filter(|_| focus_visible.0);
-    let (mut on_focus, mut on_hover) = (None, None);
-    for (entity, hovered, item) in slots {
-        if focused == Some(entity) {
-            on_focus = item;
-        } else if hovered && on_hover.is_none() {
-            on_hover = item;
-        }
-    }
-    if let Some(item) = on_focus.or(on_hover) {
+    if let Some(item) = slot.item() {
         state.open(ItemView { item, tab }, layout.compact);
     }
+}
+
+/// A bookmarks the item of the `KeyedSlot`, or removes it from the bookmarks, saves them and says
+/// so in a toast. In both modes, not while the player types.
+#[allow(clippy::too_many_arguments)]
+pub fn bookmark_key(
+    keys: Res<ButtonInput<KeyCode>>,
+    ui_mode: Res<UIMode>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    slot: KeyedSlot,
+    paths: Res<GameFolderPaths>,
+    asset_server: Res<AssetServer>,
+    mut bookmarks: ResMut<Bookmarks>,
+    mut commands: Commands,
+) {
+    if !keys.just_pressed(KeyCode::KeyA)
+        || *ui_mode == UIMode::Typing
+        || !matches!(inventory_root.single(), Ok(&Visibility::Visible))
+    {
+        return;
+    }
+    let Some(item) = slot.item() else {
+        return;
+    };
+    let added = bookmarks.toggle(item);
+    if let Some(key) = &bookmarks.key {
+        write_bookmarks(&paths, key, &bookmarks.items);
+    }
+    show_toast(
+        &mut commands,
+        &bookmark_message(item, added),
+        ToastKind::Info,
+        crate::ui::assets::load_font(&asset_server),
+    );
 }
 
 /// Escape goes back in the history of the view while it shows; the drawer and the inventory wait

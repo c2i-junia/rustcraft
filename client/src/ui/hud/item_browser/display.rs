@@ -17,10 +17,11 @@ use bevy::{
 use shared::players::{game_mode::GameMode, Inventory, Player};
 use shared::world::ItemId;
 
+use super::bookmarks::Bookmarks;
 use super::catalog::{count_label, no_match_hint, no_match_message, shown_in};
 use super::creative::{creative_action, creative_hint, destroyed_message, Gesture};
 use super::layout::{browser_layout, BrowserLayout};
-use super::recipes::{craftable_now, CRAFTABLE_NOTE, ITEM_KEYS_HINT};
+use super::recipes::{craftable_now, item_keys_hint, CRAFTABLE_NOTE};
 use super::{
     BackButton, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
     CraftableChip, CraftableDot, CraftableNow, DrawerHandle, ItemBrowser, ItemBrowserState,
@@ -203,10 +204,11 @@ pub fn show_mode_footer(
 
 /// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
 /// their slots in the browser. In Creative, the tooltips of the catalog say what its gestures
-/// take.
+/// take; the keys say whether A bookmarks the item or removes it from the bookmarks.
 #[allow(clippy::type_complexity)]
 pub fn mark_craftable_items(
     craftable: Res<CraftableNow>,
+    bookmarks: Res<Bookmarks>,
     mut slots: Query<
         (
             Option<&CatalogSlot>,
@@ -231,9 +233,10 @@ pub fn mark_craftable_items(
             tooltip.note = note.to_string();
         }
         // In Creative, what the gestures on the catalog take, above the keys
+        let keys = item_keys_hint(bookmarks.contains(item));
         let hint = match catalog_slot {
-            Some(_) if !craftable.survival => format!("{}\n{ITEM_KEYS_HINT}", creative_hint(item)),
-            _ => ITEM_KEYS_HINT.to_string(),
+            Some(_) if !craftable.survival => format!("{}\n{keys}", creative_hint(item)),
+            _ => keys,
         };
         if tooltip.hint != hint {
             tooltip.hint = hint;
@@ -786,6 +789,7 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<ItemBrowserState>();
         world.init_resource::<CraftableNow>();
+        world.init_resource::<Bookmarks>();
         world.init_resource::<Inventory>();
         world.insert_resource(browser_layout(Vec2::new(1280.0, 720.0), 502.0));
         world.spawn((InventoryRoot, inventory));
@@ -989,6 +993,38 @@ mod tests {
         assert_eq!(
             dot_and_note(&mut world, ItemId::OakPlanks),
             (false, String::new())
+        );
+    }
+
+    /// The hint of the tooltip of the catalog slot of `item`.
+    fn hint(world: &mut World, item: ItemId) -> String {
+        world.run_system_once(mark_craftable_items).unwrap();
+        let mut slots = world.query::<(&CatalogSlot, &Tooltip)>();
+        let (_, tooltip) = slots.iter(world).find(|(slot, _)| slot.0 == item).unwrap();
+        tooltip.hint.clone()
+    }
+
+    #[test]
+    fn a_bookmarked_item_says_so_in_its_tooltip() {
+        let mut world = browser(Visibility::Visible);
+        set_mode(&mut world, GameMode::Survival);
+        assert_eq!(
+            hint(&mut world, ItemId::Chest),
+            "R Recipes  U Uses  A Bookmark"
+        );
+        world.resource_mut::<Bookmarks>().items.push(ItemId::Chest);
+        assert_eq!(
+            hint(&mut world, ItemId::Chest),
+            "R Recipes  U Uses  A Unbookmark"
+        );
+        assert_eq!(
+            hint(&mut world, ItemId::Dirt),
+            "R Recipes  U Uses  A Bookmark"
+        );
+        set_mode(&mut world, GameMode::Creative);
+        assert_eq!(
+            hint(&mut world, ItemId::Chest),
+            "LMB 64  RMB 1  Shift to inventory\nR Recipes  U Uses  A Unbookmark"
         );
     }
 
