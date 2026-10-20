@@ -168,11 +168,12 @@ pub enum ItemId {
     RoastMutton,
     Berries,
     Spear,
+    PortalGun,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 145] = [
+    pub const ALL: [ItemId; 146] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -318,6 +319,7 @@ impl ItemId {
         Self::RoastMutton,
         Self::Berries,
         Self::Spear,
+        Self::PortalGun,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -351,7 +353,7 @@ impl ItemId {
     pub fn get_max_stack(&self) -> u32 {
         match *self {
             Self::Bucket => 16,
-            Self::WaterBucket | Self::Spear => 1,
+            Self::WaterBucket | Self::Spear | Self::PortalGun => 1,
             _ if self.tool().is_some() => 1,
             _ => 64,
         }
@@ -591,7 +593,8 @@ impl ItemId {
             | Self::BronzeShovel
             | Self::BronzeHoe
             | Self::BronzeSword
-            | Self::Spear => ItemCategory::Tools,
+            | Self::Spear
+            | Self::PortalGun => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -722,7 +725,8 @@ impl ItemId {
             | Self::RawMutton
             | Self::RoastMutton
             | Self::Berries
-            | Self::Spear => ItemType::Generic,
+            | Self::Spear
+            | Self::PortalGun => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1046,6 +1050,7 @@ mod tests {
             (ItemId::RoastMutton, 142),
             (ItemId::Berries, 143),
             (ItemId::Spear, 144),
+            (ItemId::PortalGun, 145),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1194,7 +1199,8 @@ mod tests {
                 | ItemId::RawMutton
                 | ItemId::RoastMutton
                 | ItemId::Berries
-                | ItemId::Spear => {}
+                | ItemId::Spear
+                | ItemId::PortalGun => {}
             }
         }
         for (id, expected) in table {
@@ -1378,7 +1384,8 @@ mod tests {
         let buckets = [ItemId::Bucket, ItemId::WaterBucket, ItemId::Spear];
         let others = ItemId::ALL
             .iter()
-            .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item));
+            .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item))
+            .filter(|item| **item != ItemId::PortalGun);
         for item in others {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
@@ -1466,11 +1473,13 @@ mod tests {
             assert_eq!(item.category(), category, "{item:?}");
         }
         // The tools, and the buckets, as Minecraft's "Tools & Utilities"
+        // The portal gun is filed with the tools, though it breaks no block
+        assert_eq!(ItemId::PortalGun.category(), ItemCategory::Tools);
         for item in ItemId::ALL {
             let bucket = matches!(item, ItemId::Bucket | ItemId::WaterBucket | ItemId::Spear);
             assert_eq!(
                 item.category() == ItemCategory::Tools,
-                item.tool().is_some() || bucket,
+                item.tool().is_some() || bucket || item == ItemId::PortalGun,
                 "{item:?}"
             );
         }
@@ -1491,5 +1500,14 @@ mod tests {
                 "Mobs"
             ]
         );
+    }
+
+    #[test]
+    fn the_portal_gun_is_no_tool_and_stacks_to_one() {
+        assert_eq!(ItemId::PortalGun.tool(), None);
+        assert_eq!(ItemId::PortalGun.get_max_stack(), 1);
+        assert_eq!(ItemId::PortalGun.get_default_type(), ItemType::Generic);
+        assert_eq!(ItemId::PortalGun.name(), "portal_gun");
+        assert_eq!(ItemId::ALL.last(), Some(&ItemId::PortalGun));
     }
 }

@@ -114,6 +114,7 @@ const fn hoe(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
 const fn sword(m: Option<Ingredient>) -> [Option<Ingredient>; 3] {
     [m, m, STICK]
 }
+const GLASS: Option<Ingredient> = item(ItemId::Glass);
 
 #[rustfmt::skip]
 const RECIPES: &[Recipe] = &[
@@ -219,6 +220,17 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::WillowLog), item(ItemId::WillowLog), item(ItemId::WillowLog)], output: ItemId::Campfire, nb: 1 },
     Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::AcaciaLog), item(ItemId::AcaciaLog), item(ItemId::AcaciaLog)], output: ItemId::Campfire, nb: 1 },
     Recipe { width: 3, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, None, STICK, None], output: ItemId::Sign, nb: 1 },
+    // A lens, a body of iron round a core of gold, and a handle
+    Recipe {
+        width: 3,
+        cells: &[
+            GLASS, IRON, IRON,
+            None, GOLD, IRON,
+            None, None, STICK,
+        ],
+        output: ItemId::PortalGun,
+        nb: 1,
+    },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -819,7 +831,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 84);
+        assert_eq!(all.len(), 85);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -838,7 +850,7 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
-        assert_eq!(counts(ItemId::Stick), (1, 41));
+        assert_eq!(counts(ItemId::Stick), (1, 42));
         assert_eq!(counts(ItemId::OakPlanks), (1, 14));
         assert_eq!(counts(ItemId::SprucePlanks), (1, 14));
         assert_eq!(counts(ItemId::JunglePlanks), (1, 14));
@@ -847,7 +859,7 @@ mod tests {
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::SprucePlanks));
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::JunglePlanks));
         assert_eq!(counts(ItemId::Cobblestone), (0, 6));
-        assert_eq!(counts(ItemId::IronIngot), (1, 8));
+        assert_eq!(counts(ItemId::IronIngot), (1, 9));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
@@ -914,6 +926,41 @@ mod tests {
         assert_eq!(
             missing(&inventory, &pickaxe),
             [(PLANKS, 3), (Ingredient::Item(ItemId::Stick), 2)]
+        );
+    }
+
+    #[test]
+    fn glass_ingots_and_a_stick_make_the_portal_gun() {
+        let glass = Some(ItemId::Glass);
+        let iron = Some(ItemId::IronIngot);
+        let gold = Some(ItemId::GoldIngot);
+        let stick = Some(ItemId::Stick);
+        assert_eq!(
+            match_recipe(&grid([
+                glass, iron, iron, None, gold, iron, None, None, stick
+            ])),
+            made(ItemId::PortalGun, 1)
+        );
+        assert_eq!(
+            match_recipe(&grid([
+                iron, iron, glass, iron, gold, None, stick, None, None
+            ])),
+            made(ItemId::PortalGun, 1)
+        );
+        // Iron where the gold goes makes nothing
+        assert_eq!(
+            match_recipe(&grid([
+                glass, iron, iron, None, iron, iron, None, None, stick
+            ])),
+            None
+        );
+        // Nor do the ores, which must be smelted first
+        let (iron, gold) = (Some(ItemId::IronOre), Some(ItemId::GoldOre));
+        assert_eq!(
+            match_recipe(&grid([
+                glass, iron, iron, None, gold, iron, None, None, stick
+            ])),
+            None
         );
     }
 

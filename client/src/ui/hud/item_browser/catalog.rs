@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn a_hash_word_matches_the_category() {
-        assert_eq!(found("#tools", None).len(), 33);
+        assert_eq!(found("#tools", None).len(), 34);
         assert!(found("#tools", None)
             .iter()
             .all(|item| item.category() == Tools));
