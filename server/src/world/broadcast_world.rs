@@ -11,14 +11,17 @@ use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{
-    chunk_in_reach, global_block_to_chunk_pos, render_distance_offsets, vertical_render_distance,
-    world_position_to_chunk_position, Chunk, ChunkMap, MobId, ServerMob,
+    global_block_to_chunk_pos, render_distance_offsets, world_position_to_chunk_position, Chunk,
+    ChunkMap, ChunkReach, MobId, ServerMob,
 };
 use shared::{game_message_to_payload, CHUNK_SIZE, STC_CHUNK_DATA_CHANNEL, UNLOAD_MARGIN};
 use std::collections::{HashMap, HashSet};
 
 /// Most chunks sent to one client by one broadcast.
 const MAX_CHUNKS_PER_BROADCAST: usize = 1024;
+/// Most of them that the chunks around the twins of the portals take (`ChunkReach`), the
+/// player's own taking the rest: neither starves while the other is being sent.
+const PORTAL_CHUNKS_PER_BROADCAST: usize = MAX_CHUNKS_PER_BROADCAST / 4;
 
 pub fn broadcast_world_state(
     mut server: ResMut<RenetServer>,
@@ -71,13 +74,13 @@ pub fn broadcast_world_state(
         }
 
         let sent_chunks = world_map.sent_chunks.entry(player.id).or_default();
-        let (unloads, block_updates, new_map) = world_messages_around(
-            chunks,
-            &changed,
+        let reach = ChunkReach::new(
             world_position_to_chunk_position(player.position),
             render_distance,
-            sent_chunks,
+            chunks.portals(),
         );
+        let (unloads, block_updates, new_map) =
+            world_messages_around(chunks, &changed, &reach, sent_chunks);
         // A client is told of the items in the chunks it has, those sent now included
         let items = dropped_items_update(
             &world_map.dropped_items,
@@ -98,8 +101,7 @@ pub fn broadcast_world_state(
         if !block_updates.is_empty() {
             server.send_game_message(client, ServerToClientMessage::BlockUpdates(block_updates));
         }
-        let player_chunk = world_position_to_chunk_position(player.position);
-        for payload in encode_world_updates(new_map, player_chunk, time.0, ts) {
+        for payload in encode_world_updates(new_map, &reach, time.0, ts) {
             server.send_message(client, STC_CHUNK_DATA_CHANNEL, payload);
         }
     }
@@ -114,12 +116,23 @@ const CHUNKS_PER_MESSAGE: usize = 32;
 /// carry no mobs: those are sent on their own (`mob_messages`).
 fn encode_world_updates(
     new_map: HashMap<IVec3, &Chunk>,
-    player_chunk: IVec3,
+    reach: &ChunkReach,
     tick: u64,
     time: u64,
 ) -> Vec<Vec<u8>> {
     let mut chunks: Vec<(IVec3, &Chunk)> = new_map.into_iter().collect();
-    chunks.sort_by_key(|(pos, _)| (*pos - player_chunk).length_squared());
+    // The player's own chunks first, nearest to it first, then those around the twins, nearest
+    // to one first
+    let twins = reach.twins();
+    chunks.sort_by_key(|&(pos, _)| {
+        let distance = |center: IVec3| (pos - center).length_squared();
+        if reach.within(pos) {
+            (false, distance(reach.center))
+        } else {
+            let to_twin = twins.iter().map(|&twin| distance(twin)).min();
+            (true, to_twin.unwrap_or_else(|| distance(reach.center)))
+        }
+    });
     let encode = |_: usize, chunks: &[(IVec3, &Chunk)]| {
         game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
             tick,
@@ -179,56 +192,60 @@ fn mob_messages(
     messages
 }
 
-/// What the client of a player in `player_chunk` must be sent: the chunks it must forget, then
-/// the updates of its chunks, then the chunks within `render_distance` it lacks. The unloads
-/// come first, so that no update is sent for a chunk the client is told to forget.
+/// What the client of a player of reach `reach` must be sent: the chunks it must forget, then
+/// the updates of its chunks, then the chunks within the reach it lacks: its own, within the
+/// render distance, and those around the twins of the portals, which take at most
+/// `PORTAL_CHUNKS_PER_BROADCAST`. The unloads come first, so that no update is sent for a chunk
+/// the client is told to forget.
 ///
-/// While its player stays in the same chunk, the chunks a client holds all of, nearest first,
+/// While the reach stays the same, the chunks of its own a client holds all of, nearest first,
 /// are not looked at again (`SentChunks::progress`): with a large render distance, they are
-/// hundreds of thousands. Nothing is unloaded then, as nothing went out of reach.
+/// hundreds of thousands. Nothing is unloaded then, as nothing went out of reach. The chunks
+/// around the twins, 729 each, are looked at in every broadcast.
 pub(super) fn world_messages_around<'a>(
     chunks: &'a ChunkMap,
     changed: &[IVec3],
-    player_chunk: IVec3,
-    render_distance: i32,
+    reach: &ChunkReach,
     sent: &mut SentChunks,
 ) -> (Vec<IVec3>, Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
-    let around = (player_chunk, render_distance);
-    let (unloads, held) = match sent.progress {
-        Some((then, held)) if then == around => (Vec::new(), held),
-        _ => (
-            take_chunks_to_unload(player_chunk, render_distance, &mut sent.chunks),
-            0,
-        ),
+    let (unloads, held) = match &sent.progress {
+        Some((then, held)) if then == reach => (Vec::new(), *held),
+        _ => (take_chunks_to_unload(reach, &mut sent.chunks), 0),
     };
-    let offsets = render_distance_offsets(render_distance);
-    let lacking = || offsets[held..].iter().map(|&offset| player_chunk + offset);
-    let (updates, new_chunks) = client_world_messages(chunks, changed, lacking(), &mut sent.chunks);
+    let offsets = render_distance_offsets(reach.distance);
+    let lacking = || offsets[held..].iter().map(|&offset| reach.center + offset);
+    let updates = block_updates(chunks, changed, &sent.chunks);
+    let mut new_chunks = HashMap::new();
+    let portal_varied = add_chunks_to_send(
+        chunks,
+        reach.portal_chunks(),
+        &mut sent.chunks,
+        PORTAL_CHUNKS_PER_BROADCAST,
+        &mut new_chunks,
+    );
+    add_chunks_to_send(
+        chunks,
+        lacking(),
+        &mut sent.chunks,
+        MAX_CHUNKS_PER_BROADCAST - portal_varied,
+        &mut new_chunks,
+    );
     let now_held = lacking()
         .take_while(|chunk| sent.chunks.contains(chunk))
         .count();
-    sent.progress = Some((around, held + now_held));
+    sent.progress = Some((reach.clone(), held + now_held));
     (unloads, updates, new_chunks)
 }
 
-/// The chunks of `sent` more than `UNLOAD_MARGIN` chunks beyond the reach of `render_distance`
-/// from `player_chunk`, in no order. They are removed from `sent`, so that they are sent again once
-/// the player comes back. The chunks of the margin are kept but never sent first: walking to
-/// and fro across a chunk border neither unloads nor sends anything. A lowered render
-/// distance unloads the same way.
-fn take_chunks_to_unload(
-    player_chunk: IVec3,
-    render_distance: i32,
-    sent: &mut HashSet<IVec3>,
-) -> Vec<IVec3> {
+/// The chunks of `sent` more than `UNLOAD_MARGIN` chunks beyond `reach` (`ChunkReach::keeps`),
+/// in no order. They are removed from `sent`, so that they are sent again once the player comes
+/// back. The chunks of the margin are kept but never sent first: walking to and fro across a
+/// chunk border neither unloads nor sends anything. A lowered render distance, or a portal
+/// that closed or moved, unloads the same way.
+fn take_chunks_to_unload(reach: &ChunkReach, sent: &mut HashSet<IVec3>) -> Vec<IVec3> {
     let mut unloads = Vec::new();
     sent.retain(|&chunk| {
-        let kept = chunk_in_reach(
-            chunk,
-            player_chunk,
-            render_distance + UNLOAD_MARGIN,
-            vertical_render_distance(render_distance) + UNLOAD_MARGIN,
-        );
+        let kept = reach.keeps(chunk, UNLOAD_MARGIN);
         if !kept {
             unloads.push(chunk);
         }
@@ -242,38 +259,64 @@ fn take_chunks_to_unload(
 /// chunks are recorded in `sent`: a chunk sent now already holds the changes, and every chunk
 /// the client has gets its changes as updates, so the client never misses one and is never
 /// sent an update for a chunk it lacks.
+#[cfg(test)]
 fn client_world_messages<'a>(
     chunks: &'a ChunkMap,
     changed: &[IVec3],
     active_chunks: impl IntoIterator<Item = IVec3>,
     sent: &mut HashSet<IVec3>,
 ) -> (Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
-    let updates = changed
+    let updates = block_updates(chunks, changed, sent);
+    let new_chunks = get_world_map_chunks_to_send(chunks, active_chunks, sent);
+    (updates, new_chunks)
+}
+
+/// The current state of the blocks of `changed` in the chunks of `sent`.
+fn block_updates(chunks: &ChunkMap, changed: &[IVec3], sent: &HashSet<IVec3>) -> Vec<BlockUpdate> {
+    changed
         .iter()
         .filter(|pos| sent.contains(&global_block_to_chunk_pos(pos)))
         .map(|&position| BlockUpdate {
             position,
             block: chunks.get_block(position).copied(),
         })
-        .collect();
-    let new_chunks = get_world_map_chunks_to_send(chunks, active_chunks, sent);
-    (updates, new_chunks)
+        .collect()
 }
 
 /// The chunks, nearest first, that a client has not received yet, at most
-/// `MAX_CHUNKS_PER_BROADCAST` of varied cells: a chunk of one kind of cell, such as air or
-/// stone, weighs a few bytes on the wire, so those among them do not count. They are recorded
-/// in `sent`.
+/// `MAX_CHUNKS_PER_BROADCAST` of varied cells (`add_chunks_to_send`).
+#[cfg(test)]
 fn get_world_map_chunks_to_send<'a>(
     chunks: &'a ChunkMap,
     active_chunks: impl IntoIterator<Item = IVec3>,
     sent: &mut HashSet<IVec3>,
 ) -> HashMap<IVec3, &'a Chunk> {
-    let mut map: HashMap<IVec3, &Chunk> = HashMap::new();
+    let mut map = HashMap::new();
+    add_chunks_to_send(
+        chunks,
+        active_chunks,
+        sent,
+        MAX_CHUNKS_PER_BROADCAST,
+        &mut map,
+    );
+    map
+}
+
+/// Adds to `map` the chunks of `active_chunks`, in their order, that a client has not received
+/// yet, at most `most` of varied cells: a chunk of one kind of cell, such as air or stone,
+/// weighs a few bytes on the wire, so those among them do not count. They are recorded in
+/// `sent`. Says how many varied ones it added.
+fn add_chunks_to_send<'a>(
+    chunks: &'a ChunkMap,
+    active_chunks: impl IntoIterator<Item = IVec3>,
+    sent: &mut HashSet<IVec3>,
+    most: usize,
+    map: &mut HashMap<IVec3, &'a Chunk>,
+) -> usize {
     let mut varied = 0;
 
     for c in active_chunks {
-        if varied >= MAX_CHUNKS_PER_BROADCAST {
+        if varied >= most {
             break;
         }
 
@@ -289,7 +332,7 @@ fn get_world_map_chunks_to_send<'a>(
         }
     }
 
-    map
+    varied
 }
 
 /// The chunks within the `radius` of each player, each listed once, in the order the players
@@ -328,7 +371,10 @@ pub fn active_chunks<'a>(
 mod tests {
     use super::*;
     use bevy_renet::renet::ClientId;
-    use shared::world::{chunk_distance, BlockData, BlockDirection, BlockId};
+    use shared::world::{
+        chunk_distance, BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor,
+        PORTAL_VIEW_RADIUS,
+    };
 
     fn stone() -> BlockData {
         BlockData::new(BlockId::Stone, BlockDirection::Front)
@@ -724,7 +770,8 @@ mod tests {
         let new_map: HashMap<IVec3, &Chunk> =
             (0..70).map(|x| (IVec3::new(x, 0, 0), &air)).collect();
 
-        let payloads = encode_world_updates(new_map, IVec3::ZERO, 3, 4);
+        let reach = ChunkReach::new(IVec3::ZERO, 70, &Default::default());
+        let payloads = encode_world_updates(new_map, &reach, 3, 4);
 
         let updates: Vec<WorldUpdate> = payloads
             .iter()
@@ -813,8 +860,8 @@ mod tests {
         x: i32,
         sent: &mut SentChunks,
     ) -> (Vec<IVec3>, HashMap<IVec3, &'a Chunk>) {
-        let (unloads, updates, new_chunks) =
-            world_messages_around(chunks, &[], IVec3::new(x, 0, 0), RENDER_DISTANCE, sent);
+        let reach = ChunkReach::new(IVec3::new(x, 0, 0), RENDER_DISTANCE, chunks.portals());
+        let (unloads, updates, new_chunks) = world_messages_around(chunks, &[], &reach, sent);
         assert!(updates.is_empty());
         (unloads, new_chunks)
     }
@@ -829,7 +876,8 @@ mod tests {
         let far = [IVec3::new(KEPT + 1, 0, 0), IVec3::new(0, -KEPT - 1, 0)];
         let mut sent: HashSet<IVec3> = kept.into_iter().chain(far).collect();
 
-        let mut unloads = take_chunks_to_unload(IVec3::ZERO, RENDER_DISTANCE, &mut sent);
+        let reach = ChunkReach::new(IVec3::ZERO, RENDER_DISTANCE, &Default::default());
+        let mut unloads = take_chunks_to_unload(&reach, &mut sent);
 
         unloads.sort_by_key(|c| (c.x, c.y, c.z));
         assert_eq!(unloads, vec![far[1], far[0]]);
@@ -906,8 +954,9 @@ mod tests {
         let mut sent = SentChunks::default();
         // The positions of the new chunks
         let mut around = |chunks: &ChunkMap, changed: &[IVec3], player_chunk| {
+            let reach = ChunkReach::new(player_chunk, 1, chunks.portals());
             let (unloads, updates, new_chunks) =
-                world_messages_around(chunks, changed, player_chunk, 1, &mut sent);
+                world_messages_around(chunks, changed, &reach, &mut sent);
             (unloads, updates, new_chunks.into_keys().collect::<Vec<_>>())
         };
 
@@ -942,13 +991,9 @@ mod tests {
                 chunks.set_block(pos, stone());
             }
             let changed = chunks.take_changed_blocks();
-            let (unloads, updates, new_chunks) = world_messages_around(
-                &chunks,
-                &changed,
-                IVec3::new(x, 0, 0),
-                RENDER_DISTANCE,
-                &mut sent,
-            );
+            let reach = ChunkReach::new(IVec3::new(x, 0, 0), RENDER_DISTANCE, chunks.portals());
+            let (unloads, updates, new_chunks) =
+                world_messages_around(&chunks, &changed, &reach, &mut sent);
 
             for chunk in unloads {
                 assert!(client.remove_chunk(chunk).is_some(), "step {step}: {chunk}");
@@ -973,8 +1018,8 @@ mod tests {
         let chunks = chunks_between(-6, 6);
         let mut sent = SentChunks::default();
         let around = |distance, sent: &mut SentChunks| {
-            let (unloads, _, new_chunks) =
-                world_messages_around(&chunks, &[], IVec3::ZERO, distance, sent);
+            let reach = ChunkReach::new(IVec3::ZERO, distance, chunks.portals());
+            let (unloads, _, new_chunks) = world_messages_around(&chunks, &[], &reach, sent);
             (xs(&unloads), xs(new_chunks.keys()))
         };
         around(4, &mut sent);
@@ -1050,6 +1095,174 @@ mod tests {
             let expected: Vec<i32> = (center - distance..=center + distance).collect();
             assert_eq!(xs(&chunks), expected, "client {client}");
         }
+    }
+
+    /// Where the portal pair of the tests opens: the blue portal onto the chunk `(x, 0, 0)`, the
+    /// orange one onto `FAR_TWIN`.
+    fn open_pair(chunks: &mut ChunkMap, x: i32) {
+        for (color, chunk) in [
+            (PortalColor::Blue, IVec3::new(x, 0, 0)),
+            (PortalColor::Orange, FAR_TWIN),
+        ] {
+            chunks.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+            });
+        }
+    }
+
+    /// The chunk the orange portal of the tests opens onto, far from the players.
+    const FAR_TWIN: IVec3 = IVec3::new(40, 0, 0);
+
+    /// The chunks along x around `FAR_TWIN`, which the blue portal shows.
+    fn around_twin() -> Vec<i32> {
+        (FAR_TWIN.x - PORTAL_VIEW_RADIUS..=FAR_TWIN.x + PORTAL_VIEW_RADIUS).collect()
+    }
+
+    /// The x of the chunks of `chunks` around `FAR_TWIN`, sorted.
+    fn far_xs<'a>(chunks: impl IntoIterator<Item = &'a IVec3>) -> Vec<i32> {
+        xs(chunks.into_iter().filter(|chunk| chunk.x > KEPT + 1))
+    }
+
+    #[test]
+    fn a_far_twins_chunks_are_sent_once_its_portal_is_within_reach_and_unloaded_after() {
+        let mut chunks = chunks_between(-KEPT - 2, FAR_TWIN.x + PORTAL_VIEW_RADIUS + 2);
+        // The blue portal opens onto the chunk at 4, two chunks beyond the render distance
+        open_pair(&mut chunks, RENDER_DISTANCE + 2);
+        let mut sent = SentChunks::default();
+
+        let (_, new_chunks) = walk_to(&chunks, 0, &mut sent);
+        assert!(far_xs(new_chunks.keys()).is_empty());
+
+        // Within the render distance: what it shows is sent, past the player's own chunks
+        let (unloads, new_chunks) = walk_to(&chunks, 2, &mut sent);
+        assert!(far_xs(&unloads).is_empty());
+        assert_eq!(far_xs(new_chunks.keys()), around_twin());
+
+        // Within the margin: kept, nothing sent again
+        let (unloads, new_chunks) = walk_to(&chunks, 1, &mut sent);
+        assert!(far_xs(&unloads).is_empty() && far_xs(new_chunks.keys()).is_empty());
+
+        // Beyond it: unloaded
+        let (unloads, _) = walk_to(&chunks, 0, &mut sent);
+        assert_eq!(far_xs(&unloads), around_twin());
+        assert!(far_xs(&sent.chunks).is_empty());
+    }
+
+    #[test]
+    fn a_portal_that_closes_unloads_the_chunks_around_its_twin() {
+        let mut chunks = chunks_between(-KEPT - 2, FAR_TWIN.x + PORTAL_VIEW_RADIUS + 2);
+        open_pair(&mut chunks, 1);
+        let mut sent = SentChunks::default();
+        let (_, new_chunks) = walk_to(&chunks, 0, &mut sent);
+        assert_eq!(far_xs(new_chunks.keys()), around_twin());
+
+        chunks.portals_mut().remove(1, PortalColor::Orange);
+        let (unloads, new_chunks) = walk_to(&chunks, 0, &mut sent);
+        assert_eq!(far_xs(&unloads), around_twin());
+        assert!(new_chunks.is_empty());
+    }
+
+    #[test]
+    fn the_chunks_around_a_twin_take_at_most_a_quarter_of_a_broadcast_and_come_after_the_own() {
+        // Every chunk within 6 of the origin and within the view radius of the twin, each with a
+        // block: far more than a broadcast
+        let distance = 6;
+        let mut chunks = ChunkMap::default();
+        let cube = |center: IVec3, radius: i32| {
+            (-radius..=radius).flat_map(move |x| {
+                (-radius..=radius).flat_map(move |y| {
+                    (-radius..=radius).map(move |z| center + IVec3::new(x, y, z))
+                })
+            })
+        };
+        for chunk in cube(IVec3::ZERO, distance).chain(cube(FAR_TWIN, PORTAL_VIEW_RADIUS)) {
+            let mut filled = Chunk::new();
+            filled.set(IVec3::ZERO, stone());
+            chunks.insert_chunk(chunk, filled);
+        }
+        open_pair(&mut chunks, 1);
+        let reach = ChunkReach::new(IVec3::ZERO, distance, chunks.portals());
+        let mut sent = SentChunks::default();
+
+        let (_, _, new_chunks) = world_messages_around(&chunks, &[], &reach, &mut sent);
+        let far = new_chunks.keys().filter(|c| c.x > distance).count();
+        assert_eq!(far, MAX_CHUNKS_PER_BROADCAST / 4);
+        assert_eq!(new_chunks.len(), MAX_CHUNKS_PER_BROADCAST);
+
+        // On the wire, the player's own chunks first, nearest to it first
+        let payloads = encode_world_updates(new_chunks, &reach, 0, 0);
+        let order: Vec<IVec3> = payloads
+            .iter()
+            .flat_map(
+                |payload| match shared::payload_to_game_message(payload).unwrap() {
+                    ServerToClientMessage::WorldUpdate(update) => {
+                        let mut chunks: Vec<IVec3> = update.new_map.into_keys().collect();
+                        // Within a message, the order is lost: sorted again the same way
+                        chunks
+                            .sort_by_key(|c| (c.x > distance, (*c - IVec3::ZERO).length_squared()));
+                        chunks
+                    }
+                    other => panic!("not a world update: {other:?}"),
+                },
+            )
+            .collect();
+        let first_far = order.iter().position(|c| c.x > distance).unwrap();
+        assert!(order[first_far..].iter().all(|c| c.x > distance));
+        assert_eq!(order[0], IVec3::ZERO);
+
+        // Until the view is all sent, every broadcast carries a quarter of it
+        let mut far_total = far;
+        while far_total < 9 * 9 * 9 {
+            let (_, _, new_chunks) = world_messages_around(&chunks, &[], &reach, &mut sent);
+            let far = new_chunks.keys().filter(|c| c.x > distance).count();
+            assert!(far > 0 && far <= MAX_CHUNKS_PER_BROADCAST / 4);
+            far_total += far;
+        }
+        assert_eq!(far_total, 9 * 9 * 9);
+    }
+
+    #[test]
+    fn a_client_is_sent_the_chunks_around_the_twin_of_a_portal_in_reach() {
+        let mut chunks = chunks_between(-KEPT, FAR_TWIN.x + PORTAL_VIEW_RADIUS + 2);
+        open_pair(&mut chunks, 1);
+        let mut players = HashMap::new();
+        let mut render_distances = crate::world::data::RenderDistances::default();
+        render_distances.set(1, RENDER_DISTANCE as u32, 6);
+        players.insert(
+            1,
+            Player::new(1, "p".into(), Vec3::splat(0.5), Transform::default()),
+        );
+        let mut server = RenetServer::new(shared::get_shared_renet_config());
+        server.add_connection(1);
+        let mut app = App::new();
+        app.insert_resource(server)
+            .insert_resource(ServerTime(0))
+            .insert_resource(ServerWorldMap {
+                chunks,
+                players,
+                render_distances,
+                ..default()
+            });
+
+        app.add_systems(Update, broadcast_world_state);
+        app.update();
+
+        let mut server = app.world_mut().resource_mut::<RenetServer>();
+        let chunks: Vec<IVec3> = received_world_messages(&mut server, 1)
+            .into_iter()
+            .flat_map(|message| match message {
+                ServerToClientMessage::WorldUpdate(update) => {
+                    update.new_map.into_keys().collect::<Vec<_>>()
+                }
+                other => panic!("unexpected {other:?}"),
+            })
+            .collect();
+        let mut expected: Vec<i32> = (-RENDER_DISTANCE..=RENDER_DISTANCE).collect();
+        expected.extend(around_twin());
+        assert_eq!(xs(&chunks), expected);
     }
 
     #[test]

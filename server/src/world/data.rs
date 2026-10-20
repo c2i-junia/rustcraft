@@ -10,7 +10,7 @@ use crate::mob::combat::BlowWaits;
 use shared::{
     messages::PlayerId,
     players::Player,
-    world::{ChunkMap, DroppedItemId, MobId, ServerMob},
+    world::{ChunkMap, ChunkReach, DroppedItemId, MobId, ServerMob},
     GameFolderPaths, MIN_RENDER_DISTANCE,
 };
 
@@ -52,11 +52,11 @@ pub struct ServerWorldMap {
 pub struct SentChunks {
     /// The chunks it has received.
     pub chunks: HashSet<IVec3>,
-    /// The chunk of its player and the render distance, with how many of the chunks within
-    /// that distance, nearest first (`render_distance_offsets`), it holds all of: until either
-    /// changes, those are not looked at again. A client is sent every chunk within reach that
+    /// The reach of its player (its chunk, its render distance and the portals), with how many
+    /// of the chunks within its render distance, nearest first (`render_distance_offsets`), it
+    /// holds all of: until the reach changes, those are not looked at again. A client is sent every chunk within reach that
     /// the server holds, so it lacks nothing once that is all of them.
-    pub progress: Option<((IVec3, i32), usize)>,
+    pub progress: Option<(ChunkReach, usize)>,
 }
 
 /// The render distance of each authenticated player, in chunks, as the server grants it.

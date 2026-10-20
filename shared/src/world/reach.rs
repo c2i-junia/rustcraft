@@ -48,6 +48,11 @@ impl ChunkReach {
         )
     }
 
+    /// Whether `chunk` is within the render distance.
+    pub fn within(&self, chunk: IVec3) -> bool {
+        self.own(chunk, 0)
+    }
+
     /// The chunks within the render distance, nearest first.
     pub fn own_chunks(&self) -> impl Iterator<Item = IVec3> + '_ {
         let offsets = render_distance_offsets(self.distance);
