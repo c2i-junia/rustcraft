@@ -106,7 +106,7 @@ mod tests {
         };
         assert!(items.is_sorted_by_key(rank));
         assert_eq!(items.first(), Some(&ItemId::Dirt));
-        assert_eq!(items.last(), Some(&ItemId::WoodenSword));
+        assert_eq!(items.last(), Some(&ItemId::SheepSpawnEgg));
         assert_eq!(
             found("", Some(Wood)),
             [
@@ -133,8 +133,8 @@ mod tests {
             found("ore", None),
             [ItemId::CoalOre, ItemId::IronOre, ItemId::GoldOre]
         );
-        assert_eq!(found("", None).len(), 33);
-        assert_eq!(found("  ", None).len(), 33);
+        assert_eq!(found("", None).len(), 35);
+        assert_eq!(found("  ", None).len(), 35);
         assert!(found("zzz", None).is_empty());
     }
 
@@ -145,7 +145,7 @@ mod tests {
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), 33);
+        assert_eq!(found("#", None).len(), 35);
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn the_texts_of_the_panel() {
-        assert_eq!(count_label(12, 33), "12 / 33");
+        assert_eq!(count_label(12, 35), "12 / 35");
         assert_eq!(
             no_match_message("zzz", None, false),
             "No item matches \"zzz\"."

@@ -23,7 +23,7 @@ or chest). It uses the theme of the inventory: same panel bevel, same 50 px slot
   the item's category (`#tools`, `#wood`, a prefix is enough). Case is ignored. The query is kept
   while the inventory is closed, for the session.
 - **Category chips**, which wrap onto as many rows as they need (Decision 25): All, Blocks, Wood, Nature, Ores, Materials,
-  Stations, Tools; in Survival a green `Craftable` chip keeps only the items the player can craft
+  Stations, Tools, Mobs; in Survival a green `Craftable` chip keeps only the items the player can craft
   now (some recipe whose ingredients the inventory and the grid hold, whatever the grid size).
 - **Bookmarks**: a `Bookmarks` label and a row of slots, shown only when there is one.
 - **Grid** of every matching item, in category order then `ItemId::ALL` order, one item per slot

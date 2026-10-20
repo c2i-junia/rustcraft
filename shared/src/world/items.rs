@@ -194,6 +194,7 @@ impl ItemId {
             | Self::WoodenShovel
             | Self::WoodenHoe
             | Self::WoodenSword => ItemCategory::Tools,
+            Self::FoxSpawnEgg | Self::SheepSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -251,11 +252,12 @@ pub enum ItemCategory {
     Materials,
     Stations,
     Tools,
+    Mobs,
 }
 
 impl ItemCategory {
     /// Every category, in the order of the browser's chips and of its list.
-    pub const ALL: [ItemCategory; 7] = [
+    pub const ALL: [ItemCategory; 8] = [
         Self::Blocks,
         Self::Wood,
         Self::Nature,
@@ -263,6 +265,7 @@ impl ItemCategory {
         Self::Materials,
         Self::Stations,
         Self::Tools,
+        Self::Mobs,
     ];
 
     /// The name of the category as a player reads it.
@@ -275,6 +278,7 @@ impl ItemCategory {
             Self::Materials => "Materials",
             Self::Stations => "Stations",
             Self::Tools => "Tools",
+            Self::Mobs => "Mobs",
         }
     }
 }
@@ -524,6 +528,7 @@ mod tests {
             (ItemId::Stick, ItemCategory::Materials),
             (ItemId::Chest, ItemCategory::Stations),
             (ItemId::WoodenSword, ItemCategory::Tools),
+            (ItemId::SheepSpawnEgg, ItemCategory::Mobs),
         ] {
             assert_eq!(item.category(), category, "{item:?}");
         }
@@ -547,7 +552,8 @@ mod tests {
                 "Ores",
                 "Materials",
                 "Stations",
-                "Tools"
+                "Tools",
+                "Mobs"
             ]
         );
     }
