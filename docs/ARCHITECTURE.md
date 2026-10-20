@@ -204,7 +204,9 @@ next inputs carry the turned camera. While the centre of a player is in front of
 portal's opening, shrunk by half its width, that portal's wall cells do not collide with it
 (`Portals::letting_through`, `check_player_collision`), so that it walks into the wall up to the
 plane. In front means at most a millimetre behind the plane (`PORTAL_SLACK`), so that no
-rounding leaves a player that came out of a portal behind it, in its wall.
+rounding leaves a player that came out of a portal behind it, in its wall. A player left inside
+blocks, as in the wall of a portal that closed or moved, may make the moves that reach no new
+block and go no deeper into those it is in, so that it walks back out.
 
 The contents of a chest live in the `ChunkMap`, at its position (`shared/src/world/container.rs`):
 the server holds those of every chest, a client only those of the chest its player has open,
