@@ -1892,7 +1892,9 @@ mod tests {
     #[test]
     fn the_gun_reaches_32_blocks() {
         let left = [NetworkAction::LeftClick];
-        for (distance, placed) in [(30.0, true), (33.0, false)] {
+        // From the centre of the player to that of the aimed block, half a block deeper and a
+        // little aside: about 31.9 and 32.1 blocks
+        for (distance, placed) in [(31.4, true), (31.6, false)] {
             let mut world = gun_range();
             shoot(
                 &mut gunner(1.9, 11.9, distance),
