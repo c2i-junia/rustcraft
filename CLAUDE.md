@@ -10,7 +10,9 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
   `oak_planks.png`. A file is fetched from
   `https://raw.githubusercontent.com/NovaWostra/Pixel-Perfection-Chorus-Eddit/main/<path>`.
 - Here they go in `data/graphics/base_textures/items/` and `.../blocks/`, named after the
-  `ItemId` or `BlockId` variant: `wooden_pickaxe.png` becomes `WoodenPickaxe.png`.
+  `ItemId` or `BlockId` variant: `wooden_pickaxe.png` becomes `WoodenPickaxe.png`. An item
+  with no texture in `items/` shows the block texture of the same name, so a block item needs
+  one only when its icon differs.
 - Check that the texture is 16x16, like ours; an animated one is a vertical strip of frames, of
   which we take the first.
 - A block Minecraft draws as a model of its own, like the chest, has no block texture: its

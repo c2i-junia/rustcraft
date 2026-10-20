@@ -151,7 +151,16 @@ pub fn setup_materials(
 
     let textures_path = paths.assets_folder_path.join(&texture_path.path);
     block_atlas_handles.handles = load_textures(&asset_server, &textures_path.join("blocks/"));
-    item_atlas_handles.handles = load_textures(&asset_server, &textures_path.join("items/"));
+    let mut items = load_textures(&asset_server, &textures_path.join("items/"));
+    // An item with no texture of its own, like most blocks, shows the texture of its block
+    let block_textures: Vec<_> = block_atlas_handles
+        .handles
+        .iter()
+        .filter(|(_, block)| items.iter().all(|(_, item)| item != block))
+        .cloned()
+        .collect();
+    items.extend(block_textures);
+    item_atlas_handles.handles = items;
 }
 
 /// Starts loading every texture of `folder`, each with the name of its file without the
