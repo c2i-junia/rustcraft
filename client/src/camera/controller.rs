@@ -2,9 +2,10 @@ use crate::camera::CameraController;
 use crate::player::*;
 use crate::ui::hud::UIMode;
 use crate::world::ClientWorldMap;
+use bevy::math::bounding::Aabb3d;
 use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
 use shared::players::ViewMode;
-use shared::world::{aabb_ray_hit, raycast_from_source_position_and_direction, ChunkMap};
+use shared::world::ChunkMap;
 
 /// Height of the player's eyes above the centre of its box, standing.
 const EYE_HEIGHT: f32 = 0.8;
@@ -12,27 +13,47 @@ const EYE_HEIGHT: f32 = 0.8;
 const THIRD_PERSON_DISTANCE: f32 = 10.0;
 /// Largest angle the camera looks up or down by, short of flipping over.
 const MAX_PITCH_DEGREES: f32 = 89.0;
-/// Gap kept between the camera and a block in the way, so that the near plane does not cut
-/// through the block.
-const CAMERA_WALL_MARGIN: f32 = 0.2;
+/// Half the side of the box kept free of blocks around the third-person camera. The box holds
+/// the corners of the near plane (0.18 from the camera at most, with the default near plane and
+/// the field of view on a 21:9 screen), so that the plane never cuts through a block, even when
+/// the camera grazes one.
+const CAMERA_CLEARANCE: f32 = 0.25;
+/// Step by which the camera's box moves away from the player while looking for room: smaller
+/// than the box, so that it never steps over a block.
+const CAMERA_PROBE_STEP: f32 = 0.1;
+/// Halvings that narrow the gap between the last free step and the first blocked one, so that
+/// the camera slides smoothly instead of moving by whole steps.
+const CAMERA_PROBE_REFINEMENTS: u32 = 12;
 
 /// How far from `target` the third-person camera can be along `direction`: the full
 /// `distance`, or less when a block stands in the way, so that the camera never ends up
-/// inside or behind the terrain.
+/// inside, behind or against the terrain.
 fn unobstructed_distance(blocks: &ChunkMap, target: Vec3, direction: Vec3, distance: f32) -> f32 {
     let Some(direction) = direction.try_normalize() else {
         return distance;
     };
-    let Some(hit) = raycast_from_source_position_and_direction(blocks, target, direction) else {
-        return distance;
+    let is_free = |d: f32| {
+        let camera_box = Aabb3d::new(target + direction * d, Vec3::splat(CAMERA_CLEARANCE));
+        !blocks.check_collision_box(&camera_box)
     };
-    // The response only holds the box that was hit: intersect it again for the exact point
-    let Some((hit_position, _)) = aabb_ray_hit(&hit.bbox, &target, &direction, &direction.recip())
-    else {
-        return distance;
-    };
-    let hit_distance = hit_position.distance(target);
-    (hit_distance - CAMERA_WALL_MARGIN).clamp(0.0, distance)
+    let mut free = 0.0;
+    while free < distance {
+        let next = (free + CAMERA_PROBE_STEP).min(distance);
+        if !is_free(next) {
+            let mut blocked = next;
+            for _ in 0..CAMERA_PROBE_REFINEMENTS {
+                let middle = (free + blocked) / 2.0;
+                if is_free(middle) {
+                    free = middle;
+                } else {
+                    blocked = middle;
+                }
+            }
+            return free;
+        }
+        free = next;
+    }
+    distance
 }
 
 /// Turns the camera with the mouse and places it on the player (first person) or on a sphere
@@ -106,7 +127,7 @@ pub fn camera_control_system(
                     controller.distance,
                 );
                 // `looking_at` needs the camera away from the player to give a rotation
-                let distance = distance.max(CAMERA_WALL_MARGIN);
+                let distance = distance.max(CAMERA_CLEARANCE);
                 *camera_transform =
                     Transform::from_translation(player_position + direction * distance)
                         .looking_at(player_position, Vec3::Y);
@@ -141,9 +162,25 @@ mod tests {
         blocks.fill_box(IVec3::new(-5, 60, -5), IVec3::new(5, 66, 5), BlockId::Stone);
         let distance = unobstructed_distance(&blocks, PLAYER, Vec3::NEG_Y, THIRD_PERSON_DISTANCE);
         assert!(
-            (distance - (3.5 - CAMERA_WALL_MARGIN)).abs() < 1e-4,
+            (distance - (3.5 - CAMERA_CLEARANCE)).abs() < 1e-4,
             "{distance}"
         );
+    }
+
+    #[test]
+    fn the_camera_keeps_its_distance_from_the_ground_it_grazes() {
+        let mut blocks = world();
+        // Ground whose top is 3.5 blocks under the player's centre
+        blocks.fill_box(
+            IVec3::new(-20, 60, -20),
+            IVec3::new(20, 66, 20),
+            BlockId::Stone,
+        );
+        // Low enough for the camera to end up 0.05 above the ground, missing it
+        let direction = Vec3::new(0.0, -0.345, (1.0f32 - 0.345 * 0.345).sqrt());
+        let distance = unobstructed_distance(&blocks, PLAYER, direction, THIRD_PERSON_DISTANCE);
+        let camera = PLAYER + direction * distance;
+        assert!(camera.y - 67.0 >= CAMERA_CLEARANCE - 1e-4, "{camera}");
     }
 
     #[test]
