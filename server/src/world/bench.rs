@@ -238,7 +238,7 @@ fn bench_join_generation() {
     let start = Instant::now();
     loop {
         let tick_start = Instant::now();
-        loader.insert_made(&mut chunks, &mut dirty);
+        loader.insert_made(&mut chunks, &mut dirty, &mut Vec::new());
         let complete = loader.ask(&players, |_| radius, &chunks, None, &mut asked);
         ticks.push(tick_start.elapsed().as_secs_f64() * 1e3);
         if complete || ticks.len() == 10000 {
@@ -323,13 +323,29 @@ fn bench_inputs_generation() {
     }
     let mut dirty = HashSet::new();
     let generator = WorldGenerator::new(SEED);
-    generate_missing_chunks(&players, |_| 1, &mut chunks, &mut dirty, None, &generator);
+    generate_missing_chunks(
+        &players,
+        |_| 1,
+        &mut chunks,
+        &mut dirty,
+        &mut Vec::new(),
+        None,
+        &generator,
+    );
     let mut samples = Vec::new();
     for _ in 0..200 {
         let start = Instant::now();
         for _ in 0..3 {
             for player in &players {
-                generate_missing_chunks([player], |_| 1, &mut chunks, &mut dirty, None, &generator);
+                generate_missing_chunks(
+                    [player],
+                    |_| 1,
+                    &mut chunks,
+                    &mut dirty,
+                    &mut Vec::new(),
+                    None,
+                    &generator,
+                );
             }
         }
         samples.push(micros(start));

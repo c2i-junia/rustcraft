@@ -1,7 +1,7 @@
 use crate::{
     messages::PlayerFrameInput,
     players::{
-        blocks::{simulate_player_block_interactions, BrokenBlock, CallerType},
+        blocks::{simulate_player_block_interactions, BrokenBlock, CallerType, SpawnedMob},
         inventory::simulate_inventory_actions,
         movement::simulate_player_movement,
         Player,
@@ -14,6 +14,8 @@ use crate::{
 pub struct ActionsOutcome {
     /// The blocks the player broke.
     pub broken: Vec<BrokenBlock>,
+    /// The mobs the player made appear with a spawn egg.
+    pub spawned: Vec<SpawnedMob>,
     /// How many blocks the player fell, when it landed.
     pub fallen: Option<f32>,
 }
@@ -28,8 +30,12 @@ pub fn simulate_player_actions(
     if player.is_dead() {
         return ActionsOutcome::default();
     }
-    let broken = simulate_player_block_interactions(player, world_map, action, caller_type);
+    let interactions = simulate_player_block_interactions(player, world_map, action, caller_type);
     simulate_inventory_actions(player, world_map, action, caller_type);
     let fallen = simulate_player_movement(player, world_map, action);
-    ActionsOutcome { broken, fallen }
+    ActionsOutcome {
+        broken: interactions.broken,
+        spawned: interactions.spawned,
+        fallen,
+    }
 }

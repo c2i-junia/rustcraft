@@ -12,6 +12,7 @@ pub fn cleanup_all_players_from_world(world_map: &mut ServerWorldMap) {
     }
     world_map.sent_chunks.clear();
     world_map.sent_items.clear();
+    world_map.sent_mobs.clear();
     world_map.render_distances = Default::default();
 }
 
@@ -28,6 +29,7 @@ pub fn cleanup_player_from_world(
 
     world_map.sent_chunks.remove(player_id);
     world_map.sent_items.remove(player_id);
+    world_map.sent_mobs.remove(player_id);
     world_map.render_distances.remove(*player_id);
 }
 

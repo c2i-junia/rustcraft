@@ -93,10 +93,7 @@ fn golden_in_the_made_up_world() -> UiGolden {
         Player::default(),
         GlobalTransform::from_xyz(40.0, 70.0, -90.0),
     ));
-    world.spawn((
-        MobRoot { id: 1 },
-        GlobalTransform::from_xyz(-12.0, 64.0, 14.0),
-    ));
+    world.spawn((MobRoot, GlobalTransform::from_xyz(-12.0, 64.0, 14.0)));
 
     golden.run_system(compute_minimap_colors);
     golden.run_system(start_minimap_surface);

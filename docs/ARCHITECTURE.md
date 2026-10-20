@@ -81,9 +81,11 @@ counts the chunks within `shared::SPAWN_CHUNK_RADIUS` (1) of the local player's 
 never spawns over the void. Every render distance reaches that radius and the server sends the
 nearest chunks first, so they come before the rest. The radius is therefore part of the
 protocol: a change of it bumps `PROTOCOL_ID`. Entering the game asks a mesh for every chunk held, and a
-cancel forgets them. The mob and player updates and the `BlockChanged` messages that arrive
-while loading are dropped: the server sends the mobs and the players again on every broadcast,
-and a changed block is written into the map anyway, only its sound and particles are lost.
+cancel forgets them. The mobs that arrive while loading are kept in `ClientMobs` and drawn
+on entering the game, as the server sends a mob only when it comes within reach or changes.
+The player updates and the `BlockChanged` messages that arrive while loading are dropped: the
+server sends the players again on every broadcast, and a changed block is written into the map
+anyway, only its sound and particles are lost.
 
 A failure is read from what netcode and the status already say, without a protocol change
 (`failure_of`). Before the authentication, a denied connection is a full server; a disconnect by
@@ -219,7 +221,9 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    and within at most `MAX_VERTICAL_RENDER_DISTANCE` (8) of it along y, as the ground lies
    within a few chunks of height (`within_render_distance`): nearest first
    (`render_distance_offsets`) and at most 1024 per tick, not counting the chunks of one kind
-   of cell, in messages of 32 chunks encoded in parallel; the first one carries the mobs.
+   of cell, in messages of 32 chunks encoded in parallel. A mob is sent (`MobUpdate`) when it
+   comes within the render distance of a player or changes, and `MobRemoved` when it leaves
+   it or the world (`sent_mobs` holds what each client was sent).
    The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (64), in the Video
    tab of the settings or with the O and P keys (`RenderDistance`, saved in `video.ron`): the
    authentication request carries it and `SetRenderDistance` changes it. The answer to the
@@ -241,6 +245,11 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    `KEPT_MARGIN` beyond the reach of every player are forgotten (`world/unload.rs`), but those
    not saved yet, and none while the writer has saves to write: their file could be read back
    before it is written. A mob over chunks that are not loaded stays where it is.
+
+The animals are born with the chunks (`world/generation/animals.rs`): each column of chunks
+may hold a herd, decided by its position and the biome of its centre, which belongs to the
+chunk holding the surface there. That chunk is saved once generated, so the herd is never
+born again. A spawn egg used on a block brings its mob there too (`place_block`).
 
 The systems of the server run one after the other on its thread: an integrated server would
 otherwise share the compute pool with its client, whose frames would wait for its ticks.
@@ -428,7 +437,8 @@ the integrated server, on wall-clock time. How to write one is in the README.
   id. This is fine among friends, not for a server open to anyone.
 - Block interactions are processed once per input, so once per rendered frame of the client:
   a client with a higher frame rate breaks blocks faster.
-- Mobs are a prototype: one fox, spawned at a fixed tick.
+- Mobs neither collide with each other nor can be hurt, and no animal is born after a chunk
+  is generated: a herd led away is gone for good.
 - An item that does not fit in a full inventory is lost.
 - A player who dies keeps its inventory, and nothing hurts it but falls.
 - Any player may change its own game mode with `/gamemode`: there are no operators yet.

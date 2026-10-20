@@ -113,7 +113,6 @@ pub fn register_systems(app: &mut App) {
             handle_player_inputs_system,
             regenerate_health_system,
             pickup_dropped_items_system,
-            crate::mob::manage_mob_spawning_system,
             world::flow::water_flow_system,
         )
             .chain()

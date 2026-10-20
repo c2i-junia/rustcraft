@@ -1,6 +1,4 @@
-//! Plays animations from a skinned glTF.
-
-use std::time::Duration;
+//! The fox: the dust its feet raise when it runs.
 
 use bevy::{
     animation::{AnimationEvent, AnimationTargetId},
@@ -9,16 +7,12 @@ use bevy::{
     prelude::*,
 };
 use rand::{thread_rng, Rng};
+use shared::world::MobKind;
 
-use super::MobRoot;
+use super::models::{MobAnimations, MobClip};
 
-const FOX_PATH: &str = "models/animated/Fox.glb";
-
-#[derive(Resource, Default)]
-pub struct Animations {
-    animations: Vec<AnimationNodeIndex>,
-    graph: Handle<AnimationGraph>,
-}
+/// The fox model is in centimetres: its dust is sized and thrown at the same scale.
+const FOX_SCALE: f32 = 0.01;
 
 #[derive(AnimationEvent, Reflect, Clone)]
 pub struct OnStep;
@@ -44,108 +38,47 @@ pub fn observe_on_step(
         commands.queue(spawn_particle(
             particle.mesh.clone(),
             particle.material.clone(),
-            translation.reject_from_normalized(Vec3::Y),
+            translation,
             rng.gen_range(0.2..0.6),
             size,
-            Vec3::new(horizontal.x, vertical, horizontal.y) * 10.0,
+            Vec3::new(horizontal.x, vertical, horizontal.y) * (10.0 * FOX_SCALE),
         ));
     }
 }
 
-pub fn setup_fox(
-    id: u128,
-    spawn_pos: Vec3,
-    commands: &mut Commands,
-    asset_server: &Res<AssetServer>,
-    graphs: &mut ResMut<Assets<AnimationGraph>>,
-) {
-    // Build the animation graph
-    let (graph, node_indices) = AnimationGraph::from_clips([
-        asset_server.load(GltfAssetLabel::Animation(2).from_asset(FOX_PATH)),
-        asset_server.load(GltfAssetLabel::Animation(1).from_asset(FOX_PATH)),
-        asset_server.load(GltfAssetLabel::Animation(0).from_asset(FOX_PATH)),
-    ]);
-
-    // Insert a resource with the current scene information
-    let graph_handle = graphs.add(graph);
-    commands.insert_resource(Animations {
-        animations: node_indices,
-        graph: graph_handle,
-    });
-
-    // Fox
-    let fox = commands
-        .spawn((
-            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(FOX_PATH))),
-            Transform::from_translation(spawn_pos).with_scale(Vec3::splat(0.01)),
-            MobRoot { id },
-        ))
-        .id();
-
-    info!("Spawned fox: {:?}", fox);
-}
-
-// An `AnimationPlayer` is automatically added to the scene when it's ready.
-// When the player is added, start the animation.
-pub fn setup_fox_once_loaded(
-    mut commands: Commands,
-    animations: Res<Animations>,
-    feet: Res<FoxFeetTargets>,
+/// Adds the `OnStep` events to the run of the fox once it is loaded. The clip is shared by all
+/// foxes: its events are added once, or each fox would fire them all.
+pub fn add_fox_step_events(
+    animations: Res<MobAnimations>,
     graphs: Res<Assets<AnimationGraph>>,
     mut clips: ResMut<Assets<AnimationClip>>,
-    mut players: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>,
-    mut events_registered: Local<bool>,
+    feet: Res<FoxFeetTargets>,
+    mut added: Local<bool>,
 ) {
-    let Some(&running) = animations.animations.first() else {
+    if *added {
+        return;
+    }
+    let Some(fox) = animations.get(MobKind::Fox) else {
         return;
     };
-
-    for (entity, mut player) in &mut players {
-        info!("setup_fox_once_loaded called with entity: {:?}", entity);
-
-        // The clip is shared by all foxes, so its events must be added only once.
-        // Otherwise each new fox adds them again and every fox fires all of them.
-        if !*events_registered {
-            if let Some(running_animation) = clip_of(running, &animations, &graphs, &mut clips) {
-                // Send `OnStep` events once the fox feet hits the ground in the running
-                // animation. The time of an event is its frame divided by the frame rate of
-                // the animation: frame 15 at 24 fps is 15 / 24 = 0.625.
-                running_animation.add_event_to_target(feet.front_left, 0.625, OnStep);
-                running_animation.add_event_to_target(feet.front_right, 0.5, OnStep);
-                running_animation.add_event_to_target(feet.back_left, 0.0, OnStep);
-                running_animation.add_event_to_target(feet.back_right, 0.125, OnStep);
-                *events_registered = true;
-            }
-        }
-
-        let mut transitions = AnimationTransitions::new();
-
-        // Make sure to start the animation via the `AnimationTransitions`
-        // component. The `AnimationTransitions` component wants to manage all
-        // the animations and will get confused if the animations are started
-        // directly via the `AnimationPlayer`.
-        transitions
-            .play(&mut player, running, Duration::ZERO)
-            .repeat();
-        commands
-            .entity(entity)
-            .insert(AnimationGraphHandle(animations.graph.clone()))
-            .insert(transitions);
-    }
-}
-
-/// The animation clip played by `node` of the fox graph, once the model is loaded.
-fn clip_of<'a>(
-    node: AnimationNodeIndex,
-    animations: &Animations,
-    graphs: &Assets<AnimationGraph>,
-    clips: &'a mut Assets<AnimationClip>,
-) -> Option<&'a mut AnimationClip> {
-    let graph = graphs.get(&animations.graph)?;
-    let AnimationNodeType::Clip(handle) = &graph.get(node)?.node_type else {
-        return None;
+    let run = fox.nodes[&MobClip::Run];
+    let Some(AnimationNodeType::Clip(handle)) = graphs
+        .get(&fox.graph)
+        .and_then(|g| g.get(run))
+        .map(|node| &node.node_type)
+    else {
+        return;
     };
-    clips.get_mut(handle).map(AssetMut::into_inner)
+    let Some(running) = clips.get_mut(handle).map(AssetMut::into_inner) else {
+        return;
+    };
+    // A foot hits the ground at these times: the frame divided by the frame rate of the
+    // animation, frame 15 at 24 fps is 15 / 24 = 0.625.
+    running.add_event_to_target(feet.front_left, 0.625, OnStep);
+    running.add_event_to_target(feet.front_right, 0.5, OnStep);
+    running.add_event_to_target(feet.back_left, 0.0, OnStep);
+    running.add_event_to_target(feet.back_right, 0.125, OnStep);
+    *added = true;
 }
 
 pub fn simulate_particles(
@@ -209,7 +142,9 @@ pub struct ParticleAssets {
 impl FromWorld for ParticleAssets {
     fn from_world(world: &mut World) -> Self {
         Self {
-            mesh: world.resource_mut::<Assets<Mesh>>().add(Sphere::new(10.0)),
+            mesh: world
+                .resource_mut::<Assets<Mesh>>()
+                .add(Sphere::new(10.0 * FOX_SCALE)),
             material: world
                 .resource_mut::<Assets<StandardMaterial>>()
                 .add(StandardMaterial {

@@ -256,6 +256,8 @@ fn load_world(
         render_distances: Default::default(),
         players: HashMap::new(),
         mobs: world_data.mobs,
+        changed_mobs: HashSet::new(),
+        sent_mobs: HashMap::new(),
         dropped_items: DroppedItems::from_saved(world_data.dropped_items),
         sent_items: HashMap::new(),
         dirty_chunks: HashSet::new(),

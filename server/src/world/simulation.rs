@@ -9,7 +9,7 @@ use shared::{
         simulation::simulate_player_actions,
         Player,
     },
-    world::{world_position_to_chunk_position, Chunk, ChunkMap, WorldSeed},
+    world::{world_position_to_chunk_position, Chunk, ChunkMap, ServerMob, WorldSeed},
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -45,10 +45,10 @@ const CHUNKS_IN_FLIGHT: usize = 8192;
 /// Chunks made on one task of the pool.
 const CHUNKS_PER_TASK: usize = 16;
 
-/// A chunk that was not loaded, read from its file or generated.
+/// A chunk that was not loaded, read from its file or generated with the animals born in it.
 enum Made {
     Read(Chunk, ChunkContainers),
-    Generated(Chunk),
+    Generated(Chunk, Vec<ServerMob>),
 }
 
 /// The chunk at `chunk_pos`: from its file in the folder of the world `saved`, else generated.
@@ -59,36 +59,45 @@ fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, generator: &WorldGenerator
             return Made::Read(chunk, chests);
         }
     }
-    Made::Generated(generator.generate_chunk(chunk_pos))
+    Made::Generated(
+        generator.generate_chunk(chunk_pos),
+        generator.chunk_animals(chunk_pos),
+    )
 }
 
 /// Inserts a chunk just made. A generated chunk is dirty: it has to be saved, as inserting it
 /// is not logged as a block change; but not one made of a single kind of cell, such as the air
 /// above the ground, which is generated again at once. A chunk read from its file is not dirty.
+/// The animals born with a generated chunk are added to `born`.
 fn insert_made(
     chunks: &mut ChunkMap,
     dirty_chunks: &mut HashSet<IVec3>,
+    born: &mut Vec<ServerMob>,
     chunk_pos: IVec3,
     made: Made,
 ) {
     match made {
         Made::Read(chunk, chests) => insert_with_chests(chunks, chunk_pos, chunk, chests),
-        Made::Generated(chunk) => {
+        Made::Generated(chunk, animals) => {
             if chunk.uniform().is_none() {
                 dirty_chunks.insert(chunk_pos);
             }
             chunks.insert_chunk(chunk_pos, chunk);
+            born.extend(animals);
         }
     }
 }
 
 /// Loads the chunks within `radius` of each of `players` that are missing, at once and on the
-/// calling thread: from their files in the folder of the world `saved`, else generated.
+/// calling thread: from their files in the folder of the world `saved`, else generated. The
+/// animals born with the generated chunks are added to `born`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn generate_missing_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
     chunks: &mut ChunkMap,
     dirty_chunks: &mut HashSet<IVec3>,
+    born: &mut Vec<ServerMob>,
     saved: Option<&Path>,
     generator: &WorldGenerator,
 ) {
@@ -97,7 +106,7 @@ pub(super) fn generate_missing_chunks<'a>(
         .collect();
     for c in missing {
         let made = make_chunk(c, saved, generator);
-        insert_made(chunks, dirty_chunks, c, made);
+        insert_made(chunks, dirty_chunks, born, c, made);
     }
 }
 
@@ -135,13 +144,19 @@ impl ChunkLoader {
     }
 
     /// Inserts the chunks made since the last call, but those loaded meanwhile, by
-    /// `generate_missing_chunks`: they may have changed since.
-    pub(super) fn insert_made(&mut self, chunks: &mut ChunkMap, dirty_chunks: &mut HashSet<IVec3>) {
+    /// `generate_missing_chunks`: they may have changed since. The animals born with the
+    /// generated ones are added to `born`.
+    pub(super) fn insert_made(
+        &mut self,
+        chunks: &mut ChunkMap,
+        dirty_chunks: &mut HashSet<IVec3>,
+        born: &mut Vec<ServerMob>,
+    ) {
         for made in self.receiver.try_iter() {
             for (c, made) in made {
                 self.in_flight.remove(&c);
                 if !chunks.is_chunk_loaded(c) {
-                    insert_made(chunks, dirty_chunks, c, made);
+                    insert_made(chunks, dirty_chunks, born, c, made);
                 }
             }
         }
@@ -228,8 +243,10 @@ pub fn handle_player_inputs_system(
     let render_distances = &world_map.render_distances;
     let saved = world_map.saved.as_deref();
     let spawn = world_map.spawn;
+    // The animals born with the chunks generated, and those hatched from spawn eggs
+    let mut born = Vec::new();
 
-    loader.insert_made(chunks, dirty_chunks);
+    loader.insert_made(chunks, dirty_chunks, &mut born);
     let mut around: Vec<_> = players
         .values()
         .map(|player| {
@@ -250,6 +267,7 @@ pub fn handle_player_inputs_system(
             |_| 1,
             chunks,
             dirty_chunks,
+            &mut born,
             saved,
             loader.generator(),
         );
@@ -277,6 +295,12 @@ pub fn handle_player_inputs_system(
         for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);
         }
+        born.extend(
+            outcome
+                .spawned
+                .iter()
+                .map(|mob| ServerMob::new(mob.kind, mob.position)),
+        );
         if let Some(fallen) = outcome.fallen {
             player.hurt(fall_damage(fallen), DeathCause::Fall);
         }
@@ -295,9 +319,14 @@ pub fn handle_player_inputs_system(
             |_| 1,
             chunks,
             dirty_chunks,
+            &mut born,
             saved,
             loader.generator(),
         );
+    }
+
+    for mob in born {
+        crate::mob::add_mob(&mut world_map.mobs, &mut world_map.changed_mobs, mob);
     }
 }
 
@@ -437,6 +466,7 @@ mod tests {
             |_| 2,
             &mut chunks,
             &mut dirty,
+            &mut Vec::new(),
             None,
             &WorldGenerator::new(1),
         );
@@ -464,7 +494,7 @@ mod tests {
         let start = std::time::Instant::now();
         while !loader.in_flight.is_empty() {
             assert!(start.elapsed().as_secs() < 60, "the chunks are never made");
-            loader.insert_made(chunks, dirty);
+            loader.insert_made(chunks, dirty, &mut Vec::new());
             std::thread::yield_now();
         }
     }
@@ -606,6 +636,7 @@ mod tests {
             |_| 1,
             &mut chunks,
             &mut dirty,
+            &mut Vec::new(),
             Some(dir.path()),
             &WorldGenerator::new(1),
         );

@@ -6,7 +6,7 @@ use crate::world::pool::server_pool;
 use bevy::math::IVec3;
 use bevy::prelude::*;
 use bevy_ecs::system::ResMut;
-use bevy_renet::{renet::ClientId, RenetServer};
+use bevy_renet::RenetServer;
 use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
@@ -48,6 +48,7 @@ pub fn broadcast_world_state(
             .map(global_block_to_chunk_pos),
     );
     let (changed_items, removed_items) = world_map.dropped_items.take_changes();
+    let changed_mobs = std::mem::take(&mut world_map.changed_mobs);
 
     for client in server.clients_id() {
         let Some(player) = players.get(&client) else {
@@ -55,13 +56,15 @@ pub fn broadcast_world_state(
         };
 
         let render_distance = world_map.render_distances.get(player.id);
-        send_nearby_mobs(
-            &mut server,
-            client,
+        for message in mob_messages(
             player.position,
             render_distance,
             &world_map.mobs,
-        );
+            &changed_mobs,
+            world_map.sent_mobs.entry(player.id).or_default(),
+        ) {
+            server.send_game_message(client, message);
+        }
 
         let sent_chunks = world_map.sent_chunks.entry(player.id).or_default();
         let (unloads, block_updates, new_map) = world_messages_around(
@@ -92,7 +95,7 @@ pub fn broadcast_world_state(
             server.send_game_message(client, ServerToClientMessage::BlockUpdates(block_updates));
         }
         let player_chunk = world_position_to_chunk_position(player.position);
-        for payload in encode_world_updates(new_map, player_chunk, time.0, ts, &world_map.mobs) {
+        for payload in encode_world_updates(new_map, player_chunk, time.0, ts) {
             server.send_message(client, STC_CHUNK_DATA_CHANNEL, payload);
         }
     }
@@ -103,18 +106,17 @@ pub fn broadcast_world_state(
 const CHUNKS_PER_MESSAGE: usize = 32;
 
 /// The messages that carry `new_map` to a client whose player is in `player_chunk`, encoded,
-/// nearest chunks first. The first one carries the mobs. Each message copies its chunks and
-/// is encoded on its own task.
+/// nearest chunks first. Each message copies its chunks and is encoded on its own task. They
+/// carry no mobs: those are sent on their own (`mob_messages`).
 fn encode_world_updates(
     new_map: HashMap<IVec3, &Chunk>,
     player_chunk: IVec3,
     tick: u64,
     time: u64,
-    mobs: &HashMap<MobId, ServerMob>,
 ) -> Vec<Vec<u8>> {
     let mut chunks: Vec<(IVec3, &Chunk)> = new_map.into_iter().collect();
     chunks.sort_by_key(|(pos, _)| (*pos - player_chunk).length_squared());
-    let encode = |index: usize, chunks: &[(IVec3, &Chunk)]| {
+    let encode = |_: usize, chunks: &[(IVec3, &Chunk)]| {
         game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
             tick,
             time,
@@ -122,10 +124,7 @@ fn encode_world_updates(
                 .iter()
                 .map(|&(pos, chunk)| (pos, chunk.clone()))
                 .collect(),
-            mobs: match index {
-                0 => mobs.clone(),
-                _ => HashMap::new(),
-            },
+            mobs: HashMap::new(),
         }))
     };
     match chunks.len() {
@@ -139,25 +138,41 @@ fn encode_world_updates(
     }
 }
 
-fn send_nearby_mobs(
-    server: &mut RenetServer,
-    client: ClientId,
+/// What the client of a player at `player_position` must be told of the mobs, given the mobs
+/// it holds, `sent`, which this updates: a mob that came within reach is sent, one within
+/// reach is sent again when it changed this tick (`changed`), and the client forgets one that
+/// left its reach or the world.
+fn mob_messages(
     player_position: Vec3,
     render_distance: i32,
     mobs: &HashMap<MobId, ServerMob>,
-) {
+    changed: &HashSet<MobId>,
+    sent: &mut HashSet<MobId>,
+) -> Vec<ServerToClientMessage> {
     let reach = (render_distance * CHUNK_SIZE) as f32;
+    let mut messages = Vec::new();
     for (id, mob) in mobs {
-        if mob.position.distance(player_position) < reach {
-            server.send_game_message(
-                client,
-                ServerToClientMessage::MobUpdate(MobUpdateEvent {
-                    id: *id,
-                    mob: mob.clone(),
-                }),
-            );
+        let within = mob.position.distance(player_position) < reach;
+        let known = sent.contains(id);
+        if within && (!known || changed.contains(id)) {
+            sent.insert(*id);
+            messages.push(ServerToClientMessage::MobUpdate(MobUpdateEvent {
+                id: *id,
+                mob: mob.clone(),
+            }));
+        } else if !within && known {
+            sent.remove(id);
+            messages.push(ServerToClientMessage::MobRemoved(*id));
         }
     }
+    sent.retain(|id| {
+        let exists = mobs.contains_key(id);
+        if !exists {
+            messages.push(ServerToClientMessage::MobRemoved(*id));
+        }
+        exists
+    });
+    messages
 }
 
 /// What the client of a player in `player_chunk` must be sent: the chunks it must forget, then
@@ -308,6 +323,7 @@ pub fn active_chunks<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_renet::renet::ClientId;
     use shared::world::{chunk_distance, BlockData, BlockDirection, BlockId};
 
     fn stone() -> BlockData {
@@ -669,25 +685,12 @@ mod tests {
 
     /// The x of each chunk, sorted.
     #[test]
-    fn new_chunks_are_split_into_messages_nearest_first_with_the_mobs_in_the_first() {
+    fn new_chunks_are_split_into_messages_nearest_first() {
         let air = Chunk::new();
         let new_map: HashMap<IVec3, &Chunk> =
             (0..70).map(|x| (IVec3::new(x, 0, 0), &air)).collect();
-        let fox = ServerMob {
-            kind: shared::world::MobKind::Fox,
-            target: shared::world::MobTarget::None,
-            action: shared::world::MobAction::Walk,
-            position: Vec3::ZERO,
-            rotation: Quat::IDENTITY,
-            height: 1.,
-            width: 1.,
-            on_ground: true,
-            velocity: Vec3::ZERO,
-            depth: 1.,
-        };
-        let mobs = HashMap::from([(7, fox)]);
 
-        let payloads = encode_world_updates(new_map, IVec3::ZERO, 3, 4, &mobs);
+        let payloads = encode_world_updates(new_map, IVec3::ZERO, 3, 4);
 
         let updates: Vec<WorldUpdate> = payloads
             .iter()
@@ -708,8 +711,55 @@ mod tests {
             ]
         );
         assert_eq!(xs(updates[0].new_map.keys()), (0..32).collect::<Vec<_>>());
-        assert_eq!(updates[0].mobs.len(), 1);
-        assert!(updates[1..].iter().all(|u| u.mobs.is_empty()));
+        assert!(updates.iter().all(|u| u.mobs.is_empty()));
+    }
+
+    /// The ids of the mobs `messages` send, and of those they remove.
+    fn sent_and_removed(messages: &[ServerToClientMessage]) -> (Vec<MobId>, Vec<MobId>) {
+        let (mut sent, mut removed) = (Vec::new(), Vec::new());
+        for message in messages {
+            match message {
+                ServerToClientMessage::MobUpdate(update) => sent.push(update.id),
+                ServerToClientMessage::MobRemoved(id) => removed.push(*id),
+                other => panic!("not about a mob: {other:?}"),
+            }
+        }
+        sent.sort();
+        removed.sort();
+        (sent, removed)
+    }
+
+    #[test]
+    fn a_mob_is_sent_when_it_comes_within_reach_or_changes_and_removed_when_it_leaves() {
+        let sheep = |x: f32| {
+            shared::world::ServerMob::new(shared::world::MobKind::Sheep, Vec3::new(x, 0.0, 0.0))
+        };
+        let reach = (RENDER_DISTANCE * CHUNK_SIZE) as f32;
+        let mut mobs = HashMap::from([(1, sheep(5.0)), (2, sheep(reach + 5.0))]);
+        let mut sent = HashSet::new();
+        let messages = |mobs: &HashMap<MobId, ServerMob>, changed: &[MobId], sent: &mut _| {
+            let changed = changed.iter().copied().collect();
+            sent_and_removed(&mob_messages(
+                Vec3::ZERO,
+                RENDER_DISTANCE,
+                mobs,
+                &changed,
+                sent,
+            ))
+        };
+
+        // the near one is sent, once, then again only when it changes
+        assert_eq!(messages(&mobs, &[1, 2], &mut sent), (vec![1], vec![]));
+        assert_eq!(messages(&mobs, &[], &mut sent), (vec![], vec![]));
+        assert_eq!(messages(&mobs, &[1], &mut sent), (vec![1], vec![]));
+        // the far one comes within reach, the near one leaves it
+        mobs.insert(1, sheep(reach + 1.0));
+        mobs.insert(2, sheep(1.0));
+        assert_eq!(messages(&mobs, &[1, 2], &mut sent), (vec![2], vec![1]));
+        // a mob gone from the world is removed too
+        mobs.remove(&2);
+        assert_eq!(messages(&mobs, &[], &mut sent), (vec![], vec![2]));
+        assert!(sent.is_empty());
     }
 
     fn xs<'a>(chunks: impl IntoIterator<Item = &'a IVec3>) -> Vec<i32> {

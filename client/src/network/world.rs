@@ -7,6 +7,8 @@ use shared::messages::{
     mob::MobUpdateEvent, BlockUpdate, DroppedItemsUpdate, PlayerSpawnEvent, PlayerUpdateEvent,
     ServerToClientMessage,
 };
+
+use crate::mob::ClientMobs;
 use shared::world::SIX_OFFSETS;
 use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
 
@@ -82,7 +84,7 @@ pub fn update_world_from_network(
     ev_render: &mut MessageWriter<WorldRenderRequestUpdateEvent>,
     ev_chunk_load: &mut MessageWriter<ChunkLoadEvent>,
     ev_player_spawn: &mut MessageWriter<PlayerSpawnEvent>,
-    ev_mob_update: &mut MessageWriter<MobUpdateEvent>,
+    mobs: &mut ClientMobs,
     ev_player_update: &mut MessageWriter<PlayerUpdateEvent>,
     ev_block_changed: &mut MessageWriter<BlockChanged>,
     ev_dropped_items: &mut MessageWriter<DroppedItemsUpdate>,
@@ -115,8 +117,7 @@ pub fn update_world_from_network(
                 }
 
                 for (id, mob) in world_update.mobs {
-                    debug!("ServerMob received: {:?}", mob);
-                    ev_mob_update.write(MobUpdateEvent { id, mob });
+                    mobs.update(id, mob);
                 }
             }
             ServerToClientMessage::ChunkUnloads(chunks) => {
@@ -151,8 +152,11 @@ pub fn update_world_from_network(
                 info!("Received SINGLE spawn event {:?}", spawn_event);
                 ev_player_spawn.write(spawn_event);
             }
-            ServerToClientMessage::MobUpdate(update_event) => {
-                ev_mob_update.write(update_event);
+            ServerToClientMessage::MobUpdate(MobUpdateEvent { id, mob }) => {
+                mobs.update(id, mob);
+            }
+            ServerToClientMessage::MobRemoved(id) => {
+                mobs.remove(id);
             }
             ServerToClientMessage::PlayerUpdate(update) => {
                 ev_player_update.write(update);

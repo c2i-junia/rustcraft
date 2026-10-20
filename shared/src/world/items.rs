@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Serialize};
 
-use super::{BlockId, GameElementId};
+use super::{BlockId, GameElementId, MobKind};
 
 /// Append only: never reorder or remove a variant. Player files store items by name (RON), but
 /// network messages carry the position of the variant (bincode), so another order breaks the
@@ -56,11 +56,13 @@ pub enum ItemId {
     IronOre,
     GoldOre,
     Gravel,
+    FoxSpawnEgg,
+    SheepSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 33] = [
+    pub const ALL: [ItemId; 35] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -94,6 +96,8 @@ impl ItemId {
         Self::IronOre,
         Self::GoldOre,
         Self::Gravel,
+        Self::FoxSpawnEgg,
+        Self::SheepSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -129,6 +133,15 @@ impl ItemId {
             1
         } else {
             64
+        }
+    }
+
+    /// The mob a spawn egg makes appear, used on a block.
+    pub fn spawned_mob(&self) -> Option<MobKind> {
+        match *self {
+            Self::FoxSpawnEgg => Some(MobKind::Fox),
+            Self::SheepSpawnEgg => Some(MobKind::Sheep),
+            _ => None,
         }
     }
 
@@ -179,7 +192,9 @@ impl ItemId {
             Self::GoldOre => ItemType::Block(BlockId::GoldOre),
             Self::Gravel => ItemType::Block(BlockId::Gravel),
 
-            Self::Snowball | Self::Stick | Self::Coal => ItemType::Generic,
+            Self::Snowball | Self::Stick | Self::Coal | Self::FoxSpawnEgg | Self::SheepSpawnEgg => {
+                ItemType::Generic
+            }
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -279,6 +294,8 @@ mod tests {
             (ItemId::IronOre, 30),
             (ItemId::GoldOre, 31),
             (ItemId::Gravel, 32),
+            (ItemId::FoxSpawnEgg, 33),
+            (ItemId::SheepSpawnEgg, 34),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -315,7 +332,9 @@ mod tests {
                 | ItemId::CoalOre
                 | ItemId::IronOre
                 | ItemId::GoldOre
-                | ItemId::Gravel => {}
+                | ItemId::Gravel
+                | ItemId::FoxSpawnEgg
+                | ItemId::SheepSpawnEgg => {}
             }
         }
         for (id, expected) in table {
@@ -351,6 +370,24 @@ mod tests {
         // only the names of the items, not anything serde would accept
         assert_eq!(ItemId::from_name("oak__log"), None);
         assert_eq!(ItemId::from_name("diamond"), None);
+    }
+
+    #[test]
+    fn a_spawn_egg_names_its_mob_and_is_named_after_it() {
+        assert_eq!(ItemId::FoxSpawnEgg.spawned_mob(), Some(MobKind::Fox));
+        assert_eq!(ItemId::SheepSpawnEgg.spawned_mob(), Some(MobKind::Sheep));
+        assert_eq!(
+            ItemId::from_name("sheep_spawn_egg"),
+            Some(ItemId::SheepSpawnEgg)
+        );
+        // every mob has its egg
+        for kind in MobKind::ALL {
+            let eggs = ItemId::ALL
+                .iter()
+                .filter(|item| item.spawned_mob() == Some(kind));
+            assert_eq!(eggs.count(), 1, "{kind:?}");
+        }
+        assert_eq!(ItemId::Stone.spawned_mob(), None);
     }
 
     #[test]

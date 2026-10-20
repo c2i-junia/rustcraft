@@ -6,6 +6,7 @@ use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 
 use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR};
 
+mod animals;
 mod ores;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
@@ -493,6 +494,16 @@ impl WorldGenerator {
             return Chunk::new();
         }
         self.generate_chunk_from_columns(chunk_pos, &columns)
+    }
+
+    /// The animals born with the chunk at `chunk_pos` when it is generated (`animals`).
+    pub fn chunk_animals(&self, chunk_pos: IVec3) -> Vec<ServerMob> {
+        let chunk_origin = chunk_pos * CHUNK_SIZE;
+        // Animals stand on the surface, which these chunks cannot hold
+        if chunk_origin.y > HIGHEST_SURFACE || chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE {
+            return Vec::new();
+        }
+        animals::chunk_animals(self.seed, chunk_pos, &self.chunk_columns(chunk_pos.xz()))
     }
 
     /// The `ChunkColumns` of the column of chunks `chunk_column`, from the cache or computed.

@@ -316,26 +316,24 @@ mod tests {
     }
 
     #[test]
-    fn a_mob_saved_with_the_former_field_name_is_still_read() {
-        use shared::world::{MobAction, MobKind, MobTarget};
+    fn a_mob_saved_by_a_former_version_is_still_read() {
+        use shared::world::MobKind;
         let fox = ServerMob {
-            kind: MobKind::Fox,
-            target: MobTarget::None,
-            action: MobAction::Walk,
-            position: Default::default(),
-            rotation: Default::default(),
-            height: 1.0,
-            width: 1.0,
-            on_ground: true,
-            velocity: Default::default(),
             depth: 1.5,
+            action_ticks: 3,
+            ..ServerMob::new(MobKind::Fox, Default::default())
         };
         let meta = WorldMeta::new("w".into(), WorldSeed(1), 0, HashMap::from([(7, fox)]));
         let saved = ron::ser::to_string(&meta).unwrap();
         assert!(saved.contains("depth:1.5"), "{saved}");
+        assert!(saved.contains(",action_ticks:3"), "{saved}");
 
-        let former = saved.replace("depth:", "deepth:");
+        // with the former name of the depth, and without the ticks of the action
+        let former = saved
+            .replace("depth:", "deepth:")
+            .replace(",action_ticks:3", "");
         let read: WorldMeta = ron::de::from_str(&former).unwrap();
         assert_eq!(read.mobs[&7].depth, 1.5);
+        assert_eq!(read.mobs[&7].action_ticks, 0);
     }
 }

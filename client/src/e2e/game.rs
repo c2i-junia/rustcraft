@@ -263,7 +263,7 @@ fn is_block(w: &World, position: IVec3) -> bool {
 }
 
 /// The aimed block and the cell a block placed against it takes, once the aimed one is loaded.
-fn aimed_cells(w: &World, camera: Entity, player: Entity) -> Option<(IVec3, IVec3)> {
+pub(super) fn aimed_cells(w: &World, camera: Entity, player: Entity) -> Option<(IVec3, IVec3)> {
     let target = raycast(
         &w.resource::<ClientWorldMap>().blocks,
         w.get::<Transform>(camera)?,

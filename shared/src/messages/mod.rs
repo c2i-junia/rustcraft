@@ -4,6 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
+use crate::world::MobId;
 pub use auth::*;
 use bevy::math::IVec3;
 pub use chat::*;
@@ -44,6 +45,8 @@ pub enum ServerToClientMessage {
     DroppedItems(DroppedItemsUpdate),
     /// The server's clock jumped to this tick (`/time set`).
     TimeSet(u64),
+    /// This mob is gone for this client: out of its reach, or removed.
+    MobRemoved(MobId),
 }
 
 #[cfg(test)]
@@ -121,6 +124,7 @@ mod tests {
                 on_ground: true,
                 velocity: Vec3::ZERO,
                 depth: 1.0,
+                action_ticks: 0,
             },
         };
         let update = PlayerUpdateEvent {
@@ -151,6 +155,7 @@ mod tests {
                 8,
             ),
             (ServerToClientMessage::TimeSet(0), 9),
+            (ServerToClientMessage::MobRemoved(0), 10),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -191,11 +196,14 @@ mod tests {
             assert_eq!(variant_index(&cause), expected, "{ENCODING_WARNING}");
         }
         assert_eq!(variant_index(&MobKind::Fox), 0, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Sheep), 1, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);
         assert_eq!(variant_index(&MobAction::Walk), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobAction::Flee), 1, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobAction::Idle), 2, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobAction::Graze), 3, "{ENCODING_WARNING}");
         for (removal, expected) in [
             (ItemRemoval::Gone, 0),
             (ItemRemoval::PickedUp(0), 1),

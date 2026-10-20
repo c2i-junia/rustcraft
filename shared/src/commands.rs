@@ -320,11 +320,11 @@ mod tests {
             texts(&completion)[..6],
             [
                 "sand",
+                "sheep_spawn_egg",
                 "snow",
                 "snowball",
                 "spruce_log",
-                "spruce_planks",
-                "stick"
+                "spruce_planks"
             ]
         );
         // `stone` is a value, and `cobblestone` contains it

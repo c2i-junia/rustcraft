@@ -24,6 +24,10 @@ pub struct ServerWorldMap {
     pub render_distances: RenderDistances,
     pub players: HashMap<PlayerId, Player>,
     pub mobs: HashMap<MobId, ServerMob>,
+    /// The mobs that appeared, moved or changed what they do since the last broadcast.
+    pub changed_mobs: HashSet<MobId>,
+    /// For each connected client, the mobs it has been sent and holds.
+    pub sent_mobs: HashMap<PlayerId, HashSet<MobId>>,
     pub dropped_items: DroppedItems,
     /// For each connected client, the dropped items it has been told of.
     pub sent_items: HashMap<PlayerId, HashSet<DroppedItemId>>,

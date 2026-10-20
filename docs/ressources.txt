@@ -42,6 +42,7 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    crafting table (blocks/CraftingTable*.png, items/CraftingTable.png) and of the chest
    (blocks/Chest*.png), cut from the pack's entity/chest/normal.png.
 -> The textures of the gravel (blocks/Gravel.png).
+-> The textures of the spawn eggs (items/FoxSpawnEgg.png, items/SheepSpawnEgg.png).
 -> The hearts of the health bar (data/graphics/hud/heart_*.png), the pack's
    gui/sprites/hud/heart/{container,full,half}.png.
 

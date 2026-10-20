@@ -13,6 +13,7 @@ mod inventory;
 mod locator;
 mod main_menu;
 mod minimap;
+mod mobs;
 mod multi;
 mod pause;
 mod raw_client;

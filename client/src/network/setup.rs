@@ -6,11 +6,11 @@ use bevy_renet::netcode::{
 };
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
-use shared::messages::mob::MobUpdateEvent;
 use shared::world::TerrainNoises;
 use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CHANNEL};
 
 use crate::menus::solo::SelectedWorld;
+use crate::mob::ClientMobs;
 use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
@@ -279,7 +279,7 @@ pub fn poll_network_messages(
     mut ev_render: MessageWriter<WorldRenderRequestUpdateEvent>,
     mut ev_chunk_load: MessageWriter<ChunkLoadEvent>,
     mut ev_player_spawn: MessageWriter<PlayerSpawnEvent>,
-    mut ev_mob_update: MessageWriter<MobUpdateEvent>,
+    mut mobs: ResMut<ClientMobs>,
     mut ev_player_update: MessageWriter<PlayerUpdateEvent>,
     mut ev_block_changed: MessageWriter<BlockChanged>,
     mut ev_dropped_items: MessageWriter<DroppedItemsUpdate>,
@@ -294,7 +294,7 @@ pub fn poll_network_messages(
         &mut ev_render,
         &mut ev_chunk_load,
         &mut ev_player_spawn,
-        &mut ev_mob_update,
+        &mut mobs,
         &mut ev_player_update,
         &mut ev_block_changed,
         &mut ev_dropped_items,

@@ -1,29 +1,46 @@
 use bevy::prelude::*;
-use shared::messages::mob::MobUpdateEvent;
 
 use crate::state::GameState;
 
 mod fox;
-mod spawn;
+mod models;
+mod sync;
 
 pub use fox::*;
-pub use spawn::*;
+pub use sync::*;
 
+/// The entity of a mob, which the maps draw.
 #[derive(Debug, Component, Clone)]
-pub struct MobRoot {
-    pub id: u128,
-}
+pub struct MobRoot;
 
-/// The mobs shown by the client: spawn from the server updates, and the fox animation.
+/// The mobs shown by the client: drawn from the server updates, moving smoothly between them,
+/// and playing the clip of what they do.
 pub fn mob_plugin(app: &mut App) {
     app.init_resource::<ParticleAssets>()
         .init_resource::<FoxFeetTargets>()
-        .init_resource::<Animations>()
-        .add_message::<MobUpdateEvent>()
+        .init_resource::<ClientMobs>()
+        .init_resource::<MobEntities>()
+        .init_resource::<models::MobAnimations>()
         .add_observer(observe_on_step)
         .add_systems(
             Update,
-            (setup_fox_once_loaded, simulate_particles).run_if(in_state(GameState::Game)),
+            (
+                apply_mob_updates,
+                smooth_mob_motion,
+                setup_mob_animators,
+                play_mob_clips,
+                add_fox_step_events,
+                simulate_particles,
+            )
+                .chain()
+                .run_if(in_state(GameState::Game)),
         )
-        .add_systems(Update, spawn_mobs_system.run_if(in_state(GameState::Game)));
+        .add_systems(OnExit(GameState::Game), forget_mobs)
+        .add_systems(
+            OnTransition {
+                exited: GameState::PreGameLoading,
+                entered: GameState::Menu,
+            },
+            forget_mobs,
+        );
 }

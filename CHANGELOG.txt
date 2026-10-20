@@ -13,6 +13,8 @@ Date: 11.10.2026
     - Fixed players spawning inside stone.
     - Fixed the world not being saved when leaving the game.
     - Fixed the fox sinking into the ground; it now stays on it.
+    - Animals live in the world: herds of sheep on the plains and mountains, foxes in the forests and on the ice plains. They wander, sheep graze, and foxes flee the players.
+    - Added fox and sheep spawn eggs: used on a block, they bring their animal there.
     - Fixed crashes when a client sent invalid data: usernames are checked (1 to 32 characters) and the number of inputs per tick is limited.
     - Fixed the constant position corrections (rollbacks) of the player: the client now resumes its prediction from the full state sent by the server.
     - Fixed the server list being emptied when its file could not be read.

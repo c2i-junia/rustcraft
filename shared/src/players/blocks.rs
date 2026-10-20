@@ -5,7 +5,7 @@ use crate::{
     players::{movement::MAX_FRAME_DELTA_MS, Player},
     world::{
         global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, BlockTransparency,
-        ChunkMap, Container, FaceDirectionExt, ItemType, RaycastResponse, Tool,
+        ChunkMap, Container, FaceDirectionExt, ItemType, MobKind, RaycastResponse, ServerMob, Tool,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -86,14 +86,31 @@ pub struct BrokenBlock {
     pub harvested: bool,
 }
 
-/// Breaks and places the blocks `action` asks for, and returns the blocks it broke.
+/// A mob a player made appear with a spawn egg. The server adds it to the world.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpawnedMob {
+    pub kind: MobKind,
+    /// The middle of its hitbox.
+    pub position: Vec3,
+}
+
+/// What the block interactions of one input did that the server acts upon.
+#[derive(Debug, Default, PartialEq)]
+pub struct BlockInteractions {
+    pub broken: Vec<BrokenBlock>,
+    pub spawned: Vec<SpawnedMob>,
+}
+
+/// Breaks and places the blocks `action` asks for, or uses a spawn egg, and returns the blocks
+/// it broke and the mobs it made appear.
 pub fn simulate_player_block_interactions(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
-) -> Vec<BrokenBlock> {
+) -> BlockInteractions {
     let mut broken = Vec::new();
+    let mut spawned = Vec::new();
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
     let hits = mining_hits(player, action);
@@ -108,8 +125,10 @@ pub fn simulate_player_block_interactions(
             NetworkAction::RightClick if !may_place => continue,
             NetworkAction::RightClick => (
                 "place",
-                place_block(player, world_map, action)
-                    .map(|()| player.place_wait_ms = PLACE_REPEAT_MS),
+                place_block(player, world_map, action).map(|mob| {
+                    spawned.extend(mob);
+                    player.place_wait_ms = PLACE_REPEAT_MS
+                }),
             ),
             _ => continue,
         };
@@ -128,7 +147,7 @@ pub fn simulate_player_block_interactions(
             world_map.touch_block(position);
         }
     }
-    broken
+    BlockInteractions { broken, spawned }
 }
 
 /// Mining hits the time held in `action` adds up to; what is left of it is kept for the next
@@ -250,12 +269,13 @@ fn break_block(
     }))
 }
 
-/// Places the block held in the selected hotbar slot against the aimed face.
+/// Places the block held in the selected hotbar slot against the aimed face. A spawn egg makes
+/// its mob appear there instead, standing on the bottom of the cell, and is returned.
 fn place_block(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
-) -> Result<(), Refused> {
+) -> Result<Option<SpawnedMob>, Refused> {
     let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
     let target = aimed_block(player, world_map, action, new_block_position)?;
     if let Some(aimed) = world_map.get_block(target.position) {
@@ -284,10 +304,6 @@ fn place_block(
             predicted_at: None,
         });
     }
-    if block_overlaps_player(position, player) {
-        return refused(Refusal::InsidePlayer);
-    }
-
     let slot = action.hotbar_slot;
     if slot >= MAX_INVENTORY_SLOTS {
         return refused(Refusal::InvalidSlot(slot));
@@ -295,6 +311,17 @@ fn place_block(
     let Some(&item) = player.inventory.inner.get(&slot) else {
         return refused(Refusal::EmptySlot(slot));
     };
+    if let Some(kind) = item.item_id.spawned_mob() {
+        player.inventory.remove_item_from_stack(slot, 1);
+        let cell = position.as_vec3();
+        return Ok(Some(SpawnedMob {
+            kind,
+            position: ServerMob::standing_at(kind, cell.x + 0.5, cell.y, cell.z + 0.5),
+        }));
+    }
+    if block_overlaps_player(position, player) {
+        return refused(Refusal::InsidePlayer);
+    }
     let ItemType::Block(block_id) = item.item_type else {
         return refused(Refusal::NotABlock(item.item_type));
     };
@@ -304,7 +331,7 @@ fn place_block(
     if block_id == BlockId::Chest {
         world_map.insert_container(position, Container::default());
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Whether a block at `block_position` would overlap the player's box, whose `position` is
@@ -400,17 +427,18 @@ mod tests {
         let (mut player, mut world, input) = left_click_on(BlockId::Dandelion);
         let steps = BlockId::Dandelion.get_break_time().unwrap();
         for _ in 1..steps {
-            let broken = simulate_player_block_interactions(
+            let done = simulate_player_block_interactions(
                 &mut player,
                 &mut world,
                 &input,
                 CallerType::Server,
             );
-            assert!(broken.is_empty());
+            assert!(done.broken.is_empty());
             assert!(world.get_block(TARGET).is_some());
         }
         let broken =
-            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server)
+                .broken;
         assert!(world.get_block(TARGET).is_none());
         assert_eq!(world.take_changed_blocks(), vec![TARGET]);
         assert_eq!(
@@ -656,7 +684,7 @@ mod tests {
         let steps = BlockId::Chest.get_break_time().unwrap();
         (0..steps)
             .flat_map(|_| {
-                simulate_player_block_interactions(player, world, input, CallerType::Server)
+                simulate_player_block_interactions(player, world, input, CallerType::Server).broken
             })
             .collect()
     }
@@ -682,6 +710,38 @@ mod tests {
             Some(BlockId::Chest)
         );
         assert_eq!(world.container(IVec3::ZERO), Some(&Container::default()));
+    }
+
+    #[test]
+    fn a_spawn_egg_makes_its_mob_appear_on_the_aimed_face_and_is_used_up() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        let position = Vec3::new(0.5, 0.5, 2.5);
+        let camera = Transform::from_translation(position);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player
+            .inventory
+            .inner
+            .insert(0, stack(ItemId::SheepSpawnEgg, 2));
+        world.fill_box(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1), BlockId::Stone);
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+
+        let done =
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+
+        // standing on the bottom of the cell in front of the stone, which stays empty
+        assert_eq!(
+            done.spawned,
+            vec![SpawnedMob {
+                kind: MobKind::Sheep,
+                position: Vec3::new(0.5, MobKind::Sheep.size().y / 2.0, 0.5),
+            }]
+        );
+        assert_eq!(world.get_block(IVec3::ZERO), None);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
     }
 
     #[test]
@@ -724,13 +784,13 @@ mod tests {
             player.inventory.inner.insert(input.hotbar_slot, held);
         }
         for hits in 1..=u32::from(id.get_break_time().unwrap()) {
-            let mut broken = simulate_player_block_interactions(
+            let mut done = simulate_player_block_interactions(
                 &mut player,
                 &mut world,
                 &input,
                 CallerType::Server,
             );
-            if let Some(broken) = broken.pop() {
+            if let Some(broken) = done.broken.pop() {
                 return (hits, player, broken);
             }
         }
