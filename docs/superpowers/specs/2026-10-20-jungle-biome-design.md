@@ -41,7 +41,8 @@ and `the_ground_never_steps_at_the_border_of_two_biomes` still pass.
 **Generation** (`server/src/world/generation.rs`, likely a new `generation/jungle.rs` for the
 structures): new `Decoration` variants (`Fern`, `JungleTree`, `Bush`, `GiantTree`), their
 blocks, and the ranks of `precedence` (fern and vine with tall grass, jungle leaves with oak
-leaves, jungle log and cocoa with oak log).
+leaves, jungle log with oak log, and cocoa between leaves and logs: a log rooted later must
+not leave a pod inside its trunk, as happened 3 times in 67 on seed 42 with cocoa ranked as a log).
 
 - *Height of structures:* instead of one `STRUCTURE_HEIGHT` for every chunk, each `ChunkColumns`
   keeps the highest block anything rooted in it or its margin reaches (`Decoration::height`), and
