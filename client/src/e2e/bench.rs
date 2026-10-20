@@ -333,6 +333,8 @@ fn bench_render_distance() {
     let mut last = (usize::MAX, usize::MAX);
     let mut last_change = start.elapsed().as_secs_f64();
     let mut loading = Vec::new();
+    // The chunks held and the meshes shown every quarter of a second
+    let mut curve = Vec::new();
     loop {
         let frame = Instant::now();
         h.frames(1);
@@ -348,6 +350,9 @@ fn bench_render_distance() {
         if (held, shown) != last {
             last = (held, shown);
             last_change = now;
+        }
+        if now >= curve.len() as f64 * 0.25 {
+            curve.push(serde_json::json!([now, held, shown]));
         }
         if now - last_change > 2. || now > 600. {
             break;
@@ -371,6 +376,7 @@ fn bench_render_distance() {
         "in_game_s": in_game,
         "all_drawn_s": last_change,
         "loading": percentiles(&mut loading),
+        "loading_curve": curve,
         "drawn": drawn,
         "still": still,
         "walking": walking,
