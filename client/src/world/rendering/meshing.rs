@@ -144,7 +144,7 @@ impl MeshCreator {
             ]
         }));
         self.normals.extend(face.normals.iter().map(|n| {
-            let [x, z] = turn([n[0], n[2]], direction);
+            let [x, z] = direction.turn([n[0], n[2]]);
             normal(&[x, n[1], z])
         }));
         self.lights.extend_from_slice(lights);
@@ -921,18 +921,8 @@ fn is_block_surrounded(
 /// `v`, a point of a shape in its cell, turned to `direction` about the vertical axis through
 /// the centre of the cell: `Right` turns the front of the shape, toward -Z, toward +X.
 pub fn rotate_vertices(v: &[f32; 3], direction: &BlockDirection) -> [f32; 3] {
-    let [x, z] = turn([v[0] - 0.5, v[2] - 0.5], direction);
+    let [x, z] = direction.turn([v[0] - 0.5, v[2] - 0.5]);
     [x + 0.5, v[1], z + 0.5]
-}
-
-/// The horizontal vector `(x, z)` turned to `direction`, by quarter turns.
-fn turn([x, z]: [f32; 2], direction: &BlockDirection) -> [f32; 2] {
-    match *direction {
-        BlockDirection::Front => [x, z],
-        BlockDirection::Right => [-z, x],
-        BlockDirection::Back => [-x, -z],
-        BlockDirection::Left => [z, -x],
-    }
 }
 
 fn should_render_face(

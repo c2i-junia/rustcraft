@@ -55,6 +55,8 @@ enum Refusal {
     /// The aimed block is used by a right click, like a crafting table, unless the player
     /// sneaks.
     UsesBlock(BlockId),
+    /// A vine hangs on the side of a block, never on its top or bottom.
+    NotASide,
 }
 
 /// A refused interaction, and the block a client may have predicted a change at.
@@ -326,8 +328,18 @@ fn place_block(
         return refused(Refusal::NotABlock(item.item_type));
     };
 
+    // A vine is turned toward the block it is placed against
+    let direction = if block_id == BlockId::Vine {
+        let Some(toward) = BlockDirection::toward(-target.face.to_ivec3()) else {
+            return refused(Refusal::NotASide);
+        };
+        toward
+    } else {
+        BlockDirection::Front
+    };
+
     player.inventory.remove_item_from_stack(slot, 1);
-    world_map.set_block(position, BlockData::new(block_id, BlockDirection::Front));
+    world_map.set_block(position, BlockData::new(block_id, direction));
     if block_id == BlockId::Chest {
         world_map.insert_container(position, Container::default());
     }
@@ -742,6 +754,59 @@ mod tests {
         );
         assert_eq!(world.get_block(IVec3::ZERO), None);
         assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    /// A player holding a vine two blocks away from the stone at `stone` on the side `side`,
+    /// right-clicking the face of the stone toward it. Returns what the world and the player
+    /// become.
+    fn place_a_vine_against(stone: IVec3, side: IVec3) -> (ChunkMap, Player) {
+        let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        world.fill_box(stone, stone, BlockId::Stone);
+        world.take_changed_blocks();
+        let stone_centre = stone.as_vec3() + HALF_BLOCK;
+        let position = stone_centre + side.as_vec3() * 3.0;
+        let up = if side.y == 0 { Vec3::Y } else { Vec3::X };
+        let camera = Transform::from_translation(position).looking_at(stone_centre, up);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player.inventory.inner.insert(0, stack(ItemId::Vine, 1));
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        (world, player)
+    }
+
+    #[test]
+    fn a_vine_placed_against_a_side_hangs_toward_that_block() {
+        let stone = IVec3::new(0, 0, -3);
+        for (side, toward_the_stone) in [
+            (IVec3::Z, BlockDirection::Front),
+            (IVec3::NEG_Z, BlockDirection::Back),
+            (IVec3::X, BlockDirection::Left),
+            (IVec3::NEG_X, BlockDirection::Right),
+        ] {
+            let (world, player) = place_a_vine_against(stone, side);
+            assert_eq!(
+                world.get_block(stone + side).copied(),
+                Some(BlockData::new(BlockId::Vine, toward_the_stone)),
+                "{side}"
+            );
+            assert!(player.inventory.inner.is_empty(), "{side}");
+        }
+    }
+
+    #[test]
+    fn a_vine_aimed_at_a_top_or_bottom_face_is_refused_and_kept() {
+        let stone = IVec3::new(0, 0, -3);
+        for side in [IVec3::Y, IVec3::NEG_Y] {
+            let (mut world, player) = place_a_vine_against(stone, side);
+            assert_eq!(world.get_block(stone + side), None, "{side}");
+            assert_eq!(player.inventory.inner[&0].nb, 1, "{side}");
+            // the server re-states the cell a client may have predicted a vine in
+            assert_eq!(world.take_changed_blocks(), vec![stone + side], "{side}");
+        }
     }
 
     #[test]

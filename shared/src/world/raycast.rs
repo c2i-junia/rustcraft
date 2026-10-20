@@ -181,7 +181,7 @@ fn hit_block(
     direction: Vec3,
     inv_dir: Vec3,
 ) -> Option<RaycastResponse> {
-    match block.id.get_ray_hitbox() {
+    match block.get_ray_hitbox() {
         BlockHitbox::FullBlock => Some(RaycastResponse {
             block,
             position: voxel,
@@ -193,10 +193,10 @@ fn hit_block(
                 min: hitbox.min + voxel.as_vec3a(),
                 max: hitbox.max + voxel.as_vec3a(),
             };
-            let (pos, face) = aabb_ray_hit(&hitbox, &origin, &direction, &inv_dir)?;
+            let (_, face) = aabb_ray_hit(&hitbox, &origin, &direction, &inv_dir)?;
             Some(RaycastResponse {
                 block,
-                position: pos.floor().as_ivec3(),
+                position: voxel,
                 face,
                 bbox: hitbox,
             })
@@ -453,6 +453,47 @@ mod tests {
         let world = world_with_block(IVec3::new(2, 0, 0), BlockId::Poppy);
         let origin = Vec3::new(0.5, 0.9, 0.5);
         assert!(raycast_from_source_position_and_direction(&world, origin, Vec3::X).is_none());
+    }
+
+    #[test]
+    fn a_vine_is_hit_through_its_plate_in_its_own_cell() {
+        use crate::world::{BlockDirection, VINE_GAP};
+        let vine = IVec3::new(2, 0, 2);
+        let centre = vine.as_vec3() + HALF_BLOCK;
+        for direction in [
+            BlockDirection::Front,
+            BlockDirection::Right,
+            BlockDirection::Back,
+            BlockDirection::Left,
+        ] {
+            let mut world = empty_world();
+            world.set_block(vine, BlockData::new(BlockId::Vine, direction));
+            let support = direction.offset().as_vec3();
+            let along = Vec3::new(support.z, 0.0, -support.x);
+            let cast = |origin: Vec3, toward: Vec3| {
+                raycast_from_source_position_and_direction(&world, origin, toward)
+            };
+
+            // from the open side, straight at the plate
+            let hit = cast(centre - support * 2.0, support)
+                .unwrap_or_else(|| panic!("{direction:?}: the plate is missed"));
+            assert_eq!(hit.position, vine, "{direction:?}");
+            assert_eq!(hit.face.to_ivec3().as_vec3(), -support, "{direction:?}");
+            // through the middle of the cell, beside the plate
+            for side in [along, -along, Vec3::Y, Vec3::NEG_Y] {
+                assert!(
+                    cast(centre + side * 2.0, -side).is_none(),
+                    "{direction:?}: hit from {side}"
+                );
+            }
+            // along the support, through the plate, from each side and from above
+            let on_plate = centre + support * (0.5 - VINE_GAP);
+            for side in [along, -along, Vec3::Y] {
+                let hit = cast(on_plate + side * 2.0, -side)
+                    .unwrap_or_else(|| panic!("{direction:?}: missed from {side}"));
+                assert_eq!(hit.position, vine, "{direction:?}: from {side}");
+            }
+        }
     }
 
     #[test]

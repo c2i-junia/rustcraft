@@ -85,6 +85,17 @@ impl BlockDirection {
         }
     }
 
+    /// The horizontal vector `(x, z)` turned from the front to this direction, by quarter turns
+    /// about the vertical axis: `Right` turns the front, -Z, toward +X.
+    pub fn turn(self, [x, z]: [f32; 2]) -> [f32; 2] {
+        match self {
+            Self::Front => [x, z],
+            Self::Right => [-z, x],
+            Self::Back => [-x, -z],
+            Self::Left => [z, -x],
+        }
+    }
+
     /// The direction whose `offset` is `step`, `None` for anything but a horizontal step to a
     /// neighbouring cell.
     pub fn toward(step: IVec3) -> Option<Self> {
@@ -119,6 +130,26 @@ impl BlockData {
             direction,
             breaking_progress: 0,
             level: 0,
+        }
+    }
+
+    /// The box rays hit, as `BlockId::get_ray_hitbox`, but turned to the direction of the block
+    /// for a vine: a slab around its plate, on the side of the block holding it.
+    pub fn get_ray_hitbox(&self) -> BlockHitbox {
+        match (self.id, self.id.get_ray_hitbox()) {
+            (BlockId::Vine, BlockHitbox::Aabb(front)) => {
+                // about the centre of the cell
+                let turn = |corner: Vec3A| {
+                    let [x, z] = self.direction.turn([corner.x - 0.5, corner.z - 0.5]);
+                    Vec3A::new(x + 0.5, corner.y, z + 0.5)
+                };
+                let (a, b) = (turn(front.min), turn(front.max));
+                BlockHitbox::Aabb(Aabb3d {
+                    min: a.min(b),
+                    max: a.max(b),
+                })
+            }
+            (_, hitbox) => hitbox,
         }
     }
 
@@ -672,6 +703,8 @@ mod tests {
         ];
         for (direction, step) in sides {
             assert_eq!(direction.offset(), step, "{direction:?}");
+            let turned = direction.turn([0.0, -1.0]).map(|c| c as i32);
+            assert_eq!(turned, [step.x, step.z], "the front turned {direction:?}");
             assert_eq!(BlockDirection::toward(step), Some(direction), "{step}");
         }
         for step in [

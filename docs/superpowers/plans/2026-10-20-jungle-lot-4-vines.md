@@ -112,15 +112,15 @@ lot 4 of "Lots".
 - [x] Credit the texture; commit `feat: the vine`.
 
 ### Task 2: Aiming at a vine and placing one (`shared`)
-- [ ] Tests (raycast.rs): `a_vine_is_hit_through_its_plate_in_its_own_cell` (each direction:
+- [x] Tests (raycast.rs): `a_vine_is_hit_through_its_plate_in_its_own_cell` (each direction:
   through the plate, not beside it; from the open side and along the support, the cell is the
   vine's). See them fail. `BlockData::get_ray_hitbox`, the cell of an `Aabb` hit. See them
   pass, with the flower tests.
-- [ ] Tests (players/blocks.rs): `a_vine_placed_against_a_side_hangs_toward_that_block` (the
+- [x] Tests (players/blocks.rs): `a_vine_placed_against_a_side_hangs_toward_that_block` (the
   four sides, the direction stored, the item used) and
   `a_vine_aimed_at_a_top_or_bottom_face_is_refused_and_kept` (nothing placed, the item kept,
   the cell re-stated by the server). See them fail. The rule in `place_block`. See them pass.
-- [ ] Commit `feat(shared): a vine hangs on the side of the block it is placed against`.
+- [x] Commit `feat(shared): a vine hangs on the side of the block it is placed against`.
 
 ### Task 3: Vines in the jungle (`server`)
 - [ ] Benchmarks before (done: see the commit message).
