@@ -42,6 +42,7 @@ Date: 11.10.2026
     - Added coal, iron and gold ore. Coal ore drops coal; iron and gold ore drop themselves until they can be smelted.
     - Added gravel, found on the floors of the seas, lakes and rivers.
     - Ores generate in clusters and veins: coal up to y 128, iron up to y 64, and the rarer gold up to y 32.
+    - Added the jungle, along the warm and wet coasts: jungle trees, bushes, ferns and tall grass, growing denser from its border to its heart. Added jungle logs, planks and leaves, with the recipes of their wood, and the fern.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

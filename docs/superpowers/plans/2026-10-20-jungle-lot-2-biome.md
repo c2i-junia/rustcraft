@@ -68,13 +68,19 @@ cocoa), "Bush", "New blocks" and "New items" (`Fern`), "Block behaviour" (fern),
    everything" return of `generate_chunk` reads as is.
 10. **Ranks:** fern with tall grass (2), jungle leaves with oak leaves (3), jungle log with oak
     log (4).
-11. **Animals:** no herds in the jungle (`herds` says so explicitly); `may_stand_on` also refuses
-    a column under a jungle tree or a bush, where a herd of a neighbouring biome could spill.
+11. **Animals:** no herds in the jungle (`herds` has none for it, which a test pins);
+    `may_stand_on` also refuses a column under a jungle tree or a bush, where a herd of a
+    neighbouring biome could spill.
 12. **Fern item icon:** `items/Fern.png` is the block texture tinted by `GRASS_COLOR` as the GPU
     tints it, the way lot 1 made `items/JungleLeaves.png`, with the same kind of test.
-13. **World preview tools:** `worldgen_preview.py` learns `Fern` and the `Jungle` biome colour;
-    `worldgen_dump.rs` counts the fern as growing, not ground.
-14. **`CHANGELOG.txt`:** one line in the "Unreleased" changes, with the generation commit.
+13. **World preview tools:** `worldgen_preview.py` learns `Fern` and the `Jungle` biome colour, a
+    lime green (150, 200, 0) that stands out from the forest's; `worldgen_dump.rs` counts the
+    fern as growing, not ground.
+14. **`CHANGELOG.txt`:** one line in the "Unreleased" changes, with the generation commit; it
+    also tells of the jungle wood of lot 1.
+15. **Cave mouths:** the ground layer of a bush lies on the layer of its root, so a leaf may fill
+    the mouth of a cave carved in the surface of a neighbouring column. It fills air, not
+    terrain: `decorations_never_replace_terrain` lets a jungle leaf stand in a carved cell.
 
 ## Tasks
 
@@ -102,27 +108,32 @@ cocoa), "Bush", "New blocks" and "New items" (`Fern`), "Block behaviour" (fern),
 
 ### Task 3: Structure height per column of chunks (`server`)
 - [x] Benchmarks before.
-- [x] Tests: `every_decoration_stays_under_its_height`, and `a_chunk_column_knows_the_highest_block_rooted_on_it`.
-  See them fail.
+- [x] Tests: `no_structure_grows_higher_than_its_bound` checks each decoration against its
+  own `Decoration::height`, and `a_chunk_column_knows_the_highest_block_rooted_on_it`. See them
+  fail.
 - [x] `Decoration::height`, `ChunkColumns::highest` from it, the early return. See them pass,
   with every existing test.
 
 ### Task 4: Jungle generation (`server`)
-- [ ] Tests: `jungle_structures_stay_within_the_margin_and_under_their_height` (many seeds and
-  columns of a synthetic jungle of depth 1 and of depth 0), `the_jungle_tree_has_its_trunk_and_crown`,
-  `the_bush_is_a_log_under_a_mound_of_leaves`, `the_jungle_grows_denser_toward_its_heart`
-  (counts per decoration on synthetic columns of depth 0 and 1 against the spec's densities),
+- [x] Tests: `jungle_structures_stay_within_the_margin_and_under_their_height` (many seeds and
+  columns of a synthetic jungle of depths 0, 0.5 and 1),
+  `the_jungle_tree_is_a_trunk_under_a_crown_of_three_layers_and_a_plus` and
+  `the_bush_is_a_log_under_a_mound_of_leaves` (`jungle.rs`),
+  `the_jungle_grows_denser_toward_its_heart` (counts per decoration on synthetic columns of
+  depths 0, 0.5 and 1 against the spec's densities),
   `a_jungle_chunk_generated_alone_equals_it_generated_amid_its_neighbours`, jungle chunks in
-  `chunks_without_noise_are_the_ones_the_noise_makes`, a jungle tree across a chunk border is
-  complete, the new ranks in `a_higher_rank_wins_whatever_the_order`, no herds in the jungle and
-  no animal under a jungle tree or a bush. See them fail.
-- [ ] `Decoration::{Fern, JungleTree, Bush}`, `generation/jungle.rs`, the densities, the ranks,
+  `chunks_without_noise_are_the_ones_the_noise_makes`, in `sample_chunks` and in
+  `a_chunk_column_knows_the_highest_block_rooted_on_it`,
+  `a_jungle_tree_across_a_horizontal_border_is_complete`,
+  `jungle_blocks_rank_with_their_oak_and_grass_siblings`, `no_herd_lives_in_the_jungle` and
+  `no_animal_appears_under_a_jungle_tree_or_on_a_bush`. See them fail.
+- [x] `Decoration::{Fern, JungleTree, Bush}`, `generation/jungle.rs`, the densities, the ranks,
   `may_stand_on`. See them pass.
-- [ ] Benchmarks after.
+- [x] Benchmarks after.
 
 ### Task 5: Tools, preview, changelog and commit
-- [ ] `worldgen_preview.py` (`Fern`, `Jungle`), `worldgen_dump.rs` (`is_ground`).
-- [ ] Render a jungle area of seed 42 with `worldgen_dump` and `worldgen_preview.py`, look at
+- [x] `worldgen_preview.py` (`Fern`, `Jungle`), `worldgen_dump.rs` (`is_ground`).
+- [x] Render a jungle area of seed 42 with `worldgen_dump` and `worldgen_preview.py`, look at
   it, keep it outside the repository.
-- [ ] `CHANGELOG.txt`.
-- [ ] `cargo test`, clippy and fmt; commit `feat: the jungle biome`.
+- [x] `CHANGELOG.txt`.
+- [x] `cargo test`, clippy and fmt; commit `feat: the jungle biome`.

@@ -51,6 +51,7 @@ BLOCKS = [
     ("JungleLog", (89, 56, 41)),
     ("JunglePlanks", (121, 81, 57)),
     ("JungleLeaves", (32, 109, 23)),
+    ("Fern", (95, 159, 53)),
 ]
 AIR = 255
 WATER = 19
@@ -69,6 +70,7 @@ BIOMES = [
     ("Ocean", (50, 100, 200)),
     ("DeepOcean", (20, 50, 140)),
     ("Savanna", (210, 140, 60)),
+    ("Jungle", (150, 200, 0)),
 ]
 
 

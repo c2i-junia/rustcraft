@@ -37,7 +37,7 @@ fn herds(biome: BiomeType) -> &'static [(MobKind, f32, (u64, u64))] {
 }
 
 /// Whether an animal may appear standing on `column`: dry land of grass, or snow on the ice
-/// plains, where no tree or cactus grows.
+/// plains, where no tree, bush or cactus grows.
 fn may_stand_on(column: &Column, seed: u32) -> bool {
     let ground = match column.biome_type {
         BiomeType::IcePlain => matches!(column.surface, BlockId::Grass | BlockId::Snow),
@@ -50,7 +50,11 @@ fn may_stand_on(column: &Column, seed: u32) -> bool {
             .any(|d| {
                 matches!(
                     d,
-                    Decoration::Tree | Decoration::BigTree | Decoration::Cactus
+                    Decoration::Tree
+                        | Decoration::BigTree
+                        | Decoration::JungleTree
+                        | Decoration::Bush
+                        | Decoration::Cactus
                 )
             })
 }
@@ -168,6 +172,35 @@ mod tests {
             let count = by_kind.get(&kind).copied().unwrap_or(0);
             assert!((3..1000).contains(&count), "{kind:?}: {count}");
         }
+    }
+
+    #[test]
+    fn no_herd_lives_in_the_jungle() {
+        assert!(herds(BiomeType::Jungle).is_empty());
+    }
+
+    #[test]
+    fn no_animal_appears_under_a_jungle_tree_or_on_a_bush() {
+        let seed = 5;
+        let shape = ColumnShape {
+            height: 70,
+            biome: BiomeType::Jungle,
+            jungle_depth: 1.0,
+        };
+        let mut found = Vec::new();
+        for x in 0..100 {
+            for z in 0..100 {
+                let column = Column::new(seed, x, z, shape, 0, 0.0);
+                let decorations = column_decorations(&column, &random_of(seed, &column));
+                for wanted in [Decoration::JungleTree, Decoration::Bush] {
+                    if decorations.contains(&wanted) {
+                        assert!(!may_stand_on(&column, seed), "({x}, {z}): {wanted:?}");
+                        found.push(wanted);
+                    }
+                }
+            }
+        }
+        assert!(found.contains(&Decoration::JungleTree) && found.contains(&Decoration::Bush));
     }
 
     #[test]

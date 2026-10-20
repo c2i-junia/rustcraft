@@ -7,6 +7,7 @@ use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR};
 
 mod animals;
+mod jungle;
 mod ores;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
@@ -15,9 +16,9 @@ mod ores;
 /// therefore looks at the columns of the chunk plus this margin on each side.
 const STRUCTURE_MARGIN: i32 = 3;
 
-/// Highest block of any structure above the surface of its column: the crown of a big tree (see
-/// `Decoration::height`). Only the chunks generated before their columns are known use it.
-const STRUCTURE_HEIGHT: i32 = 9;
+/// Highest block of any structure above the surface of its column: the crown of a jungle tree
+/// (see `Decoration::height`). Only the chunks generated before their columns are known use it.
+const STRUCTURE_HEIGHT: i32 = 10;
 
 // Salts: each random decision of a column hashes `(seed, x, z, salt)` with its own salt.
 const SALT_FLOWER_ROLL: u64 = 1;
@@ -28,6 +29,7 @@ const SALT_TRUNK_HEIGHT: u64 = 5;
 const SALT_CACTUS_ROLL: u64 = 6;
 const SALT_CACTUS_HEIGHT: u64 = 7;
 const SALT_ROCK_LINE: u64 = 8;
+const SALT_FERN_ROLL: u64 = 9;
 /// Each of the two branches of a big tree uses 4 consecutive salts from here.
 const SALT_BRANCH: u64 = 0x100;
 /// One salt per leaf of the 5x5x3 crown, from here.
@@ -83,19 +85,26 @@ enum Decoration {
     Tree,
     BigTree,
     Cactus,
+    Fern,
+    JungleTree,
+    Bush,
 }
 
 impl Decoration {
     /// The highest block the decoration may reach above the surface of its column.
     fn height(&self) -> i32 {
         match self {
-            Decoration::Flower(_) | Decoration::TallGrass => 1,
+            Decoration::Flower(_) | Decoration::TallGrass | Decoration::Fern => 1,
             // a trunk of up to 5 logs, whose top holds the lowest of the 3 layers of the crown
             Decoration::Tree => 7,
             // a 6-log trunk from the block above the surface, its leaves reaching 3 blocks above
             // the top of the trunk (`1 + 6 - 2 + 2 + 2`)
             Decoration::BigTree => 9,
             Decoration::Cactus => 3,
+            // a log under a layer of leaves, a plus and one more leaf
+            Decoration::Bush => 3,
+            // a trunk of up to 9 logs under a plus of leaves
+            Decoration::JungleTree => 10,
         }
     }
 }
@@ -126,6 +135,8 @@ struct Column {
     z: i32,
     height: i32,
     biome_type: BiomeType,
+    /// How far the column lies inside the jungle (see `ColumnShape::jungle_depth`).
+    jungle_depth: f32,
     surface: BlockId,
     sub_surface: BlockId,
     /// The highest cell of the column caves may carve.
@@ -152,6 +163,7 @@ impl Column {
             z,
             height: shape.height,
             biome_type: shape.biome,
+            jungle_depth: shape.jungle_depth,
             surface,
             sub_surface,
             cave_ceiling: shape.height,
@@ -256,9 +268,9 @@ fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
 fn precedence(block: BlockId) -> u8 {
     match block {
         BlockId::Dandelion | BlockId::Poppy => 1,
-        BlockId::TallGrass => 2,
-        BlockId::OakLeaves => 3,
-        BlockId::OakLog | BlockId::Cactus => 4,
+        BlockId::TallGrass | BlockId::Fern => 2,
+        BlockId::OakLeaves | BlockId::JungleLeaves => 3,
+        BlockId::OakLog | BlockId::JungleLog | BlockId::Cactus => 4,
         _ => 5,
     }
 }
@@ -317,17 +329,30 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         decorations.push(Decoration::Flower(flower));
     }
 
+    // the jungle grows denser from its border to its heart
+    let depth = column.jungle_depth;
     let tall_grass_chance = match biome_type {
         BiomeType::HighMountainGrass => 0.0,
         BiomeType::Savanna => 0.25,
+        BiomeType::Jungle => 0.10 + 0.12 * depth,
         _ => 0.10,
     };
-    if random.unit(SALT_TALL_GRASS_ROLL) < tall_grass_chance {
+    if biome_type == BiomeType::Jungle && random.unit(SALT_FERN_ROLL) < 0.04 + 0.08 * depth {
+        decorations.push(Decoration::Fern);
+    } else if random.unit(SALT_TALL_GRASS_ROLL) < tall_grass_chance {
         decorations.push(Decoration::TallGrass);
     }
 
     let tree_roll = random.unit(SALT_TREE_ROLL);
+    let jungle_tree_chance = 0.03 * depth;
+    let bush_chance = (0.06 * depth).max(0.01);
     match biome_type {
+        BiomeType::Jungle if tree_roll < jungle_tree_chance => {
+            decorations.push(Decoration::JungleTree)
+        }
+        BiomeType::Jungle if tree_roll < jungle_tree_chance + bush_chance => {
+            decorations.push(Decoration::Bush)
+        }
         BiomeType::Forest if tree_roll < 0.01 => decorations.push(Decoration::BigTree),
         BiomeType::Forest if tree_roll < 0.06 => decorations.push(Decoration::Tree),
         BiomeType::FlowerPlains | BiomeType::MediumMountain if tree_roll < 0.02 => {
@@ -444,6 +469,9 @@ fn decoration_blocks(
         Decoration::Tree => tree_blocks(root, random, blocks),
         Decoration::BigTree => big_tree_blocks(root, random, blocks),
         Decoration::Cactus => cactus_blocks(root, random, blocks),
+        Decoration::Fern => blocks.push((root, BlockId::Fern)),
+        Decoration::JungleTree => jungle::jungle_tree_blocks(root, random, blocks),
+        Decoration::Bush => jungle::bush_blocks(root, random, blocks),
     }
 }
 
@@ -944,9 +972,8 @@ mod tests {
             }
         }
         assert_eq!(
-            highest,
-            Decoration::BigTree.height(),
-            "the forests have a big tree as tall as can be"
+            highest, STRUCTURE_HEIGHT,
+            "the jungle has a jungle tree as tall as can be"
         );
     }
 
@@ -954,8 +981,8 @@ mod tests {
     fn a_chunk_column_knows_the_highest_block_rooted_on_it() {
         let seed = 42;
         let generator = WorldGenerator::new(seed);
-        // plains, and a forest with big trees
-        for (cx, cz) in [(0, 0), (29, 38), (30, 39)] {
+        // plains, a forest with big trees, and a jungle
+        for (cx, cz) in [(0, 0), (29, 38), (30, 39), (-13, 5), (-20, 4)] {
             let columns = generator.compute_chunk_columns(IVec2::new(cx, cz));
             let mut reached = i32::MIN;
             for column in &columns.columns {
@@ -976,8 +1003,16 @@ mod tests {
     #[test]
     fn chunks_without_noise_are_the_ones_the_noise_makes() {
         let generator = WorldGenerator::new(42);
-        // plains, a deep sea, a mountain range and its peaks, a lake
-        for (cx, cz) in [(0, 0), (-59, -35), (-40, 40), (29, -26), (-16, 7)] {
+        // plains, a deep sea, a mountain range and its peaks, a lake, a jungle
+        for (cx, cz) in [
+            (0, 0),
+            (-59, -35),
+            (-40, 40),
+            (29, -26),
+            (-16, 7),
+            (-13, 5),
+            (-20, 4),
+        ] {
             for cy in -2..=13 {
                 let chunk_pos = IVec3::new(cx, cy, cz);
                 assert!(
@@ -989,10 +1024,11 @@ mod tests {
         }
     }
 
-    /// Chunks around the surface (heights 50 to 80), with positive and negative coordinates.
+    /// Chunks around the surface (heights 50 to 80), with positive and negative coordinates, the
+    /// last ones in a jungle.
     fn sample_chunks() -> Vec<IVec3> {
         let mut chunks = Vec::new();
-        for (cx, cz) in [(0, 0), (-1, -1), (2, -3), (-5, 4), (7, 7)] {
+        for (cx, cz) in [(0, 0), (-1, -1), (2, -3), (-5, 4), (7, 7), (-13, 5)] {
             for cy in 2..=7 {
                 chunks.push(IVec3::new(cx, cy, cz));
             }
@@ -1066,7 +1102,12 @@ mod tests {
                 let column = generator.column(x, z);
                 let has_tree = column_decorations(&column, &random_of(seed, &column))
                     .iter()
-                    .any(|d| matches!(d, Decoration::Tree | Decoration::BigTree));
+                    .any(|d| {
+                        matches!(
+                            d,
+                            Decoration::Tree | Decoration::BigTree | Decoration::JungleTree
+                        )
+                    });
                 if has_tree && wanted(&column_blocks(seed, &column)) {
                     return column;
                 }
@@ -1110,8 +1151,9 @@ mod tests {
             if actual == *block {
                 *exact_per_chunk.entry(chunk_pos).or_default() += 1;
             }
-            if *block == BlockId::OakLog && pos.x == column.x && pos.z == column.z {
-                assert_eq!(actual, BlockId::OakLog, "trunk block at {pos}");
+            let log = matches!(block, BlockId::OakLog | BlockId::JungleLog);
+            if log && pos.x == column.x && pos.z == column.z {
+                assert_eq!(actual, *block, "trunk block at {pos}");
             }
         }
         for chunk_pos in touched {
@@ -1134,6 +1176,17 @@ mod tests {
     fn a_tree_across_a_horizontal_border_is_complete() {
         for axis in [0, 2] {
             let column = find_tree(42, -100..100, -100..100, |b| spans_two_chunks(b, axis));
+            assert_tree_is_complete(42, &column);
+        }
+    }
+
+    #[test]
+    fn a_jungle_tree_across_a_horizontal_border_is_complete() {
+        // the jungle of the seed 42 nearest to the origin
+        for axis in [0, 2] {
+            let column = find_tree(42, -340..-180, 0..130, |b| {
+                b.iter().any(|(_, block)| *block == BlockId::JungleLog) && spans_two_chunks(b, axis)
+            });
             assert_tree_is_complete(42, &column);
         }
     }
@@ -1274,7 +1327,9 @@ mod tests {
                     BlockId::Dandelion
                         | BlockId::Poppy
                         | BlockId::TallGrass
+                        | BlockId::Fern
                         | BlockId::OakLog
+                        | BlockId::JungleLog
                         | BlockId::Cactus
                 );
                 let below = local - IVec3::Y;
@@ -1399,15 +1454,145 @@ mod tests {
                                 }
                                 id => id,
                             });
-                            assert_eq!(
-                                actual, expected,
-                                "chunk {chunk_pos} local ({dx}, {dy}, {dz})"
-                            );
+                            // the leaves of a bush may hang over the mouth of a cave beside it
+                            let over_a_cave = carved && actual == Some(BlockId::JungleLeaves);
+                            if !over_a_cave {
+                                assert_eq!(
+                                    actual, expected,
+                                    "chunk {chunk_pos} local ({dx}, {dy}, {dz})"
+                                );
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// A column of a jungle `depth` deep at `(x, z)`, on flat land well above the sea.
+    fn jungle_column(seed: u32, x: i32, z: i32, depth: f32) -> Column {
+        let shape = ColumnShape {
+            height: 70,
+            biome: BiomeType::Jungle,
+            jungle_depth: depth,
+        };
+        Column::new(seed, x, z, shape, 0, 0.0)
+    }
+
+    #[test]
+    fn jungle_structures_stay_within_the_margin_and_under_their_height() {
+        let mut reached: HashMap<&str, (i32, i32)> = HashMap::new();
+        for seed in [0, 7, 42, 1234, u32::MAX] {
+            for depth in [0.0, 0.5, 1.0] {
+                for x in 0..60 {
+                    for z in 0..60 {
+                        let column = jungle_column(seed, x, z, depth);
+                        let random = random_of(seed, &column);
+                        let root = IVec3::new(x, column.height + 1, z);
+                        for decoration in column_decorations(&column, &random) {
+                            let mut blocks = Vec::new();
+                            decoration_blocks(decoration, root, &random, &mut blocks);
+                            let kind = match decoration {
+                                Decoration::JungleTree => "jungle tree",
+                                Decoration::Bush => "bush",
+                                _ => "plant",
+                            };
+                            let (wide, high) = reached.entry(kind).or_default();
+                            for (pos, _) in blocks {
+                                let (dx, dz) = ((pos.x - x).abs(), (pos.z - z).abs());
+                                let dy = pos.y - column.height;
+                                assert!(dx.max(dz) <= STRUCTURE_MARGIN, "{decoration:?}: {pos}");
+                                assert!(
+                                    dy > 0 && dy <= decoration.height(),
+                                    "{decoration:?}: {pos}"
+                                );
+                                *wide = (*wide).max(dx.max(dz));
+                                *high = (*high).max(dy);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(reached["jungle tree"], (2, Decoration::JungleTree.height()));
+        assert_eq!(reached["bush"], (2, Decoration::Bush.height()));
+        assert_eq!(reached["plant"], (0, 1));
+        assert_eq!(Decoration::JungleTree.height(), STRUCTURE_HEIGHT);
+    }
+
+    #[test]
+    fn the_jungle_grows_denser_toward_its_heart() {
+        let seed = 3;
+        for depth in [0.0f32, 0.5, 1.0] {
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            let side = 200;
+            for x in 0..side {
+                for z in 0..side {
+                    let column = jungle_column(seed, x, z, depth);
+                    for decoration in column_decorations(&column, &random_of(seed, &column)) {
+                        let kind = match decoration {
+                            Decoration::JungleTree => "jungle tree",
+                            Decoration::Bush => "bush",
+                            Decoration::Fern => "fern",
+                            Decoration::TallGrass => "tall grass",
+                            other => panic!("{other:?} in the jungle"),
+                        };
+                        *counts.entry(kind).or_default() += 1;
+                    }
+                }
+            }
+            let fern = 0.04 + 0.08 * depth;
+            let expected = [
+                ("jungle tree", 0.03 * depth),
+                ("bush", (0.06 * depth).max(0.01)),
+                ("fern", fern),
+                // on the columns without a fern
+                ("tall grass", (0.10 + 0.12 * depth) * (1.0 - fern)),
+            ];
+            for (kind, chance) in expected {
+                let share = counts.get(kind).copied().unwrap_or(0) as f32 / (side * side) as f32;
+                assert!(
+                    (share - chance).abs() <= 0.1 * chance + 0.002,
+                    "depth {depth}, {kind}: {share:.4} instead of {chance:.4}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_jungle_chunk_generated_alone_equals_it_generated_amid_its_neighbours() {
+        let seed = 42;
+        let terrain = TerrainNoises::new(seed);
+        for (cx, cz) in [(-13, 5), (-20, 4), (-11, 6)] {
+            let middle = terrain.column_shape(cx * CHUNK_SIZE + 8, cz * CHUNK_SIZE + 8);
+            assert_eq!(middle.biome, BiomeType::Jungle, "({cx}, {cz})");
+            for cy in 3..=5 {
+                let chunk_pos = IVec3::new(cx, cy, cz);
+                let amid = WorldGenerator::new(seed);
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        for dz in -1..=1 {
+                            amid.generate_chunk(chunk_pos + IVec3::new(dx, dy, dz));
+                        }
+                    }
+                }
+                assert_eq!(
+                    blocks(&generate_chunk(chunk_pos, seed)),
+                    blocks(&amid.generate_chunk(chunk_pos)),
+                    "chunk {chunk_pos}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn jungle_blocks_rank_with_their_oak_and_grass_siblings() {
+        assert_eq!(precedence(BlockId::Fern), precedence(BlockId::TallGrass));
+        assert_eq!(
+            precedence(BlockId::JungleLeaves),
+            precedence(BlockId::OakLeaves)
+        );
+        assert_eq!(precedence(BlockId::JungleLog), precedence(BlockId::OakLog));
     }
 
     #[test]
@@ -1568,7 +1753,13 @@ mod tests {
             assert!(
                 !matches!(
                     ground,
-                    Some(BlockId::OakLeaves | BlockId::OakLog | BlockId::Cactus)
+                    Some(
+                        BlockId::OakLeaves
+                            | BlockId::OakLog
+                            | BlockId::JungleLeaves
+                            | BlockId::JungleLog
+                            | BlockId::Cactus
+                    )
                 ),
                 "seed {seed}: spawned on {ground:?}"
             );
