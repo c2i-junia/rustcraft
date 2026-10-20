@@ -168,6 +168,7 @@ fn show_mesh(
                 DespawnOnExit(GameState::Game),
                 Mesh3d(meshes.add(mesh)),
                 MeshMaterial3d(handle.clone()),
+                bevy::camera::visibility::NoCpuCulling,
             ));
             if !casts_shadow {
                 new_entity.insert(NotShadowCaster);
