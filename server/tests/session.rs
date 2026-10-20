@@ -1708,6 +1708,82 @@ fn time_set_moves_every_client_to_midnight_or_noon_and_answers_its_author_only()
 }
 
 #[test]
+fn a_survival_player_cannot_take_from_the_catalog_or_destroy_its_stack() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::Dirt, 5));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+    let catalog = |item, count, to_inventory| InventoryAction::TakeFromCatalog {
+        item,
+        count,
+        to_inventory,
+    };
+
+    // A new player is in Survival: the dirt is picked up, nothing else happens
+    let inventory = send_inventory_actions(
+        &mut client,
+        1,
+        vec![
+            InventoryAction::LeftClickSlot(0),
+            catalog(ItemId::Stone, 64, true),
+            InventoryAction::DestroyFloating,
+            catalog(ItemId::Dirt, 1, false),
+        ],
+    );
+    let mut expected = Inventory::new();
+    expected.floating = Some(stack(ItemId::Dirt, 5));
+    assert_eq!(inventory, expected);
+
+    set_game_mode(&mut client, "creative");
+    let inventory = send_inventory_actions(
+        &mut client,
+        2,
+        vec![
+            InventoryAction::DestroyFloating,
+            catalog(ItemId::Stone, 64, true),
+            catalog(ItemId::Sand, 3, false),
+        ],
+    );
+    let mut expected = Inventory::new();
+    expected.inner.insert(0, stack(ItemId::Stone, 64));
+    expected.floating = Some(stack(ItemId::Sand, 3));
+    assert_eq!(inventory, expected);
+}
+
+#[test]
+fn a_survival_player_fills_the_grid() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(3, stack(ItemId::OakLog, 2));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+    let planks = shared::world::recipes_for(ItemId::OakPlanks)
+        .next()
+        .unwrap();
+
+    let inventory = send_inventory_actions(
+        &mut client,
+        1,
+        vec![InventoryAction::FillCraftingGrid {
+            recipe: planks.index,
+            times: 1,
+        }],
+    );
+    let mut expected = Inventory::new();
+    expected.inner.insert(3, stack(ItemId::OakLog, 1));
+    expected
+        .inner
+        .insert(grid_slot(0, 0), stack(ItemId::OakLog, 1));
+    assert_eq!(inventory, expected);
+
+    let inventory = send_inventory_actions(&mut client, 2, vec![InventoryAction::TakeCraftResult]);
+    expected.inner.remove(&grid_slot(0, 0));
+    expected.floating = Some(stack(ItemId::OakPlanks, 4));
+    assert_eq!(inventory, expected);
+}
+
+#[test]
 fn give_adds_the_items_to_the_inventory_of_its_author() {
     let mut inventory = Inventory::new();
     inventory.inner.insert(0, stack(ItemId::Dirt, 5));
