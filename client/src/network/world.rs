@@ -25,6 +25,11 @@ use super::SendGameMessageExtension;
 /// at once when nothing is waiting before it.
 const DECODED_APART_BYTES: usize = 4 * 1024;
 
+/// The most chunks applied in a frame, give or take a message: the server sends thousands of
+/// chunks of air or stone at once to a client with a large render distance, and adding each to
+/// the map and asking for the meshes around it would stall the frame.
+const CHUNKS_APPLIED_PER_FRAME: usize = 1024;
+
 /// The messages of the chunk channel being decoded on the task pool, in the order they came:
 /// they are applied in that order, each once it and those before it are decoded.
 #[derive(Resource, Default)]
@@ -37,7 +42,7 @@ impl DecodingChunkMessages {
     }
 
     /// Takes the messages that came on the chunk channel, and returns those ready to apply, in
-    /// order.
+    /// order, up to about `CHUNKS_APPLIED_PER_FRAME` chunks: the others wait for the next frame.
     fn receive(&mut self, client: &mut RenetClient) -> Vec<ServerToClientMessage> {
         let mut ready = Vec::new();
         while let Some(payload) = client.receive_message(STC_CHUNK_DATA_CHANNEL) {
@@ -48,11 +53,18 @@ impl DecodingChunkMessages {
             self.0
                 .push_back(ComputeTaskPool::get().spawn(async move { decode(&payload) }));
         }
+        let mut chunks = 0;
         while let Some(task) = self.0.front_mut() {
+            if chunks >= CHUNKS_APPLIED_PER_FRAME {
+                break;
+            }
             let Some(message) = block_on(future::poll_once(task)) else {
                 break;
             };
             self.0.pop_front();
+            if let Some(ServerToClientMessage::WorldUpdate(update)) = &message {
+                chunks += update.new_map.len();
+            }
             ready.extend(message);
         }
         ready
