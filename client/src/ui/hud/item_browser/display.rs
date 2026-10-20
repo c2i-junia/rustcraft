@@ -1,7 +1,6 @@
 use bevy::{
     input::{
         keyboard::{Key, KeyboardInput},
-        mouse::MouseScrollUnit,
         ButtonState,
     },
     input_focus::{
@@ -35,9 +34,6 @@ use crate::ui::theme::{
 use crate::ui::widgets::slot::{count_label as slot_count_label, SlotCount, SlotIcon, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, Cancel, Submit};
 use crate::ui::widgets::tooltip::Tooltip;
-
-/// How far a notch of the wheel moves the row of chips sideways, in logical px.
-const CHIPS_WHEEL_STEP: f32 = SLOT_SIZE;
 
 /// Keeps the search of the state up to date with its field.
 pub fn read_search(
@@ -92,23 +88,6 @@ pub fn update_craftable_now(
         Vec::new()
     };
     now.set_if_neq(CraftableNow { survival, items });
-}
-
-/// The wheel moves the row of chips sideways: Bevy's `ScrollArea` only moves a row with the
-/// sideways scroll of a trackpad.
-pub fn wheel_sideways(
-    scroll: On<Pointer<Scroll>>,
-    mut rows: Query<(&mut ScrollPosition, &ComputedNode)>,
-) {
-    let Ok((mut position, row)) = rows.get_mut(scroll.entity) else {
-        return;
-    };
-    let step = match scroll.unit {
-        MouseScrollUnit::Line => CHIPS_WHEEL_STEP,
-        MouseScrollUnit::Pixel => 1.0,
-    };
-    let end = (row.content_size().x - row.size().x) * row.inverse_scale_factor();
-    position.x = (position.x - scroll.y * step).clamp(0.0, end.max(0.0));
 }
 
 /// Lays the browser out for the window, which `HudBottom` covers, and the inventory panel.
@@ -599,7 +578,7 @@ const OK_HI: Color = Color::srgb_u8(0xAE, 0xE0, 0x9C);
 const OK_LO: Color = Color::srgb_u8(0x3F, 0x73, 0x30);
 
 /// The fill, the bevel and the text colour of a chip: chosen, in the accent or green, else
-/// raised, lighter under the cursor.
+/// raised, lighter under the cursor, with green text for the Craftable chip.
 fn chip_look(chosen: bool, green: bool, hovered: bool) -> (Color, BorderColor, Color) {
     let bevel = |light: Color, dark: Color| BorderColor {
         top: light,
@@ -610,10 +589,15 @@ fn chip_look(chosen: bool, green: bool, hovered: bool) -> (Color, BorderColor, C
     match (chosen, green) {
         (true, false) => (ACCENT, bevel(ACCENT_HI, ACCENT_LO), PANEL),
         (true, true) => (OK, bevel(OK_HI, OK_LO), PANEL),
-        (false, _) => (
+        (false, green) => (
             if hovered { RAISE_HOVER } else { RAISE },
             bevel(BEVEL_HI, BEVEL_LO),
-            if hovered { TEXT } else { MUTED },
+            // the Craftable chip reads apart from the categories
+            match (green, hovered) {
+                (true, _) => OK,
+                (false, true) => TEXT,
+                (false, false) => MUTED,
+            },
         ),
     }
 }

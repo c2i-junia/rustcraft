@@ -397,9 +397,14 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     );
     assert!(h.is_visible(&L::text("R Recipes  U Uses").within(tooltip())));
 
-    // The Craftable chip, at the end of the row of chips, keeps what can be crafted now
-    h.hover(&button("All"));
-    h.scroll(-10.0);
+    // The Craftable chip, at the end of the chips, which wrap, is in view and keeps what can be
+    // crafted now
+    let browser = h.rect_of(&L::marker::<ItemBrowser>());
+    let chip = h.rect_of(&button("Craftable"));
+    assert!(
+        browser.contains(chip.min) && browser.contains(chip.max),
+        "{chip:?} out of {browser:?}"
+    );
     h.click(&button("Craftable"));
     h.frames(1);
     assert_eq!(h.item_count(), "3 / 33");

@@ -34,7 +34,8 @@ const SEARCH_MAX_CHARACTERS: usize = 32;
 pub const CRAFTABLE_CHIP: &str = "Craftable";
 /// The side of the dot of a craftable item, its border included.
 const DOT_SIZE: f32 = 8.0;
-/// The room above and below the label of a chip.
+/// The room above and below the label of a chip; beside it, `SPACE_XS`, so that the chips take
+/// three rows in four columns.
 const CHIP_PADDING_Y: f32 = 2.0;
 /// The width of the handle of the drawer.
 const HANDLE_WIDTH: f32 = 34.0;
@@ -312,26 +313,22 @@ fn spawn_search_field(
     }
 }
 
-/// The row of the category chips, All first, which scrolls sideways.
+/// The category chips, All first, then Craftable: they wrap, so that every one is in view.
 fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
     let row = commands
         .spawn((
             AccessibilityNode(accesskit::Node::new(Role::Toolbar)),
             AccessibleLabel::new("Categories"),
-            bevy::ui_widgets::ScrollArea,
             CatalogPart,
             Node {
                 flex_shrink: 0.0,
+                flex_wrap: FlexWrap::Wrap,
                 column_gap: px(SPACE_XS),
-                // the room of the focus ring, which the row clips
-                padding: UiRect::all(px(RING_ROOM)),
-                margin: UiRect::all(px(-RING_ROOM)),
-                overflow: Overflow::scroll_x(),
+                row_gap: px(SPACE_XS),
                 ..default()
             },
             ChildOf(panel),
         ))
-        .observe(super::wheel_sideways)
         .id();
     let chips = std::iter::once(None).chain(ItemCategory::ALL.map(Some));
     for category in chips {
@@ -347,7 +344,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
                 Hovered::default(),
                 Node {
                     flex_shrink: 0.0,
-                    padding: UiRect::axes(px(SPACE_S), px(CHIP_PADDING_Y)),
+                    padding: UiRect::axes(px(SPACE_XS), px(CHIP_PADDING_Y)),
                     border: UiRect::all(px(BEVEL_WIDTH)),
                     ..default()
                 },
@@ -374,7 +371,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
             Hovered::default(),
             Node {
                 flex_shrink: 0.0,
-                padding: UiRect::axes(px(SPACE_S), px(CHIP_PADDING_Y)),
+                padding: UiRect::axes(px(SPACE_XS), px(CHIP_PADDING_Y)),
                 border: UiRect::all(px(BEVEL_WIDTH)),
                 ..default()
             },
