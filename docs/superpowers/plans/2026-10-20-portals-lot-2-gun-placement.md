@@ -76,43 +76,43 @@ recursion, sounds and the body (lot 5).
 ## Tasks
 
 ### Task 1: The item
-- [ ] Tests: the pinned encoding and `ALL` hold `PortalGun` (32 → 33); the gun stacks to one
+- [x] Tests: the pinned encoding and `ALL` hold `PortalGun` (32 → 33); the gun stacks to one
   and is no tool; the recipe makes it, mirrored too.
-- [ ] `ItemId::PortalGun`, `get_default_type`, `get_max_stack`, the recipe, the texture
+- [x] `ItemId::PortalGun`, `get_default_type`, `get_max_stack`, the recipe, the texture
   `data/graphics/base_textures/items/PortalGun.png`.
 
 ### Task 2: The fit (`shared/src/world/portal.rs`)
-- [ ] Tests: the nearest of the six placements to the hit point; a placement whose wall is not
+- [x] Tests: the nearest of the six placements to the hit point; a placement whose wall is not
   solid full blocks, or whose front collides, gives way to the next; plants and water in front
   are fine; overlapping a portal of another colour or player is refused, one's own same colour
   is not; nothing fits anywhere → `None`.
-- [ ] `Portal::front_cells`, `Portal::fits`, `fit_portal`, `Portals::overlaps`.
+- [x] `Portal::front_cells`, `Portal::fits`, `fit_portal`, `Portals::overlaps`.
 
 ### Task 3: The gun branch (`shared/src/players/blocks.rs`)
-- [ ] Tests: left places blue and right orange on the aimed wall, and neither breaks nor places
+- [x] Tests: left places blue and right orange on the aimed wall, and neither breaks nor places
   a block; one shot per press; horizontal faces and out of reach (beyond 32, while 30 is in
   reach) are refused; shooting a colour again moves it; a refusal on the server marks the
   portals changed, on a client it does not.
-- [ ] `Player::portal_triggers_held`, `PORTAL_GUN_REACH`, `aim_ray`, the ray of 36 blocks, the
+- [x] `Player::portal_triggers_held`, `PORTAL_GUN_REACH`, `aim_ray`, the ray of 36 blocks, the
   branch.
 
 ### Task 4: The network
-- [ ] Tests: `PortalUpdates` and the variants of `PortalColor` and `FaceDirection` pinned;
+- [x] Tests: `PortalUpdates` and the variants of `PortalColor` and `FaceDirection` pinned;
   `Portals::take_changed`. `PROTOCOL_ID` 19.
-- [ ] Serde, the variant, the client replacing its `Portals`.
+- [x] Serde, the variant, the client replacing its `Portals`.
 
 ### Task 5: The server
-- [ ] Tests: a leaving player's portals go, the others' stay; a portal goes when a wall cell is
+- [x] Tests: a leaving player's portals go, the others' stay; a portal goes when a wall cell is
   broken or a front cell becomes solid, stays when water flows in front or a wall cell is only
   hit; the list is sent to every player when it changed, and to a joining player.
-- [ ] `remove_unfit_portals_system`, `broadcast_portals_system`, the join.
+- [x] `remove_unfit_portals_system`, `broadcast_portals_system`, the join.
 
 ### Task 6: The client and the e2e test
-- [ ] The block interactions run without an aimed block.
-- [ ] e2e (`client/src/e2e/portals.rs`): a mod builds two walls high above the player, who holds
+- [x] The block interactions run without an aimed block.
+- [x] e2e (`client/src/e2e/portals.rs`): a mod builds two walls high above the player, who holds
   the gun; a left click on one places the blue portal, a right click on the other the orange
   one, both open (their cameras exist); mining a wall cell of the blue portal by hand removes
   it on the server, which closes the orange one.
 
 ### Task 7: Docs
-- [ ] `docs/ARCHITECTURE.md`: the gun, the fit, the removal, `PortalUpdates`.
+- [x] `docs/ARCHITECTURE.md`: the gun, the fit, the removal, `PortalUpdates`.

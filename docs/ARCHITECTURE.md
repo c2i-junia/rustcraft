@@ -180,6 +180,20 @@ Blocks follow the same idea: the client applies its own clicks at once, and the 
 restates the block so that a wrong prediction is corrected. The flow of water is not
 predicted: the client only receives the cells it changes.
 
+The portals are placed with the portal gun (`ItemId::PortalGun`): held in the selected slot,
+it shoots its owner's blue portal on a left click and the orange one on a right click, once
+per press (`Player::portal_triggers_held`), up to `PORTAL_GUN_REACH` (32) blocks, and then
+neither mines nor places blocks (`shared/src/players/blocks.rs`). The portal goes on the
+vertical face aimed at, on the placement of the six holding the aimed cell nearest to the
+point hit that fits: its wall cells solid full blocks, its front free of anything that
+collides, no portal of another colour or player on those cells (`fit_portal`,
+`shared/src/world/portal.rs`). Placing a colour again moves it. The client predicts a shot like
+a block, and the server's `PortalUpdates`, every portal of the world, replace its portals: the
+server sends them to everyone in the tick they changed, and to a player when it joins. A
+refused shot makes the server send them again, which corrects a wrong prediction. A player's
+portals go when it leaves, and a portal goes when, after the block changes of a tick, its wall
+or front no longer fits (`server/src/world/portals.rs`). Portals are not saved.
+
 The contents of a chest live in the `ChunkMap`, at its position (`shared/src/world/container.rs`):
 the server holds those of every chest, a client only those of the chest its player has open,
 which the server sends with each `PlayerUpdate`. While a chest is open, its 27 stacks are lent
@@ -307,7 +321,7 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    chunk that is not loaded waiting, as in Minecraft; a burning furnace keeps its chunk to be
    saved. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
-   (`shared/src/world/liquid.rs`). Last, the weather counts down (`world/weather.rs`): a clear
+   (`shared/src/world/liquid.rs`). Then the weather counts down (`world/weather.rs`): a clear
    spell of 10 to 100 minutes is followed by rain (2 in 3) or a thunderstorm (1 in 3) of 5 to
    15 minutes, then by a clear spell again (`shared/src/world/weather.rs`), and `/weather`
    sets one for a spell of the same length. A change is sent to the authenticated clients
@@ -316,7 +330,9 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    16 to 160 blocks from a player drawn at random, and is sent with a seed that shapes its
    bolt (`LightningStrike`) to the clients within 1,500 blocks of it (`LIGHTNING_REACH`),
    beyond which it is neither seen nor heard; a column whose top is not loaded gets none.
-3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
+   Last, the portals whose wall or front changed and no longer fits go.
+3. **Broadcast**: block changes, new chunks and mobs are sent to each client, and the
+   portals when they changed.
 
    Each client gets the chunks within the render distance of its own player along x and z,
    and within at most `MAX_VERTICAL_RENDER_DISTANCE` (8) of it along y, as the ground lies
