@@ -207,19 +207,14 @@ pub(crate) struct CpuCulledForAFrame;
 /// visible, and a camera that is turned on starts with none: it would draw no chunk. So when a
 /// portal camera is turned on, the chunks are culled on the CPU for a frame, which every view
 /// draws them through, and then given back their `NoCpuCulling`, which hands them to every view
-/// anew.
+/// anew. The meshes already culled on the CPU for a frame, which would be given their
+/// `NoCpuCulling` back too late for this frame's query, stay culled on the CPU for another.
 pub(super) fn show_chunks_to_new_views(
     mut started: ResMut<PortalViewsStarted>,
     gpu_culled: Query<Entity, With<NoCpuCulling>>,
     cpu_culled_for_a_frame: Query<Entity, With<CpuCulledForAFrame>>,
     mut commands: Commands,
 ) {
-    for entity in &cpu_culled_for_a_frame {
-        commands
-            .entity(entity)
-            .remove::<CpuCulledForAFrame>()
-            .insert(NoCpuCulling);
-    }
     if std::mem::take(&mut started.0) {
         for entity in &gpu_culled {
             commands
@@ -227,6 +222,13 @@ pub(super) fn show_chunks_to_new_views(
                 .remove::<NoCpuCulling>()
                 .insert(CpuCulledForAFrame);
         }
+        return;
+    }
+    for entity in &cpu_culled_for_a_frame {
+        commands
+            .entity(entity)
+            .remove::<CpuCulledForAFrame>()
+            .insert(NoCpuCulling);
     }
 }
 

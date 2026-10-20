@@ -612,6 +612,34 @@ mod tests {
     }
 
     #[test]
+    fn a_chunk_that_changed_layer_the_frame_before_a_view_starts_reaches_that_view() {
+        use bevy::camera::visibility::NoCpuCulling;
+        use camera::CpuCulledForAFrame;
+        let mut app = app();
+        let cpu_culled = |app: &App, entity| {
+            app.world().get::<NoCpuCulling>(entity).is_none()
+                && app.world().get::<CpuCulledForAFrame>(entity).is_some()
+        };
+        // Frame N: a group changed layer, so it is culled on the CPU for a frame; another is
+        // culled on the GPU only
+        let changed = app.world_mut().spawn(CpuCulledForAFrame).id();
+        let steady = app.world_mut().spawn(NoCpuCulling).id();
+
+        // Frame N + 1: a portal camera starts
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        app.update();
+        assert!(camera_of(&mut app, PortalColor::Blue).unwrap().1.is_active);
+        // Both are culled on the CPU through the first frame of the new view
+        assert!(cpu_culled(&app, changed), "the changed group");
+        assert!(cpu_culled(&app, steady), "the steady group");
+
+        // Then both are culled on the GPU again
+        app.update();
+        assert!(!cpu_culled(&app, changed) && !cpu_culled(&app, steady));
+    }
+
+    #[test]
     fn a_portal_beyond_the_players_fog_is_neither_drawn_nor_seen_through() {
         let mut app = app();
         let world = app.world_mut();
