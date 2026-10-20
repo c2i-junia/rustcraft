@@ -167,18 +167,25 @@ pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> O
 /// Cells on a side of a `Neighbourhood`: the chunk and one layer around it.
 const SIDE: i32 = CHUNK_SIZE + 2;
 
+/// The kind of a block and how it hides the faces next to it.
+type Kind = (BlockId, BlockTransparency);
+
+fn kind(block: &BlockData) -> Kind {
+    (block.id, block.id.get_visibility())
+}
+
 /// The blocks a chunk mesh depends on: those of the chunk, and those of the neighbouring chunks
 /// that touch its faces, by local position from -1 to `CHUNK_SIZE`. Reading one does not look
 /// its chunk up.
-struct Neighbourhood<'a> {
-    cells: Vec<Option<&'a BlockData>>,
+struct Neighbourhood {
+    cells: Vec<Option<Kind>>,
 }
 
-impl<'a> Neighbourhood<'a> {
-    fn new(world_map: &'a ChunkMap, chunk: &'a Chunk, chunk_pos: IVec3) -> Self {
+impl Neighbourhood {
+    fn new(world_map: &ChunkMap, chunk: &Chunk, chunk_pos: IVec3) -> Self {
         let mut cells = vec![None; (SIDE * SIDE * SIDE) as usize];
         for (local, block) in chunk.iter() {
-            cells[Self::index(local)] = Some(block);
+            cells[Self::index(local)] = Some(kind(block));
         }
         for offset in SIX_OFFSETS {
             let Some(neighbour) = world_map.chunk(chunk_pos + offset) else {
@@ -199,7 +206,7 @@ impl<'a> Neighbourhood<'a> {
                     local[axis] = theirs;
                     let block = neighbour.get(local);
                     local[axis] = ours;
-                    cells[Self::index(local)] = block;
+                    cells[Self::index(local)] = block.map(kind);
                 }
             }
         }
@@ -208,7 +215,7 @@ impl<'a> Neighbourhood<'a> {
 
     /// The block at a local position from -1 to `CHUNK_SIZE`: `None` for air, in a chunk that
     /// is not loaded, and on the edges and the corners around the chunk, which no face touches.
-    fn get(&self, local: IVec3) -> Option<&'a BlockData> {
+    fn get(&self, local: IVec3) -> Option<Kind> {
         self.cells[Self::index(local)]
     }
 
@@ -303,7 +310,7 @@ struct FaceLayers {
     cells: Vec<u32>,
     looks: Vec<FaceLook>,
     /// The index in `looks` of each look, by what it comes from.
-    ids: HashMap<(BlockId, usize, u32), u32>,
+    ids: bevy::platform::collections::HashMap<(BlockId, usize, u32), u32>,
 }
 
 impl FaceLayers {
@@ -311,7 +318,7 @@ impl FaceLayers {
         Self {
             cells: vec![0; CUBE_FACES * CHUNK_SIZE as usize * LAYER],
             looks: Vec::new(),
-            ids: HashMap::new(),
+            ids: default(),
         }
     }
 
@@ -465,7 +472,7 @@ fn chunk_faces(
     merge: bool,
 ) -> (MeshCreator, MeshCreator) {
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
-    let mut looks: HashMap<BlockId, BlockLook> = HashMap::new();
+    let mut looks: bevy::platform::collections::HashMap<BlockId, BlockLook> = default();
     let mut solid = MeshCreator::default();
     let mut liquid = MeshCreator::default();
     let mut layers = FaceLayers::new();
@@ -558,8 +565,7 @@ fn is_block_surrounded(
         let neighbor_pos = local_block_pos + *offset;
 
         // Check if the block exists at the neighboring position
-        if let Some(block) = blocks.get(neighbor_pos) {
-            let vis = block.id.get_visibility();
+        if let Some((id, vis)) = blocks.get(neighbor_pos) {
             match vis {
                 BlockTransparency::Solid => {}
                 BlockTransparency::Decoration => return false,
@@ -569,7 +575,7 @@ fn is_block_surrounded(
                     }
                 }
                 BlockTransparency::Transparent => {
-                    if *block_id != block.id {
+                    if *block_id != id {
                         return false;
                     }
                 }
@@ -613,8 +619,7 @@ fn should_render_face(
         FaceDirection::Inset => return true,
     };
 
-    if let Some(block) = blocks.get(local_block_pos + offset) {
-        let vis = block.id.get_visibility();
+    if let Some((_, vis)) = blocks.get(local_block_pos + offset) {
         match vis {
             BlockTransparency::Solid => false,
             BlockTransparency::Decoration => true,

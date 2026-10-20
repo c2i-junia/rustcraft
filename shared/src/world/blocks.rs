@@ -101,7 +101,7 @@ impl BlockData {
     }
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BlockTransparency {
     Transparent,
     Liquid,
