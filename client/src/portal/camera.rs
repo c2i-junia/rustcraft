@@ -75,7 +75,8 @@ pub(super) fn sees(transform: &Transform, projection: &Projection, portal: &Port
 
 /// Places each portal camera behind the twin of its portal, after the player's camera, with
 /// the twin's plane as its near plane, the sky and the tonemapping of the player's camera, and
-/// its fog (`portal_fog`). A camera whose portal is out of view, or seen from behind, does not draw.
+/// its fog (`portal_fog`). A camera whose portal is out of view, or seen from behind, does not
+/// draw.
 pub(super) fn place_portal_cameras(
     world_map: Res<ClientWorldMap>,
     main: Query<

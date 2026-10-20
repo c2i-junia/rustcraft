@@ -118,14 +118,10 @@ fn bench_broadcast_steady() {
         progress: None,
     };
     let mut samples = Vec::new();
+    let reach = shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals());
     for _ in 0..2000 {
         let start = Instant::now();
-        let messages = world_messages_around(
-            &chunks,
-            &[],
-            &shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals()),
-            &mut sent,
-        );
+        let messages = world_messages_around(&chunks, &[], &reach, &mut sent);
         samples.push(micros(start));
         assert!(messages.2.is_empty());
         black_box(messages);
@@ -305,13 +301,9 @@ fn bench_join_sending() {
     let mut ticks = 0;
     let mut bytes = 0;
     let mut largest = 0;
+    let reach = shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals());
     while sent.chunks.len() < render_cube(radius).len() && ticks < 10_000 {
-        let (_, _, new_chunks) = world_messages_around(
-            &chunks,
-            &[],
-            &shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals()),
-            &mut sent,
-        );
+        let (_, _, new_chunks) = world_messages_around(&chunks, &[], &reach, &mut sent);
         let message = game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
             tick: ticks,
             time: ticks,

@@ -65,50 +65,55 @@ recursion, the body through portals, sounds (lot 5).
    player's camera does not see them, as the water fog hid them before: the quads are hidden
    then (`CelestialBody`). The lights are untouched (a directional light has no position).
 7. **e2e.** In solo, render distance 3: the player, in creative and flying high, builds a wall
-   north of it (mod `/far`), shoots the orange portal on it, has a pillar of sand built in front
-   of it, flies 160 blocks (10 chunks) south, has a wall built there and shoots the blue portal
-   on it. Through the blue portal it sees the sand, 10 chunks away, which the server would have
-   unloaded from its client without this lot. Screenshot to the report.
+   north of it (mod `far`, `/wall`), shoots the orange portal on it, has sand built in front of
+   it (`/landmark`), below the eyes, flies 160 blocks (10 chunks) south, has a wall built there
+   and shoots the blue portal on it. Through the blue portal it sees the sand, 10 chunks away,
+   which the server would have unloaded from its client without this lot. Then, near the
+   portal, once the sun sets in the south (a day lasts a minute), it looks through the portal
+   at it: the sun is there. Screenshots to the report.
 
 ## Tasks
 
 ### Task 1: The rule (`shared/src/world/reach.rs`)
-- [ ] Tests: `the_chunks_around_the_twin_of_an_open_portal_within_reach_are_sent_after_the_own`,
+- [x] Tests: `the_chunks_around_the_twin_of_an_open_portal_within_reach_are_sent`,
   `a_lone_portal_or_one_out_of_reach_sends_nothing_more`,
   `the_chunks_around_twins_come_once_and_not_those_of_the_player`,
   `the_chunks_around_a_twin_are_kept_with_the_margin_while_its_portal_is_within_reach_plus_it`.
   See them fail.
-- [ ] `PORTAL_VIEW_RADIUS`, `Portal::chunk`, `ChunkReach`.
+- [x] `PORTAL_VIEW_RADIUS`, `Portal::chunk`, `ChunkReach`.
 
 ### Task 2: Sending and unloading (`server/src/world/broadcast_world.rs`)
-- [ ] Tests: `a_far_twins_chunks_are_sent_once_its_portal_is_within_reach_and_unloaded_after`,
+- [x] Tests: `a_far_twins_chunks_are_sent_once_its_portal_is_within_reach_and_unloaded_after`,
   `the_chunks_around_a_twin_take_at_most_a_quarter_of_a_broadcast_and_come_after_the_own`,
-  `a_portal_that_closes_unloads_the_chunks_around_its_twin`, a system test through
-  `broadcast_world_state`. See them fail.
-- [ ] `world_messages_around` takes a `ChunkReach`; the budget split; the order on the wire.
+  `a_portal_that_closes_unloads_the_chunks_around_its_twin`,
+  `a_client_is_sent_the_chunks_around_the_twin_of_a_portal_in_reach` (through
+  `broadcast_world_state`). See them fail.
+- [x] `world_messages_around` takes a `ChunkReach`; the budget split; the order on the wire.
 
 ### Task 3: Loading and forgetting (`simulation.rs`, `unload.rs`)
-- [ ] Tests: `the_chunks_around_a_twin_are_loaded_after_those_of_the_players`,
+- [x] Tests: `the_chunks_around_a_twin_are_loaded_after_those_of_the_players`,
+  `a_portal_opened_once_the_reach_is_loaded_has_the_chunks_around_its_twin_loaded`,
   `the_server_keeps_the_chunks_around_the_twin_of_a_portal_within_reach`. See them fail.
-- [ ] `active_chunks` with the portals; `LoadedAround` keyed by reaches; `unload_far_chunks`.
+- [x] `active_chunks` with the portals; `LoadedAround` keyed by reaches; `unload_far_chunks`.
 
 ### Task 4: The fog of a portal camera (`client/src/portal/camera.rs`)
-- [ ] Tests: `a_portal_cameras_fog_ends_the_view_radius_behind_the_twin`,
+- [x] Tests: `a_portal_cameras_fog_ends_the_view_radius_behind_the_twin`,
   `under_water_or_with_a_short_render_distance_a_portal_cameras_fog_is_the_players`. See them
   fail.
-- [ ] `portal_fog`, set by `place_portal_cameras`.
+- [x] `portal_fog`, set by `place_portal_cameras`.
 
 ### Task 5: The sun and the moon
-- [ ] Tests: `the_sun_is_seen_in_the_same_direction_from_far_away`,
-  `under_water_the_sun_and_the_moon_are_hidden`. See them fail.
-- [ ] `CELESTIAL_DISTANCE`, `CELESTIAL_SIZE`, `fog_enabled: false`, `NoFrustumCulling`,
+- [x] Tests: `the_sun_is_seen_in_the_same_direction_from_far_away`,
+  `the_sun_and_the_moon_are_never_culled_and_known_as_bodies`, and the underwater fog test
+  extended (the bodies hidden under water). See them fail.
+- [x] `CELESTIAL_DISTANCE`, `CELESTIAL_SIZE`, `fog_enabled: false`, `NoFrustumCulling`,
   `CelestialBody`.
 
 ### Task 6: A far place (e2e)
-- [ ] `e2e::portals::the_view_through_a_portal_reaches_a_far_place`; red before Task 2 lands
+- [x] `e2e::portals::the_view_through_a_portal_reaches_a_far_place`; red before Task 2 lands
   (checked by running it with the server's portal chunks disabled), green after. Look at the
   images.
 
 ### Task 7: Checks, docs, report
-- [ ] `cargo test`, clippy, fmt; `docs/ARCHITECTURE.md`; report in
+- [x] `cargo test`, clippy, fmt; `docs/ARCHITECTURE.md`; report in
   `.superpowers/sdd/portals/lot-4-report.md`, screens in `lot-4-screens/`.

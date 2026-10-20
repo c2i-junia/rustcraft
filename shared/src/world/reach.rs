@@ -53,12 +53,6 @@ impl ChunkReach {
         self.own(chunk, 0)
     }
 
-    /// The chunks within the render distance, nearest first.
-    pub fn own_chunks(&self) -> impl Iterator<Item = IVec3> + '_ {
-        let offsets = render_distance_offsets(self.distance);
-        (0..offsets.len()).map(move |i| self.center + offsets[i])
-    }
-
     /// The chunks of the twins of the open portals within the render distance plus `margin`,
     /// each once.
     fn twins_within(&self, margin: i32) -> Vec<IVec3> {
@@ -155,13 +149,11 @@ mod tests {
     }
 
     #[test]
-    fn the_chunks_around_the_twin_of_an_open_portal_within_reach_are_sent_after_the_own() {
+    fn the_chunks_around_the_twin_of_an_open_portal_within_reach_are_sent() {
         let mut portals = Portals::default();
         pair(&mut portals, 1, IVec3::new(1, 0, 0), FAR);
         let reach = ChunkReach::new(IVec3::ZERO, DISTANCE, &portals);
 
-        let own: Vec<IVec3> = reach.own_chunks().collect();
-        assert_eq!(own, render_distance_offsets(DISTANCE).to_vec());
         // Through the orange portal, far away, the blue one shows nothing within reach: only the
         // blue one, within reach, has its twin's chunks sent
         assert_eq!(reach.twins(), vec![FAR]);

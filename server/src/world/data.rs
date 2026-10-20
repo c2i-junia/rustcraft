@@ -54,8 +54,9 @@ pub struct SentChunks {
     pub chunks: HashSet<IVec3>,
     /// The reach of its player (its chunk, its render distance and the portals), with how many
     /// of the chunks within its render distance, nearest first (`render_distance_offsets`), it
-    /// holds all of: until the reach changes, those are not looked at again. A client is sent every chunk within reach that
-    /// the server holds, so it lacks nothing once that is all of them.
+    /// holds all of: until the reach changes, those are not looked at again. A client is sent
+    /// every chunk within reach that the server holds, so it lacks nothing once that is all of
+    /// them.
     pub progress: Option<(ChunkReach, usize)>,
 }
 
