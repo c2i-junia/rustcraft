@@ -15,8 +15,8 @@ use bevy::{
 };
 use shared::{
     world::{
-        global_block_to_chunk_pos, within_render_distance, world_position_to_chunk_position,
-        BlockData, BlockTransparency, ChunkMap, SIX_OFFSETS,
+        chunk_in_reach, global_block_to_chunk_pos, within_render_distance,
+        world_position_to_chunk_position, BlockData, BlockTransparency, ChunkMap, SIX_OFFSETS,
     },
     CHUNK_SIZE,
 };
@@ -92,7 +92,8 @@ impl QueuedMeshes {
 
 /// Shows `new_meshes` for the chunk: the chunk entities are kept and only their meshes
 /// replaced, so that the chunk never disappears for a frame. The solid and the liquid faces
-/// have an entity each, and only while they have faces.
+/// have an entity each, and only while they have faces. A solid entity spawned now casts
+/// shadows if `casts_shadow` (`shadow_casters_system`).
 pub(super) fn update_chunk(
     chunk: &mut ChunkRender,
     chunk_pos: &IVec3,
@@ -100,6 +101,7 @@ pub(super) fn update_chunk(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     new_meshes: ChunkMeshResponse,
+    casts_shadow: bool,
 ) {
     #[cfg(test)]
     {
@@ -113,11 +115,11 @@ pub(super) fn update_chunk(
             triangles(&new_meshes.liquid_mesh),
         ];
     }
-    let mut show = |entity: &mut Option<Entity>, mesh, material| {
+    let mut show = |entity: &mut Option<Entity>, mesh, material, casts_shadow| {
         show_mesh(
             entity,
             mesh,
-            material,
+            (material, casts_shadow),
             chunk_pos,
             material_resource,
             commands,
@@ -128,19 +130,23 @@ pub(super) fn update_chunk(
         &mut chunk.entity,
         new_meshes.solid_mesh,
         world::GlobalMaterial::Blocks,
+        casts_shadow,
     );
+    // The light goes through a liquid: it does not darken the ground below
     show(
         &mut chunk.liquid_entity,
         new_meshes.liquid_mesh,
         world::GlobalMaterial::Liquids,
+        false,
     );
 }
 
-/// Shows `mesh` drawn with `material` on `entity`, spawning it or despawning it as needed.
+/// Shows `mesh` drawn with `material` on `entity`, spawning it or despawning it as needed. An
+/// entity spawned casts shadows if `casts_shadow`.
 fn show_mesh(
     entity: &mut Option<Entity>,
     mesh: Option<Mesh>,
-    material: world::GlobalMaterial,
+    (material, casts_shadow): (world::GlobalMaterial, bool),
     chunk_pos: &IVec3,
     material_resource: &MaterialResource,
     commands: &mut Commands,
@@ -163,8 +169,7 @@ fn show_mesh(
                 Mesh3d(meshes.add(mesh)),
                 MeshMaterial3d(handle.clone()),
             ));
-            // The light goes through a liquid: it does not darken the ground below
-            if material == world::GlobalMaterial::Liquids {
+            if !casts_shadow {
                 new_entity.insert(NotShadowCaster);
             }
             *entity = Some(new_entity.id());
@@ -420,9 +425,59 @@ pub fn world_render_system(
             &mut commands,
             &mut meshes,
             new_meshes,
+            casts_shadow(task.chunk_pos, player_chunk),
         );
         false
     });
+}
+
+/// How far from the player, in chunks along x and z, the chunks cast shadows: the shadows are
+/// drawn within 150 blocks of the camera (`CascadeShadowConfig`), and a chunk farther than 192
+/// only shades them with the sun on the horizon. The others are not tested against the
+/// frusta of the shadow cascades in every frame.
+pub const SHADOW_CASTER_DISTANCE: i32 = 12;
+
+/// Whether the solid faces of the chunk at `chunk_pos` cast shadows, for a player in the chunk
+/// `player_chunk`.
+fn casts_shadow(chunk_pos: IVec3, player_chunk: IVec3) -> bool {
+    chunk_in_reach(chunk_pos, player_chunk, SHADOW_CASTER_DISTANCE, i32::MAX)
+}
+
+/// Makes the chunks within `SHADOW_CASTER_DISTANCE` of the player, and only them, cast shadows,
+/// once the player is in another chunk. A chunk shown since was spawned as it should be.
+pub fn shadow_casters_system(
+    world_map: Res<ClientWorldMap>,
+    player: Query<&Transform, With<CurrentPlayerMarker>>,
+    mut last_chunk: Local<Option<IVec3>>,
+    mut commands: Commands,
+) {
+    let Ok(player) = player.single() else {
+        return;
+    };
+    let now = world_position_to_chunk_position(player.translation);
+    let Some(before) = last_chunk.replace(now) else {
+        return;
+    };
+    if before == now {
+        return;
+    }
+    for (chunk_pos, render) in &world_map.render {
+        let Some(entity) = render.entity else {
+            continue;
+        };
+        match (
+            casts_shadow(*chunk_pos, before),
+            casts_shadow(*chunk_pos, now),
+        ) {
+            (false, true) => {
+                commands.entity(entity).try_remove::<NotShadowCaster>();
+            }
+            (true, false) => {
+                commands.entity(entity).try_insert(NotShadowCaster);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// How many chunk meshes were started, for the benchmarks.
@@ -767,8 +822,53 @@ mod tests {
             &mut commands,
             meshes,
             response,
+            true,
         );
         queue.apply(world);
+    }
+
+    #[test]
+    fn only_the_chunks_near_the_player_cast_shadows_as_it_moves() {
+        let mut world = World::new();
+        let near = IVec3::new(SHADOW_CASTER_DISTANCE, -3, 0);
+        let mut map = ClientWorldMap::default();
+        let mut entity_at = |world: &mut World, pos: IVec3| {
+            let entity = world.spawn_empty().id();
+            map.render.insert(
+                pos,
+                ChunkRender {
+                    entity: Some(entity),
+                    ..ChunkRender::new()
+                },
+            );
+            entity
+        };
+        let near_entity = entity_at(&mut world, near);
+        let far_entity = entity_at(&mut world, near + IVec3::X);
+        world.entity_mut(far_entity).insert(NotShadowCaster);
+        world.insert_resource(map);
+        let player = world
+            .spawn((CurrentPlayerMarker {}, Transform::default()))
+            .id();
+        let mut system = IntoSystem::into_system(shadow_casters_system);
+        system.initialize(&mut world);
+        let casts = |world: &World, entity| world.get::<NotShadowCaster>(entity).is_none();
+
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(casts(&world, near_entity) && !casts(&world, far_entity));
+
+        // One chunk along x: the far chunk comes within reach, the near one stays
+        world.get_mut::<Transform>(player).unwrap().translation.x = CHUNK_SIZE as f32;
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(casts(&world, near_entity) && casts(&world, far_entity));
+
+        // Back and one more chunk the other way: both are out of reach
+        world.get_mut::<Transform>(player).unwrap().translation.x = -1.;
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(!casts(&world, near_entity) && !casts(&world, far_entity));
     }
 
     #[test]

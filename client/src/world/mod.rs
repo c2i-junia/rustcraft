@@ -55,7 +55,11 @@ pub fn world_plugin(app: &mut App) {
         )
         .add_systems(
             PostUpdate,
-            (request_remesh_of_changed_blocks_system, world_render_system)
+            (
+                request_remesh_of_changed_blocks_system,
+                world_render_system,
+                shadow_casters_system,
+            )
                 .chain()
                 .in_set(GameSet::Meshing)
                 .run_if(in_state(GameState::Game)),
