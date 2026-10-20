@@ -4,9 +4,10 @@ pub const BASE_SPECULAR_HIGHLIGHT: f32 = 0.;
 
 // increase render distance if we build the project in release mode
 pub const DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS: u32 = if cfg!(debug_assertions) { 2 } else { 4 };
-/// The largest render distance the player may choose, in chunks: the chunks within 8 are
-/// 17³ = 4913. The server of a world grants it.
-pub const MAX_CHUNK_RENDER_DISTANCE_RADIUS: u32 = 8;
+/// The largest render distance the player may choose, in chunks: the chunks within 32 are
+/// 65² columns of 17 chunks (`shared::world::MAX_VERTICAL_RENDER_DISTANCE`), 71825 chunks. The server
+/// of a world grants it.
+pub const MAX_CHUNK_RENDER_DISTANCE_RADIUS: u32 = 32;
 
 pub const CELESTIAL_SIZE: f32 = 10.;
 pub const CELESTIAL_DISTANCE: f32 = 50.; // Low value for testing ; will be increased later
