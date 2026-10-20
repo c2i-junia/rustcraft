@@ -43,10 +43,11 @@ pub struct ServerWorldMap {
 pub struct SentChunks {
     /// The chunks it has received.
     pub chunks: HashSet<IVec3>,
-    /// The chunk of its player and the render distance when it last held every chunk within
-    /// that distance: until either changes, it lacks nothing. The server never drops a chunk,
-    /// so this stays true.
-    pub complete_around: Option<(IVec3, i32)>,
+    /// The chunk of its player and the render distance, with how many of the chunks within
+    /// that distance, nearest first (`render_distance_offsets`), it holds all of: until either
+    /// changes, those are not looked at again. A client is sent every chunk within reach that
+    /// the server holds, so it lacks nothing once that is all of them.
+    pub progress: Option<((IVec3, i32), usize)>,
 }
 
 /// The render distance of each authenticated player, in chunks, as the server grants it.

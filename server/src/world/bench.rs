@@ -93,7 +93,7 @@ fn bench_broadcast_steady() {
     }
     let mut sent = SentChunks {
         chunks: render_cube(radius).into_iter().collect(),
-        complete_around: None,
+        progress: None,
     };
     let mut samples = Vec::new();
     for _ in 0..2000 {

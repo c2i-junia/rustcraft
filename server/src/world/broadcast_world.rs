@@ -164,8 +164,9 @@ fn send_nearby_mobs(
 /// the updates of its chunks, then the chunks within `render_distance` it lacks. The unloads
 /// come first, so that no update is sent for a chunk the client is told to forget.
 ///
-/// A client that holds every chunk within reach of a player who stays in the same chunk is
-/// only sent the updates: the chunks around are not looked at again on every tick.
+/// While its player stays in the same chunk, the chunks a client holds all of, nearest first,
+/// are not looked at again (`SentChunks::progress`): with a large render distance, they are
+/// hundreds of thousands. Nothing is unloaded then, as nothing went out of reach.
 pub(super) fn world_messages_around<'a>(
     chunks: &'a ChunkMap,
     changed: &[IVec3],
@@ -174,17 +175,20 @@ pub(super) fn world_messages_around<'a>(
     sent: &mut SentChunks,
 ) -> (Vec<IVec3>, Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
     let around = (player_chunk, render_distance);
-    if sent.complete_around == Some(around) {
-        let (updates, _) = client_world_messages(chunks, changed, &[], &mut sent.chunks);
-        return (Vec::new(), updates, HashMap::new());
-    }
-    let unloads = take_chunks_to_unload(player_chunk, render_distance, &mut sent.chunks);
-    let nearby = get_player_nearby_chunks_coords(player_chunk, render_distance);
-    let (updates, new_chunks) = client_world_messages(chunks, changed, &nearby, &mut sent.chunks);
-    sent.complete_around = nearby
-        .iter()
-        .all(|c| sent.chunks.contains(c))
-        .then_some(around);
+    let (unloads, held) = match sent.progress {
+        Some((then, held)) if then == around => (Vec::new(), held),
+        _ => (
+            take_chunks_to_unload(player_chunk, render_distance, &mut sent.chunks),
+            0,
+        ),
+    };
+    let offsets = render_distance_offsets(render_distance);
+    let lacking = || offsets[held..].iter().map(|&offset| player_chunk + offset);
+    let (updates, new_chunks) = client_world_messages(chunks, changed, lacking(), &mut sent.chunks);
+    let now_held = lacking()
+        .take_while(|chunk| sent.chunks.contains(chunk))
+        .count();
+    sent.progress = Some((around, held + now_held));
     (unloads, updates, new_chunks)
 }
 
@@ -222,7 +226,7 @@ fn take_chunks_to_unload(
 fn client_world_messages<'a>(
     chunks: &'a ChunkMap,
     changed: &[IVec3],
-    active_chunks: &[IVec3],
+    active_chunks: impl IntoIterator<Item = IVec3>,
     sent: &mut HashSet<IVec3>,
 ) -> (Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
     let updates = changed
@@ -243,13 +247,13 @@ fn client_world_messages<'a>(
 /// in `sent`.
 fn get_world_map_chunks_to_send<'a>(
     chunks: &'a ChunkMap,
-    active_chunks: &[IVec3],
+    active_chunks: impl IntoIterator<Item = IVec3>,
     sent: &mut HashSet<IVec3>,
 ) -> HashMap<IVec3, &'a Chunk> {
     let mut map: HashMap<IVec3, &Chunk> = HashMap::new();
     let mut varied = 0;
 
-    for &c in active_chunks {
+    for c in active_chunks {
         if varied >= MAX_CHUNKS_PER_BROADCAST {
             break;
         }
@@ -301,17 +305,6 @@ pub fn active_chunks<'a>(
         .filter(move |chunk| seen.as_mut().is_none_or(|seen| seen.insert(*chunk)))
 }
 
-/// The chunks within `render_distance` of `player_chunk_position`, nearest first.
-fn get_player_nearby_chunks_coords(
-    player_chunk_position: IVec3,
-    render_distance: i32,
-) -> Vec<IVec3> {
-    render_distance_offsets(render_distance)
-        .iter()
-        .map(|&offset| player_chunk_position + offset)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,8 +328,8 @@ mod tests {
         let chunks = row_of_chunks(3);
         let mut sent = HashSet::new();
 
-        let first = get_world_map_chunks_to_send(&chunks, &active_row(3), &mut sent);
-        let second = get_world_map_chunks_to_send(&chunks, &active_row(3), &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, active_row(3), &mut sent);
+        let second = get_world_map_chunks_to_send(&chunks, active_row(3), &mut sent);
 
         assert_eq!(first.len(), 3);
         assert!(second.is_empty());
@@ -347,11 +340,11 @@ mod tests {
         let mut chunks = row_of_chunks(1);
         let mut sent = HashSet::new();
 
-        let first = get_world_map_chunks_to_send(&chunks, &active_row(2), &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, active_row(2), &mut sent);
         assert_eq!(first.keys().copied().collect::<Vec<_>>(), vec![IVec3::ZERO]);
 
         chunks.insert_chunk(IVec3::X, Chunk::new());
-        let second = get_world_map_chunks_to_send(&chunks, &active_row(2), &mut sent);
+        let second = get_world_map_chunks_to_send(&chunks, active_row(2), &mut sent);
         assert_eq!(second.keys().copied().collect::<Vec<_>>(), vec![IVec3::X]);
     }
 
@@ -372,8 +365,8 @@ mod tests {
         let chunks = row_of_full_chunks(2 * MAX + 5);
         let mut sent = HashSet::new();
 
-        let first = get_world_map_chunks_to_send(&chunks, &active_row(2 * MAX + 5), &mut sent);
-        let second = get_world_map_chunks_to_send(&chunks, &active_row(2 * MAX + 5), &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, active_row(2 * MAX + 5), &mut sent);
+        let second = get_world_map_chunks_to_send(&chunks, active_row(2 * MAX + 5), &mut sent);
 
         assert_eq!(first.len(), MAX_CHUNKS_PER_BROADCAST);
         assert!((0..MAX).all(|x| first.contains_key(&IVec3::new(x, 0, 0))));
@@ -394,7 +387,7 @@ mod tests {
         }
         let mut sent = HashSet::new();
 
-        let first = get_world_map_chunks_to_send(&chunks, &active_row(4 * MAX), &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, active_row(4 * MAX), &mut sent);
 
         // The limit of chunks with a block, at x = 1 to 2 * MAX - 1, and the others among them
         assert_eq!(
@@ -428,7 +421,11 @@ mod tests {
         let active = active_row(2);
         let mut sent_chunks: HashMap<PlayerId, HashSet<IVec3>> = HashMap::new();
         for client in [1, 2, 3] {
-            get_world_map_chunks_to_send(&chunks, &active, sent_chunks.entry(client).or_default());
+            get_world_map_chunks_to_send(
+                &chunks,
+                active.iter().copied(),
+                sent_chunks.entry(client).or_default(),
+            );
         }
 
         let pos = IVec3::new(CHUNK_SIZE + 4, 2, 2);
@@ -439,7 +436,7 @@ mod tests {
             let (updates, new_chunks) = client_world_messages(
                 &chunks,
                 &changed,
-                &active,
+                active.iter().copied(),
                 sent_chunks.entry(client).or_default(),
             );
             assert_eq!(
@@ -458,7 +455,7 @@ mod tests {
         let (updates, new_chunks) = client_world_messages(
             &chunks,
             &changed,
-            &active,
+            active.iter().copied(),
             sent_chunks.entry(1).or_default(),
         );
         assert!(updates.is_empty() && new_chunks.is_empty());
@@ -469,14 +466,15 @@ mod tests {
         let mut chunks = row_of_chunks(1);
         let active = active_row(1);
         let mut sent = HashSet::new();
-        get_world_map_chunks_to_send(&chunks, &active, &mut sent);
+        get_world_map_chunks_to_send(&chunks, active.iter().copied(), &mut sent);
         let pos = IVec3::new(1, 2, 3);
         chunks.set_block(pos, stone());
         chunks.take_changed_blocks();
         chunks.remove_block(pos);
 
         let changed = chunks.take_changed_blocks();
-        let (updates, _) = client_world_messages(&chunks, &changed, &active, &mut sent);
+        let (updates, _) =
+            client_world_messages(&chunks, &changed, active.iter().copied(), &mut sent);
 
         assert_eq!(
             updates,
@@ -492,11 +490,12 @@ mod tests {
         let mut chunks = row_of_chunks(1);
         let active = active_row(1);
         let mut sent = HashSet::new();
-        get_world_map_chunks_to_send(&chunks, &active, &mut sent);
+        get_world_map_chunks_to_send(&chunks, active.iter().copied(), &mut sent);
 
         chunks.touch_block(IVec3::new(5, 5, 5));
         let changed = chunks.take_changed_blocks();
-        let (updates, _) = client_world_messages(&chunks, &changed, &active, &mut sent);
+        let (updates, _) =
+            client_world_messages(&chunks, &changed, active.iter().copied(), &mut sent);
 
         assert_eq!(
             updates,
@@ -516,7 +515,7 @@ mod tests {
 
         let changed = chunks.take_changed_blocks();
         let (updates, new_chunks) =
-            client_world_messages(&chunks, &changed, &active_row(2), &mut sent);
+            client_world_messages(&chunks, &changed, active_row(2), &mut sent);
 
         let positions: Vec<IVec3> = updates.iter().map(|u| u.position).collect();
         assert_eq!(positions, vec![IVec3::new(1, 0, 0)]);
@@ -534,14 +533,15 @@ mod tests {
         let mut chunks = row_of_full_chunks(LAST + 1);
         let active = active_row(LAST + 1);
         let mut sent = HashSet::new();
-        let first = get_world_map_chunks_to_send(&chunks, &active, &mut sent);
+        let first = get_world_map_chunks_to_send(&chunks, active.iter().copied(), &mut sent);
         assert!(!first.contains_key(&IVec3::new(LAST, 0, 0)));
 
         // the last chunk is still waiting for its turn when one of its blocks changes
         let pos = IVec3::new(LAST * CHUNK_SIZE + 1, 2, 3);
         chunks.set_block(pos, stone());
         let changed = chunks.take_changed_blocks();
-        let (updates, new_chunks) = client_world_messages(&chunks, &changed, &active, &mut sent);
+        let (updates, new_chunks) =
+            client_world_messages(&chunks, &changed, active.iter().copied(), &mut sent);
 
         assert!(updates.is_empty());
         assert_eq!(
@@ -646,7 +646,7 @@ mod tests {
                 let active_now: &[IVec3] = if broadcast >= 1 { &active } else { &[] };
                 deliver(
                     &mut client,
-                    client_world_messages(&chunks, &changed, active_now, &mut sent),
+                    client_world_messages(&chunks, &changed, active_now.iter().copied(), &mut sent),
                 );
                 if broadcast >= 1 {
                     assert_eq!(

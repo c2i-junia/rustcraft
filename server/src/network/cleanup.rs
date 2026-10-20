@@ -45,7 +45,7 @@ mod tests {
                 id,
                 SentChunks {
                     chunks: HashSet::from([IVec3::ZERO, IVec3::X]),
-                    complete_around: None,
+                    progress: None,
                 },
             );
             world_map.render_distances.set(id, 4, 6);
