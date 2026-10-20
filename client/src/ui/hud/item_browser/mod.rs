@@ -3,8 +3,9 @@
 //! drawer over the right edge below.
 //!
 //! It is also the recipe book: the recipes or the uses of an item replace the catalog in the same
-//! panel, from a click on an item in Survival or from R / U over any item slot. Nothing comes out
-//! of it yet: in Creative a click on an item only focuses it.
+//! panel, from a click on an item in Survival or from R / U over any item slot, and its cards fill
+//! the crafting grid. In Creative, items come out of the catalog, and go back into it to be
+//! destroyed.
 
 use bevy::prelude::*;
 use shared::world::{ItemCategory, ItemId};
@@ -14,6 +15,7 @@ use crate::ui::hud::style_inventory_panel;
 use crate::ui::menus::pause::toggle_pause_menu;
 
 pub mod catalog;
+pub mod creative;
 mod display;
 #[cfg(test)]
 pub(crate) mod goldens;
@@ -207,6 +209,23 @@ pub struct RecipeNote(pub u16);
 #[derive(Component)]
 pub struct FillGridButton;
 
+/// The scroll list of the catalog: a click on it, holding a stack in Creative, destroys the stack.
+#[derive(Component)]
+pub struct CatalogList;
+
+/// The trash of the footer in Creative: a click on it, holding a stack, destroys the stack.
+#[derive(Component)]
+pub struct TrashSlot;
+
+/// What the observers of the browser ask `catalog_actions` to send in `Update`, where the actions
+/// of the frame are gathered before the simulation: Enter in the search, and a `+ Fill grid`
+/// button, each with whether Shift was held.
+#[derive(Resource, Default, Debug)]
+pub struct BrowserRequests {
+    pub submit: Option<bool>,
+    pub fill: Option<(u16, bool)>,
+}
+
 /// Whether the local player is in Survival, and the items it can craft now: some recipe of
 /// theirs has its ingredients in the inventory and the crafting grid, whatever the grid size.
 /// Nothing is craftable in Creative, where nothing is shown as such.
@@ -220,6 +239,7 @@ pub fn item_browser_plugin(app: &mut App) {
     app.init_resource::<ItemBrowserState>()
         .init_resource::<layout::BrowserLayout>()
         .init_resource::<CraftableNow>()
+        .init_resource::<BrowserRequests>()
         .add_systems(
             OnEnter(GameState::Game),
             setup_item_browser.after(crate::ui::hud::setup_inventory),
@@ -262,6 +282,15 @@ pub fn item_browser_plugin(app: &mut App) {
                 .chain()
                 .after(GameSet::UiMode)
                 .after(toggle_pause_menu)
+                .before(show_item_browser)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            catalog_actions
+                .after(GameSet::UiMode)
+                .after(click_items)
+                .before(GameSet::Simulation)
                 .before(show_item_browser)
                 .run_if(in_state(GameState::Game)),
         )

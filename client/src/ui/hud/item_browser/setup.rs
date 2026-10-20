@@ -6,19 +6,20 @@ use bevy::{
 use shared::world::{ItemCategory, ItemId};
 
 use super::catalog::{catalog, category_detail, NO_MATCH_HINT};
+use super::creative::{TRASH_HINT, TRASH_LABEL};
 use super::recipes::ITEM_KEYS_HINT;
 use super::{
     choose_category, clear_or_leave_search, open_drawer, search_arrow_down, spawn_recipe_panel,
-    submit_search, toggle_craftable, BrowserTitle, CatalogGrid, CatalogPart, CatalogSlot,
-    CategoryChip, CraftableChip, CraftableDot, DrawerHandle, ItemBrowser, ItemBrowserState,
-    ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
-    ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    submit_search, toggle_craftable, BrowserTitle, CatalogGrid, CatalogList, CatalogPart,
+    CatalogSlot, CategoryChip, CraftableChip, CraftableDot, DrawerHandle, ItemBrowser,
+    ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
+    TrashSlot, ITEM_BROWSER_TITLE, SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
 use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, OK, PANEL, RAISE, SPACE_L, SPACE_S,
-    SPACE_XS, TEXT,
+    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_L, FONT_S, MUTED, OK, PANEL, RAISE, SPACE_L,
+    SPACE_S, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
 use crate::ui::widgets::hints::key_cap;
@@ -134,8 +135,8 @@ pub fn setup_item_browser(
     spawn_footer(&mut commands, panel, &font, &glyph_font);
 }
 
-/// The footer: the gestures of the catalog in Survival, where a click opens the recipes, or in
-/// Creative, where only the keys do so far.
+/// The footer: in Survival the gestures of the catalog, where a click opens the recipes; in
+/// Creative the trash, beside what it is for.
 fn spawn_footer(
     commands: &mut Commands,
     panel: Entity,
@@ -155,43 +156,64 @@ fn spawn_footer(
             ChildOf(panel),
         ))
         .id();
-    for (survival, keys) in [
-        (true, [("LMB", "recipes"), ("RMB", "uses"), ("/", "search")]),
-        (false, [("R", "recipes"), ("U", "uses"), ("/", "search")]),
-    ] {
-        let row = commands
-            .spawn((
-                ModeFooter(survival),
+    let row = commands
+        .spawn((
+            ModeFooter(true),
+            Node {
+                flex_wrap: FlexWrap::Wrap,
+                align_items: AlignItems::Center,
+                column_gap: px(SPACE_XS),
+                row_gap: px(SPACE_XS),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(footer),
+        ))
+        .id();
+    for (index, (key, action)) in [("LMB", "recipes"), ("RMB", "uses"), ("/", "search")]
+        .into_iter()
+        .enumerate()
+    {
+        if index > 0 {
+            commands.spawn((
                 Node {
-                    display: if survival {
-                        Display::Flex
-                    } else {
-                        Display::None
-                    },
-                    flex_wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Center,
-                    column_gap: px(SPACE_XS),
-                    row_gap: px(SPACE_XS),
+                    width: px(SPACE_S),
                     ..default()
                 },
-                Pickable::IGNORE,
-                ChildOf(footer),
-            ))
-            .id();
-        for (index, (key, action)) in keys.into_iter().enumerate() {
-            if index > 0 {
-                commands.spawn((
-                    Node {
-                        width: px(SPACE_S),
-                        ..default()
-                    },
-                    ChildOf(row),
-                ));
-            }
-            commands.spawn((key_cap(key, font.clone(), glyph_font.clone()), ChildOf(row)));
-            commands.spawn((label(action, font, FONT_S, MUTED), ChildOf(row)));
+                ChildOf(row),
+            ));
         }
+        commands.spawn((key_cap(key, font.clone(), glyph_font.clone()), ChildOf(row)));
+        commands.spawn((label(action, font, FONT_S, MUTED), ChildOf(row)));
     }
+
+    let creative = commands
+        .spawn((
+            ModeFooter(false),
+            Node {
+                display: Display::None,
+                align_items: AlignItems::Center,
+                column_gap: px(SPACE_S),
+                ..default()
+            },
+            Pickable::IGNORE,
+            ChildOf(footer),
+        ))
+        .id();
+    commands
+        .spawn((
+            TrashSlot,
+            slot(TRASH_LABEL, None, ImageNode::default(), font.clone()),
+            ChildOf(creative),
+        ))
+        .with_child((
+            label("X", font, FONT_L, DANGER),
+            Node {
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+        ));
+    commands.spawn((label(TRASH_HINT, font, FONT_S, MUTED), ChildOf(creative)));
 }
 
 /// The handle of the drawer, at mid-height of the right edge: a `B` key cap over the title of the
@@ -392,7 +414,9 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
 fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font: &Handle<Font>) {
     let ScrollListParts { frame, well, list } =
         spawn_scroll_list(commands, WheelStep::Px(SLOT_SIZE + SPACE_XS));
-    commands.entity(frame).insert((CatalogPart, ChildOf(panel)));
+    commands
+        .entity(frame)
+        .insert((CatalogPart, CatalogList, Hovered::default(), ChildOf(panel)));
     // the slots sit on the panel, as in the inventory: no well around them
     commands
         .entity(well)

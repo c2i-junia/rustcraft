@@ -10,9 +10,10 @@ use super::harness::{Harness, SCREEN, SERVER};
 use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
+use crate::ui::hud::item_browser::creative::TRASH_HINT;
 use crate::ui::hud::item_browser::{
-    CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipePanel,
-    SEARCH_LABEL,
+    CatalogList, CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, RecipeCard,
+    RecipePanel, TrashSlot, SEARCH_LABEL,
 };
 use crate::ui::hud::{HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::ui::menus::pause::PauseMenu;
@@ -325,12 +326,12 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     assert!(focus_in_hud_bottom(h.world()));
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
 
-    // Ctrl+F focuses it too; Enter goes to the first result, its ring and its tooltip showing
+    // Ctrl+F focuses it too; Down goes to the first result, its ring and its tooltip showing
     ctrl(&mut h, KeyCode::KeyF);
     h.frames(1);
     assert_eq!(focused(&h), Some(field));
     h.type_text("planks");
-    h.press(KeyCode::Enter);
+    h.press(KeyCode::ArrowDown);
     h.frames(1);
     let oak_planks = h.get(&catalog_slot("Oak Planks"));
     assert_eq!(focused(&h), Some(oak_planks));
@@ -347,9 +348,14 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     h.press(KeyCode::ArrowLeft);
     assert_eq!(focused(&h), Some(oak_planks));
 
-    // Down from the search goes to the first result too
+    // Enter in the search acts as a click on the first result: in Survival, its recipes, the
+    // focus on the back button; Escape goes back to the result
     h.click(&search_field());
-    h.press(KeyCode::ArrowDown);
+    h.press(KeyCode::Enter);
+    h.wait_for(&button("Recipes 1"), SCREEN);
+    assert_eq!(focused(&h), Some(h.get(&button("<- Items"))));
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("2 / 33"), SCREEN);
     assert_eq!(focused(&h), Some(oak_planks));
 
     // Tab walks the inventory and the browser, and stays among them
@@ -497,12 +503,17 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
 
-    // In Creative, no Craftable chip, and a click on an item does not show its recipes yet
+    // In Creative, no Craftable chip, and a click on an item takes it rather than showing its
+    // recipes; a second one gives it back
     assert!(!h.is_visible(&button("Craftable")));
     h.click(&catalog_slot("Oak Log"));
-    h.frames(5);
+    h.wait_until("the logs on the cursor", SCREEN, |w| {
+        floating(w) == Some((ItemId::OakLog, 64))
+    });
     assert!(h.is_visible(&L::text("33 / 33")));
     assert!(!h.is_visible(&L::marker::<RecipePanel>()));
+    h.click(&catalog_slot("Oak Log"));
+    h.wait_until("an empty cursor", SCREEN, |w| floating(w).is_none());
 
     // R over a slot of the inventory shows the recipes of its item, U its uses
     h.hover(&L::cell(0));
@@ -548,4 +559,100 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.frames(2);
     assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
     assert!(!h.is_visible(&L::marker::<PauseMenu>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
+    let folder = GameFolder::new().with_world("Creative").with_items(
+        "Creative",
+        "Tester",
+        &[(0, ItemId::Sand, 3)],
+    );
+    let mut h = enter_world(folder, "Creative");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Sand, 3))
+    });
+    h.set_game_mode(GameMode::Creative);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    assert!(h.is_visible(&L::text(TRASH_HINT)));
+    let held = |h: &mut Harness, what: &str, expected: Option<(ItemId, u32)>| {
+        h.wait_until(what, SERVER, |w| floating(w) == expected);
+    };
+
+    // The tooltip says what the gestures take
+    h.hover(&catalog_slot("Dirt"));
+    h.wait_for(
+        &L::text_containing("LMB 64  RMB 1  Shift to inventory").within(L::marker::<TooltipRoot>()),
+        SCREEN,
+    );
+
+    // A click takes a full stack; a click on the list destroys it, and says so
+    h.click(&catalog_slot("Dirt"));
+    held(&mut h, "a stack of dirt", Some((ItemId::Dirt, 64)));
+    let list = h.rect_of(&L::marker::<CatalogList>());
+    h.click_at(Vec2::new(list.center().x, list.max.y - 20.0));
+    h.wait_for(&L::text("Destroyed 64 Dirt"), SCREEN);
+    held(&mut h, "an empty cursor", None);
+
+    // A right click takes one, and one more each time; on another item it destroys them
+    for _ in 0..3 {
+        h.right_click(&catalog_slot("Stone"));
+        h.frames(1);
+    }
+    held(&mut h, "three stones", Some((ItemId::Stone, 3)));
+    h.right_click(&catalog_slot("Dirt"));
+    h.wait_for(&L::text("Destroyed 3 Stone"), SCREEN);
+    held(&mut h, "an empty cursor", None);
+
+    // Shift+click puts a full stack into the inventory, the hotbar first: a tool comes alone
+    h.key_down(KeyCode::ShiftLeft);
+    h.click(&catalog_slot("Wooden Pickaxe"));
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the pickaxe in the hotbar", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::WoodenPickaxe, 1))
+    });
+    assert_eq!(floating(h.world()), None);
+
+    // The trash destroys the held stack too
+    h.click(&catalog_slot("Dirt"));
+    held(&mut h, "a stack of dirt", Some((ItemId::Dirt, 64)));
+    h.click(&L::marker::<TrashSlot>());
+    held(&mut h, "an empty cursor", None);
+
+    // Enter in the search takes its first result, Shift+Enter puts it into the inventory
+    h.type_on(KeyCode::Slash, '/');
+    h.type_text("oak l");
+    h.press(KeyCode::Enter);
+    held(&mut h, "a stack of logs", Some((ItemId::OakLog, 64)));
+    h.click(&L::cell(5));
+    held(&mut h, "an empty cursor", None);
+    h.click(&search_field());
+    h.key_down(KeyCode::ShiftLeft);
+    h.press(KeyCode::Enter);
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("a second stack of logs", SERVER, |w| {
+        slot(w, 2) == Some((ItemId::OakLog, 64))
+    });
+    assert_eq!(slot(h.world(), 5), Some((ItemId::OakLog, 64)));
+
+    // In Survival, the list leaves the held stack alone, and the trash is gone
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::KeyE);
+    h.frames(2);
+    h.set_game_mode(GameMode::Survival);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    assert!(!h.is_visible(&L::text(TRASH_HINT)));
+    h.click(&L::cell(0));
+    held(&mut h, "the sand", Some((ItemId::Sand, 3)));
+    let list = h.rect_of(&L::marker::<CatalogList>());
+    h.click_at(Vec2::new(list.center().x, list.max.y - 20.0));
+    h.frames(20);
+    assert_eq!(floating(h.world()), Some((ItemId::Sand, 3)));
+    assert_eq!(slot(h.world(), 1), Some((ItemId::WoodenPickaxe, 1)));
 }

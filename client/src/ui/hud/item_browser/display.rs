@@ -18,14 +18,18 @@ use shared::players::{game_mode::GameMode, Inventory, Player};
 use shared::world::ItemId;
 
 use super::catalog::{count_label, no_match_hint, no_match_message, shown_in};
+use super::creative::{creative_action, creative_hint, destroyed_message, Gesture};
 use super::layout::{browser_layout, BrowserLayout};
-use super::recipes::{craftable_now, CRAFTABLE_NOTE};
+use super::recipes::{craftable_now, CRAFTABLE_NOTE, ITEM_KEYS_HINT};
 use super::{
-    BackButton, CatalogGrid, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, CraftableNow,
-    DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch,
-    NoMatchHint, NoMatchMessage, RecipeSlot, RecipeStop, RecipeTabChip,
+    BackButton, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
+    CraftableChip, CraftableDot, CraftableNow, DrawerHandle, ItemBrowser, ItemBrowserState,
+    ItemCount, ItemSearchField, ItemView, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
+    RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TrashSlot,
 };
+use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
+use crate::ui::assets::load_font;
 use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot, UIMode};
 use crate::ui::theme::{
     ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, OK, PANEL, RAISE, RAISE_HOVER,
@@ -33,7 +37,9 @@ use crate::ui::theme::{
 };
 use crate::ui::widgets::slot::{count_label as slot_count_label, SlotCount, SlotIcon, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, Cancel, Submit};
+use crate::ui::widgets::toast::{show_toast, ToastKind};
 use crate::ui::widgets::tooltip::Tooltip;
+use shared::players::inventory::InventoryAction;
 
 /// Keeps the search of the state up to date with its field.
 pub fn read_search(
@@ -196,7 +202,8 @@ pub fn show_mode_footer(
 }
 
 /// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
-/// their slots in the browser.
+/// their slots in the browser. In Creative, the tooltips of the catalog say what its gestures
+/// take.
 #[allow(clippy::type_complexity)]
 pub fn mark_craftable_items(
     craftable: Res<CraftableNow>,
@@ -223,6 +230,14 @@ pub fn mark_craftable_items(
         if tooltip.note != note {
             tooltip.note = note.to_string();
         }
+        // In Creative, what the gestures on the catalog take, above the keys
+        let hint = match catalog_slot {
+            Some(_) if !craftable.survival => format!("{}\n{ITEM_KEYS_HINT}", creative_hint(item)),
+            _ => ITEM_KEYS_HINT.to_string(),
+        };
+        if tooltip.hint != hint {
+            tooltip.hint = hint;
+        }
         for child in children.iter() {
             if let Ok(mut dot) = dots.get_mut(child) {
                 let display = if now { Display::Flex } else { Display::None };
@@ -234,11 +249,17 @@ pub fn mark_craftable_items(
     }
 }
 
-/// The focusable parts of the browser, and whether each is a slot of the catalog.
+/// The focusable parts of the browser, and whether each is a part of the recipe view or the
+/// trash.
 type BrowserStops<'w, 's> = Query<
     'w,
     's,
-    (&'static mut TabIndex, &'static Node, Has<RecipeStop>),
+    (
+        &'static mut TabIndex,
+        &'static Node,
+        Has<RecipeStop>,
+        Has<TrashSlot>,
+    ),
     (
         Or<(
             With<ItemSearchField>,
@@ -246,6 +267,7 @@ type BrowserStops<'w, 's> = Query<
             With<CraftableChip>,
             With<CatalogSlot>,
             With<RecipeStop>,
+            With<TrashSlot>,
         )>,
         Without<ItemBrowser>,
         Without<InventoryDialog>,
@@ -262,6 +284,7 @@ type BrowserStops<'w, 's> = Query<
 pub fn show_item_browser(
     layout: Res<BrowserLayout>,
     state: Res<ItemBrowserState>,
+    craftable: Res<CraftableNow>,
     inventory_root: Query<&Visibility, (With<InventoryRoot>, Without<ItemBrowser>)>,
     bottom: Single<&ComputedNode, With<HudBottom>>,
     mut dialog: Single<(&mut Node, &ComputedNode), With<InventoryDialog>>,
@@ -328,8 +351,13 @@ pub fn show_item_browser(
     }
 
     let in_view = state.view.is_some();
-    for (mut index, node, in_recipe_view) in &mut stops {
-        let stop = shown && in_recipe_view == in_view && node.display != Display::None;
+    for (mut index, node, in_recipe_view, is_trash) in &mut stops {
+        // the trash is in the footer, under the catalog and the view, in Creative
+        let stop = if is_trash {
+            shown && !craftable.survival
+        } else {
+            shown && in_recipe_view == in_view && node.display != Display::None
+        };
         index.set_if_neq(TabIndex(if stop { 0 } else { -1 }));
     }
 }
@@ -460,9 +488,133 @@ pub fn focus_first_result(
     }
 }
 
-/// Enter in the search goes to its first result.
-pub fn submit_search(_: On<Submit>, mut commands: Commands) {
-    commands.run_system_cached(focus_first_result);
+/// Enter in the search acts as a click on its first result, Shift+Enter as a Shift+click: it asks
+/// `catalog_actions` to.
+pub fn submit_search(
+    _: On<Submit>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut requests: ResMut<BrowserRequests>,
+) {
+    requests.submit = Some(keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
+}
+
+/// The inputs `catalog_actions` reads.
+type CatalogInputs<'w> = (
+    Res<'w, ButtonInput<MouseButton>>,
+    Res<'w, ButtonInput<KeyCode>>,
+    Res<'w, UIMode>,
+    Res<'w, InputFocus>,
+    Res<'w, InputFocusVisible>,
+);
+
+/// Sends what the gestures on the catalog do, as actions of the frame's input, which the client
+/// predicts and the server applies, and the `+ Fill grid` asked for (Shift: as many rounds as
+/// possible). In Creative, a click on an item, Enter on the focused one or Enter in the search
+/// takes it (`creative_action`); holding a stack, a click on the list or the trash, or Enter on
+/// the focused trash, destroys it, and a toast says what. In Survival, Enter in the search opens
+/// the recipes of its first result, and the list and the trash do nothing; `click_items` opens
+/// the recipes of a clicked item. The keys wait while the player types.
+#[allow(clippy::too_many_arguments)]
+pub fn catalog_actions(
+    (mouse, keys, ui_mode, focus, focus_visible): CatalogInputs,
+    layout: Res<BrowserLayout>,
+    craftable: Res<CraftableNow>,
+    inventory: Res<Inventory>,
+    asset_server: Res<AssetServer>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    grid: Single<&Children, With<CatalogGrid>>,
+    catalog: Query<(Entity, &Hovered, &CatalogSlot, &Node)>,
+    list: Query<&Hovered, With<CatalogList>>,
+    trash: Query<(Entity, &Hovered), With<TrashSlot>>,
+    mut requests: ResMut<BrowserRequests>,
+    mut state: ResMut<ItemBrowserState>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+    mut commands: Commands,
+) {
+    let actions = &mut frame_inputs.0.inventory_actions;
+    if let Some((recipe, shift)) = requests.fill.take() {
+        let times = if shift { u32::MAX } else { 1 };
+        actions.push(InventoryAction::FillCraftingGrid { recipe, times });
+    }
+    let submit = requests.submit.take();
+    if !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
+        return;
+    }
+    let first_result = || {
+        grid.iter().find_map(|entity| {
+            let (_, _, slot, node) = catalog.get(entity).ok()?;
+            (node.display != Display::None).then_some(slot.0)
+        })
+    };
+    let shift_gesture = |shift: bool| {
+        if shift {
+            Gesture::ShiftClick
+        } else {
+            Gesture::Click
+        }
+    };
+    if craftable.survival {
+        if let Some(item) = submit.and_then(|_| first_result()) {
+            let view = ItemView {
+                item,
+                tab: RecipeTab::Recipes,
+            };
+            state.open(view, layout.compact);
+        }
+        return;
+    }
+
+    let typing = *ui_mode == UIMode::Typing;
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let (left, right) = (
+        mouse.just_pressed(MouseButton::Left),
+        mouse.just_pressed(MouseButton::Right),
+    );
+    let (enter, space) = (
+        !typing && keys.just_pressed(KeyCode::Enter),
+        !typing && keys.just_pressed(KeyCode::Space),
+    );
+    let focused = focus.get().filter(|_| focus_visible.0);
+    // A click on the hovered slot, a key on the focused one
+    let gesture = |entity: Entity, hovered: &Hovered| {
+        let (click, right_click) = if focused == Some(entity) {
+            (enter, space)
+        } else if hovered.get() {
+            (left, right)
+        } else {
+            (false, false)
+        };
+        if click {
+            Some(shift_gesture(shift))
+        } else if right_click {
+            Some(Gesture::RightClick)
+        } else {
+            None
+        }
+    };
+    let on_item = catalog
+        .iter()
+        .find_map(|(entity, hovered, slot, _)| Some((slot.0, gesture(entity, hovered)?)))
+        .or_else(|| Some((first_result()?, shift_gesture(submit?))));
+    let held = inventory.floating;
+    let on_trash = trash
+        .iter()
+        .any(|(entity, hovered)| gesture(entity, hovered).is_some());
+    let on_list = (left || right) && list.iter().any(Hovered::get);
+    let action = match on_item {
+        Some((item, gesture)) => creative_action(item, gesture, held),
+        None if held.is_some() && (on_trash || on_list) => InventoryAction::DestroyFloating,
+        None => return,
+    };
+    if let (InventoryAction::DestroyFloating, Some(held)) = (action, held) {
+        show_toast(
+            &mut commands,
+            &destroyed_message(held),
+            ToastKind::Info,
+            load_font(&asset_server),
+        );
+    }
+    actions.push(action);
 }
 
 /// Down in the search goes to its first result.

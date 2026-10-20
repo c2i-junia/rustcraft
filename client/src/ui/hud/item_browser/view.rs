@@ -459,6 +459,7 @@ fn recipes_of(view: ItemView) -> Vec<RecipeView> {
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct ViewParts<'w, 's> {
     catalog_parts: Query<'w, 's, &'static mut Node, (With<CatalogPart>, Without<RecipePanel>)>,
+    catalog_roots: Query<'w, 's, Entity, With<CatalogPart>>,
     panel: Single<'w, 's, (Entity, &'static mut Node), (With<RecipePanel>, Without<CatalogPart>)>,
     texts: Query<
         'w,
@@ -486,7 +487,8 @@ pub struct ViewParts<'w, 's> {
 
 /// Shows the open view instead of the catalog, or the catalog: the title, the back button, the
 /// item, its tabs and, when the view changed, its cards. A focus left in a part that goes away
-/// moves: to the back button in a view, to the item's slot in the catalog.
+/// moves: to the back button in a view (from the cards or from the catalog, its search
+/// included), to the item's slot in the catalog.
 pub fn show_view(
     state: Res<ItemBrowserState>,
     materials: Res<MaterialResource>,
@@ -589,10 +591,8 @@ pub fn show_view(
     if built.0 == Some(view) {
         return;
     }
-    let catalog_focused = parts
-        .catalog_slots
-        .iter()
-        .any(|(entity, ..)| Some(entity) == focused);
+    // the search too, after Enter in it
+    let catalog_focused = parts.catalog_roots.iter().any(inside);
     if inside(cards) || catalog_focused {
         focus.set(*parts.back, FocusCause::Navigated);
     }

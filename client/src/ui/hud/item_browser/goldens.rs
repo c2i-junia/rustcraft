@@ -1,9 +1,9 @@
 //! Golden screenshots of the item browser beside the open inventory, at the sizes where it docks
-//! and where it is a drawer, and of its recipe view. See `crate::ui::golden`. They need lavapipe, which is only installed
+//! and where it is a drawer, in Creative, and of its recipe view. See `crate::ui::golden`. They need lavapipe, which is only installed
 //! on Linux.
 
 use bevy::prelude::*;
-use shared::players::Inventory;
+use shared::players::{game_mode::GameMode, Inventory, Player};
 use shared::world::{ItemId, ItemStack};
 
 use super::layout::BrowserLayout;
@@ -13,6 +13,7 @@ use super::{
     style_recipe_cards, update_craftable_now, CatalogPart, CraftableNow, ItemBrowserState,
     ItemView, MissingTint, RecipeCard, RecipeSlot, RecipeTab,
 };
+use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
 use crate::ui::hud::{
     display_crafting_system, display_inventory_system, setup_inventory, style_inventory_panel,
@@ -181,6 +182,24 @@ fn the_uses_of_oak_planks_at_854x480() {
     };
     open_browser((854, 480), planks_and_logs(), viewing(uses, &[]))
         .assert_matches("item_browser_uses_854x480");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_creative_panel_at_1280x720() {
+    let mut golden = UiGolden::with_size(1280, 720);
+    golden.world_mut().insert_resource(inventory_of(&[
+        (0, ItemId::WoodenPickaxe, 1),
+        (1, ItemId::Cobblestone, 40),
+        (12, ItemId::OakLog, 12),
+    ]));
+    golden.world_mut().init_resource::<ClientWorldMap>();
+    golden.world_mut().init_resource::<ItemBrowserState>();
+    let mut player = Player::new(1, "tester".into(), Vec3::ZERO, Transform::default());
+    player.game_mode = GameMode::Creative;
+    golden.world_mut().spawn((player, CurrentPlayerMarker {}));
+    show_open_inventory(&mut golden, true);
+    golden.assert_matches("item_browser_creative_1280x720");
 }
 
 #[test]
