@@ -7,6 +7,7 @@ use celestial::{celestial_shadows_system, setup_main_lighting, update_celestial_
 use time::{time_update_system, ClientTime};
 
 pub mod celestial;
+pub mod clouds;
 pub mod data;
 pub mod rendering;
 pub mod time;
