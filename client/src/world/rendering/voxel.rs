@@ -135,6 +135,32 @@ impl Face {
         }
     }
 
+    /// The face whose normal is `normal` of the box from `from` to `to` of a Minecraft block
+    /// model, never culled, showing the part `[u1, v1, u2, v2]` of its texture as Minecraft
+    /// does: `u1` on the left of the face seen from outside and `v1` at its top, the top of an
+    /// upward face toward the north (-Z) and of a downward one toward the south.
+    fn of_model(texture: &str, from: Vec3, to: Vec3, normal: Vec3, uvs: [f32; 4]) -> Self {
+        let [u1, v1, u2, v2] = uvs;
+        let right = if normal.y == 0. {
+            Vec3::new(normal.z, 0., -normal.x)
+        } else {
+            Vec3::X
+        };
+        let up = normal.cross(right);
+        // the corner of the box toward `side`, a mix of the three axes
+        let corner = |side: Vec3| Vec3::select(side.cmpgt(Vec3::ZERO), to, from).to_array();
+        let corners = [-right + up, right + up, right - up, -right - up];
+        Face::quad(
+            texture,
+            FaceDirection::Inset,
+            corners.map(|side| corner(normal + side)),
+            // counter-clockwise seen from outside
+            [0, 3, 2, 2, 1, 0],
+            normal.to_array(),
+            [[u1, v1], [u2, v1], [u2, v2], [u1, v2]],
+        )
+    }
+
     /// Colours the face with the colour map `biome_tint` in the world, and with `color` where the
     /// climate is not known.
     fn biome_tint(&mut self, biome_tint: BiomeTint, color: FaceColor) {
@@ -220,6 +246,7 @@ impl VoxelShape {
                 .swaying(Sway::Top),
             // Held on the side of a block, it does not sway
             BlockId::Vine => Self::plate(block).biome_tinted(BiomeTint::Foliage),
+            BlockId::Cocoa => Self::pod(block),
             // Its texture is grey too
             BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
             _ => Self::full_cube(block),
@@ -388,6 +415,56 @@ impl VoxelShape {
                 sway: Sway::None,
             }],
         }
+    }
+
+    /// The cocoa pod of the pack's model `cocoa_stage2`, each face cut from the sheet where
+    /// the model says: a box 8 sixteenths wide, 9 high and 8 deep, and the stem that ties it to
+    /// the block holding it, a square across the top of the cell. The model holds it on its
+    /// south side (+Z); turned half a turn, as Minecraft draws it facing north, it is held on
+    /// its front, toward -Z, the box 1/16 off that face.
+    pub fn pod(block: &BlockData) -> VoxelShape {
+        const SIDE: [f32; 4] = [8., 4., 15., 13.];
+        const END: [f32; 4] = [0., 0., 7., 7.];
+        // the elements of the model, in sixteenths: their corners, and the UVs of their faces
+        // by normal
+        let elements = [
+            (
+                [4., 3., 7.],
+                [12., 12., 15.],
+                vec![
+                    (Vec3::NEG_Z, SIDE),
+                    (Vec3::Z, SIDE),
+                    (Vec3::NEG_X, SIDE),
+                    (Vec3::X, SIDE),
+                    (Vec3::Y, END),
+                    (Vec3::NEG_Y, END),
+                ],
+            ),
+            (
+                [8., 12., 12.],
+                [8., 16., 16.],
+                vec![
+                    (Vec3::X, [16., 0., 12., 4.]),
+                    (Vec3::NEG_X, [12., 0., 16., 4.]),
+                ],
+            ),
+        ];
+        let texture = format!("{:?}", block.id);
+        let mut faces = Vec::new();
+        for (from, to, sides) in elements {
+            let (from, to) = (Vec3::from(from) / 16., Vec3::from(to) / 16.);
+            for (normal, uvs) in sides {
+                let mut face = Face::of_model(&texture, from, to, normal, uvs.map(|c| c / 16.));
+                for vertex in face.vertices.iter_mut() {
+                    *vertex = [1. - vertex[0], vertex[1], 1. - vertex[2]];
+                }
+                for normal in face.normals.iter_mut() {
+                    *normal = [-normal[0], normal[1], -normal[2]];
+                }
+                faces.push(face);
+            }
+        }
+        VoxelShape { faces }
     }
 
     pub fn flora(block: &BlockData) -> VoxelShape {
@@ -696,6 +773,90 @@ mod tests {
         }
         sides.sort_by(f32::total_cmp);
         assert_eq!(sides, [-1., -1., 1., 1.]);
+    }
+
+    /// Whether the coordinate `axis` (0 for u, 1 for v) of the UVs of `face` grows along
+    /// `direction`, and only along it.
+    fn uv_grows_along(face: &Face, axis: usize, direction: Vec3) -> bool {
+        let vertices = || face.vertices.iter().map(|v| Vec3::from(*v)).zip(&face.uvs);
+        vertices().all(|(a, uv_a)| {
+            vertices().all(|(b, uv_b)| {
+                let along = (b - a).dot(direction);
+                let grows = uv_b[axis] - uv_a[axis];
+                if along.abs() < 1e-6 {
+                    grows == 0.
+                } else {
+                    grows * along > 0.
+                }
+            })
+        })
+    }
+
+    #[test]
+    fn the_cocoa_is_the_pod_of_its_model_one_sixteenth_off_its_support() {
+        let cocoa = shape_of(BlockId::Cocoa);
+        assert_eq!(cocoa.faces.len(), 8);
+        let sixteenths = |value: f32| (value * 16. * 1000.).round() / 1000.;
+        // held on its front, toward -Z
+        let toward_support = Vec3::NEG_Z;
+        let (mut pod_min, mut pod_max) = (Vec3::MAX, Vec3::MIN);
+        let mut stem_faces = 0;
+        for face in &cocoa.faces {
+            assert!(matches!(face.direction, FaceDirection::Inset));
+            assert_eq!(face.texture, "Cocoa");
+            // neither coloured nor swaying: a pod hangs on a log
+            assert_eq!(face.color, FaceColor::White);
+            assert_eq!(face.biome_tint, BiomeTint::None);
+            assert_eq!(face.sway, Sway::None);
+            let normal = Vec3::from(face.normals[0]);
+            // wound counter-clockwise seen from where its normal points
+            for triangle in face.indices.chunks(3) {
+                let [a, b, c] = [0, 1, 2].map(|i| Vec3::from(face.vertices[triangle[i] as usize]));
+                assert_eq!((b - a).cross(c - a).normalize(), normal);
+            }
+            let vertices: Vec<Vec3> = face.vertices.iter().map(|v| Vec3::from(*v)).collect();
+            let stem = vertices.iter().all(|v| v.x == 0.5);
+            if stem {
+                // a square across the top of the cell, from the support out to 4/16
+                stem_faces += 1;
+                for v in &vertices {
+                    assert!((0.0..=0.25).contains(&v.z) && (0.75..=1.0).contains(&v.y));
+                }
+            } else {
+                for v in &vertices {
+                    (pod_min, pod_max) = (pod_min.min(*v), pod_max.max(*v));
+                }
+            }
+            // the part of the sheet the model gives the face, the right way up and round
+            let (u, v, rect) = if normal.y > 0.5 {
+                (Vec3::NEG_X, toward_support, [0., 0., 7., 7.])
+            } else if normal.y < -0.5 {
+                (Vec3::NEG_X, -toward_support, [0., 0., 7., 7.])
+            } else if stem {
+                (toward_support, Vec3::NEG_Y, [12., 0., 16., 4.])
+            } else {
+                // from the left of the face to its right, seen from outside
+                (
+                    Vec3::new(normal.z, 0., -normal.x),
+                    Vec3::NEG_Y,
+                    [8., 4., 15., 13.],
+                )
+            };
+            let uvs = || face.uvs.iter().map(|uv| uv.map(sixteenths));
+            let low = uvs().fold([f32::MAX; 2], |low, uv| {
+                [low[0].min(uv[0]), low[1].min(uv[1])]
+            });
+            let high = uvs().fold([f32::MIN; 2], |high, uv| {
+                [high[0].max(uv[0]), high[1].max(uv[1])]
+            });
+            assert_eq!([low[0], low[1], high[0], high[1]], rect, "facing {normal}");
+            assert!(uv_grows_along(face, 0, u), "facing {normal}: u");
+            assert!(uv_grows_along(face, 1, v), "facing {normal}: v");
+        }
+        assert_eq!(stem_faces, 2);
+        // 8 wide, 9 high and 8 deep, 1/16 off the support
+        assert_eq!(pod_min.to_array().map(sixteenths), [4., 3., 1.]);
+        assert_eq!(pod_max.to_array().map(sixteenths), [12., 12., 9.]);
     }
 
     #[test]

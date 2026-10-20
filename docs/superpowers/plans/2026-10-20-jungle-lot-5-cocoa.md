@@ -36,9 +36,8 @@ brown pods under the crowns of the jungle trees, broken for their beans.
    the stem reaches the log at the top of the cell. Each face takes the UVs of the model on
    `Cocoa.png` with Minecraft's mapping (`u` from the left of the face seen from outside, `v`
    from its top; in the model, the top face's top toward the north, the bottom's toward the
-   south): the
-   four sides (8, 4)–(15, 13), the top and bottom (0, 0)–(7, 7), the stem (12, 0)–(16, 4),
-   mirrored on its east side as the model says. The stem is two back to back squares: kept.
+   south): the four sides (8, 4)–(15, 13), the top and bottom (0, 0)–(7, 7), the stem
+   (12, 0)–(16, 4), mirrored on its east side as the model says. The stem is two back to back squares: kept.
    Every face is `Inset`, never culled, untinted.
 3. **Visibility:** `Decoration`: it hides no face of its neighbours, like the vine. It also
    means, as for the plants: water washes it away (as in Minecraft), a tool breaking it is not
@@ -72,26 +71,26 @@ brown pods under the crowns of the jungle trees, broken for their beans.
 ## Tasks
 
 ### Task 1: The cocoa block and the beans (`shared`, `client`)
-- [ ] Tests: `Cocoa` in `block_encoding_is_pinned` (33), `ALL_BLOCKS`; `CocoaBeans` in
+- [x] Tests: `Cocoa` in `block_encoding_is_pinned` (33), `ALL_BLOCKS`; `CocoaBeans` in
   `item_encoding_is_pinned` (40); `the_cocoa_is_a_pod_broken_in_two_steps_for_two_beans`
   (visibility, break time, axe, no tool required, drops, the beans generic);
   `a_cocoa_pod_is_boxed_where_it_hangs` (both boxes, each direction: 8 wide, 9 high, 8 deep,
   1/16 off the support, centred along it). See them fail.
-- [ ] The variants, their behaviour, `BlockData::get_hitbox` and the turned boxes. See them
+- [x] The variants, their behaviour, `BlockData::get_hitbox` and the turned boxes. See them
   pass.
-- [ ] Tests: `a_cocoa_pod_collides_only_through_its_box` (chunk_map.rs, each direction) and
-  `a_cocoa_pod_is_hit_through_its_box_in_its_own_cell` (raycast.rs). See them fail; read
-  `BlockData::get_hitbox` in `check_collision_box`. See them pass.
-- [ ] Tests: `the_cocoa_sounds_like_wood`;
+- [x] Test: `a_cocoa_pod_collides_only_through_its_box` (chunk_map.rs, each direction). See it
+  fail; read `BlockData::get_hitbox` in `check_collision_box`. See it pass. Rays already read
+  `BlockData::get_ray_hitbox`, as for the vine: no other test there.
+- [x] Tests: `the_cocoa_sounds_like_wood`;
   `the_cocoa_is_the_pod_of_its_model_one_sixteenth_off_its_support` (voxel.rs: 8 `Inset`
   faces, untinted, wound toward their normals, the pod box and the stem where decided 2, the
   UVs of the model); in meshing.rs
   `a_cocoa_pod_hangs_against_the_log_that_holds_it_and_hides_none_of_its_faces` (each
   direction: in its cell, its face toward the log 1/16 off it, the stem touching it, every face
   of the log drawn). See them fail. The shape and the sound. See them pass.
-- [ ] Textures `block/cocoa_stage2.png` → `blocks/Cocoa.png`, `item/cocoa_beans.png` →
+- [x] Textures `block/cocoa_stage2.png` → `blocks/Cocoa.png`, `item/cocoa_beans.png` →
   `items/CocoaBeans.png` (16 × 16).
-- [ ] Credit the textures; commit `feat: the cocoa`.
+- [x] Credit the textures; commit `feat: the cocoa`.
 
 ### Task 2: Cocoa on the jungle trees (`server`)
 - [ ] Tests (jungle.rs): `one_jungle_tree_in_three_holds_one_or_two_pods_under_its_crown`

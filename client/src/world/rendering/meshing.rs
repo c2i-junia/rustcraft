@@ -1654,6 +1654,52 @@ mod tests {
     }
 
     #[test]
+    fn a_cocoa_pod_hangs_against_the_log_that_holds_it_and_hides_none_of_its_faces() {
+        let tiles = HashMap::from([("_Default".to_string(), 0), ("Cocoa".to_string(), 1)]);
+        let log = IVec3::splat(5);
+        for direction in DIRECTIONS {
+            let pod = log - direction.offset();
+            let mut chunk = Chunk::new();
+            chunk.set(
+                log,
+                BlockData::new(BlockId::JungleLog, BlockDirection::Front),
+            );
+            chunk.set(pod, BlockData::new(BlockId::Cocoa, direction));
+            let mut world = ChunkMap::default();
+            world.insert_chunk(IVec3::ZERO, chunk.clone());
+            let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+                .solid_mesh
+                .unwrap();
+
+            let side = direction.offset().as_vec3();
+            let centre = pod.as_vec3() + 0.5;
+            let (mut log_vertices, mut toward_the_log, mut on_the_log) = (0, 0, 0);
+            let vertices = positions_of(&mesh).into_iter().zip(normals_of(&mesh));
+            for ((position, normal), tile) in vertices.zip(tiles_of(&mesh)) {
+                if tile == 0 {
+                    log_vertices += 1;
+                    continue;
+                }
+                let offset = position - centre;
+                assert!(offset.abs().max_element() <= 0.5 + 1e-6, "{direction:?}");
+                let gap = 0.5 - offset.dot(side);
+                // the face of the pod toward the log, 1/16 off it
+                if normal.dot(side) > 0.99 {
+                    assert!((gap - 1. / 16.).abs() < 1e-6, "{direction:?}: {gap}");
+                    toward_the_log += 1;
+                }
+                on_the_log += usize::from(gap.abs() < 1e-6);
+            }
+            assert_eq!(toward_the_log, 4, "{direction:?}");
+            // the edge of each square of the stem
+            assert_eq!(on_the_log, 2 * 2, "{direction:?}");
+            // every face of the log, the one behind the pod too
+            assert_eq!(log_vertices, 6 * 4, "{direction:?}");
+            assert_eq!(mesh.count_vertices(), 6 * 4 + 8 * 4, "{direction:?}");
+        }
+    }
+
+    #[test]
     fn a_chunk_mesh_has_no_tangents_as_no_normal_map_reads_them() {
         let mesh = mesh_of(&[(IVec3::ONE, BlockId::Stone)]).solid_mesh.unwrap();
         assert!(mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_none());

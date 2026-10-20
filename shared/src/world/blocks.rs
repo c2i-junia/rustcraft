@@ -58,13 +58,15 @@ pub enum BlockId {
     JungleLeaves,
     Fern,
     Vine,
+    Cocoa,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
 /// in chunk files and sent on the network.
 ///
 /// A block drawn turned is turned from its front by the direction: `Right` turns its front
-/// toward +X. A vine's direction names the side of its cell the block holding it lies on.
+/// toward +X. The direction of a vine or a cocoa pod names the side of its cell the block
+/// holding it lies on.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BlockDirection {
     Front,
@@ -108,6 +110,13 @@ impl BlockDirection {
 /// How far a vine's plate lies from the face of the block that holds it, inside its own cell.
 pub const VINE_GAP: f32 = 1.0 / 16.0;
 
+/// The box of a cocoa pod held on its front, in its cell: 8 sixteenths wide, 9 high and 8
+/// deep, 1/16 off the block that holds it, as Minecraft's `cocoa_stage2` model draws it.
+const COCOA_POD: Aabb3d = Aabb3d {
+    min: Vec3A::new(4.0 / 16.0, 3.0 / 16.0, 1.0 / 16.0),
+    max: Vec3A::new(12.0 / 16.0, 12.0 / 16.0, 9.0 / 16.0),
+};
+
 /// Data associated with a given `BlockId`
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockData {
@@ -133,24 +142,34 @@ impl BlockData {
         }
     }
 
-    /// The box rays hit, as `BlockId::get_ray_hitbox`, but turned to the direction of the block
-    /// for a vine: a slab around its plate, on the side of the block holding it.
+    /// The box rays hit, as `BlockId::get_ray_hitbox`, but turned to the direction of the
+    /// block, as it is drawn: for a vine, a slab around its plate, on the side of the block
+    /// holding it.
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
-        match (self.id, self.id.get_ray_hitbox()) {
-            (BlockId::Vine, BlockHitbox::Aabb(front)) => {
-                // about the centre of the cell
-                let turn = |corner: Vec3A| {
-                    let [x, z] = self.direction.turn([corner.x - 0.5, corner.z - 0.5]);
-                    Vec3A::new(x + 0.5, corner.y, z + 0.5)
-                };
-                let (a, b) = (turn(front.min), turn(front.max));
-                BlockHitbox::Aabb(Aabb3d {
-                    min: a.min(b),
-                    max: a.max(b),
-                })
-            }
-            (_, hitbox) => hitbox,
-        }
+        self.turned(self.id.get_ray_hitbox())
+    }
+
+    /// The collision box, as `BlockId::get_hitbox`, but turned to the direction of the block:
+    /// for a cocoa pod, its box against the block holding it.
+    pub fn get_hitbox(&self) -> BlockHitbox {
+        self.turned(self.id.get_hitbox())
+    }
+
+    /// `hitbox`, the box of a block turned to the front, turned to the direction of this one
+    /// about the centre of the cell. Nothing changes for a whole block or a centred box.
+    fn turned(&self, hitbox: BlockHitbox) -> BlockHitbox {
+        let BlockHitbox::Aabb(front) = hitbox else {
+            return hitbox;
+        };
+        let turn = |corner: Vec3A| {
+            let [x, z] = self.direction.turn([corner.x - 0.5, corner.z - 0.5]);
+            Vec3A::new(x + 0.5, corner.y, z + 0.5)
+        };
+        let (a, b) = (turn(front.min), turn(front.max));
+        BlockHitbox::Aabb(Aabb3d {
+            min: a.min(b),
+            max: a.max(b),
+        })
     }
 
     /// Breaking stage from 0 to `MAX_BREAKING_LEVEL` (9, the last crack texture); always 0 for
@@ -181,7 +200,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 34] = [
+    pub const ALL: [BlockId; 35] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -216,6 +235,7 @@ impl BlockId {
         BlockId::JungleLeaves,
         BlockId::Fern,
         BlockId::Vine,
+        BlockId::Cocoa,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -227,6 +247,7 @@ impl BlockId {
             | Self::Dandelion
             | Self::Torch
             | Self::Vine => BlockHitbox::None,
+            Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -247,6 +268,7 @@ impl BlockId {
                 Vec3A::new(0.5, 0.5, VINE_GAP),
                 Vec3A::new(0.5, 0.5, VINE_GAP / 2.0),
             )),
+            Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -287,6 +309,7 @@ impl BlockId {
             Self::JungleLeaves => 2,
             Self::Fern => 1,
             Self::Vine => 1,
+            Self::Cocoa => 2,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -315,6 +338,7 @@ impl BlockId {
                     | Self::JunglePlanks
                     | Self::CraftingTable
                     | Self::Chest
+                    | Self::Cocoa
             ),
             ToolKind::Shovel => matches!(
                 *self,
@@ -393,6 +417,7 @@ impl BlockId {
             BlockId::Torch => vec![(1, ItemId::Torch, 1)],
             BlockId::JungleLog => vec![(1, ItemId::JungleLog, 1)],
             BlockId::JunglePlanks => vec![(1, ItemId::JunglePlanks, 1)],
+            BlockId::Cocoa => vec![(1, ItemId::CocoaBeans, 2)],
             _ => vec![],
         }
     }
@@ -415,7 +440,8 @@ impl BlockId {
             | Self::TallGrass
             | Self::Fern
             | Self::Torch
-            | Self::Vine => BlockTransparency::Decoration,
+            | Self::Vine
+            | Self::Cocoa => BlockTransparency::Decoration,
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves => {
                 BlockTransparency::Transparent
             }
@@ -464,7 +490,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 34] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 35] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -505,7 +531,8 @@ mod tests {
             | BlockId::JunglePlanks
             | BlockId::JungleLeaves
             | BlockId::Fern
-            | BlockId::Vine => {}
+            | BlockId::Vine
+            | BlockId::Cocoa => {}
         }
     }
 
@@ -587,6 +614,7 @@ mod tests {
                 BlockId::JungleLeaves => 31,
                 BlockId::Fern => 32,
                 BlockId::Vine => 33,
+                BlockId::Cocoa => 34,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -691,6 +719,53 @@ mod tests {
         assert_eq!(ItemId::Vine.get_default_type(), ItemType::Block(vine));
         assert_eq!(vine.light_opacity(), BlockId::TallGrass.light_opacity());
         assert_eq!(ItemId::Vine.category(), ItemId::TallGrass.category());
+    }
+
+    #[test]
+    fn the_cocoa_is_a_pod_broken_in_two_steps_for_two_beans() {
+        let cocoa = BlockId::Cocoa;
+        assert_eq!(cocoa.get_visibility(), BlockTransparency::Decoration);
+        assert_eq!(cocoa.get_break_time(), Some(2 * 2));
+        assert_eq!(cocoa.get_required_tool(), None);
+        assert!(cocoa.is_mined_faster_by(ToolKind::Axe));
+        assert_eq!(cocoa.get_drops(1), HashMap::from([(ItemId::CocoaBeans, 2)]));
+        assert_eq!(ItemId::CocoaBeans.get_default_type(), ItemType::Generic);
+        assert_eq!(ItemId::CocoaBeans.get_max_stack(), 64);
+        assert_eq!(ItemId::CocoaBeans.category(), ItemId::Coal.category());
+        // the light goes through it, as through a plant
+        assert_eq!(cocoa.light_opacity(), BlockId::TallGrass.light_opacity());
+    }
+
+    #[test]
+    fn a_cocoa_pod_is_boxed_where_it_hangs() {
+        for direction in [
+            BlockDirection::Front,
+            BlockDirection::Right,
+            BlockDirection::Back,
+            BlockDirection::Left,
+        ] {
+            let pod = BlockData::new(BlockId::Cocoa, direction);
+            let (BlockHitbox::Aabb(hitbox), BlockHitbox::Aabb(ray_hitbox)) =
+                (pod.get_hitbox(), pod.get_ray_hitbox())
+            else {
+                panic!("{direction:?}: a pod has a box");
+            };
+            assert_eq!(hitbox, ray_hitbox, "{direction:?}");
+            // the support lies on the side `toward` steps to, `along` runs beside it
+            let toward = Vec3A::from(direction.offset().as_vec3());
+            let along = Vec3A::new(toward.z, 0.0, toward.x);
+            let size = hitbox.max - hitbox.min;
+            let sixteenths = |length: f32| (length * 16.0 * 1000.0).round() / 1000.0;
+            assert_eq!(sixteenths(size.dot(along).abs()), 8.0, "{direction:?}");
+            assert_eq!(sixteenths(size.y), 9.0, "{direction:?}");
+            assert_eq!(sixteenths(size.dot(toward).abs()), 8.0, "{direction:?}");
+            assert_eq!(sixteenths(hitbox.min.y), 3.0, "{direction:?}");
+            // centred along its support, 1/16 off it
+            let centre = (hitbox.min + hitbox.max) / 2.0 - 0.5;
+            assert!(centre.dot(along).abs() < 1e-6, "{direction:?}");
+            let near_side = 0.5 - (centre.dot(toward) + size.dot(toward).abs() / 2.0);
+            assert_eq!(sixteenths(near_side), 1.0, "{direction:?}");
+        }
     }
 
     #[test]

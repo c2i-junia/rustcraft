@@ -59,7 +59,8 @@ impl SoundMaterial {
             | BlockId::JunglePlanks
             | BlockId::CraftingTable
             | BlockId::Chest
-            | BlockId::Torch => Self::Wood,
+            | BlockId::Torch
+            | BlockId::Cocoa => Self::Wood,
             BlockId::OakLeaves | BlockId::SpruceLeaves | BlockId::JungleLeaves => Self::Leaves,
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
@@ -191,6 +192,11 @@ mod tests {
     #[test]
     fn the_vine_sounds_like_grass() {
         assert_eq!(SoundMaterial::of(BlockId::Vine), Some(SoundMaterial::Grass));
+    }
+
+    #[test]
+    fn the_cocoa_sounds_like_wood() {
+        assert_eq!(SoundMaterial::of(BlockId::Cocoa), Some(SoundMaterial::Wood));
     }
 
     #[test]

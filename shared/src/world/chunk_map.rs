@@ -187,7 +187,7 @@ impl ChunkMap {
             let Some(block) = self.get_block(pos) else {
                 return false;
             };
-            match block.id.get_hitbox() {
+            match block.get_hitbox() {
                 BlockHitbox::FullBlock => true,
                 BlockHitbox::None => false,
                 BlockHitbox::Aabb(block_hitbox) => {
@@ -550,5 +550,31 @@ mod tests {
         assert!(map.check_collision_box(&unit_box(Vec3::new(-0.05, 0.5, 0.5))));
         assert!(!map.check_collision_box(&unit_box(Vec3::new(1.5, 0.5, 0.5))));
         assert!(!map.check_collision_box(&unit_box(Vec3::new(-0.5, 2.5, 0.5))));
+    }
+
+    #[test]
+    fn a_cocoa_pod_collides_only_through_its_box() {
+        let pod = IVec3::new(2, 3, 4);
+        let centre = pod.as_vec3() + 0.5;
+        let small_box = |center: Vec3| Aabb3d::new(center, Vec3::splat(0.05));
+        for direction in [
+            BlockDirection::Front,
+            BlockDirection::Right,
+            BlockDirection::Back,
+            BlockDirection::Left,
+        ] {
+            let mut map = loaded(IVec3::ZERO, IVec3::splat(15));
+            map.set_block(pod, BlockData::new(BlockId::Cocoa, direction));
+            let support = direction.offset().as_vec3();
+            // the pod hangs on the side of its support, the other half of the cell is empty
+            assert!(
+                map.check_collision_box(&small_box(centre + support * 0.25)),
+                "{direction:?}"
+            );
+            assert!(
+                !map.check_collision_box(&small_box(centre - support * 0.4)),
+                "{direction:?}"
+            );
+        }
     }
 }

@@ -64,11 +64,12 @@ pub enum ItemId {
     JungleLeaves,
     Fern,
     Vine,
+    CocoaBeans,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 41] = [
+    pub const ALL: [ItemId; 42] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -110,6 +111,7 @@ impl ItemId {
         Self::JungleLeaves,
         Self::Fern,
         Self::Vine,
+        Self::CocoaBeans,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -206,7 +208,7 @@ impl ItemId {
             | Self::Fern
             | Self::Vine => ItemCategory::Nature,
             Self::CoalOre | Self::IronOre | Self::GoldOre => ItemCategory::Ores,
-            Self::Coal | Self::Stick | Self::Snowball => ItemCategory::Materials,
+            Self::Coal | Self::Stick | Self::Snowball | Self::CocoaBeans => ItemCategory::Materials,
             Self::CraftingTable | Self::Furnace | Self::Chest => ItemCategory::Stations,
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -251,9 +253,12 @@ impl ItemId {
             Self::Fern => ItemType::Block(BlockId::Fern),
             Self::Vine => ItemType::Block(BlockId::Vine),
 
-            Self::Snowball | Self::Stick | Self::Coal | Self::FoxSpawnEgg | Self::SheepSpawnEgg => {
-                ItemType::Generic
-            }
+            Self::Snowball
+            | Self::Stick
+            | Self::Coal
+            | Self::FoxSpawnEgg
+            | Self::SheepSpawnEgg
+            | Self::CocoaBeans => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -402,6 +407,7 @@ mod tests {
             (ItemId::JungleLeaves, 38),
             (ItemId::Fern, 39),
             (ItemId::Vine, 40),
+            (ItemId::CocoaBeans, 41),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -446,7 +452,8 @@ mod tests {
                 | ItemId::JunglePlanks
                 | ItemId::JungleLeaves
                 | ItemId::Fern
-                | ItemId::Vine => {}
+                | ItemId::Vine
+                | ItemId::CocoaBeans => {}
             }
         }
         for (id, expected) in table {
