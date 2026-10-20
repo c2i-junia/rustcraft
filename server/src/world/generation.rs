@@ -15,9 +15,8 @@ mod ores;
 /// therefore looks at the columns of the chunk plus this margin on each side.
 const STRUCTURE_MARGIN: i32 = 3;
 
-/// Highest block of a structure above the surface of its column: the crown of a big tree,
-/// whose 6-block trunk starts on the block above the surface and whose leaves reach 3 blocks
-/// above the top of the trunk (`1 + 6 - 2 + 2 + 2`).
+/// Highest block of any structure above the surface of its column: the crown of a big tree (see
+/// `Decoration::height`). Only the chunks generated before their columns are known use it.
 const STRUCTURE_HEIGHT: i32 = 9;
 
 // Salts: each random decision of a column hashes `(seed, x, z, salt)` with its own salt.
@@ -84,6 +83,21 @@ enum Decoration {
     Tree,
     BigTree,
     Cactus,
+}
+
+impl Decoration {
+    /// The highest block the decoration may reach above the surface of its column.
+    fn height(&self) -> i32 {
+        match self {
+            Decoration::Flower(_) | Decoration::TallGrass => 1,
+            // a trunk of up to 5 logs, whose top holds the lowest of the 3 layers of the crown
+            Decoration::Tree => 7,
+            // a 6-log trunk from the block above the surface, its leaves reaching 3 blocks above
+            // the top of the trunk (`1 + 6 - 2 + 2 + 2`)
+            Decoration::BigTree => 9,
+            Decoration::Cactus => 3,
+        }
+    }
 }
 
 /// From this height the ground is bare stone, and from `SNOW_LINE` snow over stone: both lines
@@ -412,15 +426,25 @@ fn column_blocks(seed: u32, column: &Column) -> Blocks {
     let root = IVec3::new(column.x, column.height + 1, column.z);
     let mut blocks = Vec::new();
     for decoration in column_decorations(column, &random) {
-        match decoration {
-            Decoration::Flower(flower) => blocks.push((root, flower)),
-            Decoration::TallGrass => blocks.push((root, BlockId::TallGrass)),
-            Decoration::Tree => tree_blocks(root, &random, &mut blocks),
-            Decoration::BigTree => big_tree_blocks(root, &random, &mut blocks),
-            Decoration::Cactus => cactus_blocks(root, &random, &mut blocks),
-        }
+        decoration_blocks(decoration, root, &random, &mut blocks);
     }
     blocks
+}
+
+/// Every block of `decoration`, rooted at `root`, the block above the surface of its column.
+fn decoration_blocks(
+    decoration: Decoration,
+    root: IVec3,
+    random: &ColumnRandom,
+    blocks: &mut Blocks,
+) {
+    match decoration {
+        Decoration::Flower(flower) => blocks.push((root, flower)),
+        Decoration::TallGrass => blocks.push((root, BlockId::TallGrass)),
+        Decoration::Tree => tree_blocks(root, random, blocks),
+        Decoration::BigTree => big_tree_blocks(root, random, blocks),
+        Decoration::Cactus => cactus_blocks(root, random, blocks),
+    }
 }
 
 /// The columns a chunk generated from the noise reads: those of the chunk and of the margin
@@ -430,7 +454,7 @@ struct ChunkColumns {
     columns: Vec<Column>,
     /// The highest surface of the columns of the chunk.
     top: i32,
-    /// The highest surface of all of them.
+    /// The highest block of the ground of all of them or of anything rooted on them.
     highest: i32,
 }
 
@@ -496,7 +520,7 @@ impl WorldGenerator {
         }
         let columns = self.chunk_columns(chunk_pos.xz());
         // Above the ground, the sea and anything growing on them around
-        if chunk_origin.y > (columns.highest + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
+        if chunk_origin.y > columns.highest.max(SEA_LEVEL) {
             return Chunk::new();
         }
         self.generate_chunk_from_columns(chunk_pos, &columns)
@@ -573,7 +597,19 @@ impl WorldGenerator {
             .map(|(dx, dz)| shape_at(dx, dz).height)
             .max()
             .unwrap();
-        let highest = columns.iter().map(|column| column.height).max().unwrap();
+        let highest = columns
+            .iter()
+            .map(|column| {
+                let decorations = column_decorations(column, &random_of(self.seed, column));
+                column.height
+                    + decorations
+                        .iter()
+                        .map(Decoration::height)
+                        .max()
+                        .unwrap_or(0)
+            })
+            .max()
+            .unwrap();
         ChunkColumns {
             columns,
             top,
@@ -890,20 +926,51 @@ mod tests {
         for x in -300..300 {
             for z in -300..300 {
                 let column = generator.column(x, z);
-                for (pos, _) in column_blocks(seed, &column) {
-                    assert!(
-                        pos.y - column.height <= STRUCTURE_HEIGHT,
-                        "{pos} over {}",
-                        column.height
-                    );
-                    highest = highest.max(pos.y - column.height);
+                let random = random_of(seed, &column);
+                let root = IVec3::new(x, column.height + 1, z);
+                for decoration in column_decorations(&column, &random) {
+                    assert!(decoration.height() <= STRUCTURE_HEIGHT, "{decoration:?}");
+                    let mut blocks = Vec::new();
+                    decoration_blocks(decoration, root, &random, &mut blocks);
+                    for (pos, _) in blocks {
+                        assert!(
+                            pos.y - column.height <= decoration.height(),
+                            "{decoration:?}: {pos} over {}",
+                            column.height
+                        );
+                        highest = highest.max(pos.y - column.height);
+                    }
                 }
             }
         }
         assert_eq!(
-            highest, STRUCTURE_HEIGHT,
+            highest,
+            Decoration::BigTree.height(),
             "the forests have a big tree as tall as can be"
         );
+    }
+
+    #[test]
+    fn a_chunk_column_knows_the_highest_block_rooted_on_it() {
+        let seed = 42;
+        let generator = WorldGenerator::new(seed);
+        // plains, and a forest with big trees
+        for (cx, cz) in [(0, 0), (29, 38), (30, 39)] {
+            let columns = generator.compute_chunk_columns(IVec2::new(cx, cz));
+            let mut reached = i32::MIN;
+            for column in &columns.columns {
+                reached = reached.max(column.height);
+                for (pos, _) in column_blocks(seed, column) {
+                    reached = reached.max(pos.y);
+                }
+            }
+            assert!(
+                columns.highest >= reached,
+                "({cx}, {cz}): {} under {reached}",
+                columns.highest
+            );
+            assert!(columns.highest < reached + STRUCTURE_HEIGHT);
+        }
     }
 
     #[test]

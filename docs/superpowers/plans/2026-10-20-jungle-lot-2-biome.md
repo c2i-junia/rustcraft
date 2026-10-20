@@ -101,10 +101,10 @@ cocoa), "Bush", "New blocks" and "New items" (`Fern`), "Block behaviour" (fern),
 - [x] Credit the texture in `docs/ressources.txt`; commit `feat: the fern`.
 
 ### Task 3: Structure height per column of chunks (`server`)
-- [ ] Benchmarks before.
-- [ ] Tests: `every_decoration_stays_under_its_height`, and `a_chunk_column_knows_the_highest_block_rooted_on_it`.
+- [x] Benchmarks before.
+- [x] Tests: `every_decoration_stays_under_its_height`, and `a_chunk_column_knows_the_highest_block_rooted_on_it`.
   See them fail.
-- [ ] `Decoration::height`, `ChunkColumns::highest` from it, the early return. See them pass,
+- [x] `Decoration::height`, `ChunkColumns::highest` from it, the early return. See them pass,
   with every existing test.
 
 ### Task 4: Jungle generation (`server`)
