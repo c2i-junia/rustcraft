@@ -40,7 +40,7 @@ pub struct PlayerInputsEvent {
 
 /// Chunks being loaded or generated in the background at most: a few ticks of work for the
 /// server pool, so that the chunks nearest to a player who moved do not wait behind many others.
-const CHUNKS_IN_FLIGHT: usize = 4096;
+const CHUNKS_IN_FLIGHT: usize = 8192;
 
 /// Chunks made on one task of the pool.
 const CHUNKS_PER_TASK: usize = 16;
