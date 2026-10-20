@@ -1133,7 +1133,7 @@ mod tests {
         let pierced = mesh(&world);
         // The front of the wall is no longer one rectangle: it goes round the six faces
         assert!(facing_z(&pierced) > facing_z(&wall));
-        let front_cells: Vec<Vec3> = top_left_corners_facing_z(&pierced);
+        let front_cells: Vec<Vec3> = lowest_corners_facing_z(&pierced);
         for cell in [IVec3::new(5, 5, 4), IVec3::new(6, 7, 4)] {
             assert!(
                 !front_cells.contains(&cell.as_vec3()),
@@ -1143,8 +1143,8 @@ mod tests {
         assert!(front_cells.contains(&Vec3::new(4.0, 4.0, 4.0)));
     }
 
-    /// The lowest corner of each face of `mesh` facing +Z, as a cell position.
-    fn top_left_corners_facing_z(mesh: &Mesh) -> Vec<Vec3> {
+    /// The lowest corner of each cell under a face of `mesh` facing +Z.
+    fn lowest_corners_facing_z(mesh: &Mesh) -> Vec<Vec3> {
         let Some(VertexAttributeValues::Float32x3(positions)) =
             mesh.attribute(Mesh::ATTRIBUTE_POSITION)
         else {
