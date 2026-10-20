@@ -71,6 +71,7 @@ fn biome_climate(biome: BiomeType) -> [f64; 2] {
         BiomeType::Desert | BiomeType::Savanna => [1.0, 0.0],
         BiomeType::Plains => [0.8, 0.4],
         BiomeType::Forest | BiomeType::FlowerPlains => [0.7, 0.8],
+        BiomeType::Jungle => [0.95, 0.9],
         // As the windswept hills and the snowy slopes
         BiomeType::MediumMountain => [0.2, 0.3],
         BiomeType::HighMountainGrass => [0.0, 0.3],

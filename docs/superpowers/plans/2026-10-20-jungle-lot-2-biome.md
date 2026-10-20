@@ -79,13 +79,13 @@ cocoa), "Bush", "New blocks" and "New items" (`Fern`), "Block behaviour" (fern),
 ## Tasks
 
 ### Task 1: Climate (`shared`)
-- [ ] Tests (`terrain.rs`): `the_jungle_lies_only_where_hot_and_wet_on_low_land` (seed 42,
+- [x] Tests (`terrain.rs`): `the_jungle_lies_only_where_hot_and_wet_on_low_land` (seed 42,
   sampled columns: jungle iff temperature > 0.65, humidity > 0.55, below the sea's humidity and
   below 84), `the_jungle_deepens_from_its_border_to_its_heart` (depth 0 outside, small next to a
   non-jungle land column, 1 somewhere inside), `the_jungle_covers_about_six_percent_of_the_world`
   (seed 42, 5–7 % of sampled columns); unit tests of `determine_biome` and `jungle_depth`
   (`biome.rs`). See them fail.
-- [ ] `BiomeType::Jungle`, its `get_biome_data`, the constants, the rule, `jungle_depth`, the
+- [x] `BiomeType::Jungle`, its `get_biome_data`, the constants, the rule, `jungle_depth`, the
   field of `ColumnShape`. See them pass, and the biome width, border and mountain tests too.
 
 ### Task 2: The fern (`shared`, `client`)

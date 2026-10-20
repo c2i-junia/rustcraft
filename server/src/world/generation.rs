@@ -1292,6 +1292,7 @@ mod tests {
                 let shape = ColumnShape {
                     height: 70,
                     biome: BiomeType::Forest,
+                    jungle_depth: 0.0,
                 };
                 let column = Column::new(seed, x, z, shape, 0, 0.0);
                 for (pos, _) in column_blocks(seed, &column) {

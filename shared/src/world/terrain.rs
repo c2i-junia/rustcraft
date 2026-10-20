@@ -1,6 +1,9 @@
 use noise::{NoiseFn, SuperSimplex};
 
-use super::{biome::OCEAN_HUMIDITY, determine_biome, splitmix64, BiomeType};
+use super::{
+    biome::{JUNGLE_HUMIDITY, JUNGLE_TEMPERATURE, OCEAN_HUMIDITY},
+    determine_biome, splitmix64, BiomeType,
+};
 
 /// Water fills every column up to this height.
 pub const SEA_LEVEL: i32 = 62;
@@ -65,6 +68,11 @@ const BED_WAVELENGTH: f64 = 40.0;
 const BED_ROUGHNESS: f64 = 5.0;
 const BED_ROUGHNESS_FROM: f64 = 10.0;
 
+/// The jungle is at its deepest from this temperature and this humidity on: its depth rises
+/// from 0 at its border to 1 there.
+const JUNGLE_FULL_TEMPERATURE: f64 = 0.75;
+const JUNGLE_FULL_HUMIDITY: f64 = 0.62;
+
 /// The mountain biomes are altitude bands: from these heights, whatever the climate.
 pub const MOUNTAIN_FROM: i32 = 84;
 pub const HIGH_MOUNTAIN_FROM: i32 = 100;
@@ -98,11 +106,14 @@ const SALT_LAKES: u64 = 10;
 const SALT_BEDS: u64 = 11;
 
 /// What the noises decide for one world column, before it is filled with blocks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ColumnShape {
     /// Height of the surface block.
     pub height: i32,
     pub biome: BiomeType,
+    /// How far the column lies inside the jungle, in `[0, 1]`: 0 at its border and outside it,
+    /// 1 at its heart.
+    pub jungle_depth: f32,
 }
 
 /// Octaves of SuperSimplex noise, each with twice the frequency and half the weight of the
@@ -169,6 +180,18 @@ fn lerp(from: f64, to: f64, t: f64) -> f64 {
     from + (to - from) * t
 }
 
+/// How far a column of the jungle lies inside it, from its climate: 0 where the temperature or
+/// the humidity is at the jungle's threshold, 1 once both are well past it.
+fn jungle_depth(climate: &Climate) -> f32 {
+    let hot = smoothstep(
+        JUNGLE_TEMPERATURE,
+        JUNGLE_FULL_TEMPERATURE,
+        climate.temperature,
+    );
+    let wet = smoothstep(JUNGLE_HUMIDITY, JUNGLE_FULL_HUMIDITY, climate.humidity);
+    hot.min(wet) as f32
+}
+
 /// Temperature and humidity of a column, both in `[0, 1]`.
 struct Climate {
     temperature: f64,
@@ -221,7 +244,16 @@ impl TerrainNoises {
         } else {
             determine_biome(climate.temperature, climate.humidity)
         };
-        ColumnShape { height, biome }
+        let jungle_depth = if biome == BiomeType::Jungle {
+            jungle_depth(&climate)
+        } else {
+            0.0
+        };
+        ColumnShape {
+            height,
+            biome,
+            jungle_depth,
+        }
     }
 
     fn climate(&self, x: f64, z: f64) -> Climate {
@@ -400,6 +432,86 @@ mod tests {
                 && (LOWEST_SURFACE..=HIGHEST_SURFACE).contains(&highest),
             "{lowest} to {highest}"
         );
+    }
+
+    /// Columns of the seed 42 every `step` blocks over a square of `side` blocks around the
+    /// origin, with their climate and shape.
+    fn sample(step: usize, side: i32) -> Vec<(Climate, ColumnShape)> {
+        let terrain = TerrainNoises::new(42);
+        let mut columns = Vec::new();
+        for z in (-side / 2..side / 2).step_by(step) {
+            for x in (-side / 2..side / 2).step_by(step) {
+                let climate = terrain.climate(x as f64, z as f64);
+                columns.push((climate, terrain.column_shape(x, z)));
+            }
+        }
+        columns
+    }
+
+    #[test]
+    fn the_jungle_lies_only_where_hot_and_wet_on_low_land() {
+        let mut jungle = 0;
+        for (climate, shape) in sample(16, 4096) {
+            let Climate {
+                temperature,
+                humidity,
+            } = climate;
+            let expected = temperature > JUNGLE_TEMPERATURE
+                && humidity > JUNGLE_HUMIDITY
+                && humidity <= OCEAN_HUMIDITY
+                && shape.height < MOUNTAIN_FROM;
+            assert_eq!(
+                shape.biome == BiomeType::Jungle,
+                expected,
+                "{temperature:.3}, {humidity:.3}: {shape:?}"
+            );
+            jungle += expected as usize;
+        }
+        assert!(jungle > 100, "{jungle} jungle columns");
+    }
+
+    #[test]
+    fn the_jungle_covers_about_six_percent_of_the_world() {
+        let columns = sample(32, 6144);
+        let jungle = columns
+            .iter()
+            .filter(|(_, shape)| shape.biome == BiomeType::Jungle)
+            .count();
+        let share = jungle as f64 / columns.len() as f64;
+        assert!((0.05..0.07).contains(&share), "{:.1} %", 100.0 * share);
+    }
+
+    #[test]
+    fn the_jungle_deepens_from_its_border_to_its_heart() {
+        let terrain = TerrainNoises::new(42);
+        let (mut borders, mut deepest) = (0, 0.0f32);
+        for z in (-256..2816).step_by(32) {
+            let shapes: Vec<ColumnShape> =
+                (-1536..1536).map(|x| terrain.column_shape(x, z)).collect();
+            for (x, pair) in (-1536..).zip(shapes.windows(2)) {
+                for (shape, other) in [(pair[0], pair[1]), (pair[1], pair[0])] {
+                    if shape.biome != BiomeType::Jungle {
+                        assert_eq!(shape.jungle_depth, 0.0, "({x}, {z}): {shape:?}");
+                        continue;
+                    }
+                    assert!((0.0..=1.0).contains(&shape.jungle_depth), "{shape:?}");
+                    deepest = deepest.max(shape.jungle_depth);
+                    // the border of the climate, not that of the sea or of the mountains
+                    let land = [
+                        BiomeType::Forest,
+                        BiomeType::Desert,
+                        BiomeType::Plains,
+                        BiomeType::FlowerPlains,
+                    ];
+                    if land.contains(&other.biome) {
+                        borders += 1;
+                        assert!(shape.jungle_depth < 0.1, "({x}, {z}): {shape:?}");
+                    }
+                }
+            }
+        }
+        assert!(borders > 20, "{borders} columns on a border");
+        assert_eq!(deepest, 1.0);
     }
 
     #[test]
