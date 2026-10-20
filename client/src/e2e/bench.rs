@@ -413,6 +413,69 @@ fn scene_stats(h: &mut super::harness::Harness) -> serde_json::Value {
     })
 }
 
+/// A picture of the horizon at the render distance `BENCH_RD` (default 8), for a human to look
+/// at: the player of a new world flies up to y = 150 and looks ahead and a little down, once
+/// every chunk is drawn. Saved with `UI_SNAPSHOTS=1`, as `horizon_rd{distance}`.
+#[test]
+#[ignore = "a picture for a human: run it in release with --ignored and UI_SNAPSHOTS=1"]
+fn snapshot_the_horizon() {
+    use super::harness::{Options, STARTUP};
+    use crate::player::CurrentPlayerMarker;
+    use crate::world::ClientWorldMap;
+
+    let radius: u32 = std::env::var("BENCH_RD")
+        .ok()
+        .and_then(|rd| rd.parse().ok())
+        .unwrap_or(8);
+    let folder = GameFolder::new()
+        .with_file("video.ron", &format!("(render_distance: {radius})"))
+        .with_world("Far");
+    let mut h = super::harness::Harness::start(
+        folder,
+        Options {
+            width: 1920,
+            height: 1080,
+            player_name: Some("PlayerOne".to_string()),
+        },
+    );
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.frames(10);
+    ctrl(&mut h, KeyCode::Enter);
+    h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
+
+    h.key_down(KeyCode::KeyF);
+    h.frames(2);
+    h.key_up(KeyCode::KeyF);
+    h.key_down(KeyCode::Space);
+    h.wait_until("the player up in the air", SERVER, |w| {
+        let mut players = w
+            .try_query_filtered::<&Transform, With<CurrentPlayerMarker>>()
+            .unwrap();
+        players.iter(w).any(|player| player.translation.y > 150.)
+    });
+    h.key_up(KeyCode::Space);
+    h.world_mut().write_message(MouseMotion {
+        delta: Vec2::new(0., 40.),
+    });
+
+    // Drawn once the chunks held did not change for two seconds
+    let mut last = (usize::MAX, Instant::now());
+    while last.1.elapsed().as_secs_f64() < 2. {
+        h.frames(1);
+        let held = h
+            .world()
+            .resource::<ClientWorldMap>()
+            .blocks
+            .chunk_positions()
+            .count();
+        if held != last.0 {
+            last = (held, Instant::now());
+        }
+    }
+    h.frames(30);
+    h.snapshot(&format!("horizon_rd{radius}"));
+}
+
 /// Walks ahead for `seconds`, turning slowly, and times the frames.
 fn walk_for(h: &mut super::harness::Harness, seconds: f64) -> serde_json::Value {
     h.key_down(KeyCode::KeyW);
