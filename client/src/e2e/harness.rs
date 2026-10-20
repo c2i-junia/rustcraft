@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use bevy::{
     asset::{RenderAssetUsages, UnapprovedPathMode},
     audio::{AudioPlugin, GlobalVolume, Volume},
+    camera::RenderTarget,
     gilrs::GilrsPlugin,
     log::LogPlugin,
     prelude::*,
@@ -257,12 +258,15 @@ impl Harness {
         image.texture_descriptor.usage |= TextureUsages::RENDER_ATTACHMENT;
         let target = app.world_mut().resource_mut::<Assets<Image>>().add(image);
 
-        // The UI picks a camera by itself only while the cameras render to a window
+        // The UI picks a camera by itself only while the cameras render to a window. A camera
+        // that renders into an image of its own, as a portal's, is not one of the screen
         app.add_systems(
             PostUpdate,
-            |mut commands: Commands, cameras: Query<Entity, Added<Camera>>| {
-                for camera in &cameras {
-                    commands.entity(camera).insert(IsDefaultUiCamera);
+            |mut commands: Commands, cameras: Query<(Entity, &RenderTarget), Added<Camera>>| {
+                for (camera, target) in &cameras {
+                    if matches!(target, RenderTarget::Window(_)) {
+                        commands.entity(camera).insert(IsDefaultUiCamera);
+                    }
                 }
             },
         );

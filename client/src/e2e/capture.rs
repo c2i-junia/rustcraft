@@ -184,11 +184,21 @@ impl Harness {
         self.frames(1);
     }
 
-    fn set_camera_targets(&mut self, target: RenderTarget) {
+    /// Points the cameras of the screen, those that render to the window or to the screenshot,
+    /// at `target`. A camera that renders into an image of its own, as a portal's, keeps it.
+    pub(super) fn set_camera_targets(&mut self, target: RenderTarget) {
+        let screenshot = self.target.id();
         let world = self.world_mut();
         let mut cameras = world.query::<&mut RenderTarget>();
         for mut camera in cameras.iter_mut(world) {
-            *camera = target.clone();
+            let of_the_screen = match &*camera {
+                RenderTarget::Window(_) => true,
+                RenderTarget::Image(image) => image.handle.id() == screenshot,
+                _ => false,
+            };
+            if of_the_screen {
+                *camera = target.clone();
+            }
         }
     }
 }
