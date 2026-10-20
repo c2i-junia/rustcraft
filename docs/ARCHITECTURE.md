@@ -21,9 +21,15 @@ server stops when its player leaves and saves on request.
 - `messages/`: `ClientToServerMessage` and `ServerToClientMessage`, and the structs they carry.
 - `codec.rs`: a message is encoded with bincode, then compressed with lz4. The decoders bound
   the decompressed size before allocating.
-- `channels.rs`: the renet channels and the channel of each message.
-- `world/`: `Chunk` (a dense cube of `CHUNK_SIZE`³ cells), `ChunkMap` (the loaded chunks and
-  the log of the blocks that changed), blocks, items, mobs and the raycast.
+- `channels.rs`: the renet channels and the channel of each message, how many bytes a
+  connection may send per tick (`AVAILABLE_BYTES_PER_TICK`), and the size of the socket
+  buffers, enlarged by both ends so that a burst of chunks is not dropped by the kernel.
+- `world/`: `Chunk` (a dense cube of `CHUNK_SIZE`³ cells, which its copies share until one
+  of them changes: meshing, sending and saving a chunk copy it for nothing), `ChunkMap` (the
+  loaded chunks and the log of the blocks that changed), blocks, items, mobs and the raycast.
+  A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
+  times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
+  is how RON and the saves of format version 3 hold a chunk.
 - `players/`: `simulate_player_actions`, made of the block interactions (`blocks.rs`) and the
   movement (`movement.rs`).
 - `paths.rs`: where the game keeps its saves and assets on each platform.
@@ -65,7 +71,8 @@ session wins, whatever the order of the systems.
 While the connecting card shows (`GameState::PreGameLoading`), `ConnectWatch` holds the step of
 the session: Starting the world (the local server loads, then accepts the player) or Connecting
 (netcode, then the authentication), then Loading chunks `n / 27`, then Spawning (the textures
-and the local player). From the authentication on, the client reads the server's messages and
+and the local player). The authentication is sent as soon as netcode is connected. From then
+on, the client reads the server's messages and
 counts the chunks within `shared::SPAWN_CHUNK_RADIUS` (1) of the local player's chunk, the
 (2r + 1)³ = 27 chunks nearest to it; it enters the game once all of them are in, so a player
 never spawns over the void. Every render distance reaches that radius and the server sends the
@@ -155,22 +162,30 @@ the wear like any change of the inventory.
 
 ## One server tick
 
-The server runs at 20 ticks per second. `ServerSet` (`server/src/network/dispatcher.rs`)
-orders the systems of `Update`:
+The server runs at 20 ticks per second. Its loop turns every 4 ms (`LOOP_PERIOD`): the
+transport sends and receives on every turn, so that the round trips of a connection do not
+each wait for a tick, and the tick, the systems of `FixedUpdate`, runs on the turns its time
+has come. A request to join brings the next tick forward to the turn it arrives on
+(`take_join_requests_system`), so that the player gets its chunks at once. `ServerSet`
+(`server/src/network/dispatcher.rs`) orders the systems of the tick:
 
 1. **Receive**: connection events, then the messages of each client, one handler per kind of
    message (`network/handlers.rs`). A client that is not authenticated may only ask to be.
    A chat message that starts with `/` is a command (`network/commands.rs`): the server runs
    it and answers its author alone. Their syntax is in `shared/src/commands.rs`, which the
    client completes them from.
-2. **Simulate**: the inputs are applied to the world. Chunks are generated within the render
-   distance of the players before the inputs, and next to their chunk after each input. Then the water flows (`world/flow.rs`): every 5 ticks, the
+2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the render
+   distance of the players before the inputs, at most 1024 a tick, made in parallel on the
+   compute pool, and next to their chunk after each input. A chunk is read from its file in
+   the world's folder the first time a player needs it, else generated: opening a world reads
+   no chunk. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
    (`shared/src/world/liquid.rs`).
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
 
    Each client gets the chunks within the render distance of its own player, along the axis
-   where they are farthest apart (`chunk_distance`), nearest first and at most 10 per tick.
+   where they are farthest apart (`chunk_distance`), nearest first and at most 512 per tick,
+   in messages of 32 chunks encoded in parallel; the first one carries the mobs.
    The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (8), in the Video
    tab of the settings or with the O and P keys (`RenderDistance`, saved in `video.ron`): the
    authentication request carries it and `SetRenderDistance` changes it. The answer to the
@@ -186,10 +201,10 @@ orders the systems of `Update`:
    server's: a client that unloaded on its own could drop a chunk the server believes sent,
    and never get it back. `ChunkUnloads`, `BlockUpdates` and `WorldUpdate` share one ordered
    channel and go in that order, so that no update is sent for a chunk being unloaded.
-4. **Save**: on request or every 60 seconds, the metadata and the changed chunks are handed
-   to the writer thread.
+4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
+   are handed to the writer thread.
 
-Mobs move in `FixedUpdate`, which runs before `Update`.
+The mobs and the dropped items move first, before the inputs of the tick are read.
 
 ## One client frame
 
@@ -202,9 +217,11 @@ Mobs move in `FixedUpdate`, which runs before `Update`.
 4. **Reconciliation**: the states received from the server are applied.
 5. **Camera**: the camera is placed on the player.
 6. **Meshing** (in `PostUpdate`): the chunks whose blocks changed get a new mesh, built on the
-   task pool.
+   async compute pool, which has up to 8 threads (`app::task_pool_plugin`).
 
-The network is polled in `FixedPreUpdate` and the inputs are uploaded in `FixedUpdate`.
+The network is polled in `PreUpdate`, every frame, and the inputs are uploaded in
+`FixedUpdate`. A message of chunks of 4 KiB or more is decoded on the compute pool, and the
+messages are applied in the order they came (`DecodingChunkMessages`).
 
 The client has one plugin per domain, registered by `game_plugin`: `camera`, `input`, `mob`,
 `network`, `player`, `ui::hud` and `world`. The menus have their own plugin
@@ -322,16 +339,18 @@ A world is a folder under `saves/`:
 | `world.ron` | Name, seed, time, mobs and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded like a network message | the writer thread |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
-| `players/<id>.ron` | Position, orientation and inventory of one player | the tick thread |
+| `players/<id>.ron` | Position, orientation and inventory of one player | the writer thread |
 
 Every file is written to a temporary file and renamed, so a crash never leaves a half-written
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out
-of the tick; only the changed chunks are written, with the file of their chests, which is
+of the tick. It writes the files of a save aside on 8 threads, syncs them all at once (one
+`syncfs` on Linux, where syncing each file costs milliseconds), then puts them in place, the
+metadata first. Only the changed chunks are written, with the file of their chests, which is
 removed once they hold none (`world/container_files.rs`). Worlds saved by older versions are converted
 on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
 `chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,
 `world/load_from_file.rs`). Format version 2 differs from 3 only by having no `containers/`,
-and loads as it is.
+and 3 from 4 only by writing a chunk cell by cell: both load as they are.
 
 The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
 `world.ron` when a world is created, so that the world is listed at once; a rename renames the
