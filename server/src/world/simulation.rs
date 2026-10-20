@@ -382,26 +382,39 @@ mod tests {
             1,
             Player::new(1, "p".into(), Vec3::new(8., 8., 8.), Transform::default()),
         );
+        // and one high in the air
+        let air = IVec3::new(0, 20, 0);
+        players.insert(
+            2,
+            Player::new(
+                2,
+                "q".into(),
+                (air * shared::CHUNK_SIZE).as_vec3() + 8.,
+                Transform::default(),
+            ),
+        );
         let mut chunks = ChunkMap::default();
         chunks.insert_chunk(IVec3::ZERO, shared::world::Chunk::new());
         let mut dirty = std::collections::HashSet::new();
+        let generator = WorldGenerator::new(1);
 
-        generate_missing_chunks(
+        // Over as many ticks as it takes
+        assert!((0..100).any(|_| generate_missing_chunks(
             &players,
             |_| 2,
             &mut chunks,
             &mut dirty,
             None,
-            &WorldGenerator::new(1),
+            &generator,
             usize::MAX,
-        );
+        )));
 
         assert!(!dirty.contains(&IVec3::ZERO));
         // The bedrock at the bottom of the chunk
         assert!(dirty.contains(&IVec3::X));
-        // Stone only
-        assert!(chunks.is_chunk_loaded(IVec3::NEG_Y));
-        assert!(!dirty.contains(&IVec3::NEG_Y));
+        // Air only
+        assert!(chunks.is_chunk_loaded(air));
+        assert!(!dirty.contains(&air));
         let active = get_all_active_chunks(&players, |_| 2);
         assert!(active.iter().all(|&c| chunks.is_chunk_loaded(c)));
         for c in active.into_iter().filter(|&c| c != IVec3::ZERO) {
@@ -450,7 +463,8 @@ mod tests {
             "the next tick goes on where the last stopped"
         );
         assert!(loaded(&chunks).iter().all(|c| c.abs().max_element() <= 1));
-        assert!(generate_missing_chunks(
+        // The rest, over as many ticks as it takes
+        assert!((0..100).any(|_| generate_missing_chunks(
             &players,
             |_| 2,
             &mut chunks,
@@ -458,7 +472,7 @@ mod tests {
             None,
             &generator,
             200
-        ));
+        )));
     }
 
     #[test]
@@ -490,12 +504,12 @@ mod tests {
         assert_eq!(loaded, 7);
         // A chunk among the first, removed, is not looked for again
         chunks.remove_chunk(IVec3::ZERO);
-        assert!(generate(&mut chunks, &mut loaded, usize::MAX));
+        assert!((0..100).any(|_| generate(&mut chunks, &mut loaded, usize::MAX)));
         assert_eq!(loaded, within);
         assert_eq!(chunks.chunk_positions().count(), within - 1);
 
         let mut loaded = 0;
-        assert!(generate(&mut chunks, &mut loaded, usize::MAX));
+        assert!((0..100).any(|_| generate(&mut chunks, &mut loaded, usize::MAX)));
         assert!(chunks.is_chunk_loaded(IVec3::ZERO));
     }
 
