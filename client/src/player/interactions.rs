@@ -70,6 +70,8 @@ pub fn handle_block_interactions(
                 frame_inputs.0.inputs.insert(action);
             }
         }
+        // The server simulates every input, and so does the prediction: the buttons the
+        // simulation remembers, which the portal gun shoots on the press of, stay the same
         simulate_player_block_interactions(
             &mut player,
             &mut world_map.blocks,

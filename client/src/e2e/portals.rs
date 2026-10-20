@@ -1,5 +1,6 @@
-//! The portals, seen in a world. Placing them comes later: here the portals and their walls are
-//! put into the client's map, as décor the server knows nothing of.
+//! The portals, in a world. The view through them is tested with portals and walls put into
+//! the client's map, as décor the server knows nothing of; the portal gun places them with the
+//! server.
 
 use std::time::Instant;
 
@@ -8,13 +9,17 @@ use image::RgbImage;
 use shared::world::{BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor};
 use shared::CHUNK_SIZE;
 
-use super::game::enter_world;
+use super::game::{enter_world, hold_click, slot};
 use super::harness::{Harness, SERVER};
+use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::player::CurrentPlayerMarker;
 use crate::portal::PortalCamera;
+use crate::ui::hud::hotbar::Hotbar;
 use crate::world::ClientWorldMap;
+use shared::players::Player;
+use shared::world::{raycast, ItemId};
 
 /// The scene, in blocks from the cell of the player's feet.
 struct Scene {
@@ -288,4 +293,176 @@ fn bench_portal_frame_time() {
             samples[samples.len() * 95 / 100]
         );
     }
+}
+
+/// A mod with two commands: `/walls` builds two stone walls 4 wide and 4 high, from 10 blocks
+/// above the centre of its author, 8 blocks north of it facing south and 8 blocks south facing
+/// north; `/plug` puts a block in front of the north wall, 11 blocks up.
+const WALLS_MOD: &str = r#"
+    local rc = rustcraft
+    rc.register_command("walls", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        for x = -2, 1 do
+            for y = 10, 13 do
+                rc.set_block({ x = p.x + x, y = p.y + y, z = p.z - 8 }, "stone")
+                rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + 8 }, "stone")
+            end
+        end
+        return "Walls built"
+    end)
+    rc.register_command("plug", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        rc.set_block({ x = p.x, y = p.y + 11, z = p.z - 7 }, "stone")
+        return "Plugged"
+    end)
+"#;
+
+impl Harness {
+    /// Sends `command` from the chat.
+    fn command(&mut self, command: &str) {
+        self.press(KeyCode::KeyT);
+        self.type_text(command);
+        self.press(KeyCode::Enter);
+    }
+
+    /// Turns the player's camera toward `point`, on a face of the block `cell`, and waits for it
+    /// to aim at that block.
+    #[track_caller]
+    fn aim_at(&mut self, point: Vec3, cell: IVec3) {
+        let world = self.world_mut();
+        let eyes = world
+            .query_filtered::<&Transform, With<CameraController>>()
+            .single(world)
+            .unwrap()
+            .translation;
+        let direction = (point - eyes).normalize();
+        let mut controller = world
+            .query::<&mut CameraController>()
+            .single_mut(world)
+            .unwrap();
+        // The camera turns by the yaw, then by the pitch, which looks down when positive
+        controller.angle_x = (-direction.x).atan2(-direction.z);
+        controller.angle_y = -direction.y.asin();
+        self.wait_until("the aim", SERVER, |w| {
+            let mut players = w
+                .try_query_filtered::<&Transform, With<CurrentPlayerMarker>>()
+                .unwrap();
+            let mut cameras = w
+                .try_query_filtered::<&Transform, With<CameraController>>()
+                .unwrap();
+            let (Ok(player), Ok(camera)) = (players.single(w), cameras.single(w)) else {
+                return false;
+            };
+            let blocks = &w.resource::<ClientWorldMap>().blocks;
+            raycast(blocks, camera, &player.translation, Default::default())
+                .is_some_and(|target| target.position == cell)
+        });
+    }
+}
+
+/// The portal of the local player of colour `color`, as the client knows it.
+fn own_portal(w: &World, color: PortalColor) -> Option<Portal> {
+    let mut players = w
+        .try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
+        .unwrap();
+    let id = players.single(w).ok()?.id;
+    let portals = w.resource::<ClientWorldMap>().blocks.portals();
+    portals.get(id, color).copied()
+}
+
+/// How many portal cameras there are: one per open portal.
+fn portal_cameras(w: &mut World) -> usize {
+    w.query::<&PortalCamera>().iter(w).count()
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_portal_gun_places_both_portals_and_a_blocked_one_goes() {
+    let folder = GameFolder::new()
+        .with_world("Gun")
+        .with_items("Gun", "Tester", &[(0, ItemId::PortalGun, 1)])
+        .with_mod("walls", WALLS_MOD);
+    let mut h = enter_world(folder, "Gun");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    // A new player is put on the ground from above: it stands once just above the ground
+    h.wait_until("the player on the ground", SERVER, |w| {
+        let mut players = w
+            .try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
+            .unwrap();
+        let blocks = &w.resource::<ClientWorldMap>().blocks;
+        players.single(w).is_ok_and(|player| {
+            let ground = blocks.get_height_ground(player.position);
+            player.on_ground && ground > 0 && player.position.y < ground as f32 + 2.5
+        })
+    });
+    // Settled
+    h.frames(30);
+    let world = h.world_mut();
+    let centre = world
+        .query_filtered::<&Player, With<CurrentPlayerMarker>>()
+        .single(world)
+        .unwrap()
+        .position
+        .floor()
+        .as_ivec3();
+    h.command("/walls");
+    let north = centre + IVec3::new(0, 11, -8);
+    let south = centre + IVec3::new(0, 11, 8);
+    h.wait_until("the walls", SERVER, |w| {
+        let blocks = &w.resource::<ClientWorldMap>().blocks;
+        [north, south]
+            .iter()
+            .all(|cell| blocks.get_block(*cell).is_some())
+    });
+
+    // A left click on the north wall places the blue portal there, and the server agrees
+    h.aim_at(north.as_vec3() + Vec3::new(0.5, 0.5, 1.0), north);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.wait_until("the blue portal", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_some()
+    });
+    let blue = own_portal(h.world(), PortalColor::Blue).unwrap();
+    assert_eq!(blue.face, FaceDirection::PlusZ);
+    assert!(blue.cells().any(|cell| cell == north));
+    // Alone, it is closed
+    h.frames(30);
+    assert_eq!(own_portal(h.world(), PortalColor::Blue), Some(blue));
+    assert_eq!(portal_cameras(h.world_mut()), 0);
+
+    // A right click on the south wall places the orange one: both open
+    h.aim_at(south.as_vec3() + Vec3::new(0.5, 0.5, 0.0), south);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.wait_until("the orange portal", SERVER, |w| {
+        own_portal(w, PortalColor::Orange).is_some()
+    });
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    assert_eq!(orange.face, FaceDirection::MinusZ);
+    assert!(orange.cells().any(|cell| cell == south));
+    h.frames(30);
+    assert_eq!(own_portal(h.world(), PortalColor::Blue), Some(blue));
+    assert_eq!(own_portal(h.world(), PortalColor::Orange), Some(orange));
+    assert_eq!(portal_cameras(h.world_mut()), 2);
+    // Neither click broke or placed a block
+    let blocks = &h.world().resource::<ClientWorldMap>().blocks;
+    assert!(blue
+        .cells()
+        .chain(orange.cells())
+        .all(|cell| blocks.get_block(cell).is_some()));
+    assert!(blue
+        .front_cells()
+        .chain(orange.front_cells())
+        .all(|cell| blocks.get_block(cell).is_none()));
+    assert_eq!(slot(h.world(), 0), Some((ItemId::PortalGun, 1)));
+
+    // A block put in front of the blue portal by the server takes it away, which closes the
+    // orange one
+    h.command("/plug");
+    h.wait_until("the blue portal gone", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_none()
+    });
+    h.frames(10);
+    assert_eq!(own_portal(h.world(), PortalColor::Orange), Some(orange));
+    assert_eq!(portal_cameras(h.world_mut()), 0);
 }

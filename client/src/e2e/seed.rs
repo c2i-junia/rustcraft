@@ -166,6 +166,14 @@ impl GameFolder {
         self
     }
 
+    /// Adds the server mod `name`, whose `init.luau` is `source`.
+    pub fn with_mod(self, name: &str, source: &str) -> Self {
+        let folder = self.path().join("mods").join(name);
+        fs::create_dir_all(&folder).expect("a mod folder");
+        fs::write(folder.join("init.luau"), source).expect("an init.luau");
+        self
+    }
+
     /// Saves the server list, as `(name, ip)` pairs.
     pub fn with_servers(self, servers: &[(&str, &str)]) -> Self {
         let list: Vec<ServerItem> = servers
