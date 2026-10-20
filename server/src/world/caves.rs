@@ -162,9 +162,10 @@ impl Caves {
             let level = pos.y as f64 + LEVEL_SHIFT * self.level_shift.get(pos);
             FLOORS_SCALE * (std::f64::consts::TAU * level / LEVEL_SPACING).sin()
         });
-        let walls = sample(&self.walls);
-        let tunnel_size = sample(&self.tunnel_size);
-        let chambers = deep.then(|| sample(&self.chambers));
+        let floors = AlongZ::new(&floors);
+        let walls = AlongZ::new(&sample(&self.walls));
+        let tunnel_size = AlongZ::new(&sample(&self.tunnel_size));
+        let chambers = deep.then(|| AlongZ::new(&sample(&self.chambers)));
 
         for y in 0..CHUNK_SIZE {
             let world_y = chunk_origin.y + y;
@@ -175,17 +176,24 @@ impl Caves {
                 + (1.0 - CHAMBER_FROM)
                     * ((world_y - (CHAMBERS_BELOW - CHAMBER_FADE)).max(0) as f64
                         / CHAMBER_FADE as f64);
+            let floors = floors.layer(y);
+            let walls = walls.layer(y);
+            let tunnel_size = tunnel_size.layer(y);
+            let chambers = chambers
+                .as_ref()
+                .filter(|_| world_y < CHAMBERS_BELOW)
+                .map(|c| c.layer(y));
             for z in 0..CHUNK_SIZE {
                 for x in 0..CHUNK_SIZE {
                     let local = IVec3::new(x, y, z);
-                    let floor = interpolate(&floors, local);
-                    let wall = interpolate(&walls, local);
-                    let size = smoothstep(-0.4, 0.5, interpolate(&tunnel_size, local));
+                    let floor = along_x(&floors, x, z);
+                    let wall = along_x(&walls, x, z);
+                    let size = smoothstep(-0.4, 0.5, along_x(&tunnel_size, x, z));
                     let width = TUNNEL_WIDTH * (TUNNEL_SHUT + (TUNNEL_WIDE - TUNNEL_SHUT) * size);
                     let tunnel = floor * floor + wall * wall < width;
-                    let chamber = chambers.as_ref().is_some_and(|c| {
-                        world_y < CHAMBERS_BELOW && interpolate(c, local) > chamber_from
-                    });
+                    let chamber = chambers
+                        .as_ref()
+                        .is_some_and(|c| along_x(c, x, z) > chamber_from);
                     if tunnel || chamber {
                         mask.insert(local);
                     }
@@ -202,7 +210,61 @@ fn smoothstep(edge0: f64, edge1: f64, value: f64) -> f64 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Noise samples taken every `STEP` blocks, `Samples`.
+type Samples = [[[f64; SAMPLES]; SAMPLES]; SAMPLES];
+
+/// How far a coordinate is between two samples, from 0 to 1.
+fn between_samples(v: i32) -> f64 {
+    (v % STEP) as f64 / STEP as f64
+}
+
+fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t
+}
+
+/// Noise samples interpolated along z, for each sample along x and y and each z of a chunk:
+/// `interpolate` in steps, along z for the whole chunk, then along y for each layer, then along
+/// x for each cell, each the same as it would be in one go.
+struct AlongZ([[[f64; CHUNK_SIZE as usize]; SAMPLES]; SAMPLES]);
+
+impl AlongZ {
+    fn new(samples: &Samples) -> Self {
+        Self(std::array::from_fn(|i| {
+            std::array::from_fn(|j| {
+                std::array::from_fn(|z| {
+                    let k = z / STEP as usize;
+                    lerp(
+                        samples[i][j][k],
+                        samples[i][j][k + 1],
+                        between_samples(z as i32),
+                    )
+                })
+            })
+        }))
+    }
+
+    /// The samples interpolated along z and y in the layer `y`, for each sample along x.
+    fn layer(&self, y: i32) -> [[f64; CHUNK_SIZE as usize]; SAMPLES] {
+        let j = (y / STEP) as usize;
+        let ty = between_samples(y);
+        std::array::from_fn(|i| {
+            std::array::from_fn(|z| lerp(self.0[i][j][z], self.0[i][j + 1][z], ty))
+        })
+    }
+}
+
+/// The value at `x` and `z` of a layer of `AlongZ::layer`.
+fn along_x(layer: &[[f64; CHUNK_SIZE as usize]; SAMPLES], x: i32, z: i32) -> f64 {
+    let i = (x / STEP) as usize;
+    lerp(
+        layer[i][z as usize],
+        layer[i + 1][z as usize],
+        between_samples(x),
+    )
+}
+
 /// The value at `local` of noise samples taken every `STEP` blocks, trilinearly interpolated.
+#[cfg(test)]
 fn interpolate(samples: &[[[f64; SAMPLES]; SAMPLES]; SAMPLES], local: IVec3) -> f64 {
     let (i, j, k) = (
         (local.x / STEP) as usize,
@@ -220,6 +282,27 @@ fn interpolate(samples: &[[[f64; SAMPLES]; SAMPLES]; SAMPLES], local: IVec3) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_samples_interpolated_in_steps_are_those_interpolated_at_once() {
+        let samples: Samples = std::array::from_fn(|i| {
+            std::array::from_fn(|j| {
+                std::array::from_fn(|k| {
+                    (splitmix64((i * 100 + j * 10 + k) as u64) % 1000) as f64 / 7.0 - 70.0
+                })
+            })
+        });
+        let along_z = AlongZ::new(&samples);
+        for y in 0..CHUNK_SIZE {
+            let layer = along_z.layer(y);
+            for z in 0..CHUNK_SIZE {
+                for x in 0..CHUNK_SIZE {
+                    let at_once = interpolate(&samples, IVec3::new(x, y, z));
+                    assert_eq!(along_x(&layer, x, z).to_bits(), at_once.to_bits());
+                }
+            }
+        }
+    }
 
     fn carved(caves: &Caves, chunk_pos: IVec3) -> Vec<IVec3> {
         let mask = caves.carve(chunk_pos * CHUNK_SIZE);
