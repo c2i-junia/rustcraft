@@ -321,15 +321,16 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    A chat message that starts with `/` is a command (`network/commands.rs`): the server runs
    it and answers its author alone. Their syntax is in `shared/src/commands.rs`, which the
    client completes them from.
-2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the render
-   distance of the players before the inputs, in the background (`ChunkLoader`): a tick
+2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the reach of
+   the players (`ChunkReach`, see the broadcast: their render distance, then around the twins
+   of the portals they see) before the inputs, in the background (`ChunkLoader`): a tick
    inserts the chunks made since the last one and asks for the missing ones, nearest first,
    at most `CHUNKS_IN_FLIGHT` (8192) at once, which the server's own pool, of up to 16
    threads (`world/pool.rs`), reads or generates between the ticks. A chunk next to an input
    is made at once, on the tick. The generator computes the columns of the terrain once per
    column of chunks (`ColumnsCache`) and samples the noises of the caves on a coarse grid it
-   interpolates (`world/caves.rs`). While no player changes chunk, the chunks around them are not looked at again
-   (`LoadedAround`). A chunk is read from its file in
+   interpolates (`world/caves.rs`). While no player changes chunk and no portal changes, the
+   chunks around them are not looked at again (`LoadedAround`). A chunk is read from its file in
    the world's folder the first time a player needs it, else generated: opening a world reads
    no chunk. Then every furnace of the loaded chunks ticks once (`world/furnaces.rs`), one in a
    chunk that is not loaded waiting, as in Minecraft; a burning furnace keeps its chunk to be
@@ -370,10 +371,21 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    server's: a client that unloaded on its own could drop a chunk the server believes sent,
    and never get it back. `ChunkUnloads`, `BlockUpdates` and `WorldUpdate` share one ordered
    channel and go in that order, so that no update is sent for a chunk being unloaded.
+
+   A client also gets the chunks within `PORTAL_VIEW_RADIUS` (4) of the twin of every open
+   portal within its render distance, which the portal shows, after its own: one rule in
+   `shared/src/world/reach.rs` (`ChunkReach`) says what a client is sent and keeps, and the
+   server unloads, loads and forgets chunks by it. The chunk of a portal is that of the cells
+   it opens onto. They take at most a quarter of the 1024 chunks of a tick, the player's own
+   the rest, so that neither starves, and come after the player's own on the wire. With the
+   margin, they are kept while the portal is within the render distance plus the margin, and
+   unloaded once it is beyond, closed or moved: the reach, portals included, is the key of
+   `SentChunks::progress`.
 4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
    are handed to the writer thread. A generated chunk is saved too, but not one of a single
    kind of cell, which is generated again at once. Then, every 5 seconds, the chunks more than
-   `KEPT_MARGIN` beyond the reach of every player are forgotten (`world/unload.rs`), but those
+   `KEPT_MARGIN` beyond the reach of every player (`ChunkReach::keeps`) are forgotten
+   (`world/unload.rs`), but those
    not saved yet, and none while the writer has saves to write: their file could be read back
    before it is written. A mob over chunks that are not loaded stays where it is.
 
@@ -427,7 +439,12 @@ view on layer 1 and its colour on layer 2, so a portal seen through another show
 lone portal shows its colour. The colours and the rims are not drawn for a camera behind their
 portal's plane, from where the front of a portal cannot be seen: a portal camera always stands
 behind the twin, inside its box when it is within 0.12 block of its plane, where it keeps the
-plain projection. The aimed block is not outlined on the face of an open portal. The chunks are
+plain projection. Its fog ends `PORTAL_VIEW_RADIUS` chunks behind the twin, where the chunks
+sent around it end, but never farther than the player's own fog, which under water it keeps
+(`portal_fog`). The sun and the moon, parented to the local player, are drawn a million blocks
+away (`CELESTIAL_DISTANCE`), unfogged and never frustum-culled, so that every camera, a portal
+camera far from the player too, sees them in the same direction; under water they are hidden.
+The aimed block is not outlined on the face of an open portal. The chunks are
 culled on the GPU only, and Bevy 0.19 hands such a
 mesh only to the views there are when it becomes visible: when a portal camera is turned on,
 the chunks are culled on the CPU for a frame (`show_chunks_to_new_views`).
