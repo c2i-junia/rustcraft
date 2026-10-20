@@ -140,13 +140,21 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.hover(&catalog_slot("Wooden Pickaxe"));
     h.wait_for(&L::text("Tools · Tool").within(tooltip()), SCREEN);
 
-    // A click on an item focuses it, and takes nothing
-    h.click(&catalog_slot("Oak Log"));
-    h.frames(10);
+    // In Survival, a click on an item opens its recipes, and takes nothing; Escape goes back to
+    // it
     let oak_log = h.get(&catalog_slot("Oak Log"));
-    assert_eq!(h.world().resource::<InputFocus>().get(), Some(oak_log));
+    h.click(&catalog_slot("Oak Log"));
+    h.wait_for(
+        &L::text("Oak Log is gathered, not crafted. It goes into 1 recipe: see Uses."),
+        SCREEN,
+    );
+    h.frames(10);
     assert_eq!(slot(h.world(), 0), Some((ItemId::Dirt, 5)));
     assert_eq!(floating(h.world()), None);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(h.is_visible(&L::text("33 / 33")));
+    assert_eq!(h.world().resource::<InputFocus>().get(), Some(oak_log));
 
     // The search stays while the inventory is closed
     h.click(&search_field());

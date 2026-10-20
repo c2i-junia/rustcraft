@@ -2,7 +2,9 @@
 //! category chips and a scrolling grid. Docked right while 4 columns fit beside the inventory, a
 //! drawer over the right edge below.
 //!
-//! Nothing comes out of it yet: a click on an item only focuses it.
+//! It is also the recipe book: the recipes or the uses of an item replace the catalog in the same
+//! panel, from a click on an item in Survival or from R / U over any item slot. Nothing comes out
+//! of it yet: in Creative a click on an item only focuses it.
 
 use bevy::prelude::*;
 use shared::world::{ItemCategory, ItemId};
@@ -18,9 +20,11 @@ pub(crate) mod goldens;
 pub mod layout;
 pub mod recipes;
 mod setup;
+mod view;
 
 pub use display::*;
 pub use setup::*;
+pub use view::*;
 
 /// The title of the panel.
 pub const ITEM_BROWSER_TITLE: &str = "Items";
@@ -46,8 +50,6 @@ pub struct ItemBrowserState {
 }
 
 /// Which recipes of an item the view shows: those making it, or those it goes into.
-// First used by the recipe view (Task 4)
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RecipeTab {
     Recipes,
@@ -61,8 +63,6 @@ pub struct ItemView {
     pub tab: RecipeTab,
 }
 
-// First used by the recipe view (Task 4)
-#[allow(dead_code)]
 impl ItemBrowserState {
     /// Shows `view`, the open one going on the history, and opens the drawer it is in.
     pub fn open(&mut self, view: ItemView, compact: bool) {
@@ -140,6 +140,73 @@ pub struct CraftableDot;
 #[derive(Component)]
 pub struct ModeFooter(pub bool);
 
+/// The title of the panel: `Items`, `Recipes` or `Uses`.
+#[derive(Component)]
+pub struct BrowserTitle;
+
+/// A part of the panel showing the catalog, hidden while a view shows: the search, the chips and
+/// the grid.
+#[derive(Component)]
+pub struct CatalogPart;
+
+/// The recipe view, shown instead of the catalog.
+#[derive(Component)]
+pub struct RecipePanel;
+
+/// The button going back in the history of the view.
+#[derive(Component)]
+pub struct BackButton;
+
+/// The icon of the item of the view.
+#[derive(Component)]
+pub struct ViewedItem;
+
+/// The name of the item of the view.
+#[derive(Component)]
+pub struct ViewedItemName;
+
+/// The category of the item of the view.
+#[derive(Component)]
+pub struct ViewedItemCategory;
+
+/// A chip showing the recipes or the uses of the item of the view.
+#[derive(Component)]
+pub struct RecipeTabChip(pub RecipeTab);
+
+/// The column of the cards of the view, and the view they were built for.
+#[derive(Component)]
+pub struct RecipeCards(pub Option<ItemView>);
+
+/// The card of a recipe.
+#[derive(Component)]
+pub struct RecipeCard;
+
+/// A slot of a card: an ingredient of its recipe, or its output, `count` of it.
+#[derive(Component)]
+pub struct RecipeSlot {
+    pub item: ItemId,
+    pub count: u32,
+}
+
+/// A focusable part of the view, which takes Tab only while the view shows.
+#[derive(Component)]
+pub struct RecipeStop;
+
+/// The tint over an ingredient of a recipe, shown while the player lacks that item.
+#[derive(Component)]
+pub struct MissingTint {
+    pub recipe: u16,
+    pub item: ItemId,
+}
+
+/// Under a card: where its recipe is made, or why it cannot be made now.
+#[derive(Component)]
+pub struct RecipeNote(pub u16);
+
+/// The button that will fill the crafting grid with a recipe, disabled until the server can.
+#[derive(Component)]
+pub struct FillGridButton;
+
 /// Whether the local player is in Survival, and the items it can craft now: some recipe of
 /// theirs has its ingredients in the inventory and the crafting grid, whatever the grid size.
 /// Nothing is craftable in Creative, where nothing is shown as such.
@@ -162,7 +229,7 @@ pub fn item_browser_plugin(app: &mut App) {
             (
                 read_search,
                 layout_item_browser,
-                show_catalog_icons,
+                show_item_icons,
                 update_craftable_now,
                 filter_catalog.run_if(
                     resource_changed::<ItemBrowserState>
@@ -171,7 +238,16 @@ pub fn item_browser_plugin(app: &mut App) {
                 ),
                 (mark_craftable_items, show_mode_footer).run_if(
                     resource_changed::<CraftableNow>
-                        .or_else(any_match_filter::<Added<CatalogSlot>>),
+                        .or_else(any_match_filter::<Added<CatalogSlot>>)
+                        .or_else(any_match_filter::<Added<RecipeSlot>>),
+                ),
+                show_view.run_if(
+                    resource_changed::<ItemBrowserState>
+                        .or_else(any_match_filter::<Added<RecipePanel>>),
+                ),
+                style_recipe_cards.run_if(
+                    resource_changed::<shared::players::Inventory>
+                        .or_else(any_match_filter::<Added<RecipeNote>>),
                 ),
                 show_item_browser,
                 style_chips,
@@ -182,14 +258,16 @@ pub fn item_browser_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (focus_search, drawer_keys)
+            (focus_search, drawer_keys, view_keys, click_items)
                 .chain()
                 .after(GameSet::UiMode)
                 .after(toggle_pause_menu)
                 .before(show_item_browser)
                 .run_if(in_state(GameState::Game)),
         )
-        .add_observer(scroll_focused_into_view);
+        .add_observer(scroll_focused_into_view)
+        .add_observer(go_back)
+        .add_observer(choose_tab);
 }
 
 #[cfg(test)]

@@ -1,9 +1,6 @@
 //! What the recipe view says: its title, its back button, its tabs, the station of a recipe or why
 //! it cannot be made now, and what it says when there is no recipe to show.
 
-// First used by the recipe view (Task 4)
-#![allow(dead_code)]
-
 use shared::players::Inventory;
 use shared::world::{craftable, missing, recipes_for, uses_of, ItemId, RecipeView};
 
@@ -36,12 +33,13 @@ pub fn tab_label(tab: RecipeTab, count: usize) -> String {
     format!("{} {count}", view_title(tab))
 }
 
-/// Where `recipe` is made: in the inventory's 2×2 grid when it fits, else on a crafting table.
+/// Where `recipe` is made: in the inventory's 2x2 grid when it fits, else on a crafting table.
+/// An `x`, not a `×`: the game font has no `×`.
 pub fn station_label(recipe: &RecipeView) -> &'static str {
     if recipe.fits(2) {
-        "Inventory 2×2"
+        "Inventory 2x2"
     } else {
-        "Crafting Table 3×3"
+        "Crafting Table 3x3"
     }
 }
 
@@ -124,8 +122,8 @@ mod tests {
         assert_eq!(tab_label(RecipeTab::Uses, 10), "Uses 10");
         let stick = recipes_for(ItemId::Stick).next().unwrap();
         let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
-        assert_eq!(station_label(&stick), "Inventory 2×2");
-        assert_eq!(station_label(&pickaxe), "Crafting Table 3×3");
+        assert_eq!(station_label(&stick), "Inventory 2x2");
+        assert_eq!(station_label(&pickaxe), "Crafting Table 3x3");
         assert_eq!(CRAFTABLE_NOTE, "You have the ingredients");
         assert_eq!(ITEM_KEYS_HINT, "R Recipes  U Uses");
     }

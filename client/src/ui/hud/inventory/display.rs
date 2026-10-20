@@ -334,12 +334,26 @@ pub fn display_inventory_system(
 
 /// What the cell of `slot` shows: a slot of the open chest shows what the chest holds, once the
 /// server sent it.
-fn stack_in(slot: u32, inventory: &Inventory, world_map: &ClientWorldMap) -> Option<ItemStack> {
+pub(crate) fn stack_in(
+    slot: u32,
+    inventory: &Inventory,
+    world_map: &ClientWorldMap,
+) -> Option<ItemStack> {
     if !chest_slots().contains(&slot) {
         return inventory.inner.get(&slot).copied();
     }
     let chest = world_map.blocks.container(inventory.open_chest?)?;
     chest.slots[(slot - CHEST_SLOT_START) as usize]
+}
+
+/// The width and height of the crafting grid in use: 3 at a crafting table, 2 in the inventory
+/// alone and beside a chest. The server checks that the table is still within reach; the panel
+/// follows its updates.
+pub fn grid_in_use(inventory: &Inventory) -> u32 {
+    match (inventory.open_chest, inventory.open_table) {
+        (None, Some(_)) => CRAFTING_GRID_SIZE,
+        _ => INVENTORY_GRID_SIZE,
+    }
 }
 
 /// Draws the panel, a raised bevel on its background, while the inventory is open: closed, only
@@ -393,10 +407,11 @@ pub fn display_crafting_system(
 ) {
     // The server checks that the table or the chest is still within reach; the dialog follows
     // its updates
-    let (size, name) = match (inventory.open_chest, inventory.open_table) {
-        (Some(_), _) => (INVENTORY_GRID_SIZE, CHEST_TITLE),
-        (None, Some(_)) => (CRAFTING_GRID_SIZE, CRAFTING_TABLE_TITLE),
-        (None, None) => (INVENTORY_GRID_SIZE, INVENTORY_TITLE),
+    let size = grid_in_use(&inventory);
+    let name = match (inventory.open_chest, inventory.open_table) {
+        (Some(_), _) => CHEST_TITLE,
+        (None, Some(_)) => CRAFTING_TABLE_TITLE,
+        (None, None) => INVENTORY_TITLE,
     };
     if let Ok(mut title) = title.single_mut() {
         if title.0 != name {
@@ -427,7 +442,7 @@ pub fn display_crafting_system(
         }
     }
 
-    let made = craft_result(&inventory, size);
+    let made = craft_result(&inventory, grid_in_use(&inventory));
     let is_open = inventory_root
         .single()
         .is_ok_and(|visibility| *visibility == Visibility::Visible);

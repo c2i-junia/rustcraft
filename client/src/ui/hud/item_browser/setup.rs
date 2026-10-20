@@ -8,10 +8,11 @@ use shared::world::{ItemCategory, ItemId};
 use super::catalog::{catalog, category_detail, NO_MATCH_HINT};
 use super::recipes::ITEM_KEYS_HINT;
 use super::{
-    choose_category, clear_or_leave_search, open_drawer, search_arrow_down, submit_search,
-    toggle_craftable, CatalogGrid, CatalogSlot, CategoryChip, CraftableChip, CraftableDot,
-    DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch,
-    NoMatchHint, NoMatchMessage, ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    choose_category, clear_or_leave_search, open_drawer, search_arrow_down, spawn_recipe_panel,
+    submit_search, toggle_craftable, BrowserTitle, CatalogGrid, CatalogPart, CatalogSlot,
+    CategoryChip, CraftableChip, CraftableDot, DrawerHandle, ItemBrowser, ItemBrowserState,
+    ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
+    ITEM_BROWSER_TITLE, SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
@@ -118,7 +119,7 @@ pub fn setup_item_browser(
         },
         ChildOf(panel),
         children![
-            label(ITEM_BROWSER_TITLE, &font, FONT_L, TEXT),
+            (BrowserTitle, label(ITEM_BROWSER_TITLE, &font, FONT_L, TEXT)),
             (ItemCount, label("", &font, FONT_S, MUTED)),
         ],
     ));
@@ -127,6 +128,7 @@ pub fn setup_item_browser(
     spawn_search_field(&mut commands, panel, &state, &font, &glyph_font);
     spawn_chips(&mut commands, panel, &font);
     spawn_grid(&mut commands, panel, atlas, &font);
+    spawn_recipe_panel(&mut commands, panel, atlas, &font, &glyph_font);
 
     spawn_footer(&mut commands, panel, &font, &glyph_font);
 }
@@ -284,7 +286,9 @@ fn spawn_search_field(
             reserve_error: false,
         },
     );
-    commands.entity(field.root).insert(ChildOf(panel));
+    commands
+        .entity(field.root)
+        .insert((CatalogPart, ChildOf(panel)));
     // the cap at the right end: the placeholder sits at the left of the field
     commands
         .entity(field.frame)
@@ -315,6 +319,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
             AccessibilityNode(accesskit::Node::new(Role::Toolbar)),
             AccessibleLabel::new("Categories"),
             bevy::ui_widgets::ScrollArea,
+            CatalogPart,
             Node {
                 flex_shrink: 0.0,
                 column_gap: px(SPACE_XS),
@@ -390,7 +395,7 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
 fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font: &Handle<Font>) {
     let ScrollListParts { frame, well, list } =
         spawn_scroll_list(commands, WheelStep::Px(SLOT_SIZE + SPACE_XS));
-    commands.entity(frame).insert(ChildOf(panel));
+    commands.entity(frame).insert((CatalogPart, ChildOf(panel)));
     // the slots sit on the panel, as in the inventory: no well around them
     commands
         .entity(well)

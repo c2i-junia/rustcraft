@@ -22,9 +22,9 @@ use super::catalog::{count_label, no_match_hint, no_match_message, shown_in};
 use super::layout::{browser_layout, BrowserLayout};
 use super::recipes::{craftable_now, CRAFTABLE_NOTE};
 use super::{
-    CatalogGrid, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, CraftableNow,
+    BackButton, CatalogGrid, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, CraftableNow,
     DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch,
-    NoMatchHint, NoMatchMessage,
+    NoMatchHint, NoMatchMessage, RecipeSlot, RecipeStop, RecipeTabChip,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot, UIMode};
@@ -32,7 +32,7 @@ use crate::ui::theme::{
     ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, OK, PANEL, RAISE, RAISE_HOVER,
     SPACE_L, TEXT,
 };
-use crate::ui::widgets::slot::{SlotIcon, SLOT_SIZE};
+use crate::ui::widgets::slot::{count_label as slot_count_label, SlotCount, SlotIcon, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, Cancel, Submit};
 use crate::ui::widgets::tooltip::Tooltip;
 
@@ -126,15 +126,21 @@ pub fn layout_item_browser(
     layout.set_if_neq(browser_layout(window, inventory_width));
 }
 
-/// Shows the icon of each new slot of the catalog: its item never changes.
-pub fn show_catalog_icons(
-    slots: Query<&Children, Added<CatalogSlot>>,
+/// Shows the icon of each new slot of the catalog or of a card, and the count of an output: their
+/// item never changes.
+#[allow(clippy::type_complexity)]
+pub fn show_item_icons(
+    slots: Query<(&Children, Option<&RecipeSlot>), Or<(Added<CatalogSlot>, Added<RecipeSlot>)>>,
     mut icons: Query<&mut Visibility, With<SlotIcon>>,
+    mut counts: Query<&mut Text, With<SlotCount>>,
 ) {
-    for children in &slots {
+    for (children, recipe_slot) in &slots {
         for child in children.iter() {
             if let Ok(mut visibility) = icons.get_mut(child) {
                 visibility.set_if_neq(Visibility::Inherited);
+            }
+            if let (Ok(mut text), Some(slot)) = (counts.get_mut(child), recipe_slot) {
+                text.0 = slot_count_label(slot.count);
             }
         }
     }
@@ -212,13 +218,28 @@ pub fn show_mode_footer(
 
 /// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
 /// their slots in the browser.
+#[allow(clippy::type_complexity)]
 pub fn mark_craftable_items(
     craftable: Res<CraftableNow>,
-    mut slots: Query<(&CatalogSlot, &mut Tooltip, &Children)>,
+    mut slots: Query<
+        (
+            Option<&CatalogSlot>,
+            Option<&RecipeSlot>,
+            &mut Tooltip,
+            &Children,
+        ),
+        Or<(With<CatalogSlot>, With<RecipeSlot>)>,
+    >,
     mut dots: Query<&mut Node, With<CraftableDot>>,
 ) {
-    for (slot, mut tooltip, children) in &mut slots {
-        let now = craftable.items.contains(&slot.0);
+    for (catalog_slot, recipe_slot, mut tooltip, children) in &mut slots {
+        let Some(item) = catalog_slot
+            .map(|slot| slot.0)
+            .or(recipe_slot.map(|slot| slot.item))
+        else {
+            continue;
+        };
+        let now = craftable.items.contains(&item);
         let note = if now { CRAFTABLE_NOTE } else { "" };
         if tooltip.note != note {
             tooltip.note = note.to_string();
@@ -238,13 +259,14 @@ pub fn mark_craftable_items(
 type BrowserStops<'w, 's> = Query<
     'w,
     's,
-    (&'static mut TabIndex, &'static Node),
+    (&'static mut TabIndex, &'static Node, Has<RecipeStop>),
     (
         Or<(
             With<ItemSearchField>,
             With<CategoryChip>,
             With<CraftableChip>,
             With<CatalogSlot>,
+            With<RecipeStop>,
         )>,
         Without<ItemBrowser>,
         Without<InventoryDialog>,
@@ -255,8 +277,8 @@ type BrowserStops<'w, 's> = Query<
 
 /// Shows the browser while the inventory is open, docked or as an open drawer, with the columns
 /// of its layout, and slides the open inventory panel to the left of the docked browser. The
-/// handle of the drawer shows while the drawer is closed. Only what shows takes Tab: Bevy's
-/// navigation does not look at the visibility.
+/// handle of the drawer shows while the drawer is closed. Only what shows takes Tab, the catalog
+/// or the view: Bevy's navigation does not look at the visibility.
 #[allow(clippy::type_complexity)]
 pub fn show_item_browser(
     layout: Res<BrowserLayout>,
@@ -326,24 +348,11 @@ pub fn show_item_browser(
         dialog_node.left = left;
     }
 
-    for (mut index, node) in &mut stops {
-        let stop = shown && node.display != Display::None;
+    let in_view = state.view.is_some();
+    for (mut index, node, in_recipe_view) in &mut stops {
+        let stop = shown && in_recipe_view == in_view && node.display != Display::None;
         index.set_if_neq(TabIndex(if stop { 0 } else { -1 }));
     }
-}
-
-/// Whether Escape closes the drawer rather than the inventory: while it is open over the open
-/// inventory. Never in an app without the browser, as the pause menu's tests are.
-pub fn drawer_takes_escape(
-    state: Option<Res<ItemBrowserState>>,
-    layout: Option<Res<BrowserLayout>>,
-    inventory_root: Query<&Visibility, With<InventoryRoot>>,
-) -> bool {
-    let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
-    let (Some(state), Some(layout)) = (state, layout) else {
-        return false;
-    };
-    open && layout.compact && state.drawer_open
 }
 
 /// The handle activated opens the drawer.
@@ -351,9 +360,9 @@ pub fn open_drawer(_: On<Activate>, mut state: ResMut<ItemBrowserState>) {
     state.drawer_open = true;
 }
 
-/// Opens and closes the drawer: B toggles it, Escape closes it, and so does a press of the mouse
-/// on neither the drawer nor its handle. The keys wait while the player types. The inventory
-/// closing closes it too: it opens closed. A focus inside the drawer it closes is let go of, for
+/// Opens and closes the drawer: B toggles it, Escape closes it once no view shows, and so does a
+/// press of the mouse on neither the drawer nor its handle. The keys wait while the player types.
+/// The inventory closing closes it too, and leaves the view: it opens closed, on the catalog. A focus inside the drawer it closes is let go of, for
 /// the inventory to take it back.
 #[allow(clippy::too_many_arguments)]
 pub fn drawer_keys(
@@ -369,16 +378,18 @@ pub fn drawer_keys(
     mut focus: ResMut<InputFocus>,
 ) {
     let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    if !open && (state.drawer_open || state.view.is_some()) {
+        state.drawer_open = false;
+        state.leave_view();
+    }
     if !open || !layout.compact {
-        if state.drawer_open && !open {
-            state.drawer_open = false;
-        }
         return;
     }
     let typing = *ui_mode == UIMode::Typing;
     let (panel, over_panel) = *panel;
     let toggle = !typing && keys.just_pressed(KeyCode::KeyB);
-    let escape = !typing && keys.just_pressed(KeyCode::Escape);
+    // an open view takes Escape first
+    let escape = !typing && keys.just_pressed(KeyCode::Escape) && state.view.is_none();
     let outside = mouse.any_just_pressed([MouseButton::Left, MouseButton::Right])
         && !over_panel.get()
         && !handle.get();
@@ -400,7 +411,8 @@ pub fn drawer_keys(
 }
 
 /// Focuses the search, with its ring, on Ctrl+F, or on the character `/` typed while the
-/// inventory is open and the player is not typing already, and opens the drawer it is in. On the
+/// inventory is open and the player is not typing already, leaving the view for the catalog and
+/// opening the drawer it is in. On the
 /// release of `/`, as the chat does, so that neither the key nor its repeat is typed in the field.
 #[allow(clippy::too_many_arguments)]
 pub fn focus_search(
@@ -443,6 +455,9 @@ pub fn focus_search(
     }
     if layout.compact && !state.drawer_open {
         state.drawer_open = true;
+    }
+    if state.view.is_some() {
+        state.leave_view();
     }
     focus.set(*field, FocusCause::Navigated);
     focus_visible.0 = true;
@@ -507,6 +522,8 @@ pub fn style_chips(
             Entity,
             Option<&CategoryChip>,
             Has<CraftableChip>,
+            Option<&RecipeTabChip>,
+            Has<BackButton>,
             &Hovered,
             Has<Checked>,
             &mut BackgroundColor,
@@ -514,7 +531,12 @@ pub fn style_chips(
             &mut Node,
             &Children,
         ),
-        Or<(With<CategoryChip>, With<CraftableChip>)>,
+        Or<(
+            With<CategoryChip>,
+            With<CraftableChip>,
+            With<RecipeTabChip>,
+            With<BackButton>,
+        )>,
     >,
     mut texts: Query<&mut TextColor>,
     mut commands: Commands,
@@ -523,6 +545,8 @@ pub fn style_chips(
         entity,
         category,
         is_craftable,
+        tab,
+        is_back,
         hovered,
         checked,
         mut background,
@@ -531,9 +555,10 @@ pub fn style_chips(
         children,
     ) in &mut chips
     {
-        let chosen = match category {
-            Some(chip) => chip.0 == state.category,
-            None => state.craftable,
+        let chosen = match (category, tab) {
+            (Some(chip), _) => chip.0 == state.category,
+            (_, Some(tab)) => state.view.is_some_and(|view| view.tab == tab.0),
+            _ => is_craftable && state.craftable,
         };
         if is_craftable {
             let display = if craftable.survival {
@@ -545,7 +570,11 @@ pub fn style_chips(
                 node.display = display;
             }
         }
-        let (fill, edge, text) = chip_look(chosen, is_craftable, hovered.get());
+        let (fill, edge, mut text) = chip_look(chosen, is_craftable, hovered.get());
+        // the back button reads as a button, not as a choice
+        if is_back {
+            text = TEXT;
+        }
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(edge);
         for child in children.iter() {
@@ -554,6 +583,9 @@ pub fn style_chips(
             }
         }
         // Read by screen readers as the toggled state of the button
+        if is_back {
+            continue;
+        }
         if chosen && !checked {
             commands.entity(entity).insert(Checked);
         } else if !chosen && checked {
@@ -586,11 +618,11 @@ fn chip_look(chosen: bool, green: bool, hovered: bool) -> (Color, BorderColor, C
     }
 }
 
-/// Brings a chip or a slot of the catalog into view when it takes the focus, from the arrows or
+/// Brings a chip, a slot of the catalog or of a card into view when it takes the focus, from the arrows or
 /// Tab.
 pub fn scroll_focused_into_view(
     gained: On<FocusGained>,
-    targets: Query<(), Or<(With<CatalogSlot>, With<CategoryChip>)>>,
+    targets: Query<(), Or<(With<CatalogSlot>, With<CategoryChip>, With<RecipeSlot>)>>,
     mut commands: Commands,
 ) {
     // the event bubbles up from the focused entity: handle it once, on its first step
@@ -608,6 +640,7 @@ mod tests {
     use super::*;
     use crate::player::CurrentPlayerMarker;
     use crate::ui::hud::item_browser::catalog::catalog;
+    use crate::ui::hud::item_browser::{browser_takes_escape, ItemView, RecipeTab};
     use crate::ui::widgets::tooltip::Tooltip;
     use shared::players::{game_mode::GameMode, Inventory, Player};
     use shared::world::ItemStack;
@@ -824,21 +857,33 @@ mod tests {
     }
 
     #[test]
-    fn escape_belongs_to_the_open_drawer() {
-        let takes_escape = |world: &mut World| world.run_system_once(drawer_takes_escape).unwrap();
-        // Docked: Escape closes the inventory
+    fn escape_belongs_to_the_view_then_to_the_drawer() {
+        let takes_escape = |world: &mut World| world.run_system_once(browser_takes_escape).unwrap();
+        let view = ItemView {
+            item: ItemId::Stick,
+            tab: RecipeTab::Recipes,
+        };
+        // Docked: the view takes it, else the inventory closes
         let mut world = browser(Visibility::Visible);
         world.resource_mut::<ItemBrowserState>().drawer_open = true;
         assert!(!takes_escape(&mut world));
+        world.resource_mut::<ItemBrowserState>().view = Some(view);
+        assert!(takes_escape(&mut world));
 
+        // A drawer: the open one takes it, view or not; the closed one does not
         world.insert_resource(browser_layout(Vec2::new(640.0, 480.0), 502.0));
         assert!(takes_escape(&mut world));
+        world.resource_mut::<ItemBrowserState>().view = None;
+        assert!(takes_escape(&mut world));
         world.resource_mut::<ItemBrowserState>().drawer_open = false;
+        assert!(!takes_escape(&mut world));
+        world.resource_mut::<ItemBrowserState>().view = Some(view);
         assert!(!takes_escape(&mut world));
 
         let mut world = browser(Visibility::Hidden);
         world.insert_resource(browser_layout(Vec2::new(640.0, 480.0), 502.0));
         world.resource_mut::<ItemBrowserState>().drawer_open = true;
+        world.resource_mut::<ItemBrowserState>().view = Some(view);
         assert!(!takes_escape(&mut world));
     }
 }
