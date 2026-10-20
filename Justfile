@@ -60,3 +60,6 @@ check:
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo test --workspace
+
+test-fast:
+    cargo test --workspace -- --skip e2e::
