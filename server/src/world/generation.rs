@@ -303,7 +303,12 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         decorations.push(Decoration::Flower(flower));
     }
 
-    if biome_type != BiomeType::HighMountainGrass && random.unit(SALT_TALL_GRASS_ROLL) < 0.10 {
+    let tall_grass_chance = match biome_type {
+        BiomeType::HighMountainGrass => 0.0,
+        BiomeType::Savanna => 0.25,
+        _ => 0.10,
+    };
+    if random.unit(SALT_TALL_GRASS_ROLL) < tall_grass_chance {
         decorations.push(Decoration::TallGrass);
     }
 
@@ -314,6 +319,7 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         BiomeType::FlowerPlains | BiomeType::MediumMountain if tree_roll < 0.02 => {
             decorations.push(Decoration::Tree)
         }
+        BiomeType::Savanna if tree_roll < 0.004 => decorations.push(Decoration::Tree),
         _ => {}
     }
     decorations
@@ -786,7 +792,9 @@ mod tests {
                 (466, -408),
                 (164, BiomeType::HighMountainGrass, BlockId::Snow),
             ),
-            ((-878, -454), (70, BiomeType::Desert, BlockId::Sand)),
+            ((-461, -450), (69, BiomeType::Desert, BlockId::Sand)),
+            // A desert until the savanna took the wetter edge of the deserts
+            ((-878, -454), (70, BiomeType::Savanna, BlockId::Grass)),
             ((828, 137), (79, BiomeType::IcePlain, BlockId::Snow)),
             ((-126, 239), (67, BiomeType::FlowerPlains, BlockId::Grass)),
             ((-38, -183), (55, BiomeType::ShallowOcean, BlockId::Stone)),

@@ -64,6 +64,7 @@ BIOMES = [
     ("ShallowOcean", (90, 160, 220)),
     ("Ocean", (50, 100, 200)),
     ("DeepOcean", (20, 50, 140)),
+    ("Savanna", (210, 140, 60)),
 ]
 
 

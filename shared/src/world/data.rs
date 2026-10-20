@@ -28,6 +28,8 @@ pub enum BiomeType {
     ShallowOcean,
     Ocean,
     DeepOcean,
+    /// Hot, drier than a forest and wetter than a desert: grass with a few trees.
+    Savanna,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -88,6 +90,11 @@ pub fn get_biome_data(biome_type: BiomeType) -> Biome {
             biome_type: BiomeType::DeepOcean,
             surface_block: BlockId::Sand,
             sub_surface_block: BlockId::Sand,
+        },
+        BiomeType::Savanna => Biome {
+            biome_type: BiomeType::Savanna,
+            surface_block: BlockId::Grass,
+            sub_surface_block: BlockId::Dirt,
         },
     }
 }

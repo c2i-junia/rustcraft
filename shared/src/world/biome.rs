@@ -20,6 +20,8 @@ pub fn determine_biome(temperature: f64, humidity: f64) -> BiomeType {
     if temperature > 0.6 {
         if humidity > OCEAN_HUMIDITY / 2.0 {
             BiomeType::Forest
+        } else if humidity > OCEAN_HUMIDITY / 3.0 {
+            BiomeType::Savanna
         } else {
             BiomeType::Desert
         }
