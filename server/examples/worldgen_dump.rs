@@ -94,8 +94,8 @@ fn chunk_column_tops(
             highest = highest.max(shape.height);
         }
     }
-    // trees grow above the ground, and water fills up to the sea
-    let top_chunk = (highest.max(64) + 16).div_euclid(CHUNK_SIZE);
+    // trees grow above the ground, giant trees up to 27 blocks, and water fills up to the sea
+    let top_chunk = (highest.max(64) + 32).div_euclid(CHUNK_SIZE);
 
     let mut tops: Vec<Option<(i16, u8)>> = vec![None; size * size];
     let mut floors: Vec<Option<i16>> = vec![None; size * size];

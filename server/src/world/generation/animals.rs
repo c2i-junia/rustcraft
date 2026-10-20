@@ -37,7 +37,7 @@ fn herds(biome: BiomeType) -> &'static [(MobKind, f32, (u64, u64))] {
 }
 
 /// Whether an animal may appear standing on `column`: dry land of grass, or snow on the ice
-/// plains, where no tree, bush or cactus grows.
+/// plains, where no tree, bush or cactus grows, nor the trunk of a giant tree.
 fn may_stand_on(column: &Column, seed: u32) -> bool {
     let ground = match column.biome_type {
         BiomeType::IcePlain => matches!(column.surface, BlockId::Grass | BlockId::Snow),
@@ -45,6 +45,7 @@ fn may_stand_on(column: &Column, seed: u32) -> bool {
     };
     ground
         && column.height > SEA_LEVEL + 1
+        && column.giant.is_none()
         && !column_decorations(column, &random_of(seed, column))
             .iter()
             .any(|d| {
@@ -116,7 +117,7 @@ pub(super) fn chunk_animals(seed: u32, chunk_pos: IVec3, columns: &ChunkColumns)
 
 #[cfg(test)]
 mod tests {
-    use super::super::WorldGenerator;
+    use super::super::{GiantTrunk, WorldGenerator};
     use super::*;
     use std::collections::HashMap;
 
@@ -190,7 +191,7 @@ mod tests {
         let mut found = Vec::new();
         for x in 0..100 {
             for z in 0..100 {
-                let column = Column::new(seed, x, z, shape, 0, 0.0);
+                let column = Column::new(seed, x, z, shape, 0, 0.0, None);
                 let decorations = column_decorations(&column, &random_of(seed, &column));
                 for wanted in [Decoration::JungleTree, Decoration::Bush] {
                     if decorations.contains(&wanted) {
@@ -201,6 +202,27 @@ mod tests {
             }
         }
         assert!(found.contains(&Decoration::JungleTree) && found.contains(&Decoration::Bush));
+    }
+
+    #[test]
+    fn no_animal_appears_on_a_giants_trunk() {
+        let seed = 5;
+        let shape = ColumnShape {
+            height: 70,
+            biome: BiomeType::Jungle,
+            jungle_depth: 1.0,
+        };
+        for x in 0..20 {
+            for z in 0..20 {
+                let open = Column::new(seed, x, z, shape, 0, 0.0, None);
+                for part in [GiantTrunk::Root, GiantTrunk::Beside] {
+                    let trunk = Column::new(seed, x, z, shape, 0, 0.0, Some(part));
+                    if may_stand_on(&open, seed) {
+                        assert!(!may_stand_on(&trunk, seed), "({x}, {z}): {part:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

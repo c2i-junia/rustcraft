@@ -88,46 +88,50 @@ paragraph of "Architecture" (height of structures, margin, caves, spawn), and lo
 ## Tasks
 
 ### Task 1: Benchmarks before
-- [ ] `bench_jungle_generation` in `server/src/world/bench.rs`; commit
+- [x] `bench_jungle_generation` in `server/src/world/bench.rs`; commit
   `test(server): a benchmark of the generation in the jungle`.
-- [ ] Run every `bench_` in release, three times, with no other cargo process; note the numbers.
+- [x] Run every `bench_` in release, three times, with no other cargo process; note the numbers.
 
 ### Task 2: The giant's shape (`generation/jungle.rs`)
-- [ ] Tests: `the_giant_is_a_two_by_two_trunk_under_four_frayed_disks` (trunk, heights 16–25 all
+- [x] Tests: `the_giant_is_a_two_by_two_trunk_under_four_frayed_disks` (trunk, heights 16–25 all
   seen, each crown layer between the disk of `radius - 1` and the disk of `radius`, rims frayed),
   `the_giant_has_two_to_four_branches_rising_outward_to_blobs` (distinct sides, length 2–3, one
   out and one up per log, start between `h / 2` and `4h / 5`, both disks of the blob around the
   tip), `giants_stay_within_their_margin_and_under_their_height` (many seeds and roots: within
   `GIANT_MARGIN`, from 3 below the root to 27 above the surface, both bounds reached). See them
   fail.
-- [ ] `giant_tree_blocks`, split into trunk, branches and crown (lot 4 adds the vines there).
+- [x] `giant_tree_blocks`, split into trunk, branches and crown (lot 4 adds the vines there).
   See them pass.
 
 ### Task 3: Where giants root (`generation/jungle.rs`)
-- [ ] Tests on synthetic shapes: `a_giant_roots_only_in_the_deep_jungle_on_dry_level_ground`
+- [x] Tests on synthetic shapes: `a_giant_roots_only_in_the_deep_jungle_on_dry_level_ground`
   (shallow depth, water, a step of 3 or a beach next to the root refuse it),
   `two_giants_never_root_within_eight_columns`, `the_smallest_roll_among_candidates_wins`,
   `a_column_shape_is_read_only_under_the_largest_giant_chance` (a counting closure),
   `giants_are_about_as_dense_as_the_spacing_allows` (a flat deep jungle). See them fail.
-- [ ] `GIANT_CHANCE`, `giant_chance`, `giant_roots`. See them pass.
+- [x] `GIANT_CHANCE`, `giant_chance`, `giant_roots`. See them pass.
 
 ### Task 4: Giants in the world (`generation.rs`, `animals.rs`)
-- [ ] Tests: `the_giant_takes_the_front_of_the_tree_roll` (densities of jungle trees and bushes
-  unchanged, none on a giant's columns), `a_giants_trunk_columns_keep_their_ground`,
-  `a_giant_rooted_in_the_ring_reaches_into_the_chunk` (seed 42, found programmatically: every
-  block in the chunk, alone and amid its neighbours), giant chunks in
+- [x] Tests: `the_giant_takes_the_front_of_the_tree_roll` (nothing in the giant's slot of a
+  candidate no giant roots on, the giant alone on its columns),
+  `giants_grow_in_the_jungle_of_the_seed_42_never_within_eight_columns` (grass under the root,
+  the three other columns beside it),
+  `a_giants_trunk_keeps_its_ground_and_fills_the_gaps_above_it` (caves under the foot, logs over
+  the lower columns, one of them in the chunk under the root's, at (819, 1186)),
+  `a_giant_rooted_in_the_ring_of_a_chunk_reaches_into_it` (seed 42, found programmatically: in
+  `ring_giants`, every block in the chunk, alone and amid its neighbours), giant chunks in
   `chunks_without_noise_are_the_ones_the_noise_makes`, `sample_chunks` and
-  `a_chunk_column_knows_the_highest_block_rooted_on_it` (ring giants included),
-  `no_structure_grows_higher_than_its_bound` reaching the giant's 27, giants of seed 42 within 8
-  columns of none, `no_animal_appears_on_a_giants_trunk`, `no_one_spawns_beside_a_giant`. See
-  them fail.
-- [ ] `Decoration::GiantTree`, `Column::giant`, the tree roll, `cave_ceiling`, the ring of
+  `a_chunk_column_knows_the_highest_block_rooted_on_it` (every giant within `GIANT_MARGIN`
+  counted), `no_structure_grows_higher_than_its_bound` reaching the giant's 27,
+  `plants_and_trunks_stand_on_something` letting a branch lean on the log before it,
+  `no_animal_appears_on_a_giants_trunk`, `no_one_spawns_beside_a_giant`. See them fail.
+- [x] `Decoration::GiantTree`, `Column::giant`, the tree roll, `cave_ceiling`, the ring of
   `ChunkColumns`, `highest`, the culling, `STRUCTURE_HEIGHT`, `may_stand_on`, `spawn_height`.
   See them pass, with every existing test.
 
 ### Task 5: Tools, preview, benchmarks after, commit
-- [ ] `worldgen_dump.rs` (32 above the ground).
-- [ ] Render the jungle of seed 42 with its giants (map, oblique view, a slice through a giant),
+- [x] `worldgen_dump.rs` (32 above the ground).
+- [x] Render the jungle of seed 42 with its giants (map, oblique view, a slice through a giant),
   look at it, keep it outside the repository.
-- [ ] Benchmarks after; giants per km² on the seed 42's jungle.
-- [ ] `CHANGELOG.txt`; `cargo test`, clippy and fmt; commit `feat: giant trees in the jungle`.
+- [x] Benchmarks after; giants per km² on the seed 42's jungle.
+- [x] `CHANGELOG.txt`; `cargo test`, clippy and fmt; commit `feat: giant trees in the jungle`.

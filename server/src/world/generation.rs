@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 
 use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR};
+use jungle::{GIANT_MARGIN, GIANT_SINK, GIANT_STEP};
 
 mod animals;
 mod jungle;
@@ -13,12 +14,13 @@ mod ores;
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
 /// at most 2 blocks long, and its tip carries one more leaf (`x + 1 + 2`). Generating a chunk
-/// therefore looks at the columns of the chunk plus this margin on each side.
+/// therefore looks at the columns of the chunk plus this margin on each side, and beyond it,
+/// up to `GIANT_MARGIN`, at the giant trees only.
 const STRUCTURE_MARGIN: i32 = 3;
 
-/// Highest block of any structure above the surface of its column: the crown of a jungle tree
+/// Highest block of any structure above the surface of its column: the crown of a giant tree
 /// (see `Decoration::height`). Only the chunks generated before their columns are known use it.
-const STRUCTURE_HEIGHT: i32 = 10;
+const STRUCTURE_HEIGHT: i32 = jungle::GIANT_HEIGHT;
 
 // Salts: each random decision of a column hashes `(seed, x, z, salt)` with its own salt.
 const SALT_FLOWER_ROLL: u64 = 1;
@@ -88,6 +90,7 @@ enum Decoration {
     Fern,
     JungleTree,
     Bush,
+    GiantTree,
 }
 
 impl Decoration {
@@ -105,6 +108,7 @@ impl Decoration {
             Decoration::Bush => 3,
             // a trunk of up to 9 logs under a plus of leaves
             Decoration::JungleTree => 10,
+            Decoration::GiantTree => jungle::GIANT_HEIGHT,
         }
     }
 }
@@ -129,6 +133,27 @@ const BED_STEEP: i32 = 2;
 /// The salt of the bed patch noise, apart from those of the caves.
 const SALT_BED_PATCHES: u64 = 0x200;
 
+/// Which of the four columns of a giant tree's trunk a column is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GiantTrunk {
+    /// The column the giant is rooted on, the `-x -z` corner of its trunk.
+    Root,
+    /// One of the three others.
+    Beside,
+}
+
+/// The part of a giant tree's trunk the column `(x, z)` holds, if any, given whether a giant
+/// roots on a column.
+fn giant_trunk(roots: impl Fn(i32, i32) -> bool, x: i32, z: i32) -> Option<GiantTrunk> {
+    if roots(x, z) {
+        Some(GiantTrunk::Root)
+    } else if roots(x - 1, z) || roots(x, z - 1) || roots(x - 1, z - 1) {
+        Some(GiantTrunk::Beside)
+    } else {
+        None
+    }
+}
+
 /// Terrain of one world column: the noise is evaluated once per column and reused.
 struct Column {
     x: i32,
@@ -141,12 +166,22 @@ struct Column {
     sub_surface: BlockId,
     /// The highest cell of the column caves may carve.
     cave_ceiling: i32,
+    /// The part of a giant tree's trunk the column holds, decided with the columns around.
+    giant: Option<GiantTrunk>,
 }
 
 impl Column {
     /// `drop` is how far the column stands above its lowest neighbour, and `bed_patch` the
     /// value there of the noise that picks what covers the ground under the water.
-    fn new(seed: u32, x: i32, z: i32, shape: ColumnShape, drop: i32, bed_patch: f64) -> Self {
+    fn new(
+        seed: u32,
+        x: i32,
+        z: i32,
+        shape: ColumnShape,
+        drop: i32,
+        bed_patch: f64,
+        giant: Option<GiantTrunk>,
+    ) -> Self {
         let random = PositionRandom {
             seed,
             coords: [x, z],
@@ -167,6 +202,7 @@ impl Column {
             surface,
             sub_surface,
             cave_ceiling: shape.height,
+            giant,
         };
         column.cave_ceiling = cave_ceiling(&column, drop, &random);
         column
@@ -178,11 +214,15 @@ const CAVE_ROOF: i32 = 4;
 
 /// The highest cell of `column` caves may carve: they stay `CAVE_ROOF` under the ground of the
 /// column and of its neighbours where either holds water, so that no water touches a cave,
-/// and they leave the ground under anything growing. Elsewhere they may open at the surface.
+/// and they leave the ground under anything growing, under the foot of a giant's trunk on its
+/// columns. Elsewhere they may open at the surface.
 fn cave_ceiling(column: &Column, drop: i32, random: &ColumnRandom) -> i32 {
     let lowest = column.height - drop.max(0);
     if lowest < SEA_LEVEL {
         lowest - CAVE_ROOF
+    } else if column.giant.is_some() {
+        // the foot lies `GIANT_SINK - 1` under the root's surface, within `GIANT_STEP` of this one
+        column.height - (GIANT_SINK - 1) - GIANT_STEP - 1
     } else if !column_decorations(column, random).is_empty() {
         column.height - 1
     } else {
@@ -297,8 +337,15 @@ fn random_of(seed: u32, column: &Column) -> ColumnRandom {
     }
 }
 
-/// Decides, from `(seed, x, z)` only, what is rooted on the column.
+/// Decides, from `(seed, x, z)` only, what is rooted on the column, but for the giant trees,
+/// decided with the columns around (`Column::giant`). The four columns of a giant's trunk carry
+/// the giant only.
 fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration> {
+    match column.giant {
+        Some(GiantTrunk::Root) => return vec![Decoration::GiantTree],
+        Some(GiantTrunk::Beside) => return Vec::new(),
+        None => {}
+    }
     let mut decorations = Vec::new();
     if column.height <= SEA_LEVEL {
         return decorations;
@@ -344,9 +391,13 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
     }
 
     let tree_roll = random.unit(SALT_TREE_ROLL);
-    let jungle_tree_chance = 0.03 * depth;
+    // the giant first, then the jungle tree and the bush
+    let giant_chance = jungle::giant_chance(depth);
+    let jungle_tree_chance = giant_chance + 0.03 * depth;
     let bush_chance = (0.06 * depth).max(0.01);
     match biome_type {
+        // a candidate for a giant (see `jungle::giant_roots`) that none roots on
+        BiomeType::Jungle if tree_roll < giant_chance => {}
         BiomeType::Jungle if tree_roll < jungle_tree_chance => {
             decorations.push(Decoration::JungleTree)
         }
@@ -472,6 +523,7 @@ fn decoration_blocks(
         Decoration::Fern => blocks.push((root, BlockId::Fern)),
         Decoration::JungleTree => jungle::jungle_tree_blocks(root, random, blocks),
         Decoration::Bush => jungle::bush_blocks(root, random, blocks),
+        Decoration::GiantTree => jungle::giant_tree_blocks(root, random, blocks),
     }
 }
 
@@ -482,8 +534,12 @@ struct ChunkColumns {
     columns: Vec<Column>,
     /// The highest surface of the columns of the chunk.
     top: i32,
-    /// The highest block of the ground of all of them or of anything rooted on them.
+    /// The highest block of the ground of all of them or of anything rooted on them or in the
+    /// ring.
     highest: i32,
+    /// The giant trees rooted in the ring beyond the margin, up to `GIANT_MARGIN` columns from
+    /// the chunk: the block above the surface of each root, in world coordinate order.
+    ring_giants: Vec<IVec3>,
 }
 
 /// Columns along a side of `ChunkColumns`.
@@ -599,6 +655,28 @@ impl WorldGenerator {
             })
             .collect();
         let shape_at = |dx: i32, dz: i32| shapes[((dz + ring) * side + dx + ring) as usize];
+        // The rare shapes the giants need beyond them come from the noise
+        let in_grid = |d: i32| (-ring..CHUNK_SIZE + ring).contains(&d);
+        let shape_of = |x: i32, z: i32| {
+            let (dx, dz) = (x - origin.x, z - origin.y);
+            if in_grid(dx) && in_grid(dz) {
+                shape_at(dx, dz)
+            } else {
+                self.terrain.column_shape(x, z)
+            }
+        };
+        // Where the giants root, up to `GIANT_MARGIN` columns from the chunk
+        let giant_side = CHUNK_SIZE + 2 * GIANT_MARGIN;
+        let giant_roots: Vec<bool> = (0..giant_side * giant_side)
+            .map(|i| {
+                let (dx, dz) = (i % giant_side - GIANT_MARGIN, i / giant_side - GIANT_MARGIN);
+                jungle::giant_roots(self.seed, origin.x + dx, origin.y + dz, &shape_of)
+            })
+            .collect();
+        let giant_at = |x: i32, z: i32| {
+            let (dx, dz) = (x - origin.x + GIANT_MARGIN, z - origin.y + GIANT_MARGIN);
+            giant_roots[(dz * giant_side + dx) as usize]
+        };
 
         let mut columns = Vec::with_capacity((MARGIN_SIDE * MARGIN_SIDE) as usize);
         for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
@@ -617,7 +695,18 @@ impl WorldGenerator {
                     shape,
                     shape.height - lowest,
                     self.bed_patch(x, z),
+                    giant_trunk(giant_at, x, z),
                 ));
+            }
+        }
+        let in_margin = |d: i32| (-STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN).contains(&d);
+        let mut ring_giants = Vec::new();
+        for dx in -GIANT_MARGIN..CHUNK_SIZE + GIANT_MARGIN {
+            for dz in -GIANT_MARGIN..CHUNK_SIZE + GIANT_MARGIN {
+                let (x, z) = (origin.x + dx, origin.y + dz);
+                if !(in_margin(dx) && in_margin(dz)) && giant_at(x, z) {
+                    ring_giants.push(IVec3::new(x, shape_of(x, z).height + 1, z));
+                }
             }
         }
         let top = (0..CHUNK_SIZE)
@@ -636,12 +725,18 @@ impl WorldGenerator {
                         .max()
                         .unwrap_or(0)
             })
+            .chain(
+                ring_giants
+                    .iter()
+                    .map(|root| root.y - 1 + jungle::GIANT_HEIGHT),
+            )
             .max()
             .unwrap();
         ChunkColumns {
             columns,
             top,
             highest,
+            ring_giants,
         }
     }
 
@@ -690,8 +785,34 @@ impl WorldGenerator {
             .then(|| self.caves.carve(chunk_origin));
 
         let chunk_range = 0..CHUNK_SIZE;
-        for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
-            for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+        let in_margin = |d: i32| (-STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN).contains(&d);
+        // the columns are visited in world coordinate order, the giants of the ring among them
+        let reach = if columns.ring_giants.is_empty() {
+            STRUCTURE_MARGIN
+        } else {
+            GIANT_MARGIN
+        };
+        for dx in -reach..CHUNK_SIZE + reach {
+            for dz in -reach..CHUNK_SIZE + reach {
+                if !(in_margin(dx) && in_margin(dz)) {
+                    let (x, z) = (chunk_origin.x + dx, chunk_origin.z + dz);
+                    let giant = columns.ring_giants.iter().find(|g| g.x == x && g.z == z);
+                    // only a giant reaches the chunk from the ring, from its sunk trunk up
+                    if let Some(&root) =
+                        giant.filter(|root| root.y - GIANT_SINK < chunk_origin.y + CHUNK_SIZE)
+                    {
+                        let random = PositionRandom {
+                            seed,
+                            coords: [x, z],
+                        };
+                        let mut blocks = Vec::new();
+                        jungle::giant_tree_blocks(root, &random, &mut blocks);
+                        for (pos, block) in blocks {
+                            place(&mut chunk, chunk_origin, pos, block);
+                        }
+                    }
+                    continue;
+                }
                 let column = columns.at(dx, dz);
 
                 if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
@@ -713,8 +834,13 @@ impl WorldGenerator {
                     }
                 }
 
-                // decorations only grow upwards from the surface
-                if column.height + 1 < chunk_origin.y + CHUNK_SIZE {
+                // decorations only grow upwards from the surface, but a giant's sunk trunk
+                let sunk = if column.giant == Some(GiantTrunk::Root) {
+                    GIANT_SINK
+                } else {
+                    0
+                };
+                if column.height + 1 - sunk < chunk_origin.y + CHUNK_SIZE {
                     for (pos, block) in column_blocks(seed, column) {
                         place(&mut chunk, chunk_origin, pos, block);
                     }
@@ -753,26 +879,12 @@ impl WorldGenerator {
     /// Where a new player appears: above the column nearest to the origin that is dry, below
     /// the mountains, and free of anything growing on it or on the columns around it.
     pub fn spawn_position(&self) -> Vec3 {
-        let open = |x: i32, z: i32| {
-            let shape = self.terrain.column_shape(x, z);
-            if shape.height <= SEA_LEVEL + 1 || shape.height >= MOUNTAIN_FROM {
-                return None;
-            }
-            for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
-                let column = self.column(x + dx, z + dz);
-                let decorations = column_decorations(&column, &random_of(self.seed, &column));
-                if !decorations.is_empty() || column.height != shape.height {
-                    return None;
-                }
-            }
-            Some(shape.height)
-        };
         // square rings around the origin, the nearest first
         for radius in 0..=SPAWN_SEARCH_RADIUS {
             for i in -radius..=radius {
                 let ring = [(i, -radius), (i, radius), (-radius, i), (radius, i)];
                 for (x, z) in ring {
-                    if let Some(height) = open(x, z) {
+                    if let Some(height) = self.spawn_height(x, z) {
                         return standing_on(x, height, z);
                     }
                 }
@@ -780,6 +892,29 @@ impl WorldGenerator {
         }
         let height = self.terrain.column_shape(0, 0).height.max(SEA_LEVEL);
         standing_on(0, height, 0)
+    }
+
+    /// The height of the column `(x, z)` if a player may spawn on it: it is dry, below the
+    /// mountains, and nothing grows on it or on the columns around, which are as high.
+    fn spawn_height(&self, x: i32, z: i32) -> Option<i32> {
+        let shape = self.terrain.column_shape(x, z);
+        if shape.height <= SEA_LEVEL + 1 || shape.height >= MOUNTAIN_FROM {
+            return None;
+        }
+        for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
+            let column = self.column(x + dx, z + dz);
+            let decorations = column_decorations(&column, &random_of(self.seed, &column));
+            let grown = !decorations.is_empty() || column.giant.is_some();
+            if grown || column.height != shape.height {
+                return None;
+            }
+        }
+        Some(shape.height)
+    }
+
+    /// Whether a giant tree roots on the column `(x, z)` (see `jungle::giant_roots`).
+    fn giant_roots(&self, x: i32, z: i32) -> bool {
+        jungle::giant_roots(self.seed, x, z, &|x, z| self.terrain.column_shape(x, z))
     }
 
     /// The column `(x, z)`, its steepness read from the shapes of its four neighbours.
@@ -797,6 +932,7 @@ impl WorldGenerator {
             shape,
             shape.height - lowest,
             self.bed_patch(x, z),
+            giant_trunk(|x, z| self.giant_roots(x, z), x, z),
         )
     }
 
@@ -981,14 +1117,35 @@ mod tests {
     fn a_chunk_column_knows_the_highest_block_rooted_on_it() {
         let seed = 42;
         let generator = WorldGenerator::new(seed);
-        // plains, a forest with big trees, and a jungle
-        for (cx, cz) in [(0, 0), (29, 38), (30, 39), (-13, 5), (-20, 4)] {
+        let (giant, ring) = (giant_chunk(), ring_giant().1);
+        // plains, a forest with big trees, a jungle, a giant tree and one rooted in the ring
+        for (cx, cz) in [
+            (0, 0),
+            (29, 38),
+            (30, 39),
+            (-13, 5),
+            (-20, 4),
+            (giant.x, giant.z),
+            (ring.x, ring.z),
+        ] {
             let columns = generator.compute_chunk_columns(IVec2::new(cx, cz));
             let mut reached = i32::MIN;
             for column in &columns.columns {
                 reached = reached.max(column.height);
                 for (pos, _) in column_blocks(seed, column) {
                     reached = reached.max(pos.y);
+                }
+            }
+            // the giants rooted further, whose crowns may reach the chunk
+            let origin = IVec2::new(cx, cz) * CHUNK_SIZE;
+            for dx in -GIANT_MARGIN..CHUNK_SIZE + GIANT_MARGIN {
+                for dz in -GIANT_MARGIN..CHUNK_SIZE + GIANT_MARGIN {
+                    let (x, z) = (origin.x + dx, origin.y + dz);
+                    if generator.giant_roots(x, z) {
+                        for (pos, _) in column_blocks(seed, &generator.column(x, z)) {
+                            reached = reached.max(pos.y);
+                        }
+                    }
                 }
             }
             assert!(
@@ -1003,7 +1160,8 @@ mod tests {
     #[test]
     fn chunks_without_noise_are_the_ones_the_noise_makes() {
         let generator = WorldGenerator::new(42);
-        // plains, a deep sea, a mountain range and its peaks, a lake, a jungle
+        let giant = giant_chunk();
+        // plains, a deep sea, a mountain range and its peaks, a lake, a jungle, a giant tree
         for (cx, cz) in [
             (0, 0),
             (-59, -35),
@@ -1012,6 +1170,7 @@ mod tests {
             (-16, 7),
             (-13, 5),
             (-20, 4),
+            (giant.x, giant.z),
         ] {
             for cy in -2..=13 {
                 let chunk_pos = IVec3::new(cx, cy, cz);
@@ -1025,15 +1184,44 @@ mod tests {
     }
 
     /// Chunks around the surface (heights 50 to 80), with positive and negative coordinates, the
-    /// last ones in a jungle.
+    /// last ones in a jungle, then around the root of a giant tree.
     fn sample_chunks() -> Vec<IVec3> {
+        let giant = giant_chunk().xz();
         let mut chunks = Vec::new();
-        for (cx, cz) in [(0, 0), (-1, -1), (2, -3), (-5, 4), (7, 7), (-13, 5)] {
+        for (cx, cz) in [
+            (0, 0),
+            (-1, -1),
+            (2, -3),
+            (-5, 4),
+            (7, 7),
+            (-13, 5),
+            (giant.x, giant.y),
+        ] {
             for cy in 2..=7 {
                 chunks.push(IVec3::new(cx, cy, cz));
             }
         }
         chunks
+    }
+
+    /// The roots of the giant trees in the jungle of the seed 42 nearest to the origin.
+    fn giants_of_seed_42() -> Vec<Column> {
+        let generator = WorldGenerator::new(42);
+        let mut giants = Vec::new();
+        for x in -340..-170 {
+            for z in 0..140 {
+                if generator.giant_roots(x, z) {
+                    giants.push(generator.column(x, z));
+                }
+            }
+        }
+        giants
+    }
+
+    /// The chunk of the root of the first giant tree of `giants_of_seed_42`.
+    fn giant_chunk() -> IVec3 {
+        let giant = &giants_of_seed_42()[0];
+        IVec3::new(giant.x, giant.height + 1, giant.z).div_euclid(IVec3::splat(CHUNK_SIZE))
     }
 
     #[test]
@@ -1332,10 +1520,19 @@ mod tests {
                         | BlockId::JungleLog
                         | BlockId::Cactus
                 );
+                // the branch of a giant leans on the log before it, beside or diagonally below
+                let leans = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z]
+                    .iter()
+                    .flat_map(|side| [*side, *side - IVec3::Y])
+                    .any(|offset| {
+                        let next = local + offset;
+                        !Chunk::contains(next)
+                            || chunk.get(next).is_some_and(|b| b.id == BlockId::JungleLog)
+                    });
                 let below = local - IVec3::Y;
                 if rooted && Chunk::contains(below) {
                     assert!(
-                        chunk.get(below).is_some(),
+                        chunk.get(below).is_some() || (block.id == BlockId::JungleLog && leans),
                         "{:?} over air at {local} in {chunk_pos}",
                         block.id
                     );
@@ -1416,7 +1613,7 @@ mod tests {
                     biome: BiomeType::Forest,
                     jungle_depth: 0.0,
                 };
-                let column = Column::new(seed, x, z, shape, 0, 0.0);
+                let column = Column::new(seed, x, z, shape, 0, 0.0, None);
                 for (pos, _) in column_blocks(seed, &column) {
                     // the vertical culling in generate_chunk relies on this
                     assert!(pos.y > column.height, "block below its root at {pos}");
@@ -1476,7 +1673,7 @@ mod tests {
             biome: BiomeType::Jungle,
             jungle_depth: depth,
         };
-        Column::new(seed, x, z, shape, 0, 0.0)
+        Column::new(seed, x, z, shape, 0, 0.0, None)
     }
 
     #[test]
@@ -1517,7 +1714,7 @@ mod tests {
         assert_eq!(reached["jungle tree"], (2, Decoration::JungleTree.height()));
         assert_eq!(reached["bush"], (2, Decoration::Bush.height()));
         assert_eq!(reached["plant"], (0, 1));
-        assert_eq!(Decoration::JungleTree.height(), STRUCTURE_HEIGHT);
+        assert_eq!(Decoration::GiantTree.height(), STRUCTURE_HEIGHT);
     }
 
     #[test]
@@ -1583,6 +1780,203 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn giants_grow_in_the_jungle_of_the_seed_42_never_within_eight_columns() {
+        let seed = 42;
+        let generator = WorldGenerator::new(seed);
+        let giants = giants_of_seed_42();
+        // 170 x 140 columns, about half of them deep enough
+        assert!((10..60).contains(&giants.len()), "{} giants", giants.len());
+        for (i, giant) in giants.iter().enumerate() {
+            assert_eq!(giant.giant, Some(GiantTrunk::Root));
+            assert_eq!(giant.surface, BlockId::Grass);
+            let decorations = column_decorations(giant, &random_of(seed, giant));
+            assert_eq!(decorations, [Decoration::GiantTree]);
+            for (dx, dz) in [(1, 0), (0, 1), (1, 1)] {
+                let beside = generator.column(giant.x + dx, giant.z + dz);
+                assert_eq!(beside.giant, Some(GiantTrunk::Beside));
+                assert_eq!(column_decorations(&beside, &random_of(seed, &beside)), []);
+            }
+            for other in &giants[i + 1..] {
+                let distance = (other.x - giant.x).abs().max((other.z - giant.z).abs());
+                assert!(
+                    distance > 8,
+                    "({}, {}) and ({}, {})",
+                    giant.x,
+                    giant.z,
+                    other.x,
+                    other.z
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_giant_takes_the_front_of_the_tree_roll() {
+        let seed = 3;
+        let mut candidates = 0;
+        for x in 0..300 {
+            for z in 0..300 {
+                let column = jungle_column(seed, x, z, 1.0);
+                let random = random_of(seed, &column);
+                if random.unit(SALT_TREE_ROLL) < jungle::GIANT_CHANCE {
+                    candidates += 1;
+                    // no giant was decided on this column: nothing grows in its place
+                    let decorations = column_decorations(&column, &random);
+                    assert!(
+                        !decorations.contains(&Decoration::JungleTree)
+                            && !decorations.contains(&Decoration::Bush),
+                        "({x}, {z}): {decorations:?}"
+                    );
+                }
+                let shape = ColumnShape {
+                    height: 70,
+                    biome: BiomeType::Jungle,
+                    jungle_depth: 1.0,
+                };
+                let trunk = |part| Column::new(seed, x, z, shape, 0, 0.0, Some(part));
+                let root = trunk(GiantTrunk::Root);
+                assert_eq!(column_decorations(&root, &random), [Decoration::GiantTree]);
+                assert_eq!(column_decorations(&trunk(GiantTrunk::Beside), &random), []);
+            }
+        }
+        assert!(candidates > 200, "{candidates}");
+    }
+
+    /// Generates the chunks holding `positions` with `generator`, once each.
+    fn blocks_at(
+        generator: &WorldGenerator,
+        positions: &[IVec3],
+    ) -> HashMap<IVec3, Option<BlockId>> {
+        let mut chunks: HashMap<IVec3, Chunk> = HashMap::new();
+        positions
+            .iter()
+            .map(|&pos| {
+                let chunk_pos = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
+                let chunk = chunks
+                    .entry(chunk_pos)
+                    .or_insert_with(|| generator.generate_chunk(chunk_pos));
+                let block = chunk.get(pos.rem_euclid(IVec3::splat(CHUNK_SIZE)));
+                (pos, block.map(|b| b.id))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_giants_trunk_keeps_its_ground_and_fills_the_gaps_above_it() {
+        let seed = 42;
+        let generator = WorldGenerator::new(seed);
+        let (mut gaps, mut gaps_in_a_lower_chunk) = (0, 0);
+        // with the one giant within 1500 blocks of the origin whose trunk fills a gap in the
+        // chunk under the chunk of its root
+        let mut giants = giants_of_seed_42();
+        giants.push(generator.column(819, 1186));
+        for giant in giants {
+            assert_eq!(giant.giant, Some(GiantTrunk::Root));
+            let blocks = column_blocks(seed, &giant);
+            let top = blocks
+                .iter()
+                .filter(|(pos, block)| *block == BlockId::JungleLog && pos.xz() == giant_xz(&giant))
+                .map(|(pos, _)| pos.y)
+                .max()
+                .unwrap();
+            let root_chunk = (giant.height + 1).div_euclid(CHUNK_SIZE);
+            for (dx, dz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let column = generator.column(giant.x + dx, giant.z + dz);
+                assert!(
+                    column.cave_ceiling < giant.height - 2,
+                    "caves under the trunk"
+                );
+                let cells: Vec<IVec3> = (giant.height - 2..=top)
+                    .map(|y| IVec3::new(column.x, y, column.z))
+                    .collect();
+                let found = blocks_at(&generator, &cells);
+                for pos in cells {
+                    let block = found[&pos];
+                    if pos.y <= column.height {
+                        assert_eq!(block, terrain_block(pos.y, &column), "{pos}: the ground");
+                    } else {
+                        assert_eq!(block, Some(BlockId::JungleLog), "{pos}: the trunk");
+                        if pos.y <= giant.height {
+                            gaps += 1;
+                            if pos.y.div_euclid(CHUNK_SIZE) < root_chunk {
+                                gaps_in_a_lower_chunk += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            gaps > 0 && gaps_in_a_lower_chunk > 0,
+            "{gaps}, {gaps_in_a_lower_chunk}"
+        );
+    }
+
+    fn giant_xz(column: &Column) -> IVec2 {
+        IVec2::new(column.x, column.z)
+    }
+
+    /// A giant tree of the seed 42 rooted in the ring of a chunk it reaches, 4 to `GIANT_MARGIN`
+    /// columns away from it, and that chunk.
+    fn ring_giant() -> (Column, IVec3) {
+        for giant in giants_of_seed_42() {
+            for (pos, _) in column_blocks(42, &giant) {
+                let chunk = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
+                let start = chunk.xz() * CHUNK_SIZE;
+                let away =
+                    |root: i32, start: i32| (start - root).max(root - (start + CHUNK_SIZE - 1));
+                let distance = away(giant.x, start.x).max(away(giant.z, start.y));
+                if distance > STRUCTURE_MARGIN {
+                    return (giant, chunk);
+                }
+            }
+        }
+        panic!("no giant reaches a chunk from its ring");
+    }
+
+    #[test]
+    fn a_giant_rooted_in_the_ring_of_a_chunk_reaches_into_it() {
+        let seed = 42;
+        let (giant, chunk_pos) = ring_giant();
+        let root = IVec3::new(giant.x, giant.height + 1, giant.z);
+        let columns = WorldGenerator::new(seed).compute_chunk_columns(chunk_pos.xz());
+        assert!(columns.ring_giants.contains(&root), "{root} in {chunk_pos}");
+
+        let alone = generate_chunk(chunk_pos, seed);
+        let amid = WorldGenerator::new(seed);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    amid.generate_chunk(chunk_pos + IVec3::new(dx, dy, dz));
+                }
+            }
+        }
+        assert_eq!(blocks(&alone), blocks(&amid.generate_chunk(chunk_pos)));
+        let root_chunk = root.div_euclid(IVec3::splat(CHUNK_SIZE));
+        assert_eq!(
+            blocks(&generate_chunk(root_chunk, seed)),
+            blocks(&amid.generate_chunk(root_chunk)),
+            "the chunk of the root"
+        );
+
+        let mut inside = 0;
+        for (pos, block) in column_blocks(seed, &giant) {
+            if pos.div_euclid(IVec3::splat(CHUNK_SIZE)) != chunk_pos {
+                continue;
+            }
+            inside += 1;
+            let actual = alone.get(pos.rem_euclid(IVec3::splat(CHUNK_SIZE)));
+            let actual = actual.unwrap_or_else(|| panic!("{pos} ({block:?}) is missing"));
+            assert!(
+                precedence(actual.id) >= precedence(block),
+                "{pos}: {:?}",
+                actual.id
+            );
+        }
+        assert!(inside > 0);
     }
 
     #[test]
@@ -1712,6 +2106,19 @@ mod tests {
             (1800..2200).contains(&below_tenth),
             "{below_tenth} of 20000"
         );
+    }
+
+    #[test]
+    fn no_one_spawns_beside_a_giant() {
+        let generator = WorldGenerator::new(42);
+        for giant in giants_of_seed_42() {
+            for dx in -1..=2 {
+                for dz in -1..=2 {
+                    let (x, z) = (giant.x + dx, giant.z + dz);
+                    assert_eq!(generator.spawn_height(x, z), None, "({x}, {z})");
+                }
+            }
+        }
     }
 
     #[test]
