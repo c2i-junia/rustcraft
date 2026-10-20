@@ -15,19 +15,26 @@ use bevy::{
     ui_widgets::{Activate, ScrollIntoView},
 };
 
-use super::catalog::{count_label, no_match_message, shown_in};
+use shared::players::{game_mode::GameMode, Inventory, Player};
+use shared::world::ItemId;
+
+use super::catalog::{count_label, no_match_hint, no_match_message, shown_in};
 use super::layout::{browser_layout, BrowserLayout};
+use super::recipes::{craftable_now, CRAFTABLE_NOTE};
 use super::{
-    CatalogGrid, CatalogSlot, CategoryChip, DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount,
-    ItemSearchField, NoMatch, NoMatchMessage,
+    CatalogGrid, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, CraftableNow,
+    DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch,
+    NoMatchHint, NoMatchMessage,
 };
+use crate::player::CurrentPlayerMarker;
 use crate::ui::hud::{HudBottom, InventoryDialog, InventoryRoot, UIMode};
 use crate::ui::theme::{
-    ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, PANEL, RAISE, RAISE_HOVER, SPACE_L,
-    TEXT,
+    ACCENT, ACCENT_HI, ACCENT_LO, BEVEL_HI, BEVEL_LO, MUTED, OK, PANEL, RAISE, RAISE_HOVER,
+    SPACE_L, TEXT,
 };
 use crate::ui::widgets::slot::{SlotIcon, SLOT_SIZE};
 use crate::ui::widgets::text_field::{set_text, Cancel, Submit};
+use crate::ui::widgets::tooltip::Tooltip;
 
 /// How far a notch of the wheel moves the row of chips sideways, in logical px.
 const CHIPS_WHEEL_STEP: f32 = SLOT_SIZE;
@@ -56,6 +63,35 @@ pub fn choose_category(
             state.category = chip.0;
         }
     }
+}
+
+/// The Craftable chip activated turns its filter on or off.
+pub fn toggle_craftable(_: On<Activate>, mut state: ResMut<ItemBrowserState>) {
+    state.craftable = !state.craftable;
+}
+
+/// Follows the game mode of the local player, Survival without one as a new player is, and in
+/// Survival the items it can craft now. Only when the inventory or the mode changes.
+pub fn update_craftable_now(
+    inventory: Res<Inventory>,
+    player: Query<&Player, With<CurrentPlayerMarker>>,
+    mut now: ResMut<CraftableNow>,
+) {
+    let survival = player
+        .single()
+        .map_or(true, |player| player.game_mode == GameMode::Survival);
+    if !inventory.is_changed() && survival == now.survival {
+        return;
+    }
+    let items = if survival {
+        ItemId::ALL
+            .into_iter()
+            .filter(|&item| craftable_now(&inventory, item))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    now.set_if_neq(CraftableNow { survival, items });
 }
 
 /// The wheel moves the row of chips sideways: Bevy's `ScrollArea` only moves a row with the
@@ -104,19 +140,32 @@ pub fn show_catalog_icons(
     }
 }
 
-/// Shows the slots of the items the search and the category keep, how many they are, and what
-/// the catalog says when there is none.
+/// Shows the slots of the items the search and the category keep, and in Survival the Craftable
+/// chip, how many they are, and what the catalog says when there is none.
+#[allow(clippy::type_complexity)]
 pub fn filter_catalog(
     state: Res<ItemBrowserState>,
+    craftable: Res<CraftableNow>,
     mut slots: Query<(&CatalogSlot, &mut Node)>,
     mut no_match: Query<&mut Node, (With<NoMatch>, Without<CatalogSlot>)>,
     mut count: Query<&mut Text, With<ItemCount>>,
     mut message: Query<&mut Text, (With<NoMatchMessage>, Without<ItemCount>)>,
+    mut hint: Query<
+        &mut Text,
+        (
+            With<NoMatchHint>,
+            Without<ItemCount>,
+            Without<NoMatchMessage>,
+        ),
+    >,
 ) {
+    let only_craftable = state.craftable && craftable.survival;
     let (mut shown, mut total) = (0, 0);
     for (slot, mut node) in &mut slots {
         total += 1;
-        let display = if shown_in(&state.query, state.category, slot.0) {
+        let kept = shown_in(&state.query, state.category, slot.0)
+            && (!only_craftable || craftable.items.contains(&slot.0));
+        let display = if kept {
             shown += 1;
             Display::Flex
         } else {
@@ -137,7 +186,51 @@ pub fn filter_catalog(
         };
     }
     for mut text in &mut message {
-        text.0 = no_match_message(&state.query, state.category);
+        text.0 = no_match_message(&state.query, state.category, only_craftable);
+    }
+    for mut text in &mut hint {
+        text.0 = no_match_hint(&state.query, only_craftable).to_string();
+    }
+}
+
+/// Shows the footer of the game mode.
+pub fn show_mode_footer(
+    craftable: Res<CraftableNow>,
+    mut footers: Query<(&ModeFooter, &mut Node)>,
+) {
+    for (footer, mut node) in &mut footers {
+        let display = if footer.0 == craftable.survival {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
+    }
+}
+
+/// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
+/// their slots in the browser.
+pub fn mark_craftable_items(
+    craftable: Res<CraftableNow>,
+    mut slots: Query<(&CatalogSlot, &mut Tooltip, &Children)>,
+    mut dots: Query<&mut Node, With<CraftableDot>>,
+) {
+    for (slot, mut tooltip, children) in &mut slots {
+        let now = craftable.items.contains(&slot.0);
+        let note = if now { CRAFTABLE_NOTE } else { "" };
+        if tooltip.note != note {
+            tooltip.note = note.to_string();
+        }
+        for child in children.iter() {
+            if let Ok(mut dot) = dots.get_mut(child) {
+                let display = if now { Display::Flex } else { Display::None };
+                if dot.display != display {
+                    dot.display = display;
+                }
+            }
+        }
     }
 }
 
@@ -147,7 +240,12 @@ type BrowserStops<'w, 's> = Query<
     's,
     (&'static mut TabIndex, &'static Node),
     (
-        Or<(With<ItemSearchField>, With<CategoryChip>, With<CatalogSlot>)>,
+        Or<(
+            With<ItemSearchField>,
+            With<CategoryChip>,
+            With<CraftableChip>,
+            With<CatalogSlot>,
+        )>,
         Without<ItemBrowser>,
         Without<InventoryDialog>,
         Without<CatalogGrid>,
@@ -398,48 +496,56 @@ pub fn clear_or_leave_search(
     }
 }
 
-/// The chosen chip takes the accent, with dark text; the others are raised, lighter under the
-/// cursor.
+/// The chosen chips take the accent, the Craftable chip green, with dark text; the others are
+/// raised, lighter under the cursor. The Craftable chip shows in Survival only.
+#[allow(clippy::type_complexity)]
 pub fn style_chips(
     state: Res<ItemBrowserState>,
-    mut chips: Query<(
-        Entity,
-        &CategoryChip,
-        &Hovered,
-        Has<Checked>,
-        &mut BackgroundColor,
-        &mut BorderColor,
-        &Children,
-    )>,
+    craftable: Res<CraftableNow>,
+    mut chips: Query<
+        (
+            Entity,
+            Option<&CategoryChip>,
+            Has<CraftableChip>,
+            &Hovered,
+            Has<Checked>,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &mut Node,
+            &Children,
+        ),
+        Or<(With<CategoryChip>, With<CraftableChip>)>,
+    >,
     mut texts: Query<&mut TextColor>,
     mut commands: Commands,
 ) {
-    for (entity, chip, hovered, checked, mut background, mut border, children) in &mut chips {
-        let chosen = chip.0 == state.category;
-        let (fill, edge, text) = if chosen {
-            (
-                ACCENT,
-                BorderColor {
-                    top: ACCENT_HI,
-                    left: ACCENT_HI,
-                    bottom: ACCENT_LO,
-                    right: ACCENT_LO,
-                },
-                PANEL,
-            )
-        } else {
-            let hovered = hovered.get();
-            (
-                if hovered { RAISE_HOVER } else { RAISE },
-                BorderColor {
-                    top: BEVEL_HI,
-                    left: BEVEL_HI,
-                    bottom: BEVEL_LO,
-                    right: BEVEL_LO,
-                },
-                if hovered { TEXT } else { MUTED },
-            )
+    for (
+        entity,
+        category,
+        is_craftable,
+        hovered,
+        checked,
+        mut background,
+        mut border,
+        mut node,
+        children,
+    ) in &mut chips
+    {
+        let chosen = match category {
+            Some(chip) => chip.0 == state.category,
+            None => state.craftable,
         };
+        if is_craftable {
+            let display = if craftable.survival {
+                Display::Flex
+            } else {
+                Display::None
+            };
+            if node.display != display {
+                node.display = display;
+            }
+        }
+        let (fill, edge, text) = chip_look(chosen, is_craftable, hovered.get());
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(edge);
         for child in children.iter() {
@@ -453,6 +559,30 @@ pub fn style_chips(
         } else if !chosen && checked {
             commands.entity(entity).remove::<Checked>();
         }
+    }
+}
+
+/// The light and dark edges of the bevel of the green chip, as the mockup.
+const OK_HI: Color = Color::srgb_u8(0xAE, 0xE0, 0x9C);
+const OK_LO: Color = Color::srgb_u8(0x3F, 0x73, 0x30);
+
+/// The fill, the bevel and the text colour of a chip: chosen, in the accent or green, else
+/// raised, lighter under the cursor.
+fn chip_look(chosen: bool, green: bool, hovered: bool) -> (Color, BorderColor, Color) {
+    let bevel = |light: Color, dark: Color| BorderColor {
+        top: light,
+        left: light,
+        bottom: dark,
+        right: dark,
+    };
+    match (chosen, green) {
+        (true, false) => (ACCENT, bevel(ACCENT_HI, ACCENT_LO), PANEL),
+        (true, true) => (OK, bevel(OK_HI, OK_LO), PANEL),
+        (false, _) => (
+            if hovered { RAISE_HOVER } else { RAISE },
+            bevel(BEVEL_HI, BEVEL_LO),
+            if hovered { TEXT } else { MUTED },
+        ),
     }
 }
 
@@ -476,12 +606,18 @@ mod tests {
     use shared::world::{ItemCategory, ItemId};
 
     use super::*;
+    use crate::player::CurrentPlayerMarker;
     use crate::ui::hud::item_browser::catalog::catalog;
+    use crate::ui::widgets::tooltip::Tooltip;
+    use shared::players::{game_mode::GameMode, Inventory, Player};
+    use shared::world::ItemStack;
 
     /// A world holding the parts of the browser that its systems read, without textures.
     fn browser(inventory: Visibility) -> World {
         let mut world = World::new();
         world.init_resource::<ItemBrowserState>();
+        world.init_resource::<CraftableNow>();
+        world.init_resource::<Inventory>();
         world.insert_resource(browser_layout(Vec2::new(1280.0, 720.0), 502.0));
         world.spawn((InventoryRoot, inventory));
         let window = ComputedNode {
@@ -502,7 +638,13 @@ mod tests {
         world.spawn((ItemSearchField, Node::default(), TabIndex(0)));
         world.spawn((CategoryChip(None), Node::default(), TabIndex(0)));
         for item in catalog() {
-            world.spawn((CatalogSlot(item), Node::default(), TabIndex(0)));
+            world.spawn((
+                CatalogSlot(item),
+                Node::default(),
+                TabIndex(0),
+                Tooltip::default(),
+                children![(CraftableDot, Node::default())],
+            ));
         }
         world.spawn((ItemCount, Text::default()));
         world.spawn((NoMatch, Node::default()));
@@ -593,6 +735,92 @@ mod tests {
             px(276.0 - 389.0)
         );
         assert_eq!(single::<Node, ItemBrowser>(&mut world).width, px(470.0));
+    }
+
+    /// The world holds `nb` of `item` in the backpack, and the systems that follow it ran.
+    fn give(world: &mut World, item_id: ItemId, nb: u32) {
+        let stack = ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb,
+        };
+        world.resource_mut::<Inventory>().inner.insert(9, stack);
+        world.run_system_once(update_craftable_now).unwrap();
+        world.run_system_once(filter_catalog).unwrap();
+        world.run_system_once(mark_craftable_items).unwrap();
+    }
+
+    /// Puts the local player in `mode`, and runs the systems that follow it.
+    fn set_mode(world: &mut World, mode: GameMode) {
+        let mut player = Player::new(1, "tester".into(), Vec3::ZERO, Transform::default());
+        player.game_mode = mode;
+        let mut players = world.query_filtered::<Entity, With<CurrentPlayerMarker>>();
+        let existing: Vec<Entity> = players.iter(world).collect();
+        for entity in existing {
+            world.despawn(entity);
+        }
+        world.spawn((player, CurrentPlayerMarker {}));
+        world.run_system_once(update_craftable_now).unwrap();
+        world.run_system_once(filter_catalog).unwrap();
+        world.run_system_once(mark_craftable_items).unwrap();
+    }
+
+    #[test]
+    fn the_craftable_chip_keeps_what_can_be_crafted_now() {
+        let mut world = browser(Visibility::Visible);
+        give(&mut world, ItemId::OakLog, 1);
+        assert_eq!(
+            *world.resource::<CraftableNow>(),
+            CraftableNow {
+                survival: true,
+                items: vec![ItemId::OakPlanks]
+            }
+        );
+        world.resource_mut::<ItemBrowserState>().craftable = true;
+        world.run_system_once(filter_catalog).unwrap();
+        assert_eq!(shown_slots(&mut world), [ItemId::OakPlanks]);
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "1 / 33");
+
+        // Nothing craftable: the empty state says so
+        give(&mut world, ItemId::Dirt, 1);
+        assert!(shown_slots(&mut world).is_empty());
+        assert_eq!(
+            single::<Text, NoMatchMessage>(&mut world).0,
+            "No craftable item."
+        );
+
+        // Creative has no such filter
+        set_mode(&mut world, GameMode::Creative);
+        assert_eq!(shown_slots(&mut world).len(), 33);
+        assert!(!world.resource::<CraftableNow>().survival);
+    }
+
+    /// Whether the dot of the slot of `item` shows, and the note of its tooltip.
+    fn dot_and_note(world: &mut World, item: ItemId) -> (bool, String) {
+        let mut slots = world.query::<(&CatalogSlot, &Children, &Tooltip)>();
+        let (_, children, tooltip) = slots.iter(world).find(|(slot, ..)| slot.0 == item).unwrap();
+        let dot = world.get::<Node>(children[0]).unwrap().display != Display::None;
+        (dot, tooltip.note.clone())
+    }
+
+    #[test]
+    fn a_craftable_item_shows_a_dot_and_says_so_in_its_tooltip() {
+        let mut world = browser(Visibility::Visible);
+        give(&mut world, ItemId::OakLog, 1);
+        assert_eq!(
+            dot_and_note(&mut world, ItemId::OakPlanks),
+            (true, "You have the ingredients".to_string())
+        );
+        assert_eq!(
+            dot_and_note(&mut world, ItemId::Stick),
+            (false, String::new())
+        );
+
+        set_mode(&mut world, GameMode::Creative);
+        assert_eq!(
+            dot_and_note(&mut world, ItemId::OakPlanks),
+            (false, String::new())
+        );
     }
 
     #[test]

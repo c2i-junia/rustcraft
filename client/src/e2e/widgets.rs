@@ -584,6 +584,7 @@ fn dirt_tooltip() -> Tooltip {
         title: "Dirt".into(),
         detail: "5 items".into(),
         hint: "Shift+click: move to the hotbar".into(),
+        ..default()
     }
 }
 

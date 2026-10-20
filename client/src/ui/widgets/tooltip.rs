@@ -13,7 +13,7 @@ use bevy::{
 
 use crate::ui::{
     assets::load_font,
-    theme::{BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, PANEL, SPACE_S, TEXT},
+    theme::{BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_S, MUTED, OK, PANEL, SPACE_S, TEXT},
 };
 
 /// How far the tooltip sits right of and below the cursor or the focused element, in logical px.
@@ -26,6 +26,8 @@ const TOOLTIP_OFFSET: f32 = 12.0;
 pub struct Tooltip {
     pub title: String,
     pub detail: String,
+    /// A good news, in green: in the item browser, that the player can craft the item.
+    pub note: String,
     pub hint: String,
 }
 
@@ -33,7 +35,7 @@ pub struct Tooltip {
 #[derive(Component)]
 pub struct TooltipRoot;
 
-/// A line of the tooltip: 0 is the title, 1 the detail and 2 the hint.
+/// A line of the tooltip: 0 is the title, 1 the detail, 2 the note and 3 the hint.
 #[derive(Component)]
 struct TooltipLine(usize);
 
@@ -82,7 +84,7 @@ fn spawn_tooltip(mut commands: Commands, asset_server: Res<AssetServer>) {
             bottom: BEVEL_LO,
             right: BEVEL_LO,
         },
-        children![line(0, TEXT), line(1, MUTED), line(2, MUTED)],
+        children![line(0, TEXT), line(1, MUTED), line(2, OK), line(3, MUTED)],
     ));
 }
 
@@ -164,6 +166,7 @@ fn show_tooltip(
         let content = match index {
             0 => &tooltip.title,
             1 => &tooltip.detail,
+            2 => &tooltip.note,
             _ => &tooltip.hint,
         };
         if text.0 != *content {
@@ -228,7 +231,7 @@ mod tests {
                 inverse_scale_factor: 1.0,
                 ..default()
             },
-            children![line(0), line(1), line(2)],
+            children![line(0), line(1), line(2), line(3)],
         ));
         let tooltip = |title: &str| Tooltip {
             title: title.into(),
@@ -339,5 +342,36 @@ mod tests {
                 "cursor {cursor:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_note_shows_between_the_detail_and_the_hint() {
+        let (mut world, cell) = world_with_two_tooltips();
+        world.entity_mut(cell).insert(Tooltip {
+            title: "Oak Planks".into(),
+            detail: "Wood".into(),
+            note: "You have the ingredients".into(),
+            hint: "R Recipes".into(),
+        });
+        world.resource_mut::<InputFocusVisible>().0 = true;
+        shown_tooltip(&mut world);
+        let mut root = world.query_filtered::<&Children, With<TooltipRoot>>();
+        let children: Vec<Entity> = root.single(&world).unwrap().to_vec();
+        let lines: Vec<(String, Display)> = children
+            .into_iter()
+            .map(|line| {
+                let text = world.get::<Text>(line).unwrap().0.clone();
+                (text, world.get::<Node>(line).unwrap().display)
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                ("Oak Planks".to_string(), Display::Flex),
+                ("Wood".to_string(), Display::Flex),
+                ("You have the ingredients".to_string(), Display::Flex),
+                ("R Recipes".to_string(), Display::Flex),
+            ]
+        );
     }
 }

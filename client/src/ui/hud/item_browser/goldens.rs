@@ -8,8 +8,9 @@ use shared::world::{ItemId, ItemStack};
 
 use super::layout::BrowserLayout;
 use super::{
-    filter_catalog, layout_item_browser, setup_item_browser, show_catalog_icons, show_item_browser,
-    style_chips, ItemBrowserState,
+    filter_catalog, layout_item_browser, mark_craftable_items, setup_item_browser,
+    show_catalog_icons, show_item_browser, show_mode_footer, style_chips, update_craftable_now,
+    CraftableNow, ItemBrowserState,
 };
 use crate::ui::golden::UiGolden;
 use crate::ui::hud::{
@@ -25,6 +26,7 @@ use crate::world::ClientWorldMap;
 pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
     golden.world_mut().init_resource::<ItemBrowserState>();
     golden.world_mut().init_resource::<BrowserLayout>();
+    golden.world_mut().init_resource::<CraftableNow>();
     golden.run_system(setup_inventory);
     golden.run_system(setup_item_browser);
     if open {
@@ -40,7 +42,10 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
         golden.run_system(style_inventory_panel);
         golden.run_system(layout_item_browser);
         golden.run_system(show_catalog_icons);
+        golden.run_system(update_craftable_now);
         golden.run_system(filter_catalog);
+        golden.run_system(mark_craftable_items);
+        golden.run_system(show_mode_footer);
         golden.run_system(show_item_browser);
         golden.run_system(style_chips);
         golden.run_system(style_slots);

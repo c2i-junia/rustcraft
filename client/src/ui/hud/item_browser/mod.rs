@@ -124,9 +124,35 @@ pub struct DrawerHandle;
 #[derive(Component)]
 pub struct NoMatchMessage;
 
+/// The second line of `NoMatch`, which says how to see more.
+#[derive(Component)]
+pub struct NoMatchHint;
+
+/// The chip keeping only the items craftable now, in Survival.
+#[derive(Component)]
+pub struct CraftableChip;
+
+/// The small square in the top-right corner of a catalog slot whose item is craftable now.
+#[derive(Component)]
+pub struct CraftableDot;
+
+/// The footer of the browser in Survival (`true`) or in Creative.
+#[derive(Component)]
+pub struct ModeFooter(pub bool);
+
+/// Whether the local player is in Survival, and the items it can craft now: some recipe of
+/// theirs has its ingredients in the inventory and the crafting grid, whatever the grid size.
+/// Nothing is craftable in Creative, where nothing is shown as such.
+#[derive(Resource, Default, Clone, PartialEq, Debug)]
+pub struct CraftableNow {
+    pub survival: bool,
+    pub items: Vec<ItemId>,
+}
+
 pub fn item_browser_plugin(app: &mut App) {
     app.init_resource::<ItemBrowserState>()
         .init_resource::<layout::BrowserLayout>()
+        .init_resource::<CraftableNow>()
         .add_systems(
             OnEnter(GameState::Game),
             setup_item_browser.after(crate::ui::hud::setup_inventory),
@@ -137,8 +163,14 @@ pub fn item_browser_plugin(app: &mut App) {
                 read_search,
                 layout_item_browser,
                 show_catalog_icons,
+                update_craftable_now,
                 filter_catalog.run_if(
                     resource_changed::<ItemBrowserState>
+                        .or_else(resource_changed::<CraftableNow>)
+                        .or_else(any_match_filter::<Added<CatalogSlot>>),
+                ),
+                (mark_craftable_items, show_mode_footer).run_if(
+                    resource_changed::<CraftableNow>
                         .or_else(any_match_filter::<Added<CatalogSlot>>),
                 ),
                 show_item_browser,

@@ -459,6 +459,7 @@ fn tooltip_of(
                 Some((wear, durability)) => durability_detail(wear, durability),
                 None => count_detail(stack.nb),
             },
+            note: String::new(),
             hint: hint.to_string(),
         },
         _ => Tooltip::default(),
@@ -959,7 +960,8 @@ mod tests {
             Tooltip {
                 title: "Dirt".into(),
                 detail: "5 items".into(),
-                hint: HINT_BACKPACK.into()
+                hint: HINT_BACKPACK.into(),
+                ..default()
             }
         );
         assert_eq!(
@@ -967,7 +969,8 @@ mod tests {
             Tooltip {
                 title: "Dirt".into(),
                 detail: "1 item".into(),
-                hint: HINT_HOTBAR.into()
+                hint: HINT_HOTBAR.into(),
+                ..default()
             }
         );
         assert_eq!(
@@ -975,7 +978,8 @@ mod tests {
             Tooltip {
                 title: "Oak Log".into(),
                 detail: "1 item".into(),
-                hint: HINT_GRID.into()
+                hint: HINT_GRID.into(),
+                ..default()
             }
         );
         assert_eq!(
@@ -983,7 +987,8 @@ mod tests {
             Tooltip {
                 title: "Oak Planks".into(),
                 detail: "4 items".into(),
-                hint: HINT_RESULT.into()
+                hint: HINT_RESULT.into(),
+                ..default()
             }
         );
     }

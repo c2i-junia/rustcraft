@@ -45,11 +45,26 @@ pub fn count_label(shown: usize, total: usize) -> String {
     format!("{shown} / {total}")
 }
 
-/// What the catalog says when nothing answers `query` in `category`.
-pub fn no_match_message(query: &str, category: Option<ItemCategory>) -> String {
-    match category {
-        Some(category) => format!("No item matches \"{query}\" in {}.", category.name()),
-        None => format!("No item matches \"{query}\"."),
+/// Under the message saying that nothing is craftable now, with an empty search.
+pub const NO_CRAFTABLE_HINT: &str = "Gather more, or turn Craftable off.";
+
+/// What the catalog says when nothing answers `query` in `category`, among the items craftable
+/// now when `craftable`.
+pub fn no_match_message(query: &str, category: Option<ItemCategory>, craftable: bool) -> String {
+    let within = category.map_or(String::new(), |category| format!(" in {}", category.name()));
+    if craftable && query.trim().is_empty() {
+        format!("No craftable item{within}.")
+    } else {
+        format!("No item matches \"{query}\"{within}.")
+    }
+}
+
+/// Under `no_match_message`: how to see more.
+pub fn no_match_hint(query: &str, craftable: bool) -> &'static str {
+    if craftable && query.trim().is_empty() {
+        NO_CRAFTABLE_HINT
+    } else {
+        NO_MATCH_HINT
     }
 }
 
@@ -146,12 +161,30 @@ mod tests {
     #[test]
     fn the_texts_of_the_panel() {
         assert_eq!(count_label(12, 33), "12 / 33");
-        assert_eq!(no_match_message("zzz", None), "No item matches \"zzz\".");
         assert_eq!(
-            no_match_message("zzz", Some(Wood)),
+            no_match_message("zzz", None, false),
+            "No item matches \"zzz\"."
+        );
+        assert_eq!(
+            no_match_message("zzz", Some(Wood), false),
             "No item matches \"zzz\" in Wood."
         );
-        assert_eq!(NO_MATCH_HINT, "Esc clears the search.");
+        assert_eq!(no_match_hint("zzz", false), "Esc clears the search.");
+        // Among the craftable items, an empty search
+        assert_eq!(
+            no_match_message("zzz", Some(Wood), true),
+            "No item matches \"zzz\" in Wood."
+        );
+        assert_eq!(no_match_message(" ", None, true), "No craftable item.");
+        assert_eq!(
+            no_match_message("", Some(Tools), true),
+            "No craftable item in Tools."
+        );
+        assert_eq!(
+            no_match_hint("", true),
+            "Gather more, or turn Craftable off."
+        );
+        assert_eq!(no_match_hint("zzz", true), "Esc clears the search.");
         assert_eq!(category_detail(ItemId::OakLog), "Wood");
         assert_eq!(category_detail(ItemId::WoodenPickaxe), "Tools · Tool");
     }

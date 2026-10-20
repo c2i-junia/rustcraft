@@ -6,15 +6,17 @@ use bevy::{
 use shared::world::{ItemCategory, ItemId};
 
 use super::catalog::{catalog, category_detail, NO_MATCH_HINT};
+use super::recipes::ITEM_KEYS_HINT;
 use super::{
     choose_category, clear_or_leave_search, open_drawer, search_arrow_down, submit_search,
-    CatalogGrid, CatalogSlot, CategoryChip, DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount,
-    ItemSearchField, NoMatch, NoMatchMessage, ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    toggle_craftable, CatalogGrid, CatalogSlot, CategoryChip, CraftableChip, CraftableDot,
+    DrawerHandle, ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch,
+    NoMatchHint, NoMatchMessage, ITEM_BROWSER_TITLE, SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
 use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, RAISE, SPACE_L, SPACE_S,
+    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, OK, PANEL, RAISE, SPACE_L, SPACE_S,
     SPACE_XS, TEXT,
 };
 use crate::ui::widgets::focus::{ArrowNav, FocusRing};
@@ -27,6 +29,10 @@ use crate::world::{AtlasWrapper, MaterialResource};
 
 /// The most characters the search field takes.
 const SEARCH_MAX_CHARACTERS: usize = 32;
+/// The label of the chip keeping the items craftable now.
+pub const CRAFTABLE_CHIP: &str = "Craftable";
+/// The side of the dot of a craftable item, its border included.
+const DOT_SIZE: f32 = 8.0;
 /// The room above and below the label of a chip.
 const CHIP_PADDING_Y: f32 = 2.0;
 /// The width of the handle of the drawer.
@@ -122,30 +128,67 @@ pub fn setup_item_browser(
     spawn_chips(&mut commands, panel, &font);
     spawn_grid(&mut commands, panel, atlas, &font);
 
-    commands.spawn((
-        Node {
-            flex_wrap: FlexWrap::Wrap,
-            align_items: AlignItems::Center,
-            column_gap: px(SPACE_XS),
-            row_gap: px(SPACE_XS),
-            padding: UiRect::top(px(SPACE_S)),
-            border: UiRect::top(px(BEVEL_WIDTH)),
-            ..default()
-        },
-        BorderColor::all(BEVEL_LO),
-        Pickable::IGNORE,
-        ChildOf(panel),
-        children![
-            key_cap("/", font.clone(), glyph_font.clone()),
-            label("search", &font, FONT_S, MUTED),
+    spawn_footer(&mut commands, panel, &font, &glyph_font);
+}
+
+/// The footer: the gestures of the catalog in Survival, where a click opens the recipes, or in
+/// Creative, where only the keys do so far.
+fn spawn_footer(
+    commands: &mut Commands,
+    panel: Entity,
+    font: &Handle<Font>,
+    glyph_font: &Handle<Font>,
+) {
+    let footer = commands
+        .spawn((
             Node {
-                width: px(SPACE_S),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::top(px(SPACE_S)),
+                border: UiRect::top(px(BEVEL_WIDTH)),
                 ..default()
             },
-            key_cap("↑↓ ←→", font.clone(), glyph_font.clone()),
-            label("browse", &font, FONT_S, MUTED),
-        ],
-    ));
+            BorderColor::all(BEVEL_LO),
+            Pickable::IGNORE,
+            ChildOf(panel),
+        ))
+        .id();
+    for (survival, keys) in [
+        (true, [("LMB", "recipes"), ("RMB", "uses"), ("/", "search")]),
+        (false, [("R", "recipes"), ("U", "uses"), ("/", "search")]),
+    ] {
+        let row = commands
+            .spawn((
+                ModeFooter(survival),
+                Node {
+                    display: if survival {
+                        Display::Flex
+                    } else {
+                        Display::None
+                    },
+                    flex_wrap: FlexWrap::Wrap,
+                    align_items: AlignItems::Center,
+                    column_gap: px(SPACE_XS),
+                    row_gap: px(SPACE_XS),
+                    ..default()
+                },
+                Pickable::IGNORE,
+                ChildOf(footer),
+            ))
+            .id();
+        for (index, (key, action)) in keys.into_iter().enumerate() {
+            if index > 0 {
+                commands.spawn((
+                    Node {
+                        width: px(SPACE_S),
+                        ..default()
+                    },
+                    ChildOf(row),
+                ));
+            }
+            commands.spawn((key_cap(key, font.clone(), glyph_font.clone()), ChildOf(row)));
+            commands.spawn((label(action, font, FONT_S, MUTED), ChildOf(row)));
+        }
+    }
 }
 
 /// The handle of the drawer, at mid-height of the right edge: a `B` key cap over the title of the
@@ -315,6 +358,32 @@ fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
             ))
             .observe(choose_category);
     }
+    commands
+        .spawn((
+            // the widget before the label: its `Role::Button` must win over the label's node
+            UiButton,
+            AccessibleLabel::new(CRAFTABLE_CHIP),
+            CraftableChip,
+            TabIndex(0),
+            FocusRing,
+            Hovered::default(),
+            Node {
+                flex_shrink: 0.0,
+                padding: UiRect::axes(px(SPACE_S), px(CHIP_PADDING_Y)),
+                border: UiRect::all(px(BEVEL_WIDTH)),
+                ..default()
+            },
+            BackgroundColor(RAISE),
+            BorderColor {
+                top: BEVEL_HI,
+                left: BEVEL_HI,
+                bottom: BEVEL_LO,
+                right: BEVEL_LO,
+            },
+            ChildOf(row),
+            children![label(CRAFTABLE_CHIP, font, FONT_S, MUTED)],
+        ))
+        .observe(toggle_craftable);
 }
 
 /// The scrolling grid of the catalog, a slot per item, and what it says when nothing matches.
@@ -348,16 +417,35 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         .id();
     for item in catalog() {
         let name = item_name(item);
-        commands.spawn((
-            CatalogSlot(item),
-            Tooltip {
-                title: name.clone(),
-                detail: category_detail(item),
-                hint: String::new(),
-            },
-            slot(&name, None, icon(atlas, item), font.clone()),
-            ChildOf(grid),
-        ));
+        commands
+            .spawn((
+                CatalogSlot(item),
+                Tooltip {
+                    title: name.clone(),
+                    detail: category_detail(item),
+                    note: String::new(),
+                    hint: ITEM_KEYS_HINT.to_string(),
+                },
+                slot(&name, None, icon(atlas, item), font.clone()),
+                ChildOf(grid),
+            ))
+            // after the icon and the count: drawn over them
+            .with_child((
+                CraftableDot,
+                Node {
+                    display: Display::None,
+                    position_type: PositionType::Absolute,
+                    top: px(1),
+                    right: px(1),
+                    width: px(DOT_SIZE),
+                    height: px(DOT_SIZE),
+                    border: UiRect::all(px(1)),
+                    ..default()
+                },
+                BackgroundColor(OK),
+                BorderColor::all(BEVEL_LO),
+                Pickable::IGNORE,
+            ));
     }
     commands.spawn((
         NoMatch,
@@ -371,7 +459,7 @@ fn spawn_grid(commands: &mut Commands, panel: Entity, atlas: &AtlasWrapper, font
         ChildOf(list),
         children![
             (NoMatchMessage, label("", font, FONT_S, TEXT)),
-            label(NO_MATCH_HINT, font, FONT_S, MUTED),
+            (NoMatchHint, label(NO_MATCH_HINT, font, FONT_S, MUTED)),
         ],
     ));
 }
