@@ -15,6 +15,7 @@ use crate::{
         writer::WorldWriter,
     },
 };
+use bevy::ecs::schedule::SingleThreadedExecutor;
 use bevy::prelude::*;
 use bevy_app::ScheduleRunnerPlugin;
 use bevy_renet::netcode::{NetcodeServerPlugin, ServerAuthentication, ServerConfig};
@@ -220,6 +221,13 @@ fn run(
         }
         app.insert_resource(StatusCounter(players));
         app.add_systems(Update, publish_player_count);
+    }
+
+    // The systems run one after the other on the thread of the server, not on Bevy's compute
+    // pool: an integrated server shares it with its client, whose frames would wait for a tick
+    // that makes chunks, and the tick for the frames
+    for (_, schedule) in app.world_mut().resource_mut::<Schedules>().iter_mut() {
+        schedule.set_executor(SingleThreadedExecutor::new());
     }
 
     app.run();
