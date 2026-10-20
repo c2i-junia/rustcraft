@@ -1,6 +1,7 @@
 //! The recipes, and what the crafting grid makes.
 
 use crate::{
+    players::Inventory,
     world::{ItemId, ItemStack},
     MAX_INVENTORY_SLOTS,
 };
@@ -212,9 +213,98 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
     })
 }
 
+/// A recipe as the item browser reads it. Its index is its position in the table, stable for a
+/// protocol version.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RecipeView {
+    pub index: u16,
+    pub width: usize,
+    pub height: usize,
+    /// Its cells, row after row.
+    pub cells: &'static [Option<ItemId>],
+    pub output: ItemStack,
+}
+
+impl RecipeView {
+    /// Whether the recipe fits a crafting grid of `grid_size` by `grid_size`.
+    pub fn fits(&self, grid_size: u32) -> bool {
+        self.width <= grid_size as usize && self.height <= grid_size as usize
+    }
+
+    /// The items of the recipe, one per cell, in the order of their first cell.
+    pub fn ingredients(&self) -> Vec<(ItemId, u32)> {
+        let mut ingredients: Vec<(ItemId, u32)> = Vec::new();
+        for item in self.cells.iter().flatten() {
+            match ingredients.iter_mut().find(|(other, _)| other == item) {
+                Some((_, count)) => *count += 1,
+                None => ingredients.push((*item, 1)),
+            }
+        }
+        ingredients
+    }
+}
+
+/// Every recipe, in the order of the table.
+pub fn recipes() -> impl Iterator<Item = RecipeView> {
+    RECIPES
+        .iter()
+        .enumerate()
+        .map(|(index, recipe)| RecipeView {
+            index: index as u16,
+            width: recipe.width,
+            height: recipe.cells.len() / recipe.width,
+            cells: recipe.cells,
+            output: ItemStack {
+                item_id: recipe.output,
+                item_type: recipe.output.get_default_type(),
+                nb: recipe.nb,
+            },
+        })
+}
+
+/// The recipes making `item`.
+pub fn recipes_for(item: ItemId) -> impl Iterator<Item = RecipeView> {
+    recipes().filter(move |recipe| recipe.output.item_id == item)
+}
+
+/// The recipes `item` goes into.
+pub fn uses_of(item: ItemId) -> impl Iterator<Item = RecipeView> {
+    recipes().filter(move |recipe| recipe.cells.contains(&Some(item)))
+}
+
+/// What `inventory` lacks to make `recipe` once, in the order of its ingredients. Its slots and
+/// its crafting grid count; a chest, and the stack held by the cursor, do not.
+pub fn missing(inventory: &Inventory, recipe: &RecipeView) -> Vec<(ItemId, u32)> {
+    let grid = CRAFTING_GRID_START..CRAFTING_GRID_START + CRAFTING_GRID_SIZE * CRAFTING_GRID_SIZE;
+    let held = |item: ItemId| -> u32 {
+        inventory
+            .inner
+            .iter()
+            .filter(|(slot, stack)| {
+                (**slot < MAX_INVENTORY_SLOTS || grid.contains(slot)) && stack.item_id == item
+            })
+            .map(|(_, stack)| stack.nb)
+            .sum()
+    };
+    recipe
+        .ingredients()
+        .into_iter()
+        .filter_map(|(item, needed)| {
+            let lacking = needed.saturating_sub(held(item));
+            (lacking > 0).then_some((item, lacking))
+        })
+        .collect()
+}
+
+/// Whether `inventory` holds the ingredients of `recipe`, counted as `missing` does.
+pub fn craftable(inventory: &Inventory, recipe: &RecipeView) -> bool {
+    missing(inventory, recipe).is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::players::Inventory;
 
     const LOG: Option<ItemId> = Some(ItemId::OakLog);
     const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
@@ -426,6 +516,103 @@ mod tests {
         assert_eq!(
             match_recipe(&grid([None, STICK, None, None, STICK, None, OAK, OAK, OAK])),
             None
+        );
+    }
+
+    #[test]
+    fn every_recipe_is_listed_with_its_index_and_size() {
+        let all: Vec<RecipeView> = recipes().collect();
+        assert_eq!(all.len(), 19);
+        for (position, recipe) in all.iter().enumerate() {
+            assert_eq!(recipe.index as usize, position);
+            assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
+            // what the grid makes when it holds the recipe in its top left corner
+            let mut grid = [None; 9];
+            for row in 0..recipe.height {
+                for col in 0..recipe.width {
+                    grid[row * 3 + col] = recipe.cells[row * recipe.width + col];
+                }
+            }
+            assert_eq!(match_recipe(&grid), Some(recipe.output), "{recipe:?}");
+        }
+        let furnace = all.iter().find(|r| r.output.item_id == ItemId::Furnace);
+        assert_eq!(furnace.map(|r| (r.width, r.height)), Some((3, 3)));
+        assert_eq!((all[2].width, all[2].height), (1, 2));
+        assert_eq!(all[2].output, made(ItemId::Stick, 4).unwrap());
+    }
+
+    #[test]
+    fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
+        let counts = |item| (recipes_for(item).count(), uses_of(item).count());
+        assert_eq!(counts(ItemId::WoodenPickaxe), (2, 0));
+        assert_eq!(counts(ItemId::Stick), (2, 10));
+        assert_eq!(counts(ItemId::OakPlanks), (1, 8));
+        assert_eq!(counts(ItemId::Cobblestone), (0, 1));
+        assert_eq!(counts(ItemId::Bedrock), (0, 0));
+        assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
+        assert!(uses_of(ItemId::Stick).all(|r| r.cells.contains(&STICK)));
+    }
+
+    /// The first recipe making `item`.
+    fn recipe_of(item: ItemId) -> RecipeView {
+        recipes_for(item).next().unwrap()
+    }
+
+    #[test]
+    fn a_recipe_fits_a_grid_as_large_as_it() {
+        assert!(recipe_of(ItemId::Stick).fits(2));
+        assert!(recipe_of(ItemId::WoodenPickaxe).fits(3));
+        assert!(!recipe_of(ItemId::WoodenPickaxe).fits(2));
+        assert!(recipe_of(ItemId::WoodenAxe).fits(3));
+        assert!(!recipe_of(ItemId::WoodenAxe).fits(2));
+    }
+
+    #[test]
+    fn the_ingredients_of_a_recipe_are_counted_by_cell() {
+        assert_eq!(
+            recipe_of(ItemId::WoodenPickaxe).ingredients(),
+            [(ItemId::OakPlanks, 3), (ItemId::Stick, 2)]
+        );
+        assert_eq!(
+            recipe_of(ItemId::Furnace).ingredients(),
+            [(ItemId::Cobblestone, 8)]
+        );
+    }
+
+    fn put(inventory: &mut Inventory, slot: u32, item_id: ItemId, nb: u32) {
+        inventory.inner.insert(slot, made(item_id, nb).unwrap());
+    }
+
+    #[test]
+    fn missing_counts_the_inventory_and_the_grid() {
+        let pickaxe = recipe_of(ItemId::WoodenPickaxe);
+        let mut inventory = Inventory::new();
+        assert_eq!(
+            missing(&inventory, &pickaxe),
+            [(ItemId::OakPlanks, 3), (ItemId::Stick, 2)]
+        );
+        assert!(!craftable(&inventory, &pickaxe));
+        put(&mut inventory, 0, ItemId::OakPlanks, 1);
+        put(&mut inventory, grid_slot(1, 1), ItemId::OakPlanks, 2);
+        put(&mut inventory, 20, ItemId::Stick, 1);
+        assert_eq!(missing(&inventory, &pickaxe), [(ItemId::Stick, 1)]);
+        assert!(!craftable(&inventory, &pickaxe));
+        put(&mut inventory, MAX_INVENTORY_SLOTS - 1, ItemId::Stick, 1);
+        assert!(missing(&inventory, &pickaxe).is_empty());
+        assert!(craftable(&inventory, &pickaxe));
+    }
+
+    #[test]
+    fn the_chest_and_the_floating_stack_do_not_count() {
+        let pickaxe = recipe_of(ItemId::WoodenPickaxe);
+        let mut inventory = Inventory::new();
+        let chest = grid_slot(2, 2) + 1;
+        put(&mut inventory, chest, ItemId::OakPlanks, 64);
+        put(&mut inventory, chest + 1, ItemId::Stick, 64);
+        inventory.floating = made(ItemId::Stick, 64);
+        assert_eq!(
+            missing(&inventory, &pickaxe),
+            [(ItemId::OakPlanks, 3), (ItemId::Stick, 2)]
         );
     }
 
