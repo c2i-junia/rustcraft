@@ -3,7 +3,7 @@
 //! front of its twin, the portal of the other colour of the same player. They live in the
 //! `ChunkMap`, so that the simulation of both sides reads them.
 
-use bevy::math::{Affine3A, IVec3, Mat3, Vec3};
+use bevy::math::{Affine3A, IVec3, Mat3, Vec2, Vec3};
 use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
@@ -14,6 +14,11 @@ use crate::world::{BlockHitbox, BlockTransparency, ChunkMap, FaceDirection, Face
 pub const PORTAL_WIDTH: i32 = 2;
 /// How many wall cells high a portal is.
 pub const PORTAL_HEIGHT: i32 = 3;
+/// How far behind the plane of a portal a point is still in front of it, in blocks. A player
+/// that comes out of a portal is in front of it by more than that, so that no rounding leaves it
+/// behind, in the wall. Less than the inset of the portal's box (2 mm) on the client, so that
+/// an eye in front never is behind the front face of that box.
+pub const PORTAL_SLACK: f32 = 1e-3;
 
 /// Append only, like `ItemId`: network messages carry the position of the variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -102,6 +107,17 @@ impl Portal {
         self.normal()
             .dot(point - Vec3::from(self.frame().translation))
     }
+
+    /// `point` in the frame of the portal (`frame`): across to the right, up, and out of the
+    /// wall, from the centre of the opening.
+    pub fn local(&self, point: Vec3) -> Vec3 {
+        let offset = point - Vec3::from(self.frame().translation);
+        Vec3::new(
+            self.right().dot(offset),
+            offset.y,
+            self.normal().dot(offset),
+        )
+    }
 }
 
 /// The portals of the world, one of each colour per player at most, and whether they changed
@@ -177,6 +193,49 @@ impl Portals {
                 * Affine3A::from_rotation_y(std::f32::consts::PI)
                 * portal.frame().inverse(),
         )
+    }
+
+    /// The portals that have a twin, which let players through.
+    fn open(&self) -> impl Iterator<Item = &Portal> + '_ {
+        self.iter().filter(|portal| self.twin(portal).is_some())
+    }
+
+    /// The open portals whose wall lets in a player centred on `center`: it is in front of them,
+    /// within the slack, and in front of their opening shrunk by `margin` on every side, half
+    /// the width of the player, so that its box fits in the opening.
+    pub fn letting_through(&self, center: Vec3, margin: f32) -> impl Iterator<Item = &Portal> {
+        let half = Vec3::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32, 0.0) / 2.0 - margin;
+        self.open().filter(move |portal| {
+            let local = portal.local(center);
+            local.z >= -PORTAL_SLACK && local.x.abs() <= half.x && local.y.abs() <= half.y
+        })
+    }
+
+    /// The open portal a point going from `from` to `to` goes into: the segment goes from in
+    /// front of its plane to behind it (`PORTAL_SLACK`), through its opening. The first one
+    /// along the segment, if several.
+    pub fn crossed(&self, from: Vec3, to: Vec3) -> Option<&Portal> {
+        let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
+        self.open()
+            .filter_map(|portal| {
+                let (from, to) = (portal.local(from), portal.local(to));
+                if from.z < -PORTAL_SLACK || to.z >= -PORTAL_SLACK {
+                    return None;
+                }
+                // Where the segment meets the plane
+                let along = (from.z / (from.z - to.z)).clamp(0.0, 1.0);
+                let hit = from.lerp(to, along);
+                (hit.x.abs() <= half.x && hit.y.abs() <= half.y).then_some((along, portal))
+            })
+            .min_by(|(a, _), (b, _)| a.total_cmp(b))
+            .map(|(_, portal)| portal)
+    }
+
+    /// Whether an open portal lies on the face `face` of the block at `cell`: there the view
+    /// through it is seen, not the block.
+    pub fn opens(&self, cell: IVec3, face: FaceDirection) -> bool {
+        self.open()
+            .any(|portal| portal.face == face && portal.cells().any(|wall| wall == cell))
     }
 
     /// Whether `portal` shares a wall cell with a portal on the same face, but the one of its
@@ -396,6 +455,92 @@ mod tests {
         assert!(!portals.covers(IVec3::new(1, 12, 0), FaceDirection::MinusZ));
         assert!(!portals.covers(IVec3::new(2, 12, 0), FaceDirection::PlusZ));
         assert!(!portals.covers(IVec3::new(1, 13, 0), FaceDirection::PlusZ));
+    }
+
+    #[test]
+    fn a_point_in_front_of_the_frame_is_let_through_only_within_it_shrunk() {
+        let portals = pair();
+        let letting = |point: Vec3| {
+            portals
+                .letting_through(point, 0.4)
+                .map(|portal| portal.color)
+                .collect::<Vec<_>>()
+        };
+        // The blue portal's opening is x in 0..2, y in 10..13, its plane z = 1
+        assert_eq!(letting(Vec3::new(1.5, 10.9, 1.3)), [PortalColor::Blue]);
+        assert_eq!(letting(Vec3::new(1.55, 12.55, 4.0)), [PortalColor::Blue]);
+        // A hair behind the plane is still in front
+        assert_eq!(letting(Vec3::new(1.0, 11.5, 0.9995)), [PortalColor::Blue]);
+        // Too near an edge for the box of the player to fit in the opening
+        assert!(letting(Vec3::new(1.7, 11.5, 1.3)).is_empty());
+        assert!(letting(Vec3::new(1.0, 10.3, 1.3)).is_empty());
+        assert!(letting(Vec3::new(1.0, 12.7, 1.3)).is_empty());
+        // Behind the plane
+        assert!(letting(Vec3::new(1.0, 11.5, 0.9)).is_empty());
+        // The orange one, facing -X
+        assert_eq!(letting(Vec3::new(19.5, 11.0, 6.5)), [PortalColor::Orange]);
+    }
+
+    #[test]
+    fn a_closed_portal_lets_nothing_through() {
+        let mut portals = pair();
+        portals.remove(7, PortalColor::Orange);
+        assert_eq!(
+            portals
+                .letting_through(Vec3::new(1.0, 11.5, 1.3), 0.4)
+                .count(),
+            0
+        );
+        assert!(portals
+            .crossed(Vec3::new(1.0, 11.5, 1.1), Vec3::new(1.0, 11.5, 0.9))
+            .is_none());
+    }
+
+    #[test]
+    fn a_segment_into_the_frame_crosses_the_portal() {
+        let portals = pair();
+        let crossed = portals.crossed(Vec3::new(1.5, 11.0, 1.1), Vec3::new(1.4, 11.0, 0.9));
+        assert_eq!(crossed.map(|portal| portal.color), Some(PortalColor::Blue));
+        // From just in front, as a player that came out of the twin is, to just behind
+        let crossed = portals.crossed(Vec3::new(1.0, 11.5, 1.0), Vec3::new(1.0, 11.5, 0.998));
+        assert_eq!(crossed.map(|portal| portal.color), Some(PortalColor::Blue));
+        // Into the corner of the opening, the ends of the segment outside it
+        let crossed = portals.crossed(Vec3::new(2.1, 10.0, 1.2), Vec3::new(1.7, 10.2, 0.8));
+        assert_eq!(crossed.map(|portal| portal.color), Some(PortalColor::Blue));
+        let crossed = portals.crossed(Vec3::new(19.9, 11.0, 5.5), Vec3::new(20.1, 11.0, 5.5));
+        assert_eq!(
+            crossed.map(|portal| portal.color),
+            Some(PortalColor::Orange)
+        );
+    }
+
+    #[test]
+    fn a_segment_outside_the_frame_from_behind_or_staying_in_front_crosses_nothing() {
+        let portals = pair();
+        for (from, to) in [
+            // Beside the opening, above it
+            (Vec3::new(2.2, 11.0, 1.1), Vec3::new(2.2, 11.0, 0.9)),
+            (Vec3::new(1.0, 13.1, 1.1), Vec3::new(1.0, 13.1, 0.9)),
+            // From behind
+            (Vec3::new(1.0, 11.5, 0.9), Vec3::new(1.0, 11.5, 1.1)),
+            // In front all along, the second end within the slack
+            (Vec3::new(1.0, 11.5, 1.5), Vec3::new(1.0, 11.5, 1.2)),
+            (Vec3::new(1.0, 11.5, 1.1), Vec3::new(1.0, 11.5, 0.9995)),
+            // Behind all along
+            (Vec3::new(1.0, 11.5, 0.9), Vec3::new(1.0, 11.5, 0.5)),
+        ] {
+            assert!(portals.crossed(from, to).is_none(), "{from} to {to}");
+        }
+    }
+
+    #[test]
+    fn an_open_portal_opens_its_face_only() {
+        let mut portals = pair();
+        assert!(portals.opens(IVec3::new(1, 12, 0), FaceDirection::PlusZ));
+        assert!(!portals.opens(IVec3::new(1, 12, 0), FaceDirection::MinusZ));
+        assert!(!portals.opens(IVec3::new(2, 12, 0), FaceDirection::PlusZ));
+        portals.remove(7, PortalColor::Orange);
+        assert!(!portals.opens(IVec3::new(1, 12, 0), FaceDirection::PlusZ));
     }
 
     #[test]
