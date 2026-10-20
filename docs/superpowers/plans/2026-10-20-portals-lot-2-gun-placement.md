@@ -111,8 +111,9 @@ recursion, sounds and the body (lot 5).
 - [x] The block interactions run without an aimed block.
 - [x] e2e (`client/src/e2e/portals.rs`): a mod builds two walls high above the player, who holds
   the gun; a left click on one places the blue portal, a right click on the other the orange
-  one, both open (their cameras exist); mining a wall cell of the blue portal by hand removes
-  it on the server, which closes the orange one.
+  one, both open (their cameras exist); a block the mod puts in front of the blue portal
+  (`/plug`) makes the server remove it, which closes the orange one. The removal on a broken
+  wall cell is the server's unit test.
 
 ### Task 7: Docs
 - [x] `docs/ARCHITECTURE.md`: the gun, the fit, the removal, `PortalUpdates`.
