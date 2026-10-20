@@ -41,7 +41,7 @@ pub fn simulate_player_actions(
     }
     let interactions = simulate_player_block_interactions(player, world_map, action, caller_type);
     let inventory = simulate_inventory_actions(player, world_map, action, caller_type);
-    let fallen = simulate_player_movement(player, world_map, action);
+    let fallen = simulate_player_movement(player, world_map, action).fallen;
     ActionsOutcome {
         broken: interactions.broken,
         spawned: interactions.spawned,

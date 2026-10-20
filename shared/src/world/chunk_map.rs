@@ -282,17 +282,31 @@ impl ChunkMap {
 
     /// Whether `hitbox` overlaps the hitbox of a block.
     pub fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
+        self.check_collision_box_except(hitbox, |_| false)
+    }
+
+    /// Whether `hitbox` overlaps the hitbox of a block, but in the cells `ignored` holds.
+    pub fn check_collision_box_except(
+        &self,
+        hitbox: &Aabb3d,
+        ignored: impl Fn(IVec3) -> bool,
+    ) -> bool {
         // A fence of the cell below reaches into the lowest cells
         let mut feet = *hitbox;
         feet.min.y -= 1.0;
         feet.max.y = feet.min.y;
         let fence = cells_overlapped(&feet).any(|pos| {
-            self.get_block(pos)
-                .is_some_and(|block| block.id == BlockId::Fence)
+            !ignored(pos)
+                && self
+                    .get_block(pos)
+                    .is_some_and(|block| block.id == BlockId::Fence)
                 && hitbox.min.y <= pos.y as f32 + FENCE.max.y
         });
         fence
             || cells_overlapped(hitbox).any(|pos| {
+                if ignored(pos) {
+                    return false;
+                }
                 let Some(block) = self.get_block(pos) else {
                     return false;
                 };

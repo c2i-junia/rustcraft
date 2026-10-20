@@ -42,19 +42,27 @@ const STEP_HEIGHT: f32 = 0.5 + 2.0 * CONTACT_GAP;
 /// Longest vertical move tested at once, in blocks, so that a fast fall cannot cross a block.
 const MAX_VERTICAL_STEP: f32 = 0.5;
 
+/// What one input did to the player, beyond its state.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct MovementOutcome {
+    /// How many blocks the player fell, when it landed on the ground in this input: for the
+    /// server to hurt it.
+    pub fallen: Option<f32>,
+    /// The yaw, in radians about the vertical, the player was turned by going through a portal
+    /// in this input: for the client to turn its camera, which the next inputs bring.
+    pub turned: Option<f32>,
+}
+
 /// Advances `player` by one input. The client (prediction) and the server (authority) both
 /// run it, and they must agree on its result: keep it free of randomness and of wall-clock time.
-///
-/// Returns how many blocks the player fell when it lands on the ground in this input, for the
-/// server to hurt it.
 pub fn simulate_player_movement(
     player: &mut Player,
     world_map: &ChunkMap,
     action: &PlayerFrameInput,
-) -> Option<f32> {
+) -> MovementOutcome {
     // A dead player waits for its respawn
     if player.is_dead() {
-        return None;
+        return MovementOutcome::default();
     }
     // Hold the player still until its terrain has arrived
     if !is_terrain_loaded(player.position, world_map) {
@@ -62,8 +70,9 @@ pub fn simulate_player_movement(
             "The chunk at {} or the one below is not loaded, skipping movement simulation",
             player.position
         );
-        return None;
+        return MovementOutcome::default();
     }
+    let start = player.position;
 
     let delta = action.delta_ms.min(MAX_FRAME_DELTA_MS) as f32 / 1000.0;
 
@@ -90,7 +99,27 @@ pub fn simulate_player_movement(
         finish_gravity(player, delta);
     }
     apply_wished_direction(player, world_map, direction, in_liquid, delta);
-    landed
+    MovementOutcome {
+        fallen: landed,
+        turned: pass_through_portal(player, world_map, start),
+    }
+}
+
+/// Takes the player through the open portal its centre went into on its way from `from`: its
+/// position, its velocity and its camera go through the portal (`Portals::through`), and come
+/// out of the twin turned with it. Returns the yaw it turned by: portals are vertical, so it
+/// only turns about the vertical, and the pitch of its camera is kept.
+fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) -> Option<f32> {
+    let portals = world_map.portals();
+    let through = portals.through(portals.crossed(from, player.position)?)?;
+    player.position = through.transform_point3(player.position);
+    player.velocity = through.transform_vector3(player.velocity);
+    let camera = &mut player.camera_transform;
+    camera.translation = through.transform_point3(camera.translation);
+    camera.rotation = (Quat::from_mat3a(&through.matrix3) * camera.rotation).normalize();
+    // The turn about the vertical takes -Z, the yaw 0, to (-sin, 0, -cos) of its angle
+    let forward = through.transform_vector3(Vec3::NEG_Z);
+    Some((-forward.x).atan2(-forward.z))
 }
 
 /// Whether the player sneaks, sprints and swims in this input. Sprinting starts with the sprint
@@ -368,9 +397,11 @@ mod tests {
         players::{
             constants::{WATER_DRAG, WATER_GRAVITY, WATER_SPEED_MULTIPLIER},
             game_mode::GameMode,
-            PLAYER_HEIGHT,
+            PLAYER_HEIGHT, PLAYER_WIDTH,
         },
-        world::{world_position_to_chunk_position, Chunk},
+        world::{
+            world_position_to_chunk_position, BlockId, Chunk, FaceDirection, Portal, PortalColor,
+        },
     };
 
     /// Top surface of the test floor.
@@ -825,7 +856,7 @@ mod tests {
         let mut player = standing_player();
         for _ in 0..100 {
             assert_eq!(
-                simulate_player_movement(&mut player, &world, &frame(&[])),
+                simulate_player_movement(&mut player, &world, &frame(&[])).fallen,
                 None
             );
             assert!(player.on_ground);
@@ -1134,7 +1165,8 @@ mod tests {
         player.on_ground = false;
         let mut landed = None;
         for _ in 0..200 {
-            if let Some(fallen) = simulate_player_movement(&mut player, &world, &frame(&[])) {
+            if let Some(fallen) = simulate_player_movement(&mut player, &world, &frame(&[])).fallen
+            {
                 assert_eq!(landed, None, "landed twice");
                 landed = Some(fallen);
             }
@@ -1147,7 +1179,7 @@ mod tests {
         simulate(&mut player, &world, &[NetworkAction::JumpOrFlyUp], 1);
         let mut landed = None;
         for _ in 0..100 {
-            landed = landed.or(simulate_player_movement(&mut player, &world, &frame(&[])));
+            landed = landed.or(simulate_player_movement(&mut player, &world, &frame(&[])).fallen);
         }
         let fallen = landed.expect("never landed");
         assert!((fallen - 1.25).abs() < 0.05, "fell {fallen}");
@@ -1160,11 +1192,279 @@ mod tests {
         player.position.y = WATER_TOP + 20.0;
         let mut landed = None;
         for _ in 0..400 {
-            landed = landed.or(simulate_player_movement(&mut player, &world, &frame(&[])));
+            landed = landed.or(simulate_player_movement(&mut player, &world, &frame(&[])).fallen);
         }
         // It reaches the bottom of the pool, slowed down by the water
         assert!(player.on_ground);
         assert!(landed.unwrap_or(0.0) < 1.0, "fell {landed:?}");
+    }
+
+    /// The flat world with two stone walls, 5 high: one facing +Z at z = -4, x from -3 to 4,
+    /// with the blue portal of player 7 at x in 0..2 (plane z = -3); one facing -X at x = 10, z
+    /// from -6 to 6, with the orange portal at z in 0..2 (plane x = 10). Through the blue one,
+    /// north (-Z) turns into west (-X): a quarter turn to the left.
+    fn portal_world() -> ChunkMap {
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(-3, 64, -4),
+            IVec3::new(4, 68, -4),
+            BlockId::Stone,
+        );
+        world.fill_box(
+            IVec3::new(10, 64, -6),
+            IVec3::new(10, 68, 6),
+            BlockId::Stone,
+        );
+        let portals = world.portals_mut();
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(0, 64, -4),
+            face: FaceDirection::PlusZ,
+        });
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(10, 64, 0),
+            face: FaceDirection::MinusX,
+        });
+        world
+    }
+
+    /// Simulates `frames` inputs, of the actions `actions` gives for each, the camera looking
+    /// along `looking` from the eyes of the player and turned by what each input reports, as
+    /// the client turns it. Returns, for each input, where the player is after it and the turn
+    /// it reported.
+    fn walk(
+        player: &mut Player,
+        world: &ChunkMap,
+        looking: Vec3,
+        frames: u32,
+        actions: impl Fn(u32) -> Vec<NetworkAction>,
+    ) -> Vec<(Vec3, Option<f32>)> {
+        let mut camera = Transform::from_translation(player.position).looking_to(looking, Vec3::Y);
+        (0..frames)
+            .map(|index| {
+                let mut input = frame(&actions(index));
+                camera.translation = player.position + Vec3::Y * 0.8;
+                input.camera = camera;
+                let turned = simulate_player_movement(player, world, &input).turned;
+                if let Some(turned) = turned {
+                    camera.rotate_y(turned);
+                }
+                (player.position, turned)
+            })
+            .collect()
+    }
+
+    /// The turns reported while walking forward along `looking` for `frames` inputs.
+    fn walk_forward(player: &mut Player, world: &ChunkMap, looking: Vec3, frames: u32) -> Vec<f32> {
+        walk(player, world, looking, frames, |_| {
+            vec![NetworkAction::MoveForward]
+        })
+        .into_iter()
+        .filter_map(|(_, turned)| turned)
+        .collect()
+    }
+
+    /// Checks that the player walked into a wall and stopped there, its centre at `z`: within
+    /// a step of it, as a move into a block is not made at all.
+    #[track_caller]
+    fn assert_stopped_at(player: &Player, z: f32) {
+        assert!(
+            (player.position.z - z).abs() < 0.1,
+            "stopped at {}, not {z}",
+            player.position
+        );
+    }
+
+    #[test]
+    fn walking_into_an_open_portal_takes_the_player_out_of_its_twin() {
+        let world = portal_world();
+        let mut player = standing_player();
+        player.position.x = 1.0;
+        let turns = walk_forward(&mut player, &world, Vec3::NEG_Z, 120);
+
+        assert_eq!(turns.len(), 1, "{turns:?}");
+        assert!(
+            (turns[0] - std::f32::consts::FRAC_PI_2).abs() < 1e-5,
+            "{turns:?}"
+        );
+        // Out of the orange portal, in front of it, walking west on the floor
+        let end = player.position;
+        assert!(end.x < 6.0 && (end.z - 1.0).abs() < 0.05, "{end}");
+        assert!((feet(&player) - FLOOR_TOP).abs() < 0.01);
+        // The camera the player came in with went through with it
+        let forward = player.camera_transform.forward();
+        assert!(forward.distance(Vec3::NEG_X) < 1e-4, "{forward:?}");
+    }
+
+    #[test]
+    fn the_camera_goes_through_the_portal_with_the_player() {
+        let world = portal_world();
+        let mut player = standing_player();
+        player.position = Vec3::new(1.0, FLOOR_TOP + 0.9, -2.95);
+        let mut input = frame(&[NetworkAction::MoveForward]);
+        // Looking down a little, to the right
+        input.camera = Transform::from_translation(player.position + Vec3::Y * 0.8)
+            .looking_to(Vec3::new(0.2, -0.3, -1.0), Vec3::Y);
+        let through = world
+            .portals()
+            .through(
+                world
+                    .portals()
+                    .iter()
+                    .find(|p| p.color == PortalColor::Blue)
+                    .unwrap(),
+            )
+            .unwrap();
+
+        let outcome = simulate_player_movement(&mut player, &world, &input);
+
+        assert!(outcome.turned.is_some());
+        let camera = player.camera_transform;
+        let expected = through.transform_point3(input.camera.translation);
+        assert!(camera.translation.distance(expected) < 1e-4);
+        let forward = through.transform_vector3(input.camera.forward().into());
+        assert!(camera.forward().distance(forward) < 1e-4);
+        // The pitch is kept
+        assert!((camera.forward().y - input.camera.forward().y).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_wall_beside_the_opening_still_stops_the_player() {
+        let world = portal_world();
+        // Left of the opening; and in it, but too near its edge for the box to fit
+        for x in [-1.0, 1.7] {
+            let mut player = standing_player();
+            player.position.x = x;
+            let turns = walk_forward(&mut player, &world, Vec3::NEG_Z, 120);
+            assert!(turns.is_empty(), "{x}");
+            assert_stopped_at(&player, -3.0 + PLAYER_WIDTH / 2.0);
+        }
+    }
+
+    #[test]
+    fn a_flyer_crossing_the_plane_outside_the_frame_stays_on_its_side() {
+        let world = portal_world();
+        let mut player = flyer();
+        // Above the opening, through the wall: a flyer goes through blocks
+        player.position = Vec3::new(1.0, 68.0, 0.5);
+        let turns = walk_forward(&mut player, &world, Vec3::NEG_Z, 120);
+        assert!(turns.is_empty());
+        assert!(player.position.z < -6.0, "{}", player.position);
+        // In the opening, it goes through the portal
+        let mut player = flyer();
+        player.position = Vec3::new(1.0, 65.5, 0.5);
+        let turns = walk_forward(&mut player, &world, Vec3::NEG_Z, 120);
+        assert_eq!(turns.len(), 1);
+        assert!(
+            player.position.x < 10.0 && player.position.z > -1.0,
+            "{}",
+            player.position
+        );
+    }
+
+    #[test]
+    fn a_portal_seen_from_behind_is_a_wall() {
+        let world = portal_world();
+        // Behind the wall, walking south into it
+        let mut player = standing_player();
+        player.position = Vec3::new(1.0, FLOOR_TOP + 0.9, -7.0);
+        let turns = walk_forward(&mut player, &world, Vec3::Z, 120);
+        assert!(turns.is_empty());
+        assert_stopped_at(&player, -4.0 - PLAYER_WIDTH / 2.0);
+        // A flyer goes through the wall from behind, and not through the portal
+        let mut player = flyer();
+        player.position = Vec3::new(1.0, 65.5, -7.0);
+        let turns = walk_forward(&mut player, &world, Vec3::Z, 60);
+        assert!(turns.is_empty());
+        assert!(player.position.z > -3.0, "{}", player.position);
+        assert!(
+            (player.position.x - 1.0).abs() < 1e-4,
+            "{}",
+            player.position
+        );
+    }
+
+    #[test]
+    fn a_closed_portal_is_a_wall() {
+        let mut world = portal_world();
+        world.portals_mut().remove(7, PortalColor::Orange);
+        let mut player = standing_player();
+        player.position.x = 1.0;
+        let turns = walk_forward(&mut player, &world, Vec3::NEG_Z, 120);
+        assert!(turns.is_empty());
+        assert_stopped_at(&player, -3.0 + PLAYER_WIDTH / 2.0);
+    }
+
+    #[test]
+    fn the_speed_goes_through_the_portal_turned_with_it() {
+        let world = portal_world();
+        let mut player = standing_player();
+        player.position = Vec3::new(1.0, FLOOR_TOP + 0.9, -2.95);
+        // Whatever moves the player horizontally by its velocity, north here, goes west after
+        player.velocity = Vec3::new(0.0, 0.0, -3.0);
+        let turns = walk_forward(&mut player, &world, Vec3::NEG_Z, 1);
+        assert_eq!(turns.len(), 1);
+        assert!(
+            player.velocity.xz().distance(Vec2::new(-3.0, 0.0)) < 1e-4,
+            "{}",
+            player.velocity
+        );
+
+        // Walking speed: the steps after the crossing are as long as before, westward
+        let mut player = standing_player();
+        player.position.x = 1.0;
+        let start = player.position;
+        let trace = walk(&mut player, &world, Vec3::NEG_Z, 120, |_| {
+            vec![NetworkAction::MoveForward]
+        });
+        let crossing = trace
+            .iter()
+            .position(|(_, turned)| turned.is_some())
+            .unwrap();
+        let before = trace[1].0 - trace[0].0;
+        let after = trace[crossing + 2].0 - trace[crossing + 1].0;
+        assert!(trace[0].0 != start);
+        assert!(
+            (before.length() - after.length()).abs() < 1e-4,
+            "{before} {after}"
+        );
+        assert!(after.normalize().distance(Vec3::NEG_X) < 1e-4, "{after}");
+    }
+
+    #[test]
+    fn a_jump_through_a_portal_keeps_its_height() {
+        // The same jump, half a block before the blue portal, and in the open
+        let jump = |world: &ChunkMap| {
+            let mut player = standing_player();
+            player.position = Vec3::new(1.0, FLOOR_TOP + 0.9, -2.5);
+            walk(&mut player, world, Vec3::NEG_Z, 40, |index| {
+                let mut actions = vec![NetworkAction::MoveForward];
+                if index == 0 {
+                    actions.push(NetworkAction::JumpOrFlyUp);
+                }
+                actions
+            })
+        };
+        let through = jump(&portal_world());
+        let open = jump(&flat_world());
+        let crossing = through
+            .iter()
+            .position(|(_, turned)| turned.is_some())
+            .unwrap();
+        // In the air when it crosses
+        assert!(
+            through[crossing].0.y > FLOOR_TOP + 1.2,
+            "{:?}",
+            through[crossing]
+        );
+        let heights =
+            |trace: &[(Vec3, Option<f32>)]| trace.iter().map(|(p, _)| p.y).collect::<Vec<_>>();
+        for (through, open) in heights(&through).into_iter().zip(heights(&open)) {
+            assert!((through - open).abs() < 1e-4, "{through} {open}");
+        }
     }
 
     #[test]
