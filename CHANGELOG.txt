@@ -42,6 +42,8 @@ Date: 11.10.2026
     - Added coal, iron and gold ore. Coal ore drops coal; iron and gold ore drop themselves until they can be smelted.
     - Added gravel, found on the floors of the seas, lakes and rivers.
     - Ores generate in clusters and veins: coal up to y 128, iron up to y 64, and the rarer gold up to y 32.
+    - Mods declare themselves in a mod.toml: their name, version, authors, icon and the mods they need, which load first. A mod whose dependencies are missing or off waits for them, and a mod that fails takes back the commands it added.
+    - Added the Mods screen, on the main menu: every mod of the game folder with its switch, a search, and Turn all on and Turn all off. It says why a mod cannot load, and saves the mods turned off in mods.ron.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

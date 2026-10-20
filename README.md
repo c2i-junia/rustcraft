@@ -19,6 +19,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - [Controls](#controls)
 - [Multiplayer](#multiplayer)
 - [Saves](#saves)
+- [Mods](#mods)
 - [Command-line options](#command-line-options)
     - [Client](#client)
     - [Server](#server)
@@ -188,9 +189,51 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 
 Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per region of 8×8×8 chunks and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
-The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
+The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale), `video.ron` (render distance) and `mods.ron` (the mods turned off). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
 
 The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, changes it. `--player-name <name>` plays under another name for one run, without saving it. Each world keeps a player's position and inventory under their name: a new name starts afresh.
+
+<br>
+
+# Mods
+
+A mod is a folder in the `mods` folder of the game folder, named after its id: lowercase letters,
+digits and `_`. It holds a `mod.toml` that says what it is, and a Luau script, `init.luau`,
+that the server runs when a world starts. `examples/mods/tower` adds the chat command `/tower`:
+copy it into `mods` to try it.
+
+```toml
+[mod]
+id = "tower"                 # the folder's name
+name = "Tower"
+version = "1.0.0"
+description = "/tower <height> builds a column of cobblestone two blocks east of you."
+authors = ["MizKyosia"]
+license = "MIT"              # optional
+icon = "icon.png"            # optional, the default: a square PNG of 16 to 128 pixels
+entry = "init.luau"          # optional, the default; a mod without a script has no code
+
+[game]
+api = 1                      # the version of the rustcraft table the script uses
+
+[dependencies]
+# lanterns = "^1.2"          # loaded first; without them the mod waits
+
+[optional]
+# wildflowers = "*"          # loaded first when they are there and on
+```
+
+A folder with only an `init.luau` still loads, named after the folder. Mods load dependencies
+first, then by id; one that fails is skipped with the mods that need it, and the server log
+says why. The script calls `rustcraft.register_command(name, function(ctx, args))`,
+`rustcraft.player_position(name)` and `rustcraft.set_block({x, y, z}, "cobblestone")`, in a
+sandbox without files or `require`.
+
+**Mods** on the main menu lists the mods of the game folder, with their switches, a search, and
+Turn all on and Turn all off for the mods the search shows; a mod that cannot load says why, and
+one whose dependencies are off says which. Leaving the screen saves the mods turned off in
+`mods.ron`, and they apply to the next world started. A dedicated server reads the `mods` folder
+and the `mods.ron` of its own game folder.
 
 <br>
 

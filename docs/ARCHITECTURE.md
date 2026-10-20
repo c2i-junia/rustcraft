@@ -426,6 +426,28 @@ while the panel lists some (else they recall the sent messages), and Escape hide
 before it closes the chat. The panel is spawned once and only written to: a node spawned in
 `PostUpdate` is laid out a frame late, and the panel would flicker at each letter.
 
+## Mods
+
+A mod is a folder of `<game folder>/mods/`, with its `mod.toml` and its scripts
+(`shared/src/mods.rs`). `find_mods` reads the folders: a folder with a `mod.toml` is a mod whose
+manifest may be broken, one with only an `init.luau` is a mod named after its folder, as before
+manifests existed, and any other folder is not a mod. `plan_loading` then gives each mod its
+state for the next start, from `mods.ron`, the list of the mods turned off: on, off, broken (its
+manifest, or a cycle of dependencies) or waiting for dependencies that are missing, off, broken or
+of another version. The mods on load in a fixed order, dependencies and the optional ones there
+first, then by id, so that every machine loads them alike. Unknown keys of a manifest are left
+out, so that a manifest written for a later game still reads.
+
+The server runs the mods (`server/src/mods.rs`) in one sandboxed Luau VM when it starts, in the
+order of the plan: a mod whose dependency failed is skipped, and a script that fails takes back
+the commands it registered. A dedicated server and the integrated one of a solo world read the
+`mods/` and the `mods.ron` of their game folder, which is the client's in solo.
+
+The Mods screen (`client/src/ui/menus/mods.rs`) shows the same plan, with the scripts compiled
+but not run (`server::script_error`), so that a script that does not parse says where. Every
+change builds its cards again, the selected one kept; leaving the screen writes `mods.ron` when
+something changed.
+
 ## Saves
 
 A world is a folder under `saves/`:
