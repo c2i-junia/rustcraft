@@ -115,8 +115,14 @@ def stats(top, block, floor, biome):
     shares = ", ".join(f"{name} {100 * (biome == i).mean():.1f}%"
                        for i, (name, _) in enumerate(BIOMES) if (biome == i).any())
     print(f"biomes: {shares}")
-    changes = (np.diff(biome.astype(np.int16), axis=1) != 0).sum()
-    print(f"mean biome run along x: {biome.size / max(1, changes + biome.shape[0]):.0f} blocks")
+    # the width of the biome a column stands in, along x, averaged over the columns: thin
+    # bands between two biomes weigh as little as the area they cover
+    runs = []
+    for row in biome:
+        edges = np.flatnonzero(np.diff(row.astype(np.int16))) + 1
+        runs.extend(np.diff(np.concatenate(([0], edges, [row.size]))))
+    runs = np.array(runs, np.float64)
+    print(f"biome width seen from a column, along x: {(runs ** 2).sum() / runs.sum():.0f} blocks")
 
 
 def oblique(top, block, floor, scale=1.0):

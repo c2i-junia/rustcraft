@@ -53,9 +53,24 @@ pub const SIX_OFFSETS: [IVec3; 6] = [
     IVec3::new(0, 0, -1),
 ];
 
+/// The `splitmix64` finaliser: a bijective mixing of 64 bits, good enough that consecutive
+/// inputs give unrelated outputs.
+pub fn splitmix64(value: u64) -> u64 {
+    let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splitmix64_matches_the_reference_vector() {
+        // first output of the reference splitmix64 generator seeded with 0
+        assert_eq!(splitmix64(0), 0xE220_A839_7B1D_CDAF);
+    }
 
     #[test]
     fn block_to_chunk_coord_handles_boundaries() {

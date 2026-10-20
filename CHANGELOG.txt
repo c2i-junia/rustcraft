@@ -27,6 +27,8 @@ Date: 11.10.2026
     - Added the chest, crafted from a ring of eight planks: right click opens it, and its 27 slots keep their items in the world, saved with it. A broken chest drops what it held. Sneak to place a block against a chest or a crafting table instead of opening it.
     - Added wooden tools, crafted on a crafting table from planks and sticks like in Minecraft: the pickaxe, the axe, the shovel, the hoe and the sword. A tool breaks the blocks it is made for twice as fast (stone for the pickaxe, wood for the axe, dirt and sand for the shovel, leaves for the hoe and the sword), and wears out after 59 blocks; its slot shows a bar of what is left. Stone, cobblestone and furnaces now drop nothing unless broken with a pickaxe.
     - Added coal, iron and gold ore. Like stone, they drop something only when broken with a pickaxe: coal ore drops coal, and iron and gold ore drop themselves until they can be smelted.
+    - Biomes are about three times wider, with winding borders, and the land slopes into the sea instead of stepping at the border of two biomes. Shores and sea floors are sand. Worlds created before keep their explored land; new land around it uses the new generation.
+    - Added coal, iron and gold ore. Coal ore drops coal; iron and gold ore drop themselves until they can be smelted.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

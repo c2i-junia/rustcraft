@@ -163,7 +163,8 @@ fn map(seed: u32, x0: i32, z0: i32, size: i32, out: &str) {
 fn slice(seed: u32, z: i32, x0: i32, width: i32, out: &str) {
     let generator = WorldGenerator::new(seed);
     let cz = z.div_euclid(CHUNK_SIZE);
-    let positions: Vec<IVec3> = (x0.div_euclid(CHUNK_SIZE)..=(x0 + width - 1).div_euclid(CHUNK_SIZE))
+    let positions: Vec<IVec3> = (x0.div_euclid(CHUNK_SIZE)
+        ..=(x0 + width - 1).div_euclid(CHUNK_SIZE))
         .flat_map(|cx| (0..SLICE_TOP / CHUNK_SIZE).map(move |cy| IVec3::new(cx, cy, cz)))
         .collect();
     let chunks: HashMap<IVec3, Chunk> = positions
@@ -186,7 +187,8 @@ fn slice(seed: u32, z: i32, x0: i32, width: i32, out: &str) {
 fn layer(seed: u32, y: i32, x0: i32, z0: i32, size: i32, out: &str) {
     let generator = WorldGenerator::new(seed);
     let cy = y.div_euclid(CHUNK_SIZE);
-    let range = |start: i32| start.div_euclid(CHUNK_SIZE)..=(start + size - 1).div_euclid(CHUNK_SIZE);
+    let range =
+        |start: i32| start.div_euclid(CHUNK_SIZE)..=(start + size - 1).div_euclid(CHUNK_SIZE);
     let positions: Vec<IVec3> = range(z0)
         .flat_map(|cz| range(x0).map(move |cx| IVec3::new(cx, cy, cz)))
         .collect();
@@ -211,8 +213,20 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let start = std::time::Instant::now();
     match args.first().map(String::as_str) {
-        Some("map") => map(arg(&args, 1), arg(&args, 2), arg(&args, 3), arg(&args, 4), &args[5]),
-        Some("slice") => slice(arg(&args, 1), arg(&args, 2), arg(&args, 3), arg(&args, 4), &args[5]),
+        Some("map") => map(
+            arg(&args, 1),
+            arg(&args, 2),
+            arg(&args, 3),
+            arg(&args, 4),
+            &args[5],
+        ),
+        Some("slice") => slice(
+            arg(&args, 1),
+            arg(&args, 2),
+            arg(&args, 3),
+            arg(&args, 4),
+            &args[5],
+        ),
         Some("layer") => layer(
             arg(&args, 1),
             arg(&args, 2),

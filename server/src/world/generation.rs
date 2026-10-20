@@ -1,26 +1,11 @@
 use bevy::prelude::*;
 use shared::{world::*, CHUNK_SIZE};
 
-/// Water fills every column up to this height; flora only grows on land above it.
-const SEA_LEVEL: i32 = 62;
-
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
 /// at most 2 blocks long, and its tip carries one more leaf (`x + 1 + 2`). Generating a chunk
 /// therefore looks at the columns of the chunk plus this margin on each side.
 const STRUCTURE_MARGIN: i32 = 3;
-
-/// Lowest and highest surface of any column: a surface height is a weighted mean of the base
-/// heights of the biomes around, plus a weighted mean of their variations times a noise in
-/// `[-1, 1]`, so it stays within the lowest base less the largest variation and the highest
-/// base plus the largest variation. `surface_bounds_hold_for_every_biome` checks them.
-const LOWEST_SURFACE: i32 = 43;
-const HIGHEST_SURFACE: i32 = 82;
-
-/// Highest block of a structure above the surface of its column: the crown of a big tree,
-/// whose 6-block trunk starts on the block above the surface and whose leaves reach 3 blocks
-/// above the top of the trunk (`1 + 6 - 2 + 2 + 2`).
-const STRUCTURE_HEIGHT: i32 = 9;
 
 // Salts: each random decision of a column hashes `(seed, x, z, salt)` with its own salt.
 const SALT_FLOWER_ROLL: u64 = 1;
@@ -34,15 +19,6 @@ const SALT_CACTUS_HEIGHT: u64 = 7;
 const SALT_BRANCH: u64 = 0x100;
 /// One salt per leaf of the 5x5x3 crown, from here.
 const SALT_LEAF: u64 = 0x200;
-
-/// The `splitmix64` finaliser: a bijective mixing of 64 bits, good enough that consecutive
-/// inputs give unrelated outputs.
-fn splitmix64(value: u64) -> u64 {
-    let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
 
 /// The random decisions tied to a place of the world: a column `[x, z]`, or a chunk or a cell
 /// `[x, y, z]`. Every value is a pure function of `(seed, coords, salt)`, so a place decides
@@ -114,8 +90,21 @@ fn terrain_column(terrain: &TerrainNoises, x: i32, z: i32) -> Column {
     }
 }
 
+/// The surface and sub-surface blocks of a column: those of its biome, except under the sea
+/// and on the beach just above it, which are sand. A frozen shore stays snowy.
+fn ground_blocks(height: i32, biome: &Biome) -> (BlockId, BlockId) {
+    let beach =
+        height < SEA_LEVEL || (height <= SEA_LEVEL + 1 && biome.biome_type != BiomeType::IcePlain);
+    if beach {
+        (BlockId::Sand, BlockId::Sand)
+    } else {
+        (biome.surface_block, biome.sub_surface_block)
+    }
+}
+
 /// The block at height `y` of a terrain column, or `None` above the surface and the sea.
 fn terrain_block(y: i32, height: i32, biome: &Biome) -> Option<BlockId> {
+    let (surface, sub_surface) = ground_blocks(height, biome);
     if y > height && y > SEA_LEVEL {
         None
     } else if y == 0 {
@@ -123,9 +112,9 @@ fn terrain_block(y: i32, height: i32, biome: &Biome) -> Option<BlockId> {
     } else if y < height - 4 {
         Some(BlockId::Stone)
     } else if y < height {
-        Some(biome.sub_surface_block)
+        Some(sub_surface)
     } else if y == height {
-        Some(biome.surface_block)
+        Some(surface)
     } else {
         Some(BlockId::Water)
     }
@@ -335,19 +324,6 @@ impl WorldGenerator {
     /// a neighbouring column is cut at the chunk border the same way whichever chunk is
     /// generated first.
     pub fn generate_chunk(&self, chunk_pos: IVec3) -> Chunk {
-        let chunk_origin = chunk_pos * CHUNK_SIZE;
-        // Most chunks lie above everything or deep underground: they need no noise
-        if chunk_origin.y > (HIGHEST_SURFACE + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
-            return Chunk::new();
-        }
-        if chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE - 4 {
-            return underground_chunk(chunk_origin);
-        }
-        self.generate_chunk_from_noise(chunk_pos)
-    }
-
-    /// `generate_chunk` for any chunk, from the noise of its columns.
-    fn generate_chunk_from_noise(&self, chunk_pos: IVec3) -> Chunk {
         let seed = self.seed;
         let chunk_origin = chunk_pos * CHUNK_SIZE;
 
@@ -385,28 +361,6 @@ impl WorldGenerator {
     }
 }
 
-/// A chunk below the lowest surface less the depth of the sub-surface blocks: stone, and the
-/// bedrock at height 0.
-fn underground_chunk(chunk_origin: IVec3) -> Chunk {
-    let mut chunk = Chunk::new();
-    for x in 0..CHUNK_SIZE {
-        for y in 0..CHUNK_SIZE {
-            let block = if chunk_origin.y + y == 0 {
-                BlockId::Bedrock
-            } else {
-                BlockId::Stone
-            };
-            for z in 0..CHUNK_SIZE {
-                chunk.set(
-                    IVec3::new(x, y, z),
-                    BlockData::new(block, BlockDirection::Front),
-                );
-            }
-        }
-    }
-    chunk
-}
-
 /// Generates one chunk of the world of `seed`, building its noises for it alone: a caller that
 /// generates many chunks keeps a [`WorldGenerator`] instead.
 pub fn generate_chunk(chunk_pos: IVec3, seed: u32) -> Chunk {
@@ -419,45 +373,47 @@ mod tests {
     use std::collections::HashMap;
     use std::ops::Range;
 
+    /// Whether `block` is part of the ground, not water nor something growing on it.
+    fn is_ground(block: BlockId) -> bool {
+        !matches!(block, BlockId::Water) && precedence(block) == precedence(BlockId::Stone)
+    }
+
     /// Height, biome and surface block of a world column, read back from the generated chunks.
     fn probe(seed: u32, x: i32, z: i32) -> (i32, BiomeType, BlockId) {
         let biome = TerrainNoises::new(seed).column_shape(x, z).biome;
-        let surface = get_biome_data(biome).surface_block;
         let local = IVec3::new(x.rem_euclid(CHUNK_SIZE), 0, z.rem_euclid(CHUNK_SIZE));
-        let mut height = -1;
-        for cy in 0..8 {
+        let mut surface = (-1, BlockId::Debug);
+        for cy in 0..12 {
             let chunk_pos = IVec3::new(x.div_euclid(CHUNK_SIZE), cy, z.div_euclid(CHUNK_SIZE));
             let chunk = generate_chunk(chunk_pos, seed);
             for dy in 0..CHUNK_SIZE {
-                if chunk.get(local.with_y(dy)).map(|b| b.id) == Some(surface) {
-                    height = cy * CHUNK_SIZE + dy;
+                match chunk.get(local.with_y(dy)).map(|b| b.id) {
+                    Some(block) if is_ground(block) => surface = (cy * CHUNK_SIZE + dy, block),
+                    _ => {}
                 }
             }
         }
-        (height, biome, surface)
+        (surface.0, biome, surface.1)
     }
 
     #[test]
     fn terrain_is_pinned_for_a_fixed_seed() {
-        // Values recorded from the generator before decorations became per-column.
+        // One column of each biome, recorded when the height stopped coming from the biomes.
         let expected = [
-            ((0, 0), (64, BiomeType::FlowerPlains, BlockId::Grass)),
-            ((37, -91), (56, BiomeType::Ocean, BlockId::Sand)),
-            ((-120, 55), (64, BiomeType::Forest, BlockId::Grass)),
-            ((-5, -300), (63, BiomeType::FlowerPlains, BlockId::Grass)),
-            ((15, 16), (65, BiomeType::Plains, BlockId::Grass)),
-            ((-1500, -1463), (64, BiomeType::IcePlain, BlockId::Snow)),
-            ((-1500, -1278), (64, BiomeType::Forest, BlockId::Grass)),
+            ((-243, 31), (68, BiomeType::Plains, BlockId::Grass)),
+            ((24, 179), (67, BiomeType::Forest, BlockId::Grass)),
+            ((-669, 618), (68, BiomeType::MediumMountain, BlockId::Grass)),
             (
-                (-1500, -1056),
-                (74, BiomeType::HighMountainGrass, BlockId::Grass),
+                (-977, 863),
+                (68, BiomeType::HighMountainGrass, BlockId::Grass),
             ),
-            (
-                (-1500, -760),
-                (70, BiomeType::MediumMountain, BlockId::Grass),
-            ),
-            ((-1500, -723), (63, BiomeType::Desert, BlockId::Sand)),
-            ((-1463, -1352), (51, BiomeType::DeepOcean, BlockId::Sand)),
+            ((-132, -970), (66, BiomeType::Desert, BlockId::Sand)),
+            // a frozen shore keeps its snow
+            ((666, -748), (63, BiomeType::IcePlain, BlockId::Snow)),
+            ((216, 552), (66, BiomeType::FlowerPlains, BlockId::Grass)),
+            ((849, 979), (57, BiomeType::ShallowOcean, BlockId::Sand)),
+            ((518, -369), (51, BiomeType::Ocean, BlockId::Sand)),
+            ((831, -292), (44, BiomeType::DeepOcean, BlockId::Sand)),
         ];
         for ((x, z), want) in expected {
             assert_eq!(probe(42, x, z), want, "column ({x}, {z})");
@@ -465,75 +421,21 @@ mod tests {
     }
 
     #[test]
-    fn surface_bounds_hold_for_every_biome() {
-        // Listing a biome here is a compile error until it is added to `all`
-        let all = |biome: BiomeType| match biome {
-            BiomeType::Plains
-            | BiomeType::Forest
-            | BiomeType::MediumMountain
-            | BiomeType::HighMountainGrass
-            | BiomeType::Desert
-            | BiomeType::IcePlain
-            | BiomeType::FlowerPlains
-            | BiomeType::ShallowOcean
-            | BiomeType::Ocean
-            | BiomeType::DeepOcean => [
-                BiomeType::Plains,
-                BiomeType::Forest,
-                BiomeType::MediumMountain,
-                BiomeType::HighMountainGrass,
-                BiomeType::Desert,
-                BiomeType::IcePlain,
-                BiomeType::FlowerPlains,
-                BiomeType::ShallowOcean,
-                BiomeType::Ocean,
-                BiomeType::DeepOcean,
-            ],
-        };
-        let biomes = all(BiomeType::Plains).map(get_biome_data);
-        let largest_variation = biomes.iter().map(|b| b.height_variation).max().unwrap() as i32;
-        let lowest_base = biomes.iter().map(|b| b.base_height).min().unwrap() as i32;
-        let highest_base = biomes.iter().map(|b| b.base_height).max().unwrap() as i32;
-        assert!(LOWEST_SURFACE <= lowest_base - largest_variation);
-        assert!(HIGHEST_SURFACE >= highest_base + largest_variation);
-    }
-
-    #[test]
-    fn no_structure_grows_higher_than_its_bound() {
-        let noises = TerrainNoises::new(42);
-        let mut highest = 0;
-        for x in -1600..-1400 {
-            for z in -1400..-1200 {
-                let column = terrain_column(&noises, x, z);
-                for (pos, _) in column_blocks(42, &column) {
-                    assert!(
-                        pos.y - column.height <= STRUCTURE_HEIGHT,
-                        "{pos} over {}",
-                        column.height
-                    );
-                    highest = highest.max(pos.y - column.height);
-                }
-            }
-        }
+    fn the_shores_and_the_sea_floor_are_sand_except_on_frozen_shores() {
+        let plains = get_biome_data(BiomeType::Plains);
+        let ice = get_biome_data(BiomeType::IcePlain);
+        let sand = (BlockId::Sand, BlockId::Sand);
         assert_eq!(
-            highest, STRUCTURE_HEIGHT,
-            "the forest has a big tree as tall as can be"
+            ground_blocks(SEA_LEVEL + 2, &plains),
+            (BlockId::Grass, BlockId::Dirt)
         );
-    }
-
-    #[test]
-    fn chunks_without_noise_are_the_ones_the_noise_makes() {
-        let generator = WorldGenerator::new(42);
-        for (cx, cz) in [(0, 0), (-1, -1), (-94, -80), (-94, -66), (-92, -85)] {
-            for cy in -2..=8 {
-                let chunk_pos = IVec3::new(cx, cy, cz);
-                assert!(
-                    generator.generate_chunk(chunk_pos)
-                        == generator.generate_chunk_from_noise(chunk_pos),
-                    "chunk {chunk_pos}"
-                );
-            }
-        }
+        assert_eq!(ground_blocks(SEA_LEVEL + 1, &plains), sand);
+        assert_eq!(ground_blocks(SEA_LEVEL - 5, &plains), sand);
+        assert_eq!(
+            ground_blocks(SEA_LEVEL + 1, &ice),
+            (BlockId::Snow, BlockId::Ice)
+        );
+        assert_eq!(ground_blocks(SEA_LEVEL - 1, &ice), sand);
     }
 
     /// Chunks around the surface (heights 50 to 80), with positive and negative coordinates.
@@ -821,12 +723,6 @@ mod tests {
             "{count} chunks in {elapsed:?}, {:?} per chunk",
             elapsed / count
         );
-    }
-
-    #[test]
-    fn splitmix64_matches_the_reference_vector() {
-        // first output of the reference splitmix64 generator seeded with 0
-        assert_eq!(splitmix64(0), 0xE220_A839_7B1D_CDAF);
     }
 
     fn random<const N: usize>(seed: u32, coords: [i32; N]) -> PositionRandom<N> {

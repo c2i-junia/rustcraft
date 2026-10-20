@@ -38,13 +38,13 @@ mod tests {
         let text = world.spawn((BiomeText, Text::new("Biome: N/A"))).id();
         world.spawn((
             CurrentPlayerMarker {},
-            Transform::from_xyz(-119.6, 70.0, 55.4),
+            Transform::from_xyz(24.6, 70.0, 179.4),
         ));
         world.run_system_once(biome_text_update_system).unwrap();
         // No seed yet: the line is left as it is
         assert_eq!(world.get::<Text>(text).unwrap().0, "Biome: N/A");
 
-        // A forest for the seed 42, pinned by the terrain generation of the server
+        // A forest for the seed 42, pinned by `terrain_is_pinned_for_a_fixed_seed` on the server
         world.insert_resource(WorldBiomes(TerrainNoises::new(42)));
         world.run_system_once(biome_text_update_system).unwrap();
         assert_eq!(world.get::<Text>(text).unwrap().0, "Biome: Forest");
