@@ -166,6 +166,37 @@ impl ItemId {
         })
     }
 
+    /// The category the item browser files the item under.
+    pub fn category(self) -> ItemCategory {
+        // No wildcard: a new item does not compile until it has a category
+        match self {
+            Self::Dirt
+            | Self::Grass
+            | Self::Stone
+            | Self::Cobblestone
+            | Self::Gravel
+            | Self::Sand
+            | Self::Glass
+            | Self::Ice
+            | Self::Snow
+            | Self::Bedrock => ItemCategory::Blocks,
+            Self::OakLog | Self::SpruceLog | Self::OakPlanks | Self::SprucePlanks => {
+                ItemCategory::Wood
+            }
+            Self::OakLeaves | Self::Cactus | Self::Dandelion | Self::Poppy | Self::TallGrass => {
+                ItemCategory::Nature
+            }
+            Self::CoalOre | Self::IronOre | Self::GoldOre => ItemCategory::Ores,
+            Self::Coal | Self::Stick | Self::Snowball => ItemCategory::Materials,
+            Self::CraftingTable | Self::Furnace | Self::Chest => ItemCategory::Stations,
+            Self::WoodenPickaxe
+            | Self::WoodenAxe
+            | Self::WoodenShovel
+            | Self::WoodenHoe
+            | Self::WoodenSword => ItemCategory::Tools,
+        }
+    }
+
     pub fn get_default_type(&self) -> ItemType {
         match *self {
             Self::Dirt => ItemType::Block(BlockId::Dirt),
@@ -209,6 +240,44 @@ impl ItemId {
 }
 
 impl GameElementId for ItemId {}
+
+/// The categories of the item browser, which files every item under one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ItemCategory {
+    Blocks,
+    Wood,
+    Nature,
+    Ores,
+    Materials,
+    Stations,
+    Tools,
+}
+
+impl ItemCategory {
+    /// Every category, in the order of the browser's chips and of its list.
+    pub const ALL: [ItemCategory; 7] = [
+        Self::Blocks,
+        Self::Wood,
+        Self::Nature,
+        Self::Ores,
+        Self::Materials,
+        Self::Stations,
+        Self::Tools,
+    ];
+
+    /// The name of the category as a player reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Blocks => "Blocks",
+            Self::Wood => "Wood",
+            Self::Nature => "Nature",
+            Self::Ores => "Ores",
+            Self::Materials => "Materials",
+            Self::Stations => "Stations",
+            Self::Tools => "Tools",
+        }
+    }
+}
 
 /// How many times faster a wooden tool breaks the blocks it is made for than a hand.
 pub const WOODEN_TOOL_SPEED: u8 = 2;
@@ -429,5 +498,57 @@ mod tests {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
         }
+    }
+
+    #[test]
+    fn every_item_has_a_category() {
+        for item in ItemId::ALL {
+            assert!(ItemCategory::ALL.contains(&item.category()), "{item:?}");
+        }
+        for category in ItemCategory::ALL {
+            assert!(
+                ItemId::ALL.iter().any(|item| item.category() == category),
+                "{category:?} holds no item"
+            );
+        }
+    }
+
+    #[test]
+    fn items_fall_in_the_categories_of_the_browser() {
+        for (item, category) in [
+            (ItemId::Dirt, ItemCategory::Blocks),
+            (ItemId::Bedrock, ItemCategory::Blocks),
+            (ItemId::OakPlanks, ItemCategory::Wood),
+            (ItemId::Poppy, ItemCategory::Nature),
+            (ItemId::IronOre, ItemCategory::Ores),
+            (ItemId::Stick, ItemCategory::Materials),
+            (ItemId::Chest, ItemCategory::Stations),
+            (ItemId::WoodenSword, ItemCategory::Tools),
+        ] {
+            assert_eq!(item.category(), category, "{item:?}");
+        }
+        for item in ItemId::ALL {
+            assert_eq!(
+                item.category() == ItemCategory::Tools,
+                item.tool().is_some(),
+                "{item:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn categories_have_names() {
+        assert_eq!(
+            ItemCategory::ALL.map(ItemCategory::name),
+            [
+                "Blocks",
+                "Wood",
+                "Nature",
+                "Ores",
+                "Materials",
+                "Stations",
+                "Tools"
+            ]
+        );
     }
 }
