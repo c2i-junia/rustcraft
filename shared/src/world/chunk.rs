@@ -183,6 +183,24 @@ impl Chunk {
         self.cell(Self::index(local)?).as_ref()
     }
 
+    /// Each cell mapped by `f`, in the order of their indices, `(x * CHUNK_SIZE + y) *
+    /// CHUNK_SIZE + z`: `f` is called once for each kind of cell a palette holds, not for each
+    /// position.
+    pub fn map_cells<T: Copy>(&self, mut f: impl FnMut(Option<&BlockData>) -> T) -> Vec<T> {
+        match &self.cells {
+            Cells::Uniform(cell) => vec![f(cell.as_ref()); CHUNK_VOLUME],
+            Cells::Paletted(paletted) => {
+                let kinds: Vec<T> = paletted.palette.iter().map(|c| f(c.as_ref())).collect();
+                paletted
+                    .indices
+                    .iter()
+                    .map(|&kind| kinds[kind as usize])
+                    .collect()
+            }
+            Cells::Varied(cells) => cells.iter().map(|c| f(c.as_ref())).collect(),
+        }
+    }
+
     /// The block every position holds, `Some(None)` for air, when the chunk is held as a single
     /// cell. `None` does not say that the cells differ.
     pub fn uniform(&self) -> Option<Option<&BlockData>> {
@@ -532,7 +550,11 @@ mod tests {
 
     /// One of 512 kinds of blocks.
     fn kind(i: usize) -> BlockData {
-        let id = if i < 256 { BlockId::Stone } else { BlockId::Dirt };
+        let id = if i < 256 {
+            BlockId::Stone
+        } else {
+            BlockId::Dirt
+        };
         BlockData {
             breaking_progress: (i % 256) as u8,
             ..block(id)

@@ -181,16 +181,24 @@ struct Neighbourhood {
     cells: Vec<Option<Kind>>,
 }
 
+/// How far apart in a `Neighbourhood` the cells next to one another are, along x, y and z.
+const STRIDES: [usize; 3] = [(SIDE * SIDE) as usize, SIDE as usize, 1];
+
 impl Neighbourhood {
     fn new(world_map: &ChunkMap, chunk: &Chunk, chunk_pos: IVec3) -> Self {
         let mut cells = vec![None; (SIDE * SIDE * SIDE) as usize];
-        for (local, block) in chunk.iter() {
-            cells[Self::index(local)] = Some(kind(block));
+        // A row along z of the chunk is a row of the neighbourhood
+        let size = CHUNK_SIZE as usize;
+        let ours = chunk.map_cells(|block| block.map(kind));
+        for (row, kinds) in ours.chunks_exact(size).enumerate() {
+            let start = Self::index(IVec3::new((row / size) as i32, (row % size) as i32, 0));
+            cells[start..start + size].copy_from_slice(kinds);
         }
         for offset in SIX_OFFSETS {
             let Some(neighbour) = world_map.chunk(chunk_pos + offset) else {
                 continue;
             };
+            let uniform = neighbour.uniform().map(|block| block.map(kind));
             let axis = offset.abs().max_position();
             // The layer of the neighbour against the chunk, and where it lies around the chunk
             let (theirs, ours) = if offset[axis] > 0 {
@@ -204,9 +212,9 @@ impl Neighbourhood {
                     local[(axis + 1) % 3] = a;
                     local[(axis + 2) % 3] = b;
                     local[axis] = theirs;
-                    let block = neighbour.get(local);
+                    let block = uniform.unwrap_or_else(|| neighbour.get(local).map(kind));
                     local[axis] = ours;
-                    cells[Self::index(local)] = block.map(kind);
+                    cells[Self::index(local)] = block;
                 }
             }
         }
@@ -308,6 +316,8 @@ struct FaceLayers {
     /// By face of the cube, layer, then cell `u * CHUNK_SIZE + v`: 0 for no face, else 1 + the
     /// index of the face in `looks`.
     cells: Vec<u32>,
+    /// By face of the cube then layer, whether the layer has a face: most have none.
+    used: [bool; CUBE_FACES * CHUNK_SIZE as usize],
     looks: Vec<FaceLook>,
     /// The index in `looks` of each look, by what it comes from.
     ids: bevy::platform::collections::HashMap<(BlockId, usize, u32), u32>,
@@ -317,6 +327,7 @@ impl FaceLayers {
     fn new() -> Self {
         Self {
             cells: vec![0; CUBE_FACES * CHUNK_SIZE as usize * LAYER],
+            used: [false; CUBE_FACES * CHUNK_SIZE as usize],
             looks: Vec::new(),
             ids: default(),
         }
@@ -336,6 +347,7 @@ impl FaceLayers {
         let [across, along_u, along_v] = CUBE.axes[face_index].map(|axis| local[axis] as usize);
         let size = CHUNK_SIZE as usize;
         self.cells[(face_index * size + across) * LAYER + along_u * size + along_v] = id;
+        self.used[face_index * size + across] = true;
     }
 
     /// Merges the faces of each layer into rectangles of one look, and appends them to the
@@ -345,6 +357,9 @@ impl FaceLayers {
         let size = CHUNK_SIZE as usize;
         for (face_index, &[axis, along_u, along_v]) in CUBE.axes.iter().enumerate() {
             for across in 0..size {
+                if !self.used[face_index * size + across] {
+                    continue;
+                }
                 let start = (face_index * size + across) * LAYER;
                 let cells = &mut self.cells[start..start + LAYER];
                 for u in 0..size {
@@ -473,15 +488,24 @@ fn chunk_faces(
 ) -> (MeshCreator, MeshCreator) {
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
     let mut looks: bevy::platform::collections::HashMap<BlockId, BlockLook> = default();
+    let mut lowered_shapes: bevy::platform::collections::HashMap<(BlockId, [u32; 4]), VoxelShape> =
+        default();
     let mut solid = MeshCreator::default();
     let mut liquid = MeshCreator::default();
     let mut layers = FaceLayers::new();
 
-    for (local_block_pos, block) in chunk.iter() {
-        let visibility = block.id.get_visibility();
-        if is_block_surrounded(&blocks, local_block_pos, &visibility, &block.id) {
+    for local_block_pos in chunk_positions() {
+        let index = Neighbourhood::index(local_block_pos);
+        let Some(kind) = blocks.cells[index] else {
+            continue;
+        };
+        if is_block_surrounded(&blocks, index, kind) {
             continue;
         }
+        let Some(block) = chunk.get(local_block_pos) else {
+            continue;
+        };
+        let visibility = kind.1;
 
         let origin = local_block_pos.as_vec3();
         let (mesh_creator, alpha) = match visibility {
@@ -500,12 +524,11 @@ fn chunk_faces(
         let corners = (visibility == BlockTransparency::Liquid)
             .then(|| corner_heights(world_map, to_global_pos(chunk_pos, &local_block_pos)))
             .flatten();
-        let lowered;
+        // Most of the surface of a liquid is level: its blocks share a few shapes
         let shape = match corners {
-            Some(corners) => {
-                lowered = look.shape.clone().with_top_corners(corners);
-                &lowered
-            }
+            Some(corners) => &*lowered_shapes
+                .entry((block.id, corners.map(f32::to_bits)))
+                .or_insert_with(|| look.shape.clone().with_top_corners(corners)),
             None => &look.shape,
         };
         // A face that is not drawn the same everywhere stays one square, as do the faces of
@@ -555,36 +578,35 @@ fn chunk_faces(
     (solid, liquid)
 }
 
+/// The local positions of a chunk, in the order of their indices in the chunk.
+fn chunk_positions() -> impl Iterator<Item = IVec3> {
+    (0..CHUNK_SIZE).flat_map(|x| {
+        (0..CHUNK_SIZE).flat_map(move |y| (0..CHUNK_SIZE).map(move |z| IVec3::new(x, y, z)))
+    })
+}
+
+/// Whether every face of the block of `kind` at the index `index` of `blocks` is hidden by the
+/// block next to it.
 fn is_block_surrounded(
     blocks: &Neighbourhood,
-    local_block_pos: IVec3,
-    block_visibility: &BlockTransparency,
-    block_id: &BlockId,
+    index: usize,
+    (block_id, block_visibility): Kind,
 ) -> bool {
-    for offset in &SIX_OFFSETS {
-        let neighbor_pos = local_block_pos + *offset;
-
-        // Check if the block exists at the neighboring position
-        if let Some((id, vis)) = blocks.get(neighbor_pos) {
-            match vis {
-                BlockTransparency::Solid => {}
-                BlockTransparency::Decoration => return false,
-                BlockTransparency::Liquid => {
-                    if vis != *block_visibility {
-                        return false;
-                    }
+    for stride in STRIDES {
+        for neighbour in [index - stride, index + stride] {
+            let hides = match blocks.cells[neighbour] {
+                Some((_, BlockTransparency::Solid)) => true,
+                Some((_, BlockTransparency::Decoration)) | None => false,
+                Some((_, BlockTransparency::Liquid)) => {
+                    block_visibility == BlockTransparency::Liquid
                 }
-                BlockTransparency::Transparent => {
-                    if *block_id != id {
-                        return false;
-                    }
-                }
+                Some((id, BlockTransparency::Transparent)) => block_id == id,
+            };
+            if !hides {
+                return false;
             }
-        } else {
-            return false;
         }
     }
-
     true
 }
 
