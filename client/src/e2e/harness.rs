@@ -121,15 +121,63 @@ impl Watchdog {
     }
 }
 
+/// How many tests may run clients at once: half the cores. Each client renders with lavapipe on
+/// threads of its own: with more, the clients take the cores from one another and the whole run
+/// is slower (on 32 threads, 60 s at 16 tests at once, 78 s at 32, 78 s at 8).
+fn max_clients() -> usize {
+    std::thread::available_parallelism().map_or(1, |cores| (cores.get() / 2).max(1))
+}
+
+/// The tests running clients now.
+static CLIENT_TESTS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+/// Told when a test stops running clients.
+static CLIENT_TEST_ENDED: std::sync::Condvar = std::sync::Condvar::new();
+
+thread_local! {
+    /// Whether the test of this thread may run clients. Held until the thread ends, as the
+    /// watchdogs: a test with several clients takes one place, and a failed test gives it back.
+    static CLIENT_PLACE: std::cell::RefCell<Option<ClientPlace>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A place among the tests running clients, given back when dropped.
+struct ClientPlace;
+
+impl ClientPlace {
+    /// Waits for a place for the test of this thread, unless it has one.
+    fn take() {
+        CLIENT_PLACE.with(|place| {
+            if place.borrow().is_some() {
+                return;
+            }
+            let max = max_clients();
+            let mut running = CLIENT_TESTS.lock().unwrap();
+            while *running >= max {
+                running = CLIENT_TEST_ENDED.wait(running).unwrap();
+            }
+            *running += 1;
+            *place.borrow_mut() = Some(ClientPlace);
+        });
+    }
+}
+
+impl Drop for ClientPlace {
+    fn drop(&mut self) {
+        *CLIENT_TESTS.lock().unwrap() -= 1;
+        CLIENT_TEST_ENDED.notify_one();
+    }
+}
+
 impl Harness {
     /// A client with an empty game folder and the default options.
     pub fn new() -> Self {
         Self::start(GameFolder::new(), Options::default())
     }
 
-    /// A client with the game folder `folder`. The watchdog starts first, so that it also covers
-    /// the start of the renderer.
+    /// A client with the game folder `folder`, once the test has a place among those running
+    /// clients. The watchdog starts next, so that it also covers the start of the renderer.
     pub fn start(folder: GameFolder, options: Options) -> Self {
+        ClientPlace::take();
         let watchdog = Watchdog::start();
         let Options {
             width,
