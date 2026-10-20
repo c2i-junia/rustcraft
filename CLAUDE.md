@@ -13,8 +13,9 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
   `ItemId` or `BlockId` variant: `wooden_pickaxe.png` becomes `WoodenPickaxe.png`. An item
   with no texture in `items/` shows the block texture of the same name, so a block item needs
   one only when its icon differs.
-- Check that the texture is 16x16, like ours; an animated one is a vertical strip of frames, of
-  which we take the first.
+- Check that the texture is 16x16, like ours. An animated one is a vertical strip of frames: a
+  block texture keeps them all, with its `.mcmeta` written as `<Name>.anim.ron` next to it
+  (`frame_time`, `interpolate`); of an item texture we take the first.
 - A block Minecraft draws as a model of its own, like the chest, has no block texture: its
   faces are cut from its sheet in `assets/minecraft/textures/entity/` (64x64 for the chest,
   each part upside down since Minecraft 1.15) and grown to 16x16 by repeating their edges.

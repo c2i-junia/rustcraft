@@ -1,0 +1,2 @@
+// As water_still.png.mcmeta of Pixel Perfection: a frame every half second, each fading into the next
+(frame_time: 10, interpolate: true)

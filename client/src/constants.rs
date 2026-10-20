@@ -24,6 +24,9 @@ pub const VIDEO_SETTINGS_PATH: &str = "video.ron";
 pub const PLAYER_NAME_PATH: &str = "player.ron";
 
 pub const GRASS_COLOR: [f32; 4] = [0.1, 1.0, 0.3, 1.0];
+/// The tint of the grey texture of the water: Minecraft's default water colour, #3F76E4, in
+/// linear space as a vertex colour is.
+pub const WATER_COLOR: [f32; 4] = [0.05, 0.181, 0.776, 1.0];
 
 pub const TEXTURE_PATH_BASE: &str = "graphics/base_textures/";
 pub const TEXTURE_PATH_CUSTOM: &str = "graphics/custom_textures/";

@@ -78,14 +78,7 @@ fn inset_uv(uv: [f32; 2], centre: [f32; 2]) -> [f32; 2] {
 impl MeshCreator {
     /// Appends `face` of a block at `origin` (in chunk coordinates) turned to `direction`,
     /// drawn with the block texture `tile`.
-    fn push_face(
-        &mut self,
-        face: &Face,
-        tile: u32,
-        alpha: f32,
-        origin: Vec3,
-        direction: &BlockDirection,
-    ) {
+    fn push_face(&mut self, face: &Face, tile: u32, origin: Vec3, direction: &BlockDirection) {
         let first_index = self.vertices.len() as u32;
         self.indices
             .extend(face.indices.iter().map(|index| index + first_index));
@@ -98,8 +91,7 @@ impl MeshCreator {
             ]
         }));
         self.normals.extend(face.normals.iter().map(normal));
-        self.colors
-            .extend(face.colors.iter().map(|c| color([c[0], c[1], c[2], alpha])));
+        self.colors.extend(face.colors.iter().map(|c| color(*c)));
         self.uvs
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
         self.tiles.extend(face.uvs.iter().map(|_| self::tile(tile)));
@@ -190,7 +182,7 @@ pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> O
     let mut mesh = MeshCreator::default();
     for (face, tile) in look.shape.faces.iter().zip(&look.tiles) {
         if let Some(tile) = tile {
-            mesh.push_face(face, *tile, 1.0, Vec3::splat(-0.5), &block.direction);
+            mesh.push_face(face, *tile, Vec3::splat(-0.5), &block.direction);
         }
     }
     mesh.build()
@@ -540,9 +532,10 @@ fn chunk_faces(
         let visibility = kind.1;
 
         let origin = local_block_pos.as_vec3();
-        let (mesh_creator, alpha) = match visibility {
-            BlockTransparency::Liquid => (&mut liquid, 0.5),
-            _ => (&mut solid, 1.0),
+        // How much a liquid is seen through is the alpha of its texture
+        let mesh_creator = match visibility {
+            BlockTransparency::Liquid => &mut liquid,
+            _ => &mut solid,
         };
         // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
         // faces. A custom texture folder may lack the texture: no cracks then.
@@ -589,19 +582,18 @@ fn chunk_faces(
                 _ => (mergeable && level_top == Some(1.), 1.),
             };
             if merges {
-                let [red, green, blue, _] = face.colors[0];
                 let look = FaceLook {
                     tile,
-                    color: [red, green, blue, alpha],
+                    color: face.colors[0],
                     liquid: visibility == BlockTransparency::Liquid,
                     height: face_height,
                 };
                 layers.add(face_index, local_block_pos, block.id, look);
                 continue;
             }
-            mesh_creator.push_face(face, tile, alpha, origin, &block.direction);
+            mesh_creator.push_face(face, tile, origin, &block.direction);
             if let Some(cracks) = cracks {
-                mesh_creator.push_face(face, *cracks, alpha, origin, &block.direction);
+                mesh_creator.push_face(face, *cracks, origin, &block.direction);
             }
         }
     }

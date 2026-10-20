@@ -16,6 +16,7 @@
 #else
 #import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
+    mesh_view_bindings::globals,
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
 }
@@ -28,13 +29,34 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var block_layers: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var block_sampler: sampler;
 
-// The colour of the block texture at `in`. The layers have no mipmaps: sampling the first level
-// is the same, and allowed where the control flow differs between fragments.
+// How long the game has been drawing, in seconds, which plays the animated textures. The
+// prepass has no such binding: it draws their first frame, which only matters for the pixels
+// it discards.
+fn seconds() -> f32 {
+#ifdef PREPASS_PIPELINE
+    return 0.0;
+#else
+    return globals.time;
+#endif
+}
+
+// The colour of the block texture at `in`, at its current frame. The layers have no mipmaps:
+// sampling the first level is the same, and allowed where the control flow differs between
+// fragments.
 fn block_color(in: VertexOutput) -> vec4<f32> {
     // Rounded, as interpolating the index of the face may stray from it, if by little
     // The index comes as a fraction of 65535 (`TILE` in `meshing.rs`)
     let texture = block_textures[u32(round(in.uv_b.x * 65535.0))];
-    return textureSampleLevel(block_layers, block_sampler, in.uv, texture.x, 0.0);
+    let frames = max(texture.y, 1u);
+    // In frames since the start, at 20 frame times a second
+    let progress = seconds() * 20.0 / f32(max(texture.z, 1u));
+    let frame = u32(progress) % frames;
+    let color = textureSampleLevel(block_layers, block_sampler, in.uv, texture.x + frame, 0.0);
+    if texture.w == 0u || frames == 1u {
+        return color;
+    }
+    let next = textureSampleLevel(block_layers, block_sampler, in.uv, texture.x + (frame + 1u) % frames, 0.0);
+    return mix(color, next, fract(progress));
 }
 
 #ifdef PREPASS_PIPELINE

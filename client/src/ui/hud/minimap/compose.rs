@@ -17,9 +17,10 @@ pub const UNLOADED: [u8; 3] = [0x0C, 0x0E, 0x12];
 /// A block higher than the one north of it is lighter by this factor, a lower one darker.
 const LIGHTER: f32 = 1.12;
 const DARKER: f32 = 0.82;
-/// The share of the colour of the water over its floor in the shallowest water: half, as the
-/// game draws water. It grows to all of it in the deepest water.
-const SHALLOW_WATER: f32 = 0.5;
+/// The share of the colour of the water over its floor in the shallowest water: about the alpha
+/// of the texture of the water, with which the game draws it. It grows to all of it in the
+/// deepest water.
+const SHALLOW_WATER: f32 = 0.7;
 /// The share of its colour the deepest water loses.
 const DEEP_WATER_DARKENING: f32 = 0.5;
 
@@ -135,8 +136,8 @@ mod tests {
             water_depth,
         };
         // water is flat: its floor shows through it, less and darker as it deepens
-        assert_eq!(shade(color, blue, water(1), Some(at(0))), [45, 91, 216]);
-        assert_eq!(shade(color, blue, water(8), None), [19, 38, 159]);
+        assert_eq!(shade(color, blue, water(1), Some(at(0))), [27, 54, 207]);
+        assert_eq!(shade(color, blue, water(8), None), [11, 22, 156]);
         assert_eq!(
             shade(color, blue, water(MAX_WATER_DEPTH), None),
             [0, 0, 100]

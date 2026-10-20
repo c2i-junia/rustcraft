@@ -1,4 +1,4 @@
-use crate::constants::GRASS_COLOR;
+use crate::constants::{GRASS_COLOR, WATER_COLOR};
 use bevy::math::Vec3;
 use shared::world::{BlockData, BlockId};
 
@@ -117,6 +117,8 @@ impl VoxelShape {
             }
             BlockId::Poppy | BlockId::Dandelion => Self::flora(block),
             BlockId::TallGrass => Self::flora(block).tinted(GRASS_COLOR),
+            // Its texture is grey too
+            BlockId::Water => Self::full_cube(block).tinted(WATER_COLOR),
             _ => Self::full_cube(block),
         }
     }

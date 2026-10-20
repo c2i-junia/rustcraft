@@ -11,6 +11,7 @@ use bevy::render::render_resource::{
     TextureViewDimension,
 };
 use bevy::shader::ShaderRef;
+use serde::Deserialize;
 use shared::world::{BlockId, GameElementId, ItemId};
 use shared::GameFolderPaths;
 use std::collections::HashMap;
@@ -57,6 +58,26 @@ pub struct BlockTextures {
 /// The most block textures a texture pack may have: the length of the table in `chunk.wgsl`.
 pub const MAX_TILES: usize = 256;
 
+/// How an animated texture, a vertical strip of square frames, plays: read from the file
+/// `<texture>.anim.ron` next to it, like the `.mcmeta` of a Minecraft texture.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct TextureAnimation {
+    /// How long each frame is shown, in twentieths of a second as in Minecraft.
+    pub frame_time: u32,
+    /// Whether each frame fades into the next one instead of replacing it at once.
+    pub interpolate: bool,
+}
+
+impl Default for TextureAnimation {
+    fn default() -> Self {
+        Self {
+            frame_time: 1,
+            interpolate: false,
+        }
+    }
+}
+
 const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1a7d9c21");
 
 /// What the chunks are drawn with: the material of the block textures, which repeat over the
@@ -64,8 +85,7 @@ const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1
 pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
 
 /// The block textures for `chunk.wgsl`: the array of their layers, and for each texture of the
-/// table its first layer, its number of frames, the time of a frame and whether frames fade:
-/// only the first frame is shown so far.
+/// table its first layer, its number of frames, the time of a frame and whether frames fade.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct BlockLayers {
     #[uniform(100)]
@@ -103,6 +123,9 @@ pub struct MaterialResource {
 #[derive(Resource)]
 pub struct AtlasHandles<T> {
     pub handles: Vec<(Handle<Image>, String)>,
+    /// How each animated texture plays, by name: an animated texture without a file of its
+    /// own plays with the default animation.
+    pub animations: HashMap<String, TextureAnimation>,
     /// Phantom to allow multiple instances of the struct
     _d: PhantomData<T>,
 }
@@ -111,6 +134,7 @@ impl<T> Default for AtlasHandles<T> {
     fn default() -> Self {
         Self {
             handles: Vec::new(),
+            animations: HashMap::new(),
             _d: PhantomData {},
         }
     }
@@ -149,7 +173,9 @@ pub fn setup_materials(
         .insert(GlobalMaterial::Moon, moon_material);
 
     let textures_path = paths.assets_folder_path.join(&texture_path.path);
-    block_atlas_handles.handles = load_textures(&asset_server, &textures_path.join("blocks/"));
+    let blocks = textures_path.join("blocks/");
+    block_atlas_handles.handles = load_textures(&asset_server, &blocks);
+    block_atlas_handles.animations = read_animations(&blocks);
     let mut items = load_textures(&asset_server, &textures_path.join("items/"));
     // An item with no texture of its own, like most blocks, shows the texture of its block
     let block_textures: Vec<_> = block_atlas_handles
@@ -190,6 +216,30 @@ fn load_textures(asset_server: &AssetServer, folder: &Path) -> Vec<(Handle<Image
         folder.display()
     );
     textures
+}
+
+/// The animations of the textures of `folder`, from its `<texture>.anim.ron` files. A file that
+/// cannot be read is left out, and its texture plays with the default animation.
+fn read_animations(folder: &Path) -> HashMap<String, TextureAnimation> {
+    let Ok(files) = fs::read_dir(folder) else {
+        return HashMap::new();
+    };
+    files
+        .filter_map(|file| {
+            let path = file.ok()?.path();
+            let name = path.file_name()?.to_str()?.strip_suffix(".anim.ron")?;
+            let animation = fs::read_to_string(&path)
+                .map_err(|err| err.to_string())
+                .and_then(|text| ron::from_str(&text).map_err(|err| err.to_string()));
+            match animation {
+                Ok(animation) => Some((name.to_owned(), animation)),
+                Err(err) => {
+                    warn!("Could not read the animation {}: {err}", path.display());
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 /// Builds the block textures and the item atlas once all their textures are loaded, and
@@ -325,7 +375,13 @@ fn build_block_textures(
             error!("Could not read the texture {name}");
             continue;
         };
-        table[tiles.len()] = UVec4::new(layers, frames.len() as u32, 1, 0);
+        let animation = handles.animations.get(name).copied().unwrap_or_default();
+        table[tiles.len()] = UVec4::new(
+            layers,
+            frames.len() as u32,
+            animation.frame_time.max(1),
+            animation.interpolate as u32,
+        );
         tiles.insert(name.clone(), tiles.len() as u32);
         layers += frames.len() as u32;
         bytes.extend(frames.into_iter().flatten());
@@ -476,5 +532,53 @@ mod tests {
         let frames = frames(&numbered(4, 6), 4).unwrap();
         assert_eq!(frames.len(), 1);
         assert_eq!(pixel(&frames[0], 4, 0, 3), [0, 3]);
+    }
+
+    #[test]
+    fn an_animation_without_a_setting_takes_the_default_one() {
+        let animation: TextureAnimation = ron::from_str("(interpolate: true)").unwrap();
+        assert_eq!(
+            animation,
+            TextureAnimation {
+                frame_time: 1,
+                interpolate: true
+            }
+        );
+    }
+
+    #[test]
+    fn the_water_of_the_base_textures_fades_from_frame_to_frame() {
+        let blocks = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../data")
+            .join(crate::constants::TEXTURE_PATH_BASE)
+            .join("blocks");
+        assert_eq!(
+            read_animations(&blocks).get("Water"),
+            Some(&TextureAnimation {
+                frame_time: 10,
+                interpolate: true
+            })
+        );
+    }
+
+    #[test]
+    fn the_animations_are_read_from_their_files_and_a_broken_one_is_left_out() {
+        let folder = std::env::temp_dir().join(format!("animations-{}", std::process::id()));
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("Water.anim.ron"), "(frame_time: 10)").unwrap();
+        fs::write(folder.join("Lava.anim.ron"), "(frame_time: \"slow\")").unwrap();
+        fs::write(folder.join("Water.png"), "").unwrap();
+        let animations = read_animations(&folder);
+        fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(
+            animations,
+            HashMap::from([(
+                "Water".to_string(),
+                TextureAnimation {
+                    frame_time: 10,
+                    interpolate: false
+                }
+            )])
+        );
     }
 }
