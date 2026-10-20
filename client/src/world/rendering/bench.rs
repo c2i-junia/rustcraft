@@ -165,7 +165,7 @@ impl Scene {
     }
 }
 
-/// An atlas tile for each block texture of the game, as the mesher only reads their indices.
+/// An index for each block texture of the game, as the mesher only reads their indices.
 fn tiles() -> HashMap<String, u32> {
     let folder =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures/blocks");

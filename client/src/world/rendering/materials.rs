@@ -2,11 +2,14 @@ use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
 use crate::world::GlobalMaterial;
-use bevy::asset::{load_internal_asset, uuid_handle};
-use bevy::image::ImageSampler;
+use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
+use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, Face};
+use bevy::render::render_resource::{
+    AsBindGroup, Extent3d, Face, TextureDimension, TextureFormat, TextureViewDescriptor,
+    TextureViewDimension,
+};
 use bevy::shader::ShaderRef;
 use shared::world::{BlockId, GameElementId, ItemId};
 use shared::GameFolderPaths;
@@ -39,44 +42,40 @@ impl AtlasWrapper {
     }
 }
 
-/// The most block textures a texture pack may have: the length of the array of tiles in
-/// `chunk.wgsl`.
+/// The block textures, each in one layer of a texture array, or in several for an animated
+/// one: a chunk mesh names the texture of each vertex by its index in the table of `chunk.wgsl`
+/// (`UV_1.x`), and the point in it in `UV_0`, which repeats past 1.
+#[derive(Debug)]
+pub struct BlockTextures {
+    /// The image each texture was read from, by name.
+    pub handles: HashMap<String, Handle<Image>>,
+    pub array: Handle<Image>,
+    /// The index in the table of each texture, by name.
+    pub tiles: HashMap<String, u32>,
+}
+
+/// The most block textures a texture pack may have: the length of the table in `chunk.wgsl`.
 pub const MAX_TILES: usize = 256;
 
 const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1a7d9c21");
 
-/// What the chunks are drawn with: the material of the block atlas, whose tiles repeat over the
+/// What the chunks are drawn with: the material of the block textures, which repeat over the
 /// faces that span several blocks.
-pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, AtlasTiles>;
+pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
 
-/// Where each texture lies in the atlas, for `chunk.wgsl`. A chunk mesh names the tile of each
-/// vertex by its index (`UV_1.x`), and the point in the tile in `UV_0`, which repeats past 1.
+/// The block textures for `chunk.wgsl`: the array of their layers, and for each texture of the
+/// table its first layer, its number of frames, the time of a frame and whether frames fade:
+/// only the first frame is shown so far.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
-pub struct AtlasTiles {
-    /// min x, min y, max x, max y of each tile, in atlas units
+pub struct BlockLayers {
     #[uniform(100)]
-    pub rects: [Vec4; MAX_TILES],
+    pub table: [UVec4; MAX_TILES],
+    #[texture(101, dimension = "2d_array")]
+    #[sampler(102)]
+    pub layers: Handle<Image>,
 }
 
-impl AtlasTiles {
-    fn new(rects: &[Vec4]) -> Self {
-        if rects.len() > MAX_TILES {
-            error!(
-                "{} block textures, but no more than {MAX_TILES} can be drawn",
-                rects.len()
-            );
-        }
-        let mut tiles = Self {
-            rects: [Vec4::ZERO; MAX_TILES],
-        };
-        for (tile, rect) in tiles.rects.iter_mut().zip(rects) {
-            *tile = *rect;
-        }
-        tiles
-    }
-}
-
-impl MaterialExtension for AtlasTiles {
+impl MaterialExtension for BlockLayers {
     fn fragment_shader() -> ShaderRef {
         CHUNK_SHADER.into()
     }
@@ -98,7 +97,7 @@ pub struct MaterialResource {
     /// The materials of the blocks and of the liquids.
     pub chunk_materials: HashMap<GlobalMaterial, Handle<ChunkMaterial>>,
     pub items: Option<AtlasWrapper>,
-    pub blocks: Option<AtlasWrapper>,
+    pub blocks: Option<BlockTextures>,
 }
 
 #[derive(Resource)]
@@ -163,7 +162,7 @@ pub fn setup_materials(
     item_atlas_handles.handles = items;
 }
 
-/// Starts loading every texture of `folder`, each with the name of its file without the
+/// Starts loading every PNG texture of `folder`, each with the name of its file without the
 /// extension, which is the name of the block or the item it shows.
 fn load_textures(asset_server: &AssetServer, folder: &Path) -> Vec<(Handle<Image>, String)> {
     let files = match fs::read_dir(folder) {
@@ -177,13 +176,12 @@ fn load_textures(asset_server: &AssetServer, folder: &Path) -> Vec<(Handle<Image
     let textures: Vec<_> = files
         .filter_map(|file| {
             let path = file.ok()?.path();
+            if path.extension()? != "png" {
+                return None;
+            }
             // A file whose name is not valid UTF-8 cannot name a block or an item
             let name = path.file_stem()?.to_str()?.to_owned();
-            let texture = folder.join(&name).with_extension("png");
-            Some((
-                asset_server.load(texture.to_string_lossy().into_owned()),
-                name,
-            ))
+            Some((asset_server.load(path.to_string_lossy().into_owned()), name))
         })
         .collect();
     info!(
@@ -194,8 +192,8 @@ fn load_textures(asset_server: &AssetServer, folder: &Path) -> Vec<(Handle<Image
     textures
 }
 
-/// Builds the block and item atlases once all their textures are loaded, and reports in
-/// `PreLoadingCompletion` whether both are ready.
+/// Builds the block textures and the item atlas once all their textures are loaded, and
+/// reports in `PreLoadingCompletion` whether both are ready.
 pub fn create_all_atlases(
     mut atlases: (ResMut<AtlasHandles<BlockId>>, ResMut<AtlasHandles<ItemId>>),
     mut images: ResMut<Assets<Image>>,
@@ -205,8 +203,8 @@ pub fn create_all_atlases(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut chunk_materials: ResMut<Assets<ChunkMaterial>>,
 ) {
-    let atlas_material = |atlas: &AtlasWrapper, alpha_mode| StandardMaterial {
-        base_color_texture: Some(atlas.texture.clone()),
+    let textured = |texture: Option<Handle<Image>>, alpha_mode| StandardMaterial {
+        base_color_texture: texture,
         perceptual_roughness: BASE_ROUGHNESS,
         reflectance: BASE_SPECULAR_HIGHLIGHT,
         alpha_mode,
@@ -214,25 +212,25 @@ pub fn create_all_atlases(
     };
 
     if material_resource.blocks.is_none() {
-        if let Some(blocks) = build_texture_atlas(&mut atlases.0, &mut images, &mut texture_atlases)
-        {
+        if let Some((blocks, table)) = build_block_textures(&atlases.0, &mut images) {
+            // The shader samples the layers itself: the standard material has no texture
             let chunk_material = |base| ChunkMaterial {
                 base,
-                extension: AtlasTiles::new(&blocks.tile_rects),
+                extension: BlockLayers {
+                    table,
+                    layers: blocks.array.clone(),
+                },
             };
             material_resource.chunk_materials.insert(
                 GlobalMaterial::Blocks,
-                chunk_materials.add(chunk_material(atlas_material(
-                    &blocks,
-                    AlphaMode::AlphaToCoverage,
-                ))),
+                chunk_materials.add(chunk_material(textured(None, AlphaMode::AlphaToCoverage))),
             );
             // A liquid is seen through, and from below its surface too
             material_resource.chunk_materials.insert(
                 GlobalMaterial::Liquids,
                 chunk_materials.add(chunk_material(StandardMaterial {
                     cull_mode: None,
-                    ..atlas_material(&blocks, AlphaMode::Blend)
+                    ..textured(None, AlphaMode::Blend)
                 })),
             );
             material_resource.blocks = Some(blocks);
@@ -248,7 +246,7 @@ pub fn create_all_atlases(
                 materials.add(StandardMaterial {
                     cull_mode: None,
                     double_sided: true,
-                    ..atlas_material(&items, AlphaMode::Mask(0.5))
+                    ..textured(Some(items.texture.clone()), AlphaMode::Mask(0.5))
                 }),
             );
             material_resource.items = Some(items);
@@ -257,6 +255,124 @@ pub fn create_all_atlases(
 
     loading.textures_loaded =
         material_resource.blocks.is_some() && material_resource.items.is_some();
+}
+
+/// The frames of an image, as RGBA bytes each `size` wide and high: a square image is one
+/// frame, an image as many times higher as it is wide a vertical strip of frames, and any other
+/// image the square at its top. A frame of another size is scaled to `size`, keeping the
+/// pixels sharp.
+fn frames(image: &Image, size: u32) -> Option<Vec<Vec<u8>>> {
+    let converted;
+    let image = if image.texture_descriptor.format == TextureFormat::Rgba8UnormSrgb {
+        image
+    } else {
+        converted = image.convert(TextureFormat::Rgba8UnormSrgb)?;
+        &converted
+    };
+    let (width, height) = (image.width(), image.height());
+    let pixels = image.data.as_ref()?;
+    let count = if height % width == 0 {
+        height / width
+    } else {
+        1
+    };
+    let frames = (0..count)
+        .map(|frame| {
+            let mut bytes = Vec::with_capacity((size * size * 4) as usize);
+            for y in 0..size {
+                let source_y = frame * width + y * width / size;
+                for x in 0..size {
+                    let at = ((source_y * width + x * width / size) * 4) as usize;
+                    bytes.extend_from_slice(&pixels[at..at + 4]);
+                }
+            }
+            bytes
+        })
+        .collect();
+    Some(frames)
+}
+
+/// The texture array of the blocks and the table of `BlockLayers`, or `None` while some of
+/// the textures are still loading. Every layer is as large as the widest texture, and pixel
+/// art is sampled without smoothing.
+fn build_block_textures(
+    handles: &AtlasHandles<BlockId>,
+    images: &mut Assets<Image>,
+) -> Option<(BlockTextures, [UVec4; MAX_TILES])> {
+    let loaded: Vec<(&Image, &String)> = handles
+        .handles
+        .iter()
+        .map(|(handle, name)| Some((images.get(handle.id())?, name)))
+        .collect::<Option<_>>()?;
+    if loaded.len() > MAX_TILES {
+        error!(
+            "{} block textures, but no more than {MAX_TILES} can be drawn",
+            loaded.len()
+        );
+    }
+    let size = loaded
+        .iter()
+        .map(|(image, _)| image.width())
+        .max()
+        .unwrap_or(1);
+
+    let mut bytes = Vec::new();
+    let mut layers = 0;
+    let mut tiles = HashMap::new();
+    let mut table = [UVec4::ZERO; MAX_TILES];
+    for (image, name) in loaded.into_iter().take(MAX_TILES) {
+        let Some(frames) = frames(image, size) else {
+            error!("Could not read the texture {name}");
+            continue;
+        };
+        table[tiles.len()] = UVec4::new(layers, frames.len() as u32, 1, 0);
+        tiles.insert(name.clone(), tiles.len() as u32);
+        layers += frames.len() as u32;
+        bytes.extend(frames.into_iter().flatten());
+    }
+    if layers == 0 {
+        error_once!("No block texture could be read");
+        return None;
+    }
+
+    let mut array = Image::new(
+        Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: layers,
+        },
+        TextureDimension::D2,
+        bytes,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    // An array of one layer would otherwise be seen as a plain texture
+    array.texture_view_descriptor = Some(TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
+    });
+    // A face that spans several blocks repeats its texture
+    array.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::Repeat,
+        address_mode_v: ImageAddressMode::Repeat,
+        ..ImageSamplerDescriptor::nearest()
+    });
+    info!(
+        "{} block textures in {layers} layers of {size}x{size}",
+        tiles.len()
+    );
+    Some((
+        BlockTextures {
+            handles: handles
+                .handles
+                .iter()
+                .map(|(handle, name)| (name.clone(), handle.clone()))
+                .collect(),
+            array: images.add(array),
+            tiles,
+        },
+        table,
+    ))
 }
 
 /// One image holding every texture of `atlas_handles`, or `None` while some of them are still
@@ -310,4 +426,55 @@ fn build_texture_atlas<T: GameElementId>(
         tiles,
         tile_rects,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `width` by `height` image whose pixel at `(x, y)` is `[x, y, 0, 255]`.
+    fn numbered(width: u32, height: u32) -> Image {
+        let bytes = (0..height)
+            .flat_map(|y| (0..width).flat_map(move |x| [x as u8, y as u8, 0, 255]))
+            .collect();
+        Image::new(
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            bytes,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::all(),
+        )
+    }
+
+    fn pixel(frame: &[u8], size: u32, x: u32, y: u32) -> [u8; 2] {
+        let at = ((y * size + x) * 4) as usize;
+        [frame[at], frame[at + 1]]
+    }
+
+    #[test]
+    fn a_strip_of_square_frames_is_cut_into_its_frames() {
+        let frames = frames(&numbered(4, 12), 4).unwrap();
+        assert_eq!(frames.len(), 3);
+        assert_eq!(pixel(&frames[0], 4, 1, 2), [1, 2]);
+        assert_eq!(pixel(&frames[2], 4, 3, 1), [3, 9]);
+    }
+
+    #[test]
+    fn a_smaller_texture_is_scaled_up_without_smoothing() {
+        let frames = frames(&numbered(2, 2), 4).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(pixel(&frames[0], 4, 1, 1), [0, 0]);
+        assert_eq!(pixel(&frames[0], 4, 2, 3), [1, 1]);
+    }
+
+    #[test]
+    fn an_image_neither_square_nor_a_strip_shows_its_top() {
+        let frames = frames(&numbered(4, 6), 4).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(pixel(&frames[0], 4, 0, 3), [0, 3]);
+    }
 }

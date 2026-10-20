@@ -1,6 +1,6 @@
-// The chunks are drawn with the block atlas, each face with one of its tiles: `uv_b.x` is the
-// index of the tile and `uv` the place in it. A face that spans several blocks has its `uv` go
-// past 1, and the tile repeats across it.
+// The chunks are drawn with the block textures, the layers of a texture array: `uv_b.x` is the
+// index of the texture of a face in `block_textures`, and `uv` the place in it. A face that spans
+// several blocks has its `uv` go past 1, and the texture repeats across it.
 
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::alpha_discard
@@ -8,8 +8,10 @@
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
     prepass_io::{VertexOutput, FragmentOutput},
+    pbr_bindings,
     pbr_prepass_functions,
     pbr_functions::prepare_world_normal,
+    pbr_types,
 }
 #else
 #import bevy_pbr::{
@@ -19,41 +21,51 @@
 }
 #endif
 
-// Keep in sync with `MAX_TILES`
-struct AtlasTiles {
-    // min x, min y, max x, max y of each tile, in atlas units
-    rects: array<vec4<f32>, 256>,
-}
+// For each texture: its first layer, its number of frames, how long a frame is shown in
+// twentieths of a second, and whether a frame fades into the next. Keep the length in sync with
+// `MAX_TILES`.
+@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> block_textures: array<vec4<u32>, 256>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var block_layers: texture_2d_array<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var block_sampler: sampler;
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> atlas_tiles: AtlasTiles;
-
-// How far inside its tile a face stops, in atlas units, so that the neighbouring tile never
-// bleeds along the edges of a block. !!! DO NOT REMOVE THE INSET !!! It removes seams between
-// blocks in chunk meshes.
-const UV_INSET: f32 = 0.001;
-
-// Where `in` samples the atlas
-fn atlas_uv(in: VertexOutput) -> vec2<f32> {
+// The colour of the block texture at `in`. The layers have no mipmaps: sampling the first level
+// is the same, and allowed where the control flow differs between fragments.
+fn block_color(in: VertexOutput) -> vec4<f32> {
     // Rounded, as interpolating the index of the face may stray from it, if by little
     // The index comes as a fraction of 65535 (`TILE` in `meshing.rs`)
-    let rect = atlas_tiles.rects[u32(round(in.uv_b.x * 65535.0))];
-    let low = rect.xy + UV_INSET;
-    let high = rect.zw - UV_INSET;
-    return low + fract(in.uv) * (high - low);
+    let texture = block_textures[u32(round(in.uv_b.x * 65535.0))];
+    return textureSampleLevel(block_layers, block_sampler, in.uv, texture.x, 0.0);
 }
 
 #ifdef PREPASS_PIPELINE
 
-// What `bevy_pbr::pbr_prepass` does, with the UVs in the atlas
+// The cutoff of `bevy_pbr::pbr_prepass_functions` for the blended alpha modes.
+const PREMULTIPLIED_ALPHA_CUTOFF: f32 = 0.05;
+
+// What `prepass_alpha_discard` does, with the colour of the block texture: the standard
+// material has no texture of its own.
+fn block_alpha_discard(in: VertexOutput) {
+#ifdef MAY_DISCARD
+    let alpha = pbr_bindings::material.base_color.a * block_color(in).a;
+    let alpha_mode = pbr_bindings::material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
+    if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK {
+        if alpha < pbr_bindings::material.alpha_cutoff {
+            discard;
+        }
+    } else if alpha < PREMULTIPLIED_ALPHA_CUTOFF {
+        discard;
+    }
+#endif
+}
+
+// What `bevy_pbr::pbr_prepass` does, with the block textures
 #ifdef PREPASS_FRAGMENT
 @fragment
 fn fragment(
-    vertex_output: VertexOutput,
+    in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
-    var in = vertex_output;
-    in.uv = atlas_uv(in);
-    pbr_prepass_functions::prepass_alpha_discard(in);
+    block_alpha_discard(in);
 
     var out: FragmentOutput;
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
@@ -72,24 +84,21 @@ fn fragment(
 }
 #else
 @fragment
-fn fragment(vertex_output: VertexOutput) {
-    var in = vertex_output;
-    in.uv = atlas_uv(in);
-    pbr_prepass_functions::prepass_alpha_discard(in);
+fn fragment(in: VertexOutput) {
+    block_alpha_discard(in);
 }
 #endif
 
 #else
 
-// What `bevy_pbr::pbr` does in forward rendering, with the UVs in the atlas
+// What `bevy_pbr::pbr` does in forward rendering, with the block textures
 @fragment
 fn fragment(
-    vertex_output: VertexOutput,
+    in: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
-    var in = vertex_output;
-    in.uv = atlas_uv(in);
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+    pbr_input.material.base_color *= block_color(in);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
     var out: FragmentOutput;

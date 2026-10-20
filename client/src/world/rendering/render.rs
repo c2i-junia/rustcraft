@@ -154,7 +154,7 @@ fn show_mesh(
         }
         (Some(mesh), None) => {
             let Some(handle) = material_resource.chunk_materials.get(&material) else {
-                // The atlas and the block materials are created together: nothing is meshed
+                // The block textures and materials are created together: nothing is meshed
                 // before
                 return;
             };
@@ -407,7 +407,7 @@ pub fn world_render_system(
     }
 
     // The requests wait until the textures are ready
-    let Some(block_atlas) = material_resource.blocks.as_ref() else {
+    let Some(block_textures) = material_resource.blocks.as_ref() else {
         return;
     };
 
@@ -442,7 +442,7 @@ pub fn world_render_system(
     if !groups.is_empty() {
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
-            &block_atlas.tiles,
+            &block_textures.tiles,
             groups,
         ));
     }

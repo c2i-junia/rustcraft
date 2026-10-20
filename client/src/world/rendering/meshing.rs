@@ -27,7 +27,7 @@ pub(crate) struct MeshCreator {
     indices: Vec<u32>,
     normals: Vec<[i8; 4]>,
     uvs: Vec<[f32; 2]>,
-    /// The atlas tile of each vertex, in `x`: see `AtlasTiles`.
+    /// The block texture of each vertex, in `x`: its index in the table of `BlockLayers`.
     tiles: Vec<[u16; 2]>,
     colors: Vec<[u8; 4]>,
 }
@@ -39,7 +39,7 @@ const NORMAL: MeshVertexAttribute = MeshVertexAttribute {
     ..Mesh::ATTRIBUTE_NORMAL
 };
 
-/// `Mesh::ATTRIBUTE_UV_1`, the tile of the atlas in `x`, as a fraction of `u16::MAX`, which
+/// `Mesh::ATTRIBUTE_UV_1`, the block texture in `x`, as a fraction of `u16::MAX`, which
 /// `chunk.wgsl` multiplies back.
 const TILE: MeshVertexAttribute = MeshVertexAttribute {
     format: VertexFormat::Unorm16x2,
@@ -65,9 +65,9 @@ fn color(color: [f32; 4]) -> [u8; 4] {
     color.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)
 }
 
-/// How far inside its face a UV stops, in blocks. The shader repeats the texture of a face with
-/// `fract`, which must not wrap around on the edges of the face, where the interpolated UVs may
-/// stray a little past 0 or 1.
+/// How far inside its face a UV stops, in blocks. The texture of a face repeats past 1, and must
+/// not wrap around on the edges of the face, where the interpolated UVs may stray a little past
+/// 0 or 1: the pixels of the other side of the texture would show there.
 const UV_EDGE_INSET: f32 = 1. / 1024.;
 
 /// `uv` of a corner of a face moved towards the middle of the face, `centre`.
@@ -77,7 +77,7 @@ fn inset_uv(uv: [f32; 2], centre: [f32; 2]) -> [f32; 2] {
 
 impl MeshCreator {
     /// Appends `face` of a block at `origin` (in chunk coordinates) turned to `direction`,
-    /// drawn with the texture of the atlas `tile`.
+    /// drawn with the block texture `tile`.
     fn push_face(
         &mut self,
         face: &Face,
@@ -265,7 +265,7 @@ impl Neighbourhood {
     }
 }
 
-/// How a kind of block is drawn: its shape, and the atlas tile of each of its faces, `None` for
+/// How a kind of block is drawn: its shape, and the block texture of each of its faces, `None` for
 /// a face that the texture pack cannot draw.
 struct BlockLook {
     shape: VoxelShape,
@@ -443,7 +443,7 @@ pub struct ChunkMeshResponse {
 }
 
 /// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
-/// in this chunk or in the ones around it. `tiles` gives the atlas tile of each texture.
+/// in this chunk or in the ones around it. `tiles` gives the index of each block texture.
 ///
 /// Neighbouring faces of whole blocks that look the same are merged into one rectangle (greedy
 /// meshing), which keeps the meshes far smaller than one square per face.
@@ -752,7 +752,7 @@ mod tests {
             .collect()
     }
 
-    /// The atlas tile of each vertex of `mesh`.
+    /// The block texture of each vertex of `mesh`.
     fn tiles_of(mesh: &Mesh) -> Vec<u32> {
         let Some(VertexAttributeValues::Unorm16x2(tiles)) = mesh.attribute(TILE) else {
             panic!("a chunk mesh has tiles");
@@ -1084,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn each_vertex_names_the_atlas_tile_of_its_face_and_a_point_inside_it() {
+    fn each_vertex_names_the_block_texture_of_its_face_and_a_point_inside_it() {
         let mut chunk = Chunk::new();
         chunk.set(
             IVec3::ONE,
