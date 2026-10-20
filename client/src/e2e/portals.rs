@@ -15,6 +15,7 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::player::CurrentPlayerMarker;
+use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::world::ClientWorldMap;
@@ -465,4 +466,296 @@ fn the_portal_gun_places_both_portals_and_a_blocked_one_goes() {
     h.frames(10);
     assert_eq!(own_portal(h.world(), PortalColor::Orange), Some(orange));
     assert_eq!(portal_cameras(h.world_mut()), 0);
+}
+
+/// A mod with a command, `/course`, that builds around its author, from the block it is in: a
+/// stone platform 3 blocks below, and on it two stone walls of 2 by 3 blocks, one 6 blocks
+/// north facing south, one 6 blocks east facing west.
+const COURSE_MOD: &str = r#"
+    local rc = rustcraft
+    rc.register_command("course", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        local function fill(x0, y0, z0, x1, y1, z1)
+            for x = x0, x1 do
+                for y = y0, y1 do
+                    for z = z0, z1 do
+                        rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + z }, "stone")
+                    end
+                end
+            end
+        end
+        fill(-6, -3, -9, 8, -3, 4)
+        fill(0, -2, -6, 1, 0, -6)
+        fill(6, -2, -2, 6, 0, -1)
+        return "Course built"
+    end)
+"#;
+
+/// The local player, as the client has it.
+fn local_player(w: &World) -> Option<Player> {
+    let mut players = w
+        .try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
+        .unwrap();
+    players.single(w).ok().cloned()
+}
+
+/// The yaw of the player's camera.
+fn yaw(w: &mut World) -> f32 {
+    w.query::<&CameraController>().single(w).unwrap().angle_x
+}
+
+/// Turns the player's camera to the yaw `yaw`, keeping its pitch.
+fn set_yaw(h: &mut Harness, yaw: f32) {
+    let world = h.world_mut();
+    world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap()
+        .angle_x = yaw;
+}
+
+/// The mean difference between two screenshots, per channel, from 0 to 255.
+fn difference(a: &RgbImage, b: &RgbImage) -> f32 {
+    let total: u64 = a
+        .as_raw()
+        .iter()
+        .zip(b.as_raw())
+        .map(|(a, b)| u64::from(a.abs_diff(*b)))
+        .sum();
+    total as f32 / a.as_raw().len() as f32
+}
+
+/// Saves `shot` as `name` into `target/ui-snapshots/<test>/`, when `UI_SNAPSHOTS=1`.
+fn keep(shot: &RgbImage, name: &str) {
+    if !std::env::var_os("UI_SNAPSHOTS").is_some_and(|value| value == "1") {
+        return;
+    }
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/ui-snapshots/e2e__portals__walking_through_a_portal_is_seamless");
+    std::fs::create_dir_all(&folder).unwrap();
+    shot.save(folder.join(format!("{name}.png"))).unwrap();
+}
+
+/// In solo, the player walks into its blue portal and out of its orange one, which faces a
+/// quarter turn to the left: its camera turns once, by that quarter turn, and nothing jumps,
+/// neither the player, the server agreeing with what the client predicted, nor the screen,
+/// from the last frame in front of the blue portal to the first in front of the orange one.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn walking_through_a_portal_is_seamless() {
+    // In the air, where the course is built clear of the terrain
+    let folder = GameFolder::new()
+        .with_world("Course")
+        .with_player("Course", "Tester", |player| {
+            player.position = Vec3::new(0.5, 120.9, 0.5);
+            player.game_mode = shared::players::game_mode::GameMode::Creative;
+            player.is_flying = true;
+            player.inventory.inner.insert(
+                0,
+                shared::world::ItemStack {
+                    item_id: ItemId::PortalGun,
+                    item_type: ItemId::PortalGun.get_default_type(),
+                    nb: 1,
+                },
+            );
+        })
+        .with_mod("course", COURSE_MOD);
+    let mut h = enter_world(folder, "Course");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player in the air", SERVER, |w| {
+        local_player(w).is_some_and(|player| {
+            let map = &w.resource::<ClientWorldMap>().blocks;
+            player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
+        })
+    });
+    let start = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    h.command("/course");
+    let blue_cell = start + IVec3::new(0, -1, -6);
+    let orange_cell = start + IVec3::new(6, -1, -2);
+    h.wait_until("the course", SERVER, |w| {
+        let blocks = &w.resource::<ClientWorldMap>().blocks;
+        [start + IVec3::new(8, -3, 4), blue_cell, orange_cell]
+            .iter()
+            .all(|cell| blocks.get_block(*cell).is_some())
+    });
+    // Down onto the platform
+    h.press(KeyCode::KeyF);
+    h.wait_until("the player on the platform", SERVER, |w| {
+        local_player(w).is_some_and(|player| player.on_ground)
+    });
+    h.frames(10);
+
+    h.aim_at(blue_cell.as_vec3() + Vec3::new(0.5, 0.5, 1.0), blue_cell);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.aim_at(
+        orange_cell.as_vec3() + Vec3::new(0.0, 0.5, 0.5),
+        orange_cell,
+    );
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.wait_until("both portals", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_some() && own_portal(w, PortalColor::Orange).is_some()
+    });
+    let blue = own_portal(h.world(), PortalColor::Blue).unwrap();
+    let portals = h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .portals()
+        .clone();
+    let through = portals.through(&blue).unwrap();
+    assert_eq!(blue.face, FaceDirection::PlusZ);
+
+    // Toward the middle of the blue portal, level
+    let player = local_player(h.world()).unwrap().position;
+    let target = Vec3::from(blue.frame().translation);
+    let world = h.world_mut();
+    let mut controller = world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap();
+    controller.angle_x = (-(target.x - player.x)).atan2(-(target.z - player.z));
+    controller.angle_y = 0.0;
+    h.frames(10);
+
+    // Where the player is and where it looks, after each frame of the walk
+    let mut trace: Vec<(Vec3, f32)> = Vec::new();
+    let record = |h: &mut Harness, trace: &mut Vec<(Vec3, f32)>| {
+        let position = local_player(h.world()).unwrap().position;
+        let yaw = yaw(h.world_mut());
+        trace.push((position, yaw));
+    };
+    record(&mut h, &mut trace);
+    // Up to a block before the portal
+    h.key_down(KeyCode::KeyW);
+    while blue.signed_distance(local_player(h.world()).unwrap().position) > 1.0 {
+        record(&mut h, &mut trace);
+        h.frames(1);
+    }
+    h.key_up(KeyCode::KeyW);
+    record(&mut h, &mut trace);
+
+    // Then a frame at a time, sneaking for short steps, a screenshot after each, until three
+    // frames past the crossing
+    let mut shots = Vec::new();
+    let mut glances = Vec::new();
+    let mut after = 0;
+    h.key_down(KeyCode::ShiftLeft);
+    while after < 3 {
+        h.key_down(KeyCode::KeyW);
+        h.key_up(KeyCode::KeyW);
+        record(&mut h, &mut trace);
+        let crossed = trace.last().unwrap().1 != trace[0].1;
+        let at = trace.last().unwrap().0;
+        println!(
+            "shot {}: {} in front of the blue portal, {} of the orange one",
+            shots.len(),
+            blue.signed_distance(at),
+            portals
+                .get(blue.owner, PortalColor::Orange)
+                .unwrap()
+                .signed_distance(at)
+        );
+        let shot = h.screenshot();
+        keep(&shot, &format!("{:02}", shots.len()));
+        shots.push((crossed, shot));
+        // Within 0.12 block of the blue portal, the camera of the blue portal has no oblique
+        // near plane, inside the box of the orange one. A glance along the wall, from there,
+        // sees through the blue portal what that camera sees between itself and the orange
+        // portal's plane
+        let distance = blue.signed_distance(at);
+        if !crossed && distance < MIN_OBLIQUE_DISTANCE {
+            let looking = yaw(h.world_mut());
+            set_yaw(&mut h, looking - 85f32.to_radians());
+            h.frames(1);
+            let shot = h.screenshot();
+            keep(&shot, "glance");
+            glances.push(shot);
+            set_yaw(&mut h, looking);
+            h.frames(1);
+        }
+        after += u32::from(crossed);
+        assert!(shots.len() < 40, "never went through: {:?}", trace.last());
+    }
+    h.key_up(KeyCode::ShiftLeft);
+
+    // And on, out of the orange portal
+    h.key_down(KeyCode::KeyW);
+    record(&mut h, &mut trace);
+    for _ in 0..20 {
+        h.frames(1);
+        record(&mut h, &mut trace);
+    }
+    h.key_up(KeyCode::KeyW);
+    h.frames(30);
+    record(&mut h, &mut trace);
+
+    // One quarter turn to the left
+    let turns: Vec<f32> = trace
+        .windows(2)
+        .map(|pair| pair[1].1 - pair[0].1)
+        .filter(|turn| *turn != 0.0)
+        .collect();
+    assert_eq!(turns.len(), 1, "{turns:?}");
+    assert!(
+        (turns[0] - std::f32::consts::FRAC_PI_2).abs() < 1e-4,
+        "{turns:?}"
+    );
+    // No step longer than a frame's walk, the crossing measured through the portal
+    for pair in trace.windows(2) {
+        let ((from, from_yaw), (to, to_yaw)) = (pair[0], pair[1]);
+        let from = if from_yaw != to_yaw {
+            through.transform_point3(from)
+        } else {
+            from
+        };
+        assert!(from.distance(to) < 0.6, "a jump from {from} to {to}");
+    }
+    // Out of the orange portal, in front of it
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    let end = trace.last().unwrap().0;
+    assert!(orange.signed_distance(end) > 1.0, "{end}");
+
+    // The screen across the crossing changes no more than between two frames on one side
+    let crossing = shots.iter().position(|(crossed, _)| *crossed).unwrap();
+    // Nor does the colour of the orange portal flash on the blue one, as its camera comes
+    // within 0.12 block of the orange portal, where it would stand inside the orange box: the
+    // orange of the fox that may pass by is far less
+    println!("{} glances along the wall", glances.len());
+    for (index, shot) in shots
+        .iter()
+        .map(|(_, shot)| shot)
+        .chain(&glances)
+        .enumerate()
+    {
+        let orange = shot
+            .pixels()
+            .filter(|pixel| {
+                let [r, g, b] = pixel.0.map(i32::from);
+                r > g + 40 && g > b + 20
+            })
+            .count();
+        let share = orange as f32 / (shot.width() * shot.height()) as f32;
+        assert!(
+            share < 0.05,
+            "orange on {share} of the screen in shot {index}"
+        );
+    }
+    let differences: Vec<f32> = shots
+        .windows(2)
+        .map(|pair| difference(&pair[0].1, &pair[1].1))
+        .collect();
+    println!("differences between the frames: {differences:?}, crossing before {crossing}");
+    let across = differences[crossing - 1];
+    let others = differences
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != crossing - 1)
+        .map(|(_, difference)| *difference)
+        .fold(0.0, f32::max);
+    assert!(
+        across <= 2.0 * others + 1.0,
+        "the screen jumps across the portal: {across}, between frames {others}"
+    );
 }

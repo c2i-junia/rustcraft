@@ -130,6 +130,23 @@ impl GameFolder {
     /// Saves the inventory of `player` in `world`, a world of the seed 42 as `with_world` makes
     /// them, standing at its spawn: each item is `(slot, item, count)`.
     pub fn with_items(self, world: &str, player: &str, items: &[(u32, ItemId, u32)]) -> Self {
+        self.with_player(world, player, |saved| {
+            for &(slot, item_id, nb) in items {
+                let item_type = item_id.get_default_type();
+                saved.inventory.inner.insert(
+                    slot,
+                    ItemStack {
+                        item_id,
+                        item_type,
+                        nb,
+                    },
+                );
+            }
+        })
+    }
+
+    /// Saves `player` in `world`, at (0, 80, 0) with nothing, as `edit` changes it.
+    pub fn with_player(self, world: &str, player: &str, edit: impl FnOnce(&mut Player)) -> Self {
         let id = hash_string_to_u64(player);
         let mut saved = Player::new(
             id,
@@ -137,17 +154,7 @@ impl GameFolder {
             WorldGenerator::new(42).spawn_position(),
             Transform::default(),
         );
-        for &(slot, item_id, nb) in items {
-            let item_type = item_id.get_default_type();
-            saved.inventory.inner.insert(
-                slot,
-                ItemStack {
-                    item_id,
-                    item_type,
-                    nb,
-                },
-            );
-        }
+        edit(&mut saved);
         let players = self.path().join(SAVE_PATH).join(world).join("players");
         fs::create_dir_all(&players).expect("a players folder");
         let data = ron::ser::to_string(&saved).expect("a serialised player");
