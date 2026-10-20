@@ -2,23 +2,45 @@ use bevy::prelude::*;
 use shared::world::liquid::liquid_height;
 use shared::CHUNK_SIZE;
 
+use crate::world::celestial::{smoothstep, sun_height};
+use crate::world::time::ClientTime;
 use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
 
 use super::CameraController;
 
-/// The colour behind the world.
+/// The colour behind the world by day.
 pub const SKY_COLOR: Color = Color::srgb_u8(117, 159, 183);
+/// The colour of the sky at midnight.
+const NIGHT_SKY_COLOR: Color = Color::srgb_u8(10, 13, 26);
+/// The colour the sky warms to while the sun is on the horizon.
+const WARM_SKY_COLOR: Color = Color::srgb_u8(235, 140, 80);
 const UNDERWATER_COLOR: Color = Color::srgb_u8(30, 62, 130);
 
+/// The colour of the sky at the world clock `tick`, after the height of the sun: dark at
+/// night, `SKY_COLOR` by day, warm while the sun is near the horizon.
+pub fn sky_color(tick: u64) -> Color {
+    let height = sun_height(tick);
+    let day = smoothstep(-0.25, 0.25, height);
+    // the most warmth at the horizon, none once the sun is a third of the way up or down
+    let warmth = 0.75 * (1. - height.abs() / 0.35).max(0.);
+    let srgb = |color: Color| Vec3::from_array(color.to_srgba().to_f32_array_no_alpha());
+    let sky = srgb(NIGHT_SKY_COLOR)
+        .lerp(srgb(SKY_COLOR), day)
+        .lerp(srgb(WARM_SKY_COLOR), warmth);
+    Color::srgb(sky.x, sky.y, sky.z)
+}
+
 /// Under water, a fog the colour of the water hides what is more than a few blocks away. Out
-/// of it, a fog the colour of the sky hides the edge of the chunks shown: it thickens over the
-/// last part of the render distance, and the world fades into the sky at its end.
+/// of it, a fog the colour of the sky of the hour hides the edge of the chunks shown: it
+/// thickens over the last part of the render distance, and the world fades into the sky at its
+/// end. The fog is changed in place, as the sky changes every tick.
 pub fn underwater_fog_system(
     world_map: Res<ClientWorldMap>,
+    time: Res<ClientTime>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut cameras: Query<
-        (Entity, &Transform, &mut Camera, Option<&DistanceFog>),
+        (Entity, &Transform, &mut Camera, Option<&mut DistanceFog>),
         With<CameraController>,
     >,
     mut commands: Commands,
@@ -36,20 +58,29 @@ pub fn underwater_fog_system(
             // Every chunk within the render distance of the chunk of the player is shown: the
             // edge is at least this far from the player along x and z
             let end = (distance * CHUNK_SIZE as u32) as f32;
-            (SKY_COLOR, end * FOG_START, end)
+            (sky_color(time.0), end * FOG_START, end)
         };
-        if fog.is_some_and(|fog| {
-            fog.color == color
-                && matches!(fog.falloff, FogFalloff::Linear { start: s, end: e } if s == start && e == end)
-        }) {
-            continue;
+        let falloff = FogFalloff::Linear { start, end };
+        match fog {
+            Some(mut fog) => {
+                let same = fog.color == color
+                    && matches!(fog.falloff, FogFalloff::Linear { start: s, end: e } if s == start && e == end);
+                if !same {
+                    fog.color = color;
+                    fog.falloff = falloff;
+                }
+            }
+            None => {
+                commands.entity(entity).insert(DistanceFog {
+                    color,
+                    falloff,
+                    ..default()
+                });
+            }
         }
-        commands.entity(entity).insert(DistanceFog {
-            color,
-            falloff: FogFalloff::Linear { start, end },
-            ..default()
-        });
-        camera.clear_color = ClearColorConfig::Custom(color);
+        if !matches!(camera.clear_color, ClearColorConfig::Custom(c) if c == color) {
+            camera.clear_color = ClearColorConfig::Custom(color);
+        }
     }
 }
 
@@ -60,6 +91,43 @@ const FOG_START: f32 = 0.6;
 mod tests {
     use super::*;
     use shared::world::{BlockId, ChunkMap};
+    use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
+
+    fn srgb(color: Color) -> Vec3 {
+        let color = color.to_srgba();
+        Vec3::new(color.red, color.green, color.blue)
+    }
+
+    #[test]
+    fn the_sky_is_blue_at_noon_and_dark_at_midnight() {
+        let noon = srgb(sky_color(4 * DAY_DURATION_IN_TICKS + NOON_IN_DAY));
+        assert!(noon.abs_diff_eq(srgb(SKY_COLOR), 1e-4), "{noon}");
+        let midnight = srgb(sky_color(4 * DAY_DURATION_IN_TICKS + MIDNIGHT_IN_DAY));
+        assert!(
+            midnight.abs_diff_eq(srgb(NIGHT_SKY_COLOR), 1e-4),
+            "{midnight}"
+        );
+        assert!(midnight.max_element() < 0.15, "{midnight}");
+    }
+
+    #[test]
+    fn the_sky_is_warm_at_sunrise_and_sunset() {
+        // a cycle starts at sunset; the sun rises half a cycle later
+        for tick in [0, DAY_DURATION_IN_TICKS / 2] {
+            let sky = srgb(sky_color(tick));
+            assert!(sky.x > sky.z + 0.15, "{tick}: {sky}");
+            assert!(sky.x > srgb(SKY_COLOR).x, "{tick}: {sky}");
+        }
+    }
+
+    #[test]
+    fn the_sky_changes_without_jumps() {
+        let step = DAY_DURATION_IN_TICKS / 400;
+        for tick in (0..DAY_DURATION_IN_TICKS).step_by(step as usize) {
+            let (now, next) = (srgb(sky_color(tick)), srgb(sky_color(tick + step)));
+            assert!(now.distance(next) < 0.05, "{tick}: {now} then {next}");
+        }
+    }
 
     fn fog_of(app: &App, camera: Entity) -> (Color, f32) {
         let fog = app.world().get::<DistanceFog>(camera).unwrap();
@@ -78,6 +146,7 @@ mod tests {
             blocks,
             ..default()
         })
+        .insert_resource(ClientTime(NOON_IN_DAY))
         .insert_resource(RenderDistance { distance: 24 })
         .add_systems(Update, underwater_fog_system);
         let camera = app
@@ -109,5 +178,63 @@ mod tests {
         app.insert_resource(ServerRenderDistanceLimit(8));
         app.update();
         assert_eq!(fog_of(&app, camera), (SKY_COLOR, 8.0 * 16.0));
+    }
+
+    fn clear_color_of(app: &App, camera: Entity) -> Color {
+        match app.world().get::<Camera>(camera).unwrap().clear_color {
+            ClearColorConfig::Custom(color) => color,
+            other => panic!("a custom clear colour, not {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_sky_follows_the_hour_out_of_the_water_and_not_in_it() {
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        blocks.fill_box(IVec3::ZERO, IVec3::new(15, 3, 15), BlockId::Water);
+        let mut app = App::new();
+        app.insert_resource(ClientWorldMap {
+            blocks,
+            ..default()
+        })
+        .insert_resource(ClientTime(NOON_IN_DAY))
+        .insert_resource(RenderDistance { distance: 8 })
+        .add_systems(Update, underwater_fog_system);
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_xyz(5.5, 10.5, 5.5),
+                CameraController::default(),
+            ))
+            .id();
+        app.update();
+        // a part of the fog this system does not set, to see that it is changed in place
+        let sun_glow = Color::srgb(1., 0.5, 0.);
+        app.world_mut()
+            .get_mut::<DistanceFog>(camera)
+            .unwrap()
+            .directional_light_color = sun_glow;
+
+        for tick in [MIDNIGHT_IN_DAY, 0, NOON_IN_DAY] {
+            app.insert_resource(ClientTime(tick));
+            app.update();
+            assert_eq!(fog_of(&app, camera), (sky_color(tick), 8.0 * 16.0));
+            assert_eq!(clear_color_of(&app, camera), sky_color(tick));
+        }
+        let fog = app.world().get::<DistanceFog>(camera).unwrap();
+        assert_eq!(fog.directional_light_color, sun_glow);
+
+        // under water, whatever the hour
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .y = 2.5;
+        for tick in [MIDNIGHT_IN_DAY, NOON_IN_DAY] {
+            app.insert_resource(ClientTime(tick));
+            app.update();
+            assert_eq!(fog_of(&app, camera), (UNDERWATER_COLOR, 16.0));
+            assert_eq!(clear_color_of(&app, camera), UNDERWATER_COLOR);
+        }
     }
 }

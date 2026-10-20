@@ -105,6 +105,7 @@ mod tests {
             .insert_resource(crate::ui::hud::UIMode::Closed)
             .init_resource::<crate::world::ClientWorldMap>()
             .init_resource::<crate::world::RenderDistance>()
+            .insert_resource(crate::world::time::ClientTime(0))
             .add_plugins(camera_plugin);
         app.update();
         app

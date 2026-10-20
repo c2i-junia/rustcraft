@@ -104,6 +104,18 @@ pub fn sun_angle(tick: u64) -> f32 {
     normalized_time * 2.0 * PI
 }
 
+/// How high the sun is at the world clock `tick`: 1 overhead at noon, 0 on the horizon, −1 at
+/// midnight.
+pub fn sun_height(tick: u64) -> f32 {
+    (Quat::from_rotation_x(sun_angle(tick)) * Vec3::Z).y
+}
+
+/// 0 up to `from`, 1 from `to`, and a smooth curve between.
+pub fn smoothstep(from: f32, to: f32, x: f32) -> f32 {
+    let t = ((x - from) / (to - from)).clamp(0., 1.);
+    t * t * (3. - 2. * t)
+}
+
 pub fn update_celestial_bodies(
     mut query: Query<&mut Transform, With<CelestialRoot>>,
     time: Res<ClientTime>,

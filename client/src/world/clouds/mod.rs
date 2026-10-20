@@ -8,7 +8,7 @@ use bevy::{
 use shared::{CHUNK_SIZE, TICKS_PER_SECOND};
 
 use crate::state::{GameSet, GameState};
-use crate::world::celestial::sun_angle;
+use crate::world::celestial::{smoothstep, sun_height};
 use crate::world::time::ClientTime;
 use crate::world::{RenderDistance, ServerRenderDistanceLimit};
 use field::drift;
@@ -117,17 +117,12 @@ pub fn smooth_drift(tick: u64, fraction: f32) -> f32 {
 
 /// The colour of the clouds at the world clock `tick`, after the height of the sun.
 pub fn cloud_tint(tick: u64) -> Color {
-    let height = (Quat::from_rotation_x(sun_angle(tick)) * Vec3::Z).y;
+    let height = sun_height(tick);
     let day = smoothstep(-0.2, 0.3, height);
     // the most warmth at the horizon, none once the sun is a third of the way up or down
     let warmth = 0.7 * (1. - height.abs() / 0.35).max(0.);
     let tint = NIGHT_TINT.lerp(DAY_TINT, day).lerp(WARM_TINT, warmth);
     Color::srgb(tint.x, tint.y, tint.z)
-}
-
-fn smoothstep(from: f32, to: f32, x: f32) -> f32 {
-    let t = ((x - from) / (to - from)).clamp(0., 1.);
-    t * t * (3. - 2. * t)
 }
 
 /// Spawns the clouds, drawn in colour, with a child that draws their depth first (see

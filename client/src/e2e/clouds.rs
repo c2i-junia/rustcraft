@@ -2,12 +2,13 @@
 
 use std::time::Instant;
 
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
 use super::game::enter_world;
 use super::seed::GameFolder;
-use crate::camera::CameraController;
+use crate::camera::{underwater_fog_system, CameraController};
 use crate::player::CurrentPlayerMarker;
 use crate::world::clouds::field::{drift, is_full};
 use crate::world::clouds::{camera_cell, ALTITUDE, CELL, THICKNESS};
@@ -17,8 +18,8 @@ use crate::world::ClientWorldMap;
 /// The camera of a new world at the default render distance, around the player: at noon on the
 /// ground looking up, in the middle of the layer of clouds looking ahead (between the clouds
 /// and in one), above it looking down, from far and from near the edge of a cloud, then above
-/// it again two days later, and on the ground at sunset and at midnight. Saved with
-/// `UI_SNAPSHOTS=1`, as `clouds_*`.
+/// it again two days later, and on the ground and above the clouds at sunset and at midnight.
+/// Saved with `UI_SNAPSHOTS=1`, as `clouds_*`.
 #[test]
 #[ignore = "a picture for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::clouds -- --ignored"]
 fn snapshot_the_clouds() {
@@ -99,11 +100,27 @@ fn snapshot_the_clouds() {
             25.,
             noon - NOON_IN_DAY + MIDNIGHT_IN_DAY,
         ),
+        (
+            "clouds_above_sunset",
+            above,
+            -15.,
+            10 * DAY_DURATION_IN_TICKS,
+        ),
+        (
+            "clouds_above_midnight",
+            above,
+            -15.,
+            noon - NOON_IN_DAY + MIDNIGHT_IN_DAY,
+        ),
     ] {
         let world = h.world_mut();
         world.resource_mut::<ClientTime>().0 = tick;
         *world.get_mut::<Transform>(camera).unwrap() = Transform::from_translation(position)
             .with_rotation(Quat::from_rotation_y(0.6) * Quat::from_rotation_x(pitch.to_radians()));
+        // The sky of the hour, which the fog system only gives to the camera of the player
+        world.entity_mut(camera).insert(CameraController::default());
+        world.run_system_once(underwater_fog_system).unwrap();
+        world.entity_mut(camera).remove::<CameraController>();
         h.frames(5);
         h.snapshot(name);
     }
