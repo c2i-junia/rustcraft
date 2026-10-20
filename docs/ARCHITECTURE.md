@@ -279,6 +279,22 @@ The mobs and the dropped items move first, before the inputs of the tick are rea
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
    cast shadows; and a fog of the colour of the sky hides the edge of the render distance.
 
+The sky follows the world clock (`ClientTime`): the sun and the moon turn around the player
+(`celestial.rs`), and the clear colour and the fog go from `SKY_COLOR` at noon to a warm
+colour at sunrise and sunset and a dark blue at night (`sky_color`, `camera/underwater.rs`);
+under water the fog keeps the colour of the water. The clouds (`world/clouds/`) are cells of
+12 × 12 blocks, 4 high, at y = 192, full or empty after a noise that repeats every 256 cells
+and has the same seed in every world, so that all the players of a server see the same clouds
+with nothing sent. They drift east at half a block a second, from the clock, by the
+`Transform` of their entity, so that culling and sorting see where they are; their mesh holds
+the outer faces of a disk of cells around the camera, twice the render distance wide and at
+most 1024 blocks, and is built again only when the camera enters another cell of the pattern.
+`clouds.wgsl` draws them unlit, tinted by the hour and by the side of each face, at 0.8
+opacity and fading out at the edge; a child entity first writes their depth alone, so that
+only the nearest face of a cloud is coloured and its opacity is the same from below, above
+and inside. The player chooses Fancy, Fast (one flat layer) or Off in the Video tab
+(`CloudStyle`, saved in `video.ron` with the render distance).
+
 The network is polled in `PreUpdate`, every frame, and the inputs are uploaded in
 `FixedUpdate`. A message of chunks of 4 KiB or more is decoded on the compute pool, and the
 messages are applied in the order they came (`DecodingChunkMessages`), about 1024 chunks a
