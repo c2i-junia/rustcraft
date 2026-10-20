@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use bevy::{
     asset::RenderAssetUsages,
     math::IVec3,
-    mesh::{Indices, PrimitiveTopology},
+    mesh::{Indices, MeshVertexAttribute, PrimitiveTopology, VertexAttributeValues, VertexFormat},
     prelude::*,
 };
 use shared::{
@@ -18,16 +18,51 @@ use shared::{
 
 use super::voxel::{Face, FaceDirection, VoxelShape};
 
-/// The buffers of a chunk mesh while its faces are added one by one.
+/// The buffers of a chunk mesh while its faces are added one by one. The normals, the tiles
+/// and the colors are held in the formats of `NORMAL`, `TILE` and `COLOR`, a fraction of
+/// Bevy's: the meshes of a large render distance are hundreds of MiB to send to the GPU.
 #[derive(Default)]
 pub(crate) struct MeshCreator {
     vertices: Vec<[f32; 3]>,
     indices: Vec<u32>,
-    normals: Vec<[f32; 3]>,
+    normals: Vec<[i8; 4]>,
     uvs: Vec<[f32; 2]>,
     /// The atlas tile of each vertex, in `x`: see `AtlasTiles`.
-    tiles: Vec<[f32; 2]>,
-    colors: Vec<[f32; 4]>,
+    tiles: Vec<[u16; 2]>,
+    colors: Vec<[u8; 4]>,
+}
+
+/// `Mesh::ATTRIBUTE_NORMAL`, each coordinate in a signed byte: the faces are square to the
+/// axes, but for the tops of sloping liquids.
+const NORMAL: MeshVertexAttribute = MeshVertexAttribute {
+    format: VertexFormat::Snorm8x4,
+    ..Mesh::ATTRIBUTE_NORMAL
+};
+
+/// `Mesh::ATTRIBUTE_UV_1`, the tile of the atlas in `x`, as a fraction of `u16::MAX`, which
+/// `chunk.wgsl` multiplies back.
+const TILE: MeshVertexAttribute = MeshVertexAttribute {
+    format: VertexFormat::Unorm16x2,
+    ..Mesh::ATTRIBUTE_UV_1
+};
+
+/// `Mesh::ATTRIBUTE_COLOR`, each channel in a byte.
+const COLOR: MeshVertexAttribute = MeshVertexAttribute {
+    format: VertexFormat::Unorm8x4,
+    ..Mesh::ATTRIBUTE_COLOR
+};
+
+fn normal(normal: &[f32; 3]) -> [i8; 4] {
+    let [x, y, z] = normal.map(|c| (c.clamp(-1., 1.) * 127.).round() as i8);
+    [x, y, z, 0]
+}
+
+fn tile(tile: u32) -> [u16; 2] {
+    [tile as u16, 0]
+}
+
+fn color(color: [f32; 4]) -> [u8; 4] {
+    color.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)
 }
 
 /// How far inside its face a UV stops, in blocks. The shader repeats the texture of a face with
@@ -62,16 +97,12 @@ impl MeshCreator {
                 vertex[2] + origin.z,
             ]
         }));
-        self.normals.extend(face.normals.iter());
-        self.colors.extend(
-            face.colors
-                .iter()
-                .map(|color| [color[0], color[1], color[2], alpha]),
-        );
+        self.normals.extend(face.normals.iter().map(normal));
+        self.colors
+            .extend(face.colors.iter().map(|c| color([c[0], c[1], c[2], alpha])));
         self.uvs
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
-        self.tiles
-            .extend(face.uvs.iter().map(|_| [tile as f32, 0.]));
+        self.tiles.extend(face.uvs.iter().map(|_| self::tile(tile)));
     }
 
     /// Appends the face `face_index` of `CUBE` stretched over `size` blocks along the face, from
@@ -96,10 +127,11 @@ impl MeshCreator {
             let uv = origin + step_u * vertex[along_u] * size.x + step_v * vertex[along_v] * size.y;
             self.uvs.push(inset_uv(uv.into(), centre.into()));
         }
-        self.normals.extend(face.normals.iter());
-        self.colors.extend(face.vertices.iter().map(|_| look.color));
+        self.normals.extend(face.normals.iter().map(normal));
+        let look_color = color(look.color);
+        self.colors.extend(face.vertices.iter().map(|_| look_color));
         self.tiles
-            .extend(face.vertices.iter().map(|_| [look.tile as f32, 0.]));
+            .extend(face.vertices.iter().map(|_| tile(look.tile)));
     }
 
     /// Appends the faces of `other`, moved by `offset`.
@@ -132,10 +164,10 @@ impl MeshCreator {
             RenderAssetUsages::RENDER_WORLD,
         );
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.vertices);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals);
+        mesh.insert_attribute(NORMAL, VertexAttributeValues::Snorm8x4(self.normals));
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, self.tiles);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colors);
+        mesh.insert_attribute(TILE, VertexAttributeValues::Unorm16x2(self.tiles));
+        mesh.insert_attribute(COLOR, VertexAttributeValues::Unorm8x4(self.colors));
         mesh.insert_indices(Indices::U32(self.indices));
         Some(mesh)
     }
@@ -709,21 +741,45 @@ mod tests {
         assert_eq!(vertices(&water.liquid_mesh), vertices(&stone.solid_mesh));
     }
 
+    /// The normal of each vertex of `mesh`.
+    fn normals_of(mesh: &Mesh) -> Vec<Vec3> {
+        let Some(VertexAttributeValues::Snorm8x4(normals)) = mesh.attribute(NORMAL) else {
+            panic!("a chunk mesh has normals");
+        };
+        normals
+            .iter()
+            .map(|n| Vec3::new(n[0] as f32, n[1] as f32, n[2] as f32) / 127.)
+            .collect()
+    }
+
+    /// The atlas tile of each vertex of `mesh`.
+    fn tiles_of(mesh: &Mesh) -> Vec<u32> {
+        let Some(VertexAttributeValues::Unorm16x2(tiles)) = mesh.attribute(TILE) else {
+            panic!("a chunk mesh has tiles");
+        };
+        tiles.iter().map(|tile| tile[0] as u32).collect()
+    }
+
+    /// The colour of each vertex of `mesh`.
+    fn colors_of(mesh: &Mesh) -> Vec<[u8; 4]> {
+        let Some(VertexAttributeValues::Unorm8x4(colors)) = mesh.attribute(COLOR) else {
+            panic!("a chunk mesh has colours");
+        };
+        colors.clone()
+    }
+
     /// The positions of the vertices of the faces of `mesh` that face up, level or sloping.
     fn top_vertices(mesh: &Option<Mesh>) -> Vec<Vec3> {
         use bevy::mesh::VertexAttributeValues::Float32x3;
         let Some(mesh) = mesh else {
             return Vec::new();
         };
-        let (Some(Float32x3(positions)), Some(Float32x3(normals))) = (
-            mesh.attribute(Mesh::ATTRIBUTE_POSITION),
-            mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
-        ) else {
-            panic!("a chunk mesh has positions and normals");
+        let Some(Float32x3(positions)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+            panic!("a chunk mesh has positions");
         };
         positions
             .iter()
-            .zip(normals)
+            .zip(normals_of(mesh))
             .filter(|(_, normal)| normal[1] > 0.5)
             .map(|(position, _)| Vec3::from(*position))
             .collect()
@@ -837,7 +893,7 @@ mod tests {
         /// The block covered in the plane, along the two other axes.
         cell: [i32; 2],
         tile: u32,
-        color: [u32; 4],
+        color: [u8; 4],
         /// The texel of a 16 by 16 texture drawn at a point of the block.
         texel: [i32; 2],
     }
@@ -845,32 +901,22 @@ mod tests {
     /// The cells drawn by the faces of `mesh` across an axis, each with how many faces draw it.
     /// A point of each block is looked up in the triangles: it never lies on their edges.
     fn drawn_cells(mesh: &Option<Mesh>) -> HashMap<DrawnCell, usize> {
-        use bevy::mesh::VertexAttributeValues::{Float32x2, Float32x3, Float32x4};
+        use bevy::mesh::VertexAttributeValues::{Float32x2, Float32x3};
         let mut cells = HashMap::new();
         let Some(mesh) = mesh else {
             return cells;
         };
-        let (
-            Some(Float32x3(positions)),
-            Some(Float32x3(normals)),
-            Some(Float32x2(uvs)),
-            Some(Float32x2(tiles)),
-            Some(Float32x4(colors)),
-            Some(Indices::U32(indices)),
-        ) = (
+        let (Some(Float32x3(positions)), Some(Float32x2(uvs)), Some(Indices::U32(indices))) = (
             mesh.attribute(Mesh::ATTRIBUTE_POSITION),
-            mesh.attribute(Mesh::ATTRIBUTE_NORMAL),
             mesh.attribute(Mesh::ATTRIBUTE_UV_0),
-            mesh.attribute(Mesh::ATTRIBUTE_UV_1),
-            mesh.attribute(Mesh::ATTRIBUTE_COLOR),
             mesh.indices(),
-        )
-        else {
-            panic!("a chunk mesh has positions, normals, UVs, tiles, colours and indices");
+        ) else {
+            panic!("a chunk mesh has positions, UVs and indices");
         };
+        let (normals, tiles, colors) = (normals_of(mesh), tiles_of(mesh), colors_of(mesh));
         for triangle in indices.chunks(3) {
             let [a, b, c] = [0, 1, 2].map(|k| triangle[k] as usize);
-            let normal = Vec3::from(normals[a]);
+            let normal = normals[a];
             let across = normal.abs().max_position();
             if normal.abs().cmpgt(Vec3::ZERO).bitmask().count_ones() != 1 {
                 // The crossed squares of the plants are never merged
@@ -899,8 +945,8 @@ mod tests {
                         normal: normal.round().as_ivec3().into(),
                         plane: (positions[a][across] * 9.).round() as i32,
                         cell: [u, v],
-                        tile: tiles[a][0] as u32,
-                        color: colors[a].map(f32::to_bits),
+                        tile: tiles[a],
+                        color: colors[a],
                         texel: texel.into(),
                     };
                     *cells.entry(cell).or_default() += 1;
@@ -1054,22 +1100,17 @@ mod tests {
         let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
             .solid_mesh
             .unwrap();
-        let attribute = |attribute| match mesh.attribute(attribute) {
-            Some(bevy::mesh::VertexAttributeValues::Float32x2(values)) => values.clone(),
-            _ => panic!("no {attribute:?}"),
-        };
-        let Some(bevy::mesh::VertexAttributeValues::Float32x3(normals)) =
-            mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
+            mesh.attribute(Mesh::ATTRIBUTE_UV_0)
         else {
-            panic!("no normals");
+            panic!("no UVs");
         };
 
-        let tiles = attribute(Mesh::ATTRIBUTE_UV_1);
-        for (tile, normal) in tiles.iter().zip(normals) {
-            let expected = if normal[1] > 0. { 2. } else { 1. };
-            assert_eq!(tile[0], expected, "normal {normal:?}");
+        for (tile, normal) in tiles_of(&mesh).into_iter().zip(normals_of(&mesh)) {
+            let expected = if normal.y > 0. { 2 } else { 1 };
+            assert_eq!(tile, expected, "normal {normal:?}");
         }
-        for uv in attribute(Mesh::ATTRIBUTE_UV_0) {
+        for uv in uvs {
             assert!(uv.iter().all(|c| 0. < *c && *c < 1.), "{uv:?}");
         }
     }

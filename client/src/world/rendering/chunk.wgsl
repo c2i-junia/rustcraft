@@ -35,7 +35,8 @@ const UV_INSET: f32 = 0.001;
 // Where `in` samples the atlas
 fn atlas_uv(in: VertexOutput) -> vec2<f32> {
     // Rounded, as interpolating the index of the face may stray from it, if by little
-    let rect = atlas_tiles.rects[u32(round(in.uv_b.x))];
+    // The index comes as a fraction of 65535 (`TILE` in `meshing.rs`)
+    let rect = atlas_tiles.rects[u32(round(in.uv_b.x * 65535.0))];
     let low = rect.xy + UV_INSET;
     let high = rect.zw - UV_INSET;
     return low + fract(in.uv) * (high - low);
