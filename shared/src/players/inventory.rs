@@ -15,8 +15,8 @@ use crate::{
         Inventory, Player,
     },
     world::{
-        grid_slot, match_recipe, BlockId, ChunkMap, Container, CraftingGrid, ItemId, ItemStack,
-        ItemType, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
+        grid_slot, match_recipe, recipes, BlockId, ChunkMap, Container, CraftingGrid, ItemId,
+        ItemStack, ItemType, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
@@ -57,6 +57,23 @@ pub enum InventoryAction {
     /// Right click on the chest at this position: its slots can be used while it stays within
     /// reach.
     OpenChest(IVec3),
+    /// Creative only, from the item browser: a new stack of `count` `item`, clamped to
+    /// `1..=max_stack`, goes into the inventory (hotbar first, as a pick-up) with
+    /// `to_inventory`, else to the cursor, which may already hold some of the same item.
+    TakeFromCatalog {
+        item: ItemId,
+        count: u32,
+        to_inventory: bool,
+    },
+    /// Creative only: the stack held by the cursor disappears.
+    DestroyFloating,
+    /// The crafting grid goes back into the inventory, then the ingredients of the recipe of
+    /// this index (`crate::world::recipes`) go from the inventory into the grid, at its top left
+    /// corner, `times` times at most: as many as the inventory holds and a stack takes.
+    FillCraftingGrid {
+        recipe: u16,
+        times: u32,
+    },
 }
 
 /// Why an inventory action changed nothing.
@@ -74,6 +91,16 @@ pub enum InventoryRefusal {
     NoChest(IVec3),
     /// The cursor holds a stack, which a swap with the hotbar would leave out.
     HoldingAStack,
+    /// The action is for a player in Creative.
+    NotInCreative,
+    /// No recipe has this index.
+    UnknownRecipe(u16),
+    /// The recipe is larger than the crafting grid in use.
+    DoesNotFit,
+    /// The inventory lacks the ingredients of one round of the recipe.
+    MissingIngredients,
+    /// The inventory has no room for what the crafting grid holds.
+    GridNotEmptied,
 }
 
 /// The slots of the cells of a grid of `size` by `size`, in its top left corner.
@@ -129,6 +156,7 @@ pub fn simulate_inventory_actions(
             inventory.open_chest = None;
         }
     }
+    let creative = player.game_mode.is_creative();
     let actions = input.inventory_actions.iter();
     for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
         // A client learns the contents of a chest from the server, after opening it
@@ -141,6 +169,7 @@ pub fn simulate_inventory_actions(
             action,
             |pos, id| block_in_reach(world_map, position, pos, id),
             chest.as_mut().map(|(_, contents)| contents),
+            creative,
         );
         if let Some((pos, contents)) = chest {
             if world_map.container(pos) != Some(&contents) {
@@ -161,13 +190,21 @@ pub fn simulate_inventory_actions(
 
 /// Applies `action` to `inventory`. `in_reach` tells whether a position holds a block of this
 /// kind the player can use. `chest` is what the open chest holds, `None` when it is unknown:
-/// its slots cannot be used then.
+/// its slots cannot be used then. The actions of the item browser's catalog need `creative`.
 pub fn apply_inventory_action(
     inventory: &mut Inventory,
     action: InventoryAction,
     in_reach: impl Fn(IVec3, BlockId) -> bool,
     chest: Option<&mut Container>,
+    creative: bool,
 ) -> Result<(), InventoryRefusal> {
+    let creative_only = matches!(
+        action,
+        InventoryAction::TakeFromCatalog { .. } | InventoryAction::DestroyFloating
+    );
+    if creative_only && !creative {
+        return Err(InventoryRefusal::NotInCreative);
+    }
     let Some(chest) = chest.filter(|_| inventory.open_chest.is_some()) else {
         return apply_action(inventory, action, in_reach, false);
     };
@@ -246,9 +283,124 @@ fn apply_action(
                 Err(InventoryRefusal::NoChest(chest))
             }
         }
+        InventoryAction::TakeFromCatalog {
+            item,
+            count,
+            to_inventory,
+        } => take_from_catalog(inventory, &mut floating, item, count, to_inventory),
+        InventoryAction::DestroyFloating => {
+            floating = None;
+            Ok(())
+        }
+        InventoryAction::FillCraftingGrid { recipe, times } => {
+            fill_crafting_grid(inventory, recipe, times, size)
+        }
     };
     inventory.floating = floating;
     applied
+}
+
+/// A new stack of `count` `item`, clamped to a stack, into the inventory or onto the cursor,
+/// which takes no other item.
+fn take_from_catalog(
+    inventory: &mut Inventory,
+    floating: &mut Option<ItemStack>,
+    item: ItemId,
+    count: u32,
+    to_inventory: bool,
+) -> Result<(), InventoryRefusal> {
+    let max_stack = item.get_max_stack();
+    let stack = ItemStack {
+        item_id: item,
+        item_type: item.get_default_type(),
+        nb: count.clamp(1, max_stack),
+    };
+    if to_inventory {
+        // What does not fit is lost: the catalog has more
+        inventory.add_item_to_inventory(stack);
+        return Ok(());
+    }
+    match floating {
+        None => *floating = Some(stack),
+        Some(held) if held.item_id == item => held.nb = (held.nb + stack.nb).min(max_stack),
+        Some(_) => return Err(InventoryRefusal::CursorFull),
+    }
+    Ok(())
+}
+
+/// Puts the crafting grid back into the inventory, then the ingredients of `recipe` into the grid
+/// of `size`, unmirrored, at its top left corner: `times` rounds at most, as many as the inventory
+/// holds and a stack of each ingredient takes. All or nothing.
+fn fill_crafting_grid(
+    inventory: &mut Inventory,
+    recipe: u16,
+    times: u32,
+    size: u32,
+) -> Result<(), InventoryRefusal> {
+    let recipe = recipes()
+        .nth(recipe as usize)
+        .ok_or(InventoryRefusal::UnknownRecipe(recipe))?;
+    if !recipe.fits(size) {
+        return Err(InventoryRefusal::DoesNotFit);
+    }
+    let mut filled = inventory.clone();
+    for slot in grid_slots(CRAFTING_GRID_SIZE) {
+        if let Some(stack) = filled.inner.remove(&slot) {
+            if put_back(&mut filled, stack).is_some() {
+                return Err(InventoryRefusal::GridNotEmptied);
+            }
+        }
+    }
+    let held = |inventory: &Inventory, item: ItemId| -> u32 {
+        (0..MAX_INVENTORY_SLOTS)
+            .filter_map(|slot| inventory.inner.get(&slot))
+            .filter(|stack| stack.item_id == item)
+            .map(|stack| stack.nb)
+            .sum()
+    };
+    let rounds = recipe
+        .ingredients()
+        .into_iter()
+        .map(|(item, cells)| (held(&filled, item) / cells).min(item.get_max_stack()))
+        .min()
+        .unwrap_or(0)
+        .min(times);
+    if rounds == 0 {
+        return Err(InventoryRefusal::MissingIngredients);
+    }
+    for (index, cell) in recipe.cells.iter().enumerate() {
+        let Some(item) = *cell else {
+            continue;
+        };
+        let item_type = take_from_inventory(&mut filled, item, rounds);
+        let (row, col) = (index / recipe.width, index % recipe.width);
+        let stack = ItemStack {
+            item_id: item,
+            item_type,
+            nb: rounds,
+        };
+        filled
+            .inner
+            .insert(grid_slot(row as u32, col as u32), stack);
+    }
+    *inventory = filled;
+    Ok(())
+}
+
+/// Takes `nb` `item` from the inventory, which holds them, the last slots of the backpack first
+/// and the hotbar last, and returns the type of the stacks they came from.
+fn take_from_inventory(inventory: &mut Inventory, item: ItemId, mut nb: u32) -> ItemType {
+    let mut item_type = item.get_default_type();
+    for slot in (0..MAX_INVENTORY_SLOTS).rev() {
+        if nb == 0 {
+            break;
+        }
+        if let Some(stack) = inventory.inner.get(&slot).filter(|s| s.item_id == item) {
+            item_type = stack.item_type;
+            nb -= inventory.remove_item_from_stack(slot, nb);
+        }
+    }
+    item_type
 }
 
 /// Adds `stack` to the inventory and returns what did not fit.
@@ -477,7 +629,7 @@ fn right_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut O
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{grid_slot, BlockId, ChunkMap};
+    use crate::world::{grid_slot, BlockId, ChunkMap, RecipeView};
     use bevy::math::{IVec3, Vec3};
     use bevy::prelude::Transform;
 
@@ -500,7 +652,7 @@ mod tests {
     }
 
     fn apply(inventory: &mut Inventory, action: InventoryAction) {
-        apply_inventory_action(inventory, action, |_, _| false, None).unwrap();
+        apply_inventory_action(inventory, action, |_, _| false, None, false).unwrap();
     }
 
     #[test]
@@ -625,7 +777,8 @@ mod tests {
                 &mut inventory,
                 InventoryAction::LeftClickSlot(MAX_INVENTORY_SLOTS + 50),
                 |_, _| false,
-                None
+                None,
+                false,
             ),
             Err(InventoryRefusal::InvalidSlot(MAX_INVENTORY_SLOTS + 50))
         );
@@ -634,7 +787,8 @@ mod tests {
                 &mut inventory,
                 InventoryAction::RightClickSlot(1000),
                 |_, _| false,
-                None
+                None,
+                false,
             ),
             Err(InventoryRefusal::InvalidSlot(1000))
         );
@@ -720,7 +874,8 @@ mod tests {
                     &mut inventory,
                     InventoryAction::TakeCraftResult,
                     |_, _| false,
-                    None
+                    None,
+                    false,
                 ),
                 Err(InventoryRefusal::CursorFull)
             );
@@ -736,7 +891,8 @@ mod tests {
                 &mut inventory,
                 InventoryAction::TakeCraftResult,
                 |_, _| false,
-                None
+                None,
+                false,
             ),
             Err(InventoryRefusal::NoRecipe)
         );
@@ -752,7 +908,8 @@ mod tests {
                 &mut inventory,
                 InventoryAction::LeftClickSlot(grid_slot(0, 2)),
                 |_, _| false,
-                None
+                None,
+                false,
             ),
             Err(InventoryRefusal::InvalidSlot(grid_slot(0, 2)))
         );
@@ -964,7 +1121,8 @@ mod tests {
                 &mut inventory,
                 InventoryAction::LeftClickSlot(grid_slot(2, 2)),
                 |_, _| false,
-                None
+                None,
+                false,
             ),
             Err(InventoryRefusal::InvalidSlot(grid_slot(2, 2)))
         );
@@ -1155,7 +1313,7 @@ mod tests {
             slot: 12,
             hotbar: 2,
         };
-        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None);
+        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None, false);
 
         assert_eq!(refusal, Err(InventoryRefusal::HoldingAStack));
         assert_eq!(inventory, before);
@@ -1170,7 +1328,7 @@ mod tests {
             slot: cell,
             hotbar: 0,
         };
-        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None);
+        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None, false);
 
         assert_eq!(refusal, Err(InventoryRefusal::InvalidSlot(cell)));
     }
@@ -1183,7 +1341,7 @@ mod tests {
             slot: 12,
             hotbar: HOTBAR_SLOTS,
         };
-        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None);
+        let refusal = apply_inventory_action(&mut inventory, swap, |_, _| false, None, false);
 
         assert_eq!(refusal, Err(InventoryRefusal::InvalidSlot(HOTBAR_SLOTS)));
     }
@@ -1451,5 +1609,283 @@ mod tests {
         // Neither tool takes the wear of the other
         assert_eq!(inventory.inner[&0], worn);
         assert_eq!(inventory.floating, Some(stack(ItemId::WoodenAxe, 1)));
+    }
+
+    fn creative(
+        inventory: &mut Inventory,
+        action: InventoryAction,
+    ) -> Result<(), InventoryRefusal> {
+        apply_inventory_action(inventory, action, |_, _| false, None, true)
+    }
+
+    fn take(item: ItemId, count: u32, to_inventory: bool) -> InventoryAction {
+        InventoryAction::TakeFromCatalog {
+            item,
+            count,
+            to_inventory,
+        }
+    }
+
+    #[test]
+    fn taking_from_the_catalog_needs_creative() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        for action in [
+            take(ItemId::Stone, 64, false),
+            take(ItemId::Stone, 64, true),
+            InventoryAction::DestroyFloating,
+        ] {
+            assert_eq!(
+                apply_inventory_action(&mut inventory, action, |_, _| false, None, false),
+                Err(InventoryRefusal::NotInCreative)
+            );
+        }
+        assert_eq!(inventory, before);
+
+        // The game mode of the player decides, on the server as in the prediction
+        let mut player = Player::default();
+        act(
+            &mut player,
+            &mut ChunkMap::default(),
+            vec![take(ItemId::Stone, 64, true)],
+        );
+        assert!(player.inventory.inner.is_empty());
+        player.game_mode = crate::players::game_mode::GameMode::Creative;
+        act(
+            &mut player,
+            &mut ChunkMap::default(),
+            vec![take(ItemId::Stone, 64, true)],
+        );
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Stone, 64));
+    }
+
+    #[test]
+    fn taking_from_the_catalog_clamps_the_count() {
+        let mut inventory = Inventory::new();
+        creative(&mut inventory, take(ItemId::Dirt, 0, false)).unwrap();
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 1)));
+
+        let mut inventory = Inventory::new();
+        creative(&mut inventory, take(ItemId::Dirt, 100, false)).unwrap();
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 64)));
+
+        // A tool comes one at a time, new
+        let mut inventory = Inventory::new();
+        creative(&mut inventory, take(ItemId::WoodenPickaxe, 5, false)).unwrap();
+        assert_eq!(inventory.floating, Some(stack(ItemId::WoodenPickaxe, 1)));
+        assert_eq!(
+            inventory.floating.unwrap().item_type,
+            ItemType::Tool { wear: 0 }
+        );
+    }
+
+    #[test]
+    fn taking_onto_a_cursor_holding_another_item_is_refused() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 5));
+        assert_eq!(
+            creative(&mut inventory, take(ItemId::Stone, 1, false)),
+            Err(InventoryRefusal::CursorFull)
+        );
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 5)));
+    }
+
+    #[test]
+    fn taking_onto_a_cursor_holding_the_same_item_tops_it_up() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 63));
+        creative(&mut inventory, take(ItemId::Dirt, 1, false)).unwrap();
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 64)));
+        creative(&mut inventory, take(ItemId::Dirt, 1, false)).unwrap();
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 64)));
+    }
+
+    #[test]
+    fn taking_to_the_inventory_fills_the_hotbar_first() {
+        let mut inventory = inventory_with(20, stack(ItemId::Dirt, 60));
+        inventory.inner.insert(0, stack(ItemId::Stone, 1));
+        inventory.floating = Some(stack(ItemId::Sand, 2));
+        creative(&mut inventory, take(ItemId::Dirt, 64, true)).unwrap();
+        assert_eq!(inventory.inner[&20], stack(ItemId::Dirt, 64));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 60));
+        assert_eq!(inventory.floating, Some(stack(ItemId::Sand, 2)));
+    }
+
+    #[test]
+    fn destroying_the_floating_stack_empties_the_cursor() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        inventory.floating = Some(stack(ItemId::Stone, 64));
+        creative(&mut inventory, InventoryAction::DestroyFloating).unwrap();
+        assert_eq!(inventory.floating, None);
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 5));
+    }
+
+    fn fill(recipe: RecipeView, times: u32) -> InventoryAction {
+        InventoryAction::FillCraftingGrid {
+            recipe: recipe.index,
+            times,
+        }
+    }
+
+    fn oak_sticks() -> RecipeView {
+        crate::world::recipes_for(ItemId::Stick).next().unwrap()
+    }
+
+    #[test]
+    fn filling_the_grid_returns_the_grid_first() {
+        let mut inventory = inventory_with(0, planks(2));
+        inventory
+            .inner
+            .insert(grid_slot(1, 1), stack(ItemId::Stone, 3));
+        apply(&mut inventory, fill(oak_sticks(), 1));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Stone, 3));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], planks(1));
+        assert_eq!(inventory.inner[&grid_slot(1, 0)], planks(1));
+        assert_eq!(inventory.inner.len(), 3);
+    }
+
+    #[test]
+    fn filling_the_grid_puts_the_recipe_at_its_top_left_corner_unmirrored() {
+        // The axe is not symmetric: its sticks go in the right column
+        let axe = crate::world::recipes_for(ItemId::WoodenAxe).next().unwrap();
+        let mut inventory = inventory_with(0, planks(3));
+        inventory.inner.insert(1, stack(ItemId::Stick, 2));
+        inventory.open_table = Some(TABLE);
+        apply_inventory_action(&mut inventory, fill(axe, 1), |_, _| true, None, false).unwrap();
+        for (row, col) in [(0, 0), (0, 1), (1, 0)] {
+            assert_eq!(inventory.inner[&grid_slot(row, col)], planks(1));
+        }
+        for (row, col) in [(1, 1), (2, 1)] {
+            assert_eq!(
+                inventory.inner[&grid_slot(row, col)],
+                stack(ItemId::Stick, 1)
+            );
+        }
+        assert_eq!(inventory.inner.len(), 5);
+        assert_eq!(
+            craft_result(&inventory, CRAFTING_GRID_SIZE).map(|made| made.item_id),
+            Some(ItemId::WoodenAxe)
+        );
+    }
+
+    #[test]
+    fn filling_the_grid_needs_a_recipe_that_fits_the_grid_in_use() {
+        let axe = crate::world::recipes_for(ItemId::WoodenAxe).next().unwrap();
+        let mut inventory = inventory_with(0, planks(3));
+        inventory.inner.insert(1, stack(ItemId::Stick, 2));
+        let before = inventory.clone();
+        assert_eq!(
+            apply_inventory_action(&mut inventory, fill(axe, 1), |_, _| false, None, false),
+            Err(InventoryRefusal::DoesNotFit)
+        );
+        assert_eq!(inventory, before);
+        // At a table it fits
+        inventory.open_table = Some(TABLE);
+        apply_inventory_action(&mut inventory, fill(axe, 1), |_, _| true, None, false).unwrap();
+        // The sticks fit the inventory's grid
+        let mut inventory = inventory_with(0, planks(2));
+        apply(&mut inventory, fill(oak_sticks(), 1));
+        assert_eq!(inventory.inner[&grid_slot(1, 0)], planks(1));
+    }
+
+    #[test]
+    fn filling_the_grid_clamps_the_rounds_to_the_inventory_and_the_max_stack() {
+        let mut inventory = inventory_with(0, planks(4));
+        inventory.inner.insert(30, planks(3));
+        apply(&mut inventory, fill(oak_sticks(), u32::MAX));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], planks(3));
+        assert_eq!(inventory.inner[&grid_slot(1, 0)], planks(3));
+        // Taken from the end of the backpack first, the hotbar last
+        assert_eq!(inventory.inner[&0], planks(1));
+        assert!(!inventory.inner.contains_key(&30));
+
+        let logs = crate::world::recipes_for(ItemId::OakPlanks).next().unwrap();
+        let mut inventory = Inventory::new();
+        for slot in 0..4 {
+            inventory.inner.insert(slot, stack(ItemId::OakLog, 50));
+        }
+        apply(&mut inventory, fill(logs, u32::MAX));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], stack(ItemId::OakLog, 64));
+        // And to what was asked
+        apply(&mut inventory, fill(logs, 2));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], stack(ItemId::OakLog, 2));
+        let left: u32 = (0..MAX_INVENTORY_SLOTS)
+            .filter_map(|slot| inventory.inner.get(&slot))
+            .map(|stack| stack.nb)
+            .sum();
+        assert_eq!(left, 198);
+    }
+
+    #[test]
+    fn filling_the_grid_without_one_round_is_refused_and_changes_nothing() {
+        let mut inventory = inventory_with(0, planks(1));
+        inventory
+            .inner
+            .insert(grid_slot(0, 1), stack(ItemId::Stone, 1));
+        let before = inventory.clone();
+        assert_eq!(
+            apply_inventory_action(
+                &mut inventory,
+                fill(oak_sticks(), 1),
+                |_, _| false,
+                None,
+                false
+            ),
+            Err(InventoryRefusal::MissingIngredients)
+        );
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn filling_the_grid_keeps_everything_when_the_grid_cannot_go_back() {
+        let mut inventory = Inventory::new();
+        for slot in 0..MAX_INVENTORY_SLOTS {
+            inventory.inner.insert(slot, stack(ItemId::Dirt, 64));
+        }
+        inventory.inner.insert(grid_slot(0, 0), planks(2));
+        let before = inventory.clone();
+        assert_eq!(
+            apply_inventory_action(
+                &mut inventory,
+                fill(oak_sticks(), 1),
+                |_, _| false,
+                None,
+                false
+            ),
+            Err(InventoryRefusal::GridNotEmptied)
+        );
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn filling_the_grid_works_in_survival() {
+        let mut player = Player::default();
+        player.inventory.inner.insert(4, planks(2));
+        act(
+            &mut player,
+            &mut ChunkMap::default(),
+            vec![fill(oak_sticks(), 1), InventoryAction::TakeCraftResult],
+        );
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Stick, 4)));
+        assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn filling_the_grid_with_an_unknown_recipe_is_refused() {
+        let mut inventory = inventory_with(0, planks(2));
+        assert_eq!(
+            apply_inventory_action(
+                &mut inventory,
+                InventoryAction::FillCraftingGrid {
+                    recipe: u16::MAX,
+                    times: 1
+                },
+                |_, _| false,
+                None,
+                false
+            ),
+            Err(InventoryRefusal::UnknownRecipe(u16::MAX))
+        );
     }
 }

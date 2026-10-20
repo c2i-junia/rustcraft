@@ -37,6 +37,11 @@ impl GameMode {
     pub fn takes_damage(self) -> bool {
         self == GameMode::Survival
     }
+
+    /// Whether items come out of the item browser's catalog.
+    pub fn is_creative(self) -> bool {
+        self == GameMode::Creative
+    }
 }
 
 /// Health of a player in full health: 10 hearts of 2 points.

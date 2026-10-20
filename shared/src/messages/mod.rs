@@ -186,6 +186,22 @@ mod tests {
             (InventoryAction::QuickMoveSlot(0), 5),
             (InventoryAction::SwapWithHotbar { slot: 0, hotbar: 0 }, 6),
             (InventoryAction::OpenChest(IVec3::ZERO), 7),
+            (
+                InventoryAction::TakeFromCatalog {
+                    item: crate::world::ItemId::Dirt,
+                    count: 0,
+                    to_inventory: false,
+                },
+                8,
+            ),
+            (InventoryAction::DestroyFloating, 9),
+            (
+                InventoryAction::FillCraftingGrid {
+                    recipe: 0,
+                    times: 0,
+                },
+                10,
+            ),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }
