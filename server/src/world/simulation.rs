@@ -9,7 +9,7 @@ use shared::{
         simulation::simulate_player_actions,
         Player,
     },
-    world::{Chunk, ChunkMap, WorldSeed},
+    world::{world_position_to_chunk_position, Chunk, ChunkMap, WorldSeed},
 };
 use std::path::Path;
 
@@ -84,7 +84,9 @@ fn make_chunks(chunks: &[IVec3], saved: Option<&Path>, seed: u32) -> Vec<Made> {
 /// Loads the chunks within `radius` of each of `players`, at most `budget` of them, the nearest
 /// to each player first: from their files in the folder of the world `saved`, else generated.
 /// A generated chunk is dirty: it has to be saved, as inserting it is not logged as a block
-/// change. A chunk read from its file is not.
+/// change; but not one made of a single kind of cell, such as the air above the ground or the
+/// stone below it, which is generated again at once. A chunk read from its file is not dirty. Says whether every chunk within reach is loaded
+/// now.
 pub(super) fn generate_missing_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
@@ -93,14 +95,14 @@ pub(super) fn generate_missing_chunks<'a>(
     saved: Option<&Path>,
     generator: &WorldGenerator,
     budget: usize,
-) {
+) -> bool {
     let missing: Vec<IVec3> = get_all_active_chunks(players, radius)
         .into_iter()
         .filter(|c| !chunks.is_chunk_loaded(*c))
         .take(budget)
         .collect();
     if missing.is_empty() {
-        return;
+        return true;
     }
     debug!("Loading {} chunks", missing.len());
     for (c, made) in missing
@@ -110,18 +112,29 @@ pub(super) fn generate_missing_chunks<'a>(
         match made {
             Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
             Made::Generated(chunk) => {
+                // Generating a chunk of one kind of cell again costs nothing: it is not saved
+                if chunk.uniform().is_none() {
+                    dirty_chunks.insert(*c);
+                }
                 chunks.insert_chunk(*c, chunk);
-                dirty_chunks.insert(*c);
             }
         }
     }
+    missing.len() < budget
 }
+
+/// The chunk and the render distance of each player, the last time every chunk within their
+/// reach was loaded. The server keeps the chunks it loaded: while the players stay in the same
+/// chunks, the tens of thousands of chunks of a large render distance are not looked at again.
+#[derive(Default, PartialEq)]
+pub struct LoadedAround(Vec<(PlayerId, IVec3, i32)>);
 
 pub fn handle_player_inputs_system(
     mut events: MessageReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
     seed: Res<WorldSeed>,
     mut generator: Local<Option<WorldGenerator>>,
+    mut loaded_around: Local<LoadedAround>,
 ) {
     // The noises are built once per seed, not once per chunk
     if generator.as_ref().is_none_or(|g| g.seed() != seed.0) {
@@ -138,15 +151,28 @@ pub fn handle_player_inputs_system(
     let saved = world_map.saved.as_deref();
     let spawn = world_map.spawn;
 
-    generate_missing_chunks(
-        &*players,
-        |id| render_distances.get(id),
-        chunks,
-        dirty_chunks,
-        saved,
-        generator,
-        GENERATED_CHUNKS_PER_TICK,
-    );
+    let mut around: Vec<_> = players
+        .values()
+        .map(|player| {
+            let chunk = world_position_to_chunk_position(player.position);
+            (player.id, chunk, render_distances.get(player.id))
+        })
+        .collect();
+    around.sort_by_key(|&(id, ..)| id);
+    let around = LoadedAround(around);
+    if *loaded_around != around
+        && generate_missing_chunks(
+            &*players,
+            |id| render_distances.get(id),
+            chunks,
+            dirty_chunks,
+            saved,
+            generator,
+            GENERATED_CHUNKS_PER_TICK,
+        )
+    {
+        *loaded_around = around;
+    }
 
     for ev in events.read() {
         let Some(player) = players.get_mut(&ev.client_id) else {
@@ -293,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_chunks_are_dirty_and_existing_ones_are_not() {
+    fn generated_chunks_are_dirty_and_existing_ones_and_the_uniform_ones_are_not() {
         let mut players = std::collections::HashMap::new();
         players.insert(
             1,
@@ -314,12 +340,17 @@ mod tests {
         );
 
         assert!(!dirty.contains(&IVec3::ZERO));
+        // The bedrock at the bottom of the chunk
         assert!(dirty.contains(&IVec3::X));
-        assert_eq!(
-            dirty.len() + 1,
-            get_all_active_chunks(&players, |_| 2).len()
-        );
-        assert!(dirty.iter().all(|&c| chunks.is_chunk_loaded(c)));
+        // Stone only
+        assert!(chunks.is_chunk_loaded(IVec3::NEG_Y));
+        assert!(!dirty.contains(&IVec3::NEG_Y));
+        let active = get_all_active_chunks(&players, |_| 2);
+        assert!(active.iter().all(|&c| chunks.is_chunk_loaded(c)));
+        for c in active.into_iter().filter(|&c| c != IVec3::ZERO) {
+            let uniform = chunks.chunk(c).unwrap().uniform().is_some();
+            assert_eq!(dirty.contains(&c), !uniform, "{c}");
+        }
     }
 
     #[test]
@@ -333,18 +364,19 @@ mod tests {
         let mut dirty = std::collections::HashSet::new();
         let generator = WorldGenerator::new(1);
 
-        generate_missing_chunks(
+        let loaded = |chunks: &ChunkMap| chunks.chunk_positions().collect::<Vec<_>>();
+        assert!(!generate_missing_chunks(
             &players,
             |_| 2,
             &mut chunks,
             &mut dirty,
             None,
             &generator,
-            7,
-        );
+            7
+        ));
         // The chunk of the player and its six face neighbours
-        assert_eq!(dirty.len(), 7);
-        assert!(dirty.iter().all(|c| c.abs().element_sum() <= 1));
+        assert_eq!(loaded(&chunks).len(), 7);
+        assert!(loaded(&chunks).iter().all(|c| c.abs().element_sum() <= 1));
 
         generate_missing_chunks(
             &players,
@@ -356,11 +388,20 @@ mod tests {
             7,
         );
         assert_eq!(
-            dirty.len(),
+            loaded(&chunks).len(),
             14,
             "the next tick goes on where the last stopped"
         );
-        assert!(dirty.iter().all(|c| c.abs().max_element() <= 1));
+        assert!(loaded(&chunks).iter().all(|c| c.abs().max_element() <= 1));
+        assert!(generate_missing_chunks(
+            &players,
+            |_| 2,
+            &mut chunks,
+            &mut dirty,
+            None,
+            &generator,
+            200
+        ));
     }
 
     #[test]
@@ -416,6 +457,10 @@ mod tests {
             !dirty.contains(&IVec3::ZERO),
             "a chunk read is saved already"
         );
-        assert_eq!(dirty.len(), 26, "the chunks without a file are generated");
+        assert_eq!(
+            chunks.chunk_positions().count(),
+            27,
+            "the chunks without a file are generated"
+        );
     }
 }
