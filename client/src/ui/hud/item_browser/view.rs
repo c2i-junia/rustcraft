@@ -20,16 +20,16 @@ use super::recipes::{
     ITEM_KEYS_HINT,
 };
 use super::{
-    BackButton, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow, FillGridButton,
-    ItemBrowserState, ItemCount, ItemView, MissingTint, RecipeCard, RecipeCards, RecipeNote,
-    RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, ViewedItem, ViewedItemCategory,
-    ViewedItemName,
+    BackButton, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
+    FillGridButton, ItemBrowserState, ItemCount, ItemView, MissingTint, RecipeCard, RecipeCards,
+    RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, ViewedItem,
+    ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
 };
 use crate::ui::hud::inventory::{grid_in_use, stack_in};
 use crate::ui::hud::{item_name, CraftResultCell, InventoryCell, InventoryRoot, UIMode};
 use crate::ui::theme::{
-    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DISABLED_ALPHA, FONT_M, FONT_S, MUTED, RAISE, SLOT,
-    SPACE_S, SPACE_XS, TEXT,
+    BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DISABLED_ALPHA, FONT_M, FONT_S, MUTED, OK, PANEL,
+    RAISE, SLOT, SPACE_S, SPACE_XS, TEXT,
 };
 use crate::ui::widgets::button::set_label;
 use crate::ui::widgets::focus::FocusRing;
@@ -54,6 +54,12 @@ const DASH_PERIOD: f32 = 9.0;
 const MISSING_TINT: Color = Color::srgba(0.89, 0.35, 0.25, 0.32);
 /// The label of the button filling the crafting grid.
 pub const FILL_GRID: &str = "+ Fill grid";
+/// The text of a disabled `+ Fill grid`.
+fn fill_disabled_text() -> Color {
+    MUTED.with_alpha(DISABLED_ALPHA * 2.0)
+}
+/// The fill of an enabled `+ Fill grid` under the cursor, as the mockup.
+const OK_HOVER: Color = Color::srgb_u8(0x8F, 0xD8, 0x77);
 
 /// A text in the game font.
 fn label(text: &str, font: &Handle<Font>, size: f32, color: Color) -> impl Bundle {
@@ -312,7 +318,7 @@ fn spawn_card_slot(
 }
 
 /// A card of `recipe` at the end of `cards`: its 3 × 3 grid, the arrow and its output, then the
-/// station or why it cannot be made now, and the button that will fill the grid.
+/// station or why it cannot be made now, and the button that fills the grid with it.
 fn spawn_card(
     commands: &mut Commands,
     cards: Entity,
@@ -438,10 +444,10 @@ fn spawn_card(
                 label(station_label(recipe), font, FONT_S, MUTED),
             ),
             (
-                FillGridButton,
-                // in this lot, the server cannot fill the grid yet: muted, out of Tab
+                FillGridButton(recipe.index),
+                // enabled by `style_recipe_cards` once the recipe can be made
                 InteractionDisabled,
-                small_button(FILL_GRID, MUTED.with_alpha(DISABLED_ALPHA * 2.0), font),
+                small_button(FILL_GRID, fill_disabled_text(), font),
             ),
         ],
     ));
@@ -611,11 +617,14 @@ pub fn show_view(
 }
 
 /// Tints the ingredients the player lacks, and says under each card where it is made or why it
-/// cannot be made now, with the crafting grid in use.
+/// cannot be made now, with the crafting grid in use. `+ Fill grid` is enabled, and takes Tab,
+/// when it can be made.
 pub fn style_recipe_cards(
     inventory: Res<Inventory>,
     mut tints: Query<(&MissingTint, &mut Node)>,
     mut notes: Query<(&RecipeNote, &mut Text, &mut TextColor)>,
+    buttons: Query<(Entity, &FillGridButton, Has<InteractionDisabled>)>,
+    mut commands: Commands,
 ) {
     let all: Vec<RecipeView> = recipes().collect();
     let grid_size = grid_in_use(&inventory);
@@ -642,6 +651,78 @@ pub fn style_recipe_cards(
             text.0 = content;
         }
         color.set_if_neq(TextColor(tone));
+    }
+    for (button, fill, disabled) in &buttons {
+        let enabled = recipe_problem(&inventory, &all[fill.0 as usize], grid_size).is_none();
+        if enabled && disabled {
+            commands
+                .entity(button)
+                .remove::<InteractionDisabled>()
+                .insert(RecipeStop);
+        } else if !enabled && !disabled {
+            commands
+                .entity(button)
+                .remove::<RecipeStop>()
+                .insert((InteractionDisabled, TabIndex(-1)));
+        }
+    }
+}
+
+/// An enabled `+ Fill grid` is green, lighter under the cursor, as the mockup's; a disabled one is
+/// raised and muted.
+#[allow(clippy::type_complexity)]
+pub fn style_fill_buttons(
+    mut buttons: Query<
+        (
+            &Hovered,
+            Has<InteractionDisabled>,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &Children,
+        ),
+        With<FillGridButton>,
+    >,
+    mut texts: Query<&mut TextColor>,
+) {
+    for (hovered, disabled, mut background, mut border, children) in &mut buttons {
+        let (fill, edge, text) = if disabled {
+            (RAISE, bevel(BEVEL_HI, BEVEL_LO), fill_disabled_text())
+        } else if hovered.get() {
+            (OK_HOVER, bevel(OK_HI, OK_LO), PANEL)
+        } else {
+            (OK, bevel(OK_HI, OK_LO), PANEL)
+        };
+        background.set_if_neq(BackgroundColor(fill));
+        border.set_if_neq(edge);
+        for child in children.iter() {
+            if let Ok(mut color) = texts.get_mut(child) {
+                color.set_if_neq(TextColor(text));
+            }
+        }
+    }
+}
+
+/// A raised bevel: `light` on the top and left edges, `dark` on the others.
+fn bevel(light: Color, dark: Color) -> BorderColor {
+    BorderColor {
+        top: light,
+        left: light,
+        bottom: dark,
+        right: dark,
+    }
+}
+
+/// `+ Fill grid` activated asks `catalog_actions` to fill the grid with its recipe, as many times
+/// as possible with Shift.
+pub fn fill_grid(
+    activate: On<Activate>,
+    buttons: Query<&FillGridButton>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut requests: ResMut<BrowserRequests>,
+) {
+    if let Ok(fill) = buttons.get(activate.entity) {
+        let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        requests.fill = Some((fill.0, shift));
     }
 }
 
@@ -900,5 +981,37 @@ mod tests {
             styled(&mut world),
             (vec![], "Crafting Table 3x3".to_string(), MUTED)
         );
+    }
+
+    #[test]
+    fn fill_grid_is_enabled_when_the_recipe_fits_and_one_round_is_there() {
+        let sticks = recipes_for(ItemId::Stick).next().unwrap();
+        let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
+        let mut world = World::new();
+        world.init_resource::<Inventory>();
+        let stick_button = world
+            .spawn((FillGridButton(sticks.index), InteractionDisabled))
+            .id();
+        let pickaxe_button = world
+            .spawn((FillGridButton(pickaxe.index), InteractionDisabled))
+            .id();
+        let enabled = |world: &mut World| {
+            world.run_system_once(style_recipe_cards).unwrap();
+            [stick_button, pickaxe_button].map(|button| {
+                let entity = world.entity(button);
+                let enabled = !entity.contains::<InteractionDisabled>();
+                assert_eq!(entity.contains::<RecipeStop>(), enabled);
+                enabled
+            })
+        };
+        assert_eq!(enabled(&mut world), [false, false]);
+
+        put(&mut world, 3, ItemId::OakPlanks, 5);
+        assert_eq!(enabled(&mut world), [true, false]);
+
+        // The chest takes the place of the grid
+        world.resource_mut::<Inventory>().open_chest = Some(IVec3::ZERO);
+        assert_eq!(enabled(&mut world), [false, false]);
+        assert_eq!(world.get::<TabIndex>(stick_button), Some(&TabIndex(-1)));
     }
 }

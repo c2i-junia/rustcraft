@@ -44,7 +44,8 @@ pub fn station_label(recipe: &RecipeView) -> &'static str {
 }
 
 /// Why `inventory` cannot make `recipe` now with a grid of `grid_size`: the ingredients it lacks,
-/// else the crafting table it needs. `None` when it can.
+/// else the crafting table it needs, else the chest open in place of the grid. `None` when it
+/// can, and `+ Fill grid` fills the grid with it.
 pub fn recipe_problem(
     inventory: &Inventory,
     recipe: &RecipeView,
@@ -58,8 +59,18 @@ pub fn recipe_problem(
             .collect();
         return Some(format!("Missing {}", items.join(", ")));
     }
-    (!recipe.fits(grid_size)).then(|| "Needs a Crafting Table".to_string())
+    if !recipe.fits(grid_size) {
+        return Some("Needs a Crafting Table".to_string());
+    }
+    // The chest takes the place of the crafting grid in the panel
+    inventory
+        .open_chest
+        .is_some()
+        .then(|| NOT_BESIDE_A_CHEST.to_string())
 }
+
+/// Why a recipe cannot fill the grid while a chest is open.
+pub const NOT_BESIDE_A_CHEST: &str = "Not beside a chest";
 
 /// After the message of an item without recipe: how many recipes it goes into.
 fn uses_sentence(uses: usize) -> String {
@@ -129,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn the_problem_of_a_recipe_is_what_is_missing_then_the_table() {
+    fn the_problem_of_a_recipe_is_what_is_missing_then_the_table_then_the_chest() {
         let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
         let stick = recipes_for(ItemId::Stick).next().unwrap();
         let mut inventory = Inventory::new();
@@ -145,6 +156,11 @@ mod tests {
         );
         assert_eq!(recipe_problem(&inventory, &pickaxe, 3), None);
         assert_eq!(recipe_problem(&inventory, &stick, 2), None);
+        inventory.open_chest = Some(bevy::math::IVec3::ZERO);
+        assert_eq!(
+            recipe_problem(&inventory, &stick, 2).as_deref(),
+            Some("Not beside a chest")
+        );
     }
 
     #[test]

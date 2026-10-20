@@ -205,9 +205,10 @@ pub struct MissingTint {
 #[derive(Component)]
 pub struct RecipeNote(pub u16);
 
-/// The button that will fill the crafting grid with a recipe, disabled until the server can.
+/// The button that fills the crafting grid with the recipe of this index, disabled while the
+/// recipe cannot be made.
 #[derive(Component)]
-pub struct FillGridButton;
+pub struct FillGridButton(pub u16);
 
 /// The scroll list of the catalog: a click on it, holding a stack in Creative, destroys the stack.
 #[derive(Component)]
@@ -271,6 +272,7 @@ pub fn item_browser_plugin(app: &mut App) {
                 ),
                 show_item_browser,
                 style_chips,
+                style_fill_buttons,
             )
                 .chain()
                 .after(style_inventory_panel)
@@ -296,6 +298,7 @@ pub fn item_browser_plugin(app: &mut App) {
         )
         .add_observer(scroll_focused_into_view)
         .add_observer(go_back)
+        .add_observer(fill_grid)
         .add_observer(choose_tab);
 }
 

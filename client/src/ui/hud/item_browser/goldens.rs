@@ -10,8 +10,8 @@ use super::layout::BrowserLayout;
 use super::{
     filter_catalog, layout_item_browser, mark_craftable_items, setup_item_browser,
     show_item_browser, show_item_icons, show_mode_footer, show_view, style_chips,
-    style_recipe_cards, update_craftable_now, CatalogPart, CraftableNow, ItemBrowserState,
-    ItemView, MissingTint, RecipeCard, RecipeSlot, RecipeTab,
+    style_fill_buttons, style_recipe_cards, update_craftable_now, CatalogPart, CraftableNow,
+    ItemBrowserState, ItemView, MissingTint, RecipeCard, RecipeSlot, RecipeTab,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
@@ -60,6 +60,7 @@ fn show_frames(golden: &mut UiGolden) {
         golden.run_system(style_recipe_cards);
         golden.run_system(show_item_browser);
         golden.run_system(style_chips);
+        golden.run_system(style_fill_buttons);
         golden.run_system(style_slots);
         golden.run_system(hide_idle_scrollbars);
     }

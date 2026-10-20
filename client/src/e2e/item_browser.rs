@@ -2,7 +2,14 @@
 //! by window size and its drawer, and the keyboard.
 
 use accesskit::Role;
-use bevy::{input::keyboard::KeyCode, input_focus::InputFocus, prelude::*, ui::Checked};
+use bevy::{
+    input::keyboard::KeyCode,
+    input_focus::InputFocus,
+    prelude::*,
+    ui::{Checked, InteractionDisabled},
+};
+use shared::players::{inventory::craft_result, Inventory};
+use shared::world::grid_slot;
 use shared::world::ItemId;
 
 use super::game::{enter_world, floating, slot};
@@ -11,11 +18,12 @@ use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::item_browser::creative::TRASH_HINT;
+use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::item_browser::{
     CatalogList, CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, RecipeCard,
     RecipePanel, TrashSlot, SEARCH_LABEL,
 };
-use crate::ui::hud::{HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
+use crate::ui::hud::{CraftResultCell, HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::theme::ACCENT;
 use crate::ui::widgets::tooltip::TooltipRoot;
@@ -655,4 +663,62 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
     h.frames(20);
     assert_eq!(floating(h.world()), Some((ItemId::Sand, 3)));
     assert_eq!(slot(h.world(), 1), Some((ItemId::WoodenPickaxe, 1)));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn fill_grid_moves_a_recipe_into_the_grid() {
+    let folder = GameFolder::new().with_world("Fill").with_items(
+        "Fill",
+        "Tester",
+        &[(0, ItemId::OakLog, 1), (1, ItemId::OakPlanks, 6)],
+    );
+    let mut h = enter_world(folder, "Fill");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::OakPlanks, 6))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+
+    // The sticks of oak can be made: their button is the only one enabled
+    h.click(&catalog_slot("Stick"));
+    h.wait_for(&button("Recipes 2"), SCREEN);
+    h.frames(2);
+    let enabled: Vec<Entity> = h
+        .find(&button(FILL_GRID))
+        .into_iter()
+        .filter(|&b| h.world().get::<InteractionDisabled>(b).is_none())
+        .collect();
+    assert_eq!(enabled.len(), 1);
+    let fill = enabled[0];
+
+    // A click fills the grid once, at its top left corner, in Survival
+    h.click_entity(fill, MouseButton::Left);
+    let planks = |n| Some((ItemId::OakPlanks, n));
+    h.wait_until("one round in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == planks(1)
+            && slot(w, grid_slot(1, 0)) == planks(1)
+            && slot(w, 1) == planks(4)
+    });
+    let made = craft_result(h.world().resource::<Inventory>(), 2);
+    assert_eq!(made.map(|stack| stack.item_id), Some(ItemId::Stick));
+
+    // Shift: as many rounds as the inventory holds, the grid back into it first
+    h.key_down(KeyCode::ShiftLeft);
+    h.click_entity(fill, MouseButton::Left);
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("three rounds in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == planks(3) && slot(w, grid_slot(1, 0)) == planks(3)
+    });
+    assert_eq!(slot(h.world(), 1), None);
+    assert_eq!(slot(h.world(), 0), Some((ItemId::OakLog, 1)));
+
+    // The result is crafted as usual, one item from each cell
+    h.click(&L::marker::<CraftResultCell>());
+    h.wait_until("the sticks on the cursor", SERVER, |w| {
+        floating(w) == Some((ItemId::Stick, 4))
+            && slot(w, grid_slot(0, 0)) == planks(2)
+            && slot(w, grid_slot(1, 0)) == planks(2)
+    });
 }

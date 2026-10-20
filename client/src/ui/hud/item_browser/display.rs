@@ -725,9 +725,9 @@ pub fn style_chips(
     }
 }
 
-/// The light and dark edges of the bevel of the green chip, as the mockup.
-const OK_HI: Color = Color::srgb_u8(0xAE, 0xE0, 0x9C);
-const OK_LO: Color = Color::srgb_u8(0x3F, 0x73, 0x30);
+/// The light and dark edges of the bevel of the green chip and of `+ Fill grid`, as the mockup.
+pub const OK_HI: Color = Color::srgb_u8(0xAE, 0xE0, 0x9C);
+pub const OK_LO: Color = Color::srgb_u8(0x3F, 0x73, 0x30);
 
 /// The fill, the bevel and the text colour of a chip: chosen, in the accent or green, else
 /// raised, lighter under the cursor, with green text for the Craftable chip.
