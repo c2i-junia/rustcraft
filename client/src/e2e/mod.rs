@@ -4,6 +4,7 @@ mod bench;
 mod capture;
 mod chat;
 mod clouds;
+mod cocoa;
 mod connecting;
 mod game;
 mod harness;

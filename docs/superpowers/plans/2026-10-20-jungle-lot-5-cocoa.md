@@ -110,7 +110,7 @@ brown pods under the crowns of the jungle trees, broken for their beans.
   `feat: cocoa on the jungle trees`.
 
 ### Task 3: A picture of the pods in the game
-- [ ] An ignored `UI_SNAPSHOTS=1` e2e snapshot of a jungle tree of the seed 42 with pods, close
+- [x] An ignored `UI_SNAPSHOTS=1` e2e snapshot of a jungle tree of the seed 42 with pods, close
   up, looked at and kept outside the repository (`cocoa_*`); commit
   `test(client): pictures of the cocoa pods of a jungle tree`.
 - [ ] The whole workspace: `cargo test -p shared -p server -p client`, clippy, fmt.
