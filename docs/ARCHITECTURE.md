@@ -344,8 +344,8 @@ A world is a folder under `saves/`:
 Every file is written to a temporary file and renamed, so a crash never leaves a half-written
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out
 of the tick. It writes the files of a save aside on 8 threads, syncs them all at once (one
-`syncfs` on Linux, where syncing each file costs milliseconds), then puts them in place, the
-metadata first. Only the changed chunks are written, with the file of their chests, which is
+`syncfs` on Linux, where syncing each file costs milliseconds; a save of 16 files or fewer syncs
+each of them instead), then puts them in place, the metadata first. Only the changed chunks are written, with the file of their chests, which is
 removed once they hold none (`world/container_files.rs`). Worlds saved by older versions are converted
 on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
 `chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,

@@ -158,24 +158,53 @@ pub fn write_pending(path: &Path, contents: &[u8]) -> io::Result<PendingFile> {
     })
 }
 
+/// Up to this many files, `commit` syncs each of them rather than the file system, which also
+/// waits for whatever other programs wrote to it: tens of milliseconds for the two files of a
+/// save without changed chunks.
+const SYNCED_ONE_BY_ONE: usize = 16;
+
+/// How many threads sync the files one by one: the syncs of a file system wait on each other
+/// less than on the disk.
+const SYNC_THREADS: usize = 8;
+
 /// Syncs the files of `pending`, all on the file system of `dir`, then renames each over the
 /// file it replaces, in order: as with `write_atomically`, a crash leaves either the old file or
-/// the new one, never a truncated one. On Linux it is one sync of the file system for the whole
-/// batch, where syncing each file costs milliseconds. The result of each file, in order.
+/// the new one, never a truncated one. On Linux a large batch takes one sync of the file system,
+/// where syncing each file costs milliseconds. The result of each file, in order.
 pub fn commit(dir: &Path, pending: Vec<PendingFile>) -> Vec<io::Result<()>> {
-    let synced = sync_file_system(dir);
-    if let Err(err) = &synced {
-        debug!("Syncing the files one by one: {err}");
-    }
+    let all_synced = pending.len() > SYNCED_ONE_BY_ONE
+        && sync_file_system(dir)
+            .inspect_err(|err| debug!("Syncing the files one by one: {err}"))
+            .is_ok();
+    let synced: Vec<io::Result<()>> = if all_synced {
+        pending.iter().map(|_| Ok(())).collect()
+    } else {
+        sync_each(&pending)
+    };
     pending
         .into_iter()
-        .map(|file| {
-            if synced.is_err() {
-                OpenOptions::new().write(true).open(&file.tmp)?.sync_all()?;
-            }
+        .zip(synced)
+        .map(|(file, synced)| {
+            synced?;
             std::fs::rename(&file.tmp, &file.path)
         })
         .collect()
+}
+
+/// Syncs each file of `pending` on `SYNC_THREADS` threads. The result of each file, in order.
+fn sync_each(pending: &[PendingFile]) -> Vec<io::Result<()>> {
+    let sync = |file: &PendingFile| OpenOptions::new().write(true).open(&file.tmp)?.sync_all();
+    let per_thread = pending.len().div_ceil(SYNC_THREADS).max(1);
+    std::thread::scope(|scope| {
+        let threads: Vec<_> = pending
+            .chunks(per_thread)
+            .map(|part| scope.spawn(move || part.iter().map(sync).collect::<Vec<_>>()))
+            .collect();
+        threads
+            .into_iter()
+            .flat_map(|thread| thread.join().expect("syncing a file panicked"))
+            .collect()
+    })
 }
 
 /// Writes to disk everything written to the file system of `dir`.
@@ -225,6 +254,24 @@ mod tests {
         assert_eq!(std::fs::read(&second).unwrap(), b"added");
         let names: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().collect();
         assert_eq!(names.len(), 2, "a temporary file is left: {names:?}");
+    }
+
+    #[test]
+    fn a_batch_too_large_to_sync_file_by_file_is_committed_whole() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths: Vec<_> = (0..=SYNCED_ONE_BY_ONE)
+            .map(|i| tmp.path().join(format!("{i}.bin")))
+            .collect();
+        let pending = paths
+            .iter()
+            .map(|path| write_pending(path, b"x").unwrap())
+            .collect();
+
+        assert!(commit(tmp.path(), pending).iter().all(Result::is_ok));
+        assert!(paths
+            .iter()
+            .all(|path| std::fs::read(path).unwrap() == b"x"));
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), paths.len());
     }
 
     #[test]
