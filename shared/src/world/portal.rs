@@ -102,10 +102,12 @@ impl Portal {
     }
 }
 
-/// The portals of the world, one of each colour per player at most.
+/// The portals of the world, one of each colour per player at most, and whether they changed
+/// since the last `take_changed`.
 #[derive(Default, Clone, Debug)]
 pub struct Portals {
     portals: HashMap<(PlayerId, PortalColor), Portal>,
+    changed: bool,
 }
 
 impl Portals {
@@ -113,11 +115,25 @@ impl Portals {
     /// that portal.
     pub fn insert(&mut self, portal: Portal) {
         self.portals.insert((portal.owner, portal.color), portal);
+        self.changed = true;
     }
 
     /// Removes the portal of `owner` of colour `color`, and returns it.
     pub fn remove(&mut self, owner: PlayerId, color: PortalColor) -> Option<Portal> {
-        self.portals.remove(&(owner, color))
+        let removed = self.portals.remove(&(owner, color));
+        self.changed |= removed.is_some();
+        removed
+    }
+
+    /// Records a change without changing anything, so that the portals are sent again. The
+    /// server uses it when it refuses a shot that a client may have predicted.
+    pub fn touch(&mut self) {
+        self.changed = true;
+    }
+
+    /// Whether the portals changed since the previous call.
+    pub fn take_changed(&mut self) -> bool {
+        std::mem::take(&mut self.changed)
     }
 
     pub fn get(&self, owner: PlayerId, color: PortalColor) -> Option<&Portal> {
@@ -369,6 +385,22 @@ mod tests {
         assert!(!portals.covers(IVec3::new(1, 12, 0), FaceDirection::MinusZ));
         assert!(!portals.covers(IVec3::new(2, 12, 0), FaceDirection::PlusZ));
         assert!(!portals.covers(IVec3::new(1, 13, 0), FaceDirection::PlusZ));
+    }
+
+    #[test]
+    fn inserting_removing_or_touching_the_portals_is_a_change() {
+        let mut portals = Portals::default();
+        assert!(!portals.take_changed());
+        portals.insert(portal(PortalColor::Blue, IVec3::ZERO, FaceDirection::PlusX));
+        assert!(portals.take_changed());
+        assert!(!portals.take_changed());
+        // Removing what is not there changes nothing
+        portals.remove(7, PortalColor::Orange);
+        assert!(!portals.take_changed());
+        portals.remove(7, PortalColor::Blue);
+        assert!(portals.take_changed());
+        portals.touch();
+        assert!(portals.take_changed());
     }
 
     #[test]

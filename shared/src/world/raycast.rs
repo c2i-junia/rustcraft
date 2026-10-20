@@ -44,8 +44,7 @@ pub struct RaycastResponse {
     pub bbox: Aabb3d,
 }
 
-/// The first block hit by the ray the player aims with. The ray follows the camera's
-/// direction; it starts at the camera in first person and at the player in third person.
+/// The first block hit by the ray the player aims with, `aim_ray`.
 pub fn raycast(
     world_map: &ChunkMap,
     camera_transform: &Transform,
@@ -85,16 +84,29 @@ fn cast(
     view_mode: ViewMode,
     sources: bool,
 ) -> Option<RaycastResponse> {
+    let (origin, direction) = aim_ray(camera_transform, player_position, view_mode);
+    traverse(world_map, origin, direction, sources)
+}
+
+/// The origin and the direction of the ray the player aims with. The ray follows the camera's
+/// direction; it starts at the camera in first person and at the player in third person.
+pub fn aim_ray(
+    camera_transform: &Transform,
+    player_position: &Vec3,
+    view_mode: ViewMode,
+) -> (Vec3, Vec3) {
     let origin = match view_mode {
         ViewMode::FirstPerson => camera_transform.translation,
         ViewMode::ThirdPerson => *player_position,
     };
     let direction = camera_transform.rotation.mul_vec3(Vec3::NEG_Z).normalize();
-    traverse(world_map, origin, direction, sources)
+    (origin, direction)
 }
 
-/// Maximum distance, in ray parameter units (blocks for a normalized direction), a ray travels.
-const MAX_RAY_DISTANCE: f32 = 20.0;
+/// Maximum distance, in ray parameter units (blocks for a normalized direction), a ray travels:
+/// beyond the reach of the portal gun, 32 blocks from the centre of the player to the centre
+/// of the aimed block, from eyes above that centre.
+const MAX_RAY_DISTANCE: f32 = 36.0;
 
 /// Largest absolute coordinate accepted for a ray origin. It keeps every integer of the
 /// traversal (`voxel`, `voxel + 1`, and the few thousand steps of a ray) far from `i32`

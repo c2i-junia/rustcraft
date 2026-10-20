@@ -4,9 +4,10 @@ use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{game_mode::MAX_HEALTH, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
-        furnace::smelting_result, global_block_to_chunk_pos, liquid::is_source, raycast, BlockData,
-        BlockDirection, BlockId, BlockTransparency, ChunkMap, Container, FaceDirectionExt, Furnace,
-        ItemId, ItemStack, ItemType, MobKind, RaycastResponse, ServerMob, Tool, ToolKind,
+        fit_portal, furnace::smelting_result, global_block_to_chunk_pos, liquid::is_source,
+        raycast, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap, Container,
+        FaceDirection, FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind,
+        PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -32,6 +33,8 @@ impl CallerType {
 
 /// How far from the centre of a block a player may break, place or use it.
 pub const INTERACTION_DISTANCE: f32 = 5.0;
+/// How far from the centre of the aimed block the portal gun shoots.
+pub const PORTAL_GUN_REACH: f32 = 32.0;
 /// Time the left button must be held on a block for one mining hit, a server tick.
 pub const HIT_MS: u64 = 50;
 /// Time between two blocks placed while the right button is held, four server ticks.
@@ -70,6 +73,10 @@ enum Refusal {
     NoSoil(BlockId),
     /// An empty bucket fills only from a water source.
     NotASource(BlockId),
+    /// A portal goes on a wall, not on a floor or a ceiling.
+    HorizontalFace,
+    /// No portal fits on the wall around the aimed cell.
+    NoRoom,
 }
 
 /// A refused interaction, and the block a client may have predicted a change at.
@@ -124,13 +131,33 @@ pub struct BlockInteractions {
 }
 
 /// Breaks and places the blocks `action` asks for, or uses a spawn egg or a bucket, and returns
-/// the blocks it broke, the mobs it made appear and what the player had no room for.
+/// the blocks it broke, the mobs it made appear and what the player had no room for. With the
+/// portal gun in the selected slot, it shoots portals instead.
 pub fn simulate_player_block_interactions(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) -> BlockInteractions {
+    let shots = portal_shots(player, action);
+    if held_item(player, action) == Some(ItemId::PortalGun) {
+        for color in shots {
+            let Err(reason) = shoot_portal(player, world_map, action, color) else {
+                continue;
+            };
+            log::debug!(
+                "{} Player {} could not shoot a {color:?} portal: {reason:?}",
+                caller_type.as_str(),
+                player.id,
+            );
+            // As for a block, the server sends the portals again to correct a prediction
+            if let CallerType::Server = caller_type {
+                world_map.portals_mut().touch();
+            }
+        }
+        return BlockInteractions::default();
+    }
+
     let mut broken = Vec::new();
     let mut spawned = Vec::new();
     let mut dropped = Vec::new();
@@ -254,12 +281,63 @@ pub fn aim(
     }
 }
 
-/// The block the player aims at with the item it holds, if it is within reach. An out of reach
-/// refusal names `predicted_at(target)` as the block to re-state.
+/// The colours the portal gun shoots in `action`, whatever the player holds: blue when the left
+/// button is down and was not in the previous input, orange likewise for the right one.
+fn portal_shots(player: &mut Player, action: &PlayerFrameInput) -> Vec<PortalColor> {
+    let held = [NetworkAction::LeftClick, NetworkAction::RightClick]
+        .map(|button| action.is_pressed(button));
+    let shots = [PortalColor::Blue, PortalColor::Orange]
+        .into_iter()
+        .zip(held.into_iter().zip(player.portal_triggers_held))
+        .filter(|(_, (now, before))| *now && !before)
+        .map(|(color, _)| color)
+        .collect();
+    player.portal_triggers_held = held;
+    shots
+}
+
+/// Puts the portal of colour `color` of the player where its shot hits a wall, `fit_portal`.
+fn shoot_portal(
+    player: &Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+    color: PortalColor,
+) -> Result<(), Refusal> {
+    let target = aimed_block(player, world_map, action, PORTAL_GUN_REACH, |target| {
+        target.position
+    })
+    .map_err(|refused| refused.reason)?;
+    if matches!(target.face, FaceDirection::PlusY | FaceDirection::MinusY) {
+        return Err(Refusal::HorizontalFace);
+    }
+    // The point where the ray meets the plane of the aimed face, which a wall block fills
+    let (origin, direction) = raycast::aim_ray(&action.camera, &player.position, action.view_mode);
+    let normal = target.face.to_ivec3();
+    let axis = normal.abs().max_position();
+    let plane = (target.position[axis] + normal[axis].max(0)) as f32;
+    let hit = origin + direction * (plane - origin[axis]) / direction[axis];
+
+    let portal = fit_portal(
+        world_map,
+        world_map.portals(),
+        player.id,
+        color,
+        target.position,
+        target.face,
+        hit,
+    )
+    .ok_or(Refusal::NoRoom)?;
+    world_map.portals_mut().insert(portal);
+    Ok(())
+}
+
+/// The block the player aims at with the item it holds, if it is within `reach` of its centre.
+/// An out of reach refusal names `predicted_at(target)` as the block to re-state.
 fn aimed_block(
     player: &Player,
     world_map: &ChunkMap,
     action: &PlayerFrameInput,
+    reach: f32,
     predicted_at: impl Fn(&RaycastResponse) -> IVec3,
 ) -> Result<RaycastResponse, Refused> {
     let target = aim(
@@ -275,7 +353,7 @@ fn aimed_block(
     })?;
 
     let distance = (target.position.as_vec3() + HALF_BLOCK).distance(player.position);
-    if distance > INTERACTION_DISTANCE {
+    if distance > reach {
         return Err(Refused::at(
             predicted_at(&target),
             Refusal::TooFar { distance },
@@ -294,12 +372,7 @@ pub fn held_item(player: &Player, action: &PlayerFrameInput) -> Option<ItemId> {
 
 /// The tool in the selected hotbar slot, if it holds one.
 fn held_tool(player: &Player, action: &PlayerFrameInput) -> Option<Tool> {
-    player
-        .inventory
-        .inner
-        .get(&action.hotbar_slot)?
-        .item_id
-        .tool()
+    held_item(player, action)?.tool()
 }
 
 /// `hits` hits on the aimed block: it breaks once it took as many hits as its break time, and is
@@ -312,7 +385,10 @@ fn break_block(
     action: &PlayerFrameInput,
     hits: u8,
 ) -> Result<Option<BrokenBlock>, Refused> {
-    let position = aimed_block(player, world_map, action, |target| target.position)?.position;
+    let position = aimed_block(player, world_map, action, INTERACTION_DISTANCE, |target| {
+        target.position
+    })?
+    .position;
 
     let Some(mut block) = world_map.get_block(position).copied() else {
         return Err(Refused::at(position, Refusal::NoTarget));
@@ -378,7 +454,9 @@ fn use_block(
     if action.is_pressed(NetworkAction::SneakOrFlyDown) {
         return false;
     }
-    let Ok(target) = aimed_block(player, world_map, action, |target| target.position) else {
+    let Ok(target) = aimed_block(player, world_map, action, INTERACTION_DISTANCE, |target| {
+        target.position
+    }) else {
         return false;
     };
     let (pos, block) = (target.position, target.block);
@@ -473,7 +551,13 @@ fn cell_against_aimed_face(
     action: &PlayerFrameInput,
 ) -> Result<(RaycastResponse, IVec3), Refused> {
     let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
-    let target = aimed_block(player, world_map, action, new_block_position)?;
+    let target = aimed_block(
+        player,
+        world_map,
+        action,
+        INTERACTION_DISTANCE,
+        new_block_position,
+    )?;
     refuse_used_block(world_map, &target, action)?;
     let position = new_block_position(&target);
 
@@ -602,7 +686,9 @@ fn fill_bucket(
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
 ) -> Result<Option<ItemStack>, Refused> {
-    let target = aimed_block(player, world_map, action, |target| target.position)?;
+    let target = aimed_block(player, world_map, action, INTERACTION_DISTANCE, |target| {
+        target.position
+    })?;
     refuse_used_block(world_map, &target, action)?;
     if !is_source(&target.block) {
         return Err(Refused::at(
@@ -686,7 +772,7 @@ fn block_overlaps_player(block_position: IVec3, player: &Player) -> bool {
 mod tests {
     use super::*;
     use crate::players::game_mode::GameMode;
-    use crate::world::{BlockId, Furnace, ItemId, ItemStack};
+    use crate::world::{BlockId, Furnace, ItemId, ItemStack, PortalColor};
     use bevy::math::IVec3;
     use bevy::prelude::Transform;
 
@@ -1668,6 +1754,194 @@ mod tests {
         }
         assert_eq!(world.get_block(IN_FRONT), Some(&water(0)));
         assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, 0);
+    }
+
+    /// A stone wall facing +Z, 8 wide and 4 high: x in 0..=7, y in 10..=13, z = 0.
+    fn gun_range() -> ChunkMap {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(-8, 0, -8), IVec3::new(16, 40, 48));
+        world.fill_box(IVec3::new(0, 10, 0), IVec3::new(7, 13, 0), BlockId::Stone);
+        world.take_changed_blocks();
+        world.portals_mut().take_changed();
+        world
+    }
+
+    /// A player holding the portal gun, its eyes `distance` blocks in front of the wall at
+    /// `(x, y)`, looking straight at it.
+    fn gunner(x: f32, y: f32, distance: f32) -> Player {
+        let position = Vec3::new(x, y, 1.0 + distance);
+        let camera = Transform::from_translation(position).looking_to(Vec3::NEG_Z, Vec3::Y);
+        let mut player = Player::new(1, "gunner".to_string(), position, camera);
+        player
+            .inventory
+            .inner
+            .insert(0, stack(ItemId::PortalGun, 1));
+        player
+    }
+
+    /// One input of `player`, pressing `buttons`, aiming as its camera does.
+    fn shoot(
+        player: &mut Player,
+        world: &mut ChunkMap,
+        buttons: &[NetworkAction],
+        caller_type: CallerType,
+    ) {
+        let input = PlayerFrameInput {
+            delta_ms: 16,
+            inputs: buttons.iter().cloned().collect(),
+            camera: player.camera_transform,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(player, world, &input, caller_type);
+    }
+
+    fn anchor(world: &ChunkMap, color: PortalColor) -> Option<IVec3> {
+        world.portals().get(1, color).map(|portal| portal.anchor)
+    }
+
+    #[test]
+    fn the_gun_shoots_blue_on_a_left_click_and_orange_on_a_right_click() {
+        let mut world = gun_range();
+        let mut player = gunner(1.9, 11.9, 5.0);
+        shoot(
+            &mut player,
+            &mut world,
+            &[NetworkAction::LeftClick],
+            CallerType::Server,
+        );
+        assert_eq!(
+            anchor(&world, PortalColor::Blue),
+            Some(IVec3::new(1, 10, 0))
+        );
+        assert_eq!(anchor(&world, PortalColor::Orange), None);
+        assert!(world.portals_mut().take_changed());
+
+        let mut player = gunner(5.9, 11.9, 5.0);
+        shoot(
+            &mut player,
+            &mut world,
+            &[NetworkAction::RightClick],
+            CallerType::Server,
+        );
+        assert_eq!(
+            anchor(&world, PortalColor::Orange),
+            Some(IVec3::new(5, 10, 0))
+        );
+        let blue = world.portals().get(1, PortalColor::Blue).unwrap();
+        assert!(world.portals().twin(blue).is_some());
+
+        // The gun neither mines the wall nor places a block in front of it
+        assert!(world.take_changed_blocks().is_empty());
+        assert_eq!(world.get_block(IVec3::new(5, 11, 1)), None);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    #[test]
+    fn the_gun_shoots_once_per_press() {
+        let mut world = gun_range();
+        let mut player = gunner(1.9, 11.9, 5.0);
+        let left = [NetworkAction::LeftClick];
+        shoot(&mut player, &mut world, &left, CallerType::Server);
+        world.portals_mut().remove(1, PortalColor::Blue);
+        for _ in 0..20 {
+            shoot(&mut player, &mut world, &left, CallerType::Server);
+        }
+        assert_eq!(anchor(&world, PortalColor::Blue), None);
+        shoot(&mut player, &mut world, &[], CallerType::Server);
+        shoot(&mut player, &mut world, &left, CallerType::Server);
+        assert_eq!(
+            anchor(&world, PortalColor::Blue),
+            Some(IVec3::new(1, 10, 0))
+        );
+    }
+
+    #[test]
+    fn taking_the_gun_while_a_button_is_held_shoots_nothing() {
+        let mut world = gun_range();
+        let mut player = gunner(1.9, 11.9, 5.0);
+        let gun = player.inventory.inner.remove(&0).unwrap();
+        let left = [NetworkAction::LeftClick];
+        shoot(&mut player, &mut world, &left, CallerType::Server);
+        player.inventory.inner.insert(0, gun);
+        shoot(&mut player, &mut world, &left, CallerType::Server);
+        assert_eq!(anchor(&world, PortalColor::Blue), None);
+    }
+
+    #[test]
+    fn shooting_a_colour_again_moves_its_portal() {
+        let mut world = gun_range();
+        let left = [NetworkAction::LeftClick];
+        shoot(
+            &mut gunner(1.9, 11.9, 5.0),
+            &mut world,
+            &left,
+            CallerType::Server,
+        );
+        shoot(
+            &mut gunner(5.9, 11.9, 5.0),
+            &mut world,
+            &left,
+            CallerType::Server,
+        );
+        assert_eq!(
+            anchor(&world, PortalColor::Blue),
+            Some(IVec3::new(5, 10, 0))
+        );
+        assert_eq!(world.portals().iter().count(), 1);
+    }
+
+    #[test]
+    fn the_gun_reaches_32_blocks() {
+        let left = [NetworkAction::LeftClick];
+        for (distance, placed) in [(30.0, true), (33.0, false)] {
+            let mut world = gun_range();
+            shoot(
+                &mut gunner(1.9, 11.9, distance),
+                &mut world,
+                &left,
+                CallerType::Server,
+            );
+            assert_eq!(
+                anchor(&world, PortalColor::Blue).is_some(),
+                placed,
+                "{distance}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_gun_places_no_portal_on_a_floor_or_a_ceiling() {
+        let mut world = gun_range();
+        let position = Vec3::new(1.5, 18.0, 0.5);
+        let camera = Transform::from_translation(position).looking_to(Vec3::NEG_Y, Vec3::Z);
+        let mut player = gunner(0.0, 0.0, 0.0);
+        player.position = position;
+        player.camera_transform = camera;
+        shoot(
+            &mut player,
+            &mut world,
+            &[NetworkAction::LeftClick],
+            CallerType::Server,
+        );
+        assert!(world.portals().is_empty());
+    }
+
+    #[test]
+    fn a_shot_refused_by_the_server_sends_the_portals_again_and_a_client_does_nothing() {
+        for (caller_type, sent) in [(CallerType::Server, true), (CallerType::Client, false)] {
+            let mut world = gun_range();
+            // The wall is too narrow there
+            let mut player = gunner(7.9, 13.9, 5.0);
+            world.fill_box(IVec3::new(6, 10, 0), IVec3::new(6, 13, 0), BlockId::Glass);
+            world.portals_mut().take_changed();
+            shoot(
+                &mut player,
+                &mut world,
+                &[NetworkAction::LeftClick],
+                caller_type,
+            );
+            assert!(world.portals().is_empty());
+            assert_eq!(world.portals_mut().take_changed(), sent, "{caller_type:?}");
+        }
     }
 }
 

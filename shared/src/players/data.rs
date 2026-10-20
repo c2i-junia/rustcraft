@@ -200,6 +200,10 @@ pub struct Player {
     /// Time the right button must still be held before the next block is placed, in ms.
     #[serde(skip)]
     pub place_wait_ms: u64,
+    /// Whether the left and the right button were down in the previous input: the portal gun
+    /// shoots once per press.
+    #[serde(skip)]
+    pub portal_triggers_held: [bool; 2],
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -299,6 +303,7 @@ impl Player {
             last_input_processed: 0,
             mining_carry_ms: 0,
             place_wait_ms: 0,
+            portal_triggers_held: [false; 2],
         }
     }
 }
