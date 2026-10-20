@@ -7,7 +7,10 @@ use bevy::{
 };
 use bevy_ecs::system::{Res, ResMut};
 use shared::{
-    players::constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
+    players::{
+        constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED},
+        movement::is_terrain_loaded,
+    },
     world::{ChunkMap, MobAction, MobTarget, ServerMob},
 };
 
@@ -44,6 +47,11 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
             },
         };
 
+        // A mob far from every player stays where it is: the chunks around it may be unloaded,
+        // and it would fall through them
+        if !is_terrain_loaded(mob.position, chunks) {
+            continue;
+        }
         let towards_target = (target - mob.position).normalize_or_zero();
         apply_gravity(mob, chunks, delta);
         match mob.action {
@@ -169,9 +177,13 @@ mod tests {
         }
     }
 
+    /// Runs a step of `mobs`, in the air of loaded chunks up to y = 63.
     fn run_behavior(mobs: Vec<ServerMob>) -> ServerWorldMap {
         let mut world = World::new();
-        let mut map = ServerWorldMap::default();
+        let mut map = ServerWorldMap {
+            chunks: ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(63)),
+            ..Default::default()
+        };
         map.mobs = mobs
             .into_iter()
             .enumerate()
@@ -197,6 +209,23 @@ mod tests {
     }
 
     #[test]
+    fn a_mob_over_chunks_that_are_not_loaded_stays_still() {
+        let position = Vec3::new(0.0, 50.0, 0.0);
+        let mob = mob_at(position, MobTarget::Position(Vec3::X * 10.0));
+        let mut world = World::new();
+        world.insert_resource(ServerWorldMap {
+            mobs: [(0, mob)].into(),
+            ..Default::default()
+        });
+        let mut time = Time::<Fixed>::default();
+        time.advance_by(tick());
+        world.insert_resource(time);
+        world.run_system_once(mob_behavior_system).unwrap();
+        let map = world.resource::<ServerWorldMap>();
+        assert_eq!(map.mobs[&0].position, position);
+    }
+
+    #[test]
     fn a_mob_targeting_an_absent_player_is_left_alone() {
         let position = Vec3::new(0.0, 50.0, 0.0);
         let map = run_behavior(vec![mob_at(position, MobTarget::Player(99))]);
@@ -215,7 +244,8 @@ mod tests {
     /// Flat stone ground (top face at y = 1) with an optional wall of stone at x = -2.
     fn ground_world(with_wall: bool) -> ServerWorldMap {
         let mut map = ServerWorldMap {
-            chunks: ChunkMap::with_loaded_region(IVec3::new(-10, 0, -10), IVec3::new(9, 3, 9)),
+            // The chunks below the ground too: a mob is not moved without them
+            chunks: ChunkMap::with_loaded_region(IVec3::new(-10, -16, -10), IVec3::new(9, 3, 9)),
             ..Default::default()
         };
         map.chunks
