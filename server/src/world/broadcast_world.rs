@@ -11,8 +11,8 @@ use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{
-    chunk_distance, global_block_to_chunk_pos, world_position_to_chunk_position, Chunk, ChunkMap,
-    MobId, ServerMob,
+    chunk_in_reach, global_block_to_chunk_pos, render_distance_offsets, vertical_render_distance,
+    world_position_to_chunk_position, Chunk, ChunkMap, MobId, ServerMob,
 };
 use shared::{game_message_to_payload, CHUNK_SIZE, STC_CHUNK_DATA_CHANNEL, UNLOAD_MARGIN};
 use std::collections::{HashMap, HashSet};
@@ -188,8 +188,8 @@ pub(super) fn world_messages_around<'a>(
     (unloads, updates, new_chunks)
 }
 
-/// The chunks of `sent` more than `render_distance + UNLOAD_MARGIN` chunks from
-/// `player_chunk`, in no order. They are removed from `sent`, so that they are sent again once
+/// The chunks of `sent` more than `UNLOAD_MARGIN` chunks beyond the reach of `render_distance`
+/// from `player_chunk`, in no order. They are removed from `sent`, so that they are sent again once
 /// the player comes back. The chunks of the margin are kept but never sent first: walking to
 /// and fro across a chunk border neither unloads nor sends anything. A lowered render
 /// distance unloads the same way.
@@ -200,7 +200,12 @@ fn take_chunks_to_unload(
 ) -> Vec<IVec3> {
     let mut unloads = Vec::new();
     sent.retain(|&chunk| {
-        let kept = chunk_distance(chunk, player_chunk) <= render_distance + UNLOAD_MARGIN;
+        let kept = chunk_in_reach(
+            chunk,
+            player_chunk,
+            render_distance + UNLOAD_MARGIN,
+            vertical_render_distance(render_distance) + UNLOAD_MARGIN,
+        );
         if !kept {
             unloads.push(chunk);
         }
@@ -280,29 +285,21 @@ pub fn get_all_active_chunks<'a>(
         .collect()
 }
 
+/// The chunks within `render_distance` of `player_chunk_position`, nearest first.
 fn get_player_nearby_chunks_coords(
     player_chunk_position: IVec3,
     render_distance: i32,
 ) -> Vec<IVec3> {
-    let mut chunks: Vec<IVec3> = Vec::new();
-    for x in -render_distance..=render_distance {
-        for y in -render_distance..=render_distance {
-            for z in -render_distance..=render_distance {
-                chunks.push(player_chunk_position + IVec3::new(x, y, z));
-            }
-        }
-    }
-
-    // let's sort by distance to player
-    chunks.sort_by_key(|&c| (c - player_chunk_position).length_squared());
-
-    chunks
+    render_distance_offsets(render_distance)
+        .iter()
+        .map(|&offset| player_chunk_position + offset)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::{BlockData, BlockDirection, BlockId};
+    use shared::world::{chunk_distance, BlockData, BlockDirection, BlockId};
 
     fn stone() -> BlockData {
         BlockData::new(BlockId::Stone, BlockDirection::Front)

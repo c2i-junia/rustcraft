@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
+
 use bevy::math::{IVec3, Vec3};
 
 use crate::CHUNK_SIZE;
@@ -42,6 +45,51 @@ pub fn global_block_to_chunk_pos(global_block_pos: &IVec3) -> IVec3 {
 /// chunks within `d` of a chunk form a cube of side `2d + 1` around it.
 pub fn chunk_distance(a: IVec3, b: IVec3) -> i32 {
     (a - b).abs().max_element()
+}
+
+/// How far above and below its player a render distance reaches, at most, in chunks: the ground
+/// lies within a few chunks of height, so a larger render distance only reaches farther along x
+/// and z. The chunks within 8 reach 128 blocks above and below the player.
+pub const MAX_VERTICAL_RENDER_DISTANCE: i32 = 8;
+
+/// How far above and below its player the render distance `distance` reaches, in chunks.
+pub fn vertical_render_distance(distance: i32) -> i32 {
+    distance.min(MAX_VERTICAL_RENDER_DISTANCE)
+}
+
+/// Whether `chunk` is within `horizontal` chunks of `center` along x and z, and within
+/// `vertical` chunks along y.
+pub fn chunk_in_reach(chunk: IVec3, center: IVec3, horizontal: i32, vertical: i32) -> bool {
+    let gap = (chunk - center).abs();
+    gap.x.max(gap.z) <= horizontal && gap.y <= vertical
+}
+
+/// Whether `chunk` is within the render distance `distance` of the chunk `center`.
+pub fn within_render_distance(chunk: IVec3, center: IVec3, distance: i32) -> bool {
+    chunk_in_reach(chunk, center, distance, vertical_render_distance(distance))
+}
+
+/// The offsets from its centre of the chunks within the render distance `distance`, nearest
+/// first. Each distance is computed once: there are 70 000 of them at 32.
+pub fn render_distance_offsets(distance: i32) -> Arc<[IVec3]> {
+    static OFFSETS: LazyLock<Mutex<HashMap<i32, Arc<[IVec3]>>>> = LazyLock::new(Default::default);
+    let mut offsets = OFFSETS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    offsets
+        .entry(distance)
+        .or_insert_with(|| {
+            let vertical = vertical_render_distance(distance);
+            let mut chunks: Vec<IVec3> = (-distance..=distance)
+                .flat_map(|x| {
+                    (-vertical..=vertical)
+                        .flat_map(move |y| (-distance..=distance).map(move |z| IVec3::new(x, y, z)))
+                })
+                .collect();
+            chunks.sort_by_key(|c| c.length_squared());
+            chunks.into()
+        })
+        .clone()
 }
 
 pub const SIX_OFFSETS: [IVec3; 6] = [
@@ -129,6 +177,34 @@ mod tests {
             global_block_to_chunk_pos(&IVec3::new(15, -1, -16)),
             IVec3::new(0, -1, -1)
         );
+    }
+
+    #[test]
+    fn a_render_distance_reaches_as_far_along_x_and_z_but_at_most_8_along_y() {
+        for distance in [1, 3, 8, 12] {
+            let offsets = render_distance_offsets(distance);
+            let vertical = distance.min(8);
+            let side = 2 * distance + 1;
+            assert_eq!(offsets.len() as i32, side * side * (2 * vertical + 1));
+            assert!(offsets
+                .iter()
+                .all(|&c| within_render_distance(c, IVec3::ZERO, distance)));
+            assert!(offsets.contains(&IVec3::new(distance, vertical, -distance)));
+            assert!(!within_render_distance(
+                IVec3::new(0, vertical + 1, 0),
+                IVec3::ZERO,
+                distance
+            ));
+            assert!(!within_render_distance(
+                IVec3::new(distance + 1, 0, 0),
+                IVec3::ZERO,
+                distance
+            ));
+            assert!(offsets
+                .windows(2)
+                .all(|pair| pair[0].length_squared() <= pair[1].length_squared()));
+        }
+        assert_eq!(render_distance_offsets(2)[0], IVec3::ZERO);
     }
 
     #[test]
