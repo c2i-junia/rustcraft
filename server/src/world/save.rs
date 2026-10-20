@@ -346,7 +346,7 @@ mod tests {
             let tmp = tempfile::tempdir().unwrap();
             let chunks_dir = tmp.path().join(CHUNKS_DIR);
             std::fs::create_dir_all(&chunks_dir).unwrap();
-            let squatter = chunks_dir.join("0_0_0.bin.tmp");
+            let squatter = chunks_dir.join("0_0_0.region.tmp");
             std::fs::create_dir(&squatter).unwrap();
             let mut map = world_map(1);
             map.dirty_chunks.insert(IVec3::ZERO);

@@ -383,7 +383,8 @@ A world is a folder under `saves/`:
 | Path | Content | Written by |
 |------|---------|------------|
 | `world.ron` | Name, seed, time, mobs and the format version | the writer thread |
-| `chunks/<x>_<y>_<z>.bin` | One chunk, encoded like a network message | the writer thread |
+| `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
+| `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
 | `players/<id>.ron` | Position, orientation and inventory of one player | the writer thread |
 
@@ -391,12 +392,13 @@ Every file is written to a temporary file and renamed, so a crash never leaves a
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out
 of the tick. It writes the files of a save aside on 8 threads, syncs them all at once (one
 `syncfs` on Linux, where syncing each file costs milliseconds; a save of 16 files or fewer syncs
-each of them instead), then puts them in place, the metadata first. Only the changed chunks are written, with the file of their chests, which is
+each of them instead), then puts them in place, the metadata first. Only the changed chunks are written, into their regions, which keep the other chunks they held, with the file of their chests, which is
 removed once they hold none (`world/container_files.rs`). Worlds saved by older versions are converted
 on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
 `chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,
 `world/load_from_file.rs`). Format version 2 differs from 3 only by having no `containers/`,
-and 3 from 4 only by writing a chunk cell by cell: both load as they are.
+3 from 4 only by writing a chunk cell by cell, and 4 from 5 only by a file per chunk: all load
+as they are.
 
 The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
 `world.ron` when a world is created, so that the world is listed at once; a rename renames the

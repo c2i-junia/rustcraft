@@ -1,8 +1,12 @@
-//! One file per chunk, `chunks/<x>_<y>_<z>.bin` in the folder of a world, holding the chunk
-//! encoded like a network message: bincode, then lz4.
+//! The chunks of a world, in its folder `chunks`: each encoded like a network message, bincode
+//! then lz4. A save writes them by regions of `REGION_SIZE^3` chunks, a file each,
+//! `<x>_<y>_<z>.region`: creating a file costs far more than writing it, and a large render
+//! distance saves tens of thousands of chunks. Worlds saved before have a file per chunk,
+//! `<x>_<y>_<z>.bin`, still read for the chunks their regions do not hold.
 
 use std::collections::HashMap;
-use std::io;
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use bevy::{
@@ -11,7 +15,7 @@ use bevy::{
 };
 use shared::{game_message_to_payload, payload_to_game_message, world::Chunk, CHUNK_SIZE};
 
-use super::format::{write_atomically, write_pending, PendingFile, TEMPORARY_SUFFIX};
+use super::format::{commit, write_atomically, write_pending, PendingFile, TEMPORARY_SUFFIX};
 
 /// Name of the folder of a world that holds its chunk files.
 pub const CHUNKS_DIR: &str = "chunks";
@@ -26,6 +30,163 @@ const MAX_CHUNK_FILE_SIZE: u64 = {
     let raw = (CHUNK_SIZE as u64).pow(3) * MAX_ENCODED_CELL_BYTES;
     raw + raw / 255 + 16 + 4
 };
+
+/// Chunks along each side of a region.
+pub const REGION_SIZE: i32 = 8;
+
+/// Chunks of a region.
+const REGION_SLOTS: usize = (REGION_SIZE * REGION_SIZE * REGION_SIZE) as usize;
+
+/// What a region file starts with, before its index.
+const REGION_MAGIC: &[u8; 4] = b"RCR1";
+
+/// The bytes of a region file before the chunks: the magic, then for each slot (`region_slot`)
+/// where its chunk starts in the file and how many bytes it takes, both little-endian `u32`, 0
+/// bytes for a chunk the region does not hold.
+const REGION_HEADER_BYTES: usize = REGION_MAGIC.len() + REGION_SLOTS * 8;
+
+/// The region of the chunk at `chunk_pos`.
+pub fn region_of(chunk_pos: IVec3) -> IVec3 {
+    chunk_pos.div_euclid(IVec3::splat(REGION_SIZE))
+}
+
+/// The place of the chunk at `chunk_pos` in the index of its region.
+fn region_slot(chunk_pos: IVec3) -> usize {
+    let local = chunk_pos.rem_euclid(IVec3::splat(REGION_SIZE));
+    ((local.x * REGION_SIZE + local.y) * REGION_SIZE + local.z) as usize
+}
+
+/// `-1_4_0.region` for the region at (-1, 4, 0).
+pub fn region_file_name(region: IVec3) -> String {
+    format!("{}_{}_{}.region", region.x, region.y, region.z)
+}
+
+/// Whether `name` is a name `region_file_name` writes.
+fn is_region_file_name(name: &str) -> bool {
+    name.strip_suffix(".region")
+        .and_then(|stem| parse_chunk_file_name(&format!("{stem}.bin")))
+        .is_some_and(|region| region_file_name(region) == name)
+}
+
+/// The encoded chunks of the region file at `path`, by slot. A region that has no file holds
+/// none. A file is not trusted: one whose index does not fit it, or that holds a chunk larger
+/// than any valid one, is an error.
+fn read_region(path: &Path) -> io::Result<Vec<Option<Vec<u8>>>> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(vec![None; REGION_SLOTS]),
+        Err(err) => return Err(err),
+    };
+    let entries = read_region_index(&mut file)?;
+    entries
+        .into_iter()
+        .map(|entry| {
+            entry
+                .map(|entry| read_region_entry(&mut file, entry))
+                .transpose()
+        })
+        .collect()
+}
+
+/// The encoded chunk at `slot` of the region file at `path`, `None` when the region has no
+/// file or does not hold it.
+fn read_region_slot(path: &Path, slot: usize) -> io::Result<Option<Vec<u8>>> {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err),
+    };
+    let entry = read_region_index(&mut file)?[slot];
+    entry
+        .map(|entry| read_region_entry(&mut file, entry))
+        .transpose()
+}
+
+/// Where each chunk of a region file starts and how long it is, checked against the size of
+/// the file.
+fn read_region_index(file: &mut File) -> io::Result<Vec<Option<(u64, u64)>>> {
+    let invalid = |what: String| io::Error::new(io::ErrorKind::InvalidData, what);
+    let size = file.metadata()?.len();
+    let mut header = vec![0; REGION_HEADER_BYTES];
+    file.read_exact(&mut header)
+        .map_err(|_| invalid(format!("{size} bytes, shorter than the index of a region")))?;
+    if &header[..REGION_MAGIC.len()] != REGION_MAGIC {
+        return Err(invalid("not a region file".into()));
+    }
+    header[REGION_MAGIC.len()..]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|entry| {
+            let [offset, len] = [&entry[..4], &entry[4..]]
+                .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()) as u64);
+            match len {
+                0 => Ok(None),
+                _ if len > MAX_CHUNK_FILE_SIZE || offset + len > size => Err(invalid(format!(
+                    "a chunk of {len} bytes at {offset} in a file of {size}"
+                ))),
+                _ => Ok(Some((offset, len))),
+            }
+        })
+        .collect()
+}
+
+fn read_region_entry(file: &mut File, (offset, len): (u64, u64)) -> io::Result<Vec<u8>> {
+    let mut bytes = vec![0; len as usize];
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// The region file of `slots`, the encoded chunk of each slot of the region.
+fn encode_region(slots: &[Option<Vec<u8>>]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(
+        REGION_HEADER_BYTES + slots.iter().flatten().map(Vec::len).sum::<usize>(),
+    );
+    bytes.extend_from_slice(REGION_MAGIC);
+    let mut offset = REGION_HEADER_BYTES;
+    for slot in slots {
+        let len = slot.as_ref().map_or(0, Vec::len);
+        bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+        bytes.extend_from_slice(&(len as u32).to_le_bytes());
+        offset += len;
+    }
+    for slot in slots.iter().flatten() {
+        bytes.extend_from_slice(slot);
+    }
+    bytes
+}
+
+/// Writes the file of the region `region` into `chunks_dir`, to be committed: the chunks it
+/// held, with those of `chunks` in their place. A region file that cannot be read is logged
+/// and written again with `chunks` only.
+pub fn write_region_pending<'a>(
+    chunks_dir: &Path,
+    region: IVec3,
+    chunks: impl IntoIterator<Item = (IVec3, &'a Chunk)>,
+) -> io::Result<PendingFile> {
+    let path = chunks_dir.join(region_file_name(region));
+    let mut slots = read_region(&path).unwrap_or_else(|err| {
+        warn!(
+            "Writing the unreadable file {} again without the chunks it held: {err}",
+            path.display()
+        );
+        vec![None; REGION_SLOTS]
+    });
+    for (chunk_pos, chunk) in chunks {
+        debug_assert_eq!(region_of(chunk_pos), region);
+        slots[region_slot(chunk_pos)] = Some(encode_chunk(chunk));
+    }
+    write_pending(&path, &encode_region(&slots))
+}
+
+/// Writes the chunk at `chunk_pos` into its region in `chunks_dir`, atomically.
+pub fn write_chunk_in_region(chunks_dir: &Path, chunk_pos: IVec3, chunk: &Chunk) -> io::Result<()> {
+    let file = write_region_pending(chunks_dir, region_of(chunk_pos), [(chunk_pos, chunk)])?;
+    commit(chunks_dir, vec![file])
+        .pop()
+        .expect("one result per file")
+}
 
 /// `-1_4_0.bin` for the chunk at (-1, 4, 0).
 pub fn chunk_file_name(chunk_pos: IVec3) -> String {
@@ -64,18 +225,6 @@ pub fn write_chunk(chunks_dir: &Path, chunk_pos: IVec3, chunk: &Chunk) -> io::Re
     )
 }
 
-/// Writes the file of the chunk at `chunk_pos` into `chunks_dir`, to be committed.
-pub fn write_chunk_pending(
-    chunks_dir: &Path,
-    chunk_pos: IVec3,
-    chunk: &Chunk,
-) -> io::Result<PendingFile> {
-    write_pending(
-        &chunks_dir.join(chunk_file_name(chunk_pos)),
-        &encode_chunk(chunk),
-    )
-}
-
 /// Whether `chunks_dir` holds at least one file named like a chunk file.
 pub fn has_chunk_files(chunks_dir: &Path) -> io::Result<bool> {
     let entries = match std::fs::read_dir(chunks_dir) {
@@ -87,8 +236,7 @@ pub fn has_chunk_files(chunks_dir: &Path) -> io::Result<bool> {
         if entry?
             .file_name()
             .to_str()
-            .and_then(parse_chunk_file_name)
-            .is_some()
+            .is_some_and(|name| parse_chunk_file_name(name).is_some() || is_region_file_name(name))
         {
             return Ok(true);
         }
@@ -101,14 +249,59 @@ pub fn has_chunk_files(chunks_dir: &Path) -> io::Result<bool> {
 /// logged and skipped: the chunk it stood for is generated again. The temporary file of an
 /// interrupted write (a chunk file name plus `.tmp`) is deleted. Only a folder that cannot
 /// be listed is an error.
+/// The chunks of the regions, read the same way, take the place of those of their own files.
 #[cfg(test)]
 pub fn read_chunks(chunks_dir: &Path) -> io::Result<HashMap<IVec3, Chunk>> {
-    read_chunks_with(chunks_dir, decode_chunk)
+    let mut chunks = read_chunks_with(chunks_dir, decode_chunk)?;
+    let Ok(entries) = std::fs::read_dir(chunks_dir) else {
+        return Ok(chunks);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(region) = name
+            .to_str()
+            .filter(|name| is_region_file_name(name))
+            .and_then(|name| parse_chunk_file_name(&name.replace(".region", ".bin")))
+        else {
+            continue;
+        };
+        let Ok(slots) = read_region(&entry.path()) else {
+            continue;
+        };
+        for (slot, bytes) in slots.into_iter().enumerate() {
+            let local = IVec3::new(
+                slot as i32 / (REGION_SIZE * REGION_SIZE),
+                slot as i32 / REGION_SIZE % REGION_SIZE,
+                slot as i32 % REGION_SIZE,
+            );
+            if let Some(chunk) = bytes.and_then(|bytes| decode_chunk(&bytes).ok()) {
+                chunks.insert(region * REGION_SIZE + local, chunk);
+            }
+        }
+    }
+    Ok(chunks)
 }
 
-/// Reads the file of the chunk at `chunk_pos` in `chunks_dir`, or `None` when it has none. A
-/// file that cannot be read or decoded is logged and skipped, as by `read_chunks`.
+/// Reads the chunk at `chunk_pos` in `chunks_dir` from its region, else from its own file, or
+/// `None` when neither holds it. A file that cannot be read or decoded is logged and skipped,
+/// as by `read_chunks`.
 pub fn read_chunk(chunks_dir: &Path, chunk_pos: IVec3) -> Option<Chunk> {
+    let region = chunks_dir.join(region_file_name(region_of(chunk_pos)));
+    match read_region_slot(&region, region_slot(chunk_pos))
+        .map_err(|err| err.to_string())
+        .and_then(|bytes| bytes.map(|bytes| decode_chunk(&bytes)).transpose())
+    {
+        Ok(Some(chunk)) => return Some(chunk),
+        Ok(None) => {}
+        Err(err) => {
+            warn!(
+                "Skipping the chunk {chunk_pos} of the unreadable file {}, it will be generated \
+                 again: {err}",
+                region.display()
+            );
+            return None;
+        }
+    }
     read_file_of_chunk(
         chunks_dir,
         chunk_pos,
@@ -154,7 +347,7 @@ pub fn remove_interrupted_writes(dir: &Path) {
             .file_name()
             .to_str()
             .and_then(|name| name.strip_suffix(TEMPORARY_SUFFIX))
-            .is_some_and(|name| parse_chunk_file_name(name).is_some());
+            .is_some_and(|name| parse_chunk_file_name(name).is_some() || is_region_file_name(name));
         if is_orphan && path.is_file() {
             match std::fs::remove_file(&path) {
                 Ok(()) => debug!(
@@ -206,6 +399,9 @@ pub(super) fn read_files_named_by_chunk<T>(
         };
         let path = entry.path();
         let name = entry.file_name();
+        if name.to_str().is_some_and(is_region_file_name) {
+            continue;
+        }
         let Some(chunk_pos) = name.to_str().and_then(parse_chunk_file_name) else {
             let is_orphan = name
                 .to_str()
@@ -477,6 +673,92 @@ mod tests {
         assert!(!has_chunk_files(tmp.path()).unwrap());
         std::fs::write(tmp.path().join("0_0_0.bin"), b"x").unwrap();
         assert!(has_chunk_files(tmp.path()).unwrap());
+    }
+
+    #[test]
+    fn chunks_are_written_in_their_regions_and_read_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let first = IVec3::new(-1, 4, 0);
+        let same_region = IVec3::new(-8, 0, 7);
+        let other_region = IVec3::new(8, 0, 0);
+        assert_eq!(region_of(first), region_of(same_region));
+        assert_ne!(region_of(first), region_of(other_region));
+        let chunk = sample_chunk();
+        write_chunk_in_region(tmp.path(), first, &chunk).unwrap();
+        write_chunk_in_region(tmp.path(), same_region, &Chunk::new()).unwrap();
+        write_chunk_in_region(tmp.path(), other_region, &chunk).unwrap();
+
+        // Writing a chunk keeps the others of its region
+        assert_eq!(read_chunk(tmp.path(), first), Some(chunk.clone()));
+        assert_eq!(read_chunk(tmp.path(), same_region), Some(Chunk::new()));
+        assert_eq!(read_chunk(tmp.path(), other_region), Some(chunk));
+        assert_eq!(read_chunk(tmp.path(), IVec3::new(-1, 4, 1)), None);
+        let mut files: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        files.sort();
+        assert_eq!(files, vec!["-1_0_0.region", "1_0_0.region"]);
+        assert!(has_chunk_files(tmp.path()).unwrap());
+    }
+
+    #[test]
+    fn a_chunk_its_region_does_not_hold_is_read_from_its_own_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = IVec3::new(1, 2, 3);
+        let both = IVec3::new(1, 2, 4);
+        write_chunk(tmp.path(), legacy, &sample_chunk()).unwrap();
+        write_chunk(tmp.path(), both, &sample_chunk()).unwrap();
+        write_chunk_in_region(tmp.path(), both, &Chunk::new()).unwrap();
+
+        assert_eq!(read_chunk(tmp.path(), legacy), Some(sample_chunk()));
+        // The region was written after the file of the chunk
+        assert_eq!(read_chunk(tmp.path(), both), Some(Chunk::new()));
+    }
+
+    #[test]
+    fn a_damaged_region_is_skipped_and_written_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(region_file_name(IVec3::ZERO));
+        write_chunk_in_region(tmp.path(), IVec3::ZERO, &sample_chunk()).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        for damaged in [
+            bytes[..REGION_HEADER_BYTES - 1].to_vec(),
+            [b"XXXX".as_slice(), &bytes[4..]].concat(),
+            bytes[..bytes.len() - 1].to_vec(),
+        ] {
+            std::fs::write(&path, damaged).unwrap();
+            assert_eq!(read_chunk(tmp.path(), IVec3::ZERO), None);
+        }
+        write_chunk_in_region(tmp.path(), IVec3::X, &sample_chunk()).unwrap();
+        assert_eq!(read_chunk(tmp.path(), IVec3::X), Some(sample_chunk()));
+        assert_eq!(read_chunk(tmp.path(), IVec3::ZERO), None);
+    }
+
+    #[test]
+    fn the_leftover_of_an_interrupted_region_write_is_deleted() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_chunk_in_region(tmp.path(), IVec3::ZERO, &sample_chunk()).unwrap();
+        std::fs::write(tmp.path().join("0_0_0.region.tmp"), b"partial").unwrap();
+        std::fs::write(tmp.path().join("notes.region.tmp"), b"mine").unwrap();
+        remove_interrupted_writes(tmp.path());
+
+        assert!(!tmp.path().join("0_0_0.region.tmp").exists());
+        assert!(tmp.path().join("notes.region.tmp").exists());
+        assert_eq!(read_chunk(tmp.path(), IVec3::ZERO), Some(sample_chunk()));
+    }
+
+    #[test]
+    fn region_file_names_are_told_from_others() {
+        assert!(is_region_file_name("-1_4_0.region"));
+        for name in [
+            "0_0.region",
+            "+1_0_0.region",
+            "0_0_0.region.tmp",
+            "0_0_0.bin",
+        ] {
+            assert!(!is_region_file_name(name), "{name}");
+        }
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! that saving them never makes the tick wait for the disk. The tick thread hands it snapshots through a channel and the thread writes them in
 //! order. Dropping the writer waits for everything queued to be written.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -18,7 +19,8 @@ use shared::world::Chunk;
 use shared::SaveCounter;
 
 use super::chunk_files::{
-    chunk_file_name, remove_interrupted_writes, write_chunk_pending, CHUNKS_DIR,
+    chunk_file_name, region_file_name, region_of, remove_interrupted_writes, write_region_pending,
+    CHUNKS_DIR,
 };
 use super::container_files::{
     remove_containers, write_containers_pending, ChunkContainers, CONTAINERS_DIR,
@@ -53,23 +55,25 @@ impl JobOutcome {
     }
 }
 
-/// How many threads encode and write the files of the chunks of a job.
+/// How many threads encode and write the files of the regions of a job.
 const WRITER_THREADS: usize = 8;
 
-/// The files of a chunk written to be committed, and whether the file of its chests is to be
-/// removed once they are committed.
-struct ChunkFiles {
-    chunk_pos: IVec3,
-    files: Vec<PendingFile>,
-    remove_containers: bool,
+/// The files of the chunks of a region written to be committed: the region's, and those of
+/// the chests of its chunks. The chunks whose chests no file holds any more have the file of
+/// their chests removed once they are committed.
+struct RegionFiles {
+    files: Vec<(Owner, PendingFile)>,
+    without_containers: Vec<IVec3>,
 }
 
 /// Whose a file of a job is.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Owner {
     Meta,
     Player,
+    /// The chests of a chunk.
     Chunk(IVec3),
+    Region(Vec<IVec3>),
 }
 
 /// Writes `job` into the folder `world_dir`. Every file is written aside, then all are synced
@@ -107,68 +111,60 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
 
     let total = job.chunks.len();
     let containers_dir = world_dir.join(CONTAINERS_DIR);
+    let mut by_region: HashMap<IVec3, Vec<&(IVec3, Chunk, ChunkContainers)>> = HashMap::new();
+    for chunk in &job.chunks {
+        by_region.entry(region_of(chunk.0)).or_default().push(chunk);
+    }
+    let regions: Vec<_> = by_region.into_iter().collect();
     let mut failed = Vec::new();
     let mut written = Vec::new();
-    let per_thread = total.div_ceil(WRITER_THREADS).max(1);
+    let per_thread = regions.len().div_ceil(WRITER_THREADS).max(1);
     std::thread::scope(|scope| {
-        let threads: Vec<_> = job
-            .chunks
+        let threads: Vec<_> = regions
             .chunks(per_thread)
             .map(|part| {
                 let (chunks_dir, containers_dir) = (&chunks_dir, &containers_dir);
                 scope.spawn(move || {
                     part.iter()
-                        .map(|(chunk_pos, chunk, containers)| {
-                            write_chunk_files(
-                                chunks_dir,
-                                containers_dir,
-                                *chunk_pos,
-                                chunk,
-                                containers,
-                            )
-                            .ok_or(*chunk_pos)
+                        .map(|(region, chunks)| {
+                            write_region_files(chunks_dir, containers_dir, *region, chunks)
                         })
                         .collect::<Vec<_>>()
                 })
             })
             .collect();
         for thread in threads {
-            for files in thread.join().expect("writing the files of chunks panicked") {
-                match files {
-                    Ok(files) => written.push(files),
-                    Err(chunk_pos) => failed.push(chunk_pos),
-                }
+            for (files, region_failed) in
+                thread.join().expect("writing the files of chunks panicked")
+            {
+                written.extend(files);
+                failed.extend(region_failed);
             }
         }
     });
 
-    for chunk in &mut written {
-        let chunk_pos = chunk.chunk_pos;
-        head.extend(
-            chunk
-                .files
-                .drain(..)
-                .map(|file| (Owner::Chunk(chunk_pos), file)),
-        );
+    for region in &mut written {
+        head.append(&mut region.files);
     }
     let (meta_written, failed_chunks) = commit_owned(world_dir, head);
     failed.extend(failed_chunks);
     // Once the chunk without a chest is in place: a crash before leaves the chest it had,
     // still with its contents
-    for chunk in written {
-        if !chunk.remove_containers || failed.contains(&chunk.chunk_pos) {
-            continue;
-        }
-        if let Err(err) = remove_containers(&containers_dir, chunk.chunk_pos) {
-            error!(
-                "Failed to write {}: {err}",
-                containers_dir
-                    .join(chunk_file_name(chunk.chunk_pos))
-                    .display()
-            );
-            failed.push(chunk.chunk_pos);
+    for region in written {
+        for chunk_pos in region.without_containers {
+            if failed.contains(&chunk_pos) {
+                continue;
+            }
+            if let Err(err) = remove_containers(&containers_dir, chunk_pos) {
+                error!(
+                    "Failed to write {}: {err}",
+                    containers_dir.join(chunk_file_name(chunk_pos)).display()
+                );
+                failed.push(chunk_pos);
+            }
         }
     }
+    failed.sort_by_key(|pos| (pos.x, pos.y, pos.z));
     failed.dedup();
     info!(
         "World [{}] saved: {} of {total} chunks written",
@@ -201,8 +197,10 @@ fn commit_owned(
             (Owner::Meta, Ok(())) => meta_written = true,
             (owner, Err(err)) => {
                 error!("Failed to write {}: {err}", path.display());
-                if let Owner::Chunk(chunk_pos) = owner {
-                    failed.push(chunk_pos);
+                match owner {
+                    Owner::Chunk(chunk_pos) => failed.push(chunk_pos),
+                    Owner::Region(chunks) => failed.extend(chunks),
+                    Owner::Meta | Owner::Player => {}
                 }
             }
             (_, Ok(())) => {}
@@ -211,41 +209,61 @@ fn commit_owned(
     (meta_written, failed)
 }
 
-/// Writes the files of one chunk aside, `None` when one of them failed, which is logged.
-fn write_chunk_files(
+/// Writes the files of the chunks of `region` aside: the file of the region, and that of the
+/// chests of each chunk that has some. A chunk whose chests could not be written is left out of
+/// the region, which keeps what it held of it. The files, and the chunks not written, each
+/// failure being logged.
+fn write_region_files(
     chunks_dir: &std::path::Path,
     containers_dir: &std::path::Path,
-    chunk_pos: IVec3,
-    chunk: &Chunk,
-    containers: &ChunkContainers,
-) -> Option<ChunkFiles> {
-    let chunk_file = write_chunk_pending(chunks_dir, chunk_pos, chunk)
-        .inspect_err(|err| {
+    region: IVec3,
+    chunks: &[&(IVec3, Chunk, ChunkContainers)],
+) -> (Option<RegionFiles>, Vec<IVec3>) {
+    let mut files = Vec::new();
+    let mut failed = Vec::new();
+    let mut without_containers = Vec::new();
+    let mut in_region = Vec::new();
+    for (chunk_pos, chunk, containers) in chunks.iter().copied() {
+        // The folder only exists in a world that has had a chest
+        if containers.is_empty() {
+            without_containers.push(*chunk_pos);
+        } else {
+            match std::fs::create_dir_all(containers_dir)
+                .and_then(|()| write_containers_pending(containers_dir, *chunk_pos, containers))
+            {
+                Ok(file) => files.push((Owner::Chunk(*chunk_pos), file)),
+                Err(err) => {
+                    error!(
+                        "Failed to write {}: {err}",
+                        containers_dir.join(chunk_file_name(*chunk_pos)).display()
+                    );
+                    failed.push(*chunk_pos);
+                    continue;
+                }
+            }
+        }
+        in_region.push((*chunk_pos, chunk));
+    }
+    let positions: Vec<IVec3> = in_region.iter().map(|(pos, _)| *pos).collect();
+    match write_region_pending(chunks_dir, region, in_region) {
+        Ok(file) => files.insert(0, (Owner::Region(positions), file)),
+        Err(err) => {
             error!(
                 "Failed to write {}: {err}",
-                chunks_dir.join(chunk_file_name(chunk_pos)).display()
+                chunks_dir.join(region_file_name(region)).display()
             );
-        })
-        .ok()?;
-    let mut files = vec![chunk_file];
-    // The folder only exists in a world that has had a chest
-    if !containers.is_empty() {
-        let containers_file = std::fs::create_dir_all(containers_dir)
-            .and_then(|()| write_containers_pending(containers_dir, chunk_pos, containers))
-            .inspect_err(|err| {
-                error!(
-                    "Failed to write {}: {err}",
-                    containers_dir.join(chunk_file_name(chunk_pos)).display()
-                );
-            })
-            .ok()?;
-        files.push(containers_file);
+            // The chests are not put in place without their chunks
+            failed.extend(positions);
+            return (None, failed);
+        }
     }
-    Some(ChunkFiles {
-        chunk_pos,
-        files,
-        remove_containers: containers.is_empty(),
-    })
+    (
+        Some(RegionFiles {
+            files,
+            without_containers,
+        }),
+        failed,
+    )
 }
 
 #[derive(Resource)]
@@ -367,7 +385,7 @@ impl Drop for WorldWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::chunk_files::read_chunks;
+    use crate::world::chunk_files::{read_chunks, REGION_SIZE};
     use shared::world::{BlockData, BlockDirection, BlockId};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
@@ -515,11 +533,13 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let chunks_dir = tmp.path().join(CHUNKS_DIR);
         std::fs::create_dir_all(&chunks_dir).unwrap();
-        // A directory squatting on the temporary name makes this chunk's write fail
-        std::fs::create_dir(chunks_dir.join("0_0_0.bin.tmp")).unwrap();
+        // A directory squatting on the temporary name makes the write of this chunk's region
+        // fail, and only that one's
+        std::fs::create_dir(chunks_dir.join("0_0_0.region.tmp")).unwrap();
         let writer = WorldWriter::spawn(tmp.path().to_path_buf(), None).unwrap();
+        let elsewhere = IVec3::X * REGION_SIZE;
 
-        assert!(writer.submit(job(&[IVec3::ZERO, IVec3::X])).is_ok());
+        assert!(writer.submit(job(&[IVec3::ZERO, elsewhere])).is_ok());
         let start = Instant::now();
         let failed = loop {
             let failed = writer.take_failed_chunks();
@@ -532,7 +552,7 @@ mod tests {
 
         assert_eq!(failed, vec![IVec3::ZERO]);
         let written = read_chunks(&chunks_dir).unwrap();
-        assert_eq!(written.keys().copied().collect::<Vec<_>>(), vec![IVec3::X]);
+        assert_eq!(written.keys().copied().collect::<Vec<_>>(), vec![elsewhere]);
     }
 
     #[test]
@@ -550,7 +570,7 @@ mod tests {
         }
 
         // A directory squatting on the temporary name makes this chunk's write fail
-        std::fs::create_dir(tmp.path().join(CHUNKS_DIR).join("0_0_0.bin.tmp")).unwrap();
+        std::fs::create_dir(tmp.path().join(CHUNKS_DIR).join("0_0_0.region.tmp")).unwrap();
         assert!(writer.submit(job(&[IVec3::ZERO])).is_ok());
         writer.close_for_test();
 

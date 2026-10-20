@@ -5,6 +5,7 @@ use bevy::math::{IVec3, Vec3};
 use bevy::prelude::Transform;
 use bevy_renet::netcode::{ClientAuthentication, NetcodeClientTransport};
 use bevy_renet::RenetClient;
+use server::{read_chunk, region_file_name, region_of, write_chunk_in_region};
 use shared::messages::{
     AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, FullChatMessage, NetworkAction,
     PlayerFrameInput, ServerToClientMessage,
@@ -15,7 +16,7 @@ use shared::players::{Inventory, Player};
 use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
     chunk_distance, global_block_to_chunk_pos, grid_slot, raycast, to_local_pos,
-    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, Chunk, ChunkMap,
+    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap,
     FaceDirectionExt, ItemId, ItemStack,
 };
 use shared::{
@@ -366,7 +367,7 @@ fn solo_session_from_auth_to_exit() {
         && server
             .chunk_files()
             .iter()
-            .any(|name| name.ends_with(".bin")))
+            .any(|name| name.ends_with(".region")))
     {
         assert!(
             start.elapsed() < WAIT_TIMEOUT,
@@ -1126,11 +1127,8 @@ fn a_block_broken_in_one_session_is_still_broken_after_a_restart() {
     client.send(ClientToServerMessage::Exit);
     client.send_packets();
     first.join_after_exit();
-    let chunk_file = format!(
-        "{}_{}_{}.bin",
-        target_chunk.x, target_chunk.y, target_chunk.z
-    );
-    assert!(first.chunk_files().contains(&chunk_file));
+    let region_file = region_file_name(region_of(target_chunk));
+    assert!(first.chunk_files().contains(&region_file));
     assert!(!first
         .chunk_files()
         .iter()
@@ -1246,16 +1244,13 @@ fn water_flows_into_a_broken_block_next_to_it_for_every_client() {
     // A source next to that block, in the saved chunk
     let source = target + IVec3::X;
     let source_chunk = global_block_to_chunk_pos(&source);
-    let chunk_file = first.world_dir().join("chunks").join(format!(
-        "{}_{}_{}.bin",
-        source_chunk.x, source_chunk.y, source_chunk.z
-    ));
-    let mut chunk: Chunk = payload_to_game_message(&std::fs::read(&chunk_file).unwrap()).unwrap();
+    let chunks_dir = first.world_dir().join("chunks");
+    let mut chunk = read_chunk(&chunks_dir, source_chunk).unwrap();
     chunk.set(
         to_local_pos(&source),
         BlockData::new(BlockId::Water, BlockDirection::Front),
     );
-    std::fs::write(&chunk_file, game_message_to_payload(&chunk)).unwrap();
+    write_chunk_in_region(&chunks_dir, source_chunk, &chunk).unwrap();
 
     let mut second = TestServer::start_in(first.tmp, WORLD_NAME);
     let mut miner = TestClient::connect(second.addr, PLAYER_ID);
