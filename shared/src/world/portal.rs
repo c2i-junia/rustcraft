@@ -8,7 +8,10 @@ use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
-use crate::world::{BlockHitbox, BlockTransparency, ChunkMap, FaceDirection, FaceDirectionExt};
+use crate::world::{
+    world_position_to_chunk_position, BlockHitbox, BlockTransparency, ChunkMap, FaceDirection,
+    FaceDirectionExt,
+};
 
 /// How many wall cells wide a portal is.
 pub const PORTAL_WIDTH: i32 = 2;
@@ -100,6 +103,12 @@ impl Portal {
             + Vec3::Y * (PORTAL_HEIGHT - 1) as f32 / 2.
             + normal * 0.5;
         Affine3A::from_mat3_translation(Mat3::from_cols(right, Vec3::Y, normal), center)
+    }
+
+    /// The chunk of what the portal opens onto: the chunk of the middle of its front cells.
+    pub fn chunk(&self) -> IVec3 {
+        let front = Vec3::from(self.frame().translation) + self.normal() * 0.5;
+        world_position_to_chunk_position(front)
     }
 
     /// How far `point` is in front of the plane of the portal: negative behind it.
