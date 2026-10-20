@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use shared::players::ViewMode;
 use shared::world::{raycast, FaceDirectionExt};
 
+use crate::camera::CameraController;
 use crate::ui::theme::DANGER;
 use crate::world::ClientWorldMap;
 
@@ -12,7 +13,7 @@ pub fn raycast_debug_update_system(
     mut gizmos: Gizmos,
     world_map: Res<ClientWorldMap>,
     p_transform: Query<&Transform, With<CurrentPlayerMarker>>,
-    camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
+    camera_query: Query<&Transform, (With<CameraController>, Without<CurrentPlayerMarker>)>,
     view_mode: Res<ViewMode>,
     debug_options: Res<DebugOptions>,
 ) {

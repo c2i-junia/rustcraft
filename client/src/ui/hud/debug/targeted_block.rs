@@ -1,3 +1,4 @@
+use crate::camera::CameraController;
 use crate::constants::INTERACTION_DISTANCE;
 use crate::player::CurrentPlayerMarker;
 use crate::ui::theme::TEXT;
@@ -14,7 +15,7 @@ pub fn block_text_update_system(
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     world_map: Res<ClientWorldMap>,
     mut query: Query<(&mut Text, &mut TextColor), With<BlockText>>,
-    camera_query: Query<&Transform, With<Camera>>,
+    camera_query: Query<&Transform, With<CameraController>>,
     view_mode: Res<ViewMode>,
 ) {
     let mut col = TEXT;

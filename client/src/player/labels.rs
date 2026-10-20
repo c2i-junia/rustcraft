@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use shared::players::ViewMode;
 
+use crate::camera::CameraController;
+
 use super::PLAYER_LABEL_FONT_SIZE;
 
 #[derive(Component, Debug)]
@@ -10,7 +12,7 @@ pub struct PlayerLabel {
 }
 
 pub fn player_labels_system(
-    camera: Single<(&Camera, &GlobalTransform), With<Camera>>,
+    camera: Single<(&Camera, &GlobalTransform), With<CameraController>>,
     mut labels: Query<(&mut Node, &mut Visibility, &PlayerLabel)>,
     labeled: Query<&GlobalTransform>,
     view: Res<ViewMode>,

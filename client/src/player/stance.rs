@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use shared::players::Player;
 
-use crate::camera::{Zoom, FOV_DEGREES};
+use crate::camera::{CameraController, Zoom, FOV_DEGREES};
 
 use super::CurrentPlayerMarker;
 
@@ -68,7 +68,7 @@ pub fn fov_system(
     time: Res<Time>,
     zoom: Res<Zoom>,
     player: Query<&Player, With<CurrentPlayerMarker>>,
-    mut projections: Query<&mut Projection, With<Camera3d>>,
+    mut projections: Query<&mut Projection, With<CameraController>>,
 ) {
     let Ok(player) = player.single() else {
         return;

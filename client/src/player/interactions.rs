@@ -1,3 +1,4 @@
+use crate::camera::CameraController;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
@@ -22,7 +23,7 @@ use super::CurrentPlayerMarker;
 /// Holding an empty bucket, the player aims at the water sources too.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
-    camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
+    camera_query: Query<&Transform, (With<CameraController>, Without<CurrentPlayerMarker>)>,
     world_map: ResMut<ClientWorldMap>,
     mouse_input: Res<ButtonInput<MouseButton>>,
     mut pressed_in_ui: Local<Vec<MouseButton>>,

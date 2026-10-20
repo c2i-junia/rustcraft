@@ -1,3 +1,4 @@
+use crate::camera::CameraController;
 use crate::input::data::GameAction;
 use crate::input::keyboard::*;
 use crate::network::buffered_client::{
@@ -15,7 +16,7 @@ use shared::players::{MovementState, Player, ViewMode};
 use super::CurrentPlayerMarker;
 
 pub fn update_frame_inputs_system(
-    camera: Query<&Transform, With<Camera>>,
+    camera: Query<&Transform, With<CameraController>>,
     hotbar: Query<&Hotbar>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
     view_mode: Res<ViewMode>,
