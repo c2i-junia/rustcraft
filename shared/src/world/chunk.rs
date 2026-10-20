@@ -12,23 +12,49 @@ use crate::{world::BlockData, CHUNK_SIZE};
 /// Number of cells of a chunk.
 const CHUNK_VOLUME: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize;
 
-/// A cube of `CHUNK_SIZE^3` cells, each holding a block or air (`None`), in one allocation.
-/// The copies of a chunk share its cells until one of them changes: copying a chunk to mesh,
+/// A cube of `CHUNK_SIZE^3` cells, each holding a block or air (`None`). A chunk made of a
+/// single kind of cell, such as the air above the ground or the stone below it, holds that one
+/// cell, as most chunks of a large render distance are; the others hold their cells in one
+/// allocation, which their copies share until one of them changes: copying a chunk to mesh,
 /// send or save it costs nothing.
 ///
 /// Positions are local: every coordinate is in `0..CHUNK_SIZE`.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Chunk {
+    cells: Cells,
+}
+
+#[derive(Clone)]
+enum Cells {
+    /// Every position holds this cell.
+    Uniform(Option<BlockData>),
     /// Indexed by `(x * CHUNK_SIZE + y) * CHUNK_SIZE + z`.
-    cells: Arc<[Option<BlockData>]>,
+    Varied(Arc<[Option<BlockData>]>),
 }
 
 impl Chunk {
     /// A chunk made of air only.
     pub fn new() -> Self {
         Self {
-            cells: vec![None; CHUNK_VOLUME].into(),
+            cells: Cells::Uniform(None),
         }
+    }
+
+    /// A chunk made of `block` only.
+    pub fn filled(block: BlockData) -> Self {
+        Self {
+            cells: Cells::Uniform(Some(block)),
+        }
+    }
+
+    /// A chunk of these `CHUNK_VOLUME` cells, held as one cell when they are all the same.
+    fn from_cells(cells: Vec<Option<BlockData>>) -> Self {
+        debug_assert_eq!(cells.len(), CHUNK_VOLUME);
+        let cells = match cells.iter().all(|cell| *cell == cells[0]) {
+            true => Cells::Uniform(cells[0]),
+            false => Cells::Varied(cells.into()),
+        };
+        Self { cells }
     }
 
     /// Whether a local position is inside the chunk: every coordinate is in `0..CHUNK_SIZE`.
@@ -52,9 +78,37 @@ impl Chunk {
         )
     }
 
+    /// The cell at an index below `CHUNK_VOLUME`.
+    fn cell(&self, index: usize) -> &Option<BlockData> {
+        match &self.cells {
+            Cells::Uniform(cell) => cell,
+            Cells::Varied(cells) => &cells[index],
+        }
+    }
+
+    /// The cells, to change one: a chunk of a single cell gets cells of its own.
+    fn cells_mut(&mut self) -> &mut [Option<BlockData>] {
+        if let Cells::Uniform(cell) = self.cells {
+            self.cells = Cells::Varied(vec![cell; CHUNK_VOLUME].into());
+        }
+        match &mut self.cells {
+            Cells::Varied(cells) => Arc::make_mut(cells),
+            Cells::Uniform(_) => unreachable!("made varied above"),
+        }
+    }
+
     /// The block at a local position, `None` for air and for a position outside the chunk.
     pub fn get(&self, local: IVec3) -> Option<&BlockData> {
-        self.cells[Self::index(local)?].as_ref()
+        self.cell(Self::index(local)?).as_ref()
+    }
+
+    /// The block every position holds, `Some(None)` for air, when the chunk is held as a single
+    /// cell. `None` does not say that the cells differ.
+    pub fn uniform(&self) -> Option<Option<&BlockData>> {
+        match &self.cells {
+            Cells::Uniform(cell) => Some(cell.as_ref()),
+            Cells::Varied(_) => None,
+        }
     }
 
     /// Stores `block` at a local position. A position outside the chunk is a programming
@@ -64,7 +118,9 @@ impl Chunk {
             debug_assert!(false, "local position {local} is outside the chunk");
             return;
         };
-        Arc::make_mut(&mut self.cells)[index] = Some(block);
+        if *self.cell(index) != Some(block) {
+            self.cells_mut()[index] = Some(block);
+        }
     }
 
     /// Empties a local position and returns the block that was there. Same contract as `set`
@@ -74,23 +130,45 @@ impl Chunk {
             debug_assert!(false, "local position {local} is outside the chunk");
             return None;
         };
-        Arc::make_mut(&mut self.cells)[index].take()
+        self.cell(index).as_ref()?;
+        self.cells_mut()[index].take()
     }
 
     /// Whether the chunk is made of air only.
     pub fn is_empty(&self) -> bool {
-        self.cells.iter().all(Option::is_none)
+        match &self.cells {
+            Cells::Uniform(cell) => cell.is_none(),
+            Cells::Varied(cells) => cells.iter().all(Option::is_none),
+        }
     }
 
     /// The blocks of the chunk with their local position, in ascending order of `x`, then `y`,
     /// then `z`.
     pub fn iter(&self) -> impl Iterator<Item = (IVec3, &BlockData)> {
-        self.cells
-            .iter()
-            .enumerate()
-            .filter_map(|(index, cell)| Some((Self::local_pos(index), cell.as_ref()?)))
+        let count = match self.cells {
+            Cells::Uniform(None) => 0,
+            _ => CHUNK_VOLUME,
+        };
+        (0..count).filter_map(|index| Some((Self::local_pos(index), self.cell(index).as_ref()?)))
+    }
+
+    /// Every cell, air included, in the order of their indices.
+    fn cells(&self) -> impl Iterator<Item = &Option<BlockData>> {
+        (0..CHUNK_VOLUME).map(|index| self.cell(index))
     }
 }
+
+/// Two chunks are equal when their cells are, however they are held.
+impl PartialEq for Chunk {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.cells, &other.cells) {
+            (Cells::Uniform(a), Cells::Uniform(b)) => a == b,
+            _ => self.cells().eq(other.cells()),
+        }
+    }
+}
+
+impl Eq for Chunk {}
 
 impl Default for Chunk {
     fn default() -> Self {
@@ -115,17 +193,20 @@ impl fmt::Debug for Chunk {
 impl Serialize for Chunk {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            return serializer.collect_seq(self.cells.iter());
+            return serializer.collect_seq(self.cells());
+        }
+        if let Cells::Uniform(cell) = &self.cells {
+            return serializer.collect_seq([(CHUNK_VOLUME as u16, cell)]);
         }
         let mut runs: Vec<(u16, &Option<BlockData>)> = Vec::new();
-        for cell in self.cells.iter() {
+        for cell in self.cells() {
             match runs.last_mut() {
                 Some((length, last)) if *last == cell => *length += 1,
                 _ => runs.push((1, cell)),
             }
         }
         match runs.len() {
-            CHUNK_VOLUME => serializer.collect_seq(self.cells.iter()),
+            CHUNK_VOLUME => serializer.collect_seq(self.cells()),
             _ => serializer.collect_seq(runs),
         }
     }
@@ -161,9 +242,7 @@ impl<'de> Deserialize<'de> for Chunk {
                     if seq.next_element::<Option<BlockData>>()?.is_some() {
                         return Err(de::Error::invalid_length(CHUNK_VOLUME + 1, &self));
                     }
-                    return Ok(Chunk {
-                        cells: cells.into(),
-                    });
+                    return Ok(Chunk::from_cells(cells));
                 }
                 let mut filled = 0;
                 while let Some((length, cell)) = seq.next_element::<(u16, Option<BlockData>)>()? {
@@ -177,9 +256,7 @@ impl<'de> Deserialize<'de> for Chunk {
                 if filled != CHUNK_VOLUME {
                     return Err(de::Error::invalid_length(filled, &self));
                 }
-                Ok(Chunk {
-                    cells: cells.into(),
-                })
+                Ok(Chunk::from_cells(cells))
             }
         }
 
@@ -354,17 +431,70 @@ mod tests {
 
     #[test]
     fn a_copy_shares_the_cells_until_one_of_the_two_changes() {
+        let shared = |a: &Chunk, b: &Chunk| match (&a.cells, &b.cells) {
+            (Cells::Varied(a), Cells::Varied(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
         let original = sample();
         let mut copy = original.clone();
-        assert!(Arc::ptr_eq(&original.cells, &copy.cells));
+        assert!(shared(&original, &copy));
 
         copy.set(IVec3::new(1, 1, 1), block(BlockId::Stone));
         copy.remove(IVec3::ZERO);
 
-        assert!(!Arc::ptr_eq(&original.cells, &copy.cells));
+        assert!(!shared(&original, &copy));
         assert_eq!(original, sample());
         assert_eq!(copy.get(IVec3::new(1, 1, 1)), Some(&block(BlockId::Stone)));
         assert_eq!(copy.get(IVec3::ZERO), None);
+    }
+
+    #[test]
+    fn a_chunk_of_one_kind_of_cell_is_held_as_that_cell_until_it_changes() {
+        let stone = block(BlockId::Stone);
+        let mut chunk = Chunk::filled(stone);
+        assert_eq!(chunk.uniform(), Some(Some(&stone)));
+        assert_eq!(chunk.get(IVec3::new(3, 9, 15)), Some(&stone));
+        assert_eq!(chunk.iter().count(), CHUNK_VOLUME);
+        assert!(!chunk.is_empty());
+        // Nothing changes: it stays one cell
+        chunk.set(IVec3::ONE, stone);
+        assert_eq!(chunk.uniform(), Some(Some(&stone)));
+        assert_eq!(Chunk::new().remove(IVec3::ONE), None);
+        assert_eq!(Chunk::new().uniform(), Some(None));
+
+        assert_eq!(chunk.remove(IVec3::ONE), Some(stone));
+        assert_eq!(chunk.uniform(), None);
+        assert_eq!(chunk.get(IVec3::ONE), None);
+        assert_eq!(chunk.get(IVec3::ZERO), Some(&stone));
+        assert_eq!(chunk.iter().count(), CHUNK_VOLUME - 1);
+    }
+
+    #[test]
+    fn chunks_of_the_same_cells_are_equal_however_they_are_held() {
+        let stone = block(BlockId::Stone);
+        let mut varied = Chunk::filled(stone);
+        varied.remove(IVec3::ONE);
+        varied.set(IVec3::ONE, stone);
+        assert_eq!(varied.uniform(), None);
+        assert_eq!(varied, Chunk::filled(stone));
+        assert_ne!(varied, Chunk::new());
+        assert_ne!(Chunk::filled(stone), Chunk::new());
+    }
+
+    #[test]
+    fn a_chunk_of_one_kind_of_cell_is_one_run_and_is_read_back_as_one_cell() {
+        let stone = block(BlockId::Stone);
+        for chunk in [Chunk::new(), Chunk::filled(stone)] {
+            let bytes = bincode::serialize(&chunk).unwrap();
+            assert!(bytes.len() < 32, "{} bytes", bytes.len());
+            let read: Chunk = bincode::deserialize(&bytes).unwrap();
+            assert_eq!(read.uniform(), chunk.uniform());
+            let text = ron::ser::to_string(&chunk).unwrap();
+            assert_eq!(
+                ron::de::from_str::<Chunk>(&text).unwrap().uniform(),
+                chunk.uniform()
+            );
+        }
     }
 
     #[test]
@@ -378,7 +508,7 @@ mod tests {
     fn a_chunk_is_written_as_its_runs_and_as_cells_in_ron() {
         let chunk = sample();
         let runs = bincode::serialize(&chunk).unwrap();
-        let cells = bincode::serialize(&chunk.cells[..]).unwrap();
+        let cells = bincode::serialize(&chunk.cells().collect::<Vec<_>>()).unwrap();
         assert!(runs.len() * 50 < cells.len(), "{} bytes", runs.len());
 
         let text = ron::ser::to_string(&chunk).unwrap();
@@ -389,7 +519,7 @@ mod tests {
     #[test]
     fn a_chunk_of_as_many_runs_as_cells_round_trips() {
         let mut chunk = Chunk::new();
-        for (index, cell) in Arc::make_mut(&mut chunk.cells).iter_mut().enumerate() {
+        for (index, cell) in chunk.cells_mut().iter_mut().enumerate() {
             if index % 2 == 0 {
                 *cell = Some(block(BlockId::Stone));
             }
