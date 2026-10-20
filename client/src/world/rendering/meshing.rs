@@ -756,6 +756,9 @@ fn chunk_faces(
             if !should_render_face(&blocks, local_block_pos, side, &visibility) {
                 continue;
             }
+            if covered_by_portal(world_map, chunk_pos, local_block_pos, side) {
+                continue;
+            }
             lighting.light_face(face, block_pos, side, turned, &mut lights);
             // A swaying face moves at each of its corners: it cannot stretch over several
             let lit_alike = face.sway == Sway::None && lights.iter().all(|l| *l == lights[0]);
@@ -984,6 +987,30 @@ pub fn rotate_vertices(v: &[f32; 3], direction: &BlockDirection) -> [f32; 3] {
     [x + 0.5, v[1], z + 0.5]
 }
 
+/// Whether a portal lies on the side `side` of the block at `local_block_pos`, which a face
+/// of it lies on once turned (`None` inside it): the portal shows there, from the box it draws
+/// behind the face.
+fn covered_by_portal(
+    world_map: &ChunkMap,
+    chunk_pos: &IVec3,
+    local_block_pos: IVec3,
+    side: Option<IVec3>,
+) -> bool {
+    use shared::world::FaceDirection as Side;
+
+    let side = match side {
+        Some(IVec3::NEG_Z) => Side::MinusZ,
+        Some(IVec3::Z) => Side::PlusZ,
+        Some(IVec3::NEG_X) => Side::MinusX,
+        Some(IVec3::X) => Side::PlusX,
+        _ => return false,
+    };
+    !world_map.portals().is_empty()
+        && world_map
+            .portals()
+            .covers(to_global_pos(chunk_pos, &local_block_pos), side)
+}
+
 /// Whether the face of a block lying on its side `side` (`None` inside it) is seen: a
 /// neighbouring block there may hide it.
 fn should_render_face(
@@ -1073,6 +1100,78 @@ mod tests {
 
     fn vertices(mesh: &Option<Mesh>) -> usize {
         mesh.as_ref().map_or(0, |mesh| mesh.count_vertices())
+    }
+
+    #[test]
+    fn the_face_a_portal_covers_is_not_meshed() {
+        use shared::world::{Portal, PortalColor};
+
+        let mut world = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        world.fill_box(IVec3::new(4, 4, 4), IVec3::new(7, 8, 4), BlockId::Stone);
+        let mut tiles = HashMap::new();
+        tiles.insert("_Default".to_string(), 0);
+        let mesh = |world: &ChunkMap| {
+            let chunk = world.chunk(IVec3::ZERO).unwrap();
+            generate_chunk_mesh(world, chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
+                .solid_mesh
+                .unwrap()
+        };
+        let facing_z = |mesh: &Mesh| {
+            normals_of(mesh)
+                .into_iter()
+                .filter(|normal| normal.z > 0.5)
+                .count()
+        };
+        let wall = mesh(&world);
+
+        world.portals_mut().insert(Portal {
+            owner: 1,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(5, 5, 4),
+            face: shared::world::FaceDirection::PlusZ,
+        });
+        let pierced = mesh(&world);
+        // The front of the wall is no longer one rectangle: it goes round the six faces
+        assert!(facing_z(&pierced) > facing_z(&wall));
+        let front_cells: Vec<Vec3> = top_left_corners_facing_z(&pierced);
+        for cell in [IVec3::new(5, 5, 4), IVec3::new(6, 7, 4)] {
+            assert!(
+                !front_cells.contains(&cell.as_vec3()),
+                "the face of {cell} is drawn"
+            );
+        }
+        assert!(front_cells.contains(&Vec3::new(4.0, 4.0, 4.0)));
+    }
+
+    /// The lowest corner of each face of `mesh` facing +Z, as a cell position.
+    fn top_left_corners_facing_z(mesh: &Mesh) -> Vec<Vec3> {
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("a chunk mesh has positions");
+        };
+        let normals = normals_of(mesh);
+        // Each face is four vertices; its cells span from its lowest corner
+        let mut cells = Vec::new();
+        for (face, normals) in positions.chunks(4).zip(normals.chunks(4)) {
+            if normals[0].z < 0.5 {
+                continue;
+            }
+            let min = face
+                .iter()
+                .map(|p| Vec3::from(*p))
+                .fold(Vec3::MAX, Vec3::min);
+            let max = face
+                .iter()
+                .map(|p| Vec3::from(*p))
+                .fold(Vec3::MIN, Vec3::max);
+            for x in min.x as i32..max.x as i32 {
+                for y in min.y as i32..max.y as i32 {
+                    cells.push(Vec3::new(x as f32, y as f32, max.z - 1.0));
+                }
+            }
+        }
+        cells
     }
 
     #[test]

@@ -637,6 +637,8 @@ pub(super) fn spawn_meshing_tasks(
             }
         }
     }
+    // The faces the portals cover are not drawn
+    *nearby.portals_mut() = blocks.portals().clone();
     let shared_blocks = Arc::new(nearby);
 
     groups
