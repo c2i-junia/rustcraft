@@ -19,7 +19,7 @@ or chest). It uses the theme of the inventory: same panel bevel, same 50 px slot
   word of its name starts with it, or when the name contains it; a word starting with `#` matches
   the item's category (`#tools`, `#wood`, a prefix is enough). Case is ignored. The query is kept
   while the inventory is closed, for the session.
-- **Category chips**, one row that scrolls sideways: All, Blocks, Wood, Nature, Ores, Materials,
+- **Category chips**, which wrap onto as many rows as they need (Decision 25): All, Blocks, Wood, Nature, Ores, Materials,
   Stations, Tools; in Survival a green `Craftable` chip keeps only the items the player can craft
   now (some recipe whose ingredients the inventory and the grid hold, whatever the grid size).
 - **Bookmarks**: a `Bookmarks` label and a row of slots, shown only when there is one.
@@ -183,6 +183,36 @@ keyed by the world's name in solo and by the server address in multiplayer.
     1280×720 it is out of view until the row scrolls.
 24. (Lot 2) A focus on cards that are rebuilt, or on the catalog the view hides, moves to the
     back button; back on the catalog, it returns to the slot of the item that was shown.
+25. (Lot 3) The chips wrap instead of scrolling sideways, so that every chip, `Craftable`
+    included, is in view without scrolling: two rows at 1280×720, three in four columns, with
+    4 px rather than 8 beside their labels. The Craftable chip keeps green text while off, to
+    read apart from the categories. This replaces the end of Decision 23.
+26. (Lot 3) Holding a stack in Creative, any gesture on a catalog item destroys the stack, but a
+    right click on the item held, which adds one, as the mockup's `clickCatalog`. The server's
+    refusal of `TakeFromCatalog` onto another item (`CursorFull`) is only a safety net.
+27. (Lot 3) "The list" is the scroll list of the catalog, its slots and the room around them,
+    and the trash: a click on the search, the chips, the title, the footer's text or the recipe
+    view never destroys. Enter or Space on the focused trash destroys too.
+28. (Lot 3) Only a destruction shows a toast; the mockup's `64 Dirt added` and `Grid filled`
+    are left out, the inventory and the grid showing what happened. With `to_inventory`, what
+    does not fit is lost without a word, as with `/give`.
+29. (Lot 3) `FillCraftingGrid` is all or nothing: refused with `UnknownRecipe`, `DoesNotFit`,
+    `MissingIngredients`, or `GridNotEmptied` when the inventory has no room for the grid it
+    puts back. The ingredients are taken from the end of the backpack first, the hotbar last, so
+    that the hotbar keeps its stacks longest; a cell keeps the type of the stack it came from.
+    Shift+click sends `times: u32::MAX`, which the server clamps.
+30. (Lot 3) While a chest is open, the chest takes the place of the grid in the panel: `+ Fill
+    grid` is disabled with `Not beside a chest`. The server still allows it (on the 2×2 grid,
+    which the closing gives back).
+31. (Lot 3) Enter in the search acts as a click on the first result, as the spec says: in Survival
+    it opens its recipes and the focus goes to the back button. Lot 1's Enter, which focused the
+    first result, is now only ↓.
+32. (Lot 3) The Creative footer is the trash and its sentence only, as the mockup; the keys of
+    Decision 16's Creative footer are in the tooltips. In Creative a catalog tooltip's hint is
+    two lines: `LMB 64  RMB 1  Shift to inventory`, then `R Recipes  U Uses`.
+33. (Lot 3) The observers of the panel (`Submit` of the search, `Activate` of `+ Fill grid`) only
+    leave a request in `BrowserRequests`: `catalog_actions` sends it in `Update`, before the
+    simulation, where the actions of the frame are gathered and predicted.
 
 ## Testing
 

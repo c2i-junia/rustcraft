@@ -36,7 +36,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Day/night cycle
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
-- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the ingredients you lack in red, and in Survival what you can craft now.
+- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe. In Creative it hands out stacks of any item, and destroys the stack you hold.
 - World saving and loading.
 - Survival and creative game modes: in survival, players have 10 hearts, cannot fly and get hurt by falls of more than 3 blocks; a dead player respawns at the spawn of the world. New players start in survival.
 - Sprinting, sneaking and swimming.
@@ -107,12 +107,18 @@ paru -S rustcraft
 |                   | Move to the backpack / hotbar | Shift+Enter          |
 |                   |                        |                             |
 | **Item browser**  | Search the items       | / or Ctrl+F, inventory open |
-|                   | Go to the first result | Enter or ↓ in the search    |
+|                   | Go to the first result | ↓ in the search             |
+|                   | Act on the first result | Enter in the search (Shift+Enter: as Shift+click) |
 |                   | Clear / leave the search | Escape                    |
 |                   | Open / close the drawer (small window) | B          |
 |                   | Recipes of an item     | R over any item slot; Left Click in the browser (Survival) |
 |                   | Uses of an item        | U over any item slot; Right Click in the browser (Survival) |
 |                   | Back                   | Escape or the back button   |
+|                   | Fill the crafting grid with a recipe | + Fill grid (Shift: as many times as possible) |
+|                   | Take a stack (Creative) | Left Click on an item      |
+|                   | Take one more (Creative) | Right Click on an item    |
+|                   | Put a stack into the inventory (Creative) | Shift + Left Click on an item |
+|                   | Destroy the held stack (Creative) | Left Click on the list or the trash |
 |                   |                        |                             |
 | **Chat**          | Open the chat         | T                           |
 |                   | Open the chat with a slash | /                      |

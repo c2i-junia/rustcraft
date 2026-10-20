@@ -152,7 +152,13 @@ The contents of a chest live in the `ChunkMap`, at its position (`shared/src/wor
 the server holds those of every chest, a client only those of the chest its player has open,
 which the server sends with each `PlayerUpdate`. While a chest is open, its 27 stacks are lent
 to the inventory as slots 45 to 71 for the length of one `InventoryAction`, so that a click on
-them is a click on any slot (`shared/src/players/inventory.rs`). The client inserts the contents
+them is a click on any slot (`shared/src/players/inventory.rs`). The item browser's actions are
+inventory actions too: `TakeFromCatalog` and `DestroyFloating`, which `apply_inventory_action`
+refuses unless its `creative` argument says the player is in Creative
+(`simulate_inventory_actions` reads it from `Player::game_mode`, which the client's player follows
+from the server, so that the prediction refuses what the server refuses), and
+`FillCraftingGrid`, in both modes, which puts the grid back into the inventory and moves the
+ingredients of a recipe into it, all or nothing. The client inserts the contents
 the server sent before replaying its unacknowledged actions on them, as it does for the
 inventory. A broken chest drops what it held on the ground with itself.
 
@@ -325,7 +331,11 @@ by the server. While a chest is open, its slots take the place of the crafting r
 browser (`ui/hud/item_browser/`) shows beside the open inventory, in `HudBottom` with it, every
 item of the game: `catalog.rs` orders and searches them, `layout.rs` gives the columns that fit
 the window (8 to 4, the panel sliding left to leave them room, else a drawer of up to 6 over the
-right edge), and nothing comes out of it yet. It is also the recipe book: `view.rs` shows the
+right edge). In Creative, items come out of it: `creative.rs` decides what a gesture on the
+catalog does, and `catalog_actions` sends it as an `InventoryAction`, as the inventory's clicks
+are sent; the observers of the panel (Enter in the search, `+ Fill grid`) leave their request in
+`BrowserRequests` for it, since an observer runs outside the frame's input. It is also the recipe
+book: `view.rs` shows the
 recipes or the uses of an item instead of the catalog, as cards built when the view changes, from
 the read-only recipe API of `shared::world::crafting` (`recipes`, `recipes_for`, `uses_of`,
 `missing`, which counts the inventory and the crafting grid), with a history in
