@@ -22,6 +22,7 @@ mod raw_client;
 mod review;
 mod seed;
 mod settings;
+mod shaders;
 mod solo;
 mod survival;
 mod widgets;

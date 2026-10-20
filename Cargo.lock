@@ -2335,6 +2335,7 @@ dependencies = [
  "server",
  "shared",
  "tempfile",
+ "wgpu",
 ]
 
 [[package]]

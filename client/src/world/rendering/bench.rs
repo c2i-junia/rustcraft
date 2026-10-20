@@ -47,13 +47,14 @@ use shared::{GameFolderPaths, CHUNK_SIZE};
 
 use super::meshing::{generate_chunk_mesh, generate_lit_chunk_mesh, ChunkMeshResponse};
 use super::render::{spawn_meshing_tasks, update_chunk};
+use super::shader_poc::{shader_poc_plugin, ShaderPoc};
 use crate::camera::SKY_COLOR;
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::celestial::{celestial_light_system, CelestialRoot, SkyLight};
 use crate::world::{
     chunk_material_plugin, create_all_atlases, fill_climate_map, group_of, setup_materials,
-    AtlasHandles, BiomeBlend, ChunkMaterial, ChunkRender, MaterialResource,
+    AtlasHandles, BiomeBlend, ChunkMaterial, ChunkRender, MaterialResource, RenderDistance,
 };
 
 const SEED: u32 = 42;
@@ -128,9 +129,14 @@ impl Scene {
 
     /// The chunks of the scene, generated on every core.
     fn generate(&self) -> ChunkMap {
+        self.generate_seeded(SEED)
+    }
+
+    /// The chunks of the scene in the world of `seed`.
+    fn generate_seeded(&self, seed: u32) -> ChunkMap {
         let positions = self.chunk_positions();
         let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-        let generator = &server::WorldGenerator::new(SEED);
+        let generator = &server::WorldGenerator::new(seed);
         let chunks: Vec<_> = std::thread::scope(|scope| {
             let workers: Vec<_> = positions
                 .chunks(positions.len().div_ceil(threads))
@@ -391,6 +397,17 @@ fn bench_meshing() {
 
 const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 900;
+
+/// The size of the drawings: `WIDTH` by `HEIGHT`, or `BENCH_RES`, as `2560x1440`.
+fn resolution() -> (u32, u32) {
+    std::env::var("BENCH_RES")
+        .ok()
+        .and_then(|res| {
+            let (width, height) = res.split_once('x')?;
+            Some((width.parse().ok()?, height.parse().ok()?))
+        })
+        .unwrap_or((WIDTH, HEIGHT))
+}
 /// The frames that loading the textures or capturing the screen may take.
 const MAX_FRAMES: usize = 500;
 
@@ -403,6 +420,11 @@ struct Drawing {
 
 impl Drawing {
     fn new(lavapipe: bool) -> Self {
+        Self::with_shaders(lavapipe, ShaderPoc::default())
+    }
+
+    /// A drawing app with the features `poc` of the shader proof of concept.
+    fn with_shaders(lavapipe: bool, poc: ShaderPoc) -> Self {
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         let mut app = App::new();
         app.add_plugins((
@@ -437,6 +459,12 @@ impl Drawing {
             WireframePlugin::default(),
             chunk_material_plugin,
         ))
+        .insert_resource(poc)
+        .add_plugins(shader_poc_plugin)
+        .init_resource::<RenderDistance>()
+        // The light of the sky as the game sets it in each frame, which the proof of concept
+        // brightens
+        .add_systems(Update, celestial_light_system)
         .insert_resource(MaterialResource::default())
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
@@ -491,8 +519,8 @@ impl Drawing {
 
         let mut target = Image::new_fill(
             Extent3d {
-                width: WIDTH,
-                height: HEIGHT,
+                width: resolution().0,
+                height: resolution().1,
                 depth_or_array_layers: 1,
             },
             TextureDimension::D2,
@@ -556,6 +584,11 @@ impl Drawing {
     /// Meshes every chunk of `world` and shows it, as `world_render_system` does, instead of the
     /// chunks shown before.
     fn show(&mut self, world: &ChunkMap) -> MeshStats {
+        self.show_seeded(world, SEED)
+    }
+
+    /// `show` for chunks of the world of `seed`.
+    fn show_seeded(&mut self, world: &ChunkMap, seed: u32) -> MeshStats {
         let shown: Vec<Entity> = self
             .world_mut()
             .query_filtered::<Entity, With<MeshMaterial3d<ChunkMaterial>>>()
@@ -585,7 +618,7 @@ impl Drawing {
                     if let Some(mut map) = images.get_mut(&materials.climate_map) {
                         fill_climate_map(
                             &mut map,
-                            &TerrainNoises::new(SEED),
+                            &TerrainNoises::new(seed),
                             &columns,
                             BiomeBlend::default(),
                         );
@@ -739,7 +772,7 @@ fn bench_drawing() {
         json!({
             "label": label(),
             "adapter": adapter_name,
-            "resolution": [WIDTH, HEIGHT],
+            "resolution": resolution(),
             "scene": DRAWN_SCENE.name,
             "chunks": world.chunk_positions().count(),
             "mesh": stats.json(),
@@ -880,4 +913,222 @@ fn render_lighting() {
     let (_, eye, target) = views[0];
     drawing.place_camera(Transform::from_translation(eye).looking_at(target, Vec3::Y));
     drawing.screenshot(&output_dir().join(format!("{}-lighting-dark.png", label())));
+}
+
+/// The time the GPU takes to draw a whole frame, shadows and passes with no timing of their
+/// own included: a timestamp before the render graph and one after it.
+#[derive(Resource)]
+struct GpuFrameTimer {
+    queries: wgpu::QuerySet,
+    resolved: wgpu::Buffer,
+    readback: wgpu::Buffer,
+    period_ns: f32,
+}
+
+impl GpuFrameTimer {
+    fn new(device: &RenderDevice, queue: &bevy::render::renderer::RenderQueue) -> Self {
+        let device = device.wgpu_device();
+        Self {
+            queries: device.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("gpu_frame_timer"),
+                ty: wgpu::QueryType::Timestamp,
+                count: 2,
+            }),
+            resolved: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("gpu_frame_timer_resolved"),
+                size: 16,
+                usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }),
+            readback: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("gpu_frame_timer_readback"),
+                size: 16,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            period_ns: queue.get_timestamp_period(),
+        }
+    }
+
+    /// An empty pass that writes the timestamp `index`.
+    fn stamp(&self, encoder: &mut wgpu::CommandEncoder, index: u32) {
+        encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("gpu_frame_timer"),
+            timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
+                query_set: &self.queries,
+                beginning_of_pass_write_index: Some(index),
+                end_of_pass_write_index: None,
+            }),
+        });
+    }
+}
+
+/// Sent with the first commands of the frame rather than at once, so that the GPU does not
+/// wait for the CPU to record them in the time.
+fn start_gpu_frame_timer(
+    timer: Res<GpuFrameTimer>,
+    device: Res<RenderDevice>,
+    mut pending: ResMut<bevy::render::renderer::PendingCommandBuffers>,
+) {
+    let mut encoder = device.wgpu_device().create_command_encoder(&default());
+    timer.stamp(&mut encoder, 0);
+    pending.push([encoder.finish()]);
+}
+
+fn end_gpu_frame_timer(
+    timer: Res<GpuFrameTimer>,
+    device: Res<RenderDevice>,
+    queue: Res<bevy::render::renderer::RenderQueue>,
+) {
+    let mut encoder = device.wgpu_device().create_command_encoder(&default());
+    timer.stamp(&mut encoder, 1);
+    encoder.resolve_query_set(&timer.queries, 0..2, &timer.resolved, 0);
+    encoder.copy_buffer_to_buffer(&timer.resolved, 0, &timer.readback, 0, 16);
+    queue.submit([encoder.finish()]);
+}
+
+impl Drawing {
+    /// Times the frames on the GPU from now on, with `gpu_frame_ms`.
+    fn time_gpu_frames(&mut self) {
+        use bevy::render::renderer::{RenderGraph, RenderGraphSystems, RenderQueue};
+        let render_app = &mut self.apps.sub_apps.get_mut(&RenderApp.intern()).unwrap();
+        let world = render_app.world_mut();
+        let timer = GpuFrameTimer::new(
+            world.resource::<RenderDevice>(),
+            world.resource::<RenderQueue>(),
+        );
+        world.insert_resource(timer);
+        render_app.add_systems(
+            RenderGraph,
+            (
+                start_gpu_frame_timer.in_set(RenderGraphSystems::Begin),
+                end_gpu_frame_timer.after(RenderGraphSystems::Submit),
+            ),
+        );
+    }
+
+    /// The time the GPU took to draw the last frame, in ms.
+    fn gpu_frame_ms(&self) -> f64 {
+        let world = self.render_world();
+        let timer = world.resource::<GpuFrameTimer>();
+        let device = world.resource::<RenderDevice>();
+        let slice = timer.readback.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |result| result.unwrap());
+        device.poll(PollType::wait_indefinitely()).unwrap();
+        let range = slice.get_mapped_range();
+        let stamp = |at: usize| u64::from_le_bytes(range[at..at + 8].try_into().unwrap());
+        let stamps = [stamp(0), stamp(8)];
+        drop(range);
+        timer.readback.unmap();
+        stamps[1].saturating_sub(stamps[0]) as f64 * timer.period_ns as f64 / 1e6
+    }
+}
+
+/// The lake of `e2e::shaders`, in the world of seed 1, drawn by `bench_shaders`.
+const LAKE_SCENE: Scene = Scene {
+    name: "lake",
+    center: (-64, -176),
+    radius: 10,
+};
+
+/// What each feature of the shader proof of concept costs (`shader_poc.rs`): the lake drawn in
+/// a full turn of the camera with none, with each alone, and with all, the frame timed on the
+/// GPU from start to end, and from its update to the end of its drawing, with the time of the
+/// passes that the GPU times. Writes
+/// `<label>-shaders-gpu.json`; `BENCH_RES=2560x1440` sets the resolution.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_shaders() {
+    let frames: usize = std::env::var("BENCH_FRAMES")
+        .ok()
+        .and_then(|frames| frames.parse().ok())
+        .unwrap_or(360);
+    let world = LAKE_SCENE.generate_seeded(1);
+    let mut results = serde_json::Map::new();
+    for features in [
+        "",
+        "hdr",
+        "atmosphere",
+        "bloom",
+        "taa",
+        "ssao",
+        "godrays",
+        "water",
+        "shadows",
+        "all",
+    ] {
+        let mut drawing = Drawing::with_shaders(false, ShaderPoc::parse(features));
+        drawing.time_gpu_frames();
+        drawing.show_seeded(&world, 1);
+        let center = LAKE_SCENE.center_chunk() * CHUNK_SIZE + IVec3::splat(CHUNK_SIZE / 2);
+        let eye = Vec3::new(center.x as f32, 92., center.z as f32);
+        let turn = |frame: usize, of: usize| {
+            let yaw = std::f32::consts::TAU * frame as f32 / of as f32;
+            Transform::from_translation(eye).with_rotation(Quat::from_euler(
+                EulerRot::YXZ,
+                yaw,
+                -0.25,
+                0.,
+            ))
+        };
+        // Long enough for every pipeline, the atmosphere and TAA to settle
+        for frame in 0..60 {
+            drawing.place_camera(turn(frame, 60));
+            drawing.frame();
+        }
+        let mut frame_ms = Vec::new();
+        let mut gpu_ms = Vec::new();
+        let mut passes = std::collections::BTreeMap::<String, (f64, u32)>::new();
+        for frame in 0..frames {
+            drawing.place_camera(turn(frame, frames));
+            let start = Instant::now();
+            drawing.frame();
+            frame_ms.push(millis(start));
+            gpu_ms.push(drawing.gpu_frame_ms());
+            let store = drawing
+                .world()
+                .resource::<bevy::diagnostic::DiagnosticsStore>();
+            for diagnostic in store.iter() {
+                let path = diagnostic.path().as_str();
+                if let (Some(pass), Some(value)) =
+                    (path.strip_suffix("/elapsed_gpu"), diagnostic.value())
+                {
+                    let entry = passes
+                        .entry(pass.trim_start_matches("render/").to_string())
+                        .or_default();
+                    entry.0 += value;
+                    entry.1 += 1;
+                }
+            }
+        }
+        let name = if features.is_empty() {
+            "none"
+        } else {
+            features
+        };
+        drawing.place_camera(turn(1, 8));
+        drawing.screenshot(&output_dir().join(format!("{}-shaders-{name}.png", label())));
+        let passes: serde_json::Map<String, Value> = passes
+            .into_iter()
+            .map(|(pass, (sum, n))| (pass, json!(sum / n as f64)))
+            .collect();
+        let gpu = summary(gpu_ms);
+        println!(
+            "{name}: {:.2} ms of GPU per frame (p50)",
+            gpu["p50"].as_f64().unwrap()
+        );
+        results.insert(
+            name.to_string(),
+            json!({ "frame_ms": summary(frame_ms), "gpu_frame_ms": gpu, "gpu_passes": passes }),
+        );
+    }
+    write_results(
+        "shaders-gpu",
+        json!({
+            "label": label(),
+            "resolution": resolution(),
+            "scene": LAKE_SCENE.name,
+            "results": results,
+        }),
+    );
 }

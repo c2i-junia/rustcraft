@@ -30,10 +30,24 @@
 #else
 #import bevy_pbr::{
     forward_io::{Vertex, VertexOutput, FragmentOutput},
-    mesh_view_bindings::{globals, lights, view},
+    mesh_view_bindings::{
+        globals, lights, view, view_transmission_texture, view_transmission_sampler,
+    },
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
+    shadows::fetch_directional_shadow,
+    view_transformations::{
+        position_world_to_ndc, position_world_to_view, position_ndc_to_world, ndc_to_uv,
+        uv_to_ndc, depth_ndc_to_view_z,
+    },
 }
+#ifdef DISTANCE_FOG
+#import bevy_pbr::mesh_view_bindings::fog
+#endif
+#import rustcraft::sky::{sky_radiance, has_sky, horizon_direction}
+#ifdef DEPTH_PREPASS
+#import bevy_pbr::prepass_utils::prepass_depth
+#endif
 #endif
 
 // For each texture: its first layer, its number of frames, how long a frame is shown in
@@ -74,6 +88,8 @@ const SWAY_TOP: u32 = 2u;
 // The bits of `ChunkShading::effects`
 const EFFECT_SWAY: u32 = 1u;
 const EFFECT_WATER: u32 = 2u;
+// `EFFECT_SSR` in `shader_poc.rs`: the water reflects the screen and refracts what lies under it
+const EFFECT_SSR: u32 = 4u;
 // The highest light level, `MAX_LIGHT`
 const MAX_LIGHT: f32 = 15.0;
 // The colour of the light of the blocks, as of a flame
@@ -331,6 +347,112 @@ fn water_normal(at: vec2<f32>, footprint: f32) -> vec3<f32> {
     return normalize(vec3(-slope.x, 1.0, -slope.y));
 }
 
+#ifdef DEPTH_PREPASS
+// The depth of the opaque faces at `uv` on screen, 0 where there are none.
+fn opaque_depth(uv: vec2<f32>) -> f32 {
+    let pixel = uv * view.viewport.zw + view.viewport.xy;
+    return prepass_depth(vec4(pixel, 0.0, 0.0), 0u);
+}
+
+// What the screen shows of the opaque faces at `uv`, before the water.
+fn opaque_color(uv: vec2<f32>) -> vec3<f32> {
+    return textureSampleLevel(view_transmission_texture, view_transmission_sampler, uv, 0.0).rgb;
+}
+
+// What the ray from `origin` toward `dir` meets on screen first, and how much to trust it, as
+// the screen-space reflections of shader packs: steps that grow with the distance, then a
+// binary search between the last two. Nothing where the ray leaves the screen or passes
+// behind a face too thick to be the one it hits.
+fn screen_reflection(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
+    var before = 0.0;
+    var t = 0.4;
+    for (var i = 0; i < 40; i++) {
+        let ndc = position_world_to_ndc(origin + dir * t);
+        if any(abs(ndc.xy) > vec2(1.0)) || ndc.z <= 0.0 {
+            return vec4(0.0);
+        }
+        let depth = opaque_depth(ndc_to_uv(ndc.xy));
+        // The depth is reversed: the ray is behind the face if its own is smaller
+        if depth > ndc.z {
+            let gap = depth_ndc_to_view_z(depth) - depth_ndc_to_view_z(ndc.z);
+            if gap > max(1.5, t * 0.1) {
+                // Behind something in front of what it meets: on with the march
+                before = t;
+                t = t * 1.12 + 0.35;
+                continue;
+            }
+            var near = before;
+            var far = t;
+            for (var j = 0; j < 5; j++) {
+                let mid = (near + far) * 0.5;
+                let m = position_world_to_ndc(origin + dir * mid);
+                if opaque_depth(ndc_to_uv(m.xy)) > m.z {
+                    far = mid;
+                } else {
+                    near = mid;
+                }
+            }
+            let hit = position_world_to_ndc(origin + dir * far);
+            let edge = max(abs(hit.x), abs(hit.y));
+            let trust = (1.0 - smoothstep(0.8, 1.0, edge)) * (1.0 - smoothstep(0.7, 1.0, f32(i) / 40.0));
+            return vec4(opaque_color(ndc_to_uv(hit.xy)), trust);
+        }
+        before = t;
+        t = t * 1.12 + 0.35;
+    }
+    return vec4(0.0);
+}
+
+// The surface of the water at `in`, of normal `N` seen along `V`: what lies under it, bent
+// by the waves and absorbed by the depth of water (red first), then what it reflects, the
+// screen where it can, the sky elsewhere, with a glint of the sun. `body` is the colour the
+// water scatters, `sky` how much of the sky reaches it.
+fn water_surface(in: VertexOutput, N: vec3<f32>, V: vec3<f32>, body: vec3<f32>, sky: f32) -> vec3<f32> {
+    let uv = (in.position.xy - view.viewport.xy) / view.viewport.zw;
+    let surface_z = position_world_to_view(in.world_position.xyz).z;
+    // The waves bend what lies under them, less from far
+    let bend = (N.xz - vec2(0.0)) * 0.6 / max(-surface_z, 1.0);
+    var under_uv = uv + bend;
+    // What is bent from in front of the water is not under it
+    if depth_ndc_to_view_z(opaque_depth(under_uv)) > surface_z {
+        under_uv = uv;
+    }
+    let floor_depth = opaque_depth(under_uv);
+    var thickness = 64.0;
+    if floor_depth > 0.0 {
+        let floor = position_ndc_to_world(vec3(uv_to_ndc(under_uv), floor_depth));
+        thickness = distance(floor, in.world_position.xyz);
+    }
+    let absorbed = exp(-thickness * vec3(0.42, 0.11, 0.07));
+    let scattered = 1.0 - exp(-thickness * 0.35);
+    let under = opaque_color(under_uv) * absorbed + body * scattered;
+
+    // The waves bend the reflection less than they would a mirror: too bent, it breaks up
+    let R = reflect(-V, normalize(mix(vec3(0.0, 1.0, 0.0), N, 0.35)));
+    var reflected = sky_radiance(R, 0.0) * sky;
+    let screen = screen_reflection(in.world_position.xyz, R);
+    reflected = mix(reflected, screen.rgb, screen.a);
+    let facing = max(dot(N, V), 0.0);
+    let fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
+    var color = mix(under, reflected, fresnel);
+
+    // The sun, sharp on the waves, of the colour of the sky around it
+    if lights.n_directional_lights > 0u {
+        let light = lights.directional_lights[0];
+        let L = light.direction_to_light;
+        let H = normalize(L + V);
+        let shininess = 900.0;
+        let lobe = (shininess + 8.0) / 25.13 * pow(max(dot(N, H), 0.0), shininess) * max(dot(N, L), 0.0);
+        let halo = sky_radiance(L, 0.6);
+        let tint = select(vec3(1.0), halo / max(max(halo.r, max(halo.g, halo.b)), 1e-4), has_sky());
+        let view_z = position_world_to_view(in.world_position.xyz).z;
+        let shadow = fetch_directional_shadow(0u, in.world_position, N, view_z, in.position.xy);
+        color += light.color.rgb * view.exposure * tint * lobe * fresnel * shadow * sky;
+    }
+    return color;
+}
+#endif
+
 // What `bevy_pbr::pbr` does in forward rendering, with the block textures, lit by the light
 // levels of the vertices.
 @fragment
@@ -360,6 +482,9 @@ fn fragment(
     pbr_input.material.base_color *= texture;
 
     let water = shading.liquid != 0u && (shading.effects & EFFECT_WATER) != 0u;
+    let screen_water = water && (shading.effects & EFFECT_SSR) != 0u;
+    // The water shades itself (`water_surface`), not as seen through
+    pbr_input.material.specular_transmission = 0.0;
     var fresnel = 0.0;
     if water {
         // A smooth surface, rippled on top, which reflects the sky more and shows less of what
@@ -391,11 +516,36 @@ fn fragment(
     let lit_by_blocks = pbr_input.material.base_color.rgb * block * BLOCK_LIGHT_COLOR
         * shading.block_light * view.exposure;
     out.color = vec4(max(out.color.rgb * sky, lit_by_blocks) * occlusion, out.color.a);
-    if water {
+    if water && !screen_water {
         // The sky, as bright as the day is, where the water is under it
         let daylight = lights.ambient_color.r / DAY_AMBIENT;
-        out.color = vec4(mix(out.color.rgb, SKY_COLOR * daylight * sky, fresnel), out.color.a);
+        var reflected = SKY_COLOR * daylight * sky;
+        if has_sky() {
+            reflected = sky_radiance(reflect(-pbr_input.V, pbr_input.N), 0.0) * sky;
+        }
+        out.color = vec4(mix(out.color.rgb, reflected, fresnel), out.color.a);
     }
+#ifdef DEPTH_PREPASS
+    if screen_water {
+        if is_front {
+            out.color = vec4(water_surface(in, pbr_input.N, pbr_input.V, out.color.rgb * 0.5, sky), 1.0);
+        } else {
+            // From under the water, the surface shows what is above it, dimmed
+            let uv = (in.position.xy - view.viewport.xy) / view.viewport.zw;
+            out.color = vec4(opaque_color(uv) * vec3(0.55, 0.75, 0.85), 1.0);
+        }
+    }
+#endif
+#ifdef DISTANCE_FOG
+    // Where the fog is transparent, the chunks fade into the sky itself (`shader_poc.rs`)
+    if fog.base_color.a == 0.0 && has_sky() {
+        let to = in.world_position.xyz - view.world_position;
+        let distance = length(to);
+        let amount = smoothstep(fog.be.x, fog.be.y, distance);
+        let sky_color = sky_radiance(horizon_direction(to / distance), 0.0);
+        out.color = vec4(mix(out.color.rgb, sky_color, amount), out.color.a);
+    }
+#endif
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;
 }

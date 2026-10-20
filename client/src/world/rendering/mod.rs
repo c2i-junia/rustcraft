@@ -7,6 +7,7 @@ pub mod materials;
 pub mod meshing;
 pub mod render;
 pub mod render_distance;
+pub mod shader_poc;
 pub mod voxel;
 
 pub use climate::*;

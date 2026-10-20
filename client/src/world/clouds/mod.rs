@@ -206,7 +206,7 @@ fn rebuild_clouds_system(
 }
 
 /// Gives the materials of the clouds the tint of the hour and the fade of the reach.
-fn cloud_uniforms_system(
+pub(crate) fn cloud_uniforms_system(
     time: Res<ClientTime>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,

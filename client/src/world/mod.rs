@@ -33,7 +33,11 @@ pub fn world_plugin(app: &mut App) {
         // loaded from the game folder by `add_client`
         .init_resource::<RenderDistance>()
         .init_resource::<clouds::mesh::CloudStyle>()
-        .add_plugins((chunk_material_plugin, clouds::clouds_plugin))
+        .add_plugins((
+            chunk_material_plugin,
+            clouds::clouds_plugin,
+            shader_poc::shader_poc_plugin,
+        ))
         .add_message::<WorldRenderRequestUpdateEvent>()
         .add_message::<BlockChanged>()
         .add_message::<ChunkLoadEvent>()

@@ -39,5 +39,7 @@ shared = { path = "../shared", features = ["test-helpers"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"
 serde_json = "1"
+# The version Bevy uses, to time whole frames on the GPU in the benchmark of the shaders
+wgpu = { version = "29", default-features = false }
 # The version Bevy uses, to read and write the clipboard of the system in the tests
 arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }

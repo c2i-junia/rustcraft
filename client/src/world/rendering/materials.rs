@@ -80,6 +80,8 @@ impl Default for TextureAnimation {
 }
 
 const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1a7d9c21");
+/// `rustcraft::sky`, which `chunk.wgsl` imports.
+const SKY_SHADER: Handle<Shader> = uuid_handle!("3f0c9a61-27d4-4b8e-a5c2-9e41d7b06f18");
 
 /// What the chunks are drawn with: the material of the block textures, which repeat over the
 /// faces that span several blocks.
@@ -169,6 +171,7 @@ impl MaterialExtension for BlockLayers {
 
 /// Makes `ChunkMaterial` drawable.
 pub fn chunk_material_plugin(app: &mut App) {
+    load_internal_asset!(app, SKY_SHADER, "sky.wgsl", Shader::from_wgsl);
     load_internal_asset!(app, CHUNK_SHADER, "chunk.wgsl", Shader::from_wgsl);
     app.add_plugins(MaterialPlugin::<ChunkMaterial>::default());
 }

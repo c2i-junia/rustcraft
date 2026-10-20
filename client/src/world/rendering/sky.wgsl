@@ -1,0 +1,61 @@
+// The sky of the atmosphere for the shaders of the proof of concept (`shader_poc.rs`), read
+// from its environment map: the chunks fade into it, the water reflects it, and the horizon
+// skirt hides the ground of the planet with it.
+
+#define_import_path rustcraft::sky
+
+#import bevy_pbr::mesh_view_bindings::{view, light_probes}
+#ifdef ENVIRONMENT_MAP
+#ifdef MULTIPLE_LIGHT_PROBES_IN_ARRAY
+#import bevy_pbr::mesh_view_bindings::{specular_environment_maps, environment_map_sampler}
+#else
+#import bevy_pbr::mesh_view_bindings::{specular_environment_map, environment_map_sampler}
+#endif
+#endif
+
+// `v` turned by the quaternion `q`.
+fn quat_rotate(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
+// The sky toward `dir`, as the environment map of the atmosphere holds it, at the exposure of
+// the view; `blur` from 0, sharp, to 1, the roughest of its mips. None without the map.
+fn sky_radiance(dir: vec3<f32>, blur: f32) -> vec3<f32> {
+#ifdef ENVIRONMENT_MAP
+    if light_probes.view_cubemap_index < 0 {
+        return vec3(0.0);
+    }
+    var at = quat_rotate(light_probes.view_rotation, dir);
+    // Cube maps are left-handed
+    at.z = -at.z;
+#ifdef MULTIPLE_LIGHT_PROBES_IN_ARRAY
+    let index = light_probes.view_cubemap_index;
+    let level = blur * f32(textureNumLevels(specular_environment_maps[index]) - 1u);
+    let radiance = textureSampleLevel(
+        specular_environment_maps[index], environment_map_sampler, at, level,
+    ).rgb;
+#else
+    let level = blur * f32(light_probes.smallest_specular_mip_level_for_view);
+    let radiance = textureSampleLevel(specular_environment_map, environment_map_sampler, at, level).rgb;
+#endif
+    return radiance * light_probes.intensity_for_view * view.exposure;
+#else
+    return vec3(0.0);
+#endif
+}
+
+// Whether the view has a sky to read: the environment map of the atmosphere.
+fn has_sky() -> bool {
+#ifdef ENVIRONMENT_MAP
+    return light_probes.view_cubemap_index >= 0;
+#else
+    return false;
+#endif
+}
+
+// `dir`, raised to just above the horizon if it points under it: under the horizon, past the
+// chunks, is the ground of the planet, which the horizon skirt hides.
+fn horizon_direction(dir: vec3<f32>) -> vec3<f32> {
+    return normalize(vec3(dir.x, max(dir.y, 0.03), dir.z));
+}
