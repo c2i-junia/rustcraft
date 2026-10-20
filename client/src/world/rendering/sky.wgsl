@@ -1,4 +1,4 @@
-// The sky of the atmosphere for the shaders of the proof of concept (`shader_poc.rs`), read
+// The sky of the atmosphere, the physical sky of the shaders (`shaders.rs`), read
 // from its environment map: the chunks fade into it, the water reflects it, and the horizon
 // skirt hides the ground of the planet with it.
 

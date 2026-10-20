@@ -1,11 +1,11 @@
 //! The graphics settings of the Video tab besides the render distance and the biome blend, and
 //! what they change: how the chunks are lit and shaded, and whether the sun casts shadows. With
-//! them, the ambient light of the day and of the night.
+//! them, the ambient light of the day and of the night. The shaders are drawn by `shaders.rs`.
 
 use bevy::prelude::*;
-use shared::DAY_DURATION_IN_TICKS;
-use std::f32::consts::TAU;
+use serde::{Deserialize, Serialize};
 
+use crate::world::celestial::sun_height;
 use crate::world::time::ClientTime;
 use crate::world::{ChunkShading, GlobalMaterial, MaterialResource, WorldRenderRequestUpdateEvent};
 
@@ -24,6 +24,8 @@ pub struct GraphicsSettings {
     pub shadows: bool,
     /// Whether the plants sway in the wind, and the water ripples and reflects the light.
     pub effects: bool,
+    /// How much of the shaders is drawn (`shaders.rs`).
+    pub shaders: ShaderQuality,
 }
 
 impl Default for GraphicsSettings {
@@ -33,8 +35,32 @@ impl Default for GraphicsSettings {
             brightness: 0.5,
             shadows: true,
             effects: true,
+            shaders: ShaderQuality::default(),
         }
     }
+}
+
+/// How much of the shaders is drawn, from none, the look of the game before them, to all of
+/// them at their best (`ShaderFeatures::of`). Saved in `video.ron`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+pub enum ShaderQuality {
+    Off,
+    Low,
+    Medium,
+    #[default]
+    High,
+    Ultra,
+}
+
+impl ShaderQuality {
+    /// Every quality, from the least to the most.
+    pub const ALL: [ShaderQuality; 5] = [
+        ShaderQuality::Off,
+        ShaderQuality::Low,
+        ShaderQuality::Medium,
+        ShaderQuality::High,
+        ShaderQuality::Ultra,
+    ];
 }
 
 impl GraphicsSettings {
@@ -104,10 +130,7 @@ pub const BLOCK_LIGHT: f32 = DAY_AMBIENT * 2.;
 /// How much of the light of the day there is at `tick`: 1 while the sun is well up, 0 while it
 /// is well under the horizon, and fading at dawn and at dusk.
 fn daylight(tick: u64) -> f32 {
-    let angle = (tick % DAY_DURATION_IN_TICKS) as f32 / DAY_DURATION_IN_TICKS as f32 * TAU;
-    // The height of the sun, as `update_celestial_bodies` turns it
-    let height = -angle.sin();
-    ((height + 0.1) / 0.35).clamp(0., 1.)
+    ((sun_height(tick) + 0.1) / 0.35).clamp(0., 1.)
 }
 
 /// Dims the ambient light at night: the faces lit by the sky only are dark, if readable.
@@ -123,6 +146,7 @@ mod tests {
     use super::*;
     use crate::world::ChunkRender;
     use bevy::ecs::message::Messages;
+    use shared::DAY_DURATION_IN_TICKS;
 
     #[test]
     fn turning_the_shadows_on_again_draws_the_chunks_into_new_entities() {

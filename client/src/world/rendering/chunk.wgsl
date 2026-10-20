@@ -88,7 +88,7 @@ const SWAY_TOP: u32 = 2u;
 // The bits of `ChunkShading::effects`
 const EFFECT_SWAY: u32 = 1u;
 const EFFECT_WATER: u32 = 2u;
-// `EFFECT_SSR` in `shader_poc.rs`: the water reflects the screen and refracts what lies under it
+// `EFFECT_SSR` in `shaders.rs`: the water reflects the screen and refracts what lies under it
 const EFFECT_SSR: u32 = 4u;
 // The highest light level, `MAX_LIGHT`
 const MAX_LIGHT: f32 = 15.0;
@@ -100,6 +100,9 @@ const SKY_COLOR: vec3<f32> = vec3(0.178, 0.346, 0.474);
 // The brightness of the ambient light at noon, `DAY_AMBIENT` in `graphics.rs`: when the water
 // reflects the sky as bright as it is drawn
 const DAY_AMBIENT: f32 = 400.0;
+// The exposure the lights of the game were made for, `Exposure::BLENDER` (an EV100 of 9.7):
+// the light of the blocks is as bright on screen whatever the exposure of the shaders
+const BASE_EXPOSURE: f32 = 1.0 / (1.2 * 831.7464);
 
 // How long the game has been drawing, in seconds, which plays the animated textures and sways
 // the plants.
@@ -131,10 +134,14 @@ fn colouring_of(uv_b: vec2<f32>) -> Colouring {
 // cross the world in gusts, alike at a point whatever face it is a corner of, so that faces that
 // meet never part. A plant sways by its top, the top of its texture, rooted below.
 fn sway_offset(sway: u32, uv: vec2<f32>, at: vec3<f32>) -> vec3<f32> {
+    return sway_offset_at(sway, uv, at, seconds());
+}
+
+// `sway_offset` at the time `time`: the motion vectors compare it with the frame before.
+fn sway_offset_at(sway: u32, uv: vec2<f32>, at: vec3<f32>, time: f32) -> vec3<f32> {
     if sway == 0u || (shading.effects & EFFECT_SWAY) == 0u {
         return vec3(0.0);
     }
-    let time = seconds();
     let gust = 0.6 + 0.4 * sin(time * 0.37 + (at.x + at.z) * 0.031);
     let wave = vec2(
         sin(time * 1.7 + at.x * 0.37 + at.y * 0.21 + at.z * 0.13),
@@ -188,6 +195,15 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         mesh_functions::get_previous_world_from_local(vertex.instance_index),
         vec4<f32>(vertex.position, 1.0),
     );
+#ifdef VERTEX_UVS_A
+#ifdef VERTEX_UVS_B
+    // Where the plant swayed to in the frame before, for TAA
+    let previous_sway = sway_offset_at(
+        sway, vertex.uv, out.previous_world_position.xyz, seconds() - globals.delta_time,
+    );
+    out.previous_world_position = vec4(out.previous_world_position.xyz + previous_sway, 1.0);
+#endif
+#endif
 #endif
 #else
 #ifdef VERTEX_NORMALS
@@ -243,7 +259,9 @@ fn block_alpha_discard(in: VertexOutput) {
 #ifdef MAY_DISCARD
     let alpha = pbr_bindings::material.base_color.a * block_color(in).a;
     let alpha_mode = pbr_bindings::material.flags & pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_RESERVED_BITS;
-    if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK {
+    // Alpha to coverage falls back to the mask without MSAA, as in `alpha_discard`
+    if alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_MASK
+        || alpha_mode == pbr_types::STANDARD_MATERIAL_FLAGS_ALPHA_MODE_ALPHA_TO_COVERAGE {
         if alpha < pbr_bindings::material.alpha_cutoff {
             discard;
         }
@@ -514,7 +532,7 @@ fn fragment(
     let block = level_brightness(light.g * MAX_LIGHT) * select(1.0, 0.0, light.g == 0.0);
     let occlusion = 0.55 + 0.15 * light.b * 3.0;
     let lit_by_blocks = pbr_input.material.base_color.rgb * block * BLOCK_LIGHT_COLOR
-        * shading.block_light * view.exposure;
+        * shading.block_light * BASE_EXPOSURE;
     out.color = vec4(max(out.color.rgb * sky, lit_by_blocks) * occlusion, out.color.a);
     if water && !screen_water {
         // The sky, as bright as the day is, where the water is under it
@@ -537,7 +555,7 @@ fn fragment(
     }
 #endif
 #ifdef DISTANCE_FOG
-    // Where the fog is transparent, the chunks fade into the sky itself (`shader_poc.rs`)
+    // Where the fog is transparent, the chunks fade into the sky itself (`shaders.rs`)
     if fog.base_color.a == 0.0 && has_sky() {
         let to = in.world_position.xyz - view.world_position;
         let distance = length(to);

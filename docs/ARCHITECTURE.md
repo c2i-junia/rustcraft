@@ -301,6 +301,19 @@ only the nearest face of a cloud is coloured and its opacity is the same from be
 and inside. The player chooses Fancy, Fast (one flat layer) or Off in the Video tab
 (`CloudStyle`, saved in `video.ron` with the render distance).
 
+A day lasts 20 minutes. The sun and the moon go round on a path that leans 30° from the
+vertical, so they are never right overhead; `celestial.rs` draws them, and the stars, with
+`CelestialMaterial` (`celestial.wgsl`) on the far plane: a round sun reddening near the
+horizon, a moon of 16 × 16 pixels that waxes and wanes over 8 days, and stars that turn with
+the sky and show at night. The shaders (`world/rendering/shaders.rs`) are chosen in the Video
+tab, Off, Low, Medium, High (the default) or Ultra (`ShaderQuality`, saved in `video.ron`), and
+applied in game at once by inserting and removing Bevy's components on the camera and the
+light of the sky: a physical sky (Bevy's atmosphere, in an HDR target, with an exposure that
+follows the sun, bloom and colour grading), SMAA or TAA, water reflecting the screen
+(`EFFECT_SSR` in `chunk.wgsl`), rays of light through a haze over the ground, ambient occlusion
+in screen space and longer, sharper shadows. `bench_shaders` measures what each costs on the
+GPU. The end-to-end tests draw without them unless a test asks (`Options::shaders`).
+
 The network is polled in `PreUpdate`, every frame, and the inputs are uploaded in
 `FixedUpdate`. A message of chunks of 4 KiB or more is decoded on the compute pool, and the
 messages are applied in the order they came (`DecodingChunkMessages`), about 1024 chunks a

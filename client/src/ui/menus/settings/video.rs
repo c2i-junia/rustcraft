@@ -1,7 +1,7 @@
 //! The Video tab of the settings: the render distance, applied and saved as soon as it is set,
 //! and a note under it, which says when the server of the game grants less; then the clouds,
-//! with a note saying what each style draws, the biome blend, and the lighting, the
-//! brightness, the shadows and the effects.
+//! with a note saying what each style draws, the biome blend, the shaders, with a note saying
+//! what each quality draws, and the lighting, the brightness, the shadows and the effects.
 
 use bevy::{prelude::*, ui_widgets::ValueChange};
 use shared::{GameFolderPaths, MIN_RENDER_DISTANCE};
@@ -9,13 +9,14 @@ use shared::{GameFolderPaths, MIN_RENDER_DISTANCE};
 use super::interface::spawn_row;
 use super::{SettingsContext, SettingsRoot};
 use crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS;
-use crate::ui::theme::{FONT_S, MUTED, SPACE_M, SPACE_XS};
+use crate::ui::theme::{FONT_S, MUTED, SPACE_M, SPACE_XL, SPACE_XS};
+use crate::ui::widgets::list::spawn_scroll_page;
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderScale, LABEL_WIDTH};
 use crate::world::clouds::mesh::CloudStyle;
 use crate::world::{
     write_video_settings, BiomeBlend, GraphicsSettings, RenderDistance, ServerRenderDistanceLimit,
-    MAX_BIOME_BLEND,
+    ShaderQuality, MAX_BIOME_BLEND,
 };
 
 /// The slider of the render distance.
@@ -33,6 +34,31 @@ pub struct RenderDistanceNote;
 /// The note under the clouds.
 #[derive(Component)]
 pub struct CloudsNote;
+
+/// The note under the shaders.
+#[derive(Component)]
+pub struct ShadersNote;
+
+fn shaders_label(quality: ShaderQuality) -> &'static str {
+    match quality {
+        ShaderQuality::Off => "Off",
+        ShaderQuality::Low => "Low",
+        ShaderQuality::Medium => "Medium",
+        ShaderQuality::High => "High",
+        ShaderQuality::Ultra => "Ultra",
+    }
+}
+
+/// What the note under the shaders says of `quality`: what it draws more than the one below.
+fn shaders_note(quality: ShaderQuality) -> &'static str {
+    match quality {
+        ShaderQuality::Off => "The look of the game without shaders",
+        ShaderQuality::Low => "A real sky, light that follows the sun, and glow",
+        ShaderQuality::Medium => "Adds reflections on the water and steadier edges",
+        ShaderQuality::High => "Adds rays of light, soft shade and longer shadows",
+        ShaderQuality::Ultra => "Finer shadows and rays of light, for a strong graphics card",
+    }
+}
 
 /// The styles of the clouds, in the order of their control.
 const CLOUD_STYLES: [CloudStyle; 3] = [CloudStyle::Fancy, CloudStyle::Fast, CloudStyle::Off];
@@ -123,7 +149,7 @@ fn blend_label(value: f32) -> String {
 /// controls, under `panel`.
 pub fn spawn_video_tab(
     commands: &mut Commands,
-    panel: Entity,
+    panel_of_tab: Entity,
     (render_distance, clouds, biome_blend, graphics): (
         &RenderDistance,
         CloudStyle,
@@ -132,6 +158,9 @@ pub fn spawn_video_tab(
     ),
     font: Handle<Font>,
 ) {
+    // the controls scroll when they are taller than the panel
+    let (frame, panel) = spawn_scroll_page(commands, SPACE_XL);
+    commands.entity(frame).insert(ChildOf(panel_of_tab));
     // the slider, and its note under it
     let column = commands
         .spawn((
@@ -217,6 +246,41 @@ pub fn spawn_video_tab(
         .observe(set_biome_blend)
         .observe(save_on_release);
 
+    // the shaders, and their note under them
+    let column = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_XS),
+                ..default()
+            },
+            ChildOf(panel),
+        ))
+        .id();
+    let row = spawn_row(commands, column, "Shaders", &font);
+    let labels = ShaderQuality::ALL.map(shaders_label);
+    let segmented = Segmented {
+        label: "Shaders",
+        options: &labels,
+        selected: ShaderQuality::ALL
+            .iter()
+            .position(|&quality| quality == graphics.shaders)
+            .unwrap_or_default(),
+    };
+    let group = spawn_segmented(commands, &segmented, font.clone());
+    commands
+        .entity(group)
+        .insert(ChildOf(row))
+        .observe(choose_shaders);
+    commands.spawn((
+        ShadersNote,
+        Text::new(shaders_note(graphics.shaders)),
+        note_font(&font),
+        TextColor(MUTED),
+        note_node(),
+        ChildOf(column),
+    ));
+
     // How the world is drawn, closer together
     let graphics_column = commands
         .spawn((
@@ -294,6 +358,27 @@ fn choose_lighting(
     graphics.smooth_lighting = change.index == 0;
     let (render_distance, clouds, biome_blend, paths) = video;
     write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
+}
+
+/// Applies and saves the chosen shaders, and says what they draw. In game, the world is drawn
+/// with them at once (`shaders.rs`).
+fn choose_shaders(
+    change: On<SegmentChange>,
+    mut graphics: ResMut<GraphicsSettings>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GameFolderPaths>,
+    ),
+    mut notes: Query<&mut Text, With<ShadersNote>>,
+) {
+    graphics.shaders = ShaderQuality::ALL[change.index];
+    let (render_distance, clouds, biome_blend, paths) = video;
+    write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
+    for mut text in &mut notes {
+        text.0 = shaders_note(graphics.shaders).to_string();
+    }
 }
 
 /// Applies and saves whether the sun and the moon cast shadows.
@@ -481,6 +566,17 @@ mod tests {
                 "No clouds"
             ]
         );
+    }
+
+    #[test]
+    fn each_quality_of_the_shaders_has_its_label_and_note() {
+        let labels = ShaderQuality::ALL.map(shaders_label);
+        assert_eq!(labels, ["Off", "Low", "Medium", "High", "Ultra"]);
+        let notes = ShaderQuality::ALL.map(shaders_note);
+        for (i, note) in notes.iter().enumerate() {
+            assert!(!note.is_empty());
+            assert!(!notes[..i].contains(note), "{note}");
+        }
     }
 
     #[test]

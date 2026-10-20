@@ -10,8 +10,6 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub enum GlobalMaterial {
-    Sun,
-    Moon,
     Blocks,
     Liquids,
     Items,

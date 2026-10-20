@@ -3,7 +3,10 @@ use shared::world::{BlockId, ItemId};
 
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::reticle::spawn_reticle;
-use celestial::{celestial_light_system, setup_main_lighting, update_celestial_bodies};
+use celestial::{
+    celestial_light_system, setup_main_lighting, update_celestial_bodies,
+    update_celestial_materials,
+};
 use time::{time_update_system, ClientTime};
 
 pub mod celestial;
@@ -36,7 +39,8 @@ pub fn world_plugin(app: &mut App) {
         .add_plugins((
             chunk_material_plugin,
             clouds::clouds_plugin,
-            shader_poc::shader_poc_plugin,
+            shaders::shaders_plugin,
+            celestial::celestial_material_plugin,
         ))
         .add_message::<WorldRenderRequestUpdateEvent>()
         .add_message::<BlockChanged>()
@@ -65,6 +69,7 @@ pub fn world_plugin(app: &mut App) {
                     .after(GameSet::UiMode),
                 chunk_force_reload_system.after(GameSet::UiMode),
                 (update_celestial_bodies, celestial_light_system).chain(),
+                update_celestial_materials,
                 daylight_ambient_system,
             )
                 .run_if(in_state(GameState::Game)),

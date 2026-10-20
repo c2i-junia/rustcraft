@@ -47,14 +47,15 @@ use shared::{GameFolderPaths, CHUNK_SIZE};
 
 use super::meshing::{generate_chunk_mesh, generate_lit_chunk_mesh, ChunkMeshResponse};
 use super::render::{spawn_meshing_tasks, update_chunk};
-use super::shader_poc::{shader_poc_plugin, ShaderPoc};
+use super::shaders::shaders_plugin;
 use crate::camera::SKY_COLOR;
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
 use crate::world::celestial::{celestial_light_system, CelestialRoot, SkyLight};
 use crate::world::{
     chunk_material_plugin, create_all_atlases, fill_climate_map, group_of, setup_materials,
-    AtlasHandles, BiomeBlend, ChunkMaterial, ChunkRender, MaterialResource, RenderDistance,
+    AtlasHandles, BiomeBlend, ChunkMaterial, ChunkRender, GraphicsSettings, MaterialResource,
+    RenderDistance, ShaderQuality,
 };
 
 const SEED: u32 = 42;
@@ -420,11 +421,11 @@ struct Drawing {
 
 impl Drawing {
     fn new(lavapipe: bool) -> Self {
-        Self::with_shaders(lavapipe, ShaderPoc::default())
+        Self::with_shaders(lavapipe, ShaderQuality::Off)
     }
 
-    /// A drawing app with the features `poc` of the shader proof of concept.
-    fn with_shaders(lavapipe: bool, poc: ShaderPoc) -> Self {
+    /// A drawing app with the shaders of `quality`.
+    fn with_shaders(lavapipe: bool, quality: ShaderQuality) -> Self {
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         let mut app = App::new();
         app.add_plugins((
@@ -459,11 +460,13 @@ impl Drawing {
             WireframePlugin::default(),
             chunk_material_plugin,
         ))
-        .insert_resource(poc)
-        .add_plugins(shader_poc_plugin)
+        .insert_resource(GraphicsSettings {
+            shaders: quality,
+            ..default()
+        })
+        .add_plugins(shaders_plugin)
         .init_resource::<RenderDistance>()
-        // The light of the sky as the game sets it in each frame, which the proof of concept
-        // brightens
+        // The light of the sky as the game sets it in each frame, which the shaders brighten
         .add_systems(Update, celestial_light_system)
         .insert_resource(MaterialResource::default())
         .insert_resource(AtlasHandles::<BlockId>::default())
@@ -1031,10 +1034,9 @@ const LAKE_SCENE: Scene = Scene {
     radius: 10,
 };
 
-/// What each feature of the shader proof of concept costs (`shader_poc.rs`): the lake drawn in
-/// a full turn of the camera with none, with each alone, and with all, the frame timed on the
-/// GPU from start to end, and from its update to the end of its drawing, with the time of the
-/// passes that the GPU times. Writes
+/// What each quality of the shaders costs (`shaders.rs`): the lake drawn in a full turn of the
+/// camera, the frame timed on the GPU from start to end, and from its update to the end of its
+/// drawing, with the time of the passes that the GPU times. Writes
 /// `<label>-shaders-gpu.json`; `BENCH_RES=2560x1440` sets the resolution.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
@@ -1045,19 +1047,8 @@ fn bench_shaders() {
         .unwrap_or(360);
     let world = LAKE_SCENE.generate_seeded(1);
     let mut results = serde_json::Map::new();
-    for features in [
-        "",
-        "hdr",
-        "atmosphere",
-        "bloom",
-        "taa",
-        "ssao",
-        "godrays",
-        "water",
-        "shadows",
-        "all",
-    ] {
-        let mut drawing = Drawing::with_shaders(false, ShaderPoc::parse(features));
+    for quality in ShaderQuality::ALL {
+        let mut drawing = Drawing::with_shaders(false, quality);
         drawing.time_gpu_frames();
         drawing.show_seeded(&world, 1);
         let center = LAKE_SCENE.center_chunk() * CHUNK_SIZE + IVec3::splat(CHUNK_SIZE / 2);
@@ -1101,11 +1092,7 @@ fn bench_shaders() {
                 }
             }
         }
-        let name = if features.is_empty() {
-            "none"
-        } else {
-            features
-        };
+        let name = format!("{quality:?}").to_lowercase();
         drawing.place_camera(turn(1, 8));
         drawing.screenshot(&output_dir().join(format!("{}-shaders-{name}.png", label())));
         let passes: serde_json::Map<String, Value> = passes

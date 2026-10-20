@@ -27,6 +27,7 @@ use crate::constants::TEXTURE_PATH_BASE;
 use crate::network::LocalServerHandle;
 use crate::state::GameState;
 use crate::ui::menus::MenuState;
+use crate::world::{GraphicsSettings, ShaderQuality};
 
 /// How long a screen may take to appear.
 pub const SCREEN: Duration = Duration::from_secs(2);
@@ -52,6 +53,9 @@ pub struct Options {
     pub height: u32,
     /// `None` starts as on a first launch: the saved name, else none.
     pub player_name: Option<String>,
+    /// The shaders the client draws with, whatever its game folder says; `None` keeps the
+    /// saved ones. Off by default: lavapipe draws the others slowly.
+    pub shaders: Option<ShaderQuality>,
 }
 
 impl Default for Options {
@@ -60,6 +64,7 @@ impl Default for Options {
             width: 1280,
             height: 720,
             player_name: Some("Tester".to_string()),
+            shaders: Some(ShaderQuality::Off),
         }
     }
 }
@@ -183,6 +188,7 @@ impl Harness {
             width,
             height,
             player_name,
+            shaders,
         } = options;
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         // `BENCH_GPU` renders a benchmark on the GPU of the machine, compiling the pipelines
@@ -273,6 +279,9 @@ impl Harness {
                 player_name,
             },
         );
+        if let Some(shaders) = shaders {
+            app.world_mut().resource_mut::<GraphicsSettings>().shaders = shaders;
+        }
         app.finish();
         app.cleanup();
         Self {

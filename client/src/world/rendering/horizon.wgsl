@@ -1,4 +1,4 @@
-// The horizon skirt of the proof of concept (`shader_poc.rs`): a ring around the camera, past
+// The horizon skirt of the physical sky (`shaders.rs`): a ring around the camera, past
 // the chunks and under the horizon, of the colour of the sky at the horizon, which hides the
 // ground of the planet of the atmosphere.
 

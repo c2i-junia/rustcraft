@@ -117,6 +117,7 @@ fn bench_world_lifecycle() {
             width: 1920,
             height: 1080,
             player_name: Some(player),
+            ..Options::default()
         },
     );
     h.wait_for(&L::text("Singleplayer"), STARTUP);
@@ -317,6 +318,7 @@ fn bench_render_distance() {
             width: 1920,
             height: 1080,
             player_name: Some("PlayerOne".to_string()),
+            ..Options::default()
         },
     );
     h.wait_for(&L::text("Singleplayer"), STARTUP);
@@ -442,6 +444,7 @@ fn snapshot_the_horizon() {
             width: 1920,
             height: 1080,
             player_name: Some("PlayerOne".to_string()),
+            ..Options::default()
         },
     );
     h.wait_for(&L::text("Singleplayer"), STARTUP);

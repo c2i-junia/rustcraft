@@ -1,7 +1,8 @@
 //! Pictures of a varied landscape at several hours, to compare how the world is shaded: a lake
 //! between a forest and hills in the world of seed 1, seen from above and from the shore, at
 //! noon, in the golden hour, at sunset and at midnight, and from under the water. Saved with
-//! `UI_SNAPSHOTS=1` as `<SHADER_TAG>_<scene>`, the tag `baseline` by default.
+//! `UI_SNAPSHOTS=1` as `<SHADER_TAG>_<scene>`, the tag `baseline` by default. A tag that names a
+//! quality of the shaders, such as `high`, draws with it; any other without them.
 
 use std::time::{Duration, Instant};
 
@@ -18,8 +19,13 @@ use crate::camera::{underwater_fog_system, CameraController};
 use crate::constants::SAVE_PATH;
 use crate::network::hash_string_to_u64;
 use crate::player::PlayerBody;
+use crate::world::clouds::Clouds;
+use crate::world::rendering::shaders::{Antialiasing, ShaderFeatures};
 use crate::world::time::ClientTime;
-use crate::world::ClientWorldMap;
+use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
+use bevy::anti_alias::taa::TemporalAntiAliasing;
+use bevy::camera::Hdr;
+use bevy::light::{Atmosphere, VolumetricFog};
 
 const SEED: u32 = 1;
 /// The middle of the lake, forest and hills that `scout` found in the world of `SEED`.
@@ -71,12 +77,17 @@ fn looking(from: Vec3, to: Vec3) -> Quat {
 #[ignore = "pictures for a human: BENCH_GPU=1 UI_SNAPSHOTS=1 cargo test -p client --release e2e::shaders -- --ignored"]
 fn snapshot_the_shaders() {
     let tag = std::env::var("SHADER_TAG").unwrap_or_else(|_| "baseline".to_string());
+    let quality = ShaderQuality::ALL
+        .into_iter()
+        .find(|quality| format!("{quality:?}").to_lowercase() == tag)
+        .unwrap_or(ShaderQuality::Off);
     let mut h = enter_world_with(
         folder(),
         "Shaders",
         Options {
             width: 1600,
             height: 900,
+            shaders: Some(quality),
             ..Options::default()
         },
     );
@@ -143,6 +154,10 @@ fn snapshot_the_shaders() {
     let above = water_at + (water_at - eye).with_y(0.).normalize() * -60. + Vec3::Y * 45.;
     let under = water_at + Vec3::new(0.5, -1.6, 0.5);
     let west = above + Vec3::new(0., -30., 100.);
+    // Up the path of the sun at noon and of the moon at midnight, which lean toward -X, and
+    // toward where the sun sets
+    let high_sky = above + Vec3::new(-100., 90., 0.);
+    let setting = above + Vec3::new(0., 8., 100.);
 
     let scenes = [
         ("vista_noon", above, beyond, hour(0.75)),
@@ -151,6 +166,10 @@ fn snapshot_the_shaders() {
         ("vista_golden", above, west, hour(0.97)),
         ("vista_sunset", above, west, hour(0.99)),
         ("vista_midnight", above, beyond, hour(0.25)),
+        ("sky_noon", above, high_sky, hour(0.75)),
+        ("sky_sunset", above, setting, hour(0.985)),
+        ("sky_dusk", above, setting, hour(0.01)),
+        ("sky_midnight", above, high_sky, hour(0.25)),
         ("shore_noon", eye, beyond + Vec3::Y * 4., hour(0.75)),
         ("shore_golden", eye, beyond + Vec3::Y * 4., hour(0.97)),
         (
@@ -169,8 +188,61 @@ fn snapshot_the_shaders() {
         world.entity_mut(camera).insert(CameraController::default());
         world.run_system_once(underwater_fog_system).unwrap();
         world.entity_mut(camera).remove::<CameraController>();
+        // The sky itself, without the clouds that would hide it
+        let clouds: Vec<Entity> = world
+            .query_filtered::<Entity, With<Clouds>>()
+            .iter(world)
+            .collect();
+        let shown = if name.starts_with("sky_") {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        for cloud in clouds {
+            world.entity_mut(cloud).insert(shown);
+        }
         // Long enough for effects that accumulate over frames to settle
         h.frames(10);
         h.snapshot(&format!("{tag}_{name}"));
+    }
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_shaders_change_in_game_as_soon_as_they_are_chosen() {
+    let mut h = super::game::enter_world(GameFolder::new().with_world("Shaders"), "Shaders");
+    let camera_has = |h: &mut super::harness::Harness| {
+        let world = h.world_mut();
+        let camera = world
+            .query_filtered::<Entity, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        let camera = world.entity(camera);
+        (
+            camera.contains::<Hdr>(),
+            camera.contains::<TemporalAntiAliasing>(),
+            camera.contains::<VolumetricFog>(),
+        )
+    };
+    assert_eq!(camera_has(&mut h), (false, false, false));
+    for quality in ShaderQuality::ALL.into_iter().chain([ShaderQuality::Off]) {
+        h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
+        h.frames(5);
+        let features = ShaderFeatures::of(quality);
+        assert_eq!(
+            camera_has(&mut h),
+            (
+                features.sky,
+                features.antialiasing == Antialiasing::Taa,
+                features.god_rays.is_some()
+            ),
+            "{quality:?}"
+        );
+        let atmospheres = h
+            .world_mut()
+            .query_filtered::<(), With<Atmosphere>>()
+            .iter(h.world())
+            .count();
+        assert_eq!(atmospheres, features.sky as usize, "{quality:?}");
     }
 }

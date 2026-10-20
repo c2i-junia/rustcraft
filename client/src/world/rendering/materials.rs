@@ -8,8 +8,8 @@ use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, Extent3d, Face, ShaderType, TextureDimension, TextureFormat,
-    TextureViewDescriptor, TextureViewDimension,
+    AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat, TextureViewDescriptor,
+    TextureViewDimension,
 };
 use bevy::shader::ShaderRef;
 use serde::Deserialize;
@@ -213,36 +213,12 @@ impl<T> Default for AtlasHandles<T> {
 pub fn setup_materials(
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut material_resource: ResMut<MaterialResource>,
     mut block_atlas_handles: ResMut<AtlasHandles<BlockId>>,
     mut item_atlas_handles: ResMut<AtlasHandles<ItemId>>,
     texture_path: Res<TexturePath>,
     paths: Res<GameFolderPaths>,
 ) {
-    let sun_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(1., 0.95, 0.1),
-        emissive: LinearRgba::new(1., 0.95, 0.1, 0.5),
-        emissive_exposure_weight: 0.5,
-        cull_mode: Some(Face::Front),
-        ..default()
-    });
-
-    let moon_material = materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        emissive: LinearRgba::WHITE,
-        emissive_exposure_weight: 0.5,
-        cull_mode: Some(Face::Front),
-        ..default()
-    });
-
-    material_resource
-        .global_materials
-        .insert(GlobalMaterial::Sun, sun_material);
-    material_resource
-        .global_materials
-        .insert(GlobalMaterial::Moon, moon_material);
-
     let textures_path = paths.assets_folder_path.join(&texture_path.path);
     let blocks = textures_path.join("blocks/");
     block_atlas_handles.handles = load_textures(&asset_server, &blocks);

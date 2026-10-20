@@ -141,8 +141,53 @@ pub fn spawn_scroll_list(commands: &mut Commands, step: WheelStep) -> ScrollList
         ))
         .observe(wheel_by_step)
         .id();
+    spawn_scrollbar(commands, list, frame);
+    ScrollListParts { frame, well, list }
+}
+
+/// A page of controls that scrolls when it is taller than its parent, as a tab of the settings at
+/// 720 p, with a scrollbar beside it: unlike a list, it has no well around it. What gets the
+/// focus is brought into view. Returns the row to place, which grows to fill its parent, and the
+/// column where the caller spawns the controls, `row_gap` apart.
+pub fn spawn_scroll_page(commands: &mut Commands, row_gap: f32) -> (Entity, Entity) {
+    let frame = commands
+        .spawn(Node {
+            flex_grow: 1.0,
+            min_height: px(0),
+            column_gap: px(SPACE_XS),
+            ..default()
+        })
+        .id();
+    let page = commands
+        .spawn((
+            ScrollArea,
+            Node {
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                min_width: px(0),
+                min_height: px(0),
+                overflow: Overflow::scroll_y(),
+                row_gap: px(row_gap),
+                // the room of the focus rings, which the page would clip
+                padding: UiRect::vertical(px(RING_ROOM)),
+                ..default()
+            },
+            ChildOf(frame),
+        ))
+        .observe(|gained: On<FocusGained>, mut commands: Commands| {
+            commands.trigger(ScrollIntoView {
+                entity: gained.original_event_target(),
+            });
+        })
+        .id();
+    spawn_scrollbar(commands, page, frame);
+    (frame, page)
+}
+
+/// The scrollbar of `area`, the last child of `frame`.
+fn spawn_scrollbar(commands: &mut Commands, area: Entity, frame: Entity) {
     commands.spawn((
-        Scrollbar::new(list, ControlOrientation::Vertical, SCROLLBAR_MIN_THUMB),
+        Scrollbar::new(area, ControlOrientation::Vertical, SCROLLBAR_MIN_THUMB),
         Node {
             width: px(SCROLLBAR_WIDTH),
             border: UiRect::all(px(BEVEL_WIDTH)),
@@ -161,7 +206,6 @@ pub fn spawn_scroll_list(commands: &mut Commands, step: WheelStep) -> ScrollList
             raised_bevel(),
         )],
     ));
-    ScrollListParts { frame, well, list }
 }
 
 /// Notes where each list is before the wheel of this frame moves it.

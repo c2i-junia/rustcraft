@@ -10,9 +10,6 @@ pub const DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS: u32 = if cfg!(debug_assertions) 
 /// server of a world grants it.
 pub const MAX_CHUNK_RENDER_DISTANCE_RADIUS: u32 = 64;
 
-pub const CELESTIAL_SIZE: f32 = 10.;
-pub const CELESTIAL_DISTANCE: f32 = 50.; // Low value for testing ; will be increased later
-
 pub const MAX_HOTBAR_SLOTS: u32 = shared::HOTBAR_SLOTS;
 
 pub const SAVE_PATH: &str = "saves/";

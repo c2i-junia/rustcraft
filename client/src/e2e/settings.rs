@@ -8,7 +8,7 @@ use bevy::a11y::AccessibilityNode;
 use bevy::input::keyboard::{KeyCode, KeyboardFocusLost};
 use bevy::prelude::*;
 use bevy::ui::{Checked, UiGlobalTransform};
-use bevy::ui_widgets::{ScrollArea, Scrollbar, ScrollbarThumb};
+use bevy::ui_widgets::{ScrollArea, ScrollIntoView, Scrollbar, ScrollbarThumb};
 
 use super::game::enter_world;
 use super::harness::{Harness, Options, SCREEN, STARTUP};
@@ -34,8 +34,8 @@ use crate::ui::widgets::hints::HintBar;
 use crate::world::clouds::mesh::CloudStyle;
 use crate::world::clouds::Clouds;
 use crate::world::{
-    BiomeBlend, GraphicsSettings, RenderDistance, ServerRenderDistanceLimit, VideoSettings,
-    MAX_BIOME_BLEND,
+    BiomeBlend, GraphicsSettings, RenderDistance, ServerRenderDistanceLimit, ShaderQuality,
+    VideoSettings, MAX_BIOME_BLEND,
 };
 
 /// A client on the settings, with the game folder `folder`.
@@ -74,6 +74,15 @@ impl Harness {
     fn open_tab_showing(&mut self, label: &str, shown: &L) {
         self.open_tab(label);
         self.wait_for(shown, SCREEN);
+    }
+
+    /// Scrolls the element into view in the page of its tab, then clicks it.
+    #[track_caller]
+    fn click_shown(&mut self, locator: &L) {
+        let entity = self.get(locator);
+        self.world_mut().trigger(ScrollIntoView { entity });
+        self.frames(2);
+        self.click(locator);
     }
 
     /// Reads and parses a file of the game folder, which must exist.
@@ -349,7 +358,13 @@ fn the_lighting_brightness_shadows_and_effects_are_applied_and_kept() {
     let readout = |text: &str| L::text(text).within(L::row("Brightness"));
     let off = |row: &str| L::role(Role::RadioButton, "Off").within(L::row(row));
     let folder = GameFolder::new();
-    let mut h = settings_with(folder.clone(), Options::default());
+    let mut h = settings_with(
+        folder.clone(),
+        Options {
+            shaders: None,
+            ..Options::default()
+        },
+    );
     h.open_tab_showing("Video", &L::role(Role::RadioGroup, "Lighting"));
     assert_eq!(
         *h.world().resource::<GraphicsSettings>(),
@@ -357,10 +372,10 @@ fn the_lighting_brightness_shadows_and_effects_are_applied_and_kept() {
     );
     h.wait_for(&readout("+50%"), SCREEN);
 
-    h.click(&L::role(Role::RadioButton, "Flat"));
-    h.click(&off("Shadows"));
-    h.click(&off("Effects"));
-    h.click(&brightness());
+    h.click_shown(&L::role(Role::RadioButton, "Flat"));
+    h.click_shown(&off("Shadows"));
+    h.click_shown(&off("Effects"));
+    h.click_shown(&brightness());
     for _ in 0..12 {
         h.press(KeyCode::ArrowLeft);
     }
@@ -372,6 +387,7 @@ fn the_lighting_brightness_shadows_and_effects_are_applied_and_kept() {
         brightness: 0.05,
         shadows: false,
         effects: false,
+        ..GraphicsSettings::default()
     };
     h.wait_until("the graphics settings applied", SCREEN, |w| {
         *w.resource::<GraphicsSettings>() == expected
@@ -387,9 +403,62 @@ fn the_lighting_brightness_shadows_and_effects_are_applied_and_kept() {
     drop(h);
 
     // the choices are kept for the next start
-    let mut h = Harness::start(folder, Options::default());
+    let mut h = Harness::start(
+        folder,
+        Options {
+            shaders: None,
+            ..Options::default()
+        },
+    );
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     assert_eq!(*h.world().resource::<GraphicsSettings>(), expected);
+}
+
+/// The option `label` of the shaders control of the video tab.
+fn shaders_option(label: &str) -> L {
+    L::role(Role::RadioButton, label).within(L::role(Role::RadioGroup, "Shaders"))
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_shaders_are_chosen_and_saved_with_the_render_distance() {
+    let keep_saved = || Options {
+        shaders: None,
+        ..Options::default()
+    };
+    // a file saved before the shaders existed
+    let folder = GameFolder::new().with_file(VIDEO_SETTINGS_PATH, "(render_distance: 5)");
+    let mut h = settings_with(folder.clone(), keep_saved());
+    h.open_tab_showing("Video", &L::role(Role::RadioGroup, "Shaders"));
+    let high = h.get(&shaders_option("High"));
+    assert!(h.world().get::<Checked>(high).is_some());
+    assert!(h.is_visible(&L::text(
+        "Adds rays of light, soft shade and longer shadows"
+    )));
+
+    h.click(&shaders_option("Low"));
+    h.wait_for(
+        &L::text("A real sky, light that follows the sun, and glow"),
+        SCREEN,
+    );
+    assert_eq!(
+        h.world().resource::<GraphicsSettings>().shaders,
+        ShaderQuality::Low
+    );
+    let saved: VideoSettings = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!(
+        (saved.render_distance, saved.shaders),
+        (5, ShaderQuality::Low)
+    );
+    drop(h);
+
+    // the choice is kept for the next start
+    let mut h = Harness::start(folder, keep_saved());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(
+        h.world().resource::<GraphicsSettings>().shaders,
+        ShaderQuality::Low
+    );
 }
 
 #[test]
@@ -424,7 +493,12 @@ fn in_game_the_render_distance_says_when_the_server_grants_less() {
 fn the_video_screen_matches_its_golden() {
     // the default render distance depends on the build: the golden shows a saved one
     let folder = GameFolder::new().with_file(VIDEO_SETTINGS_PATH, "(render_distance: 12)");
-    let mut h = settings_with(folder, Options::default());
+    // the shaders that the players have at first
+    let options = Options {
+        shaders: None,
+        ..Options::default()
+    };
+    let mut h = settings_with(folder, options);
     h.open_tab_showing("Video", &render_distance());
     h.hover_nothing();
     h.assert_screenshot("menu_video");

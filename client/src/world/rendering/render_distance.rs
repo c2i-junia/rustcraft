@@ -6,7 +6,7 @@ use crate::{
     network::SendGameMessageExtension,
     state::KeyMap,
     ui::hud::UIMode,
-    world::{clouds::mesh::CloudStyle, BiomeBlend, GraphicsSettings},
+    world::{clouds::mesh::CloudStyle, BiomeBlend, GraphicsSettings, ShaderQuality},
 };
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
@@ -65,6 +65,7 @@ pub struct VideoSettings {
     pub brightness: f32,
     pub shadows: bool,
     pub effects: bool,
+    pub shaders: ShaderQuality,
 }
 
 impl Default for VideoSettings {
@@ -78,6 +79,7 @@ impl Default for VideoSettings {
             brightness: graphics.brightness,
             shadows: graphics.shadows,
             effects: graphics.effects,
+            shaders: graphics.shaders,
         }
     }
 }
@@ -101,6 +103,7 @@ pub fn load_video_settings(
         smooth_lighting: saved.smooth_lighting,
         shadows: saved.shadows,
         effects: saved.effects,
+        shaders: saved.shaders,
         ..default()
     };
     graphics.set_brightness(saved.brightness);
@@ -125,6 +128,7 @@ pub fn write_video_settings(
         brightness: graphics.brightness,
         shadows: graphics.shadows,
         effects: graphics.effects,
+        shaders: graphics.shaders,
     };
     let serialized = match ron::ser::to_string_pretty(&settings, PrettyConfig::new()) {
         Ok(serialized) => serialized,
@@ -279,6 +283,7 @@ mod tests {
             brightness: 0.8,
             shadows: false,
             effects: false,
+            shaders: ShaderQuality::Ultra,
         };
         write_video_settings(
             &RenderDistance { distance: 5 },
