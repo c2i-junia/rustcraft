@@ -22,6 +22,8 @@ const SALT_CROWN_RIM: u64 = 0x800;
 const SALT_JUNGLE_VINE: u64 = 0x440;
 /// Each of the 8 faces of a giant's trunk, from here.
 const SALT_TRUNK_VINE: u64 = 0x460;
+/// Whether a jungle tree holds one pod of cocoa, two or none; then the cell of each, from here.
+const SALT_COCOA: u64 = 0x470;
 /// Each of the 4 sides of each cell of the 12 × 12 widest layer of a giant's crown, from here.
 const SALT_RIM_VINE: u64 = 0xC00;
 
@@ -81,6 +83,7 @@ fn hang_vines(top: IVec3, support: IVec2, length: i32, lowest: i32, blocks: &mut
 /// square of leaves whose corners grow one time in two, the layer of the top log a 3 × 3
 /// square, and a plus of leaves lies above it. One outward face in four of the leaves on the
 /// edge of the lowest layer holds a chain of 1 to 4 vines, which never hangs under the root.
+/// One tree in three holds one or two pods of cocoa on the two logs under its crown.
 pub(super) fn jungle_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     let trunk_height = 5 + random.below(SALT_TRUNK_HEIGHT, 5);
     for dy in 0..trunk_height {
@@ -91,6 +94,7 @@ pub(super) fn jungle_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mu
         ));
     }
     let top = root + IVec3::Y * (trunk_height - 1);
+    cocoa_blocks(top, random, blocks);
     let mut lowest_layer = Vec::new();
     for layer in 0..2u64 {
         let mut corner = 0;
@@ -144,6 +148,27 @@ pub(super) fn jungle_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mu
                 ));
             }
         }
+    }
+}
+
+/// The pods of cocoa of a jungle tree whose top log is `top`, one time in six one, one time in
+/// six two: each in one of the 8 cells beside the 2 logs under the crown, 3 and 4 under `top`,
+/// another for each, turned toward the trunk. A trunk is at least 5 logs: none hangs under the
+/// root.
+fn cocoa_blocks(top: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
+    let count = match random.below(SALT_COCOA, 6) {
+        0 => 1,
+        1 => 2,
+        _ => return,
+    };
+    let first = random.below(SALT_COCOA + 1, 8);
+    let cells = [first, first + 1 + random.below(SALT_COCOA + 2, 7)];
+    for cell in &cells[..count] {
+        let side = SIDES[(cell % 8 / 2) as usize];
+        let pod = top + IVec3::new(side.x, -3 - cell % 2, side.y);
+        let toward =
+            BlockDirection::toward(IVec3::new(-side.x, 0, -side.y)).expect("a pod hangs on a side");
+        blocks.push((pod, BlockId::Cocoa, toward));
     }
 }
 
@@ -532,6 +557,48 @@ mod tests {
         let share = hung as f32 / faces as f32;
         assert!((0.2..0.3).contains(&share), "{share}");
         assert_eq!(lengths.len(), 4, "{lengths:?}");
+    }
+
+    #[test]
+    fn one_jungle_tree_in_three_holds_one_or_two_pods_under_its_crown() {
+        let (mut with_pods, mut counts, mut cells) = (0, HashSet::new(), HashSet::new());
+        let trees = 900;
+        for i in 0..trees {
+            let random = PositionRandom {
+                seed: 9,
+                coords: [i % 30, i / 30],
+            };
+            let mut blocks = Vec::new();
+            jungle_tree_blocks(ROOT, &random, &mut blocks);
+            let tree: HashMap<IVec3, BlockId> = blocks
+                .iter()
+                .map(|(pos, block, _)| (*pos - ROOT, *block))
+                .collect();
+            assert_eq!(tree.len(), blocks.len(), "a cell is claimed twice");
+            let top = (0..)
+                .take_while(|y| tree.get(&IVec3::new(0, *y, 0)) == Some(&BlockId::JungleLog))
+                .count() as i32
+                - 1;
+            let pods: Vec<(IVec3, BlockDirection)> = blocks
+                .iter()
+                .filter(|(_, block, _)| *block == BlockId::Cocoa)
+                .map(|(pos, _, direction)| (*pos - ROOT, *direction))
+                .collect();
+            for (pod, toward) in &pods {
+                // beside the trunk, turned toward it, under the crown
+                assert_eq!(pod.xz() + toward.offset().xz(), IVec2::ZERO, "{pod}");
+                assert!([top - 3, top - 4].contains(&pod.y), "{pod} under {top}");
+                assert!(pod.y >= 0, "{pod} under the root");
+                cells.insert(*pod - IVec3::Y * top);
+            }
+            with_pods += usize::from(!pods.is_empty());
+            counts.insert(pods.len());
+        }
+        let share = with_pods as f32 / trees as f32;
+        assert!((0.29..0.38).contains(&share), "{share}");
+        assert_eq!(counts, HashSet::from([0, 1, 2]));
+        // the 4 sides of the trunk, 3 and 4 under its top
+        assert_eq!(cells.len(), 8, "{cells:?}");
     }
 
     #[test]

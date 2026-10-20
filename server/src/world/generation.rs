@@ -302,16 +302,18 @@ fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
 }
 
 /// Which of two blocks claiming the same cell stays: the higher rank wins. Terrain (and any
-/// block not listed) beats every decoration, a trunk or a cactus beats leaves, leaves beat
-/// tall grass and tall grass beats flowers. Equal ranks keep the block placed first; columns
-/// are visited in world coordinate order, so that choice is the same in every chunk.
+/// block not listed) beats every decoration, a trunk or a cactus beats a pod of cocoa, which
+/// beats leaves, leaves beat tall grass and tall grass beats flowers. Equal ranks keep the
+/// block placed first; columns are visited in world coordinate order, so that choice is the
+/// same in every chunk.
 fn precedence(block: BlockId) -> u8 {
     match block {
         BlockId::Dandelion | BlockId::Poppy => 1,
         BlockId::TallGrass | BlockId::Fern | BlockId::Vine => 2,
         BlockId::OakLeaves | BlockId::JungleLeaves => 3,
-        BlockId::OakLog | BlockId::JungleLog | BlockId::Cactus => 4,
-        _ => 5,
+        BlockId::Cocoa => 4,
+        BlockId::OakLog | BlockId::JungleLog | BlockId::Cactus => 5,
+        _ => 6,
     }
 }
 
@@ -2045,6 +2047,50 @@ mod tests {
             precedence(BlockId::OakLeaves)
         );
         assert_eq!(precedence(BlockId::JungleLog), precedence(BlockId::OakLog));
+        // over the leaves, but under the logs: never in the trunk of another tree
+        assert!(precedence(BlockId::JungleLeaves) < precedence(BlockId::Cocoa));
+        assert!(precedence(BlockId::Cocoa) < precedence(BlockId::JungleLog));
+    }
+
+    #[test]
+    fn pods_hang_on_jungle_logs_in_the_jungle() {
+        let generator = WorldGenerator::new(42);
+        let chunks = std::cell::RefCell::new(HashMap::new());
+        let block_at = |pos: IVec3| {
+            let chunk_pos = pos.div_euclid(IVec3::splat(CHUNK_SIZE));
+            let mut chunks = chunks.borrow_mut();
+            let chunk = chunks
+                .entry(chunk_pos)
+                .or_insert_with(|| generator.generate_chunk(chunk_pos));
+            chunk
+                .get(pos - chunk_pos * CHUNK_SIZE)
+                .map(|block| block.id)
+        };
+        let mut pods = 0;
+        // the jungle along the coast west of the origin
+        for cx in -21..=-10 {
+            for cz in 3..=7 {
+                for cy in 3..=5 {
+                    let chunk_pos = IVec3::new(cx, cy, cz);
+                    let chunk = generator.generate_chunk(chunk_pos);
+                    for (local, block) in chunk.iter() {
+                        if block.id != BlockId::Cocoa {
+                            continue;
+                        }
+                        pods += 1;
+                        let pos = chunk_pos * CHUNK_SIZE + local;
+                        let support = pos + block.direction.offset();
+                        assert_eq!(block_at(support), Some(BlockId::JungleLog), "{pos}");
+                        // not in the trunk of another tree
+                        let in_a_trunk = [IVec3::Y, IVec3::NEG_Y]
+                            .iter()
+                            .all(|step| block_at(pos + *step) == Some(BlockId::JungleLog));
+                        assert!(!in_a_trunk, "a pod in a trunk at {pos}");
+                    }
+                }
+            }
+        }
+        assert!(pods > 20, "{pods} pods");
     }
 
     #[test]

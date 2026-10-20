@@ -59,13 +59,15 @@ brown pods under the crowns of the jungle trees, broken for their beans.
    first pod takes the cell `below(SALT_COCOA + 1, 8)`, the second the one
    `1 + below(SALT_COCOA + 2, 7)` further in that order, never the same. Each turned toward
    the trunk. Salts `0x470` to `0x472`.
-9. **Rank:** with the logs, as the spec says (4): leaves, vines and plants never take its
-   cell, the terrain does. Two jungle trees side by side may then leave the first placed of a
-   pod and a log of the other in a cell; the generation test counts how often on the seed 42.
+9. **Rank:** the spec ranks it with the logs, so that leaves, vines and plants never take its
+   cell. Tried first: on the seed 42, 3 of the 67 pods of the jungle west of the origin then
+   stood in the trunk of a neighbouring tree, placed before its log. So the cocoa ranks
+   between the leaves and the logs, a rank of its own: leaves, vines and plants still never
+   take its cell, but a log, a cactus and the terrain do.
 10. **Margins:** a pod is within 1 column of its trunk, under the crown: no margin nor height
     bound moves.
 11. **Preview tools:** `worldgen_dump`'s `is_ground` skips the cocoa, `worldgen_preview.py`
-    colours it like its texture, orange brown.
+    colours it with the mean colour of its texture, a red brown.
 12. **`CHANGELOG.txt`:** the jungle line mentions the cocoa pods and their beans.
 
 ## Tasks
@@ -93,17 +95,18 @@ brown pods under the crowns of the jungle trees, broken for their beans.
 - [x] Credit the textures; commit `feat: the cocoa`.
 
 ### Task 2: Cocoa on the jungle trees (`server`)
-- [ ] Tests (jungle.rs): `one_jungle_tree_in_three_holds_one_or_two_pods_under_its_crown`
+- [x] Tests (jungle.rs): `one_jungle_tree_in_three_holds_one_or_two_pods_under_its_crown`
   (the pods beside the trunk 3 or 4 under its top, turned toward it, distinct, the share of
   trees near 1/3, one and two pods both seen, every one of the 8 cells seen); the crown test
   still sees no leaf outside the crown. See it fail.
-- [ ] Tests (generation.rs): the cocoa in `jungle_blocks_rank_with_their_oak_and_grass_siblings`;
+- [x] Tests (generation.rs): the cocoa in `jungle_blocks_rank_with_their_oak_and_grass_siblings`
+  (over the leaves, under the logs);
   `pods_hang_on_jungle_logs_in_the_jungle` (sample jungle chunks of the seed 42: pods found,
   each with a jungle log on its support's side, none with a log above and below it, which would
   be a pod in the trunk of another tree). See them fail.
-- [ ] The pods of `jungle_tree_blocks`, the rank. See them pass, with the determinism, margin,
+- [x] The pods of `jungle_tree_blocks`, the rank. See them pass, with the determinism, margin,
   culling and completeness tests.
-- [ ] `worldgen_dump.rs`, `worldgen_preview.py`, `CHANGELOG.txt`; tests, clippy, fmt; commit
+- [x] `worldgen_dump.rs`, `worldgen_preview.py`, `CHANGELOG.txt`; tests, clippy, fmt; commit
   `feat: cocoa on the jungle trees`.
 
 ### Task 3: A picture of the pods in the game
