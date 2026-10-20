@@ -189,7 +189,12 @@ fn run(
     app.insert_resource(ServerTime(time));
 
     let mods = Mods::new().map_err(|err| format!("Could not start the mods: {err}"))?;
-    mods.load_folder(&game_folder_paths.game_folder_path.join("mods"));
+    let game_folder = &game_folder_paths.game_folder_path;
+    let settings = shared::mods::read_mods_settings(game_folder).unwrap_or_else(|err| {
+        warn!("{err}: every mod is on");
+        default()
+    });
+    mods.load_folder(&game_folder.join(shared::mods::MODS_FOLDER), &settings);
     app.insert_resource(mods);
 
     // Create save folder if does not already exist

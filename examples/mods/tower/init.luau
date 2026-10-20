@@ -1,5 +1,6 @@
 -- `/tower <height>` builds a column of cobblestone two blocks east of its author.
--- To try it, copy this folder into the `mods` folder of the game folder.
+-- To try it, copy this folder into the `mods` folder of the game folder: the Mods screen of the
+-- title screen then turns it on or off.
 
 local rc = rustcraft
 rc.register_command("tower", function(ctx, args)

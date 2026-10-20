@@ -1,0 +1,11 @@
+# What the game reads before it runs any code of the mod. See the README's Mods section.
+
+[mod]
+id = "tower"             # the name of the folder
+name = "Tower"
+version = "1.0.0"
+description = "/tower <height> builds a column of cobblestone two blocks east of you."
+authors = ["MizKyosia"]
+
+[game]
+api = 1                  # the version of the rustcraft table the script uses

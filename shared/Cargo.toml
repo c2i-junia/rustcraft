@@ -16,9 +16,12 @@ lz4 = "1.28.1"
 bevy_platform = "0.19"
 noise = "0.9.0"
 socket2 = "0.6"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+semver = { version = "1", features = ["serde"] }
+ron = "0.6"
 
 [dev-dependencies]
-ron = "0.6"
+tempfile = "3"
 
 [features]
 # Fixtures to build worlds in the tests of the crates that depend on this one.

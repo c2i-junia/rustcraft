@@ -1,15 +1,17 @@
-//! The mods: Luau scripts, one folder per mod with its `init.luau`, run by the server alone. A
+//! The mods: Luau scripts, one folder per mod with its `mod.toml` and its entry script, run by
+//! the server alone. `shared::mods` finds the mods and orders them; this module runs them. A
 //! mod reads the world through what the server hands it and changes it only through actions,
 //! which the server applies once the mod has returned. The clients see their effects as they
 //! see any other change of the world.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use bevy::math::{IVec3, Vec3};
 use bevy::prelude::*;
 use mlua::{AppDataRefMut, Function, Lua, Table};
 use shared::commands::COMMANDS;
+use shared::mods::{find_mods, plan_loading, FoundMod, ModState, ModsSettings};
 use shared::world::{BlockData, BlockDirection, BlockId, ItemId, ItemType};
 
 use crate::world::data::ServerWorldMap;
@@ -54,40 +56,68 @@ impl Mods {
         Ok(Mods { lua })
     }
 
-    /// Loads every mod of `folder`, in the order of their names: each subfolder with an
-    /// `init.luau` is one. A mod that fails to load is skipped.
-    pub fn load_folder(&self, folder: &Path) {
-        let Ok(entries) = std::fs::read_dir(folder) else {
-            return;
-        };
-        let mut scripts: Vec<_> = entries
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path().join("init.luau"))
-            .filter(|script| script.is_file())
-            .collect();
-        scripts.sort();
-        for script in scripts {
-            let name = script
-                .parent()
-                .and_then(Path::file_name)
-                .unwrap_or_default();
-            let name = name.to_string_lossy();
-            let loaded = std::fs::read_to_string(&script)
-                .map_err(mlua::Error::external)
-                .and_then(|source| self.load(&name, &source));
-            match loaded {
-                Ok(()) => info!("Loaded mod {name}"),
-                Err(err) => warn!("Could not load mod {name}: {err}"),
+    /// Loads the mods of `folder` that `settings` leaves on, dependencies first, else by id. A
+    /// mod that cannot load is skipped, and so are the mods that need it.
+    pub fn load_folder(&self, folder: &Path, settings: &ModsSettings) {
+        let mods = find_mods(folder);
+        let plan = plan_loading(&mods, settings);
+        for (found, state) in mods.iter().zip(&plan.states) {
+            match state {
+                ModState::On => (),
+                ModState::Off => info!("The mod {} is off", found.id),
+                ModState::Broken(problem) => {
+                    warn!("Could not load the mod {}: {problem}", found.id)
+                }
+                ModState::Waiting(needs) => {
+                    let needs: Vec<String> = needs.iter().map(ToString::to_string).collect();
+                    warn!("The mod {} needs {}", found.id, needs.join("; "));
+                }
+            }
+        }
+        let mut failed = HashSet::new();
+        for found in plan.order.iter().map(|&index| &mods[index]) {
+            let failed_dependency = found
+                .manifest
+                .dependencies
+                .keys()
+                .find(|id| failed.contains(id.as_str()));
+            if let Some(dependency) = failed_dependency {
+                warn!("The mod {} needs {dependency}, which failed", found.id);
+                failed.insert(found.id.as_str());
+                continue;
+            }
+            match self.load_mod(found) {
+                Ok(()) => info!("Loaded the mod {} {}", found.id, found.version()),
+                Err(err) => {
+                    warn!("Could not load the mod {}: {err}", found.id);
+                    failed.insert(found.id.as_str());
+                }
             }
         }
     }
 
-    /// Runs the `init.luau` of the mod `name`.
+    /// Runs the entry script of `found`, if it has one.
+    fn load_mod(&self, found: &FoundMod) -> mlua::Result<()> {
+        let Some(entry) = found.entry() else {
+            return Ok(());
+        };
+        let source = std::fs::read_to_string(&entry).map_err(|err| {
+            mlua::Error::runtime(format!("cannot read {}: {err}", entry.display()))
+        })?;
+        self.load(&script_name(found, &entry), &source)
+    }
+
+    /// Runs the script called `name` in the errors, `<mod>/<path>`. A script that fails takes
+    /// back the commands it registered.
     pub fn load(&self, name: &str, source: &str) -> mlua::Result<()> {
-        self.lua
-            .load(source)
-            .set_name(format!("@{name}/init.luau"))
-            .exec()
+        let before: HashSet<String> = self.host().commands.keys().cloned().collect();
+        let result = self.lua.load(source).set_name(format!("@{name}")).exec();
+        if result.is_err() {
+            self.host()
+                .commands
+                .retain(|command, _| before.contains(command));
+        }
+        result
     }
 
     /// Runs the mod command of `line`, a command line without its `/`, for the player called
@@ -138,6 +168,28 @@ impl Mods {
     fn host(&self) -> AppDataRefMut<'_, Host> {
         self.lua.app_data_mut().expect("the host is set by `new`")
     }
+}
+
+/// The name of the script `path` of `found` in the errors: `<mod>/<path in its folder>`.
+fn script_name(found: &FoundMod, path: &Path) -> String {
+    let script = path.strip_prefix(&found.folder).unwrap_or(path);
+    format!("{}/{}", found.id, script.display())
+}
+
+/// Compiles the entry script of `found` without running it: the error of a script that does
+/// not parse, as the Mods screen shows it. `None` when it parses or the mod has no code.
+pub fn script_error(found: &FoundMod) -> Option<String> {
+    let entry = found.entry()?;
+    let source = match std::fs::read_to_string(&entry) {
+        Ok(source) => source,
+        Err(err) => return Some(format!("Cannot read {}: {err}", script_name(found, &entry))),
+    };
+    Lua::new()
+        .load(source)
+        .set_name(format!("@{}", script_name(found, &entry)))
+        .into_function()
+        .err()
+        .map(|err| err.to_string())
 }
 
 fn apply(actions: Vec<ModAction>, world_map: &mut ServerWorldMap) {
@@ -297,16 +349,101 @@ mod tests {
     #[test]
     fn mods_are_loaded_from_their_folders() {
         let folder = tempfile::tempdir().unwrap();
-        std::fs::create_dir(folder.path().join("tower")).unwrap();
-        std::fs::write(folder.path().join("tower/init.luau"), TOWER).unwrap();
-        std::fs::create_dir(folder.path().join("broken")).unwrap();
-        std::fs::write(folder.path().join("broken/init.luau"), "this is not luau").unwrap();
+        write(folder.path(), "tower/init.luau", TOWER);
+        write(folder.path(), "broken/init.luau", "this is not luau");
         let mods = Mods::new().unwrap();
 
-        mods.load_folder(folder.path());
+        mods.load_folder(folder.path(), &ModsSettings::default());
 
         let answer = mods.run_command("tower 1", "steve", &mut world_with_steve());
         assert_eq!(answer.as_deref(), Some("Tower of 1 blocks"));
         assert_eq!(mods.command_names(), ["tower"]);
+    }
+
+    fn write(folder: &Path, path: &str, text: &str) {
+        let path = folder.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    /// A manifest of the mod `id`, whose script registers the command `/<id>`, answering with
+    /// the answer of `/<needs>` when it needs a mod.
+    fn command_mod(folder: &Path, id: &str, needs: Option<&str>) {
+        let dependencies = needs.map_or(String::new(), |needs| format!("{needs} = \"*\""));
+        write(
+            folder,
+            &format!("{id}/mod.toml"),
+            &format!(
+                "[mod]\nid = \"{id}\"\nname = \"{id}\"\nversion = \"1.0.0\"\nentry = \"main.luau\"\n\
+                 [game]\napi = 1\n[dependencies]\n{dependencies}\n"
+            ),
+        );
+        write(
+            folder,
+            &format!("{id}/main.luau"),
+            &format!("rustcraft.register_command(\"{id}\", function() return \"{id}\" end)"),
+        );
+    }
+
+    #[test]
+    fn the_mods_turned_off_and_those_that_need_them_do_not_load() {
+        let folder = tempfile::tempdir().unwrap();
+        command_mod(folder.path(), "base", None);
+        command_mod(folder.path(), "addon", Some("base"));
+        command_mod(folder.path(), "other", None);
+        let mut settings = ModsSettings::default();
+        settings.set_on("base", false);
+        let mods = Mods::new().unwrap();
+
+        mods.load_folder(folder.path(), &settings);
+
+        assert_eq!(mods.command_names(), ["other"]);
+    }
+
+    #[test]
+    fn a_mod_whose_dependency_fails_does_not_load() {
+        let folder = tempfile::tempdir().unwrap();
+        command_mod(folder.path(), "base", None);
+        command_mod(folder.path(), "addon", Some("base"));
+        write(folder.path(), "base/main.luau", "error('no')");
+        let mods = Mods::new().unwrap();
+
+        mods.load_folder(folder.path(), &ModsSettings::default());
+
+        assert!(mods.command_names().is_empty());
+    }
+
+    #[test]
+    fn a_failing_script_takes_back_its_commands() {
+        let mods = Mods::new().unwrap();
+        let script = r#"
+            rustcraft.register_command("first", function() end)
+            error("broken after the first command")
+        "#;
+        assert!(mods.load("half/init.luau", script).is_err());
+        assert!(mods.command_names().is_empty());
+    }
+
+    #[test]
+    fn a_script_that_does_not_parse_says_where_without_running() {
+        let folder = tempfile::tempdir().unwrap();
+        write(
+            folder.path(),
+            "good/init.luau",
+            "error('runs only in the game')",
+        );
+        write(folder.path(), "bad/init.luau", "local x = = 1");
+        write(folder.path(), "none/mod.toml", &shared_manifest("none"));
+        let found = find_mods(folder.path());
+        let error_of = |id: &str| script_error(found.iter().find(|m| m.id == id).unwrap());
+
+        assert_eq!(error_of("good"), None);
+        assert_eq!(error_of("none"), None);
+        let error = error_of("bad").unwrap();
+        assert!(error.contains("bad/init.luau:1"), "{error}");
+    }
+
+    fn shared_manifest(id: &str) -> String {
+        format!("[mod]\nid = \"{id}\"\nname = \"{id}\"\nversion = \"1.0.0\"\n[game]\napi = 1\n")
     }
 }
