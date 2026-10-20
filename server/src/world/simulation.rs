@@ -102,14 +102,43 @@ pub(super) fn generate_missing_chunks<'a>(
     generator: &WorldGenerator,
     budget: usize,
 ) -> bool {
+    let mut loaded = 0;
+    generate_missing_chunks_after(
+        players,
+        radius,
+        chunks,
+        dirty_chunks,
+        saved,
+        generator,
+        budget,
+        &mut loaded,
+    )
+}
+
+/// `generate_missing_chunks`, past the first `loaded` chunks within reach, in the order they are
+/// reached (`active_chunks`), which are known to be loaded: those of a large render distance
+/// would otherwise be looked at again on every tick until the last is loaded. `loaded` then
+/// counts the chunks loaded now, in that order.
+#[allow(clippy::too_many_arguments)]
+fn generate_missing_chunks_after<'a>(
+    players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
+    radius: impl Fn(PlayerId) -> i32,
+    chunks: &mut ChunkMap,
+    dirty_chunks: &mut std::collections::HashSet<IVec3>,
+    saved: Option<&Path>,
+    generator: &WorldGenerator,
+    budget: usize,
+    loaded: &mut usize,
+) -> bool {
     let start = Instant::now();
-    let mut active = active_chunks(players, radius);
+    let mut active = active_chunks(players, radius).skip(*loaded);
     let mut left = budget;
     loop {
         // The missing chunks are found a batch at a time, from where the last batch ended: the
         // chunks it loaded are behind
         let batch: Vec<IVec3> = active
             .by_ref()
+            .inspect(|_| *loaded += 1)
             .filter(|c| !chunks.is_chunk_loaded(*c))
             .take(CHUNKS_PER_BATCH.min(left))
             .collect();
@@ -117,7 +146,10 @@ pub(super) fn generate_missing_chunks<'a>(
             return left > 0;
         }
         left -= batch.len();
-        for (c, made) in batch.iter().zip(make_chunks(&batch, saved, generator.seed())) {
+        for (c, made) in batch
+            .iter()
+            .zip(make_chunks(&batch, saved, generator.seed()))
+        {
             match made {
                 Made::Read(chunk, chests) => insert_with_chests(chunks, *c, chunk, chests),
                 Made::Generated(chunk) => {
@@ -135,11 +167,16 @@ pub(super) fn generate_missing_chunks<'a>(
     }
 }
 
-/// The chunk and the render distance of each player, the last time every chunk within their
-/// reach was loaded. The server keeps the chunks it loaded: while the players stay in the same
-/// chunks, the tens of thousands of chunks of a large render distance are not looked at again.
-#[derive(Default, PartialEq)]
-pub struct LoadedAround(Vec<(PlayerId, IVec3, i32)>);
+/// The chunk and the render distance of each player, with how many of the chunks within their
+/// reach, in the order they are reached, are all loaded, and whether that is all of them. The
+/// server keeps the chunks within reach: while the players stay in the same chunks, the
+/// hundreds of thousands of chunks of a large render distance are not looked at again.
+#[derive(Default)]
+pub struct LoadedAround {
+    around: Vec<(PlayerId, IVec3, i32)>,
+    loaded: usize,
+    complete: bool,
+}
 
 pub fn handle_player_inputs_system(
     mut events: MessageReader<PlayerInputsEvent>,
@@ -171,19 +208,26 @@ pub fn handle_player_inputs_system(
         })
         .collect();
     around.sort_by_key(|&(id, ..)| id);
-    let around = LoadedAround(around);
-    if *loaded_around != around
-        && generate_missing_chunks(
-            &*players,
+    if loaded_around.around != around {
+        *loaded_around = LoadedAround {
+            around,
+            ..default()
+        };
+    }
+    if !loaded_around.complete {
+        // In the order of their ids, which the count of the chunks loaded relies on
+        let mut by_id: Vec<_> = players.iter().collect();
+        by_id.sort_by_key(|&(id, _)| *id);
+        loaded_around.complete = generate_missing_chunks_after(
+            by_id,
             |id| render_distances.get(id),
             chunks,
             dirty_chunks,
             saved,
             generator,
             usize::MAX,
-        )
-    {
-        *loaded_around = around;
+            &mut loaded_around.loaded,
+        );
     }
 
     for ev in events.read() {
@@ -415,6 +459,44 @@ mod tests {
             &generator,
             200
         ));
+    }
+
+    #[test]
+    fn the_chunks_known_to_be_loaded_are_skipped_and_counted() {
+        let mut players = std::collections::HashMap::new();
+        players.insert(
+            1,
+            Player::new(1, "p".into(), Vec3::new(8., 8., 8.), Transform::default()),
+        );
+        let mut chunks = ChunkMap::default();
+        let mut dirty = std::collections::HashSet::new();
+        let within = active_chunks(&players, |_| 2).count();
+        let generator = WorldGenerator::new(1);
+        let mut generate = |chunks: &mut ChunkMap, loaded: &mut usize, budget| {
+            generate_missing_chunks_after(
+                &players,
+                |_| 2,
+                chunks,
+                &mut dirty,
+                None,
+                &generator,
+                budget,
+                loaded,
+            )
+        };
+
+        let mut loaded = 0;
+        assert!(!generate(&mut chunks, &mut loaded, 7));
+        assert_eq!(loaded, 7);
+        // A chunk among the first, removed, is not looked for again
+        chunks.remove_chunk(IVec3::ZERO);
+        assert!(generate(&mut chunks, &mut loaded, usize::MAX));
+        assert_eq!(loaded, within);
+        assert_eq!(chunks.chunk_positions().count(), within - 1);
+
+        let mut loaded = 0;
+        assert!(generate(&mut chunks, &mut loaded, usize::MAX));
+        assert!(chunks.is_chunk_loaded(IVec3::ZERO));
     }
 
     #[test]
