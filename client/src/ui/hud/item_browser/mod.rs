@@ -3,3 +3,5 @@
 //! drawer over the right edge below.
 
 pub mod catalog;
+#[allow(dead_code)] // first used by the item browser panel (Task 4)
+pub mod layout;
