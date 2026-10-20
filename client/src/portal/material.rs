@@ -8,6 +8,7 @@ use bevy::{
     },
     shader::ShaderRef,
 };
+use shared::world::Portal;
 
 const PORTAL_SHADER: Handle<Shader> = uuid_handle!("b7e3a5d1-4c2f-4e8a-9f61-2d7c0b9e5a14");
 
@@ -37,10 +38,19 @@ pub struct PortalMaterial {
 }
 
 impl PortalMaterial {
-    pub fn new(look: PortalLook, color: Color, image: Option<Handle<Image>>) -> Self {
+    /// A material of `portal`, of colour `color`.
+    pub fn new(
+        look: PortalLook,
+        portal: &Portal,
+        color: Color,
+        image: Option<Handle<Image>>,
+    ) -> Self {
+        let normal = portal.normal();
+        let center = Vec3::from(portal.frame().translation);
         Self {
             params: PortalParams {
                 color: LinearRgba::from(color).to_vec4(),
+                plane: normal.extend(-normal.dot(center)),
                 look: look as u32,
             },
             image,
@@ -68,6 +78,11 @@ impl From<&PortalMaterial> for PortalKey {
 pub struct PortalParams {
     /// The colour of the portal, in linear RGB.
     pub color: Vec4,
+    /// The plane of the portal, `(normal, -normal · centre)`: a point is in front of it when
+    /// its dot product with `(point, 1)` is positive. A colour is not drawn for a camera behind
+    /// it: from there, the front of the portal cannot be seen, and a portal camera always stands
+    /// behind its twin, even inside its box.
+    pub plane: Vec4,
     pub look: u32,
 }
 

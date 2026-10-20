@@ -157,10 +157,14 @@ fn sync_portals(
         } else {
             (PortalLook::Color, None)
         };
-        let surface_material =
-            materials.add(PortalMaterial::new(surface_look, color, image.clone()));
-        let stand_in = materials.add(PortalMaterial::new(PortalLook::Color, color, None));
-        let rim = materials.add(PortalMaterial::new(PortalLook::Rim, color, None));
+        let surface_material = materials.add(PortalMaterial::new(
+            surface_look,
+            portal,
+            color,
+            image.clone(),
+        ));
+        let stand_in = materials.add(PortalMaterial::new(PortalLook::Color, portal, color, None));
+        let rim = materials.add(PortalMaterial::new(PortalLook::Rim, portal, color, None));
         let box_mesh = meshes.add(portal_box());
         let root = commands
             .spawn((
@@ -392,6 +396,42 @@ mod tests {
         app.update();
         assert_eq!(surfaces(&mut app), [(PortalColor::Blue, PortalLook::Color)]);
         assert_eq!(cameras(&mut app), 0);
+    }
+
+    /// The planes of the materials of the boxes drawn in a colour.
+    fn colour_planes(app: &mut App) -> Vec<Vec4> {
+        let world = app.world_mut();
+        let handles: Vec<_> = world
+            .query::<&MeshMaterial3d<PortalMaterial>>()
+            .iter(world)
+            .map(|material| material.0.clone())
+            .collect();
+        let materials = world.resource::<Assets<PortalMaterial>>();
+        handles
+            .iter()
+            .filter_map(|handle| materials.get(handle))
+            .filter(|material| material.look == PortalLook::Color)
+            .map(|material| material.params.plane)
+            .collect()
+    }
+
+    #[test]
+    fn the_closed_looks_know_the_plane_of_their_portal() {
+        // The blue portal faces +Z, its plane z = 1; the orange one -X, its plane x = 20
+        let blue_plane = Vec4::new(0.0, 0.0, 1.0, -1.0);
+        let orange_plane = Vec4::new(-1.0, 0.0, 0.0, 20.0);
+        let mut app = app();
+        insert(&mut app, blue());
+        app.update();
+        // The surface of the lone portal and its stand-in
+        assert_eq!(colour_planes(&mut app), [blue_plane, blue_plane]);
+
+        insert(&mut app, orange());
+        app.update();
+        let mut planes = colour_planes(&mut app);
+        planes.sort_by(|a, b| a.x.total_cmp(&b.x));
+        // The stand-ins only, the surfaces showing the view
+        assert_eq!(planes, [orange_plane, blue_plane]);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use shared::players::inventory::{
     simulate_inventory_actions, InventoryAction, InventoryActionOutcome,
 };
 use shared::players::{Inventory, Player, ViewMode};
-use shared::world::{BlockId, FaceDirectionExt, ItemId};
+use shared::world::{BlockId, FaceDirection, FaceDirectionExt, ItemId, Portals};
 
 use super::CurrentPlayerMarker;
 
@@ -84,7 +84,13 @@ pub fn handle_block_interactions(
     };
 
     let holding = held_item(&player, &frame_inputs.0);
-    if is_outlined(target.position, player_transform.translation, holding) {
+    if is_outlined(
+        target.position,
+        target.face,
+        player_transform.translation,
+        holding,
+        world_map.blocks.portals(),
+    ) {
         let center = (target.bbox.max + target.bbox.min) / 2.0;
         let size = target.bbox.max - target.bbox.min;
         gizmos.cube(
@@ -151,16 +157,23 @@ pub fn handle_block_interactions(
 /// ray went before it was lengthened for the gun.
 const OUTLINE_DISTANCE: f32 = 20.0;
 
-/// Whether the block at `position`, aimed at by the player whose centre is `player`, is
-/// outlined: within `OUTLINE_DISTANCE` of it, or the reach of the portal gun while it is held.
+/// Whether the block at `position`, aimed at on its face `face` by the player whose centre is
+/// `player`, is outlined: within `OUTLINE_DISTANCE` of it, or the reach of the portal gun while
+/// it is held, and not on the face of an open portal, where the view through it is seen.
 /// Distances go from the centre of the player to that of the block, as the reaches do.
-fn is_outlined(position: IVec3, player: Vec3, held: Option<ItemId>) -> bool {
+fn is_outlined(
+    position: IVec3,
+    face: FaceDirection,
+    player: Vec3,
+    held: Option<ItemId>,
+    portals: &Portals,
+) -> bool {
     let distance = if held == Some(ItemId::PortalGun) {
         PORTAL_GUN_REACH
     } else {
         OUTLINE_DISTANCE
     };
-    (position.as_vec3() + 0.5).distance(player) <= distance
+    (position.as_vec3() + 0.5).distance(player) <= distance && !portals.opens(position, face)
 }
 
 /// What one inventory action of the local player did, as predicted when the player made it.
@@ -198,7 +211,7 @@ pub fn predict_inventory_system(
 mod tests {
     use super::*;
     use shared::players::inventory::{InventoryActionOutcome, InventoryRefusal};
-    use shared::world::{ItemId, ItemStack};
+    use shared::world::{ItemId, ItemStack, Portal, PortalColor};
 
     #[test]
     fn the_prediction_reports_each_inventory_action_of_the_frame() {
@@ -261,14 +274,63 @@ mod tests {
     #[test]
     fn the_aimed_block_is_outlined_within_20_blocks_or_the_reach_of_a_held_gun() {
         let player = Vec3::new(0.5, 0.5, 0.5);
-        let block = |distance: i32| IVec3::new(0, 0, -distance);
+        let none = Portals::default();
+        let outlined = |distance: i32, held| {
+            is_outlined(
+                IVec3::new(0, 0, -distance),
+                FaceDirection::PlusZ,
+                player,
+                held,
+                &none,
+            )
+        };
         for held in [None, Some(ItemId::Dirt)] {
-            assert!(is_outlined(block(19), player, held), "{held:?}");
-            assert!(!is_outlined(block(21), player, held), "{held:?}");
-            assert!(!is_outlined(block(31), player, held), "{held:?}");
+            assert!(outlined(19, held), "{held:?}");
+            assert!(!outlined(21, held), "{held:?}");
+            assert!(!outlined(31, held), "{held:?}");
         }
         let gun = Some(ItemId::PortalGun);
-        assert!(is_outlined(block(31), player, gun));
-        assert!(!is_outlined(block(33), player, gun));
+        assert!(outlined(31, gun));
+        assert!(!outlined(33, gun));
+    }
+
+    #[test]
+    fn the_face_of_an_open_portal_is_not_outlined() {
+        let player = Vec3::new(0.5, 0.5, 5.5);
+        let wall = IVec3::new(0, 0, 0);
+        let mut portals = Portals::default();
+        for color in [PortalColor::Blue, PortalColor::Orange] {
+            portals.insert(Portal {
+                owner: 1,
+                color,
+                anchor: IVec3::new(0, 0, if color == PortalColor::Blue { 0 } else { -10 }),
+                face: FaceDirection::PlusZ,
+            });
+        }
+        // The view through it is seen there, not the wall
+        assert!(!is_outlined(
+            wall,
+            FaceDirection::PlusZ,
+            player,
+            None,
+            &portals
+        ));
+        // Another face of the same block
+        assert!(is_outlined(
+            wall,
+            FaceDirection::PlusX,
+            player,
+            None,
+            &portals
+        ));
+        // A lone portal is a wall
+        portals.remove(1, PortalColor::Orange);
+        assert!(is_outlined(
+            wall,
+            FaceDirection::PlusZ,
+            player,
+            None,
+            &portals
+        ));
     }
 }
