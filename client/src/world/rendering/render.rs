@@ -293,10 +293,11 @@ fn is_buried(blocks: &ChunkMap, chunk_pos: IVec3) -> bool {
 /// every tick, 50 ms apart, while it has some.
 const STREAM_PAUSE: Duration = Duration::from_millis(100);
 
-/// The chunks asked for that wait for their neighbours, and when the last chunk arrived.
+/// The chunks asked for that wait for their neighbours, by group, and when the last chunk
+/// arrived.
 #[derive(Default)]
 pub struct WaitingChunks {
-    chunks: HashSet<IVec3>,
+    chunks: HashMap<IVec2, HashSet<IVec3>>,
     last_arrival: Option<Instant>,
 }
 
@@ -331,16 +332,18 @@ impl WaitingChunks {
         };
         let mut ready = Vec::new();
         for chunk in requested {
-            if !streaming || (has_neighbours(chunk) && group_complete(group_of(chunk))) {
-                self.chunks.remove(&chunk);
+            let group = group_of(chunk);
+            if !streaming || (has_neighbours(chunk) && group_complete(group)) {
+                // The whole group is meshed: the other chunks of it no longer wait
+                self.chunks.remove(&group);
                 ready.push(chunk);
             } else {
-                self.chunks.insert(chunk);
+                self.chunks.entry(group).or_default().insert(chunk);
             }
         }
         // A waiting chunk is asked for again with each neighbour that arrives
         if !streaming {
-            ready.extend(self.chunks.drain());
+            ready.extend(self.chunks.drain().flat_map(|(_, chunks)| chunks));
         }
         ready
     }
@@ -1032,10 +1035,11 @@ mod tests {
                 }
             }
         }
-        // Asked for again as the chunks arrive
+        // Asked for again as the chunks arrive: its group is meshed, and the other chunk of the
+        // group that waited no longer does, as it would mesh the group again
         assert_eq!(
-            waiting.ready(&blocks, reach, requested.into_iter(), start),
-            requested.to_vec()
+            waiting.ready(&blocks, reach, [IVec3::ZERO].into_iter(), start),
+            vec![IVec3::ZERO]
         );
         assert!(waiting.chunks.is_empty());
 
