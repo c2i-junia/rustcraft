@@ -25,6 +25,25 @@ impl Harness {
         self.click_with(locator, MouseButton::Right);
     }
 
+    /// Clicks the centre of `entity` with `button`: one of elements that no locator tells apart.
+    pub fn click_entity(&mut self, entity: Entity, button: MouseButton) {
+        let center = self.entity_center(entity);
+        self.click_point(center, button);
+    }
+
+    /// Moves the cursor onto `entity`, for a frame.
+    pub fn hover_entity(&mut self, entity: Entity) {
+        let center = self.entity_center(entity);
+        self.hover_at(center);
+    }
+
+    fn entity_center(&self, entity: Entity) -> Vec2 {
+        self.world()
+            .get::<bevy::ui::UiGlobalTransform>(entity)
+            .unwrap()
+            .translation
+    }
+
     /// Clicks a point of the window, in physical pixels, with the left button.
     pub fn click_at(&mut self, position: Vec2) {
         self.click_point(position, MouseButton::Left);

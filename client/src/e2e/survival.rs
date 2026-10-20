@@ -27,7 +27,7 @@ fn player(w: &World) -> Player {
 
 impl Harness {
     /// Runs `/gamemode <mode>` from the chat, and waits for the client to be told the mode.
-    fn set_game_mode(&mut self, mode: GameMode) {
+    pub(super) fn set_game_mode(&mut self, mode: GameMode) {
         self.press(KeyCode::KeyT);
         self.type_text(&format!("/gamemode {}", mode.name()));
         self.press(KeyCode::Enter);

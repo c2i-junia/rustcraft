@@ -11,12 +11,14 @@ use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::item_browser::{
-    CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, SEARCH_LABEL,
+    CatalogSlot, DrawerHandle, ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipePanel,
+    SEARCH_LABEL,
 };
 use crate::ui::hud::{HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::theme::ACCENT;
 use crate::ui::widgets::tooltip::TooltipRoot;
+use shared::players::game_mode::GameMode;
 
 /// The search field of the browser.
 fn search_field() -> L {
@@ -28,7 +30,22 @@ fn catalog_slot(name: &str) -> L {
     L::role(Role::GridCell, name).within(L::marker::<ItemBrowser>())
 }
 
+/// The slots of `name` in the cards of the recipe view.
+fn card_slot(name: &str) -> L {
+    L::role(Role::GridCell, name).within(L::marker::<RecipeCard>())
+}
+
+/// A button of the browser, a chip or the back button, by its label.
+fn button(label: &str) -> L {
+    L::role(Role::Button, label)
+}
+
 impl Harness {
+    /// The first slot of `name` in the cards of the recipe view.
+    fn first_card_slot(&mut self, name: &str) -> Entity {
+        self.find(&card_slot(name))[0]
+    }
+
     /// What the count of the browser says.
     fn item_count(&mut self) -> String {
         self.text_of(&L::marker::<ItemCount>())
@@ -354,4 +371,176 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     h.press(KeyCode::KeyE);
     h.frames(1);
     assert_eq!(focused(&h), None);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
+    let folder = GameFolder::new().with_world("Recipes").with_items(
+        "Recipes",
+        "Tester",
+        &[(0, ItemId::OakPlanks, 5), (1, ItemId::OakLog, 2)],
+    );
+    let mut h = enter_world(folder, "Recipes");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::OakLog, 2))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    let tooltip = L::marker::<TooltipRoot>;
+
+    // A new player is in Survival: an item craftable now says so, and the keys of the browser
+    h.hover(&catalog_slot("Oak Planks"));
+    h.wait_for(
+        &L::text("You have the ingredients").within(tooltip()),
+        SCREEN,
+    );
+    assert!(h.is_visible(&L::text("R Recipes  U Uses").within(tooltip())));
+
+    // The Craftable chip, at the end of the row of chips, keeps what can be crafted now
+    h.hover(&button("All"));
+    h.scroll(-10.0);
+    h.click(&button("Craftable"));
+    h.frames(1);
+    assert_eq!(h.item_count(), "3 / 33");
+    let shown = h.shown_items();
+    for item in [ItemId::OakPlanks, ItemId::Stick, ItemId::CraftingTable] {
+        assert!(shown.contains(&item), "{item:?} not in {shown:?}");
+    }
+    h.click(&button("Craftable"));
+    h.frames(1);
+    assert_eq!(h.item_count(), "33 / 33");
+
+    // A click on an item shows its recipes, with what the inventory lacks
+    h.click(&catalog_slot("Wooden Pickaxe"));
+    h.wait_for(&button("Recipes 2"), SCREEN);
+    for shown in [
+        L::text("Recipes"),
+        button("Uses 0"),
+        button("<- Items"),
+        L::text("Missing 2 Stick"),
+        L::text("Missing 3 Spruce Planks, 2 Stick"),
+    ] {
+        assert!(h.is_visible(&shown), "{shown:?}");
+    }
+    assert!(!h.is_visible(&L::text("33 / 33")));
+
+    // An ingredient shows its recipes, a right click its uses, each going on the history
+    let stick = h.first_card_slot("Stick");
+    h.click_entity(stick, MouseButton::Left);
+    h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
+    assert!(h.is_visible(&button("Uses 10")));
+    let planks = h.first_card_slot("Oak Planks");
+    h.click_entity(planks, MouseButton::Right);
+    h.wait_for(&button("<- Stick"), SCREEN);
+    assert!(h.is_visible(&L::text("Uses")));
+    assert!(h.is_visible(&button("Uses 8")));
+
+    // Escape and the back button walk the history back
+    h.press(KeyCode::Escape);
+    h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
+    h.click(&button("<- Wooden Pickaxe"));
+    h.wait_for(&button("<- Items"), SCREEN);
+    assert!(h.is_visible(&button("Recipes 2")));
+
+    // A tab shows the uses of the same item, without the history
+    h.click(&button("Uses 0"));
+    h.wait_for(&L::text("No recipe uses Wooden Pickaxe yet."), SCREEN);
+    assert!(h.is_visible(&button("<- Items")));
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("33 / 33"), SCREEN);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+    assert!(!h.is_visible(&L::marker::<PauseMenu>()));
+
+    // A right click shows the uses; an item without recipe says where it comes from
+    h.right_click(&catalog_slot("Cobblestone"));
+    h.wait_for(&button("Uses 1"), SCREEN);
+    h.click(&button("Recipes 0"));
+    h.wait_for(
+        &L::text("Cobblestone is gathered, not crafted. It goes into 1 recipe: see Uses."),
+        SCREEN,
+    );
+
+    // `/` leaves the view for the search; then Escape leaves the search, and closes the inventory
+    h.type_on(KeyCode::Slash, '/');
+    h.frames(2);
+    assert!(h.is_visible(&L::text("33 / 33")));
+    let field = h.get(&search_field());
+    assert_eq!(h.world().resource::<InputFocus>().get(), Some(field));
+    h.press(KeyCode::Escape);
+    h.frames(1);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    assert!(!h.is_visible(&L::marker::<PauseMenu>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
+    let folder = GameFolder::new().with_world("Keys").with_items(
+        "Keys",
+        "Tester",
+        &[(0, ItemId::OakPlanks, 5)],
+    );
+    let mut h = enter_world(folder, "Keys");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::OakPlanks, 5))
+    });
+    h.set_game_mode(GameMode::Creative);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+
+    // In Creative, no Craftable chip, and a click on an item does not show its recipes yet
+    assert!(!h.is_visible(&button("Craftable")));
+    h.click(&catalog_slot("Oak Log"));
+    h.frames(5);
+    assert!(h.is_visible(&L::text("33 / 33")));
+    assert!(!h.is_visible(&L::marker::<RecipePanel>()));
+
+    // R over a slot of the inventory shows the recipes of its item, U its uses
+    h.hover(&L::cell(0));
+    h.press(KeyCode::KeyR);
+    h.wait_for(&button("Recipes 1"), SCREEN);
+    assert!(h.is_visible(&L::text("Oak Planks").within(L::marker::<RecipePanel>())));
+    h.press(KeyCode::KeyU);
+    h.wait_for(&button("Uses 8"), SCREEN);
+    assert!(h.is_visible(&button("<- Oak Planks")));
+
+    // R over a slot of a card, and over one of the catalog
+    let stick = h.first_card_slot("Stick");
+    h.hover_entity(stick);
+    h.press(KeyCode::KeyR);
+    h.wait_for(&button("Uses 10"), SCREEN);
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::Escape);
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("33 / 33"), SCREEN);
+    h.hover(&catalog_slot("Chest"));
+    h.press(KeyCode::KeyR);
+    h.wait_for(&button("Recipes 2"), SCREEN);
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("33 / 33"), SCREEN);
+
+    // In a drawer, U opens the drawer on the uses; Escape then goes back, closes the drawer, and
+    // closes the inventory
+    h.resize(640, 480);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    h.hover(&L::cell(0));
+    h.press(KeyCode::KeyU);
+    h.wait_for(&button("Uses 8"), SCREEN);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("33 / 33"), SCREEN);
+    assert!(h.is_visible(&L::marker::<ItemBrowser>()));
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+    assert!(!h.is_visible(&L::marker::<PauseMenu>()));
 }

@@ -10,7 +10,7 @@ use bevy::{
     ui::InteractionDisabled,
     ui_widgets::{Activate, Button as UiButton},
 };
-use shared::players::Inventory;
+use shared::players::{inventory::craft_result, Inventory};
 use shared::world::{recipes, recipes_for, uses_of, ItemId, RecipeView};
 
 use super::catalog::category_detail;
@@ -25,8 +25,8 @@ use super::{
     RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, ViewedItem, ViewedItemCategory,
     ViewedItemName,
 };
-use crate::ui::hud::inventory::grid_in_use;
-use crate::ui::hud::{item_name, InventoryRoot, UIMode};
+use crate::ui::hud::inventory::{grid_in_use, stack_in};
+use crate::ui::hud::{item_name, CraftResultCell, InventoryCell, InventoryRoot, UIMode};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DISABLED_ALPHA, FONT_M, FONT_S, MUTED, RAISE, SLOT,
     SPACE_S, SPACE_XS, TEXT,
@@ -37,7 +37,7 @@ use crate::ui::widgets::hints::key_cap;
 use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM};
 use crate::ui::widgets::slot::{slot, ICON_SIZE, SLOT_SIZE};
 use crate::ui::widgets::tooltip::Tooltip;
-use crate::world::{AtlasWrapper, MaterialResource};
+use crate::world::{AtlasWrapper, ClientWorldMap, MaterialResource};
 
 /// The side of a cell of the grid of a card.
 pub const CARD_CELL: f32 = 40.0;
@@ -729,6 +729,66 @@ pub fn click_items(
             .find_map(|(entity, hovered, slot)| Some((slot.item, tab(entity, hovered)?)))
     };
     if let Some((item, tab)) = from_catalog.or_else(from_cards) {
+        state.open(ItemView { item, tab }, layout.compact);
+    }
+}
+
+/// R shows the recipes, U the uses, of the item of a slot: the focused one while its ring shows,
+/// else the one under the cursor, in the catalog, a card, the inventory, the crafting grid and
+/// its result, or a chest. In both modes, not while the player types.
+#[allow(clippy::too_many_arguments)]
+pub fn item_keys(
+    keys: Res<ButtonInput<KeyCode>>,
+    ui_mode: Res<UIMode>,
+    focus: Res<InputFocus>,
+    focus_visible: Res<InputFocusVisible>,
+    layout: Res<BrowserLayout>,
+    inventory: Res<Inventory>,
+    world_map: Res<ClientWorldMap>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    catalog: Query<(Entity, &Hovered, &CatalogSlot)>,
+    cards: Query<(Entity, &Hovered, &RecipeSlot)>,
+    cells: Query<(Entity, &Hovered, &InventoryCell)>,
+    result: Query<(Entity, &Hovered), With<CraftResultCell>>,
+    mut state: ResMut<ItemBrowserState>,
+) {
+    let tab = if keys.just_pressed(KeyCode::KeyR) {
+        RecipeTab::Recipes
+    } else if keys.just_pressed(KeyCode::KeyU) {
+        RecipeTab::Uses
+    } else {
+        return;
+    };
+    if *ui_mode == UIMode::Typing || !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
+        return;
+    }
+    // Every item slot, whether it is hovered, and its item
+    let slots = catalog
+        .iter()
+        .map(|(entity, hovered, slot)| (entity, hovered.get(), Some(slot.0)))
+        .chain(
+            cards
+                .iter()
+                .map(|(entity, hovered, slot)| (entity, hovered.get(), Some(slot.item))),
+        )
+        .chain(cells.iter().map(|(entity, hovered, cell)| {
+            let stack = stack_in(cell.id, &inventory, &world_map);
+            (entity, hovered.get(), stack.map(|stack| stack.item_id))
+        }))
+        .chain(result.iter().map(|(entity, hovered)| {
+            let made = craft_result(&inventory, grid_in_use(&inventory));
+            (entity, hovered.get(), made.map(|stack| stack.item_id))
+        }));
+    let focused = focus.get().filter(|_| focus_visible.0);
+    let (mut on_focus, mut on_hover) = (None, None);
+    for (entity, hovered, item) in slots {
+        if focused == Some(entity) {
+            on_focus = item;
+        } else if hovered && on_hover.is_none() {
+            on_hover = item;
+        }
+    }
+    if let Some(item) = on_focus.or(on_hover) {
         state.open(ItemView { item, tab }, layout.compact);
     }
 }
