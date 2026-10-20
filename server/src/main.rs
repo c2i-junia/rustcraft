@@ -31,6 +31,11 @@ fn main() -> ExitCode {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
+    // the blocks come from the base mod: a broken one stops the server here, saying why
+    if let Err(err) = shared::world::load_blocks() {
+        error!("The blocks of the base mod do not read: {err}");
+        return ExitCode::FAILURE;
+    }
     let ip = Ipv4Addr::UNSPECIFIED.into();
     let socket = match acquire_socket_by_port(ip, args.port) {
         Ok(socket) => socket,

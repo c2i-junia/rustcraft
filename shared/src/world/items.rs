@@ -290,7 +290,8 @@ pub const WOODEN_TOOL_SPEED: u8 = 2;
 pub const WOODEN_TOOL_DURABILITY: u32 = 59;
 
 /// The kinds of tools: each one breaks some blocks faster, see `BlockId::get_tool_kind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ToolKind {
     Pickaxe,
     Axe,

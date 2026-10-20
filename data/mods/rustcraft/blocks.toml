@@ -1,0 +1,209 @@
+# The blocks of the game, in the order of their numbers: the first is 0, the next 1, and so on.
+# Chunk files and network messages store the number, so this list is append only, like the
+# enum it replaces: never reorder, insert before the end or remove a block. The engine names
+# some of them (`BlockId::Stone`) and checks, as it reads this file, that each is where it
+# expects it.
+#
+# Each block:
+# - `id`: its name, in snake case. Saves written in RON store it in camel case (`OakLog`).
+# - `break_steps`: the mining hits it takes by hand, one every tenth of a second, twice over;
+#   leave it out for a block that cannot be broken.
+# - `tools`: the kinds of tools that break it faster, and `needs_tool` when broken without the
+#   first it drops nothing.
+# - `drops`: what breaking it gives, each `{ item, count, chance }`; one is picked by its chance
+#   among them (1 when left out). The items are the `ItemId`s of the engine.
+# - `look`: "solid", "transparent", "liquid" or "decoration" (drawn as crossed planes).
+# - `collision` and `outline`: "full", "none", or a box `{ center = [x, y, z], half = [x, y, z] }`
+#   in the cell, from 0 to 1. The outline is what the cursor aims at. Both are "full" when left
+#   out.
+# - `light`: the light it gives, 0 to 15. `light_opacity`: how much it dims the light through
+#   it, when not what its look gives (see `BlockId::light_opacity`).
+# - `usable`: a right click uses it instead of placing against it. `replaceable`: a block placed
+#   in its cell takes its place.
+
+[[blocks]]
+id = "dirt"
+break_steps = 5
+tools = ["shovel"]
+drops = [{ item = "Dirt" }]
+
+[[blocks]]
+id = "debug"
+break_steps = 7
+
+[[blocks]]
+id = "grass"
+break_steps = 6
+tools = ["shovel"]
+drops = [{ item = "Dirt" }]
+
+[[blocks]]
+id = "stone"
+break_steps = 10
+tools = ["pickaxe"]
+needs_tool = true
+drops = [{ item = "Cobblestone" }]
+
+[[blocks]]
+id = "oak_log"
+break_steps = 10
+tools = ["axe"]
+drops = [{ item = "OakLog" }]
+
+[[blocks]]
+id = "oak_planks"
+break_steps = 10
+tools = ["axe"]
+drops = [{ item = "OakPlanks" }]
+
+[[blocks]]
+id = "oak_leaves"
+break_steps = 2
+tools = ["hoe", "sword"]
+look = "transparent"
+
+[[blocks]]
+id = "sand"
+break_steps = 5
+tools = ["shovel"]
+drops = [{ item = "Sand" }]
+
+[[blocks]]
+id = "cactus"
+break_steps = 4
+drops = [{ item = "Cactus" }]
+
+[[blocks]]
+id = "ice"
+break_steps = 5
+tools = ["pickaxe"]
+drops = [{ item = "Ice" }]
+
+[[blocks]]
+id = "glass"
+break_steps = 3
+look = "transparent"
+light_opacity = 0
+
+[[blocks]]
+id = "bedrock"
+
+[[blocks]]
+id = "dandelion"
+break_steps = 1
+look = "decoration"
+collision = "none"
+outline = { center = [0.5, 0.3, 0.5], half = [0.3, 0.3, 0.3] }
+drops = [{ item = "Dandelion" }]
+
+[[blocks]]
+id = "poppy"
+break_steps = 1
+look = "decoration"
+collision = "none"
+outline = { center = [0.5, 0.3, 0.5], half = [0.3, 0.3, 0.3] }
+drops = [{ item = "Poppy" }]
+
+[[blocks]]
+id = "tall_grass"
+break_steps = 1
+look = "decoration"
+collision = "none"
+outline = { center = [0.5, 0.3, 0.5], half = [0.3, 0.3, 0.3] }
+drops = [{ item = "TallGrass" }]
+
+[[blocks]]
+id = "cobblestone"
+break_steps = 2
+tools = ["pickaxe"]
+needs_tool = true
+
+[[blocks]]
+id = "snow"
+break_steps = 9
+tools = ["shovel"]
+drops = [{ item = "Snowball", count = 4 }]
+
+[[blocks]]
+id = "spruce_leaves"
+break_steps = 2
+tools = ["hoe", "sword"]
+look = "transparent"
+
+[[blocks]]
+id = "spruce_log"
+break_steps = 10
+tools = ["axe"]
+drops = [{ item = "SpruceLog" }]
+
+[[blocks]]
+id = "water"
+look = "liquid"
+collision = "none"
+outline = "none"
+replaceable = true
+
+[[blocks]]
+id = "crafting_table"
+break_steps = 10
+tools = ["axe"]
+usable = true
+drops = [{ item = "CraftingTable" }]
+
+[[blocks]]
+id = "spruce_planks"
+break_steps = 10
+tools = ["axe"]
+drops = [{ item = "SprucePlanks" }]
+
+[[blocks]]
+id = "furnace"
+break_steps = 15
+tools = ["pickaxe"]
+needs_tool = true
+drops = [{ item = "Furnace" }]
+
+[[blocks]]
+id = "chest"
+break_steps = 10
+tools = ["axe"]
+usable = true
+drops = [{ item = "Chest" }]
+
+[[blocks]]
+id = "coal_ore"
+break_steps = 12
+tools = ["pickaxe"]
+needs_tool = true
+drops = [{ item = "Coal" }]
+
+# they will smelt into ingots: until then, they drop themselves
+[[blocks]]
+id = "iron_ore"
+break_steps = 15
+tools = ["pickaxe"]
+needs_tool = true
+drops = [{ item = "IronOre" }]
+
+[[blocks]]
+id = "gold_ore"
+break_steps = 15
+tools = ["pickaxe"]
+needs_tool = true
+drops = [{ item = "GoldOre" }]
+
+[[blocks]]
+id = "gravel"
+break_steps = 6
+tools = ["shovel"]
+drops = [{ item = "Gravel" }]
+
+# the stick, a little wider than drawn to be easier to aim at
+[[blocks]]
+id = "torch"
+break_steps = 1
+look = "decoration"
+collision = "none"
+outline = { center = [0.5, 0.3, 0.5], half = [0.15, 0.3, 0.15] }
+light = 14
+drops = [{ item = "Torch" }]

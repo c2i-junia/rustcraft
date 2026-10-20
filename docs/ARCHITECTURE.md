@@ -448,6 +448,30 @@ but not run (`server::script_error`), so that a script that does not parse says 
 change builds its cards again, the selected one kept; leaving the screen writes `mods.ron` when
 something changed.
 
+## Base mod
+
+The engine knows no block of its own. Their properties are in `data/mods/rustcraft/blocks.toml`,
+the base mod beside the game: how long each takes to break and with which tools, what it drops,
+how it is seen through, its boxes, its light, whether it is used or replaced
+(`shared/src/world/registry.rs`). They are read once, at start, into the `BlockRegistry`, which
+every method of a `BlockId` reads. `base_mod_folder` finds the folder: the one
+`RUSTCRAFT_BASE_MOD` names, else `data/mods/rustcraft` beside `bin/` in a release, else the one of
+the repository under `cargo run` and in the tests. A base mod that does not read stops the client
+and the server at start, saying which file and why.
+
+A `BlockId` is the number of a block in that file, and the blocks the engine names, for the
+terrain and the mechanics, are constants: `BlockId::Stone` is 3. Reading the file checks that
+each is where the engine expects it, so that a block moved in the file cannot turn the blocks of
+the saved worlds into others. The number is encoded as the index of a variant, and the name in
+RON, as the enum it replaced was: chunk files, messages and old `world.ron` read unchanged. The
+test `the_base_mod_gives_the_blocks_of_the_tables_it_replaced` checks every property of every
+block against what the Rust tables gave, recorded before they went.
+
+Still in the engine: the items, the recipes, the biomes, the mobs, how a block is drawn
+(`client/src/world/rendering/voxel.rs`) and its sounds. A block added after the base ones gets
+the next number and its properties, but neither a texture, an item nor a place in the terrain
+yet.
+
 ## Saves
 
 A world is a folder under `saves/`:

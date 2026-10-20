@@ -68,6 +68,11 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    // the blocks come from the base mod: a broken one stops the game here, saying why
+    if let Err(err) = shared::world::load_blocks() {
+        eprintln!("The blocks of the base mod do not read: {err}");
+        std::process::exit(1);
+    }
     let texture_path = if args.use_custom_textures {
         TEXTURE_PATH_CUSTOM
     } else {

@@ -44,6 +44,7 @@ Date: 11.10.2026
     - Ores generate in clusters and veins: coal up to y 128, iron up to y 64, and the rarer gold up to y 32.
     - Mods declare themselves in a mod.toml: their name, version, authors, icon and the mods they need, which load first. A mod whose dependencies are missing or off waits for them, and a mod that fails takes back the commands it added.
     - Added the Mods screen, on the main menu: every mod of the game folder with its switch, a search, and Turn all on and Turn all off. It says why a mod cannot load, and saves the mods turned off in mods.ron.
+    - The properties of the blocks come from the base mod, in data/mods/rustcraft/blocks.toml: break times, tools, drops, boxes, light. A base mod that does not read stops the game at start and says why.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

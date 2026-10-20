@@ -32,7 +32,8 @@ impl SoundMaterial {
         SoundMaterial::Glass,
     ];
 
-    /// The material of `block`; `None` for water, which makes no block sound.
+    /// The material of `block`; `None` for water, which makes no block sound. A block the base
+    /// mod adds beyond those the engine names sounds like stone.
     pub fn of(block: BlockId) -> Option<Self> {
         Some(match block {
             BlockId::Grass
@@ -61,6 +62,8 @@ impl SoundMaterial {
             BlockId::Snow => Self::Snow,
             BlockId::Glass | BlockId::Ice => Self::Glass,
             BlockId::Water => return None,
+            // a block of a mod, until blocks declare their sounds
+            _ => Self::Stone,
         })
     }
 

@@ -1,0 +1,12 @@
+# The content of Rustcraft, as a mod: the engine knows no block of its own and reads them all
+# from `blocks.toml`, beside this file. See "Base mod" in docs/ARCHITECTURE.md.
+
+[mod]
+id = "rustcraft"
+name = "Rustcraft"
+version = "0.1.0"
+description = "The blocks of the game. Its items, biomes and mobs are still in the engine."
+authors = ["MizKyosia"]
+
+[game]
+api = 1

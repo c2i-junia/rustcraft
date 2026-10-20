@@ -1,0 +1,29 @@
+Dirt: collision=full outline=full break=Some(10) faster=[Shovel] required=None drops=[(1, Dirt, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Debug: collision=full outline=full break=Some(14) faster=[] required=None drops=[] usable=false replaceable=false look=Solid opacity=None light=0
+Grass: collision=full outline=full break=Some(12) faster=[Shovel] required=None drops=[(1, Dirt, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Stone: collision=full outline=full break=Some(20) faster=[Pickaxe] required=Some(Pickaxe) drops=[(1, Cobblestone, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+OakLog: collision=full outline=full break=Some(20) faster=[Axe] required=None drops=[(1, OakLog, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+OakPlanks: collision=full outline=full break=Some(20) faster=[Axe] required=None drops=[(1, OakPlanks, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+OakLeaves: collision=full outline=full break=Some(4) faster=[Hoe, Sword] required=None drops=[] usable=false replaceable=false look=Transparent opacity=Some(1) light=0
+Sand: collision=full outline=full break=Some(10) faster=[Shovel] required=None drops=[(1, Sand, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Cactus: collision=full outline=full break=Some(8) faster=[] required=None drops=[(1, Cactus, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Ice: collision=full outline=full break=Some(10) faster=[Pickaxe] required=None drops=[(1, Ice, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Glass: collision=full outline=full break=Some(6) faster=[] required=None drops=[] usable=false replaceable=false look=Transparent opacity=Some(0) light=0
+Bedrock: collision=full outline=full break=None faster=[] required=None drops=[] usable=false replaceable=false look=Solid opacity=None light=0
+Dandelion: collision=none outline=Vec3A(0.19999999, 0.0, 0.19999999)..Vec3A(0.8, 0.6, 0.8) break=Some(2) faster=[] required=None drops=[(1, Dandelion, 1)] usable=false replaceable=false look=Decoration opacity=Some(0) light=0
+Poppy: collision=none outline=Vec3A(0.19999999, 0.0, 0.19999999)..Vec3A(0.8, 0.6, 0.8) break=Some(2) faster=[] required=None drops=[(1, Poppy, 1)] usable=false replaceable=false look=Decoration opacity=Some(0) light=0
+TallGrass: collision=none outline=Vec3A(0.19999999, 0.0, 0.19999999)..Vec3A(0.8, 0.6, 0.8) break=Some(2) faster=[] required=None drops=[(1, TallGrass, 1)] usable=false replaceable=false look=Decoration opacity=Some(0) light=0
+Cobblestone: collision=full outline=full break=Some(4) faster=[Pickaxe] required=Some(Pickaxe) drops=[] usable=false replaceable=false look=Solid opacity=None light=0
+Snow: collision=full outline=full break=Some(18) faster=[Shovel] required=None drops=[(1, Snowball, 4)] usable=false replaceable=false look=Solid opacity=None light=0
+SpruceLeaves: collision=full outline=full break=Some(4) faster=[Hoe, Sword] required=None drops=[] usable=false replaceable=false look=Transparent opacity=Some(1) light=0
+SpruceLog: collision=full outline=full break=Some(20) faster=[Axe] required=None drops=[(1, SpruceLog, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Water: collision=none outline=none break=None faster=[] required=None drops=[] usable=false replaceable=true look=Liquid opacity=Some(1) light=0
+CraftingTable: collision=full outline=full break=Some(20) faster=[Axe] required=None drops=[(1, CraftingTable, 1)] usable=true replaceable=false look=Solid opacity=None light=0
+SprucePlanks: collision=full outline=full break=Some(20) faster=[Axe] required=None drops=[(1, SprucePlanks, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Furnace: collision=full outline=full break=Some(30) faster=[Pickaxe] required=Some(Pickaxe) drops=[(1, Furnace, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Chest: collision=full outline=full break=Some(20) faster=[Axe] required=None drops=[(1, Chest, 1)] usable=true replaceable=false look=Solid opacity=None light=0
+CoalOre: collision=full outline=full break=Some(24) faster=[Pickaxe] required=Some(Pickaxe) drops=[(1, Coal, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+IronOre: collision=full outline=full break=Some(30) faster=[Pickaxe] required=Some(Pickaxe) drops=[(1, IronOre, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+GoldOre: collision=full outline=full break=Some(30) faster=[Pickaxe] required=Some(Pickaxe) drops=[(1, GoldOre, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Gravel: collision=full outline=full break=Some(12) faster=[Shovel] required=None drops=[(1, Gravel, 1)] usable=false replaceable=false look=Solid opacity=None light=0
+Torch: collision=none outline=Vec3A(0.35, 0.0, 0.35)..Vec3A(0.65, 0.6, 0.65) break=Some(2) faster=[] required=None drops=[(1, Torch, 1)] usable=false replaceable=false look=Decoration opacity=Some(0) light=14

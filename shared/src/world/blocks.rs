@@ -1,58 +1,154 @@
 use std::collections::HashMap;
 
+use super::registry::{blocks, BlockDef, BlockShape};
 use super::{GameElementId, ItemId, ToolKind};
-use bevy::math::{bounding::Aabb3d, Vec3A};
+use bevy::math::bounding::Aabb3d;
 use rand::Rng;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, DeserializeSeed, EnumAccess, VariantAccess, Visitor};
+use serde::ser::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Append only: never reorder, insert before the end or remove a variant. The variant's position
-/// is what chunk files and network messages store (bincode), so any other change turns the
-/// blocks of every existing world into other blocks. Bump `PROTOCOL_ID` and, if the saved
-/// encoding changes, `FORMAT_VERSION`. The test `block_encoding_is_pinned` guards this.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    serde::Serialize,
-    serde::Deserialize,
-    Hash,
-    Default,
-)]
-pub enum BlockId {
-    #[default]
-    Dirt,
-    Debug,
-    Grass,
-    Stone,
-    OakLog,
-    OakPlanks,
-    OakLeaves,
-    Sand,
-    Cactus,
-    Ice,
-    Glass,
-    Bedrock,
-    Dandelion,
-    Poppy,
-    TallGrass,
-    Cobblestone,
-    Snow,
-    SpruceLeaves,
-    SpruceLog,
-    Water,
-    CraftingTable,
-    SprucePlanks,
-    Furnace,
-    Chest,
-    CoalOre,
-    IronOre,
-    GoldOre,
-    Gravel,
-    Torch,
+/// A block, by its number in the base mod's `blocks.toml`, where its properties are (see
+/// `registry`). The engine names the base blocks with the constants below, in the order of that
+/// file.
+///
+/// Append only: never reorder, insert before the end or remove a block. The number is what chunk
+/// files and network messages store (bincode, as the index of a variant, as when this was an
+/// enum), so any other change turns the blocks of every existing world into other blocks. Bump
+/// `PROTOCOL_ID` and, if the saved encoding changes, `FORMAT_VERSION`. The test
+/// `block_encoding_is_pinned` guards this. The saves written in RON store its name, `OakLog`.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct BlockId(u16);
+
+/// The base blocks the engine names, with their number and their id in `blocks.toml`.
+macro_rules! base_blocks {
+    ($($number:literal $name:ident $id:literal,)*) => {
+        #[allow(non_upper_case_globals)]
+        impl BlockId {
+            $(pub const $name: BlockId = BlockId($number);)*
+
+            /// The base blocks the engine names, in the order of their numbers.
+            pub const ALL: [BlockId; [$($number),*].len()] = [$(BlockId::$name),*];
+
+            /// Their ids in `blocks.toml`, which reading it checks.
+            pub const BASE_NAMES: [&'static str; [$($number),*].len()] = [$($id),*];
+        }
+    };
+}
+
+base_blocks! {
+    0 Dirt "dirt",
+    1 Debug "debug",
+    2 Grass "grass",
+    3 Stone "stone",
+    4 OakLog "oak_log",
+    5 OakPlanks "oak_planks",
+    6 OakLeaves "oak_leaves",
+    7 Sand "sand",
+    8 Cactus "cactus",
+    9 Ice "ice",
+    10 Glass "glass",
+    11 Bedrock "bedrock",
+    12 Dandelion "dandelion",
+    13 Poppy "poppy",
+    14 TallGrass "tall_grass",
+    15 Cobblestone "cobblestone",
+    16 Snow "snow",
+    17 SpruceLeaves "spruce_leaves",
+    18 SpruceLog "spruce_log",
+    19 Water "water",
+    20 CraftingTable "crafting_table",
+    21 SprucePlanks "spruce_planks",
+    22 Furnace "furnace",
+    23 Chest "chest",
+    24 CoalOre "coal_ore",
+    25 IronOre "iron_ore",
+    26 GoldOre "gold_ore",
+    27 Gravel "gravel",
+    28 Torch "torch",
+}
+
+impl std::fmt::Debug for BlockId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match blocks().get(*self) {
+            Some(def) => f.write_str(def.name),
+            None => write!(f, "BlockId({})", self.0),
+        }
+    }
+}
+
+/// As the enum it replaces: the index of a variant in bincode, its name in RON.
+impl Serialize for BlockId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let name = if serializer.is_human_readable() {
+            blocks()
+                .get(*self)
+                .map(|def| def.name)
+                .ok_or_else(|| S::Error::custom(format!("no block numbered {}", self.0)))?
+        } else {
+            ""
+        };
+        serializer.serialize_unit_variant("BlockId", self.0 as u32, name)
+    }
+}
+
+impl<'de> Deserialize<'de> for BlockId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_enum("BlockId", &[], BlockIdVisitor)
+    }
+}
+
+struct BlockIdVisitor;
+
+impl<'de> Visitor<'de> for BlockIdVisitor {
+    type Value = BlockId;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a block")
+    }
+
+    fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<BlockId, A::Error> {
+        let (id, variant) = data.variant_seed(BlockTag)?;
+        variant.unit_variant()?;
+        Ok(id)
+    }
+
+    fn visit_str<E: de::Error>(self, name: &str) -> Result<BlockId, E> {
+        BlockTag.visit_str(name)
+    }
+}
+
+/// The variant of a `BlockId`: its number, or its name.
+struct BlockTag;
+
+impl<'de> DeserializeSeed<'de> for BlockTag {
+    type Value = BlockId;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<BlockId, D::Error> {
+        deserializer.deserialize_identifier(self)
+    }
+}
+
+impl<'de> Visitor<'de> for BlockTag {
+    type Value = BlockId;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("the number or the name of a block")
+    }
+
+    fn visit_u64<E: de::Error>(self, number: u64) -> Result<BlockId, E> {
+        u16::try_from(number)
+            .ok()
+            .map(BlockId)
+            .filter(|id| blocks().get(*id).is_some())
+            .ok_or_else(|| E::custom(format!("no block numbered {number}")))
+    }
+
+    fn visit_str<E: de::Error>(self, name: &str) -> Result<BlockId, E> {
+        blocks()
+            .by_name(name)
+            .ok_or_else(|| E::custom(format!("no block named {name}")))
+    }
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -102,7 +198,8 @@ impl BlockData {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BlockTransparency {
     Transparent,
     Liquid,
@@ -117,144 +214,49 @@ pub enum BlockHitbox {
 }
 
 impl BlockId {
-    /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 29] = [
-        BlockId::Dirt,
-        BlockId::Debug,
-        BlockId::Grass,
-        BlockId::Stone,
-        BlockId::OakLog,
-        BlockId::OakPlanks,
-        BlockId::OakLeaves,
-        BlockId::Sand,
-        BlockId::Cactus,
-        BlockId::Ice,
-        BlockId::Glass,
-        BlockId::Bedrock,
-        BlockId::Dandelion,
-        BlockId::Poppy,
-        BlockId::TallGrass,
-        BlockId::Cobblestone,
-        BlockId::Snow,
-        BlockId::SpruceLeaves,
-        BlockId::SpruceLog,
-        BlockId::Water,
-        BlockId::CraftingTable,
-        BlockId::SprucePlanks,
-        BlockId::Furnace,
-        BlockId::Chest,
-        BlockId::CoalOre,
-        BlockId::IronOre,
-        BlockId::GoldOre,
-        BlockId::Gravel,
-        BlockId::Torch,
-    ];
+    /// The block of this number in `blocks.toml`.
+    pub const fn from_number(number: u16) -> Self {
+        BlockId(number)
+    }
+
+    pub const fn number(&self) -> u16 {
+        self.0
+    }
+
+    /// Its properties. A number with no block, which only a broken file or message could give,
+    /// takes those of the first.
+    fn def(&self) -> &'static BlockDef {
+        let registry = blocks();
+        registry
+            .get(*self)
+            .or_else(|| registry.get(BlockId::default()))
+            .expect("the base mod declares at least one block")
+    }
 
     pub fn get_hitbox(&self) -> BlockHitbox {
-        match *self {
-            Self::Water | Self::TallGrass | Self::Poppy | Self::Dandelion | Self::Torch => {
-                BlockHitbox::None
-            }
-            _ => BlockHitbox::FullBlock,
-        }
+        self.def().collision.into()
     }
 
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
-        match *self {
-            Self::Water => BlockHitbox::None,
-            Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::splat(0.5).with_y(0.3),
-                Vec3A::splat(0.3),
-            )),
-            // The stick, a little wider to be easier to aim at
-            Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
-                Vec3A::new(0.5, 0.3, 0.5),
-                Vec3A::new(0.15, 0.3, 0.15),
-            )),
-            _ => BlockHitbox::FullBlock,
-        }
+        self.def().outline.into()
     }
 
     /// Number of mining hits needed to break the block by hand, one every `HIT_MS` the button
     /// is held: a block takes `steps / 10` seconds. `None` if it cannot be broken.
     pub fn get_break_time(&self) -> Option<u8> {
-        let steps: u8 = match *self {
-            Self::Dirt => 5,
-            Self::Debug => 7,
-            Self::Grass => 6,
-            Self::Stone => 10,
-            Self::OakLog => 10,
-            Self::OakPlanks => 10,
-            Self::OakLeaves => 2,
-            Self::Sand => 5,
-            Self::Cactus => 4,
-            Self::Ice => 5,
-            Self::Glass => 3,
-            Self::Dandelion => 1,
-            Self::Poppy => 1,
-            Self::TallGrass => 1,
-            Self::Cobblestone => 2,
-            Self::Snow => 9,
-            Self::SpruceLeaves => 2,
-            Self::SpruceLog => 10,
-            Self::CraftingTable => 10,
-            Self::SprucePlanks => 10,
-            Self::Furnace => 15,
-            Self::Chest => 10,
-            Self::CoalOre => 12,
-            Self::IronOre => 15,
-            Self::GoldOre => 15,
-            Self::Gravel => 6,
-            Self::Torch => 1,
-            Self::Bedrock | Self::Water => return None,
-        };
-        Some(2 * steps)
+        self.def().break_time
     }
 
     /// Whether a tool of `kind` breaks this block faster than a hand, at its speed.
     pub fn is_mined_faster_by(&self, kind: ToolKind) -> bool {
-        match kind {
-            ToolKind::Pickaxe => matches!(
-                *self,
-                Self::Stone
-                    | Self::Cobblestone
-                    | Self::Furnace
-                    | Self::Ice
-                    | Self::CoalOre
-                    | Self::IronOre
-                    | Self::GoldOre
-            ),
-            ToolKind::Axe => matches!(
-                *self,
-                Self::OakLog
-                    | Self::SpruceLog
-                    | Self::OakPlanks
-                    | Self::SprucePlanks
-                    | Self::CraftingTable
-                    | Self::Chest
-            ),
-            ToolKind::Shovel => matches!(
-                *self,
-                Self::Dirt | Self::Grass | Self::Sand | Self::Snow | Self::Gravel
-            ),
-            ToolKind::Hoe | ToolKind::Sword => {
-                matches!(*self, Self::OakLeaves | Self::SpruceLeaves)
-            }
-        }
+        self.def().tools.contains(&kind)
     }
 
     /// The tool this block must be broken with to drop anything, like stone and a pickaxe.
     /// Broken otherwise, it still goes, but drops nothing.
     pub fn get_required_tool(&self) -> Option<ToolKind> {
-        match *self {
-            Self::Stone
-            | Self::Cobblestone
-            | Self::Furnace
-            | Self::CoalOre
-            | Self::IronOre
-            | Self::GoldOre => Some(ToolKind::Pickaxe),
-            _ => None,
-        }
+        let def = self.def();
+        def.needs_tool.then(|| def.tools.first().copied()).flatten()
     }
 
     /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
@@ -280,72 +282,51 @@ impl BlockId {
     /// Specifies the drop table of a given block
     /// Drops are specified this way : `(relative_chance, corresponding_item, base_number)`
     pub fn get_drop_table(&self) -> Vec<(u32, ItemId, u32)> {
-        match *self {
-            BlockId::Dirt | BlockId::Grass => vec![(1, ItemId::Dirt, 1)],
-            BlockId::Stone => vec![(1, ItemId::Cobblestone, 1)],
-            BlockId::Sand => vec![(1, ItemId::Sand, 1)],
-            BlockId::Cactus => vec![(1, ItemId::Cactus, 1)],
-            BlockId::OakLog => vec![(1, ItemId::OakLog, 1)],
-            BlockId::OakPlanks => vec![(1, ItemId::OakPlanks, 1)],
-            BlockId::Ice => vec![(1, ItemId::Ice, 1)],
-            BlockId::Dandelion => vec![(1, ItemId::Dandelion, 1)],
-            BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
-            BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
-            BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
-            BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
-            BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
-            BlockId::SprucePlanks => vec![(1, ItemId::SprucePlanks, 1)],
-            BlockId::Furnace => vec![(1, ItemId::Furnace, 1)],
-            BlockId::Chest => vec![(1, ItemId::Chest, 1)],
-            BlockId::CoalOre => vec![(1, ItemId::Coal, 1)],
-            // they will smelt into ingots: until then, they drop themselves
-            BlockId::IronOre => vec![(1, ItemId::IronOre, 1)],
-            BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
-            BlockId::Gravel => vec![(1, ItemId::Gravel, 1)],
-            BlockId::Torch => vec![(1, ItemId::Torch, 1)],
-            _ => vec![],
-        }
+        self.def().drops.clone()
     }
 
     /// Whether a right click on this block uses it, like a crafting table or a chest, instead of
     /// placing a block against it. Sneaking places the block.
     pub fn is_usable(&self) -> bool {
-        matches!(*self, Self::CraftingTable | Self::Chest)
+        self.def().usable
     }
 
     /// Whether a block placed in the cell of this one takes its place.
     pub fn is_replaceable(&self) -> bool {
-        matches!(*self, Self::Water)
+        self.def().replaceable
     }
 
     pub fn get_visibility(&self) -> BlockTransparency {
-        match *self {
-            Self::Dandelion | Self::Poppy | Self::TallGrass | Self::Torch => {
-                BlockTransparency::Decoration
-            }
-            Self::Glass | Self::OakLeaves | Self::SpruceLeaves => BlockTransparency::Transparent,
-            Self::Water => BlockTransparency::Liquid,
-            _ => BlockTransparency::Solid,
-        }
+        self.def().look
     }
 
     /// How much the block dims the light that goes through it, as Minecraft's light opacity:
     /// `None` for a block no light goes through. Light loses a level from one cell to the next,
     /// or this much if more, but the light of the sky that goes straight down loses only this.
+    /// A block may set it; else a decoration dims nothing, and glass-like and liquid blocks 1.
     pub fn light_opacity(&self) -> Option<u8> {
-        match self.get_visibility() {
+        let def = self.def();
+        match def.look {
             BlockTransparency::Solid => None,
-            BlockTransparency::Decoration => Some(0),
-            BlockTransparency::Transparent if *self == Self::Glass => Some(0),
-            BlockTransparency::Transparent | BlockTransparency::Liquid => Some(1),
+            BlockTransparency::Decoration => Some(def.light_opacity.unwrap_or(0)),
+            BlockTransparency::Transparent | BlockTransparency::Liquid => {
+                Some(def.light_opacity.unwrap_or(1))
+            }
         }
     }
 
     /// The light the block gives, from 0 for none to 15, as Minecraft's light levels.
     pub fn light_emission(&self) -> u8 {
-        match *self {
-            Self::Torch => 14,
-            _ => 0,
+        self.def().light
+    }
+}
+
+impl From<BlockShape> for BlockHitbox {
+    fn from(shape: BlockShape) -> Self {
+        match shape {
+            BlockShape::Full => BlockHitbox::FullBlock,
+            BlockShape::Empty => BlockHitbox::None,
+            BlockShape::Box(aabb) => BlockHitbox::Aabb(aabb),
         }
     }
 }
@@ -374,45 +355,9 @@ mod tests {
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
 
-    /// Fails to compile when a `BlockId` variant is added without updating `ALL_BLOCKS`.
-    fn all_blocks_is_exhaustive(id: BlockId) {
-        match id {
-            BlockId::Dirt
-            | BlockId::Debug
-            | BlockId::Grass
-            | BlockId::Stone
-            | BlockId::OakLog
-            | BlockId::OakPlanks
-            | BlockId::OakLeaves
-            | BlockId::Sand
-            | BlockId::Cactus
-            | BlockId::Ice
-            | BlockId::Glass
-            | BlockId::Bedrock
-            | BlockId::Dandelion
-            | BlockId::Poppy
-            | BlockId::TallGrass
-            | BlockId::Cobblestone
-            | BlockId::Snow
-            | BlockId::SpruceLeaves
-            | BlockId::SpruceLog
-            | BlockId::Water
-            | BlockId::CraftingTable
-            | BlockId::SprucePlanks
-            | BlockId::Furnace
-            | BlockId::Chest
-            | BlockId::CoalOre
-            | BlockId::IronOre
-            | BlockId::GoldOre
-            | BlockId::Gravel
-            | BlockId::Torch => {}
-        }
-    }
-
     fn regular_blocks() -> impl Iterator<Item = BlockId> {
         ALL_BLOCKS
             .into_iter()
-            .inspect(|id| all_blocks_is_exhaustive(*id))
             .filter(|id| !UNBREAKABLE_BLOCKS.contains(id))
     }
 
@@ -482,6 +427,7 @@ mod tests {
                 BlockId::GoldOre => 26,
                 BlockId::Gravel => 27,
                 BlockId::Torch => 28,
+                other => panic!("{other:?} is not a base block"),
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -689,5 +635,78 @@ mod tests {
         assert!(!BlockId::Stone.is_mined_faster_by(ToolKind::Axe));
         assert!(!BlockId::Dirt.is_mined_faster_by(ToolKind::Pickaxe));
         assert!(!BlockId::Glass.is_mined_faster_by(ToolKind::Pickaxe));
+    }
+
+    fn hitbox_text(hitbox: BlockHitbox) -> String {
+        match hitbox {
+            BlockHitbox::FullBlock => "full".into(),
+            BlockHitbox::None => "none".into(),
+            BlockHitbox::Aabb(aabb) => format!("{:?}..{:?}", aabb.min, aabb.max),
+        }
+    }
+
+    /// Every property of every block, a line each.
+    fn tables_text() -> String {
+        let tools = [
+            ToolKind::Pickaxe,
+            ToolKind::Axe,
+            ToolKind::Shovel,
+            ToolKind::Hoe,
+            ToolKind::Sword,
+        ];
+        let mut out = String::new();
+        for id in ALL_BLOCKS {
+            let faster: Vec<_> = tools
+                .into_iter()
+                .filter(|kind| id.is_mined_faster_by(*kind))
+                .collect();
+            out += &format!(
+                "{id:?}: collision={} outline={} break={:?} faster={faster:?} required={:?} \
+                 drops={:?} usable={} replaceable={} look={:?} opacity={:?} light={}\n",
+                hitbox_text(id.get_hitbox()),
+                hitbox_text(id.get_ray_hitbox()),
+                id.get_break_time(),
+                id.get_required_tool(),
+                id.get_drop_table(),
+                id.is_usable(),
+                id.is_replaceable(),
+                id.get_visibility(),
+                id.light_opacity(),
+                id.light_emission(),
+            );
+        }
+        out
+    }
+
+    /// The base mod gives every block the properties the Rust tables it replaced gave them,
+    /// which `blocks_before_the_base_mod.txt` recorded before they went.
+    #[test]
+    fn the_base_mod_gives_the_blocks_of_the_tables_it_replaced() {
+        let before = include_str!("blocks_before_the_base_mod.txt");
+        for (now, then) in tables_text().lines().zip(before.lines()) {
+            assert_eq!(now, then);
+        }
+        assert_eq!(tables_text().lines().count(), before.lines().count());
+    }
+
+    #[test]
+    fn the_saves_in_ron_keep_the_names_of_the_blocks() {
+        let text = ron::to_string(&BlockData::new(BlockId::OakLog, BlockDirection::Front)).unwrap();
+        assert!(text.contains("id:OakLog"), "{text}");
+        let block: BlockData =
+            ron::from_str("(id:CraftingTable,direction:Back,breaking_progress:0)").unwrap();
+        assert_eq!(block.id, BlockId::CraftingTable);
+        assert!(ron::from_str::<BlockId>("Lantern").is_err());
+    }
+
+    #[test]
+    fn a_number_without_block_does_not_decode() {
+        use bincode::Options;
+        let decoded = bincode::options().deserialize::<BlockId>(&[200]);
+        assert!(decoded.is_err());
+        assert_eq!(
+            bincode::options().deserialize::<BlockId>(&[3]).unwrap(),
+            BlockId::Stone
+        );
     }
 }

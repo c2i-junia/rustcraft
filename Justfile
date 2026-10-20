@@ -47,7 +47,10 @@ generate-release-folder-server:
 
     # create folder
     mkdir -p release
-    mkdir -p release release/bin
+    mkdir -p release release/bin release/data
+
+    # the base mod: the server reads its blocks there
+    cp -r data/mods release/data/
 
     # add other files 
     cp CHANGELOG.txt release/

@@ -235,6 +235,10 @@ one whose dependencies are off says which. Leaving the screen saves the mods tur
 `mods.ron`, and they apply to the next world started. A dedicated server reads the `mods` folder
 and the `mods.ron` of its own game folder.
 
+The blocks themselves come from the base mod, `data/mods/rustcraft`: its `blocks.toml` gives each
+its break time, tools, drops, boxes and light, in the order of their numbers. Change a value there
+and the game uses it at its next start.
+
 <br>
 
 # Command-line options

@@ -756,7 +756,7 @@ fn bench_minimap() {
     use crate::ui::hud::minimap::surface::MinimapSurface;
     use crate::ui::hud::minimap::ZOOMS;
 
-    let colors = MinimapColors::of(BlockId::ALL.map(|id| (id, [id as u8; 3])));
+    let colors = MinimapColors::of(BlockId::ALL.map(|id| (id, [id.number() as u8; 3])));
     let mut pixels = vec![0; (MAP_SIZE * MAP_SIZE * 4) as usize];
     let mut scenes = Vec::new();
     for scene in &SCENES {

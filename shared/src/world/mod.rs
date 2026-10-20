@@ -10,6 +10,7 @@ pub mod items;
 pub mod liquid;
 pub mod mobs;
 pub mod raycast;
+pub mod registry;
 pub mod terrain;
 #[cfg(any(test, feature = "test-helpers"))]
 mod test_helpers;
@@ -26,5 +27,6 @@ pub use dropped_items::*;
 pub use items::*;
 pub use mobs::*;
 pub use raycast::*;
+pub use registry::*;
 pub use terrain::*;
 pub use utils::*;
