@@ -38,6 +38,7 @@ impl SoundMaterial {
             BlockId::Grass
             | BlockId::TallGrass
             | BlockId::Fern
+            | BlockId::Vine
             | BlockId::Dandelion
             | BlockId::Poppy
             | BlockId::Cactus => Self::Grass,
@@ -185,6 +186,11 @@ mod tests {
     #[test]
     fn the_fern_sounds_like_grass() {
         assert_eq!(SoundMaterial::of(BlockId::Fern), Some(SoundMaterial::Grass));
+    }
+
+    #[test]
+    fn the_vine_sounds_like_grass() {
+        assert_eq!(SoundMaterial::of(BlockId::Vine), Some(SoundMaterial::Grass));
     }
 
     #[test]

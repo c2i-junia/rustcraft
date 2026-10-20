@@ -139,8 +139,8 @@ mod tests {
             found("ore", None),
             [ItemId::CoalOre, ItemId::IronOre, ItemId::GoldOre]
         );
-        assert_eq!(found("", None).len(), 40);
-        assert_eq!(found("  ", None).len(), 40);
+        assert_eq!(found("", None).len(), 41);
+        assert_eq!(found("  ", None).len(), 41);
         assert!(found("zzz", None).is_empty());
     }
 
@@ -151,7 +151,7 @@ mod tests {
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), 40);
+        assert_eq!(found("#", None).len(), 41);
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }

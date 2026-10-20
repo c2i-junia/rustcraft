@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{GameElementId, ItemId, ToolKind};
-use bevy::math::{bounding::Aabb3d, Vec3A};
+use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -57,10 +57,14 @@ pub enum BlockId {
     JunglePlanks,
     JungleLeaves,
     Fern,
+    Vine,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
 /// in chunk files and sent on the network.
+///
+/// A block drawn turned is turned from its front by the direction: `Right` turns its front
+/// toward +X. A vine's direction names the side of its cell the block holding it lies on.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BlockDirection {
     Front,
@@ -68,6 +72,30 @@ pub enum BlockDirection {
     Back,
     Left,
 }
+
+impl BlockDirection {
+    /// The step toward the side of a cell the direction names: the front is north, −Z, the
+    /// back +Z, the left −X and the right +X.
+    pub fn offset(self) -> IVec3 {
+        match self {
+            Self::Front => IVec3::NEG_Z,
+            Self::Right => IVec3::X,
+            Self::Back => IVec3::Z,
+            Self::Left => IVec3::NEG_X,
+        }
+    }
+
+    /// The direction whose `offset` is `step`, `None` for anything but a horizontal step to a
+    /// neighbouring cell.
+    pub fn toward(step: IVec3) -> Option<Self> {
+        [Self::Front, Self::Right, Self::Back, Self::Left]
+            .into_iter()
+            .find(|direction| direction.offset() == step)
+    }
+}
+
+/// How far a vine's plate lies from the face of the block that holds it, inside its own cell.
+pub const VINE_GAP: f32 = 1.0 / 16.0;
 
 /// Data associated with a given `BlockId`
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,7 +150,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 33] = [
+    pub const ALL: [BlockId; 34] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -156,6 +184,7 @@ impl BlockId {
         BlockId::JunglePlanks,
         BlockId::JungleLeaves,
         BlockId::Fern,
+        BlockId::Vine,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -165,7 +194,8 @@ impl BlockId {
             | Self::Fern
             | Self::Poppy
             | Self::Dandelion
-            | Self::Torch => BlockHitbox::None,
+            | Self::Torch
+            | Self::Vine => BlockHitbox::None,
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -180,6 +210,11 @@ impl BlockId {
             Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::new(0.5, 0.3, 0.5),
                 Vec3A::new(0.15, 0.3, 0.15),
+            )),
+            // a slab around the plate of a vine held on its front
+            Self::Vine => BlockHitbox::Aabb(Aabb3d::new(
+                Vec3A::new(0.5, 0.5, VINE_GAP),
+                Vec3A::new(0.5, 0.5, VINE_GAP / 2.0),
             )),
             _ => BlockHitbox::FullBlock,
         }
@@ -220,6 +255,7 @@ impl BlockId {
             Self::JunglePlanks => 10,
             Self::JungleLeaves => 2,
             Self::Fern => 1,
+            Self::Vine => 1,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -311,6 +347,7 @@ impl BlockId {
             BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
             BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
             BlockId::Fern => vec![(1, ItemId::Fern, 1)],
+            BlockId::Vine => vec![(1, ItemId::Vine, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
             BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
@@ -342,9 +379,12 @@ impl BlockId {
 
     pub fn get_visibility(&self) -> BlockTransparency {
         match *self {
-            Self::Dandelion | Self::Poppy | Self::TallGrass | Self::Fern | Self::Torch => {
-                BlockTransparency::Decoration
-            }
+            Self::Dandelion
+            | Self::Poppy
+            | Self::TallGrass
+            | Self::Fern
+            | Self::Torch
+            | Self::Vine => BlockTransparency::Decoration,
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves => {
                 BlockTransparency::Transparent
             }
@@ -393,7 +433,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 33] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 34] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -433,7 +473,8 @@ mod tests {
             | BlockId::JungleLog
             | BlockId::JunglePlanks
             | BlockId::JungleLeaves
-            | BlockId::Fern => {}
+            | BlockId::Fern
+            | BlockId::Vine => {}
         }
     }
 
@@ -514,6 +555,7 @@ mod tests {
                 BlockId::JunglePlanks => 30,
                 BlockId::JungleLeaves => 31,
                 BlockId::Fern => 32,
+                BlockId::Vine => 33,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -604,6 +646,43 @@ mod tests {
         assert_eq!(fern.get_drops(1), HashMap::from([(ItemId::Fern, 1)]));
         assert_eq!(ItemId::Fern.get_default_type(), ItemType::Block(fern));
         assert_eq!(ItemId::Fern.category(), ItemId::TallGrass.category());
+    }
+
+    #[test]
+    fn the_vine_is_a_decoration_without_collision_broken_at_once() {
+        let vine = BlockId::Vine;
+        assert!(matches!(vine.get_hitbox(), BlockHitbox::None));
+        assert!(matches!(vine.get_ray_hitbox(), BlockHitbox::Aabb(_)));
+        assert_eq!(vine.get_break_time(), BlockId::TallGrass.get_break_time());
+        assert_eq!(vine.get_required_tool(), None);
+        assert_eq!(vine.get_visibility(), BlockTransparency::Decoration);
+        assert_eq!(vine.get_drops(1), HashMap::from([(ItemId::Vine, 1)]));
+        assert_eq!(ItemId::Vine.get_default_type(), ItemType::Block(vine));
+        assert_eq!(vine.light_opacity(), BlockId::TallGrass.light_opacity());
+        assert_eq!(ItemId::Vine.category(), ItemId::TallGrass.category());
+    }
+
+    #[test]
+    fn a_direction_names_the_side_of_its_step() {
+        let sides = [
+            (BlockDirection::Front, IVec3::NEG_Z),
+            (BlockDirection::Back, IVec3::Z),
+            (BlockDirection::Left, IVec3::NEG_X),
+            (BlockDirection::Right, IVec3::X),
+        ];
+        for (direction, step) in sides {
+            assert_eq!(direction.offset(), step, "{direction:?}");
+            assert_eq!(BlockDirection::toward(step), Some(direction), "{step}");
+        }
+        for step in [
+            IVec3::ZERO,
+            IVec3::Y,
+            IVec3::NEG_Y,
+            IVec3::new(1, 0, 1),
+            IVec3::X * 2,
+        ] {
+            assert_eq!(BlockDirection::toward(step), None, "{step}");
+        }
     }
 
     #[test]

@@ -94,22 +94,22 @@ lot 4 of "Lots".
 ## Tasks
 
 ### Task 1: The vine block and item (`shared`, `client`)
-- [ ] Tests: `Vine` in `block_encoding_is_pinned` (32), `ALL_BLOCKS`, `item_encoding_is_pinned`
+- [x] Tests: `Vine` in `block_encoding_is_pinned` (32), `ALL_BLOCKS`, `item_encoding_is_pinned`
   (39); `the_vine_is_a_decoration_without_collision_broken_at_once` (hitbox, ray box, break
   time, drop, visibility, item type); `a_direction_names_the_side_of_its_step` (offset and
   toward, north is −Z). See them fail.
-- [ ] The variants, their behaviour, `BlockDirection::offset` and `toward`. See them pass.
-- [ ] Tests: `the_vine_sounds_like_grass`; `the_vine_is_a_plate_one_sixteenth_off_its_support`
+- [x] The variants, their behaviour, `BlockDirection::offset` and `toward`. See them pass.
+- [x] Tests: `the_vine_sounds_like_grass`; `the_vine_is_a_plate_one_sixteenth_off_its_support`
   (voxel.rs: one `Inset` face, two quads with opposite normals, each wound toward its normal,
   at z = 1/16, tinted `JUNGLE_LEAVES_COLOR`); in meshing.rs
   `a_turned_shape_turns_about_the_centre_of_its_cell_with_its_normals` and
   `a_vine_lies_against_the_block_that_holds_it_and_hides_none_of_its_faces` (for each
   direction: the plate's vertices 1/16 off the support, its normals across, the stone's face
   toward the vine drawn). See them fail. The shape, the sound and the turn. See them pass.
-- [ ] Texture `block/vine.png` → `blocks/Vine.png` (16 × 16).
-- [ ] Test `the_vine_icon_is_its_block_texture_tinted_as_in_the_world`; see it fail; make
+- [x] Texture `block/vine.png` → `blocks/Vine.png` (16 × 16).
+- [x] Test `the_vine_icon_is_its_block_texture_tinted_as_in_the_world`; see it fail; make
   `items/Vine.png` with a script kept outside the repository; see it pass.
-- [ ] Credit the texture; commit `feat: the vine`.
+- [x] Credit the texture; commit `feat: the vine`.
 
 ### Task 2: Aiming at a vine and placing one (`shared`)
 - [ ] Tests (raycast.rs): `a_vine_is_hit_through_its_plate_in_its_own_cell` (each direction:

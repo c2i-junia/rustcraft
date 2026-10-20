@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::f32::consts::PI;
 use std::sync::LazyLock;
 
 use bevy::{
@@ -144,7 +143,10 @@ impl MeshCreator {
                 vertex[2] + origin.z,
             ]
         }));
-        self.normals.extend(face.normals.iter().map(normal));
+        self.normals.extend(face.normals.iter().map(|n| {
+            let [x, z] = turn([n[0], n[2]], direction);
+            normal(&[x, n[1], z])
+        }));
         self.lights.extend_from_slice(lights);
         self.uvs
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
@@ -916,19 +918,21 @@ fn is_block_surrounded(
     true
 }
 
+/// `v`, a point of a shape in its cell, turned to `direction` about the vertical axis through
+/// the centre of the cell: `Right` turns the front of the shape, toward -Z, toward +X.
 pub fn rotate_vertices(v: &[f32; 3], direction: &BlockDirection) -> [f32; 3] {
-    let angle = match *direction {
-        BlockDirection::Front => 0.,
-        BlockDirection::Right => -PI / 2.,
-        BlockDirection::Left => PI / 2.,
-        BlockDirection::Back => PI,
-    };
+    let [x, z] = turn([v[0] - 0.5, v[2] - 0.5], direction);
+    [x + 0.5, v[1], z + 0.5]
+}
 
-    [
-        angle.cos() * v[0] + angle.sin() * v[2],
-        v[1],
-        (-angle).sin() * v[0] + angle.cos() * v[2],
-    ]
+/// The horizontal vector `(x, z)` turned to `direction`, by quarter turns.
+fn turn([x, z]: [f32; 2], direction: &BlockDirection) -> [f32; 2] {
+    match *direction {
+        BlockDirection::Front => [x, z],
+        BlockDirection::Right => [-z, x],
+        BlockDirection::Back => [-x, -z],
+        BlockDirection::Left => [z, -x],
+    }
 }
 
 fn should_render_face(
@@ -961,6 +965,7 @@ fn should_render_face(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::world::VINE_GAP;
 
     fn cracked_stone_mesh(tiles: &HashMap<String, u32>, progress: u8) -> usize {
         let mut chunk = Chunk::new();
@@ -1581,6 +1586,81 @@ mod tests {
             .collect();
         let mesh = mesh_of(&leaves).solid_mesh.unwrap();
         assert_eq!(lights_toward(&mesh, Vec3::Y).len(), 4 * 4);
+    }
+
+    const DIRECTIONS: [BlockDirection; 4] = [
+        BlockDirection::Front,
+        BlockDirection::Right,
+        BlockDirection::Back,
+        BlockDirection::Left,
+    ];
+
+    #[test]
+    fn a_turned_shape_turns_about_the_centre_of_its_cell_with_its_normals() {
+        // the front face of a cube, at z = 0, looking toward -Z
+        let front = &CUBE.faces[2];
+        for direction in DIRECTIONS {
+            let mut mesh = MeshCreator::default();
+            mesh.push_face(front, 0, None, Vec3::ZERO, &direction, &[FULL_LIGHT; 4]);
+            let side = direction.offset().as_vec3();
+            for (vertex, normal) in mesh.vertices.iter().zip(&mesh.normals) {
+                let vertex = Vec3::from(*vertex);
+                assert!(
+                    vertex.min_element() > -1e-6 && vertex.max_element() < 1. + 1e-6,
+                    "{direction:?}: {vertex} out of the cell"
+                );
+                let across = (vertex - 0.5).dot(side);
+                assert!((across - 0.5).abs() < 1e-6, "{direction:?}: {vertex}");
+                assert_eq!(*normal, super::normal(&side.into()), "{direction:?}");
+            }
+        }
+    }
+
+    /// The position of each vertex of `mesh`.
+    fn positions_of(mesh: &Mesh) -> Vec<Vec3> {
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("a chunk mesh has positions");
+        };
+        positions.iter().map(|p| Vec3::from(*p)).collect()
+    }
+
+    #[test]
+    fn a_vine_lies_against_the_block_that_holds_it_and_hides_none_of_its_faces() {
+        let tiles = HashMap::from([("_Default".to_string(), 0), ("Vine".to_string(), 1)]);
+        let stone = IVec3::splat(5);
+        for direction in DIRECTIONS {
+            let vine = stone - direction.offset();
+            let mut chunk = Chunk::new();
+            chunk.set(stone, BlockData::new(BlockId::Stone, BlockDirection::Front));
+            chunk.set(vine, BlockData::new(BlockId::Vine, direction));
+            let mut world = ChunkMap::default();
+            world.insert_chunk(IVec3::ZERO, chunk.clone());
+            let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+                .solid_mesh
+                .unwrap();
+
+            let side = direction.offset().as_vec3();
+            let centre = vine.as_vec3() + 0.5;
+            let mut stone_faces = 0;
+            let vertices = positions_of(&mesh).into_iter().zip(normals_of(&mesh));
+            for ((position, normal), tile) in vertices.zip(tiles_of(&mesh)) {
+                if tile == 0 {
+                    stone_faces += 1;
+                    continue;
+                }
+                // in the vine's cell, 1/16 off the stone, seen from both sides
+                let offset = position - centre;
+                assert!(offset.abs().max_element() <= 0.5 + 1e-6, "{direction:?}");
+                let gap = 0.5 - offset.dot(side);
+                assert!((gap - VINE_GAP).abs() < 1e-6, "{direction:?}: {gap}");
+                assert!((normal.dot(side).abs() - 1.).abs() < 0.01, "{direction:?}");
+            }
+            // every face of the stone, the one behind the vine too
+            assert_eq!(stone_faces, 6 * 4, "{direction:?}");
+            assert_eq!(mesh.count_vertices(), 6 * 4 + 8, "{direction:?}");
+        }
     }
 
     #[test]

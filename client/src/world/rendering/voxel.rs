@@ -1,6 +1,6 @@
 use crate::constants::{GRASS_COLOR, WATER_COLOR};
 use bevy::math::Vec3;
-use shared::world::{BlockData, BlockId};
+use shared::world::{BlockData, BlockId, VINE_GAP};
 
 /// Specifies which position in the voxel this face occupies
 ///
@@ -218,6 +218,8 @@ impl VoxelShape {
             BlockId::TallGrass | BlockId::Fern => Self::flora(block)
                 .biome_tinted(BiomeTint::Grass)
                 .swaying(Sway::Top),
+            // Held on the side of a block, it does not sway
+            BlockId::Vine => Self::plate(block).biome_tinted(BiomeTint::Foliage),
             // Its texture is grey too
             BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
             _ => Self::full_cube(block),
@@ -359,6 +361,35 @@ impl VoxelShape {
         shape
     }
 
+    /// A plate across the cell, `VINE_GAP` off its front face, toward -Z, where the block that
+    /// holds it lies: two squares back to back, one seen from each side.
+    pub fn plate(block: &BlockData) -> VoxelShape {
+        let corners = [[0., 0.], [1., 0.], [1., 1.], [0., 1.]].map(|[x, y]| [x, y, VINE_GAP]);
+        let mut vertices = corners.to_vec();
+        vertices.extend(corners);
+        // the left of the texture toward -X on the first square, toward +X on the second:
+        // each is seen from the side of its normal
+        let mut uvs = vec![[0., 1.], [1., 1.], [1., 0.], [0., 0.]];
+        uvs.extend([[1., 1.], [0., 1.], [0., 0.], [1., 0.]]);
+        let mut normals = vec![[0., 0., 1.]; 4];
+        normals.extend([[0., 0., -1.]; 4]);
+        VoxelShape {
+            faces: vec![Face {
+                direction: FaceDirection::Inset,
+                vertices,
+                // counter-clockwise seen from the side of the normal
+                indices: vec![0, 1, 2, 2, 3, 0, 4, 7, 6, 6, 5, 4],
+                normals,
+                uvs,
+                texture: format!("{:?}", block.id),
+                color: FaceColor::White,
+                biome_tint: BiomeTint::None,
+                overlay: None,
+                sway: Sway::None,
+            }],
+        }
+    }
+
     pub fn flora(block: &BlockData) -> VoxelShape {
         VoxelShape {
             faces: vec![Face {
@@ -416,7 +447,7 @@ impl VoxelShape {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::BlockDirection;
+    use shared::world::{BlockDirection, VINE_GAP};
 
     fn shape_of(id: BlockId) -> VoxelShape {
         VoxelShape::create_from_block(&BlockData::new(id, BlockDirection::Front))
@@ -631,6 +662,45 @@ mod tests {
     #[test]
     fn the_fern_icon_is_its_block_texture_as_for_the_tall_grass() {
         assert_the_icon_is_the_block_texture_as_for(BlockId::Fern, BlockId::TallGrass);
+    }
+
+    #[test]
+    fn the_vine_is_a_plate_one_sixteenth_off_its_support_seen_from_both_sides() {
+        let vine = shape_of(BlockId::Vine);
+        assert_eq!(vine.faces.len(), 1);
+        let face = &vine.faces[0];
+        assert!(matches!(face.direction, FaceDirection::Inset));
+        assert_eq!(face.texture, "Vine");
+        // coloured as the leaves, but still: it hangs on the side of a block
+        let leaves = &shape_of(BlockId::OakLeaves).faces[0];
+        assert_eq!(face.biome_tint, BiomeTint::Foliage);
+        assert_eq!(face.color, leaves.color);
+        assert_eq!(face.sway, Sway::None);
+        // held on its front, toward -Z, across the whole cell
+        assert!(face.vertices.iter().all(|vertex| vertex[2] == VINE_GAP));
+        for axis in [0, 1] {
+            let values = || face.vertices.iter().map(|vertex| vertex[axis]);
+            assert_eq!(values().fold(f32::MAX, f32::min), 0.);
+            assert_eq!(values().fold(f32::MIN, f32::max), 1.);
+        }
+        // each triangle wound counter-clockwise seen from where its normal points, one side
+        // toward the support and the other away from it
+        let mut sides = Vec::new();
+        for triangle in face.indices.chunks(3) {
+            let [a, b, c] = [0, 1, 2].map(|i| Vec3::from(face.vertices[triangle[i] as usize]));
+            let facing = (b - a).cross(c - a).normalize();
+            for index in triangle {
+                assert_eq!(Vec3::from(face.normals[*index as usize]), facing);
+            }
+            sides.push(facing.z);
+        }
+        sides.sort_by(f32::total_cmp);
+        assert_eq!(sides, [-1., -1., 1., 1.]);
+    }
+
+    #[test]
+    fn the_vine_icon_is_its_block_texture_as_for_the_oak_leaves() {
+        assert_the_icon_is_the_block_texture_as_for(BlockId::Vine, BlockId::OakLeaves);
     }
 
     #[test]
