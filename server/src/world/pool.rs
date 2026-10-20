@@ -4,11 +4,12 @@ use std::sync::LazyLock;
 
 use bevy::tasks::{TaskPool, TaskPoolBuilder};
 
-/// Threads of each pool of the server: half the processor, at most 8.
+/// Threads of each pool of the server: half the processor, at most 16. A player who joins with
+/// a large render distance keeps the generation pool busy for seconds.
 fn pool_threads() -> usize {
     std::thread::available_parallelism()
         .map_or(4, |n| n.get() / 2)
-        .clamp(1, 8)
+        .clamp(1, 16)
 }
 
 /// The pool the server encodes chunks on: its own, not Bevy's compute pool, which an
