@@ -8,12 +8,14 @@ use crate::world::{BlockChanged, ClientWorldMap};
 use bevy::color::palettes::css::WHITE;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
-use shared::players::blocks::{aim, held_item, simulate_player_block_interactions, CallerType};
+use shared::players::blocks::{
+    aim, held_item, simulate_player_block_interactions, CallerType, PORTAL_GUN_REACH,
+};
 use shared::players::inventory::{
     simulate_inventory_actions, InventoryAction, InventoryActionOutcome,
 };
 use shared::players::{Inventory, Player, ViewMode};
-use shared::world::{BlockId, FaceDirectionExt};
+use shared::world::{BlockId, FaceDirectionExt, ItemId};
 
 use super::CurrentPlayerMarker;
 
@@ -81,12 +83,15 @@ pub fn handle_block_interactions(
         return;
     };
 
-    let center = (target.bbox.max + target.bbox.min) / 2.0;
-    let size = target.bbox.max - target.bbox.min;
-    gizmos.cube(
-        Transform::from_translation(center.into()).with_scale(size.into()),
-        WHITE,
-    );
+    let holding = held_item(&player, &frame_inputs.0);
+    if is_outlined(target.position, player_transform.translation, holding) {
+        let center = (target.bbox.max + target.bbox.min) / 2.0;
+        let size = target.bbox.max - target.bbox.min;
+        gizmos.cube(
+            Transform::from_translation(center.into()).with_scale(size.into()),
+            WHITE,
+        );
+    }
 
     if held(MouseButton::Left) {
         frame_inputs.0.inputs.insert(NetworkAction::LeftClick);
@@ -140,6 +145,22 @@ pub fn handle_block_interactions(
             });
         }
     }
+}
+
+/// How far from the player an aimed block is outlined, but with the portal gun: as far as the
+/// ray went before it was lengthened for the gun.
+const OUTLINE_DISTANCE: f32 = 20.0;
+
+/// Whether the block at `position`, aimed at by the player whose centre is `player`, is
+/// outlined: within `OUTLINE_DISTANCE` of it, or the reach of the portal gun while it is held.
+/// Distances go from the centre of the player to that of the block, as the reaches do.
+fn is_outlined(position: IVec3, player: Vec3, held: Option<ItemId>) -> bool {
+    let distance = if held == Some(ItemId::PortalGun) {
+        PORTAL_GUN_REACH
+    } else {
+        OUTLINE_DISTANCE
+    };
+    (position.as_vec3() + 0.5).distance(player) <= distance
 }
 
 /// What one inventory action of the local player did, as predicted when the player made it.
@@ -235,5 +256,19 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn the_aimed_block_is_outlined_within_20_blocks_or_the_reach_of_a_held_gun() {
+        let player = Vec3::new(0.5, 0.5, 0.5);
+        let block = |distance: i32| IVec3::new(0, 0, -distance);
+        for held in [None, Some(ItemId::Dirt)] {
+            assert!(is_outlined(block(19), player, held), "{held:?}");
+            assert!(!is_outlined(block(21), player, held), "{held:?}");
+            assert!(!is_outlined(block(31), player, held), "{held:?}");
+        }
+        let gun = Some(ItemId::PortalGun);
+        assert!(is_outlined(block(31), player, gun));
+        assert!(!is_outlined(block(33), player, gun));
     }
 }
