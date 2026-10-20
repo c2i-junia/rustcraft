@@ -14,9 +14,10 @@ const CHUNK_VOLUME: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE) as usize;
 
 /// A cube of `CHUNK_SIZE^3` cells, each holding a block or air (`None`). A chunk made of a
 /// single kind of cell, such as the air above the ground or the stone below it, holds that one
-/// cell, as most chunks of a large render distance are; the others hold their cells in one
-/// allocation, which their copies share until one of them changes: copying a chunk to mesh,
-/// send or save it costs nothing.
+/// cell, as most chunks of a large render distance are; the others hold the few kinds of cells
+/// they are made of and, for each position, the index of its kind in a byte: a quarter of the
+/// cells themselves. Those are in one allocation, which the copies of a chunk share until one
+/// of them changes: copying a chunk to mesh, send or save it costs nothing.
 ///
 /// Positions are local: every coordinate is in `0..CHUNK_SIZE`.
 #[derive(Clone)]
@@ -28,8 +29,58 @@ pub struct Chunk {
 enum Cells {
     /// Every position holds this cell.
     Uniform(Option<BlockData>),
+    Paletted(Arc<Paletted>),
+    /// Each position holds its own cell, when there are more kinds than a palette holds.
     /// Indexed by `(x * CHUNK_SIZE + y) * CHUNK_SIZE + z`.
     Varied(Arc<[Option<BlockData>]>),
+}
+
+/// Most kinds of cells a palette holds: as many as a byte indexes.
+const PALETTE_SIZE: usize = 256;
+
+/// The cells of a chunk as the kinds of cells it holds, and the index of the kind of each
+/// position.
+#[derive(Clone)]
+struct Paletted {
+    palette: Vec<Option<BlockData>>,
+    /// Indexed by `(x * CHUNK_SIZE + y) * CHUNK_SIZE + z`.
+    indices: [u8; CHUNK_VOLUME],
+}
+
+impl Paletted {
+    /// The index in the palette of `cell`, added to it if it has room, `None` if not.
+    fn kind(&mut self, cell: Option<BlockData>) -> Option<u8> {
+        if let Some(kind) = self.palette.iter().position(|c| *c == cell) {
+            return Some(kind as u8);
+        }
+        if self.palette.len() == PALETTE_SIZE {
+            self.forget_unused_kinds();
+        }
+        (self.palette.len() < PALETTE_SIZE).then(|| {
+            self.palette.push(cell);
+            (self.palette.len() - 1) as u8
+        })
+    }
+
+    /// Takes out of the palette the kinds no position holds any more.
+    fn forget_unused_kinds(&mut self) {
+        let mut used = [false; PALETTE_SIZE];
+        for &kind in &self.indices {
+            used[kind as usize] = true;
+        }
+        let mut new_kind = [0; PALETTE_SIZE];
+        let mut kept = Vec::new();
+        for (kind, cell) in self.palette.iter().enumerate() {
+            if used[kind] {
+                new_kind[kind] = kept.len() as u8;
+                kept.push(*cell);
+            }
+        }
+        for kind in &mut self.indices {
+            *kind = new_kind[*kind as usize];
+        }
+        self.palette = kept;
+    }
 }
 
 impl Chunk {
@@ -50,11 +101,28 @@ impl Chunk {
     /// A chunk of these `CHUNK_VOLUME` cells, held as one cell when they are all the same.
     fn from_cells(cells: Vec<Option<BlockData>>) -> Self {
         debug_assert_eq!(cells.len(), CHUNK_VOLUME);
-        let cells = match cells.iter().all(|cell| *cell == cells[0]) {
-            true => Cells::Uniform(cells[0]),
-            false => Cells::Varied(cells.into()),
+        if cells.iter().all(|cell| *cell == cells[0]) {
+            return Self {
+                cells: Cells::Uniform(cells[0]),
+            };
+        }
+        let mut paletted = Paletted {
+            palette: Vec::new(),
+            indices: [0; CHUNK_VOLUME],
         };
-        Self { cells }
+        for (index, cell) in cells.iter().enumerate() {
+            match paletted.kind(*cell) {
+                Some(kind) => paletted.indices[index] = kind,
+                None => {
+                    return Self {
+                        cells: Cells::Varied(cells.into()),
+                    }
+                }
+            }
+        }
+        Self {
+            cells: Cells::Paletted(Arc::new(paletted)),
+        }
     }
 
     /// Whether a local position is inside the chunk: every coordinate is in `0..CHUNK_SIZE`.
@@ -82,18 +150,31 @@ impl Chunk {
     fn cell(&self, index: usize) -> &Option<BlockData> {
         match &self.cells {
             Cells::Uniform(cell) => cell,
+            Cells::Paletted(paletted) => &paletted.palette[paletted.indices[index] as usize],
             Cells::Varied(cells) => &cells[index],
         }
     }
 
-    /// The cells, to change one: a chunk of a single cell gets cells of its own.
-    fn cells_mut(&mut self) -> &mut [Option<BlockData>] {
-        if let Cells::Uniform(cell) = self.cells {
-            self.cells = Cells::Varied(vec![cell; CHUNK_VOLUME].into());
+    /// Stores `cell` at an index below `CHUNK_VOLUME`, where another cell is: a chunk of a
+    /// single cell gets a palette, and a palette that is full gives way to the cells themselves.
+    fn set_cell(&mut self, index: usize, cell: Option<BlockData>) {
+        if let Cells::Uniform(old) = self.cells {
+            self.cells = Cells::Paletted(Arc::new(Paletted {
+                palette: vec![old],
+                indices: [0; CHUNK_VOLUME],
+            }));
+        }
+        if let Cells::Paletted(paletted) = &mut self.cells {
+            let paletted = Arc::make_mut(paletted);
+            if let Some(kind) = paletted.kind(cell) {
+                paletted.indices[index] = kind;
+                return;
+            }
+            self.cells = Cells::Varied(self.cells().copied().collect());
         }
         match &mut self.cells {
-            Cells::Varied(cells) => Arc::make_mut(cells),
-            Cells::Uniform(_) => unreachable!("made varied above"),
+            Cells::Varied(cells) => Arc::make_mut(cells)[index] = cell,
+            _ => unreachable!("held as cells above"),
         }
     }
 
@@ -107,7 +188,7 @@ impl Chunk {
     pub fn uniform(&self) -> Option<Option<&BlockData>> {
         match &self.cells {
             Cells::Uniform(cell) => Some(cell.as_ref()),
-            Cells::Varied(_) => None,
+            Cells::Paletted(_) | Cells::Varied(_) => None,
         }
     }
 
@@ -119,7 +200,7 @@ impl Chunk {
             return;
         };
         if *self.cell(index) != Some(block) {
-            self.cells_mut()[index] = Some(block);
+            self.set_cell(index, Some(block));
         }
     }
 
@@ -130,15 +211,16 @@ impl Chunk {
             debug_assert!(false, "local position {local} is outside the chunk");
             return None;
         };
-        self.cell(index).as_ref()?;
-        self.cells_mut()[index].take()
+        let old = (*self.cell(index))?;
+        self.set_cell(index, None);
+        Some(old)
     }
 
     /// Whether the chunk is made of air only.
     pub fn is_empty(&self) -> bool {
         match &self.cells {
             Cells::Uniform(cell) => cell.is_none(),
-            Cells::Varied(cells) => cells.iter().all(Option::is_none),
+            _ => self.cells().all(Option::is_none),
         }
     }
 
@@ -432,7 +514,7 @@ mod tests {
     #[test]
     fn a_copy_shares_the_cells_until_one_of_the_two_changes() {
         let shared = |a: &Chunk, b: &Chunk| match (&a.cells, &b.cells) {
-            (Cells::Varied(a), Cells::Varied(b)) => Arc::ptr_eq(a, b),
+            (Cells::Paletted(a), Cells::Paletted(b)) => Arc::ptr_eq(a, b),
             _ => false,
         };
         let original = sample();
@@ -446,6 +528,41 @@ mod tests {
         assert_eq!(original, sample());
         assert_eq!(copy.get(IVec3::new(1, 1, 1)), Some(&block(BlockId::Stone)));
         assert_eq!(copy.get(IVec3::ZERO), None);
+    }
+
+    /// One of 512 kinds of blocks.
+    fn kind(i: usize) -> BlockData {
+        let id = if i < 256 { BlockId::Stone } else { BlockId::Dirt };
+        BlockData {
+            breaking_progress: (i % 256) as u8,
+            ..block(id)
+        }
+    }
+
+    #[test]
+    fn a_chunk_of_more_kinds_of_cells_than_a_palette_holds_keeps_them_all() {
+        let mut chunk = Chunk::new();
+        for i in 0..300 {
+            chunk.set(Chunk::local_pos(i), kind(i));
+        }
+        assert!(matches!(chunk.cells, Cells::Varied(_)));
+        for i in 0..300 {
+            assert_eq!(chunk.get(Chunk::local_pos(i)), Some(&kind(i)));
+        }
+        assert_eq!(chunk.iter().count(), 300);
+        let bytes = bincode::serialize(&chunk).unwrap();
+        assert_eq!(bincode::deserialize::<Chunk>(&bytes).unwrap(), chunk);
+    }
+
+    #[test]
+    fn the_kinds_no_position_holds_any_more_make_room_in_the_palette() {
+        let mut chunk = Chunk::new();
+        for i in 0..400 {
+            chunk.set(IVec3::ONE, kind(i));
+        }
+        assert!(matches!(chunk.cells, Cells::Paletted(_)));
+        assert_eq!(chunk.get(IVec3::ONE), Some(&kind(399)));
+        assert_eq!(chunk.iter().count(), 1);
     }
 
     #[test]
@@ -519,10 +636,8 @@ mod tests {
     #[test]
     fn a_chunk_of_as_many_runs_as_cells_round_trips() {
         let mut chunk = Chunk::new();
-        for (index, cell) in chunk.cells_mut().iter_mut().enumerate() {
-            if index % 2 == 0 {
-                *cell = Some(block(BlockId::Stone));
-            }
+        for index in (0..CHUNK_VOLUME).step_by(2) {
+            chunk.set(Chunk::local_pos(index), block(BlockId::Stone));
         }
         let bytes = bincode::serialize(&chunk).unwrap();
         assert_eq!(bincode::deserialize::<Chunk>(&bytes).unwrap(), chunk);
