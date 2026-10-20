@@ -226,7 +226,7 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    authentication carries the server's maximum (`ServerRenderDistanceLimit`), which the Video
    tab names in game when it is below the choice; a world of Singleplayer grants 64. The server keeps it between
    `MIN_RENDER_DISTANCE` (1) and its `--max-render-distance` (`DEFAULT_MAX_RENDER_DISTANCE`,
-   6), in `RenderDistances`. `sent_chunks` records what each client has. A chunk more than
+   64), in `RenderDistances`. `sent_chunks` records what each client has. A chunk more than
    the render distance plus `UNLOAD_MARGIN` away is unloaded, after a move as after a lowered
    render distance: the server forgets it sent it and tells the client in a
    `ChunkUnloads`, which removes it and despawns its meshes. A chunk of the margin is kept but

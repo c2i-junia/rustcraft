@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use shared::messages::{ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{render_distance_offsets, Chunk, ChunkMap};
-use shared::{game_message_to_payload, CHUNK_SIZE, DEFAULT_MAX_RENDER_DISTANCE, TICKS_PER_SECOND};
+use shared::{game_message_to_payload, CHUNK_SIZE, TICKS_PER_SECOND};
 
 use super::broadcast_world::world_messages_around;
 use super::data::SentChunks;
@@ -36,17 +36,21 @@ fn micros(since: Instant) -> f64 {
     since.elapsed().as_secs_f64() * 1e6
 }
 
+/// The render distance of the benchmarks, the default maximum of a server when they were
+/// written: their measures stay comparable.
+const BENCH_RADIUS: i32 = 6;
+
 fn median(mut samples: Vec<f64>) -> f64 {
     samples.sort_by(f64::total_cmp);
     samples[samples.len() / 2]
 }
 
-/// Generates every chunk a player sees at the default maximum render distance, as on joining,
+/// Generates every chunk a player sees within `BENCH_RADIUS`, as on joining,
 /// and splits the time between the chunks of air, of the surface and of stone underground.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_generation() {
-    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    let radius = BENCH_RADIUS;
     let mut by_kind: HashMap<&str, Vec<f64>> = HashMap::new();
     let mut checksum = DefaultHasher::new();
     let start = Instant::now();
@@ -86,7 +90,7 @@ fn bench_generation() {
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_broadcast_steady() {
-    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    let radius = BENCH_RADIUS;
     let mut chunks = ChunkMap::default();
     for chunk_pos in render_cube(radius) {
         chunks.insert_chunk(chunk_pos, Chunk::new());
@@ -114,7 +118,7 @@ fn bench_broadcast_steady() {
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_chunk_messages() {
-    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    let radius = BENCH_RADIUS;
     let mut cube = render_cube(radius);
     cube.sort_by_key(|c| (*c - PLAYER_CHUNK).length_squared());
     let generated: Vec<(IVec3, Chunk)> =
@@ -217,7 +221,7 @@ fn bench_join_generation() {
     let radius = std::env::var("BENCH_RD")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_MAX_RENDER_DISTANCE as i32);
+        .unwrap_or(BENCH_RADIUS);
     let mut players = HashMap::new();
     let position = (PLAYER_CHUNK * CHUNK_SIZE).as_vec3() + Vec3::splat(8.);
     players.insert(
@@ -269,7 +273,7 @@ fn bench_join_generation() {
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_join_sending() {
-    let radius = DEFAULT_MAX_RENDER_DISTANCE as i32;
+    let radius = BENCH_RADIUS;
     let mut chunks = ChunkMap::default();
     for chunk_pos in render_cube(radius) {
         chunks.insert_chunk(chunk_pos, generate_chunk(chunk_pos, SEED));

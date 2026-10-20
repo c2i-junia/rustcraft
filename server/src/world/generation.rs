@@ -1350,13 +1350,13 @@ mod tests {
         }
     }
 
-    /// Times the chunks a player asks for at spawn with the largest render distance a server
-    /// grants by default. Ignored: run it in release, with
+    /// Times the chunks within 6 of the spawn, the largest render distance a server granted by
+    /// default when this was written. Ignored: run it in release, with
     /// `cargo test -p server --release generation_time -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn generation_time_of_a_render_distance() {
-        let radius = shared::DEFAULT_MAX_RENDER_DISTANCE as i32;
+        let radius = 6;
         let spawn_chunk = IVec3::new(0, SEA_LEVEL / CHUNK_SIZE, 0);
         let start = std::time::Instant::now();
         let generator = WorldGenerator::new(42);

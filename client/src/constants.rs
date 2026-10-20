@@ -2,8 +2,9 @@ pub const INTERACTION_DISTANCE: f32 = 7.;
 pub const BASE_ROUGHNESS: f32 = 0.6;
 pub const BASE_SPECULAR_HIGHLIGHT: f32 = 0.;
 
-// increase render distance if we build the project in release mode
-pub const DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS: u32 = if cfg!(debug_assertions) { 2 } else { 4 };
+/// The render distance of a new player, in chunks: Minecraft's, in release. A debug build
+/// generates and meshes too slowly for more than 2.
+pub const DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS: u32 = if cfg!(debug_assertions) { 2 } else { 12 };
 /// The largest render distance the player may choose, in chunks: the chunks within 64 are
 /// 129² columns of 17 chunks (`shared::world::MAX_VERTICAL_RENDER_DISTANCE`), 282897 chunks. The
 /// server of a world grants it.

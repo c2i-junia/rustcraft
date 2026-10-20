@@ -140,10 +140,10 @@ A dedicated server (`rustcraft-server --port 8000`) listens for the game on UDP 
 Open both in a firewall or a router: a server whose status port cannot be reached, or an older
 server that has none, shows as "Offline" in the list, and can still be joined.
 
-Each player sets its render distance, from 1 to 8 chunks, in Settings > Video or with O and
-P; the server sends the chunks within it, up to `--max-render-distance` chunks (6 by default),
-and the Video tab says when it grants less. A world of Singleplayer grants all 8. A distance of `d` is (2d + 1)³ chunks per
-player, so a high maximum costs the server memory and generation time.
+Each player sets its render distance, from 1 to 64 chunks (12 by default), in Settings > Video or with O and
+P; the server sends the chunks within it, up to `--max-render-distance` chunks (64 by default),
+and the Video tab says when it grants less. A world of Singleplayer grants all 64. A distance of `d` is (2d + 1)² columns of
+up to 17 chunks per player, so a high maximum costs the server memory and generation time.
 
 While a world opens or a server is joined, a card shows each step and can be cancelled with
 Escape. When it fails, a card says why, with the way back to the list and, when it may help,
@@ -203,7 +203,7 @@ The game folder holds the saves and the settings. By default it is `$XDG_DATA_HO
 | `-p`, `--port <port>` | `8000` | The UDP port of the game. The server also answers the status requests of the server list on `port + 1` (see [Multiplayer](#multiplayer)). |
 | `-w`, `--world <name>` | `default` | The world to load from `saves/<name>` in the game folder, created when it does not exist yet. |
 | `-g`, `--game-folder-path <path>` | see above | The game folder to use instead of the default one. |
-| `--max-render-distance <chunks>` | `6` | The largest render distance a player may ask for, in chunks. |
+| `--max-render-distance <chunks>` | `64` | The largest render distance a player may ask for, in chunks. |
 
 Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
 
