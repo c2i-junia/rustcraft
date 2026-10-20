@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use bevy::prelude::*;
 use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 
@@ -413,12 +416,45 @@ fn column_blocks(seed: u32, column: &Column) -> Blocks {
     blocks
 }
 
+/// The columns a chunk generated from the noise reads: those of the chunk and of the margin
+/// around it, the same for every chunk of a column of chunks.
+struct ChunkColumns {
+    /// Indexed by `(dz + STRUCTURE_MARGIN) * MARGIN_SIDE + dx + STRUCTURE_MARGIN`.
+    columns: Vec<Column>,
+    /// The highest surface of the columns of the chunk.
+    top: i32,
+    /// The highest surface of all of them.
+    highest: i32,
+}
+
+/// Columns along a side of `ChunkColumns`.
+const MARGIN_SIDE: i32 = CHUNK_SIZE + 2 * STRUCTURE_MARGIN;
+
+impl ChunkColumns {
+    fn at(&self, dx: i32, dz: i32) -> &Column {
+        &self.columns[((dz + STRUCTURE_MARGIN) * MARGIN_SIDE + dx + STRUCTURE_MARGIN) as usize]
+    }
+}
+
+/// Columns of chunks whose `ChunkColumns` a generator keeps, twice over: a dozen chunks of
+/// each column of chunks are generated from the noise, from tasks that each take a few, and
+/// the columns of a large render distance are too many to keep them all.
+const KEPT_CHUNK_COLUMNS: usize = 1024;
+
+/// The `ChunkColumns` used last: those of `recent`, and of `older` before it filled up.
+#[derive(Default)]
+struct ColumnsCache {
+    recent: HashMap<IVec2, Arc<ChunkColumns>>,
+    older: HashMap<IVec2, Arc<ChunkColumns>>,
+}
+
 /// Generates the chunks of one world. Its noises are built once, from the seed.
 pub struct WorldGenerator {
     seed: u32,
     terrain: TerrainNoises,
     caves: Caves,
     bed_patches: Noise3,
+    columns: Mutex<ColumnsCache>,
 }
 
 impl WorldGenerator {
@@ -428,6 +464,7 @@ impl WorldGenerator {
             terrain: TerrainNoises::new(seed),
             caves: Caves::new(seed),
             bed_patches: Noise3::new(seed, SALT_BED_PATCHES, BED_PATCH_WAVELENGTH, 1.0),
+            columns: Mutex::default(),
         }
     }
 
@@ -450,7 +487,81 @@ impl WorldGenerator {
         if chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE - CAVE_ROOF.max(4) {
             return self.underground_chunk(chunk_pos);
         }
-        self.generate_chunk_from_noise(chunk_pos)
+        let columns = self.chunk_columns(chunk_pos.xz());
+        // Above the ground, the sea and anything growing on them around
+        if chunk_origin.y > (columns.highest + STRUCTURE_HEIGHT).max(SEA_LEVEL) {
+            return Chunk::new();
+        }
+        self.generate_chunk_from_columns(chunk_pos, &columns)
+    }
+
+    /// The `ChunkColumns` of the column of chunks `chunk_column`, from the cache or computed.
+    fn chunk_columns(&self, chunk_column: IVec2) -> Arc<ChunkColumns> {
+        {
+            let mut cache = self.columns.lock().unwrap();
+            if let Some(columns) = cache.recent.get(&chunk_column) {
+                return columns.clone();
+            }
+            if let Some(columns) = cache.older.remove(&chunk_column) {
+                cache.recent.insert(chunk_column, columns.clone());
+                return columns;
+            }
+        }
+        // computed out of the lock: two tasks may compute the same, which is rare and harmless
+        let columns = Arc::new(self.compute_chunk_columns(chunk_column));
+        let mut cache = self.columns.lock().unwrap();
+        if cache.recent.len() >= KEPT_CHUNK_COLUMNS {
+            cache.older = std::mem::take(&mut cache.recent);
+        }
+        cache.recent.insert(chunk_column, columns.clone());
+        columns
+    }
+
+    fn compute_chunk_columns(&self, chunk_column: IVec2) -> ChunkColumns {
+        let origin = chunk_column * CHUNK_SIZE;
+        // The shapes of the columns, and of one more ring that tells the steepness of the
+        // outermost ones
+        let ring = STRUCTURE_MARGIN + 1;
+        let side = CHUNK_SIZE + 2 * ring;
+        let shapes: Vec<ColumnShape> = (0..side * side)
+            .map(|i| {
+                let (dx, dz) = (i % side - ring, i / side - ring);
+                self.terrain.column_shape(origin.x + dx, origin.y + dz)
+            })
+            .collect();
+        let shape_at = |dx: i32, dz: i32| shapes[((dz + ring) * side + dx + ring) as usize];
+
+        let mut columns = Vec::with_capacity((MARGIN_SIDE * MARGIN_SIDE) as usize);
+        for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+            for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
+                let shape = shape_at(dx, dz);
+                let lowest = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .map(|(ox, oz)| shape_at(dx + ox, dz + oz).height)
+                    .min()
+                    .unwrap();
+                let (x, z) = (origin.x + dx, origin.y + dz);
+                columns.push(Column::new(
+                    self.seed,
+                    x,
+                    z,
+                    shape,
+                    shape.height - lowest,
+                    self.bed_patch(x, z),
+                ));
+            }
+        }
+        let top = (0..CHUNK_SIZE)
+            .flat_map(|dx| (0..CHUNK_SIZE).map(move |dz| (dx, dz)))
+            .map(|(dx, dz)| shape_at(dx, dz).height)
+            .max()
+            .unwrap();
+        let highest = columns.iter().map(|column| column.height).max().unwrap();
+        ChunkColumns {
+            columns,
+            top,
+            highest,
+        }
     }
 
     /// A chunk below the lowest surface less the depth of the sub-surface blocks: stone, the
@@ -458,18 +569,19 @@ impl WorldGenerator {
     fn underground_chunk(&self, chunk_pos: IVec3) -> Chunk {
         let chunk_origin = chunk_pos * CHUNK_SIZE;
         let caves = self.caves.carve(chunk_origin);
-        let mut chunk = Chunk::new();
+        // held as a single cell while nothing else is in it
+        let mut chunk = Chunk::filled(BlockData::new(BlockId::Stone, BlockDirection::Front));
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_SIZE {
-                let block = if chunk_origin.y + y == 0 {
-                    BlockId::Bedrock
-                } else {
-                    BlockId::Stone
-                };
                 for z in 0..CHUNK_SIZE {
                     let local = IVec3::new(x, y, z);
-                    if !caves.contains(local) {
-                        chunk.set(local, BlockData::new(block, BlockDirection::Front));
+                    if caves.contains(local) {
+                        chunk.remove(local);
+                    } else if chunk_origin.y + y == 0 {
+                        chunk.set(
+                            local,
+                            BlockData::new(BlockId::Bedrock, BlockDirection::Front),
+                        );
                     }
                 }
             }
@@ -479,53 +591,27 @@ impl WorldGenerator {
     }
 
     /// `generate_chunk` for any chunk, from the noise of its columns.
+    #[cfg(test)]
     fn generate_chunk_from_noise(&self, chunk_pos: IVec3) -> Chunk {
+        self.generate_chunk_from_columns(chunk_pos, &self.compute_chunk_columns(chunk_pos.xz()))
+    }
+
+    /// `generate_chunk_from_noise`, from the columns the noise gives.
+    fn generate_chunk_from_columns(&self, chunk_pos: IVec3, columns: &ChunkColumns) -> Chunk {
         let seed = self.seed;
         let chunk_origin = chunk_pos * CHUNK_SIZE;
 
         let mut chunk = Chunk::new();
 
-        // The shapes of the columns of the chunk, of the margin around it, and of one more ring
-        // that tells the steepness of the outermost columns.
-        let ring = STRUCTURE_MARGIN + 1;
-        let side = CHUNK_SIZE + 2 * ring;
-        let shapes: Vec<ColumnShape> = (0..side * side)
-            .map(|i| {
-                let (dx, dz) = (i % side - ring, i / side - ring);
-                self.terrain
-                    .column_shape(chunk_origin.x + dx, chunk_origin.z + dz)
-            })
-            .collect();
-        let shape_at = |dx: i32, dz: i32| shapes[((dz + ring) * side + dx + ring) as usize];
-
         // only a chunk that holds ground above the floor of the caves may be carved
-        let top = (0..CHUNK_SIZE)
-            .flat_map(|dx| (0..CHUNK_SIZE).map(move |dz| (dx, dz)))
-            .map(|(dx, dz)| shape_at(dx, dz).height)
-            .max()
-            .unwrap();
-        let caves: Option<CaveMask> = (chunk_origin.y <= top
+        let caves: Option<CaveMask> = (chunk_origin.y <= columns.top
             && chunk_origin.y + CHUNK_SIZE > CAVE_FLOOR)
             .then(|| self.caves.carve(chunk_origin));
 
         let chunk_range = 0..CHUNK_SIZE;
         for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
             for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
-                let shape = shape_at(dx, dz);
-                let lowest = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-                    .iter()
-                    .map(|(ox, oz)| shape_at(dx + ox, dz + oz).height)
-                    .min()
-                    .unwrap();
-                let (x, z) = (chunk_origin.x + dx, chunk_origin.z + dz);
-                let column = Column::new(
-                    seed,
-                    x,
-                    z,
-                    shape,
-                    shape.height - lowest,
-                    self.bed_patch(x, z),
-                );
+                let column = columns.at(dx, dz);
 
                 if chunk_range.contains(&dx) && chunk_range.contains(&dz) {
                     for y in chunk_origin.y..chunk_origin.y + CHUNK_SIZE {
@@ -535,7 +621,7 @@ impl WorldGenerator {
                         if carved {
                             continue;
                         }
-                        if let Some(block) = terrain_block(y, &column) {
+                        if let Some(block) = terrain_block(y, column) {
                             place(
                                 &mut chunk,
                                 chunk_origin,
@@ -548,7 +634,7 @@ impl WorldGenerator {
 
                 // decorations only grow upwards from the surface
                 if column.height + 1 < chunk_origin.y + CHUNK_SIZE {
-                    for (pos, block) in column_blocks(seed, &column) {
+                    for (pos, block) in column_blocks(seed, column) {
                         place(&mut chunk, chunk_origin, pos, block);
                     }
                 }
