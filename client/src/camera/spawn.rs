@@ -104,6 +104,7 @@ mod tests {
             .insert_resource(shared::players::ViewMode::FirstPerson)
             .insert_resource(crate::ui::hud::UIMode::Closed)
             .init_resource::<crate::world::ClientWorldMap>()
+            .init_resource::<crate::world::RenderDistance>()
             .add_plugins(camera_plugin);
         app.update();
         app

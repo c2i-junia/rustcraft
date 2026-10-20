@@ -355,6 +355,8 @@ fn bench_render_distance() {
     }
     let mut drawn = scene_stats(&mut h);
     drawn["meshes_started"] = (MESHES_STARTED.load(Ordering::Relaxed) - started_before).into();
+    // A picture of the world drawn, for a human to look at the horizon
+    h.snapshot(&format!("rd{radius}"));
     phase("still");
     let still = frame_times(&mut h, 600, |_| {});
     phase("walking");
