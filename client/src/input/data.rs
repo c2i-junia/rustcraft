@@ -10,6 +10,7 @@ pub enum GameAction {
     MoveLeft,
     MoveRight,
     Jump,
+    Sprint,
     Escape,
     ToggleFps,
     CycleFpsCounter,
@@ -63,12 +64,13 @@ impl ActionCategory {
 
 impl GameAction {
     /// Every action but Escape, which always pauses and cannot be rebound, in display order.
-    pub const LISTED: [GameAction; 22] = [
+    pub const LISTED: [GameAction; 23] = [
         GameAction::MoveForward,
         GameAction::MoveBackward,
         GameAction::MoveLeft,
         GameAction::MoveRight,
         GameAction::Jump,
+        GameAction::Sprint,
         GameAction::ToggleFlyMode,
         GameAction::FlyUp,
         GameAction::FlyDown,
@@ -96,6 +98,7 @@ impl GameAction {
             GameAction::MoveLeft => "Move left",
             GameAction::MoveRight => "Move right",
             GameAction::Jump => "Jump",
+            GameAction::Sprint => "Sprint",
             GameAction::Escape => "Pause",
             GameAction::ToggleFlyMode => "Toggle flying",
             GameAction::FlyUp => "Fly up",
@@ -125,6 +128,7 @@ impl GameAction {
             | GameAction::MoveLeft
             | GameAction::MoveRight
             | GameAction::Jump
+            | GameAction::Sprint
             | GameAction::ToggleFlyMode
             | GameAction::FlyUp
             | GameAction::FlyDown => ActionCategory::Movement,
@@ -156,7 +160,7 @@ mod tests {
     #[test]
     fn every_listed_action_has_a_human_name_and_a_category() {
         let distinct: BTreeSet<_> = GameAction::LISTED.iter().collect();
-        assert_eq!(distinct.len(), 22);
+        assert_eq!(distinct.len(), 23);
         assert!(!GameAction::LISTED.contains(&GameAction::Escape));
         assert_eq!(GameAction::MoveForward.name(), "Move forward");
         assert_eq!(GameAction::ToggleFps.name(), "Debug overlay");

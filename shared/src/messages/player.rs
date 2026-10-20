@@ -17,6 +17,8 @@ pub enum NetworkAction {
     ToggleFlyMode,
     LeftClick,
     RightClick,
+    /// Sent while the player sprints: it only goes faster while it also moves forward.
+    Sprint,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Debug, Clone)]

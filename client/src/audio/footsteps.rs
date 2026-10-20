@@ -18,8 +18,8 @@ const STRIDE: f32 = 1.8;
 const GROUND_PROBE: f32 = 0.1;
 
 /// Falling speed, in blocks per second, from which touching the ground is a landing: a jump
-/// lands at 20, a fall from two blocks at about 11.
-const LANDING_SPEED: f32 = 10.0;
+/// lands at about 8.7, a fall from one block at about 7.7.
+const LANDING_SPEED: f32 = 7.0;
 
 /// The block a player whose box is centred on `position` stands on, if any.
 fn ground_under(position: Vec3, height: f32, blocks: &ChunkMap) -> Option<BlockId> {

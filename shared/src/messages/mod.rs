@@ -161,6 +161,7 @@ mod tests {
             (NetworkAction::ToggleFlyMode, 6),
             (NetworkAction::LeftClick, 7),
             (NetworkAction::RightClick, 8),
+            (NetworkAction::Sprint, 9),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

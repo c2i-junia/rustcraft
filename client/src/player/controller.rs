@@ -8,7 +8,7 @@ use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::UIMode;
 use crate::world::ClientWorldMap;
 use bevy::prelude::*;
-use shared::messages::NetworkAction;
+use shared::messages::{NetworkAction, PlayerFrameInput};
 use shared::players::movement::{is_terrain_loaded, simulate_player_movement};
 use shared::players::{MovementState, Player, ViewMode};
 
@@ -77,6 +77,20 @@ pub struct LocalPlayerMoved {
     pub to: MovementState,
 }
 
+/// Whether the player sprints after this frame. As in Minecraft, the sprint key starts a sprint
+/// while moving forward, and the sprint lasts until the player stops moving forward, or sneaks
+/// on foot: the key need not be held.
+fn keeps_sprinting(
+    was_sprinting: bool,
+    sprint_key: bool,
+    inputs: &PlayerFrameInput,
+    flying: bool,
+) -> bool {
+    inputs.is_pressed(NetworkAction::MoveForward)
+        && (flying || !inputs.is_pressed(NetworkAction::SneakOrFlyDown))
+        && (was_sprinting || sprint_key)
+}
+
 /// Completes the frame's inputs with the movement keys, predicts their effect on the local
 /// player and queues the frame for the server.
 pub fn player_movement_system(
@@ -89,6 +103,7 @@ pub fn player_movement_system(
     mut tick_buffer: ResMut<PlayerTickInputsBuffer>,
     world_map: Res<ClientWorldMap>,
     mut moves: MessageWriter<LocalPlayerMoved>,
+    mut sprinting: Local<bool>,
 ) {
     if frame_inputs.0.delta_ms == 0 {
         return;
@@ -108,6 +123,12 @@ pub fn player_movement_system(
                 frame_inputs.0.inputs.insert(action);
             }
         }
+    }
+    let sprint_key = *ui_mode == UIMode::Closed
+        && is_action_pressed(GameAction::Sprint, &keyboard_input, &key_map);
+    *sprinting = keeps_sprinting(*sprinting, sprint_key, &frame_inputs.0, player.is_flying);
+    if *sprinting {
+        frame_inputs.0.inputs.insert(NetworkAction::Sprint);
     }
 
     let from = player.movement_state();
@@ -160,5 +181,36 @@ pub fn first_and_third_person_view_system(
         if let Some(mut material) = materials.get_mut(&material_handle.handle) {
             material.base_color = color;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inputs(actions: &[NetworkAction]) -> PlayerFrameInput {
+        PlayerFrameInput {
+            inputs: actions.iter().cloned().collect(),
+            ..default()
+        }
+    }
+
+    #[test]
+    fn the_sprint_key_starts_a_sprint_that_lasts_while_moving_forward() {
+        let forward = inputs(&[NetworkAction::MoveForward]);
+        assert!(!keeps_sprinting(false, false, &forward, false));
+        assert!(keeps_sprinting(false, true, &forward, false));
+        // The key may be released
+        assert!(keeps_sprinting(true, false, &forward, false));
+        // Without moving forward, the key does nothing and the sprint stops
+        assert!(!keeps_sprinting(false, true, &inputs(&[]), false));
+        assert!(!keeps_sprinting(true, false, &inputs(&[]), false));
+    }
+
+    #[test]
+    fn sneaking_stops_a_sprint_on_foot_but_not_in_flight() {
+        let sneak = inputs(&[NetworkAction::MoveForward, NetworkAction::SneakOrFlyDown]);
+        assert!(!keeps_sprinting(true, true, &sneak, false));
+        assert!(keeps_sprinting(true, true, &sneak, true));
     }
 }

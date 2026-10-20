@@ -65,6 +65,7 @@ pub fn default_bindings() -> KeyMap {
         vec![KeyCode::KeyD, KeyCode::ArrowRight],
     );
     map.insert(GameAction::Jump, vec![KeyCode::Space]);
+    map.insert(GameAction::Sprint, vec![KeyCode::ControlLeft]);
     map.insert(GameAction::Escape, vec![KeyCode::Escape]);
     map.insert(GameAction::ToggleFps, vec![KeyCode::F3]);
     map.insert(GameAction::ToggleChunkDebugMode, vec![KeyCode::F4]);

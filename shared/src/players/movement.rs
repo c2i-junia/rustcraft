@@ -3,9 +3,9 @@ use crate::{
     players::{
         collision::{check_player_collision, is_player_in_liquid},
         constants::{
-            FLY_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, SPEED,
-            SWIM_UP_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
-            WATER_SPEED_MULTIPLIER,
+            FLY_SPEED_MULTIPLIER, FLY_SPRINT_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY,
+            MAX_UPWARD_VELOCITY, SPEED, SPRINT_SPEED_MULTIPLIER, SWIM_UP_VELOCITY, WATER_DRAG,
+            WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
         },
     },
     world::{world_position_to_chunk_position, ChunkMap},
@@ -59,7 +59,12 @@ pub fn simulate_player_movement(
         apply_vertical_velocity(player, action, delta);
     }
     move_vertically(player, world_map, delta);
-    apply_wished_direction(player, world_map, direction, in_liquid, delta);
+    if !in_liquid {
+        finish_gravity(player, delta);
+    }
+    let sprinting =
+        action.is_pressed(NetworkAction::Sprint) && action.is_pressed(NetworkAction::MoveForward);
+    apply_wished_direction(player, world_map, direction, in_liquid, sprinting, delta);
 
     if player.position.y < FALL_LIMIT {
         player.position = RESPAWN_POSITION;
@@ -101,16 +106,28 @@ fn wished_direction(action: &PlayerFrameInput) -> Vec3 {
     direction
 }
 
-/// Jump and gravity. A flying player has no vertical velocity: it only moves up or down by
-/// its wished direction.
+/// Jump and the first half of the gravity of the frame. A flying player has no vertical
+/// velocity: it only moves up or down by its wished direction.
+///
+/// The gravity is added half before the move and half after it, so that the move goes at the
+/// mean velocity of the frame: the height of a jump then does not depend on the frame time.
 fn apply_vertical_velocity(player: &mut Player, action: &PlayerFrameInput, delta: f32) {
-    if !player.is_flying {
-        if player.on_ground && action.is_pressed(NetworkAction::JumpOrFlyUp) {
-            player.velocity.y = JUMP_VELOCITY;
-            player.on_ground = false;
-        } else if !player.on_ground {
-            player.velocity.y += GRAVITY * delta;
-        }
+    if player.is_flying {
+        return;
+    }
+    if player.on_ground && action.is_pressed(NetworkAction::JumpOrFlyUp) {
+        player.velocity.y = JUMP_VELOCITY;
+        player.on_ground = false;
+    }
+    if !player.on_ground {
+        player.velocity.y += GRAVITY * delta / 2.0;
+    }
+}
+
+/// The second half of the gravity of the frame, for a player still in the air after its move.
+fn finish_gravity(player: &mut Player, delta: f32) {
+    if !player.is_flying && !player.on_ground {
+        player.velocity.y += GRAVITY * delta / 2.0;
     }
 }
 
@@ -157,20 +174,22 @@ fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) {
 }
 
 /// Moves the player along `direction`. On foot, an axis blocked by a block is left unchanged,
-/// so the player slides along walls; a flying player goes through blocks.
+/// so the player slides along walls; a flying player goes through blocks. A sprint speeds up
+/// a player on foot or in flight, not a swimmer.
 fn apply_wished_direction(
     player: &mut Player,
     world_map: &ChunkMap,
     direction: Vec3,
     in_liquid: bool,
+    sprinting: bool,
     delta: f32,
 ) {
-    let speed = if player.is_flying {
-        SPEED * FLY_SPEED_MULTIPLIER
-    } else if in_liquid {
-        SPEED * WATER_SPEED_MULTIPLIER
-    } else {
-        SPEED
+    let speed = match (player.is_flying, in_liquid, sprinting) {
+        (true, _, true) => SPEED * FLY_SPEED_MULTIPLIER * FLY_SPRINT_SPEED_MULTIPLIER,
+        (true, _, false) => SPEED * FLY_SPEED_MULTIPLIER,
+        (false, true, _) => SPEED * WATER_SPEED_MULTIPLIER,
+        (false, false, true) => SPEED * SPRINT_SPEED_MULTIPLIER,
+        (false, false, false) => SPEED,
     };
     let step = direction * (speed * delta);
 
@@ -308,6 +327,53 @@ mod tests {
     }
 
     #[test]
+    fn sprinting_forward_is_faster_than_walking() {
+        let world = flat_world();
+        let mut player = standing_player();
+        let start = player.position;
+        simulate(
+            &mut player,
+            &world,
+            &[NetworkAction::MoveForward, NetworkAction::Sprint],
+            50,
+        );
+        let expected = 4.0 * SPRINT_SPEED_MULTIPLIER;
+        assert!((start.z - player.position.z - expected).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sprinting_without_moving_forward_does_not_speed_up() {
+        let world = flat_world();
+        let mut player = standing_player();
+        let start = player.position;
+        simulate(
+            &mut player,
+            &world,
+            &[NetworkAction::MoveBackward, NetworkAction::Sprint],
+            50,
+        );
+        assert!((player.position.z - start.z - 4.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_sprinting_flyer_goes_twice_as_fast() {
+        let world = open_air();
+        let mut player = standing_player();
+        player.position.y = 100.0;
+        player.is_flying = true;
+        let start = player.position;
+        simulate(
+            &mut player,
+            &world,
+            &[NetworkAction::MoveForward, NetworkAction::Sprint],
+            20,
+        );
+        // 20 frames of 16 ms at 5 * 4 * 2 blocks/s, staying in the loaded chunks
+        let expected = 0.32 * SPEED * FLY_SPEED_MULTIPLIER * FLY_SPRINT_SPEED_MULTIPLIER;
+        assert!((start.z - player.position.z - expected).abs() < 1e-2);
+    }
+
+    #[test]
     fn walking_into_a_wall_stops_the_player() {
         let mut world = flat_world();
         world.fill_box(
@@ -377,10 +443,34 @@ mod tests {
         assert!(!player.on_ground);
         assert!(player.position.y > start_y);
 
-        // A continuous jump peaks at v² / 2g = 20² / 60 = 6.67 blocks; integrating it in steps
-        // of 16 ms overshoots that a little.
+        // As in Minecraft: v² / 2g = 8.66² / 60 = 1.25 blocks, enough to climb onto a block
         let apex = jump_apex(&world, 16);
-        assert!((apex - 6.83).abs() < 0.05, "apex {apex}");
+        assert!((apex - 1.25).abs() < 0.02, "apex {apex}");
+    }
+
+    #[test]
+    fn a_jump_climbs_onto_a_block_but_not_onto_two() {
+        for (height, climbed) in [(1, true), (2, false)] {
+            let mut world = flat_world();
+            world.fill_box(
+                IVec3::new(-5, 64, -10),
+                IVec3::new(5, 63 + height, -3),
+                BlockId::Stone,
+            );
+            let mut player = standing_player();
+            simulate(
+                &mut player,
+                &world,
+                &[NetworkAction::MoveForward, NetworkAction::JumpOrFlyUp],
+                100,
+            );
+            assert_eq!(
+                player.position.z < -3.0,
+                climbed,
+                "{height} block(s): z = {}",
+                player.position.z
+            );
+        }
     }
 
     #[test]

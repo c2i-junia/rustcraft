@@ -70,10 +70,12 @@ fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
     ))
 }
 
-/// Same vertical motion as a player: fall while in the air, land on the first block met.
+/// Same vertical motion as a player: fall while in the air, land on the first block met. Half
+/// the gravity is added before the move and half after it, so that a jump rises as high as a
+/// player's at the 20 steps per second of the mobs.
 fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     if !mob.on_ground {
-        mob.velocity.y += GRAVITY * delta;
+        mob.velocity.y += GRAVITY * delta / 2.0;
     }
     let new_y = mob.position.y + mob.velocity.y * delta;
     mob.velocity.y = mob.velocity.y.min(MAX_UPWARD_VELOCITY);
@@ -84,6 +86,7 @@ fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     } else {
         mob.position.y = new_y;
         mob.on_ground = false;
+        mob.velocity.y += GRAVITY * delta / 2.0;
     }
 }
 

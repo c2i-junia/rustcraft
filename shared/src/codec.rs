@@ -197,6 +197,7 @@ mod tests {
                 ToggleFlyMode,
                 LeftClick,
                 RightClick,
+                Sprint,
             ]
             .into(),
             hotbar_slot: u32::MAX,
