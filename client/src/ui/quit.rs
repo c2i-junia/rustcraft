@@ -76,14 +76,10 @@ fn in_world(state: GameState, origin: Option<&SessionOrigin>) -> bool {
         && origin.is_some_and(SessionOrigin::is_world)
 }
 
-/// Whether the thread of a local server still runs.
-fn server_running(local_server: Option<&LocalServerHandle>) -> bool {
-    local_server.is_some_and(|local_server| {
-        local_server
-            .0
-            .as_ref()
-            .is_some_and(|handle| !handle.is_finished())
-    })
+/// Whether a local server is left to join: its thread still runs, or it finished and the menus
+/// have not joined it yet, which logs why it stopped when it failed.
+fn server_to_join(local_server: Option<&LocalServerHandle>) -> bool {
+    local_server.is_some_and(|local_server| local_server.0.is_some())
 }
 
 /// The window's close button asks to quit.
@@ -118,7 +114,7 @@ fn on_quit_requested(
     }
     let state = *state.get();
     let world = in_world(state, origin.as_deref());
-    if !world && !server_running(local_server.as_deref()) {
+    if !world && !server_to_join(local_server.as_deref()) {
         exit.write(AppExit::Success);
         return;
     }
@@ -147,7 +143,7 @@ fn quit_once_stopped(
     mut exit: MessageWriter<AppExit>,
 ) {
     let in_session = in_world(*state.get(), origin.as_deref());
-    let running = server_running(local_server.as_deref());
+    let running = server_to_join(local_server.as_deref());
     match quit_step(in_session, running, quitting.since.elapsed()) {
         LeaveStep::Wait => {}
         LeaveStep::Stopped => {
@@ -382,6 +378,33 @@ mod tests {
         assert_eq!(cards(&mut app), 1);
 
         release.send(()).unwrap();
+        update_until_exit(&mut app);
+        assert!(app.world().resource::<LocalServerHandle>().0.is_none());
+    }
+
+    /// A server whose thread finished is joined before the app exits, which logs why it stopped
+    /// when it failed: the app waits for the menus to join it.
+    #[test]
+    fn the_app_exits_only_once_the_local_server_is_joined() {
+        let server = std::thread::spawn(|| Ok(()));
+        while !server.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut app = menu_app(server);
+        // out of the menus, where nothing joins it
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Game);
+        app.update();
+        app.insert_resource(Quitting {
+            since: Instant::now(),
+        });
+        app.update();
+        assert!(app.should_exit().is_none());
+
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
         update_until_exit(&mut app);
         assert!(app.world().resource::<LocalServerHandle>().0.is_none());
     }
