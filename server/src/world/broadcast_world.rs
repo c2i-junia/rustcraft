@@ -238,18 +238,19 @@ fn client_world_messages<'a>(
 }
 
 /// The chunks, nearest first, that a client has not received yet, at most
-/// `MAX_CHUNKS_PER_BROADCAST` holding blocks: an empty chunk weighs a few bytes on the wire, so
-/// the empty ones among them do not count. They are recorded in `sent`.
+/// `MAX_CHUNKS_PER_BROADCAST` of varied cells: a chunk of one kind of cell, such as air or
+/// stone, weighs a few bytes on the wire, so those among them do not count. They are recorded
+/// in `sent`.
 fn get_world_map_chunks_to_send<'a>(
     chunks: &'a ChunkMap,
     active_chunks: &[IVec3],
     sent: &mut HashSet<IVec3>,
 ) -> HashMap<IVec3, &'a Chunk> {
     let mut map: HashMap<IVec3, &Chunk> = HashMap::new();
-    let mut with_blocks = 0;
+    let mut varied = 0;
 
     for &c in active_chunks {
-        if with_blocks >= MAX_CHUNKS_PER_BROADCAST {
+        if varied >= MAX_CHUNKS_PER_BROADCAST {
             break;
         }
 
@@ -258,8 +259,8 @@ fn get_world_map_chunks_to_send<'a>(
             continue;
         };
         if sent.insert(c) {
-            if !chunk.is_empty() {
-                with_blocks += 1;
+            if chunk.uniform().is_none() {
+                varied += 1;
             }
             map.insert(c, chunk);
         }
@@ -366,21 +367,23 @@ mod tests {
     }
 
     #[test]
-    fn empty_chunks_do_not_count_towards_the_limit() {
+    fn chunks_of_one_kind_of_cell_do_not_count_towards_the_limit() {
         const MAX: i32 = MAX_CHUNKS_PER_BROADCAST as i32;
-        // Empty chunks at even x, chunks with a block at odd x
+        // Chunks of air or of stone only at even x, chunks with a block at odd x
         let mut chunks = row_of_chunks(4 * MAX);
         for x in (1..4 * MAX).step_by(2) {
             chunks.set_block(IVec3::new(x * CHUNK_SIZE, 0, 0), stone());
+        }
+        for x in (0..4 * MAX).step_by(4) {
+            chunks.insert_chunk(IVec3::new(x, 0, 0), Chunk::filled(stone()));
         }
         let mut sent = HashSet::new();
 
         let first = get_world_map_chunks_to_send(&chunks, &active_row(4 * MAX), &mut sent);
 
-        // The limit of chunks with blocks, at x = 1 to 2 * MAX - 1, and the empty chunks
-        // among them
+        // The limit of chunks with a block, at x = 1 to 2 * MAX - 1, and the others among them
         assert_eq!(
-            first.values().filter(|c| !c.is_empty()).count(),
+            first.values().filter(|c| c.uniform().is_none()).count(),
             MAX_CHUNKS_PER_BROADCAST
         );
         assert_eq!(xs(first.keys()), (0..2 * MAX).collect::<Vec<_>>());
