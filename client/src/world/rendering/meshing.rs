@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use std::{collections::HashMap, time::Instant};
 
 use bevy::{
+    asset::RenderAssetUsages,
     math::IVec3,
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
@@ -102,12 +103,17 @@ impl MeshCreator {
     }
 
     /// The mesh of the faces added so far, `None` when there is none. It has no tangents: the
-    /// block materials have no normal map to use them.
+    /// block materials have no normal map to use them. Its data goes to the GPU and leaves the
+    /// main world, which never reads it: the meshes of a large render distance weigh hundreds of
+    /// MiB, and copying them to the render world would stall the frames that show them.
     fn build(self) -> Option<Mesh> {
         if self.vertices.is_empty() {
             return None;
         }
-        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        );
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.vertices);
         mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);

@@ -24,6 +24,10 @@ pub struct ChunkRender {
     pub liquid_entity: Option<Entity>,
     /// When the mesh on display was requested, or when the chunk arrived if none is yet.
     pub last_mesh_ts: Instant,
+    /// The triangles of the solid and the liquid meshes on display, for the benchmarks: the
+    /// data of a mesh leaves the main world once on the GPU.
+    #[cfg(test)]
+    pub triangles: [usize; 2],
 }
 
 impl ChunkRender {
@@ -32,6 +36,8 @@ impl ChunkRender {
             entity: None,
             liquid_entity: None,
             last_mesh_ts: Instant::now(),
+            #[cfg(test)]
+            triangles: [0; 2],
         }
     }
 

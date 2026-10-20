@@ -55,6 +55,18 @@ pub(super) fn update_chunk(
     meshes: &mut Assets<Mesh>,
     new_meshes: ChunkMeshResponse,
 ) {
+    #[cfg(test)]
+    {
+        let triangles = |mesh: &Option<Mesh>| {
+            mesh.as_ref()
+                .and_then(Mesh::indices)
+                .map_or(0, |indices| indices.len() / 3)
+        };
+        chunk.triangles = [
+            triangles(&new_meshes.solid_mesh),
+            triangles(&new_meshes.liquid_mesh),
+        ];
+    }
     let mut show = |entity: &mut Option<Entity>, mesh, material| {
         show_mesh(
             entity,

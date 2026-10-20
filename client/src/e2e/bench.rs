@@ -383,36 +383,21 @@ fn phase(name: &str) {
     println!("BENCH_PHASE {name} {}", now.unwrap_or_default().as_millis());
 }
 
-/// The chunks the client holds, the chunk entities and the vertices and triangles of their
-/// meshes.
+/// The chunks the client holds, the chunk entities and the triangles of their meshes.
 fn scene_stats(h: &mut super::harness::Harness) -> serde_json::Value {
     use crate::world::ClientWorldMap;
 
-    let world = h.world_mut();
-    let map = world.resource::<ClientWorldMap>();
-    let chunks = map.blocks.chunk_positions().count();
-    let entities: Vec<Entity> = map
-        .render
-        .values()
+    let map = h.world().resource::<ClientWorldMap>();
+    let renders = map.render.values();
+    let entities = renders
+        .clone()
         .flat_map(|render| [render.entity, render.liquid_entity])
         .flatten()
-        .collect();
-    let meshes = world.resource::<Assets<Mesh>>();
-    let (mut vertices, mut triangles) = (0, 0);
-    for &entity in &entities {
-        let Some(mesh) = world
-            .get::<Mesh3d>(entity)
-            .and_then(|handle| meshes.get(&handle.0))
-        else {
-            continue;
-        };
-        vertices += mesh.count_vertices();
-        triangles += mesh.indices().map_or(0, |indices| indices.len() / 3);
-    }
+        .count();
+    let triangles: usize = renders.map(|render| render.triangles.iter().sum::<usize>()).sum();
     serde_json::json!({
-        "chunks": chunks,
-        "entities": entities.len(),
-        "vertices": vertices,
+        "chunks": map.blocks.chunk_positions().count(),
+        "entities": entities,
         "triangles": triangles,
     })
 }
