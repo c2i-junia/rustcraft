@@ -96,13 +96,19 @@ pub fn setup_main_lighting(
     }
 }
 
+/// The angle the sky has turned by around X at the world clock `tick`: the sun is at
+/// `Quat::from_rotation_x(angle) * Vec3::Z` from the player.
+pub fn sun_angle(tick: u64) -> f32 {
+    // Calculate the angle for the rotation (normalization between 0 and 1)
+    let normalized_time = (tick % DAY_DURATION_IN_TICKS) as f32 / DAY_DURATION_IN_TICKS as f32;
+    normalized_time * 2.0 * PI
+}
+
 pub fn update_celestial_bodies(
     mut query: Query<&mut Transform, With<CelestialRoot>>,
     time: Res<ClientTime>,
 ) {
-    // Calculate the angle for the rotation (normalization between 0 and 1)
-    let normalized_time = (time.0 % DAY_DURATION_IN_TICKS) as f32 / DAY_DURATION_IN_TICKS as f32;
-    let angle = normalized_time * 2.0 * PI;
+    let angle = sun_angle(time.0);
 
     // Apply the rotation to celestial bodies
     for mut tr in query.iter_mut() {

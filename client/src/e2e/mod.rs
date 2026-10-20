@@ -3,6 +3,7 @@
 mod bench;
 mod capture;
 mod chat;
+mod clouds;
 mod connecting;
 mod game;
 mod harness;

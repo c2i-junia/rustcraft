@@ -1,0 +1,48 @@
+// The clouds: unlit, each face as bright as its shade, faded out with the horizontal distance
+// to the camera. Neither the lights nor the fog of the chunks touch them.
+
+#import bevy_pbr::{
+    mesh_functions::{get_world_from_local, mesh_position_local_to_world},
+    mesh_view_bindings::view,
+    view_transformations::position_world_to_clip,
+}
+
+// Keep in sync with `CloudParams`
+struct CloudParams {
+    tint: vec4<f32>,
+    opacity: f32,
+    fade_start: f32,
+    fade_end: f32,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: CloudParams;
+
+struct Vertex {
+    @builtin(instance_index) instance_index: u32,
+    @location(0) position: vec3<f32>,
+    @location(1) shade: f32,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_position: vec3<f32>,
+    @location(1) shade: f32,
+}
+
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    let world_from_local = get_world_from_local(vertex.instance_index);
+    let world_position = mesh_position_local_to_world(world_from_local, vec4(vertex.position, 1.0));
+    var out: VertexOutput;
+    out.clip_position = position_world_to_clip(world_position.xyz);
+    out.world_position = world_position.xyz;
+    out.shade = vertex.shade;
+    return out;
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let distance = length(in.world_position.xz - view.world_position.xz);
+    let alpha = params.opacity * (1.0 - smoothstep(params.fade_start, params.fade_end, distance));
+    return vec4(params.tint.rgb * in.shade, alpha);
+}
