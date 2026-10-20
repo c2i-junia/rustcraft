@@ -41,6 +41,7 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The textures of the wooden tools (data/graphics/base_textures/items/Wooden*.png), of the
    crafting table (blocks/CraftingTable*.png, items/CraftingTable.png) and of the chest
    (blocks/Chest*.png, items/Chest.png), cut from the pack's entity/chest/normal.png.
+-> The textures of the gravel (blocks/Gravel.png, items/Gravel.png).
 
 ---- OTHER ----
 logo : 

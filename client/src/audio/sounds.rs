@@ -56,7 +56,7 @@ impl SoundMaterial {
             | BlockId::CraftingTable
             | BlockId::Chest => Self::Wood,
             BlockId::OakLeaves | BlockId::SpruceLeaves => Self::Leaves,
-            BlockId::Sand => Self::Sand,
+            BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
             BlockId::Glass | BlockId::Ice => Self::Glass,
             BlockId::Water => return None,

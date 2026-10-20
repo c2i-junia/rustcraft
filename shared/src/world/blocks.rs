@@ -51,6 +51,7 @@ pub enum BlockId {
     CoalOre,
     IronOre,
     GoldOre,
+    Gravel,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -116,7 +117,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 27] = [
+    pub const ALL: [BlockId; 28] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -144,6 +145,7 @@ impl BlockId {
         BlockId::CoalOre,
         BlockId::IronOre,
         BlockId::GoldOre,
+        BlockId::Gravel,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -193,6 +195,7 @@ impl BlockId {
             Self::CoalOre => 12,
             Self::IronOre => 15,
             Self::GoldOre => 15,
+            Self::Gravel => 6,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -220,7 +223,10 @@ impl BlockId {
                     | Self::CraftingTable
                     | Self::Chest
             ),
-            ToolKind::Shovel => matches!(*self, Self::Dirt | Self::Grass | Self::Sand | Self::Snow),
+            ToolKind::Shovel => matches!(
+                *self,
+                Self::Dirt | Self::Grass | Self::Sand | Self::Snow | Self::Gravel
+            ),
             ToolKind::Hoe | ToolKind::Sword => {
                 matches!(*self, Self::OakLeaves | Self::SpruceLeaves)
             }
@@ -285,6 +291,7 @@ impl BlockId {
             // they will smelt into ingots: until then, they drop themselves
             BlockId::IronOre => vec![(1, ItemId::IronOre, 1)],
             BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
+            BlockId::Gravel => vec![(1, ItemId::Gravel, 1)],
             _ => vec![],
         }
     }
@@ -329,7 +336,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 27] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 28] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -363,7 +370,8 @@ mod tests {
             | BlockId::Chest
             | BlockId::CoalOre
             | BlockId::IronOre
-            | BlockId::GoldOre => {}
+            | BlockId::GoldOre
+            | BlockId::Gravel => {}
         }
     }
 
@@ -438,6 +446,7 @@ mod tests {
                 BlockId::CoalOre => 24,
                 BlockId::IronOre => 25,
                 BlockId::GoldOre => 26,
+                BlockId::Gravel => 27,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }

@@ -55,11 +55,12 @@ pub enum ItemId {
     CoalOre,
     IronOre,
     GoldOre,
+    Gravel,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 32] = [
+    pub const ALL: [ItemId; 33] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -92,6 +93,7 @@ impl ItemId {
         Self::CoalOre,
         Self::IronOre,
         Self::GoldOre,
+        Self::Gravel,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -175,6 +177,7 @@ impl ItemId {
             Self::CoalOre => ItemType::Block(BlockId::CoalOre),
             Self::IronOre => ItemType::Block(BlockId::IronOre),
             Self::GoldOre => ItemType::Block(BlockId::GoldOre),
+            Self::Gravel => ItemType::Block(BlockId::Gravel),
 
             Self::Snowball | Self::Stick | Self::Coal => ItemType::Generic,
 
@@ -275,6 +278,7 @@ mod tests {
             (ItemId::CoalOre, 29),
             (ItemId::IronOre, 30),
             (ItemId::GoldOre, 31),
+            (ItemId::Gravel, 32),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -310,7 +314,8 @@ mod tests {
                 | ItemId::Coal
                 | ItemId::CoalOre
                 | ItemId::IronOre
-                | ItemId::GoldOre => {}
+                | ItemId::GoldOre
+                | ItemId::Gravel => {}
             }
         }
         for (id, expected) in table {
