@@ -17,6 +17,7 @@ use crate::network::{
     TargetServerState,
 };
 use crate::player::player_plugin;
+use crate::portal::portal_plugin;
 use crate::state::{GameSet, GameState, PreLoadingCompletion};
 use crate::ui::hud::hud_plugin;
 use crate::ui::menus::connecting::setup_connecting_card;
@@ -34,6 +35,7 @@ pub fn game_plugin(app: &mut App) {
         mob_plugin,
         network_plugin,
         player_plugin,
+        portal_plugin,
         world_plugin,
     ))
     // The order of one in-game frame. `GameSet::Meshing` is in `PostUpdate`.
