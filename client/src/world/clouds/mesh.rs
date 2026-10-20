@@ -10,8 +10,8 @@ use super::{
     THICKNESS,
 };
 
-/// How the clouds are drawn, a video setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Reflect)]
+/// How the clouds are drawn, a video setting saved in `video.ron`.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Reflect)]
 pub enum CloudStyle {
     /// Slabs of blocks, with sides.
     #[default]

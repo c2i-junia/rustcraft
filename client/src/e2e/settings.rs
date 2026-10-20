@@ -1,4 +1,5 @@
-//! The settings screen: its tabs, the controls, the volumes, the UI scale and the FPS counter.
+//! The settings screen: its tabs, the controls, the volumes, the render distance, the clouds,
+//! the UI scale and the FPS counter.
 
 use std::fs;
 
@@ -6,7 +7,7 @@ use accesskit::{NodeId, Role};
 use bevy::a11y::AccessibilityNode;
 use bevy::input::keyboard::{KeyCode, KeyboardFocusLost};
 use bevy::prelude::*;
-use bevy::ui::UiGlobalTransform;
+use bevy::ui::{Checked, UiGlobalTransform};
 use bevy::ui_widgets::{ScrollArea, Scrollbar, ScrollbarThumb};
 
 use super::game::enter_world;
@@ -30,7 +31,9 @@ use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
 };
 use crate::ui::widgets::hints::HintBar;
-use crate::world::{RenderDistance, ServerRenderDistanceLimit};
+use crate::world::clouds::mesh::CloudStyle;
+use crate::world::clouds::Clouds;
+use crate::world::{RenderDistance, ServerRenderDistanceLimit, VideoSettings};
 
 /// A client on the settings, with the game folder `folder`.
 #[track_caller]
@@ -288,8 +291,8 @@ fn the_render_distance_moves_by_whole_chunks_within_its_bounds_and_is_kept() {
         &render_distance_readout(MAX_CHUNK_RENDER_DISTANCE_RADIUS),
         SCREEN,
     );
-    let saved: RenderDistance = h.saved(VIDEO_SETTINGS_PATH);
-    assert_eq!(saved.distance, MAX_CHUNK_RENDER_DISTANCE_RADIUS);
+    let saved: VideoSettings = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!(saved.render_distance, MAX_CHUNK_RENDER_DISTANCE_RADIUS);
     // from the main menu, no server limits it
     assert!(h.is_visible(&L::text(RENDER_DISTANCE_NOTE)));
     drop(h);
@@ -337,6 +340,79 @@ fn the_video_screen_matches_its_golden() {
     h.open_tab_showing("Video", &render_distance());
     h.hover_nothing();
     h.assert_screenshot("menu_video");
+}
+
+/// The option `label` of the clouds control of the video tab.
+fn clouds_option(label: &str) -> L {
+    L::role(Role::RadioButton, label).within(L::role(Role::RadioGroup, "Clouds"))
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_clouds_are_chosen_and_saved_with_the_render_distance() {
+    // a file saved before the clouds existed
+    let folder = GameFolder::new().with_file(VIDEO_SETTINGS_PATH, "(render_distance: 5)");
+    let mut h = settings_with(folder.clone(), Options::default());
+    h.open_tab_showing("Video", &L::role(Role::RadioGroup, "Clouds"));
+    let fancy = h.get(&clouds_option("Fancy"));
+    assert!(h.world().get::<Checked>(fancy).is_some());
+    assert!(h.is_visible(&L::text("Clouds made of blocks")));
+
+    h.click(&clouds_option("Fast"));
+    h.wait_for(&L::text("A flat layer of clouds"), SCREEN);
+    assert_eq!(*h.world().resource::<CloudStyle>(), CloudStyle::Fast);
+    let saved: VideoSettings = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!((saved.render_distance, saved.clouds), (5, CloudStyle::Fast));
+
+    // and the render distance saved after keeps them
+    h.click(&render_distance());
+    for _ in 0..MAX_CHUNK_RENDER_DISTANCE_RADIUS {
+        h.press(KeyCode::ArrowLeft);
+    }
+    h.press(KeyCode::ArrowRight);
+    h.wait_for(&render_distance_readout(2), SCREEN);
+    let saved: VideoSettings = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!((saved.render_distance, saved.clouds), (2, CloudStyle::Fast));
+    drop(h);
+
+    // the choice is kept for the next start
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(*h.world().resource::<CloudStyle>(), CloudStyle::Fast);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn in_game_the_clouds_change_at_once() {
+    let mut h = enter_world(GameFolder::new().with_world("Clouds"), "Clouds");
+    let drawn = |h: &mut Harness| {
+        let world = h.world_mut();
+        let mut clouds = world.query_filtered::<(Has<Mesh3d>, &Children), With<Clouds>>();
+        let (colour, children) = clouds.single(world).unwrap();
+        let depth = world.get::<Mesh3d>(children[0]).is_some();
+        (colour, depth)
+    };
+    h.wait_until("the clouds drawn", SCREEN, |w| {
+        let mut clouds = w
+            .try_query_filtered::<(), (With<Clouds>, With<Mesh3d>)>()
+            .unwrap();
+        clouds.iter(w).next().is_some()
+    });
+    assert_eq!(drawn(&mut h), (true, true));
+
+    h.press(KeyCode::Escape);
+    h.click(&L::role(Role::Button, "Settings"));
+    h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
+    h.open_tab_showing("Video", &L::role(Role::RadioGroup, "Clouds"));
+    h.click(&clouds_option("Fast"));
+    h.frames(2);
+    assert_eq!(drawn(&mut h), (true, false));
+    h.click(&clouds_option("Off"));
+    h.frames(2);
+    assert_eq!(drawn(&mut h), (false, false));
+    h.click(&clouds_option("Fancy"));
+    h.frames(2);
+    assert_eq!(drawn(&mut h), (true, true));
 }
 
 #[test]

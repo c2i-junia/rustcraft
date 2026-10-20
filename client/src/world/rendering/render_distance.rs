@@ -6,6 +6,7 @@ use crate::{
     network::SendGameMessageExtension,
     state::KeyMap,
     ui::hud::UIMode,
+    world::clouds::mesh::CloudStyle,
 };
 use bevy::prelude::*;
 use bevy_renet::RenetClient;
@@ -17,10 +18,8 @@ use std::fs;
 /// The render distance the player asks for, in chunks, from `MIN_RENDER_DISTANCE` to
 /// `MAX_CHUNK_RENDER_DISTANCE_RADIUS`: the server sends the chunks within it, up to its own
 /// maximum. It also bounds how far away the mobs are drawn. Saved in `video.ron`.
-#[derive(Resource, Reflect, Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Resource, Reflect, Clone, Copy, Debug, PartialEq)]
 pub struct RenderDistance {
-    #[serde(rename = "render_distance")]
     pub distance: u32,
 }
 
@@ -52,23 +51,50 @@ impl RenderDistance {
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct ServerRenderDistanceLimit(pub u32);
 
-/// The saved render distance, or the default one when none was saved or the file cannot be
-/// read. A distance out of the bounds is brought back within them.
-pub fn load_render_distance(paths: &GameFolderPaths) -> RenderDistance {
+/// The video settings as `video.ron` holds them: each one missing from the file takes its
+/// default.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VideoSettings {
+    pub render_distance: u32,
+    pub clouds: CloudStyle,
+}
+
+impl Default for VideoSettings {
+    fn default() -> Self {
+        Self {
+            render_distance: DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS,
+            clouds: CloudStyle::default(),
+        }
+    }
+}
+
+/// The saved render distance and clouds, or the default ones when none were saved or the file
+/// cannot be read. A distance out of the bounds is brought back within them.
+pub fn load_video_settings(paths: &GameFolderPaths) -> (RenderDistance, CloudStyle) {
     let path = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
-    let saved: RenderDistance = fs::read_to_string(&path)
+    let saved: VideoSettings = fs::read_to_string(&path)
         .ok()
         .and_then(|content| from_str(&content).ok())
         .unwrap_or_default();
     let mut render_distance = RenderDistance::default();
-    render_distance.set(saved.distance);
-    render_distance
+    render_distance.set(saved.render_distance);
+    (render_distance, saved.clouds)
 }
 
-/// Writes the render distance to `video.ron` in the game folder.
-pub fn write_render_distance(render_distance: &RenderDistance, paths: &GameFolderPaths) {
+/// Writes the render distance and the clouds to `video.ron` in the game folder: both, so that
+/// saving one keeps the other.
+pub fn write_video_settings(
+    render_distance: &RenderDistance,
+    clouds: CloudStyle,
+    paths: &GameFolderPaths,
+) {
     let path = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
-    let serialized = match ron::ser::to_string_pretty(render_distance, PrettyConfig::new()) {
+    let settings = VideoSettings {
+        render_distance: render_distance.distance,
+        clouds,
+    };
+    let serialized = match ron::ser::to_string_pretty(&settings, PrettyConfig::new()) {
         Ok(serialized) => serialized,
         Err(e) => {
             error!("Failed to serialize the video settings: {e}");
@@ -87,6 +113,7 @@ pub fn render_distance_update_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     key_map: Res<KeyMap>,
     ui_mode: Res<UIMode>,
+    clouds: Res<CloudStyle>,
     paths: Res<GameFolderPaths>,
 ) {
     if *ui_mode != UIMode::Closed {
@@ -103,7 +130,7 @@ pub fn render_distance_update_system(
     }
 
     if *render_distance != before {
-        write_render_distance(&render_distance, &paths);
+        write_video_settings(&render_distance, *clouds, &paths);
     }
 }
 
@@ -190,19 +217,27 @@ mod tests {
         assert_eq!(render_distance.distance, MAX_CHUNK_RENDER_DISTANCE_RADIUS);
     }
 
-    #[test]
-    fn the_render_distance_is_saved_and_loaded_back_within_the_bounds() {
-        let dir = std::env::temp_dir().join(format!("rustcraft-video-{}", std::process::id()));
+    fn temp_paths(name: &str) -> GameFolderPaths {
+        let dir = std::env::temp_dir().join(format!("rustcraft-{name}-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let paths = GameFolderPaths {
+        GameFolderPaths {
             game_folder_path: dir.clone(),
             assets_folder_path: dir.join("assets"),
-        };
-        let file = dir.join(VIDEO_SETTINGS_PATH);
-        assert_eq!(load_render_distance(&paths), RenderDistance::default());
+        }
+    }
 
-        write_render_distance(&RenderDistance { distance: 5 }, &paths);
-        assert_eq!(load_render_distance(&paths).distance, 5);
+    #[test]
+    fn the_render_distance_is_saved_and_loaded_back_within_the_bounds() {
+        let paths = temp_paths("video");
+        let file = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
+        let distance = |paths: &GameFolderPaths| load_video_settings(paths).0.distance;
+        assert_eq!(
+            load_video_settings(&paths),
+            (RenderDistance::default(), CloudStyle::Fancy)
+        );
+
+        write_video_settings(&RenderDistance { distance: 5 }, CloudStyle::Fancy, &paths);
+        assert_eq!(distance(&paths), 5);
 
         for (content, expected) in [
             ("garbage", DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS),
@@ -211,8 +246,50 @@ mod tests {
             ("(render_distance: 500)", MAX_CHUNK_RENDER_DISTANCE_RADIUS),
         ] {
             fs::write(&file, content).unwrap();
-            assert_eq!(load_render_distance(&paths).distance, expected, "{content}");
+            assert_eq!(distance(&paths), expected, "{content}");
         }
-        fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+    }
+
+    #[test]
+    fn a_file_saved_before_the_clouds_loads_with_fancy_clouds() {
+        let paths = temp_paths("video-old");
+        let file = paths.game_folder_path.join(VIDEO_SETTINGS_PATH);
+        fs::write(&file, "(render_distance: 8)").unwrap();
+        let loaded = load_video_settings(&paths);
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+        assert_eq!(loaded, (RenderDistance { distance: 8 }, CloudStyle::Fancy));
+    }
+
+    #[test]
+    fn the_clouds_are_saved_and_loaded_back_with_the_render_distance() {
+        let paths = temp_paths("video-clouds");
+        for clouds in [CloudStyle::Fast, CloudStyle::Off, CloudStyle::Fancy] {
+            let render_distance = RenderDistance { distance: 7 };
+            write_video_settings(&render_distance, clouds, &paths);
+            assert_eq!(load_video_settings(&paths), (render_distance, clouds));
+        }
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+    }
+
+    #[test]
+    fn the_render_distance_keys_keep_the_clouds_saved() {
+        let paths = temp_paths("video-keys");
+        let mut keyboard = ButtonInput::<KeyCode>::default();
+        let key_map = crate::input::keyboard::default_bindings();
+        let plus = key_map.map[&GameAction::RenderDistancePlus][0];
+        keyboard.press(plus);
+        let mut app = App::new();
+        app.insert_resource(keyboard)
+            .insert_resource(key_map)
+            .insert_resource(UIMode::Closed)
+            .insert_resource(RenderDistance { distance: 4 })
+            .insert_resource(CloudStyle::Off)
+            .insert_resource(paths.clone())
+            .add_systems(Update, render_distance_update_system);
+        app.update();
+        let loaded = load_video_settings(&paths);
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+        assert_eq!(loaded, (RenderDistance { distance: 5 }, CloudStyle::Off));
     }
 }

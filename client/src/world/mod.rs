@@ -28,6 +28,7 @@ pub fn world_plugin(app: &mut App) {
         .insert_resource(AtlasHandles::<ItemId>::default())
         // loaded from the game folder by `add_client`
         .init_resource::<RenderDistance>()
+        .init_resource::<clouds::mesh::CloudStyle>()
         .add_plugins((chunk_material_plugin, clouds::clouds_plugin))
         .add_message::<WorldRenderRequestUpdateEvent>()
         .add_message::<BlockChanged>()

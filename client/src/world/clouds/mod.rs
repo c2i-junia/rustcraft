@@ -65,8 +65,8 @@ const WARM_TINT: Vec3 = Vec3::new(1.0, 0.7, 0.5);
 /// the drift.
 #[derive(Component, Default)]
 pub struct Clouds {
-    /// The centre cell and the radius, in cells, of the window the mesh holds.
-    window: Option<(IVec2, i32)>,
+    /// The style, the centre cell and the radius, in cells, of the window the mesh holds.
+    window: Option<(CloudStyle, IVec2, i32)>,
 }
 
 /// The clouds, drawn while in game.
@@ -168,9 +168,11 @@ fn drift_clouds_system(
 }
 
 /// Builds the mesh of the cells within reach of the camera again when the camera has moved to
-/// another cell of the pattern, or the reach has changed.
+/// another cell of the pattern, or the reach or the style has changed. Only the Fancy clouds
+/// draw their depth first: the quads of the Fast ones never overlap.
 fn rebuild_clouds_system(
     cameras: Query<&Transform, (With<Camera3d>, Without<Clouds>)>,
+    style: Res<CloudStyle>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut clouds: Query<(Entity, &mut Clouds, &Transform, &Children)>,
@@ -185,6 +187,7 @@ fn rebuild_clouds_system(
     let radius = (reach / CELL as f32).ceil() as i32 + 1;
     for (entity, mut clouds, transform, children) in &mut clouds {
         let window = (
+            *style,
             camera_cell(camera.translation, transform.translation.x),
             radius,
         );
@@ -192,9 +195,13 @@ fn rebuild_clouds_system(
             continue;
         }
         clouds.window = Some(window);
-        let mesh = cloud_mesh(CloudStyle::Fancy, window.0, window.1).map(|m| meshes.add(m));
+        let mesh = cloud_mesh(window.0, window.1, window.2).map(|m| meshes.add(m));
         // the depth is drawn with the same mesh
-        for drawing in children.iter().chain([entity]) {
+        let depth = children.iter().filter(|_| *style == CloudStyle::Fancy);
+        for drawing in children.iter().filter(|_| *style != CloudStyle::Fancy) {
+            commands.entity(drawing).remove::<Mesh3d>();
+        }
+        for drawing in depth.chain([entity]) {
             match &mesh {
                 Some(mesh) => commands.entity(drawing).insert(Mesh3d(mesh.clone())),
                 None => commands.entity(drawing).remove::<Mesh3d>(),
@@ -301,6 +308,7 @@ mod tests {
             .insert_state(GameState::Game)
             .insert_resource(ClientTime(0))
             .insert_resource(RenderDistance { distance: 4 })
+            .init_resource::<CloudStyle>()
             .add_systems(OnEnter(GameState::Game), spawn_clouds)
             .add_systems(
                 Update,
@@ -460,5 +468,42 @@ mod tests {
         assert_eq!(params.fade_start, FADE_START * reach);
         assert_eq!(params.opacity, OPACITY);
         assert_eq!(params.tint, cloud_tint(NOON_IN_DAY).to_linear().to_vec4());
+    }
+
+    fn meshes_of_the_drawings(app: &mut App) -> (Option<Mesh3d>, Option<Mesh3d>) {
+        let [(depth, _), (colour, _)] = drawings(app).try_into().unwrap();
+        let mesh_of = |entity| app.world().get::<Mesh3d>(entity).cloned();
+        (mesh_of(depth), mesh_of(colour))
+    }
+
+    #[test]
+    fn the_style_of_the_clouds_applies_at_once() {
+        let mut app = app();
+        let (depth, fancy) = meshes_of_the_drawings(&mut app);
+        assert!(fancy.is_some() && depth == fancy);
+
+        // a flat layer, drawn without its depth
+        *app.world_mut().resource_mut::<CloudStyle>() = CloudStyle::Fast;
+        app.update();
+        let (depth, fast) = meshes_of_the_drawings(&mut app);
+        assert_eq!(depth, None);
+        let fast = fast.unwrap();
+        assert_ne!(Some(&fast), fancy.as_ref());
+        let mesh = app.world().resource::<Assets<Mesh>>().get(&fast.0).unwrap();
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .unwrap()
+            .as_float3();
+        let middle = ALTITUDE as f32 + THICKNESS as f32 / 2.;
+        assert!(positions.unwrap().iter().all(|p| p[1] == middle));
+
+        *app.world_mut().resource_mut::<CloudStyle>() = CloudStyle::Off;
+        app.update();
+        assert_eq!(meshes_of_the_drawings(&mut app), (None, None));
+
+        *app.world_mut().resource_mut::<CloudStyle>() = CloudStyle::Fancy;
+        app.update();
+        let (depth, fancy) = meshes_of_the_drawings(&mut app);
+        assert!(fancy.is_some() && depth == fancy);
     }
 }

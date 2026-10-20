@@ -26,7 +26,12 @@ fn text_font(font: &Handle<Font>, size: f32) -> TextFont {
 
 /// Spawns a row under `parent` with `label` on the left, as wide as the labels of the sliders,
 /// and returns it to take the control.
-fn spawn_row(commands: &mut Commands, parent: Entity, label: &str, font: &Handle<Font>) -> Entity {
+pub(super) fn spawn_row(
+    commands: &mut Commands,
+    parent: Entity,
+    label: &str,
+    font: &Handle<Font>,
+) -> Entity {
     let row = commands
         .spawn((
             Node {
