@@ -93,7 +93,8 @@ fn keeps_sprinting(
 }
 
 /// Completes the frame's inputs with the movement keys, predicts their effect on the local
-/// player and queues the frame for the server.
+/// player and queues the frame for the server. A player that went through a portal has its
+/// camera turned with it, here only: a replay of the reconciliation does not turn it again.
 pub fn player_movement_system(
     mut player_query: Query<
         (&mut Player, &mut Transform),
@@ -105,6 +106,7 @@ pub fn player_movement_system(
     world_map: Res<ClientWorldMap>,
     mut moves: MessageWriter<LocalPlayerMoved>,
     mut sprinting: Local<bool>,
+    mut cameras: Query<&mut CameraController>,
 ) {
     if frame_inputs.0.delta_ms == 0 {
         return;
@@ -133,7 +135,13 @@ pub fn player_movement_system(
     }
 
     let from = player.movement_state();
-    simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
+    let outcome = simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
+    if let Some(turned) = outcome.turned {
+        // `camera_control_system` places the camera from its yaw later in the frame
+        for mut camera in &mut cameras {
+            camera.angle_x += turned;
+        }
+    }
 
     // The frame is final: record what it predicts and queue it for the server, which takes its
     // inventory actions along

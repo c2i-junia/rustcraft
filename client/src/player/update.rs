@@ -278,7 +278,7 @@ mod tests {
     use crate::state::KeyMap;
     use crate::ui::hud::UIMode;
     use bevy_renet::RenetClient;
-    use shared::messages::PlayerFrameInput;
+    use shared::messages::{NetworkAction, PlayerFrameInput};
     use shared::players::{blocks::CallerType, simulation::simulate_player_actions, MovementState};
     use shared::world::{BlockId, ChunkMap};
     use std::collections::{BTreeMap, VecDeque};
@@ -579,6 +579,17 @@ mod tests {
         frame.0.delta_ms = script.delta_ms;
     }
 
+    /// Gives the frame the yaw of the player's camera, as the gathering of the inputs does
+    /// with the camera, placed from it by `camera_control_system` in the previous frame.
+    fn camera_into_the_frame(
+        cameras: Query<&CameraController>,
+        mut frame: ResMut<CurrentFrameInputs>,
+    ) {
+        if let Ok(camera) = cameras.single() {
+            frame.0.camera.rotation = Quat::from_rotation_y(camera.angle_x);
+        }
+    }
+
     /// A stone floor whose top is at y = 64, in loaded chunks.
     fn flat_world() -> ChunkMap {
         let mut world =
@@ -589,6 +600,141 @@ mod tests {
             BlockId::Stone,
         );
         world
+    }
+
+    /// The flat world with two walls and the portals of player 7 on them: the blue one facing
+    /// +Z, its plane z = -3, at x in 0..2; the orange one facing -X, its plane x = 10, at z in
+    /// 0..2. Through the blue one, north (-Z) turns into west (-X): a quarter turn to the left.
+    fn portal_world() -> ChunkMap {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(-3, 64, -4),
+            IVec3::new(4, 68, -4),
+            BlockId::Stone,
+        );
+        world.fill_box(
+            IVec3::new(10, 64, -6),
+            IVec3::new(10, 68, 6),
+            BlockId::Stone,
+        );
+        let portals = world.portals_mut();
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(0, 64, -4),
+            face: FaceDirection::PlusZ,
+        });
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(10, 64, 0),
+            face: FaceDirection::MinusX,
+        });
+        world
+    }
+
+    /// The yaw of the player's camera.
+    fn camera_yaw(app: &mut App) -> f32 {
+        let world = app.world_mut();
+        world
+            .query::<&CameraController>()
+            .single(world)
+            .unwrap()
+            .angle_x
+    }
+
+    #[test]
+    fn a_predicted_crossing_turns_the_camera() {
+        let mut app = App::new();
+        app.add_message::<LocalPlayerMoved>()
+            .insert_resource(ClientWorldMap {
+                blocks: portal_world(),
+                ..default()
+            })
+            .init_resource::<PlayerTickInputsBuffer>()
+            .init_resource::<CurrentFrameInputs>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(UIMode::Closed)
+            .insert_resource(KeyMap {
+                map: BTreeMap::from([(GameAction::MoveForward, vec![KeyCode::KeyW])]),
+            })
+            .add_systems(Update, player_movement_system);
+        // Five centimetres in front of the blue portal, walking into it
+        let position = Vec3::new(1.0, 64.9, -2.95);
+        app.world_mut().spawn((
+            Player::new(PLAYER_ID, "me".into(), position, Transform::default()),
+            Transform::default(),
+            CurrentPlayerMarker {},
+        ));
+        app.world_mut()
+            .spawn((Camera::default(), CameraController::default()));
+        let yaw = camera_yaw(&mut app);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyW);
+        app.world_mut()
+            .resource_mut::<CurrentFrameInputs>()
+            .0
+            .delta_ms = 16;
+
+        app.update();
+
+        let world = app.world_mut();
+        let player = world
+            .query_filtered::<&Player, With<CurrentPlayerMarker>>()
+            .single(world)
+            .unwrap();
+        assert!(player.position.x < 10.0, "{}", player.position);
+        let turned = camera_yaw(&mut app) - yaw;
+        assert!(
+            (turned - std::f32::consts::FRAC_PI_2).abs() < 1e-5,
+            "{turned}"
+        );
+    }
+
+    #[test]
+    fn a_replay_crossing_a_portal_does_not_turn_the_camera() {
+        let (mut app, player) = app_with_player();
+        app.world_mut().resource_mut::<ClientWorldMap>().blocks = portal_world();
+        app.world_mut()
+            .spawn((Camera::default(), CameraController::default()));
+        let yaw = camera_yaw(&mut app);
+        // Walking north: the client predicted the player further from the portal than the
+        // server has it, and did not cross; replayed from the server's state, it crosses
+        let walking = |time_ms: u64| PlayerFrameInput {
+            time_ms,
+            delta_ms: 16,
+            inputs: [NetworkAction::MoveForward].into_iter().collect(),
+            ..default()
+        };
+        app.world_mut().resource_mut::<UnacknowledgedInputs>().0 =
+            vec![walking(10), walking(20), walking(30)];
+        let server = MovementState {
+            position: Vec3::new(1.0, 64.9, -2.9),
+            on_ground: true,
+            ..default()
+        };
+
+        app.world_mut().write_message(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: server,
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: None,
+            open_chest: None,
+            open_furnace: None,
+            health: shared::players::game_mode::MAX_HEALTH,
+            game_mode: Default::default(),
+            death_cause: None,
+        });
+        app.update();
+
+        // Out of the orange portal, but the camera kept its yaw: the live prediction turns it
+        let position = app.world().get::<Player>(player).unwrap().position;
+        assert!(position.x < 10.0 && position.z > -1.0, "{position}");
+        assert_eq!(camera_yaw(&mut app), yaw);
     }
 
     /// The frames of the local player and the server simulating its inputs, without the
@@ -656,11 +802,14 @@ mod tests {
                 .add_systems(
                     Update,
                     (
+                        camera_into_the_frame,
                         player_movement_system.run_if(local_player_is_simulated),
                         update_players_system,
                     )
                         .chain(),
                 );
+            app.world_mut()
+                .spawn((Camera::default(), CameraController::default()));
             let player = Player::new(PLAYER_ID, "me".into(), spawn, Transform::default());
             let entity = app
                 .world_mut()
@@ -868,6 +1017,31 @@ mod tests {
         assert_eq!(session.corrections, 0);
         let end = session.client_player().position;
         assert!(end.z < -20.0 && (end.y - 68.9).abs() < 0.05, "{end:?}");
+        session.assert_the_client_predicted_the_server();
+    }
+
+    /// A walk into the blue portal, out of the orange one and on, westward: the server crosses
+    /// as the client predicted, and the camera turns once.
+    #[test]
+    fn a_walk_through_a_portal_is_predicted_without_a_single_correction() {
+        let mut session = Session::new(Vec3::new(1.0, 64.9, 0.5));
+        session.set_client_world(portal_world());
+        session.server_world = portal_world();
+        session.hold(KeyCode::KeyW, true);
+
+        let mut yaws = Vec::new();
+        for _ in 0..200 {
+            session.frame();
+            yaws.push(camera_yaw(&mut session.app));
+        }
+
+        assert!(session.checked_updates > 50);
+        assert_eq!(session.corrections, 0);
+        let turns: Vec<_> = yaws.windows(2).filter(|pair| pair[0] != pair[1]).collect();
+        assert_eq!(turns.len(), 1, "{turns:?}");
+        assert!((yaws[199] - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+        let end = session.client_player().position;
+        assert!(end.x < 0.0 && (end.z - 1.0).abs() < 0.05, "{end:?}");
         session.assert_the_client_predicted_the_server();
     }
 
