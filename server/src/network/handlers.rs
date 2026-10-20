@@ -26,6 +26,7 @@ use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
 use crate::world::load_from_file::load_player_data;
 use crate::world::locate::Locator;
+use crate::world::portals::all_portals;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::PlayerInputsEvent;
 use crate::world::weather::{send_to_players, ServerWeather};
@@ -136,6 +137,7 @@ pub(super) fn auth_register_request(
             ServerToClientMessage::ChatMessage(message.clone()),
         );
     }
+    server.send_game_message(client_id, all_portals(&world_map.chunks));
 
     // The players already there learn about the new one
     if let Some(joiner) = joiner {

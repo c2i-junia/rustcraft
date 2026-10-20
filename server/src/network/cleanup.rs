@@ -1,5 +1,6 @@
 use bevy_ecs::message::MessageWriter;
 use shared::messages::PlayerId;
+use shared::world::PortalColor;
 
 use crate::world::{
     data::ServerWorldMap,
@@ -31,6 +32,10 @@ pub fn cleanup_player_from_world(
     world_map.sent_items.remove(player_id);
     world_map.sent_mobs.remove(player_id);
     world_map.render_distances.remove(*player_id);
+    // The portals of a player go with it
+    for color in [PortalColor::Blue, PortalColor::Orange] {
+        world_map.chunks.portals_mut().remove(*player_id, color);
+    }
 }
 
 #[cfg(test)]
@@ -61,6 +66,45 @@ mod tests {
         cleanup_all_players_from_world(&mut world_map);
         assert!(world_map.sent_chunks.is_empty());
         assert_eq!(world_map.render_distances.get(1), 1);
+    }
+
+    #[test]
+    fn a_leaving_player_takes_its_portals_away_and_leaves_the_others() {
+        use bevy::ecs::{message::Messages, system::RunSystemOnce};
+        use bevy::prelude::{ResMut, World};
+        use shared::world::{FaceDirection, Portal};
+
+        let mut world_map = world_with_two_clients();
+        let portal = |owner, color| Portal {
+            owner,
+            color,
+            anchor: IVec3::new(0, 10, owner as i32 * 10),
+            face: FaceDirection::PlusZ,
+        };
+        let stays = portal(2, PortalColor::Blue);
+        for portal in [
+            portal(1, PortalColor::Blue),
+            portal(1, PortalColor::Orange),
+            stays,
+        ] {
+            world_map.chunks.portals_mut().insert(portal);
+        }
+        world_map.chunks.portals_mut().take_changed();
+        let mut world = World::new();
+        world.insert_resource(world_map);
+        world.init_resource::<Messages<SaveRequestEvent>>();
+        world
+            .run_system_once(
+                |mut world_map: ResMut<ServerWorldMap>,
+                 mut writer: MessageWriter<SaveRequestEvent>| {
+                    cleanup_player_from_world(&mut world_map, &1, &mut writer);
+                },
+            )
+            .unwrap();
+        let mut world_map = world.resource_mut::<ServerWorldMap>();
+        let portals = world_map.chunks.portals_mut();
+        assert_eq!(portals.iter().collect::<Vec<_>>(), [&stays]);
+        assert!(portals.take_changed());
     }
 
     #[test]

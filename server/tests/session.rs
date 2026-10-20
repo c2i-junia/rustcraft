@@ -16,8 +16,8 @@ use shared::players::{Inventory, Player};
 use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
     chunk_distance, global_block_to_chunk_pos, grid_slot, raycast, to_local_pos,
-    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap,
-    FaceDirectionExt, ItemId, ItemStack, WeatherKind,
+    world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap, FaceDirection,
+    FaceDirectionExt, ItemId, ItemStack, Portal, PortalColor, WeatherKind,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -2140,4 +2140,78 @@ fn a_survival_player_is_hurt_by_a_fall_dies_of_a_higher_one_and_respawns_at_the_
     client.send(ClientToServerMessage::Exit);
     client.send_packets();
     server.join_after_exit();
+}
+
+/// A mod whose `/wall` builds a stone wall 4 wide and 4 high, facing +Z, 6 blocks north of its
+/// author, from 2 blocks above its centre.
+const WALL_MOD: &str = r#"
+    rustcraft.register_command("wall", function(ctx, args)
+        local p = rustcraft.player_position(ctx.player)
+        for x = -2, 1 do
+            for y = 2, 5 do
+                rustcraft.set_block({ x = p.x + x, y = p.y + y, z = p.z - 6 }, "stone")
+            end
+        end
+        return "Wall built"
+    end)
+"#;
+
+/// The portals of the next `PortalUpdates` the client receives.
+fn portal_updates(client: &mut TestClient) -> Vec<Portal> {
+    client.wait_for("PortalUpdates", |m| match m {
+        ServerToClientMessage::PortalUpdates(portals) => Some(portals.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_portal_reaches_every_player_and_goes_with_its_owner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wall_mod = tmp.path().join("mods").join("wall");
+    std::fs::create_dir_all(&wall_mod).unwrap();
+    std::fs::write(wall_mod.join("init.luau"), WALL_MOD).unwrap();
+    let server = TestServer::start_with(tmp, WORLD_NAME, false);
+
+    // A joining player is told the portals of the world: none yet
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    assert_eq!(portal_updates(&mut alice), []);
+    let (landed, _) = land_and_aim_down(&mut alice);
+    alice.send(chat_message("/wall"));
+    command_answer(&mut alice, "Wall built");
+    alice.send(chat_message("/give portal_gun 1"));
+    command_answer(&mut alice, "Gave 1 PortalGun");
+
+    let position = landed.translation;
+    let aimed = position.floor().as_ivec3() + IVec3::new(0, 3, -6);
+    let start = Instant::now();
+    while alice.world.get_block(aimed).is_none() {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "the wall never arrived");
+        alice.pump();
+    }
+    let camera = Transform::from_translation(position + Vec3::Y * 0.8)
+        .looking_at(aimed.as_vec3() + Vec3::new(0.5, 0.5, 1.0), Vec3::Y);
+    alice.send(ClientToServerMessage::PlayerInputs(vec![
+        PlayerFrameInput {
+            time_ms: 41,
+            delta_ms: 16,
+            inputs: [NetworkAction::LeftClick].into(),
+            camera,
+            ..Default::default()
+        },
+    ]));
+    let portals = portal_updates(&mut alice);
+    assert_eq!(portals.len(), 1, "{portals:?}");
+    let blue = portals[0];
+    assert_eq!((blue.owner, blue.color), (PLAYER_ID, PortalColor::Blue));
+    assert_eq!(blue.face, FaceDirection::PlusZ);
+    assert!(blue.cells().any(|cell| cell == aimed));
+
+    // Another player joining is told of it, and sees it go when its owner leaves
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut bob, "bob");
+    assert_eq!(portal_updates(&mut bob), [blue]);
+    alice.send(ClientToServerMessage::Exit);
+    alice.send_packets();
+    assert_eq!(portal_updates(&mut bob), []);
 }

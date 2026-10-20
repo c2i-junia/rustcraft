@@ -123,13 +123,20 @@ pub fn register_systems(app: &mut App) {
             world::growth::growth_system,
             world::flow::water_flow_system,
             world::weather::weather_system,
+            // After every block change of the tick
+            world::portals::remove_unfit_portals_system,
         )
             .chain()
             .in_set(ServerSet::Simulate),
     )
     .add_systems(
         FixedUpdate,
-        (broadcast_player_updates_system, broadcast_world_state).in_set(ServerSet::Broadcast),
+        (
+            broadcast_player_updates_system,
+            broadcast_world_state,
+            world::portals::broadcast_portals_system,
+        )
+            .in_set(ServerSet::Broadcast),
     )
     .add_systems(
         FixedUpdate,
