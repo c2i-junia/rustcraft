@@ -34,7 +34,8 @@ use crate::ui::widgets::hints::HintBar;
 use crate::world::clouds::mesh::CloudStyle;
 use crate::world::clouds::Clouds;
 use crate::world::{
-    BiomeBlend, RenderDistance, ServerRenderDistanceLimit, VideoSettings, MAX_BIOME_BLEND,
+    BiomeBlend, GraphicsSettings, RenderDistance, ServerRenderDistanceLimit, VideoSettings,
+    MAX_BIOME_BLEND,
 };
 
 /// A client on the settings, with the game folder `folder`.
@@ -339,6 +340,56 @@ fn the_biome_blend_moves_a_column_at_a_time_and_is_kept_with_the_render_distance
     let mut h = Harness::start(folder, Options::default());
     h.wait_for(&L::text("Singleplayer"), STARTUP);
     assert_eq!(h.world().resource::<BiomeBlend>().radius, MAX_BIOME_BLEND);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_lighting_brightness_shadows_and_effects_are_applied_and_kept() {
+    let brightness = || L::role(Role::Slider, "Brightness");
+    let readout = |text: &str| L::text(text).within(L::row("Brightness"));
+    let off = |row: &str| L::role(Role::RadioButton, "Off").within(L::row(row));
+    let folder = GameFolder::new();
+    let mut h = settings_with(folder.clone(), Options::default());
+    h.open_tab_showing("Video", &L::role(Role::RadioGroup, "Lighting"));
+    assert_eq!(
+        *h.world().resource::<GraphicsSettings>(),
+        GraphicsSettings::default()
+    );
+    h.wait_for(&readout("+50%"), SCREEN);
+
+    h.click(&L::role(Role::RadioButton, "Flat"));
+    h.click(&off("Shadows"));
+    h.click(&off("Effects"));
+    h.click(&brightness());
+    for _ in 0..12 {
+        h.press(KeyCode::ArrowLeft);
+    }
+    h.wait_for(&readout("Moody"), SCREEN);
+    h.press(KeyCode::ArrowRight);
+    h.wait_for(&readout("+5%"), SCREEN);
+    let expected = GraphicsSettings {
+        smooth_lighting: false,
+        brightness: 0.05,
+        shadows: false,
+        effects: false,
+    };
+    h.wait_until("the graphics settings applied", SCREEN, |w| {
+        *w.resource::<GraphicsSettings>() == expected
+    });
+    let saved: VideoSettings = h.saved(VIDEO_SETTINGS_PATH);
+    assert_eq!(
+        (saved.smooth_lighting, saved.shadows, saved.effects),
+        (false, false, false)
+    );
+    assert_eq!(saved.brightness, 0.05);
+    // Saving them keeps the render distance
+    assert_eq!(saved.render_distance, DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS);
+    drop(h);
+
+    // the choices are kept for the next start
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(*h.world().resource::<GraphicsSettings>(), expected);
 }
 
 #[test]

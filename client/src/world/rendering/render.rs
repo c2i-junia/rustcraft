@@ -27,10 +27,11 @@ use crate::{
 
 use crate::world::{
     group_of, group_origin, BlockChanged, ChunkLoadEvent, ChunkRender, ClientWorldMap,
-    RenderDistance, ServerRenderDistanceLimit, GROUP_WIDTH,
+    GraphicsSettings, RenderDistance, ServerRenderDistanceLimit, WorldBiomes, GROUP_WIDTH,
 };
 
-use super::meshing::ChunkMeshResponse;
+use super::lighting::{chunks_lighting, LightVolume, TerrainPrior, TerrainSurfaces, MAX_LIGHT};
+use super::meshing::{ChunkMeshResponse, Lighting};
 
 #[derive(Debug)]
 pub struct MeshingTask {
@@ -203,6 +204,34 @@ fn chunks_touched_by_block(block_pos: IVec3) -> Vec<IVec3> {
     touched
 }
 
+/// A chunk of each group whose light the block at `block_pos` may change: the light goes no
+/// farther than `MAX_LIGHT` blocks, and a group is lit and meshed as whole columns of chunks.
+fn chunks_lit_by_block(block_pos: IVec3) -> Vec<IVec3> {
+    let reach = i32::from(MAX_LIGHT);
+    let mut groups = Vec::new();
+    let mut lit = Vec::new();
+    for x in [-reach, 0, reach] {
+        for z in [-reach, 0, reach] {
+            let chunk_pos = global_block_to_chunk_pos(&(block_pos + IVec3::new(x, 0, z)));
+            if !groups.contains(&group_of(chunk_pos)) {
+                groups.push(group_of(chunk_pos));
+                lit.push(chunk_pos);
+            }
+        }
+    }
+    lit
+}
+
+/// Whether a block that went from `before` to `after` changes the light around it: what it
+/// lets through or the light it gives.
+fn lit_differently(before: Option<BlockData>, after: Option<BlockData>) -> bool {
+    let light = |block: Option<BlockData>| {
+        block.map(|block| (block.id.light_opacity(), block.id.light_emission()))
+    };
+    let clear = Some((Some(0), 0));
+    light(before).or(clear) != light(after).or(clear)
+}
+
 /// Whether a block that went from `before` to `after` is drawn the same: only the hits it took
 /// changed, and its cracks stay at the same stage.
 fn drawn_the_same(before: Option<BlockData>, after: Option<BlockData>) -> bool {
@@ -219,8 +248,9 @@ fn drawn_the_same(before: Option<BlockData>, after: Option<BlockData>) -> bool {
 }
 
 /// Asks for a new mesh of every chunk that a block changed since the last call: by the server,
-/// or by this client's own prediction. A hit that leaves the cracks of a block at the same stage
-/// changes nothing on screen: mining a block would otherwise mesh its chunk again on each hit.
+/// or by this client's own prediction, and of the groups whose light it may change. A hit that
+/// leaves the cracks of a block at the same stage changes nothing on screen: mining a block
+/// would otherwise mesh its chunk again on each hit.
 pub fn request_remesh_of_changed_blocks_system(
     mut world_map: ResMut<ClientWorldMap>,
     mut block_changes: MessageReader<BlockChanged>,
@@ -230,11 +260,19 @@ pub fn request_remesh_of_changed_blocks_system(
     // nobody told of is meshed
     let mut drawn_again = HashSet::new();
     let mut unchanged_look = HashSet::new();
+    // Likewise, the light is lit again around a change nobody told of
+    let mut unchanged_light = HashSet::new();
+    let mut lit_again = HashSet::new();
     for change in block_changes.read() {
         if drawn_the_same(change.before, change.after) {
             unchanged_look.insert(change.position);
         } else {
             drawn_again.insert(change.position);
+        }
+        if lit_differently(change.before, change.after) {
+            lit_again.insert(change.position);
+        } else {
+            unchanged_light.insert(change.position);
         }
     }
     let chunks_to_remesh: HashSet<IVec3> = world_map
@@ -242,7 +280,13 @@ pub fn request_remesh_of_changed_blocks_system(
         .take_changed_blocks()
         .into_iter()
         .filter(|pos| !unchanged_look.contains(pos) || drawn_again.contains(pos))
-        .flat_map(chunks_touched_by_block)
+        .flat_map(|pos| {
+            let relit = !unchanged_light.contains(&pos) || lit_again.contains(&pos);
+            let lit = relit.then(|| chunks_lit_by_block(pos));
+            chunks_touched_by_block(pos)
+                .into_iter()
+                .chain(lit.into_iter().flatten())
+        })
         .collect();
     for chunk_pos in chunks_to_remesh {
         ev_render.write(WorldRenderRequestUpdateEvent::ChunkToReload(chunk_pos));
@@ -386,8 +430,9 @@ pub fn world_render_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut commands: Commands,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
-    render_distance: Res<RenderDistance>,
-    server_limit: Option<Res<ServerRenderDistanceLimit>>,
+    (render_distance, server_limit): (Res<RenderDistance>, Option<Res<ServerRenderDistanceLimit>>),
+    (biomes, graphics): (Option<Res<WorldBiomes>>, Res<GraphicsSettings>),
+    mut surfaces: Local<Option<Arc<TerrainSurfaces>>>,
 ) {
     // A set, so that a chunk asked for several times is meshed once
     requested_chunks.extend(
@@ -440,10 +485,21 @@ pub fn world_render_system(
         .map(|group| (group, chunks_to_mesh(&world_map, group).collect()))
         .collect();
     if !groups.is_empty() {
+        // Kept for the world, whose terrain they are
+        let noises = biomes.map(|biomes| biomes.0.clone());
+        let same_world = match (surfaces.as_ref(), noises.as_ref()) {
+            (Some(surfaces), Some(noises)) => Arc::ptr_eq(&surfaces.noises, noises),
+            (kept, noises) => kept.is_none() && noises.is_none(),
+        };
+        if !same_world {
+            *surfaces = noises.map(TerrainSurfaces::new);
+        }
+        let alone = queued_meshes.meshes.is_empty() && groups.len() == 1;
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
             &block_textures.tiles,
             groups,
+            (surfaces.clone(), graphics.smooth_lighting, alone),
         ));
     }
 
@@ -553,22 +609,28 @@ pub(crate) static MESHES_STARTED: std::sync::atomic::AtomicUsize =
 pub(crate) static MESHES_SHOWN: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
-/// Starts meshing each of `groups`, in this order: one mesh of the chunks given with each. The
-/// tasks share one copy of the chunks they read: theirs and those around each that
-/// `read_by_mesh` gives, as a mesh depends on the neighbours of its chunk. Copying the whole
-/// world instead would stall the frame once it is large.
+/// Starts meshing each of `groups`, in this order: one mesh of the chunks given with each, lit
+/// by the light of the group (`LightVolume`), where the terrain `surfaces` say what the chunks
+/// that are not loaded hold, and smoothly if `smooth` (`Lighting`). The chunks of a group are
+/// meshed side by side if it is `alone`, the only mesh being made. The tasks share one copy of
+/// the chunks they read: theirs, those around each that `read_by_mesh` gives, as a mesh depends
+/// on the neighbours of its chunk, and those its light depends on. Copying the whole world
+/// instead would stall the frame once it is large.
 pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
     tiles: &HashMap<String, u32>,
     groups: Vec<(IVec2, Vec<IVec3>)>,
+    (surfaces, smooth, alone): (Option<Arc<TerrainSurfaces>>, bool, bool),
 ) -> Vec<MeshingTask> {
     let pool = AsyncComputeTaskPool::get();
     let mut nearby = ChunkMap::default();
-    for chunk_pos in groups
-        .iter()
-        .flat_map(|(_, chunks)| chunks)
-        .flat_map(|chunk_pos| read_by_mesh().map(move |offset| *chunk_pos + offset))
-    {
+    let read = groups.iter().flat_map(|(_, chunks)| {
+        let around = chunks
+            .iter()
+            .flat_map(|chunk_pos| read_by_mesh().map(move |offset| *chunk_pos + offset));
+        around.chain(chunks_lighting(blocks, chunks))
+    });
+    for chunk_pos in read {
         if let Some(chunk) = blocks.chunk(chunk_pos) {
             if !nearby.is_chunk_loaded(chunk_pos) {
                 nearby.insert_chunk(chunk_pos, chunk.clone());
@@ -585,26 +647,49 @@ pub(super) fn spawn_meshing_tasks(
             MESHES_STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let blocks = Arc::clone(&shared_blocks);
             let tiles = Arc::clone(&shared_tiles);
+            let surfaces = surfaces.clone();
             MeshingTask {
                 group,
                 mesh_request_ts: Instant::now(),
                 thread: pool.spawn(async move {
-                    // The chunks of a group are meshed side by side: a block broken is shown
-                    // as soon as when each chunk was drawn alone
-                    let faces: Vec<_> = chunks
-                        .into_iter()
-                        .map(|chunk_pos| {
-                            let blocks = Arc::clone(&blocks);
-                            let tiles = Arc::clone(&tiles);
-                            pool.spawn(async move {
-                                world::meshing::chunk_faces_at(&blocks, chunk_pos, &tiles)
+                    let mut prior = TerrainPrior::new(surfaces);
+                    let light = Arc::new(LightVolume::of_chunks(&blocks, &chunks, &mut prior));
+                    let mut meshed = Vec::with_capacity(chunks.len());
+                    if alone {
+                        // Side by side: a block broken is shown as soon as when each chunk was
+                        // drawn alone
+                        let faces: Vec<_> = chunks
+                            .into_iter()
+                            .map(|chunk_pos| {
+                                let blocks = Arc::clone(&blocks);
+                                let tiles = Arc::clone(&tiles);
+                                let light = Arc::clone(&light);
+                                pool.spawn(async move {
+                                    let lighting = Lighting {
+                                        volume: &light,
+                                        smooth,
+                                    };
+                                    world::meshing::chunk_faces_at(
+                                        &blocks, chunk_pos, &tiles, lighting,
+                                    )
                                     .map(|faces| (chunk_pos, faces))
+                                })
                             })
-                        })
-                        .collect();
-                    let mut meshed = Vec::with_capacity(faces.len());
-                    for task in faces {
-                        meshed.extend(task.await);
+                            .collect();
+                        for task in faces {
+                            meshed.extend(task.await);
+                        }
+                    } else {
+                        // In turn: tasks of its own would wait behind the light of every other
+                        // group, which delays the nearest
+                        let lighting = Lighting {
+                            volume: &light,
+                            smooth,
+                        };
+                        meshed.extend(chunks.into_iter().filter_map(|chunk_pos| {
+                            world::meshing::chunk_faces_at(&blocks, chunk_pos, &tiles, lighting)
+                                .map(|faces| (chunk_pos, faces))
+                        }));
                     }
                     world::meshing::group_mesh(meshed, group_origin(group))
                 }),
@@ -625,18 +710,25 @@ pub fn chunk_force_reload_system(
     if *ui_mode == UIMode::Closed
         && is_action_just_pressed(GameAction::ReloadChunks, &keyboard_input, &key_map)
     {
-        for chunk in world_map.render.values_mut() {
-            // Despawn the group's entities
-            for entity in [chunk.entity.take(), chunk.liquid_entity.take()]
-                .into_iter()
-                .flatten()
-            {
-                commands.entity(entity).despawn();
-            }
-            // Request a render for this group
-            for pos in &chunk.chunks {
-                ev_writer.write(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
-            }
+        respawn_every_group(&mut world_map, &mut commands, &mut ev_writer);
+    }
+}
+
+/// Despawns the entities of every group and meshes each again, into new entities.
+pub(crate) fn respawn_every_group(
+    world_map: &mut ClientWorldMap,
+    commands: &mut Commands,
+    ev_writer: &mut MessageWriter<WorldRenderRequestUpdateEvent>,
+) {
+    for chunk in world_map.render.values_mut() {
+        for entity in [chunk.entity.take(), chunk.liquid_entity.take()]
+            .into_iter()
+            .flatten()
+        {
+            commands.entity(entity).despawn();
+        }
+        for pos in &chunk.chunks {
+            ev_writer.write(WorldRenderRequestUpdateEvent::ChunkToReload(*pos));
         }
     }
 }
@@ -768,6 +860,44 @@ mod tests {
     }
 
     #[test]
+    fn a_block_relights_the_groups_within_the_reach_of_the_light() {
+        let groups = |pos| {
+            let mut groups: Vec<_> = chunks_lit_by_block(pos).into_iter().map(group_of).collect();
+            groups.sort_by_key(|g| (g.x, g.y));
+            groups
+        };
+        // In the middle of a group, the light stays in it
+        let middle = GROUP_WIDTH * CHUNK_SIZE / 2;
+        assert_eq!(groups(IVec3::new(middle, 5, middle)), vec![IVec2::ZERO]);
+        // Near a corner, it reaches the three groups around the corner
+        assert_eq!(
+            groups(IVec3::new(2, 5, 2)),
+            vec![
+                IVec2::new(-1, -1),
+                IVec2::new(-1, 0),
+                IVec2::new(0, -1),
+                IVec2::ZERO
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_block_that_lets_another_light_through_or_gives_another_relights() {
+        let block = |id| Some(BlockData::new(id, BlockDirection::Front));
+        assert!(lit_differently(None, block(BlockId::Stone)));
+        assert!(lit_differently(
+            block(BlockId::Glass),
+            block(BlockId::OakLeaves)
+        ));
+        assert!(!lit_differently(
+            block(BlockId::Stone),
+            block(BlockId::Dirt)
+        ));
+        // Air and a flower let the light through alike
+        assert!(!lit_differently(None, block(BlockId::Poppy)));
+    }
+
+    #[test]
     fn an_inner_block_touches_only_its_own_chunk() {
         assert_eq!(
             chunks_touched_by_block(IVec3::new(5, 6, 7)),
@@ -843,7 +973,12 @@ mod tests {
         world.set_block(IVec3::new(CHUNK_SIZE, 5, 5), stone);
         let tiles = HashMap::from([("_Default".to_string(), 0)]);
 
-        let tasks = spawn_meshing_tasks(&world, &tiles, vec![(IVec2::ZERO, vec![IVec3::ZERO])]);
+        let tasks = spawn_meshing_tasks(
+            &world,
+            &tiles,
+            vec![(IVec2::ZERO, vec![IVec3::ZERO])],
+            (None, true, true),
+        );
 
         let meshes = block_on(tasks.into_iter().next().unwrap().thread);
         let in_place = world::meshing::generate_chunk_mesh(
@@ -877,7 +1012,12 @@ mod tests {
         let group = group_of(chunks[0]);
         assert_eq!(group, group_of(chunks[1]));
 
-        let tasks = spawn_meshing_tasks(&world, &tiles, vec![(group, chunks.to_vec())]);
+        let tasks = spawn_meshing_tasks(
+            &world,
+            &tiles,
+            vec![(group, chunks.to_vec())],
+            (None, true, true),
+        );
         let mesh = block_on(tasks.into_iter().next().unwrap().thread)
             .solid_mesh
             .unwrap();

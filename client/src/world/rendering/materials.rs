@@ -1,14 +1,15 @@
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
-use crate::world::{new_climate_map, GlobalMaterial};
+use crate::world::voxel::FaceColor;
+use crate::world::{new_climate_map, GlobalMaterial, GraphicsSettings, BLOCK_LIGHT};
 use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, Extent3d, Face, TextureDimension, TextureFormat, TextureViewDescriptor,
-    TextureViewDimension,
+    AsBindGroup, Extent3d, Face, ShaderType, TextureDimension, TextureFormat,
+    TextureViewDescriptor, TextureViewDimension,
 };
 use bevy::shader::ShaderRef;
 use serde::Deserialize;
@@ -87,7 +88,7 @@ pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
 /// The block textures for `chunk.wgsl`: the array of their layers, and for each texture of the
 /// table its first layer, its number of frames, the time of a frame and whether frames fade.
 /// With them, what the grass and the leaves are coloured with: the climate around the player
-/// and the colour maps of the texture pack (see `climate.rs`).
+/// and the colour maps of the texture pack (see `climate.rs`), and how the faces are shaded.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct BlockLayers {
     #[uniform(100)]
@@ -101,10 +102,63 @@ pub struct BlockLayers {
     pub grass_colors: Handle<Image>,
     #[texture(105)]
     pub foliage_colors: Handle<Image>,
+    #[uniform(106)]
+    pub shading: ChunkShading,
+}
+
+/// The bits of `ChunkShading::effects`: the plants sway in the wind, and the water ripples and
+/// reflects the light.
+pub const EFFECT_SWAY: u32 = 1;
+pub const EFFECT_WATER: u32 = 2;
+
+/// How `chunk.wgsl` shades the faces, from the graphics settings (`GraphicsSettings`). Changing
+/// it makes Bevy prepare every chunk drawn again: it only changes with a setting.
+#[derive(ShaderType, Clone, Copy, Debug, PartialEq)]
+pub struct ChunkShading {
+    /// The colours of `FaceColor`, by index.
+    pub palette: [Vec4; 4],
+    /// `GraphicsSettings::brightness`.
+    pub brightness: f32,
+    /// How bright the full light of the blocks is, as the brightness of an ambient light.
+    pub block_light: f32,
+    /// `EFFECT_SWAY` and `EFFECT_WATER`, as the settings turn them on.
+    pub effects: u32,
+    /// 1 for the material of the liquids, whose surface the water effect draws.
+    pub liquid: u32,
+}
+
+impl ChunkShading {
+    /// The shading of the solid faces, or of the liquids if `liquid`, with `settings`.
+    pub fn new(settings: &GraphicsSettings, liquid: bool) -> Self {
+        let mut palette = [Vec4::ONE; 4];
+        for color in FaceColor::ALL {
+            palette[color.index() as usize] = Vec4::from(color.rgba());
+        }
+        let effects = if settings.effects {
+            EFFECT_SWAY | EFFECT_WATER
+        } else {
+            0
+        };
+        Self {
+            palette,
+            brightness: settings.brightness,
+            block_light: BLOCK_LIGHT,
+            effects,
+            liquid: liquid as u32,
+        }
+    }
 }
 
 impl MaterialExtension for BlockLayers {
+    fn vertex_shader() -> ShaderRef {
+        CHUNK_SHADER.into()
+    }
+
     fn fragment_shader() -> ShaderRef {
+        CHUNK_SHADER.into()
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
         CHUNK_SHADER.into()
     }
 
@@ -299,7 +353,9 @@ pub fn create_all_atlases(
     mut texture_atlases: ResMut<Assets<TextureAtlasLayout>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut chunk_materials: ResMut<Assets<ChunkMaterial>>,
+    graphics: Option<Res<GraphicsSettings>>,
 ) {
+    let graphics = graphics.map(|graphics| *graphics).unwrap_or_default();
     let textured = |texture: Option<Handle<Image>>, alpha_mode| StandardMaterial {
         base_color_texture: texture,
         perceptual_roughness: BASE_ROUGHNESS,
@@ -317,22 +373,32 @@ pub fn create_all_atlases(
                 climate: material_resource.climate_map.clone(),
                 grass_colors: material_resource.grass_colors.clone(),
                 foliage_colors: material_resource.foliage_colors.clone(),
+                shading: ChunkShading::new(&graphics, false),
             };
-            let chunk_material = |base| ChunkMaterial {
+            let chunk_material = |base, liquid| ChunkMaterial {
                 base,
-                extension: extension.clone(),
+                extension: BlockLayers {
+                    shading: ChunkShading::new(&graphics, liquid),
+                    ..extension.clone()
+                },
             };
             material_resource.chunk_materials.insert(
                 GlobalMaterial::Blocks,
-                chunk_materials.add(chunk_material(textured(None, AlphaMode::AlphaToCoverage))),
+                chunk_materials.add(chunk_material(
+                    textured(None, AlphaMode::AlphaToCoverage),
+                    false,
+                )),
             );
             // A liquid is seen through, and from below its surface too
             material_resource.chunk_materials.insert(
                 GlobalMaterial::Liquids,
-                chunk_materials.add(chunk_material(StandardMaterial {
-                    cull_mode: None,
-                    ..textured(None, AlphaMode::Blend)
-                })),
+                chunk_materials.add(chunk_material(
+                    StandardMaterial {
+                        cull_mode: None,
+                        ..textured(None, AlphaMode::Blend)
+                    },
+                    true,
+                )),
             );
             material_resource.blocks = Some(blocks);
         }

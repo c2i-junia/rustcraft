@@ -45,6 +45,53 @@ impl BiomeTint {
     }
 }
 
+/// The colour a face is drawn with where no colour map colours it: one of the few that
+/// `chunk.wgsl` holds, by `index` (`ChunkShading::palette`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FaceColor {
+    #[default]
+    White,
+    Grass,
+    Water,
+}
+
+impl FaceColor {
+    /// Every colour, in the order of their indices.
+    pub const ALL: [FaceColor; 3] = [FaceColor::White, FaceColor::Grass, FaceColor::Water];
+
+    /// The number that names the colour in `UV_1.y` of a chunk mesh, as `chunk.wgsl` reads it.
+    pub fn index(self) -> u16 {
+        self as u16
+    }
+
+    pub fn rgba(self) -> [f32; 4] {
+        match self {
+            FaceColor::White => [1.0; 4],
+            FaceColor::Grass => GRASS_COLOR,
+            FaceColor::Water => WATER_COLOR,
+        }
+    }
+}
+
+/// How a face moves in the wind, in `chunk.wgsl`: each point of it by how far it is from the
+/// ground, so that the faces of two blocks never part.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Sway {
+    #[default]
+    None,
+    /// As leaves: every point a little.
+    Whole,
+    /// As a plant rooted in the block below: its top only.
+    Top,
+}
+
+impl Sway {
+    /// The number that names the sway in `UV_1.y` of a chunk mesh, as `chunk.wgsl` reads it.
+    pub fn index(self) -> u16 {
+        self as u16
+    }
+}
+
 /// Structure for cube voxel rendering
 #[derive(Clone)]
 pub struct Face {
@@ -52,18 +99,17 @@ pub struct Face {
     pub vertices: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
     pub normals: Vec<[f32; 3]>,
-    pub colors: Vec<[f32; 4]>,
     pub uvs: Vec<[f32; 2]>,
     pub texture: String,
-    /// The colour map that replaces the colour of the vertices in the world, where the climate
-    /// is known. An item keeps the colour of the vertices.
+    /// The colour of the face where no colour map colours it: an item keeps it.
+    pub color: FaceColor,
+    /// The colour map that replaces `color` in the world, where the climate is known.
     pub biome_tint: BiomeTint,
     /// A texture drawn over `texture`, as the second element of a Minecraft model: the colour
-    /// of the face, from its vertices or its colour map, then colours the overlay only.
+    /// of the face, `color` or from its colour map, then colours the overlay only.
     pub overlay: Option<String>,
+    pub sway: Sway,
 }
-
-const WHITE: [f32; 4] = [1.0; 4];
 
 impl Face {
     /// A flat square: four vertices that share one normal, split in two triangles by `indices`.
@@ -80,22 +126,19 @@ impl Face {
             vertices: vertices.to_vec(),
             indices: indices.to_vec(),
             normals: vec![normal; 4],
-            colors: vec![WHITE; 4],
             uvs: uvs.to_vec(),
             texture: texture.to_string(),
+            color: FaceColor::White,
             biome_tint: BiomeTint::None,
             overlay: None,
+            sway: Sway::None,
         }
-    }
-
-    fn tint(&mut self, color: [f32; 4]) {
-        self.colors.fill(color);
     }
 
     /// Colours the face with the colour map `biome_tint` in the world, and with `color` where the
     /// climate is not known.
-    fn biome_tint(&mut self, biome_tint: BiomeTint, color: [f32; 4]) {
-        self.tint(color);
+    fn biome_tint(&mut self, biome_tint: BiomeTint, color: FaceColor) {
+        self.color = color;
         self.biome_tint = biome_tint;
     }
 
@@ -103,7 +146,7 @@ impl Face {
     /// only, so the face is not coloured either.
     pub fn remove_overlay(&mut self) {
         self.overlay = None;
-        self.biome_tint(BiomeTint::None, WHITE);
+        self.biome_tint(BiomeTint::None, FaceColor::White);
     }
 }
 
@@ -126,10 +169,10 @@ impl VoxelShape {
                 // dirt under a grey overlay that is tinted, and the bottom is dirt
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
-                shape.faces[TOP].biome_tint(BiomeTint::Grass, GRASS_COLOR);
+                shape.faces[TOP].biome_tint(BiomeTint::Grass, FaceColor::Grass);
                 shape.faces[BOTTOM].texture = "Dirt".into();
                 for side in shape.faces.iter_mut().skip(BOTTOM + 1) {
-                    side.biome_tint(BiomeTint::Grass, GRASS_COLOR);
+                    side.biome_tint(BiomeTint::Grass, FaceColor::Grass);
                     side.overlay = Some("GrassSideOverlay".into());
                 }
                 shape
@@ -155,8 +198,12 @@ impl VoxelShape {
                 shape
             }
             // Like Minecraft's, the needles of the spruce are of one colour everywhere
-            BlockId::OakLeaves => Self::full_cube(block).biome_tinted(BiomeTint::Foliage),
-            BlockId::SpruceLeaves => Self::full_cube(block).tinted(GRASS_COLOR),
+            BlockId::OakLeaves => Self::full_cube(block)
+                .biome_tinted(BiomeTint::Foliage)
+                .swaying(Sway::Whole),
+            BlockId::SpruceLeaves => Self::full_cube(block)
+                .tinted(FaceColor::Grass)
+                .swaying(Sway::Whole),
             BlockId::Debug => {
                 let mut shape = Self::full_cube(block);
                 let names = ["Top", "Down", "Front", "Back", "Left", "Right"];
@@ -165,10 +212,13 @@ impl VoxelShape {
                 }
                 shape
             }
-            BlockId::Poppy | BlockId::Dandelion => Self::flora(block),
-            BlockId::TallGrass => Self::flora(block).biome_tinted(BiomeTint::Grass),
+            BlockId::Poppy | BlockId::Dandelion => Self::flora(block).swaying(Sway::Top),
+            BlockId::Torch => Self::torch(block),
+            BlockId::TallGrass => Self::flora(block)
+                .biome_tinted(BiomeTint::Grass)
+                .swaying(Sway::Top),
             // Its texture is grey too
-            BlockId::Water => Self::full_cube(block).tinted(WATER_COLOR),
+            BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
             _ => Self::full_cube(block),
         }
     }
@@ -194,9 +244,9 @@ impl VoxelShape {
         self
     }
 
-    fn tinted(mut self, color: [f32; 4]) -> Self {
+    fn tinted(mut self, color: FaceColor) -> Self {
         for face in self.faces.iter_mut() {
-            face.tint(color);
+            face.color = color;
         }
         self
     }
@@ -205,7 +255,14 @@ impl VoxelShape {
     /// not known.
     fn biome_tinted(mut self, biome_tint: BiomeTint) -> Self {
         for face in self.faces.iter_mut() {
-            face.biome_tint(biome_tint, GRASS_COLOR);
+            face.biome_tint(biome_tint, FaceColor::Grass);
+        }
+        self
+    }
+
+    fn swaying(mut self, sway: Sway) -> Self {
+        for face in self.faces.iter_mut() {
+            face.sway = sway;
         }
         self
     }
@@ -274,6 +331,33 @@ impl VoxelShape {
         }
     }
 
+    /// A stick standing in the middle of the block, as Minecraft's model of the torch: the
+    /// texture on four planes two pixels apart, which show the stick and the flame from every
+    /// side, under a cap and over a bottom cut from the texture.
+    pub fn torch(block: &BlockData) -> VoxelShape {
+        const NEAR: f32 = 7. / 16.;
+        const FAR: f32 = 9. / 16.;
+        const TOP: f32 = 10. / 16.;
+        let mut shape = Self::full_cube(block);
+        for face in shape.faces.iter_mut() {
+            let across = Vec3::from(face.normals[0]).abs().max_position();
+            for (vertex, uv) in face.vertices.iter_mut().zip(face.uvs.iter_mut()) {
+                if across == 1 {
+                    // The cap and the bottom: the middle of the stick
+                    vertex[0] = NEAR + vertex[0] * (FAR - NEAR);
+                    vertex[2] = NEAR + vertex[2] * (FAR - NEAR);
+                    let first_row = if vertex[1] == 1. { 6. } else { 13. };
+                    *uv = [(7. + uv[0] * 2.) / 16., (first_row + uv[1] * 2.) / 16.];
+                    vertex[1] = vertex[1].min(TOP);
+                } else {
+                    vertex[across] = if vertex[across] == 0. { NEAR } else { FAR };
+                }
+            }
+            face.direction = FaceDirection::Inset;
+        }
+        shape
+    }
+
     pub fn flora(block: &BlockData) -> VoxelShape {
         VoxelShape {
             faces: vec![Face {
@@ -308,7 +392,6 @@ impl VoxelShape {
                     [-0.5, 0., 0.5],
                     [-0.5, 0., -0.5],
                 ],
-                colors: vec![WHITE; 8],
                 uvs: vec![
                     [0., 1.],
                     [0., 1.],
@@ -320,8 +403,10 @@ impl VoxelShape {
                     [1., 0.],
                 ],
                 texture: format!("{:?}", block.id),
+                color: FaceColor::White,
                 biome_tint: BiomeTint::None,
                 overlay: None,
+                sway: Sway::None,
             }],
         }
     }
@@ -360,16 +445,16 @@ mod tests {
     fn grass_and_logs_have_their_own_top_texture() {
         let grass = shape_of(BlockId::Grass);
         assert_eq!(grass.faces[TOP].texture, "GrassTop");
-        assert_eq!(grass.faces[TOP].colors, vec![GRASS_COLOR; 4]);
+        assert_eq!(grass.faces[TOP].color, FaceColor::Grass);
         assert_eq!(grass.faces[BOTTOM].texture, "Dirt");
-        assert_eq!(grass.faces[BOTTOM].colors, vec![WHITE; 4]);
+        assert_eq!(grass.faces[BOTTOM].color, FaceColor::White);
         assert_eq!(grass.faces[BOTTOM].overlay, None);
         // The sides: dirt under the tinted overlay, as the model of the texture pack
         for side in &grass.faces[BOTTOM + 1..] {
             assert_eq!(side.texture, "Grass");
             assert_eq!(side.overlay.as_deref(), Some("GrassSideOverlay"));
             assert_eq!(side.biome_tint, BiomeTint::Grass);
-            assert_eq!(side.colors, vec![GRASS_COLOR; 4]);
+            assert_eq!(side.color, FaceColor::Grass);
         }
 
         let log = shape_of(BlockId::OakLog);
@@ -419,11 +504,50 @@ mod tests {
             (BlockId::SpruceLeaves, BiomeTint::None),
         ] {
             for face in shape_of(id).faces {
-                assert!(
-                    face.colors.iter().all(|color| *color == GRASS_COLOR),
-                    "{id:?}"
-                );
+                assert_eq!(face.color, FaceColor::Grass, "{id:?}");
                 assert_eq!(face.biome_tint, biome_tint, "{id:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_torch_is_a_stick_in_the_middle_of_its_block_drawn_from_every_side() {
+        let torch = shape_of(BlockId::Torch);
+        assert_eq!(torch.faces.len(), 6);
+        for face in &torch.faces {
+            assert!(matches!(face.direction, FaceDirection::Inset));
+            assert_eq!(face.texture, "Torch");
+            // Each face lies within the stick, across its normal
+            let across = Vec3::from(face.normals[0]).abs().max_position();
+            for vertex in &face.vertices {
+                let middle = if across == 1 { 0 } else { across };
+                assert!(
+                    (7. / 16. ..=9. / 16.).contains(&vertex[middle]),
+                    "{vertex:?}"
+                );
+            }
+        }
+        // The planes span the height of the texture, the cap stops at the top of the stick
+        assert!(torch.faces[2].vertices.iter().any(|v| v[1] == 1.));
+        assert!(torch.faces[TOP].vertices.iter().all(|v| v[1] == 10. / 16.));
+        assert!(torch.faces[TOP]
+            .uvs
+            .iter()
+            .all(|uv| (7. / 16. ..=9. / 16.).contains(&uv[0])));
+    }
+
+    #[test]
+    fn leaves_sway_whole_and_plants_by_their_top_and_the_rest_stands_still() {
+        for (id, sway) in [
+            (BlockId::OakLeaves, Sway::Whole),
+            (BlockId::SpruceLeaves, Sway::Whole),
+            (BlockId::TallGrass, Sway::Top),
+            (BlockId::Poppy, Sway::Top),
+            (BlockId::Grass, Sway::None),
+            (BlockId::Water, Sway::None),
+        ] {
+            for face in shape_of(id).faces {
+                assert_eq!(face.sway, sway, "{id:?}");
             }
         }
     }

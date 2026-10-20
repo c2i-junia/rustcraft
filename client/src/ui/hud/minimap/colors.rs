@@ -70,7 +70,7 @@ pub fn compute_minimap_colors(
         // the top face of a cube, or the only face of a plant
         let top = shape.faces.first()?;
         let image = images.get(blocks.handles.get(&top.texture)?)?;
-        let mut color = mean_color(image, top.colors[0])?;
+        let mut color = mean_color(image, top.color.rgba())?;
         if id.get_visibility() == BlockTransparency::Transparent {
             color = color.map(|channel| (f32::from(channel) * CANOPY_SHADE).round() as u8);
         }

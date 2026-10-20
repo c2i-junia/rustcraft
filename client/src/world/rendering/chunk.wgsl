@@ -1,26 +1,36 @@
 // The chunks are drawn with the block textures, the layers of a texture array: `uv_b.x` is the
 // index of the texture of a face in `block_textures`, and `uv` the place in it. A face that spans
-// several blocks has its `uv` go past 1, and the texture repeats across it. `uv_b.y` names the
-// colour map that colours the face from the climate of its column, if any (`BiomeTint`), plus
-// `BIOME_TINTS` times one more than the index of the texture drawn over the face, if any: the
-// colour then goes to that overlay only (`colouring` in `meshing.rs`). Both come as fractions of
-// 65535 (`TILE` in `meshing.rs`).
+// several blocks has its `uv` go past 1, and the texture repeats across it. `uv_b.y` says how the
+// face is coloured and how it sways (`Colouring::code` in `meshing.rs`): the colour map that
+// colours it from the climate of its column, if any (`BiomeTint`), the colour it takes otherwise
+// (`FaceColor`), the sway (`Sway`), and one more than the index of the texture drawn over the
+// face, if any: the colour then goes to that overlay only. Both come as fractions of 65535 (`TILE`
+// in `meshing.rs`).
+//
+// The vertex colour is the light of the vertex (`LIGHT` in `meshing.rs`): the light levels of
+// the sky and of the blocks, and the ambient occlusion. The light of the sky dims what Bevy's
+// sun, moon and ambient light give, so that a cave is dark, and the light of the blocks adds
+// to it.
 
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::alpha_discard
+#import bevy_pbr::{mesh_functions, view_transformations::position_world_to_clip}
 
 #ifdef PREPASS_PIPELINE
 #import bevy_pbr::{
-    prepass_io::{VertexOutput, FragmentOutput},
+    prepass_io::{Vertex, VertexOutput, FragmentOutput},
     pbr_bindings,
     pbr_prepass_functions,
     pbr_functions::prepare_world_normal,
     pbr_types,
 }
+#import bevy_render::globals::Globals
+// Bound to the prepass too, where `mesh_view_bindings` has other bindings
+@group(0) @binding(1) var<uniform> globals: Globals;
 #else
 #import bevy_pbr::{
-    forward_io::{VertexOutput, FragmentOutput},
-    mesh_view_bindings::globals,
+    forward_io::{Vertex, VertexOutput, FragmentOutput},
+    mesh_view_bindings::{globals, lights, view},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
     pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT,
 }
@@ -40,20 +50,148 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var grass_colors: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(105) var foliage_colors: texture_2d<f32>;
 
-// The values of `BiomeTint::index`, and how many it may take
+// `ChunkShading` in `materials.rs`
+struct ChunkShading {
+    // The colours of `FaceColor`, by index
+    palette: array<vec4<f32>, 4>,
+    // From 0 to 1, how much the dim light is brightened
+    brightness: f32,
+    // How bright the full light of the blocks is, as an ambient light
+    block_light: f32,
+    // `EFFECT_SWAY` and `EFFECT_WATER`
+    effects: u32,
+    // 1 for the material of the liquids
+    liquid: u32,
+}
+@group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> shading: ChunkShading;
+
+// The values of `BiomeTint::index`
 const BIOME_TINT_GRASS: u32 = 1u;
 const BIOME_TINT_FOLIAGE: u32 = 2u;
-const BIOME_TINTS: u32 = 4u;
+// The values of `Sway::index`
+const SWAY_WHOLE: u32 = 1u;
+const SWAY_TOP: u32 = 2u;
+// The bits of `ChunkShading::effects`
+const EFFECT_SWAY: u32 = 1u;
+const EFFECT_WATER: u32 = 2u;
+// The highest light level, `MAX_LIGHT`
+const MAX_LIGHT: f32 = 15.0;
+// The colour of the light of the blocks, as of a flame
+const BLOCK_LIGHT_COLOR: vec3<f32> = vec3(1.0, 0.82, 0.6);
+// The colour of the sky, `SKY_COLOR` in `underwater.rs`, in linear values: what the water
+// reflects
+const SKY_COLOR: vec3<f32> = vec3(0.178, 0.346, 0.474);
+// The brightness of the ambient light at noon, `DAY_AMBIENT` in `graphics.rs`: when the water
+// reflects the sky as bright as it is drawn
+const DAY_AMBIENT: f32 = 400.0;
 
-// How long the game has been drawing, in seconds, which plays the animated textures. The
-// prepass has no such binding: it draws their first frame, which only matters for the pixels
-// it discards.
+// How long the game has been drawing, in seconds, which plays the animated textures and sways
+// the plants.
 fn seconds() -> f32 {
-#ifdef PREPASS_PIPELINE
-    return 0.0;
-#else
     return globals.time;
+}
+
+// How a face is coloured and how it sways, from `uv_b.y`.
+struct Colouring {
+    biome_tint: u32,
+    color: u32,
+    sway: u32,
+    // One more than the overlay, 0 for none
+    overlay: u32,
+}
+
+// The index in `uv_b`, from a fraction of 65535. It is rounded, as interpolating it may stray
+// from it, if by little.
+fn index_of(fraction: f32) -> u32 {
+    return u32(round(fraction * 65535.0));
+}
+
+fn colouring_of(uv_b: vec2<f32>) -> Colouring {
+    let code = index_of(uv_b.y);
+    return Colouring(code & 3u, (code >> 2u) & 3u, (code >> 4u) & 3u, code >> 6u);
+}
+
+// How far the point `at` of a face that sways as `sway` moves in the wind, in blocks: the waves
+// cross the world in gusts, alike at a point whatever face it is a corner of, so that faces that
+// meet never part. A plant sways by its top, the top of its texture, rooted below.
+fn sway_offset(sway: u32, uv: vec2<f32>, at: vec3<f32>) -> vec3<f32> {
+    if sway == 0u || (shading.effects & EFFECT_SWAY) == 0u {
+        return vec3(0.0);
+    }
+    let time = seconds();
+    let gust = 0.6 + 0.4 * sin(time * 0.37 + (at.x + at.z) * 0.031);
+    let wave = vec2(
+        sin(time * 1.7 + at.x * 0.37 + at.y * 0.21 + at.z * 0.13),
+        sin(time * 1.3 + at.z * 0.37 + at.y * 0.17 + at.x * 0.19),
+    );
+    var reach = 0.04;
+    if sway == SWAY_TOP {
+        reach = select(0.0, 0.12, uv.y < 0.5);
+    }
+    return vec3(wave.x, 0.0, wave.y) * reach * gust;
+}
+
+// What `bevy_pbr::mesh` and `bevy_pbr::prepass` do, for meshes that are neither skinned nor
+// morphed, with the plants swaying: the shadows sway with them.
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+    let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    var world_position = mesh_functions::mesh_position_local_to_world(
+        world_from_local,
+        vec4<f32>(vertex.position, 1.0),
+    );
+#ifdef VERTEX_UVS_A
+#ifdef VERTEX_UVS_B
+    let sway = colouring_of(vertex.uv_b).sway;
+    world_position = vec4(world_position.xyz + sway_offset(sway, vertex.uv, world_position.xyz), 1.0);
 #endif
+#endif
+    out.world_position = world_position;
+    out.position = position_world_to_clip(world_position.xyz);
+#ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
+    out.unclipped_depth = out.position.z;
+    out.position.z = min(out.position.z, 1.0);
+#endif
+
+#ifdef VERTEX_UVS_A
+    out.uv = vertex.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    out.uv_b = vertex.uv_b;
+#endif
+
+#ifdef PREPASS_PIPELINE
+#ifdef NORMAL_PREPASS_OR_DEFERRED_PREPASS
+#ifdef VERTEX_NORMALS
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+#endif
+#endif
+#ifdef MOTION_VECTOR_PREPASS
+    out.previous_world_position = mesh_functions::mesh_position_local_to_world(
+        mesh_functions::get_previous_world_from_local(vertex.instance_index),
+        vec4<f32>(vertex.position, 1.0),
+    );
+#endif
+#else
+#ifdef VERTEX_NORMALS
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+#endif
+#endif
+
+#ifdef VERTEX_COLORS
+    out.color = vertex.color;
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    out.instance_index = vertex.instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+        vertex.instance_index,
+        world_from_local[3],
+    );
+#endif
+    return out;
 }
 
 // The colour of the block texture `index` at `uv`, at its current frame. The layers have no
@@ -73,21 +211,9 @@ fn texture_color(index: u32, uv: vec2<f32>) -> vec4<f32> {
     return mix(color, next, fract(progress));
 }
 
-// The indices of `uv_b`, from fractions of 65535. They are rounded, as interpolating them may
-// stray from them, if by little.
-fn indices(in: VertexOutput) -> vec2<u32> {
-    return vec2<u32>(round(in.uv_b * 65535.0));
-}
-
 // The colour of the block texture of the face at `in`.
 fn block_color(in: VertexOutput) -> vec4<f32> {
-    return texture_color(indices(in).x, in.uv);
-}
-
-// The colour map of the face at `in` (`BiomeTint`), and one more than its overlay, 0 for none.
-fn colouring(in: VertexOutput) -> vec2<u32> {
-    let code = indices(in).y;
-    return vec2(code % BIOME_TINTS, code / BIOME_TINTS);
+    return texture_color(index_of(in.uv_b.x), in.uv);
 }
 
 #ifdef PREPASS_PIPELINE
@@ -175,28 +301,79 @@ fn biome_color(in: VertexOutput, tint: u32, color: vec3<f32>) -> vec3<f32> {
     return colormap_color(foliage_colors, at);
 }
 
-// What `bevy_pbr::pbr` does in forward rendering, with the block textures
+// How bright a light level looks, from 0 to 1, as Minecraft's: it falls slowly from the full
+// level, then fast, brightened by `shading.brightness`, and never quite black.
+fn level_brightness(level: f32) -> f32 {
+    let fraction = clamp(level / MAX_LIGHT, 0.0, 1.0);
+    let dim = fraction / (4.0 - 3.0 * fraction);
+    let bright = 1.0 - pow(1.0 - dim, 4.0);
+    return 0.03 + 0.97 * mix(dim, bright, shading.brightness);
+}
+
+// The normal of the surface of the water at `at`: small waves that cross it in three
+// directions, the sum of their slopes. `footprint` is how many blocks a pixel spans there: the
+// waves too short to be drawn fade out, instead of making stripes far off.
+fn water_normal(at: vec2<f32>, footprint: f32) -> vec3<f32> {
+    let time = seconds();
+    var slope = vec2(0.0);
+    let waves = array(
+        vec4(0.8, 0.6, 1.9, 1.1),
+        vec4(-0.5, 0.87, 2.7, 1.6),
+        vec4(0.2, -0.98, 4.3, 2.3),
+    );
+    for (var i = 0; i < 3; i++) {
+        let wave = waves[i];
+        let phase = dot(at, wave.xy) * wave.z + time * wave.w;
+        // Gone once the phase turns by a radian from a pixel to the next
+        let fade = 1.0 - smoothstep(0.25, 1.0, footprint * wave.z);
+        slope += wave.xy * wave.z * cos(phase) * 0.012 * fade;
+    }
+    return normalize(vec3(-slope.x, 1.0, -slope.y));
+}
+
+// What `bevy_pbr::pbr` does in forward rendering, with the block textures, lit by the light
+// levels of the vertices.
 @fragment
 fn fragment(
     vertex_output: VertexOutput,
     @builtin(front_facing) is_front: bool,
 ) -> FragmentOutput {
     var in = vertex_output;
+    let colouring = colouring_of(in.uv_b);
     var texture = block_color(in);
-#ifdef VERTEX_COLORS
-    let tint_and_overlay = colouring(in);
-    let color = biome_color(in, tint_and_overlay.x, in.color.rgb);
-    if tint_and_overlay.y == 0u {
-        in.color = vec4(color, in.color.a);
+    let color = biome_color(in, colouring.biome_tint, shading.palette[colouring.color].rgb);
+    if colouring.overlay == 0u {
+        texture = vec4(texture.rgb * color, texture.a);
     } else {
         // Only the overlay is coloured, drawn over the texture of the face
-        let overlay = texture_color(tint_and_overlay.y - 1u, in.uv);
+        let overlay = texture_color(colouring.overlay - 1u, in.uv);
         texture = vec4(mix(texture.rgb, overlay.rgb * color, overlay.a), texture.a);
-        in.color = vec4(vec3(1.0), in.color.a);
     }
+#ifdef VERTEX_COLORS
+    let light = in.color;
+    // The standard material would colour the face with it
+    in.color = vec4(1.0);
+#else
+    let light = vec4(1.0, 0.0, 1.0, 1.0);
 #endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
     pbr_input.material.base_color *= texture;
+
+    let water = shading.liquid != 0u && (shading.effects & EFFECT_WATER) != 0u;
+    var fresnel = 0.0;
+    if water {
+        // A smooth surface, rippled on top, which reflects the sky more and shows less of what
+        // lies under it the more it is seen from the side, as the Fresnel term says
+        let footprint = length(fwidth(in.world_position.xz));
+        if pbr_input.world_normal.y > 0.5 {
+            pbr_input.N = water_normal(in.world_position.xz, footprint);
+        }
+        pbr_input.material.perceptual_roughness = 0.12;
+        pbr_input.material.reflectance = vec3(0.5);
+        let facing = abs(dot(pbr_input.N, pbr_input.V));
+        fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
+        pbr_input.material.base_color.a = mix(pbr_input.material.base_color.a, 1.0, fresnel);
+    }
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
     var out: FragmentOutput;
@@ -204,6 +381,20 @@ fn fragment(
         out.color = apply_pbr_lighting(pbr_input);
     } else {
         out.color = pbr_input.material.base_color;
+    }
+    // The light of the sky dims the sun, the moon and the ambient light, and the light of the
+    // blocks, an ambient light of its own, shines where it is brighter. Each corner is shaded
+    // by the blocks around it.
+    let sky = level_brightness(light.r * MAX_LIGHT);
+    let block = level_brightness(light.g * MAX_LIGHT) * select(1.0, 0.0, light.g == 0.0);
+    let occlusion = 0.55 + 0.15 * light.b * 3.0;
+    let lit_by_blocks = pbr_input.material.base_color.rgb * block * BLOCK_LIGHT_COLOR
+        * shading.block_light * view.exposure;
+    out.color = vec4(max(out.color.rgb * sky, lit_by_blocks) * occlusion, out.color.a);
+    if water {
+        // The sky, as bright as the day is, where the water is under it
+        let daylight = lights.ambient_color.r / DAY_AMBIENT;
+        out.color = vec4(mix(out.color.rgb, SKY_COLOR * daylight * sky, fresnel), out.color.a);
     }
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;

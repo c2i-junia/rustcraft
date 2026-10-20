@@ -52,6 +52,7 @@ pub enum BlockId {
     IronOre,
     GoldOre,
     Gravel,
+    Torch,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -117,7 +118,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 28] = [
+    pub const ALL: [BlockId; 29] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -146,11 +147,14 @@ impl BlockId {
         BlockId::IronOre,
         BlockId::GoldOre,
         BlockId::Gravel,
+        BlockId::Torch,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
         match *self {
-            Self::Water | Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::None,
+            Self::Water | Self::TallGrass | Self::Poppy | Self::Dandelion | Self::Torch => {
+                BlockHitbox::None
+            }
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -161,6 +165,11 @@ impl BlockId {
             Self::TallGrass | Self::Poppy | Self::Dandelion => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::splat(0.5).with_y(0.3),
                 Vec3A::splat(0.3),
+            )),
+            // The stick, a little wider to be easier to aim at
+            Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
+                Vec3A::new(0.5, 0.3, 0.5),
+                Vec3A::new(0.15, 0.3, 0.15),
             )),
             _ => BlockHitbox::FullBlock,
         }
@@ -196,6 +205,7 @@ impl BlockId {
             Self::IronOre => 15,
             Self::GoldOre => 15,
             Self::Gravel => 6,
+            Self::Torch => 1,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -292,6 +302,7 @@ impl BlockId {
             BlockId::IronOre => vec![(1, ItemId::IronOre, 1)],
             BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
             BlockId::Gravel => vec![(1, ItemId::Gravel, 1)],
+            BlockId::Torch => vec![(1, ItemId::Torch, 1)],
             _ => vec![],
         }
     }
@@ -309,10 +320,32 @@ impl BlockId {
 
     pub fn get_visibility(&self) -> BlockTransparency {
         match *self {
-            Self::Dandelion | Self::Poppy | Self::TallGrass => BlockTransparency::Decoration,
+            Self::Dandelion | Self::Poppy | Self::TallGrass | Self::Torch => {
+                BlockTransparency::Decoration
+            }
             Self::Glass | Self::OakLeaves | Self::SpruceLeaves => BlockTransparency::Transparent,
             Self::Water => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
+        }
+    }
+
+    /// How much the block dims the light that goes through it, as Minecraft's light opacity:
+    /// `None` for a block no light goes through. Light loses a level from one cell to the next,
+    /// or this much if more, but the light of the sky that goes straight down loses only this.
+    pub fn light_opacity(&self) -> Option<u8> {
+        match self.get_visibility() {
+            BlockTransparency::Solid => None,
+            BlockTransparency::Decoration => Some(0),
+            BlockTransparency::Transparent if *self == Self::Glass => Some(0),
+            BlockTransparency::Transparent | BlockTransparency::Liquid => Some(1),
+        }
+    }
+
+    /// The light the block gives, from 0 for none to 15, as Minecraft's light levels.
+    pub fn light_emission(&self) -> u8 {
+        match *self {
+            Self::Torch => 14,
+            _ => 0,
         }
     }
 }
@@ -336,7 +369,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 28] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 29] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -371,7 +404,8 @@ mod tests {
             | BlockId::CoalOre
             | BlockId::IronOre
             | BlockId::GoldOre
-            | BlockId::Gravel => {}
+            | BlockId::Gravel
+            | BlockId::Torch => {}
         }
     }
 
@@ -447,6 +481,7 @@ mod tests {
                 BlockId::IronOre => 25,
                 BlockId::GoldOre => 26,
                 BlockId::Gravel => 27,
+                BlockId::Torch => 28,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }

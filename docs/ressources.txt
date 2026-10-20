@@ -50,6 +50,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    into gradients by scripts/smooth_colormap.py: the pack paints them as flat regions.
 -> The overlay of the sides of the grass block (blocks/GrassSideOverlay.png), the pack's
    block/grass_block_side_overlay.png.
+-> The texture of the torch (blocks/Torch.png, items/Torch.png), the pack's block/torch.png,
+   drawn as Minecraft's model of the torch.
 -> The hearts of the health bar (data/graphics/hud/heart_*.png), the pack's
    gui/sprites/hud/heart/{container,full,half}.png.
 

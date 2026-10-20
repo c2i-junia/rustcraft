@@ -234,6 +234,16 @@ impl Chunk {
         Some(old)
     }
 
+    /// Whether some cell may be one that `f` accepts: `f` is called once for each kind of cell
+    /// a palette holds, and a kind no position holds any more may still count.
+    pub fn may_hold(&self, mut f: impl FnMut(Option<&BlockData>) -> bool) -> bool {
+        match &self.cells {
+            Cells::Uniform(cell) => f(cell.as_ref()),
+            Cells::Paletted(paletted) => paletted.palette.iter().any(|cell| f(cell.as_ref())),
+            Cells::Varied(cells) => cells.iter().any(|cell| f(cell.as_ref())),
+        }
+    }
+
     /// Whether the chunk is made of air only.
     pub fn is_empty(&self) -> bool {
         match &self.cells {

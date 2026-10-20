@@ -32,7 +32,7 @@ use crate::ui::widgets::hints::{hint_bar, Hint, HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::tabs::{spawn_tabs, TabButton, TabChange, Tabs};
 use crate::ui::widgets::text_field::text_field_focused;
 use crate::world::clouds::mesh::CloudStyle;
-use crate::world::{BiomeBlend, RenderDistance};
+use crate::world::{BiomeBlend, GraphicsSettings, RenderDistance};
 use audio::spawn_audio_tab;
 use controls::{spawn_controls_tab, KeyCapture, KeySearch, KeySearchField, CONTROLS_HINTS};
 use interface::{show_scale_limit, spawn_interface_tab};
@@ -121,7 +121,7 @@ pub const SETTINGS_HINTS: [Hint; 3] = [
 /// The width of the panel of the settings.
 const PANEL_WIDTH: f32 = 720.0;
 /// The height of the panel: the same for every tab, so that the tabs do not move.
-const PANEL_HEIGHT: f32 = 560.0;
+const PANEL_HEIGHT: f32 = 620.0;
 
 pub fn settings_plugin(app: &mut App) {
     controls::plugin(app);
@@ -313,9 +313,12 @@ fn show_tab(
     search: Res<KeySearch>,
     audio: Res<AudioSettings>,
     interface: Res<InterfaceSettings>,
-    render_distance: Res<RenderDistance>,
-    clouds: Res<CloudStyle>,
-    biome_blend: Res<BiomeBlend>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GraphicsSettings>,
+    ),
     assets: Res<AssetServer>,
     mut commands: Commands,
 ) {
@@ -350,12 +353,15 @@ fn show_tab(
             &search,
             (font, glyph_font),
         ),
-        SettingsTab::Video => spawn_video_tab(
-            &mut commands,
-            panel,
-            (&render_distance, *clouds, &biome_blend),
-            font,
-        ),
+        SettingsTab::Video => {
+            let (render_distance, clouds, biome_blend, graphics) = &video;
+            spawn_video_tab(
+                &mut commands,
+                panel,
+                (render_distance, **clouds, biome_blend, graphics),
+                font,
+            )
+        }
         SettingsTab::Audio => spawn_audio_tab(&mut commands, panel, &audio, font),
         SettingsTab::Interface => spawn_interface_tab(&mut commands, panel, &interface, font),
     }

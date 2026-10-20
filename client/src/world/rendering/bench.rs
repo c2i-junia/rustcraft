@@ -42,18 +42,18 @@ use bevy::{
     winit::WinitPlugin,
 };
 use serde_json::{json, Value};
-use shared::world::{BlockId, ChunkMap, ItemId, TerrainNoises};
+use shared::world::{BlockData, BlockDirection, BlockId, Chunk, ChunkMap, ItemId, TerrainNoises};
 use shared::{GameFolderPaths, CHUNK_SIZE};
 
-use super::meshing::{generate_chunk_mesh, ChunkMeshResponse};
+use super::meshing::{generate_chunk_mesh, generate_lit_chunk_mesh, ChunkMeshResponse};
 use super::render::{spawn_meshing_tasks, update_chunk};
 use crate::camera::SKY_COLOR;
 use crate::constants::TEXTURE_PATH_BASE;
 use crate::state::{PreLoadingCompletion, TexturePath};
-use crate::world::celestial::{celestial_shadows_system, CelestialRoot};
+use crate::world::celestial::{celestial_light_system, CelestialRoot, SkyLight};
 use crate::world::{
     chunk_material_plugin, create_all_atlases, fill_climate_map, group_of, setup_materials,
-    AtlasHandles, BiomeBlend, ChunkRender, MaterialResource,
+    AtlasHandles, BiomeBlend, ChunkMaterial, ChunkRender, MaterialResource,
 };
 
 const SEED: u32 = 42;
@@ -324,7 +324,8 @@ fn bench_meshing() {
         let mut load_total = Vec::new();
         for round in 0..ROUNDS {
             let start = Instant::now();
-            let tasks = spawn_meshing_tasks(&world, &tiles, by_group(&positions));
+            let tasks =
+                spawn_meshing_tasks(&world, &tiles, by_group(&positions), (None, true, false));
             let main_thread = millis(start);
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -349,6 +350,7 @@ fn bench_meshing() {
                     .into_iter()
                     .filter(|(g, _)| *g == group)
                     .collect(),
+                (None, true, true),
             );
             remesh_main_thread.push(millis(start));
             for task in tasks {
@@ -516,10 +518,9 @@ impl Drawing {
             }),
             target,
         ));
-        // The sun of the morning, as `setup_main_lighting` makes it. `BENCH_LIGHTS=game` adds
-        // the moon below the horizon, opposite the sun around their anchor, and lets the
-        // game's `celestial_shadows_system` choose which casts shadows; `none` draws no
-        // shadows at all.
+        // The sun of the morning, as `setup_main_lighting` makes it. `BENCH_LIGHTS=game` lights
+        // the world with the light of the sky of the game, which `celestial_light_system` sets
+        // from where the sun is around its anchor; `none` draws no shadows at all.
         let lights = std::env::var("BENCH_LIGHTS").unwrap_or_default();
         let sun = Quat::from_euler(EulerRot::YXZ, 0.7, -0.8, 0.);
         let light = |illuminance| DirectionalLight {
@@ -529,17 +530,13 @@ impl Drawing {
         };
         if lights == "game" {
             let world = drawing.world_mut();
-            let sun_light = world.spawn((light(5000.), Transform::IDENTITY)).id();
-            let moon_light = world
-                .spawn((
-                    light(100.),
-                    Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
-                ))
+            let sky_light = world
+                .spawn((SkyLight, light(5000.), Transform::IDENTITY))
                 .id();
             world
                 .spawn((CelestialRoot, Transform::from_rotation(sun)))
-                .add_children(&[sun_light, moon_light]);
-            world.run_system_once(celestial_shadows_system).unwrap();
+                .add_child(sky_light);
+            world.run_system_once(celestial_light_system).unwrap();
         } else {
             drawing
                 .world_mut()
@@ -556,8 +553,17 @@ impl Drawing {
         self.apps.main.world_mut()
     }
 
-    /// Meshes every chunk of `world` and shows it, as `world_render_system` does.
+    /// Meshes every chunk of `world` and shows it, as `world_render_system` does, instead of the
+    /// chunks shown before.
     fn show(&mut self, world: &ChunkMap) -> MeshStats {
+        let shown: Vec<Entity> = self
+            .world_mut()
+            .query_filtered::<Entity, With<MeshMaterial3d<ChunkMaterial>>>()
+            .iter(self.world())
+            .collect();
+        for entity in shown {
+            self.world_mut().despawn(entity);
+        }
         let tiles = self
             .world()
             .resource::<MaterialResource>()
@@ -591,7 +597,8 @@ impl Drawing {
         let mut responses: Vec<_> = world
             .chunk_positions()
             .map(|pos| {
-                let response = generate_chunk_mesh(world, world.chunk(pos).unwrap(), &pos, &tiles);
+                let response =
+                    generate_lit_chunk_mesh(world, world.chunk(pos).unwrap(), &pos, &tiles);
                 stats.add(&response);
                 (pos, response)
             })
@@ -821,4 +828,56 @@ fn bench_minimap() {
     let results = json!({ "scenes": scenes });
     println!("{}", serde_json::to_string_pretty(&results).unwrap());
     write_results("minimap", results);
+}
+
+/// A room carved in stone, lit by a torch on its floor and by the sky through a shaft in a
+/// corner of its roof, seen from inside: `render_lighting` draws it.
+fn lit_room() -> ChunkMap {
+    let mut world = ChunkMap::default();
+    let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+    for x in -1..=1 {
+        for y in -1..=1 {
+            for z in -1..=1 {
+                world.insert_chunk(IVec3::new(x, y, z), Chunk::new());
+            }
+        }
+    }
+    for x in -CHUNK_SIZE..2 * CHUNK_SIZE {
+        for z in -CHUNK_SIZE..2 * CHUNK_SIZE {
+            for y in -CHUNK_SIZE..CHUNK_SIZE {
+                let room = (1..15).contains(&x) && (3..10).contains(&y) && (1..15).contains(&z);
+                let shaft = (12..14).contains(&x) && y >= 10 && (12..14).contains(&z);
+                if !room && !shaft {
+                    world.set_block(IVec3::new(x, y, z), stone);
+                }
+            }
+        }
+    }
+    world.set_block(
+        IVec3::new(4, 3, 9),
+        BlockData::new(BlockId::Torch, BlockDirection::Front),
+    );
+    world
+}
+
+#[test]
+#[ignore = "draws a picture: run it in release with --ignored"]
+fn render_lighting() {
+    let mut drawing = Drawing::new(false);
+    let mut room = lit_room();
+    drawing.show(&room);
+    let views = [
+        ("torch", Vec3::new(2., 7.5, 2.), Vec3::new(10., 4., 12.)),
+        ("shaft", Vec3::new(9., 9.5, 9.), Vec3::new(12., 3., 12.)),
+    ];
+    for (name, eye, target) in views {
+        drawing.place_camera(Transform::from_translation(eye).looking_at(target, Vec3::Y));
+        drawing.screenshot(&output_dir().join(format!("{}-lighting-{name}.png", label())));
+    }
+    // Without the torch, the room is dark but under the shaft
+    room.remove_block(IVec3::new(4, 3, 9));
+    drawing.show(&room);
+    let (_, eye, target) = views[0];
+    drawing.place_camera(Transform::from_translation(eye).looking_at(target, Vec3::Y));
+    drawing.screenshot(&output_dir().join(format!("{}-lighting-dark.png", label())));
 }

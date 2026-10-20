@@ -3,7 +3,7 @@ use shared::world::{BlockId, ItemId};
 
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::reticle::spawn_reticle;
-use celestial::{celestial_shadows_system, setup_main_lighting, update_celestial_bodies};
+use celestial::{celestial_light_system, setup_main_lighting, update_celestial_bodies};
 use time::{time_update_system, ClientTime};
 
 pub mod celestial;
@@ -27,6 +27,7 @@ pub fn world_plugin(app: &mut App) {
         .init_resource::<ClimateMap>()
         // loaded from `video.ron` by `add_client`
         .init_resource::<BiomeBlend>()
+        .init_resource::<GraphicsSettings>()
         .insert_resource(AtlasHandles::<BlockId>::default())
         .insert_resource(AtlasHandles::<ItemId>::default())
         // loaded from the game folder by `add_client`
@@ -41,7 +42,10 @@ pub fn world_plugin(app: &mut App) {
             create_all_atlases.run_if(in_state(GameState::PreGameLoading)),
         )
         // Whatever the state: the first chunks arrive while the game loads
-        .add_systems(Update, update_climate_map_system)
+        .add_systems(
+            Update,
+            (update_climate_map_system, apply_graphics_settings_system),
+        )
         .add_systems(
             OnEnter(GameState::Game),
             (
@@ -56,7 +60,8 @@ pub fn world_plugin(app: &mut App) {
                     .chain()
                     .after(GameSet::UiMode),
                 chunk_force_reload_system.after(GameSet::UiMode),
-                (update_celestial_bodies, celestial_shadows_system).chain(),
+                (update_celestial_bodies, celestial_light_system).chain(),
+                daylight_ambient_system,
             )
                 .run_if(in_state(GameState::Game)),
         )

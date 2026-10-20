@@ -54,7 +54,8 @@ impl SoundMaterial {
             | BlockId::SpruceLog
             | BlockId::SprucePlanks
             | BlockId::CraftingTable
-            | BlockId::Chest => Self::Wood,
+            | BlockId::Chest
+            | BlockId::Torch => Self::Wood,
             BlockId::OakLeaves | BlockId::SpruceLeaves => Self::Leaves,
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,

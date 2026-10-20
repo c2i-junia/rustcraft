@@ -16,10 +16,11 @@ use shared::{
     CHUNK_SIZE,
 };
 
-use super::voxel::{BiomeTint, Face, FaceDirection, VoxelShape};
+use super::lighting::{Light, LightVolume, MAX_LIGHT};
+use super::voxel::{BiomeTint, Face, FaceColor, FaceDirection, Sway, VoxelShape};
 
 /// The buffers of a chunk mesh while its faces are added one by one. The normals, the tiles
-/// and the colors are held in the formats of `NORMAL`, `TILE` and `COLOR`, a fraction of
+/// and the lights are held in the formats of `NORMAL`, `TILE` and `LIGHT`, a fraction of
 /// Bevy's: the meshes of a large render distance are hundreds of MiB to send to the GPU.
 #[derive(Default)]
 pub(crate) struct MeshCreator {
@@ -28,9 +29,9 @@ pub(crate) struct MeshCreator {
     normals: Vec<[i8; 4]>,
     uvs: Vec<[f32; 2]>,
     /// The block texture of each vertex, in `x`: its index in the table of `BlockLayers`. In
-    /// `y`, how it is coloured: see `colouring`.
+    /// `y`, how it is coloured and how it sways: see `colouring`.
     tiles: Vec<[u16; 2]>,
-    colors: Vec<[u8; 4]>,
+    lights: Vec<[u8; 4]>,
 }
 
 /// `Mesh::ATTRIBUTE_NORMAL`, each coordinate in a signed byte: the faces are square to the
@@ -47,11 +48,16 @@ const TILE: MeshVertexAttribute = MeshVertexAttribute {
     ..Mesh::ATTRIBUTE_UV_1
 };
 
-/// `Mesh::ATTRIBUTE_COLOR`, each channel in a byte.
-const COLOR: MeshVertexAttribute = MeshVertexAttribute {
+/// `Mesh::ATTRIBUTE_COLOR`, which holds how the vertex is lit, each in a byte: the light of the
+/// sky, that of the blocks, both from 0 to `MAX_LIGHT`, and the ambient occlusion from 0, the
+/// darkest, to 3, then an alpha of 1. The colour of a face is in `TILE`.
+const LIGHT: MeshVertexAttribute = MeshVertexAttribute {
     format: VertexFormat::Unorm8x4,
     ..Mesh::ATTRIBUTE_COLOR
 };
+
+/// `LIGHT` of a vertex under the open sky, in no corner: that of an item.
+const FULL_LIGHT: [u8; 4] = [u8::MAX, 0, u8::MAX, u8::MAX];
 
 fn normal(normal: &[f32; 3]) -> [i8; 4] {
     let [x, y, z] = normal.map(|c| (c.clamp(-1., 1.) * 127.).round() as i8);
@@ -62,23 +68,41 @@ fn tile(tile: u32, colouring: u16) -> [u16; 2] {
     [tile as u16, colouring]
 }
 
-fn color(color: [f32; 4]) -> [u8; 4] {
-    color.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)
-}
-
 /// How far inside its face a UV stops, in blocks. The texture of a face repeats past 1, and must
 /// not wrap around on the edges of the face, where the interpolated UVs may stray a little past
 /// 0 or 1: the pixels of the other side of the texture would show there.
 const UV_EDGE_INSET: f32 = 1. / 1024.;
 
-/// How many values `BiomeTint::index` takes, as `chunk.wgsl` reads them.
-const BIOME_TINTS: u16 = 4;
+/// How the vertices of a face are coloured and how they sway, as `chunk.wgsl` reads them.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct Colouring {
+    biome_tint: BiomeTint,
+    color: FaceColor,
+    sway: Sway,
+    /// The block texture drawn over the face, if any.
+    overlay: Option<u32>,
+}
 
-/// `UV_1.y` of the vertices of a face coloured with the colour map `biome_tint`, under the
-/// block texture `overlay` if any: the index of the colour map, plus `BIOME_TINTS` times one
-/// more than the overlay. It fits, as the textures are at most `MAX_TILES`.
-fn colouring(biome_tint: BiomeTint, overlay: Option<u32>) -> u16 {
-    biome_tint.index() + BIOME_TINTS * overlay.map_or(0, |tile| tile as u16 + 1)
+impl Colouring {
+    fn of(face: &Face, overlay: Option<u32>) -> Self {
+        Self {
+            biome_tint: face.biome_tint,
+            color: face.color,
+            sway: face.sway,
+            overlay,
+        }
+    }
+
+    /// `UV_1.y` of the vertices: from the lowest bits, the colour map (`BiomeTint::index`) and
+    /// the colour (`FaceColor::index`) in two bits each, the sway (`Sway::index`) in two more,
+    /// and above them one more than the overlay, 0 for none. It fits, as the textures are at
+    /// most `MAX_TILES`.
+    fn code(self) -> u16 {
+        self.biome_tint.index()
+            | self.color.index() << 2
+            | self.sway.index() << 4
+            | self.overlay.map_or(0, |tile| tile as u16 + 1) << 6
+    }
 }
 
 /// `uv` of a corner of a face moved towards the middle of the face, `centre`.
@@ -88,7 +112,9 @@ fn inset_uv(uv: [f32; 2], centre: [f32; 2]) -> [f32; 2] {
 
 impl MeshCreator {
     /// Appends `face` of a block at `origin` (in chunk coordinates) turned to `direction`,
-    /// drawn with the block texture `tile`, and `overlay` over it if any.
+    /// drawn with the block texture `tile`, and `overlay` over it if any, each vertex lit by
+    /// `lights` (`LIGHT`). A square is split across the corners that are the most alike, so
+    /// that the shade of a corner does not spill along the diagonal.
     fn push_face(
         &mut self,
         face: &Face,
@@ -96,10 +122,20 @@ impl MeshCreator {
         overlay: Option<u32>,
         origin: Vec3,
         direction: &BlockDirection,
+        lights: &[[u8; 4]],
     ) {
         let first_index = self.vertices.len() as u32;
-        self.indices
-            .extend(face.indices.iter().map(|index| index + first_index));
+        match square_corners(&face.indices) {
+            Some([a, b, c, d])
+                if shade(lights[a]) + shade(lights[c]) < shade(lights[b]) + shade(lights[d]) =>
+            {
+                self.indices
+                    .extend([b, c, d, d, a, b].map(|index| index as u32 + first_index));
+            }
+            _ => self
+                .indices
+                .extend(face.indices.iter().map(|index| index + first_index)),
+        }
         self.vertices.extend(face.vertices.iter().map(|vertex| {
             let vertex = rotate_vertices(vertex, direction);
             [
@@ -109,14 +145,12 @@ impl MeshCreator {
             ]
         }));
         self.normals.extend(face.normals.iter().map(normal));
-        self.colors.extend(face.colors.iter().map(|c| color(*c)));
+        self.lights.extend_from_slice(lights);
         self.uvs
             .extend(face.uvs.iter().map(|uv| inset_uv(*uv, [0.5, 0.5])));
-        self.tiles.extend(
-            face.uvs
-                .iter()
-                .map(|_| self::tile(tile, colouring(face.biome_tint, overlay))),
-        );
+        let code = Colouring::of(face, overlay).code();
+        self.tiles
+            .extend(face.uvs.iter().map(|_| self::tile(tile, code)));
     }
 
     /// Appends the face `face_index` of `CUBE` stretched over `size` blocks along the face, from
@@ -142,13 +176,10 @@ impl MeshCreator {
             self.uvs.push(inset_uv(uv.into(), centre.into()));
         }
         self.normals.extend(face.normals.iter().map(normal));
-        let look_color = color(look.color);
-        self.colors.extend(face.vertices.iter().map(|_| look_color));
-        self.tiles.extend(
-            face.vertices
-                .iter()
-                .map(|_| tile(look.tile, colouring(look.biome_tint, look.overlay))),
-        );
+        self.lights.extend(face.vertices.iter().map(|_| look.light));
+        let code = look.colouring.code();
+        self.tiles
+            .extend(face.vertices.iter().map(|_| tile(look.tile, code)));
     }
 
     /// Appends the faces of `other`, moved by `offset`.
@@ -165,7 +196,7 @@ impl MeshCreator {
         self.normals.extend(other.normals);
         self.uvs.extend(other.uvs);
         self.tiles.extend(other.tiles);
-        self.colors.extend(other.colors);
+        self.lights.extend(other.lights);
     }
 
     /// The mesh of the faces added so far, `None` when there is none. It has no tangents: the
@@ -184,7 +215,7 @@ impl MeshCreator {
         mesh.insert_attribute(NORMAL, VertexAttributeValues::Snorm8x4(self.normals));
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
         mesh.insert_attribute(TILE, VertexAttributeValues::Unorm16x2(self.tiles));
-        mesh.insert_attribute(COLOR, VertexAttributeValues::Unorm8x4(self.colors));
+        mesh.insert_attribute(LIGHT, VertexAttributeValues::Unorm8x4(self.lights));
         mesh.insert_indices(Indices::U32(self.indices));
         Some(mesh)
     }
@@ -193,7 +224,7 @@ impl MeshCreator {
 /// The mesh of `block` shown as an item lying on the ground: the faces of a whole block, one
 /// block wide and centred on the origin, drawn with the chunk material. `None` for a block that
 /// is not a whole cube, such as a flower, which is shown as a picture instead. An item keeps
-/// the colour of its vertices wherever it lies.
+/// its colour wherever it lies, and is lit as under the open sky.
 pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> Option<Mesh> {
     let block = BlockData::new(block, BlockDirection::Front);
     let mut look = BlockLook::new(&block, tiles);
@@ -214,8 +245,17 @@ pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> O
         .zip(&look.overlays)
     {
         face.biome_tint = BiomeTint::None;
+        face.sway = Sway::None;
         if let Some(tile) = tile {
-            mesh.push_face(face, *tile, *overlay, Vec3::splat(-0.5), &block.direction);
+            let lights = vec![FULL_LIGHT; face.vertices.len()];
+            mesh.push_face(
+                face,
+                *tile,
+                *overlay,
+                Vec3::splat(-0.5),
+                &block.direction,
+                &lights,
+            );
         }
     }
     mesh.build()
@@ -376,12 +416,12 @@ static CUBE: LazyLock<Cube> = LazyLock::new(|| {
 #[derive(Clone, Copy)]
 struct FaceLook {
     tile: u32,
-    overlay: Option<u32>,
-    color: [f32; 4],
-    biome_tint: BiomeTint,
+    colouring: Colouring,
     liquid: bool,
     /// Where the top of the block is: below 1 under the surface of a liquid.
     height: f32,
+    /// `LIGHT` of each of its corners, which are lit alike.
+    light: [u8; 4],
 }
 
 /// Cells in a layer of a chunk.
@@ -397,7 +437,7 @@ struct FaceLayers {
     used: [bool; CUBE_FACES * CHUNK_SIZE as usize],
     looks: Vec<FaceLook>,
     /// The index in `looks` of each look, by what it comes from.
-    ids: bevy::platform::collections::HashMap<(BlockId, usize, u32), u32>,
+    ids: bevy::platform::collections::HashMap<(BlockId, usize, u32, [u8; 4]), u32>,
 }
 
 impl FaceLayers {
@@ -411,12 +451,12 @@ impl FaceLayers {
     }
 
     /// Lays the face `face_index` of the block at `local`, which looks like `look` as all the
-    /// faces of `block_id` that are at that index and that `height` do.
+    /// faces of `block_id` that are at that index, that `height` and that light do.
     fn add(&mut self, face_index: usize, local: IVec3, block_id: BlockId, look: FaceLook) {
         let next_id = self.looks.len() as u32 + 1;
         let id = *self
             .ids
-            .entry((block_id, face_index, look.height.to_bits()))
+            .entry((block_id, face_index, look.height.to_bits(), look.light))
             .or_insert_with(|| {
                 self.looks.push(look);
                 next_id
@@ -487,8 +527,20 @@ pub struct ChunkMeshResponse {
     pub liquid_mesh: Option<Mesh>,
 }
 
+/// How the faces are lit: by the light of the cells in front of them, from `volume`, which
+/// holds those of the chunks meshed.
+#[derive(Clone, Copy)]
+pub(crate) struct Lighting<'a> {
+    pub volume: &'a LightVolume,
+    /// Whether each corner of a face takes the mean light of the four cells in front of it,
+    /// darkened by the blocks next to them (ambient occlusion), as Minecraft's smooth lighting.
+    /// Otherwise a face takes the light of the cell in front of it.
+    pub smooth: bool,
+}
+
 /// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
-/// in this chunk or in the ones around it. `tiles` gives the index of each block texture.
+/// in this chunk or in the ones around it. `tiles` gives the index of each block texture. Every
+/// face is lit as under the open sky.
 ///
 /// Neighbouring faces of whole blocks that look the same are merged into one rectangle (greedy
 /// meshing), which keeps the meshes far smaller than one square per face.
@@ -499,21 +551,44 @@ pub(crate) fn generate_chunk_mesh(
     chunk_pos: &IVec3,
     tiles: &HashMap<String, u32>,
 ) -> ChunkMeshResponse {
-    mesh_chunk(world_map, chunk, chunk_pos, tiles, true)
+    let lighting = Lighting {
+        volume: &LightVolume::open_sky(),
+        smooth: true,
+    };
+    mesh_chunk(world_map, chunk, chunk_pos, tiles, lighting, true)
+}
+
+/// `generate_chunk_mesh`, with the faces lit smoothly by the light of the chunk and of those
+/// around it, where what is not loaded is air.
+#[cfg(test)]
+pub(crate) fn generate_lit_chunk_mesh(
+    world_map: &ChunkMap,
+    chunk: &Chunk,
+    chunk_pos: &IVec3,
+    tiles: &HashMap<String, u32>,
+) -> ChunkMeshResponse {
+    let prior = &mut super::lighting::TerrainPrior::new(None);
+    let volume = LightVolume::of_chunks(world_map, &[*chunk_pos], prior);
+    let lighting = Lighting {
+        volume: &volume,
+        smooth: true,
+    };
+    mesh_chunk(world_map, chunk, chunk_pos, tiles, lighting, true)
 }
 
 /// The faces of a chunk, solid and liquid, before they are drawn with those of its group.
 pub(crate) struct ChunkFaces(MeshCreator, MeshCreator);
 
-/// The faces of the chunk at `chunk_pos` that `generate_chunk_mesh` draws, `None` when it is
-/// not loaded.
+/// The faces of the chunk at `chunk_pos` that `generate_chunk_mesh` draws, lit by `lighting`,
+/// `None` when it is not loaded.
 pub(crate) fn chunk_faces_at(
     world_map: &ChunkMap,
     chunk_pos: IVec3,
     tiles: &HashMap<String, u32>,
+    lighting: Lighting,
 ) -> Option<ChunkFaces> {
     let chunk = world_map.chunk(chunk_pos)?;
-    let (solid, liquid) = chunk_faces(world_map, chunk, &chunk_pos, tiles, true);
+    let (solid, liquid) = chunk_faces(world_map, chunk, &chunk_pos, tiles, lighting, true);
     Some(ChunkFaces(solid, liquid))
 }
 
@@ -536,17 +611,18 @@ pub(crate) fn group_mesh(
     }
 }
 
-/// `generate_chunk_mesh`, with the faces merged or not.
+/// `generate_chunk_mesh`, lit by `lighting`, with the faces merged or not.
 #[cfg(test)]
 fn mesh_chunk(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
     tiles: &HashMap<String, u32>,
+    lighting: Lighting,
     merge: bool,
 ) -> ChunkMeshResponse {
     let start = std::time::Instant::now();
-    let (solid, liquid) = chunk_faces(world_map, chunk, chunk_pos, tiles, merge);
+    let (solid, liquid) = chunk_faces(world_map, chunk, chunk_pos, tiles, lighting, merge);
     let response = ChunkMeshResponse {
         solid_mesh: solid.build(),
         liquid_mesh: liquid.build(),
@@ -555,12 +631,13 @@ fn mesh_chunk(
     response
 }
 
-/// The solid and the liquid faces of `chunk` that `mesh_chunk` draws.
+/// The solid and the liquid faces of `chunk` that `mesh_chunk` draws, lit by `lighting`.
 fn chunk_faces(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
     tiles: &HashMap<String, u32>,
+    lighting: Lighting,
     merge: bool,
 ) -> (MeshCreator, MeshCreator) {
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
@@ -570,6 +647,7 @@ fn chunk_faces(
     let mut solid = MeshCreator::default();
     let mut liquid = MeshCreator::default();
     let mut layers = FaceLayers::new();
+    let mut lights = Vec::new();
 
     for local_block_pos in chunk_positions() {
         let index = Neighbourhood::index(local_block_pos);
@@ -611,7 +689,9 @@ fn chunk_faces(
         };
         // A face that is not drawn the same everywhere stays one square, as do the faces of
         // the shapes that are not whole blocks
-        let mergeable = merge && block.direction == BlockDirection::Front && cracks.is_none();
+        let turned = block.direction != BlockDirection::Front;
+        let mergeable = merge && !turned && cracks.is_none();
+        let block_pos = to_global_pos(chunk_pos, &local_block_pos);
         // Where the top of the block is when it is level, `None` on a sloping liquid
         let level_top = match corners {
             Some(corners) => corners
@@ -628,6 +708,9 @@ fn chunk_faces(
             if !should_render_face(&blocks, local_block_pos, &face.direction, &visibility) {
                 continue;
             }
+            lighting.light_face(face, block_pos, turned, &mut lights);
+            // A swaying face moves at each of its corners: it cannot stretch over several
+            let lit_alike = face.sway == Sway::None && lights.iter().all(|l| *l == lights[0]);
             let (merges, face_height) = match face.direction {
                 FaceDirection::Inset => (false, 1.),
                 FaceDirection::Top => (mergeable && level_top.is_some(), level_top.unwrap_or(1.)),
@@ -635,27 +718,170 @@ fn chunk_faces(
                 // Below the surface of a liquid, a side is shorter than a block
                 _ => (mergeable && level_top == Some(1.), 1.),
             };
-            if merges {
+            if merges && lit_alike {
                 let look = FaceLook {
                     tile,
-                    overlay: *overlay,
-                    color: face.colors[0],
-                    biome_tint: face.biome_tint,
+                    colouring: Colouring::of(face, *overlay),
                     liquid: visibility == BlockTransparency::Liquid,
                     height: face_height,
+                    light: lights[0],
                 };
                 layers.add(face_index, local_block_pos, block.id, look);
                 continue;
             }
-            mesh_creator.push_face(face, tile, *overlay, origin, &block.direction);
+            mesh_creator.push_face(face, tile, *overlay, origin, &block.direction, &lights);
             if let Some(cracks) = cracks {
-                mesh_creator.push_face(face, *cracks, None, origin, &block.direction);
+                mesh_creator.push_face(face, *cracks, None, origin, &block.direction, &lights);
             }
         }
     }
 
     layers.merge_into(&mut solid, &mut liquid);
     (solid, liquid)
+}
+
+/// The four corners of a square split in two triangles by `indices`, in the order they go
+/// round, from the first corner of the first triangle: the first and the third are those it is
+/// split across. `None` for another shape.
+fn square_corners(indices: &[u32]) -> Option<[usize; 4]> {
+    let [a, b, c, d, e, f] = *indices else {
+        return None;
+    };
+    // The second triangle shares the side from c to a, and brings the fourth corner
+    let second = [d, e, f];
+    let fourth = second.into_iter().find(|i| ![a, b, c].contains(i))?;
+    let at = second.iter().position(|i| *i == fourth)?;
+    (second[(at + 1) % 3] == a && second[(at + 2) % 3] == c)
+        .then_some([a, b, c, fourth].map(|i| i as usize))
+}
+
+/// How bright a corner looks, to split a square across the corners most alike.
+fn shade(light: [u8; 4]) -> u32 {
+    let [sky, block, occlusion, _] = light.map(u32::from);
+    occlusion * 2 + sky.max(block)
+}
+
+/// `LIGHT` of `light`, the sums of the light of the sky and of the blocks of `count` cells, in
+/// a corner of ambient occlusion `occlusion`.
+fn light_bytes(light: [u32; 2], count: u32, occlusion: u8) -> [u8; 4] {
+    let full = count * u32::from(MAX_LIGHT);
+    let [sky, block] = light.map(|sum| ((sum * 255 + full / 2) / full) as u8);
+    [sky, block, occlusion * 85, u8::MAX]
+}
+
+/// The side of a block a face of it lies on, `None` for a face inside it.
+fn face_normal(direction: &FaceDirection) -> Option<IVec3> {
+    Some(match direction {
+        FaceDirection::Top => IVec3::Y,
+        FaceDirection::Bottom => IVec3::NEG_Y,
+        FaceDirection::Front => IVec3::NEG_Z,
+        FaceDirection::Back => IVec3::Z,
+        FaceDirection::Left => IVec3::NEG_X,
+        FaceDirection::Right => IVec3::X,
+        FaceDirection::Inset => return None,
+    })
+}
+
+impl Lighting<'_> {
+    /// Writes into `lights` the `LIGHT` of each vertex of `face`, of the block at `block` in the
+    /// world, which is `turned` away from the front. A face that covers a side of the block is
+    /// lit by the cells in front of it; one inside the block, sunk under a liquid or of a
+    /// turned block, as a whole by the brightest of its own cell and the one it looks to.
+    fn light_face(&self, face: &Face, block: IVec3, turned: bool, lights: &mut Vec<[u8; 4]>) {
+        lights.clear();
+        let normal = face_normal(&face.direction);
+        let covers_side = normal.filter(|normal| {
+            !turned && face.vertices.iter().all(|vertex| on_side(vertex, *normal))
+        });
+        match covers_side {
+            Some(normal) if self.smooth => {
+                let front = self.front_cells(block + normal, normal);
+                lights.extend(
+                    face.vertices
+                        .iter()
+                        .map(|vertex| corner(&front, normal, vertex)),
+                );
+            }
+            Some(normal) => lights.resize(face.vertices.len(), self.brightest(&[block + normal])),
+            None => {
+                let ahead = block + normal.unwrap_or_default();
+                lights.resize(face.vertices.len(), self.brightest(&[block, ahead]));
+            }
+        }
+    }
+
+    /// `LIGHT` of the brightest of `cells` that let light through, in no corner.
+    fn brightest(&self, cells: &[IVec3]) -> [u8; 4] {
+        let mut light = [0, 0];
+        for cell in cells {
+            if !self.volume.is_opaque(*cell) {
+                let lit = self.volume.light(*cell);
+                light = [light[0].max(lit.sky), light[1].max(lit.block)];
+            }
+        }
+        light_bytes(light.map(u32::from), 1, 3)
+    }
+
+    /// The cells of the plane of the cell `front` across `normal`, the face of a block looks to:
+    /// by step along the two other axes, in their order after the axis of `normal`, from -1.
+    fn front_cells(&self, front: IVec3, normal: IVec3) -> FrontCells {
+        let across = normal.abs().max_position();
+        let (axis_a, axis_b) = ((across + 1) % 3, (across + 2) % 3);
+        std::array::from_fn(|a| {
+            std::array::from_fn(|b| {
+                let mut cell = front;
+                cell[axis_a] += a as i32 - 1;
+                cell[axis_b] += b as i32 - 1;
+                self.volume.cell(cell)
+            })
+        })
+    }
+}
+
+/// The light of the cells of a plane in front of a face, and whether each is opaque, as
+/// `Lighting::front_cells` reads them.
+type FrontCells = [[(Light, bool); 3]; 3];
+
+/// `LIGHT` of the corner `vertex` of a face that looks along `normal` to the cells `front`:
+/// the mean light of the four cells around the corner in front of the face, but for those no
+/// light goes through, which shade it instead (ambient occlusion). With both cells along the
+/// sides blocked, the one across the corner is hidden.
+fn corner(front: &FrontCells, normal: IVec3, vertex: &[f32; 3]) -> [u8; 4] {
+    let across = normal.abs().max_position();
+    let toward = |axis: usize| if vertex[axis] > 0.5 { 2 } else { 0 };
+    let (a, b) = (toward((across + 1) % 3), toward((across + 2) % 3));
+    let side_a = front[a][1].1;
+    let side_b = front[1][b].1;
+    let diagonal = (side_a && side_b) || front[a][b].1;
+    let occlusion = if side_a && side_b {
+        0
+    } else {
+        3 - side_a as u8 - side_b as u8 - diagonal as u8
+    };
+    let mut light = [0, 0];
+    let mut count = 0;
+    for (lit, blocked) in [
+        (front[1][1].0, false),
+        (front[a][1].0, side_a),
+        (front[1][b].0, side_b),
+        (front[a][b].0, diagonal),
+    ] {
+        if !blocked {
+            light[0] += u32::from(lit.sky);
+            light[1] += u32::from(lit.block);
+            count += 1;
+        }
+    }
+    light_bytes(light, count, occlusion)
+}
+
+/// Whether `vertex`, in the unit cube of a block, is a corner of the side `normal` looks to.
+fn on_side(vertex: &[f32; 3], normal: IVec3) -> bool {
+    (0..3).all(|axis| match normal[axis] {
+        1 => vertex[axis] == 1.,
+        -1 => vertex[axis] == 0.,
+        _ => vertex[axis] == 0. || vertex[axis] == 1.,
+    })
 }
 
 /// The local positions of a chunk, in the order of their indices in the chunk.
@@ -808,10 +1034,10 @@ mod tests {
         tiles.iter().map(|tile| tile[0] as u32).collect()
     }
 
-    /// The colour of each vertex of `mesh`.
-    fn colors_of(mesh: &Mesh) -> Vec<[u8; 4]> {
-        let Some(VertexAttributeValues::Unorm8x4(colors)) = mesh.attribute(COLOR) else {
-            panic!("a chunk mesh has colours");
+    /// The light of each vertex of `mesh`.
+    fn lights_of(mesh: &Mesh) -> Vec<[u8; 4]> {
+        let Some(VertexAttributeValues::Unorm8x4(colors)) = mesh.attribute(LIGHT) else {
+            panic!("a chunk mesh has lights");
         };
         colors.clone()
     }
@@ -961,7 +1187,7 @@ mod tests {
         ) else {
             panic!("a chunk mesh has positions, UVs and indices");
         };
-        let (normals, tiles, colors) = (normals_of(mesh), tiles_of(mesh), colors_of(mesh));
+        let (normals, tiles, colors) = (normals_of(mesh), tiles_of(mesh), lights_of(mesh));
         for triangle in indices.chunks(3) {
             let [a, b, c] = [0, 1, 2].map(|k| triangle[k] as usize);
             let normal = normals[a];
@@ -1052,8 +1278,14 @@ mod tests {
             world.set_block(turned, block);
 
             let chunk = world.chunk(center).unwrap();
-            let merged = mesh_chunk(&world, chunk, &center, &tiles, true);
-            let squares = mesh_chunk(&world, chunk, &center, &tiles, false);
+            let prior = &mut crate::world::lighting::TerrainPrior::new(None);
+            let volume = LightVolume::of_chunks(&world, &[center], prior);
+            let lighting = Lighting {
+                volume: &volume,
+                smooth: true,
+            };
+            let merged = mesh_chunk(&world, chunk, &center, &tiles, lighting, true);
+            let squares = mesh_chunk(&world, chunk, &center, &tiles, lighting, false);
             assert!(vertices(&merged.solid_mesh) < vertices(&squares.solid_mesh));
             water += vertices(&squares.liquid_mesh);
             for (merged, squares) in [
@@ -1171,13 +1403,16 @@ mod tests {
             ("Dirt", 3),
             ("GrassSideOverlay", 4),
         ];
+        // The colour map of the grass, and the colour of the grass where the climate is not
+        // known yet
+        let grass = 1 | 1 << 2;
         for (tile, normal) in grass_block_tiles(&tiles) {
-            // The top is coloured with the colour map of the grass, the sides under their
-            // overlay (one more than its tile, in fours), and the bottom is dirt
+            // The top is coloured by the climate, the sides under their overlay, one more than
+            // its tile, and the bottom is dirt
             let expected = match normal.y {
-                1. => [2, 1],
+                1. => [2, grass],
                 -1. => [3, 0],
-                _ => [1, 1 + 4 * 5],
+                _ => [1, grass | (4 + 1) << 6],
             };
             assert_eq!(tile, expected, "normal {normal:?}");
         }
@@ -1194,7 +1429,7 @@ mod tests {
     }
 
     #[test]
-    fn an_item_keeps_the_colour_of_its_vertices_wherever_it_lies() {
+    fn an_item_keeps_its_colour_and_is_lit_as_under_the_sky_wherever_it_lies() {
         let tiles = HashMap::from([("_Default".to_string(), 0)]);
         for block in [BlockId::Grass, BlockId::OakLeaves] {
             let mesh = block_item_mesh(block, &tiles).unwrap();
@@ -1202,8 +1437,150 @@ mod tests {
             else {
                 panic!("no tiles");
             };
-            assert!(tiles.iter().all(|tile| tile[1] == 0), "{block:?}");
+            // No colour map nor sway: the colour of the face, from bits 2 and 3, stays
+            assert!(
+                tiles.iter().all(|tile| tile[1] & !(3 << 2) == 0),
+                "{block:?}"
+            );
+            assert!(tiles.iter().any(|tile| tile[1] == 1 << 2), "{block:?}");
+            assert!(lights_of(&mesh).iter().all(|light| *light == FULL_LIGHT));
         }
+    }
+
+    /// The mesh of `blocks` in the chunk at the origin, lit by their light.
+    fn lit_mesh_of(blocks: &[(IVec3, BlockId)]) -> ChunkMeshResponse {
+        let mut chunk = Chunk::new();
+        for (position, id) in blocks {
+            chunk.set(*position, BlockData::new(*id, BlockDirection::Front));
+        }
+        let mut world = ChunkMap::default();
+        world.insert_chunk(IVec3::ZERO, chunk.clone());
+        let tiles = HashMap::from([("_Default".to_string(), 0)]);
+        generate_lit_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+    }
+
+    /// The light of the vertices of the faces of `mesh` that look along `normal`, by position.
+    fn lights_toward(mesh: &Mesh, normal: Vec3) -> Vec<(Vec3, [u8; 4])> {
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("a chunk mesh has positions");
+        };
+        positions
+            .iter()
+            .zip(normals_of(mesh))
+            .zip(lights_of(mesh))
+            .filter(|((_, n), _)| n.distance(normal) < 0.01)
+            .map(|((position, _), light)| (Vec3::from(*position), light))
+            .collect()
+    }
+
+    #[test]
+    fn a_face_is_lit_by_the_cell_in_front_of_it() {
+        // A slab of stone, a block thick: its top is under the sky, its bottom too, through
+        // the air around the chunk, but a level a block darker
+        let mut blocks = Vec::new();
+        for x in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                blocks.push((IVec3::new(x, 8, z), BlockId::Stone));
+            }
+        }
+        let mesh = lit_mesh_of(&blocks).solid_mesh.unwrap();
+        for (_, light) in lights_toward(&mesh, Vec3::Y) {
+            assert_eq!(light, [255, 0, 255, 255]);
+        }
+        let below = lights_toward(&mesh, Vec3::NEG_Y);
+        let darkest = below.iter().map(|(_, light)| light[0]).min().unwrap();
+        assert!(darkest < 255 - 6 * 17, "{darkest}");
+        // From the edge, where the sky comes in, to the middle
+        let at = |x: f32| below.iter().find(|(p, _)| p.x == x && p.z == 8.).unwrap().1[0];
+        assert!(at(0.) > at(4.) && at(4.) > at(8.));
+    }
+
+    #[test]
+    fn a_corner_against_two_walls_is_shaded_and_lit_by_the_open_cells_only() {
+        // A floor block with walls along -x and -z above it
+        let mesh = lit_mesh_of(&[
+            (IVec3::new(5, 5, 5), BlockId::Stone),
+            (IVec3::new(4, 6, 5), BlockId::Stone),
+            (IVec3::new(5, 6, 4), BlockId::Stone),
+        ])
+        .solid_mesh
+        .unwrap();
+        let top: Vec<_> = lights_toward(&mesh, Vec3::Y)
+            .into_iter()
+            .filter(|(p, _)| p.y == 6. && (5. ..=6.).contains(&p.x) && (5. ..=6.).contains(&p.z))
+            .collect();
+        let corner = |x: f32, z: f32| top.iter().find(|(p, _)| p.x == x && p.z == z).unwrap().1;
+        // Both sides blocked: the darkest corner, lit by the cell in front only
+        assert_eq!(corner(5., 5.), [255, 0, 0, 255]);
+        // One side blocked
+        assert_eq!(corner(6., 5.)[2], 170);
+        assert_eq!(corner(5., 6.)[2], 170);
+        // In the open
+        assert_eq!(corner(6., 6.)[2], 255);
+    }
+
+    #[test]
+    fn faces_lit_alike_merge_and_shaded_ones_stay_squares() {
+        // A floor of 4 blocks in a row, a wall along one end of it
+        let row: Vec<_> = (0..4)
+            .map(|x| (IVec3::new(x + 2, 5, 5), BlockId::Stone))
+            .collect();
+        let open = lit_mesh_of(&row).solid_mesh.unwrap();
+        assert_eq!(lights_toward(&open, Vec3::Y).len(), 4);
+        let mut walled = row.clone();
+        walled.push((IVec3::new(1, 6, 5), BlockId::Stone));
+        let walled = lit_mesh_of(&walled).solid_mesh.unwrap();
+        // The square next to the wall stands apart, shaded on one side: the rest merge
+        let tops: Vec<_> = lights_toward(&walled, Vec3::Y)
+            .into_iter()
+            .filter(|(p, _)| p.y == 6. && p.x >= 2.)
+            .collect();
+        assert_eq!(tops.len(), 8);
+    }
+
+    #[test]
+    fn a_square_is_split_across_its_brightest_corners() {
+        // `CLOCKWISE` splits across the corners 0 and 2
+        assert_eq!(square_corners(&[0, 1, 2, 2, 3, 0]), Some([0, 1, 2, 3]));
+        assert_eq!(square_corners(&[3, 0, 1, 1, 2, 3]), Some([3, 0, 1, 2]));
+        assert_eq!(square_corners(&[0, 5, 7, 7, 5, 0]), None);
+
+        let face = &CUBE.faces[0];
+        let dark = [255, 0, 0, 255];
+        let bright = FULL_LIGHT;
+        let mut mesh = MeshCreator::default();
+        mesh.push_face(
+            face,
+            0,
+            None,
+            Vec3::ZERO,
+            &BlockDirection::Front,
+            &[dark, bright, dark, bright],
+        );
+        // Split across the bright corners 1 and 3, which both triangles share
+        let shared: Vec<_> = mesh.indices[..3]
+            .iter()
+            .filter(|i| mesh.indices[3..].contains(i))
+            .collect();
+        assert_eq!(shared, [&1, &3]);
+        // Each triangle keeps the winding of the face
+        let normal = |t: &[u32]| {
+            let [a, b, c] = [0, 1, 2].map(|k| Vec3::from(mesh.vertices[t[k] as usize]));
+            (b - a).cross(c - a).normalize()
+        };
+        assert_eq!(normal(&mesh.indices[..3]), normal(&face.indices[..3]));
+        assert_eq!(normal(&mesh.indices[3..]), normal(&mesh.indices[..3]));
+    }
+
+    #[test]
+    fn swaying_faces_never_merge() {
+        let leaves: Vec<_> = (0..4)
+            .map(|x| (IVec3::new(x + 2, 5, 5), BlockId::OakLeaves))
+            .collect();
+        let mesh = mesh_of(&leaves).solid_mesh.unwrap();
+        assert_eq!(lights_toward(&mesh, Vec3::Y).len(), 4 * 4);
     }
 
     #[test]

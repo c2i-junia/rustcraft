@@ -1,6 +1,7 @@
 //! The Video tab of the settings: the render distance, applied and saved as soon as it is set,
 //! and a note under it, which says when the server of the game grants less; then the clouds,
-//! with a note saying what each style draws, and the biome blend.
+//! with a note saying what each style draws, the biome blend, and the lighting, the
+//! brightness, the shadows and the effects.
 
 use bevy::{prelude::*, ui_widgets::ValueChange};
 use shared::{GameFolderPaths, MIN_RENDER_DISTANCE};
@@ -13,7 +14,8 @@ use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::slider::{spawn_slider, SliderField, SliderScale, LABEL_WIDTH};
 use crate::world::clouds::mesh::CloudStyle;
 use crate::world::{
-    write_video_settings, BiomeBlend, RenderDistance, ServerRenderDistanceLimit, MAX_BIOME_BLEND,
+    write_video_settings, BiomeBlend, GraphicsSettings, RenderDistance, ServerRenderDistanceLimit,
+    MAX_BIOME_BLEND,
 };
 
 /// The slider of the render distance.
@@ -60,6 +62,29 @@ fn note_font(font: &Handle<Font>) -> TextFont {
     }
 }
 
+/// The options of the lighting, in the order of the control: smooth first.
+const LIGHTING_OPTIONS: [&str; 2] = ["Smooth", "Flat"];
+/// The options of the shadows and of the effects: on first.
+const ON_OFF: [&str; 2] = ["On", "Off"];
+
+/// A step of 5 %, from Minecraft's "Moody" to its "Bright".
+const BRIGHTNESS_SCALE: SliderScale = SliderScale {
+    min: 0.,
+    max: 100.,
+    step: 5.,
+    whole: true,
+    readout: brightness_label,
+};
+
+/// The brightness as Minecraft shows it: "Moody", "Bright", or "+40%" in between.
+fn brightness_label(value: f32) -> String {
+    match value.round() {
+        0. => "Moody".to_string(),
+        100. => "Bright".to_string(),
+        percent => format!("+{percent}%"),
+    }
+}
+
 /// A chunk a step, from the least render distance to the largest the player may choose.
 const RENDER_DISTANCE_SCALE: SliderScale = SliderScale {
     min: MIN_RENDER_DISTANCE as f32,
@@ -93,12 +118,18 @@ fn blend_label(value: f32) -> String {
     format!("{side}x{side}")
 }
 
-/// Spawns the render distance slider and the clouds control, each with its note, then the
-/// biome blend slider, under `panel`.
+/// Spawns the render distance slider and the clouds control, each with its note, the biome
+/// blend slider, then the lighting control, the brightness slider and the shadows and effects
+/// controls, under `panel`.
 pub fn spawn_video_tab(
     commands: &mut Commands,
     panel: Entity,
-    (render_distance, clouds, biome_blend): (&RenderDistance, CloudStyle, &BiomeBlend),
+    (render_distance, clouds, biome_blend, graphics): (
+        &RenderDistance,
+        CloudStyle,
+        &BiomeBlend,
+        &GraphicsSettings,
+    ),
     font: Handle<Font>,
 ) {
     // the slider, and its note under it
@@ -178,13 +209,144 @@ pub fn spawn_video_tab(
         value: biome_blend.radius as f32,
         scale: BIOME_BLEND_SCALE,
     };
-    let parts = spawn_slider(commands, &field, font);
+    let parts = spawn_slider(commands, &field, font.clone());
     commands.entity(parts.root).insert(ChildOf(panel));
     commands
         .entity(parts.slider)
         .insert(BiomeBlendSlider)
         .observe(set_biome_blend)
         .observe(save_on_release);
+
+    // How the world is drawn, closer together
+    let graphics_column = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_M),
+                ..default()
+            },
+            ChildOf(panel),
+        ))
+        .id();
+    spawn_choice(
+        commands,
+        (graphics_column, &font),
+        ("Lighting", &LIGHTING_OPTIONS, !graphics.smooth_lighting),
+    )
+    .observe(choose_lighting);
+
+    let field = SliderField {
+        label: "Brightness",
+        value: graphics.brightness * 100.,
+        scale: BRIGHTNESS_SCALE,
+    };
+    let parts = spawn_slider(commands, &field, font.clone());
+    commands.entity(parts.root).insert(ChildOf(graphics_column));
+    commands
+        .entity(parts.slider)
+        .observe(set_brightness)
+        .observe(save_on_release);
+
+    spawn_choice(
+        commands,
+        (graphics_column, &font),
+        ("Shadows", &ON_OFF, !graphics.shadows),
+    )
+    .observe(choose_shadows);
+    spawn_choice(
+        commands,
+        (graphics_column, &font),
+        ("Effects", &ON_OFF, !graphics.effects),
+    )
+    .observe(choose_effects);
+}
+
+/// Spawns a row of `parent` with the segmented control `label` of two `options`, the second
+/// checked if `second`, and returns the control to observe.
+fn spawn_choice<'a>(
+    commands: &'a mut Commands,
+    (parent, font): (Entity, &Handle<Font>),
+    (label, options, second): (&str, &[&str; 2], bool),
+) -> EntityCommands<'a> {
+    let row = spawn_row(commands, parent, label, font);
+    let segmented = Segmented {
+        label,
+        options,
+        selected: usize::from(second),
+    };
+    let group = spawn_segmented(commands, &segmented, font.clone());
+    let mut control = commands.entity(group);
+    control.insert(ChildOf(row));
+    control
+}
+
+/// Applies and saves the chosen lighting: the chunks are meshed again.
+fn choose_lighting(
+    change: On<SegmentChange>,
+    mut graphics: ResMut<GraphicsSettings>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GameFolderPaths>,
+    ),
+) {
+    graphics.smooth_lighting = change.index == 0;
+    let (render_distance, clouds, biome_blend, paths) = video;
+    write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
+}
+
+/// Applies and saves whether the sun and the moon cast shadows.
+fn choose_shadows(
+    change: On<SegmentChange>,
+    mut graphics: ResMut<GraphicsSettings>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GameFolderPaths>,
+    ),
+) {
+    graphics.shadows = change.index == 0;
+    let (render_distance, clouds, biome_blend, paths) = video;
+    write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
+}
+
+/// Applies and saves whether the plants sway and the water ripples.
+fn choose_effects(
+    change: On<SegmentChange>,
+    mut graphics: ResMut<GraphicsSettings>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GameFolderPaths>,
+    ),
+) {
+    graphics.effects = change.index == 0;
+    let (render_distance, clouds, biome_blend, paths) = video;
+    write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
+}
+
+/// Applies the brightness of the slider, and saves it once the player is done with it.
+fn set_brightness(
+    change: On<ValueChange<f32>>,
+    mut graphics: ResMut<GraphicsSettings>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GameFolderPaths>,
+    ),
+) {
+    let brightness = change.value.round() / 100.;
+    if graphics.brightness != brightness {
+        graphics.set_brightness(brightness);
+    }
+    if change.is_final {
+        let (render_distance, clouds, biome_blend, paths) = video;
+        write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
+    }
 }
 
 /// Applies and saves the chosen clouds, and says what they are. In game, the clouds are drawn
@@ -193,12 +355,12 @@ fn choose_clouds(
     change: On<SegmentChange>,
     mut clouds: ResMut<CloudStyle>,
     render_distance: Res<RenderDistance>,
-    biome_blend: Res<BiomeBlend>,
+    (biome_blend, graphics): (Res<BiomeBlend>, Res<GraphicsSettings>),
     paths: Res<GameFolderPaths>,
     mut notes: Query<&mut Text, With<CloudsNote>>,
 ) {
     *clouds = CLOUD_STYLES[change.index];
-    write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
+    write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
     for mut text in &mut notes {
         text.0 = clouds_note(*clouds).to_string();
     }
@@ -209,8 +371,7 @@ fn choose_clouds(
 fn set_render_distance(
     change: On<ValueChange<f32>>,
     mut render_distance: ResMut<RenderDistance>,
-    clouds: Res<CloudStyle>,
-    biome_blend: Res<BiomeBlend>,
+    (clouds, biome_blend, graphics): (Res<CloudStyle>, Res<BiomeBlend>, Res<GraphicsSettings>),
     paths: Res<GameFolderPaths>,
 ) {
     let distance = change.value.round() as u32;
@@ -218,7 +379,7 @@ fn set_render_distance(
         render_distance.set(distance);
     }
     if change.is_final {
-        write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
+        write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
     }
 }
 
@@ -226,9 +387,13 @@ fn set_render_distance(
 /// saves it once the player is done with it.
 fn set_biome_blend(
     change: On<ValueChange<f32>>,
-    render_distance: Res<RenderDistance>,
-    clouds: Res<CloudStyle>,
+
     mut biome_blend: ResMut<BiomeBlend>,
+    (render_distance, clouds, graphics): (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<GraphicsSettings>,
+    ),
     paths: Res<GameFolderPaths>,
 ) {
     let radius = change.value.round() as u32;
@@ -236,7 +401,7 @@ fn set_biome_blend(
         biome_blend.set(radius);
     }
     if change.is_final {
-        write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
+        write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
     }
 }
 
@@ -244,12 +409,16 @@ fn set_biome_blend(
 /// sets a value that the widget never reports as final.
 fn save_on_release(
     _: On<Pointer<Release>>,
-    render_distance: Res<RenderDistance>,
-    clouds: Res<CloudStyle>,
-    biome_blend: Res<BiomeBlend>,
+    video: (
+        Res<RenderDistance>,
+        Res<CloudStyle>,
+        Res<BiomeBlend>,
+        Res<GraphicsSettings>,
+    ),
     paths: Res<GameFolderPaths>,
 ) {
-    write_video_settings(&render_distance, *clouds, &biome_blend, &paths);
+    let (render_distance, clouds, biome_blend, graphics) = video;
+    write_video_settings(&render_distance, *clouds, &biome_blend, &graphics, &paths);
 }
 
 /// What the note under the render distance says: what the distance is, or that the server of
@@ -319,6 +488,13 @@ mod tests {
         assert_eq!(blend_label(0.), "1x1");
         assert_eq!(blend_label(2.), "5x5");
         assert_eq!(blend_label(6.6), "15x15");
+    }
+
+    #[test]
+    fn the_brightness_reads_as_minecraft_shows_it() {
+        assert_eq!(brightness_label(0.), "Moody");
+        assert_eq!(brightness_label(40.), "+40%");
+        assert_eq!(brightness_label(99.7), "Bright");
     }
 
     #[test]

@@ -34,6 +34,7 @@ const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
 const SPRUCE: Option<ItemId> = Some(ItemId::SprucePlanks);
 const COBBLE: Option<ItemId> = Some(ItemId::Cobblestone);
 const STICK: Option<ItemId> = Some(ItemId::Stick);
+const COAL: Option<ItemId> = Some(ItemId::Coal);
 
 #[rustfmt::skip]
 const RECIPES: &[Recipe] = &[
@@ -41,6 +42,7 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 1, cells: &[SPRUCE_LOG], output: ItemId::SprucePlanks, nb: 4 },
     Recipe { width: 1, cells: &[OAK, OAK], output: ItemId::Stick, nb: 4 },
     Recipe { width: 1, cells: &[SPRUCE, SPRUCE], output: ItemId::Stick, nb: 4 },
+    Recipe { width: 1, cells: &[COAL, STICK], output: ItemId::Torch, nb: 4 },
     Recipe { width: 2, cells: &[OAK, OAK, OAK, OAK], output: ItemId::CraftingTable, nb: 1 },
     Recipe { width: 2, cells: &[SPRUCE, SPRUCE, SPRUCE, SPRUCE], output: ItemId::CraftingTable, nb: 1 },
     Recipe {
@@ -256,6 +258,24 @@ mod tests {
                 made(ItemId::Stick, 4)
             );
         }
+    }
+
+    #[test]
+    fn coal_on_a_stick_makes_four_torches() {
+        let coal = Some(ItemId::Coal);
+        let stick = Some(ItemId::Stick);
+        assert_eq!(
+            match_recipe(&grid([
+                coal, None, None, stick, None, None, None, None, None
+            ])),
+            made(ItemId::Torch, 4)
+        );
+        assert_eq!(
+            match_recipe(&grid([
+                stick, None, None, coal, None, None, None, None, None
+            ])),
+            None
+        );
     }
 
     #[test]

@@ -58,11 +58,12 @@ pub enum ItemId {
     Gravel,
     FoxSpawnEgg,
     SheepSpawnEgg,
+    Torch,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 35] = [
+    pub const ALL: [ItemId; 36] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -98,6 +99,7 @@ impl ItemId {
         Self::Gravel,
         Self::FoxSpawnEgg,
         Self::SheepSpawnEgg,
+        Self::Torch,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -191,6 +193,7 @@ impl ItemId {
             Self::IronOre => ItemType::Block(BlockId::IronOre),
             Self::GoldOre => ItemType::Block(BlockId::GoldOre),
             Self::Gravel => ItemType::Block(BlockId::Gravel),
+            Self::Torch => ItemType::Block(BlockId::Torch),
 
             Self::Snowball | Self::Stick | Self::Coal | Self::FoxSpawnEgg | Self::SheepSpawnEgg => {
                 ItemType::Generic
@@ -296,6 +299,7 @@ mod tests {
             (ItemId::Gravel, 32),
             (ItemId::FoxSpawnEgg, 33),
             (ItemId::SheepSpawnEgg, 34),
+            (ItemId::Torch, 35),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -334,7 +338,8 @@ mod tests {
                 | ItemId::GoldOre
                 | ItemId::Gravel
                 | ItemId::FoxSpawnEgg
-                | ItemId::SheepSpawnEgg => {}
+                | ItemId::SheepSpawnEgg
+                | ItemId::Torch => {}
             }
         }
         for (id, expected) in table {
