@@ -38,6 +38,21 @@ impl ClientWeather {
         weather
     }
 
+    /// `kind`, its levels the smoothstep of `ramp` of the way from clear: a weather caught as it
+    /// rolls in, for the pictures.
+    #[cfg(test)]
+    pub fn part_way(kind: WeatherKind, ramp: f32) -> Self {
+        let (rain, thunder) = targets(kind);
+        let mut weather = Self {
+            kind,
+            rain_ramp: rain * ramp,
+            thunder_ramp: thunder * ramp,
+            ..default()
+        };
+        weather.advance(0.0);
+        weather
+    }
+
     /// Moves the levels `secs` seconds further towards those of `kind`.
     pub fn advance(&mut self, secs: f32) {
         let step = secs / TRANSITION_SECS;

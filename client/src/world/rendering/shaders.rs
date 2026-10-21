@@ -36,6 +36,7 @@ use bevy::render::camera::{MipBias, TemporalJitter};
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
@@ -548,8 +549,12 @@ fn brighten_clouds(
 /// The ring around the camera, under the horizon and past the chunks, of the colour of the sky
 /// at the horizon (`horizon.wgsl`): without it, the ground of the planet of the atmosphere
 /// would show there.
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
-pub struct HorizonMaterial {}
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct HorizonMaterial {
+    /// `WeatherShading`: the sky at the horizon is as overcast as the rest.
+    #[storage(107, read_only)]
+    weather: Handle<ShaderBuffer>,
+}
 
 impl Material for HorizonMaterial {
     fn fragment_shader() -> ShaderRef {
@@ -614,6 +619,7 @@ fn horizon_ring() -> Mesh {
 fn follow_camera_with_horizon(
     graphics: Res<GraphicsSettings>,
     render_distance: Res<RenderDistance>,
+    resources: Res<MaterialResource>,
     cameras: Query<&GlobalTransform, With<Camera3d>>,
     mut skirts: Query<(Entity, &mut Transform), With<HorizonSkirt>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -636,7 +642,9 @@ fn follow_camera_with_horizon(
             commands.spawn((
                 HorizonSkirt,
                 Mesh3d(meshes.add(horizon_ring())),
-                MeshMaterial3d(materials.add(HorizonMaterial::default())),
+                MeshMaterial3d(materials.add(HorizonMaterial {
+                    weather: resources.weather.clone(),
+                })),
                 transform,
                 bevy::light::NotShadowCaster,
                 bevy::light::NotShadowReceiver,

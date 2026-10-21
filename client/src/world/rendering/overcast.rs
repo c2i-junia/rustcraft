@@ -1,11 +1,31 @@
 //! The sky of the weather: how overcast it is, and what that does to the sky, the light and the
 //! fog. Every curve gives its clear value exactly at an overcast level of 0, so that clear
 //! weather draws as before.
+//!
+//! What the shaders of the sky know of the weather is in one buffer, `WeatherShading`, bound to
+//! every material that shows the sky: the chunks (their fog and the reflection of the water),
+//! the horizon skirt and the overcast dome. So the grey of the overcast is the same everywhere,
+//! and no blue is left. The buffer is written in place as the weather and the hour change:
+//! changing a material instead would prepare every chunk drawn again.
 
+use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::light::{NotShadowCaster, NotShadowReceiver};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+};
+use bevy::render::storage::ShaderBuffer;
+use bevy::shader::ShaderRef;
 
-use crate::world::celestial::smoothstep;
+use crate::state::GameState;
+use crate::world::celestial::{smoothstep, sun_height};
+use crate::world::shaders::ShaderFeatures;
+use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
+use crate::world::{GraphicsSettings, MaterialResource};
 
 /// How overcast the sky is, read from the rain and thunder levels: the sky leads the drops.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -110,10 +130,179 @@ impl Overcast {
     }
 }
 
+/// What the shaders of the sky know of the weather: `Weather` in `sky.wgsl`, bound at 107 in
+/// every material that shows the sky.
+#[derive(ShaderType, Clone, Copy, Debug, Default, PartialEq)]
+pub struct WeatherShading {
+    /// The overcast sky at the horizon and at the zenith (`Overcast::colors`), in linear RGB.
+    pub horizon: Vec4,
+    pub zenith: Vec4,
+    /// `Overcast::level`.
+    pub overcast: f32,
+}
+
+impl WeatherShading {
+    /// What the shaders are told under `overcast`, with the sun at `sun_height`.
+    pub fn new(overcast: Overcast, sun_height: f32, physical_sky: bool) -> Self {
+        let (horizon, zenith) = overcast.colors(sun_height, physical_sky);
+        Self {
+            horizon: horizon.extend(1.),
+            zenith: zenith.extend(1.),
+            overcast: overcast.level,
+        }
+    }
+}
+
+/// The buffer of `WeatherShading`, under a clear sky.
+pub fn new_weather_buffer() -> ShaderBuffer {
+    ShaderBuffer::from(WeatherShading::default())
+}
+
+const OVERCAST_SHADER: Handle<Shader> = uuid_handle!("d3e5a7c1-4f2b-4b9e-8a61-7c0e9f3b5d24");
+
+/// The overcast sky and the dome that draws it.
+pub fn overcast_plugin(app: &mut App) {
+    load_internal_asset!(app, OVERCAST_SHADER, "overcast.wgsl", Shader::from_wgsl);
+    app.add_plugins(MaterialPlugin::<OvercastMaterial>::default())
+        .add_systems(
+            Update,
+            (weather_shading_system, follow_camera_with_dome).run_if(in_state(GameState::Game)),
+        );
+}
+
+/// Tells the shaders of the sky the overcast of now, when it changes.
+pub fn weather_shading_system(
+    time: Res<ClientTime>,
+    weather: Option<Res<ClientWeather>>,
+    graphics: Res<GraphicsSettings>,
+    materials: Res<MaterialResource>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut written: Local<Option<WeatherShading>>,
+) {
+    let shading = WeatherShading::new(
+        Overcast::current(weather.as_deref()),
+        sun_height(time.0),
+        ShaderFeatures::of(graphics.shaders).sky,
+    );
+    if *written == Some(shading) {
+        return;
+    }
+    if let Some(mut buffer) = buffers.get_mut(&materials.weather) {
+        // The same size: the buffer on the GPU is written in place, and stays bound
+        buffer.set_data(shading);
+        *written = Some(shading);
+    }
+}
+
+/// The grey sky of the weather (`overcast.wgsl`), drawn over the physical sky by the overcast
+/// level: a sphere around the camera on the far plane, so that it covers the sky only. Bevy
+/// draws the sky after the opaque meshes, so the dome is among the transparent ones, after the
+/// sun, the moon and the stars and before the clouds.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct OvercastMaterial {
+    #[storage(107, read_only)]
+    pub weather: Handle<ShaderBuffer>,
+}
+
+impl Material for OvercastMaterial {
+    fn vertex_shader() -> ShaderRef {
+        OVERCAST_SHADER.into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        OVERCAST_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+
+    /// After the sun and the moon (-1e6), before everything near.
+    fn depth_bias(&self) -> f32 {
+        -5e5
+    }
+
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.vertex.buffers = vec![layout
+            .0
+            .get_layout(&[Mesh::ATTRIBUTE_POSITION.at_shader_location(0)])?];
+        // Seen from inside
+        descriptor.primitive.cull_mode = None;
+        Ok(())
+    }
+}
+
+/// The overcast dome around the camera.
+#[derive(Component)]
+pub struct OvercastDome;
+
+/// Keeps the overcast dome around the camera, with the physical sky only (without it, the
+/// colour behind the world turns grey instead), shown while the sky is overcast at all.
+fn follow_camera_with_dome(
+    graphics: Res<GraphicsSettings>,
+    weather: Option<Res<ClientWeather>>,
+    resources: Res<MaterialResource>,
+    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    mut domes: Query<(Entity, &mut Transform, &mut Visibility), With<OvercastDome>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<OvercastMaterial>>,
+    mut commands: Commands,
+) {
+    let camera = cameras.iter().next();
+    let (Some(camera), true) = (camera, ShaderFeatures::of(graphics.shaders).sky) else {
+        for (dome, ..) in &domes {
+            commands.entity(dome).despawn();
+        }
+        return;
+    };
+    let visibility = if Overcast::current(weather.as_deref()).level > 0. {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    let transform = Transform::from_translation(camera.translation());
+    match domes.single_mut() {
+        Ok((_, mut dome, mut shown)) => {
+            *dome = transform;
+            shown.set_if_neq(visibility);
+        }
+        Err(_) => {
+            commands.spawn((
+                OvercastDome,
+                Mesh3d(meshes.add(Sphere::new(100.).mesh().ico(3).unwrap())),
+                MeshMaterial3d(materials.add(OvercastMaterial {
+                    weather: resources.weather.clone(),
+                })),
+                transform,
+                visibility,
+                NotShadowCaster,
+                NotShadowReceiver,
+                NoFrustumCulling,
+                DespawnOnExit(GameState::Game),
+            ));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::ShaderQuality;
     use shared::world::WeatherKind;
+    use shared::NOON_IN_DAY;
 
     const CLEAR: Overcast = Overcast {
         level: 0.,
@@ -247,5 +436,90 @@ mod tests {
                 before = now;
             }
         }
+    }
+
+    fn app(shaders: ShaderQuality, kind: WeatherKind) -> (App, Handle<ShaderBuffer>) {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<ShaderBuffer>()
+            .init_asset::<Mesh>()
+            .init_asset::<OvercastMaterial>()
+            .insert_resource(ClientTime(NOON_IN_DAY))
+            .insert_resource(ClientWeather::settled(kind))
+            .insert_resource(GraphicsSettings {
+                shaders,
+                ..default()
+            })
+            .add_systems(Update, (weather_shading_system, follow_camera_with_dome));
+        let weather = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .add(new_weather_buffer());
+        app.insert_resource(MaterialResource {
+            weather: weather.clone(),
+            ..default()
+        });
+        app.world_mut().spawn((
+            Camera3d::default(),
+            GlobalTransform::from_translation(Vec3::new(3., 70., -8.)),
+        ));
+        app.update();
+        (app, weather)
+    }
+
+    fn buffer_data(app: &App, handle: &Handle<ShaderBuffer>) -> Option<Vec<u8>> {
+        let buffers = app.world().resource::<Assets<ShaderBuffer>>();
+        buffers.get(handle).unwrap().data.clone()
+    }
+
+    #[test]
+    fn the_shaders_of_the_sky_are_told_the_overcast_of_the_hour() {
+        let (mut app, handle) = app(ShaderQuality::High, WeatherKind::Rain);
+        let expected = WeatherShading::new(RAIN, sun_height(NOON_IN_DAY), true);
+        assert_eq!(expected.overcast, 1.);
+        assert_eq!(
+            buffer_data(&app, &handle),
+            ShaderBuffer::from(expected).data
+        );
+        // without the physical sky, the grey of the colour behind the world
+        app.insert_resource(GraphicsSettings {
+            shaders: ShaderQuality::Off,
+            ..default()
+        });
+        app.update();
+        let expected = WeatherShading::new(RAIN, sun_height(NOON_IN_DAY), false);
+        assert_eq!(
+            buffer_data(&app, &handle),
+            ShaderBuffer::from(expected).data
+        );
+        assert_eq!(app.world().resource::<MaterialResource>().weather, handle);
+    }
+
+    fn domes(app: &mut App) -> Vec<(Vec3, Visibility)> {
+        let world = app.world_mut();
+        world
+            .query_filtered::<(&Transform, &Visibility), With<OvercastDome>>()
+            .iter(world)
+            .map(|(transform, visibility)| (transform.translation, *visibility))
+            .collect()
+    }
+
+    #[test]
+    fn the_dome_covers_the_physical_sky_while_it_is_overcast() {
+        let (mut app, _) = app(ShaderQuality::High, WeatherKind::Rain);
+        assert_eq!(
+            domes(&mut app),
+            [(Vec3::new(3., 70., -8.), Visibility::Inherited)]
+        );
+        app.insert_resource(ClientWeather::settled(WeatherKind::Clear));
+        app.update();
+        assert_eq!(domes(&mut app)[0].1, Visibility::Hidden);
+        // without the physical sky, none
+        app.insert_resource(GraphicsSettings {
+            shaders: ShaderQuality::Off,
+            ..default()
+        });
+        app.update();
+        assert!(domes(&mut app).is_empty());
     }
 }

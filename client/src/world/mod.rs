@@ -43,6 +43,7 @@ pub fn world_plugin(app: &mut App) {
             chunk_material_plugin,
             clouds::clouds_plugin,
             shaders::shaders_plugin,
+            overcast::overcast_plugin,
             celestial::celestial_material_plugin,
         ))
         .add_message::<WorldRenderRequestUpdateEvent>()

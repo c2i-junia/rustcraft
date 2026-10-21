@@ -1,6 +1,7 @@
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
+use crate::world::overcast::new_weather_buffer;
 use crate::world::voxel::FaceColor;
 use crate::world::{new_climate_map, GlobalMaterial, GraphicsSettings, BLOCK_LIGHT};
 use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
@@ -11,6 +12,7 @@ use bevy::render::render_resource::{
     AsBindGroup, Extent3d, ShaderType, TextureDimension, TextureFormat, TextureViewDescriptor,
     TextureViewDimension,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use serde::Deserialize;
 use shared::world::{BlockId, GameElementId, ItemId};
@@ -90,7 +92,8 @@ pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
 /// The block textures for `chunk.wgsl`: the array of their layers, and for each texture of the
 /// table its first layer, its number of frames, the time of a frame and whether frames fade.
 /// With them, what the grass and the leaves are coloured with: the climate around the player
-/// and the colour maps of the texture pack (see `climate.rs`), and how the faces are shaded.
+/// and the colour maps of the texture pack (see `climate.rs`), how the faces are shaded, and
+/// the weather of the sky the chunks fade into and the water reflects (`overcast.rs`).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct BlockLayers {
     #[uniform(100)]
@@ -106,6 +109,10 @@ pub struct BlockLayers {
     pub foliage_colors: Handle<Image>,
     #[uniform(106)]
     pub shading: ChunkShading,
+    /// `WeatherShading`, written in place as the weather changes: a buffer of its own, as
+    /// changing `shading` would prepare every chunk drawn again.
+    #[storage(107, read_only)]
+    pub weather: Handle<ShaderBuffer>,
 }
 
 /// The bits of `ChunkShading::effects`: the plants sway in the wind, and the water ripples and
@@ -188,6 +195,8 @@ pub struct MaterialResource {
     /// The colours of the grass and of the leaves by climate, from the texture pack.
     pub grass_colors: Handle<Image>,
     pub foliage_colors: Handle<Image>,
+    /// What the shaders of the sky know of the weather (`WeatherShading`).
+    pub weather: Handle<ShaderBuffer>,
 }
 
 #[derive(Resource)]
@@ -213,6 +222,7 @@ impl<T> Default for AtlasHandles<T> {
 pub fn setup_materials(
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut material_resource: ResMut<MaterialResource>,
     mut block_atlas_handles: ResMut<AtlasHandles<BlockId>>,
     mut item_atlas_handles: ResMut<AtlasHandles<ItemId>>,
@@ -235,6 +245,7 @@ pub fn setup_materials(
     item_atlas_handles.handles = items;
 
     material_resource.climate_map = images.add(new_climate_map());
+    material_resource.weather = buffers.add(new_weather_buffer());
     let colormaps = textures_path.join("colormap");
     material_resource.grass_colors =
         load_colormap(&asset_server, &mut images, &colormaps.join("grass.png"));
@@ -353,6 +364,7 @@ pub fn create_all_atlases(
                 grass_colors: material_resource.grass_colors.clone(),
                 foliage_colors: material_resource.foliage_colors.clone(),
                 shading: ChunkShading::new(&graphics, false),
+                weather: material_resource.weather.clone(),
             };
             let chunk_material = |base, liquid| ChunkMaterial {
                 base,

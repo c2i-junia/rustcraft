@@ -44,7 +44,7 @@
 #ifdef DISTANCE_FOG
 #import bevy_pbr::mesh_view_bindings::fog
 #endif
-#import rustcraft::sky::{sky_radiance, has_sky, horizon_direction}
+#import rustcraft::sky::{sky_radiance, has_sky, horizon_direction, overcast_sky, weather}
 #ifdef DEPTH_PREPASS
 #import bevy_pbr::prepass_utils::prepass_depth
 #endif
@@ -78,6 +78,7 @@ struct ChunkShading {
     liquid: u32,
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> shading: ChunkShading;
+// At 107, the weather of the sky, `weather` of `rustcraft::sky`
 
 // The values of `BiomeTint::index`
 const BIOME_TINT_GRASS: u32 = 1u;
@@ -537,9 +538,10 @@ fn fragment(
     if water && !screen_water {
         // The sky, as bright as the day is, where the water is under it
         let daylight = lights.ambient_color.r / DAY_AMBIENT;
-        var reflected = SKY_COLOR * daylight * sky;
+        let R = reflect(-pbr_input.V, pbr_input.N);
+        var reflected = mix(SKY_COLOR * daylight, overcast_sky(R), weather.overcast) * sky;
         if has_sky() {
-            reflected = sky_radiance(reflect(-pbr_input.V, pbr_input.N), 0.0) * sky;
+            reflected = sky_radiance(R, 0.0) * sky;
         }
         out.color = vec4(mix(out.color.rgb, reflected, fresnel), out.color.a);
     }
