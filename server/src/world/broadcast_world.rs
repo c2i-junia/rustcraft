@@ -39,12 +39,16 @@ pub fn broadcast_world_state(
     world_map
         .dirty_chunks
         .extend(changed.iter().map(global_block_to_chunk_pos));
-    // The contents of a chest only reach the clients through the player updates, but its
-    // chunk must be saved with them
+    // The contents of a chest and a furnace only reach the clients through the player
+    // updates, but their chunk must be saved with them
+    let changed_contents = [
+        chunks.take_changed_containers(),
+        chunks.take_changed_furnaces(),
+    ];
     world_map.dirty_chunks.extend(
-        chunks
-            .take_changed_containers()
+        changed_contents
             .iter()
+            .flatten()
             .map(global_block_to_chunk_pos),
     );
     let (changed_items, removed_items) = world_map.dropped_items.take_changes();
@@ -619,6 +623,36 @@ mod tests {
         let mut map = app.world_mut().resource_mut::<ServerWorldMap>();
         assert_eq!(map.dirty_chunks, HashSet::from([IVec3::X]));
         assert!(map.chunks.take_changed_containers().is_empty());
+    }
+
+    #[test]
+    fn a_broadcast_marks_the_chunk_of_a_changed_furnace_dirty() {
+        let mut app = App::new();
+        app.insert_resource(RenetServer::new(shared::get_shared_renet_config()))
+            .insert_resource(ServerTime(0))
+            .insert_resource(ServerWorldMap {
+                chunks: row_of_chunks(3),
+                ..default()
+            });
+        let furnace = IVec3::new(2 * CHUNK_SIZE + 1, 0, 0);
+        {
+            let mut map = app.world_mut().resource_mut::<ServerWorldMap>();
+            map.chunks.set_block(
+                furnace,
+                BlockData::new(BlockId::Furnace, BlockDirection::Front),
+            );
+            map.chunks
+                .insert_furnace(furnace, shared::world::Furnace::default());
+            map.chunks.take_changed_blocks();
+            map.chunks.furnace_mut(furnace);
+        }
+
+        app.add_systems(Update, broadcast_world_state);
+        app.update();
+
+        let mut map = app.world_mut().resource_mut::<ServerWorldMap>();
+        assert_eq!(map.dirty_chunks, HashSet::from([IVec3::new(2, 0, 0)]));
+        assert!(map.chunks.take_changed_furnaces().is_empty());
     }
 
     #[test]

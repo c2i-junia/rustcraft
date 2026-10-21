@@ -75,7 +75,8 @@ pub fn setup_resources_and_events(app: &mut App) {
 pub enum ServerSet {
     /// Connection events and client messages.
     Receive,
-    /// The player inputs are applied to the world, then the water flows.
+    /// The player inputs are applied to the world, then the furnaces smelt and the water
+    /// flows.
     Simulate,
     /// The world changes are sent to the clients.
     Broadcast,
@@ -111,6 +112,7 @@ pub fn register_systems(app: &mut App) {
         FixedUpdate,
         (
             handle_player_inputs_system,
+            world::furnaces::tick_furnaces_system,
             regenerate_health_system,
             pickup_dropped_items_system,
             world::flow::water_flow_system,

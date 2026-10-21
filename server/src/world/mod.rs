@@ -8,6 +8,7 @@ pub(crate) mod data;
 pub mod dropped_items;
 pub mod flow;
 pub mod format;
+pub mod furnaces;
 pub mod generation;
 mod legacy;
 pub mod load_from_file;

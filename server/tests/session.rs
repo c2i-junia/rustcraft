@@ -1569,6 +1569,72 @@ fn a_furnace_is_crafted_at_a_table() {
     assert_eq!(inventory, Some(expected));
 }
 
+#[test]
+fn a_furnace_fed_through_its_slots_lights_for_every_client_and_its_player_sees_it_burn() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::Furnace, 1));
+    inventory.inner.insert(1, stack(ItemId::Sand, 2));
+    inventory.inner.insert(2, stack(ItemId::Coal, 1));
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    // Place the furnace on the ground, two blocks ahead toward -Z
+    let (down, _) = land_and_aim_down(&mut client);
+    let position = down.translation;
+    let camera = Transform::from_translation(position)
+        .looking_at(position + Vec3::new(0., -1.6, -2.), Vec3::Y);
+    let ground = raycast::raycast(&client.world, &camera, &position, Default::default())
+        .expect("the player aims at the ground");
+    let furnace = ground.position + ground.face.to_ivec3();
+    let place = PlayerFrameInput {
+        time_ms: 100,
+        delta_ms: 16,
+        inputs: [NetworkAction::RightClick].into(),
+        camera,
+        hotbar_slot: 0,
+        ..Default::default()
+    };
+    // The sand smelts and goes to the input, the coal burns and goes to the fuel slot
+    let fill = PlayerFrameInput {
+        time_ms: 101,
+        delta_ms: 16,
+        camera,
+        inventory_actions: vec![
+            InventoryAction::OpenFurnace(furnace),
+            InventoryAction::QuickMoveSlot(1),
+            InventoryAction::QuickMoveSlot(2),
+        ],
+        ..Default::default()
+    };
+    client.send(ClientToServerMessage::PlayerInputs(vec![place, fill]));
+
+    let id = client.id;
+    let burning = client.wait_for("a PlayerUpdate with the furnace burning", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id => {
+            u.open_furnace.clone().filter(|furnace| furnace.is_lit())
+        }
+        _ => None,
+    });
+    assert_eq!(burning.input.map(|input| input.item_id), Some(ItemId::Sand));
+    assert_eq!(burning.fuel, None);
+    assert!(burning.cook > 0);
+
+    // Lit, it still faces the player, toward +Z
+    let start = Instant::now();
+    while client.world.get_block(furnace).map(|block| block.id) != Some(BlockId::LitFurnace) {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the lit furnace never reached the client"
+        );
+        client.pump();
+    }
+    assert_eq!(
+        client.world.get_block(furnace).copied(),
+        Some(BlockData::new(BlockId::LitFurnace, BlockDirection::Back))
+    );
+}
+
 /// The answer of the status port at `addr` to a request carrying `nonce`, asked from a fresh
 /// socket, or nothing within 500 ms.
 fn ask_status(addr: std::net::SocketAddr, nonce: u64) -> Option<StatusReply> {
