@@ -1,8 +1,10 @@
 //! The gestures of a seasoned Minecraft player in the inventory: a drag of the held stack over
-//! the grid, Shift+click on the result and a double click, through the integrated server.
+//! the grid, Shift+click on the result, a double click, and those of the Mouse Tweaks mod,
+//! Shift+drag and the wheel, through the integrated server.
 
 use std::time::Duration;
 
+use accesskit::Role;
 use bevy::{input::keyboard::KeyCode, prelude::*, time::TimeUpdateStrategy};
 use shared::players::inventory::craft_result;
 use shared::players::Inventory;
@@ -13,6 +15,7 @@ use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::item_browser::{CatalogGrid, ItemBrowser};
 use crate::ui::hud::{
     CraftResultCell, FloatingStack, InventoryRoot, CHEST_TITLE, CRAFTING_TABLE_TITLE,
     INVENTORY_TITLE,
@@ -20,6 +23,7 @@ use crate::ui::hud::{
 use crate::ui::theme::ACCENT;
 use crate::ui::widgets::slot::SlotCount;
 use crate::world::ClientWorldMap;
+use shared::players::inventory::CHEST_SLOT_START;
 
 /// The ring of eight cells around the centre of the 3x3 grid: a chest, out of planks.
 const RING: [(u32, u32); 8] = [
@@ -307,4 +311,118 @@ fn a_shift_double_click_moves_every_stack_of_its_item_into_the_chest() {
     h.wait_until("every stack of dirt in the chest", SERVER, moved);
     h.frames(30);
     assert!(moved(h.world()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_shift_drag_moves_every_stack_swept_into_the_chest() {
+    use ItemId::{Cobblestone, Dirt, Sand};
+    let folder = GameFolder::new().with_world("Sweep").with_items(
+        "Sweep",
+        "Tester",
+        &[
+            (0, ItemId::Chest, 1),
+            (9, Dirt, 5),
+            (10, Sand, 4),
+            (12, Cobblestone, 7),
+        ],
+    );
+    let mut h = enter_world(folder, "Sweep");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 12) == Some((Cobblestone, 7))
+    });
+    let chest = place_ahead(&mut h);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_for(&L::text(CHEST_TITLE), SCREEN);
+    let contents = |w: &World| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .container(chest)
+            .cloned()
+    };
+    h.wait_until("its empty slots", SERVER, |w| {
+        contents(w).is_some_and(|contents| contents.is_empty())
+    });
+
+    // Shift held, from the dirt over the sand, back over it, over an empty cell, the stone, and
+    // up onto the chest's first slot, where the dirt went
+    h.key_down(KeyCode::ShiftLeft);
+    h.mouse_down(&L::cell(9));
+    for cell in [10, 9, 11, 12, CHEST_SLOT_START] {
+        h.hover(&L::cell(cell));
+    }
+    h.mouse_up();
+    h.key_up(KeyCode::ShiftLeft);
+
+    let swept = |w: &World| {
+        let in_chest = contents(w).map(|contents| contents.slots[..4].to_vec());
+        let shown = in_chest.map(|slots| {
+            slots
+                .iter()
+                .map(|stack| stack.map(|stack| (stack.item_id, stack.nb)))
+                .collect::<Vec<_>>()
+        });
+        shown
+            == Some(vec![
+                Some((Dirt, 5)),
+                Some((Sand, 4)),
+                Some((Cobblestone, 7)),
+                None,
+            ])
+            && [9, 10, 11, 12].iter().all(|&id| slot(w, id).is_none())
+    };
+    h.wait_until("the three stacks in the chest", SERVER, swept);
+    h.frames(30);
+    assert!(swept(h.world()));
+}
+
+/// How far the catalog of the item browser is scrolled.
+fn catalog_scrolled(world: &mut World) -> f32 {
+    let mut grid = world.query_filtered::<&ChildOf, With<CatalogGrid>>();
+    let list = grid.single(world).unwrap().parent();
+    world.get::<ScrollPosition>(list).unwrap().y
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_wheel_moves_one_item_a_notch_and_leaves_the_hotbar_selection() {
+    let folder = GameFolder::new().with_world("Notch").with_items(
+        "Notch",
+        "Tester",
+        &[(0, ItemId::Dirt, 5)],
+    );
+    let mut h = enter_world(folder, "Notch");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Dirt, 5))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    let selected = |h: &mut Harness| {
+        h.world_mut()
+            .query::<&Hotbar>()
+            .single(h.world())
+            .unwrap()
+            .selected
+    };
+
+    // Three notches, either way, over the dirt of the hotbar: three go into the backpack
+    h.hover(&L::cell(0));
+    for lines in [-1., 1., -1.] {
+        h.scroll(lines);
+    }
+    let moved =
+        |w: &World| slot(w, 0) == Some((ItemId::Dirt, 2)) && slot(w, 9) == Some((ItemId::Dirt, 3));
+    h.wait_until("three dirt in the backpack", SERVER, moved);
+    h.frames(30);
+    assert!(moved(h.world()));
+    assert_eq!(selected(&mut h), 0);
+
+    // Over the item browser, the wheel scrolls its catalog and moves nothing
+    h.hover(&L::role(Role::GridCell, "Stone").within(L::marker::<ItemBrowser>()));
+    h.scroll(-2.);
+    h.frames(2);
+    assert!(catalog_scrolled(h.world_mut()) > 0.0);
+    h.frames(20);
+    assert!(moved(h.world()));
+    assert_eq!(selected(&mut h), 0);
 }
