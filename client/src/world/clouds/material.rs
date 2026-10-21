@@ -57,6 +57,12 @@ pub struct CloudParams {
     /// The density above which a cell is full, which grows the clouds in rain
     /// (`field::threshold`).
     pub threshold: f32,
+    /// The colour of the clouds under a full overcast (`overcast_cloud_color`), as on screen,
+    /// and in `w` the overcast level, by which it replaces the tint.
+    pub overcast: Vec4,
+    /// The overcast sky at the horizon (`Overcast::colors`): under the overcast, the clouds far
+    /// off fade into it.
+    pub haze: Vec4,
 }
 
 impl Material for CloudMaterial {

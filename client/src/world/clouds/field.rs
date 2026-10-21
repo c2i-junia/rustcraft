@@ -24,6 +24,7 @@ pub const NEVER: f32 = -2.;
 /// Whether the cell `cell` of the pattern holds a cloud under a clear sky. The same on every
 /// call and for every player, and periodic: `cell` and `cell + PERIOD` on either axis are
 /// alike.
+#[cfg(test)]
 pub fn is_full(cell: IVec2) -> bool {
     density(cell) > CLEAR_THRESHOLD
 }

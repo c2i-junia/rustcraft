@@ -20,6 +20,8 @@ struct CloudParams {
     fade_start: f32,
     fade_end: f32,
     threshold: f32,
+    overcast: vec4<f32>,
+    haze: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: CloudParams;
@@ -63,5 +65,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if alpha < 0.01 {
         discard;
     }
-    return vec4(params.tint.rgb * in.shade, alpha);
+    // Under the overcast, the clouds are of its grey, and the clouds far off fade into the
+    // grey of its horizon before they fade out
+    let level = params.overcast.w;
+    let color = mix(params.tint.rgb, params.overcast.rgb, level) * in.shade;
+    let haze = smoothstep(0.0, params.fade_end, distance) * level;
+    return vec4(mix(color, params.haze.rgb, haze), alpha);
 }

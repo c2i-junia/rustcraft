@@ -61,6 +61,7 @@ impl Quad {
     }
 
     /// Whether the face shows when the cells denser than `threshold` are full.
+    #[cfg(test)]
     pub fn shows_at(&self, threshold: f32) -> bool {
         self.low <= threshold && threshold < self.high
     }

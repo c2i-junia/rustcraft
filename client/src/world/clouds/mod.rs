@@ -10,9 +10,10 @@ use shared::{CHUNK_SIZE, TICKS_PER_SECOND};
 use crate::state::{GameSet, GameState};
 use crate::world::celestial::{smoothstep, sun_height};
 use crate::world::overcast::Overcast;
+use crate::world::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
-use crate::world::{RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{GraphicsSettings, RenderDistance, ServerRenderDistanceLimit};
 use field::{drift, threshold};
 use material::{cloud_material_plugin, CloudMaterial, CloudParams};
 use mesh::{cloud_mesh, CloudStyle};
@@ -69,10 +70,10 @@ const DAY_TINT: Vec3 = Vec3::ONE;
 const NIGHT_TINT: Vec3 = Vec3::new(0.17, 0.2, 0.29);
 const WARM_TINT: Vec3 = Vec3::new(1.0, 0.7, 0.5);
 
-/// What the tint of the hour turns to in rain and in a thunderstorm, by day, in sRGB: a blue
-/// grey, darker in a storm.
-const RAIN_TINT: Vec3 = Vec3::new(0x8C as f32 / 255., 0x93 as f32 / 255., 0xA0 as f32 / 255.);
-const STORM_TINT: Vec3 = Vec3::new(0x5A as f32 / 255., 0x60 as f32 / 255., 0x6B as f32 / 255.);
+/// The colour of the clouds under a full overcast in rain and in a thunderstorm, as a part of
+/// the overcast at the zenith: a darker blue grey, as rain clouds hang under a lighter sky.
+const RAIN_SHADE: Vec3 = Vec3::new(0.68, 0.71, 0.78);
+const STORM_SHADE: Vec3 = Vec3::new(0.56, 0.59, 0.66);
 
 /// The clouds of the sky: one mesh of the cells within reach of the camera, slid along +X by
 /// the drift.
@@ -128,19 +129,22 @@ pub fn smooth_drift(tick: u64, fraction: f32) -> f32 {
     drift(tick) + fraction * SPEED / TICKS_PER_SECOND as f32
 }
 
-/// The colour of the clouds at the world clock `tick`, after the height of the sun, under the
-/// sky `overcast`: the light of the hour on a blue grey in rain.
-pub fn cloud_tint(tick: u64, overcast: Overcast) -> Color {
+/// The colour of the clouds at the world clock `tick`, after the height of the sun.
+pub fn cloud_tint(tick: u64) -> Color {
     let height = sun_height(tick);
     let day = smoothstep(-0.2, 0.3, height);
     // the most warmth at the horizon, none once the sun is a third of the way up or down
     let warmth = 0.7 * (1. - height.abs() / 0.35).max(0.);
     let tint = NIGHT_TINT.lerp(DAY_TINT, day).lerp(WARM_TINT, warmth);
-    let grey = Vec3::ONE
-        .lerp(RAIN_TINT, overcast.level)
-        .lerp(STORM_TINT, overcast.storm);
-    let tint = tint * grey;
     Color::srgb(tint.x, tint.y, tint.z)
+}
+
+/// The colour of the clouds under the full overcast of `overcast`, with the sun at
+/// `sun_height`, in linear RGB as on screen: as bright as the overcast at that hour, which the
+/// tint of a clear sky is not.
+pub fn overcast_cloud_color(overcast: Overcast, sun_height: f32, physical_sky: bool) -> Vec3 {
+    let (_, zenith) = overcast.colors(sun_height, physical_sky);
+    zenith * RAIN_SHADE.lerp(STORM_SHADE, overcast.storm)
 }
 
 /// Spawns the clouds, drawn in colour, with a child that draws their depth first (see
@@ -228,6 +232,7 @@ fn rebuild_clouds_system(
 pub(crate) fn cloud_uniforms_system(
     time: Res<ClientTime>,
     weather: Option<Res<ClientWeather>>,
+    graphics: Option<Res<GraphicsSettings>>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     clouds: Query<&MeshMaterial3d<CloudMaterial>>,
@@ -235,12 +240,18 @@ pub(crate) fn cloud_uniforms_system(
 ) {
     let overcast = Overcast::current(weather.as_deref());
     let reach = current_reach(&render_distance, server_limit) * overcast.fog_end();
+    let physical_sky = graphics.is_some_and(|graphics| ShaderFeatures::of(graphics.shaders).sky);
+    let height = sun_height(time.0);
+    let (horizon, _) = overcast.colors(height, physical_sky);
+    let grey = overcast_cloud_color(overcast, height, physical_sky);
     let params = CloudParams {
-        tint: cloud_tint(time.0, overcast).to_linear().to_vec4(),
+        tint: cloud_tint(time.0).to_linear().to_vec4(),
         opacity: OPACITY.lerp(RAIN_OPACITY, overcast.level),
         fade_start: FADE_START * reach,
         fade_end: reach,
         threshold: threshold(overcast),
+        overcast: grey.extend(overcast.level),
+        haze: horizon.extend(1.),
     };
     for material in &clouds {
         // Only a changed material is sent to the GPU again
@@ -260,10 +271,6 @@ mod tests {
     use field::{CLEAR_THRESHOLD, STORM_THRESHOLD};
     use shared::world::WeatherKind;
 
-    const CLEAR: Overcast = Overcast {
-        level: 0.,
-        storm: 0.,
-    };
     const RAIN: Overcast = Overcast {
         level: 1.,
         storm: 0.,
@@ -281,16 +288,13 @@ mod tests {
 
     #[test]
     fn the_clouds_are_white_at_noon() {
-        let noon = srgb(cloud_tint(3 * DAY_DURATION_IN_TICKS + NOON_IN_DAY, CLEAR));
+        let noon = srgb(cloud_tint(3 * DAY_DURATION_IN_TICKS + NOON_IN_DAY));
         assert!(noon.abs_diff_eq(DAY_TINT, 1e-4), "{noon}");
     }
 
     #[test]
     fn the_clouds_are_grey_blue_at_midnight() {
-        let midnight = srgb(cloud_tint(
-            3 * DAY_DURATION_IN_TICKS + MIDNIGHT_IN_DAY,
-            CLEAR,
-        ));
+        let midnight = srgb(cloud_tint(3 * DAY_DURATION_IN_TICKS + MIDNIGHT_IN_DAY));
         assert!(midnight.abs_diff_eq(NIGHT_TINT, 1e-4), "{midnight}");
     }
 
@@ -298,7 +302,7 @@ mod tests {
     fn the_clouds_are_warm_at_sunrise_and_sunset() {
         // a cycle starts at sunset; the sun rises half a cycle later
         for tick in [0, DAY_DURATION_IN_TICKS / 2] {
-            let tint = srgb(cloud_tint(tick, CLEAR));
+            let tint = srgb(cloud_tint(tick));
             assert!(tint.x > tint.z + 0.2, "{tick}: {tint}");
             assert!(
                 tint.x > NIGHT_TINT.x && tint.z < DAY_TINT.z,
@@ -308,37 +312,19 @@ mod tests {
     }
 
     #[test]
-    fn the_clouds_turn_blue_grey_in_rain_and_darker_in_a_storm() {
-        let noon = 3 * DAY_DURATION_IN_TICKS + NOON_IN_DAY;
-        let rain = srgb(cloud_tint(noon, RAIN));
-        assert!(rain.abs_diff_eq(RAIN_TINT, 1e-4), "{rain}");
-        let storm = srgb(cloud_tint(noon, STORM));
-        assert!(storm.abs_diff_eq(STORM_TINT, 1e-4), "{storm}");
-        assert!(rain.z > rain.x && storm.max_element() < rain.min_element());
-        // halfway, in between
-        let half = srgb(cloud_tint(
-            noon,
-            Overcast {
-                level: 0.5,
-                storm: 0.,
-            },
-        ));
-        assert!(half.x < 1. && half.x > rain.x, "{half}");
-    }
-
-    #[test]
-    fn the_clouds_of_the_rain_are_still_lit_by_the_hour() {
-        let noon = srgb(cloud_tint(3 * DAY_DURATION_IN_TICKS + NOON_IN_DAY, RAIN));
-        let midnight = srgb(cloud_tint(
-            3 * DAY_DURATION_IN_TICKS + MIDNIGHT_IN_DAY,
-            RAIN,
-        ));
-        assert!(
-            midnight.max_element() < 0.5 * noon.min_element(),
-            "{midnight}"
-        );
-        let sunset = srgb(cloud_tint(3 * DAY_DURATION_IN_TICKS, RAIN));
-        assert!(sunset.x > sunset.z, "{sunset}");
+    fn the_clouds_of_the_rain_are_a_blue_grey_darker_than_the_sky_and_in_a_storm_darker_still() {
+        for physical in [true, false] {
+            let (_, zenith) = RAIN.colors(0.9, physical);
+            let rain = overcast_cloud_color(RAIN, 0.9, physical);
+            let storm = overcast_cloud_color(STORM, 0.9, physical);
+            assert!(rain.z > rain.x && storm.z > storm.x, "{rain} {storm}");
+            let brightness = |color: Vec3| color.element_sum() / 3.;
+            assert!(brightness(rain) < 0.8 * brightness(zenith), "{rain}");
+            assert!(brightness(storm) < 0.8 * brightness(rain), "{storm}");
+            // and dark at night
+            let night = overcast_cloud_color(RAIN, -0.9, physical);
+            assert!(night.max_element() < 0.1 * rain.min_element(), "{night}");
+        }
     }
 
     #[test]
@@ -347,6 +333,7 @@ mod tests {
         app.insert_resource(ClientWeather::settled(WeatherKind::Thunder));
         app.update();
         let params = params(&mut app);
+        assert_eq!(params.overcast.w, 1.);
         assert_eq!(params.threshold, STORM_THRESHOLD);
         assert_eq!(params.opacity, RAIN_OPACITY);
         let reach = reach(4, None);
@@ -557,11 +544,9 @@ mod tests {
         assert_eq!(params.fade_end, reach);
         assert_eq!(params.fade_start, FADE_START * reach);
         assert_eq!(params.opacity, OPACITY);
-        assert_eq!(
-            params.tint,
-            cloud_tint(NOON_IN_DAY, CLEAR).to_linear().to_vec4()
-        );
+        assert_eq!(params.tint, cloud_tint(NOON_IN_DAY).to_linear().to_vec4());
         assert_eq!(params.threshold, CLEAR_THRESHOLD);
+        assert_eq!(params.overcast.w, 0.);
     }
 
     fn meshes_of_the_drawings(app: &mut App) -> (Option<Mesh3d>, Option<Mesh3d>) {
