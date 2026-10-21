@@ -1,4 +1,5 @@
 use crate::player::CurrentPlayerMarker;
+use crate::portal::BODY_LAYER;
 use crate::state::GameState;
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
@@ -6,7 +7,7 @@ use crate::world::weather::ClientWeather;
 use crate::world::{GraphicsSettings, ShaderQuality};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    camera::visibility::NoFrustumCulling,
+    camera::visibility::{NoFrustumCulling, RenderLayers},
     light::{NotShadowCaster, NotShadowReceiver},
     mesh::MeshVertexBufferLayoutRef,
     pbr::{MaterialPipeline, MaterialPipelineKey},
@@ -232,6 +233,9 @@ pub fn setup_main_lighting(
                 shadow_maps_enabled: graphics.is_none_or(|graphics| graphics.shadows),
                 ..default()
             },
+            // A light shadows only the meshes of its layers: the body of the player in first
+            // person, seen only through the portals, keeps its shadow
+            RenderLayers::from_layers(&[0, BODY_LAYER]),
             Transform::IDENTITY,
         ))
         .id();
@@ -542,6 +546,19 @@ mod tests {
         let far = Vec3::new(10_000.0, 0.0, -3_000.0);
         let off = sun.angle_between(sun - far).to_degrees();
         assert!(off < 1.0, "{off}°");
+    }
+
+    #[test]
+    fn the_sky_light_shadows_the_world_and_the_body_seen_only_through_the_portals() {
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<CelestialMaterial>>();
+        world.run_system_once(setup_main_lighting).unwrap();
+        let mut lights = world.query_filtered::<Option<&RenderLayers>, With<SkyLight>>();
+        let layers = lights.single(&world).unwrap().cloned().unwrap_or_default();
+        for layer in [0, BODY_LAYER] {
+            assert!(layers.intersects(&RenderLayers::layer(layer)), "{layer}");
+        }
     }
 
     #[test]

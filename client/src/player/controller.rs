@@ -13,7 +13,9 @@ use shared::messages::{NetworkAction, PlayerFrameInput};
 use shared::players::movement::{is_terrain_loaded, simulate_player_movement};
 use shared::players::{MovementState, Player, ViewMode};
 
-use super::CurrentPlayerMarker;
+use super::{CurrentPlayerMarker, PlayerBody};
+use crate::portal::BODY_LAYER;
+use bevy::camera::visibility::RenderLayers;
 
 pub fn update_frame_inputs_system(
     camera: Query<&Transform, With<CameraController>>,
@@ -31,11 +33,6 @@ pub fn update_frame_inputs_system(
     frame_inputs.0.camera = *camera;
     frame_inputs.0.hotbar_slot = hotbar.selected;
     frame_inputs.0.view_mode = *view_mode;
-}
-
-#[derive(Component)]
-pub struct PlayerMaterialHandle {
-    pub handle: Handle<StandardMaterial>,
 }
 
 pub fn pre_input_update_system(
@@ -156,18 +153,21 @@ pub fn player_movement_system(
     player_transform.translation = player.position;
 }
 
-/// Colour of the local player's body: red in third person, invisible in first person so that
-/// it does not block the view.
+/// Colour of the local player's body.
 pub const LOCAL_PLAYER_COLOR: Color = Color::srgba(1.0, 0.0, 0.0, 1.0);
-const HIDDEN_PLAYER_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
 
+/// Switches between first and third person with the view mode key. In first person the body of
+/// the local player is drawn by the portal cameras only (`BODY_LAYER`): the player sees itself
+/// through a portal, but its camera, inside the body, does not draw it. In third person the
+/// player's camera draws it too.
 pub fn first_and_third_person_view_system(
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut view_mode: ResMut<ViewMode>,
-    player_query: Query<&PlayerMaterialHandle, With<CurrentPlayerMarker>>,
+    players: Query<&Children, With<CurrentPlayerMarker>>,
+    mut bodies: Query<(Entity, Option<&RenderLayers>), With<PlayerBody>>,
     key_map: Res<KeyMap>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     ui_mode: Res<UIMode>,
+    mut commands: Commands,
 ) {
     if *ui_mode == UIMode::Closed
         && is_action_just_pressed(GameAction::ToggleViewMode, &keyboard_input, &key_map)
@@ -175,20 +175,16 @@ pub fn first_and_third_person_view_system(
         view_mode.toggle();
     }
 
-    // The player has not been spawned yet
-    let Ok(material_handle) = player_query.single() else {
-        return;
+    let layers = match *view_mode {
+        ViewMode::FirstPerson => RenderLayers::layer(BODY_LAYER),
+        ViewMode::ThirdPerson => RenderLayers::layer(0),
     };
-    let color = match *view_mode {
-        ViewMode::FirstPerson => HIDDEN_PLAYER_COLOR,
-        ViewMode::ThirdPerson => LOCAL_PLAYER_COLOR,
-    };
-    // Reaching the material mutably marks it changed, and the renderer then prepares it again:
-    // only when its colour has to change
-    let current = materials.get(&material_handle.handle).map(|m| m.base_color);
-    if current.is_some_and(|current| current != color) {
-        if let Some(mut material) = materials.get_mut(&material_handle.handle) {
-            material.base_color = color;
+    for children in &players {
+        let mut bodies = bodies.iter_many_mut(children);
+        while let Some((body, current)) = bodies.fetch_next() {
+            if current != Some(&layers) {
+                commands.entity(body).insert(layers.clone());
+            }
         }
     }
 }
@@ -202,6 +198,66 @@ mod tests {
             inputs: actions.iter().cloned().collect(),
             ..default()
         }
+    }
+
+    /// The layers and the colour of the local player's body, after a frame in `view`, with the
+    /// view mode key pressed if `toggle`.
+    fn body_in(view: ViewMode, toggle: bool) -> (Option<RenderLayers>, Color) {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<StandardMaterial>()
+            .insert_resource(view)
+            .insert_resource(UIMode::Closed)
+            .insert_resource(crate::input::keyboard::default_bindings())
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, first_and_third_person_view_system);
+        let material = app
+            .world_mut()
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(LOCAL_PLAYER_COLOR);
+        let body = app
+            .world_mut()
+            .spawn((PlayerBody, MeshMaterial3d(material.clone())))
+            .id();
+        app.world_mut()
+            .spawn(CurrentPlayerMarker {})
+            .add_child(body);
+        if toggle {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::F5);
+        }
+        app.update();
+        let layers = app.world().get::<RenderLayers>(body).cloned();
+        let color = app
+            .world()
+            .resource::<Assets<StandardMaterial>>()
+            .get(&material)
+            .unwrap()
+            .base_color;
+        (layers, color)
+    }
+
+    #[test]
+    fn in_first_person_the_body_is_seen_through_the_portals_only() {
+        let (layers, color) = body_in(ViewMode::FirstPerson, false);
+        assert_eq!(layers, Some(RenderLayers::layer(BODY_LAYER)));
+        assert_eq!(color, LOCAL_PLAYER_COLOR);
+        // The player's camera does not draw that layer
+        assert!(
+            !RenderLayers::from_layers(&[0, crate::portal::SURFACE_LAYER])
+                .intersects(&RenderLayers::layer(BODY_LAYER))
+        );
+    }
+
+    #[test]
+    fn in_third_person_the_body_is_seen_by_the_players_camera() {
+        let (layers, color) = body_in(ViewMode::ThirdPerson, false);
+        assert_eq!(layers, Some(RenderLayers::layer(0)));
+        assert_eq!(color, LOCAL_PLAYER_COLOR);
+        // Back to first person with the key
+        let (layers, _) = body_in(ViewMode::ThirdPerson, true);
+        assert_eq!(layers, Some(RenderLayers::layer(BODY_LAYER)));
     }
 
     #[test]

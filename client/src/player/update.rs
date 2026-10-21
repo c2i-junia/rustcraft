@@ -5,7 +5,7 @@ use crate::{
         buffered_client::PlayerTickInputsBuffer, CurrentPlayerProfile, TargetServer,
         TargetServerState, UnacknowledgedInputs,
     },
-    player::{PlayerLabel, PlayerMaterialHandle, LOCAL_PLAYER_COLOR},
+    player::{PlayerLabel, LOCAL_PLAYER_COLOR},
     state::GameState,
     ui::assets::MONO_FONT_PATH,
     world::ClientWorldMap,
@@ -69,8 +69,6 @@ pub fn spawn_players_system(
             ..default()
         };
 
-        // One material shared by the mesh and the handle, so the first/third person
-        // system mutates the material the player is drawn with
         let material = materials.add(if is_current_player {
             LOCAL_PLAYER_COLOR
         } else {
@@ -80,14 +78,13 @@ pub fn spawn_players_system(
         let body = (
             PlayerBody,
             Mesh3d(meshes.add(Mesh::from(body))),
-            MeshMaterial3d(material.clone()),
+            MeshMaterial3d(material),
             body_transform(player.height, 1.0),
         );
         let mut entity = commands.spawn((
             DespawnOnExit(GameState::Game),
             Transform::from_translation(player.position),
             Visibility::default(),
-            PlayerMaterialHandle { handle: material },
             player,
             Name::new(event.name.clone()),
             children![body],
