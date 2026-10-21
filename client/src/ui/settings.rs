@@ -103,6 +103,15 @@ impl MinimapChoice {
     }
 }
 
+/// Whether the Mouse Tweaks gestures work in the inventory: Shift+drag quick-moves every cell
+/// the pointer enters, and a notch of the wheel over a stack moves one item of it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InventoryTweaksChoice {
+    Off,
+    #[default]
+    On,
+}
+
 /// The interface settings, saved in `interface.ron`.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -110,6 +119,8 @@ pub struct InterfaceSettings {
     pub ui_scale: UiScaleChoice,
     pub fps_counter: FpsCounterChoice,
     pub minimap: MinimapChoice,
+    /// Chosen on the Controls tab.
+    pub inventory_tweaks: InventoryTweaksChoice,
 }
 
 /// The saved settings, or the default ones when none were saved or the file cannot be read.
@@ -157,6 +168,7 @@ mod tests {
             ui_scale: UiScaleChoice::X1_5,
             fps_counter: FpsCounterChoice::Graph,
             minimap: MinimapChoice::Off,
+            inventory_tweaks: InventoryTweaksChoice::Off,
         };
         write_interface_settings(&settings, &paths);
         let reloaded = load_interface_settings(&paths);
@@ -200,6 +212,29 @@ mod tests {
             fs::write(&file, content).unwrap();
             assert_eq!(
                 load_interface_settings(&paths).minimap,
+                expected,
+                "{content}"
+            );
+        }
+        fs::remove_dir_all(&paths.game_folder_path).unwrap();
+    }
+
+    #[test]
+    fn the_inventory_tweaks_are_on_unless_saved_off() {
+        let paths = temp_paths("interface-tweaks");
+        let file = paths.game_folder_path.join(INTERFACE_SETTINGS_PATH);
+        assert_eq!(
+            load_interface_settings(&paths).inventory_tweaks,
+            InventoryTweaksChoice::On
+        );
+        for (content, expected) in [
+            // a file saved before the tweaks existed
+            ("(ui_scale: X2, minimap: Off)", InventoryTweaksChoice::On),
+            ("(inventory_tweaks: Off)", InventoryTweaksChoice::Off),
+        ] {
+            fs::write(&file, content).unwrap();
+            assert_eq!(
+                load_interface_settings(&paths).inventory_tweaks,
                 expected,
                 "{content}"
             );
