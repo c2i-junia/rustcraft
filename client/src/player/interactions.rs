@@ -21,7 +21,8 @@ use super::CurrentPlayerMarker;
 
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
 /// breaking it or placing a block against it, and reports the blocks that changed. A right
-/// click on a crafting table, a chest or a furnace opens it instead, unless the player sneaks.
+/// click on a crafting table, a chest or a furnace opens it instead, unless the player sneaks
+/// or holds the portal gun.
 /// Holding an empty bucket, the player aims at the water sources too.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
@@ -107,19 +108,12 @@ pub fn handle_block_interactions(
     if sneaking {
         frame_inputs.0.inputs.insert(NetworkAction::SneakOrFlyDown);
     }
-    let opens = match world_map
+    let block = world_map
         .blocks
         .get_block(target.position)
-        .map(|block| block.id)
-    {
-        Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(target.position)),
-        Some(BlockId::Chest | BlockId::Barrel) => Some(InventoryAction::OpenChest(target.position)),
-        Some(BlockId::Furnace | BlockId::LitFurnace) => {
-            Some(InventoryAction::OpenFurnace(target.position))
-        }
-        _ => None,
-    };
-    let opens = opens.filter(|_| !sneaking && mouse_input.just_pressed(MouseButton::Right));
+        .map(|block| block.id);
+    let opens = opened(block, target.position, holding)
+        .filter(|_| !sneaking && mouse_input.just_pressed(MouseButton::Right));
     if let Some(open) = opens {
         frame_inputs.0.inventory_actions.push(open);
         if let Ok(mut visibility) = inventory_root.single_mut() {
@@ -150,6 +144,27 @@ pub fn handle_block_interactions(
                 by_local_player: true,
             });
         }
+    }
+}
+
+/// What a right click on `block`, at `position`, opens, the player holding `held`: a crafting
+/// table, a chest or a furnace. Nothing with the portal gun held: the click shoots the orange
+/// portal, at a container as at any block.
+fn opened(
+    block: Option<BlockId>,
+    position: IVec3,
+    held: Option<ItemId>,
+) -> Option<InventoryAction> {
+    if held == Some(ItemId::PortalGun) {
+        return None;
+    }
+    match block {
+        Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(position)),
+        Some(BlockId::Chest | BlockId::Barrel) => Some(InventoryAction::OpenChest(position)),
+        Some(BlockId::Furnace | BlockId::LitFurnace) => {
+            Some(InventoryAction::OpenFurnace(position))
+        }
+        _ => None,
     }
 }
 
@@ -269,6 +284,31 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_right_click_opens_a_container_but_with_the_portal_gun_held() {
+        let at = IVec3::new(3, 64, -2);
+        for (block, open) in [
+            (
+                BlockId::CraftingTable,
+                InventoryAction::OpenCraftingTable(at),
+            ),
+            (BlockId::Chest, InventoryAction::OpenChest(at)),
+            (BlockId::Furnace, InventoryAction::OpenFurnace(at)),
+            (BlockId::LitFurnace, InventoryAction::OpenFurnace(at)),
+        ] {
+            for held in [None, Some(ItemId::Dirt), Some(ItemId::WaterBucket)] {
+                assert_eq!(opened(Some(block), at, held), Some(open), "{block:?}");
+            }
+            // The gun shoots the orange portal instead
+            assert_eq!(
+                opened(Some(block), at, Some(ItemId::PortalGun)),
+                None,
+                "{block:?}"
+            );
+        }
+        assert_eq!(opened(Some(BlockId::Stone), at, None), None);
     }
 
     #[test]
