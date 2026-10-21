@@ -71,7 +71,7 @@ the feedback, 28 on a slot action with a held stack, 35 on presses outside the p
    keybindings file holds keys only); a file saved before it loads `On` (the struct's
    `serde(default)`). On the Controls tab, a row under the list of actions: the label
    `Inventory tweaks` and an `Off` / `On` segmented control, as the Minimap row of the
-   Interface tab, then a muted note `Shift+drag: move stacks  Wheel: move one item`. Off, a
+   Interface tab, then a muted note `Shift+drag: stacks  Wheel: one item`. Off, a
    Shift+press is the plain shift-click and the wheel does nothing in the inventory. The
    golden of the Controls tab changes: the list loses a row of height.
 

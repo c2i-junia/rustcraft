@@ -440,3 +440,46 @@ or push.
     `CatalogSlot`s with `RecentSlot`, neither searched nor counted. `show_bookmarks` became the
     generic `show_shelf::<S: Shelf>`, run for `Bookmarks` and `RecentCrafts`, with the same
     focus rule.
+46. (Lot 6) `QuickMoveOne(slot)` checks `check_slot` (`InvalidSlot`), then an empty cursor
+    (`HoldingAStack`, as `DropSlot`); an empty slot is no refusal and moves nothing. Else one
+    item goes where `QuickMoveSlot` sends the stack, by the same code: `quick_move_slot` takes
+    a count (`u32::MAX` for the stack) and returns how many items it moved. An item that finds
+    no room (a full hotbar, by a furnace what neither smelts nor burns) is refused with
+    `NoRoom`, where `QuickMoveSlot` keeps the stack silently: a notch that does nothing says
+    why. The item keeps its stack's type.
+47. (Lot 6) An accepted `QuickMoveOne` is silent, as `QuickMoveSlot` (no item goes through the
+    cursor); a refused one shakes its cell, with the refused thud.
+48. (Lot 6) A Shift+left press on a cell, the cursor empty as the client sees it, starts a
+    Shift+drag (`CellGestures::shift_drag`, `ShiftDrag`); the press sends what it sent before
+    (`QuickMoveSlot`, or `MoveAllOfType` for the second press of a Shift+double click). While
+    the left button and Shift stay down, `shift_drag_inventory_cells_system` (chained after
+    `drag_inventory_cells_system`) sends each cell the pointer enters as `QuickMoveSlot`, once a
+    drag, when it held a stack at the press and still holds one, as the client sees them: a
+    stack the sweep moved into a cell is not sent back (the cells holding a stack are noted in
+    the frame of the press, before the prediction applies it). It ends when the left button or
+    Shift is released, the right button is pressed, the cursor holds a stack, Escape is pressed
+    or the inventory hides, and at once while the switch is off. The result is not a cell: a
+    Shift+press on it is `CraftAll` and starts nothing; a Shift+press with a held stack is the
+    shift-click of today and starts nothing either.
+49. (Lot 6) Shift+drag and the Shift+double click: the press of a Shift+drag is lot 1's
+    shift-click, recorded for the double click (Decision 10). A cell entered and sent forgets
+    it: a press after a sweep over other cells is a new Shift+press, not the second of a double
+    click. The second press of a Shift+double click starts a Shift+drag too; a cell
+    `MoveAllOfType` emptied is not sent again, as it holds nothing.
+50. (Lot 6) The wheel, either way: each notch over a cell holding a stack, the cursor empty and
+    the inventory open, sends one `QuickMoveOne(slot)` (`wheel_inventory_cells_system`, after the
+    Shift+drag). A notch is a line, or `SCROLL_PIXELS_PER_STEP` of a trackpad, counted by
+    `scroll_steps`, whose remainder lives in `CellGestures` and is dropped while the wheel turns
+    elsewhere than over a stack. At most as many actions a frame as the stack holds items.
+    Pulling items into the slot, Mouse Tweaks' other direction, is not part of it. The browser's
+    lists scroll by their own `Pointer<Scroll>` observers and no cell is hovered over them, so
+    the wheel there keeps scrolling them. The hotbar's wheel keeps its `UIMode::Closed` gate
+    (the open inventory is a `UiDialog`), which a test pins.
+51. (Lot 6) The switch is `InterfaceSettings::inventory_tweaks: InventoryTweaksChoice { Off, On
+    }`, `On` by default, saved in `interface.ron` with the other settings as soon as it is
+    chosen (the keybindings file holds keys only); a file saved before it loads `On`. On the
+    Controls tab it is a row under the list of actions, as the Minimap row of the Interface tab:
+    `Inventory tweaks`, an `Off` / `On` segmented control and the muted note
+    `Shift+drag: stacks  Wheel: one item` (`TWEAKS_NOTE`). Off, a Shift+press is the plain
+    shift-click and the wheel does nothing in the inventory. The Controls golden changes: the
+    row under the list, which is a row shorter.
