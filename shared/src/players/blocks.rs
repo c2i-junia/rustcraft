@@ -10,7 +10,10 @@ use crate::{
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
-use bevy::math::{IVec3, Vec3};
+use bevy::{
+    math::{IVec3, Vec3},
+    prelude::Transform,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum CallerType {
@@ -333,14 +336,16 @@ fn place_block(
         return refused(Refusal::NotABlock(item.item_type));
     };
 
-    // A vine is turned toward the block it is placed against
-    let direction = if block_id == BlockId::Vine {
-        let Some(toward) = BlockDirection::toward(-target.face.to_ivec3()) else {
-            return refused(Refusal::NotASide);
-        };
-        toward
-    } else {
-        BlockDirection::Front
+    // A vine is turned toward the block it is placed against, a furnace toward the player
+    let direction = match block_id {
+        BlockId::Vine => {
+            let Some(toward) = BlockDirection::toward(-target.face.to_ivec3()) else {
+                return refused(Refusal::NotASide);
+            };
+            toward
+        }
+        BlockId::Furnace => facing(&action.camera),
+        _ => BlockDirection::Front,
     };
 
     player.inventory.remove_item_from_stack(slot, 1);
@@ -352,6 +357,18 @@ fn place_block(
         world_map.insert_furnace(position, Furnace::default());
     }
     Ok(None)
+}
+
+/// The direction that turns the front of a block toward a player looking through `camera`:
+/// against the horizontal axis it looks the most along.
+fn facing(camera: &Transform) -> BlockDirection {
+    let look = camera.forward();
+    let step = if look.x.abs() > look.z.abs() {
+        IVec3::new(-look.x.signum() as i32, 0, 0)
+    } else {
+        IVec3::new(0, 0, -look.z.signum() as i32)
+    };
+    BlockDirection::toward(step).unwrap_or(BlockDirection::Front)
 }
 
 /// Whether a block at `block_position` would overlap the player's box, whose `position` is
@@ -799,6 +816,11 @@ mod tests {
     /// right-clicking the face of the stone toward it. Returns what the world and the player
     /// become.
     fn place_a_vine_against(stone: IVec3, side: IVec3) -> (ChunkMap, Player) {
+        place_against(ItemId::Vine, stone, side)
+    }
+
+    /// `place_a_vine_against`, with `item` in place of the vine.
+    fn place_against(item: ItemId, stone: IVec3, side: IVec3) -> (ChunkMap, Player) {
         let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
         world.fill_box(stone, stone, BlockId::Stone);
         world.take_changed_blocks();
@@ -807,7 +829,7 @@ mod tests {
         let up = if side.y == 0 { Vec3::Y } else { Vec3::X };
         let camera = Transform::from_translation(position).looking_at(stone_centre, up);
         let mut player = Player::new(1, "tester".to_string(), position, camera);
-        player.inventory.inner.insert(0, stack(ItemId::Vine, 1));
+        player.inventory.inner.insert(0, stack(item, 1));
         let input = PlayerFrameInput {
             inputs: [NetworkAction::RightClick].into(),
             camera,
@@ -833,6 +855,30 @@ mod tests {
                 "{side}"
             );
             assert!(player.inventory.inner.is_empty(), "{side}");
+        }
+    }
+
+    #[test]
+    fn a_furnace_faces_the_player_who_placed_it_and_other_blocks_the_north() {
+        let stone = IVec3::new(0, 0, -3);
+        for (side, toward_the_player) in [
+            (IVec3::Z, BlockDirection::Back),
+            (IVec3::NEG_Z, BlockDirection::Front),
+            (IVec3::X, BlockDirection::Right),
+            (IVec3::NEG_X, BlockDirection::Left),
+        ] {
+            let (world, _) = place_against(ItemId::Furnace, stone, side);
+            assert_eq!(
+                world.get_block(stone + side).copied(),
+                Some(BlockData::new(BlockId::Furnace, toward_the_player)),
+                "{side}"
+            );
+            let (world, _) = place_against(ItemId::Chest, stone, side);
+            assert_eq!(
+                world.get_block(stone + side).copied(),
+                Some(BlockData::new(BlockId::Chest, BlockDirection::Front)),
+                "{side}"
+            );
         }
     }
 

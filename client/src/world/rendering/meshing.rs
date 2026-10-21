@@ -707,10 +707,12 @@ fn chunk_faces(
             let Some(tile) = *tile else {
                 continue;
             };
-            if !should_render_face(&blocks, local_block_pos, &face.direction, &visibility) {
+            // A side of a turned block lies on the side it is turned to
+            let side = face_normal(&face.direction).map(|normal| turn(normal, &block.direction));
+            if !should_render_face(&blocks, local_block_pos, side, &visibility) {
                 continue;
             }
-            lighting.light_face(face, block_pos, turned, &mut lights);
+            lighting.light_face(face, block_pos, side, turned, &mut lights);
             // A swaying face moves at each of its corners: it cannot stretch over several
             let lit_alike = face.sway == Sway::None && lights.iter().all(|l| *l == lights[0]);
             let (merges, face_height) = match face.direction {
@@ -771,6 +773,12 @@ fn light_bytes(light: [u32; 2], count: u32, occlusion: u8) -> [u8; 4] {
     [sky, block, occlusion * 85, u8::MAX]
 }
 
+/// `step`, a step from a block turned to the front, turned to `direction` with the block.
+fn turn(step: IVec3, direction: &BlockDirection) -> IVec3 {
+    let [x, z] = direction.turn([step.x as f32, step.z as f32]);
+    IVec3::new(x as i32, step.y, z as i32)
+}
+
 /// The side of a block a face of it lies on, `None` for a face inside it.
 fn face_normal(direction: &FaceDirection) -> Option<IVec3> {
     Some(match direction {
@@ -786,13 +794,20 @@ fn face_normal(direction: &FaceDirection) -> Option<IVec3> {
 
 impl Lighting<'_> {
     /// Writes into `lights` the `LIGHT` of each vertex of `face`, of the block at `block` in the
-    /// world, which is `turned` away from the front. A face that covers a side of the block is
-    /// lit by the cells in front of it; one inside the block, sunk under a liquid or of a
-    /// turned block, as a whole by the brightest of its own cell and the one it looks to.
-    fn light_face(&self, face: &Face, block: IVec3, turned: bool, lights: &mut Vec<[u8; 4]>) {
+    /// world, which is `turned` away from the front, the face lying on the side `side` of the
+    /// block once turned (`None` inside it). A face that covers a side of the block is lit by
+    /// the cells in front of it; one inside the block, sunk under a liquid or of a turned
+    /// block, as a whole by the brightest of its own cell and the one it looks to.
+    fn light_face(
+        &self,
+        face: &Face,
+        block: IVec3,
+        side: Option<IVec3>,
+        turned: bool,
+        lights: &mut Vec<[u8; 4]>,
+    ) {
         lights.clear();
-        let normal = face_normal(&face.direction);
-        let covers_side = normal.filter(|normal| {
+        let covers_side = side.filter(|normal| {
             !turned && face.vertices.iter().all(|vertex| on_side(vertex, *normal))
         });
         match covers_side {
@@ -806,7 +821,7 @@ impl Lighting<'_> {
             }
             Some(normal) => lights.resize(face.vertices.len(), self.brightest(&[block + normal])),
             None => {
-                let ahead = block + normal.unwrap_or_default();
+                let ahead = block + side.unwrap_or_default();
                 lights.resize(face.vertices.len(), self.brightest(&[block, ahead]));
             }
         }
@@ -925,20 +940,16 @@ pub fn rotate_vertices(v: &[f32; 3], direction: &BlockDirection) -> [f32; 3] {
     [x + 0.5, v[1], z + 0.5]
 }
 
+/// Whether the face of a block lying on its side `side` (`None` inside it) is seen: a
+/// neighbouring block there may hide it.
 fn should_render_face(
     blocks: &Neighbourhood,
     local_block_pos: IVec3,
-    direction: &FaceDirection,
+    side: Option<IVec3>,
     block_visibility: &BlockTransparency,
 ) -> bool {
-    let offset = match *direction {
-        FaceDirection::Front => IVec3::new(0, 0, -1),
-        FaceDirection::Back => IVec3::new(0, 0, 1),
-        FaceDirection::Top => IVec3::new(0, 1, 0),
-        FaceDirection::Bottom => IVec3::new(0, -1, 0),
-        FaceDirection::Left => IVec3::new(-1, 0, 0),
-        FaceDirection::Right => IVec3::new(1, 0, 0),
-        FaceDirection::Inset => return true,
+    let Some(offset) = side else {
+        return true;
     };
 
     if let Some((_, vis)) = blocks.get(local_block_pos + offset) {
@@ -1696,6 +1707,39 @@ mod tests {
             // every face of the log, the one behind the pod too
             assert_eq!(log_vertices, 6 * 4, "{direction:?}");
             assert_eq!(mesh.count_vertices(), 6 * 4 + 8 * 4, "{direction:?}");
+        }
+    }
+
+    #[test]
+    fn a_turned_block_hides_and_lights_each_side_by_the_side_it_is_turned_to() {
+        let tiles = HashMap::from([
+            ("_Default".to_string(), 0),
+            ("Furnace".to_string(), 1),
+            ("FurnaceTop".to_string(), 1),
+        ]);
+        let (furnace, stone) = (IVec3::splat(5), IVec3::new(5, 5, 4));
+        for direction in DIRECTIONS {
+            let mut chunk = Chunk::new();
+            chunk.set(stone, BlockData::new(BlockId::Stone, BlockDirection::Front));
+            chunk.set(furnace, BlockData::new(BlockId::Furnace, direction));
+            let mut world = ChunkMap::default();
+            world.insert_chunk(IVec3::ZERO, chunk.clone());
+            let mesh = generate_lit_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+                .solid_mesh
+                .unwrap();
+
+            let mut sides = std::collections::HashSet::new();
+            let vertices = normals_of(&mesh).into_iter().zip(lights_of(&mesh));
+            for ((normal, light), tile) in vertices.zip(tiles_of(&mesh)) {
+                if tile != 1 {
+                    continue;
+                }
+                // the side against the stone is hidden, the others are lit by the air
+                assert!(normal.dot(Vec3::NEG_Z) < 0.99, "{direction:?}");
+                assert!(light[0] > 0, "{direction:?}: {normal} {light:?}");
+                sides.insert(normal.round().as_ivec3());
+            }
+            assert_eq!(sides.len(), 5, "{direction:?}");
         }
     }
 
