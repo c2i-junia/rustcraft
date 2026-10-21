@@ -37,13 +37,18 @@ pub struct Overcast {
 }
 
 /// The values of the curves under a clear sky, a full overcast and a full storm.
-const SUN: [f32; 3] = [1., 0.25, 0.12];
-const EXPOSURE_SHIFT: [f32; 3] = [0., -1.3, -2.];
+///
+/// The part of the light of the sun and of the moon that gets through: so little that the
+/// shadows are gone, as on an overcast day. By day the sun is five times as bright on screen
+/// as the light of the sky, so a quarter of it would still cast hard shadows.
+const SUN: [f32; 3] = [1., 0.12, 0.05];
 /// The part of the saturation kept: 1.12 becomes 0.9 in rain.
 const SATURATION: [f32; 3] = [1., 0.9 / 1.12, 0.78];
-const AMBIENT: [f32; 3] = [1., 2., 1.6];
-const ENVIRONMENT_LIGHT: [f32; 3] = [1., 0.4, 0.3];
-/// The colour of the ambient light under the overcast: a cool grey.
+/// How bright the light of the overcast sky is on screen, as a part of the grey of the sky
+/// (a white face under it is as bright as the sky), with the physical sky and without it.
+const PHYSICAL_SKY_LIGHT: f32 = 1.;
+const PLAIN_SKY_LIGHT: f32 = 1.6;
+/// The colour of the light of the overcast sky: a cool grey.
 const AMBIENT_COLOR: Color = Color::srgb(0.88, 0.9, 0.95);
 /// Where the fog starts and ends, as parts of the distance to the edge of the chunks shown.
 const FOG_START: [f32; 3] = [0.6, 0.3, 0.15];
@@ -55,10 +60,10 @@ const MIN_FOG_END: f32 = 48.;
 /// physical sky as seen on screen before the tonemapping, and without it as the colour behind
 /// the world. The zenith is darker, and a storm darker and cooler.
 const PHYSICAL_DAY: Vec3 = Vec3::new(0.62, 0.64, 0.68);
-const PHYSICAL_GOLDEN: Vec3 = Vec3::new(0.22, 0.2, 0.19);
-const PHYSICAL_NIGHT: Vec3 = Vec3::new(0.015, 0.016, 0.018);
+const PHYSICAL_GOLDEN: Vec3 = Vec3::new(0.24, 0.2, 0.18);
+const PHYSICAL_NIGHT: Vec3 = Vec3::new(0.018, 0.019, 0.022);
 const PLAIN_DAY: Vec3 = Vec3::new(0.3, 0.315, 0.34);
-const PLAIN_GOLDEN: Vec3 = Vec3::new(0.085, 0.078, 0.076);
+const PLAIN_GOLDEN: Vec3 = Vec3::new(0.09, 0.077, 0.07);
 const PLAIN_NIGHT: Vec3 = Vec3::new(0.0045, 0.0048, 0.0055);
 const ZENITH: Vec3 = Vec3::new(0.7, 0.71, 0.73);
 const STORM_TINT: Vec3 = Vec3::new(0.62, 0.64, 0.66);
@@ -86,12 +91,6 @@ impl Overcast {
         self.blend(SUN)
     }
 
-    /// How much the exposure goes down, in EV, as the eye adapts to a darker day: less than
-    /// the light, so that a rainy day is darker than a clear one, if not dim.
-    pub fn exposure_shift(self) -> f32 {
-        self.blend(EXPOSURE_SHIFT)
-    }
-
     /// The saturation of the colour grading, `clear` under a clear sky.
     pub fn saturation(self, clear: f32) -> f32 {
         clear * self.blend(SATURATION)
@@ -109,10 +108,22 @@ impl Overcast {
         (start, end)
     }
 
-    /// How much brighter the ambient light is, which keeps the world readable as the sun dims:
-    /// the even light of a grey sky.
-    pub fn ambient(self) -> f32 {
-        self.blend(AMBIENT)
+    /// The brightness to add to the ambient light for the light of the overcast sky, which
+    /// keeps the world readable as the sun dims: an even light as bright on screen as the grey
+    /// of the sky, with the sun at `sun_height` and the camera at the exposure `ev100`.
+    pub fn sky_light(self, sun_height: f32, physical_sky: bool, ev100: f32) -> f32 {
+        if self.level == 0. {
+            return 0.;
+        }
+        let (horizon, zenith) = self.colors(sun_height, physical_sky);
+        let grey = (horizon + zenith).element_sum() / 6.;
+        let gain = if physical_sky {
+            PHYSICAL_SKY_LIGHT
+        } else {
+            PLAIN_SKY_LIGHT
+        };
+        // On screen, a light is its brightness times the exposure, 1 / (1.2 * 2^ev100)
+        self.level * grey * gain * 1.2 * ev100.exp2()
     }
 
     /// The colour of the ambient light, `clear` under a clear sky.
@@ -123,10 +134,10 @@ impl Overcast {
         clear.mix(&AMBIENT_COLOR, self.level)
     }
 
-    /// How bright the light of the physical sky is, which is blue: the grey ambient light
+    /// How bright the light of the physical sky is, which is blue: the light of the overcast
     /// takes over.
     pub fn environment_light(self) -> f32 {
-        self.blend(ENVIRONMENT_LIGHT)
+        1. - self.level
     }
 
     /// How visible the sun, the moon and the stars are: gone by a level of 0.8.
@@ -367,7 +378,8 @@ mod tests {
     #[test]
     fn a_clear_sky_changes_nothing() {
         assert_eq!(CLEAR.sun(), 1.);
-        assert_eq!(CLEAR.exposure_shift(), 0.);
+        assert_eq!(CLEAR.sky_light(0.9, true, 13.), 0.);
+        assert_eq!(CLEAR.environment_light(), 1.);
         assert_eq!(CLEAR.saturation(1.12), 1.12);
         assert_eq!(CLEAR.celestial_visibility(), 1.);
         assert_eq!(CLEAR.fog_range(256.), (0.6 * 256., 256.));
@@ -375,34 +387,39 @@ mod tests {
 
     #[test]
     fn rain_dims_the_sun_and_a_storm_more() {
-        assert!(close(RAIN.sun(), 0.25));
-        assert!(close(STORM.sun(), 0.12));
-        assert!(close(RAIN.exposure_shift(), -1.3));
-        assert!(close(STORM.exposure_shift(), -2.));
-        // the exposure makes up for some of the light lost, not all of it
-        for overcast in [RAIN, STORM] {
-            assert!(overcast.sun() * 2f32.powf(-overcast.exposure_shift()) < 0.75);
-        }
+        assert!(close(RAIN.sun(), 0.12));
+        assert!(close(STORM.sun(), 0.05));
         assert!(close(RAIN.saturation(1.12), 0.9));
         assert!(STORM.saturation(1.12) <= RAIN.saturation(1.12));
     }
 
     #[test]
     fn an_even_grey_light_takes_over_from_the_sun_and_the_blue_sky() {
-        assert_eq!(CLEAR.ambient(), 1.);
-        assert_eq!(CLEAR.environment_light(), 1.);
         assert_eq!(CLEAR.ambient_color(Color::WHITE), Color::WHITE);
         for overcast in [RAIN, STORM] {
-            assert!(overcast.ambient() > 1.);
-            assert!(overcast.environment_light() < 0.5);
+            assert_eq!(overcast.environment_light(), 0.);
             let grey = overcast.ambient_color(Color::WHITE).to_linear();
             assert!(
                 grey.blue >= grey.red && grey.red > 0.8 * grey.blue,
                 "{grey:?}"
             );
         }
-        // the light of a storm is darker than that of the rain
-        assert!(STORM.ambient() < RAIN.ambient());
+        for physical in [true, false] {
+            // as bright on screen as the grey of the sky, at any exposure
+            let (horizon, zenith) = RAIN.colors(0.9, physical);
+            let grey = (horizon + zenith).element_sum() / 6.;
+            for ev100 in [9.7, 13.] {
+                let on_screen = RAIN.sky_light(0.9, physical, ev100) / (1.2 * ev100.exp2());
+                assert!(
+                    on_screen >= grey * 0.999 && on_screen < 2. * grey,
+                    "{on_screen}"
+                );
+            }
+            // darker in a storm and at night
+            let noon = RAIN.sky_light(0.9, physical, 13.);
+            assert!(STORM.sky_light(0.9, physical, 13.) < noon);
+            assert!(RAIN.sky_light(-0.9, physical, 13.) < 0.1 * noon);
+        }
     }
 
     #[test]

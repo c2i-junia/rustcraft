@@ -399,8 +399,8 @@ fn follow_camera_with_fog_volume(
         .next()
         .map_or(0., |root| (root.rotation * Vec3::Z).y);
     let density = 0.008 * 1f32.lerp(0.12, ((sun_height - 0.1) / 0.4).clamp(0., 1.));
-    // No rays of light under an overcast sky
-    let light = Overcast::current(weather.as_deref()).celestial_visibility();
+    // No rays of light under an overcast sky: unlit, the haze would only darken the sky
+    let density = density * Overcast::current(weather.as_deref()).celestial_visibility();
     // A layer of haze over the ground, whose top is not seen against the sky
     let at = camera.translation().with_y(SEA_LEVEL as f32 + 30.);
     let size = Vec3::new(640., 140., 640.);
@@ -409,9 +409,6 @@ fn follow_camera_with_fog_volume(
             transform.translation = at;
             if volume.density_factor != density {
                 volume.density_factor = density;
-            }
-            if volume.light_intensity != light {
-                volume.light_intensity = light;
             }
         }
         Err(_) => {
@@ -422,7 +419,6 @@ fn follow_camera_with_fog_volume(
                     scattering: 0.6,
                     absorption: 0.1,
                     scattering_asymmetry: 0.7,
-                    light_intensity: light,
                     ..default()
                 },
                 Transform::from_translation(at).with_scale(size),
@@ -495,8 +491,8 @@ fn sky_fog(graphics: Res<GraphicsSettings>, mut cameras: Query<(&mut Camera, &mu
 /// just above the horizon, so that the sky glows at dusk and dawn; the moon takes over after.
 ///
 /// Under the clouds of the rain, the sun and the moon dim (`celestial_light_system` dims the
-/// moon), the eye adapts some, and a grey ambient light takes over from the blue light of the
-/// atmosphere, so that the shadows fade out.
+/// moon), and the even light of the grey sky, an ambient light, takes over from the blue light
+/// of the atmosphere, so that the shadows fade out.
 fn scale_sky_light(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
@@ -520,7 +516,7 @@ fn scale_sky_light(
         return;
     };
     let sun = root.rotation * Vec3::Z;
-    let ev100 = sky_ev100(sun.y) + overcast.exposure_shift();
+    let ev100 = sky_ev100(sun.y);
     let environment = overcast.environment_light();
     for (mut exposure, light) in &mut cameras {
         if exposure.ev100 != ev100 {
@@ -541,13 +537,14 @@ fn scale_sky_light(
             light.illuminance *= light_scale(ev100) * smoothstep(TWILIGHT, 2. * TWILIGHT, -sun.y);
         }
     }
-    ambient.brightness = SKY_AMBIENT * light_scale(ev100) * overcast.ambient();
+    ambient.brightness = SKY_AMBIENT * light_scale(ev100);
     if sun.y >= 0. {
         ambient.color = overcast.ambient_color(Color::WHITE);
     } else {
         ambient.brightness *= NIGHT_AMBIENT_BOOST;
         ambient.color = overcast.ambient_color(NIGHT_AMBIENT_COLOR);
     }
+    ambient.brightness += overcast.sky_light(sun.y, true, ev100);
 }
 
 /// The colours lose some of their saturation under the clouds of the rain: a touch more vivid
@@ -788,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn rain_dims_the_sun_more_than_the_exposure_makes_up_for() {
+    fn under_the_overcast_the_light_of_the_grey_sky_takes_over_from_the_sun() {
         let [sun, ev100, ambient, environment, saturation] = daylight_under(WeatherKind::Clear);
         assert_eq!((environment, saturation), (1., SATURATION));
         let close = |a: f32, b: f32| (a - b).abs() <= 1e-3 * b.abs().max(1.);
@@ -799,15 +796,11 @@ mod tests {
             let [wet_sun, wet_ev100, wet_ambient, wet_environment, wet_saturation] =
                 daylight_under(kind);
             assert!(close(wet_sun, sun * overcast.sun()), "{kind:?}");
-            assert!(
-                close(wet_ev100, ev100 + overcast.exposure_shift()),
-                "{kind:?}"
-            );
-            // as bright on screen, times the brightening of the overcast
-            let on_screen = |ambient: f32, ev100| ambient / light_scale(ev100);
+            assert_eq!(wet_ev100, ev100);
+            let sun_height = (sky_rotation(NOON_IN_DAY) * Vec3::Z).y;
             assert!(close(
-                on_screen(wet_ambient, wet_ev100),
-                on_screen(ambient, ev100) * overcast.ambient()
+                wet_ambient,
+                ambient + overcast.sky_light(sun_height, true, ev100)
             ));
             assert!(close(wet_environment, overcast.environment_light()));
             assert!(close(wet_saturation, overcast.saturation(SATURATION)));

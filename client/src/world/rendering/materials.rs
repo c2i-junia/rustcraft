@@ -245,7 +245,10 @@ pub fn setup_materials(
     item_atlas_handles.handles = items;
 
     material_resource.climate_map = images.add(new_climate_map());
-    material_resource.weather = buffers.add(new_weather_buffer());
+    // Made once: the materials of the chunks, made once, keep it
+    if !buffers.contains(&material_resource.weather) {
+        material_resource.weather = buffers.add(new_weather_buffer());
+    }
     let colormaps = textures_path.join("colormap");
     material_resource.grass_colors =
         load_colormap(&asset_server, &mut images, &colormaps.join("grass.png"));

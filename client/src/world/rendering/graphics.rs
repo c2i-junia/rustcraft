@@ -121,6 +121,9 @@ pub fn apply_graphics_settings_system(
     *applied = Some(*settings);
 }
 
+/// The exposure of the camera without the shaders, `Exposure::BLENDER`.
+const BASE_EV100: f32 = 9.7;
+
 /// The brightness of the ambient light at noon, and at midnight.
 const DAY_AMBIENT: f32 = 400.;
 const NIGHT_AMBIENT: f32 = 60.;
@@ -142,8 +145,10 @@ pub fn daylight_ambient_system(
     weather: Option<Res<ClientWeather>>,
     mut ambient: ResMut<GlobalAmbientLight>,
 ) {
-    let brightness = (NIGHT_AMBIENT + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0))
-        * Overcast::current(weather.as_deref()).ambient();
+    let overcast = Overcast::current(weather.as_deref());
+    let brightness = NIGHT_AMBIENT
+        + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0)
+        + overcast.sky_light(sun_height(time.0), false, BASE_EV100);
     if (ambient.brightness - brightness).abs() > 0.5 {
         ambient.brightness = brightness;
     }
@@ -209,10 +214,13 @@ mod tests {
         };
         assert_eq!(ambient_at(WeatherKind::Clear), DAY_AMBIENT);
         let rain = ambient_at(WeatherKind::Rain);
-        assert_eq!(
-            rain,
-            DAY_AMBIENT * Overcast::of(&ClientWeather::settled(WeatherKind::Rain)).ambient()
+        let sky_light = Overcast::of(&ClientWeather::settled(WeatherKind::Rain)).sky_light(
+            sun_height(DAY_DURATION_IN_TICKS * 3 / 4),
+            false,
+            BASE_EV100,
         );
+        assert!(sky_light > 0.);
+        assert_eq!(rain, DAY_AMBIENT + sky_light);
     }
 
     #[test]

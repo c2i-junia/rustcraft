@@ -445,7 +445,12 @@ mod tests {
             world.run_system_once(update_celestial_bodies).unwrap();
             world.run_system_once(celestial_light_system).unwrap();
             let rain = world.get::<DirectionalLight>(light).unwrap().illuminance;
-            assert!((rain - 0.25 * clear).abs() < 1e-3, "{tick}: {rain}");
+            let through_clouds = Overcast::of(&ClientWeather::settled(WeatherKind::Rain)).sun();
+            assert!(through_clouds < 0.5);
+            assert!(
+                (rain - through_clouds * clear).abs() < 1e-3,
+                "{tick}: {rain}"
+            );
         }
     }
 
