@@ -4,6 +4,8 @@ use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 use super::{camera_control_system, underwater_fog_system, zoom_system, Zoom, SKY_COLOR};
 
 use crate::state::{GameSet, GameState};
+use crate::world::precipitation::render::PrecipitationView;
+use bevy::render::render_resource::TextureUsages;
 
 #[derive(Component)]
 pub struct CameraController {
@@ -72,7 +74,14 @@ pub const FOV_DEGREES: f32 = 60.0;
 
 fn spawn_camera(mut commands: Commands) {
     commands.spawn((
-        Camera3d::default(),
+        Camera3d {
+            // Read by the pass of the rain and the snow, which draws after the TAA
+            depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::TEXTURE_BINDING)
+                .into(),
+            ..default()
+        },
+        PrecipitationView,
         Camera {
             clear_color: ClearColorConfig::Custom(SKY_COLOR),
             ..default()

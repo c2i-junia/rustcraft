@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use shared::world::liquid::liquid_height;
+use shared::world::ChunkMap;
 use shared::CHUNK_SIZE;
 
 use crate::world::celestial::{smoothstep, sun_height};
@@ -43,6 +44,11 @@ pub fn weather_sky_color(tick: u64, overcast: Overcast) -> Color {
     sky.mix(&Color::linear_rgb(grey.x, grey.y, grey.z), overcast.level)
 }
 
+/// Whether an eye at `eye` is under the surface of a liquid.
+pub fn eye_under_water(map: &ChunkMap, eye: Vec3) -> bool {
+    liquid_height(map, eye.floor().as_ivec3()).is_some_and(|height| eye.y - eye.y.floor() < height)
+}
+
 /// Under water, a fog the colour of the water hides what is more than a few blocks away. Out
 /// of it, a fog the colour of the sky of the hour hides the edge of the chunks shown: it
 /// thickens over the last part of the render distance, and the world fades into the sky at its
@@ -63,10 +69,7 @@ pub fn underwater_fog_system(
         .distance
         .min(server_limit.map_or(u32::MAX, |limit| limit.0));
     for (entity, transform, mut camera, fog) in &mut cameras {
-        let eye = transform.translation;
-        let under_water = liquid_height(&world_map.blocks, eye.floor().as_ivec3())
-            .is_some_and(|height| eye.y - eye.y.floor() < height);
-        let (color, start, end) = if under_water {
+        let (color, start, end) = if eye_under_water(&world_map.blocks, transform.translation) {
             (UNDERWATER_COLOR, 2.0, 16.0)
         } else {
             // Every chunk within the render distance of the chunk of the player is shown: the
