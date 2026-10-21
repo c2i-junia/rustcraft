@@ -22,7 +22,7 @@ momentum. Each player owns a blue and an orange portal, placed with a portal gun
 | Open | A portal is open when its twin exists. An open portal shows the view and lets players through; a lone one shows its colour and is a wall. |
 | Lifetime | Not saved: the portals of a player go when it leaves, and all of them when the server stops. A portal also goes when one of its wall cells changes or a cell in front of it becomes solid. |
 | Who passes | Players, keeping their speed, rotated with the portal. Mobs and dropped items later. |
-| Network | `PROTOCOL_ID` bumped once for the branch: 19 on the branch, 22 after rebasing onto main. Save format unchanged. |
+| Network | `PROTOCOL_ID` bumped once for the branch: 19 on the branch, 22 after the first rebase onto main, 23 after the second. Save format unchanged. |
 
 ## Architecture
 
@@ -60,7 +60,9 @@ momentum. Each player owns a blue and an orange portal, placed with a portal gun
 As built, after the rulings of the ledger (`.superpowers/sdd/portals/progress.md`): Bevy's
 oblique `near_clip_plane` instead of a custom projection, the main camera's tonemapping instead
 of `Tonemapping::None` (colours through a portal match), `order: -level` for the recursion, and,
-after the rebase onto main, `PortalGun` item 36 and `PROTOCOL_ID` 22.
+after the rebases onto main, `PortalGun` item 36 and `PROTOCOL_ID` 23, and portal cameras that
+draw with the shaders chosen and leave tonemapping, grading, bloom and anti-aliasing to the
+player's camera.
 
 New module `client/src/portal/`:
 

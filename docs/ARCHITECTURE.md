@@ -463,9 +463,16 @@ portal's plane, from where the front of a portal cannot be seen: a portal camera
 behind the twin, inside its box when it is within 0.12 block of its plane, where it keeps the
 plain projection. Its fog ends `PORTAL_VIEW_RADIUS` chunks behind the twin, where the chunks
 sent around it end, but never farther than the player's own fog, which under water it keeps
-(`portal_fog`). The sun and the moon, parented to the local player, are drawn a million blocks
-away (`CELESTIAL_DISTANCE`), unfogged and never frustum-culled, so that every camera, a portal
-camera far from the player too, sees them in the same direction; under water they are hidden.
+(`portal_fog`). The sun, the moon and the stars, parented to the local player, are drawn a
+million blocks away (`CELESTIAL_DISTANCE`), on the far plane, unfogged and never
+frustum-culled, so that every camera, a portal camera far from the player too, sees them in the
+same direction; under water they are hidden. With the shaders, a portal camera gets what makes
+the picture (HDR, the physical sky a frame after the player's camera, the ambient occlusion, the
+depth prepass) and leaves to the player's camera what it does to the whole screen, the portals
+included: tonemapping, colour grading, bloom, SMAA or TAA. Its image is then in 16-bit floats,
+before tonemapping. It draws no rays of light, which Bevy ends with the near distance of the
+projection only, wrong for an oblique near plane; the horizon skirt is drawn around each camera
+(`horizon.wgsl`).
 The rim fades out within 0.3 block of its plane, where only a player passing through stands,
 and from where it would be a line down the screen. The aimed block is not outlined on the face
 of an open portal. The chunks are
