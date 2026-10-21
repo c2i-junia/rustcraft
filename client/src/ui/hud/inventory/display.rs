@@ -98,15 +98,17 @@ pub fn toggle_inventory_system(
 /// of the frame's input, which the client predicts and the server applies. A press with a held
 /// stack starts a drag (`CellGestures`), sent on release; the other button cancels it. Shift
 /// turns the left click into a move of the whole stack, and on the result into crafting all; a
-/// number key over the result crafts into that hotbar slot. While the focus ring shows, the keys
-/// act on the ringed cell, wherever the cursor is: Enter is the left click, Space the right one,
-/// and a number key swaps it. Without the ring, the focus is not one the player can see: the
-/// keys leave it alone, and a number key goes to the cell under the cursor. While the player
+/// number key over the result crafts into that hotbar slot. Drop over a cell holding a stack
+/// throws one item of it, Ctrl+Drop the stack. While the focus ring shows, the keys act on the
+/// ringed cell, wherever the cursor is: Enter is the left click, Space the right one, and a
+/// number key swaps it. Without the ring, the focus is not one the player can see: the keys
+/// leave it alone, and a number key or Drop goes to the cell under the cursor. While the player
 /// types, in the item browser's search, the keys are letters of the text: only the mouse acts.
 #[allow(clippy::too_many_arguments)]
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
     ui_mode: Res<UIMode>,
     focus: Res<InputFocus>,
     focus_visible: Res<InputFocusVisible>,
@@ -129,6 +131,8 @@ pub fn click_inventory_cells_system(
     let space = keys && keyboard_input.just_pressed(KeyCode::Space);
     let shift = keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let hotbar = hotbar_key_index(&keyboard_input).filter(|_| keys);
+    let drop = keys && is_action_just_pressed(GameAction::Drop, &keyboard_input, &key_map);
+    let ctrl = keyboard_input.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let focused = focus.get().filter(|_| focus_visible.0);
     let actions = &mut frame_inputs.0.inventory_actions;
 
@@ -203,6 +207,11 @@ pub fn click_inventory_cells_system(
             actions.push(InventoryAction::CraftToHotbar(hotbar));
         }
         _ => {}
+    }
+    let drop_slot =
+        key_slot.filter(|&slot| drop && stack_in(slot, &inventory, &world_map).is_some());
+    if let Some(slot) = drop_slot {
+        actions.push(InventoryAction::DropSlot { slot, all: ctrl });
     }
 }
 
@@ -693,6 +702,7 @@ mod tests {
             world.insert_resource(time);
             world.init_resource::<CellGestures>();
             world.insert_resource(UIMode::Opened);
+            world.insert_resource(crate::input::keyboard::default_bindings());
             world.spawn((
                 InventoryDialog,
                 BackgroundColor(Color::NONE),
@@ -1798,6 +1808,68 @@ mod tests {
         assert!(hud.sent_actions().is_empty());
     }
 
+    /// Presses Drop over the cell of `slot`, if any, with Ctrl held or not.
+    fn drop_over(hud: &mut Hud, slot: Option<u32>, ctrl: bool) {
+        if ctrl {
+            hud.world
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::ControlRight);
+        }
+        hud.press_key_over(slot, KeyCode::KeyQ);
+        hud.world
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::ControlRight);
+    }
+
+    #[test]
+    fn drop_over_a_slot_throws_one_item_and_ctrl_drop_its_stack() {
+        let mut hud = Hud::new(Visibility::Visible, &[12, 15]);
+        let mut inventory = hud.world.resource_mut::<Inventory>();
+        inventory.inner.insert(12, dirt_stack(5));
+        inventory.inner.insert(15, dirt_stack(3));
+
+        drop_over(&mut hud, Some(12), false);
+        drop_over(&mut hud, Some(12), true);
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::DropSlot {
+                    slot: 12,
+                    all: false
+                },
+                InventoryAction::DropSlot {
+                    slot: 12,
+                    all: true
+                },
+            ]
+        );
+
+        // The ringed cell wins over the cursor, as for a number key
+        hud.clear_sent();
+        let ringed = hud.cell(15);
+        hud.world.insert_resource(InputFocus::from_entity(ringed));
+        hud.world.insert_resource(InputFocusVisible(true));
+        drop_over(&mut hud, Some(12), false);
+        assert_eq!(
+            hud.sent_actions(),
+            [InventoryAction::DropSlot {
+                slot: 15,
+                all: false
+            }]
+        );
+    }
+
+    #[test]
+    fn drop_over_an_empty_slot_nothing_or_the_result_sends_nothing() {
+        let mut hud = Hud::new(Visibility::Visible, &[12]);
+        let result = hud.spawn_result_cell();
+        drop_over(&mut hud, Some(12), false);
+        drop_over(&mut hud, None, true);
+        hud.world.entity_mut(result).insert(Hovered(true));
+        drop_over(&mut hud, None, false);
+        assert!(hud.sent_actions().is_empty(), "{:?}", hud.sent_actions());
+    }
+
     /// While the player types in the item browser's search, the keys are text, not game keys.
     #[test]
     fn game_keys_wait_while_the_search_has_the_focus() {
@@ -1820,7 +1892,16 @@ mod tests {
             "E closed the inventory"
         );
 
-        for key in [KeyCode::Digit3, KeyCode::Enter, KeyCode::Space] {
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(12, dirt_stack(5));
+        for key in [
+            KeyCode::Digit3,
+            KeyCode::Enter,
+            KeyCode::Space,
+            KeyCode::KeyQ,
+        ] {
             hud.press_key_over(Some(12), key);
         }
         assert!(hud.sent_actions().is_empty(), "{:?}", hud.sent_actions());
