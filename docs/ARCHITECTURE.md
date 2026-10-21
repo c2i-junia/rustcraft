@@ -273,7 +273,14 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    chunk that is not loaded waiting, as in Minecraft; a burning furnace keeps its chunk to be
    saved. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
-   (`shared/src/world/liquid.rs`).
+   (`shared/src/world/liquid.rs`). Last, the weather counts down (`world/weather.rs`): a clear
+   spell of 10 to 100 minutes is followed by rain (2 in 3) or a thunderstorm (1 in 3) of 5 to
+   15 minutes, then by a clear spell again (`shared/src/world/weather.rs`), and `/weather`
+   sets one for a spell of the same length. A change is sent to the authenticated clients
+   (`WeatherSet`), and the answer to the authentication carries the weather of the moment.
+   During a thunderstorm a strike falls every 3 to 15 seconds, on the top block of a column
+   16 to 160 blocks from a player drawn at random, and is sent to every client with a seed
+   that shapes its bolt (`LightningStrike`); a column with no block loaded gets none.
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
 
    Each client gets the chunks within the render distance of its own player along x and z,
@@ -353,6 +360,12 @@ opacity and fading out at the edge; a child entity first writes their depth alon
 only the nearest face of a cloud is coloured and its opacity is the same from below, above
 and inside. The player chooses Fancy, Fast (one flat layer) or Off in the Video tab
 (`CloudStyle`, saved in `video.ron` with the render distance).
+
+The weather the server tells (`ClientWeather`, `world/weather.rs`) is two levels, rain and
+thunder, from 0 to 1, that ease towards it: each follows the smoothstep of a ramp that moves
+linearly, 20 s from one end to the other, so that a storm rolls in and out gently and a
+change turned back midway does not jump. A player who joins gets them at once, and they go
+back to clear when the world is left. The debug overlay (F3) shows them.
 
 A day lasts 20 minutes. The sun and the moon go round on a path that leans 30° from the
 vertical, so they are never right overhead; `celestial.rs` draws them, and the stars, with
@@ -502,7 +515,7 @@ A world is a folder under `saves/`:
 
 | Path | Content | Written by |
 |------|---------|------------|
-| `world.ron` | Name, seed, time, mobs and the format version | the writer thread |
+| `world.ron` | Name, seed, time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |

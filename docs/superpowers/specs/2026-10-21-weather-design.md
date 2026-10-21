@@ -244,3 +244,13 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     the water's reflection, the fog, the horizon ring and the environment light.
 18. Rain closes the fog in (the end moves, not only the start), with a 48-block floor: a storm
     should feel closed-in, and the floor keeps low render distances and the underwater test sane.
+19. The client's rain and thunder levels are the smoothstep of ramps that move linearly at 1/20
+    per second: a full change takes 20 s and starts and stops gently (the level itself moves
+    at up to 1.5/20 per second midway), and a change turned back midway does not jump.
+20. The lightning timer is not saved (a storm loaded draws its first strike 3–15 s later), and a
+    struck column is searched for its top block from 128 blocks above its player down to 128
+    below, the vertical reach of a render distance; the distance is drawn uniformly in
+    16–160 blocks, so that close strikes are not rare.
+21. `/weather` naming the weather already there draws a new duration for it and sends nothing.
+22. The F3 line is `Weather: <kind> <rain>`, with `/<thunder>` while there is thunder:
+    `Weather: rain 0.85`, `Weather: thunder 1.00/0.40`.
