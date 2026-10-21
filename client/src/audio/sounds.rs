@@ -258,7 +258,8 @@ impl Sound {
             Sound::Place(material) => vec![format!("sounds/place/{}.ogg", material.file_name())],
             Sound::Land => vec!["sounds/player/land.ogg".to_string()],
             Sound::Click => vec!["sounds/ui/click.ogg".to_string()],
-            // No sound of its own yet: the click is short and soft enough
+            // The click, short and soft enough: `player/pickup.ogg` sounds passing through a
+            // portal
             Sound::Pickup => vec!["sounds/ui/click.ogg".to_string()],
             Sound::Splash => vec!["sounds/liquid/splash.ogg".to_string()],
             Sound::ItemPick => vec!["sounds/ui/item_pick.ogg".to_string()],
