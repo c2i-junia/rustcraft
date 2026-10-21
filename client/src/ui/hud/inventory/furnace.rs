@@ -148,6 +148,21 @@ fn gauge(gauge: FurnaceGauge, assets: &AssetServer) -> impl Bundle {
     )
 }
 
+/// The flame lit in full, as the furnace cards of the item browser show it.
+pub fn lit_flame(assets: &AssetServer) -> impl Bundle {
+    let side = FLAME_TEXELS as f32 * TEXEL;
+    (
+        ImageNode::new(assets.load(FLAME_PATH)),
+        Node {
+            width: px(side),
+            height: px(side),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        Pickable::IGNORE,
+    )
+}
+
 /// The furnace section, hidden until a furnace is open: a column of the input slot, the flame and
 /// the fuel slot, the arrow, and the output slot.
 pub(super) fn spawn_furnace_row(

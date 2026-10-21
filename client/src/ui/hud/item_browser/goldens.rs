@@ -12,7 +12,7 @@ use super::{
     filter_catalog, layout_item_browser, mark_craftable_items, setup_item_browser,
     show_item_browser, show_item_icons, show_mode_footer, show_view, style_chips,
     style_fill_buttons, style_recipe_cards, update_craftable_now, CatalogPart, CraftableNow,
-    ItemBrowserState, ItemView, MissingTint, RecipeCard, RecipeSlot, RecipeTab,
+    FillGridButton, ItemBrowserState, ItemView, MissingTint, RecipeCard, RecipeSlot, RecipeTab,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
@@ -190,6 +190,41 @@ fn the_uses_of_oak_planks_at_854x480() {
     };
     open_browser((854, 480), planks_and_logs(), viewing(uses, &[]))
         .assert_matches("item_browser_uses_854x480");
+}
+
+const LOG_USES: ItemView = ItemView {
+    item: ItemId::OakLog,
+    tab: RecipeTab::Uses,
+};
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_cards_of_the_furnace_have_no_fill_button_nor_tint() {
+    // The planks of the log, its charcoal, its burning
+    let mut golden = open_browser((1280, 720), planks_and_logs(), viewing(LOG_USES, &[]));
+    assert_eq!(count::<RecipeCard>(&mut golden).0, 3);
+    assert_eq!(count::<FillGridButton>(&mut golden).0, 1);
+    assert_eq!(count::<MissingTint>(&mut golden).0, 1);
+    // the log of the planks, the log in and the charcoal out, the log burning
+    assert_eq!(count::<RecipeSlot>(&mut golden).0, 2 + 2 + 1);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_uses_of_an_oak_log_at_1280x720() {
+    open_browser((1280, 720), planks_and_logs(), viewing(LOG_USES, &[]))
+        .assert_matches("item_browser_log_uses_1280x720");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_smelting_of_charcoal_at_854x480() {
+    let recipes = ItemView {
+        item: ItemId::Charcoal,
+        tab: RecipeTab::Recipes,
+    };
+    open_browser((854, 480), planks_and_logs(), viewing(recipes, &[]))
+        .assert_matches("item_browser_charcoal_854x480");
 }
 
 #[test]

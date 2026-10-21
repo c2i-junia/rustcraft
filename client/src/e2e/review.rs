@@ -34,6 +34,7 @@ use crate::network::{CurrentPlayerProfile, LocalServerHandle, TargetServer};
 use crate::state::{GameState, KeyMap};
 use crate::ui::hud::chat::{ChatLine, CHAT_FADE, CHAT_FADE_AFTER};
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::item_browser::layout::BrowserLayout;
 use crate::ui::hud::{UIMode, FURNACE_TITLE};
 use crate::ui::menus::connecting::{ConnectingCard, BLINK};
 use crate::ui::menus::multi::dialogs::ADD_SERVER_TITLE;
@@ -522,6 +523,21 @@ fn every_screen_at_three_resolutions() {
         }
         h.hover(&L::cell(10));
         h.snapshot_in_game("furnace");
+        // The uses of a log beside it: its planks, its charcoal and its burning
+        h.hover(&L::cell(11));
+        h.press(KeyCode::KeyU);
+        h.wait_for(&L::text("Burns for 1.5 items"), SCREEN);
+        h.hover_at(Vec2::ZERO);
+        h.snapshot_in_game("furnace_log_uses");
+        // its cards scrolled to the last one
+        h.hover(&L::text("Furnace · 10 s"));
+        h.scroll(-5.);
+        h.hover_at(Vec2::ZERO);
+        h.snapshot_in_game("furnace_log_uses_scrolled");
+        h.press(KeyCode::Escape);
+        if h.world().resource::<BrowserLayout>().compact {
+            h.press(KeyCode::Escape);
+        }
         h.press(KeyCode::KeyE);
         look(&mut h, horizon);
 

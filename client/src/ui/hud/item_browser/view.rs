@@ -11,14 +11,15 @@ use bevy::{
     ui_widgets::{Activate, Button as UiButton},
 };
 use shared::players::{inventory::craft_result, Inventory};
-use shared::world::{recipes, recipes_for, uses_of, ItemId, RecipeView};
+use shared::world::{recipes, ItemId, RecipeView};
 
 use super::bookmarks::{bookmark_message, write_bookmarks, Bookmarks};
 use super::catalog::category_detail;
 use super::layout::BrowserLayout;
 use super::recipes::{
-    back_label, bookmarked_detail, empty_view_message, item_keys_hint, recipe_problem,
-    station_label, tab_label, view_title,
+    back_label, bookmarked_detail, burns_for, card_label, cards_of, empty_view_message, fuel_note,
+    item_keys_hint, recipe_problem, smelting_note, station_label, tab_label, view_title,
+    BrowserCard,
 };
 use super::{
     BackButton, BookmarkBar, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
@@ -26,7 +27,7 @@ use super::{
     RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, ViewedItem,
     ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
 };
-use crate::ui::hud::inventory::{grid_in_use, stack_in};
+use crate::ui::hud::inventory::{grid_in_use, lit_flame, stack_in};
 use crate::ui::hud::{item_name, CraftResultCell, InventoryCell, InventoryRoot, UIMode};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, DISABLED_ALPHA, FONT_M, FONT_S, MUTED, OK, PANEL,
@@ -320,22 +321,29 @@ fn spawn_card_slot(
     }
 }
 
-/// A card of `recipe` at the end of `cards`: its 3 × 3 grid, the arrow and its output, then the
-/// station or why it cannot be made now, and the button that fills the grid with it.
-fn spawn_card(
-    commands: &mut Commands,
-    cards: Entity,
-    recipe: &RecipeView,
-    atlas: &AtlasWrapper,
-    font: &Handle<Font>,
-) {
-    let output = recipe.output.item_id;
+/// An empty cell of a card, dashed around.
+fn empty_cell() -> impl Bundle {
+    (
+        Node {
+            width: px(CARD_CELL),
+            height: px(CARD_CELL),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        BackgroundColor(SLOT.with_alpha(0.5)),
+        Pickable::IGNORE,
+        Children::spawn(SpawnIter(dashes())),
+    )
+}
+
+/// The frame of a card named `name` at the end of `cards`, and the row of its body.
+fn spawn_card_frame(commands: &mut Commands, cards: Entity, name: String) -> (Entity, Entity) {
     let card = commands
         .spawn((
             RecipeCard,
             // the role before the label: the label's default node must not win
             AccessibilityNode(accesskit::Node::new(Role::Group)),
-            AccessibleLabel::new(format!("Recipe of {}", item_name(output))),
+            AccessibleLabel::new(name),
             Node {
                 flex_direction: FlexDirection::Column,
                 row_gap: px(SPACE_S),
@@ -363,6 +371,36 @@ fn spawn_card(
             ChildOf(card),
         ))
         .id();
+    (card, body)
+}
+
+/// The arrow of a card, from its ingredients to its output.
+fn card_arrow(font: &Handle<Font>) -> impl Bundle {
+    (
+        label("->", font, FONT_M, MUTED),
+        TextLayout {
+            linebreak: LineBreak::NoWrap,
+            ..default()
+        },
+        Node {
+            flex_shrink: 0.0,
+            ..default()
+        },
+    )
+}
+
+/// A card of `recipe` at the end of `cards`: its 3 × 3 grid, the arrow and its output, then the
+/// station or why it cannot be made now, and the button that fills the grid with it.
+fn spawn_card(
+    commands: &mut Commands,
+    cards: Entity,
+    recipe: &RecipeView,
+    atlas: &AtlasWrapper,
+    font: &Handle<Font>,
+) {
+    let output = recipe.output.item_id;
+    let (card, body) =
+        spawn_card_frame(commands, cards, card_label(&BrowserCard::Crafting(*recipe)));
     let grid = commands
         .spawn((
             Node {
@@ -393,33 +431,12 @@ fn spawn_card(
                     font,
                 ),
                 None => {
-                    commands.spawn((
-                        Node {
-                            width: px(CARD_CELL),
-                            height: px(CARD_CELL),
-                            ..default()
-                        },
-                        BackgroundColor(SLOT.with_alpha(0.5)),
-                        Pickable::IGNORE,
-                        ChildOf(grid),
-                        Children::spawn(SpawnIter(dashes())),
-                    ));
+                    commands.spawn((empty_cell(), ChildOf(grid)));
                 }
             }
         }
     }
-    commands.spawn((
-        label("->", font, FONT_M, MUTED),
-        TextLayout {
-            linebreak: LineBreak::NoWrap,
-            ..default()
-        },
-        Node {
-            flex_shrink: 0.0,
-            ..default()
-        },
-        ChildOf(body),
-    ));
+    commands.spawn((card_arrow(font), ChildOf(body)));
     spawn_card_slot(
         commands,
         body,
@@ -456,12 +473,88 @@ fn spawn_card(
     ));
 }
 
-/// The recipes `view` shows.
-fn recipes_of(view: ItemView) -> Vec<RecipeView> {
-    match view.tab {
-        RecipeTab::Recipes => recipes_for(view.item).collect(),
-        RecipeTab::Uses => uses_of(view.item).collect(),
-    }
+/// A card of the furnace named `name` at the end of `cards`, laid out as the furnace: a column of
+/// the `input` cell, the lit flame and the `fuel` cell, as wide as the grid of a crafting card, an
+/// empty cell dashed. Returns the card and the row of its body, after the column.
+#[allow(clippy::too_many_arguments)]
+fn spawn_furnace_card(
+    commands: &mut Commands,
+    cards: Entity,
+    name: String,
+    input: Option<ItemId>,
+    fuel: Option<ItemId>,
+    atlas: &AtlasWrapper,
+    font: &Handle<Font>,
+    assets: &AssetServer,
+) -> (Entity, Entity) {
+    let (card, body) = spawn_card_frame(commands, cards, name);
+    let column = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                flex_shrink: 0.0,
+                width: px(3.0 * CARD_CELL + 2.0 * CARD_CELL_GAP),
+                row_gap: px(CARD_CELL_GAP),
+                ..default()
+            },
+            ChildOf(body),
+        ))
+        .id();
+    let cell = |commands: &mut Commands, item: Option<ItemId>| match item {
+        Some(item) => spawn_card_slot(commands, column, item, None, 1, CARD_CELL, atlas, font),
+        None => {
+            commands.spawn((empty_cell(), ChildOf(column)));
+        }
+    };
+    cell(commands, input);
+    commands.spawn((lit_flame(assets), ChildOf(column)));
+    cell(commands, fuel);
+    (card, body)
+}
+
+/// A card of the furnace making `output` of `input`, any fuel doing: the arrow and the output
+/// after the column, and under them the furnace and how long it takes. A furnace is filled by
+/// hand: there is no `+ Fill grid`.
+fn spawn_smelting_card(
+    commands: &mut Commands,
+    cards: Entity,
+    (input, output): (ItemId, ItemId),
+    atlas: &AtlasWrapper,
+    font: &Handle<Font>,
+    assets: &AssetServer,
+) {
+    let name = card_label(&BrowserCard::Smelting { input, output });
+    let (card, body) = spawn_furnace_card(
+        commands,
+        cards,
+        name,
+        Some(input),
+        None,
+        atlas,
+        font,
+        assets,
+    );
+    commands.spawn((card_arrow(font), ChildOf(body)));
+    spawn_card_slot(commands, body, output, None, 1, SLOT_SIZE, atlas, font);
+    commands.spawn((label(&smelting_note(), font, FONT_S, MUTED), ChildOf(card)));
+}
+
+/// A card of `item` burning in the furnace, `ticks` long: how many items it smelts after the
+/// column, and under them how long it burns.
+fn spawn_fuel_card(
+    commands: &mut Commands,
+    cards: Entity,
+    (item, ticks): (ItemId, u16),
+    atlas: &AtlasWrapper,
+    font: &Handle<Font>,
+    assets: &AssetServer,
+) {
+    let name = card_label(&BrowserCard::Fuel { item, ticks });
+    let (card, body) =
+        spawn_furnace_card(commands, cards, name, None, Some(item), atlas, font, assets);
+    commands.spawn((label(&burns_for(ticks), font, FONT_S, TEXT), ChildOf(body)));
+    commands.spawn((label(&fuel_note(ticks), font, FONT_S, MUTED), ChildOf(card)));
 }
 
 /// The parts of the panel that `show_view` writes.
@@ -585,10 +678,7 @@ pub fn show_view(
         .entity(*parts.back)
         .queue(set_label(&back_label(&state.history)));
     for (chip, tab) in &parts.tabs {
-        let count = match tab.0 {
-            RecipeTab::Recipes => recipes_for(view.item).count(),
-            RecipeTab::Uses => uses_of(view.item).count(),
-        };
+        let count = cards_of(ItemView { tab: tab.0, ..view }).len();
         commands
             .entity(chip)
             .queue(set_label(&tab_label(tab.0, count)));
@@ -610,15 +700,26 @@ pub fn show_view(
     }
     built.0 = Some(view);
     commands.entity(cards).despawn_related::<Children>();
-    let shown = recipes_of(view);
+    let shown = cards_of(view);
     if shown.is_empty() {
         commands.spawn((
             label(&empty_view_message(view), &font, FONT_S, TEXT),
             ChildOf(cards),
         ));
     }
-    for recipe in &shown {
-        spawn_card(&mut commands, cards, recipe, atlas, &font);
+    let assets = &asset_server;
+    for card in &shown {
+        match *card {
+            BrowserCard::Crafting(recipe) => {
+                spawn_card(&mut commands, cards, &recipe, atlas, &font)
+            }
+            BrowserCard::Smelting { input, output } => {
+                spawn_smelting_card(&mut commands, cards, (input, output), atlas, &font, assets)
+            }
+            BrowserCard::Fuel { item, ticks } => {
+                spawn_fuel_card(&mut commands, cards, (item, ticks), atlas, &font, assets)
+            }
+        }
     }
 }
 
@@ -970,7 +1071,7 @@ pub fn browser_takes_escape(
 #[cfg(test)]
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
-    use shared::world::{grid_slot, ItemStack};
+    use shared::world::{grid_slot, recipes_for, ItemStack};
 
     use super::*;
 

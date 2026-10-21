@@ -187,7 +187,7 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     let oak_log = h.get(&catalog_slot("Oak Log"));
     h.click(&catalog_slot("Oak Log"));
     h.wait_for(
-        &L::text("Oak Log is gathered, not crafted. It goes into 1 recipe: see Uses."),
+        &L::text("Oak Log is gathered, not crafted. It goes into 3 recipes: see Uses."),
         SCREEN,
     );
     h.frames(10);
@@ -451,7 +451,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.wait_for(&button("Recipes 3"), SCREEN);
     for shown in [
         L::text("Recipes"),
-        button("Uses 0"),
+        button("Uses 1"),
         button("<- Items"),
         L::text("Missing 2 Stick"),
         L::text("Missing 3 Spruce Planks, 2 Stick"),
@@ -465,13 +465,12 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     let stick = h.first_card_slot("Stick");
     h.click_entity(stick, MouseButton::Left);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
-    assert!(h.is_visible(&button("Uses 16")));
+    assert!(h.is_visible(&button("Uses 38")));
     let planks = h.first_card_slot("Oak Planks");
     h.click_entity(planks, MouseButton::Right);
     h.wait_for(&button("<- Stick"), SCREEN);
     assert!(h.is_visible(&L::text("Uses")));
-    assert!(h.is_visible(&button("Uses 8")));
-
+    assert!(h.is_visible(&button("Uses 9")));
     // Escape and the back button walk the history back
     h.press(KeyCode::Escape);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
@@ -479,9 +478,9 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.wait_for(&button("<- Items"), SCREEN);
     assert!(h.is_visible(&button("Recipes 3")));
 
-    // A tab shows the uses of the same item, without the history
-    h.click(&button("Uses 0"));
-    h.wait_for(&L::text("No recipe uses Wooden Pickaxe yet."), SCREEN);
+    // A tab shows the uses of the same item, without the history: a wooden tool burns
+    h.click(&button("Uses 1"));
+    h.wait_for(&L::text("Burns for 1 item"), SCREEN);
     assert!(h.is_visible(&button("<- Items")));
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("70 / 70"), SCREEN);
@@ -490,10 +489,10 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
 
     // A right click shows the uses; an item without recipe says where it comes from
     h.right_click(&catalog_slot("Cobblestone"));
-    h.wait_for(&button("Uses 1"), SCREEN);
+    h.wait_for(&button("Uses 7"), SCREEN);
     h.click(&button("Recipes 0"));
     h.wait_for(
-        &L::text("Cobblestone is gathered, not crafted. It goes into 1 recipe: see Uses."),
+        &L::text("Cobblestone is gathered, not crafted. It goes into 7 recipes: see Uses."),
         SCREEN,
     );
 
@@ -546,14 +545,14 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     assert!(h.is_visible(&L::text("Oak Planks").within(L::marker::<RecipePanel>())));
     h.press(KeyCode::KeyU);
-    h.wait_for(&button("Uses 8"), SCREEN);
+    h.wait_for(&button("Uses 9"), SCREEN);
     assert!(h.is_visible(&button("<- Oak Planks")));
 
     // R over a slot of a card, and over one of the catalog
     let stick = h.first_card_slot("Stick");
     h.hover_entity(stick);
     h.press(KeyCode::KeyR);
-    h.wait_for(&button("Uses 16"), SCREEN);
+    h.wait_for(&button("Uses 38"), SCREEN);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
@@ -571,7 +570,7 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
     h.hover(&L::cell(0));
     h.press(KeyCode::KeyU);
-    h.wait_for(&button("Uses 8"), SCREEN);
+    h.wait_for(&button("Uses 9"), SCREEN);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("70 / 70"), SCREEN);

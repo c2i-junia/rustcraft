@@ -1,8 +1,12 @@
-//! What the recipe view says: its title, its back button, its tabs, the station of a recipe or why
-//! it cannot be made now, and what it says when there is no recipe to show.
+//! What the recipe view says: its title, its back button, its tabs, its cards, the station of a
+//! recipe or why it cannot be made now, and what it says when there is no recipe to show.
 
 use shared::players::Inventory;
-use shared::world::{craftable, missing, recipes_for, uses_of, ItemId, RecipeView};
+use shared::world::{
+    craftable, fuel_ticks, missing, recipes_for, smelting_inputs, smelting_result, uses_of, ItemId,
+    RecipeView, COOK_TICKS,
+};
+use shared::TICKS_PER_SECOND;
 
 use super::catalog::category_detail;
 use super::{ItemView, RecipeTab};
@@ -92,6 +96,74 @@ pub const NOT_BESIDE_A_CHEST: &str = "Not beside a chest";
 /// Why a recipe cannot fill the grid while a furnace is open.
 pub const NOT_BESIDE_A_FURNACE: &str = "Not beside a furnace";
 
+/// A card of the view: a recipe of the crafting grid, or one of the furnace.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BrowserCard {
+    Crafting(RecipeView),
+    /// The furnace makes `output` of `input`.
+    Smelting {
+        input: ItemId,
+        output: ItemId,
+    },
+    /// `item` burns in the furnace, `ticks` long.
+    Fuel {
+        item: ItemId,
+        ticks: u16,
+    },
+}
+
+/// The cards `view` shows: the crafting recipes first, then the smeltings, then, among the uses
+/// of a fuel, its burning.
+pub fn cards_of(view: ItemView) -> Vec<BrowserCard> {
+    let item = view.item;
+    match view.tab {
+        RecipeTab::Recipes => recipes_for(item)
+            .map(BrowserCard::Crafting)
+            .chain(smelting_inputs(item).map(|input| BrowserCard::Smelting {
+                input,
+                output: item,
+            }))
+            .collect(),
+        RecipeTab::Uses => uses_of(item)
+            .map(BrowserCard::Crafting)
+            .chain(smelting_result(item).map(|output| BrowserCard::Smelting {
+                input: item,
+                output,
+            }))
+            .chain(fuel_ticks(item).map(|ticks| BrowserCard::Fuel { item, ticks }))
+            .collect(),
+    }
+}
+
+/// The accessible name of a card.
+pub fn card_label(card: &BrowserCard) -> String {
+    match card {
+        BrowserCard::Crafting(recipe) => format!("Recipe of {}", item_name(recipe.output.item_id)),
+        BrowserCard::Smelting { output, .. } => format!("Smelting of {}", item_name(*output)),
+        BrowserCard::Fuel { item, .. } => format!("{} as fuel", item_name(*item)),
+    }
+}
+
+/// Under a smelting card: where it is made, and how long it takes.
+pub fn smelting_note() -> String {
+    format!("Furnace · {} s", u64::from(COOK_TICKS) / TICKS_PER_SECOND)
+}
+
+/// Under a fuel card: how long one of it burns, `ticks`.
+pub fn fuel_note(ticks: u16) -> String {
+    format!("Fuel · {} s", u64::from(ticks) / TICKS_PER_SECOND)
+}
+
+/// Beside the fuel of a fuel card: how many items one of it smelts, burning `ticks` long.
+pub fn burns_for(ticks: u16) -> String {
+    let items = f32::from(ticks) / f32::from(COOK_TICKS);
+    if items == 1.0 {
+        "Burns for 1 item".to_string()
+    } else {
+        format!("Burns for {items} items")
+    }
+}
+
 /// After the message of an item without recipe: how many recipes it goes into.
 fn uses_sentence(uses: usize) -> String {
     match uses {
@@ -107,7 +179,13 @@ pub fn empty_view_message(view: ItemView) -> String {
     match view.tab {
         RecipeTab::Recipes => format!(
             "{name} is gathered, not crafted.{}",
-            uses_sentence(uses_of(view.item).count())
+            uses_sentence(
+                cards_of(ItemView {
+                    tab: RecipeTab::Uses,
+                    ..view
+                })
+                .len()
+            )
         ),
         RecipeTab::Uses => format!("No recipe uses {name} yet."),
     }
@@ -200,14 +278,94 @@ mod tests {
     }
 
     #[test]
+    fn a_view_lists_the_crafting_then_the_smelting_then_the_burning() {
+        let cards = |item, tab| cards_of(view(item, tab));
+        let smelting = |input, output| BrowserCard::Smelting { input, output };
+        // One smelting per log
+        assert_eq!(
+            cards(ItemId::Charcoal, RecipeTab::Recipes),
+            [
+                smelting(ItemId::OakLog, ItemId::Charcoal),
+                smelting(ItemId::SpruceLog, ItemId::Charcoal),
+                smelting(ItemId::JungleLog, ItemId::Charcoal),
+            ]
+        );
+        assert_eq!(
+            cards(ItemId::Glass, RecipeTab::Recipes),
+            [smelting(ItemId::Sand, ItemId::Glass)]
+        );
+        // An iron ingot comes out of its block, then of the furnace
+        let ingot = cards(ItemId::IronIngot, RecipeTab::Recipes);
+        assert!(
+            matches!(ingot[0], BrowserCard::Crafting(recipe) if recipe.cells == [Some(ItemId::IronBlock)])
+        );
+        assert_eq!(ingot[1..], [smelting(ItemId::IronOre, ItemId::IronIngot)]);
+        // An oak log makes planks, smelts into charcoal, and burns
+        let log = cards(ItemId::OakLog, RecipeTab::Uses);
+        assert!(
+            matches!(log[0], BrowserCard::Crafting(recipe) if recipe.output.item_id == ItemId::OakPlanks)
+        );
+        assert_eq!(
+            log[1..],
+            [
+                smelting(ItemId::OakLog, ItemId::Charcoal),
+                BrowserCard::Fuel {
+                    item: ItemId::OakLog,
+                    ticks: 300
+                },
+            ]
+        );
+        assert_eq!(
+            cards(ItemId::Charcoal, RecipeTab::Uses)[1..],
+            [BrowserCard::Fuel {
+                item: ItemId::Charcoal,
+                ticks: 1600
+            }]
+        );
+        assert!(cards(ItemId::Bedrock, RecipeTab::Uses).is_empty());
+        assert!(cards(ItemId::IronOre, RecipeTab::Recipes).is_empty());
+    }
+
+    #[test]
+    fn the_texts_of_the_furnace_cards() {
+        assert_eq!(smelting_note(), "Furnace · 10 s");
+        assert_eq!(fuel_note(1600), "Fuel · 80 s");
+        assert_eq!(fuel_note(100), "Fuel · 5 s");
+        assert_eq!(burns_for(1600), "Burns for 8 items");
+        assert_eq!(burns_for(300), "Burns for 1.5 items");
+        assert_eq!(burns_for(200), "Burns for 1 item");
+        assert_eq!(burns_for(100), "Burns for 0.5 items");
+        let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
+        assert_eq!(
+            card_label(&BrowserCard::Crafting(pickaxe)),
+            "Recipe of Wooden Pickaxe"
+        );
+        let smelting = BrowserCard::Smelting {
+            input: ItemId::IronOre,
+            output: ItemId::IronIngot,
+        };
+        assert_eq!(card_label(&smelting), "Smelting of Iron Ingot");
+        let fuel = BrowserCard::Fuel {
+            item: ItemId::Coal,
+            ticks: 1600,
+        };
+        assert_eq!(card_label(&fuel), "Coal as fuel");
+    }
+
+    #[test]
     fn an_item_without_recipe_or_use_says_so() {
+        // Its uses count its smelting and its burning
         assert_eq!(
             empty_view_message(view(ItemId::Cobblestone, RecipeTab::Recipes)),
-            "Cobblestone is gathered, not crafted. It goes into 6 recipes: see Uses."
+            "Cobblestone is gathered, not crafted. It goes into 7 recipes: see Uses."
+        );
+        assert_eq!(
+            empty_view_message(view(ItemId::IronOre, RecipeTab::Recipes)),
+            "Iron Ore is gathered, not crafted. It goes into 1 recipe: see Uses."
         );
         assert_eq!(
             empty_view_message(view(ItemId::SpruceLog, RecipeTab::Recipes)),
-            "Spruce Log is gathered, not crafted. It goes into 1 recipe: see Uses."
+            "Spruce Log is gathered, not crafted. It goes into 3 recipes: see Uses."
         );
         assert_eq!(
             empty_view_message(view(ItemId::Bedrock, RecipeTab::Recipes)),
@@ -218,8 +376,8 @@ mod tests {
             "No recipe uses Bedrock yet."
         );
         assert_eq!(
-            empty_view_message(view(ItemId::WoodenSword, RecipeTab::Uses)),
-            "No recipe uses Wooden Sword yet."
+            empty_view_message(view(ItemId::StoneSword, RecipeTab::Uses)),
+            "No recipe uses Stone Sword yet."
         );
         // A plural once there are more
         assert_eq!(uses_sentence(3), " It goes into 3 recipes: see Uses.");
@@ -233,5 +391,9 @@ mod tests {
         assert!(craftable_now(&inventory, ItemId::OakPlanks));
         assert!(!craftable_now(&inventory, ItemId::Stick));
         assert!(!craftable_now(&inventory, ItemId::OakLog));
+        // The furnace does not count: it is filled by hand
+        put(&mut inventory, 10, ItemId::IronOre, 1);
+        assert!(!craftable_now(&inventory, ItemId::IronIngot));
+        assert!(!craftable_now(&inventory, ItemId::Charcoal));
     }
 }
