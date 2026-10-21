@@ -198,6 +198,12 @@ server sends them to everyone in the tick they changed, and to a player when it 
 refused shot makes the server send them again, which corrects a wrong prediction. A player's
 portals go when it leaves, and a portal goes when, after the block changes of a tick, its wall
 or front no longer fits (`server/src/world/portals.rs`). Portals are not saved.
+Every shot, placed or refused, is a `PortalShot`: from the origin of the aim ray to where it
+meets the aimed face (or `PORTAL_GUN_REACH` along it when nothing is aimed at), its colour and
+whether it placed the portal; the aim stops at the wall behind a portal, so a shot never goes
+through one. The server keeps those of a tick (`ServerWorldMap::portal_shots`) and sends each to
+every player but its shooter, who predicted it, as `ServerToClientMessage::PortalShot`, before
+the `PortalUpdates` of the same tick on the same ordered channel.
 
 Players go through the open portals in the movement simulation, which both sides run, so the
 server decides and the client predicts (`shared/src/players/movement.rs`). When the centre of a
@@ -373,7 +379,7 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    beyond which it is neither seen nor heard; a column whose top is not loaded gets none.
    Last, the portals whose wall or front changed and no longer fits go.
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client, and the
-   portals when they changed.
+   shots of the portal gun to the other players, then the portals when they changed.
 
    Each client gets the chunks within the render distance of its own player along x and z,
    and within at most `MAX_VERTICAL_RENDER_DISTANCE` (8) of it along y, as the ground lies
@@ -502,6 +508,16 @@ the sky made for the player's camera. Its image is in 16-bit floats at every qua
 the colours before tonemapping with the shaders, and after it without. It draws no rays of light, which Bevy ends with the near distance of the
 projection only, wrong for an oblique near plane; the horizon skirt is drawn around each camera
 (`horizon.wgsl`).
+A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6
+block ahead of its eye) and the server's `PortalShot` for the others write a `ShotFired`, from
+which a bolt and its trail are spawned, moved at `BOLT_SPEED` (100 blocks a second) to the hit
+point, where the bolt bursts into eight sparks (the fox's dust particles) and both are
+despawned once the trail has shrunk into it. They are unlit and alpha-blended, brighter than
+the portal's colour, four times more with HDR to bloom over the physical sky. What is drawn of
+the portals is `ShownPortals`: while a placed shot's bolt flies, the client map's portals with
+that portal as it was drawn (or none), else `None`, the map's as they are. `sync_portals`, the
+portal cameras and the meshing of the chunks read it, so a portal, its opening sound and the
+hole in its wall come when its bolt lands; the simulation, on the map, has it at once.
 The rim fades out within 0.3 block of its plane, where only a player passing through stands,
 and from where it would be a line down the screen. The aimed block is not outlined on the face
 of an open portal. The chunks are

@@ -68,19 +68,19 @@ every entity, the shot", the "The shot" row and lot 8.
 
 ## Tasks
 
-- [ ] 1. Shared: `PortalShot` in `BlockInteractions` / `ActionsOutcome`. Tests: a placed shot
+- [x] 1. Shared: `PortalShot` in `BlockInteractions` / `ActionsOutcome`. Tests: a placed shot
   from the eye to the face; a refused one (no room) still hits the face; a shot at nothing
   goes the reach along the ray.
-- [ ] 2. The message, appended and pinned (index 12), and a serde round trip.
-- [ ] 3. Server: `portal_shots`, sent to every player but the shooter before the portals.
+- [x] 2. The message, appended and pinned (index 12), and a serde round trip.
+- [x] 3. Server: `portal_shots`, sent to every player but the shooter before the portals.
   Session test: bob is told alice's shot before the portal, alice is not; a refused shot
   reaches bob unplaced.
-- [ ] 4. Client: flight maths (time at 32 blocks is 0.32 s; position; trail), `ShotFired`,
+- [x] 4. Client: flight maths (time at 32 blocks is 0.32 s; position; trail), `ShotFired`,
   bolts, sparks, `ShownPortals`; `sync_portals`, cameras and meshing on it. Tests: a placed
   shot's portal is drawn and heard only once its bolt lands, a refused shot holds nothing and
   its bolt is gone after the burst, a portal with no bolt shows at once, a bolt's entities
   despawn.
-- [ ] 5. Wiring: prediction and network write `ShotFired`.
-- [ ] 6. e2e: the gun fired at a wall, a screenshot mid-flight (the portal not drawn yet) and
+- [x] 5. Wiring: prediction and network write `ShotFired`.
+- [x] 6. e2e: the gun fired at a wall, a screenshot mid-flight (the portal not drawn yet) and
   one of the sparks, then the portal drawn.
-- [ ] 7. Docs: `docs/ARCHITECTURE.md`, the README's portal line.
+- [x] 7. Docs: `docs/ARCHITECTURE.md`, the README's portal line.
