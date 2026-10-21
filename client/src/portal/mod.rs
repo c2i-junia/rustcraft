@@ -170,6 +170,11 @@ pub struct PortalOpened {
     pub at: Vec3,
 }
 
+/// Whether the client map has had portals since the game started. The first portals it gets,
+/// when the player joins, are not heard opening: they were open already.
+#[derive(Resource, Default)]
+struct PortalsSeen(bool);
+
 /// The portals drawn in the game, after the client map's.
 pub fn portal_plugin(app: &mut App) {
     app.add_plugins(portal_material_plugin);
@@ -181,6 +186,7 @@ fn portal_systems(app: &mut App) {
     app.init_resource::<DrawnPortals>()
         .init_resource::<PortalRecursion>()
         .add_message::<PortalOpened>()
+        .init_resource::<PortalsSeen>()
         .init_resource::<PortalViewsStarted>()
         .add_systems(
             PostUpdate,
@@ -199,16 +205,18 @@ fn portal_systems(app: &mut App) {
         )
         .add_systems(
             OnExit(GameState::Game),
-            |mut drawn: ResMut<DrawnPortals>| {
+            |mut drawn: ResMut<DrawnPortals>, mut seen: ResMut<PortalsSeen>| {
                 // Their entities go with the game
                 drawn.0.clear();
+                seen.0 = false;
             },
         );
 }
 
 /// Draws the portals of the client map as they are: a portal that appeared, moved, or opened or
 /// closed is drawn anew, one that is gone is no longer drawn, and the wall cells of both are
-/// meshed again, the face a portal covers being left out.
+/// meshed again, the face a portal covers being left out. A portal drawn open is heard
+/// (`PortalOpened`), but for the first portals of the game, open before the player joined.
 fn sync_portals(
     world_map: Res<ClientWorldMap>,
     mut drawn: ResMut<DrawnPortals>,
@@ -218,9 +226,12 @@ fn sync_portals(
     mut images: ResMut<Assets<Image>>,
     mut remesh: MessageWriter<WorldRenderRequestUpdateEvent>,
     mut opened: MessageWriter<PortalOpened>,
+    mut seen: ResMut<PortalsSeen>,
     mut commands: Commands,
 ) {
     let portals = world_map.blocks.portals();
+    let heard = seen.0;
+    seen.0 |= !portals.is_empty();
     let mut walls = Vec::new();
     drawn.0.retain(|(owner, color), drawn| {
         let current = portals.get(*owner, *color);
@@ -272,9 +283,11 @@ fn sync_portals(
             ))
             .id();
         let views = if open {
-            opened.write(PortalOpened {
-                at: portal.frame().translation.into(),
-            });
+            if heard {
+                opened.write(PortalOpened {
+                    at: portal.frame().translation.into(),
+                });
+            }
             let images = [(); 2].map(|_| images.add(portal_image(size)));
             let shown = std::array::from_fn(|index| {
                 let image = images[(index + 1) % 2].clone();
@@ -416,6 +429,13 @@ mod tests {
     /// The portal systems in a game, with the player's camera five blocks in front of the blue
     /// portal, looking at it.
     fn app() -> App {
+        let mut app = unstarted_app();
+        app.update();
+        app
+    }
+
+    /// `app`, before its first frame, in which it enters the game.
+    fn unstarted_app() -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin, AssetPlugin::default()))
             .init_asset::<Mesh>()
@@ -439,7 +459,6 @@ mod tests {
             Transform::from_xyz(1.0, 11.5, 6.0),
             CameraController::default(),
         ));
-        app.update();
         app
     }
 
@@ -1160,6 +1179,26 @@ mod tests {
         };
         insert(&mut app, moved);
         assert_eq!(opened(&mut app), [Vec3::from(moved.frame().translation)]);
+    }
+
+    #[test]
+    fn the_portals_open_when_the_player_joins_are_not_heard() {
+        let mut app = unstarted_app();
+        // The portals of the world, sent when the player joins
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        assert!(opened(&mut app).is_empty());
+        assert_eq!(cameras(&mut app), 2 * PORTAL_RECURSION);
+
+        // A pair opened later is heard
+        app.world_mut()
+            .resource_mut::<ClientWorldMap>()
+            .blocks
+            .portals_mut()
+            .remove(OWNER, PortalColor::Orange);
+        assert!(opened(&mut app).is_empty());
+        insert(&mut app, orange());
+        assert_eq!(opened(&mut app).len(), 2);
     }
 
     #[test]
