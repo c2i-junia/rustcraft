@@ -107,6 +107,11 @@ pub struct ServerMob {
     /// Whether a sheep waits for its wool to grow back.
     #[serde(default)]
     pub sheared: bool,
+    /// How many portals the mob went through, wrapping: a client that sees it change puts the
+    /// mob on the other side at once, rather than easing it across the gap. Saves from before
+    /// it read 0.
+    #[serde(default)]
+    pub passes: u32,
 }
 
 impl ServerMob {
@@ -127,6 +132,7 @@ impl ServerMob {
             action_ticks: 0,
             damage: 0,
             sheared: false,
+            passes: 0,
         }
     }
 

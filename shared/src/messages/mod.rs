@@ -141,6 +141,7 @@ mod tests {
                 action_ticks: 0,
                 damage: 0,
                 sheared: false,
+                passes: 0,
             },
         };
         let update = PlayerUpdateEvent {

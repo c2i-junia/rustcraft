@@ -4,6 +4,7 @@
 //! another.
 
 use std::collections::{HashMap, HashSet};
+use std::f32::consts::PI;
 use std::ops::Range;
 
 use bevy::{
@@ -16,10 +17,12 @@ use shared::{
     messages::PlayerId,
     players::{
         constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY},
-        movement::is_terrain_loaded,
+        movement::{is_terrain_loaded, Look},
         Player,
     },
-    world::{BlockHitbox, BlockId, ChunkMap, MobAction, MobId, MobKind, MobTarget, ServerMob},
+    world::{
+        BlockHitbox, BlockId, ChunkMap, MobAction, MobId, MobKind, MobTarget, Passage, ServerMob,
+    },
     TICKS_PER_SECOND,
 };
 
@@ -131,6 +134,9 @@ fn step_mobs(
     }
 }
 
+/// Gravity, then what the mob does. A mob whose centre went into an open portal comes out of
+/// its twin (`pass_through_portal`): after its fall, which then ends its step, and after what
+/// it does.
 fn step_mob(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
@@ -138,7 +144,49 @@ fn step_mob(
     delta: f32,
     rng: &mut impl Rng,
 ) {
+    let start = mob.position;
     apply_gravity(mob, chunks, delta);
+    if pass_through_portal(mob, chunks, start) {
+        return;
+    }
+    let start = mob.position;
+    act(mob, chunks, players, delta, rng);
+    pass_through_portal(mob, chunks, start);
+}
+
+/// Takes `mob` through the open portal its centre went into on its way from `from`, if any
+/// (`Portals::pass`): its position and velocity come out of the twin turned with it, its body
+/// faces where it faced turned so, upright, and the spot it walks to goes through too, so that
+/// it walks on rather than back. Returns whether it went through.
+fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bool {
+    let extents = Vec3::new(mob.width, mob.height, mob.depth) / 2.0;
+    let Some(Passage { through, position }) = chunks.portals().pass(from, mob.position, extents)
+    else {
+        return false;
+    };
+    mob.position = position;
+    mob.velocity = through.transform_vector3(mob.velocity);
+    mob.on_ground = false;
+    // A mob faces +Z turned by its rotation, a camera -Z: the body's yaw is that of a camera
+    // turned half round
+    let half_turn = Quat::from_rotation_y(PI);
+    let look = Look::through(&through, mob.rotation * half_turn);
+    mob.rotation = Quat::from_rotation_y(look.yaw) * half_turn;
+    if let MobTarget::Position(target) = &mut mob.target {
+        *target = through.transform_point3(*target);
+    }
+    mob.passes = mob.passes.wrapping_add(1);
+    true
+}
+
+/// What the mob's action asks of it this step.
+fn act(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    delta: f32,
+    rng: &mut impl Rng,
+) {
     if is_shy(mob.kind) && mob.action != MobAction::Flee {
         if let Some(id) = nearest_player(players, mob.position, FEAR_DISTANCE) {
             mob.action = MobAction::Flee;
@@ -262,12 +310,31 @@ fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
     None
 }
 
-/// Whether `mob` would be inside a block at `position`.
+/// Half the width a portal lets `mob` through by (`Portals::letting_through`): its box keeps
+/// its axes whatever way it faces, so the larger of its width and depth.
+fn portal_margin(mob: &ServerMob) -> f32 {
+    mob.width.max(mob.depth) / 2.0
+}
+
+/// Whether `mob` would be inside a block at `position`. The wall cells of the open portals that
+/// let it in from where it is do not count (`Portals::passable_cells`), as for a player.
 fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
-    chunks.check_collision_box(&Aabb3d::new(
-        position,
-        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
-    ))
+    let passable = chunks
+        .portals()
+        .passable_cells(mob.position, portal_margin(mob));
+    chunks.check_collision_box_except(
+        &Aabb3d::new(position, Vec3::new(mob.width, mob.height, mob.depth) / 2.0),
+        |cell| passable.contains(&cell),
+    )
+}
+
+/// Whether `mob` may move to `position`: nothing is in the way, or the move takes its centre
+/// into a portal that lets it through, whatever lies behind the wall (`Portals::goes_into`).
+fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
+    chunks
+        .portals()
+        .goes_into(mob.position, position, portal_margin(mob))
+        || !collides_at(mob, chunks, position)
 }
 
 /// Same vertical motion as a player: fall while in the air, land on the first block met. Half
@@ -280,7 +347,7 @@ fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     let new_y = mob.position.y + mob.velocity.y * delta;
     mob.velocity.y = mob.velocity.y.min(MAX_UPWARD_VELOCITY);
 
-    if collides_at(mob, chunks, mob.position.with_y(new_y)) {
+    if !may_move_to(mob, chunks, mob.position.with_y(new_y)) {
         mob.on_ground = true;
         mob.velocity.y = 0.0;
     } else {
@@ -304,17 +371,17 @@ fn walk(mob: &mut ServerMob, chunks: &ChunkMap, direction: Vec3, speed: f32, del
     let along_x = Vec3::new(step.x, 0.0, 0.0);
     let along_z = Vec3::new(0.0, 0.0, step.z);
 
-    if !collides_at(mob, chunks, mob.position + step) {
+    if may_move_to(mob, chunks, mob.position + step) {
         mob.position += step;
         mob.velocity.x = step.x;
         mob.velocity.z = step.z;
     } else if mob.on_ground && mob.velocity.x != 0.0 && mob.velocity.z != 0.0 {
         jump(mob);
     } else if mob.on_ground {
-        if !collides_at(mob, chunks, mob.position + along_x) {
+        if may_move_to(mob, chunks, mob.position + along_x) {
             mob.position += along_x;
             mob.velocity.x = step.x;
-        } else if !collides_at(mob, chunks, mob.position + along_z) {
+        } else if may_move_to(mob, chunks, mob.position + along_z) {
             mob.position += along_z;
             mob.velocity.z = step.z;
         } else {
@@ -330,7 +397,7 @@ fn walk(mob: &mut ServerMob, chunks: &ChunkMap, direction: Vec3, speed: f32, del
 fn flee(mob: &mut ServerMob, chunks: &ChunkMap, threat: Vec3, speed: f32, delta: f32) {
     let away = (mob.position - threat).with_y(0.0).normalize_or_zero();
     let fled = mob.position + away * (speed * delta);
-    if !collides_at(mob, chunks, fled) {
+    if may_move_to(mob, chunks, fled) {
         mob.position = fled;
     }
     if away != Vec3::ZERO {
@@ -452,7 +519,9 @@ mod tests {
     use bevy::math::{IVec3, Vec2, Vec3, Vec3Swizzles};
     use bevy::prelude::{Transform, World};
     use rand::{rngs::StdRng, SeedableRng};
-    use shared::world::{BlockId, ChunkMap, MobKind, ServerMob};
+    use shared::world::{
+        BlockId, ChunkMap, FaceDirection, MobKind, Portal, PortalColor, ServerMob,
+    };
     use std::time::Duration;
 
     /// What `Time<Fixed>` is on the server: the duration of a tick.
@@ -723,6 +792,173 @@ mod tests {
         let map = run_seconds(map, sheep, 30);
         let sheep = &map.mobs[&0];
         assert_eq!(sheep.position.xz(), Vec2::new(0.5, 0.5));
+    }
+
+    /// The ground of `ground_world`, with an open pair of portals: the blue one on a wall
+    /// facing south at z = -4, x in 0..2, its bottom on the ground, and the orange one on a
+    /// wall facing west at x = 8, z in 0..2. North into the blue one is west out of the orange
+    /// one. With `floor`, the blue one lies on the ground instead, x in 0..2 and z in -2..1,
+    /// its up north: down into it is west out of the orange one.
+    fn portal_world(floor: bool) -> ServerWorldMap {
+        let mut map = ground_world(false);
+        map.chunks
+            .fill_box(IVec3::new(8, 1, -6), IVec3::new(8, 5, 6), BlockId::Stone);
+        let blue = if floor {
+            Portal {
+                owner: 7,
+                color: PortalColor::Blue,
+                anchor: IVec3::new(0, 0, 0),
+                face: FaceDirection::PlusY,
+                up: FaceDirection::MinusZ,
+            }
+        } else {
+            map.chunks
+                .fill_box(IVec3::new(-3, 1, -4), IVec3::new(4, 5, -4), BlockId::Stone);
+            Portal {
+                owner: 7,
+                color: PortalColor::Blue,
+                anchor: IVec3::new(0, 1, -4),
+                face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
+            }
+        };
+        let portals = map.chunks.portals_mut();
+        portals.insert(blue);
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(8, 1, 0),
+            face: FaceDirection::MinusX,
+            up: FaceDirection::PlusY,
+        });
+        map
+    }
+
+    /// Steps the mob 0 of `map` until it went through a portal, and returns it as it was
+    /// before that step.
+    fn step_through(map: &mut ServerWorldMap) -> ServerMob {
+        let mut rng = StdRng::seed_from_u64(1);
+        let delta = tick().as_secs_f32();
+        for _ in 0..10 * TICKS_PER_SECOND {
+            let before = map.mobs[&0].clone();
+            step_mobs(
+                &mut map.mobs,
+                &map.chunks,
+                &map.players,
+                &mut HashSet::new(),
+                delta,
+                &mut rng,
+            );
+            if map.mobs[&0].passes != before.passes {
+                return before;
+            }
+        }
+        panic!("never went through, at {}", map.mobs[&0].position);
+    }
+
+    #[test]
+    fn a_sheep_walks_through_a_wall_portal_and_on_out_of_its_twin() {
+        let mut map = portal_world(false);
+        let start = standing(MobKind::Sheep, 1.0, -1.0);
+        let target = start.position.with_z(-9.0);
+        map.mobs.insert(
+            0,
+            ServerMob {
+                action: MobAction::Walk,
+                target: MobTarget::Position(target),
+                action_ticks: WALK_TICKS,
+                ..start.clone()
+            },
+        );
+        step_through(&mut map);
+        let sheep = map.mobs[&0].clone();
+        assert_eq!(sheep.passes, 1);
+        // Out of the orange portal, at the height it walked in, facing west, its target 6
+        // blocks west of the orange portal as it was 6 blocks north of the blue one
+        assert!(
+            sheep.position.x < 8.0 && sheep.position.x > 7.0,
+            "{}",
+            sheep.position
+        );
+        assert!((sheep.position.z - 1.0).abs() < 0.01, "{}", sheep.position);
+        assert!(
+            (sheep.position.y - start.position.y).abs() < 0.01,
+            "{}",
+            sheep.position
+        );
+        let facing = sheep.rotation * Vec3::Z;
+        assert!(facing.distance(Vec3::NEG_X) < 1e-4, "{facing}");
+        let MobTarget::Position(target) = sheep.target else {
+            panic!("{:?}", sheep.target);
+        };
+        assert!(
+            target.distance(Vec3::new(2.0, start.position.y, 1.0)) < 1e-3,
+            "{target}"
+        );
+
+        // It walks on to its target, west, and rests there
+        for _ in 0..10 * TICKS_PER_SECOND {
+            let mut changed = HashSet::new();
+            step_mobs(
+                &mut map.mobs,
+                &map.chunks,
+                &map.players,
+                &mut changed,
+                tick().as_secs_f32(),
+                &mut StdRng::seed_from_u64(2),
+            );
+            if map.mobs[&0].action != MobAction::Walk {
+                break;
+            }
+        }
+        let sheep = &map.mobs[&0];
+        assert_ne!(sheep.action, MobAction::Walk);
+        assert_eq!(sheep.passes, 1);
+        assert!(
+            (sheep.position - target).xz().length() < ARRIVAL_DISTANCE + 0.1,
+            "{}",
+            sheep.position
+        );
+        assert!(!map.chunks.check_collision_box(&hitbox(sheep)));
+    }
+
+    #[test]
+    fn a_sheep_too_far_aside_walks_into_the_wall_beside_a_portal_and_stops() {
+        // Its box half over the wall beside the opening
+        let start = standing(MobKind::Sheep, -0.2, -1.0);
+        let sheep = ServerMob {
+            action: MobAction::Walk,
+            target: MobTarget::Position(start.position.with_z(-9.0)),
+            action_ticks: WALK_TICKS,
+            ..start
+        };
+        let map = run_seconds(portal_world(false), sheep, 4);
+        let sheep = &map.mobs[&0];
+        assert_eq!(sheep.passes, 0);
+        assert!(sheep.position.z > -3.0 + 0.4, "{}", sheep.position);
+        assert!(!map.chunks.check_collision_box(&hitbox(sheep)));
+    }
+
+    #[test]
+    fn a_sheep_falling_into_a_floor_portal_comes_out_of_a_wall() {
+        let mut map = portal_world(true);
+        let sheep = ServerMob::new(MobKind::Sheep, Vec3::new(1.0, 6.0, -1.0));
+        map.mobs.insert(0, sheep);
+        let before = step_through(&mut map);
+        let sheep = &map.mobs[&0];
+        assert!(
+            sheep.position.x < 8.0 && sheep.position.x > 7.0,
+            "{}",
+            sheep.position
+        );
+        // Flying west as fast as it fell, within a step of gravity
+        assert!(
+            (sheep.velocity.x - before.velocity.y).abs() < -GRAVITY * tick().as_secs_f32() + 1e-3,
+            "{} out, {} in",
+            sheep.velocity,
+            before.velocity
+        );
+        assert!(!sheep.on_ground);
     }
 
     fn player_at(id: PlayerId, position: Vec3) -> Player {
