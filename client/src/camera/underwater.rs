@@ -3,7 +3,9 @@ use shared::world::liquid::liquid_height;
 use shared::CHUNK_SIZE;
 
 use crate::world::celestial::{smoothstep, sun_height};
+use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
+use crate::world::weather::ClientWeather;
 use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
 
 use super::CameraController;
@@ -30,13 +32,25 @@ pub fn sky_color(tick: u64) -> Color {
     Color::srgb(sky.x, sky.y, sky.z)
 }
 
+/// The colour behind the world at the world clock `tick` under `overcast`: the colour of the
+/// sky of the hour, greyed by the clouds of the rain.
+pub fn weather_sky_color(tick: u64, overcast: Overcast) -> Color {
+    let sky = sky_color(tick);
+    if overcast.level == 0. {
+        return sky;
+    }
+    let (grey, _) = overcast.colors(sun_height(tick), false);
+    sky.mix(&Color::linear_rgb(grey.x, grey.y, grey.z), overcast.level)
+}
+
 /// Under water, a fog the colour of the water hides what is more than a few blocks away. Out
 /// of it, a fog the colour of the sky of the hour hides the edge of the chunks shown: it
 /// thickens over the last part of the render distance, and the world fades into the sky at its
-/// end. The fog is changed in place, as the sky changes every tick.
+/// end; in rain, it closes in. The fog is changed in place, as the sky changes every tick.
 pub fn underwater_fog_system(
     world_map: Res<ClientWorldMap>,
     time: Res<ClientTime>,
+    weather: Option<Res<ClientWeather>>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut cameras: Query<
@@ -57,8 +71,10 @@ pub fn underwater_fog_system(
         } else {
             // Every chunk within the render distance of the chunk of the player is shown: the
             // edge is at least this far from the player along x and z
-            let end = (distance * CHUNK_SIZE as u32) as f32;
-            (sky_color(time.0), end * FOG_START, end)
+            let edge = (distance * CHUNK_SIZE as u32) as f32;
+            let overcast = Overcast::current(weather.as_deref());
+            let (start, end) = overcast.fog_range(edge);
+            (weather_sky_color(time.0, overcast), start, end)
         };
         let falloff = FogFalloff::Linear { start, end };
         match fog {
@@ -84,13 +100,10 @@ pub fn underwater_fog_system(
     }
 }
 
-/// Where the fog of the sky starts, as a part of the render distance.
-const FOG_START: f32 = 0.6;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::{BlockId, ChunkMap};
+    use shared::world::{BlockId, ChunkMap, WeatherKind};
     use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
     fn srgb(color: Color) -> Vec3 {
@@ -185,6 +198,53 @@ mod tests {
             ClearColorConfig::Custom(color) => color,
             other => panic!("a custom clear colour, not {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_fog_closes_in_and_greys_under_rain() {
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        blocks.fill_box(IVec3::ZERO, IVec3::new(15, 3, 15), BlockId::Water);
+        let mut app = App::new();
+        app.insert_resource(ClientWorldMap {
+            blocks,
+            ..default()
+        })
+        .insert_resource(ClientTime(NOON_IN_DAY))
+        .insert_resource(ClientWeather::settled(WeatherKind::Rain))
+        .insert_resource(RenderDistance { distance: 16 })
+        .add_systems(Update, underwater_fog_system);
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_xyz(5.5, 10.5, 5.5),
+                CameraController::default(),
+            ))
+            .id();
+        app.update();
+        let overcast = Overcast::of(&ClientWeather::settled(WeatherKind::Rain));
+        let (horizon, _) = overcast.colors(sun_height(NOON_IN_DAY), false);
+        let grey = Color::linear_rgb(horizon.x, horizon.y, horizon.z);
+        let fog = app.world().get::<DistanceFog>(camera).unwrap();
+        assert!(matches!(
+            fog.falloff,
+            FogFalloff::Linear { start, end } if (start, end) == overcast.fog_range(256.)
+        ));
+        assert!(
+            srgb(fog.color).abs_diff_eq(srgb(grey), 1e-4),
+            "{:?}",
+            fog.color
+        );
+        assert_eq!(clear_color_of(&app, camera), fog.color);
+
+        // under water, as under a clear sky
+        app.world_mut()
+            .get_mut::<Transform>(camera)
+            .unwrap()
+            .translation
+            .y = 2.5;
+        app.update();
+        assert_eq!(fog_of(&app, camera), (UNDERWATER_COLOR, 16.0));
     }
 
     #[test]
