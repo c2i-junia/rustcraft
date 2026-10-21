@@ -292,20 +292,56 @@ pub fn apply_inventory_action(
     if creative_only && !creative {
         return Err(InventoryRefusal::NotInCreative);
     }
-    // The stacks of the chest or the furnace are lent to the inventory, in its slots, while
-    // the action is applied: every click works the same on them
+    with_lent(inventory, contents, |inventory, lent| {
+        apply_action(inventory, action, &in_reach, lent)
+    })
+}
+
+/// What a drag leaves: the new stack of each slot it puts items into, in ascending order, and
+/// what stays on the cursor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragPlan {
+    pub slots: Vec<(u32, ItemStack)>,
+    pub held: Option<ItemStack>,
+}
+
+/// What `InventoryAction::Drag { slots, one_each }` would do to `inventory`, which it leaves
+/// alone, as `apply_inventory_action` would apply it with `in_reach` and `contents`: what the
+/// action does, and what the client previews while the drag lasts.
+pub fn drag_plan(
+    inventory: &Inventory,
+    slots: u128,
+    one_each: bool,
+    in_reach: impl Fn(IVec3, BlockId) -> bool,
+    contents: Option<OpenContents>,
+) -> Result<DragPlan, InventoryRefusal> {
+    let mut inventory = inventory.clone();
+    let size = grid_size(&inventory, &in_reach);
+    with_lent(&mut inventory, contents, |inventory, lent| {
+        let floating = inventory.floating;
+        plan_drag(inventory, slots, one_each, size, floating, lent)
+    })
+}
+
+/// Runs `apply` on `inventory` with the stacks of the open chest or furnace lent to it, in its
+/// slots, so that every click works the same on them, and tells it which are lent.
+fn with_lent<T>(
+    inventory: &mut Inventory,
+    contents: Option<OpenContents>,
+    apply: impl FnOnce(&mut Inventory, Lent) -> T,
+) -> T {
     match contents {
         Some(OpenContents::Chest(chest)) if inventory.open_chest.is_some() => {
             let stacks: Vec<_> = chest.slots.iter_mut().collect();
             lend(inventory, stacks, chest_slots(), |inventory| {
-                apply_action(inventory, action, in_reach, Lent::Chest)
+                apply(inventory, Lent::Chest)
             })
         }
         Some(OpenContents::Furnace(furnace)) if inventory.open_furnace.is_some() => {
             let cooked = furnace.input.map(|stack| stack.item_id);
             let stacks = vec![&mut furnace.input, &mut furnace.fuel, &mut furnace.output];
             let applied = lend(inventory, stacks, furnace_slots(), |inventory| {
-                apply_action(inventory, action, in_reach, Lent::Furnace)
+                apply(inventory, Lent::Furnace)
             });
             // As in Minecraft, another item starts from nothing: what cooked was not it
             if furnace.input.map(|stack| stack.item_id) != cooked {
@@ -313,18 +349,18 @@ pub fn apply_inventory_action(
             }
             applied
         }
-        _ => apply_action(inventory, action, in_reach, Lent::Nothing),
+        _ => apply(inventory, Lent::Nothing),
     }
 }
 
 /// Lends `stacks` to `inventory` in `slots` while `apply` runs, and takes back what the slots
 /// hold then.
-fn lend(
+fn lend<T>(
     inventory: &mut Inventory,
     mut stacks: Vec<&mut Option<ItemStack>>,
     slots: Range<u32>,
-    apply: impl FnOnce(&mut Inventory) -> Result<(), InventoryRefusal>,
-) -> Result<(), InventoryRefusal> {
+    apply: impl FnOnce(&mut Inventory) -> T,
+) -> T {
     debug_assert!(slots
         .clone()
         .all(|slot| !inventory.inner.contains_key(&slot)));
@@ -419,14 +455,79 @@ fn apply_action(
         InventoryAction::FillCraftingGrid { recipe, times } => {
             fill_crafting_grid(inventory, recipe, times, size)
         }
-        InventoryAction::Drag { .. }
-        | InventoryAction::CraftAll
+        InventoryAction::Drag { slots, one_each } => {
+            plan_drag(inventory, slots, one_each, size, floating, lent).map(|plan| {
+                inventory.inner.extend(plan.slots);
+                floating = plan.held;
+            })
+        }
+        InventoryAction::CraftAll
         | InventoryAction::CollectAll
         | InventoryAction::MoveAllOfType { .. }
         | InventoryAction::CraftToHotbar(_) => Err(InventoryRefusal::NoRoom),
     };
     inventory.floating = floating;
     applied
+}
+
+/// The plan of a drag of `floating` over `slots` on `inventory`, whose lent slots are `lent`.
+/// The slots it fills are those a click may reach that take the held item and are empty or
+/// hold it with room, at most one per held item, in ascending order. Each gets the held count
+/// shared between them, or one item with `one_each`, clamped to its room.
+fn plan_drag(
+    inventory: &Inventory,
+    slots: u128,
+    one_each: bool,
+    size: u32,
+    floating: Option<ItemStack>,
+    lent: Lent,
+) -> Result<DragPlan, InventoryRefusal> {
+    let held = floating.ok_or(InventoryRefusal::NothingHeld)?;
+    let max_stack = held.item_id.get_max_stack();
+    let filled: Vec<(u32, Option<ItemStack>)> = (0..u128::BITS)
+        .filter(|slot| slots & 1 << slot != 0)
+        .filter(|&slot| {
+            check_slot(inventory, slot, size, floating, lent).is_ok() && takes(slot, held.item_id)
+        })
+        .filter_map(|slot| match inventory.inner.get(&slot) {
+            None => Some((slot, None)),
+            Some(&in_slot) if in_slot.item_id == held.item_id && in_slot.nb < max_stack => {
+                Some((slot, Some(in_slot)))
+            }
+            Some(_) => None,
+        })
+        .take(held.nb as usize)
+        .collect();
+    if filled.is_empty() {
+        return Err(InventoryRefusal::NoRoom);
+    }
+    let share = if one_each {
+        1
+    } else {
+        held.nb / filled.len() as u32
+    };
+    let mut left = held.nb;
+    let mut plan = Vec::new();
+    for (slot, in_slot) in filled {
+        let room = max_stack - in_slot.map_or(0, |in_slot| in_slot.nb);
+        let put = share.min(room).min(left);
+        if put == 0 {
+            break;
+        }
+        left -= put;
+        let stack = match in_slot {
+            Some(in_slot) => ItemStack {
+                nb: in_slot.nb + put,
+                ..in_slot
+            },
+            None => ItemStack { nb: put, ..held },
+        };
+        plan.push((slot, stack));
+    }
+    Ok(DragPlan {
+        slots: plan,
+        held: (left > 0).then_some(ItemStack { nb: left, ..held }),
+    })
 }
 
 /// A new stack of `count` `item`, clamped to a stack, into the inventory or onto the cursor,
@@ -1812,9 +1913,10 @@ mod tests {
             .chain(grid_slots(CRAFTING_GRID_SIZE))
             .chain(chest_slots())
             .chain(furnace_slots())
-            .max();
-        assert_eq!(last, Some(FURNACE_OUTPUT_SLOT));
-        assert!(FURNACE_OUTPUT_SLOT < u128::BITS);
+            .max()
+            .unwrap();
+        assert_eq!(last, FURNACE_OUTPUT_SLOT);
+        assert!(last < u128::BITS);
     }
 
     #[test]
@@ -2479,5 +2581,224 @@ mod tests {
             ),
             Err(InventoryRefusal::UnknownRecipe(u16::MAX))
         );
+    }
+
+    fn bits(slots: &[u32]) -> u128 {
+        slots.iter().fold(0, |bits, slot| bits | 1 << slot)
+    }
+
+    fn drag(slots: &[u32], one_each: bool) -> InventoryAction {
+        InventoryAction::Drag {
+            slots: bits(slots),
+            one_each,
+        }
+    }
+
+    fn try_apply(
+        inventory: &mut Inventory,
+        action: InventoryAction,
+    ) -> Result<(), InventoryRefusal> {
+        apply_inventory_action(inventory, action, |_, _| false, None, false)
+    }
+
+    #[test]
+    fn a_left_drag_splits_the_held_stack_evenly_and_keeps_the_rest() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 10));
+
+        apply(&mut inventory, drag(&[0, 1, 2], false));
+
+        for slot in 0..3 {
+            assert_eq!(inventory.inner[&slot], stack(ItemId::Dirt, 3));
+        }
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 1)));
+    }
+
+    #[test]
+    fn a_drag_clamps_each_share_to_the_room_of_its_slot() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 62));
+        inventory.floating = Some(stack(ItemId::Dirt, 20));
+
+        apply(&mut inventory, drag(&[0, 1], false));
+
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 64));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 10));
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 8)));
+    }
+
+    #[test]
+    fn a_drag_over_more_slots_than_items_puts_one_in_each_of_the_first_slots() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 3));
+
+        apply(&mut inventory, drag(&[9, 5, 1, 7, 2], false));
+
+        assert_eq!(inventory.inner.len(), 3);
+        for slot in [1, 2, 5] {
+            assert_eq!(inventory.inner[&slot], stack(ItemId::Dirt, 1));
+        }
+        assert_eq!(inventory.floating, None);
+    }
+
+    #[test]
+    fn a_drag_skips_the_slots_it_cannot_fill() {
+        let mut inventory = inventory_with(0, stack(ItemId::Sand, 1));
+        inventory.inner.insert(1, stack(ItemId::Dirt, max_dirt()));
+        inventory.inner.insert(4, stack(ItemId::Dirt, 1));
+        inventory.floating = Some(stack(ItemId::Dirt, 8));
+        let before = inventory.inner.clone();
+
+        // Another item, a full stack, a cell beyond the 2x2 grid, a chest that is not open
+        let skipped = [0, 1, grid_slot(2, 2), CHEST_SLOT_START];
+        apply(
+            &mut inventory,
+            drag(&[skipped.as_slice(), &[3, 4]].concat(), false),
+        );
+
+        for slot in [0, 1] {
+            assert_eq!(inventory.inner[&slot], before[&slot]);
+        }
+        assert_eq!(inventory.inner[&3], stack(ItemId::Dirt, 4));
+        assert_eq!(inventory.inner[&4], stack(ItemId::Dirt, 5));
+        assert_eq!(inventory.inner.len(), 4);
+        assert_eq!(inventory.floating, None);
+    }
+
+    #[test]
+    fn a_drag_puts_only_a_fuel_in_the_fuel_slot_and_nothing_in_the_output() {
+        let (mut player, mut world) = by_an_open_furnace(Furnace::default());
+        let furnace_slots = [FURNACE_INPUT_SLOT, FURNACE_FUEL_SLOT, FURNACE_OUTPUT_SLOT];
+
+        player.inventory.floating = Some(stack(ItemId::Sand, 4));
+        act(
+            &mut player,
+            &mut world,
+            vec![drag(&[furnace_slots.as_slice(), &[9]].concat(), false)],
+        );
+        assert_eq!(
+            world.furnace(FURNACE),
+            Some(&furnace_holding(Some(stack(ItemId::Sand, 2)), None, None))
+        );
+        assert_eq!(player.inventory.inner[&9], stack(ItemId::Sand, 2));
+        assert_eq!(player.inventory.floating, None);
+
+        player.inventory.floating = Some(stack(ItemId::Coal, 4));
+        act(
+            &mut player,
+            &mut world,
+            vec![drag(&[FURNACE_FUEL_SLOT, FURNACE_OUTPUT_SLOT, 10], false)],
+        );
+        assert_eq!(
+            world.furnace(FURNACE).unwrap().fuel,
+            Some(stack(ItemId::Coal, 2))
+        );
+        assert_eq!(world.furnace(FURNACE).unwrap().output, None);
+        assert_eq!(player.inventory.inner[&10], stack(ItemId::Coal, 2));
+    }
+
+    #[test]
+    fn a_right_drag_puts_one_item_per_slot_until_the_cursor_is_empty() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 3));
+        apply(&mut inventory, drag(&[0, 1, 2, 3, 4], true));
+        assert_eq!(inventory.inner.len(), 3);
+        for slot in 0..3 {
+            assert_eq!(inventory.inner[&slot], stack(ItemId::Dirt, 1));
+        }
+        assert_eq!(inventory.floating, None);
+
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 1));
+        inventory.floating = Some(stack(ItemId::Dirt, 5));
+        apply(&mut inventory, drag(&[0, 1], true));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 2));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 1));
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 3)));
+    }
+
+    #[test]
+    fn a_drag_without_a_held_stack_is_refused() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        assert_eq!(
+            try_apply(&mut inventory, drag(&[0, 1], false)),
+            Err(InventoryRefusal::NothingHeld)
+        );
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn a_drag_with_no_slot_to_fill_is_refused_and_changes_nothing() {
+        let mut inventory = inventory_with(0, stack(ItemId::Sand, 1));
+        inventory.inner.insert(1, stack(ItemId::Dirt, max_dirt()));
+        inventory.floating = Some(stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        for slots in [&[0, 1][..], &[]] {
+            for one_each in [false, true] {
+                assert_eq!(
+                    try_apply(&mut inventory, drag(slots, one_each)),
+                    Err(InventoryRefusal::NoRoom),
+                    "{slots:?}"
+                );
+                assert_eq!(inventory, before);
+            }
+        }
+    }
+
+    #[test]
+    fn the_drag_plan_is_what_the_drag_does_with_a_chest_open() {
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Dirt, 60)));
+        player.inventory.floating = Some(stack(ItemId::Dirt, 10));
+        let slots = bits(&[chest_slot(0), chest_slot(1), 9]);
+
+        let mut contents = world.container(CHEST).unwrap().clone();
+        let plan = drag_plan(
+            &player.inventory,
+            slots,
+            false,
+            |pos, id| block_in_reach(&world, NEAR, pos, id),
+            Some(OpenContents::Chest(&mut contents)),
+        );
+        // The share of 3 fills the chest's first slot up to 63
+        let expected = DragPlan {
+            slots: vec![
+                (9, stack(ItemId::Dirt, 3)),
+                (chest_slot(0), stack(ItemId::Dirt, 63)),
+                (chest_slot(1), stack(ItemId::Dirt, 3)),
+            ],
+            held: Some(stack(ItemId::Dirt, 1)),
+        };
+        assert_eq!(plan, Ok(expected));
+        // A plan changes nothing
+        assert_eq!(world.container(CHEST), Some(&contents));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::Drag {
+                slots,
+                one_each: false,
+            }],
+        );
+        let mut expected = holding(0, stack(ItemId::Dirt, 63));
+        expected.slots[1] = Some(stack(ItemId::Dirt, 3));
+        assert_eq!(world.container(CHEST), Some(&expected));
+        assert_eq!(player.inventory.inner[&9], stack(ItemId::Dirt, 3));
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Dirt, 1)));
+    }
+
+    #[test]
+    fn a_dragged_tool_keeps_its_wear() {
+        let worn = ItemStack {
+            item_type: ItemType::Tool { wear: 7 },
+            ..stack(ItemId::WoodenAxe, 1)
+        };
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(worn);
+
+        apply(&mut inventory, drag(&[4, 3], false));
+
+        assert_eq!(inventory.inner[&3], worn);
+        assert_eq!(inventory.inner.len(), 1);
+        assert_eq!(inventory.floating, None);
     }
 }
