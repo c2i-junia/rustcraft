@@ -354,3 +354,43 @@ or push.
     member; the goldens do not run the cycle and show it, Oak, whatever the time.
 27. (Lot 3) `mark_craftable_items` runs on `Changed<RecipeSlot>` (it ran on `Added`), so that the
     `A Bookmark` / `A Unbookmark` of a cycling cell follows the member it shows.
+28. (Lot 4) `DropSlot { slot, all }` checks `check_slot` (`InvalidSlot`), then an empty cursor
+    (`HoldingAStack`, as Minecraft throws from a slot only with an empty cursor); an empty slot
+    is no refusal and throws nothing, as a click on it with nothing held. `DropFloating`
+    without a floating stack is `NothingHeld`. The thrown stack keeps its type (a tool its
+    wear).
+29. (Lot 4) `apply_inventory_action` returns `Result<Option<ItemStack>, InventoryRefusal>`, the
+    stack the action threw; `InventoryActionOutcome` gets `thrown`, and `ActionsOutcome` gets
+    `thrown: Vec<ItemStack>` beside `dropped`: the server tells what a player threw (the longer
+    delay) from what it had no room for (`dropped`, unchanged).
+30. (Lot 4) `DroppedItem::pickup_delay_ticks` is the age from which it can be picked up:
+    `PICKUP_DELAY_TICKS` (10) by default, `THROWN_PICKUP_DELAY_TICKS` (40) for what
+    `DroppedItems::throw_from_player` throws. It is not saved (`serde(skip)`): a saved item takes
+    the default, and the world files do not change. Two items that merge wait as long as the one
+    with the most ticks left (`ticks_before_pickup`).
+31. (Lot 4) A thrown item flies at `THROWN_SPEED` = 5 blocks/s along the ground (the camera's
+    pitch is ignored, as for the overflow): it rests about 2.2 blocks ahead of the player's
+    centre, out of its pickup reach (1.525 blocks). At the overflow's 2 blocks/s it rests 0.9
+    ahead, within reach: a player standing still would get it back after 2 s. A test pins that
+    it rests out of reach; the overflow keeps 2 blocks/s.
+32. (Lot 4) Both drops are silent when accepted, as in Minecraft, though `DropFloating` empties
+    the cursor: no item goes into a slot. A refused `DropSlot` shakes its cell; a refused
+    `DropFloating` targets no slot (the refused sound alone).
+33. (Lot 4) `GameAction::Drop` is listed right after `ToggleInventory`; Ctrl is either Control
+    key, held, not a binding. A keybindings file saved before it takes Q. The Controls golden
+    is unchanged (only the Movement rows show); the search counts become `of 25`.
+34. (Lot 4) Open inventory: Drop goes where a number key goes (the ringed cell while the ring
+    shows, else the hovered one), and is sent only for a cell holding a stack as the client sees
+    it; over the result it does nothing. With a held stack it is sent and refused
+    (`HoldingAStack`: the cell shakes), as a number key is.
+35. (Lot 4) `throw_held_stack_system`, chained before `click_inventory_cells_system` (a press
+    that cancels a drag must still see it) and before `drawer_keys`: a left (all) or right (one)
+    press, inventory open, a stack held, no drag, the pointer neither in the rectangle of
+    `InventoryDialog` (not pickable) nor over `ItemBrowser` or `DrawerHandle` (`Hovered`). A
+    press outside the open compact drawer only closes it. The mouse acts while typing, as on the
+    cells.
+36. (Lot 4) `drop_selected_item_system` runs after the hotbar's number keys and wheel, before
+    `GameSet::Input`: `UIMode::Closed`, Drop just pressed (no repeat while held), the selected
+    slot holding a stack, `DropSlot { slot: selected, all: ctrl }`.
+37. (Lot 4) The e2e `the_held_stack_follows_the_cursor_and_stray_clicks_do_nothing` no longer
+    clicks outside the panel, which now throws; `e2e/drop.rs` covers it.
