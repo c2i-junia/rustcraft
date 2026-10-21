@@ -44,10 +44,11 @@ every entity, the shot", the "The shot" row and lot 8.
    prediction (`handle_block_interactions`, from the shots of the simulation, its `from` moved
    `SHOOTER_OFFSET` blocks along the ray so that the bolt does not fill the screen on its first
    frame) and by the network (`PortalShot`). In `PostUpdate`, before `sync_portals`:
-   - `spawn_bolts`: per shot, a bolt (an elongated capsule, the portal's colour toward white)
-     and its trail (a tapered streak whose alpha fades from the bolt to its tail), unlit,
-     additive, brighter than white so that the bloom of the shaders catches them, saturated and
-     still bright without them. Meshes and materials made once.
+   - `spawn_bolts`: per shot, a bolt (an elongated capsule of the portal's colour) and its trail
+     (a tapered streak whose alpha fades from the bolt to its tail), unlit, alpha-blended,
+     brighter than the colour, four times more with HDR so that the bloom of the shaders
+     catches them over the physical sky (additive blending, tried first, washed out to white
+     against the sky without the shaders). Meshes and materials made once per HDR mode.
    - `fly_bolts`: a bolt is at `from.lerp(to, age / flight)`, `flight = distance / BOLT_SPEED`;
      the trail runs from where the bolt was `TRAIL_TIME` earlier to the bolt. When it lands the
      bolt is hidden and bursts into `SPARKS` sparks thrown back toward the shooter (the fox's
