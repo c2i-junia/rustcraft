@@ -29,11 +29,11 @@ use bevy::light::{Atmosphere, VolumetricFog};
 
 const SEED: u32 = 1;
 /// The middle of the lake, forest and hills that `scout` found in the world of `SEED`.
-const SITE: Vec3 = Vec3::new(-64., 110., -176.);
+pub(super) const SITE: Vec3 = Vec3::new(-64., 110., -176.);
 const PLAYER: &str = "Tester";
 
 /// A world of `SEED` whose player `PLAYER` flies at `SITE`.
-fn folder() -> GameFolder {
+pub(super) fn folder() -> GameFolder {
     let folder = GameFolder::new()
         .with_file("video.ron", "(render_distance: 16)")
         .with_seeded_world("Shaders", SEED, 0, Duration::ZERO);
@@ -55,19 +55,19 @@ fn folder() -> GameFolder {
 }
 
 /// The tick at `fraction` of the tenth day: noon is at 0.75, the sun sets at 1.0.
-fn hour(fraction: f64) -> u64 {
+pub(super) fn hour(fraction: f64) -> u64 {
     10 * DAY_DURATION_IN_TICKS + (DAY_DURATION_IN_TICKS as f64 * fraction) as u64
 }
 
 /// The height of the highest block of the column `(x, z)` that is not air, and that block.
-fn surface(map: &ClientWorldMap, x: i32, z: i32) -> Option<(i32, BlockId)> {
+pub(super) fn surface(map: &ClientWorldMap, x: i32, z: i32) -> Option<(i32, BlockId)> {
     (0..200)
         .rev()
         .find_map(|y| map.blocks.get_block(IVec3::new(x, y, z)).map(|b| (y, b.id)))
 }
 
 /// The rotation of a camera at `from` looking at `to`.
-fn looking(from: Vec3, to: Vec3) -> Quat {
+pub(super) fn looking(from: Vec3, to: Vec3) -> Quat {
     Transform::from_translation(from)
         .looking_at(to, Vec3::Y)
         .rotation

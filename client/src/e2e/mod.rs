@@ -32,4 +32,5 @@ mod shaders;
 mod solo;
 mod survival;
 mod vines;
+mod weather;
 mod widgets;
