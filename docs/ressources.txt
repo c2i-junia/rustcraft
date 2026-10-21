@@ -60,6 +60,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    drawn as Minecraft's model of the torch.
 -> The hearts of the health bar (data/graphics/hud/heart_*.png), the pack's
    gui/sprites/hud/heart/{container,full,half}.png.
+-> The fire of the lit furnace (blocks/LitFurnace.png), the pack's
+   block/furnace_front_on.png.
 
 ---- OTHER ----
 logo : 

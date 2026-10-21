@@ -59,6 +59,8 @@ pub enum BlockId {
     Fern,
     Vine,
     Cocoa,
+    /// A furnace while it burns: it glows, and turns back into a `Furnace` once out.
+    LitFurnace,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -200,7 +202,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 35] = [
+    pub const ALL: [BlockId; 36] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -236,6 +238,7 @@ impl BlockId {
         BlockId::Fern,
         BlockId::Vine,
         BlockId::Cocoa,
+        BlockId::LitFurnace,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -297,7 +300,7 @@ impl BlockId {
             Self::SpruceLog => 10,
             Self::CraftingTable => 10,
             Self::SprucePlanks => 10,
-            Self::Furnace => 15,
+            Self::Furnace | Self::LitFurnace => 15,
             Self::Chest => 10,
             Self::CoalOre => 12,
             Self::IronOre => 15,
@@ -323,6 +326,7 @@ impl BlockId {
                 Self::Stone
                     | Self::Cobblestone
                     | Self::Furnace
+                    | Self::LitFurnace
                     | Self::Ice
                     | Self::CoalOre
                     | Self::IronOre
@@ -360,6 +364,7 @@ impl BlockId {
             Self::Stone
             | Self::Cobblestone
             | Self::Furnace
+            | Self::LitFurnace
             | Self::CoalOre
             | Self::IronOre
             | Self::GoldOre => Some(ToolKind::Pickaxe),
@@ -407,7 +412,7 @@ impl BlockId {
             BlockId::Snow => vec![(1, ItemId::Snowball, 4)],
             BlockId::CraftingTable => vec![(1, ItemId::CraftingTable, 1)],
             BlockId::SprucePlanks => vec![(1, ItemId::SprucePlanks, 1)],
-            BlockId::Furnace => vec![(1, ItemId::Furnace, 1)],
+            BlockId::Furnace | BlockId::LitFurnace => vec![(1, ItemId::Furnace, 1)],
             BlockId::Chest => vec![(1, ItemId::Chest, 1)],
             BlockId::CoalOre => vec![(1, ItemId::Coal, 1)],
             // they will smelt into ingots: until then, they drop themselves
@@ -425,7 +430,12 @@ impl BlockId {
     /// Whether a right click on this block uses it, like a crafting table or a chest, instead of
     /// placing a block against it. Sneaking places the block.
     pub fn is_usable(&self) -> bool {
-        matches!(*self, Self::CraftingTable | Self::Chest)
+        matches!(*self, Self::CraftingTable | Self::Chest) || self.is_furnace()
+    }
+
+    /// Whether this block is a furnace, lit or out: both hold a `Furnace` and open alike.
+    pub fn is_furnace(&self) -> bool {
+        matches!(*self, Self::Furnace | Self::LitFurnace)
     }
 
     /// Whether a block placed in the cell of this one takes its place.
@@ -466,6 +476,7 @@ impl BlockId {
     pub fn light_emission(&self) -> u8 {
         match *self {
             Self::Torch => 14,
+            Self::LitFurnace => 13,
             _ => 0,
         }
     }
@@ -490,7 +501,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 35] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 36] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -532,7 +543,8 @@ mod tests {
             | BlockId::JungleLeaves
             | BlockId::Fern
             | BlockId::Vine
-            | BlockId::Cocoa => {}
+            | BlockId::Cocoa
+            | BlockId::LitFurnace => {}
         }
     }
 
@@ -615,6 +627,7 @@ mod tests {
                 BlockId::Fern => 32,
                 BlockId::Vine => 33,
                 BlockId::Cocoa => 34,
+                BlockId::LitFurnace => 35,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -632,6 +645,22 @@ mod tests {
             assert_eq!(item.get_default_type(), ItemType::Block(block));
         }
         assert_eq!(ItemId::Stick.get_default_type(), ItemType::Generic);
+    }
+
+    #[test]
+    fn the_lit_furnace_is_a_furnace_that_glows() {
+        let (lit, out) = (BlockId::LitFurnace, BlockId::Furnace);
+        assert_eq!(lit.get_break_time(), out.get_break_time());
+        assert_eq!(lit.get_required_tool(), Some(ToolKind::Pickaxe));
+        assert!(lit.is_mined_faster_by(ToolKind::Pickaxe));
+        assert_eq!(lit.get_drops(1), HashMap::from([(ItemId::Furnace, 1)]));
+        assert_eq!(lit.get_visibility(), BlockTransparency::Solid);
+        assert_eq!((lit.light_emission(), out.light_emission()), (13, 0));
+        for id in [lit, out] {
+            assert!(id.is_usable(), "{id:?}");
+            assert!(id.is_furnace(), "{id:?}");
+        }
+        assert!(!BlockId::Chest.is_furnace());
     }
 
     #[test]
@@ -953,6 +982,7 @@ mod tests {
                 BlockId::Stone
                     | BlockId::Cobblestone
                     | BlockId::Furnace
+                    | BlockId::LitFurnace
                     | BlockId::CoalOre
                     | BlockId::IronOre
                     | BlockId::GoldOre

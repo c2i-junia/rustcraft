@@ -48,6 +48,7 @@ impl SoundMaterial {
             | BlockId::Bedrock
             | BlockId::Debug
             | BlockId::Furnace
+            | BlockId::LitFurnace
             | BlockId::CoalOre
             | BlockId::IronOre
             | BlockId::GoldOre => Self::Stone,
@@ -192,6 +193,14 @@ mod tests {
     #[test]
     fn the_vine_sounds_like_grass() {
         assert_eq!(SoundMaterial::of(BlockId::Vine), Some(SoundMaterial::Grass));
+    }
+
+    #[test]
+    fn the_lit_furnace_sounds_like_stone() {
+        assert_eq!(
+            SoundMaterial::of(BlockId::LitFurnace),
+            Some(SoundMaterial::Stone)
+        );
     }
 
     #[test]

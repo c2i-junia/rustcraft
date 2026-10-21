@@ -224,6 +224,13 @@ impl VoxelShape {
                 shape.faces[BOTTOM].texture += "Top";
                 shape
             }
+            // The furnace, with the fire showing on its sides
+            BlockId::LitFurnace => {
+                let mut shape = Self::full_cube(block);
+                shape.faces[TOP].texture = "FurnaceTop".into();
+                shape.faces[BOTTOM].texture = "FurnaceTop".into();
+                shape
+            }
             // Like Minecraft's, the needles of the spruce are of one colour everywhere
             BlockId::OakLeaves | BlockId::JungleLeaves => Self::full_cube(block)
                 .biome_tinted(BiomeTint::Foliage)
@@ -603,6 +610,26 @@ mod tests {
             assert_eq!(shape.faces[BOTTOM].texture, top);
             assert_eq!(shape.faces[2].texture, side);
         }
+    }
+
+    #[test]
+    fn the_lit_furnace_is_the_furnace_with_its_fire_on_its_sides() {
+        let textures: Vec<_> = shape_of(BlockId::LitFurnace)
+            .faces
+            .into_iter()
+            .map(|face| face.texture)
+            .collect();
+        assert_eq!(
+            textures,
+            [
+                "FurnaceTop",
+                "FurnaceTop",
+                "LitFurnace",
+                "LitFurnace",
+                "LitFurnace",
+                "LitFurnace",
+            ]
+        );
     }
 
     #[test]
