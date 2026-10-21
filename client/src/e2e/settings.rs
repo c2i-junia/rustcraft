@@ -1,5 +1,5 @@
-//! The settings screen: its tabs, the controls, the volumes, the render distance, the clouds,
-//! the UI scale and the FPS counter.
+//! The settings screen: its tabs, the controls and the inventory tweaks, the volumes, the render
+//! distance, the clouds, the UI scale and the FPS counter.
 
 use std::fs;
 
@@ -10,8 +10,8 @@ use bevy::prelude::*;
 use bevy::ui::{Checked, UiGlobalTransform};
 use bevy::ui_widgets::{ScrollArea, ScrollIntoView, Scrollbar, ScrollbarThumb};
 
-use super::game::enter_world;
-use super::harness::{Harness, Options, SCREEN, STARTUP};
+use super::game::{enter_world, slot};
+use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::audio::settings::AudioSettings;
@@ -23,10 +23,13 @@ use crate::input::data::GameAction;
 use crate::input::keyboard::default_bindings;
 use crate::state::KeyMap;
 use crate::ui::hud::fps_counter::{FpsCounter, FpsGraph, FrameBar, GraphStat};
+use crate::ui::hud::InventoryRoot;
 use crate::ui::menus::pause::PAUSE_TITLE;
 use crate::ui::menus::settings::controls::{PRESS_A_KEY, SEARCH_LABEL};
 use crate::ui::menus::MenuState;
-use crate::ui::settings::{FpsCounterChoice, InterfaceSettings, UiScaleChoice};
+use crate::ui::settings::{
+    FpsCounterChoice, InterfaceSettings, InventoryTweaksChoice, UiScaleChoice,
+};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, DANGER, FOCUS_RING_OFFSET, FOCUS_RING_WIDTH, MUTED, RAISE_HOVER,
 };
@@ -742,6 +745,49 @@ fn the_controls_match_their_golden() {
     let mut h = controls();
     h.hover_nothing();
     h.assert_screenshot("menu_controls");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_inventory_tweaks_switch_is_saved_and_honoured() {
+    use shared::world::ItemId::{Dirt, Sand};
+    let folder = GameFolder::new().with_world("Tweaks").with_items(
+        "Tweaks",
+        "Tester",
+        &[(9, Dirt, 5), (10, Sand, 4)],
+    );
+    let mut h = settings_with(folder.clone(), Options::default());
+    let switch = || L::role(Role::RadioGroup, "Inventory tweaks");
+    h.wait_for(&switch(), SCREEN);
+    let on = h.get(&L::role(Role::RadioButton, "On").within(switch()));
+    assert!(h.world().get::<Checked>(on).is_some());
+    assert!(h.is_visible(&L::text("Shift+drag: stacks  Wheel: one item")));
+
+    h.click(&L::role(Role::RadioButton, "Off").within(switch()));
+    let saved: InterfaceSettings = h.saved(INTERFACE_SETTINGS_PATH);
+    assert_eq!(saved.inventory_tweaks, InventoryTweaksChoice::Off);
+    drop(h);
+
+    // Off: a Shift+sweep moves the stack pressed alone, and the wheel moves nothing
+    let mut h = enter_world(folder, "Tweaks");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 10) == Some((Sand, 4))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    h.key_down(KeyCode::ShiftLeft);
+    h.mouse_down(&L::cell(9));
+    h.hover(&L::cell(10));
+    h.mouse_up();
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the dirt in the hotbar", SERVER, |w| {
+        slot(w, 0) == Some((Dirt, 5))
+    });
+    h.hover(&L::cell(10));
+    h.scroll(-1.);
+    h.frames(30);
+    assert_eq!(slot(h.world(), 10), Some((Sand, 4)));
+    assert_eq!(slot(h.world(), 1), None);
 }
 
 /// The key slot `slot` ("primary" or "secondary") of the action `action`.

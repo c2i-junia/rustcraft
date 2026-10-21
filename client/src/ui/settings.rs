@@ -112,6 +112,18 @@ pub enum InventoryTweaksChoice {
     On,
 }
 
+impl InventoryTweaksChoice {
+    pub const ALL: [InventoryTweaksChoice; 2] =
+        [InventoryTweaksChoice::Off, InventoryTweaksChoice::On];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            InventoryTweaksChoice::Off => "Off",
+            InventoryTweaksChoice::On => "On",
+        }
+    }
+}
+
 /// The interface settings, saved in `interface.ron`.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

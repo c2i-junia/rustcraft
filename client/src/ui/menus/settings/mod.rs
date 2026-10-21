@@ -349,7 +349,7 @@ fn show_tab(
         SettingsTab::Controls => spawn_controls_tab(
             &mut commands,
             (panel, *footer),
-            &key_map,
+            (&key_map, &interface),
             &search,
             (font, glyph_font),
         ),

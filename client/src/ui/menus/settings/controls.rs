@@ -7,6 +7,9 @@
 //! The search field over the list, which Ctrl+F focuses, keeps the actions whose name, category
 //! or keys hold every word typed. Down or Enter goes to the first of them, Escape clears the
 //! field, or leaves the settings once it is empty.
+//!
+//! Under the list, the switch of the inventory tweaks, the Mouse Tweaks gestures of the open
+//! inventory, saved with the interface settings as soon as it is chosen.
 
 use std::ops::Range;
 
@@ -36,6 +39,7 @@ use crate::input::keyboard::{
 };
 use crate::state::KeyMap;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::settings::{write_interface_settings, InterfaceSettings, InventoryTweaksChoice};
 use crate::ui::theme::{
     ACCENT, BEVEL_WIDTH, DANGER, FONT_M, FONT_S, MUTED, RAISE, RAISE_HOVER, SPACE_M, SPACE_S,
     SPACE_XS, TEXT,
@@ -47,11 +51,13 @@ use crate::ui::widgets::hints::{key_cap, Hint, HintBar};
 use crate::ui::widgets::list::{
     spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM, SCROLLBAR_WIDTH,
 };
+use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::text_field::{
     set_text, spawn_text_field, Cancel as FieldCancel, Submit, TextField,
 };
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 
+use super::interface::spawn_row;
 use super::{spawn_hints, CloseSettings, SettingsRoot};
 
 /// The slot `slot` of the keys of `action`: 0 for the primary key, 1 for the secondary one.
@@ -455,14 +461,18 @@ fn line() -> Node {
     }
 }
 
-/// Spawns the search field, the headers of the key columns and the scrolling list of the actions
-/// under `panel`, and the count of the actions found and the reset button under `footer`, the
-/// right end of the footer of the settings. The field holds `search`.
-/// `fonts` are the font of the texts and the one that draws the arrows of the key caps.
+/// What the switch of the inventory tweaks does, beside it.
+pub const TWEAKS_NOTE: &str = "Shift+drag: stacks  Wheel: one item";
+
+/// Spawns the search field, the headers of the key columns, the scrolling list of the actions and
+/// the switch of the inventory tweaks under `panel`, and the count of the actions found and the
+/// reset button under `footer`, the right end of the footer of the settings. The field holds
+/// `search`, the switch the choice of `interface`. `fonts` are the font of the texts and the one
+/// that draws the arrows of the key caps.
 pub fn spawn_controls_tab(
     commands: &mut Commands,
     (panel, footer): (Entity, Entity),
-    key_map: &KeyMap,
+    (key_map, interface): (&KeyMap, &InterfaceSettings),
     search: &KeySearch,
     fonts: (Handle<Font>, Handle<Font>),
 ) {
@@ -623,6 +633,7 @@ pub fn spawn_controls_tab(
         },
         ChildOf(list),
     ));
+    spawn_tweaks_switch(commands, content, interface, &font);
     commands.spawn((MatchCount, label("", &font, FONT_S, MUTED), ChildOf(footer)));
     commands.spawn((
         button("Reset to defaults", ButtonVariant::Default, font),
@@ -630,6 +641,47 @@ pub fn spawn_controls_tab(
         observe(ask_reset),
         ChildOf(footer),
     ));
+}
+
+/// Spawns under `content` the row of the switch of the inventory tweaks, showing the choice of
+/// `interface`, and what they do.
+fn spawn_tweaks_switch(
+    commands: &mut Commands,
+    content: Entity,
+    interface: &InterfaceSettings,
+    font: &Handle<Font>,
+) {
+    let row = spawn_row(commands, content, "Inventory tweaks", font);
+    let labels = InventoryTweaksChoice::ALL.map(InventoryTweaksChoice::label);
+    let selected = InventoryTweaksChoice::ALL
+        .iter()
+        .position(|&choice| choice == interface.inventory_tweaks)
+        .unwrap_or_default();
+    let segmented = Segmented {
+        label: "Inventory tweaks",
+        options: &labels,
+        selected,
+    };
+    let group = spawn_segmented(commands, &segmented, font.clone());
+    commands
+        .entity(group)
+        .insert(ChildOf(row))
+        .observe(choose_inventory_tweaks);
+    commands.spawn((
+        label(TWEAKS_NOTE, font, FONT_S, MUTED),
+        TextLayout::no_wrap(),
+        ChildOf(row),
+    ));
+}
+
+/// Applies and saves whether the inventory tweaks work.
+fn choose_inventory_tweaks(
+    change: On<SegmentChange>,
+    mut settings: ResMut<InterfaceSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    settings.inventory_tweaks = InventoryTweaksChoice::ALL[change.index];
+    write_interface_settings(&settings, &paths);
 }
 
 /// The title of the confirmation of the reset.
