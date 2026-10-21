@@ -294,3 +294,21 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
 33. The pictures of `e2e::weather` hold the weather with a system after the easing, since
     pausing virtual time dropped the connection; High and Off are taken in two tests, since
     switching from High to Off in one session panics in Bevy's atmosphere.
+34. Changing 31: under the overcast, a rain cloud seen from under is a deck darker than the
+    sky, not a veil. The clouds are 85 % of the overcast at the zenith in rain and 70 % in a
+    storm, slightly blue (the bottoms 70 % of that), the thicker cells darker (down to 72 %) and
+    each cell ±8 % apart by a hash of the cell. They fade into the overcast sky behind them, in
+    their own direction, from 35 % of their reach on: the horizon grey would lighten the deck
+    overhead, and an earlier fade dissolved it.
+35. Changing 26 and 27: a storm is clearly moodier than rain. The overcast turns to a blue slate,
+    the horizon × (0.56, 0.6, 0.67), the zenith darker again × (0.74, 0.77, 0.82), and the storm
+    lets 50 % of the light of the sky through. Without the shaders, that also dims the daylight
+    ambient: otherwise a storm there was as bright as rain, its closer fog lightening the hills.
+    At noon the hills are about 30 % darker than clear in rain, and about 48 % darker in a storm.
+36. Adding to 26: at sunrise and sunset a dull orange pink glows low on the overcast toward the
+    sun, (0.75, 0.36, 0.13) times the brightness of the overcast at the horizon. It shows with
+    the sun from 0.15 under the horizon to 0.45 above it, falls off with the cube of the cosine
+    from the sun's azimuth and above a height of 0.45, and is at 45 % in a storm. It sits in
+    `overcast_sky`, so the dome, the fog of the chunks, the water and the far clouds share it.
+    Without the shaders the sky is one colour, so it has no glow.
+37. Adding to 26: the overcast at night is a faintly cool grey, not a neutral one.
