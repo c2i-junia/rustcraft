@@ -461,10 +461,11 @@ fn apply_action(
                 floating = plan.held;
             })
         }
-        InventoryAction::CraftAll
-        | InventoryAction::CollectAll
-        | InventoryAction::MoveAllOfType { .. }
-        | InventoryAction::CraftToHotbar(_) => Err(InventoryRefusal::NoRoom),
+        InventoryAction::CraftAll => craft_all(inventory, size),
+        InventoryAction::CraftToHotbar(hotbar) => craft_to_hotbar(inventory, hotbar, size),
+        InventoryAction::CollectAll | InventoryAction::MoveAllOfType { .. } => {
+            Err(InventoryRefusal::NoRoom)
+        }
     };
     inventory.floating = floating;
     applied
@@ -756,10 +757,74 @@ fn take_craft_result(
         nb: held + result.nb,
         ..result
     });
+    take_one_from_each_cell(inventory);
+    Ok(())
+}
+
+/// The most rounds a Shift+click on the result crafts.
+pub const MAX_CRAFT_ALL_ROUNDS: u32 = 64;
+
+/// How many `item` the slots of `range` take: the room of its stacks, then of the empty slots.
+fn room_for(inventory: &Inventory, item: ItemId, range: Range<u32>) -> u32 {
+    let max_stack = item.get_max_stack();
+    range
+        .map(|slot| match inventory.inner.get(&slot) {
+            None => max_stack,
+            Some(stack) if stack.item_id == item => max_stack.saturating_sub(stack.nb),
+            Some(_) => 0,
+        })
+        .sum()
+}
+
+/// Shift+click on the result: crafts round after round into the inventory, while the grid makes
+/// the item of the first round and the inventory has room for a whole result, up to
+/// `MAX_CRAFT_ALL_ROUNDS`. The floating stack is left alone.
+fn craft_all(inventory: &mut Inventory, size: u32) -> Result<(), InventoryRefusal> {
+    let first = craft_result(inventory, size).ok_or(InventoryRefusal::NoRecipe)?;
+    let mut rounds = 0;
+    while rounds < MAX_CRAFT_ALL_ROUNDS {
+        let Some(result) =
+            craft_result(inventory, size).filter(|result| result.item_id == first.item_id)
+        else {
+            break;
+        };
+        if room_for(inventory, result.item_id, 0..MAX_INVENTORY_SLOTS) < result.nb {
+            break;
+        }
+        inventory.add_item_to_inventory(result);
+        take_one_from_each_cell(inventory);
+        rounds += 1;
+    }
+    if rounds == 0 {
+        return Err(InventoryRefusal::NoRoom);
+    }
+    Ok(())
+}
+
+/// Number key over the result: crafts once into the slot `hotbar` of the hotbar, which must be
+/// empty or hold the same item with room for the whole result.
+fn craft_to_hotbar(
+    inventory: &mut Inventory,
+    hotbar: u32,
+    size: u32,
+) -> Result<(), InventoryRefusal> {
+    if hotbar >= HOTBAR_SLOTS {
+        return Err(InventoryRefusal::InvalidSlot(hotbar));
+    }
+    let result = craft_result(inventory, size).ok_or(InventoryRefusal::NoRecipe)?;
+    if room_for(inventory, result.item_id, hotbar..hotbar + 1) < result.nb {
+        return Err(InventoryRefusal::NoRoom);
+    }
+    inventory.add_item_to_stack(hotbar, result.nb, result.item_id, result.item_type);
+    take_one_from_each_cell(inventory);
+    Ok(())
+}
+
+/// What a craft takes from the grid: one item of each cell.
+fn take_one_from_each_cell(inventory: &mut Inventory) {
     for slot in grid_slots(CRAFTING_GRID_SIZE) {
         inventory.remove_item_from_stack(slot, 1);
     }
-    Ok(())
 }
 
 /// Whether `slot` is one of the open chest or furnace whose stacks are `lent`.
@@ -2800,5 +2865,164 @@ mod tests {
         assert_eq!(inventory.inner[&3], worn);
         assert_eq!(inventory.inner.len(), 1);
         assert_eq!(inventory.floating, None);
+    }
+
+    /// The items of `item` in the slots of the inventory, `0..36`, by slot.
+    fn held_in_inventory(inventory: &Inventory, item: ItemId) -> Vec<(u32, u32)> {
+        let mut held: Vec<_> = inventory
+            .inner
+            .iter()
+            .filter(|(slot, stack)| **slot < MAX_INVENTORY_SLOTS && stack.item_id == item)
+            .map(|(slot, stack)| (*slot, stack.nb))
+            .collect();
+        held.sort();
+        held
+    }
+
+    #[test]
+    fn craft_all_crafts_a_stack_of_logs_into_the_inventory() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 64));
+
+        apply(&mut inventory, InventoryAction::CraftAll);
+
+        assert_eq!(
+            held_in_inventory(&inventory, ItemId::OakPlanks),
+            [(0, 64), (1, 64), (2, 64), (3, 64)]
+        );
+        assert_eq!(inventory.inner.len(), 4);
+        assert_eq!(inventory.floating, None);
+    }
+
+    #[test]
+    fn craft_all_stops_when_the_inventory_has_no_room_for_a_round() {
+        let full = |inventory: &mut Inventory| {
+            for slot in 0..MAX_INVENTORY_SLOTS {
+                inventory.inner.insert(slot, stack(ItemId::Stone, 64));
+            }
+        };
+        // Room for two rounds, in a stack of planks topped up
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 10));
+        full(&mut inventory);
+        inventory.inner.insert(5, planks(56));
+        apply(&mut inventory, InventoryAction::CraftAll);
+        assert_eq!(inventory.inner[&5], planks(64));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], stack(ItemId::OakLog, 8));
+
+        // Room for less than a round: nothing is crafted
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 10));
+        full(&mut inventory);
+        inventory.inner.insert(5, planks(62));
+        let before = inventory.clone();
+        assert_eq!(
+            try_apply(&mut inventory, InventoryAction::CraftAll),
+            Err(InventoryRefusal::NoRoom)
+        );
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn craft_all_stops_when_the_grid_makes_another_item() {
+        // A crafting table, then two planks one above the other: sticks
+        let mut inventory = Inventory::new();
+        for (row, col, nb) in [(0, 0, 2), (0, 1, 1), (1, 0, 2), (1, 1, 1)] {
+            inventory.inner.insert(grid_slot(row, col), planks(nb));
+        }
+
+        apply(&mut inventory, InventoryAction::CraftAll);
+
+        assert_eq!(
+            held_in_inventory(&inventory, ItemId::CraftingTable),
+            [(0, 1)]
+        );
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], planks(1));
+        assert_eq!(inventory.inner[&grid_slot(1, 0)], planks(1));
+        assert_eq!(inventory.inner.len(), 3);
+    }
+
+    #[test]
+    fn craft_all_stops_after_64_rounds() {
+        // More than a stack, which no click can put there
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 100));
+
+        apply(&mut inventory, InventoryAction::CraftAll);
+
+        assert_eq!(MAX_CRAFT_ALL_ROUNDS, 64);
+        let made: u32 = held_in_inventory(&inventory, ItemId::OakPlanks)
+            .iter()
+            .map(|(_, nb)| nb)
+            .sum();
+        assert_eq!(made, 4 * 64);
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], stack(ItemId::OakLog, 36));
+    }
+
+    #[test]
+    fn craft_all_leaves_the_floating_stack_alone() {
+        for held in [stack(ItemId::Dirt, 5), planks(3)] {
+            let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 2));
+            inventory.floating = Some(held);
+
+            apply(&mut inventory, InventoryAction::CraftAll);
+
+            assert_eq!(inventory.floating, Some(held));
+            assert_eq!(held_in_inventory(&inventory, ItemId::OakPlanks), [(0, 8)]);
+        }
+    }
+
+    #[test]
+    fn craft_all_without_a_recipe_is_refused() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 3));
+        let before = inventory.clone();
+        assert_eq!(
+            try_apply(&mut inventory, InventoryAction::CraftAll),
+            Err(InventoryRefusal::NoRecipe)
+        );
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn a_number_key_over_the_result_crafts_once_into_that_hotbar_slot() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 2));
+        inventory.floating = Some(stack(ItemId::Dirt, 1));
+
+        apply(&mut inventory, InventoryAction::CraftToHotbar(3));
+        assert_eq!(inventory.inner[&3], planks(4));
+        assert_eq!(inventory.inner[&grid_slot(0, 0)], stack(ItemId::OakLog, 1));
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 1)));
+
+        // Onto the same item, up to a full stack
+        inventory.inner.insert(3, planks(60));
+        apply(&mut inventory, InventoryAction::CraftToHotbar(3));
+        assert_eq!(inventory.inner[&3], planks(64));
+        assert!(!inventory.inner.contains_key(&grid_slot(0, 0)));
+    }
+
+    #[test]
+    fn a_number_key_over_the_result_is_refused_without_a_recipe_or_room() {
+        let logs = || inventory_with(grid_slot(0, 0), stack(ItemId::OakLog, 2));
+        let mut another_item = logs();
+        another_item.inner.insert(3, stack(ItemId::Dirt, 1));
+        let mut no_room = logs();
+        no_room.inner.insert(3, planks(61));
+        for (mut inventory, hotbar, refusal) in [
+            (
+                logs(),
+                HOTBAR_SLOTS,
+                InventoryRefusal::InvalidSlot(HOTBAR_SLOTS),
+            ),
+            (
+                inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 1)),
+                3,
+                InventoryRefusal::NoRecipe,
+            ),
+            (another_item, 3, InventoryRefusal::NoRoom),
+            (no_room, 3, InventoryRefusal::NoRoom),
+        ] {
+            let before = inventory.clone();
+            assert_eq!(
+                try_apply(&mut inventory, InventoryAction::CraftToHotbar(hotbar)),
+                Err(refusal)
+            );
+            assert_eq!(inventory, before);
+        }
     }
 }
