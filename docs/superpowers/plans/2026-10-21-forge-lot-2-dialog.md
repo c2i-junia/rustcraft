@@ -63,40 +63,40 @@ client", and its "Decisions" (5 to 15 from lot 1).
 ## Tasks
 
 ### Task 1: The furnace takes the pack's model (`client`, `data`)
-- [ ] Tests (voxel.rs): the furnace's faces are `FurnaceTop`, `FurnaceBottom`, `Furnace` at the
+- [x] Tests (voxel.rs): the furnace's faces are `FurnaceTop`, `FurnaceBottom`, `Furnace` at the
   front, `FurnaceSide` on the three other sides; the lit furnace the same with `LitFurnace` at
   the front. See them fail.
-- [ ] The textures from the pack (16x16 checked), the shapes, the credits in
+- [x] The textures from the pack (16x16 checked), the shapes, the credits in
   `docs/ressources.txt`. See them pass. Look at a placed furnace facing its player.
   Commit `feat: the furnace shows its front to its player, as the pack's model`.
 
 ### Task 2: The furnace section of the inventory panel (`client`)
-- [ ] Tests (inventory/furnace.rs): the rows of the flame and the columns of the arrow by
+- [x] Tests (inventory/furnace.rs): the rows of the flame and the columns of the arrow by
   Minecraft's formulas (out, full, half, last tick, a furnace with `burn_total` 0). Tests
   (display.rs): a furnace cell shows what the open furnace holds; the furnace takes the place
   of the crafting row and names the dialog, and leaves it on closing; the hints of the
   inventory slots and of the furnace slots; the setup builds the three furnace cells; the
   flame and the arrow show the synced furnace. See them fail.
-- [ ] `FurnaceRow`, `FurnaceFlame`, `FurnaceArrow`, `spawn_furnace_row`,
+- [x] `FurnaceRow`, `FurnaceFlame`, `FurnaceArrow`, `spawn_furnace_row`,
   `display_furnace_system`, `stack_in` for the furnace slots, the title and the rows in
   `display_crafting_system`, the hints; the sprites. See them pass.
-- [ ] Goldens: the dialog empty, and mid-smelt (lit, half the arrow). Look at them.
+- [x] Goldens: the dialog empty, and mid-smelt (lit, half the arrow). Look at them.
   Commit `feat(client): the furnace dialog`.
 
 ### Task 3: The item browser beside a furnace (`client`)
-- [ ] Tests: `recipe_problem` says "Not beside a furnace"; `+ Fill grid` is disabled with a
+- [x] Tests: `recipe_problem` says "Not beside a furnace"; `+ Fill grid` is disabled with a
   furnace open. See them fail; make them pass. Commit `feat(client): the item browser knows the
   furnace takes the place of the grid`.
 
 ### Task 4: A player smelts (e2e)
-- [ ] `client/src/e2e/furnace.rs`: place a furnace, right click it: the dialog, empty; shift-click
+- [x] `client/src/e2e/furnace.rs`: place a furnace, right click it: the dialog, empty; shift-click
   sand and coal from the inventory into the input and the fuel; the flame lights and the arrow
   fills; the glass comes out, and a click takes it; a click holding dirt on the output leaves
   it; a shift-click on dirt moves nothing; the keyboard reaches the furnace slots and Enter puts
   the held stack in. The review test opens a furnace at the three resolutions.
-- [ ] Run them, look at the review snapshots, fix what is ugly. Commit `test(client): a player
+- [x] Run them, look at the review snapshots, fix what is ugly. Commit `test(client): a player
   smelts sand in a furnace`.
 
 ### Task 5: Closing
-- [ ] `CHANGELOG.txt` (the furnace a player can use); spec decisions appended; `just check`;
+- [x] `CHANGELOG.txt` (the furnace a player can use); spec decisions appended; `just check`;
   commit `docs: decisions of the furnace dialog (lot 2)`.

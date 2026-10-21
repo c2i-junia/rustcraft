@@ -223,3 +223,28 @@ Lot 1 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-1-furnace.md` has t
     the loaded chunks only. A burning furnace keeps its chunk dirty, so it is saved each save.
 15. `LitFurnace` joins the palette of `scripts/worldgen_preview.py`. `CHANGELOG.txt`, the README
     and `docs/ARCHITECTURE.md` wait for the lots a player sees.
+
+Lot 2 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-2-dialog.md` has them in full):
+
+16. **Textures**, replacing decision 5: both furnaces follow the pack's model, the front
+    (`furnace_front` or `furnace_front_on`) on the front only, `furnace_side` on the three other
+    sides, `furnace_top` on top and, as the model says, `furnace_bottom` below. The item's icon is
+    the front.
+17. **Sprites.** The flame and the arrow are the pack's `gui/sprites/container/furnace/`
+    `lit_progress` and `burn_progress`, drawn at twice their texels; the empty ones are white
+    silhouettes of them tinted `BEVEL_HI` (the pack paints its empty ones into a stone
+    background).
+18. **Progress** as Minecraft draws it, by whole texels: the flame `ceil(13 * burn_left /
+    burn_total) + 1` rows while lit, the arrow `ceil(24 * cook / COOK_TICKS)` columns. No
+    smoothing: the server sends the open furnace 20 times a second, and the dialog draws the last
+    one.
+19. **Layout.** The furnace section is centred in the panel: the input, the flame and the fuel in a
+    column `SPACE_XS` apart, then the arrow and a 66 px output slot, `SPACE_L` apart. Title
+    "Furnace". The flame and the arrow are progress indicators "Fuel" and "Smelting".
+20. **Hints.** With a furnace open, an inventory stack that smelts or burns says "Shift+click: move
+    to the furnace"; another one says nothing, a shift-click leaving it.
+21. **Item browser.** An open furnace takes the place of the grid: "Not beside a furnace", and
+    `+ Fill grid` is disabled.
+22. **No crackle sound**: the audio has no lasting emitters at a place; left for later.
+23. The review test pressed Escape once after the chat's `/`, which since the completion only puts
+    the suggestions away: it stopped at its second size. Fixed on the way.
