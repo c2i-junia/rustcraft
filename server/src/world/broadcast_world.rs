@@ -254,23 +254,6 @@ fn take_chunks_to_unload(reach: &ChunkReach, sent: &mut HashSet<IVec3>) -> Vec<I
     unloads
 }
 
-/// What one client must be sent: the current state of the changed blocks in the chunks it
-/// already has, then the chunks it does not have yet. The updates are computed before the new
-/// chunks are recorded in `sent`: a chunk sent now already holds the changes, and every chunk
-/// the client has gets its changes as updates, so the client never misses one and is never
-/// sent an update for a chunk it lacks.
-#[cfg(test)]
-fn client_world_messages<'a>(
-    chunks: &'a ChunkMap,
-    changed: &[IVec3],
-    active_chunks: impl IntoIterator<Item = IVec3>,
-    sent: &mut HashSet<IVec3>,
-) -> (Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
-    let updates = block_updates(chunks, changed, sent);
-    let new_chunks = get_world_map_chunks_to_send(chunks, active_chunks, sent);
-    (updates, new_chunks)
-}
-
 /// The current state of the blocks of `changed` in the chunks of `sent`.
 fn block_updates(chunks: &ChunkMap, changed: &[IVec3], sent: &HashSet<IVec3>) -> Vec<BlockUpdate> {
     changed
@@ -281,25 +264,6 @@ fn block_updates(chunks: &ChunkMap, changed: &[IVec3], sent: &HashSet<IVec3>) ->
             block: chunks.get_block(position).copied(),
         })
         .collect()
-}
-
-/// The chunks, nearest first, that a client has not received yet, at most
-/// `MAX_CHUNKS_PER_BROADCAST` of varied cells (`add_chunks_to_send`).
-#[cfg(test)]
-fn get_world_map_chunks_to_send<'a>(
-    chunks: &'a ChunkMap,
-    active_chunks: impl IntoIterator<Item = IVec3>,
-    sent: &mut HashSet<IVec3>,
-) -> HashMap<IVec3, &'a Chunk> {
-    let mut map = HashMap::new();
-    add_chunks_to_send(
-        chunks,
-        active_chunks,
-        sent,
-        MAX_CHUNKS_PER_BROADCAST,
-        &mut map,
-    );
-    map
 }
 
 /// Adds to `map` the chunks of `active_chunks`, in their order, that a client has not received
@@ -401,6 +365,39 @@ mod tests {
 
     fn active_row(count: i32) -> Vec<IVec3> {
         (0..count).map(|x| IVec3::new(x, 0, 0)).collect()
+    }
+
+    /// The chunks of `active_chunks` a client has not received yet, as `world_messages_around`
+    /// adds them: at most `MAX_CHUNKS_PER_BROADCAST` of varied cells (`add_chunks_to_send`).
+    fn get_world_map_chunks_to_send<'a>(
+        chunks: &'a ChunkMap,
+        active_chunks: impl IntoIterator<Item = IVec3>,
+        sent: &mut HashSet<IVec3>,
+    ) -> HashMap<IVec3, &'a Chunk> {
+        let mut map = HashMap::new();
+        add_chunks_to_send(
+            chunks,
+            active_chunks,
+            sent,
+            MAX_CHUNKS_PER_BROADCAST,
+            &mut map,
+        );
+        map
+    }
+
+    /// What one client must be sent, in the order of `world_messages_around`: the updates of
+    /// the changed blocks in the chunks it has, computed before the new chunks are recorded in
+    /// `sent`, then the chunks it lacks. A chunk sent now already holds the changes, so the
+    /// client never misses one and is never sent an update for a chunk it lacks.
+    fn client_world_messages<'a>(
+        chunks: &'a ChunkMap,
+        changed: &[IVec3],
+        active_chunks: impl IntoIterator<Item = IVec3>,
+        sent: &mut HashSet<IVec3>,
+    ) -> (Vec<BlockUpdate>, HashMap<IVec3, &'a Chunk>) {
+        let updates = block_updates(chunks, changed, sent);
+        let new_chunks = get_world_map_chunks_to_send(chunks, active_chunks, sent);
+        (updates, new_chunks)
     }
 
     #[test]
