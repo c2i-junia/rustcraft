@@ -331,8 +331,13 @@ fn bench_meshing() {
         let mut load_total = Vec::new();
         for round in 0..ROUNDS {
             let start = Instant::now();
-            let tasks =
-                spawn_meshing_tasks(&world, &looks, by_group(&positions), (None, true, false));
+            let tasks = spawn_meshing_tasks(
+                &world,
+                world.portals(),
+                &looks,
+                by_group(&positions),
+                (None, true, false),
+            );
             let main_thread = millis(start);
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -352,6 +357,7 @@ fn bench_meshing() {
             let group = group_of(surface);
             let tasks = spawn_meshing_tasks(
                 &world,
+                world.portals(),
                 &looks,
                 by_group(&positions)
                     .into_iter()

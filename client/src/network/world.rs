@@ -9,6 +9,8 @@ use shared::messages::{
 };
 
 use crate::mob::ClientMobs;
+use crate::portal::shot::ShotFired;
+use shared::players::blocks::PortalShot;
 use shared::world::SIX_OFFSETS;
 use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
 
@@ -95,6 +97,7 @@ pub fn update_world_from_network(
     weather: &mut ClientWeather,
     ev_strike: &mut MessageWriter<Strike>,
     decoding: &mut DecodingChunkMessages,
+    ev_shots: &mut MessageWriter<ShotFired>,
 ) {
     let mut messages = Vec::new();
     while let Some(Ok(msg)) = client.receive_game_message_by_channel(STC_STANDARD_CHANNEL) {
@@ -187,8 +190,23 @@ pub fn update_world_from_network(
                 // and the walls under them follow
                 world.blocks.portals_mut().replace(portals);
             }
-            // Not drawn yet
-            ServerToClientMessage::PortalShot { .. } => {}
+            ServerToClientMessage::PortalShot {
+                shooter,
+                from,
+                to,
+                color,
+                placed,
+            } => {
+                ev_shots.write(ShotFired {
+                    shooter,
+                    shot: PortalShot {
+                        from,
+                        to,
+                        color,
+                        placed,
+                    },
+                });
+            }
         }
     }
 }

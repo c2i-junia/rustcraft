@@ -16,14 +16,14 @@ use bevy::{
 };
 use shared::world::{
     global_block_to_chunk_pos, vertical_render_distance, within_render_distance,
-    world_position_to_chunk_position, BlockData, BlockTransparency, ChunkMap, ChunkReach,
+    world_position_to_chunk_position, BlockData, BlockTransparency, ChunkMap, ChunkReach, Portals,
     SIX_OFFSETS,
 };
 use shared::UNLOAD_MARGIN;
 
 use crate::{
     input::{data::GameAction, keyboard::is_action_just_pressed},
-    portal::{camera::CpuCulledForAFrame, PORTAL_CHUNKS_LAYER},
+    portal::{camera::CpuCulledForAFrame, shot::ShownPortals, PORTAL_CHUNKS_LAYER},
     state::{GameState, KeyMap},
     ui::hud::UIMode,
     world::{self, MaterialResource, WorldRenderRequestUpdateEvent},
@@ -435,7 +435,11 @@ pub fn world_render_system(
     mut commands: Commands,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     (render_distance, server_limit): (Res<RenderDistance>, Option<Res<ServerRenderDistanceLimit>>),
-    (biomes, graphics): (Option<Res<WorldBiomes>>, Res<GraphicsSettings>),
+    (biomes, graphics, shown): (
+        Option<Res<WorldBiomes>>,
+        Res<GraphicsSettings>,
+        Res<ShownPortals>,
+    ),
     mut surfaces: Local<Option<Arc<TerrainSurfaces>>>,
 ) {
     // A set, so that a chunk asked for several times is meshed once
@@ -501,6 +505,7 @@ pub fn world_render_system(
         let alone = queued_meshes.meshes.is_empty() && groups.len() == 1;
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
+            shown.get(world_map.blocks.portals()),
             &block_textures.looks,
             groups,
             (surfaces.clone(), graphics.smooth_lighting, alone),
@@ -682,6 +687,7 @@ pub(crate) static MESHES_SHOWN: std::sync::atomic::AtomicUsize =
 /// instead would stall the frame once it is large.
 pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
+    portals: &Portals,
     looks: &Arc<BlockLooks>,
     groups: Vec<(IVec2, Vec<IVec3>)>,
     (surfaces, smooth, alone): (Option<Arc<TerrainSurfaces>>, bool, bool),
@@ -701,8 +707,8 @@ pub(super) fn spawn_meshing_tasks(
             }
         }
     }
-    // The faces the portals cover are not drawn
-    *nearby.portals_mut() = blocks.portals().clone();
+    // The faces the portals shown cover are not drawn
+    *nearby.portals_mut() = portals.clone();
     let shared_blocks = Arc::new(nearby);
 
     groups
@@ -1024,6 +1030,47 @@ mod tests {
     }
 
     #[test]
+    fn a_meshing_task_leaves_out_the_faces_of_the_portals_it_is_given() {
+        use bevy::tasks::TaskPool;
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        AsyncComputeTaskPool::get_or_init(TaskPool::default);
+        // A stone wall facing +Z, a portal on it in the map
+        let mut world = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        world.fill_box(IVec3::new(2, 2, 2), IVec3::new(5, 6, 2), BlockId::Stone);
+        let portal = Portal {
+            owner: 1,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(3, 3, 2),
+            face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
+        };
+        world.portals_mut().insert(portal);
+        let looks = Arc::new(BlockLooks::new(&HashMap::from([(
+            "_Default".to_string(),
+            0,
+        )])));
+        let vertices = |world: &ChunkMap, portals: &Portals| {
+            let tasks = spawn_meshing_tasks(
+                world,
+                portals,
+                &looks,
+                vec![(IVec2::ZERO, vec![IVec3::ZERO])],
+                (None, true, true),
+            );
+            block_on(tasks.into_iter().next().unwrap().thread)
+                .solid_mesh
+                .unwrap()
+                .count_vertices()
+        };
+        // The portal not shown yet, its wall is drawn whole, as with no portal at all
+        let pierced = vertices(&world, world.portals());
+        let whole = vertices(&world, &Portals::default());
+        world.portals_mut().remove(1, PortalColor::Blue);
+        assert_eq!(whole, vertices(&world, world.portals()));
+        assert_ne!(whole, pierced);
+    }
+
+    #[test]
     fn a_meshing_task_sees_the_blocks_of_the_neighbouring_chunks() {
         use bevy::tasks::TaskPool;
         use shared::world::{BlockData, BlockDirection, BlockId};
@@ -1043,6 +1090,7 @@ mod tests {
 
         let tasks = spawn_meshing_tasks(
             &world,
+            world.portals(),
             &looks,
             vec![(IVec2::ZERO, vec![IVec3::ZERO])],
             (None, true, true),
@@ -1085,6 +1133,7 @@ mod tests {
 
         let tasks = spawn_meshing_tasks(
             &world,
+            world.portals(),
             &looks,
             vec![(group, chunks.to_vec())],
             (None, true, true),

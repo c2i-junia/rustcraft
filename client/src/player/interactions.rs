@@ -2,6 +2,7 @@ use crate::camera::CameraController;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
+use crate::portal::shot::ShotFired;
 use crate::state::KeyMap;
 use crate::ui::hud::{InventoryRoot, UIMode};
 use crate::world::{BlockChanged, ClientWorldMap};
@@ -22,7 +23,7 @@ use super::CurrentPlayerMarker;
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
 /// breaking it or placing a block against it, and reports the blocks that changed. A right
 /// click on a crafting table, a chest or a furnace opens it instead, unless the player sneaks
-/// or holds the portal gun.
+/// or holds the portal gun, whose shots it fires (`ShotFired`).
 /// Holding an empty bucket, the player aims at the water sources too.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
@@ -37,6 +38,7 @@ pub fn handle_block_interactions(
     mut frame_inputs: ResMut<CurrentFrameInputs>,
     mut gizmos: Gizmos,
     mut block_changes: MessageWriter<BlockChanged>,
+    mut shots: MessageWriter<ShotFired>,
 ) {
     // A button pressed over a UI, to close it for instance, is not for the world: it is ignored
     // until released
@@ -75,11 +77,18 @@ pub fn handle_block_interactions(
         }
         // The server simulates every input, and so does the prediction: the buttons the
         // simulation remembers, which the portal gun shoots on the press of, stay the same
-        simulate_player_block_interactions(
+        let fired = simulate_player_block_interactions(
             &mut player,
             &mut world_map.blocks,
             &frame_inputs.0,
             CallerType::Client,
+        )
+        .shots;
+        let shooter = player.id;
+        shots.write_batch(
+            fired
+                .into_iter()
+                .map(|shot| ShotFired::predicted(shooter, shot)),
         );
         return;
     };
@@ -127,11 +136,18 @@ pub fn handle_block_interactions(
     let touched = [target.position, target.position + target.face.to_ivec3()];
     let before = touched.map(|position| world_map.blocks.get_block(position).copied());
 
-    simulate_player_block_interactions(
+    let fired = simulate_player_block_interactions(
         &mut player,
         &mut world_map.blocks,
         &frame_inputs.0,
         CallerType::Client,
+    )
+    .shots;
+    let shooter = player.id;
+    shots.write_batch(
+        fired
+            .into_iter()
+            .map(|shot| ShotFired::predicted(shooter, shot)),
     );
 
     for (position, before) in touched.into_iter().zip(before) {

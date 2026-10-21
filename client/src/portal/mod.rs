@@ -10,7 +10,9 @@
 
 pub mod camera;
 pub mod material;
+pub mod particles;
 pub mod projection;
+pub mod shot;
 
 use std::collections::HashMap;
 
@@ -31,6 +33,7 @@ use camera::{
     show_chunks_to_new_views, spawn_portal_camera, PortalViewsStarted,
 };
 use material::{portal_material_plugin, PortalLook, PortalMaterial};
+use shot::{fly_bolts, hold_shot_portals, spawn_bolts, ShotFired, ShownPortals};
 
 /// The layer of the surfaces that show the view through a portal to the player's camera, its
 /// only. The views seen by the portal cameras are on layers of their own (`view_layer`).
@@ -188,9 +191,18 @@ fn portal_systems(app: &mut App) {
         .add_message::<PortalOpened>()
         .init_resource::<PortalsSeen>()
         .init_resource::<PortalViewsStarted>()
+        .init_resource::<ShownPortals>()
+        .add_message::<ShotFired>()
+        .add_systems(
+            Update,
+            particles::simulate_particles.run_if(in_state(GameState::Game)),
+        )
         .add_systems(
             PostUpdate,
             (
+                spawn_bolts,
+                fly_bolts,
+                hold_shot_portals,
                 sync_portals,
                 hide_portals_beyond_the_fog,
                 resize_portal_images,
@@ -213,12 +225,14 @@ fn portal_systems(app: &mut App) {
         );
 }
 
-/// Draws the portals of the client map as they are: a portal that appeared, moved, or opened or
-/// closed is drawn anew, one that is gone is no longer drawn, and the wall cells of both are
-/// meshed again, the face a portal covers being left out. A portal drawn open is heard
-/// (`PortalOpened`), but for the first portals of the game, open before the player joined.
+/// Draws the portals of the client map as they are, but those whose shot is still flying
+/// (`ShownPortals`): a portal that appeared, moved, or opened or closed is drawn anew, one that
+/// is gone is no longer drawn, and the wall cells of both are meshed again, the face a portal
+/// covers being left out. A portal drawn open is heard (`PortalOpened`), but for the first
+/// portals of the game, open before the player joined.
 fn sync_portals(
     world_map: Res<ClientWorldMap>,
+    shown: Res<ShownPortals>,
     mut drawn: ResMut<DrawnPortals>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -229,7 +243,7 @@ fn sync_portals(
     mut seen: ResMut<PortalsSeen>,
     mut commands: Commands,
 ) {
-    let portals = world_map.blocks.portals();
+    let portals = shown.get(world_map.blocks.portals());
     let heard = seen.0;
     seen.0 |= !portals.is_empty();
     let mut walls = Vec::new();
@@ -406,14 +420,17 @@ fn rim_mesh() -> Mesh {
 mod tests {
     use bevy::{
         camera::RenderTarget, core_pipeline::tonemapping::Tonemapping, state::app::StatesPlugin,
-        window::PrimaryWindow,
+        time::TimeUpdateStrategy, window::PrimaryWindow,
     };
+    use shared::players::blocks::PortalShot;
     use shared::world::FaceDirection;
 
     use super::*;
     use crate::camera::CameraController;
 
     const OWNER: PlayerId = 7;
+    /// How long a frame of the test app lasts.
+    const FRAME: std::time::Duration = std::time::Duration::from_millis(20);
 
     fn blue() -> Portal {
         Portal {
@@ -450,6 +467,8 @@ mod tests {
             .init_asset::<Mesh>()
             .init_asset::<Image>()
             .init_asset::<PortalMaterial>()
+            .init_asset::<StandardMaterial>()
+            .insert_resource(TimeUpdateStrategy::ManualDuration(FRAME))
             .init_state::<GameState>()
             .init_resource::<ClientWorldMap>()
             .add_message::<WorldRenderRequestUpdateEvent>();
@@ -1367,5 +1386,111 @@ mod tests {
         assert_eq!(chunks, [IVec3::new(0, 0, 0), IVec3::new(0, 1, 0)]);
 
         assert!(requested(&mut app).is_empty());
+    }
+
+    /// Writes a shot of colour `color` by `OWNER` from 10 blocks in front of `portal` to its
+    /// centre, which lands in a tenth of a second.
+    fn fire_at(app: &mut App, portal: &Portal, placed: bool) -> PortalShot {
+        let to = Vec3::from(portal.frame().translation);
+        let shot = PortalShot {
+            from: to + portal.normal() * 10.0,
+            to,
+            color: portal.color,
+            placed,
+        };
+        app.world_mut().write_message(shot::ShotFired {
+            shooter: OWNER,
+            shot,
+        });
+        shot
+    }
+
+    /// The ages of the bolts flying or bursting.
+    fn bolt_ages(app: &mut App) -> Vec<f32> {
+        let world = app.world_mut();
+        world
+            .query::<&shot::Bolt>()
+            .iter(world)
+            .map(|bolt| bolt.age)
+            .collect()
+    }
+
+    #[test]
+    fn a_shot_portal_is_drawn_and_heard_only_once_its_bolt_lands() {
+        let mut app = app();
+        // With no shot, a portal is drawn at once
+        insert(&mut app, blue());
+        app.update();
+        assert_eq!(surfaces(&mut app), [(PortalColor::Blue, PortalLook::Color)]);
+
+        // The orange one is placed as its shot is fired: until the bolt lands, the blue one
+        // stays alone and nothing opens
+        insert(&mut app, orange());
+        let shot = fire_at(&mut app, &orange(), true);
+        let flight = shot::flight_time(&shot);
+        let mut frames = 0;
+        loop {
+            let at = opened(&mut app);
+            let age = bolt_ages(&mut app)[0];
+            frames += 1;
+            if age < flight {
+                assert!(at.is_empty(), "opened at {age} s, before {flight} s");
+                assert_eq!(surfaces(&mut app), [(PortalColor::Blue, PortalLook::Color)]);
+                assert!(frames < 20, "the bolt never landed");
+            } else {
+                assert_eq!(at.len(), 2, "not opened as the bolt landed, at {age} s");
+                break;
+            }
+        }
+        assert!(frames >= 4, "landed after {frames} frames");
+        assert_eq!(
+            surfaces(&mut app),
+            [
+                (PortalColor::Blue, PortalLook::View),
+                (PortalColor::Orange, PortalLook::View)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_portal_moved_by_a_shot_stays_where_it_was_until_the_bolt_lands() {
+        let mut app = app();
+        insert(&mut app, blue());
+        app.update();
+        let moved = Portal {
+            anchor: IVec3::new(0, 20, 0),
+            ..blue()
+        };
+        insert(&mut app, moved);
+        fire_at(&mut app, &moved, true);
+        app.update();
+        let drawn = |app: &App| {
+            app.world().resource::<DrawnPortals>().0[&(OWNER, PortalColor::Blue)].portal
+        };
+        assert_eq!(drawn(&app), blue());
+        for _ in 0..10 {
+            app.update();
+        }
+        assert_eq!(drawn(&app), moved);
+    }
+
+    #[test]
+    fn a_refused_shot_holds_nothing_and_its_bolt_is_gone_after_the_burst() {
+        let mut app = app();
+        insert(&mut app, blue());
+        fire_at(&mut app, &orange(), false);
+        app.update();
+        assert_eq!(surfaces(&mut app), [(PortalColor::Blue, PortalLook::Color)]);
+        assert_eq!(bolt_ages(&mut app).len(), 1);
+        let mut sparks = 0;
+        for _ in 0..20 {
+            app.update();
+            let world = app.world_mut();
+            sparks = sparks.max(world.query::<&particles::Particle>().iter(world).count());
+        }
+        assert!(sparks > 0, "no sparks");
+        assert!(bolt_ages(&mut app).is_empty());
+        let world = app.world_mut();
+        assert_eq!(world.query::<&shot::Trail>().iter(world).count(), 0);
     }
 }

@@ -14,6 +14,7 @@ use crate::mob::ClientMobs;
 use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
+use crate::portal::shot::ShotFired;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::ui::assets::load_font;
 use crate::ui::hud::chat_completion::ModCommands;
@@ -351,6 +352,7 @@ pub fn poll_network_messages(
     mut weather: ResMut<ClientWeather>,
     mut ev_strike: MessageWriter<Strike>,
     mut decoding: ResMut<DecodingChunkMessages>,
+    mut ev_shots: MessageWriter<ShotFired>,
 ) {
     update_world_from_network(
         &mut commands,
@@ -368,6 +370,7 @@ pub fn poll_network_messages(
         &mut weather,
         &mut ev_strike,
         &mut decoding,
+        &mut ev_shots,
     );
 }
 

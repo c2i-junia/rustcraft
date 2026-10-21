@@ -18,6 +18,7 @@ use shared::CHUNK_SIZE;
 
 use super::material::PortalMaterial;
 use super::projection::portal_projection;
+use super::shot::ShownPortals;
 use super::{
     camera_layers, DrawnPortals, OwnView, PortalCamera, PortalRecursion, PORTAL_RECURSION,
 };
@@ -153,6 +154,7 @@ struct Eye {
 /// its fog (`camera_layers`).
 pub(super) fn place_portal_cameras(
     world_map: Res<ClientWorldMap>,
+    shown: Res<ShownPortals>,
     drawn: Res<DrawnPortals>,
     recursion: Res<PortalRecursion>,
     main: Query<
@@ -186,7 +188,7 @@ pub(super) fn place_portal_cameras(
     else {
         return;
     };
-    let portals = world_map.blocks.portals();
+    let portals = shown.get(world_map.blocks.portals());
     let depth = recursion.0.clamp(1, PORTAL_RECURSION);
     let slots: Vec<usize> = drawn.0.values().map(|drawn| drawn.slot).collect();
     for drawn in drawn.0.values() {
