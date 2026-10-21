@@ -9,6 +9,7 @@ mod cocoa;
 mod connecting;
 mod furnace;
 mod game;
+mod gestures;
 mod harness;
 mod helpers;
 mod hud;

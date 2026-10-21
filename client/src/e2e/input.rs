@@ -157,13 +157,29 @@ impl Harness {
     /// Moves the cursor onto the element and holds the left button down on it.
     #[track_caller]
     pub fn mouse_down(&mut self, locator: &Locator) {
+        self.mouse_down_with(locator, MouseButton::Left);
+    }
+
+    /// Moves the cursor onto the element and holds `button` down on it.
+    #[track_caller]
+    pub fn mouse_down_with(&mut self, locator: &Locator, button: MouseButton) {
         self.hover(locator);
-        self.mouse_button(MouseButton::Left, ButtonState::Pressed);
+        self.button_down(button);
     }
 
     /// Releases the left button where the cursor is.
     pub fn mouse_up(&mut self) {
-        self.mouse_button(MouseButton::Left, ButtonState::Released);
+        self.button_up(MouseButton::Left);
+    }
+
+    /// Presses `button` where the cursor is, for a frame.
+    pub fn button_down(&mut self, button: MouseButton) {
+        self.mouse_button(button, ButtonState::Pressed);
+    }
+
+    /// Releases `button` where the cursor is, for a frame.
+    pub fn button_up(&mut self, button: MouseButton) {
+        self.mouse_button(button, ButtonState::Released);
     }
 
     /// Presses or releases a mouse button for a frame.
