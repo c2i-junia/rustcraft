@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::PlayerId;
 use crate::players::game_mode::{DeathCause, GameMode};
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
-use crate::world::Container;
+use crate::world::{Container, Furnace};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Eq, Hash)]
 pub enum NetworkAction {
@@ -50,6 +50,9 @@ pub struct PlayerUpdateEvent {
     /// `last_ack_time`: the client takes it with the inventory. Boxed, as it is larger than
     /// every other message. Sent to that player only, as the inventory.
     pub open_chest: Option<Box<Container>>,
+    /// What the furnace `inventory.open_furnace` holds once the server has simulated the input
+    /// `last_ack_time`, as `open_chest`.
+    pub open_furnace: Option<Furnace>,
     pub health: u32,
     pub game_mode: GameMode,
     /// What killed the player, while it is dead.

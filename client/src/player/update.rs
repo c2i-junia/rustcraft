@@ -177,8 +177,8 @@ pub fn update_players_system(
             &world_map.blocks,
         );
         transform.translation = player.position;
-        // The inventory and the open chest resume from the server's, with the actions it has
-        // not applied yet
+        // The inventory and the open chest or furnace resume from the server's, with the actions
+        // it has not applied yet
         let Some(server_inventory) = &event.inventory else {
             continue;
         };
@@ -187,6 +187,9 @@ pub fn update_players_system(
             world_map
                 .blocks
                 .insert_container(chest, (**contents).clone());
+        }
+        if let (Some(pos), Some(furnace)) = (server_inventory.open_furnace, &event.open_furnace) {
+            world_map.blocks.insert_furnace(pos, furnace.clone());
         }
         let not_applied = unacknowledged_inputs
             .0
@@ -328,6 +331,7 @@ mod tests {
             last_ack_time: 15,
             inventory: Some(Inventory::new()),
             open_chest: None,
+            open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             game_mode: Default::default(),
             death_cause: None,
@@ -365,6 +369,7 @@ mod tests {
             last_ack_time: 10,
             inventory: Some(server_inventory),
             open_chest: None,
+            open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             game_mode: Default::default(),
             death_cause: None,
@@ -412,6 +417,7 @@ mod tests {
             last_ack_time: 10,
             inventory: Some(server_inventory),
             open_chest: Some(Box::new(server_chest)),
+            open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             game_mode: Default::default(),
             death_cause: None,
@@ -427,6 +433,66 @@ mod tests {
                 .blocks
                 .container(chest),
             Some(&Container::default())
+        );
+    }
+
+    #[test]
+    fn unacknowledged_furnace_actions_are_replayed_once_on_the_furnace_the_server_sends() {
+        use shared::players::inventory::{InventoryAction, FURNACE_INPUT_SLOT};
+        use shared::world::{Furnace, ItemId, ItemStack};
+
+        let furnace = IVec3::new(0, 0, -2);
+        let sand = ItemStack {
+            item_id: ItemId::Sand,
+            item_type: ItemId::Sand.get_default_type(),
+            nb: 4,
+        };
+        let (mut app, player) = app_with_player();
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        blocks.fill_box(furnace, furnace, BlockId::LitFurnace);
+        // The client already predicted the click: the sand is in its cursor, not in its furnace
+        blocks.insert_furnace(furnace, Furnace::default());
+        app.world_mut().resource_mut::<ClientWorldMap>().blocks = blocks;
+        app.world_mut().resource_mut::<UnacknowledgedInputs>().0[1]
+            .inventory_actions
+            .push(InventoryAction::LeftClickSlot(FURNACE_INPUT_SLOT));
+        let mut server_inventory = Inventory::new();
+        server_inventory.open_furnace = Some(furnace);
+        let server_furnace = Furnace {
+            input: Some(sand),
+            burn_left: 30,
+            cook: 12,
+            ..Default::default()
+        };
+
+        app.world_mut().write_message(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: MovementState::default(),
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: Some(server_inventory),
+            open_chest: None,
+            open_furnace: Some(server_furnace),
+            health: shared::players::game_mode::MAX_HEALTH,
+            game_mode: Default::default(),
+            death_cause: None,
+        });
+        app.update();
+
+        let inventory = &app.world().get::<Player>(player).unwrap().inventory;
+        assert_eq!(inventory.floating, Some(sand));
+        assert_eq!(inventory.open_furnace, Some(furnace));
+        let expected = Furnace {
+            burn_left: 30,
+            cook: 12,
+            ..Default::default()
+        };
+        assert_eq!(
+            app.world()
+                .resource::<ClientWorldMap>()
+                .blocks
+                .furnace(furnace),
+            Some(&expected)
         );
     }
 
@@ -626,6 +692,7 @@ mod tests {
                 last_ack_time: self.server_player.last_input_processed,
                 inventory: Some(Inventory::new()),
                 open_chest: None,
+                open_furnace: None,
                 health: self.server_player.health,
                 game_mode: self.server_player.game_mode,
                 death_cause: self.server_player.death_cause,

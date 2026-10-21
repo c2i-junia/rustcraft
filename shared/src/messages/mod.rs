@@ -134,6 +134,7 @@ mod tests {
             last_ack_time: 0,
             inventory: Default::default(),
             open_chest: None,
+            open_furnace: None,
             health: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -202,6 +203,7 @@ mod tests {
                 },
                 10,
             ),
+            (InventoryAction::OpenFurnace(IVec3::ZERO), 11),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

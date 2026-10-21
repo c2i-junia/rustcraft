@@ -314,9 +314,10 @@ pub fn load_player_data(
             player.health = saved.health;
             player.death_cause = saved.death_cause;
             player.inventory = saved.inventory;
-            // A table or a chest is used only while the player is there
+            // A table, a chest or a furnace is used only while the player is there
             player.inventory.open_table = None;
             player.inventory.open_chest = None;
+            player.inventory.open_furnace = None;
         }
         Err(err) => {
             let mut corrupt_path = path.as_os_str().to_owned();
@@ -428,16 +429,18 @@ mod tests {
     }
 
     #[test]
-    fn a_loaded_player_has_no_open_table() {
+    fn a_loaded_player_has_no_open_table_or_furnace() {
         let tmp = tempfile::tempdir().unwrap();
         let paths = paths(&tmp);
         let mut saved = Player::new(7, "crafter".into(), Vec3::ZERO, Transform::default());
         saved.inventory.open_table = Some(bevy::math::IVec3::new(1, 2, 3));
+        saved.inventory.open_furnace = Some(bevy::math::IVec3::new(4, 5, 6));
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
         let loaded = load_player_data(WORLD, &7, "crafter", Vec3::ZERO, &paths).unwrap();
 
         assert_eq!(loaded.inventory.open_table, None);
+        assert_eq!(loaded.inventory.open_furnace, None);
     }
 
     #[test]

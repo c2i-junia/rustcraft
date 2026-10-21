@@ -26,6 +26,10 @@ pub struct Inventory {
     /// The chest the player is using, if any. Never at the same time as a table.
     #[serde(default)]
     pub open_chest: Option<IVec3>,
+    /// The furnace, lit or out, the player is using, if any. Never at the same time as a table
+    /// or a chest.
+    #[serde(default)]
+    pub open_furnace: Option<IVec3>,
 }
 
 impl Default for Inventory {
@@ -41,6 +45,7 @@ impl Inventory {
             floating: None,
             open_table: None,
             open_chest: None,
+            open_furnace: None,
         }
     }
 

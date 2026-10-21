@@ -1,7 +1,7 @@
 //! What an inventory action does: the clicks on the slots of the open inventory, which move
 //! items between the slots and the stack held by the cursor (the floating stack), crafting
-//! from the grid, using a crafting table or a chest, and closing it. Run by the client
-//! (prediction) and by the server (authority).
+//! from the grid, using a crafting table, a chest or a furnace, and closing it. Run by the
+//! client (prediction) and by the server (authority).
 
 use std::ops::Range;
 
@@ -15,8 +15,9 @@ use crate::{
         Inventory, Player,
     },
     world::{
-        grid_slot, match_recipe, recipes, BlockId, ChunkMap, Container, CraftingGrid, ItemId,
-        ItemStack, ItemType, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
+        fuel_ticks, grid_slot, match_recipe, recipes, smelting_result, BlockId, ChunkMap,
+        Container, CraftingGrid, Furnace, ItemId, ItemStack, ItemType, CHEST_SLOTS,
+        CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
@@ -30,6 +31,18 @@ pub const CHEST_SLOT_START: u32 = CRAFTING_GRID_START + CRAFTING_GRID_SIZE * CRA
 /// The slots of an open chest, in the numbering of the inventory actions.
 pub fn chest_slots() -> Range<u32> {
     CHEST_SLOT_START..CHEST_SLOT_START + CHEST_SLOTS
+}
+
+/// The slots of an open furnace follow those of a chest. Its input takes anything.
+pub const FURNACE_INPUT_SLOT: u32 = CHEST_SLOT_START + CHEST_SLOTS;
+/// The fuel slot of an open furnace takes only a fuel.
+pub const FURNACE_FUEL_SLOT: u32 = FURNACE_INPUT_SLOT + 1;
+/// The output of an open furnace takes nothing: it only gives.
+pub const FURNACE_OUTPUT_SLOT: u32 = FURNACE_INPUT_SLOT + 2;
+
+/// The slots of an open furnace, in the numbering of the inventory actions.
+pub fn furnace_slots() -> Range<u32> {
+    FURNACE_INPUT_SLOT..FURNACE_OUTPUT_SLOT + 1
 }
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
@@ -74,6 +87,9 @@ pub enum InventoryAction {
         recipe: u16,
         times: u32,
     },
+    /// Right click on the furnace, lit or out, at this position: its slots can be used while it
+    /// stays within reach.
+    OpenFurnace(IVec3),
 }
 
 /// Why an inventory action changed nothing.
@@ -101,6 +117,11 @@ pub enum InventoryRefusal {
     MissingIngredients,
     /// The inventory has no room for what the crafting grid holds.
     GridNotEmptied,
+    /// There is no furnace, lit or out, within reach at this position.
+    NoFurnace(IVec3),
+    /// The slot does not take the item held: the fuel slot of a furnace takes only a fuel, its
+    /// output nothing.
+    NotTaken(u32),
 }
 
 /// The slots of the cells of a grid of `size` by `size`, in its top left corner.
@@ -134,8 +155,27 @@ fn block_in_reach(world_map: &ChunkMap, position: Vec3, pos: IVec3, id: BlockId)
         && (pos.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
 }
 
+/// Whether `pos` holds a furnace, lit or out, `in_reach`.
+fn furnace_in_reach(in_reach: impl Fn(IVec3, BlockId) -> bool, pos: IVec3) -> bool {
+    in_reach(pos, BlockId::Furnace) || in_reach(pos, BlockId::LitFurnace)
+}
+
+/// What the block a player has open holds, lent to its inventory while an action applies.
+pub enum OpenContents<'a> {
+    Chest(&'a mut Container),
+    Furnace(&'a mut Furnace),
+}
+
+/// The slots of an open block lent to the inventory while an action applies.
+#[derive(Clone, Copy, PartialEq)]
+enum Lent {
+    Nothing,
+    Chest,
+    Furnace,
+}
+
 /// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`.
-/// The actions on the open chest change its contents in `world_map`, when it holds them.
+/// The actions on the open chest or furnace change it in `world_map`, when it holds it.
 pub fn simulate_inventory_actions(
     player: &mut Player,
     world_map: &mut ChunkMap,
@@ -143,8 +183,8 @@ pub fn simulate_inventory_actions(
     caller_type: CallerType,
 ) {
     let position = player.position;
-    // A table or a chest the player walked away from, or that was broken, is closed: the
-    // dialog shrinks
+    // A table, a chest or a furnace the player walked away from, or that was broken, is
+    // closed: the dialog shrinks
     let inventory = &mut player.inventory;
     if let Some(table) = inventory.open_table {
         if !block_in_reach(world_map, position, table, BlockId::CraftingTable) {
@@ -156,25 +196,48 @@ pub fn simulate_inventory_actions(
             inventory.open_chest = None;
         }
     }
+    if let Some(furnace) = inventory.open_furnace {
+        if !furnace_in_reach(
+            |pos, id| block_in_reach(world_map, position, pos, id),
+            furnace,
+        ) {
+            inventory.open_furnace = None;
+        }
+    }
     let creative = player.game_mode.is_creative();
     let actions = input.inventory_actions.iter();
     for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
-        // A client learns the contents of a chest from the server, after opening it
-        let mut chest = player
-            .inventory
+        // A client learns what a chest or a furnace holds from the server, after opening it
+        let inventory = &player.inventory;
+        let mut chest = inventory
             .open_chest
             .and_then(|pos| Some((pos, world_map.container(pos)?.clone())));
+        let mut furnace = inventory
+            .open_furnace
+            .and_then(|pos| Some((pos, world_map.furnace(pos)?.clone())));
+        let contents = match (&mut chest, &mut furnace) {
+            (Some((_, contents)), _) => Some(OpenContents::Chest(contents)),
+            (None, Some((_, furnace))) => Some(OpenContents::Furnace(furnace)),
+            (None, None) => None,
+        };
         let applied = apply_inventory_action(
             &mut player.inventory,
             action,
             |pos, id| block_in_reach(world_map, position, pos, id),
-            chest.as_mut().map(|(_, contents)| contents),
+            contents,
             creative,
         );
         if let Some((pos, contents)) = chest {
             if world_map.container(pos) != Some(&contents) {
                 if let Some(stored) = world_map.container_mut(pos) {
                     *stored = contents;
+                }
+            }
+        }
+        if let Some((pos, furnace)) = furnace {
+            if world_map.furnace(pos) != Some(&furnace) {
+                if let Some(stored) = world_map.furnace_mut(pos) {
+                    *stored = furnace;
                 }
             }
         }
@@ -189,13 +252,14 @@ pub fn simulate_inventory_actions(
 }
 
 /// Applies `action` to `inventory`. `in_reach` tells whether a position holds a block of this
-/// kind the player can use. `chest` is what the open chest holds, `None` when it is unknown:
-/// its slots cannot be used then. The actions of the item browser's catalog need `creative`.
+/// kind the player can use. `contents` is what the open chest or furnace holds, `None` when it
+/// is unknown: its slots cannot be used then. The actions of the item browser's catalog need
+/// `creative`.
 pub fn apply_inventory_action(
     inventory: &mut Inventory,
     action: InventoryAction,
     in_reach: impl Fn(IVec3, BlockId) -> bool,
-    chest: Option<&mut Container>,
+    contents: Option<OpenContents>,
     creative: bool,
 ) -> Result<(), InventoryRefusal> {
     let creative_only = matches!(
@@ -205,53 +269,72 @@ pub fn apply_inventory_action(
     if creative_only && !creative {
         return Err(InventoryRefusal::NotInCreative);
     }
-    let Some(chest) = chest.filter(|_| inventory.open_chest.is_some()) else {
-        return apply_action(inventory, action, in_reach, false);
-    };
-    // The stacks of the chest are lent to the inventory, in its chest slots, while the action
-    // is applied: every click works the same on them
-    debug_assert!(chest_slots().all(|slot| !inventory.inner.contains_key(&slot)));
-    for (slot, stack) in chest_slots().zip(&chest.slots) {
+    // The stacks of the chest or the furnace are lent to the inventory, in its slots, while
+    // the action is applied: every click works the same on them
+    match contents {
+        Some(OpenContents::Chest(chest)) if inventory.open_chest.is_some() => {
+            let stacks: Vec<_> = chest.slots.iter_mut().collect();
+            lend(inventory, stacks, chest_slots(), |inventory| {
+                apply_action(inventory, action, in_reach, Lent::Chest)
+            })
+        }
+        Some(OpenContents::Furnace(furnace)) if inventory.open_furnace.is_some() => {
+            let stacks = vec![&mut furnace.input, &mut furnace.fuel, &mut furnace.output];
+            lend(inventory, stacks, furnace_slots(), |inventory| {
+                apply_action(inventory, action, in_reach, Lent::Furnace)
+            })
+        }
+        _ => apply_action(inventory, action, in_reach, Lent::Nothing),
+    }
+}
+
+/// Lends `stacks` to `inventory` in `slots` while `apply` runs, and takes back what the slots
+/// hold then.
+fn lend(
+    inventory: &mut Inventory,
+    mut stacks: Vec<&mut Option<ItemStack>>,
+    slots: Range<u32>,
+    apply: impl FnOnce(&mut Inventory) -> Result<(), InventoryRefusal>,
+) -> Result<(), InventoryRefusal> {
+    debug_assert!(slots
+        .clone()
+        .all(|slot| !inventory.inner.contains_key(&slot)));
+    for (slot, stack) in slots.clone().zip(&stacks) {
         if let Some(stack) = stack {
             inventory.inner.insert(slot, *stack);
         }
     }
-    let applied = apply_action(inventory, action, in_reach, true);
-    for (slot, stack) in chest_slots().zip(&mut chest.slots) {
-        *stack = inventory.inner.remove(&slot);
+    let applied = apply(inventory);
+    for (slot, stack) in slots.zip(&mut stacks) {
+        **stack = inventory.inner.remove(&slot);
     }
     applied
 }
 
-/// `apply_inventory_action`, with the stacks of the open chest in the chest slots of
-/// `inventory` when `chest_lent`.
+/// `apply_inventory_action`, with the stacks of the open chest or furnace in its slots of
+/// `inventory`, as `lent` says.
 fn apply_action(
     inventory: &mut Inventory,
     action: InventoryAction,
     in_reach: impl Fn(IVec3, BlockId) -> bool,
-    chest_lent: bool,
+    lent: Lent,
 ) -> Result<(), InventoryRefusal> {
     let size = grid_size(inventory, &in_reach);
     let mut floating = inventory.floating.take();
     let applied = match action {
-        InventoryAction::LeftClickSlot(slot) => {
-            check_slot(inventory, slot, size, floating, chest_lent)
-                .map(|()| left_click_slot(inventory, slot, &mut floating))
-        }
-        InventoryAction::RightClickSlot(slot) => {
-            check_slot(inventory, slot, size, floating, chest_lent)
-                .map(|()| right_click_slot(inventory, slot, &mut floating))
-        }
-        InventoryAction::QuickMoveSlot(slot) => {
-            check_slot(inventory, slot, size, floating, chest_lent)
-                .map(|()| quick_move_slot(inventory, slot, chest_lent))
-        }
+        InventoryAction::LeftClickSlot(slot) => check_slot(inventory, slot, size, floating, lent)
+            .and_then(|()| left_click_slot(inventory, slot, &mut floating)),
+        InventoryAction::RightClickSlot(slot) => check_slot(inventory, slot, size, floating, lent)
+            .and_then(|()| right_click_slot(inventory, slot, &mut floating)),
+        InventoryAction::QuickMoveSlot(slot) => check_slot(inventory, slot, size, floating, lent)
+            .map(|()| quick_move_slot(inventory, slot, lent)),
         InventoryAction::SwapWithHotbar { slot, hotbar } => {
-            swap_with_hotbar(inventory, slot, hotbar, size, floating, chest_lent)
+            swap_with_hotbar(inventory, slot, hotbar, size, floating, lent)
         }
         InventoryAction::Close => {
             inventory.open_table = None;
             inventory.open_chest = None;
+            inventory.open_furnace = None;
             if let Some(stack) = floating {
                 floating = put_back(inventory, stack);
             }
@@ -269,6 +352,7 @@ fn apply_action(
             if in_reach(table, BlockId::CraftingTable) {
                 inventory.open_table = Some(table);
                 inventory.open_chest = None;
+                inventory.open_furnace = None;
                 Ok(())
             } else {
                 Err(InventoryRefusal::NoTable(table))
@@ -278,9 +362,20 @@ fn apply_action(
             if in_reach(chest, BlockId::Chest) {
                 inventory.open_chest = Some(chest);
                 inventory.open_table = None;
+                inventory.open_furnace = None;
                 Ok(())
             } else {
                 Err(InventoryRefusal::NoChest(chest))
+            }
+        }
+        InventoryAction::OpenFurnace(furnace) => {
+            if furnace_in_reach(&in_reach, furnace) {
+                inventory.open_furnace = Some(furnace);
+                inventory.open_table = None;
+                inventory.open_chest = None;
+                Ok(())
+            } else {
+                Err(InventoryRefusal::NoFurnace(furnace))
             }
         }
         InventoryAction::TakeFromCatalog {
@@ -411,18 +506,30 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
 
 /// Shift+click on `slot`: moves its stack from the hotbar to the backpack or the other way
 /// round, and from a crafting grid cell into the whole inventory. With a chest open, it moves
-/// it from the inventory to the chest and from the chest to the inventory. What does not fit
-/// stays.
-fn quick_move_slot(inventory: &mut Inventory, slot: u32, chest_open: bool) {
+/// it from the inventory to the chest and from the chest to the inventory; with a furnace open,
+/// from the inventory to the input if it smelts, else to the fuel slot if it burns, and from
+/// the furnace to the inventory. What does not fit stays.
+fn quick_move_slot(inventory: &mut Inventory, slot: u32, lent: Lent) {
     let Some(stack) = inventory.inner.remove(&slot) else {
         return;
     };
-    let range = if chest_slots().contains(&slot) {
+    let range = if chest_slots().contains(&slot) || furnace_slots().contains(&slot) {
         Some(0..MAX_INVENTORY_SLOTS)
-    } else if chest_open && slot < MAX_INVENTORY_SLOTS {
-        Some(chest_slots())
-    } else {
+    } else if slot >= MAX_INVENTORY_SLOTS {
         None
+    } else {
+        match lent {
+            Lent::Chest => Some(chest_slots()),
+            Lent::Furnace if smelting_result(stack.item_id).is_some() => {
+                Some(FURNACE_INPUT_SLOT..FURNACE_FUEL_SLOT)
+            }
+            Lent::Furnace if fuel_ticks(stack.item_id).is_some() => {
+                Some(FURNACE_FUEL_SLOT..FURNACE_OUTPUT_SLOT)
+            }
+            // Neither smelts nor burns: it stays
+            Lent::Furnace => Some(slot..slot),
+            Lent::Nothing => None,
+        }
     };
     let kept = if let Some(range) = range {
         let kept = inventory.add_item_to_range(stack, range);
@@ -448,7 +555,7 @@ fn swap_with_hotbar(
     hotbar: u32,
     size: u32,
     floating: Option<ItemStack>,
-    chest_open: bool,
+    lent: Lent,
 ) -> Result<(), InventoryRefusal> {
     if hotbar >= HOTBAR_SLOTS {
         return Err(InventoryRefusal::InvalidSlot(hotbar));
@@ -456,9 +563,16 @@ fn swap_with_hotbar(
     if floating.is_some() {
         return Err(InventoryRefusal::HoldingAStack);
     }
-    let in_chest = chest_open && chest_slots().contains(&slot);
-    if slot >= MAX_INVENTORY_SLOTS && !grid_slots(size).any(|cell| cell == slot) && !in_chest {
+    if slot >= MAX_INVENTORY_SLOTS
+        && !grid_slots(size).any(|cell| cell == slot)
+        && !is_lent(slot, lent)
+    {
         return Err(InventoryRefusal::InvalidSlot(slot));
+    }
+    if let Some(held) = inventory.inner.get(&hotbar) {
+        if !takes(slot, held.item_id) {
+            return Err(InventoryRefusal::NotTaken(slot));
+        }
     }
     let in_slot = inventory.inner.remove(&slot);
     let in_hotbar = inventory.inner.remove(&hotbar);
@@ -513,22 +627,40 @@ fn take_craft_result(
     Ok(())
 }
 
-/// A click may reach the inventory, the grid in use and the open chest. Cells beyond the grid
-/// may only be emptied, with nothing in the cursor.
+/// Whether `slot` is one of the open chest or furnace whose stacks are `lent`.
+fn is_lent(slot: u32, lent: Lent) -> bool {
+    match lent {
+        Lent::Nothing => false,
+        Lent::Chest => chest_slots().contains(&slot),
+        Lent::Furnace => furnace_slots().contains(&slot),
+    }
+}
+
+/// Whether `item` may be put into `slot`: the output of a furnace takes nothing, its fuel slot
+/// only a fuel, every other slot anything.
+fn takes(slot: u32, item: ItemId) -> bool {
+    match slot {
+        FURNACE_OUTPUT_SLOT => false,
+        FURNACE_FUEL_SLOT => fuel_ticks(item).is_some(),
+        _ => true,
+    }
+}
+
+/// A click may reach the inventory, the grid in use and the open chest or furnace. Cells
+/// beyond the grid may only be emptied, with nothing in the cursor.
 fn check_slot(
     inventory: &Inventory,
     slot: u32,
     size: u32,
     floating: Option<ItemStack>,
-    chest_open: bool,
+    lent: Lent,
 ) -> Result<(), InventoryRefusal> {
     let takes_a_leftover =
         is_beyond_the_grid(slot, size) && floating.is_none() && inventory.inner.contains_key(&slot);
-    let in_chest = chest_open && chest_slots().contains(&slot);
     if slot < MAX_INVENTORY_SLOTS
         || grid_slots(size).any(|cell| cell == slot)
         || takes_a_leftover
-        || in_chest
+        || is_lent(slot, lent)
     {
         Ok(())
     } else {
@@ -584,16 +716,35 @@ fn add_item_floating_stack(
 }
 
 /// Left click on `slot`: tops the slot up from the floating stack when both hold the same
-/// item and the slot has room, and swaps the two otherwise.
-fn left_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut Option<ItemStack>) {
+/// item and the slot has room, and swaps the two otherwise. A slot that does not take the
+/// floating item only gives: the floating stack takes from it what it can hold when both hold
+/// the same item.
+fn left_click_slot(
+    inventory: &mut Inventory,
+    slot: u32,
+    floating_stack: &mut Option<ItemStack>,
+) -> Result<(), InventoryRefusal> {
     let in_slot = inventory.inner.get(&slot).copied();
+
+    if let Some(floating) = *floating_stack {
+        if !takes(slot, floating.item_id) {
+            let Some(in_slot) = in_slot.filter(|in_slot| in_slot.item_id == floating.item_id)
+            else {
+                return Err(InventoryRefusal::NotTaken(slot));
+            };
+            let room = floating.item_id.get_max_stack().saturating_sub(floating.nb);
+            let taken = inventory.remove_item_from_stack(slot, room);
+            add_item_floating_stack(floating_stack, taken, in_slot.item_id, in_slot.item_type);
+            return Ok(());
+        }
+    }
 
     if let (Some(in_slot), Some(floating)) = (in_slot, *floating_stack) {
         let room = in_slot.item_id.get_max_stack().saturating_sub(in_slot.nb);
         if in_slot.item_id == floating.item_id && room > 0 {
             let moved = remove_item_floating_stack(floating_stack, room);
             inventory.add_item_to_stack(slot, moved, floating.item_id, in_slot.item_type);
-            return;
+            return Ok(());
         }
     }
 
@@ -602,14 +753,23 @@ fn left_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut Op
         None => inventory.inner.remove(&slot),
     };
     *floating_stack = in_slot;
+    Ok(())
 }
 
 /// Right click on `slot`: with a floating stack, drops one of its items into the slot if the
-/// slot is empty or holds the same item; without one, picks up half of the slot, rounded up.
-fn right_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut Option<ItemStack>) {
+/// slot takes it and is empty or holds the same item; without one, picks up half of the slot,
+/// rounded up.
+fn right_click_slot(
+    inventory: &mut Inventory,
+    slot: u32,
+    floating_stack: &mut Option<ItemStack>,
+) -> Result<(), InventoryRefusal> {
     let in_slot = inventory.inner.get(&slot).copied();
 
     match (*floating_stack, in_slot) {
+        (Some(floating), _) if !takes(slot, floating.item_id) => {
+            return Err(InventoryRefusal::NotTaken(slot));
+        }
         (Some(floating), in_slot) => {
             let accepts = in_slot.is_none_or(|in_slot| in_slot.item_id == floating.item_id);
             if accepts && floating.nb > 0 {
@@ -624,12 +784,13 @@ fn right_click_slot(inventory: &mut Inventory, slot: u32, floating_stack: &mut O
         }
         (None, None) => {}
     }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{grid_slot, BlockId, ChunkMap, RecipeView};
+    use crate::world::{grid_slot, BlockId, ChunkMap, Furnace, RecipeView};
     use bevy::math::{IVec3, Vec3};
     use bevy::prelude::Transform;
 
@@ -1569,6 +1730,361 @@ mod tests {
         world.remove_block(CHEST);
         act(&mut player, &mut world, Vec::new());
         assert_eq!(player.inventory.open_chest, None);
+    }
+
+    const FURNACE: IVec3 = TABLE;
+
+    /// A player by an open furnace at `FURNACE`, which holds `furnace`.
+    fn by_an_open_furnace(furnace: Furnace) -> (Player, ChunkMap) {
+        let (mut player, mut world) = player_by(BlockId::Furnace, NEAR);
+        world.insert_furnace(FURNACE, furnace);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenFurnace(FURNACE)],
+        );
+        assert_eq!(player.inventory.open_furnace, Some(FURNACE));
+        world.take_changed_furnaces();
+        (player, world)
+    }
+
+    fn furnace_holding(
+        input: Option<ItemStack>,
+        fuel: Option<ItemStack>,
+        output: Option<ItemStack>,
+    ) -> Furnace {
+        Furnace {
+            input,
+            fuel,
+            output,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_furnace_slots_follow_the_chest_slots() {
+        assert_eq!(furnace_slots(), 72..75);
+        assert_eq!(
+            [FURNACE_INPUT_SLOT, FURNACE_FUEL_SLOT, FURNACE_OUTPUT_SLOT],
+            [72, 73, 74]
+        );
+        assert_eq!(FURNACE_INPUT_SLOT, chest_slots().end);
+    }
+
+    #[test]
+    fn a_furnace_lit_or_out_opens_within_reach_and_closes_a_table_or_a_chest() {
+        for id in [BlockId::Furnace, BlockId::LitFurnace] {
+            let (mut player, mut world) = player_by(id, FAR);
+            act(
+                &mut player,
+                &mut world,
+                vec![InventoryAction::OpenFurnace(FURNACE)],
+            );
+            assert_eq!(player.inventory.open_furnace, None, "{id:?}");
+
+            for (table, chest) in [(Some(IVec3::ZERO), None), (None, Some(IVec3::ZERO))] {
+                let (mut player, mut world) = player_by(id, NEAR);
+                player.inventory.open_table = table;
+                player.inventory.open_chest = chest;
+                act(
+                    &mut player,
+                    &mut world,
+                    vec![InventoryAction::OpenFurnace(FURNACE)],
+                );
+                assert_eq!(player.inventory.open_furnace, Some(FURNACE), "{id:?}");
+                assert_eq!(player.inventory.open_table, None);
+                assert_eq!(player.inventory.open_chest, None);
+            }
+        }
+
+        let (mut player, mut world) = player_by(BlockId::Stone, NEAR);
+        let open = InventoryAction::OpenFurnace(FURNACE);
+        let refusal = apply_inventory_action(
+            &mut player.inventory,
+            open,
+            |pos, id| world.get_block(pos).is_some_and(|block| block.id == id),
+            None,
+            false,
+        );
+        assert_eq!(refusal, Err(InventoryRefusal::NoFurnace(FURNACE)));
+        act(&mut player, &mut world, vec![open]);
+        assert_eq!(player.inventory.open_furnace, None);
+    }
+
+    #[test]
+    fn opening_a_table_or_a_chest_closes_the_furnace() {
+        for (id, open) in [
+            (
+                BlockId::CraftingTable,
+                InventoryAction::OpenCraftingTable(TABLE),
+            ),
+            (BlockId::Chest, InventoryAction::OpenChest(TABLE)),
+        ] {
+            let (mut player, mut world) = player_by(id, NEAR);
+            player.inventory.open_furnace = Some(IVec3::ZERO);
+            act(&mut player, &mut world, vec![open]);
+            assert_eq!(player.inventory.open_furnace, None, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn clicks_move_items_between_the_furnace_and_the_inventory() {
+        let (mut player, mut world) =
+            by_an_open_furnace(furnace_holding(Some(stack(ItemId::Sand, 10)), None, None));
+        player.inventory.inner.insert(0, stack(ItemId::Coal, 3));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::RightClickSlot(FURNACE_INPUT_SLOT),
+                InventoryAction::LeftClickSlot(9),
+                InventoryAction::LeftClickSlot(0),
+                InventoryAction::LeftClickSlot(FURNACE_FUEL_SLOT),
+            ],
+        );
+
+        let expected = furnace_holding(
+            Some(stack(ItemId::Sand, 5)),
+            Some(stack(ItemId::Coal, 3)),
+            None,
+        );
+        assert_eq!(world.furnace(FURNACE), Some(&expected));
+        assert_eq!(player.inventory.inner.len(), 1);
+        assert_eq!(player.inventory.inner[&9], stack(ItemId::Sand, 5));
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(world.take_changed_furnaces(), vec![FURNACE]);
+    }
+
+    #[test]
+    fn the_fuel_slot_takes_only_fuels() {
+        let (mut player, mut world) = by_an_open_furnace(Furnace::default());
+        player.inventory.inner.insert(0, stack(ItemId::Sand, 4));
+        player.inventory.inner.insert(1, stack(ItemId::Coal, 2));
+        let fuel = |world: &ChunkMap| world.furnace(FURNACE).unwrap().fuel;
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::LeftClickSlot(0),
+                InventoryAction::LeftClickSlot(FURNACE_FUEL_SLOT),
+                InventoryAction::RightClickSlot(FURNACE_FUEL_SLOT),
+            ],
+        );
+        assert_eq!(fuel(&world), None);
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Sand, 4)));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::LeftClickSlot(0),
+                InventoryAction::SwapWithHotbar {
+                    slot: FURNACE_FUEL_SLOT,
+                    hotbar: 0,
+                },
+            ],
+        );
+        assert_eq!(fuel(&world), None);
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Sand, 4));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::SwapWithHotbar {
+                slot: FURNACE_FUEL_SLOT,
+                hotbar: 1,
+            }],
+        );
+        assert_eq!(fuel(&world), Some(stack(ItemId::Coal, 2)));
+        assert!(!player.inventory.inner.contains_key(&1));
+    }
+
+    #[test]
+    fn the_output_gives_and_takes_nothing() {
+        let (mut player, mut world) =
+            by_an_open_furnace(furnace_holding(None, None, Some(stack(ItemId::Glass, 10))));
+        let output = |world: &ChunkMap| world.furnace(FURNACE).unwrap().output;
+
+        // A cursor holding the same item takes what it can hold
+        player.inventory.floating = Some(stack(ItemId::Glass, 60));
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::LeftClickSlot(FURNACE_OUTPUT_SLOT),
+                InventoryAction::RightClickSlot(FURNACE_OUTPUT_SLOT),
+            ],
+        );
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Glass, 64)));
+        assert_eq!(output(&world), Some(stack(ItemId::Glass, 6)));
+
+        // Another item is neither put there nor swapped
+        player.inventory.floating = Some(stack(ItemId::Sand, 1));
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(FURNACE_OUTPUT_SLOT)],
+        );
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Sand, 1)));
+        assert_eq!(output(&world), Some(stack(ItemId::Glass, 6)));
+
+        player.inventory.floating = None;
+        player.inventory.inner.insert(5, stack(ItemId::Sand, 1));
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::SwapWithHotbar {
+                    slot: FURNACE_OUTPUT_SLOT,
+                    hotbar: 5,
+                },
+                InventoryAction::SwapWithHotbar {
+                    slot: FURNACE_OUTPUT_SLOT,
+                    hotbar: 6,
+                },
+            ],
+        );
+        assert_eq!(player.inventory.inner[&5], stack(ItemId::Sand, 1));
+        assert_eq!(player.inventory.inner[&6], stack(ItemId::Glass, 6));
+        assert_eq!(output(&world), None);
+
+        // An empty cursor takes the whole stack
+        world.furnace_mut(FURNACE).unwrap().output = Some(stack(ItemId::Glass, 3));
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(FURNACE_OUTPUT_SLOT)],
+        );
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Glass, 3)));
+        assert_eq!(output(&world), None);
+    }
+
+    #[test]
+    fn shift_click_sends_what_smelts_to_the_input_a_fuel_to_the_fuel_and_keeps_the_rest() {
+        let (mut player, mut world) = by_an_open_furnace(Furnace::default());
+        for (slot, item, nb) in [
+            (0, ItemId::Cobblestone, 10),
+            (1, ItemId::Coal, 5),
+            (2, ItemId::Dirt, 3),
+            (12, ItemId::Sand, 64),
+        ] {
+            player.inventory.inner.insert(slot, stack(item, nb));
+        }
+
+        act(
+            &mut player,
+            &mut world,
+            [0, 1, 2, 12].map(InventoryAction::QuickMoveSlot).to_vec(),
+        );
+
+        // the sand finds the input taken by the cobblestone, and the dirt neither smelts nor burns
+        let expected = furnace_holding(
+            Some(stack(ItemId::Cobblestone, 10)),
+            Some(stack(ItemId::Coal, 5)),
+            None,
+        );
+        assert_eq!(world.furnace(FURNACE), Some(&expected));
+        assert_eq!(player.inventory.inner.len(), 2);
+        assert_eq!(player.inventory.inner[&2], stack(ItemId::Dirt, 3));
+        assert_eq!(player.inventory.inner[&12], stack(ItemId::Sand, 64));
+    }
+
+    #[test]
+    fn shift_click_on_a_furnace_slot_sends_its_stack_to_the_inventory() {
+        let (mut player, mut world) = by_an_open_furnace(furnace_holding(
+            Some(stack(ItemId::Sand, 3)),
+            Some(stack(ItemId::Coal, 2)),
+            Some(stack(ItemId::Glass, 5)),
+        ));
+
+        act(
+            &mut player,
+            &mut world,
+            [FURNACE_OUTPUT_SLOT, FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT]
+                .map(InventoryAction::QuickMoveSlot)
+                .to_vec(),
+        );
+
+        assert_eq!(world.furnace(FURNACE), Some(&Furnace::default()));
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Glass, 5));
+        assert_eq!(player.inventory.inner[&1], stack(ItemId::Coal, 2));
+        assert_eq!(player.inventory.inner[&2], stack(ItemId::Sand, 3));
+    }
+
+    #[test]
+    fn closing_keeps_the_stacks_in_the_furnace() {
+        let (mut player, mut world) =
+            by_an_open_furnace(furnace_holding(Some(stack(ItemId::Sand, 3)), None, None));
+
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::RightClickSlot(FURNACE_INPUT_SLOT),
+                InventoryAction::Close,
+            ],
+        );
+
+        assert_eq!(player.inventory.open_furnace, None);
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Sand, 2));
+        assert_eq!(
+            world.furnace(FURNACE),
+            Some(&furnace_holding(Some(stack(ItemId::Sand, 1)), None, None))
+        );
+    }
+
+    #[test]
+    fn a_furnace_stays_open_as_it_lights_and_closes_out_of_reach_or_broken() {
+        let (mut player, mut world) = by_an_open_furnace(Furnace::default());
+        world.set_block(
+            FURNACE,
+            crate::world::BlockData::new(BlockId::LitFurnace, crate::world::BlockDirection::Back),
+        );
+        act(&mut player, &mut world, Vec::new());
+        assert_eq!(player.inventory.open_furnace, Some(FURNACE));
+
+        player.position = FAR;
+        act(&mut player, &mut world, Vec::new());
+        assert_eq!(player.inventory.open_furnace, None);
+
+        let (mut player, mut world) = by_an_open_furnace(Furnace::default());
+        world.remove_block(FURNACE);
+        act(&mut player, &mut world, Vec::new());
+        assert_eq!(player.inventory.open_furnace, None);
+    }
+
+    #[test]
+    fn the_furnace_slots_are_refused_unless_its_furnace_is_open_and_known() {
+        let sand = furnace_holding(Some(stack(ItemId::Sand, 3)), None, None);
+        let click = vec![InventoryAction::LeftClickSlot(FURNACE_INPUT_SLOT)];
+
+        // Not open
+        let (mut player, mut world) = player_by(BlockId::Furnace, NEAR);
+        world.insert_furnace(FURNACE, sand.clone());
+        act(&mut player, &mut world, click.clone());
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(world.furnace(FURNACE), Some(&sand));
+
+        // Open by a client the server has not sent its state yet
+        let (mut player, mut world) = player_by(BlockId::Furnace, NEAR);
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::OpenFurnace(FURNACE)],
+        );
+        player.inventory.floating = Some(stack(ItemId::Dirt, 3));
+        act(&mut player, &mut world, click.clone());
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Dirt, 3)));
+        assert!(player.inventory.inner.is_empty());
+
+        // A chest open instead
+        let (mut player, mut world) = by_an_open_chest(Container::default());
+        player.inventory.floating = Some(stack(ItemId::Dirt, 3));
+        act(&mut player, &mut world, click);
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Dirt, 3)));
+        assert!(player.inventory.inner.is_empty());
     }
 
     #[test]

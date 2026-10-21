@@ -401,6 +401,7 @@ fn bench_player_updates() {
             last_ack_time: 1234,
             inventory,
             open_chest: None,
+            open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             game_mode: Default::default(),
             death_cause: None,

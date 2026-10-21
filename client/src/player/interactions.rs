@@ -81,6 +81,9 @@ pub fn handle_block_interactions(
     {
         Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(target.position)),
         Some(BlockId::Chest) => Some(InventoryAction::OpenChest(target.position)),
+        Some(BlockId::Furnace | BlockId::LitFurnace) => {
+            Some(InventoryAction::OpenFurnace(target.position))
+        }
         _ => None,
     };
     let opens = opens.filter(|_| !sneaking && mouse_input.just_pressed(MouseButton::Right));
