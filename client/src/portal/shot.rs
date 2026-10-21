@@ -289,17 +289,18 @@ pub(super) fn fly_bolts(
         bolt.age += time.delta_secs();
         let shot = bolt.shot;
         let flight = bolt.flight();
+        // Even when a long frame takes it past the end of its trail at once
+        if bolt.age >= flight && !bolt.burst {
+            bolt.burst = true;
+            *visibility = Visibility::Hidden;
+            burst(&mut commands, &shot, &bolt.spark);
+        }
         if bolt.age >= flight + TRAIL_TIME {
             commands.entity(bolt.trail).despawn();
             commands.entity(entity).despawn();
             continue;
         }
         transform.translation = bolt.position();
-        if bolt.age >= flight && !bolt.burst {
-            bolt.burst = true;
-            *visibility = Visibility::Hidden;
-            burst(&mut commands, &shot, &bolt.spark);
-        }
         let (tail, head) = trail_at(&shot, bolt.age);
         if let Ok((mut trail, mut shown)) = trails.get_mut(bolt.trail) {
             let length = tail.distance(head);

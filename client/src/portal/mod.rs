@@ -1493,4 +1493,19 @@ mod tests {
         let world = app.world_mut();
         assert_eq!(world.query::<&shot::Trail>().iter(world).count(), 0);
     }
+
+    #[test]
+    fn a_bolt_bursts_even_when_a_long_frame_takes_it_past_its_trail() {
+        let mut app = app();
+        fire_at(&mut app, &orange(), false);
+        app.update();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(200),
+        ));
+        app.update();
+        app.update();
+        assert!(bolt_ages(&mut app).is_empty());
+        let world = app.world_mut();
+        assert!(world.query::<&particles::Particle>().iter(world).count() > 0);
+    }
 }
