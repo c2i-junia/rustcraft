@@ -11,7 +11,7 @@ use crate::{
     },
     world::{world_position_to_chunk_position, BlockId, ChunkMap, PORTAL_HEIGHT, PORTAL_WIDTH},
 };
-use bevy::prelude::*;
+use bevy::{math::Affine3A, prelude::*};
 
 use super::Player;
 
@@ -63,15 +63,33 @@ pub struct Look {
 }
 
 impl Look {
+    /// The upright look of a camera rotated by `rotation` gone through a portal pair by
+    /// `through`. See `upright`: the pair turns the camera over when it takes the world's up
+    /// down, out of a floor portal into a floor one or of a ceiling one into a ceiling one.
+    pub fn through(through: &Affine3A, rotation: Quat) -> Self {
+        let turned_over = through.transform_vector3(Vec3::Y).y < 0.0;
+        Self::upright(Quat::from_mat3a(&through.matrix3) * rotation, turned_over)
+    }
+
     /// The upright look closest to the camera rotated by `rotation`: the yaw of where it looks,
-    /// or of its up when it looks straight up or down, and its pitch, clamped.
-    pub fn upright(rotation: Quat) -> Self {
+    /// or of its up when it looks straight up or down, and its pitch, clamped. A camera
+    /// `turned_over` by a portal pair keeps the yaw of where it looks but within a hair of the
+    /// vertical.
+    pub fn upright(rotation: Quat, turned_over: bool) -> Self {
         let (forward, up) = (rotation * Vec3::NEG_Z, rotation * Vec3::Y);
         // Of an upright camera looking down by θ toward h, `forward.xz` is h·cos θ and `up.xz`
         // h·sin θ: this is h, from the look near the horizon and from the top of the view near
-        // the vertical, where a rolled camera has it too
-        let heading =
-            forward.xz() * (1.0 - forward.y * forward.y).max(0.0).sqrt() - up.xz() * forward.y;
+        // the vertical, where a rolled camera has it too. Near the vertical, a camera walked
+        // into a wall portal and out of a floor one may lean a hair past it: the top of the view
+        // stays, not the lean nobody sees. A pair that turns the camera over turns every look
+        // so, at any pitch: the view's top turned over is the passing itself, and the player
+        // goes on looking where it looked, its top of the view taken but when the look gives
+        // no heading, within 0.06° of the vertical
+        let heading = if turned_over && forward.xz().length() > 1e-3 {
+            forward.xz()
+        } else {
+            forward.xz() * (1.0 - forward.y * forward.y).max(0.0).sqrt() - up.xz() * forward.y
+        };
         let max_pitch = MAX_PITCH_DEGREES.to_radians();
         Self {
             yaw: (-heading.x).atan2(-heading.y),
@@ -190,7 +208,7 @@ fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) ->
     let camera = &mut player.camera_transform;
     let level = through.transform_vector3(eyes.with_y(0.0)).with_y(0.0);
     camera.translation = player.position + level + Vec3::Y * eyes.y;
-    let look = Look::upright(Quat::from_mat3a(&through.matrix3) * camera.rotation);
+    let look = Look::through(&through, camera.rotation);
     camera.rotation = look.rotation();
     Some(look)
 }
@@ -1862,6 +1880,47 @@ mod tests {
     }
 
     #[test]
+    fn out_of_a_floor_into_a_floor_or_of_a_ceiling_into_a_ceiling_the_look_goes_on() {
+        // Upside down out of the twin: the look keeps its horizontal direction and its slope
+        let floor_twin = Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(20, 63, 0),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::PlusX,
+        };
+        let mut ceilings = floor_portal_world(Some(ceiling_twin()));
+        ceilings.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(17, 80, -4),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::PlusZ,
+        });
+        for world in [floor_portal_world(Some(floor_twin)), ceilings] {
+            let portals = world.portals();
+            let through = portals
+                .through(portals.get(7, PortalColor::Blue).unwrap())
+                .unwrap();
+            for degrees in [30.0f32, 45.0, 60.0, 89.0, -30.0, -45.0, -60.0, -89.0] {
+                let camera = Look {
+                    yaw: 0.3,
+                    pitch: degrees.to_radians(),
+                }
+                .rotation();
+                let turned = Quat::from_mat3a(&through.matrix3) * camera;
+                let look = Look::through(&through, camera);
+                let (wanted, got) = (turned * Vec3::NEG_Z, look.rotation() * Vec3::NEG_Z);
+                assert!(
+                    wanted.xz().normalize().dot(got.xz().normalize()) > 0.999,
+                    "{degrees}: {look:?}"
+                );
+                assert!((wanted.y - got.y).abs() < 1e-3, "{degrees}: {look:?}");
+            }
+        }
+    }
+
+    #[test]
     fn walking_out_of_a_floor_portal_looking_nearly_up_keeps_the_top_of_the_view() {
         // Into the wall portal facing south, out of the floor portal, its up north
         let world = floor_portal_world(Some(wall_twin()));
@@ -1873,7 +1932,7 @@ mod tests {
             let pitch = degrees.to_radians();
             let camera = Look { yaw: 0.0, pitch }.rotation();
             let turned = Quat::from_mat3a(&through.matrix3) * camera;
-            let look = Look::upright(turned);
+            let look = Look::through(&through, camera);
             // The top of the view stays where the portal took it, to the north: not flipped
             let up = look.rotation() * Vec3::Y;
             assert!(up.dot(turned * Vec3::Y) > 0.99, "{degrees}: {look:?}");
@@ -1984,7 +2043,7 @@ mod tests {
         let west = std::f32::consts::FRAC_PI_2;
         // Looking west, rolled a quarter turn: its up to the north
         let rolled = Transform::default().looking_to(Vec3::NEG_X, Vec3::NEG_Z);
-        let look = Look::upright(rolled.rotation);
+        let look = Look::upright(rolled.rotation, false);
         assert!(
             (look.yaw - west).abs() < 1e-5 && look.pitch.abs() < 1e-5,
             "{look:?}"
@@ -1993,7 +2052,7 @@ mod tests {
         // leaning as far toward the top of the view, north, as the look leans down
         let down = Vec3::new(-1.0, -0.2, 0.0);
         let rolled = Transform::default().looking_to(down, Vec3::NEG_Z);
-        let look = Look::upright(rolled.rotation);
+        let look = Look::upright(rolled.rotation, false);
         let lean = down.normalize().y.abs().asin();
         assert!((look.yaw - (west - lean)).abs() < 0.02, "{look:?}");
         assert!(
@@ -2002,7 +2061,7 @@ mod tests {
         );
         // Straight down, the top of the view to the west: the heading is the top's
         let looking_down = Transform::default().looking_to(Vec3::NEG_Y, Vec3::NEG_X);
-        let look = Look::upright(looking_down.rotation);
+        let look = Look::upright(looking_down.rotation, false);
         assert!((look.yaw - west).abs() < 1e-5, "{look:?}");
         assert!(
             (look.pitch - MAX_PITCH_DEGREES.to_radians()).abs() < 1e-5,
