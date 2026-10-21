@@ -314,8 +314,12 @@ or push.
 20. (Lot 2) The shake (`RefusalShake`, on any `Slot`) moves the slot's `UiTransform` by
     `round(3 px * sin(2 pi t / 80 ms))`, three left-right periods in the 0.24 s, in whole
     logical pixels and without a new layout; its border is `DANGER` over the hover and
-    selection looks. It runs on `Time<Real>`, starts again when the slot is refused again, and
-    at its end the slot goes back in place with its look.
+    selection looks. It runs on `Time<Real>`, and at its end the slot goes back in place with
+    its look. A refusal of a slot already shaking (`RefusalShake` present), whatever the action,
+    shows nothing more: the shake goes on without starting again and the thud is not played, so
+    that a burst of refused wheel notches over one cell gives one shake and one thud. A refusal
+    of no slot keeps its thud. (Ruling of the whole-branch review; the shake used to start
+    again.)
 21. (Lot 2) The files are `sounds/ui/item_pick.ogg` and `item_place.ogg` (90 ms, a soft tick
     rising, and a soft tap falling, at -27 LUFS of the script's measure), `craft.ogg` (a
     240 ms knock of the wood contact, -21) and `refused.ogg` (a 200 ms thump from 150 to 70 Hz

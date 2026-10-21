@@ -207,7 +207,8 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// An action the player made was refused: the refused sound plays, and `slot`, when it is a
-/// `Slot`, shakes. The one way to show a refusal, whatever made the action.
+/// `Slot`, shakes. The one way to show a refusal, whatever made the action. A refusal of a slot
+/// already shaking shows nothing more: neither a new shake nor the sound.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActionRefused {
     pub slot: Option<Entity>,
@@ -235,10 +236,11 @@ pub fn shake_offset(elapsed: Duration) -> f32 {
     (SHAKE_AMPLITUDE * (std::f32::consts::TAU * turn).sin()).round()
 }
 
-/// Starts the shake of each refused slot, again from the start if it already shakes.
+/// Starts the shake of each refused slot; a slot already shaking goes on with its shake, so that
+/// a burst of refusals shakes it once.
 fn start_refusal_shakes(
     mut refusals: MessageReader<ActionRefused>,
-    slots: Query<(), With<Slot>>,
+    slots: Query<(), (With<Slot>, Without<RefusalShake>)>,
     mut commands: Commands,
 ) {
     for refused in refusals.read() {
@@ -443,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn a_slot_refused_again_while_it_shakes_starts_again() {
+    fn a_slot_refused_again_while_it_shakes_keeps_its_shake() {
         let mut app = shaking_app();
         let slot = app.world_mut().spawn((Slot, Node::default())).id();
 
@@ -452,11 +454,16 @@ mod tests {
         run_for(&mut app, 200);
         app.world_mut()
             .write_message(ActionRefused { slot: Some(slot) });
-        run_for(&mut app, 100);
+        run_for(&mut app, 40);
 
-        assert_eq!(look_of(&app, slot).1, BorderColor::all(DANGER));
-        run_for(&mut app, 140);
+        // Over at 0.24 s from the first refusal, as if the second had not come
         assert_eq!(look_of(&app, slot), (0.0, slot_colors(false, false).1));
+        assert!(app.world().get::<RefusalShake>(slot).is_none());
+        // Refused once it is still, it shakes again
+        app.world_mut()
+            .write_message(ActionRefused { slot: Some(slot) });
+        run_for(&mut app, 20);
+        assert_eq!(look_of(&app, slot), (3.0, BorderColor::all(DANGER)));
     }
 
     #[test]

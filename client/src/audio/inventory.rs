@@ -6,7 +6,7 @@ use shared::players::inventory::{InventoryAction, InventoryActionOutcome};
 use super::playback::PlaySound;
 use super::sounds::Sound;
 use crate::player::InventoryActionPredicted;
-use crate::ui::widgets::slot::ActionRefused;
+use crate::ui::widgets::slot::{ActionRefused, RefusalShake};
 
 /// The sound of an accepted inventory action: a craft knocks; a stack onto the cursor (more of
 /// its item, or another stack) is picked, items off it into slots placed, by the actions on the
@@ -50,14 +50,19 @@ pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
 }
 
 /// Plays the sounds of the inventory actions the player made this frame, and the refused sound
-/// for its refusals: each kind once a frame, however many actions an input carries.
+/// for its refusals but those of a slot already shaking: each kind once a frame, however many
+/// actions an input carries.
 pub fn inventory_sounds(
     mut predicted: MessageReader<InventoryActionPredicted>,
     mut refusals: MessageReader<ActionRefused>,
+    shaking: Query<(), With<RefusalShake>>,
     mut sounds: MessageWriter<PlaySound>,
 ) {
     let mut heard = Vec::new();
-    let refused = refusals.read().next().map(|_| Sound::Refused);
+    let refused = refusals
+        .read()
+        .any(|refused| refused.slot.is_none_or(|slot| !shaking.contains(slot)))
+        .then_some(Sound::Refused);
     // Read to the end: the next frame does not hear them again
     refusals.clear();
     let played = predicted
@@ -295,5 +300,33 @@ mod tests {
         );
         app.update();
         assert_eq!(heard(&mut app), []);
+    }
+
+    #[test]
+    fn a_refusal_of_a_slot_already_shaking_is_not_heard() {
+        let mut app = App::new();
+        app.add_message::<InventoryActionPredicted>()
+            .add_message::<ActionRefused>()
+            .add_message::<PlaySound>()
+            .add_systems(Update, inventory_sounds);
+        let shaking = app.world_mut().spawn(RefusalShake::default()).id();
+        let still = app.world_mut().spawn_empty().id();
+
+        app.world_mut().write_message(ActionRefused {
+            slot: Some(shaking),
+        });
+        app.update();
+        assert_eq!(heard(&mut app), []);
+
+        for slot in [Some(still), None] {
+            app.world_mut().write_message_batch([
+                ActionRefused {
+                    slot: Some(shaking),
+                },
+                ActionRefused { slot },
+            ]);
+            app.update();
+            assert_eq!(heard(&mut app), [Sound::Refused], "{slot:?}");
+        }
     }
 }
