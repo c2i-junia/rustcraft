@@ -16,7 +16,7 @@ momentum. Each player owns a blue and an orange portal, placed with a portal gun
 | Placement | A new item, the portal gun (`ItemId::PortalGun`, appended, stacks to one). Held in the selected hotbar slot, a left click places the blue portal and a right click the orange one, on the aimed face; it then neither breaks nor places blocks. One shot per press. Obtained with `/give` and in the creative inventory, plus a crafting recipe. |
 | Size | 2 × 3 blocks (2 wide, 3 high), aligned on the block grid. |
 | Surfaces | Vertical faces only (`FaceDirection::{PlusX, MinusX, PlusZ, MinusZ}`). |
-| Fit | Of the six 2 × 3 placements that contain the aimed cell, the first valid one, by the distance of its centre to the hit point. Valid: the six wall cells are solid full blocks, the six cells in front of them do not collide (air, flora, liquid), and it overlaps no portal of another colour or another player on that face. Otherwise nothing happens. |
+| Fit | Of the six 2 × 3 placements that contain the aimed cell, the first valid one, by the distance of its centre to the hit point. Valid: the six wall cells are solid full blocks, the six cells in front of them do not collide (air, flora, liquid), and it shares no wall cell with a portal of another colour or another player, but on the opposite face (a pair through a wall one block thick). Otherwise nothing happens. |
 | Reach | 32 blocks for the gun (the block reach stays 5). |
 | Ownership | One pair per player, seen and crossed by everyone. Placing a colour again moves that portal. |
 | Open | A portal is open when its twin exists. An open portal shows the view and lets players through; a lone one shows its colour and is a wall. |
@@ -57,22 +57,28 @@ momentum. Each player owns a blue and an orange portal, placed with a portal gun
 
 ### `client`
 
+As built, after the rulings of the ledger (`.superpowers/sdd/portals/progress.md`): Bevy's
+oblique `near_clip_plane` instead of a custom projection, the main camera's tonemapping instead
+of `Tonemapping::None` (colours through a portal match), `order: -level` for the recursion, and,
+after the rebase onto main, `PortalGun` item 36 and `PROTOCOL_ID` 22.
+
 New module `client/src/portal/`:
 
 - `camera.rs`: per open portal, a `Camera3d` rendering into an `Image` the size of the window
-  (`RenderTarget::Image`), `order: -1`, `Tonemapping::None`, its fog ending at
-  `PORTAL_VIEW_RADIUS` chunks. Its transform is computed in `PostUpdate` before transform
+  (`RenderTarget::Image`), `order: -level` (the deepest level of recursion first), the
+  tonemapping of the player's camera, its fog ending at `PORTAL_VIEW_RADIUS` chunks. Its transform is computed in `PostUpdate` before transform
   propagation, from the player's camera: `through(portal) · camera`. Inactive when the portal is
   out of the player's view or seen from behind.
-- `projection.rs`: `PortalProjection`, a `CameraProjection` used through `Projection::custom`:
-  Bevy's infinite reverse-Z perspective whose near plane is the twin's plane (`z_clip = w_clip -
-  s · (plane · p)`), the plain perspective when the camera is within 0.12 block of the plane.
+- `projection.rs`: the main camera's `PerspectiveProjection` with Bevy's oblique
+  `near_clip_plane` set to the twin's plane, the plain perspective when the camera is within
+  0.12 block of the plane.
 - `material.rs` + `portal.wgsl`: `PortalMaterial`, unlit and unfogged, samples the portal
   camera's image at `(position.xy - viewport.xy) / viewport.zw`, or shows the portal's colour
   when closed or at the last level of recursion; a separate frame mesh draws the glowing rim on
   the wall around the opening.
-- The surface is a box one block deep drawn by its inner faces, behind the plane, so that the
-  near plane of the player's camera never cuts it while passing.
+- The surface is a box half a block deep drawn by its inner faces, behind the plane, so that the
+  near plane of the player's camera never cuts it while passing, and the boxes of a pair through
+  a wall one block thick never meet.
 - `RenderLayers`: a portal camera does not see its own portal's surface (wgpu forbids sampling
   the image being written); it sees a closed-colour stand-in instead.
 - `PortalUpdates` replace the client's `Portals`; the gun's placement is predicted like blocks.
