@@ -5,7 +5,8 @@ use crate::{
     players::{movement::MAX_FRAME_DELTA_MS, Player},
     world::{
         global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, BlockTransparency,
-        ChunkMap, Container, FaceDirectionExt, ItemType, MobKind, RaycastResponse, ServerMob, Tool,
+        ChunkMap, Container, FaceDirectionExt, Furnace, ItemType, MobKind, RaycastResponse,
+        ServerMob, Tool,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -83,8 +84,10 @@ pub struct BrokenBlock {
     /// What a broken chest held, dropped with it. A client only knows the contents of the
     /// chest its player has open.
     pub contents: Option<Container>,
+    /// What a broken furnace held, dropped with it, as `contents`.
+    pub furnace: Option<Furnace>,
     /// Whether the block drops its items: a block that needs a tool, like stone, drops nothing
-    /// when broken without it. What a chest held drops in any case.
+    /// when broken without it. What a chest or a furnace held drops in any case.
     pub harvested: bool,
 }
 
@@ -262,11 +265,13 @@ fn break_block(
         }
     }
     let contents = world_map.take_container(position);
+    let furnace = world_map.take_furnace(position);
     world_map.remove_block(position);
     Ok(Some(BrokenBlock {
         position,
         block: block.id,
         contents,
+        furnace,
         harvested,
     }))
 }
@@ -343,6 +348,9 @@ fn place_block(
     if block_id == BlockId::Chest {
         world_map.insert_container(position, Container::default());
     }
+    if block_id == BlockId::Furnace {
+        world_map.insert_furnace(position, Furnace::default());
+    }
     Ok(None)
 }
 
@@ -358,7 +366,7 @@ fn block_overlaps_player(block_position: IVec3, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{BlockId, ItemId, ItemStack};
+    use crate::world::{BlockId, Furnace, ItemId, ItemStack};
     use bevy::math::IVec3;
     use bevy::prelude::Transform;
 
@@ -459,6 +467,7 @@ mod tests {
                 position: TARGET,
                 block: BlockId::Dandelion,
                 contents: None,
+                furnace: None,
                 harvested: true,
             }]
         );
@@ -536,10 +545,16 @@ mod tests {
     }
 
     #[test]
-    fn right_click_on_a_table_or_a_chest_places_nothing_unless_sneaking() {
+    fn right_click_on_a_table_a_chest_or_a_furnace_places_nothing_unless_sneaking() {
         let cases = [false, true].into_iter().flat_map(|sneaking| {
             let placed = sneaking.then_some(BlockId::Dirt);
-            [BlockId::CraftingTable, BlockId::Chest].map(|used| (used, sneaking, placed))
+            [
+                BlockId::CraftingTable,
+                BlockId::Chest,
+                BlockId::Furnace,
+                BlockId::LitFurnace,
+            ]
+            .map(|used| (used, sneaking, placed))
         });
         for (used, sneaking, placed) in cases {
             let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
@@ -725,6 +740,30 @@ mod tests {
     }
 
     #[test]
+    fn placing_a_furnace_gives_it_an_empty_furnace() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
+        let position = Vec3::new(0.5, 0.5, 2.5);
+        let camera = Transform::from_translation(position);
+        let mut player = Player::new(1, "tester".to_string(), position, camera);
+        player.inventory.inner.insert(0, stack(ItemId::Furnace, 1));
+        world.fill_box(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1), BlockId::Stone);
+        let input = PlayerFrameInput {
+            inputs: [NetworkAction::RightClick].into(),
+            camera,
+            ..Default::default()
+        };
+
+        simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+
+        assert_eq!(
+            world.get_block(IVec3::ZERO).map(|b| b.id),
+            Some(BlockId::Furnace)
+        );
+        assert_eq!(world.furnace(IVec3::ZERO), Some(&Furnace::default()));
+        assert_eq!(world.container(IVec3::ZERO), None);
+    }
+
+    #[test]
     fn a_spawn_egg_makes_its_mob_appear_on_the_aimed_face_and_is_used_up() {
         let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, 0));
         let position = Vec3::new(0.5, 0.5, 2.5);
@@ -826,10 +865,52 @@ mod tests {
                 position: TARGET,
                 block: BlockId::Chest,
                 contents: Some(contents),
+                furnace: None,
                 harvested: true,
             }]
         );
         assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn a_broken_furnace_hands_its_stacks_over_with_it() {
+        for id in [BlockId::Furnace, BlockId::LitFurnace] {
+            let (mut player, mut world, input) = left_click_on(id);
+            let furnace = Furnace {
+                input: Some(stack(ItemId::Sand, 3)),
+                fuel: Some(stack(ItemId::Coal, 2)),
+                output: Some(stack(ItemId::Glass, 1)),
+                burn_left: 40,
+                ..Default::default()
+            };
+            world.insert_furnace(TARGET, furnace.clone());
+
+            let broken: Vec<BrokenBlock> = (0..id.get_break_time().unwrap())
+                .flat_map(|_| {
+                    simulate_player_block_interactions(
+                        &mut player,
+                        &mut world,
+                        &input,
+                        CallerType::Server,
+                    )
+                    .broken
+                })
+                .collect();
+
+            assert_eq!(world.furnace(TARGET), None, "{id:?}");
+            assert_eq!(
+                broken,
+                vec![BrokenBlock {
+                    position: TARGET,
+                    block: id,
+                    contents: None,
+                    furnace: Some(furnace),
+                    // without a pickaxe, the furnace itself drops nothing
+                    harvested: false,
+                }],
+                "{id:?}"
+            );
+        }
     }
 
     #[test]

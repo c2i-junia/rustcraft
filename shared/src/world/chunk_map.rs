@@ -4,7 +4,7 @@ use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
 use crate::world::{
     global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockId, BlockTransparency,
-    Chunk, Container,
+    Chunk, Container, Furnace,
 };
 
 /// The blocks of a world, on the server as on the client: the loaded chunks, and the global
@@ -12,7 +12,8 @@ use crate::world::{
 ///
 /// It also holds the contents of the chests, by position. A container only exists where a chest
 /// stands: replacing or removing the chest, or removing its chunk, drops it. The server holds
-/// the contents of every chest, a client only those of the chest its player has open.
+/// the contents of every chest, a client only those of the chest its player has open. The
+/// furnaces are held the same way, where a furnace, lit or out, stands.
 ///
 /// Positions named `pos` are global block positions, `chunk_pos` are chunk coordinates.
 #[derive(Default, Clone, Debug)]
@@ -20,6 +21,7 @@ pub struct ChunkMap {
     chunks: HashMap<IVec3, Chunk>,
     changed: HashSet<IVec3>,
     containers: Held<Container>,
+    furnaces: Held<Furnace>,
 }
 
 /// What blocks of one kind hold, by position, like the contents of the chests, and the
@@ -91,6 +93,7 @@ impl ChunkMap {
         let outside = |pos: &IVec3| global_block_to_chunk_pos(pos) != chunk_pos;
         self.changed.retain(outside);
         self.containers.remove_chunk(chunk_pos);
+        self.furnaces.remove_chunk(chunk_pos);
         Some(chunk)
     }
 
@@ -124,15 +127,21 @@ impl ChunkMap {
         if block.id != BlockId::Chest {
             self.containers.take(pos);
         }
+        // A furnace that lights or goes out keeps what it holds
+        if !block.id.is_furnace() {
+            self.furnaces.take(pos);
+        }
     }
 
     /// Empties `pos` and returns the block that was there, if any. The contents of a chest
-    /// there are dropped: take them first with `take_container`.
+    /// there are dropped, and so is a furnace: take them first with `take_container` and
+    /// `take_furnace`.
     pub fn remove_block(&mut self, pos: IVec3) -> Option<BlockData> {
         let chunk = self.chunks.get_mut(&global_block_to_chunk_pos(&pos))?;
         let removed = chunk.remove(to_local_pos(&pos))?;
         self.changed.insert(pos);
         self.containers.take(pos);
+        self.furnaces.take(pos);
         Some(removed)
     }
 
@@ -176,6 +185,49 @@ impl ChunkMap {
     /// previous call, each once, in no order.
     pub fn take_changed_containers(&mut self) -> Vec<IVec3> {
         self.containers.take_changed()
+    }
+
+    /// The furnace at `pos`, if this map holds it.
+    pub fn furnace(&self, pos: IVec3) -> Option<&Furnace> {
+        self.furnaces.values.get(&pos)
+    }
+
+    /// The furnace at `pos`, to change: it is recorded as changed.
+    pub fn furnace_mut(&mut self, pos: IVec3) -> Option<&mut Furnace> {
+        self.furnaces.get_mut(pos)
+    }
+
+    /// Stores the furnace at `pos`, replacing what this map held for it. Does nothing unless a
+    /// furnace, lit or out, stands at `pos`. This is not a change, as `insert_container`.
+    pub fn insert_furnace(&mut self, pos: IVec3, furnace: Furnace) {
+        if self
+            .get_block(pos)
+            .is_some_and(|block| block.id.is_furnace())
+        {
+            self.furnaces.values.insert(pos, furnace);
+        }
+    }
+
+    /// Removes the furnace at `pos` from this map and returns it; it is recorded as changed if
+    /// this map held it.
+    pub fn take_furnace(&mut self, pos: IVec3) -> Option<Furnace> {
+        self.furnaces.take(pos)
+    }
+
+    /// The furnaces of the chunk at `chunk_pos`, with their global position.
+    pub fn furnaces_of_chunk(&self, chunk_pos: IVec3) -> impl Iterator<Item = (IVec3, &Furnace)> {
+        self.furnaces.of_chunk(chunk_pos)
+    }
+
+    /// The positions of the furnaces this map holds, in no order.
+    pub fn furnace_positions(&self) -> impl Iterator<Item = IVec3> + '_ {
+        self.furnaces.values.keys().copied()
+    }
+
+    /// The positions of the furnaces that changed, were added or were dropped since the
+    /// previous call, each once, in no order.
+    pub fn take_changed_furnaces(&mut self) -> Vec<IVec3> {
+        self.furnaces.take_changed()
     }
 
     /// Records `pos` as changed without changing it, so that whoever drains the log reports its
@@ -260,7 +312,7 @@ fn cells_overlapped(hitbox: &Aabb3d) -> impl Iterator<Item = IVec3> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::{BlockDirection, BlockId};
+    use crate::world::{BlockDirection, BlockId, Furnace};
 
     fn block(id: BlockId) -> BlockData {
         BlockData::new(id, BlockDirection::Front)
@@ -458,6 +510,104 @@ mod tests {
         let listed: Vec<IVec3> = map.containers_of_chunk(IVec3::X).map(|(p, _)| p).collect();
         assert_eq!(listed, vec![kept]);
         assert_eq!(map.containers_of_chunk(IVec3::ZERO).count(), 0);
+    }
+
+    fn burning() -> Furnace {
+        Furnace {
+            burn_left: 7,
+            ..Default::default()
+        }
+    }
+
+    /// A map with a furnace at `pos`, burning, and no change recorded.
+    fn furnace_at(pos: IVec3) -> ChunkMap {
+        let mut map = loaded(IVec3::ZERO, IVec3::new(31, 15, 15));
+        map.set_block(pos, block(BlockId::Furnace));
+        map.insert_furnace(pos, burning());
+        map.take_changed_blocks();
+        map
+    }
+
+    #[test]
+    fn a_furnace_is_only_stored_where_a_furnace_stands_lit_or_out() {
+        let (out, lit) = (IVec3::new(1, 2, 3), IVec3::new(2, 2, 3));
+        let mut map = furnace_at(out);
+        map.set_block(lit, block(BlockId::LitFurnace));
+        map.set_block(IVec3::new(4, 4, 4), block(BlockId::Chest));
+
+        map.insert_furnace(lit, burning());
+        map.insert_furnace(IVec3::new(4, 4, 4), burning());
+        map.insert_furnace(IVec3::new(5, 5, 5), burning());
+
+        assert_eq!(map.furnace(out), Some(&burning()));
+        assert_eq!(map.furnace(lit), Some(&burning()));
+        assert_eq!(map.furnace(IVec3::new(4, 4, 4)), None);
+        assert_eq!(map.furnace(IVec3::new(5, 5, 5)), None);
+        let mut positions: Vec<IVec3> = map.furnace_positions().collect();
+        positions.sort_by_key(|pos| pos.x);
+        assert_eq!(positions, vec![out, lit]);
+        assert!(map.take_changed_furnaces().is_empty());
+    }
+
+    #[test]
+    fn a_furnace_lighting_or_going_out_keeps_its_state() {
+        let pos = IVec3::new(1, 2, 3);
+        let mut map = furnace_at(pos);
+        map.set_block(pos, block(BlockId::LitFurnace));
+        assert_eq!(map.furnace(pos), Some(&burning()));
+        map.set_block(pos, block(BlockId::Furnace));
+        assert_eq!(map.furnace(pos), Some(&burning()));
+        assert!(map.take_changed_furnaces().is_empty());
+    }
+
+    #[test]
+    fn replacing_or_removing_a_furnace_drops_it() {
+        let pos = IVec3::new(1, 2, 3);
+        let mut map = furnace_at(pos);
+        map.set_block(pos, block(BlockId::Chest));
+        assert_eq!(map.furnace(pos), None);
+        assert_eq!(map.take_changed_furnaces(), vec![pos]);
+
+        let mut map = furnace_at(pos);
+        map.remove_block(pos);
+        assert_eq!(map.furnace(pos), None);
+        assert_eq!(map.take_changed_furnaces(), vec![pos]);
+    }
+
+    #[test]
+    fn changing_or_taking_a_furnace_records_it() {
+        let pos = IVec3::new(1, 2, 3);
+        let mut map = furnace_at(pos);
+        map.furnace_mut(pos).unwrap().cook = 4;
+        assert_eq!(map.take_changed_furnaces(), vec![pos]);
+        assert!(map.take_changed_furnaces().is_empty());
+
+        let expected = Furnace {
+            cook: 4,
+            ..burning()
+        };
+        assert_eq!(map.take_furnace(pos), Some(expected));
+        assert_eq!(map.furnace(pos), None);
+        assert_eq!(map.take_changed_furnaces(), vec![pos]);
+        assert!(map.take_changed_containers().is_empty());
+    }
+
+    #[test]
+    fn removing_a_chunk_drops_its_furnaces_only() {
+        let (dropped, kept) = (IVec3::new(1, 2, 3), IVec3::new(20, 2, 3));
+        let mut map = furnace_at(dropped);
+        map.set_block(kept, block(BlockId::LitFurnace));
+        map.insert_furnace(kept, Furnace::default());
+        map.furnace_mut(dropped);
+
+        map.remove_chunk(IVec3::ZERO);
+
+        assert_eq!(map.furnace(dropped), None);
+        assert_eq!(map.furnace(kept), Some(&Furnace::default()));
+        assert!(map.take_changed_furnaces().is_empty());
+        let listed: Vec<IVec3> = map.furnaces_of_chunk(IVec3::X).map(|(p, _)| p).collect();
+        assert_eq!(listed, vec![kept]);
+        assert_eq!(map.furnaces_of_chunk(IVec3::ZERO).count(), 0);
     }
 
     #[test]

@@ -80,8 +80,8 @@ impl DroppedItems {
         )
     }
 
-    /// Drops the items of `broken` if it was harvested, and what it held if it was a chest, at
-    /// its centre, each thrown in a random direction.
+    /// Drops the items of `broken` if it was harvested, and what it held if it was a chest or a
+    /// furnace, at its centre, each thrown in a random direction.
     pub fn drop_block_items(&mut self, broken: &BrokenBlock, rng: &mut impl Rng) {
         let centre = broken.position.as_vec3() + HALF_BLOCK;
         let nb_drops = u32::from(broken.harvested);
@@ -98,7 +98,8 @@ impl DroppedItems {
             .contents
             .iter()
             .flat_map(|contents| contents.stacks());
-        for stack in drops.chain(contents) {
+        let furnace = broken.furnace.iter().flat_map(|furnace| furnace.stacks());
+        for stack in drops.chain(contents).chain(furnace) {
             let velocity = Vec3::new(
                 rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
                 POP_UPWARD_SPEED,
@@ -327,6 +328,7 @@ mod tests {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Dirt,
             contents: None,
+            furnace: None,
             harvested: true,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
@@ -350,6 +352,7 @@ mod tests {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Chest,
             contents: Some(contents),
+            furnace: None,
             harvested: true,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
@@ -367,12 +370,43 @@ mod tests {
     }
 
     #[test]
+    fn a_broken_furnace_drops_its_three_stacks_even_without_a_pickaxe() {
+        let mut items = DroppedItems::default();
+        let furnace = shared::world::Furnace {
+            input: Some(stack(ItemId::Sand, 3)),
+            fuel: Some(stack(ItemId::Coal, 2)),
+            output: Some(stack(ItemId::Glass, 5)),
+            ..Default::default()
+        };
+        let broken = BrokenBlock {
+            position: IVec3::new(3, 64, -2),
+            block: BlockId::LitFurnace,
+            contents: None,
+            furnace: Some(furnace),
+            harvested: false,
+        };
+        items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
+
+        let mut dropped: Vec<ItemStack> = items.items.values().map(|item| item.stack).collect();
+        dropped.sort_by_key(|stack| stack.item_id);
+        assert_eq!(
+            dropped,
+            [
+                stack(ItemId::Sand, 3),
+                stack(ItemId::Glass, 5),
+                stack(ItemId::Coal, 2)
+            ]
+        );
+    }
+
+    #[test]
     fn a_block_broken_without_its_tool_drops_nothing() {
         let mut items = DroppedItems::default();
         let broken = BrokenBlock {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Stone,
             contents: None,
+            furnace: None,
             harvested: false,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
@@ -392,6 +426,7 @@ mod tests {
             position: IVec3::new(3, 64, -2),
             block: BlockId::Chest,
             contents: Some(contents),
+            furnace: None,
             harvested: true,
         };
         items.drop_block_items(&broken, &mut StdRng::seed_from_u64(1));
