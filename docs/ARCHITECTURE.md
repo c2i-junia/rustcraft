@@ -225,7 +225,9 @@ move into a portal made whatever lies behind its wall, and `pass`, the transform
 point), and players, items (`step_dropped_item`) and mobs (`server/src/mob/behavior.rs`) call
 it. An item's half-width is half its size, a mob's half the larger of its width and depth. An
 entity that passes comes out with its velocity turned; a mob's body faces where it faced,
-turned upright as a camera's look, and the spot it walks to goes through too, so it walks on.
+turned upright as a camera's look, and the spot it walks to goes through too, so it walks on
+(through a floor and a wall it stops walking instead). A mob going faster than it goes by
+itself, which only a portal does, flies by its velocity until it lands.
 Each counts the portals it went through (`DroppedItem::passes`, `ServerMob::passes`, sent with
 it): a client that sees the count change puts the entity where it is told at once, instead of
 easing it across the gap. Items are sent by the chunks a client has, those around the twins
