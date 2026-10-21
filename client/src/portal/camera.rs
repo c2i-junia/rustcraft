@@ -18,7 +18,7 @@ use shared::CHUNK_SIZE;
 
 use super::material::PortalMaterial;
 use super::projection::portal_projection;
-use super::{DrawnPortals, PortalCamera, PortalSurface, PORTAL_CHUNKS_LAYER, STAND_IN_LAYER};
+use super::{camera_layers, DrawnPortals, PortalCamera, PortalRecursion, PORTAL_RECURSION};
 use crate::camera::{CameraController, FOG_START, SKY_COLOR};
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
@@ -28,33 +28,35 @@ pub(super) fn portal_image(size: UVec2) -> Image {
     Image::new_target_texture(size.x, size.y, TextureFormat::Rgba8UnormSrgb, None)
 }
 
-/// Spawns the camera of `portal`, drawing into `image`. It starts inactive:
-/// `place_portal_cameras` turns it on when the portal is in view.
+/// Spawns the camera of `level` of `portal`, drawing into `image`. It starts inactive:
+/// `place_portal_cameras` turns it on when the portal is in view at that level.
 pub(super) fn spawn_portal_camera(
     commands: &mut Commands,
     portal: &Portal,
+    level: usize,
     image: Handle<Image>,
 ) -> Entity {
     commands
         .spawn((
             Camera3d::default(),
             Camera {
-                // Before the main camera, which shows its image the same frame
-                order: -1,
+                // Before the level above, which shows its image the same frame, the player's
+                // camera, of order 0, last
+                order: -(level as isize),
                 is_active: false,
                 clear_color: ClearColorConfig::Custom(SKY_COLOR),
                 ..default()
             },
             RenderTarget::Image(image.into()),
-            // The world, the chunks the player has only for the portals, and the colours of the
-            // portals
-            RenderLayers::from_layers(&[0, STAND_IN_LAYER, PORTAL_CHUNKS_LAYER]),
+            // Set with the portals drawn by `place_portal_cameras`
+            RenderLayers::none(),
             // The main camera's, set by `place_portal_cameras`
             Tonemapping::None,
             Projection::Perspective(default()),
             PortalCamera {
                 owner: portal.owner,
                 color: portal.color,
+                level,
             },
             DespawnOnExit(GameState::Game),
         ))
@@ -73,6 +75,21 @@ pub(super) fn sees(transform: &Transform, projection: &Projection, portal: &Port
         && projection
             .compute_frustum(&GlobalTransform::from(*transform))
             .intersects_obb(&opening, &portal.frame(), true, false)
+}
+
+/// Whether some of the opening of `portal` lies in front of the plane of `twin`, which is the
+/// near plane of the cameras of the portal: what lies behind it, they do not draw. (Bevy's
+/// frustum leaves the oblique near plane out.)
+pub(super) fn in_front_of_twin(portal: &Portal, twin: &Portal) -> bool {
+    let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+        .into_iter()
+        .map(|(x, y)| {
+            portal
+                .frame()
+                .transform_point3(Vec3::new(x * half.x, y * half.y, 0.0))
+        })
+        .any(|corner| twin.signed_distance(corner) > 0.0)
 }
 
 /// How far from its centre a portal's opening reaches: half its diagonal.
@@ -111,12 +128,27 @@ pub(super) fn hide_portals_beyond_the_fog(
     }
 }
 
-/// Places each portal camera behind the twin of its portal, after the player's camera, with
-/// the twin's plane as its near plane, the sky and the tonemapping of the player's camera, and
-/// its fog (`portal_fog`). A camera whose portal is out of view, seen from behind, or beyond the
-/// player's fog, does not draw.
+/// What a camera that portal cameras are placed after is: the player's camera, or a portal
+/// camera of the level above.
+struct Eye {
+    transform: Transform,
+    projection: Projection,
+    fog: Option<DistanceFog>,
+    /// Whether its near plane is the twin's plane: a portal camera's is.
+    behind_twin: bool,
+}
+
+/// Places the cameras of each open portal, level after level, each behind the twin of the
+/// portal, where the camera of the level above would be through the portal (the player's
+/// camera for level 1), with the twin's plane as its near plane, the sky and the tonemapping of
+/// the player's camera, and its fog (`portal_fog`). A camera draws when the camera of the level
+/// above draws (the player's always does) and sees the front of the portal, within its fog and
+/// in front of its near plane; and its level is drawn (`PortalRecursion`). The layers of every
+/// camera follow the portals drawn (`camera_layers`).
 pub(super) fn place_portal_cameras(
     world_map: Res<ClientWorldMap>,
+    drawn: Res<DrawnPortals>,
+    recursion: Res<PortalRecursion>,
     main: Query<
         (
             &Transform,
@@ -130,14 +162,14 @@ pub(super) fn place_portal_cameras(
     mut cameras: Query<
         (
             Entity,
-            &PortalCamera,
             &mut Transform,
             &mut Projection,
             &mut Camera,
             &mut Tonemapping,
             Option<&mut DistanceFog>,
+            &mut RenderLayers,
         ),
-        Without<CameraController>,
+        (With<PortalCamera>, Without<CameraController>),
     >,
     mut started: ResMut<PortalViewsStarted>,
     mut commands: Commands,
@@ -148,48 +180,93 @@ pub(super) fn place_portal_cameras(
         return;
     };
     let portals = world_map.blocks.portals();
-    for (entity, camera_of, mut transform, mut projection, mut camera, mut tonemapping, fog) in
-        &mut cameras
-    {
-        let open = portals
-            .get(camera_of.owner, camera_of.color)
-            .and_then(|portal| Some((portal, portals.twin(portal)?, portals.through(portal)?)));
-        let Some((portal, twin, through)) = open else {
-            camera.is_active = false;
+    let depth = recursion.0.clamp(1, PORTAL_RECURSION);
+    let slots: Vec<usize> = drawn.0.values().map(|drawn| drawn.slot).collect();
+    for drawn in drawn.0.values() {
+        let Some(views) = &drawn.views else {
             continue;
         };
-        let active = sees(main_transform, main_projection, portal)
-            && !beyond_fog(main_transform.translation, main_fog, portal);
-        if camera.is_active != active {
-            camera.is_active = active;
-            started.0 |= active;
-        }
-        if !active {
-            continue;
-        }
-        *transform = Transform::from_matrix(Mat4::from(through * main_transform.compute_affine()));
-        if let Projection::Perspective(perspective) = main_projection {
-            *projection = Projection::Perspective(portal_projection(perspective, &transform, twin));
-        }
-        camera.clear_color = main_camera.clear_color;
-        // The main camera draws without HDR, so each material tonemaps what it draws, and the
-        // portal's only copies its image: the image must be tonemapped already, as the rest of
-        // the screen is
-        tonemapping.set_if_neq(*main_tonemapping);
-        // The fog depends on how far the camera is from the twin, which changes as the player
-        // moves: it is set on every frame the camera draws
-        let behind = main_transform
-            .translation
-            .distance(portal.frame().translation.into());
-        match (main_fog, fog) {
-            (Some(main_fog), Some(mut fog)) => *fog = portal_fog(main_fog, behind),
-            (Some(main_fog), None) => {
-                commands.entity(entity).insert(portal_fog(main_fog, behind));
+        let open = portals
+            .get(drawn.portal.owner, drawn.portal.color)
+            .and_then(|portal| Some((portal, portals.twin(portal)?, portals.through(portal)?)));
+        let mut eye = Some(Eye {
+            transform: *main_transform,
+            projection: main_projection.clone(),
+            fog: main_fog.cloned(),
+            behind_twin: false,
+        });
+        for (index, entity) in views.cameras.iter().enumerate() {
+            let level = index + 1;
+            let Ok((
+                entity,
+                mut transform,
+                mut projection,
+                mut camera,
+                mut tonemapping,
+                fog,
+                mut layers,
+            )) = cameras.get_mut(*entity)
+            else {
+                continue;
+            };
+            layers.set_if_neq(camera_layers(
+                drawn.slot,
+                level,
+                depth,
+                slots.iter().copied(),
+            ));
+            let seen = match (&eye, open) {
+                (Some(eye), Some((portal, twin, through))) if level <= depth => {
+                    (sees(&eye.transform, &eye.projection, portal)
+                        && (!eye.behind_twin || in_front_of_twin(portal, twin))
+                        && !beyond_fog(eye.transform.translation, eye.fog.as_ref(), portal))
+                    .then_some((eye, portal, twin, through))
+                }
+                _ => None,
+            };
+            let active = seen.is_some();
+            if camera.is_active != active {
+                camera.is_active = active;
+                started.0 |= active;
             }
-            (None, Some(_)) => {
-                commands.entity(entity).remove::<DistanceFog>();
+            let Some((above, portal, twin, through)) = seen else {
+                eye = None;
+                continue;
+            };
+            *transform =
+                Transform::from_matrix(Mat4::from(through * above.transform.compute_affine()));
+            if let Projection::Perspective(perspective) = main_projection {
+                *projection =
+                    Projection::Perspective(portal_projection(perspective, &transform, twin));
             }
-            (None, None) => {}
+            camera.clear_color = main_camera.clear_color;
+            // The main camera draws without HDR, so each material tonemaps what it draws, and the
+            // portal's only copies its image: the image must be tonemapped already, as the rest of
+            // the screen is
+            tonemapping.set_if_neq(*main_tonemapping);
+            // The fog depends on how far the camera is from the twin, which changes as the player
+            // moves: it is set on every frame the camera draws
+            let behind = above
+                .transform
+                .translation
+                .distance(portal.frame().translation.into());
+            let new_fog = main_fog.map(|main_fog| portal_fog(main_fog, behind));
+            match (&new_fog, fog) {
+                (Some(new_fog), Some(mut fog)) => *fog = new_fog.clone(),
+                (Some(new_fog), None) => {
+                    commands.entity(entity).insert(new_fog.clone());
+                }
+                (None, Some(_)) => {
+                    commands.entity(entity).remove::<DistanceFog>();
+                }
+                (None, None) => {}
+            }
+            eye = Some(Eye {
+                transform: *transform,
+                projection: projection.clone(),
+                fog: new_fog,
+                behind_twin: true,
+            });
         }
     }
 }
@@ -232,12 +309,12 @@ pub(super) fn show_chunks_to_new_views(
     }
 }
 
-/// Gives the portal cameras new images when the size of the window changed, and the surfaces
-/// of their portals with them.
+/// Gives the open portals new images when the size of the window changed, to their cameras
+/// and the surfaces showing their views.
 pub(super) fn resize_portal_images(
     windows: Query<&Window, With<PrimaryWindow>>,
-    mut cameras: Query<(&PortalCamera, &mut RenderTarget)>,
-    surfaces: Query<(&PortalSurface, &MeshMaterial3d<PortalMaterial>)>,
+    mut drawn: ResMut<DrawnPortals>,
+    mut targets: Query<&mut RenderTarget, With<PortalCamera>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<PortalMaterial>>,
 ) {
@@ -245,21 +322,23 @@ pub(super) fn resize_portal_images(
         return;
     };
     let size = window.physical_size().max(UVec2::ONE);
-    for (camera_of, mut target) in &mut cameras {
-        let RenderTarget::Image(image) = &*target else {
-            continue;
-        };
-        if images.get(&image.handle).map(Image::size) == Some(size) {
+    for views in drawn
+        .0
+        .values_mut()
+        .filter_map(|drawn| drawn.views.as_mut())
+    {
+        if images.get(&views.images[0]).map(Image::size) == Some(size) {
             continue;
         }
-        let image = images.add(portal_image(size));
-        *target = RenderTarget::Image(image.clone().into());
-        let surface = surfaces.iter().find(|(surface, _)| {
-            surface.owner == camera_of.owner && surface.color == camera_of.color
-        });
-        if let Some(mut material) = surface.and_then(|(_, material)| materials.get_mut(&material.0))
-        {
-            material.image = Some(image);
+        views.images = [(); 2].map(|_| images.add(portal_image(size)));
+        for level in 1..=PORTAL_RECURSION {
+            let image = views.image(level).clone();
+            if let Ok(mut target) = targets.get_mut(views.cameras[level - 1]) {
+                *target = RenderTarget::Image(image.clone().into());
+            }
+            if let Some(mut material) = materials.get_mut(&views.materials[level - 1]) {
+                material.image = Some(image);
+            }
         }
     }
 }

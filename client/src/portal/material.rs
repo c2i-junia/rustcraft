@@ -17,7 +17,8 @@ const PORTAL_SHADER: Handle<Shader> = uuid_handle!("b7e3a5d1-4c2f-4e8a-9f61-2d7c
 pub enum PortalLook {
     /// What the portal camera sees, read from its image where the fragment is on the screen.
     View = 0,
-    /// The colour of the portal: a lone portal, or one seen by a portal camera.
+    /// The colour of the portal: a lone portal, or one seen by a portal camera other than its
+    /// own, or by its own at the deepest level.
     Color = 1,
     /// The glow on the wall around the opening, from white at its edge to the colour.
     Rim = 2,

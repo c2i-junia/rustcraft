@@ -406,9 +406,12 @@ fn own_portal(w: &World, color: PortalColor) -> Option<Portal> {
     portals.get(id, color).copied()
 }
 
-/// How many portal cameras there are: one per open portal.
+/// How many portal cameras of level 1 there are: one per open portal.
 fn portal_cameras(w: &mut World) -> usize {
-    w.query::<&PortalCamera>().iter(w).count()
+    w.query::<&PortalCamera>()
+        .iter(w)
+        .filter(|camera| camera.level == 1)
+        .count()
 }
 
 #[test]
