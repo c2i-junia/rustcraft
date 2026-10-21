@@ -7,16 +7,17 @@ use crate::world::{BlockChanged, ClientWorldMap};
 use bevy::color::palettes::css::WHITE;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
-use shared::players::blocks::{simulate_player_block_interactions, CallerType};
+use shared::players::blocks::{aim, held_item, simulate_player_block_interactions, CallerType};
 use shared::players::inventory::{simulate_inventory_actions, InventoryAction};
 use shared::players::{Inventory, Player, ViewMode};
-use shared::world::{raycast, BlockId, FaceDirectionExt};
+use shared::world::{BlockId, FaceDirectionExt};
 
 use super::CurrentPlayerMarker;
 
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
 /// breaking it or placing a block against it, and reports the blocks that changed. A right
 /// click on a crafting table, a chest or a furnace opens it instead, unless the player sneaks.
+/// Holding an empty bucket, the player aims at the water sources too.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,
@@ -50,11 +51,12 @@ pub fn handle_block_interactions(
     };
     let world_map = world_map.into_inner();
 
-    let Some(target) = raycast::raycast(
+    let Some(target) = aim(
         &world_map.blocks,
         camera_transform,
         &player_transform.translation,
         *view_mode,
+        held_item(&player, &frame_inputs.0),
     ) else {
         return;
     };

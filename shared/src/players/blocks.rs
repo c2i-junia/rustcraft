@@ -258,7 +258,7 @@ fn aimed_block(
 }
 
 /// The item in the selected hotbar slot.
-fn held_item(player: &Player, action: &PlayerFrameInput) -> Option<ItemId> {
+pub fn held_item(player: &Player, action: &PlayerFrameInput) -> Option<ItemId> {
     if action.hotbar_slot >= MAX_INVENTORY_SLOTS {
         return None;
     }

@@ -1,9 +1,10 @@
-//! Block sounds: a hit while a block is mined, its break, a placement. The local player's
-//! changes are heard as it predicts them; the others' as the server announces them.
+//! Block sounds: a hit while a block is mined, its break, a placement, the splash of a bucket.
+//! The local player's changes are heard as it predicts them; the others' as the server announces
+//! them.
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use shared::world::BlockData;
+use shared::world::{liquid::is_source, BlockData, BlockId};
 use shared::HALF_BLOCK;
 
 use super::playback::PlaySound;
@@ -25,6 +26,13 @@ fn block_sound(
     after: Option<BlockData>,
     by_local_player: bool,
 ) -> Option<Sound> {
+    // The flow never makes nor takes a source: one that comes or goes amid water or air is a
+    // bucket's
+    let water_or_air = |block: Option<BlockData>| block.is_none_or(|b| b.id == BlockId::Water);
+    let source = |block: Option<BlockData>| block.is_some_and(|b| is_source(&b));
+    if water_or_air(before) && water_or_air(after) && source(before) != source(after) {
+        return Some(Sound::Splash);
+    }
     let (sound, block): (fn(SoundMaterial) -> Sound, _) = match (before, after) {
         (Some(before), None) => (Sound::Break, before.id),
         (Some(before), Some(after)) if before.id != after.id => (Sound::Place, after.id),
@@ -76,7 +84,7 @@ pub fn block_sounds(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::world::{BlockDirection, BlockId};
+    use shared::world::BlockDirection;
 
     fn block(id: BlockId, breaking_progress: u8) -> Option<BlockData> {
         Some(BlockData {
@@ -110,8 +118,39 @@ mod tests {
     }
 
     #[test]
-    fn water_makes_no_block_sound() {
-        assert_eq!(block_sound(block(BlockId::Water, 0), None, true), None);
+    fn flowing_water_makes_no_block_sound() {
+        let flowing = |level| {
+            Some(BlockData {
+                level,
+                ..BlockData::new(BlockId::Water, BlockDirection::Front)
+            })
+        };
+        for local in [true, false] {
+            assert_eq!(block_sound(flowing(3), None, local), None);
+            assert_eq!(block_sound(None, flowing(1), local), None);
+            assert_eq!(block_sound(flowing(1), flowing(2), local), None);
+        }
+    }
+
+    #[test]
+    fn a_source_taken_or_poured_by_a_bucket_splashes() {
+        let source = block(BlockId::Water, 0);
+        let flowing = Some(BlockData {
+            level: 2,
+            ..BlockData::new(BlockId::Water, BlockDirection::Front)
+        });
+        for local in [true, false] {
+            assert_eq!(block_sound(source, None, local), Some(Sound::Splash));
+            assert_eq!(block_sound(None, source, local), Some(Sound::Splash));
+            assert_eq!(block_sound(flowing, source, local), Some(Sound::Splash));
+            assert_eq!(block_sound(source, source, local), None);
+        }
+        // A block placed into a source sounds like that block
+        let dirt = block(BlockId::Dirt, 0);
+        assert_eq!(
+            block_sound(source, dirt, true),
+            Some(Sound::Place(SoundMaterial::Dirt))
+        );
     }
 
     fn app() -> App {

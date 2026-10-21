@@ -111,6 +111,8 @@ pub enum Sound {
     Click,
     /// The local player picks up an item lying in the world.
     Pickup,
+    /// A bucket takes a water source, or pours one.
+    Splash,
 }
 
 impl Sound {
@@ -125,7 +127,7 @@ impl Sound {
                     Sound::Place(material),
                 ]
             })
-            .chain([Sound::Land, Sound::Click, Sound::Pickup])
+            .chain([Sound::Land, Sound::Click, Sound::Pickup, Sound::Splash])
     }
 
     pub fn channel(self) -> Channel {
@@ -152,6 +154,7 @@ impl Sound {
             Sound::Click => vec!["sounds/ui/click.ogg".to_string()],
             // No sound of its own yet: the click is short and soft enough
             Sound::Pickup => vec!["sounds/ui/click.ogg".to_string()],
+            Sound::Splash => vec!["sounds/liquid/splash.ogg".to_string()],
         }
     }
 }
