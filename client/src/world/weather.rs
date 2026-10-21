@@ -53,6 +53,12 @@ impl ClientWeather {
         weather
     }
 
+    /// How much rain or snow falls, from 0 to 1: `smoothstep(0.25, 1, rain)`, so that the drops
+    /// follow the sky, and start with a few.
+    pub fn precipitation(&self) -> f32 {
+        smoothstep(0.25, 1.0, self.rain)
+    }
+
     /// Moves the levels `secs` seconds further towards those of `kind`.
     pub fn advance(&mut self, secs: f32) {
         let step = secs / TRANSITION_SECS;
@@ -155,6 +161,20 @@ mod tests {
 
         weather.kind = WeatherKind::Clear;
         assert_eq!(levels(&after(weather, 21.0)), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_drops_follow_the_rain_once_it_is_a_quarter_in() {
+        let at = |rain| {
+            let mut weather = ClientWeather::settled(WeatherKind::Rain);
+            weather.rain = rain;
+            weather.precipitation()
+        };
+        assert_eq!(at(0.0), 0.0);
+        assert_eq!(at(0.25), 0.0);
+        assert!(at(0.3) > 0.0 && at(0.3) < 0.02, "{}", at(0.3));
+        assert!((at(0.625) - 0.5).abs() < 1e-5);
+        assert_eq!(at(1.0), 1.0);
     }
 
     #[test]

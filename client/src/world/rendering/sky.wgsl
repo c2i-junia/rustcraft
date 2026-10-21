@@ -14,18 +14,9 @@
 #endif
 #endif
 
+#import rustcraft::weather::Weather
+
 // `WeatherShading` in `overcast.rs`
-struct Weather {
-    // The overcast sky at the horizon and at the zenith, as seen on screen, in linear RGB
-    horizon: vec4<f32>,
-    zenith: vec4<f32>,
-    // The glow of a low sun at the horizon toward it, and in `xy` the direction of the sun on
-    // the ground plane
-    glow: vec4<f32>,
-    sun: vec4<f32>,
-    // From 0 to 1, how overcast the sky is
-    overcast: f32,
-}
 @group(#{MATERIAL_BIND_GROUP}) @binding(107) var<storage, read> weather: Weather;
 
 // `v` turned by the quaternion `q`.

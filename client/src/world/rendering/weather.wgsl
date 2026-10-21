@@ -1,0 +1,25 @@
+// What the shaders know of the weather: `WeatherShading` in `overcast.rs`. The materials that
+// show the sky bind it at 107 (`rustcraft::sky`); the pass of the rain and the snow has a
+// binding of its own (`precipitation.wgsl`).
+
+#define_import_path rustcraft::weather
+
+struct Weather {
+    // The overcast sky at the horizon and at the zenith, as seen on screen, in linear RGB
+    horizon: vec4<f32>,
+    zenith: vec4<f32>,
+    // The glow of a low sun at the horizon toward it, and in `xy` the direction of the sun on
+    // the ground plane
+    glow: vec4<f32>,
+    sun: vec4<f32>,
+    // The wind along the ground plane in `xy`, in blocks per second, and in `z` how gusty it is
+    wind: vec4<f32>,
+    // From 0 to 1, how overcast the sky is
+    overcast: f32,
+    // From 0 to 1, how much rain or snow falls
+    rain: f32,
+    // From 0 to 1, how stormy it is
+    storm: f32,
+    // How bright a flash of lightning lights the world, from 0
+    flash: f32,
+}

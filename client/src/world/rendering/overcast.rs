@@ -22,6 +22,7 @@ use bevy::shader::ShaderRef;
 
 use crate::state::GameState;
 use crate::world::celestial::{sky_rotation, smoothstep, sun_height};
+use crate::world::clouds::SPEED;
 use crate::world::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
@@ -70,6 +71,9 @@ const ZENITH: Vec3 = Vec3::new(0.7, 0.71, 0.73);
 /// high.
 const STORM_HORIZON: Vec3 = Vec3::new(0.56, 0.6, 0.67);
 const STORM_ZENITH: Vec3 = Vec3::new(0.74, 0.77, 0.82);
+/// How fast the wind blows along the drift of the clouds, +X, in blocks per second: as the
+/// clouds under a clear sky, then enough to slant the rain, and to lash it in a storm.
+const WIND: [f32; 3] = [SPEED, 1.6, 4.8];
 /// How much of the light of the overcast sky a storm lets through.
 const STORM_SKY_LIGHT: f32 = 0.5;
 /// The glow of a sun low on the horizon seeping under the clouds, toward the sun, as a part of
@@ -134,6 +138,11 @@ impl Overcast {
         } * self.storm_light();
         // On screen, a light is its brightness times the exposure, 1 / (1.2 * 2^ev100)
         self.level * grey * gain * 1.2 * ev100.exp2()
+    }
+
+    /// The wind, along the ground plane (x, z) in blocks per second: the way the clouds drift.
+    pub fn wind(self) -> Vec2 {
+        Vec2::new(self.blend(WIND), 0.)
     }
 
     /// The part of the light of the sky that a storm lets through.
@@ -202,13 +211,22 @@ pub struct WeatherShading {
     /// direction of the sun on the ground plane, its x and z.
     pub glow: Vec4,
     pub sun: Vec4,
+    /// The wind (`Overcast::wind`) in `xy`, and in `z` how gusty it is, the storm level.
+    pub wind: Vec4,
     /// `Overcast::level`.
     pub overcast: f32,
+    /// How much rain or snow falls (`ClientWeather::precipitation`).
+    pub rain: f32,
+    /// `Overcast::storm`.
+    pub storm: f32,
+    /// How bright a flash of lightning lights the world, from 0: none yet.
+    pub flash: f32,
 }
 
 impl WeatherShading {
-    /// What the shaders are told under `overcast` at the world clock `tick`.
-    pub fn new(overcast: Overcast, tick: u64, physical_sky: bool) -> Self {
+    /// What the shaders are told under `overcast`, with `rain` falling, at the world clock
+    /// `tick`.
+    pub fn new(overcast: Overcast, rain: f32, tick: u64, physical_sky: bool) -> Self {
         let height = sun_height(tick);
         let (horizon, zenith) = overcast.colors(height, physical_sky);
         let sun = sky_rotation(tick) * Vec3::Z;
@@ -218,7 +236,11 @@ impl WeatherShading {
             zenith: zenith.extend(1.),
             glow: overcast.glow(height, physical_sky).extend(1.),
             sun: azimuth.extend(0.).extend(0.),
+            wind: overcast.wind().extend(overcast.storm).extend(0.),
             overcast: overcast.level,
+            rain,
+            storm: overcast.storm,
+            flash: 0.,
         }
     }
 }
@@ -251,6 +273,7 @@ pub fn weather_shading_system(
 ) {
     let shading = WeatherShading::new(
         Overcast::current(weather.as_deref()),
+        weather.as_deref().map_or(0., ClientWeather::precipitation),
         time.0,
         ShaderFeatures::of(graphics.shaders).sky,
     );
@@ -601,7 +624,7 @@ mod tests {
     #[test]
     fn the_shaders_of_the_sky_are_told_the_overcast_of_the_hour() {
         let (mut app, handle) = app(ShaderQuality::High, WeatherKind::Rain);
-        let expected = WeatherShading::new(RAIN, NOON_IN_DAY, true);
+        let expected = WeatherShading::new(RAIN, 1., NOON_IN_DAY, true);
         assert_eq!(expected.overcast, 1.);
         assert_eq!(
             buffer_data(&app, &handle),
@@ -613,12 +636,34 @@ mod tests {
             ..default()
         });
         app.update();
-        let expected = WeatherShading::new(RAIN, NOON_IN_DAY, false);
+        let expected = WeatherShading::new(RAIN, 1., NOON_IN_DAY, false);
         assert_eq!(
             buffer_data(&app, &handle),
             ShaderBuffer::from(expected).data
         );
         assert_eq!(app.world().resource::<MaterialResource>().weather, handle);
+    }
+
+    #[test]
+    fn the_wind_drifts_with_the_clouds_and_blows_harder_in_a_storm() {
+        assert_eq!(CLEAR.wind(), Vec2::new(SPEED, 0.));
+        let (rain, storm) = (RAIN.wind(), STORM.wind());
+        assert_eq!((rain.y, storm.y), (0., 0.));
+        assert!(
+            rain.x > 2. * SPEED && storm.x > 2.5 * rain.x,
+            "{rain} {storm}"
+        );
+    }
+
+    #[test]
+    fn the_shaders_are_told_the_drops_the_storm_and_the_wind_and_no_flash_yet() {
+        let shading = WeatherShading::new(STORM, 0.6, NOON_IN_DAY, true);
+        assert_eq!(shading.rain, 0.6);
+        assert_eq!(shading.storm, 1.);
+        assert_eq!(shading.flash, 0.);
+        assert_eq!(shading.wind, STORM.wind().extend(1.).extend(0.));
+        let clear = WeatherShading::new(CLEAR, 0., NOON_IN_DAY, true);
+        assert_eq!((clear.rain, clear.storm), (0., 0.));
     }
 
     fn domes(app: &mut App) -> Vec<(Vec3, Visibility)> {
