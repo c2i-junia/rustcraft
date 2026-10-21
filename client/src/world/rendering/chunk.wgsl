@@ -58,7 +58,8 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(102) var block_sampler: sampler;
 // The climate of the columns around the player, wrapped around (`climate.rs`): their place on
 // the colour maps from the bottom right corner, the temperature in red and the downfall times
-// the temperature in green, blended across biomes, and an alpha of 0 where it is not known yet.
+// the temperature in green, blended across biomes, what falls on it in blue (`PrecipitationKind`)
+// and an alpha of 0 where it is not known yet.
 @group(#{MATERIAL_BIND_GROUP}) @binding(103) var climate_map: texture_2d<f32>;
 // The colours of the grass and of the leaves by climate, read as Minecraft reads its own.
 @group(#{MATERIAL_BIND_GROUP}) @binding(104) var grass_colors: texture_2d<f32>;
