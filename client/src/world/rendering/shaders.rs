@@ -450,15 +450,16 @@ fn apply_atmosphere(
     }
 }
 
-/// The haze lit by the sun, a layer over the ground around the player's camera: a portal camera
-/// sees it where it reaches, the far one of a far twin none.
+/// The haze lit by the sun, a layer over the ground around the camera of the world, the player's
+/// (or the bench's), never a portal camera. The portal cameras draw no rays of light
+/// (`apply_camera_features`), so they never show it.
 #[derive(Component)]
 struct GodRayVolume;
 
 fn follow_camera_with_fog_volume(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
-    cameras: Query<&GlobalTransform, With<CameraController>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     roots: Query<&Transform, (With<CelestialRoot>, Without<GodRayVolume>)>,
     mut volumes: Query<(Entity, &mut Transform, &mut FogVolume), With<GodRayVolume>>,
     mut commands: Commands,
@@ -738,13 +739,14 @@ fn horizon_ring() -> Mesh {
     .with_inserted_indices(Indices::U32(indices))
 }
 
-/// Keeps the horizon skirt around the player's camera, past the corners of the chunks shown,
-/// with the physical sky only. A portal camera draws it around itself (`horizon.wgsl`).
+/// Keeps the horizon skirt around the camera of the world, the player's (or the bench's), past
+/// the corners of the chunks shown, with the physical sky only. A portal camera draws it around
+/// itself (`horizon.wgsl`).
 fn follow_camera_with_horizon(
     graphics: Res<GraphicsSettings>,
     render_distance: Res<RenderDistance>,
     resources: Res<MaterialResource>,
-    cameras: Query<&GlobalTransform, With<CameraController>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut skirts: Query<(Entity, &mut Transform), With<HorizonSkirt>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<HorizonMaterial>>,
@@ -881,6 +883,52 @@ mod tests {
             );
         }
         assert!(!shares_the_map(&app));
+    }
+
+    /// The horizon skirt and the haze follow the camera of the world, the player's or the
+    /// bench's, never a portal camera.
+    #[test]
+    fn the_skirt_and_the_haze_follow_the_camera_of_the_world_not_a_portal_camera() {
+        let mut app = App::new();
+        app.insert_resource(GraphicsSettings {
+            shaders: ShaderQuality::Ultra,
+            ..default()
+        })
+        .insert_resource(RenderDistance { distance: 4 })
+        .init_resource::<Assets<Mesh>>()
+        .init_resource::<MaterialResource>()
+        .init_resource::<Assets<HorizonMaterial>>()
+        .add_systems(
+            Update,
+            (follow_camera_with_horizon, follow_camera_with_fog_volume),
+        );
+        app.world_mut().spawn((
+            Camera3d::default(),
+            GlobalTransform::from_xyz(1000., 70., 0.),
+            PortalCamera {
+                owner: 1,
+                color: shared::world::PortalColor::Blue,
+                level: 1,
+            },
+        ));
+        // As `bench_shaders` makes it: no `CameraController`
+        app.world_mut()
+            .spawn((Camera3d::default(), GlobalTransform::from_xyz(5., 70., 0.)));
+        app.update();
+        app.update();
+        let world = app.world_mut();
+        let skirt = world
+            .query_filtered::<&Transform, With<HorizonSkirt>>()
+            .single(world)
+            .unwrap()
+            .translation;
+        assert_eq!(skirt.x, 5.);
+        let haze = world
+            .query_filtered::<&Transform, With<GodRayVolume>>()
+            .single(world)
+            .unwrap()
+            .translation;
+        assert_eq!(haze.x, 5.);
     }
 
     #[test]
