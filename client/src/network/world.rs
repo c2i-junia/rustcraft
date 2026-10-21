@@ -171,6 +171,8 @@ pub fn update_world_from_network(
             ServerToClientMessage::TimeSet(tick) => {
                 client_time.0 = tick;
             }
+            ServerToClientMessage::WeatherSet(_)
+            | ServerToClientMessage::LightningStrike { .. } => {}
         }
     }
 }

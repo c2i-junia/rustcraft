@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{ClientToServerMessage, PlayerSpawnEvent, ServerToClientMessage};
+use crate::world::WeatherKind;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct AuthRegisterRequest {
@@ -28,6 +29,8 @@ pub struct AuthRegisterResponse {
     pub seed: u32,
     /// The chat commands the mods of the server add, by name.
     pub mod_commands: Vec<String>,
+    /// The weather at the time of the answer, which the client takes at once.
+    pub weather: WeatherKind,
 }
 
 impl From<AuthRegisterResponse> for ServerToClientMessage {

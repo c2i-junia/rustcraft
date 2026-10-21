@@ -4,7 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::world::MobId;
+use crate::world::{MobId, WeatherKind};
 pub use auth::*;
 use bevy::math::IVec3;
 pub use chat::*;
@@ -47,6 +47,14 @@ pub enum ServerToClientMessage {
     TimeSet(u64),
     /// This mob is gone for this client: out of its reach, or removed.
     MobRemoved(MobId),
+    /// The weather changed to this one, by itself or by `/weather`.
+    WeatherSet(WeatherKind),
+    /// A lightning strike hit the block at `at`. `seed` shapes the bolt, so that every player
+    /// sees the same one.
+    LightningStrike {
+        at: IVec3,
+        seed: u32,
+    },
 }
 
 #[cfg(test)]
@@ -54,7 +62,7 @@ mod tests {
     use super::*;
     use crate::players::game_mode::{DeathCause, GameMode};
     use crate::players::inventory::InventoryAction;
-    use crate::world::{MobAction, MobKind, MobTarget};
+    use crate::world::{MobAction, MobKind, MobTarget, WeatherKind};
     use bevy::math::{IVec3, Vec3};
 
     const ENCODING_WARNING: &str = "the order of the variants is the wire format: reordering \
@@ -100,6 +108,7 @@ mod tests {
             max_render_distance: 0,
             seed: 0,
             mod_commands: vec![],
+            weather: WeatherKind::Clear,
         };
         let chat = FullChatMessage {
             content: String::new(),
@@ -157,6 +166,14 @@ mod tests {
             ),
             (ServerToClientMessage::TimeSet(0), 9),
             (ServerToClientMessage::MobRemoved(0), 10),
+            (ServerToClientMessage::WeatherSet(WeatherKind::Rain), 11),
+            (
+                ServerToClientMessage::LightningStrike {
+                    at: IVec3::ZERO,
+                    seed: 0,
+                },
+                12,
+            ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -248,6 +265,13 @@ mod tests {
         assert_eq!(variant_index(&MobAction::Flee), 1, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobAction::Idle), 2, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobAction::Graze), 3, "{ENCODING_WARNING}");
+        for (kind, expected) in [
+            (WeatherKind::Clear, 0),
+            (WeatherKind::Rain, 1),
+            (WeatherKind::Thunder, 2),
+        ] {
+            assert_eq!(variant_index(&kind), expected, "{ENCODING_WARNING}");
+        }
         for (removal, expected) in [
             (ItemRemoval::Gone, 0),
             (ItemRemoval::PickedUp(0), 1),

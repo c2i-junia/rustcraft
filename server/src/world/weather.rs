@@ -2,9 +2,13 @@
 //! `/weather` sets it. The clients only hear its kind.
 
 use bevy::prelude::*;
+use bevy_renet::RenetServer;
 use rand::Rng;
+use shared::messages::ServerToClientMessage;
 use shared::world::{next_kind, spell_ticks, WeatherKind};
 
+use crate::init::ServerLobby;
+use crate::network::extensions::SendGameMessageExtension;
 use crate::world::format::SavedWeather;
 
 /// The weather and the ticks it has left before the next one.
@@ -58,9 +62,34 @@ impl ServerWeather {
     }
 }
 
+/// Counts the weather down, and tells the players when it changes.
+pub fn weather_system(
+    mut weather: ResMut<ServerWeather>,
+    mut server: ResMut<RenetServer>,
+    lobby: Res<ServerLobby>,
+) {
+    let Some(kind) = weather.tick(&mut rand::thread_rng()) else {
+        return;
+    };
+    info!("The weather turns to {}", kind.name());
+    send_to_players(&mut server, &lobby, ServerToClientMessage::WeatherSet(kind));
+}
+
+/// Sends `message` to every authenticated client: the others learn the weather when they are.
+pub fn send_to_players(
+    server: &mut RenetServer,
+    lobby: &ServerLobby,
+    message: ServerToClientMessage,
+) {
+    for &id in lobby.players.keys() {
+        server.send_game_message(id, message.clone());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::init::LobbyPlayer;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use shared::world::{CLEAR_TICKS, STORM_TICKS};
@@ -115,5 +144,48 @@ mod tests {
         let weather = ServerWeather::from_saved(None, &mut rng);
         assert_eq!(weather.kind, WeatherKind::Clear);
         assert!(CLEAR_TICKS.contains(&weather.ticks_left));
+    }
+
+    /// The messages the server sent to the local client `client`, decoded.
+    fn received(
+        app: &mut App,
+        id: u64,
+        client: &mut bevy_renet::renet::RenetClient,
+    ) -> Vec<ServerToClientMessage> {
+        app.world_mut()
+            .resource_mut::<RenetServer>()
+            .process_local_client(id, client)
+            .unwrap();
+        let mut messages = Vec::new();
+        while let Some(payload) = client.receive_message(shared::STC_STANDARD_CHANNEL) {
+            messages.push(shared::payload_to_game_message(&payload).unwrap());
+        }
+        messages
+    }
+
+    #[test]
+    fn a_change_of_weather_is_sent_to_every_authenticated_client() {
+        let mut app = App::new();
+        let mut server = RenetServer::new(shared::get_shared_renet_config());
+        let (mut player, mut stranger) = (server.new_local_client(7), server.new_local_client(8));
+        let mut lobby = ServerLobby::default();
+        lobby.players.insert(7, LobbyPlayer::new("p".into()));
+        app.insert_resource(server)
+            .insert_resource(lobby)
+            .insert_resource(ServerWeather {
+                kind: WeatherKind::Rain,
+                ticks_left: 2,
+            })
+            .add_systems(Update, weather_system);
+
+        app.update();
+        assert!(received(&mut app, 7, &mut player).is_empty());
+
+        app.update();
+        assert!(matches!(
+            received(&mut app, 7, &mut player)[..],
+            [ServerToClientMessage::WeatherSet(WeatherKind::Clear)]
+        ));
+        assert!(received(&mut app, 8, &mut stranger).is_empty());
     }
 }

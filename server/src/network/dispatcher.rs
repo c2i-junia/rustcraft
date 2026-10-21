@@ -11,6 +11,7 @@ use crate::world::simulation::{
     broadcast_player_updates_system, handle_player_inputs_system, regenerate_health_system,
     PlayerInputsEvent,
 };
+use crate::world::weather::ServerWeather;
 use bevy::prelude::*;
 use bevy_renet::renet::{ClientId, DisconnectReason, ServerEvent};
 use bevy_renet::{RenetReceive, RenetServer, RenetServerEvent};
@@ -75,8 +76,8 @@ pub fn setup_resources_and_events(app: &mut App) {
 pub enum ServerSet {
     /// Connection events and client messages.
     Receive,
-    /// The player inputs are applied to the world, then the furnaces smelt and the water
-    /// flows.
+    /// The player inputs are applied to the world, then the furnaces smelt, the water
+    /// flows and the weather changes.
     Simulate,
     /// The world changes are sent to the clients.
     Broadcast,
@@ -116,6 +117,7 @@ pub fn register_systems(app: &mut App) {
             regenerate_health_system,
             pickup_dropped_items_system,
             world::flow::water_flow_system,
+            world::weather::weather_system,
         )
             .chain()
             .in_set(ServerSet::Simulate),
@@ -219,6 +221,7 @@ fn handle_client_messages_system(
     game_folder_paths: Res<GameFolderPaths>,
     mods: Res<Mods>,
     mut join_requests: ResMut<JoinRequests>,
+    weather: Res<ServerWeather>,
 ) {
     for client_id in server.clients_id() {
         let mut input_budget = MAX_INPUTS_PER_TICK;
@@ -260,6 +263,7 @@ fn handle_client_messages_system(
                         &game_folder_paths,
                         config.max_render_distance,
                         &mods,
+                        &weather,
                     );
                     // The client was refused: drop the rest of its messages
                     if flow.is_break() {
@@ -391,6 +395,7 @@ mod tests {
             .insert_resource(WorldSeed(1))
             .insert_resource(crate::world::save::Autosave { last_save_tick: 0 })
             .insert_resource(ServerTime(0))
+            .insert_resource(ServerWeather::new(&mut rand::thread_rng()))
             .insert_resource(Mods::new().unwrap())
             .insert_resource(WorldWriter::spawn(folder.into(), None).unwrap());
         setup_resources_and_events(&mut app);

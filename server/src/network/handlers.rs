@@ -26,6 +26,7 @@ use crate::world::data::ServerWorldMap;
 use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::PlayerInputsEvent;
+use crate::world::weather::ServerWeather;
 
 /// The transport and the authenticated players, which most handlers need.
 pub(super) struct Clients<'a> {
@@ -61,6 +62,7 @@ pub(super) fn auth_register_request(
     game_folder_paths: &GameFolderPaths,
     max_render_distance: u32,
     mods: &Mods,
+    weather: &ServerWeather,
 ) -> ControlFlow<()> {
     let Clients { server, lobby } = clients;
 
@@ -120,6 +122,7 @@ pub(super) fn auth_register_request(
         max_render_distance,
         seed: seed.0,
         mod_commands: mods.command_names(),
+        weather: weather.kind,
     };
     server.send_game_message(client_id, auth_res.into());
 
