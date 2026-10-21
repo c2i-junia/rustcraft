@@ -186,7 +186,7 @@ per press (`Player::portal_triggers_held`), up to `PORTAL_GUN_REACH` (32) blocks
 neither mines nor places blocks (`shared/src/players/blocks.rs`). The portal goes on the
 vertical face aimed at, on the placement of the six holding the aimed cell nearest to the
 point hit that fits: its wall cells solid full blocks, its front free of anything that
-collides, no portal of another colour or player on those cells but on their opposite face, a
+collides (a vine or a fern does not, a cocoa pod does), no portal of another colour or player on those cells but on their opposite face, a
 pair through a wall one block thick (`fit_portal`, `shared/src/world/portal.rs`). Placing a colour again moves it. The client predicts a shot like
 a block, and the server's `PortalUpdates`, every portal of the world, replace its portals: the
 server sends them to everyone in the tick they changed, and to a player when it joins. A

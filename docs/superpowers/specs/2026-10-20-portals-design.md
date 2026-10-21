@@ -16,13 +16,13 @@ momentum. Each player owns a blue and an orange portal, placed with a portal gun
 | Placement | A new item, the portal gun (`ItemId::PortalGun`, appended, stacks to one). Held in the selected hotbar slot, a left click places the blue portal and a right click the orange one, on the aimed face; it then neither breaks nor places blocks. One shot per press. Obtained with `/give` and in the creative inventory, plus a crafting recipe. |
 | Size | 2 × 3 blocks (2 wide, 3 high), aligned on the block grid. |
 | Surfaces | Vertical faces only (`FaceDirection::{PlusX, MinusX, PlusZ, MinusZ}`). |
-| Fit | Of the six 2 × 3 placements that contain the aimed cell, the first valid one, by the distance of its centre to the hit point. Valid: the six wall cells are solid full blocks, the six cells in front of them do not collide (air, flora, liquid), and it shares no wall cell with a portal of another colour or another player, but on the opposite face (a pair through a wall one block thick). Otherwise nothing happens. |
+| Fit | Of the six 2 × 3 placements that contain the aimed cell, the first valid one, by the distance of its centre to the hit point. Valid: the six wall cells are solid full blocks (jungle logs and planks are, leaves, vines and cocoa pods are not), the six cells in front of them do not collide (air, flora such as ferns and vines, liquid; a cocoa pod collides), and it shares no wall cell with a portal of another colour or another player, but on the opposite face (a pair through a wall one block thick). Otherwise nothing happens. |
 | Reach | 32 blocks for the gun (the block reach stays 5). |
 | Ownership | One pair per player, seen and crossed by everyone. Placing a colour again moves that portal. |
 | Open | A portal is open when its twin exists. An open portal shows the view and lets players through; a lone one shows its colour and is a wall. |
-| Lifetime | Not saved: the portals of a player go when it leaves, and all of them when the server stops. A portal also goes when one of its wall cells changes or a cell in front of it becomes solid. |
+| Lifetime | Not saved: the portals of a player go when it leaves, and all of them when the server stops. A portal also goes when one of its wall cells changes or a cell in front of it starts to collide (a cocoa pod does, a vine hung on the wall does not). |
 | Who passes | Players, keeping their speed, rotated with the portal. Mobs and dropped items later. |
-| Network | `PROTOCOL_ID` bumped once for the branch: 19 on the branch, 22 after the first rebase onto main, 23 after the second. Save format unchanged. |
+| Network | `PROTOCOL_ID` bumped once for the branch: 19 on the branch, 22 after the first rebase onto main, 23 after the second, 24 after the third (main's jungle took 23). Save format unchanged. |
 
 ## Architecture
 
@@ -60,7 +60,7 @@ momentum. Each player owns a blue and an orange portal, placed with a portal gun
 As built, after the rulings of the ledger (`.superpowers/sdd/portals/progress.md`): Bevy's
 oblique `near_clip_plane` instead of a custom projection, the main camera's tonemapping instead
 of `Tonemapping::None` (colours through a portal match), `order: -level` for the recursion, and,
-after the rebases onto main, `PortalGun` item 36 and `PROTOCOL_ID` 23, and portal cameras that
+after the rebases onto main, `PortalGun` item 42 and `PROTOCOL_ID` 24, and portal cameras that
 draw with the shaders chosen and leave tonemapping, grading, bloom and anti-aliasing to the
 player's camera.
 
