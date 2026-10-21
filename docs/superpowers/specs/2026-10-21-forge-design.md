@@ -312,3 +312,15 @@ Lot 3 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-3-progression.md` h
     its storage and files, its place in the tick, the tiers, the bucket) and `CHANGELOG.txt`
     (the bucket, the hearts; the ores no longer "until they can be smelted") tell of the
     forge.
+
+Final review:
+
+44. **Another input starts afresh.** When an inventory action leaves another item in the input
+    of a furnace, its `cook` goes back to 0, as in Minecraft; more of the same item keeps it.
+45. **A failed furnace file holds back the chests' file.** When the furnaces of a chunk cannot
+    be written, the chests' file written for it is not put in place either, so the chunk stays
+    whole on disk until the next save.
+46. **A burning furnace keeps its chunk loaded.** It changes every tick, so its chunk is never
+    clean and is not unloaded until the furnace goes out: at worst about 11 minutes for a full
+    stack of input. Accepted: it is bounded, loses nothing, and marking the chunk dirty only on
+    visible changes would lose burn and cook time on a crash.

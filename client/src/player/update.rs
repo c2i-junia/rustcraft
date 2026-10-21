@@ -482,9 +482,9 @@ mod tests {
         let inventory = &app.world().get::<Player>(player).unwrap().inventory;
         assert_eq!(inventory.floating, Some(sand));
         assert_eq!(inventory.open_furnace, Some(furnace));
+        // Its input taken out, the furnace has nothing cooking any more
         let expected = Furnace {
             burn_left: 30,
-            cook: 12,
             ..Default::default()
         };
         assert_eq!(

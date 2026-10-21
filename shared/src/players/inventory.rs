@@ -279,10 +279,16 @@ pub fn apply_inventory_action(
             })
         }
         Some(OpenContents::Furnace(furnace)) if inventory.open_furnace.is_some() => {
+            let cooked = furnace.input.map(|stack| stack.item_id);
             let stacks = vec![&mut furnace.input, &mut furnace.fuel, &mut furnace.output];
-            lend(inventory, stacks, furnace_slots(), |inventory| {
+            let applied = lend(inventory, stacks, furnace_slots(), |inventory| {
                 apply_action(inventory, action, in_reach, Lent::Furnace)
-            })
+            });
+            // As in Minecraft, another item starts from nothing: what cooked was not it
+            if furnace.input.map(|stack| stack.item_id) != cooked {
+                furnace.cook = 0;
+            }
+            applied
         }
         _ => apply_action(inventory, action, in_reach, Lent::Nothing),
     }
@@ -2033,6 +2039,36 @@ mod tests {
             world.furnace(FURNACE),
             Some(&furnace_holding(Some(stack(ItemId::Sand, 1)), None, None))
         );
+    }
+
+    #[test]
+    fn another_item_in_the_input_starts_cooking_afresh_and_more_of_it_does_not() {
+        let cooking = Furnace {
+            cook: crate::world::COOK_TICKS - 1,
+            ..furnace_holding(Some(stack(ItemId::Sand, 2)), None, None)
+        };
+        let (mut player, mut world) = by_an_open_furnace(cooking.clone());
+        player.inventory.floating = Some(stack(ItemId::Sand, 1));
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(FURNACE_INPUT_SLOT)],
+        );
+        assert_eq!(
+            world.furnace(FURNACE).unwrap().cook,
+            crate::world::COOK_TICKS - 1
+        );
+
+        let (mut player, mut world) = by_an_open_furnace(cooking);
+        player.inventory.floating = Some(stack(ItemId::Cobblestone, 1));
+        act(
+            &mut player,
+            &mut world,
+            vec![InventoryAction::LeftClickSlot(FURNACE_INPUT_SLOT)],
+        );
+        let furnace = world.furnace(FURNACE).unwrap();
+        assert_eq!(furnace.input, Some(stack(ItemId::Cobblestone, 1)));
+        assert_eq!(furnace.cook, 0);
     }
 
     #[test]
