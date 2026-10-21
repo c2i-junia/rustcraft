@@ -283,3 +283,43 @@ or push.
 14. (Lot 1) The e2e "chest ring" is the ring of eight cells around the centre of the 3x3 grid,
     the chest's recipe. The double-click e2e runs its two clicks under
     `TimeUpdateStrategy::ManualDuration`, so that a slow frame cannot split them.
+15. (Lot 2) `simulate_inventory_actions` returns a `Vec<InventoryActionOutcome>`, one per
+    action it applied (up to `MAX_INVENTORY_ACTIONS_PER_INPUT`), in order:
+    `InventoryActionOutcome { action, held_before, held_after, result }`, the floating stack
+    before and after the action and its `Result<(), InventoryRefusal>` (now `Clone, Copy`). The
+    server and the client's replays drop it: the server behaves as before.
+16. (Lot 2) Once per action: the client applies each action live once, in
+    `predict_inventory_system`, but `update_players_system` replays every unacknowledged
+    input's actions at each server update that carries an inventory. Only the live prediction
+    reports, as `InventoryActionPredicted(outcome)` (like `LocalPlayerMoved` for the
+    movement); the replays report nothing, and a server correction plays nothing either.
+17. (Lot 2) Sounds of an accepted action: the craft actions (`TakeCraftResult`, `CraftAll`,
+    `CraftToHotbar`) play `Craft`, whatever the cursor does. The cursor actions
+    (`LeftClickSlot`, `RightClickSlot`, `Drag`, `CollectAll`, `TakeFromCatalog`) compare the
+    floating stack: a stack where there was none, another item (a swap) or more of the same is
+    `ItemPick`; none where there was one, or fewer, is `ItemPlace`; unchanged is silent. The
+    other accepted actions are silent: they move nothing through the cursor (`QuickMoveSlot`,
+    `SwapWithHotbar`, `MoveAllOfType`, `FillCraftingGrid`) or are no gesture on a slot
+    (`Close`, the `Open*` actions, `DestroyFloating`).
+18. (Lot 2) A refusal is `ActionRefused { slot: Option<Entity> }`, a message of
+    `ui::widgets::slot`: the audio plays `Refused` for it, and the slot, when it is a `Slot`,
+    shakes. It is the one door to a refusal's feedback: lot 5 writes it for the item browser
+    slot of a refused Ctrl+click. For a predicted refusal, `report_refused_actions` writes one
+    per targeted cell: the slot of `LeftClickSlot`, `RightClickSlot`, `QuickMoveSlot`,
+    `SwapWithHotbar` and `MoveAllOfType`, every slot of a `Drag`, the result for the craft
+    actions; an action on no slot, or on a slot no cell shows, gives `slot: None` (the sound
+    alone).
+19. (Lot 2) One sound of each kind per frame: `inventory_sounds` gathers the sounds of the
+    frame's predicted outcomes and refusals and writes each kind once, in the order first met.
+20. (Lot 2) The shake (`RefusalShake`, on any `Slot`) moves the slot's `UiTransform` by
+    `round(3 px * sin(2 pi t / 80 ms))`, three left-right periods in the 0.24 s, in whole
+    logical pixels and without a new layout; its border is `DANGER` over the hover and
+    selection looks. It runs on `Time<Real>`, starts again when the slot is refused again, and
+    at its end the slot goes back in place with its look.
+21. (Lot 2) The files are `sounds/ui/item_pick.ogg` and `item_place.ogg` (90 ms, a soft tick
+    rising, and a soft tap falling, at -27 LUFS of the script's measure), `craft.ogg` (a
+    240 ms knock of the wood contact, -21) and `refused.ogg` (a 200 ms thump from 150 to 70 Hz
+    under 900 Hz, -22), made by the script's `build_item_pick`, `build_item_place`,
+    `build_craft` and `build_refused`. The Ogg stream serial changes at each run of the script,
+    so only the new files are committed. A test decodes them: pick and place under 120 ms,
+    craft and refused under 300 ms, each peak between -20 and 0 dBFS.

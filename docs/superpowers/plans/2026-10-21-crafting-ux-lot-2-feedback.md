@@ -78,58 +78,58 @@ inventory with an empty grid and click the result: it shakes red and thuds.
 ## Tasks
 
 ### Task 1: The simulation reports its outcomes (`shared`)
-- [ ] Tests: `simulate_inventory_actions` returns, for a pick-up then a refused craft, the
+- [x] Tests: `simulate_inventory_actions` returns, for a pick-up then a refused craft, the
   action, the held stack before and after, and the result of each; it reports no action
   beyond `MAX_INVENTORY_ACTIONS_PER_INPUT`. See them fail.
-- [ ] `InventoryActionOutcome`, the return value, `InventoryRefusal: Clone, Copy`. See them
+- [x] `InventoryActionOutcome`, the return value, `InventoryRefusal: Clone, Copy`. See them
   pass. Commit `feat(shared): the inventory simulation reports what each action did`.
 
 ### Task 2: The client hears of its own predictions (`client/src/player`)
-- [ ] Tests: `predict_inventory_system` writes one `InventoryActionPredicted` per action of the
+- [x] Tests: `predict_inventory_system` writes one `InventoryActionPredicted` per action of the
   frame; `update_players_system` replaying unacknowledged actions writes none. See them fail.
-- [ ] `InventoryActionPredicted`, written by `predict_inventory_system`, registered by the
+- [x] `InventoryActionPredicted`, written by `predict_inventory_system`, registered by the
   player plugin. See them pass. Commit
   `feat(client): the prediction reports the outcome of each inventory action`.
 
 ### Task 3: A refused slot shakes (`client/src/ui/widgets/slot.rs`)
-- [ ] Tests: `shake_offset` stays within 3 whole px, goes both ways and is 0 from 0.24 s on;
+- [x] Tests: `shake_offset` stays within 3 whole px, goes both ways and is 0 from 0.24 s on;
   an `ActionRefused` on a slot moves it and turns its border `DANGER`; after 0.24 s it is back
   in place with its look (hovered or selected); a second refusal restarts the shake;
   `slot: None` shakes nothing. See them fail.
-- [ ] `ActionRefused`, `RefusalShake`, `SHAKE_AMPLITUDE`, `SHAKE_DURATION`, `shake_offset`,
+- [x] `ActionRefused`, `RefusalShake`, `SHAKE_AMPLITUDE`, `SHAKE_DURATION`, `shake_offset`,
   `start_refusal_shakes`, `shake_refused_slots`, chained after `style_slots` before the
   layout. See them pass. Commit `feat(client): a refused slot shakes with a red border`.
 
 ### Task 4: The refused inventory actions (`client/src/ui/hud/inventory/feedback.rs`)
-- [ ] Tests: the targets of each refused action (cells, every slot of a drag, the result,
+- [x] Tests: the targets of each refused action (cells, every slot of a drag, the result,
   none); a refused `TakeCraftResult` reports the result cell, a refused click its cell, a
   refused open no slot, an accepted action nothing. See them fail.
-- [ ] `RefusedTarget`, `refused_targets`, `report_refused_actions`, after
+- [x] `RefusedTarget`, `refused_targets`, `report_refused_actions`, after
   `GameSet::Simulation` and before `GameSet::Reconciliation`. See them pass. Commit
   `feat(client): a refused inventory action shakes the slot it targeted`.
 
 ### Task 5: The sounds (`client/src/audio`, `scripts/generate_sounds.py`, `data/sounds/ui`)
-- [ ] Tests: `inventory_sound` for every case of decision 3; the system writes one sound of
+- [x] Tests: `inventory_sound` for every case of decision 3; the system writes one sound of
   each kind per frame, `Refused` for an `ActionRefused`; the new sounds are on the Interface
   channel; `every_file_of_every_sound_is_in_the_data_folder` with the new variants; the new
   files decode, pick and place last under 120 ms, craft and refused under 300 ms, none clips
   (peak under 0 dBFS) and none is silent (peak over -20 dBFS). See them fail.
-- [ ] `Sound::ItemPick`, `ItemPlace`, `Craft`, `Refused`, their files, the four builders, the
+- [x] `Sound::ItemPick`, `ItemPlace`, `Craft`, `Refused`, their files, the four builders, the
   generated files, `audio/inventory.rs` with `inventory_sound` and `inventory_sounds`. See them
   pass. Commit `feat(client): the sounds of picking, placing, crafting and refusals`.
 
 ### Task 6: The result's hint (`display.rs`)
-- [ ] Test: the result's tooltip is `Oak Planks`, `4 items`,
+- [x] Test: the result's tooltip is `Oak Planks`, `4 items`,
   `Shift+click: craft all  1-9: to the hotbar`. See it fail.
-- [ ] `HINT_RESULT`. See it pass. Commit `feat(client): the result's tooltip names its keys`.
+- [x] `HINT_RESULT`. See it pass. Commit `feat(client): the result's tooltip names its keys`.
 
 ### Task 7: e2e (`client/src/e2e/feedback.rs`)
-- [ ] A click on the result of an empty grid shakes it red and plays `sounds/ui/refused.ogg`,
+- [x] A click on the result of an empty grid shakes it red and plays `sounds/ui/refused.ogg`,
   and it is back in place 0.24 s later; picking a stack up plays `item_pick.ogg`, putting it
   down `item_place.ogg`; Shift+click on the result of a log plays `craft.ogg`. See them fail
   on the code before tasks 3 to 5 where they can, then pass. Commit
   `test(client): e2e of the feedback of the inventory`.
 
 ### Task 8: Closing
-- [ ] Spec decisions appended; `timeout 1500 just check`; commit
+- [x] Spec decisions appended; `timeout 1500 just check`; commit
   `docs: decisions of the feedback (lot 2)`.
