@@ -75,44 +75,44 @@ server", and its "Decisions".
 ## Tasks
 
 ### Task 1: The furnace model (`shared/src/world/furnace.rs`)
-- [ ] Tests: `smelting_result`, `fuel_ticks` (each entry, a non-fuel); tick rules: an idle
+- [x] Tests: `smelting_result`, `fuel_ticks` (each entry, a non-fuel); tick rules: an idle
   furnace stays the same; it lights with fuel and a smeltable input and takes one fuel item;
   it does not light without input, with an input that has no result, or with the output full
   or of another item; it cooks one item in `COOK_TICKS`; a coal smelts 8 items and the next
   coal follows with no gap; the fuel burns on with the input taken out, and `cook` falls to 0;
   out of fuel with input, `cook` goes back 2 per tick; output stacks up to its max then stops;
   `Toggled` when it lights and when it goes out; `furnace_encoding_is_pinned`. See them fail.
-- [ ] `Furnace`, `COOK_TICKS`, `FurnaceChange`, `smelting_result`, `fuel_ticks`, `tick`,
+- [x] `Furnace`, `COOK_TICKS`, `FurnaceChange`, `smelting_result`, `fuel_ticks`, `tick`,
   `is_lit`, `stacks`. See them pass. Commit `feat(shared): the furnace smelts by Minecraft's rules`.
 
 ### Task 2: The lit furnace block (`shared`, `client`)
-- [ ] Tests: `LitFurnace` 35 in `block_encoding_is_pinned`, `ALL_BLOCKS`;
+- [x] Tests: `LitFurnace` 35 in `block_encoding_is_pinned`, `ALL_BLOCKS`;
   `the_lit_furnace_is_a_furnace_that_glows` (break time, tool, drop, usable, light 13,
   `is_furnace`, the furnace usable too); client: the lit furnace's faces (`LitFurnace` sides,
   `FurnaceTop` top and bottom), its sound (stone). See them fail.
-- [ ] The variant, its behaviour, `is_furnace`, the shape, the sound, the texture, the preview
+- [x] The variant, its behaviour, `is_furnace`, the shape, the sound, the texture, the preview
   palette, `PROTOCOL_ID` 24. See them pass. Commit `feat: the lit furnace`.
 
 ### Task 3: Furnaces in the map, placed and broken (`shared`)
-- [ ] Refactor: the chests' contents in `Held<Container>`; the chest tests pass unchanged.
+- [x] Refactor: the chests' contents in `Held<Container>`; the chest tests pass unchanged.
   Commit `refactor(shared): the chunk map keeps the chests' contents in a generic store`.
-- [ ] Tests (chunk_map.rs): a furnace is only stored where a furnace or a lit furnace stands;
+- [x] Tests (chunk_map.rs): a furnace is only stored where a furnace or a lit furnace stands;
   swapping the two keeps it; replacing or removing it drops it; changes are recorded; a removed
   chunk drops its furnaces. (blocks.rs): placing a furnace creates an empty one; a broken
   furnace hands its stacks over; the server drops them (dropped_items.rs). See them fail.
-- [ ] `Held<Furnace>` and the furnace methods; placement; `BrokenBlock::furnace`;
+- [x] `Held<Furnace>` and the furnace methods; placement; `BrokenBlock::furnace`;
   `drop_block_items`. See them pass. Commit `feat: a placed furnace holds an empty furnace and
   drops what it holds when broken`.
 
 ### Task 4: The furnace faces its player (`shared`, `client`)
-- [ ] Tests: a furnace placed looking north, east, south, west faces the player; other blocks
+- [x] Tests: a furnace placed looking north, east, south, west faces the player; other blocks
   stay `Front`. Client meshing: a turned whole block next to stone hides the face against the
   stone and draws the one toward the air, lit by the cell it looks to. See them fail.
-- [ ] The direction at placement; the meshing culls and lights the sides of a turned block by
+- [x] The direction at placement; the meshing culls and lights the sides of a turned block by
   their turned side. See them pass. Commit `feat: a furnace faces the player who placed it`.
 
 ### Task 5: Opening and filling a furnace (`shared`, `client`)
-- [ ] Tests (inventory.rs): `the_furnace_slots_follow_the_chest_slots`; a furnace (lit or not)
+- [x] Tests (inventory.rs): `the_furnace_slots_follow_the_chest_slots`; a furnace (lit or not)
   opens within reach and closes a table or a chest, and opening those closes it; clicks move
   items between the furnace and the inventory; the fuel slot takes only fuels (left, right,
   number key); the output takes nothing but gives (left with the same item tops the cursor
@@ -120,31 +120,31 @@ server", and its "Decisions".
   back to the inventory; `Close` closes it and keeps its stacks; a furnace walked away from or
   broken closes; its slots are refused when it is not open or its state unknown. Pinned
   `OpenFurnace` (11). See them fail.
-- [ ] `Inventory::open_furnace`, the action, the lending of the three slots, the rules,
+- [x] `Inventory::open_furnace`, the action, the lending of the three slots, the rules,
   `simulate_inventory_actions`; `PlayerUpdateEvent::open_furnace` (pinned test builds it);
   the client takes it into its map like the chest, and a right click on a furnace sends
   `OpenFurnace`; a loaded player has no furnace open. See them pass. Commit `feat: a furnace
   opens and takes items in its three slots`.
 
 ### Task 6: The server smelts (`server`)
-- [ ] Tests (`server/src/world/furnaces.rs`): ticking the map lights a furnace with fuel and
+- [x] Tests (`server/src/world/furnaces.rs`): ticking the map lights a furnace with fuel and
   input, swaps its block to a lit furnace keeping its direction, records it changed; a furnace
   that goes out swaps back; an idle one records nothing; a lit block whose furnace burns
   nothing is put out. Broadcast: a changed furnace marks its chunk dirty. The player update
   carries the open furnace. See them fail.
-- [ ] `tick_furnaces`, `tick_furnaces_system` in `ServerSet::Simulate`; the broadcast drains the
+- [x] `tick_furnaces`, `tick_furnaces_system` in `ServerSet::Simulate`; the broadcast drains the
   changed furnaces into `dirty_chunks`; `broadcast_player_updates_system` sends
   `open_furnace`. See them pass. Commit `feat(server): the furnaces smelt on the server`.
 
 ### Task 7: The furnaces are saved (`server`)
-- [ ] Tests: furnaces written and read back by global position (`furnaces/`), a chunk left
+- [x] Tests: furnaces written and read back by global position (`furnaces/`), a chunk left
   without furnaces loses its file, a furnace in every cell fits the limits; a save writes the
   furnaces of the dirty chunks; a saved chunk is read with its furnaces; a loaded furnace
   block without a saved state is empty, a stray state is dropped; a world without `furnaces/`
   loads. See them fail.
-- [ ] `Stored`, generic files, `ChunkContents`, the writer, the loader, the clean-up of
+- [x] `Stored`, generic files, `ChunkContents`, the writer, the loader, the clean-up of
   interrupted writes. See them pass. Commit `feat(server): the furnaces are saved with their
   chunks`.
 
 ### Task 8: Closing
-- [ ] Spec decisions appended; `just check`; commit `docs: decisions of the furnace (lot 1)`.
+- [x] Spec decisions appended; `just check`; commit `docs: decisions of the furnace (lot 1)`.

@@ -187,3 +187,39 @@ decisions below.
    block updates already work per `BlockId`.
 3. Furnaces are stored apart from chests (`furnaces/`), so old worlds load without a format bump.
 4. One `PROTOCOL_ID` bump (24) for the branch.
+
+Lot 1 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-1-furnace.md` has them in full):
+
+5. **Textures.** Our `Furnace.png` and `FurnaceTop.png` are not the pack's: the furnace shows
+   its opening on its four sides. That look is kept; the lit furnace mirrors it with the pack's
+   `block/furnace_front_on.png` on its four sides (16x16, not animated in the pack) and
+   `FurnaceTop` on its top and bottom. Its fire is browner than our grey furnace: lot 2 may
+   take the pack's front, side and top for both, now that a furnace faces its player.
+6. **Facing.** A placed furnace faces the player, against the main horizontal axis of the look.
+   The client used to cull and light a turned whole block by its unturned sides; it now uses
+   the side each face is turned to.
+7. **Usable.** `Furnace` and `LitFurnace` are usable, and a right click sends `OpenFurnace`.
+   Until lot 2 it opens the plain inventory, and a shift-click from it routes items into the
+   unseen furnace slots.
+8. **Tick order**, Minecraft's: `burn_left` drops first, then a furnace out that can smelt burns
+   a fuel item on the same tick (no gap between two coals), then it cooks; one that cannot
+   smelt has `cook = 0`, one that could but burns nothing loses 2 per tick.
+9. **`FurnaceChange`** is `Same`, `Changed` or `Toggled`. The server sets the block from
+   `Furnace::is_lit` whenever they disagree, keeping its direction, which also puts out a lit
+   block whose state was lost.
+10. **Lot-1 tables.** Smelting: Sand → Glass, Cobblestone → Stone. Fuels: Coal 1600; the logs,
+    the planks, the crafting table and the chest 300; the wooden tools 200; the stick 100.
+11. **Slots and rules.** The furnace slots follow the chest's: 72 input, 73 fuel, 74 output
+    (`furnace_slots()`). The fuel slot takes only a fuel, the output nothing; a left click with
+    the same item as the output takes what the cursor can hold; anything else the slot does not
+    take is refused with `InventoryRefusal::NotTaken`, so is a number key bringing it. A
+    shift-click sends what smelts to the input, else a fuel to the fuel slot, else nothing.
+12. **Storage.** `ChunkMap` keeps the chests' contents and the furnaces in one generic store
+    (`Held<T>`); a swap between `Furnace` and `LitFurnace` keeps the furnace. `BrokenBlock`
+    gains `furnace`, dropped with the block.
+13. **Files.** `container_files.rs` is generic over a `Stored` trait (`Container`, `Furnace`);
+    what a chunk's blocks hold travels as `ChunkContents { chests, furnaces }`.
+14. **Ticking** runs in the `Simulate` set right after the players' inputs, for the furnaces of
+    the loaded chunks only. A burning furnace keeps its chunk dirty, so it is saved each save.
+15. `LitFurnace` joins the palette of `scripts/worldgen_preview.py`. `CHANGELOG.txt`, the README
+    and `docs/ARCHITECTURE.md` wait for the lots a player sees.
