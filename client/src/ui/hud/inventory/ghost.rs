@@ -23,6 +23,9 @@ pub struct GridGhost(pub Option<Ghost>);
 /// A recipe laid over the crafting grid, at its top left corner as a fill puts it.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Ghost {
+    /// The index of the recipe, and the size of the grid it was laid over.
+    pub recipe: u16,
+    pub size: u32,
     /// The stacks of the nine cells of the grid when it was laid: any change takes it away.
     pub grid: Vec<Option<ItemStack>>,
     /// The empty cells of the grid the recipe puts an ingredient into.
@@ -77,6 +80,8 @@ pub fn ghost_of(inventory: &Inventory, recipe: u16, size: u32) -> Option<Ghost> 
         })
         .collect();
     Some(Ghost {
+        recipe,
+        size,
         grid: grid_stacks(inventory),
         cells,
     })
@@ -172,7 +177,9 @@ pub fn show_grid_ghost(
     }
 }
 
-/// Takes the ghost away when the inventory closes or the crafting grid changes.
+/// Takes the ghost away when the inventory closes or the crafting grid changes; else, when the
+/// inventory changes, says again which cells it lacks, an ingredient gained or lost elsewhere
+/// than in the grid (a Creative take, a pickup).
 pub fn clear_grid_ghost(
     inventory: Res<Inventory>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
@@ -184,6 +191,9 @@ pub fn clear_grid_ghost(
     let open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
     if !open || laid.grid != grid_stacks(&inventory) {
         ghost.0 = None;
+    } else if inventory.is_changed() {
+        let again = ghost_of(&inventory, laid.recipe, laid.size);
+        ghost.set_if_neq(GridGhost(again));
     }
 }
 
@@ -355,5 +365,34 @@ mod tests {
         let mut root = world.query_filtered::<&mut Visibility, With<InventoryRoot>>();
         *root.single_mut(&mut world).unwrap() = Visibility::Hidden;
         assert!(cleared(&mut world));
+    }
+
+    #[test]
+    fn an_ingredient_gained_outside_the_grid_takes_its_cell_out_of_the_red() {
+        let mut world = grid_world();
+        world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(9, stack(ItemId::Stick, 1));
+        let inventory = world.resource::<Inventory>().clone();
+        world.resource_mut::<GridGhost>().0 = ghost_of(&inventory, index_of(ItemId::Torch), 2);
+        world.run_system_once(clear_grid_ghost).unwrap();
+        assert_eq!(shown(&mut world).0, [grid_slot(0, 0)]);
+
+        // Coal comes into the backpack, as a Creative take or a pickup brings it
+        world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(10, stack(ItemId::Coal, 1));
+        world.run_system_once(clear_grid_ghost).unwrap();
+
+        assert_eq!(
+            shown(&mut world),
+            (vec![], vec![grid_slot(0, 0), grid_slot(1, 0)])
+        );
+        // And lost again, it is red again
+        world.resource_mut::<Inventory>().inner.remove(&10);
+        world.run_system_once(clear_grid_ghost).unwrap();
+        assert_eq!(shown(&mut world).0, [grid_slot(0, 0)]);
     }
 }

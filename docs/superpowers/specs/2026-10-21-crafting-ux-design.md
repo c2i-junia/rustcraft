@@ -440,7 +440,10 @@ or push.
     (`GridNotEmptied`) lays no ghost.
 44. (Lot 5) The ghost goes when the inventory is hidden, when any of the nine grid stacks
     differs from those it was laid on (a stack in or out, a count, the server's correction), or
-    when the browser sends a fill (its button or a Ctrl+click); another ghost replaces it.
+    when the browser sends a fill (its button or a Ctrl+click); another ghost replaces it. While
+    it stays, a change of the inventory elsewhere than in the grid (a Creative take, a pickup)
+    computes its lacking cells again from `plan_grid_fill`: the `Ghost` keeps its recipe and
+    grid size for it. (Fix of the whole-branch review: `lacking` was computed once.)
 45. (Lot 5) `RecentCrafts` holds at most `RECENT_CRAFTS` = 9 items, newest first, a craft
     moving its item to the front. It is emptied on entering a world (`OnEnter(Game)`): the
     session is the world played, and nothing is saved. Its bar, `Recent`, is built as the
