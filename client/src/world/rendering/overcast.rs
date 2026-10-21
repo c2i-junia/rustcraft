@@ -21,7 +21,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 
 use crate::state::GameState;
-use crate::world::celestial::{smoothstep, sun_height};
+use crate::world::celestial::{sky_rotation, smoothstep, sun_height};
 use crate::world::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
@@ -72,6 +72,11 @@ const STORM_HORIZON: Vec3 = Vec3::new(0.56, 0.6, 0.67);
 const STORM_ZENITH: Vec3 = Vec3::new(0.74, 0.77, 0.82);
 /// How much of the light of the overcast sky a storm lets through.
 const STORM_SKY_LIGHT: f32 = 0.5;
+/// The glow of a sun low on the horizon seeping under the clouds, toward the sun, as a part of
+/// the brightness of the overcast at the horizon: a dull orange pink; and how much of it a
+/// storm lets through.
+const GLOW: Vec3 = Vec3::new(0.75, 0.36, 0.13);
+const STORM_GLOW: f32 = 0.45;
 
 impl Overcast {
     pub fn of(weather: &ClientWeather) -> Self {
@@ -174,6 +179,16 @@ impl Overcast {
         let zenith = horizon * ZENITH * Vec3::ONE.lerp(STORM_ZENITH, self.storm);
         (horizon, zenith)
     }
+
+    /// The glow of the sun under the overcast at the horizon toward it, with the sun at
+    /// `sun_height`, in linear RGB as `colors`: only while the sun is low, at sunrise and
+    /// sunset, and weaker in a storm.
+    pub fn glow(self, sun_height: f32, physical_sky: bool) -> Vec3 {
+        let low = smoothstep(-0.15, 0., sun_height) * (1. - smoothstep(0.15, 0.45, sun_height));
+        let (horizon, _) = self.colors(sun_height, physical_sky);
+        let brightness = horizon.element_sum() / 3.;
+        GLOW * brightness * low * 1f32.lerp(STORM_GLOW, self.storm)
+    }
 }
 
 /// What the shaders of the sky know of the weather: `Weather` in `sky.wgsl`, bound at 107 in
@@ -183,17 +198,26 @@ pub struct WeatherShading {
     /// The overcast sky at the horizon and at the zenith (`Overcast::colors`), in linear RGB.
     pub horizon: Vec4,
     pub zenith: Vec4,
+    /// The glow of a low sun at the horizon toward it (`Overcast::glow`), and in `xy` the
+    /// direction of the sun on the ground plane, its x and z.
+    pub glow: Vec4,
+    pub sun: Vec4,
     /// `Overcast::level`.
     pub overcast: f32,
 }
 
 impl WeatherShading {
-    /// What the shaders are told under `overcast`, with the sun at `sun_height`.
-    pub fn new(overcast: Overcast, sun_height: f32, physical_sky: bool) -> Self {
-        let (horizon, zenith) = overcast.colors(sun_height, physical_sky);
+    /// What the shaders are told under `overcast` at the world clock `tick`.
+    pub fn new(overcast: Overcast, tick: u64, physical_sky: bool) -> Self {
+        let height = sun_height(tick);
+        let (horizon, zenith) = overcast.colors(height, physical_sky);
+        let sun = sky_rotation(tick) * Vec3::Z;
+        let azimuth = Vec2::new(sun.x, sun.z).normalize_or_zero();
         Self {
             horizon: horizon.extend(1.),
             zenith: zenith.extend(1.),
+            glow: overcast.glow(height, physical_sky).extend(1.),
+            sun: azimuth.extend(0.).extend(0.),
             overcast: overcast.level,
         }
     }
@@ -227,7 +251,7 @@ pub fn weather_shading_system(
 ) {
     let shading = WeatherShading::new(
         Overcast::current(weather.as_deref()),
-        sun_height(time.0),
+        time.0,
         ShaderFeatures::of(graphics.shaders).sky,
     );
     if *written == Some(shading) {
@@ -491,6 +515,19 @@ mod tests {
     }
 
     #[test]
+    fn a_low_sun_glows_under_the_overcast_less_in_a_storm() {
+        for physical in [true, false] {
+            assert_eq!(RAIN.glow(0.9, physical), Vec3::ZERO);
+            assert_eq!(RAIN.glow(-0.5, physical), Vec3::ZERO);
+            let sunset = RAIN.glow(0.03, physical);
+            assert!(sunset.x > 1.5 * sunset.y && sunset.y > sunset.z, "{sunset}");
+            let (horizon, _) = RAIN.colors(0.03, physical);
+            assert!(brightness(sunset) < brightness(horizon), "{sunset}");
+            assert!(brightness(STORM.glow(0.03, physical)) < 0.5 * brightness(sunset));
+        }
+    }
+
+    #[test]
     fn a_storm_is_a_cooler_grey_darker_up_high() {
         for physical in [true, false] {
             let (rain_horizon, rain_zenith) = RAIN.colors(0.9, physical);
@@ -564,7 +601,7 @@ mod tests {
     #[test]
     fn the_shaders_of_the_sky_are_told_the_overcast_of_the_hour() {
         let (mut app, handle) = app(ShaderQuality::High, WeatherKind::Rain);
-        let expected = WeatherShading::new(RAIN, sun_height(NOON_IN_DAY), true);
+        let expected = WeatherShading::new(RAIN, NOON_IN_DAY, true);
         assert_eq!(expected.overcast, 1.);
         assert_eq!(
             buffer_data(&app, &handle),
@@ -576,7 +613,7 @@ mod tests {
             ..default()
         });
         app.update();
-        let expected = WeatherShading::new(RAIN, sun_height(NOON_IN_DAY), false);
+        let expected = WeatherShading::new(RAIN, NOON_IN_DAY, false);
         assert_eq!(
             buffer_data(&app, &handle),
             ShaderBuffer::from(expected).data

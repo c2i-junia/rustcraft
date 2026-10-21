@@ -19,6 +19,10 @@ struct Weather {
     // The overcast sky at the horizon and at the zenith, as seen on screen, in linear RGB
     horizon: vec4<f32>,
     zenith: vec4<f32>,
+    // The glow of a low sun at the horizon toward it, and in `xy` the direction of the sun on
+    // the ground plane
+    glow: vec4<f32>,
+    sun: vec4<f32>,
     // From 0 to 1, how overcast the sky is
     overcast: f32,
 }
@@ -57,10 +61,13 @@ fn clear_sky_radiance(dir: vec3<f32>, blur: f32) -> vec3<f32> {
 #endif
 }
 
-// The overcast sky toward `dir`, as seen on screen: lighter at the horizon, darker up high.
+// The overcast sky toward `dir`, as seen on screen: lighter at the horizon, darker up high,
+// and at sunrise and sunset, warm low toward the sun.
 fn overcast_sky(dir: vec3<f32>) -> vec3<f32> {
     let up = smoothstep(0.0, 0.7, dir.y);
-    return mix(weather.horizon.rgb, weather.zenith.rgb, up);
+    let toward = max(dot(dir.xz / max(length(dir.xz), 1e-4), weather.sun.xy), 0.0);
+    let glow = weather.glow.rgb * toward * toward * toward * (1.0 - smoothstep(-0.05, 0.45, dir.y));
+    return mix(weather.horizon.rgb, weather.zenith.rgb, up) + glow;
 }
 
 // The sky toward `dir` as seen: the physical sky, under the overcast of the weather.
