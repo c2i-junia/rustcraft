@@ -163,6 +163,32 @@ ingredients of a recipe into it, all or nothing. The client inserts the contents
 the server sent before replaying its unacknowledged actions on them, as it does for the
 inventory. A broken chest drops what it held on the ground with itself.
 
+`simulate_inventory_actions` returns an `InventoryActionOutcome` for each action it applied: the
+action, the floating stack before and after it, its result (`Ok` or the `InventoryRefusal`),
+the stack it threw and the item it crafted. The server and the client's replays ignore it; only
+the client's live prediction reports it, once, as `InventoryActionPredicted`, from which the
+audio plays the pick, place and craft sounds and the item browser fills its Recent row. A
+refusal goes through one door, the `ActionRefused` message of `ui/widgets/slot.rs`, whatever
+made the action (`report_refused_actions` for a predicted one, the item browser for a refused
+Ctrl+click): the audio plays the refused thud, and its slot shakes (`RefusalShake`). A refusal
+of a slot already shaking shows nothing more, so that a burst of refusals shakes and thuds once.
+
+What a player throws out of its inventory (Q, or a click outside the panel with a held stack)
+comes back to the server in `ActionsOutcome::thrown`, beside `dropped`, what it had no room
+for: `throw_from_player` throws it faster, out of the player's reach, and it cannot be picked
+up for 40 ticks (`THROWN_PICKUP_DELAY_TICKS`, 2 s, as in Minecraft) where an overflow waits 10.
+The delay is not saved: a loaded item takes the shorter one.
+
+A recipe cell is an `Ingredient` (`shared/src/world/crafting.rs`): an item, or a family,
+`ItemTag`, whose members any one of fills it (`ItemTag::Planks`: every planks item), so that a
+recipe of planks is written once and its species mix in the grid. Every fill of the grid has a
+single entry point, `plan_grid_fill` (`shared/src/players/inventory.rs`): on a copy of the
+inventory, it puts the grid back and plans the rounds and the item of each cell, a single
+species of a family whenever one is enough, and which cells one round leaves without their
+ingredient. `FillCraftingGrid` applies it, and the client's Ctrl+click on the item browser and
+the ghost of a recipe over the grid (`ui/hud/inventory/ghost.rs`) call it too, so that they
+agree with the server.
+
 A furnace (`shared/src/world/furnace.rs`) holds an input, a fuel and an output stack, and how
 long its fuel still burns and its input has cooked; `Furnace::tick` applies Minecraft's rules
 to it, from the shared tables `smelting_result` and `fuel_ticks`, which the dialog and the item
@@ -367,7 +393,11 @@ is on an `EditableText`. `slot.rs` is an item slot: its icon at twice the size o
 its count, its number in the hotbar, the durability bar of a worn tool and its selection. `tooltip.rs` is the one tooltip by the
 cursor, for any hovered entity with a `Tooltip`. The inventory is one panel whose bottom row is
 the hotbar, and every change to it is an `InventoryAction` predicted by the client and applied
-by the server. While a chest is open, its slots take the place of the crafting row. The item
+by the server. While a chest is open, its slots take the place of the crafting row. The
+gestures that last longer than a press are in `ui/hud/inventory/gestures.rs`: the drag of the
+held stack over cells, sent on its release with a preview of its counts from the shared
+`drag_plan`, the double clicks, and the inventory tweaks of Mouse Tweaks, Shift+drag and the
+wheel, all in the `CellGestures` resource. The item
 browser (`ui/hud/item_browser/`) shows beside the open inventory, in `HudBottom` with it, every
 item of the game: `catalog.rs` orders and searches them, `layout.rs` gives the columns that fit
 the window (8 to 4, the panel sliding left to leave them room, else a drawer of up to 6 over the

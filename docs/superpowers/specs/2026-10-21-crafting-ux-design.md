@@ -498,3 +498,8 @@ or push.
     `Shift+drag: stacks  Wheel: one item` (`TWEAKS_NOTE`). Off, a Shift+press is the plain
     shift-click and the wheel does nothing in the inventory. The Controls golden changes: the
     row under the list, which is a row shorter.
+52. (Known limit, whole-branch review) The key hints name physical keys, as every binding is
+    one (`KeyCode`, the position of a key on a QWERTY board): on AZERTY the key labelled "A" is
+    the physical `KeyQ`, which is Drop, so an AZERTY player following the hint `A Bookmark`
+    throws an item instead (and the key that bookmarks is labelled "Q"). Labels that follow the
+    keyboard layout are a follow-up, for every hint and the Controls tab alike.

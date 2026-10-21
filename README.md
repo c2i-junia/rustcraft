@@ -36,7 +36,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Day/night cycle
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
-- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the furnace's included, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe. In Creative it hands out stacks of any item, and destroys the stack you hold. A over any item slot bookmarks its item: the bookmarks show above the list, kept for each world and each server.
+- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the furnace's included, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe, or lays a faint ghost of it over the grid, the lacking cells in red, when ingredients are missing. Ctrl+click on an item fills the grid with its first recipe made now, without opening it. In Creative it hands out stacks of any item, and destroys the stack you hold. A over any item slot bookmarks its item: the bookmarks show above the list, kept for each world and each server, and a Recent row under them holds the last items crafted in the session.
 - World saving and loading.
 - Survival and creative game modes: in survival, players have 10 hearts, cannot fly and get hurt by falls of more than 3 blocks; a dead player respawns at the spawn of the world. New players start in survival.
 - A furnace that smelts with an input, a fuel and an output slot, also while nobody watches it, as long as its chunk is loaded: iron and gold ore into ingots, diamond ore into diamonds, sand into glass, cobblestone into stone and logs into charcoal. Coal and charcoal burn for 8 items, wood for 1.5, wooden tools and sticks for less. Lit, it glows; it keeps what it holds in the save and drops it when broken.
@@ -97,6 +97,7 @@ paru -S rustcraft
 |                   |                        |                             |
 | **Hotbar**        | Select a slot         | 1–9                         |
 |                   | Next / previous slot  | Mouse wheel                 |
+|                   | Drop one item / the stack of the selected slot | Q / Ctrl + Q |
 |                   |                        |                             |
 | **Inventory**     | Open/Close Inventory  | E                           |
 |                   | Pick up stack         | Left Click                  |
@@ -105,6 +106,17 @@ paru -S rustcraft
 |                   | Deposit MAX items     | Left Click (over valid stack) |
 |                   | Exchange stacks       | Left Click (over a different stack or full valid stack) |
 |                   | Move a stack between backpack and hotbar, or into the open chest or furnace | Shift + Left Click |
+|                   | Split the held stack over cells | Hold Left Click and move over them |
+|                   | Drop one item in each cell | Hold Right Click and move over them |
+|                   | Gather the stacks of the held item | Double Left Click |
+|                   | Move every stack of an item | Shift + Double Left Click |
+|                   | Craft as many as possible into the inventory | Shift + Left Click on the result |
+|                   | Craft into a hotbar slot | 1–9 over the result       |
+|                   | Move every stack swept (Inventory tweaks) | Hold Shift + Left Click and move over them |
+|                   | Move one item (Inventory tweaks) | Mouse wheel over a stack |
+|                   | Turn the inventory tweaks on / off | Settings → Controls |
+|                   | Drop one item / the stack of a slot | Q / Ctrl + Q over it |
+|                   | Drop the held stack / one item of it | Left / Right Click outside the panel |
 |                   | Swap with a hotbar slot | 1–9 over a slot          |
 |                   | Move between slots     | Arrows                      |
 |                   | Take / place           | Enter                       |
@@ -121,6 +133,8 @@ paru -S rustcraft
 |                   | Back                   | Escape or the back button   |
 |                   | Bookmark an item, or remove it | A over any item slot |
 |                   | Fill the crafting grid with a recipe | + Fill grid (Shift: as many times as possible) |
+|                   | Show the ghost of a recipe missing ingredients | + Fill grid |
+|                   | Fill the grid with an item's first recipe made now | Ctrl + Left Click on an item (Ctrl + Shift: as many times as possible) |
 |                   | Take a stack (Creative) | Left Click on an item      |
 |                   | Take one more (Creative) | Right Click on an item    |
 |                   | Put a stack into the inventory (Creative) | Shift + Left Click on an item |
@@ -193,7 +207,7 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 
 Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per region of 8×8×8 chunks, `containers/` and `furnaces/` what the chests and the furnaces of a chunk hold, and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
-The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance, clouds, shaders and the other video settings). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
+The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale, inventory tweaks) and `video.ron` (render distance, clouds, shaders and the other video settings). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
 
 The player's name is saved in `player.ron`, in the game folder. On the first launch the main menu asks for it; the button showing it, under the version, changes it. `--player-name <name>` plays under another name for one run, without saving it. Each world keeps a player's position and inventory under their name: a new name starts afresh.
 
