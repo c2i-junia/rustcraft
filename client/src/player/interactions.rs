@@ -8,7 +8,9 @@ use bevy::color::palettes::css::WHITE;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::blocks::{aim, held_item, simulate_player_block_interactions, CallerType};
-use shared::players::inventory::{simulate_inventory_actions, InventoryAction};
+use shared::players::inventory::{
+    simulate_inventory_actions, InventoryAction, InventoryActionOutcome,
+};
 use shared::players::{Inventory, Player, ViewMode};
 use shared::world::{BlockId, FaceDirectionExt};
 
@@ -122,12 +124,20 @@ pub fn handle_block_interactions(
     }
 }
 
-/// Predicts the inventory actions of the frame on the local player, and shows the result.
+/// What one inventory action of the local player did, as predicted when the player made it.
+/// Replays of the reconciliation are not reported: each action is reported once, which the
+/// sounds and the shake of a refused slot rely on.
+#[derive(Message, Debug, Clone, Copy, PartialEq)]
+pub struct InventoryActionPredicted(pub InventoryActionOutcome);
+
+/// Predicts the inventory actions of the frame on the local player, shows the result, and
+/// reports what each action did.
 pub fn predict_inventory_system(
     mut player: Query<&mut Player, With<CurrentPlayerMarker>>,
     frame_inputs: Res<CurrentFrameInputs>,
     mut world_map: ResMut<ClientWorldMap>,
     mut inventory: ResMut<Inventory>,
+    mut predicted: MessageWriter<InventoryActionPredicted>,
 ) {
     let Ok(mut player) = player.single_mut() else {
         return;
@@ -135,11 +145,73 @@ pub fn predict_inventory_system(
     if frame_inputs.0.inventory_actions.is_empty() {
         return;
     }
-    simulate_inventory_actions(
+    let outcomes = simulate_inventory_actions(
         &mut player,
         &mut world_map.blocks,
         &frame_inputs.0,
         CallerType::Client,
     );
     inventory.clone_from(&player.inventory);
+    predicted.write_batch(outcomes.into_iter().map(InventoryActionPredicted));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::players::inventory::{InventoryActionOutcome, InventoryRefusal};
+    use shared::world::{ItemId, ItemStack};
+
+    #[test]
+    fn the_prediction_reports_each_inventory_action_of_the_frame() {
+        let mut app = App::new();
+        app.add_message::<InventoryActionPredicted>()
+            .init_resource::<ClientWorldMap>()
+            .init_resource::<CurrentFrameInputs>()
+            .insert_resource(Inventory::new())
+            .add_systems(Update, predict_inventory_system);
+        let dirt = ItemStack {
+            item_id: ItemId::Dirt,
+            item_type: ItemId::Dirt.get_default_type(),
+            nb: 5,
+        };
+        let mut player = Player::default();
+        player.inventory.inner.insert(0, dirt);
+        app.world_mut().spawn((player, CurrentPlayerMarker {}));
+        let actions = &mut app
+            .world_mut()
+            .resource_mut::<CurrentFrameInputs>()
+            .into_inner()
+            .0
+            .inventory_actions;
+        actions.extend([
+            InventoryAction::LeftClickSlot(0),
+            InventoryAction::TakeCraftResult,
+        ]);
+
+        app.update();
+
+        let reported: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<InventoryActionPredicted>>()
+            .drain()
+            .map(|predicted| predicted.0)
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                InventoryActionOutcome {
+                    action: InventoryAction::LeftClickSlot(0),
+                    held_before: None,
+                    held_after: Some(dirt),
+                    result: Ok(()),
+                },
+                InventoryActionOutcome {
+                    action: InventoryAction::TakeCraftResult,
+                    held_before: Some(dirt),
+                    held_after: Some(dirt),
+                    result: Err(InventoryRefusal::NoRecipe),
+                },
+            ]
+        );
+    }
 }

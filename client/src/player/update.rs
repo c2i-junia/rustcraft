@@ -386,6 +386,36 @@ mod tests {
     }
 
     #[test]
+    fn a_replay_of_the_unacknowledged_inventory_actions_reports_none_of_them() {
+        use crate::player::InventoryActionPredicted;
+        use shared::players::inventory::InventoryAction;
+
+        let (mut app, _) = app_with_player();
+        app.add_message::<InventoryActionPredicted>();
+        app.world_mut().resource_mut::<UnacknowledgedInputs>().0[1]
+            .inventory_actions
+            .push(InventoryAction::TakeCraftResult);
+
+        app.world_mut().write_message(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: MovementState::default(),
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: Some(Inventory::new()),
+            open_chest: None,
+            open_furnace: None,
+            health: shared::players::game_mode::MAX_HEALTH,
+            game_mode: Default::default(),
+            death_cause: None,
+        });
+        app.update();
+
+        // The live prediction reported it once already
+        let messages = app.world().resource::<Messages<InventoryActionPredicted>>();
+        assert!(messages.is_empty());
+    }
+
+    #[test]
     fn unacknowledged_chest_actions_are_replayed_once_on_the_chest_the_server_sends() {
         use shared::players::inventory::{InventoryAction, CHEST_SLOT_START};
         use shared::world::{Container, ItemId, ItemStack};
