@@ -36,14 +36,9 @@ struct Scene {
 /// way, 12 blocks east and 5 north.
 const THROUGH: Vec3 = Vec3::new(12.0, 0.0, -5.0);
 
-/// Waits for the player to stand on the ground, then builds around it, the player looking north
-/// (-Z): an arena cleared of the terrain, with a stone floor, a wall 8 blocks ahead with the blue
-/// portal facing the player, and further, to the east, a wall as high as the orange portal,
-/// which faces north. Six blocks north of the orange portal stands a pillar of sand, 5 high;
-/// between the portal and where its camera stands, south of its wall, a pillar of cactus, which
-/// the camera must not see. A second pillar of sand stands to the left of the blue portal, seen
-/// straight at the same depth.
-fn build_scene(h: &mut Harness) -> Scene {
+/// Waits for the player to stand on the ground with every chunk of the scenes loaded around it,
+/// and returns the cell of its feet.
+fn settle(h: &mut Harness) -> IVec3 {
     h.wait_until("the player on the ground", SERVER, |w| {
         let mut players = w
             .try_query_filtered::<&Transform, With<CurrentPlayerMarker>>()
@@ -55,7 +50,7 @@ fn build_scene(h: &mut Harness) -> Scene {
             let corners = [-14, 24].into_iter().flat_map(|x| {
                 [-3, 11]
                     .into_iter()
-                    .flat_map(move |y| [-24, -1].map(|z| center + IVec3::new(x, y, z)))
+                    .flat_map(move |y| [-24, 12].map(|z| center + IVec3::new(x, y, z)))
             });
             corners
                 .map(|corner| corner.div_euclid(IVec3::splat(CHUNK_SIZE)))
@@ -72,13 +67,26 @@ fn build_scene(h: &mut Harness) -> Scene {
         .single(world)
         .unwrap()
         .translation;
-    let mut map = world.resource_mut::<ClientWorldMap>();
-    let blocks = &mut map.blocks;
-    let feet = IVec3::new(
+    let blocks = &world.resource::<ClientWorldMap>().blocks;
+    IVec3::new(
         player.x.floor() as i32,
         blocks.get_height_ground(player) + 1,
         player.z.floor() as i32,
-    );
+    )
+}
+
+/// Waits for the player to stand on the ground, then builds around it, the player looking north
+/// (-Z): an arena cleared of the terrain, with a stone floor, a wall 8 blocks ahead with the blue
+/// portal facing the player, and further, to the east, a wall as high as the orange portal,
+/// which faces north. Six blocks north of the orange portal stands a pillar of sand, 5 high;
+/// between the portal and where its camera stands, south of its wall, a pillar of cactus, which
+/// the camera must not see. A second pillar of sand stands to the left of the blue portal, seen
+/// straight at the same depth.
+fn build_scene(h: &mut Harness) -> Scene {
+    let feet = settle(h);
+    let world = h.world_mut();
+    let mut map = world.resource_mut::<ClientWorldMap>();
+    let blocks = &mut map.blocks;
     let mut fill = |min: IVec3, max: IVec3, id: Option<BlockId>| {
         for x in min.x..=max.x {
             for y in min.y..=max.y {
@@ -219,7 +227,7 @@ fn the_view_through_a_portal_is_the_other_side() {
     let straight = on_screen(&mut h, near_sand);
     assert!((through.y - straight.y).abs() < 1.0);
 
-    let spot = through;
+    let (spot, straight_spot) = (through, straight);
     let (through, straight) = (mean_color(&shot, through), mean_color(&shot, straight));
     // Sand, not cactus nor cobblestone
     assert!(
@@ -233,6 +241,20 @@ fn the_view_through_a_portal_is_the_other_side() {
         "sand through the portal {through}, seen straight {straight}"
     );
 
+    // Looking away turns the portal camera off; looking back turns it on again, which then
+    // draws the chunks again from its first frame (`show_chunks_to_new_views`)
+    look(&mut h, PI);
+    h.frames(5);
+    assert!(drawing(h.world_mut()).is_empty());
+    look(&mut h, 0.0);
+    h.frames(1);
+    let shot = h.screenshot();
+    let (again, straight) = (mean_color(&shot, spot), mean_color(&shot, straight_spot));
+    assert!(
+        (again - straight).abs().max_element() < 8.0,
+        "after looking away and back, sand through the portal {again}, seen straight {straight}"
+    );
+
     // Alone, the blue portal shows its colour
     h.world_mut()
         .resource_mut::<ClientWorldMap>()
@@ -244,6 +266,156 @@ fn the_view_through_a_portal_is_the_other_side() {
     h.snapshot("the_blue_portal_alone");
     let blue = mean_color(&shot, spot);
     assert!(blue.z > blue.x + 40.0, "not blue: {blue}");
+}
+
+/// Two portals facing each other, 15 blocks apart: the blue one on a wall of cobblestone 9 wide
+/// and 6 high, 8 blocks north of the player's feet, facing south, and the orange one on a wall
+/// alike 8 blocks south, facing north, on a stone floor cleared of the terrain. The player stands
+/// between them, looking north at the blue one. Returns the blue portal.
+fn build_facing_scene(h: &mut Harness) -> Portal {
+    let feet = settle(h);
+    let world = h.world_mut();
+    let mut map = world.resource_mut::<ClientWorldMap>();
+    let blocks = &mut map.blocks;
+    let mut fill = |min: IVec3, max: IVec3, id: Option<BlockId>| {
+        for x in min.x..=max.x {
+            for y in min.y..=max.y {
+                for z in min.z..=max.z {
+                    let pos = feet + IVec3::new(x, y, z);
+                    match id {
+                        Some(id) => {
+                            blocks.set_block(pos, BlockData::new(id, BlockDirection::Front))
+                        }
+                        None => {
+                            blocks.remove_block(pos);
+                        }
+                    }
+                }
+            }
+        }
+    };
+    fill(IVec3::new(-14, 0, -12), IVec3::new(14, 10, 12), None);
+    fill(
+        IVec3::new(-14, -2, -12),
+        IVec3::new(14, -1, 12),
+        Some(BlockId::Stone),
+    );
+    for z in [-8, 8] {
+        fill(
+            IVec3::new(-4, 0, z),
+            IVec3::new(4, 5, z),
+            Some(BlockId::Cobblestone),
+        );
+    }
+    let blue = Portal {
+        owner: 1,
+        color: PortalColor::Blue,
+        anchor: feet + IVec3::new(-1, 0, -8),
+        face: FaceDirection::PlusZ,
+    };
+    // Facing north, its left is to the east
+    let orange = Portal {
+        owner: 1,
+        color: PortalColor::Orange,
+        anchor: feet + IVec3::new(0, 0, 8),
+        face: FaceDirection::MinusZ,
+    };
+    blocks.portals_mut().insert(blue);
+    blocks.portals_mut().insert(orange);
+    let through = blocks.portals().through(&blue).unwrap();
+    assert!(through.transform_vector3(Vec3::X).distance(Vec3::X) < 1e-4);
+    assert!(through.transform_point3(Vec3::ZERO).distance(FACING) < 1e-4);
+
+    look(h, 0.0);
+    // Meshed and drawn
+    h.frames(60);
+    blue
+}
+
+/// Through the blue portal of the facing portals, the player's view moves this far south.
+const FACING: Vec3 = Vec3::new(0.0, 0.0, 15.0);
+
+/// The levels of the cameras of each colour that draw.
+fn drawing(w: &mut World) -> Vec<(PortalColor, usize)> {
+    let mut drawing: Vec<_> = w
+        .query::<(&PortalCamera, &Camera)>()
+        .iter(w)
+        .filter(|(_, camera)| camera.is_active)
+        .map(|(portal, _)| (portal.color, portal.level))
+        .collect();
+    drawing.sort_by_key(|(color, level)| (*color as u8, *level));
+    drawing
+}
+
+/// Whether `color` is the blue of a portal rather than grey stone or a red body, or the sky,
+/// which is bluer than red by about 65.
+fn bluish(color: Vec3) -> bool {
+    color.z > color.x + 40.0
+}
+
+/// Between two portals facing each other, the player looking into the blue one sees, through
+/// it, its own body from behind, red as it is, and the blue portal again, which shows its view
+/// in turn: the wall around the blue portal seen a third time, then that third blue portal, in
+/// its colour.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn facing_portals_show_each_other_three_times_and_the_player_its_body() {
+    // A render distance of 4 chunks: the third portal, seen 37.5 blocks away, is before the fog
+    let folder = GameFolder::new()
+        .with_file("video.ron", "(render_distance: 4)")
+        .with_world("Facing");
+    let mut h = enter_world(folder, "Facing");
+    let blue = build_facing_scene(&mut h);
+    h.set_time("day");
+    h.frames(5);
+    let shot = h.screenshot();
+    h.snapshot("facing_portals");
+    keep(&shot, "facing_portals", "facing_portals");
+
+    // The orange portal is behind the player
+    let blue_levels: Vec<_> = (1..=crate::portal::PORTAL_RECURSION)
+        .map(|level| (PortalColor::Blue, level))
+        .collect();
+    assert_eq!(drawing(h.world_mut()), blue_levels);
+
+    let world = h.world_mut();
+    let eye = world
+        .query_filtered::<&Transform, With<CameraController>>()
+        .single(world)
+        .unwrap()
+        .translation;
+    let body = world
+        .query_filtered::<&GlobalTransform, With<crate::player::PlayerBody>>()
+        .single(world)
+        .unwrap()
+        .translation();
+
+    // The body, seen through the blue portal: as far behind it as the orange portal is
+    let seen = on_screen(&mut h, body - FACING);
+    let color = mean_color(&shot, seen);
+    assert!(
+        color.x > color.y + 50.0 && color.x > color.z + 50.0,
+        "not the red body through the portal: {color}"
+    );
+
+    // The blue portal seen through itself twice: the wall around it, where it shows over the
+    // portal seen once, between the rim of the third opening and the top of the second
+    let plane = blue.frame().translation.z;
+    let top = blue.anchor.y as f32 + shared::world::PORTAL_HEIGHT as f32;
+    let (second, third) = (eye.z - (plane - FACING.z), eye.z - (plane - 2.0 * FACING.z));
+    let second_top = eye.y + (top - eye.y) * third / second;
+    let wall = Vec3::new(eye.x, (top + 0.3 + second_top) / 2.0, plane) - 2.0 * FACING;
+    let color = mean_color(&shot, on_screen(&mut h, wall));
+    assert!(
+        !bluish(color),
+        "not the wall around the third portal in the second: {color}"
+    );
+    // And the third portal, in its colour, above the bodies seen through the first two
+    let body_top = body.y + 0.9;
+    let over_bodies = eye.y + (body_top - eye.y) * third / (eye.z - (body.z - FACING.z));
+    let inside = Vec3::new(eye.x, (over_bodies + top) / 2.0, plane) - 2.0 * FACING;
+    let color = mean_color(&shot, on_screen(&mut h, inside));
+    assert!(bluish(color), "not the third blue portal: {color}");
 }
 
 /// The time a frame takes, the screen drawn into an image, with the blue portal in view, the
