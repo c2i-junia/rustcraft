@@ -1,4 +1,5 @@
 use super::furnace::spawn_furnace_row;
+use super::ghost::{ghost_icon, ghost_tint};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::state::GameState;
 use crate::ui::assets::load_font;
@@ -286,6 +287,11 @@ fn spawn_crafting_row(
                             grid_row: GridPlacement::start(row as i16 + 1),
                             grid_column: GridPlacement::start(col as i16 + 1),
                             ..slot_node()
+                        })
+                        // after the icon and the count: drawn over them
+                        .with_children(|cell| {
+                            cell.spawn(ghost_tint());
+                            cell.spawn(ghost_icon(icon(atlas)));
                         });
                     }
                 }

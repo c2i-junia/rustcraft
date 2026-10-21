@@ -237,9 +237,9 @@ pub struct CatalogList;
 #[derive(Component)]
 pub struct TrashSlot;
 
-/// What the observers of the browser ask `catalog_actions` to send in `Update`, where the actions
-/// of the frame are gathered before the simulation: Enter in the search, and a `+ Fill grid`
-/// button, each with whether Shift was held.
+/// What the observers of the browser ask `catalog_actions` and `express_fill` to send in
+/// `Update`, where the actions of the frame are gathered before the simulation: Enter in the
+/// search, and a `+ Fill grid` button, each with whether Shift was held.
 #[derive(Resource, Default, Debug)]
 pub struct BrowserRequests {
     pub submit: Option<bool>,

@@ -17,9 +17,9 @@ use super::bookmarks::{bookmark_message, write_bookmarks, Bookmarks};
 use super::catalog::category_detail;
 use super::layout::BrowserLayout;
 use super::recipes::{
-    back_label, bookmarked_detail, burns_for, card_label, cards_of, empty_view_message, fuel_note,
-    ingredient_label, item_keys_hint, recipe_problem, smelting_note, station_label, tab_label,
-    view_title, BrowserCard,
+    back_label, bookmarked_detail, burns_for, card_label, cards_of, empty_view_message,
+    fill_button, fuel_note, ingredient_label, item_keys_hint, recipe_problem, smelting_note,
+    station_label, tab_label, view_title, BrowserCard,
 };
 use super::{
     BackButton, BookmarkBar, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
@@ -54,8 +54,8 @@ const DASH: Color = Color::srgb_u8(0x26, 0x2B, 0x34);
 /// The length of a dash, and how far a dash starts from the previous one.
 const DASH_LENGTH: f32 = 4.0;
 const DASH_PERIOD: f32 = 9.0;
-/// The tint over an ingredient the player lacks.
-const MISSING_TINT: Color = Color::srgba(0.89, 0.35, 0.25, 0.32);
+/// The tint over an ingredient the player lacks, on the cards and under the ghost of a recipe.
+pub const MISSING_TINT: Color = Color::srgba(0.89, 0.35, 0.25, 0.32);
 /// The label of the button filling the crafting grid.
 pub const FILL_GRID: &str = "+ Fill grid";
 /// The text of a disabled `+ Fill grid`.
@@ -787,7 +787,7 @@ pub fn cycle_tag_cells(
 
 /// Tints the ingredients the player lacks, and says under each card where it is made or why it
 /// cannot be made now, with the crafting grid in use. `+ Fill grid` is enabled, and takes Tab,
-/// when it can be made.
+/// when it can be made, or when only ingredients are missing: it then lays a ghost of it.
 pub fn style_recipe_cards(
     inventory: Res<Inventory>,
     mut tints: Query<(&MissingTint, &mut Node)>,
@@ -822,7 +822,7 @@ pub fn style_recipe_cards(
         color.set_if_neq(TextColor(tone));
     }
     for (button, fill, disabled) in &buttons {
-        let enabled = recipe_problem(&inventory, &all[fill.0 as usize], grid_size).is_none();
+        let enabled = fill_button(&inventory, &all[fill.0 as usize], grid_size).is_some();
         if enabled && disabled {
             commands
                 .entity(button)
@@ -881,8 +881,8 @@ fn bevel(light: Color, dark: Color) -> BorderColor {
     }
 }
 
-/// `+ Fill grid` activated asks `catalog_actions` to fill the grid with its recipe, as many times
-/// as possible with Shift.
+/// `+ Fill grid` activated asks `express_fill` to fill the grid with its recipe, as many times
+/// as possible with Shift, or to lay its ghost.
 pub fn fill_grid(
     activate: On<Activate>,
     buttons: Query<&FillGridButton>,
@@ -1216,7 +1216,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_grid_is_enabled_when_the_recipe_fits_and_one_round_is_there() {
+    fn fill_grid_is_enabled_when_the_recipe_fits_and_no_chest_or_furnace_is_open() {
         let sticks = recipes_for(ItemId::Stick).next().unwrap();
         let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
         let mut world = World::new();
@@ -1236,10 +1236,14 @@ mod tests {
                 enabled
             })
         };
-        assert_eq!(enabled(&mut world), [false, false]);
+        // The sticks lack their planks: their button lays a ghost; the pickaxe needs a table
+        assert_eq!(enabled(&mut world), [true, false]);
 
         put(&mut world, 3, ItemId::OakPlanks, 5);
         assert_eq!(enabled(&mut world), [true, false]);
+        world.resource_mut::<Inventory>().open_table = Some(IVec3::ZERO);
+        assert_eq!(enabled(&mut world), [true, true]);
+        world.resource_mut::<Inventory>().open_table = None;
 
         // The chest takes the place of the grid, and so does the furnace
         world.resource_mut::<Inventory>().open_chest = Some(IVec3::ZERO);

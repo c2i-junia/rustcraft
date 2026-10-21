@@ -8,6 +8,7 @@ mod drop;
 mod feedback;
 mod furnace;
 mod gestures;
+mod ghost;
 #[cfg(test)]
 mod goldens;
 mod setup;
@@ -17,6 +18,7 @@ pub use drop::*;
 pub use feedback::*;
 pub use furnace::*;
 pub use gestures::*;
+pub use ghost::*;
 pub use setup::*;
 
 /// The name of an item as a player reads it: its identifier split into words.

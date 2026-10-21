@@ -121,6 +121,31 @@ pub fn recipe_problem(
         .then(|| NOT_BESIDE_A_FURNACE.to_string())
 }
 
+/// What `+ Fill grid` does on a card: fill the grid with its recipe, or lay a ghost of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FillButton {
+    Fill,
+    Ghost,
+}
+
+/// What `+ Fill grid` does on the card of `recipe` with a grid of `grid_size`: it fills when the
+/// recipe can be made now, lays a ghost when ingredients are its only problem, and is disabled
+/// (`None`) otherwise.
+pub fn fill_button(
+    inventory: &Inventory,
+    recipe: &RecipeView,
+    grid_size: u32,
+) -> Option<FillButton> {
+    if recipe_problem(inventory, recipe, grid_size).is_none() {
+        return Some(FillButton::Fill);
+    }
+    let only_missing = !missing(inventory, recipe).is_empty()
+        && recipe.fits(grid_size)
+        && inventory.open_chest.is_none()
+        && inventory.open_furnace.is_none();
+    only_missing.then_some(FillButton::Ghost)
+}
+
 /// Why a recipe cannot fill the grid while a chest is open.
 pub const NOT_BESIDE_A_CHEST: &str = "Not beside a chest";
 /// Why a recipe cannot fill the grid while a furnace is open.
@@ -333,6 +358,33 @@ mod tests {
             recipe_problem(&inventory, &stick, 2).as_deref(),
             Some("Not beside a furnace")
         );
+    }
+
+    #[test]
+    fn fill_grid_fills_a_recipe_made_now_and_lays_the_ghost_of_one_missing_ingredients() {
+        let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
+        let stick = recipes_for(ItemId::Stick).next().unwrap();
+        let mut inventory = Inventory::new();
+        assert_eq!(fill_button(&inventory, &stick, 2), Some(FillButton::Ghost));
+        assert_eq!(
+            fill_button(&inventory, &pickaxe, 3),
+            Some(FillButton::Ghost)
+        );
+        // Missing ingredients and a table: neither
+        assert_eq!(fill_button(&inventory, &pickaxe, 2), None);
+        put(&mut inventory, 0, ItemId::OakPlanks, 3);
+        put(&mut inventory, 1, ItemId::Stick, 2);
+        assert_eq!(fill_button(&inventory, &stick, 2), Some(FillButton::Fill));
+        assert_eq!(fill_button(&inventory, &pickaxe, 3), Some(FillButton::Fill));
+        assert_eq!(fill_button(&inventory, &pickaxe, 2), None);
+        // Beside a chest or a furnace: neither
+        let empty = Inventory {
+            open_chest: Some(bevy::math::IVec3::ZERO),
+            ..Inventory::new()
+        };
+        assert_eq!(fill_button(&empty, &stick, 2), None);
+        inventory.open_furnace = Some(bevy::math::IVec3::ZERO);
+        assert_eq!(fill_button(&inventory, &stick, 2), None);
     }
 
     #[test]

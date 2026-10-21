@@ -58,6 +58,7 @@ pub fn hud_plugin(app: &mut App) {
         .insert_resource(DebugOptions::default())
         .init_resource::<FrameTimes>()
         .init_resource::<CellGestures>()
+        .init_resource::<GridGhost>()
         .add_systems(
             OnEnter(GameState::Game),
             (spawn_reticle, setup_hud, setup_chat).chain(),
@@ -100,6 +101,8 @@ pub fn hud_plugin(app: &mut App) {
                     drag_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
+                    clear_grid_ghost,
+                    show_grid_ghost,
                     display_furnace_system,
                     style_inventory_panel,
                 )

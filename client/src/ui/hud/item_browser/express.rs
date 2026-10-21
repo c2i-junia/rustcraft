@@ -1,15 +1,17 @@
 //! The express recipe book: Ctrl+click on an item slot of the browser (the catalog, a bookmark,
 //! a recent item) fills the crafting grid with a recipe of the item at once, without the recipe
-//! view.
+//! view, and `+ Fill grid` on a card missing ingredients lays the ghost of its recipe over the
+//! grid.
 
 use bevy::{picking::hover::Hovered, prelude::*};
 use shared::players::inventory::{plan_grid_fill, InventoryAction};
 use shared::players::Inventory;
-use shared::world::{recipes_for, ItemId, RecipeView};
+use shared::world::{recipes, recipes_for, ItemId, RecipeView};
 
-use super::CatalogSlot;
+use super::recipes::{fill_button, FillButton};
+use super::{BrowserRequests, CatalogSlot};
 use crate::network::buffered_client::CurrentFrameInputs;
-use crate::ui::hud::inventory::grid_in_use;
+use crate::ui::hud::inventory::{ghost_of, grid_in_use, GridGhost};
 use crate::ui::hud::InventoryRoot;
 use crate::ui::widgets::slot::ActionRefused;
 
@@ -30,19 +32,42 @@ pub fn first_recipe_made_now(inventory: &Inventory, item: ItemId, grid_size: u32
         .map(|recipe| recipe.index)
 }
 
-/// Ctrl+click on an item slot of the browser, the inventory open, in both modes, fills the grid
-/// in use with the first recipe of its item made now, once, or as many times as possible with
-/// Shift; when none is, the slot is refused and nothing is sent. Sent as an action of the
-/// frame's input, which the client predicts and the server applies.
+/// Sends the fills of the grid the browser asks for, as actions of the frame's input, which the
+/// client predicts and the server applies; a fill sent takes the ghost away. `+ Fill grid` fills
+/// with its recipe (Shift: as many rounds as possible), or lays its ghost over the grid when only
+/// ingredients are missing. Ctrl+click on an item slot of the browser, the inventory open, in
+/// both modes, fills the grid in use with the first recipe of its item made now, once, or as
+/// many times as possible with Shift; when none is, the slot is refused and nothing else happens.
+#[allow(clippy::too_many_arguments)]
 pub fn express_fill(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     inventory: Res<Inventory>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     catalog: Query<(Entity, &Hovered, &CatalogSlot)>,
+    mut requests: ResMut<BrowserRequests>,
+    mut ghost: ResMut<GridGhost>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
     mut refusals: MessageWriter<ActionRefused>,
 ) {
+    let grid_size = grid_in_use(&inventory);
+    let times = |shift: bool| if shift { u32::MAX } else { 1 };
+    let actions = &mut frame_inputs.0.inventory_actions;
+    if let Some((recipe, shift)) = requests.fill.take() {
+        let button = recipes()
+            .nth(recipe as usize)
+            .and_then(|view| fill_button(&inventory, &view, grid_size));
+        match button {
+            Some(FillButton::Fill) => {
+                let times = times(shift);
+                actions.push(InventoryAction::FillCraftingGrid { recipe, times });
+                ghost.0 = None;
+            }
+            Some(FillButton::Ghost) => ghost.0 = ghost_of(&inventory, recipe, grid_size),
+            None => {}
+        }
+    }
+
     if !matches!(inventory_root.single(), Ok(&Visibility::Visible))
         || !mouse.just_pressed(MouseButton::Left)
         || !keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
@@ -55,16 +80,13 @@ pub fn express_fill(
     else {
         return;
     };
-    let Some(recipe) = first_recipe_made_now(&inventory, item, grid_in_use(&inventory)) else {
+    let Some(recipe) = first_recipe_made_now(&inventory, item, grid_size) else {
         refusals.write(ActionRefused { slot: Some(slot) });
         return;
     };
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    let times = if shift { u32::MAX } else { 1 };
-    frame_inputs
-        .0
-        .inventory_actions
-        .push(InventoryAction::FillCraftingGrid { recipe, times });
+    let times = times(keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
+    actions.push(InventoryAction::FillCraftingGrid { recipe, times });
+    ghost.0 = None;
 }
 
 #[cfg(test)]
@@ -91,6 +113,8 @@ mod tests {
         world.init_resource::<ButtonInput<MouseButton>>();
         world.init_resource::<ButtonInput<KeyCode>>();
         world.init_resource::<Messages<ActionRefused>>();
+        world.init_resource::<BrowserRequests>();
+        world.init_resource::<GridGhost>();
         world.spawn((InventoryRoot, Visibility::Visible));
         let slots = items
             .iter()
@@ -262,5 +286,53 @@ mod tests {
         };
         assert_eq!(click(&mut world, &[KeyCode::ControlLeft]), None);
         assert!(click(&mut world, &[]).is_some());
+    }
+
+    /// Asks for `+ Fill grid` on the card of `recipe`, as its button does, and runs
+    /// `express_fill`: the actions it sent.
+    fn press_fill_grid(world: &mut World, recipe: RecipeView) -> Vec<InventoryAction> {
+        world.resource_mut::<BrowserRequests>().fill = Some((recipe.index, false));
+        world.run_system_once(express_fill).unwrap();
+        std::mem::take(
+            &mut world
+                .resource_mut::<CurrentFrameInputs>()
+                .0
+                .inventory_actions,
+        )
+    }
+
+    #[test]
+    fn fill_grid_on_a_card_missing_ingredients_lays_a_ghost_and_sends_nothing() {
+        let (mut world, slots) = browser(&[ItemId::Stick]);
+        put(&mut world, 9, ItemId::Stick, 1);
+        let torch = recipes_for(ItemId::Torch).next().unwrap();
+        assert_eq!(press_fill_grid(&mut world, torch), []);
+        let inventory = world.resource::<Inventory>().clone();
+        let laid = world.resource::<GridGhost>().0.clone();
+        assert_eq!(laid, ghost_of(&inventory, torch.index, 2));
+        assert!(laid.is_some());
+
+        // Another ghost replaces it
+        let sticks = recipes_for(ItemId::Stick).next().unwrap();
+        assert_eq!(press_fill_grid(&mut world, sticks), []);
+        let laid = world.resource::<GridGhost>().0.clone();
+        assert_eq!(laid, ghost_of(&inventory, sticks.index, 2));
+
+        // A fill sent replaces it too, from the button or a Ctrl+click
+        put(&mut world, 10, ItemId::OakPlanks, 2);
+        assert_eq!(press_fill_grid(&mut world, sticks), [fill(sticks, 1)]);
+        assert_eq!(world.resource::<GridGhost>().0, None);
+        world.resource_mut::<GridGhost>().0 = ghost_of(&inventory, torch.index, 2);
+        assert_eq!(
+            ctrl_click(&mut world, slots[0], &[KeyCode::ControlLeft]).0,
+            [fill(sticks, 1)]
+        );
+        assert_eq!(world.resource::<GridGhost>().0, None);
+
+        // A card that needs a table neither fills nor lays a ghost
+        world.resource_mut::<GridGhost>().0 = None;
+        let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
+        assert_eq!(press_fill_grid(&mut world, pickaxe), []);
+        assert_eq!(world.resource::<GridGhost>().0, None);
     }
 }

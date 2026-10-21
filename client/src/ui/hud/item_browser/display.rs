@@ -521,8 +521,7 @@ type CatalogInputs<'w> = (
 );
 
 /// Sends what the gestures on the catalog do, as actions of the frame's input, which the client
-/// predicts and the server applies, and the `+ Fill grid` asked for (Shift: as many rounds as
-/// possible). In Creative, a click on an item, Enter on the focused one or Enter in the search
+/// predicts and the server applies (`express_fill` sends the fills of the grid). In Creative, a click on an item, Enter on the focused one or Enter in the search
 /// takes it (`creative_action`); holding a stack, a click on the list or the trash, or Enter on
 /// the focused trash, destroys it, and a toast says what. In Survival, Enter in the search opens
 /// the recipes of its first result, and the list and the trash do nothing; `click_items` opens
@@ -545,10 +544,6 @@ pub fn catalog_actions(
     mut commands: Commands,
 ) {
     let actions = &mut frame_inputs.0.inventory_actions;
-    if let Some((recipe, shift)) = requests.fill.take() {
-        let times = if shift { u32::MAX } else { 1 };
-        actions.push(InventoryAction::FillCraftingGrid { recipe, times });
-    }
     let submit = requests.submit.take();
     if !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
         return;
