@@ -14,12 +14,13 @@ use super::game::{enter_world, hold_click, slot};
 use super::harness::{Harness, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::camera::{CameraController, SKY_COLOR};
+use crate::camera::CameraController;
 use crate::player::CurrentPlayerMarker;
 use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::world::celestial::CelestialRoot;
+use crate::world::celestial::{sun_height, CelestialRoot};
+use crate::world::time::ClientTime;
 use crate::world::ClientWorldMap;
 use shared::players::Player;
 use shared::world::{global_block_to_chunk_pos, raycast, ItemId};
@@ -190,6 +191,9 @@ fn mean_color(shot: &RgbImage, at: Vec2) -> Vec3 {
 fn the_view_through_a_portal_is_the_other_side() {
     let mut h = enter_world(GameFolder::new().with_world("Portals"), "Portals");
     let scene = build_scene(&mut h);
+    // The sand lit by the sun
+    h.set_time("day");
+    h.frames(5);
     let shot = h.screenshot();
     h.snapshot("through_the_blue_portal");
 
@@ -326,6 +330,35 @@ impl Harness {
         self.press(KeyCode::KeyT);
         self.type_text(command);
         self.press(KeyCode::Enter);
+    }
+
+    /// Sets the clock to the next noon (`day`) or midnight (`night`), and waits for it: for a
+    /// third of a day around either, the sky stays the same colour.
+    fn set_time(&mut self, time: &str) {
+        self.command(&format!("/time set {time}"));
+        let day = time == "day";
+        self.wait_until("the hour", SERVER, |w| {
+            let height = sun_height(w.resource::<ClientTime>().0);
+            if day {
+                height > 0.6
+            } else {
+                height < -0.6
+            }
+        });
+    }
+
+    /// The colour of the sky on the screen, in sRGB levels: the clear colour of the player's
+    /// camera.
+    fn sky(&mut self) -> Vec3 {
+        let world = self.world_mut();
+        let camera = world
+            .query_filtered::<&Camera, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        let ClearColorConfig::Custom(sky) = camera.clear_color else {
+            panic!("the sky is the clear colour of the player's camera");
+        };
+        Vec3::from_array(sky.to_srgba().to_u8_array_no_alpha().map(f32::from))
     }
 
     /// Turns the player's camera toward `point`, on a face of the block `cell`, and waits for it
@@ -833,9 +866,10 @@ fn the_view_through_a_portal_reaches_a_far_place() {
             );
         })
         .with_mod("far", FAR_MOD)
+        // No clouds, which drift with the clock over the sky and the sun this test looks at
         .with_file(
             crate::constants::VIDEO_SETTINGS_PATH,
-            &format!("(render_distance: {FAR_RENDER_DISTANCE})"),
+            &format!("(render_distance: {FAR_RENDER_DISTANCE}, clouds: Off)"),
         );
     let mut h = enter_world(folder, "Far");
     h.wait_until("the gun in the hand", SERVER, |w| {
@@ -945,6 +979,9 @@ fn the_view_through_a_portal_reaches_a_far_place() {
     controller.angle_y = 0.0;
     // Meshed and drawn
     h.frames(90);
+    // At noon, the sky the same colour for a while
+    h.set_time("day");
+    h.frames(5);
 
     let shot = h.screenshot();
     keep(
@@ -976,14 +1013,17 @@ fn the_view_through_a_portal_reaches_a_far_place() {
 
     // Around the wall, the sky only: the ground around the orange portal, sent for the blue
     // one, is not drawn by the player's camera, beyond its fog
-    let sky = Vec3::from_array(SKY_COLOR.to_srgba().to_u8_array_no_alpha().map(f32::from));
-    let is_sky = |color: Vec3| (color - sky).abs().max_element() <= 2.0;
-    for x in [80.0, 250.0, 950.0, 1200.0] {
-        for y in [200.0, 280.0, 360.0, 440.0, 560.0, 600.0] {
-            let color = mean_color(&shot, Vec2::new(x, y));
-            assert!(is_sky(color), "not the sky at ({x}, {y}): {color}");
+    let sky = h.sky();
+    let is_sky = |color: Vec3, sky: Vec3| (color - sky).abs().max_element() <= 2.0;
+    let around_the_wall = |shot: &RgbImage, sky: Vec3| {
+        for x in [80.0, 250.0, 950.0, 1200.0] {
+            for y in [200.0, 280.0, 360.0, 440.0, 560.0, 600.0] {
+                let color = mean_color(shot, Vec2::new(x, y));
+                assert!(is_sky(color, sky), "not the sky at ({x}, {y}): {color}");
+            }
         }
-    }
+    };
+    around_the_wall(&shot, sky);
     // Only the portal cameras draw it
     let world = h.world_mut();
     let sand_group = crate::world::group_of(global_block_to_chunk_pos(&sand));
@@ -1003,7 +1043,28 @@ fn the_view_through_a_portal_reaches_a_far_place() {
         .unwrap()
         .transform_point3(wall_there.as_vec3() + Vec3::new(0.5, 0.5, 0.0));
     let color = mean_color(&shot, on_screen(&mut h, wall_back));
-    assert!(is_sky(color), "not the sky through the portal: {color}");
+    assert!(
+        is_sky(color, sky),
+        "not the sky through the portal: {color}"
+    );
+
+    // At night too: the fog follows the sky, which the clear colours of both cameras are
+    h.set_time("night");
+    h.frames(10);
+    let shot = h.screenshot();
+    keep(
+        &shot,
+        "the_view_through_a_portal_reaches_a_far_place",
+        "far_place_night",
+    );
+    let night = h.sky();
+    assert!(night.max_element() < 40.0, "not a night sky: {night}");
+    around_the_wall(&shot, night);
+    let color = mean_color(&shot, on_screen(&mut h, wall_back));
+    assert!(
+        is_sky(color, night),
+        "not the night sky through the portal: {color}"
+    );
 
     // Up to the portal, then, once the sun goes down in the south, a look through the portal at
     // it: the sun is drawn where it is in the sky of the far place, not around the player
