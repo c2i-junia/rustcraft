@@ -349,3 +349,20 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     normal of the water, so they reflect, and fade out with the footprint of a pixel. They follow
     the water effect, as the waves.
 46. Nothing falls while the eye is under water.
+47. Adding to 38, changing 42: past the drops, the rain is drawn on sheets, three to five
+    cylinders around the eye (three Off and Low, four Medium and High, five Ultra) from 12 to 58
+    blocks, each further by the same ratio, from 40 blocks under the eye to 36 above it. Their
+    fragments draw two layers of fine streaks that fall at 14 blocks a second, in whole columns
+    around so that they close without a seam, slanted by the mean wind (by the gusts, they
+    curled), thicker where the gusts blow, over a faint veil. Each fragment reads the occlusion
+    map and the climate map at its own place, so a sheet never rains under a roof, in a cave or
+    on a desert. The drops themselves keep two bands, 40 % within 9 blocks and the rest to 24;
+    the band to 40 is gone. On lavapipe the sheets cost nothing measurable next to the fog.
+48. Changing 41: rain shows 70 % of the drops of the quality and a storm all of them, the sheets
+    as much more opaque: a storm is a downpour.
+49. Changing 43: the wind of a storm blows at 6.5 blocks a second, so a storm slants clearly.
+50. Changing 44: half of the splashes fall within 8 blocks, the others within 16; the crown is
+    larger, with three to five droplets, and a brief bright tick where the drop hits.
+51. Changing 42: the drops and the sheets keep a cool glimmer, (0.032, 0.038, 0.052), so that
+    the rain is seen at night, still dark.
+52. The pictures of `e2e::weather` hide the outline of the block aimed at.
