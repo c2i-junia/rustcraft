@@ -2,6 +2,8 @@
 //! by window size and its drawer, the keyboard, its recipes, its Creative gestures and its
 //! bookmarks.
 
+use std::time::Duration;
+
 use accesskit::Role;
 use bevy::{
     input::keyboard::KeyCode,
@@ -11,9 +13,9 @@ use bevy::{
 };
 use shared::players::{inventory::craft_result, Inventory};
 use shared::world::grid_slot;
-use shared::world::ItemId;
+use shared::world::{ItemId, CRAFTING_GRID_SIZE};
 
-use super::game::{enter_world, floating, slot};
+use super::game::{enter_world, floating, hold_click, place_ahead, slot};
 use super::harness::{Harness, SCREEN, SERVER};
 use super::helpers::{ctrl, is_in};
 use super::locator::Locator as L;
@@ -26,14 +28,18 @@ use crate::ui::hud::item_browser::creative::TRASH_HINT;
 use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::item_browser::{
     BookmarkBar, BookmarkRow, BookmarkSlot, CatalogGrid, CatalogList, CatalogSlot, DrawerHandle,
-    ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipeCards, RecipePanel, TrashSlot,
-    SEARCH_LABEL,
+    ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipeCards, RecipePanel, RecipeSlot,
+    TrashSlot, SEARCH_LABEL,
 };
-use crate::ui::hud::{CraftResultCell, HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
+use crate::ui::hud::{
+    CraftResultCell, HudBottom, InventoryCell, InventoryDialog, InventoryRoot, CRAFTING_TABLE_TITLE,
+};
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::MenuState;
 use crate::ui::theme::ACCENT;
+use crate::ui::widgets::slot::SlotIcon;
 use crate::ui::widgets::tooltip::TooltipRoot;
+use crate::world::MaterialResource;
 use shared::players::game_mode::GameMode;
 
 /// The search field of the browser.
@@ -456,14 +462,12 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
 
     // A click on an item shows its recipes, with what the inventory lacks
     h.click(&catalog_slot("Wooden Pickaxe"));
-    h.wait_for(&button("Recipes 3"), SCREEN);
+    h.wait_for(&button("Recipes 1"), SCREEN);
     for shown in [
         L::text("Recipes"),
         button("Uses 1"),
         button("<- Items"),
         L::text("Missing 2 Stick"),
-        L::text("Missing 3 Spruce Planks, 2 Stick"),
-        L::text("Missing 3 Jungle Planks, 2 Stick"),
     ] {
         assert!(h.is_visible(&shown), "{shown:?}");
     }
@@ -473,14 +477,14 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     let stick = h.first_card_slot("Stick");
     h.click_entity(stick, MouseButton::Left);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
-    assert!(h.is_visible(&button("Uses 38")));
-    let planks = h.first_card_slot("Oak Planks");
+    assert!(h.is_visible(&button("Uses 28")));
+    let planks = h.first_card_slot("Any Planks");
     h.click_entity(planks, MouseButton::Right);
     h.wait_for(&button("<- Stick"), SCREEN);
     assert!(h.is_visible(&L::text("Uses")));
     assert!(h.is_visible(&button("Uses 9")));
     // scrolled down, its cards are left at the top of the next view
-    let first = h.first_card_slot("Oak Planks");
+    let first = h.first_card_slot("Any Planks");
     h.hover_entity(first);
     h.scroll(-5.);
     h.frames(2);
@@ -493,7 +497,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     assert_eq!(cards_scrolled(h.world_mut()), 0.0);
     h.click(&button("<- Wooden Pickaxe"));
     h.wait_for(&button("<- Items"), SCREEN);
-    assert!(h.is_visible(&button("Recipes 3")));
+    assert!(h.is_visible(&button("Recipes 1")));
 
     // A tab shows the uses of the same item, without the history: a wooden tool burns
     h.click(&button("Uses 1"));
@@ -569,14 +573,14 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     let stick = h.first_card_slot("Stick");
     h.hover_entity(stick);
     h.press(KeyCode::KeyR);
-    h.wait_for(&button("Uses 38"), SCREEN);
+    h.wait_for(&button("Uses 28"), SCREEN);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("72 / 72"), SCREEN);
     h.hover(&catalog_slot("Chest"));
     h.press(KeyCode::KeyR);
-    h.wait_for(&button("Recipes 3"), SCREEN);
+    h.wait_for(&button("Recipes 1"), SCREEN);
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("72 / 72"), SCREEN);
 
@@ -714,9 +718,9 @@ fn fill_grid_moves_a_recipe_into_the_grid() {
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
 
-    // The sticks of oak can be made: their button is the only one enabled
+    // The sticks can be made: their button is enabled
     h.click(&catalog_slot("Stick"));
-    h.wait_for(&button("Recipes 3"), SCREEN);
+    h.wait_for(&button("Recipes 1"), SCREEN);
     h.frames(2);
     let enabled: Vec<Entity> = h
         .find(&button(FILL_GRID))
@@ -753,6 +757,104 @@ fn fill_grid_moves_a_recipe_into_the_grid() {
         floating(w) == Some((ItemId::Stick, 4))
             && slot(w, grid_slot(0, 0)) == planks(2)
             && slot(w, grid_slot(1, 0)) == planks(2)
+    });
+}
+
+/// The indices in the items atlas of the icons of `cells`, and the index of the icon of `item`.
+fn icons_of(w: &World, cells: &[Entity], item: ItemId) -> (Vec<Option<usize>>, Option<usize>) {
+    let atlas = w.resource::<MaterialResource>().items.as_ref();
+    let shown = cells
+        .iter()
+        .map(|&cell| {
+            let children = w.get::<Children>(cell)?;
+            let icon = children
+                .iter()
+                .find(|&child| w.get::<SlotIcon>(child).is_some())?;
+            Some(w.get::<ImageNode>(icon)?.texture_atlas.as_ref()?.index)
+        })
+        .collect();
+    let expected = atlas.and_then(|atlas| Some(atlas.sprite(&format!("{item:?}"))?.index));
+    (shown, expected)
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn fill_grid_mixes_the_species_of_planks_at_a_table() {
+    let folder = GameFolder::new().with_world("Species").with_items(
+        "Species",
+        "Tester",
+        &[
+            (0, ItemId::CraftingTable, 1),
+            (9, ItemId::OakPlanks, 5),
+            (10, ItemId::SprucePlanks, 4),
+        ],
+    );
+    let mut h = enter_world(folder, "Species");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 10) == Some((ItemId::SprucePlanks, 4))
+    });
+    place_ahead(&mut h);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_for(&L::text(CRAFTING_TABLE_TITLE), SCREEN);
+    h.frames(2);
+
+    // One card makes the chest, its ring any planks, the species counted together
+    h.click(&catalog_slot("Chest"));
+    h.wait_for(&button("Recipes 1"), SCREEN);
+    h.frames(2);
+    let ring = h.find(&card_slot("Any Planks"));
+    assert_eq!(ring.len(), 8);
+    assert!(h.is_visible(&L::text("Crafting Table 3x3")));
+    let tooltip = L::marker::<TooltipRoot>;
+    h.hover_entity(ring[0]);
+    h.wait_for(&L::text("Any Planks").within(tooltip()), SCREEN);
+
+    // The planks of the ring show each species in turn, all in step
+    for species in [
+        ItemId::SprucePlanks,
+        ItemId::JunglePlanks,
+        ItemId::OakPlanks,
+    ] {
+        // a frame under load may skip a second: the cycle comes round again
+        h.wait_until(
+            "the ring showing the next species",
+            Duration::from_secs(10),
+            |w| {
+                let (shown, expected) = icons_of(w, &ring, species);
+                expected.is_some() && shown.iter().all(|icon| *icon == expected)
+            },
+        );
+        for &cell in &ring {
+            assert_eq!(h.world().get::<RecipeSlot>(cell).unwrap().item, species);
+        }
+    }
+
+    // Filled, the grid takes all the oak, then the spruce
+    let fill = h.get(&button(FILL_GRID));
+    assert!(h.world().get::<InteractionDisabled>(fill).is_none());
+    h.click_entity(fill, MouseButton::Left);
+    let oak = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 2)];
+    let spruce = [(2, 0), (2, 1), (2, 2)];
+    h.wait_until("the ring in the grid", SERVER, |w| {
+        oak.iter()
+            .all(|&(row, col)| slot(w, grid_slot(row, col)) == Some((ItemId::OakPlanks, 1)))
+            && spruce
+                .iter()
+                .all(|&(row, col)| slot(w, grid_slot(row, col)) == Some((ItemId::SprucePlanks, 1)))
+            && slot(w, 9).is_none()
+            && slot(w, 10) == Some((ItemId::SprucePlanks, 1))
+    });
+    let made = craft_result(h.world().resource::<Inventory>(), CRAFTING_GRID_SIZE);
+    assert_eq!(made.map(|stack| stack.item_id), Some(ItemId::Chest));
+
+    // And the mixed ring makes a chest
+    h.click(&L::marker::<CraftResultCell>());
+    h.wait_until("the chest on the cursor", SERVER, |w| {
+        floating(w) == Some((ItemId::Chest, 1))
+            && oak
+                .iter()
+                .chain(&spruce)
+                .all(|&(row, col)| slot(w, grid_slot(row, col)).is_none())
     });
 }
 
@@ -819,7 +921,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     assert!(h.is_visible(&L::text("Bookmarks").within(L::marker::<BookmarkBar>())));
     assert_eq!(h.find(&L::marker::<BookmarkSlot>()).len(), 1);
     h.click(&bookmark_slot("Chest"));
-    h.wait_for(&button("Recipes 3"), SCREEN);
+    h.wait_for(&button("Recipes 1"), SCREEN);
     assert!(!h.is_visible(&L::marker::<BookmarkBar>()));
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("72 / 72"), SCREEN);
