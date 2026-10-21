@@ -25,6 +25,8 @@ pub(crate) struct DroppedItemRoot {
     since_update: f32,
     /// The copies of the item drawn, which tell how big the stack is.
     copies: usize,
+    /// How many portals the server said the item went through.
+    passes: u32,
 }
 
 /// The child of a `DroppedItemRoot` that turns and bobs, and holds the meshes.

@@ -24,7 +24,7 @@ pub(super) fn apply_dropped_items_updates(
     mut meshes: ResMut<Assets<Mesh>>,
     materials: Res<MaterialResource>,
     images: Res<Assets<Image>>,
-    mut roots: Query<(&mut DroppedItemRoot, &Transform)>,
+    mut roots: Query<(&mut DroppedItemRoot, &mut Transform)>,
     players: Query<(Entity, &Player)>,
     profile: Res<CurrentPlayerProfile>,
     mut picked_up: MessageWriter<ItemPickedUp>,
@@ -34,11 +34,9 @@ pub(super) fn apply_dropped_items_updates(
         for (id, state) in &update.upserts {
             let mut shown_at = state.position;
             if let Some(entity) = entities.0.remove(id) {
-                if let Ok((mut root, transform)) = roots.get_mut(entity) {
+                if let Ok((mut root, mut transform)) = roots.get_mut(entity) {
+                    follow_update(&mut root, &mut transform, state);
                     if root.copies == copies(state.stack.nb) {
-                        root.server_position = state.position;
-                        root.velocity = state.velocity;
-                        root.since_update = 0.0;
                         entities.0.insert(*id, entity);
                         continue;
                     }
@@ -88,6 +86,20 @@ pub(super) fn apply_dropped_items_updates(
     }
 }
 
+/// Takes the update `state` of the item `root`, shown at `transform`: the item moves on from
+/// where it is shown toward where the server says (`animate::follow_the_server`), but one that
+/// went through a portal since the last update (`DroppedItemState::passes`) is put there at
+/// once, rather than eased across the gap between the portals.
+fn follow_update(root: &mut DroppedItemRoot, transform: &mut Transform, state: &DroppedItemState) {
+    root.server_position = state.position;
+    root.velocity = state.velocity;
+    root.since_update = 0.0;
+    if root.passes != state.passes {
+        root.passes = state.passes;
+        transform.translation = state.position;
+    }
+}
+
 /// An item shown at `shown_at`, which then moves to where the server says it is, with as
 /// many copies of its look as its stack shows.
 fn spawn_item(
@@ -113,6 +125,7 @@ fn spawn_item(
                 velocity: state.velocity,
                 since_update: 0.0,
                 copies,
+                passes: state.passes,
             },
             Transform::from_translation(shown_at),
             Visibility::default(),
@@ -140,4 +153,48 @@ fn spawn_item(
                 });
         })
         .id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::world::{ItemId, ItemStack};
+
+    fn state(position: Vec3, passes: u32) -> DroppedItemState {
+        DroppedItemState {
+            stack: ItemStack {
+                item_id: ItemId::Dirt,
+                item_type: ItemId::Dirt.get_default_type(),
+                nb: 1,
+            },
+            position,
+            velocity: Vec3::new(-8.0, 0.0, 0.0),
+            passes,
+        }
+    }
+
+    #[test]
+    fn an_item_that_went_through_a_portal_is_put_on_the_other_side_at_once() {
+        let shown = Vec3::new(1.0, 64.2, -0.5);
+        let mut root = DroppedItemRoot {
+            server_position: shown,
+            velocity: Vec3::NEG_Y * 8.0,
+            since_update: 0.05,
+            copies: 1,
+            passes: 0,
+        };
+        let mut transform = Transform::from_translation(shown);
+
+        // A move on the same side is eased: the item stays where it is shown for now
+        follow_update(&mut root, &mut transform, &state(shown - Vec3::Y * 0.4, 0));
+        assert_eq!(transform.translation, shown);
+        assert_eq!(root.server_position, shown - Vec3::Y * 0.4);
+
+        // Out of a portal a block away, closer than an item ever jumps by itself
+        let out = Vec3::new(2.4, 64.6, 0.5);
+        follow_update(&mut root, &mut transform, &state(out, 1));
+        assert_eq!(transform.translation, out);
+        assert_eq!((root.server_position, root.passes), (out, 1));
+        assert_eq!(root.velocity, Vec3::new(-8.0, 0.0, 0.0));
+    }
 }

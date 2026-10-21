@@ -52,6 +52,8 @@ pub struct Mob {
     pub action: MobAction,
     position: Vec3,
     rotation: Quat,
+    /// How many portals the server said the mob went through.
+    passes: u32,
 }
 
 /// The animation player of a mob's model: the mob it belongs to, and the clip it plays.
@@ -65,7 +67,7 @@ pub fn apply_mob_updates(
     mut commands: Commands,
     mut client_mobs: ResMut<ClientMobs>,
     mut entities: ResMut<MobEntities>,
-    mut mobs: Query<&mut Mob>,
+    mut mobs: Query<(&mut Mob, &mut Transform)>,
     asset_server: Res<AssetServer>,
 ) {
     for id in std::mem::take(&mut client_mobs.removed) {
@@ -74,14 +76,29 @@ pub fn apply_mob_updates(
         }
     }
     for (id, server) in std::mem::take(&mut client_mobs.updated) {
-        if let Some(mut mob) = entities.0.get(&id).and_then(|&e| mobs.get_mut(e).ok()) {
-            mob.action = server.action;
-            mob.position = server.position;
-            mob.rotation = server.rotation;
+        if let Some((mut mob, mut transform)) =
+            entities.0.get(&id).and_then(|&e| mobs.get_mut(e).ok())
+        {
+            take_update(&mut mob, &mut transform, &server);
             continue;
         }
         let entity = spawn_mob(&mut commands, &server, &asset_server);
         entities.0.insert(id, entity);
+    }
+}
+
+/// Takes the update `server` of the mob `mob`, drawn at `transform`: the mob drawn moves on
+/// toward where the server says (`smooth_mob_motion`), but one that went through a portal
+/// since the last update (`ServerMob::passes`) is put there at once, turned as it is, rather
+/// than eased across the gap between the portals.
+fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) {
+    mob.action = server.action;
+    mob.position = server.position;
+    mob.rotation = server.rotation;
+    if mob.passes != server.passes {
+        mob.passes = server.passes;
+        transform.translation = server.position;
+        transform.rotation = server.rotation;
     }
 }
 
@@ -98,6 +115,7 @@ fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetSe
                 action: server.action,
                 position: server.position,
                 rotation: server.rotation,
+                passes: server.passes,
             },
             Transform::from_translation(server.position).with_rotation(server.rotation),
             Visibility::default(),
@@ -193,4 +211,40 @@ pub fn play_mob_clips(
 pub fn forget_mobs(mut client_mobs: ResMut<ClientMobs>, mut entities: ResMut<MobEntities>) {
     *client_mobs = ClientMobs::default();
     entities.0.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::{FRAC_PI_2, PI};
+
+    #[test]
+    fn a_mob_that_went_through_a_portal_is_put_on_the_other_side_at_once() {
+        let shown = Vec3::new(1.0, 1.625, -2.6);
+        let mut mob = Mob {
+            kind: MobKind::Sheep,
+            action: MobAction::Walk,
+            position: shown,
+            rotation: Quat::from_rotation_y(PI),
+            passes: 0,
+        };
+        let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
+        let mut server = ServerMob {
+            action: MobAction::Walk,
+            ..ServerMob::new(MobKind::Sheep, shown - Vec3::Z * 0.05)
+        };
+
+        // A step on the same side is eased
+        take_update(&mut mob, &mut transform, &server);
+        assert_eq!(transform.translation, shown);
+
+        // Out of a portal two blocks away, closer than a mob ever jumps by itself, turned west
+        server.position = Vec3::new(2.9, 1.625, -1.0);
+        server.rotation = Quat::from_rotation_y(-FRAC_PI_2);
+        server.passes = 1;
+        take_update(&mut mob, &mut transform, &server);
+        assert_eq!(transform.translation, server.position);
+        assert_eq!(transform.rotation, server.rotation);
+        assert_eq!(mob.passes, 1);
+    }
 }

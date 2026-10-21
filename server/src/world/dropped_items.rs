@@ -289,6 +289,7 @@ pub fn dropped_items_update(
                         stack: item.stack,
                         position: item.position,
                         velocity: item.velocity,
+                        passes: item.passes,
                     },
                 ));
             }
@@ -761,6 +762,27 @@ mod tests {
         assert_eq!(players[&7].inventory.inner[&0].nb, 64);
         assert_eq!(items.get(id).unwrap().stack.nb, 6);
         assert_eq!(items.take_changes().0, HashSet::from([id]));
+    }
+
+    #[test]
+    fn a_client_is_told_how_many_portals_an_item_went_through() {
+        let mut items = DroppedItems::default();
+        let id = items.spawn(DroppedItem {
+            passes: 2,
+            ..resting(ItemId::Dirt, 1, ON_FLOOR)
+        });
+        let sent_chunks = HashSet::from([global_block_to_chunk_pos(&IVec3::new(0, 64, 0))]);
+        let (changed, removed) = items.take_changes();
+        let update = dropped_items_update(
+            &items,
+            &changed,
+            &removed,
+            &sent_chunks,
+            &mut HashSet::new(),
+        );
+        assert_eq!(update.upserts.len(), 1);
+        assert_eq!(update.upserts[0].0, id);
+        assert_eq!(update.upserts[0].1.passes, 2);
     }
 
     #[test]
