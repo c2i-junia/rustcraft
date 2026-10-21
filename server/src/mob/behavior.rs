@@ -951,7 +951,8 @@ mod tests {
             "{}",
             sheep.position
         );
-        // Flying west as fast as it fell, within a step of gravity
+        // Its velocity turned west, as fast as it fell, within a step of gravity: a mob has no
+        // momentum of its own, so it drops out of the wall
         assert!(
             (sheep.velocity.x - before.velocity.y).abs() < -GRAVITY * tick().as_secs_f32() + 1e-3,
             "{} out, {} in",
