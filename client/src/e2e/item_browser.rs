@@ -1,6 +1,6 @@
 //! The item browser beside the open inventory: the catalog, its search and its chips, its layout
-//! by window size and its drawer, the keyboard, its recipes, its Creative gestures and its
-//! bookmarks.
+//! by window size and its drawer, the keyboard, its recipes, its Creative gestures, its
+//! bookmarks, and the express recipe book: Ctrl+click, the ghost of a recipe, the recent crafts.
 
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use bevy::{
 };
 use shared::players::{inventory::craft_result, Inventory};
 use shared::world::grid_slot;
-use shared::world::{ItemId, CRAFTING_GRID_SIZE};
+use shared::world::{Ingredient, ItemId, CRAFTING_GRID_SIZE};
 
 use super::game::{enter_world, floating, hold_click, place_ahead, slot};
 use super::harness::{Harness, SCREEN, SERVER};
@@ -28,16 +28,17 @@ use crate::ui::hud::item_browser::creative::TRASH_HINT;
 use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::item_browser::{
     BookmarkBar, BookmarkRow, BookmarkSlot, CatalogGrid, CatalogList, CatalogSlot, DrawerHandle,
-    ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipeCards, RecipePanel, RecipeSlot,
-    TrashSlot, SEARCH_LABEL,
+    ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, RecentBar, RecentRow, RecentSlot,
+    RecipeCard, RecipeCards, RecipePanel, RecipeSlot, TrashSlot, SEARCH_LABEL,
 };
 use crate::ui::hud::{
-    CraftResultCell, HudBottom, InventoryCell, InventoryDialog, InventoryRoot, CRAFTING_TABLE_TITLE,
+    CraftResultCell, CraftingGridCell, GhostIcon, GhostTint, GridGhost, HudBottom, InventoryCell,
+    InventoryDialog, InventoryRoot, CRAFTING_TABLE_TITLE,
 };
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::MenuState;
 use crate::ui::theme::ACCENT;
-use crate::ui::widgets::slot::SlotIcon;
+use crate::ui::widgets::slot::{RefusalShake, SlotIcon};
 use crate::ui::widgets::tooltip::TooltipRoot;
 use crate::world::MaterialResource;
 use shared::players::game_mode::GameMode;
@@ -975,4 +976,289 @@ fn leave_and_enter(h: &mut Harness, world: &str) {
     h.play_world(world);
     h.wait_for_game_state(GameState::Game, SERVER);
     h.wait_for(&L::marker::<Hotbar>(), SCREEN);
+}
+
+/// The slot of `name` in the row of recent crafts.
+fn recent_slot(name: &str) -> L {
+    L::role(Role::GridCell, name).within(L::marker::<RecentRow>())
+}
+
+impl Harness {
+    /// Clicks `locator` with the left button while `keys` are held.
+    fn click_holding(&mut self, keys: &[KeyCode], locator: &L) {
+        for &key in keys {
+            self.key_down(key);
+        }
+        self.click(locator);
+        for &key in keys {
+            self.key_up(key);
+        }
+    }
+
+    /// The items of the row of recent crafts, in order.
+    fn recent_items(&mut self) -> Vec<ItemId> {
+        let found = self.find(&L::marker::<RecentSlot>());
+        found
+            .into_iter()
+            .map(|entity| self.world().get::<CatalogSlot>(entity).unwrap().0)
+            .collect()
+    }
+}
+
+/// The slots of the crafting grid whose ghost tint shows, and those whose ghost icon shows.
+fn ghost_shown(w: &World) -> (Vec<u32>, Vec<u32>) {
+    let mut cells = w
+        .try_query_filtered::<(&InventoryCell, &Children), With<CraftingGridCell>>()
+        .unwrap();
+    let (mut tinted, mut iconed) = (Vec::new(), Vec::new());
+    for (cell, children) in cells.iter(w) {
+        for child in children.iter() {
+            let shown = w.get::<Visibility>(child) != Some(&Visibility::Hidden);
+            if shown && w.get::<GhostTint>(child).is_some() {
+                tinted.push(cell.id);
+            }
+            if shown && w.get::<GhostIcon>(child).is_some() {
+                iconed.push(cell.id);
+            }
+        }
+    }
+    tinted.sort_unstable();
+    iconed.sort_unstable();
+    (tinted, iconed)
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn ctrl_click_fills_the_grid_from_the_browser() {
+    let folder = GameFolder::new().with_world("Express").with_items(
+        "Express",
+        "Tester",
+        &[(9, ItemId::OakPlanks, 6)],
+    );
+    let mut h = enter_world(folder, "Express");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 9) == Some((ItemId::OakPlanks, 6))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    let planks = |n| Some((ItemId::OakPlanks, n));
+    let ctrl = [KeyCode::ControlLeft];
+
+    // The tooltip says so
+    h.hover(&catalog_slot("Stick"));
+    h.wait_for(
+        &L::text("R Recipes  U Uses  A Bookmark  Ctrl+click fill")
+            .within(L::marker::<TooltipRoot>()),
+        SCREEN,
+    );
+
+    // Ctrl+click fills one round of the sticks, and opens no view
+    h.click_holding(&ctrl, &catalog_slot("Stick"));
+    h.wait_until("one round of sticks in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == planks(1)
+            && slot(w, grid_slot(1, 0)) == planks(1)
+            && slot(w, 9) == planks(4)
+    });
+    assert!(!h.is_visible(&L::marker::<RecipePanel>()));
+    assert_eq!(h.world().resource::<ItemBrowserState>().view, None);
+
+    // Ctrl+Shift: as many rounds as the inventory holds, the grid put back first
+    h.click_holding(
+        &[KeyCode::ControlLeft, KeyCode::ShiftLeft],
+        &catalog_slot("Stick"),
+    );
+    h.wait_until("three rounds of sticks in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == planks(3)
+            && slot(w, grid_slot(1, 0)) == planks(3)
+            && slot(w, 9).is_none()
+    });
+
+    // Nothing makes dirt: its slot shakes, and nothing is sent
+    let dirt = h.get(&catalog_slot("Dirt"));
+    h.click_holding(&ctrl, &catalog_slot("Dirt"));
+    h.wait_until("the dirt shaking", SCREEN, |w| {
+        w.get::<RefusalShake>(dirt).is_some()
+    });
+    h.frames(20);
+    assert_eq!(slot(h.world(), grid_slot(0, 0)), planks(3));
+    assert_eq!(h.world().resource::<ItemBrowserState>().view, None);
+
+    // In Creative, Ctrl+click fills too, and takes nothing out of the catalog
+    h.press(KeyCode::KeyE);
+    h.frames(2);
+    h.set_game_mode(GameMode::Creative);
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    h.click_holding(&ctrl, &catalog_slot("Crafting Table"));
+    h.wait_until("the square of planks in the grid", SERVER, |w| {
+        [(0, 0), (0, 1), (1, 0), (1, 1)]
+            .iter()
+            .all(|&(row, col)| slot(w, grid_slot(row, col)) == planks(1))
+    });
+    h.frames(10);
+    assert_eq!(floating(h.world()), None);
+    let made = craft_result(h.world().resource::<Inventory>(), 2);
+    assert_eq!(made.map(|stack| stack.item_id), Some(ItemId::CraftingTable));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_card_missing_ingredients_lays_a_ghost_until_the_grid_changes() {
+    let folder = GameFolder::new().with_world("Ghost").with_items(
+        "Ghost",
+        "Tester",
+        &[
+            (9, ItemId::Stick, 1),
+            (10, ItemId::OakPlanks, 4),
+            (11, ItemId::Dirt, 3),
+        ],
+    );
+    let mut h = enter_world(folder, "Ghost");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 11) == Some((ItemId::Dirt, 3))
+    });
+    let open_torches = |h: &mut Harness| {
+        h.press(KeyCode::KeyE);
+        h.wait_for(&L::text("Items"), SCREEN);
+        h.frames(2);
+        h.click(&catalog_slot("Torch"));
+        h.wait_for(&button("Recipes 2"), SCREEN);
+        h.frames(2);
+    };
+    let fill_buttons = |h: &mut Harness| -> Vec<Entity> {
+        let buttons = h.find(&button(FILL_GRID));
+        for &b in &buttons {
+            assert!(h.world().get::<InteractionDisabled>(b).is_none());
+        }
+        buttons
+    };
+    let (coal, stick) = (grid_slot(0, 0), grid_slot(1, 0));
+    let laid = (vec![coal], vec![coal, stick]);
+    let no_ghost = (vec![], vec![]);
+    open_torches(&mut h);
+    assert!(h.is_visible(&L::text("Missing 1 Coal")));
+
+    // The button of a card missing its coal is enabled: it lays the ghost and sends nothing
+    let buttons = fill_buttons(&mut h);
+    h.click_entity(buttons[0], MouseButton::Left);
+    h.wait_until("the ghost of the torch", SCREEN, |w| ghost_shown(w) == laid);
+    h.frames(20);
+    assert_eq!(ghost_shown(h.world()), laid);
+    assert_eq!(slot(h.world(), 9), Some((ItemId::Stick, 1)));
+    assert_eq!(slot(h.world(), coal), None);
+
+    // A stack put into the grid takes it away
+    h.click(&L::cell(11));
+    h.click(&L::cell(grid_slot(1, 1)));
+    h.wait_until("the ghost gone with the dirt", SERVER, |w| {
+        slot(w, grid_slot(1, 1)) == Some((ItemId::Dirt, 3)) && ghost_shown(w) == no_ghost
+    });
+
+    // Laid again, closing the inventory takes it away; with the dirt in the grid, the stick's
+    // cell is still empty
+    h.click_entity(buttons[0], MouseButton::Left);
+    h.wait_until("the ghost again", SCREEN, |w| ghost_shown(w) == laid);
+    h.press(KeyCode::KeyE);
+    h.frames(2);
+    assert_eq!(h.world().resource::<GridGhost>().0, None);
+    assert_eq!(ghost_shown(h.world()), no_ghost);
+
+    // Another ghost replaces it: the charcoal's
+    open_torches(&mut h);
+    let buttons = fill_buttons(&mut h);
+    h.click_entity(buttons[0], MouseButton::Left);
+    h.wait_until("the ghost of the torch of coal", SCREEN, |w| {
+        ghost_shown(w) == laid
+    });
+    h.click_entity(buttons[1], MouseButton::Left);
+    h.wait_until("the ghost of the torch of charcoal", SCREEN, |w| {
+        w.resource::<GridGhost>()
+            .0
+            .as_ref()
+            .is_some_and(|ghost| ghost.cells[0].ingredient == Ingredient::Item(ItemId::Charcoal))
+    });
+    assert_eq!(ghost_shown(h.world()), laid);
+
+    // And a fill replaces it: Ctrl+click on the crafting table puts the grid back and fills it
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("72 / 72"), SCREEN);
+    h.click_holding(&[KeyCode::ControlLeft], &catalog_slot("Crafting Table"));
+    h.wait_until("the square of planks in the grid", SERVER, |w| {
+        [(0, 0), (0, 1), (1, 0), (1, 1)]
+            .iter()
+            .all(|&(row, col)| slot(w, grid_slot(row, col)) == Some((ItemId::OakPlanks, 1)))
+    });
+    assert_eq!(h.world().resource::<GridGhost>().0, None);
+    assert_eq!(ghost_shown(h.world()), no_ghost);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_items_crafted_go_into_recent() {
+    let folder = GameFolder::new().with_world("Recent").with_items(
+        "Recent",
+        "Tester",
+        &[(9, ItemId::OakLog, 2)],
+    );
+    let mut h = enter_world(folder, "Recent");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 9) == Some((ItemId::OakLog, 2))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::text("Items"), SCREEN);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<RecentBar>()));
+    let ctrl = [KeyCode::ControlLeft];
+    let craft_all = |h: &mut Harness| {
+        h.key_down(KeyCode::ShiftLeft);
+        h.click(&L::marker::<CraftResultCell>());
+        h.key_up(KeyCode::ShiftLeft);
+    };
+
+    // Planks from a log, then sticks: the newest first
+    h.click_holding(&ctrl, &catalog_grid_slot("Oak Planks"));
+    h.wait_until("a log in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == Some((ItemId::OakLog, 1))
+    });
+    craft_all(&mut h);
+    h.wait_for(&recent_slot("Oak Planks"), SCREEN);
+    assert!(h.is_visible(&L::text("Recent").within(L::marker::<RecentBar>())));
+    h.wait_until("four planks", SERVER, |w| {
+        (0..36).any(|n| slot(w, n) == Some((ItemId::OakPlanks, 4)))
+    });
+    h.click_holding(&ctrl, &catalog_grid_slot("Stick"));
+    h.wait_until("planks in the grid", SERVER, |w| {
+        slot(w, grid_slot(1, 0)) == Some((ItemId::OakPlanks, 1))
+    });
+    craft_all(&mut h);
+    h.wait_for(&recent_slot("Stick"), SCREEN);
+    assert_eq!(h.recent_items(), [ItemId::Stick, ItemId::OakPlanks]);
+
+    // Planks again: once, and first
+    h.wait_until("an empty grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)).is_none() && slot(w, grid_slot(1, 0)).is_none()
+    });
+    h.click_holding(&ctrl, &catalog_grid_slot("Oak Planks"));
+    h.wait_until("the other log in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == Some((ItemId::OakLog, 1))
+    });
+    craft_all(&mut h);
+    h.wait_until("the planks first again", SCREEN, |w| {
+        let mut slots = w
+            .try_query_filtered::<&CatalogSlot, With<RecentSlot>>()
+            .unwrap();
+        let items: Vec<ItemId> = slots.iter(w).map(|slot| slot.0).collect();
+        items == [ItemId::OakPlanks, ItemId::Stick]
+    });
+    h.frames(2);
+    assert_eq!(h.recent_items(), [ItemId::OakPlanks, ItemId::Stick]);
+
+    // A recent slot acts as the catalog's: Ctrl+click fills the grid with its recipe
+    h.click_holding(&ctrl, &recent_slot("Stick"));
+    h.wait_until("planks for sticks in the grid", SERVER, |w| {
+        slot(w, grid_slot(0, 0)) == Some((ItemId::OakPlanks, 1))
+            && slot(w, grid_slot(1, 0)) == Some((ItemId::OakPlanks, 1))
+    });
 }
