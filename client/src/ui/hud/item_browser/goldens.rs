@@ -31,6 +31,9 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
     golden.world_mut().init_resource::<BrowserLayout>();
     golden.world_mut().init_resource::<CraftableNow>();
     golden.world_mut().init_resource::<Bookmarks>();
+    golden
+        .world_mut()
+        .init_resource::<crate::ui::hud::CellGestures>();
     golden.run_system(setup_inventory);
     golden.run_system(setup_item_browser);
     if open {

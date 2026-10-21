@@ -5,12 +5,14 @@ use shared::world::ItemId;
 
 mod display;
 mod furnace;
+mod gestures;
 #[cfg(test)]
 mod goldens;
 mod setup;
 
 pub use display::*;
 pub use furnace::*;
+pub use gestures::*;
 pub use setup::*;
 
 /// The name of an item as a player reads it: its identifier split into words.

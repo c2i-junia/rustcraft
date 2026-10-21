@@ -1,3 +1,4 @@
+use super::gestures::{planned_drag, CellGestures};
 use super::{item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, FURNACE_TITLE, INVENTORY_TITLE};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
@@ -10,7 +11,7 @@ use crate::ui::hud::{
     ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, FurnaceRow,
     InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
 };
-use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
+use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, PANEL, TEXT};
 use crate::ui::widgets::slot::{
     count_label, durability_bar, tool_wear, Slot, SlotCount, SlotDurability, SlotIcon,
     SlotSelected, ICON_SIZE, SLOT_SIZE,
@@ -62,6 +63,10 @@ type DurabilityBars<'w, 's> = Query<
     ),
 >;
 
+/// The counts of the slots, which `show_stack` writes and colours.
+type SlotCounts<'w, 's> =
+    Query<'w, 's, (&'static mut Text, Option<&'static mut TextColor>), With<SlotCount>>;
+
 /// Opens the inventory when no dialog is open, and closes it when it is open. Not while the player
 /// types: the key is then a letter of the text.
 pub fn toggle_inventory_system(
@@ -89,13 +94,15 @@ pub fn toggle_inventory_system(
     }
 }
 
-/// Sends a click on a cell of the open inventory, or a number key pressed over one, as an action
-/// of the frame's input, which the client predicts and the server applies. Shift turns the left
-/// click into a move of the whole stack. While the focus ring shows, the keys act on the ringed
-/// cell, wherever the cursor is: Enter is the left click, Space the right one, and a number key
-/// swaps it. Without the ring, the focus is not one the player can see: the keys leave it alone,
-/// and a number key goes to the cell under the cursor. While the player types, in the item
-/// browser's search, the keys are letters of the text: only the mouse acts.
+/// Sends a press on a cell of the open inventory, or a number key pressed over one, as an action
+/// of the frame's input, which the client predicts and the server applies. A press with a held
+/// stack starts a drag (`CellGestures`), sent on release; the other button cancels it. Shift
+/// turns the left click into a move of the whole stack, and on the result into crafting all; a
+/// number key over the result crafts into that hotbar slot. While the focus ring shows, the keys
+/// act on the ringed cell, wherever the cursor is: Enter is the left click, Space the right one,
+/// and a number key swaps it. Without the ring, the focus is not one the player can see: the
+/// keys leave it alone, and a number key goes to the cell under the cursor. While the player
+/// types, in the item browser's search, the keys are letters of the text: only the mouse acts.
 #[allow(clippy::too_many_arguments)]
 pub fn click_inventory_cells_system(
     mouse_input: Res<ButtonInput<MouseButton>>,
@@ -106,6 +113,10 @@ pub fn click_inventory_cells_system(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     cells: Query<(Entity, &Hovered, &InventoryCell)>,
     result: Query<(Entity, &Hovered), With<CraftResultCell>>,
+    inventory: Res<Inventory>,
+    world_map: Res<ClientWorldMap>,
+    time: Res<Time<Real>>,
+    mut gestures: ResMut<CellGestures>,
     mut frame_inputs: ResMut<CurrentFrameInputs>,
 ) {
     if !matches!(inventory_root.single(), Ok(&Visibility::Visible)) {
@@ -121,42 +132,77 @@ pub fn click_inventory_cells_system(
     let focused = focus.get().filter(|_| focus_visible.0);
     let actions = &mut frame_inputs.0.inventory_actions;
 
-    // A click on the hovered cell, a key on the focused one
-    let mut click = |slot: u32, left: bool, right: bool| {
-        if left {
+    let hovered_slot = cells
+        .iter()
+        .find(|(_, hovered, _)| hovered.0)
+        .map(|(_, _, cell)| cell.id);
+    let focused_slot = cells
+        .iter()
+        .find(|(entity, _, _)| Some(*entity) == focused)
+        .map(|(_, _, cell)| cell.id);
+    let result_hovered = result.iter().any(|(_, hovered)| hovered.0);
+    let result_focused = result.iter().any(|(entity, _)| Some(entity) == focused);
+
+    // A press of the mouse on the hovered cell or result
+    let pressed = match (left, right) {
+        (true, _) => Some(MouseButton::Left),
+        (false, true) => Some(MouseButton::Right),
+        (false, false) => None,
+    };
+    if let Some(button) = pressed {
+        if let Some(drag) = gestures.drag {
+            if drag.button != button {
+                gestures.drag = None;
+            }
+        } else if let Some(slot) = hovered_slot {
+            let in_slot = stack_in(slot, &inventory, &world_map);
+            let now = time.elapsed();
+            let held = inventory.floating;
+            actions.extend(gestures.press(slot, button, shift, held, in_slot, now));
+        } else {
+            gestures.forget_press();
+            if result_hovered {
+                actions.push(if shift && left {
+                    InventoryAction::CraftAll
+                } else {
+                    InventoryAction::TakeCraftResult
+                });
+            }
+        }
+    }
+
+    // A key on the focused cell or result
+    if let Some(slot) = focused_slot {
+        if enter {
             actions.push(if shift {
                 InventoryAction::QuickMoveSlot(slot)
             } else {
                 InventoryAction::LeftClickSlot(slot)
             });
-        } else if right {
+        } else if space {
             actions.push(InventoryAction::RightClickSlot(slot));
         }
-    };
-    let (mut hovered_slot, mut focused_slot) = (None, None);
-    for (entity, hovered, cell) in &cells {
-        if hovered.0 {
-            hovered_slot = Some(cell.id);
-            click(cell.id, left, right);
-        }
-        if focused == Some(entity) {
-            focused_slot = Some(cell.id);
-            click(cell.id, enter, space);
-        }
     }
-    let key_slot = if focused.is_some() {
-        focused_slot
+    if result_focused && (enter || space) {
+        actions.push(if shift && enter {
+            InventoryAction::CraftAll
+        } else {
+            InventoryAction::TakeCraftResult
+        });
+    }
+    let (key_slot, key_on_result) = if focused.is_some() {
+        (focused_slot, result_focused)
     } else {
-        hovered_slot
+        (hovered_slot, result_hovered)
     };
-    if let (Some(hotbar), Some(slot)) = (hotbar, key_slot) {
-        actions.push(InventoryAction::SwapWithHotbar { slot, hotbar });
-    }
-    let takes_result = result.iter().any(|(entity, hovered)| {
-        (hovered.0 && (left || right)) || (focused == Some(entity) && (enter || space))
-    });
-    if takes_result {
-        actions.push(InventoryAction::TakeCraftResult);
+    match (hotbar, key_slot) {
+        (Some(hotbar), Some(slot)) => {
+            actions.push(InventoryAction::SwapWithHotbar { slot, hotbar })
+        }
+        (Some(hotbar), None) if key_on_result => {
+            actions.push(InventoryAction::CraftToHotbar(hotbar));
+        }
+        _ => {}
     }
 }
 
@@ -267,10 +313,11 @@ pub fn display_inventory_system(
     ui_scale: Res<UiScale>,
     focus: Res<InputFocus>,
     focus_visible: Res<InputFocusVisible>,
+    gestures: Res<CellGestures>,
     slots: Query<(&UiGlobalTransform, &ComputedNode), With<Slot>>,
     mut floating_stack: Query<(&mut Node, &Children), With<FloatingStack>>,
     mut cells: Query<(&mut SlotSelected, &InventoryCell, &mut Tooltip, &Children)>,
-    mut counts: Query<&mut Text, With<SlotCount>>,
+    mut counts: SlotCounts,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
     mut bars: DurabilityBars,
 ) {
@@ -278,6 +325,15 @@ pub fn display_inventory_system(
         .single()
         .is_ok_and(|visibility| *visibility == Visibility::Visible);
     let selected = hotbar.single().map(|hotbar| hotbar.selected).ok();
+    // A drag over two slots or more shows what it would leave; over one, it is a click
+    let plan = gestures
+        .drag
+        .filter(|drag| drag.slots.count_ones() > 1)
+        .and_then(|drag| planned_drag(&inventory, &world_map, drag.slots, drag.one_each()));
+    let held = match &plan {
+        Some(plan) => plan.held,
+        None => inventory.floating,
+    };
 
     if let Ok((mut node, children)) = floating_stack.single_mut() {
         let focused_slot = focus
@@ -299,7 +355,8 @@ pub fn display_inventory_system(
             }
         }
         show_stack(
-            inventory.floating,
+            held,
+            TEXT,
             children,
             &mut counts,
             &mut icons,
@@ -310,7 +367,11 @@ pub fn display_inventory_system(
 
     for (mut is_selected, cell, mut tooltip, children) in &mut cells {
         is_selected.set_if_neq(SlotSelected(selected == Some(cell.id)));
-        let stack = stack_in(cell.id, &inventory, &world_map);
+        let planned = plan.as_ref().and_then(|plan| {
+            let (_, stack) = plan.slots.iter().find(|(slot, _)| *slot == cell.id)?;
+            Some(*stack)
+        });
+        let stack = planned.or_else(|| stack_in(cell.id, &inventory, &world_map));
         let hint = if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             HINT_TO_CHEST
         } else if inventory.open_furnace.is_some() && cell.id < MAX_INVENTORY_SLOTS {
@@ -336,8 +397,10 @@ pub fn display_inventory_system(
         if cell.id >= MAX_HOTBAR_SLOTS && !is_open {
             continue;
         }
+        let color = if planned.is_some() { ACCENT } else { TEXT };
         show_stack(
             stack,
+            color,
             children,
             &mut counts,
             &mut icons,
@@ -423,7 +486,7 @@ pub fn display_crafting_system(
     >,
     mut result: Query<(&Children, &mut Tooltip), With<CraftResultCell>>,
     mut title: Query<&mut Text, (With<InventoryTitle>, Without<SlotCount>)>,
-    mut counts: Query<&mut Text, With<SlotCount>>,
+    mut counts: SlotCounts,
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
     mut bars: DurabilityBars,
 ) {
@@ -485,6 +548,7 @@ pub fn display_crafting_system(
         tooltip.set_if_neq(tooltip_of(made, HINT_RESULT, is_open, &inventory));
         show_stack(
             made,
+            TEXT,
             children,
             &mut counts,
             &mut icons,
@@ -532,12 +596,13 @@ fn durability_detail(wear: u32, durability: u32) -> String {
     )
 }
 
-/// Shows `stack` with the count, the icon and the durability bar found among `children`, or
-/// hides them.
+/// Shows `stack` with the count, in `count_color`, the icon and the durability bar found among
+/// `children`, or hides them.
 fn show_stack(
     stack: Option<ItemStack>,
+    count_color: Color,
     children: &Children,
-    counts: &mut Query<&mut Text, With<SlotCount>>,
+    counts: &mut SlotCounts,
     icons: &mut Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
     bars: &mut DurabilityBars,
     materials: &MaterialResource,
@@ -550,9 +615,12 @@ fn show_stack(
     });
 
     for child in children.iter() {
-        if let Ok(mut text) = counts.get_mut(child) {
+        if let Ok((mut text, color)) = counts.get_mut(child) {
             if text.0 != count {
                 text.0.clone_from(&count);
+            }
+            if let Some(mut color) = color {
+                color.set_if_neq(TextColor(count_color));
             }
         }
         if let Ok((mut image, mut visibility)) = icons.get_mut(child) {
@@ -583,7 +651,9 @@ fn show_stack(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::hud::{InventoryDialog, InventoryTitle};
+    use crate::ui::hud::{
+        drag_inventory_cells_system, InventoryDialog, InventoryTitle, DOUBLE_CLICK_WINDOW,
+    };
     use crate::ui::theme::PANEL;
     use crate::ui::widgets::slot::slot_durability;
     use bevy::ecs::system::RunSystemOnce;
@@ -617,6 +687,11 @@ mod tests {
             world.init_resource::<UiScale>();
             world.init_resource::<InputFocus>();
             world.init_resource::<InputFocusVisible>();
+            // A clock's first update starts it: the next ones move it on
+            let mut time = Time::<Real>::default();
+            time.update_with_duration(std::time::Duration::ZERO);
+            world.insert_resource(time);
+            world.init_resource::<CellGestures>();
             world.insert_resource(UIMode::Opened);
             world.spawn((
                 InventoryDialog,
@@ -636,7 +711,7 @@ mod tests {
                         Tooltip::default(),
                         SlotSelected::default(),
                     ))
-                    .with_child((SlotCount, Text::new("")));
+                    .with_child((SlotCount, Text::new(""), TextColor(TEXT)));
             }
             Self { world }
         }
@@ -732,19 +807,88 @@ mod tests {
             self.world.get::<Tooltip>(entity).unwrap().clone()
         }
 
+        /// Presses `button` over the cell of `slot`, then releases it there.
         fn click(&mut self, slot: u32, button: MouseButton) {
-            let cell = self.cell(slot);
-            self.world.entity_mut(cell).insert(Hovered(true));
-            self.world
-                .resource_mut::<ButtonInput<MouseButton>>()
-                .press(button);
+            self.press(slot, button);
+            self.release(button);
+            self.hover(None);
+        }
+
+        /// Moves the pointer onto the cell of `slot`, or off every cell, for a frame.
+        fn hover(&mut self, slot: Option<u32>) {
+            let mut cells = self.world.query::<(Entity, &InventoryCell)>();
+            let cells: Vec<_> = cells
+                .iter(&self.world)
+                .map(|(entity, cell)| (entity, cell.id))
+                .collect();
+            for (entity, id) in cells {
+                self.world
+                    .entity_mut(entity)
+                    .insert(Hovered(Some(id) == slot));
+            }
+        }
+
+        /// Runs the systems of the clicks and of the drags for a frame.
+        fn frame(&mut self) {
             self.world
                 .run_system_once(click_inventory_cells_system)
                 .unwrap();
             self.world
+                .run_system_once(drag_inventory_cells_system)
+                .unwrap();
+            self.world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .clear();
-            self.world.entity_mut(cell).insert(Hovered(false));
+            self.world.resource_mut::<ButtonInput<KeyCode>>().clear();
+        }
+
+        /// Moves the pointer onto the cell of `slot` and holds `button` down there.
+        fn press(&mut self, slot: u32, button: MouseButton) {
+            self.hover(Some(slot));
+            self.world
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(button);
+            self.frame();
+        }
+
+        /// Moves the pointer onto the cell of `slot`, a button held or not.
+        fn enter(&mut self, slot: u32) {
+            self.hover(Some(slot));
+            self.frame();
+        }
+
+        fn release(&mut self, button: MouseButton) {
+            self.world
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .release(button);
+            self.frame();
+        }
+
+        /// Lets `ms` milliseconds go by.
+        fn wait(&mut self, ms: u64) {
+            self.world
+                .resource_mut::<Time<Real>>()
+                .update_with_duration(std::time::Duration::from_millis(ms));
+        }
+
+        fn hold(&mut self, stack: Option<ItemStack>) {
+            self.world.resource_mut::<Inventory>().floating = stack;
+        }
+
+        /// The count shown by the cell of `slot` and its colour.
+        fn shown_count(&mut self, slot: u32) -> (String, Color) {
+            let count = self.shown(slot).0;
+            let cell = self.cell(slot);
+            let child = self.world.get::<Children>(cell).unwrap()[0];
+            (count, self.world.get::<TextColor>(child).unwrap().0)
+        }
+
+        fn clear_sent(&mut self) {
+            self.world
+                .resource_mut::<CurrentFrameInputs>()
+                .0
+                .inventory_actions
+                .clear();
         }
 
         /// The count shown by the floating stack.
@@ -1707,6 +1851,7 @@ mod tests {
         world.init_resource::<UiScale>();
         world.init_resource::<InputFocus>();
         world.init_resource::<InputFocusVisible>();
+        world.init_resource::<CellGestures>();
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();
@@ -1745,5 +1890,299 @@ mod tests {
         let mut root = world.query_filtered::<&mut Visibility, With<InventoryRoot>>();
         *root.single_mut(world).unwrap() = Visibility::Visible;
         assert_eq!(shown(world, MAX_HOTBAR_SLOTS), ("2".to_string(), Some(1)));
+    }
+
+    fn bits(slots: &[u32]) -> u128 {
+        slots.iter().fold(0, |bits, slot| bits | 1 << slot)
+    }
+
+    #[test]
+    fn a_press_with_a_held_stack_sends_its_click_on_release() {
+        for (button, click) in [
+            (MouseButton::Left, InventoryAction::LeftClickSlot(9)),
+            (MouseButton::Right, InventoryAction::RightClickSlot(9)),
+        ] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+            hud.hold(Some(dirt_stack(5)));
+
+            hud.press(9, button);
+            assert!(hud.sent_actions().is_empty(), "{button:?}");
+            hud.release(button);
+            assert_eq!(hud.sent_actions(), [click], "{button:?}");
+            assert_eq!(hud.world.resource::<CellGestures>().drag, None);
+        }
+    }
+
+    #[test]
+    fn a_drag_over_slots_sends_one_drag() {
+        for (button, one_each) in [(MouseButton::Left, false), (MouseButton::Right, true)] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10, 11]);
+            hud.hold(Some(dirt_stack(10)));
+
+            hud.press(9, button);
+            hud.enter(10);
+            hud.enter(11);
+            hud.enter(10);
+            assert!(hud.sent_actions().is_empty(), "{button:?}");
+            hud.release(button);
+
+            assert_eq!(
+                hud.sent_actions(),
+                [InventoryAction::Drag {
+                    slots: bits(&[9, 10, 11]),
+                    one_each
+                }],
+                "{button:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_slot_the_drag_cannot_fill_does_not_join_it() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10, 11]);
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(10, stack(ItemId::Sand, 1));
+        hud.hold(Some(dirt_stack(4)));
+
+        hud.press(9, MouseButton::Left);
+        hud.enter(10);
+        hud.enter(11);
+        hud.release(MouseButton::Left);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [InventoryAction::Drag {
+                slots: bits(&[9, 11]),
+                one_each: false
+            }]
+        );
+    }
+
+    #[test]
+    fn a_drag_takes_no_more_slots_than_the_cursor_holds_items() {
+        for button in [MouseButton::Left, MouseButton::Right] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10, 11, 12]);
+            hud.hold(Some(dirt_stack(2)));
+
+            hud.press(12, button);
+            for slot in [11, 10, 9] {
+                hud.enter(slot);
+            }
+            hud.release(button);
+
+            assert_eq!(
+                hud.sent_actions(),
+                [InventoryAction::Drag {
+                    slots: bits(&[11, 12]),
+                    one_each: button == MouseButton::Right
+                }],
+                "{button:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_other_button_closing_or_escape_cancels_a_drag() {
+        for case in ["other button", "closed", "escape"] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+            hud.hold(Some(dirt_stack(4)));
+            hud.press(9, MouseButton::Left);
+            hud.enter(10);
+
+            match case {
+                "other button" => hud.press(10, MouseButton::Right),
+                "closed" => {
+                    let mut root = hud
+                        .world
+                        .query_filtered::<&mut Visibility, With<InventoryRoot>>();
+                    *root.single_mut(&mut hud.world).unwrap() = Visibility::Hidden;
+                    hud.frame();
+                }
+                _ => {
+                    hud.world
+                        .resource_mut::<ButtonInput<KeyCode>>()
+                        .press(KeyCode::Escape);
+                    hud.frame();
+                }
+            }
+            hud.release(MouseButton::Left);
+            hud.release(MouseButton::Right);
+
+            assert!(hud.sent_actions().is_empty(), "{case}");
+            assert_eq!(hud.world.resource::<CellGestures>().drag, None, "{case}");
+        }
+    }
+
+    #[test]
+    fn a_press_without_a_held_stack_acts_at_once() {
+        let mut hud = Hud::new(Visibility::Visible, &[9]);
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(9, dirt_stack(5));
+
+        hud.press(9, MouseButton::Left);
+        assert_eq!(hud.sent_actions(), [InventoryAction::LeftClickSlot(9)]);
+        hud.release(MouseButton::Left);
+        assert_eq!(hud.sent_actions(), [InventoryAction::LeftClickSlot(9)]);
+        assert_eq!(hud.world.resource::<CellGestures>().drag, None);
+    }
+
+    /// A click on the cell of `slot`, holding 5 dirt, that picks them up, as the prediction
+    /// would.
+    fn pick_up(hud: &mut Hud, slot: u32) {
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(slot, dirt_stack(5));
+        hud.click(slot, MouseButton::Left);
+        hud.world.resource_mut::<Inventory>().inner.remove(&slot);
+        hud.hold(Some(dirt_stack(5)));
+    }
+
+    #[test]
+    fn a_double_click_on_a_stack_collects_its_item() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+        pick_up(&mut hud, 9);
+        hud.wait(100);
+        hud.click(9, MouseButton::Left);
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::LeftClickSlot(9),
+                InventoryAction::CollectAll
+            ]
+        );
+
+        // A third press is a press
+        hud.clear_sent();
+        hud.wait(50);
+        hud.click(9, MouseButton::Left);
+        assert_eq!(hud.sent_actions(), [InventoryAction::LeftClickSlot(9)]);
+    }
+
+    #[test]
+    fn a_second_press_too_late_or_on_another_cell_is_no_double_click() {
+        for (wait, second) in [(DOUBLE_CLICK_WINDOW.as_millis() as u64 + 10, 9), (100, 10)] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+            pick_up(&mut hud, 9);
+            hud.clear_sent();
+            hud.wait(wait);
+            hud.click(second, MouseButton::Left);
+            assert_eq!(
+                hud.sent_actions(),
+                [InventoryAction::LeftClickSlot(second)],
+                "{wait} ms, then {second}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shift_double_click_moves_every_stack_of_the_item_it_moved() {
+        let mut hud = Hud::new(Visibility::Visible, &[9]);
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(9, dirt_stack(5));
+
+        hud.click_with_shift(9, MouseButton::Left);
+        // The prediction moved the dirt away
+        hud.world.resource_mut::<Inventory>().inner.remove(&9);
+        hud.wait(100);
+        hud.click_with_shift(9, MouseButton::Left);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::QuickMoveSlot(9),
+                InventoryAction::MoveAllOfType {
+                    slot: 9,
+                    item: ItemId::Dirt
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn shift_on_the_result_crafts_all_and_a_number_key_crafts_to_the_hotbar() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let result = hud.spawn_result_cell();
+        let shift = |hud: &mut Hud, down: bool| {
+            let mut keys = hud.world.resource_mut::<ButtonInput<KeyCode>>();
+            if down {
+                keys.press(KeyCode::ShiftLeft);
+            } else {
+                keys.release(KeyCode::ShiftLeft);
+            }
+        };
+        let press_on_result = |hud: &mut Hud, button: MouseButton| {
+            hud.world.entity_mut(result).insert(Hovered(true));
+            hud.world
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(button);
+            hud.frame();
+            hud.release(button);
+            hud.world.entity_mut(result).insert(Hovered(false));
+        };
+
+        shift(&mut hud, true);
+        press_on_result(&mut hud, MouseButton::Left);
+        // Shift only changes the left button
+        press_on_result(&mut hud, MouseButton::Right);
+        shift(&mut hud, false);
+        // Over the result, a number key
+        hud.world.entity_mut(result).insert(Hovered(true));
+        hud.press_key_over(None, KeyCode::Digit3);
+        hud.world.entity_mut(result).insert(Hovered(false));
+        // On the ringed result, Shift+Enter, Space and a number key
+        hud.world.insert_resource(InputFocus::from_entity(result));
+        hud.world.insert_resource(InputFocusVisible(true));
+        shift(&mut hud, true);
+        hud.press_key_over(None, KeyCode::Enter);
+        hud.press_key_over(None, KeyCode::Space);
+        shift(&mut hud, false);
+        hud.press_key_over(None, KeyCode::Digit1);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::CraftAll,
+                InventoryAction::TakeCraftResult,
+                InventoryAction::CraftToHotbar(2),
+                InventoryAction::CraftAll,
+                InventoryAction::TakeCraftResult,
+                InventoryAction::CraftToHotbar(0),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_drag_shows_its_planned_counts_in_the_accent_colour() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10, 11]);
+        hud.world
+            .resource_mut::<Inventory>()
+            .inner
+            .insert(10, dirt_stack(1));
+        hud.hold(Some(dirt_stack(7)));
+
+        // A single slot is a click: no preview
+        hud.press(9, MouseButton::Left);
+        assert_eq!(hud.shown_count(9), (String::new(), TEXT));
+        assert_eq!(hud.floating_shown(), "7");
+
+        // 7 over two slots: 3 each, 1 stays held
+        hud.enter(10);
+        assert_eq!(hud.shown_count(9), ("3".to_string(), ACCENT));
+        assert_eq!(hud.shown_count(10), ("4".to_string(), ACCENT));
+        assert_eq!(hud.shown_count(11), (String::new(), TEXT));
+        assert_eq!(hud.floating_shown(), "");
+
+        // Released, the cells show what the inventory holds
+        hud.release(MouseButton::Left);
+        assert_eq!(hud.shown_count(9), (String::new(), TEXT));
+        assert_eq!(hud.shown_count(10), (String::new(), TEXT));
+        assert_eq!(hud.floating_shown(), "7");
     }
 }

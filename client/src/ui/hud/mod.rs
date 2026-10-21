@@ -57,6 +57,7 @@ pub fn hud_plugin(app: &mut App) {
         .insert_resource(UIMode::Closed)
         .insert_resource(DebugOptions::default())
         .init_resource::<FrameTimes>()
+        .init_resource::<CellGestures>()
         .add_systems(
             OnEnter(GameState::Game),
             (spawn_reticle, setup_hud, setup_chat).chain(),
@@ -94,6 +95,7 @@ pub fn hud_plugin(app: &mut App) {
                     close_inventory_system,
                     sync_inventory_focus,
                     click_inventory_cells_system,
+                    drag_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
                     display_furnace_system,
