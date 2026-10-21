@@ -85,6 +85,7 @@ pub fn default_bindings() -> KeyMap {
     map.insert(GameAction::MinimapZoomIn, vec![KeyCode::Equal]);
     map.insert(GameAction::MinimapZoomOut, vec![KeyCode::Minus]);
     map.insert(GameAction::Zoom, vec![KeyCode::KeyC]);
+    map.insert(GameAction::Drop, vec![KeyCode::KeyQ]);
     KeyMap { map }
 }
 
@@ -265,6 +266,8 @@ mod tests {
 
         let loaded = get_bindings(&paths);
         fs::remove_dir_all(&paths.game_folder_path).unwrap();
+        // An action the file does not know takes its default key
+        assert_eq!(loaded.map[&GameAction::Drop], vec![KeyCode::KeyQ]);
         let mut expected = default_bindings().map;
         expected.insert(GameAction::Jump, vec![KeyCode::KeyJ]);
         expected.insert(

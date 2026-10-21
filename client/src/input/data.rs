@@ -32,6 +32,8 @@ pub enum GameAction {
     MinimapZoomIn,
     MinimapZoomOut,
     Zoom,
+    /// Throws an item out of the inventory, with Ctrl a whole stack.
+    Drop,
 }
 
 /// The groups the actions are listed in on the Controls tab.
@@ -65,7 +67,7 @@ impl ActionCategory {
 
 impl GameAction {
     /// Every action but Escape, which always pauses and cannot be rebound, in display order.
-    pub const LISTED: [GameAction; 24] = [
+    pub const LISTED: [GameAction; 25] = [
         GameAction::MoveForward,
         GameAction::MoveBackward,
         GameAction::MoveLeft,
@@ -76,6 +78,7 @@ impl GameAction {
         GameAction::FlyUp,
         GameAction::FlyDown,
         GameAction::ToggleInventory,
+        GameAction::Drop,
         GameAction::OpenChat,
         GameAction::CycleFpsCounter,
         GameAction::OpenMap,
@@ -106,6 +109,7 @@ impl GameAction {
             GameAction::FlyUp => "Fly up",
             GameAction::FlyDown => "Sneak / fly down",
             GameAction::ToggleInventory => "Inventory",
+            GameAction::Drop => "Drop item",
             GameAction::OpenChat => "Chat",
             GameAction::CycleFpsCounter => "FPS counter",
             GameAction::OpenMap => "Map",
@@ -137,6 +141,7 @@ impl GameAction {
             | GameAction::FlyDown => ActionCategory::Movement,
             GameAction::Escape
             | GameAction::ToggleInventory
+            | GameAction::Drop
             | GameAction::OpenChat
             | GameAction::CycleFpsCounter
             | GameAction::OpenMap
@@ -164,7 +169,7 @@ mod tests {
     #[test]
     fn every_listed_action_has_a_human_name_and_a_category() {
         let distinct: BTreeSet<_> = GameAction::LISTED.iter().collect();
-        assert_eq!(distinct.len(), 24);
+        assert_eq!(distinct.len(), 25);
         assert!(!GameAction::LISTED.contains(&GameAction::Escape));
         assert_eq!(GameAction::MoveForward.name(), "Move forward");
         assert_eq!(GameAction::ToggleFps.name(), "Debug overlay");
@@ -172,6 +177,17 @@ mod tests {
         assert_eq!(GameAction::OpenChat.category(), ActionCategory::Interface);
         assert_eq!(GameAction::ToggleViewMode.category(), ActionCategory::View);
         assert_eq!(GameAction::ReloadChunks.category(), ActionCategory::Debug);
+    }
+
+    #[test]
+    fn drop_item_is_listed_under_interface_after_the_inventory() {
+        assert_eq!(GameAction::Drop.name(), "Drop item");
+        assert_eq!(GameAction::Drop.category(), ActionCategory::Interface);
+        let inventory = GameAction::LISTED
+            .iter()
+            .position(|&action| action == GameAction::ToggleInventory)
+            .unwrap();
+        assert_eq!(GameAction::LISTED[inventory + 1], GameAction::Drop);
     }
 
     #[test]
