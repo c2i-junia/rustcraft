@@ -31,14 +31,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // The front of a portal, its colour and its rim, is only seen from in front of it. A portal
     // camera stands behind its twin, inside its box when it is within 0.12 block of its plane,
     // where it has no oblique near plane: it must see neither that box nor that rim
-    if dot(params.plane.xyz, view.world_position) + params.plane.w < 0.0 {
+    let eye_distance = dot(params.plane.xyz, view.world_position) + params.plane.w;
+    if eye_distance < 0.0 {
         discard;
     }
     if params.look == RIM {
         // 0 at the edge of the opening, 1 at the outer edge of the rim
         let edge = in.uv.x;
         let color = mix(vec3(1.0), params.color.rgb, smoothstep(0.0, 0.25, edge));
-        return vec4(color, pow(1.0 - edge, 1.8));
+        // A player comes within 0.3 block of the wall only in the mouth of the portal, passing:
+        // there the rim fades out, which, seen edge-on from so near, is a line down the screen
+        return vec4(color, pow(1.0 - edge, 1.8) * smoothstep(0.15, 0.3, eye_distance));
     }
     // Waves of the colour across the box
     let p = in.world_position.xyz;

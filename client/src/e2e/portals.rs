@@ -735,6 +735,36 @@ fn difference(a: &RgbImage, b: &RgbImage) -> f32 {
     total as f32 / a.as_raw().len() as f32
 }
 
+/// The first column of `shot`, left of the minimap, that is brighter than the columns two pixels
+/// to either side of it, by more than 10 levels a pixel on average, both at the top of the screen
+/// and at the bottom, above the hotbar: a thin line from the sky down to the floor, which neither
+/// the edges of the walls nor the rims of the portals, seen whole, are.
+fn hairline(shot: &RgbImage) -> Option<u32> {
+    let brightness = |x: u32, rows: std::ops::Range<u32>| -> f32 {
+        let total: u32 = rows
+            .clone()
+            .map(|y| {
+                shot.get_pixel(x, y)
+                    .0
+                    .iter()
+                    .map(|c| u32::from(*c))
+                    .sum::<u32>()
+            })
+            .sum();
+        total as f32 / (3 * rows.len()) as f32
+    };
+    let line = |rows: std::ops::Range<u32>| -> Vec<bool> {
+        let columns: Vec<f32> = (0..1094).map(|x| brightness(x, rows.clone())).collect();
+        (2..columns.len() - 2)
+            .map(|x| columns[x] - columns[x - 2].max(columns[x + 2]) > 10.0)
+            .collect()
+    };
+    let (top, bottom) = (line(0..60), line(590..630));
+    (0..top.len())
+        .find(|x| top[*x] && bottom[*x])
+        .map(|x| x as u32 + 2)
+}
+
 /// Saves `shot` as `name` into `target/ui-snapshots/e2e__portals__<test>/`, when
 /// `UI_SNAPSHOTS=1`.
 fn keep(shot: &RgbImage, test: &str, name: &str) {
@@ -970,6 +1000,10 @@ fn walking_through_a_portal_is_seamless() {
             share < 0.05,
             "{twin:?} on {share} of the screen in a glance"
         );
+        // Nor does the rim of the portal, seen edge-on, draw a line down the screen
+        if let Some(x) = hairline(shot) {
+            panic!("a line down the screen at x = {x} in a glance");
+        }
     }
     let differences: Vec<f32> = shots
         .windows(2)
