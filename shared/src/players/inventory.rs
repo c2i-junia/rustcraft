@@ -112,7 +112,7 @@ pub enum InventoryAction {
 }
 
 /// Why an inventory action changed nothing.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InventoryRefusal {
     /// The slot is neither one of the inventory nor one of the usable crafting grid.
     InvalidSlot(u32),
@@ -197,14 +197,25 @@ enum Lent {
     Furnace,
 }
 
-/// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`.
-/// The actions on the open chest or furnace change it in `world_map`, when it holds it.
+/// What one inventory action of an input did: the client's feedback.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InventoryActionOutcome {
+    pub action: InventoryAction,
+    /// The stack held by the cursor before the action, and after it.
+    pub held_before: Option<ItemStack>,
+    pub held_after: Option<ItemStack>,
+    pub result: Result<(), InventoryRefusal>,
+}
+
+/// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`,
+/// and returns what each of those did. The actions on the open chest or furnace change it in
+/// `world_map`, when it holds it.
 pub fn simulate_inventory_actions(
     player: &mut Player,
     world_map: &mut ChunkMap,
     input: &PlayerFrameInput,
     caller_type: CallerType,
-) {
+) -> Vec<InventoryActionOutcome> {
     let position = player.position;
     // A table, a chest or a furnace the player walked away from, or that was broken, is
     // closed: the dialog shrinks
@@ -229,7 +240,9 @@ pub fn simulate_inventory_actions(
     }
     let creative = player.game_mode.is_creative();
     let actions = input.inventory_actions.iter();
+    let mut outcomes = Vec::new();
     for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
+        let held_before = player.inventory.floating;
         // A client learns what a chest or a furnace holds from the server, after opening it
         let inventory = &player.inventory;
         let mut chest = inventory
@@ -271,7 +284,14 @@ pub fn simulate_inventory_actions(
                 player.id
             );
         }
+        outcomes.push(InventoryActionOutcome {
+            action,
+            held_before,
+            held_after: player.inventory.floating,
+            result: applied,
+        });
     }
+    outcomes
 }
 
 /// Applies `action` to `inventory`. `in_reach` tells whether a position holds a block of this
@@ -1641,6 +1661,63 @@ mod tests {
         assert_eq!(player.inventory.inner.len(), 1);
         assert_eq!(player.inventory.inner[&7], stack(ItemId::Dirt, 5));
         assert_eq!(player.inventory.floating, None);
+    }
+
+    #[test]
+    fn the_simulation_reports_what_each_action_did() {
+        let mut player = Player::default();
+        player.inventory.inner.insert(0, stack(ItemId::Dirt, 5));
+        let input = PlayerFrameInput {
+            inventory_actions: vec![
+                InventoryAction::LeftClickSlot(0),
+                InventoryAction::TakeCraftResult,
+            ],
+            ..Default::default()
+        };
+
+        let outcomes = simulate_inventory_actions(
+            &mut player,
+            &mut ChunkMap::default(),
+            &input,
+            CallerType::Client,
+        );
+
+        let dirt = Some(stack(ItemId::Dirt, 5));
+        assert_eq!(
+            outcomes,
+            [
+                InventoryActionOutcome {
+                    action: InventoryAction::LeftClickSlot(0),
+                    held_before: None,
+                    held_after: dirt,
+                    result: Ok(()),
+                },
+                InventoryActionOutcome {
+                    action: InventoryAction::TakeCraftResult,
+                    held_before: dirt,
+                    held_after: dirt,
+                    result: Err(InventoryRefusal::NoRecipe),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn the_simulation_reports_only_the_actions_it_applied() {
+        let mut player = Player::default();
+        let input = PlayerFrameInput {
+            inventory_actions: vec![InventoryAction::LeftClickSlot(1); 40],
+            ..Default::default()
+        };
+
+        let outcomes = simulate_inventory_actions(
+            &mut player,
+            &mut ChunkMap::default(),
+            &input,
+            CallerType::Client,
+        );
+
+        assert_eq!(outcomes.len(), MAX_INVENTORY_ACTIONS_PER_INPUT);
     }
 
     #[test]
