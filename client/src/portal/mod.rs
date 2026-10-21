@@ -68,27 +68,38 @@ pub(crate) fn view_layer(slot: usize, level: usize) -> usize {
     stand_in_layer(slot) + level
 }
 
-/// The layers the camera of `level` of the portal drawn in `slot` sees, `depth` being the
-/// deepest level drawn and `slots` those of every portal drawn: the world, the body, the chunks
-/// kept for the portals, every other portal in its colour, and its own portal one level deeper,
-/// or in its colour at the deepest level. None may read the image it draws, which wgpu forbids:
-/// the portal's own view seen at `level` is read from the image of `level + 1`.
+/// What a portal camera sees of its own portal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnView {
+    /// Its view one level deeper, which the camera of `level + 1` draws: the camera of `level`
+    /// sees it on `view_layer(slot, level)`.
+    Deeper(usize),
+    /// Its colour: at the deepest level drawn, or when the next level does not draw.
+    Colour,
+    /// Nothing: the portal is beyond the camera's fog, where its colour, unfogged, would show.
+    Hidden,
+}
+
+/// The layers a camera of the portal drawn in `slot` sees, `slots` being those of every portal
+/// drawn: the world, the body, the chunks kept for the portals, every other portal in its
+/// colour, and its own portal as `own` says. None may read the image it draws, which wgpu
+/// forbids: its own portal seen at `level` shows the image of `level + 1`.
 pub(crate) fn camera_layers(
     slot: usize,
-    level: usize,
-    depth: usize,
+    own: OwnView,
     slots: impl IntoIterator<Item = usize>,
 ) -> RenderLayers {
-    let deepest = level >= depth;
     let mut layers = vec![0, BODY_LAYER, PORTAL_CHUNKS_LAYER];
     layers.extend(
         slots
             .into_iter()
-            .filter(|other| *other != slot || deepest)
+            .filter(|other| *other != slot)
             .map(stand_in_layer),
     );
-    if !deepest {
-        layers.push(view_layer(slot, level));
+    match own {
+        OwnView::Deeper(level) => layers.push(view_layer(slot, level)),
+        OwnView::Colour => layers.push(stand_in_layer(slot)),
+        OwnView::Hidden => {}
     }
     RenderLayers::from_layers(&layers)
 }
@@ -958,10 +969,10 @@ mod tests {
     }
 
     #[test]
-    fn a_portal_camera_sees_its_own_portal_one_level_deeper_and_the_others_in_their_colour() {
+    fn a_portal_camera_sees_the_other_portals_in_their_colour_and_its_own_as_told() {
         let has = |layers: &RenderLayers, layer| layers.intersects(&RenderLayers::layer(layer));
         let slots = [0, 1, 2];
-        let first = camera_layers(1, 1, 3, slots);
+        let first = camera_layers(1, OwnView::Deeper(1), slots);
         for layer in [0, BODY_LAYER, PORTAL_CHUNKS_LAYER, view_layer(1, 1)] {
             assert!(has(&first, layer), "{layer}");
         }
@@ -970,14 +981,83 @@ mod tests {
         for layer in [SURFACE_LAYER, stand_in_layer(1), view_layer(1, 2)] {
             assert!(!has(&first, layer), "{layer}");
         }
-        let second = camera_layers(1, 2, 3, slots);
+        let second = camera_layers(1, OwnView::Deeper(2), slots);
         assert!(has(&second, view_layer(1, 2)) && !has(&second, view_layer(1, 1)));
-        assert!(!has(&second, stand_in_layer(1)));
-        // The last level sees its own portal in its colour, as every other
-        for last in [camera_layers(1, 3, 3, slots), camera_layers(1, 1, 1, slots)] {
-            assert!(has(&last, stand_in_layer(1)));
-            assert!(!has(&last, view_layer(1, 1)) && !has(&last, view_layer(1, 2)));
-        }
+        let colour = camera_layers(1, OwnView::Colour, slots);
+        assert!(has(&colour, stand_in_layer(1)));
+        assert!(!has(&colour, view_layer(1, 1)) && !has(&colour, view_layer(1, 2)));
+        let hidden = camera_layers(1, OwnView::Hidden, slots);
+        assert!(!has(&hidden, stand_in_layer(1)) && !has(&hidden, view_layer(1, 1)));
+        assert!(has(&hidden, stand_in_layer(0)));
+    }
+
+    /// The layers of the camera of `level` of the portal of colour `color`, and the slot of the
+    /// portal.
+    fn layers_of(app: &mut App, color: PortalColor, level: usize) -> (RenderLayers, usize) {
+        let slot = app.world().resource::<DrawnPortals>().0[&(OWNER, color)].slot;
+        let world = app.world_mut();
+        let layers = world
+            .query::<(&PortalCamera, &RenderLayers)>()
+            .iter(world)
+            .find(|(camera, _)| camera.color == color && camera.level == level)
+            .map(|(_, layers)| layers.clone())
+            .unwrap();
+        (layers, slot)
+    }
+
+    fn sees_layer(layers: &RenderLayers, layer: usize) -> bool {
+        layers.intersects(&RenderLayers::layer(layer))
+    }
+
+    #[test]
+    fn a_portal_camera_sees_its_portal_one_level_deeper_or_in_its_colour_at_the_last_level() {
+        let mut app = app();
+        insert(&mut app, blue());
+        insert(&mut app, facing_orange());
+        app.update();
+        let (first, slot) = layers_of(&mut app, PortalColor::Blue, 1);
+        assert!(sees_layer(&first, view_layer(slot, 1)));
+        assert!(!sees_layer(&first, stand_in_layer(slot)));
+        let (last, _) = layers_of(&mut app, PortalColor::Blue, PORTAL_RECURSION);
+        assert!(sees_layer(&last, stand_in_layer(slot)));
+
+        app.insert_resource(PortalRecursion(1));
+        app.update();
+        let (first, _) = layers_of(&mut app, PortalColor::Blue, 1);
+        assert!(sees_layer(&first, stand_in_layer(slot)));
+        assert!(!sees_layer(&first, view_layer(slot, 1)));
+    }
+
+    #[test]
+    fn a_portal_beyond_the_fog_of_a_portal_camera_is_not_drawn_by_it() {
+        let mut app = app();
+        let world = app.world_mut();
+        let camera = world
+            .query_filtered::<Entity, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(camera).insert(DistanceFog {
+            falloff: FogFalloff::Linear {
+                start: 10.0,
+                end: 15.0,
+            },
+            ..default()
+        });
+        insert(&mut app, blue());
+        insert(&mut app, facing_orange());
+        app.update();
+        app.update();
+        // The blue portal is 5 blocks from the player, and 20 from the camera of the first level
+        let levels: Vec<_> = drawing(&mut app, PortalColor::Blue)
+            .iter()
+            .map(|(level, ..)| *level)
+            .collect();
+        assert_eq!(levels, [1]);
+        // Which then draws neither the next level, which it does not draw, nor its colour on
+        // its fog
+        let (first, slot) = layers_of(&mut app, PortalColor::Blue, 1);
+        assert!(!sees_layer(&first, view_layer(slot, 1)));
+        assert!(!sees_layer(&first, stand_in_layer(slot)));
     }
 
     /// The image each camera of the portal of colour `color` draws into, by level.

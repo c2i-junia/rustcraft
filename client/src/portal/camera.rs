@@ -18,7 +18,9 @@ use shared::CHUNK_SIZE;
 
 use super::material::PortalMaterial;
 use super::projection::portal_projection;
-use super::{camera_layers, DrawnPortals, PortalCamera, PortalRecursion, PORTAL_RECURSION};
+use super::{
+    camera_layers, DrawnPortals, OwnView, PortalCamera, PortalRecursion, PORTAL_RECURSION,
+};
 use crate::camera::{CameraController, FOG_START, SKY_COLOR};
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
@@ -143,8 +145,9 @@ struct Eye {
 /// camera for level 1), with the twin's plane as its near plane, the sky and the tonemapping of
 /// the player's camera, and its fog (`portal_fog`). A camera draws when the camera of the level
 /// above draws (the player's always does) and sees the front of the portal, within its fog and
-/// in front of its near plane; and its level is drawn (`PortalRecursion`). The layers of every
-/// camera follow the portals drawn (`camera_layers`).
+/// in front of its near plane; and its level is drawn (`PortalRecursion`). A camera sees its
+/// own portal one level deeper when that level draws, else in its colour, or not at all beyond
+/// its fog (`camera_layers`).
 pub(super) fn place_portal_cameras(
     world_map: Res<ClientWorldMap>,
     drawn: Res<DrawnPortals>,
@@ -189,33 +192,22 @@ pub(super) fn place_portal_cameras(
         let open = portals
             .get(drawn.portal.owner, drawn.portal.color)
             .and_then(|portal| Some((portal, portals.twin(portal)?, portals.through(portal)?)));
-        let mut eye = Some(Eye {
+        // Where each level's camera stands, if it draws, the player's camera first
+        let mut eyes = vec![Some(Eye {
             transform: *main_transform,
             projection: main_projection.clone(),
             fog: main_fog.cloned(),
             behind_twin: false,
-        });
+        })];
         for (index, entity) in views.cameras.iter().enumerate() {
             let level = index + 1;
-            let Ok((
-                entity,
-                mut transform,
-                mut projection,
-                mut camera,
-                mut tonemapping,
-                fog,
-                mut layers,
-            )) = cameras.get_mut(*entity)
+            let Ok((entity, mut transform, mut projection, mut camera, mut tonemapping, fog, _)) =
+                cameras.get_mut(*entity)
             else {
+                eyes.push(None);
                 continue;
             };
-            layers.set_if_neq(camera_layers(
-                drawn.slot,
-                level,
-                depth,
-                slots.iter().copied(),
-            ));
-            let seen = match (&eye, open) {
+            let seen = match (&eyes[index], open) {
                 (Some(eye), Some((portal, twin, through))) if level <= depth => {
                     (sees(&eye.transform, &eye.projection, portal)
                         && (!eye.behind_twin || in_front_of_twin(portal, twin))
@@ -230,7 +222,7 @@ pub(super) fn place_portal_cameras(
                 started.0 |= active;
             }
             let Some((above, portal, twin, through)) = seen else {
-                eye = None;
+                eyes.push(None);
                 continue;
             };
             *transform =
@@ -261,12 +253,29 @@ pub(super) fn place_portal_cameras(
                 }
                 (None, None) => {}
             }
-            eye = Some(Eye {
+            eyes.push(Some(Eye {
                 transform: *transform,
                 projection: projection.clone(),
                 fog: new_fog,
                 behind_twin: true,
-            });
+            }));
+        }
+
+        // What each camera that draws sees of its own portal: the level below if it draws
+        for (index, entity) in views.cameras.iter().enumerate() {
+            let level = index + 1;
+            let (Some(eye), Ok((.., mut layers))) = (&eyes[level], cameras.get_mut(*entity)) else {
+                continue;
+            };
+            let deeper = eyes.get(level + 1).is_some_and(Option::is_some);
+            let own = if deeper {
+                OwnView::Deeper(level)
+            } else if beyond_fog(eye.transform.translation, eye.fog.as_ref(), &drawn.portal) {
+                OwnView::Hidden
+            } else {
+                OwnView::Colour
+            };
+            layers.set_if_neq(camera_layers(drawn.slot, own, slots.iter().copied()));
         }
     }
 }
