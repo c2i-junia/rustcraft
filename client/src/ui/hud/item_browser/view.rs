@@ -1063,9 +1063,12 @@ mod tests {
         put(&mut world, 3, ItemId::OakPlanks, 5);
         assert_eq!(enabled(&mut world), [true, false]);
 
-        // The chest takes the place of the grid
+        // The chest takes the place of the grid, and so does the furnace
         world.resource_mut::<Inventory>().open_chest = Some(IVec3::ZERO);
         assert_eq!(enabled(&mut world), [false, false]);
         assert_eq!(world.get::<TabIndex>(stick_button), Some(&TabIndex(-1)));
+        world.resource_mut::<Inventory>().open_chest = None;
+        world.resource_mut::<Inventory>().open_furnace = Some(IVec3::ZERO);
+        assert_eq!(enabled(&mut world), [false, false]);
     }
 }

@@ -59,8 +59,8 @@ pub fn station_label(recipe: &RecipeView) -> &'static str {
 }
 
 /// Why `inventory` cannot make `recipe` now with a grid of `grid_size`: the ingredients it lacks,
-/// else the crafting table it needs, else the chest open in place of the grid. `None` when it
-/// can, and `+ Fill grid` fills the grid with it.
+/// else the crafting table it needs, else the chest or the furnace open in place of the grid.
+/// `None` when it can, and `+ Fill grid` fills the grid with it.
 pub fn recipe_problem(
     inventory: &Inventory,
     recipe: &RecipeView,
@@ -77,15 +77,20 @@ pub fn recipe_problem(
     if !recipe.fits(grid_size) {
         return Some("Needs a Crafting Table".to_string());
     }
-    // The chest takes the place of the crafting grid in the panel
+    // The chest or the furnace takes the place of the crafting grid in the panel
+    if inventory.open_chest.is_some() {
+        return Some(NOT_BESIDE_A_CHEST.to_string());
+    }
     inventory
-        .open_chest
+        .open_furnace
         .is_some()
-        .then(|| NOT_BESIDE_A_CHEST.to_string())
+        .then(|| NOT_BESIDE_A_FURNACE.to_string())
 }
 
 /// Why a recipe cannot fill the grid while a chest is open.
 pub const NOT_BESIDE_A_CHEST: &str = "Not beside a chest";
+/// Why a recipe cannot fill the grid while a furnace is open.
+pub const NOT_BESIDE_A_FURNACE: &str = "Not beside a furnace";
 
 /// After the message of an item without recipe: how many recipes it goes into.
 fn uses_sentence(uses: usize) -> String {
@@ -165,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn the_problem_of_a_recipe_is_what_is_missing_then_the_table_then_the_chest() {
+    fn the_problem_of_a_recipe_is_what_is_missing_then_the_table_then_the_chest_or_furnace() {
         let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
         let stick = recipes_for(ItemId::Stick).next().unwrap();
         let mut inventory = Inventory::new();
@@ -185,6 +190,12 @@ mod tests {
         assert_eq!(
             recipe_problem(&inventory, &stick, 2).as_deref(),
             Some("Not beside a chest")
+        );
+        inventory.open_chest = None;
+        inventory.open_furnace = Some(bevy::math::IVec3::ZERO);
+        assert_eq!(
+            recipe_problem(&inventory, &stick, 2).as_deref(),
+            Some("Not beside a furnace")
         );
     }
 
