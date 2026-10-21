@@ -8,19 +8,22 @@ use celestial::{
     update_celestial_materials,
 };
 use time::{time_update_system, ClientTime};
+use weather::{ease_weather_system, ClientWeather};
 
 pub mod celestial;
 pub mod clouds;
 pub mod data;
 pub mod rendering;
 pub mod time;
+pub mod weather;
 
 pub use data::*;
 pub use rendering::*;
 
-/// Chunks and their meshes, textures and atlases, the sky and the world clock.
+/// Chunks and their meshes, textures and atlases, the sky, the world clock and the weather.
 pub fn world_plugin(app: &mut App) {
     app.insert_resource(ClientTime(0))
+        .init_resource::<ClientWeather>()
         .insert_resource(GlobalAmbientLight {
             color: Color::WHITE,
             brightness: 400.0,
@@ -71,6 +74,7 @@ pub fn world_plugin(app: &mut App) {
                 (update_celestial_bodies, celestial_light_system).chain(),
                 update_celestial_materials,
                 daylight_ambient_system,
+                ease_weather_system,
             )
                 .run_if(in_state(GameState::Game)),
         )

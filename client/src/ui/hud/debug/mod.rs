@@ -9,6 +9,7 @@ mod loaded_stats;
 pub mod raycast;
 pub mod setup;
 pub mod targeted_block;
+pub mod weather;
 
 use bevy::prelude::*;
 
@@ -23,6 +24,7 @@ pub use fps::*;
 pub use loaded_stats::*;
 pub use raycast::*;
 pub use setup::*;
+pub use weather::*;
 
 #[derive(Resource, Default)]
 pub struct DebugOptions {

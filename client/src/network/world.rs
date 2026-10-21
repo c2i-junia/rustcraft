@@ -13,6 +13,7 @@ use shared::world::SIX_OFFSETS;
 use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
 
 use crate::world::time::ClientTime;
+use crate::world::weather::ClientWeather;
 use crate::world::ClientWorldMap;
 
 use crate::world::{BlockChanged, ChunkLoadEvent, WorldRenderRequestUpdateEvent};
@@ -90,6 +91,7 @@ pub fn update_world_from_network(
     ev_dropped_items: &mut MessageWriter<DroppedItemsUpdate>,
     chat: &mut ResMut<CachedChatConversation>,
     client_time: &mut ResMut<ClientTime>,
+    weather: &mut ClientWeather,
     decoding: &mut DecodingChunkMessages,
 ) {
     let mut messages = Vec::new();
@@ -171,8 +173,12 @@ pub fn update_world_from_network(
             ServerToClientMessage::TimeSet(tick) => {
                 client_time.0 = tick;
             }
-            ServerToClientMessage::WeatherSet(_)
-            | ServerToClientMessage::LightningStrike { .. } => {}
+            // The levels ease towards it
+            ServerToClientMessage::WeatherSet(kind) => {
+                weather.kind = kind;
+            }
+            // Nothing shows a strike yet
+            ServerToClientMessage::LightningStrike { .. } => {}
         }
     }
 }

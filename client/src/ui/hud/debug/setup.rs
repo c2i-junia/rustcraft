@@ -1,7 +1,7 @@
 use super::loaded_stats::ChunksNumberText;
 use super::loaded_stats::TimeText;
 use super::targeted_block::BlockText;
-use super::{BiomeText, CoordsText, FpsText};
+use super::{BiomeText, CoordsText, FpsText, WeatherText};
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
 use crate::state::{GameState, KeyMap};
@@ -28,7 +28,7 @@ pub(crate) fn debug_line(text: &str, color: Color, font: TextFont) -> impl Bundl
 }
 
 /// The debug overlay in the top-left corner: FPS, coordinates, biome, loaded chunks, targeted
-/// block and world time, each updated by its own system.
+/// block, world time and weather, each updated by its own system.
 pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
     let font = debug_font(&assets);
     let root = commands
@@ -76,6 +76,9 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
     let time_text = commands
         .spawn((TimeText, debug_line("Time: N/A", TEXT, font.clone())))
         .id();
+    let weather_text = commands
+        .spawn((WeatherText, debug_line("Weather: N/A", TEXT, font.clone())))
+        .id();
 
     commands.entity(root).add_children(&[
         text_fps,
@@ -84,6 +87,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<AssetServer>) {
         chunks_number_text,
         block_text,
         time_text,
+        weather_text,
     ]);
 }
 

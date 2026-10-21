@@ -152,6 +152,7 @@ pub fn hud_plugin(app: &mut App) {
                     loaded_chunks_text_update_system,
                     block_text_update_system,
                     time_text_update_system,
+                    weather_text_update_system,
                 )
                     .run_if(debug_overlay_shown),
                 chunk_ghost_update_system,

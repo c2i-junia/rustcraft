@@ -20,6 +20,7 @@ use crate::player::player_plugin;
 use crate::state::{GameSet, GameState, PreLoadingCompletion};
 use crate::ui::hud::hud_plugin;
 use crate::ui::menus::connecting::setup_connecting_card;
+use crate::world::weather::ClientWeather;
 use crate::world::{setup_materials, world_plugin, ClientWorldMap};
 
 /// Assembles the domain plugins, and holds what spans several of them: the session lifecycle
@@ -108,10 +109,12 @@ pub(crate) fn add_session_exits(app: &mut App) {
 fn clear_resources(
     mut world_map: ResMut<ClientWorldMap>,
     mut decoding: ResMut<DecodingChunkMessages>,
+    mut weather: ResMut<ClientWeather>,
 ) {
     world_map.blocks = ChunkMap::default();
     world_map.render = HashMap::new();
     decoding.clear();
+    *weather = ClientWeather::default();
 }
 
 /// Enters the game once the textures are loaded, the player spawned and the chunks around it
@@ -135,7 +138,7 @@ fn check_pre_loading_complete(
 mod tests {
     use bevy::state::app::StatesPlugin;
 
-    use shared::world::Chunk;
+    use shared::world::{Chunk, WeatherKind};
 
     use super::*;
     use crate::network::buffered_client::PlayerTickInputsBuffer;
@@ -179,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_the_loading_screen_forgets_the_chunks_it_received() {
+    fn cancelling_the_loading_screen_forgets_the_chunks_and_the_weather_it_received() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .insert_state(GameState::PreGameLoading)
@@ -192,7 +195,8 @@ mod tests {
             .init_resource::<UnacknowledgedInputs>()
             .init_resource::<PlayerTickInputsBuffer>()
             .init_resource::<ClientWorldMap>()
-            .init_resource::<DecodingChunkMessages>();
+            .init_resource::<DecodingChunkMessages>()
+            .insert_resource(ClientWeather::settled(WeatherKind::Thunder));
         add_session_exits(&mut app);
         let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
         map.blocks.insert_chunk(IVec3::ZERO, Chunk::new());
@@ -207,5 +211,9 @@ mod tests {
         let map = app.world().resource::<ClientWorldMap>();
         assert_eq!(map.blocks.chunk_positions().count(), 0);
         assert!(map.render.is_empty());
+        assert_eq!(
+            *app.world().resource::<ClientWeather>(),
+            ClientWeather::default()
+        );
     }
 }
