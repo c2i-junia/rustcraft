@@ -104,6 +104,13 @@ const WATER_GREYING: f32 = 0.6;
 // The brightness of the ambient light at noon, `DAY_AMBIENT` in `graphics.rs`: when the water
 // reflects the sky as bright as it is drawn
 const DAY_AMBIENT: f32 = 400.0;
+// The rings the rain makes on the water: the side of the cell of each, in blocks, how long one
+// lives, in seconds, and how far it spreads, in blocks
+const RIPPLE_CELL: f32 = 0.55;
+const RIPPLE_LIFE: f32 = 0.8;
+const RIPPLE_REACH: f32 = 0.3;
+// `SNOW_LINE` of the server's generation: above it, the rain is snow
+const SNOW_LINE: f32 = 122.0;
 // The exposure the lights of the game were made for, `Exposure::BLENDER` (an EV100 of 9.7):
 // the light of the blocks is as bright on screen whatever the exposure of the shaders
 const BASE_EXPOSURE: f32 = 1.0 / (1.2 * 831.7464);
@@ -349,11 +356,12 @@ fn level_brightness(level: f32) -> f32 {
 }
 
 // The normal of the surface of the water at `at`: small waves that cross it in three
-// directions, the sum of their slopes. `footprint` is how many blocks a pixel spans there: the
-// waves too short to be drawn fade out, instead of making stripes far off.
-fn water_normal(at: vec2<f32>, footprint: f32) -> vec3<f32> {
+// directions, the sum of their slopes, and the rings of the rain, as much as `rain` says.
+// `footprint` is how many blocks a pixel spans there: the waves too short to be drawn fade out,
+// instead of making stripes far off.
+fn water_normal(at: vec2<f32>, footprint: f32, rain: f32) -> vec3<f32> {
     let time = seconds();
-    var slope = vec2(0.0);
+    var slope = rain_ripples(at, rain, footprint);
     let waves = array(
         vec4(0.8, 0.6, 1.9, 1.1),
         vec4(-0.5, 0.87, 2.7, 1.6),
@@ -367,6 +375,73 @@ fn water_normal(at: vec2<f32>, footprint: f32) -> vec3<f32> {
         slope += wave.xy * wave.z * cos(phase) * 0.012 * fade;
     }
     return normalize(vec3(-slope.x, 1.0, -slope.y));
+}
+
+// Four numbers from 0 to 1 for `cell`, all different from those of the cells around it.
+fn hash4(cell: vec2<f32>) -> vec4<f32> {
+    var v = vec4<u32>(vec2<u32>(vec2<i32>(cell)), 0x9e3779b9u, 0x7f4a7c15u);
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * v.w;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.w += v.y * v.z;
+    v ^= v >> vec4(16u);
+    v.x += v.y * v.w;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v.w += v.y * v.z;
+    return vec4<f32>(v >> vec4(8u)) / 16777216.0;
+}
+
+// The slope of the rings the drops of rain make on the water at `at`. In each cell of a grid
+// a ring grows from a point and fades, at a pace of its own, then starts again elsewhere;
+// `amount`, from 0 to 1, is the share of the cells that hold one. The rings fade out where a
+// pixel spans too much of them to draw them, as the waves.
+fn rain_ripples(at: vec2<f32>, amount: f32, footprint: f32) -> vec2<f32> {
+    let fade = 1.0 - smoothstep(0.02, 0.06, footprint);
+    if amount <= 0.0 || fade <= 0.0 {
+        return vec2(0.0);
+    }
+    let time = seconds();
+    let base = floor(at / RIPPLE_CELL);
+    var slope = vec2(0.0);
+    for (var dx = -1; dx <= 1; dx++) {
+        for (var dz = -1; dz <= 1; dz++) {
+            let cell = base + vec2(f32(dx), f32(dz));
+            let pace = hash4(cell);
+            let cycle = time / (RIPPLE_LIFE * mix(0.8, 1.25, pace.x)) + pace.y;
+            let ring = hash4(cell * 7.0 + floor(cycle) * vec2(13.0, 101.0));
+            if ring.w > amount {
+                continue;
+            }
+            let age = fract(cycle);
+            let centre = (cell + 0.15 + 0.7 * ring.xy) * RIPPLE_CELL;
+            let off = at - centre;
+            let dist = max(length(off), 1e-4);
+            // A crest and a trough round the ring, which widens and flattens as it spreads
+            let x = dist - RIPPLE_REACH * sqrt(age);
+            let width = mix(0.03, 0.07, age);
+            let k = 6.2832 / (2.5 * width);
+            let envelope = exp(-x * x / (width * width));
+            let rise = (k * cos(k * x) - 2.0 * x / (width * width) * sin(k * x)) * envelope;
+            let strength = 0.005 * (1.0 - age) * (1.0 - age) * mix(0.6, 1.0, ring.z);
+            slope += off / dist * rise * strength;
+        }
+    }
+    return slope * fade;
+}
+
+// How much it rains on the water at `at`, open to the sky with `sky_level` from 0 to 1: as
+// much as falls, where the climate of the column gives rain and below the snow line.
+fn rain_on_water(at: vec3<f32>, sky_level: f32) -> f32 {
+    let column = floor(at.xz);
+    let size = vec2<f32>(textureDimensions(climate_map));
+    let climate = textureLoad(climate_map, vec2<i32>(column - size * floor(column / size)), 0);
+    // The blue channel holds the kind of what falls: rain is 0
+    if climate.a == 0.0 || climate.b > 0.5 / 255.0 || at.y > SNOW_LINE {
+        return 0.0;
+    }
+    return weather.rain * smoothstep(14.0 / MAX_LIGHT, 1.0, sky_level);
 }
 
 #ifdef DEPTH_PREPASS
@@ -513,7 +588,8 @@ fn fragment(
         // lies under it the more it is seen from the side, as the Fresnel term says
         let footprint = length(fwidth(in.world_position.xz));
         if pbr_input.world_normal.y > 0.5 {
-            pbr_input.N = water_normal(in.world_position.xz, footprint);
+            let rain = rain_on_water(in.world_position.xyz, light.r);
+            pbr_input.N = water_normal(in.world_position.xz, footprint, rain);
         }
         pbr_input.material.perceptual_roughness = 0.12;
         pbr_input.material.reflectance = vec3(0.5);
