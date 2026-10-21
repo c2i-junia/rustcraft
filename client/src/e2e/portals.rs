@@ -19,13 +19,16 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::CameraController;
 use crate::player::CurrentPlayerMarker;
+use crate::portal::material::PortalMaterial;
 use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
+use crate::portal::shot::{Bolt, ShotFired};
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::{sky_rotation, sun_height, CelestialRoot, Stars};
 use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
+use shared::players::blocks::PortalShot;
 use shared::players::Player;
 use shared::world::{global_block_to_chunk_pos, raycast_far, ItemId};
 
@@ -2065,4 +2068,183 @@ fn an_item_thrown_into_a_floor_portal_comes_out_of_a_wall() {
     );
     let shot = h.screenshot();
     keep(&shot, THROWN, "thrown");
+}
+
+const SHOT: &str = "the_shot_flies_to_the_wall_and_the_portal_opens_where_it_lands";
+
+/// The ages and flight times of the bolts in the world.
+fn bolts(w: &World) -> Vec<(f32, f32)> {
+    w.try_query::<&Bolt>()
+        .unwrap()
+        .iter(w)
+        .map(|bolt| (bolt.age, bolt.flight()))
+        .collect()
+}
+
+/// How many entities draw a portal: its box, its rim and its surfaces.
+fn portal_drawings(w: &World) -> usize {
+    w.try_query::<&MeshMaterial3d<PortalMaterial>>()
+        .unwrap()
+        .iter(w)
+        .count()
+}
+
+/// Whether a pixel of `shot` within 8 pixels of `at` is the bright blue of a bolt.
+fn bolt_blue_near(shot: &RgbImage, at: Vec2) -> bool {
+    near(shot, at, |[r, g, b]| b > 200 && b > r + 60 && g > r)
+}
+
+/// In solo, the player shoots its blue portal at a wall: the bolt flies there, the portal not
+/// drawn while it does, though the client map has it; it bursts into sparks and the portal is
+/// drawn. Time is held still to look at the bolt mid-flight and at the sparks.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_shot_flies_to_the_wall_and_the_portal_opens_where_it_lands() {
+    let folder = GameFolder::new()
+        .with_world("Shot")
+        .with_items("Shot", "Tester", &[(0, ItemId::PortalGun, 1)])
+        .with_mod("walls", WALLS_MOD);
+    let mut h = enter_world(folder, "Shot");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player on the ground", SERVER, |w| {
+        local_player(w).is_some_and(|player| {
+            let ground = w
+                .resource::<ClientWorldMap>()
+                .blocks
+                .get_height_ground(player.position);
+            player.on_ground && ground > 0 && player.position.y < ground as f32 + 2.5
+        })
+    });
+    h.frames(30);
+    h.set_time("day");
+    let centre = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    h.command("/walls");
+    let north = centre + IVec3::new(0, 11, -8);
+    h.wait_until("the wall", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(north)
+            .is_some()
+    });
+    h.aim_at(north.as_vec3() + Vec3::new(0.5, 0.5, 1.0), north);
+    let yaw = yaw(h.world_mut());
+
+    // Time held still, the shot is fired: the bolt waits by the eye
+    h.world_mut().resource_mut::<Time<Virtual>>().pause();
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.wait_until("the bolt", SERVER, |w| !bolts(w).is_empty());
+    assert!(own_portal(h.world(), PortalColor::Blue).is_some());
+    assert_eq!(
+        portal_drawings(h.world()),
+        0,
+        "drawn before the bolt landed"
+    );
+
+    // Halfway, seen from a little aside
+    let world = h.world_mut();
+    let mut bolt = world.query::<&mut Bolt>().single_mut(world).unwrap();
+    bolt.age = bolt.flight() * 0.45;
+    let at = bolt.position();
+    set_yaw(&mut h, yaw + 0.5);
+    h.frames(3);
+    let on = on_screen(&mut h, at);
+    let shot = h.screenshot();
+    keep(&shot, SHOT, "mid_flight");
+    assert!(bolt_blue_near(&shot, on), "no bolt at {on}");
+    assert_eq!(
+        portal_drawings(h.world()),
+        0,
+        "drawn before the bolt landed"
+    );
+
+    // It lands, time still held: it bursts into sparks, and the portal is drawn
+    set_yaw(&mut h, yaw);
+    let world = h.world_mut();
+    let mut bolt = world.query::<&mut Bolt>().single_mut(world).unwrap();
+    bolt.age = bolt.flight();
+    h.frames(1);
+    let sparks = {
+        let world = h.world_mut();
+        world
+            .query::<&crate::portal::particles::Particle>()
+            .iter(world)
+            .count()
+    };
+    assert!(sparks > 0, "no sparks");
+    assert!(
+        portal_drawings(h.world()) > 0,
+        "not drawn as the bolt landed"
+    );
+    // A tenth of a second for them to fly apart
+    h.world_mut().resource_mut::<Time<Virtual>>().unpause();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(100) {
+        h.frames(1);
+    }
+    h.world_mut().resource_mut::<Time<Virtual>>().pause();
+    let shot = h.screenshot();
+    keep(&shot, SHOT, "sparks");
+    h.world_mut().resource_mut::<Time<Virtual>>().unpause();
+
+    // The trail shrinks into the wall, and the bolt is gone
+    h.wait_until("the bolt gone", SERVER, |w| bolts(w).is_empty());
+    h.frames(5);
+    keep(&h.screenshot(), SHOT, "opened");
+
+    // Another player's shot, from the west below, refused: seen across the view, halfway,
+    // without the shaders and with them, where it glows
+    let to = north.as_vec3() + Vec3::new(1.5, 0.5, 1.0);
+    let across = PortalShot {
+        from: to + Vec3::new(-12.0, -6.0, 4.0),
+        to,
+        color: PortalColor::Orange,
+        placed: false,
+    };
+    for quality in [ShaderQuality::Off, ShaderQuality::Medium] {
+        h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
+        // The effects inserted and the exposure settled
+        h.frames(40);
+        h.world_mut().resource_mut::<Time<Virtual>>().pause();
+        h.world_mut().write_message(ShotFired {
+            shooter: 99,
+            shot: across,
+        });
+        h.wait_until("the other bolt", SERVER, |w| !bolts(w).is_empty());
+        let world = h.world_mut();
+        let mut bolt = world.query::<&mut Bolt>().single_mut(world).unwrap();
+        bolt.age = bolt.flight() * 0.5;
+        let at = bolt.position();
+        h.frames(3);
+        let on = on_screen(&mut h, at);
+        let shot = h.screenshot();
+        let name = format!("across_{quality:?}").to_lowercase();
+        keep(&shot, SHOT, &name);
+        assert!(
+            orange_near(&shot, on),
+            "{quality:?}: no orange bolt at {on}"
+        );
+        h.world_mut().resource_mut::<Time<Virtual>>().unpause();
+        h.wait_until("the other bolt gone", SERVER, |w| bolts(w).is_empty());
+    }
+}
+
+/// Whether a pixel of `shot` within 8 pixels of `at` is the bright orange of a bolt.
+fn orange_near(shot: &RgbImage, at: Vec2) -> bool {
+    near(shot, at, |[r, g, b]| r > 200 && r > b + 80 && g > b)
+}
+
+/// Whether a pixel of `shot` within 8 pixels of `at` is as `wanted` says.
+fn near(shot: &RgbImage, at: Vec2, wanted: impl Fn([i32; 3]) -> bool) -> bool {
+    (-8..=8).any(|dx| {
+        (-8..=8).any(|dy| {
+            let (x, y) = (at.x as i32 + dx, at.y as i32 + dy);
+            x >= 0
+                && y >= 0
+                && x < shot.width() as i32
+                && y < shot.height() as i32
+                && wanted(shot.get_pixel(x as u32, y as u32).0.map(i32::from))
+        })
+    })
 }
