@@ -264,7 +264,7 @@ fn place_ready(player: &mut Player, action: &PlayerFrameInput) -> bool {
 }
 
 /// The block the player aims at through `camera`, holding `held`: an empty bucket aims at the
-/// water sources too, any other item through water.
+/// water sources too, any other item through water. The portal gun aims further than the rest.
 pub fn aim(
     world_map: &ChunkMap,
     camera: &Transform,
@@ -272,10 +272,14 @@ pub fn aim(
     view_mode: ViewMode,
     held: Option<ItemId>,
 ) -> Option<RaycastResponse> {
-    if held == Some(ItemId::Bucket) {
-        raycast::raycast_to_water_source(world_map, camera, player_position, view_mode)
-    } else {
-        raycast::raycast(world_map, camera, player_position, view_mode)
+    match held {
+        Some(ItemId::Bucket) => {
+            raycast::raycast_to_water_source(world_map, camera, player_position, view_mode)
+        }
+        Some(ItemId::PortalGun) => {
+            raycast::raycast_far(world_map, camera, player_position, view_mode)
+        }
+        _ => raycast::raycast(world_map, camera, player_position, view_mode),
     }
 }
 
@@ -1627,6 +1631,44 @@ mod tests {
         assert_eq!(world.get_block(far), Some(&water(0)));
         assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)));
         assert_eq!(world.take_changed_blocks(), vec![far]);
+    }
+
+    #[test]
+    fn a_bucket_aims_as_on_main_reaching_five_blocks_and_seeing_twenty() {
+        // A lone source straight ahead, `distance` blocks from the centre of the player
+        let bucket_toward = |distance: i32| {
+            let (mut player, _, input) = bucket_in_front_of(&[], stack(ItemId::Bucket, 1));
+            let mut world =
+                ChunkMap::with_loaded_region(IVec3::new(-16, -16, -48), IVec3::splat(15));
+            let source = IVec3::new(0, 0, -distance);
+            world.set_block(source, water(0));
+            world.take_changed_blocks();
+            let aimed = aim(
+                &world,
+                &input.camera,
+                &player.position,
+                input.view_mode,
+                Some(ItemId::Bucket),
+            )
+            .map(|target| target.position);
+            right_click(&mut player, &mut world, &input);
+            (
+                aimed,
+                world.get_block(source).copied(),
+                world.take_changed_blocks(),
+            )
+        };
+        // Within reach, it fills
+        let source = IVec3::new(0, 0, -5);
+        assert_eq!(bucket_toward(5), (Some(source), None, vec![source]));
+        // Beyond, the source is aimed at, kept and re-stated to the client
+        let source = IVec3::new(0, 0, -6);
+        assert_eq!(
+            bucket_toward(6),
+            (Some(source), Some(water(0)), vec![source])
+        );
+        // Beyond the 20 blocks rays go, but the gun's, it is not even aimed at
+        assert_eq!(bucket_toward(25), (None, Some(water(0)), vec![]));
     }
 
     #[test]

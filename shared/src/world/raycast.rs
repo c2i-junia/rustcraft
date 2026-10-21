@@ -45,7 +45,7 @@ pub struct RaycastResponse {
     pub bbox: Aabb3d,
 }
 
-/// The first block hit by the ray the player aims with, `aim_ray`.
+/// The first block hit by the ray the player aims with, `aim_ray`, within `AIM_DISTANCE`.
 pub fn raycast(
     world_map: &ChunkMap,
     camera_transform: &Transform,
@@ -58,6 +58,24 @@ pub fn raycast(
         player_position,
         view_mode,
         false,
+        AIM_DISTANCE,
+    )
+}
+
+/// `raycast`, but within `MAX_RAY_DISTANCE`: what the portal gun aims at.
+pub fn raycast_far(
+    world_map: &ChunkMap,
+    camera_transform: &Transform,
+    player_position: &Vec3,
+    view_mode: ViewMode,
+) -> Option<RaycastResponse> {
+    cast(
+        world_map,
+        camera_transform,
+        player_position,
+        view_mode,
+        false,
+        MAX_RAY_DISTANCE,
     )
 }
 
@@ -75,6 +93,7 @@ pub fn raycast_to_water_source(
         player_position,
         view_mode,
         true,
+        AIM_DISTANCE,
     )
 }
 
@@ -84,9 +103,10 @@ fn cast(
     player_position: &Vec3,
     view_mode: ViewMode,
     sources: bool,
+    reach: f32,
 ) -> Option<RaycastResponse> {
     let (origin, direction) = aim_ray(camera_transform, player_position, view_mode);
-    traverse(world_map, origin, direction, sources)
+    traverse(world_map, origin, direction, sources, reach)
 }
 
 /// The origin and the direction of the ray the player aims with. The ray follows the camera's
@@ -109,6 +129,10 @@ pub fn aim_ray(
 /// of the aimed block, from eyes above that centre.
 const MAX_RAY_DISTANCE: f32 = 36.0;
 
+/// How far the rays of the player's aim go but the portal gun's: the hand, the tools and the
+/// bucket see no further, whatever their reach.
+const AIM_DISTANCE: f32 = 20.0;
+
 /// Largest absolute coordinate accepted for a ray origin. It keeps every integer of the
 /// traversal (`voxel`, `voxel + 1`, and the few thousand steps of a ray) far from `i32`
 /// overflow, which a camera position sent by a client could otherwise trigger.
@@ -129,7 +153,7 @@ pub fn raycast_from_source_position_and_direction(
     origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
-    traverse(world_map, origin, direction, false)
+    traverse(world_map, origin, direction, false, MAX_RAY_DISTANCE)
 }
 
 // Amanatides-Woo fast traversal algorithm
@@ -139,6 +163,7 @@ fn traverse(
     origin: Vec3,
     direction: Vec3,
     sources: bool,
+    reach: f32,
 ) -> Option<RaycastResponse> {
     // The camera comes from the network: reject anything that cannot define a ray
     if !origin.is_finite()
@@ -162,7 +187,7 @@ fn traverse(
     let mut distance = 0.0;
 
     for _ in 0..max_ray_steps(direction) {
-        if distance >= MAX_RAY_DISTANCE {
+        if distance >= reach {
             break;
         }
         if let Some(block) = world_map.get_block(voxel) {
@@ -401,12 +426,12 @@ mod tests {
         world.set_block(IVec3::new(2, 0, 0), water(3));
         world.set_block(IVec3::new(4, 0, 0), water(0));
 
-        let hit = traverse(&world, ORIGIN, Vec3::X, true).unwrap();
+        let hit = traverse(&world, ORIGIN, Vec3::X, true, MAX_RAY_DISTANCE).unwrap();
         assert_eq!(hit.position, IVec3::new(4, 0, 0));
         assert_eq!(hit.face, FaceDirection::MinusX);
         assert_eq!(hit.block, water(0));
         // A ray that ignores water reaches the stone
-        let hit = traverse(&world, ORIGIN, Vec3::X, false).unwrap();
+        let hit = traverse(&world, ORIGIN, Vec3::X, false, MAX_RAY_DISTANCE).unwrap();
         assert_eq!(hit.position, IVec3::new(6, 0, 0));
         // So does the camera's ray, and the bucket's stops at the source
         let camera = Transform::from_translation(ORIGIN).looking_to(Vec3::X, Vec3::Y);

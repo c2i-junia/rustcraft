@@ -27,7 +27,7 @@ use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
 use shared::players::Player;
-use shared::world::{global_block_to_chunk_pos, raycast, ItemId};
+use shared::world::{global_block_to_chunk_pos, raycast_far, ItemId};
 
 /// The scene, in blocks from the cell of the player's feet.
 struct Scene {
@@ -809,7 +809,7 @@ impl Harness {
     }
 
     /// Turns the player's camera toward `point`, on a face of the block `cell`, and waits for it
-    /// to aim at that block.
+    /// to aim at that block, as far as the portal gun aims.
     #[track_caller]
     fn aim_at(&mut self, point: Vec3, cell: IVec3) {
         let world = self.world_mut();
@@ -837,7 +837,7 @@ impl Harness {
                 return false;
             };
             let blocks = &w.resource::<ClientWorldMap>().blocks;
-            raycast(blocks, camera, &player.translation, Default::default())
+            raycast_far(blocks, camera, &player.translation, Default::default())
                 .is_some_and(|target| target.position == cell)
         });
     }

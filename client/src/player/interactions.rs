@@ -169,7 +169,7 @@ fn opened(
 }
 
 /// How far from the player an aimed block is outlined, but with the portal gun: as far as the
-/// ray went before it was lengthened for the gun.
+/// rays of every item but the gun go.
 const OUTLINE_DISTANCE: f32 = 20.0;
 
 /// Whether the block at `position`, aimed at on its face `face` by the player whose centre is
