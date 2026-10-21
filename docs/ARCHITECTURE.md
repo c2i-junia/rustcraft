@@ -183,10 +183,12 @@ predicted: the client only receives the cells it changes.
 The portals are placed with the portal gun (`ItemId::PortalGun`): held in the selected slot,
 it shoots its owner's blue portal on a left click and the orange one on a right click, once
 per press (`Player::portal_triggers_held`), up to `PORTAL_GUN_REACH` (32) blocks, and then
-neither mines nor places blocks (`shared/src/players/blocks.rs`). The portal goes on the
+neither mines nor places blocks (`shared/src/players/blocks.rs`). It aims as any item but the
+empty bucket (`aim`), through water sources. The portal goes on the
 vertical face aimed at, on the placement of the six holding the aimed cell nearest to the
-point hit that fits: its wall cells solid full blocks, its front free of anything that
-collides (a vine or a fern does not, a cocoa pod does), no portal of another colour or player on those cells but on their opposite face, a
+point hit that fits: its wall cells solid full blocks (a furnace or a chest is one), its
+front free of anything that collides (water, a vine or a fern does not; a cocoa pod, a furnace
+or a chest does), no portal of another colour or player on those cells but on their opposite face, a
 pair through a wall one block thick (`fit_portal`, `shared/src/world/portal.rs`). Placing a colour again moves it. The client predicts a shot like
 a block, and the server's `PortalUpdates`, every portal of the world, replace its portals: the
 server sends them to everyone in the tick they changed, and to a player when it joins. A
