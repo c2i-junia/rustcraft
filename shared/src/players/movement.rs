@@ -464,7 +464,10 @@ fn apply_wished_direction(
             player.position += axis * along;
             continue;
         }
-        let steps = (along.abs() / MAX_VERTICAL_STEP).ceil().max(1.0);
+        if along == 0.0 {
+            continue;
+        }
+        let steps = (along.abs() / MAX_VERTICAL_STEP).ceil();
         for _ in 0..steps as u32 {
             let moved = player.position + axis * (along / steps);
             if goes_into_portal(player, world_map, moved) {
