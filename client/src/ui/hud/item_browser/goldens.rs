@@ -19,8 +19,8 @@ use super::{
 use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
 use crate::ui::hud::{
-    display_crafting_system, display_furnace_system, display_inventory_system, setup_inventory,
-    style_inventory_panel, InventoryRoot,
+    display_crafting_system, display_furnace_system, display_inventory_system, ghost_of,
+    setup_inventory, show_grid_ghost, style_inventory_panel, GridGhost, InventoryRoot,
 };
 use crate::ui::widgets::list::hide_idle_scrollbars;
 use crate::ui::widgets::slot::style_slots;
@@ -34,6 +34,7 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
     golden.world_mut().init_resource::<CraftableNow>();
     golden.world_mut().init_resource::<Bookmarks>();
     golden.world_mut().init_resource::<RecentCrafts>();
+    golden.world_mut().init_resource::<GridGhost>();
     golden
         .world_mut()
         .init_resource::<crate::ui::hud::CellGestures>();
@@ -58,6 +59,7 @@ fn show_frames(golden: &mut UiGolden) {
         golden.frames(1);
         golden.run_system(display_inventory_system);
         golden.run_system(display_crafting_system);
+        golden.run_system(show_grid_ghost);
         golden.run_system(display_furnace_system);
         golden.run_system(style_inventory_panel);
         golden.run_system(layout_item_browser);
@@ -281,6 +283,53 @@ fn the_bookmark_row_at_1280x720() {
     golden.world_mut().init_resource::<ItemBrowserState>();
     show_open_inventory(&mut golden, true);
     golden.assert_matches("item_browser_bookmarks_1280x720");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_recent_row_under_the_bookmarks_at_1280x720() {
+    let mut golden = UiGolden::with_size(1280, 720);
+    golden.world_mut().insert_resource(Bookmarks {
+        key: None,
+        items: vec![ItemId::WoodenPickaxe, ItemId::Chest],
+    });
+    golden.world_mut().insert_resource(RecentCrafts {
+        items: vec![ItemId::Torch, ItemId::Stick, ItemId::OakPlanks],
+    });
+    golden.world_mut().insert_resource(inventory_of(&[
+        (0, ItemId::WoodenPickaxe, 1),
+        (1, ItemId::Cobblestone, 40),
+        (12, ItemId::OakLog, 12),
+    ]));
+    golden.world_mut().init_resource::<ClientWorldMap>();
+    golden.world_mut().init_resource::<ItemBrowserState>();
+    show_open_inventory(&mut golden, true);
+    golden.assert_matches("item_browser_recent_1280x720");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_ghost_of_a_torch_over_the_grid_at_1280x720() {
+    // A stick and no coal: the coal's cell is red, the stick's only faint
+    let inventory = inventory_of(&[
+        (0, ItemId::WoodenPickaxe, 1),
+        (1, ItemId::Stick, 1),
+        (12, ItemId::OakLog, 12),
+    ]);
+    let torch = shared::world::recipes_for(ItemId::Torch).next().unwrap();
+    let ghost = ghost_of(&inventory, torch.index, 2);
+    assert!(ghost.is_some());
+    let mut golden = UiGolden::with_size(1280, 720);
+    golden.world_mut().insert_resource(GridGhost(ghost));
+    golden.world_mut().insert_resource(inventory);
+    golden.world_mut().init_resource::<ClientWorldMap>();
+    let recipes = ItemView {
+        item: ItemId::Torch,
+        tab: RecipeTab::Recipes,
+    };
+    golden.world_mut().insert_resource(viewing(recipes, &[]));
+    show_open_inventory(&mut golden, true);
+    golden.assert_matches("inventory_ghost_torch_1280x720");
 }
 
 #[test]
