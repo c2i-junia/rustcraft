@@ -116,6 +116,19 @@ pub struct SpawnedMob {
     pub position: Vec3,
 }
 
+/// A shot of the portal gun, placed or refused, which the players see fly.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PortalShot {
+    /// Where the aim ray starts: the camera in first person, the player in third.
+    pub from: Vec3,
+    /// Where the ray meets the face of the aimed block, or, with no block aimed at, the point
+    /// `PORTAL_GUN_REACH` along it.
+    pub to: Vec3,
+    pub color: PortalColor,
+    /// Whether the shot put its portal there.
+    pub placed: bool,
+}
+
 /// What the block interactions of one input did that the server acts upon.
 #[derive(Debug, Default, PartialEq)]
 pub struct BlockInteractions {
@@ -126,6 +139,8 @@ pub struct BlockInteractions {
     /// The signs a player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
     pub bedrolls: Vec<IVec3>,
+    /// The shots of the portal gun, which the server tells the other players of.
+    pub shots: Vec<PortalShot>,
 }
 
 /// Breaks and places the blocks `action` asks for, or uses a spawn egg or a bucket, and returns
@@ -139,8 +154,11 @@ pub fn simulate_player_block_interactions(
 ) -> BlockInteractions {
     let shots = portal_shots(player, action);
     if held_item(player, action) == Some(ItemId::PortalGun) {
+        let mut fired = Vec::new();
         for color in shots {
-            let Err(reason) = shoot_portal(player, world_map, action, color) else {
+            let (shot, refusal) = shoot_portal(player, world_map, action, color);
+            fired.push(shot);
+            let Some(reason) = refusal else {
                 continue;
             };
             log::debug!(
@@ -153,7 +171,10 @@ pub fn simulate_player_block_interactions(
                 world_map.portals_mut().touch();
             }
         }
-        return BlockInteractions::default();
+        return BlockInteractions {
+            shots: fired,
+            ..Default::default()
+        };
     }
 
     let mut broken = Vec::new();
@@ -233,6 +254,7 @@ pub fn simulate_player_block_interactions(
         dropped,
         signs,
         bedrolls,
+        shots: Vec::new(),
     }
 }
 
@@ -299,25 +321,42 @@ fn portal_shots(player: &mut Player, action: &PlayerFrameInput) -> Vec<PortalCol
 }
 
 /// Puts the portal of colour `color` of the player where its shot hits a block, on a wall, a
-/// floor or a ceiling, `fit_portal`.
+/// floor or a ceiling, `fit_portal`. Returns the shot, and why it put no portal if it did not.
 fn shoot_portal(
     player: &Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
     color: PortalColor,
-) -> Result<(), Refusal> {
-    let target = aimed_block(player, world_map, action, PORTAL_GUN_REACH, |target| {
-        target.position
-    })
-    .map_err(|refused| refused.reason)?;
-    // The point where the ray meets the plane of the aimed face, which a wall block fills
+) -> (PortalShot, Option<Refusal>) {
     let (origin, direction) = raycast::aim_ray(&action.camera, &player.position, action.view_mode);
+    let mut shot = PortalShot {
+        from: origin,
+        to: origin + direction * PORTAL_GUN_REACH,
+        color,
+        placed: false,
+    };
+    let Some(target) = aim(
+        world_map,
+        &action.camera,
+        &player.position,
+        action.view_mode,
+        held_item(player, action),
+    ) else {
+        return (shot, Some(Refusal::NoTarget));
+    };
+    // The point where the ray meets the plane of the aimed face, which a wall block fills
     let normal = target.face.to_ivec3();
     let axis = normal.abs().max_position();
     let plane = (target.position[axis] + normal[axis].max(0)) as f32;
     let hit = origin + direction * (plane - origin[axis]) / direction[axis];
+    shot.to = hit;
 
-    let portal = fit_portal(
+    // Measured as the reach of a block (`aimed_block`)
+    let distance = (target.position.as_vec3() + HALF_BLOCK).distance(player.position);
+    if distance > PORTAL_GUN_REACH {
+        return (shot, Some(Refusal::TooFar { distance }));
+    }
+    let Some(portal) = fit_portal(
         world_map,
         world_map.portals(),
         player.id,
@@ -326,10 +365,12 @@ fn shoot_portal(
         target.face,
         hit,
         direction,
-    )
-    .ok_or(Refusal::NoRoom)?;
+    ) else {
+        return (shot, Some(Refusal::NoRoom));
+    };
     world_map.portals_mut().insert(portal);
-    Ok(())
+    shot.placed = true;
+    (shot, None)
 }
 
 /// The block the player aims at with the item it holds, if it is within `reach` of its centre.
@@ -2006,6 +2047,78 @@ mod tests {
             assert!(world.portals().is_empty());
             assert_eq!(world.portals_mut().take_changed(), sent, "{caller_type:?}");
         }
+    }
+
+    /// The shots of one input of `player` pressing the left button, aiming as its camera does.
+    fn shots_of(player: &mut Player, world: &mut ChunkMap) -> Vec<PortalShot> {
+        let input = PlayerFrameInput {
+            delta_ms: 16,
+            inputs: [NetworkAction::LeftClick].into(),
+            camera: player.camera_transform,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(player, world, &input, CallerType::Server).shots
+    }
+
+    #[test]
+    fn a_shot_flies_from_the_eye_to_where_the_aim_meets_the_wall() {
+        let mut world = gun_range();
+        let mut player = gunner(1.9, 11.9, 5.0);
+        player.camera_transform = player
+            .camera_transform
+            .looking_to(Vec3::new(0.1, -0.1, -1.0), Vec3::Y);
+        let eye = player.camera_transform.translation;
+        let shots = shots_of(&mut player, &mut world);
+        assert_eq!(shots.len(), 1, "{shots:?}");
+        let shot = shots[0];
+        assert_eq!(
+            (shot.from, shot.color, shot.placed),
+            (eye, PortalColor::Blue, true)
+        );
+        // On the face of the wall, at z = 1, along the aim
+        assert!(
+            shot.to.distance(Vec3::new(2.4, 11.4, 1.0)) < 1e-4,
+            "{:?}",
+            shot.to
+        );
+        // Released, the button shoots nothing
+        player.portal_triggers_held = [false; 2];
+        assert_eq!(
+            shoot_nothing(&mut player, &mut world),
+            [],
+            "a shot without a press"
+        );
+    }
+
+    /// The shots of one input of `player` pressing nothing.
+    fn shoot_nothing(player: &mut Player, world: &mut ChunkMap) -> Vec<PortalShot> {
+        let input = PlayerFrameInput {
+            delta_ms: 16,
+            camera: player.camera_transform,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(player, world, &input, CallerType::Server).shots
+    }
+
+    #[test]
+    fn a_refused_shot_flies_too_to_the_wall_or_as_far_as_the_gun_reaches() {
+        // The wall is too narrow there
+        let mut world = gun_range();
+        world.fill_box(IVec3::new(6, 10, 0), IVec3::new(6, 13, 0), BlockId::Glass);
+        let mut player = gunner(7.9, 13.9, 5.0);
+        let shots = shots_of(&mut player, &mut world);
+        assert_eq!(shots.len(), 1, "{shots:?}");
+        assert!(!shots[0].placed);
+        assert!(shots[0].to.distance(Vec3::new(7.9, 13.9, 1.0)) < 1e-4);
+
+        // At the sky: as far as the gun reaches along the aim
+        let mut player = gunner(1.9, 11.9, 5.0);
+        player.camera_transform = player.camera_transform.looking_to(Vec3::Y, Vec3::Z);
+        let eye = player.camera_transform.translation;
+        let shots = shots_of(&mut player, &mut world);
+        assert_eq!(shots.len(), 1, "{shots:?}");
+        assert!(!shots[0].placed);
+        assert!(shots[0].to.distance(eye + Vec3::Y * PORTAL_GUN_REACH) < 1e-4);
     }
 
     #[test]

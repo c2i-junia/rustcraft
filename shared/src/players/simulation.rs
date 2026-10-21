@@ -3,7 +3,9 @@ use bevy::math::IVec3;
 use crate::{
     messages::PlayerFrameInput,
     players::{
-        blocks::{simulate_player_block_interactions, BrokenBlock, CallerType, SpawnedMob},
+        blocks::{
+            simulate_player_block_interactions, BrokenBlock, CallerType, PortalShot, SpawnedMob,
+        },
         inventory::simulate_inventory_actions,
         movement::simulate_player_movement,
         Player,
@@ -27,6 +29,8 @@ pub struct ActionsOutcome {
     pub bedrolls: Vec<IVec3>,
     /// How many blocks the player fell, when it landed.
     pub fallen: Option<f32>,
+    /// The shots of the portal gun.
+    pub shots: Vec<PortalShot>,
 }
 
 /// Applies one input of `player`. A dead player does nothing.
@@ -53,6 +57,7 @@ pub fn simulate_player_actions(
             .filter_map(|outcome| outcome.thrown)
             .collect(),
         fallen,
+        shots: interactions.shots,
     }
 }
 
