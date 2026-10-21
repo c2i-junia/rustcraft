@@ -1643,3 +1643,206 @@ fn the_view_through_a_portal_reaches_a_far_place() {
         "not the sun through the portal: {color}, the sky being {sky}"
     );
 }
+
+/// A mod with two commands, from the block its author is in: `/floorcourse` builds a stone
+/// platform 3 blocks down and, on it, a stone wall 2 wide and 3 high 6 blocks east, its face
+/// to the west; `/pillar` a pillar of gold as wide and high, 4 blocks west of that wall.
+const FLOOR_COURSE_MOD: &str = r#"
+    local rc = rustcraft
+    local function fill(p, x0, y0, z0, x1, y1, z1, block)
+        for x = x0, x1 do
+            for y = y0, y1 do
+                for z = z0, z1 do
+                    rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + z }, block)
+                end
+            end
+        end
+    end
+    rc.register_command("floorcourse", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        fill(p, -6, -3, -9, 8, -3, 6, "stone")
+        fill(p, 6, -2, -2, 6, 0, -1, "stone")
+        return "Course built"
+    end)
+    rc.register_command("pillar", function(ctx, args)
+        fill(rc.player_position(ctx.player), 2, -2, -2, 2, 0, -1, "gold_block")
+        return "Pillar built"
+    end)
+"#;
+
+const FALLING: &str = "falling_through_a_floor_portal_comes_out_of_a_wall";
+
+/// In solo, the player hovers over a platform, shoots its orange portal on a wall and its blue
+/// one on the platform under it: looking down at the blue portal, it sees out of the wall, a
+/// pillar of gold standing in front of it. Then it stops flying, falls into the floor and comes
+/// out of the wall, flying west as fast as it fell, set upright, and lands on the platform. The
+/// server simulates the fall as the client predicts it: nothing jumps but the crossing.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn falling_through_a_floor_portal_comes_out_of_a_wall() {
+    let folder = GameFolder::new()
+        .with_world("FloorCourse")
+        .with_player("FloorCourse", "Tester", |player| {
+            player.position = Vec3::new(0.5, 120.9, 0.5);
+            player.game_mode = shared::players::game_mode::GameMode::Creative;
+            player.is_flying = true;
+            player.inventory.inner.insert(
+                0,
+                shared::world::ItemStack {
+                    item_id: ItemId::PortalGun,
+                    item_type: ItemId::PortalGun.get_default_type(),
+                    nb: 1,
+                },
+            );
+        })
+        .with_mod("floorcourse", FLOOR_COURSE_MOD);
+    let mut h = enter_world(folder, "FloorCourse");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player in the air", SERVER, |w| {
+        local_player(w).is_some_and(|player| {
+            let map = &w.resource::<ClientWorldMap>().blocks;
+            player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
+        })
+    });
+    h.set_time("day");
+    let start = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    h.command("/floorcourse");
+    let floor_cell = start + IVec3::new(0, -3, 0);
+    let wall_cell = start + IVec3::new(6, -1, -2);
+    h.wait_until("the course", SERVER, |w| {
+        let blocks = &w.resource::<ClientWorldMap>().blocks;
+        [start + IVec3::new(8, -3, 6), floor_cell, wall_cell]
+            .iter()
+            .all(|cell| blocks.get_block(*cell).is_some())
+    });
+    h.frames(10);
+
+    // Orange on the wall, then blue on the platform under the player, looking down to the
+    // north: its long side goes north
+    h.aim_at(wall_cell.as_vec3() + Vec3::new(0.0, 0.5, 0.5), wall_cell);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.aim_at(floor_cell.as_vec3() + Vec3::new(0.5, 1.0, 0.45), floor_cell);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.wait_until("both portals", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_some() && own_portal(w, PortalColor::Orange).is_some()
+    });
+    let blue = own_portal(h.world(), PortalColor::Blue).unwrap();
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    assert_eq!(
+        (blue.face, blue.up),
+        (FaceDirection::PlusY, FaceDirection::MinusZ)
+    );
+    assert_eq!(orange.face, FaceDirection::MinusX);
+    let through = h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .portals()
+        .through(&blue)
+        .unwrap();
+
+    // The pillar in front of the wall, seen through the floor, looking down at the middle of
+    // the blue portal, the top of the view to the north
+    h.command("/pillar");
+    let pillar = start + IVec3::new(2, -1, -1);
+    h.wait_until("the pillar", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(pillar)
+            .is_some()
+    });
+    let centre = Vec3::from(blue.frame().translation);
+    let eyes = local_player(h.world()).unwrap().position + Vec3::Y * 0.8;
+    let direction = (centre - eyes).normalize();
+    let world = h.world_mut();
+    let mut controller = world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap();
+    controller.angle_x = (-direction.x).atan2(-direction.z);
+    controller.angle_y = -direction.y.asin();
+    h.frames(10);
+    let at = on_screen(&mut h, centre);
+    let shot = h.screenshot();
+    keep(&shot, FALLING, "through_the_floor_portal");
+    assert_eq!(
+        drawing(h.world_mut()).first(),
+        Some(&(PortalColor::Blue, 1))
+    );
+    // Beside the crosshair
+    let gold = mean_color(&shot, at + Vec2::splat(12.0));
+    assert!(
+        gold.x > gold.z + 40.0 && gold.y > gold.z + 25.0,
+        "not the gold pillar through the floor portal: {gold}"
+    );
+
+    // Falling, a frame at a time: where the player is, how fast it goes, where it looks
+    let mut trace: Vec<(Vec3, Vec3, f32, f32)> = Vec::new();
+    let record = |h: &mut Harness, trace: &mut Vec<(Vec3, Vec3, f32, f32)>| {
+        let player = local_player(h.world()).unwrap();
+        let world = h.world_mut();
+        let controller = world.query::<&CameraController>().single(world).unwrap();
+        trace.push((
+            player.position,
+            player.velocity,
+            controller.angle_x,
+            controller.angle_y,
+        ));
+    };
+    record(&mut h, &mut trace);
+    h.press(KeyCode::KeyF);
+    for _ in 0..120 {
+        h.frames(1);
+        record(&mut h, &mut trace);
+        let (position, ..) = *trace.last().unwrap();
+        if orange.signed_distance(position) > 0.0 && local_player(h.world()).unwrap().on_ground {
+            break;
+        }
+    }
+    let crossing = trace
+        .windows(2)
+        .position(|pair| pair[1].0.x - pair[0].0.x > 3.0)
+        .unwrap_or_else(|| panic!("never came out of the wall: {:?}", trace.last()));
+    let (before, after) = (trace[crossing], trace[crossing + 1]);
+    println!("before the crossing {before:?}, after it {after:?}");
+    // Out of the wall, west, as fast as it fell, give or take a frame's gravity
+    let (fall, flight) = (-before.1.y, -after.1.x);
+    assert!(fall > 5.0, "fell at {fall}");
+    assert!(
+        flight > fall - 0.1 && flight < fall + 3.1,
+        "flew out at {flight}, fell at {fall}"
+    );
+    // Upright, looking west, a little north as the look went a little east into the floor
+    assert!(
+        (after.2 - std::f32::consts::FRAC_PI_2).cos() > 0.95,
+        "{after:?}"
+    );
+    assert!(after.3.abs() < 0.2, "{after:?}");
+    // No jump back by a correction of the server, the portals being 6 blocks apart: no step
+    // longer than 2 blocks, the crossing measured through the portal
+    for (index, pair) in trace.windows(2).enumerate() {
+        let from = if index == crossing {
+            through.transform_point3(pair[0].0)
+        } else {
+            pair[0].0
+        };
+        assert!(
+            from.distance(pair[1].0) < 2.0,
+            "a jump from {from} to {}",
+            pair[1].0
+        );
+    }
+    // On the platform, west of the wall, standing still
+    let shot = h.screenshot();
+    keep(&shot, FALLING, "out_of_the_wall");
+    let player = local_player(h.world()).unwrap();
+    assert!(player.on_ground, "{:?}", trace.last());
+    assert!(
+        player.position.x < start.x as f32 + 5.5,
+        "{}",
+        player.position
+    );
+    assert_eq!(player.velocity, Vec3::ZERO);
+}
