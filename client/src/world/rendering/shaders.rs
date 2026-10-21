@@ -207,6 +207,7 @@ pub fn shaders_plugin(app: &mut App) {
         (
             apply_camera_features,
             give_portal_cameras_the_sky.after(apply_camera_features),
+            share_the_environment_map,
             apply_light_features,
             apply_atmosphere,
             follow_camera_with_fog_volume,
@@ -341,7 +342,8 @@ fn apply_camera_features(
 /// Bevy 0.19 fills the buffer of the atmosphere only while a single camera has one, and the
 /// cameras with one draw with it; never filled, it is missing and nothing is drawn: the player's
 /// camera must draw a frame with it alone first. The buffer, filled then, holds the atmosphere
-/// of every camera, which is the same one.
+/// of every camera, which is the same one. The environment map of the sky, which lights the world
+/// and which the chunks fade into, is the player's camera's (`share_the_environment_map`).
 fn give_portal_cameras_the_sky(
     graphics: Res<GraphicsSettings>,
     main: Query<Ref<AtmosphereSettings>, With<CameraController>>,
@@ -353,10 +355,36 @@ fn give_portal_cameras_the_sky(
         return;
     }
     for camera in &portal_cameras {
-        commands.entity(camera).insert((
-            AtmosphereSettings::default(),
-            AtmosphereEnvironmentMapLight::default(),
-        ));
+        commands
+            .entity(camera)
+            .insert(AtmosphereSettings::default());
+    }
+}
+
+/// Gives the portal cameras the environment map Bevy makes of the physical sky for the player's
+/// camera. Each camera with an `AtmosphereEnvironmentMapLight` gets a map of its own, about 30 MB,
+/// filtered again on every frame, its camera drawing or not: a pair of portals has six cameras.
+/// The sky is the same seen from them, near enough.
+fn share_the_environment_map(
+    graphics: Res<GraphicsSettings>,
+    main: Query<&EnvironmentMapLight, (With<CameraController>, Without<PortalCamera>)>,
+    portal_cameras: Query<(Entity, Option<&EnvironmentMapLight>), With<PortalCamera>>,
+    mut commands: Commands,
+) {
+    let shared = main.single().ok().filter(|_| features(&graphics).sky);
+    for (camera, map) in &portal_cameras {
+        match (shared, map) {
+            (Some(shared), Some(map))
+                if map.diffuse_map == shared.diffuse_map
+                    && map.specular_map == shared.specular_map => {}
+            (Some(shared), _) => {
+                commands.entity(camera).insert(shared.clone());
+            }
+            (None, Some(_)) => {
+                commands.entity(camera).remove::<EnvironmentMapLight>();
+            }
+            (None, None) => {}
+        }
     }
 }
 
@@ -783,6 +811,7 @@ mod tests {
             (
                 apply_camera_features,
                 give_portal_cameras_the_sky.after(apply_camera_features),
+                share_the_environment_map,
             ),
         );
         let main = app
@@ -812,6 +841,8 @@ mod tests {
                 entity.contains::<AtmosphereSettings>(),
             )
         };
+        let shares_the_map =
+            |app: &App| app.world().entity(portal).contains::<EnvironmentMapLight>();
         assert_eq!(has(&app, main), (true, true, true, true, true, true));
         // The sky comes a frame later
         assert_eq!(has(&app, portal), (true, false, false, false, true, false));
@@ -820,6 +851,25 @@ mod tests {
         assert_eq!(has(&app, portal), (true, false, false, false, true, true));
         app.update();
         assert!(app.world().entity(portal).contains::<AtmosphereSettings>());
+        // The environment map of the sky is the player's camera's, not one of its own, once
+        // Bevy made it
+        assert!(!app
+            .world()
+            .entity(portal)
+            .contains::<AtmosphereEnvironmentMapLight>());
+        let images = Assets::<Image>::default();
+        let map = EnvironmentMapLight {
+            diffuse_map: images.reserve_handle(),
+            specular_map: images.reserve_handle(),
+            ..default()
+        };
+        app.world_mut().entity_mut(main).insert(map.clone());
+        app.update();
+        let shared = app.world().get::<EnvironmentMapLight>(portal).unwrap();
+        assert_eq!(
+            (&shared.diffuse_map, &shared.specular_map),
+            (&map.diffuse_map, &map.specular_map)
+        );
 
         // Without the shaders, neither has any of it
         app.world_mut().resource_mut::<GraphicsSettings>().shaders = ShaderQuality::Off;
@@ -830,6 +880,7 @@ mod tests {
                 (false, false, false, false, false, false)
             );
         }
+        assert!(!shares_the_map(&app));
     }
 
     #[test]
