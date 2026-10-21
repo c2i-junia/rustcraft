@@ -15,7 +15,7 @@ use bevy::{
 };
 use rand::{thread_rng, Rng};
 use shared::messages::PlayerId;
-use shared::players::blocks::PortalShot;
+use shared::players::blocks::{PortalShot, PORTAL_GUN_REACH};
 use shared::world::{PortalColor, Portals};
 use std::collections::HashMap;
 
@@ -27,6 +27,10 @@ use crate::world::ClientWorldMap;
 
 /// How fast a bolt flies, in blocks per second: a third of a second at the gun's reach.
 pub const BOLT_SPEED: f32 = 100.0;
+/// The longest a bolt flies, in seconds: a little more than from the eye to the end of the
+/// gun's reach. The shots of the other players come from the network: one from afar flies
+/// faster rather than for ever.
+pub const MAX_FLIGHT_TIME: f32 = (PORTAL_GUN_REACH + 8.0) / BOLT_SPEED;
 /// How far ahead of the eye of the local player its own bolts start, in blocks, so that a bolt
 /// does not fill the screen on its first frame.
 pub const SHOOTER_OFFSET: f32 = 0.6;
@@ -67,9 +71,9 @@ impl ShotFired {
     }
 }
 
-/// How long the bolt of `shot` flies, in seconds.
+/// How long the bolt of `shot` flies, in seconds: no longer than `MAX_FLIGHT_TIME`.
 pub fn flight_time(shot: &PortalShot) -> f32 {
-    shot.from.distance(shot.to) / BOLT_SPEED
+    (shot.from.distance(shot.to) / BOLT_SPEED).min(MAX_FLIGHT_TIME)
 }
 
 /// Where the bolt of `shot` is `age` seconds after it was fired: on the hit point once landed.
@@ -233,7 +237,8 @@ fn along(direction: Vec3) -> Quat {
     Quat::from_rotation_arc(Vec3::Y, direction.try_normalize().unwrap_or(Vec3::Y))
 }
 
-/// Spawns a bolt and its trail for each shot fired.
+/// Spawns a bolt and its trail for each shot fired, but those whose ends are not numbers,
+/// which would never land.
 pub(super) fn spawn_bolts(
     mut fired: MessageReader<ShotFired>,
     mut assets: Local<Option<(bool, BoltAssets)>>,
@@ -243,6 +248,9 @@ pub(super) fn spawn_bolts(
     mut commands: Commands,
 ) {
     for ShotFired { shooter, shot } in fired.read() {
+        if !shot.from.is_finite() || !shot.to.is_finite() {
+            continue;
+        }
         let hdr = camera.single().unwrap_or(false);
         if assets.as_ref().is_none_or(|(made_for, _)| *made_for != hdr) {
             *assets = Some((hdr, BoltAssets::new(&mut meshes, &mut materials, hdr)));
@@ -429,6 +437,14 @@ mod tests {
         assert_eq!(fired.shot.to, Vec3::new(0.0, 0.0, -32.0));
         let close = ShotFired::predicted(1, shot(Vec3::ZERO, Vec3::new(0.0, 0.0, -0.2)));
         assert_eq!(close.shot.from, close.shot.to);
+    }
+
+    #[test]
+    fn a_shot_from_afar_flies_no_longer_than_from_the_end_of_the_reach() {
+        let reach = shot(Vec3::ZERO, Vec3::new(0.0, 0.0, -36.0));
+        assert!((flight_time(&reach) - 0.36).abs() < 1e-6);
+        let afar = shot(Vec3::splat(1.0e9), Vec3::ZERO);
+        assert!((flight_time(&afar) - 0.4).abs() < 1e-6);
     }
 
     #[test]

@@ -1518,6 +1518,24 @@ mod tests {
     }
 
     #[test]
+    fn a_shot_from_nowhere_flies_no_bolt_and_one_from_afar_is_gone_in_time() {
+        let mut app = app();
+        fire_from(&mut app, &orange(), false, f32::NAN);
+        app.update();
+        assert!(bolt_ages(&mut app).is_empty());
+        // A million blocks away: its bolt lands within the longest flight of a shot
+        fire_from(&mut app, &orange(), false, 1.0e6);
+        app.update();
+        assert_eq!(bolt_ages(&mut app).len(), 1);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(shot::MAX_FLIGHT_TIME + 0.1),
+        ));
+        app.update();
+        app.update();
+        assert!(bolt_ages(&mut app).is_empty());
+    }
+
+    #[test]
     fn a_second_shot_landing_first_shows_its_portal_though_the_first_still_flies() {
         let mut app = app();
         insert(&mut app, blue());
