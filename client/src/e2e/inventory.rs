@@ -56,7 +56,7 @@ impl Harness {
 }
 
 /// The slot of the cell the focus is on, if it is on a cell.
-fn focused_cell(w: &World) -> Option<u32> {
+pub(super) fn focused_cell(w: &World) -> Option<u32> {
     let focus = w.resource::<InputFocus>().get()?;
     w.get::<InventoryCell>(focus).map(|cell| cell.id)
 }

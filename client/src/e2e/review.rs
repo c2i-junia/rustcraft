@@ -9,18 +9,21 @@ use std::time::{Duration, Instant, SystemTime};
 use accesskit::Role;
 use bevy::asset::AssetServer;
 use bevy::input::keyboard::KeyCode;
+use bevy::input::mouse::MouseButton;
 use bevy::math::Vec2;
+use bevy::prelude::{Entity, With};
 use bevy::time::{Real, Time};
 use server::WORLD_FILE;
 use shared::world::{grid_slot, ItemId};
 
-use super::game::{enter_world, slot};
+use super::game::{enter_world, hold_click, place_ahead, slot};
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::{ctrl, ctrl_n};
 use super::locator::Locator as L;
 use super::multi::wait_for_answers;
 use super::seed::{fixed_status, GameFolder};
 use super::settings::key_slot;
+use crate::camera::CameraController;
 use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::input::keyboard::default_bindings;
 use crate::network::address::{AddressResolver, ServerAddress};
@@ -30,7 +33,8 @@ use crate::network::status::{ServerStatus, StatusProbe};
 use crate::network::{CurrentPlayerProfile, LocalServerHandle, TargetServer};
 use crate::state::{GameState, KeyMap};
 use crate::ui::hud::chat::{ChatLine, CHAT_FADE, CHAT_FADE_AFTER};
-use crate::ui::hud::UIMode;
+use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::{UIMode, FURNACE_TITLE};
 use crate::ui::menus::connecting::{ConnectingCard, BLINK};
 use crate::ui::menus::multi::dialogs::ADD_SERVER_TITLE;
 use crate::ui::menus::multi::ServerDetail;
@@ -40,6 +44,7 @@ use crate::ui::menus::settings::controls::PRESS_A_KEY;
 use crate::ui::menus::worlds::WORLD_EXISTS;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
 use crate::ui::quit::spawn_quitting_card;
+use crate::world::ClientWorldMap;
 use shared::DAY_DURATION_IN_TICKS;
 
 /// The resolutions the screens are reviewed at: the smallest, the design height, and `UiScale`
@@ -444,12 +449,31 @@ fn every_screen_at_three_resolutions() {
             (10, ItemId::Sand, 33),
             (11, ItemId::OakLog, 8),
             (grid_slot(2, 2), ItemId::Cobblestone, 1),
+            (3, ItemId::Furnace, 1),
+            (12, ItemId::Sand, 8),
+            (13, ItemId::Coal, 2),
         ],
     );
     let mut h = enter_world(folder, "Review");
     h.wait_until("the saved inventory", SERVER, |w| {
         slot(w, 2) == Some((ItemId::OakPlanks, 5))
     });
+    // A furnace is opened at each size, looking down at it; the other screens keep the view of
+    // the horizon
+    let world = h.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<CameraController>>()
+        .single(world)
+        .unwrap();
+    let horizon = world.get::<CameraController>(camera).unwrap().angle_y;
+    let look = |h: &mut Harness, angle: f32| {
+        h.world_mut()
+            .get_mut::<CameraController>(camera)
+            .unwrap()
+            .angle_y = angle;
+        h.frames(2);
+    };
+    let mut furnace = None;
     for (width, height) in RESOLUTIONS {
         h.resize(width, height);
         // The name shows when the selection changes, so the slot 3 is left first
@@ -465,6 +489,41 @@ fn every_screen_at_three_resolutions() {
         h.snapshot_in_game("inventory_held");
         h.click(&L::cell(11));
         h.press(KeyCode::KeyE);
+
+        // Placed ahead of the player at the first size, once the leftover of the grid was
+        // shown, then aimed at again
+        let placed = match furnace {
+            Some((_, pitch)) => {
+                look(&mut h, pitch);
+                None
+            }
+            None => {
+                h.press(KeyCode::Digit4);
+                let placed = place_ahead(&mut h);
+                let pitch = h.world().get::<CameraController>(camera).unwrap().angle_y;
+                furnace = Some((placed, pitch));
+                Some(placed)
+            }
+        };
+        hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+        h.wait_for(&L::text(FURNACE_TITLE), SCREEN);
+        // Lit with sand and coal, smelting from then on
+        if let Some(placed) = placed {
+            h.key_down(KeyCode::ShiftLeft);
+            h.click(&L::cell(12));
+            h.click(&L::cell(13));
+            h.key_up(KeyCode::ShiftLeft);
+            h.wait_until("the furnace lit", SERVER, |w| {
+                w.resource::<ClientWorldMap>()
+                    .blocks
+                    .furnace(placed)
+                    .is_some_and(|furnace| furnace.is_lit())
+            });
+        }
+        h.hover(&L::cell(10));
+        h.snapshot_in_game("furnace");
+        h.press(KeyCode::KeyE);
+        look(&mut h, horizon);
 
         h.press(KeyCode::Escape);
         h.wait_for(&L::role(Role::Button, "Back to game"), SCREEN);

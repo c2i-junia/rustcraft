@@ -255,7 +255,7 @@ fn escape_closes_the_inventory() {
 }
 
 /// Whether the client world holds a block at `position`.
-fn is_block(w: &World, position: IVec3) -> bool {
+pub(super) fn is_block(w: &World, position: IVec3) -> bool {
     w.resource::<ClientWorldMap>()
         .blocks
         .get_block(position)
@@ -275,7 +275,7 @@ pub(super) fn aimed_cells(w: &World, camera: Entity, player: Entity) -> Option<(
 
 /// Presses `button` over `locator`, holds it for `frames` frames, then releases it.
 #[track_caller]
-fn hold_click(h: &mut Harness, locator: &L, button: MouseButton, frames: usize) {
+pub(super) fn hold_click(h: &mut Harness, locator: &L, button: MouseButton, frames: usize) {
     let center = h.center_of(locator);
     h.move_cursor(center);
     h.frames(1);
@@ -295,6 +295,37 @@ fn hold_click(h: &mut Harness, locator: &L, button: MouseButton, frames: usize) 
             .write_message(WindowEvent::MouseButtonInput(input));
         h.frames(held);
     }
+}
+
+/// Looks down at the ground ahead of the player, once settled on it, and places the block of the
+/// selected hotbar slot there with a right click, whatever the ground is. Returns where the block
+/// stands, which the player then aims at.
+#[track_caller]
+pub(super) fn place_ahead(h: &mut Harness) -> IVec3 {
+    let world = h.world_mut();
+    let camera = world
+        .query_filtered::<Entity, With<CameraController>>()
+        .single(world)
+        .unwrap();
+    let player = world
+        .query_filtered::<Entity, With<CurrentPlayerMarker>>()
+        .single(world)
+        .unwrap();
+    world.get_mut::<CameraController>(camera).unwrap().angle_y = 0.9;
+    h.wait_until("the ground within reach", SERVER, |w| {
+        aimed_cells(w, camera, player).is_some_and(|(target, _)| {
+            let centre = w.get::<Transform>(player).unwrap().translation;
+            target.as_vec3().distance(centre) < 3.
+        })
+    });
+    // Settled on the ground
+    h.frames(30);
+    let (_, placed) = aimed_cells(h.world(), camera, player).unwrap();
+    hold_click(h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_until("the placed block", SERVER, |w| is_block(w, placed));
+    h.frames(5);
+    assert_eq!(aimed_cells(h.world(), camera, player).unwrap().0, placed);
+    placed
 }
 
 #[test]

@@ -6,6 +6,7 @@ mod chat;
 mod clouds;
 mod cocoa;
 mod connecting;
+mod furnace;
 mod game;
 mod harness;
 mod helpers;
