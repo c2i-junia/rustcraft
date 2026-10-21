@@ -30,10 +30,10 @@ server stops when its player leaves and saves on request.
   array; its copies share the cells until one of them changes: meshing, sending and saving a
   chunk copy it for nothing), `ChunkMap` (the
   loaded chunks, the log of the blocks that changed and the portals), blocks, items, mobs, the
-  furnace and the raycast. A portal (`world/portal.rs`) is 2 blocks wide and 3 high on the
-  vertical face of a wall, each player owning a blue one and an orange one; `Portals::through`
-  takes the space in front of a portal to the space in front of its twin, the other colour of
-  the same owner.
+  furnace and the raycast. A portal (`world/portal.rs`) is 2 blocks wide and 3 high on any
+  face of a block, its long side along its `up` (the vertical on a wall), each player owning a
+  blue one and an orange one; `Portals::through`, a rigid transform, takes the space in front of
+  a portal to the space in front of its twin, the other colour of the same owner.
   A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
   times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
   is how RON and the saves of format version 3 hold a chunk.
@@ -183,9 +183,12 @@ predicted: the client only receives the cells it changes.
 The portals are placed with the portal gun (`ItemId::PortalGun`): held in the selected slot,
 it shoots its owner's blue portal on a left click and the orange one on a right click, once
 per press (`Player::portal_triggers_held`), up to `PORTAL_GUN_REACH` (32) blocks, and then
-neither mines nor places blocks (`shared/src/players/blocks.rs`). It aims as any item but the
-empty bucket (`aim`), through water sources. The portal goes on the
-vertical face aimed at, on the placement of the six holding the aimed cell nearest to the
+neither mines nor places blocks (`shared/src/players/blocks.rs`); a right click on a
+container shoots too, where it would open it. It aims as any item but the empty bucket (`aim`),
+through water sources, and further: its ray goes 36 blocks (`raycast_far`), every other item's
+20. The portal goes on the face aimed at, a wall, a floor or a ceiling, its long side up on a
+wall and, on a floor or a ceiling, away from the shooter along the horizontal axis the shot
+goes most along (`opening_up`), on the placement of the six holding the aimed cell nearest to the
 point hit that fits: its wall cells solid full blocks (a furnace or a chest is one), its
 front free of anything that collides (water, a vine or a fern does not; a cocoa pod, a furnace
 or a chest does), no portal of another colour or player on those cells but on their opposite face, a
@@ -199,13 +202,19 @@ or front no longer fits (`server/src/world/portals.rs`). Portals are not saved.
 Players go through the open portals in the movement simulation, which both sides run, so the
 server decides and the client predicts (`shared/src/players/movement.rs`). When the centre of a
 player goes, over one input, from in front of an open portal to behind it, through the opening
-(`Portals::crossed`), its position, velocity and camera go through `Portals::through`, and the
-simulation reports the yaw it turned by (`MovementOutcome::turned`). The client turns its
-camera by it when it predicts a frame, never when it replays inputs after a correction, and its
-next inputs carry the turned camera. While the centre of a player is in front of an open
-portal's opening, shrunk by half its width, that portal's wall cells do not collide with it
+(`Portals::crossed`), its position, velocity and camera go through `Portals::through`. The
+centre comes out within the twin's opening shrunk by the box's half extents, so that a box
+falling out of a floor portal into a wall portal fits it; the camera keeps where it looks, set
+upright (`Look::upright`: no roll, the pitch clamped to `MAX_PITCH_DEGREES`), and the simulation
+reports that look (`MovementOutcome::turned`). The client sets its camera to it when it predicts
+a frame, never when it replays inputs after a correction, and its next inputs carry the turned
+camera. A player keeps a horizontal velocity in the air, which only a portal gives it (falling
+into a floor portal shoots it out of a wall as fast), blocked per axis by blocks, dropped when
+it lands, flies or swims. While the centre of a player is in front of an open portal's opening,
+shrunk by half its width, that portal's wall cells do not collide with it
 (`Portals::letting_through`, `check_player_collision`), so that it walks into the wall up to the
-plane. In front means at most a millimetre behind the plane (`PORTAL_SLACK`), so that no
+plane, or falls into a floor portal it stands on; the vertical step that takes its centre into
+such a portal is made whatever lies behind the wall cells, and ends the input's fall. In front means at most a millimetre behind the plane (`PORTAL_SLACK`), so that no
 rounding leaves a player that came out of a portal behind it, in its wall. A player left inside
 blocks, as in the wall of a portal that closed or moved, may make the moves that reach no new
 block and go no deeper into those it is in, so that it walks back out.
@@ -411,7 +420,7 @@ never moves a player, so the prediction of the clients is left alone.
 1. **UiMode**: is a dialog open, or is the player typing?
 2. **Input**: the camera, the selected hotbar slot and the view mode of the frame.
 3. **Simulation**: block interactions, then movement, predicted on the local player; a
-   crossed portal turns the camera's yaw.
+   crossed portal sets the camera's yaw and pitch.
 4. **Reconciliation**: the states received from the server are applied.
 5. **Camera**: the camera is placed on the player.
 6. **Meshing** (in `PostUpdate`): the chunks are drawn by groups of 4 × 4 columns of chunks
@@ -433,11 +442,12 @@ never moves a player, so the prediction of the clients is left alone.
    (`ChunkReach::within`, the margin included), sent only for a portal, are on layer 3, which
    only the portal cameras draw (`portal_chunks_layers_system`); a group changes layer as the
    player moves, culled on the CPU for that frame like a new view's chunks.
-   The faces of the blocks a portal lies on are not meshed.
+   The faces of the blocks a portal lies on, sides, tops or bottoms, are not meshed.
 
 Then the portals are drawn (`client/src/portal/`, in `PostUpdate` before `GameSet::Meshing`
-and the propagation of the transforms). A portal is a box hollowed half a block into its wall,
-drawn by its inner faces, and a glowing rim: deeper than the near plane of the player's camera
+and the propagation of the transforms). A portal is a box hollowed half a block into its wall (or
+floor, or ceiling), drawn by its inner faces, and a glowing rim, all built in the portal's frame
+(right, up, normal): deeper than the near plane of the player's camera
 reaches behind the portal while its eye is in the opening, and shallow enough that the boxes of
 a pair on the two faces of a wall one block thick never meet. An open portal has a camera (`camera.rs`) that stands where the
 player's camera would be if the space in front of the portal went on behind its twin
