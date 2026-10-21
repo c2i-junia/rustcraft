@@ -99,6 +99,7 @@ pub fn hud_plugin(app: &mut App) {
                     throw_held_stack_system.before(item_browser::drawer_keys),
                     click_inventory_cells_system,
                     drag_inventory_cells_system,
+                    shift_drag_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
                     clear_grid_ghost,

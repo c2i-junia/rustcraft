@@ -1,5 +1,6 @@
 //! The gestures of the mouse on the cells of the open inventory that last longer than a press: a
-//! drag of the held stack over cells, sent once its button is released, and the double clicks.
+//! drag of the held stack over cells, sent once its button is released, the double clicks, and
+//! the Mouse Tweaks sweep of Shift+drag, which quick-moves every cell it enters.
 
 use std::time::Duration;
 
@@ -9,8 +10,9 @@ use shared::players::inventory::{drag_plan, DragPlan, InventoryAction, OpenConte
 use shared::players::Inventory;
 use shared::world::{ItemId, ItemStack};
 
-use super::{InventoryCell, InventoryRoot};
+use super::{stack_in, InventoryCell, InventoryRoot};
 use crate::network::buffered_client::CurrentFrameInputs;
+use crate::ui::settings::{InterfaceSettings, InventoryTweaksChoice};
 use crate::world::ClientWorldMap;
 
 /// How soon after a press a second one on the same cell makes a double click.
@@ -60,6 +62,26 @@ impl CellDrag {
     }
 }
 
+/// A sweep of the pointer with Shift and the left button down, from a Shift+press on a cell with
+/// an empty cursor: every cell it enters is quick-moved, once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShiftDrag {
+    /// The slots quick-moved, bit `n` for slot `n`: the one pressed, and those entered since.
+    pub moved: u128,
+    /// The slots holding a stack at the press, as the client saw them, noted in the frame of the
+    /// press, before the prediction applies it: a stack the sweep moved into a cell stays there.
+    stacks: Option<u128>,
+}
+
+impl ShiftDrag {
+    fn new(slot: u32) -> Self {
+        ShiftDrag {
+            moved: 1 << slot,
+            stacks: None,
+        }
+    }
+}
+
 /// What a left press on a cell did, which a second one soon after on the same cell completes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Pressed {
@@ -81,6 +103,8 @@ struct LastPress {
 pub struct CellGestures {
     /// The drag whose button is down.
     pub drag: Option<CellDrag>,
+    /// The Shift+drag whose button is down.
+    pub shift_drag: Option<ShiftDrag>,
     last_press: Option<LastPress>,
 }
 
@@ -88,7 +112,7 @@ impl CellGestures {
     /// What a press of `button` on the cell of `slot`, at `now`, sends at once, the cursor
     /// holding `held` and the slot `in_slot`. With a held stack it starts a drag and sends
     /// nothing, unless it ends a double click; Shift turns the left button into a move of the
-    /// whole stack.
+    /// whole stack, which starts a Shift+drag when the cursor is empty.
     pub fn press(
         &mut self,
         slot: u32,
@@ -110,6 +134,9 @@ impl CellGestures {
             pressed,
         };
         if left && shift {
+            if held.is_none() {
+                self.shift_drag = Some(ShiftDrag::new(slot));
+            }
             if let Some(Pressed::ShiftMoved(item)) = last {
                 return Some(InventoryAction::MoveAllOfType { slot, item });
             }
@@ -204,4 +231,57 @@ pub fn drag_inventory_cells_system(
         gestures.drag = None;
         frame_inputs.0.inventory_actions.push(drag.release());
     }
+}
+
+/// While a Shift+drag's button and Shift stay down, quick-moves each cell the pointer enters that
+/// held a stack at the press and still holds one, once; a cell sent forgets the press, which is
+/// then no first click of a double click. The Shift+drag ends when the button or Shift is
+/// released, the right button is pressed, the cursor holds a stack, Escape is pressed or the
+/// inventory is hidden, and at once while the inventory tweaks are off.
+#[allow(clippy::too_many_arguments)]
+pub fn shift_drag_inventory_cells_system(
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    settings: Res<InterfaceSettings>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    cells: Query<(&Hovered, &InventoryCell)>,
+    inventory: Res<Inventory>,
+    world_map: Res<ClientWorldMap>,
+    mut gestures: ResMut<CellGestures>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+) {
+    let Some(mut drag) = gestures.shift_drag else {
+        return;
+    };
+    let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    let goes_on = is_open
+        && settings.inventory_tweaks == InventoryTweaksChoice::On
+        && mouse_input.pressed(MouseButton::Left)
+        && !mouse_input.just_pressed(MouseButton::Right)
+        && keyboard_input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+        && !keyboard_input.just_pressed(KeyCode::Escape)
+        && inventory.floating.is_none();
+    if !goes_on {
+        gestures.shift_drag = None;
+        return;
+    }
+    let holds_a_stack = |slot| stack_in(slot, &inventory, &world_map).is_some();
+    let stacks = *drag.stacks.get_or_insert_with(|| {
+        cells
+            .iter()
+            .filter(|(_, cell)| holds_a_stack(cell.id))
+            .fold(0, |stacks, (_, cell)| stacks | 1 << cell.id)
+    });
+    for (hovered, cell) in &cells {
+        let bit = 1 << cell.id;
+        if hovered.0 && drag.moved & bit == 0 && stacks & bit != 0 && holds_a_stack(cell.id) {
+            drag.moved |= bit;
+            frame_inputs
+                .0
+                .inventory_actions
+                .push(InventoryAction::QuickMoveSlot(cell.id));
+            gestures.forget_press();
+        }
+    }
+    gestures.shift_drag = Some(drag);
 }

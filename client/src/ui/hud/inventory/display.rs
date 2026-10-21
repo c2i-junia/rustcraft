@@ -661,8 +661,10 @@ fn show_stack(
 mod tests {
     use super::*;
     use crate::ui::hud::{
-        drag_inventory_cells_system, InventoryDialog, InventoryTitle, DOUBLE_CLICK_WINDOW,
+        drag_inventory_cells_system, shift_drag_inventory_cells_system, InventoryDialog,
+        InventoryTitle, DOUBLE_CLICK_WINDOW,
     };
+    use crate::ui::settings::{InterfaceSettings, InventoryTweaksChoice};
     use crate::ui::theme::PANEL;
     use crate::ui::widgets::slot::slot_durability;
     use bevy::ecs::system::RunSystemOnce;
@@ -701,6 +703,7 @@ mod tests {
             time.update_with_duration(std::time::Duration::ZERO);
             world.insert_resource(time);
             world.init_resource::<CellGestures>();
+            world.init_resource::<InterfaceSettings>();
             world.insert_resource(UIMode::Opened);
             world.insert_resource(crate::input::keyboard::default_bindings());
             world.spawn((
@@ -847,6 +850,9 @@ mod tests {
                 .run_system_once(drag_inventory_cells_system)
                 .unwrap();
             self.world
+                .run_system_once(shift_drag_inventory_cells_system)
+                .unwrap();
+            self.world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .clear();
             self.world.resource_mut::<ButtonInput<KeyCode>>().clear();
@@ -879,6 +885,24 @@ mod tests {
             self.world
                 .resource_mut::<Time<Real>>()
                 .update_with_duration(std::time::Duration::from_millis(ms));
+        }
+
+        /// Holds Shift down, or releases it.
+        fn shift(&mut self, down: bool) {
+            let mut keys = self.world.resource_mut::<ButtonInput<KeyCode>>();
+            if down {
+                keys.press(KeyCode::ShiftLeft);
+            } else {
+                keys.release(KeyCode::ShiftLeft);
+            }
+        }
+
+        /// Puts `stack` into `slot`, as the client sees it.
+        fn put(&mut self, slot: u32, stack: ItemStack) {
+            self.world
+                .resource_mut::<Inventory>()
+                .inner
+                .insert(slot, stack);
         }
 
         fn hold(&mut self, stack: Option<ItemStack>) {
@@ -2290,5 +2314,189 @@ mod tests {
         assert_eq!(hud.shown_count(9), (String::new(), TEXT));
         assert_eq!(hud.shown_count(10), (String::new(), TEXT));
         assert_eq!(hud.floating_shown(), "7");
+    }
+
+    #[test]
+    fn a_shift_drag_quick_moves_each_cell_entered_once() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10, 11, 12]);
+        for slot in [9, 10, 11] {
+            hud.put(slot, dirt_stack(5));
+        }
+        hud.shift(true);
+
+        hud.press(9, MouseButton::Left);
+        assert_eq!(hud.sent_actions(), [InventoryAction::QuickMoveSlot(9)]);
+        // Back over a cell already moved, then over an empty one
+        for slot in [10, 11, 10, 9, 12] {
+            hud.enter(slot);
+        }
+        hud.release(MouseButton::Left);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [9, 10, 11].map(InventoryAction::QuickMoveSlot)
+        );
+        assert_eq!(hud.world.resource::<CellGestures>().shift_drag, None);
+    }
+
+    #[test]
+    fn a_shift_drag_leaves_the_cells_empty_at_its_press() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+        hud.put(9, dirt_stack(5));
+        hud.shift(true);
+
+        hud.press(9, MouseButton::Left);
+        // The prediction moved the dirt of 9 into 10
+        hud.world.resource_mut::<Inventory>().inner.remove(&9);
+        hud.put(10, dirt_stack(5));
+        hud.enter(10);
+        hud.release(MouseButton::Left);
+
+        assert_eq!(hud.sent_actions(), [InventoryAction::QuickMoveSlot(9)]);
+    }
+
+    #[test]
+    fn a_shift_drag_ends_with_the_button_shift_the_other_button_or_a_held_stack() {
+        for case in [
+            "button",
+            "shift",
+            "other button",
+            "held stack",
+            "closed",
+            "escape",
+        ] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+            hud.put(9, dirt_stack(5));
+            hud.put(10, stack(ItemId::Sand, 2));
+            hud.shift(true);
+            hud.press(9, MouseButton::Left);
+
+            match case {
+                "button" => hud.release(MouseButton::Left),
+                "shift" => {
+                    hud.shift(false);
+                    hud.frame();
+                    hud.shift(true);
+                }
+                "other button" => {
+                    hud.hover(None);
+                    hud.world
+                        .resource_mut::<ButtonInput<MouseButton>>()
+                        .press(MouseButton::Right);
+                    hud.frame();
+                }
+                "held stack" => {
+                    hud.hold(Some(dirt_stack(1)));
+                    hud.frame();
+                    hud.hold(None);
+                }
+                "closed" => {
+                    let mut root = hud
+                        .world
+                        .query_filtered::<&mut Visibility, With<InventoryRoot>>();
+                    *root.single_mut(&mut hud.world).unwrap() = Visibility::Hidden;
+                    hud.frame();
+                    *root.single_mut(&mut hud.world).unwrap() = Visibility::Visible;
+                }
+                _ => {
+                    hud.world
+                        .resource_mut::<ButtonInput<KeyCode>>()
+                        .press(KeyCode::Escape);
+                    hud.frame();
+                }
+            }
+            assert_eq!(
+                hud.world.resource::<CellGestures>().shift_drag,
+                None,
+                "{case}"
+            );
+            hud.enter(10);
+
+            assert_eq!(
+                hud.sent_actions(),
+                [InventoryAction::QuickMoveSlot(9)],
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shift_press_with_a_held_stack_starts_no_shift_drag() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+        hud.put(9, dirt_stack(5));
+        hud.put(10, dirt_stack(5));
+        hud.hold(Some(stack(ItemId::Sand, 1)));
+        hud.shift(true);
+
+        hud.press(9, MouseButton::Left);
+        assert_eq!(hud.world.resource::<CellGestures>().shift_drag, None);
+        hud.hold(None);
+        hud.enter(10);
+
+        assert_eq!(hud.sent_actions(), [InventoryAction::QuickMoveSlot(9)]);
+    }
+
+    #[test]
+    fn a_shift_drag_over_other_cells_is_no_first_click_of_a_double_click() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+        hud.put(9, dirt_stack(5));
+        hud.put(10, dirt_stack(5));
+        hud.shift(true);
+
+        hud.press(9, MouseButton::Left);
+        hud.enter(10);
+        hud.enter(9);
+        hud.release(MouseButton::Left);
+        hud.wait(100);
+        hud.press(9, MouseButton::Left);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [9, 10, 9].map(InventoryAction::QuickMoveSlot)
+        );
+    }
+
+    #[test]
+    fn the_second_press_of_a_shift_double_click_starts_a_shift_drag() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+        hud.put(9, dirt_stack(5));
+        hud.put(10, stack(ItemId::Sand, 2));
+        hud.shift(true);
+
+        hud.click(9, MouseButton::Left);
+        hud.wait(100);
+        hud.press(9, MouseButton::Left);
+        hud.enter(10);
+        hud.release(MouseButton::Left);
+
+        assert_eq!(
+            hud.sent_actions(),
+            [
+                InventoryAction::QuickMoveSlot(9),
+                InventoryAction::MoveAllOfType {
+                    slot: 9,
+                    item: ItemId::Dirt
+                },
+                InventoryAction::QuickMoveSlot(10),
+            ]
+        );
+    }
+
+    #[test]
+    fn with_the_tweaks_off_a_shift_press_is_a_shift_click() {
+        let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+        hud.world
+            .resource_mut::<InterfaceSettings>()
+            .inventory_tweaks = InventoryTweaksChoice::Off;
+        hud.put(9, dirt_stack(5));
+        hud.put(10, dirt_stack(5));
+        hud.shift(true);
+
+        hud.press(9, MouseButton::Left);
+        hud.enter(10);
+        hud.release(MouseButton::Left);
+
+        assert_eq!(hud.sent_actions(), [InventoryAction::QuickMoveSlot(9)]);
+        assert_eq!(hud.world.resource::<CellGestures>().shift_drag, None);
     }
 }
