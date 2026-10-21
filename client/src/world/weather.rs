@@ -9,6 +9,10 @@ use crate::world::celestial::smoothstep;
 /// Seconds for a level to go all the way from 0 to 1, or back.
 const TRANSITION_SECS: f32 = 20.0;
 
+/// Seconds of a full rain to soak the world, and of no rain to dry it.
+const SOAK_SECS: f32 = 40.0;
+const DRY_SECS: f32 = 120.0;
+
 /// The weather of the world the player is in. Left clear outside of a world.
 #[derive(Resource, Debug, Clone, Default, PartialEq)]
 pub struct ClientWeather {
@@ -18,6 +22,9 @@ pub struct ClientWeather {
     pub rain: f32,
     /// How stormy it is, from 0 to 1: towards 1 in a thunderstorm only.
     pub thunder: f32,
+    /// How wet the world open to the rain is, from 0, dry, to 1, soaked: it rises while drops
+    /// fall, the faster the more fall, and falls while none do.
+    pub wetness: f32,
     /// What `rain` and `thunder` follow, on a smoothstep: they move linearly, at
     /// 1 / `TRANSITION_SECS` a second, so that a change turned back midway does not jump.
     rain_ramp: f32,
@@ -32,6 +39,7 @@ impl ClientWeather {
             kind,
             rain_ramp,
             thunder_ramp,
+            wetness: rain_ramp,
             ..default()
         };
         weather.advance(0.0);
@@ -65,6 +73,12 @@ impl ClientWeather {
         let (rain, thunder) = targets(self.kind);
         self.rain_ramp = approach(self.rain_ramp, rain, step);
         self.thunder_ramp = approach(self.thunder_ramp, thunder, step);
+        let falling = self.precipitation();
+        self.wetness = if falling > 0.0 {
+            (self.wetness + secs * falling / SOAK_SECS).min(1.0)
+        } else {
+            (self.wetness - secs / DRY_SECS).max(0.0)
+        };
         self.rain = smoothstep(0.0, 1.0, self.rain_ramp);
         self.thunder = smoothstep(0.0, 1.0, self.thunder_ramp);
     }
@@ -175,6 +189,64 @@ mod tests {
         assert!(at(0.3) > 0.0 && at(0.3) < 0.02, "{}", at(0.3));
         assert!((at(0.625) - 0.5).abs() < 1e-5);
         assert_eq!(at(1.0), 1.0);
+    }
+
+    #[test]
+    fn a_full_rain_soaks_the_ground_in_40_seconds_and_it_dries_in_2_minutes() {
+        let mut weather = ClientWeather::settled(WeatherKind::Rain);
+        weather.wetness = 0.;
+        let soaking = after(weather.clone(), 20.);
+        assert!((soaking.wetness - 0.5).abs() < 0.01, "{}", soaking.wetness);
+        let soaked = after(weather, 40.5);
+        assert_eq!(soaked.wetness, 1.);
+
+        // once the rain has gone, two minutes to dry
+        let mut weather = ClientWeather::settled(WeatherKind::Clear);
+        weather.wetness = 1.;
+        let drying = after(weather.clone(), 60.);
+        assert!((drying.wetness - 0.5).abs() < 0.01, "{}", drying.wetness);
+        assert_eq!(after(weather, 120.5).wetness, 0.);
+    }
+
+    #[test]
+    fn a_light_rain_soaks_the_ground_slower_and_the_ground_dries_once_nothing_falls() {
+        let mut weather = ClientWeather::settled(WeatherKind::Rain);
+        weather.wetness = 0.;
+        let mut light = weather.clone();
+        light.rain = 0.625;
+        light.advance(1.);
+        // `advance` moves `rain` too: it is at 1 here, so compare one second of each
+        weather.advance(1.);
+        assert!(
+            light.wetness > 0. && light.wetness < weather.wetness,
+            "{} {}",
+            light.wetness,
+            weather.wetness
+        );
+
+        // the rain going: the ground soaks while drops fall, then dries
+        let mut weather = ClientWeather::settled(WeatherKind::Rain);
+        weather.wetness = 0.9;
+        weather.kind = WeatherKind::Clear;
+        let mut peak = weather.wetness;
+        for _ in 0..(40 * 60) {
+            weather.advance(1. / 60.);
+            peak = peak.max(weather.wetness);
+        }
+        assert!(
+            peak > 0.9 && weather.wetness < peak,
+            "{peak} {}",
+            weather.wetness
+        );
+    }
+
+    #[test]
+    fn a_player_joining_in_rain_finds_the_world_soaked() {
+        assert_eq!(ClientWeather::settled(WeatherKind::Clear).wetness, 0.);
+        assert_eq!(ClientWeather::settled(WeatherKind::Rain).wetness, 1.);
+        assert_eq!(ClientWeather::settled(WeatherKind::Thunder).wetness, 1.);
+        // a rain rolling in for the pictures has not soaked anything yet
+        assert_eq!(ClientWeather::part_way(WeatherKind::Rain, 0.5).wetness, 0.);
     }
 
     #[test]
