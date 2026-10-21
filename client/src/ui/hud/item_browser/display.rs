@@ -521,11 +521,12 @@ type CatalogInputs<'w> = (
 );
 
 /// Sends what the gestures on the catalog do, as actions of the frame's input, which the client
-/// predicts and the server applies (`express_fill` sends the fills of the grid). In Creative, a click on an item, Enter on the focused one or Enter in the search
-/// takes it (`creative_action`); holding a stack, a click on the list or the trash, or Enter on
-/// the focused trash, destroys it, and a toast says what. In Survival, Enter in the search opens
-/// the recipes of its first result, and the list and the trash do nothing; `click_items` opens
-/// the recipes of a clicked item. The keys wait while the player types.
+/// predicts and the server applies (`express_fill` sends the fills of the grid). In Creative, a
+/// click on an item, Enter on the focused one or Enter in the search takes it
+/// (`creative_action`); holding a stack, a click on the list or the trash, or Enter on the
+/// focused trash, destroys it, and a toast says what. In Survival, Enter in the search opens the
+/// recipes of its first result, and the list and the trash do nothing; `click_items` opens the
+/// recipes of a clicked item. The keys wait while the player types.
 #[allow(clippy::too_many_arguments)]
 pub fn catalog_actions(
     (mouse, keys, ui_mode, focus, focus_visible): CatalogInputs,

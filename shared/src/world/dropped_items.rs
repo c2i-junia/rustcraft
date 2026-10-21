@@ -41,8 +41,9 @@ pub struct DroppedItem {
     /// vanishes at `LIFETIME_TICKS`.
     pub age_ticks: u32,
     /// The age from which the item can be picked up: `PICKUP_DELAY_TICKS`, or
-    /// `THROWN_PICKUP_DELAY_TICKS` for an item a player threw. Not saved: a saved item has
-    /// waited long enough, and takes the default.
+    /// `THROWN_PICKUP_DELAY_TICKS` for an item a player threw. Not saved, so that the world
+    /// files do not change: a loaded item takes the default, and one thrown less than 2 s
+    /// before the save can be picked up sooner than it would have been.
     #[serde(skip, default = "default_pickup_delay")]
     pub pickup_delay_ticks: u32,
 }

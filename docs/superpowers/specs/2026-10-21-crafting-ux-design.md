@@ -304,7 +304,8 @@ or push.
     `ItemPick`; none where there was one, or fewer, is `ItemPlace`; unchanged is silent. The
     other accepted actions are silent: they move nothing through the cursor (`QuickMoveSlot`,
     `SwapWithHotbar`, `MoveAllOfType`, `FillCraftingGrid`) or are no gesture on a slot
-    (`Close`, the `Open*` actions, `DestroyFloating`).
+    (`Close`, the `Open*` actions, `DestroyFloating`). `Close` stays silent with a held stack
+    too, though it puts that stack back into the inventory: closing is no gesture on a slot.
 18. (Lot 2) A refusal is `ActionRefused { slot: Option<Entity> }`, a message of
     `ui::widgets::slot`: the audio plays `Refused` for it, and the slot, when it is a `Slot`,
     shakes. It is the one door to a refusal's feedback: lot 5 writes it for the item browser
@@ -466,17 +467,20 @@ or push.
     the left button and Shift stay down, `shift_drag_inventory_cells_system` (chained after
     `drag_inventory_cells_system`) sends each cell the pointer enters as `QuickMoveSlot`, once a
     drag, when it held a stack at the press and still holds one, as the client sees them: a
-    stack the sweep moved into a cell is not sent back (the cells holding a stack are noted in
-    the frame of the press, before the prediction applies it). It ends when the left button or
-    Shift is released, the right button is pressed, the cursor holds a stack, Escape is pressed
-    or the inventory hides, and at once while the switch is off. The result is not a cell: a
+    stack the sweep moved into a cell empty at the press is not sent back (the cells holding a
+    stack are noted in the frame of the press, before the prediction applies it). A cell that
+    already held a stack at the press and is entered after the sweep added to it is sent, with
+    what the sweep added, as a shift-click on it would. It ends when the left button or Shift
+    is released, the right button is pressed, the cursor holds a stack, Escape is pressed or the
+    inventory hides, and at once while the switch is off. The result is not a cell: a
     Shift+press on it is `CraftAll` and starts nothing; a Shift+press with a held stack is the
     shift-click of today and starts nothing either.
 49. (Lot 6) Shift+drag and the Shift+double click: the press of a Shift+drag is lot 1's
     shift-click, recorded for the double click (Decision 10). A cell entered and sent forgets
     it: a press after a sweep over other cells is a new Shift+press, not the second of a double
     click. The second press of a Shift+double click starts a Shift+drag too; a cell
-    `MoveAllOfType` emptied is not sent again, as it holds nothing.
+    `MoveAllOfType` emptied is not sent again, as it holds nothing, and a cell it filled is sent
+    when entered only if it held a stack at the press (Decision 48).
 50. (Lot 6) The wheel, either way: each notch over a cell holding a stack, the cursor empty and
     the inventory open, sends one `QuickMoveOne(slot)` (`wheel_inventory_cells_system`, after the
     Shift+drag). A notch is a line, or `SCROLL_PIXELS_PER_STEP` of a trackpad, counted by
