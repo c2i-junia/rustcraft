@@ -141,6 +141,43 @@ mod tests {
     }
 
     #[test]
+    fn a_floor_or_a_ceiling_seen_straight_on_is_clipped_too() {
+        // A twin on the floor, its plane y = 11, the camera under it looking up; and one on the
+        // ceiling, its plane y = 10, the camera over it looking down. Whatever the camera's up,
+        // the plane's normal in the view is (0, 0, -1) or a hair from it, where Bevy keeps
+        // the plain matrix or makes the oblique one
+        let floor = Portal {
+            up: FaceDirection::MinusZ,
+            ..twin(FaceDirection::PlusY)
+        };
+        let ceiling = Portal {
+            up: FaceDirection::PlusX,
+            ..twin(FaceDirection::MinusY)
+        };
+        let centre = |portal: &Portal| Vec3::from(portal.frame().translation);
+        for (portal, side) in [(floor, -1.0), (ceiling, 1.0)] {
+            let at = centre(&portal);
+            for up in [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z] {
+                let camera = Transform::from_translation(at + Vec3::Y * side * 4.0)
+                    .looking_to(Vec3::Y * -side, up);
+                let projection = portal_projection(&main_projection(), &camera, &portal);
+                let wall = at + Vec3::Y * side * 0.5;
+                let beyond = at - Vec3::Y * side * 0.5;
+                assert!(
+                    !is_drawn(depth(&projection, &camera, wall)),
+                    "{:?} {up}",
+                    portal.face
+                );
+                assert!(
+                    is_drawn(depth(&projection, &camera, beyond)),
+                    "{:?} {up}",
+                    portal.face
+                );
+            }
+        }
+    }
+
+    #[test]
     fn within_0_12_block_of_the_plane_the_projection_is_plain() {
         let camera =
             Transform::from_xyz(1.0, 11.5, 0.9).looking_to(Vec3::new(0.3, 0.0, 1.0), Vec3::Y);
