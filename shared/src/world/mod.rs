@@ -15,6 +15,7 @@ pub mod terrain;
 #[cfg(any(test, feature = "test-helpers"))]
 mod test_helpers;
 mod utils;
+pub mod weather;
 
 pub use biome::*;
 pub use blocks::*;
@@ -30,3 +31,4 @@ pub use mobs::*;
 pub use raycast::*;
 pub use terrain::*;
 pub use utils::*;
+pub use weather::*;
