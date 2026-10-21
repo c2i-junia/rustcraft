@@ -79,43 +79,43 @@ the accent colour while the button is down, and a chest appears as the result on
 ## Tasks
 
 ### Task 1: The wire (`shared`)
-- [ ] Tests: `Drag` 12, `CraftAll` 13, `CollectAll` 14, `MoveAllOfType` 15, `CraftToHotbar` 16
+- [x] Tests: `Drag` 12, `CraftAll` 13, `CollectAll` 14, `MoveAllOfType` 15, `CraftToHotbar` 16
   in `network_actions_and_mob_enums_are_pinned`; `a_drag_s_slots_round_trip_on_the_wire`
   (bincode options, bit 127 set); `every_slot_is_below_128`. See them fail.
-- [ ] The five variants, the refusals `NothingHeld` and `NoRoom`, `PROTOCOL_ID` 25. Until
+- [x] The five variants, the refusals `NothingHeld` and `NoRoom`, `PROTOCOL_ID` 25. Until
   tasks 2 to 4 give them their rules, the new variants share one arm in `apply_action` that
   refuses them (`NoRoom`). See them pass. Commit
   `feat(shared): the inventory actions of the Minecraft gestures on the wire`.
 
 ### Task 2: The drag (`shared`)
-- [ ] Tests: split with remainder; clamped to the room; more slots than items; ineligible slots
+- [x] Tests: split with remainder; clamped to the room; more slots than items; ineligible slots
   skipped (another item, a full stack, beyond the grid, unreachable chest slots); the furnace's
   fuel slot takes only a fuel and its output nothing; one each, until the cursor is empty;
   nothing held refused; no eligible slot refused and unchanged; `drag_plan` returns what the
   action does, with a chest lent; a tool keeps its wear. See them fail.
-- [ ] `DragPlan`, `drag_plan`, the private `plan_drag`, the `lend` generic over its result.
+- [x] `DragPlan`, `drag_plan`, the private `plan_drag`, the `lend` generic over its result.
   See them pass. Commit `feat(shared): a drag splits the held stack over slots`.
 
 ### Task 3: Crafting all and to the hotbar (`shared`)
-- [ ] Tests: `CraftAll` of 64 logs fills four stacks; stops on a full inventory (tops up
+- [x] Tests: `CraftAll` of 64 logs fills four stacks; stops on a full inventory (tops up
   first); stops when the result changes; stops at 64 rounds; leaves the floating stack alone;
   refused without a recipe and without room for one round. `CraftToHotbar`: into an empty
   slot, onto the same item; refused beyond the hotbar, without a recipe, onto another item or
   without room. See them fail.
-- [ ] `craft_all`, `MAX_CRAFT_ALL_ROUNDS`, `craft_to_hotbar`. See them pass. Commit
+- [x] `craft_all`, `MAX_CRAFT_ALL_ROUNDS`, `craft_to_hotbar`. See them pass. Commit
   `feat(shared): shift-click and number keys on the crafting result`.
 
 ### Task 4: Collecting and moving all of a type (`shared`)
-- [ ] Tests: `CollectAll` smallest stacks first then slot order, until a full stack; from an
+- [x] Tests: `CollectAll` smallest stacks first then slot order, until a full stack; from an
   open chest too; never from the grid or a furnace; refused with nothing held or a full
   cursor. `MoveAllOfType`: hotbar zone, backpack zone, inventory to chest and chest to
   inventory, the grid back into the inventory, a furnace slot; other items stay; refused on an
   invalid slot. See them fail.
-- [ ] `collect_all`, `move_all_of_type`. See them pass. Commit
+- [x] `collect_all`, `move_all_of_type`. See them pass. Commit
   `feat(shared): double clicks gather and move every stack of an item`.
 
 ### Task 5: The client's gestures (`client`)
-- [ ] Tests (display.rs): a press with a held stack sends nothing, its release on the same slot
+- [x] Tests (display.rs): a press with a held stack sends nothing, its release on the same slot
   sends the click (both buttons); a drag over two slots sends `Drag` (split, one each); a slot
   that takes nothing does not join; a split stops at the held count; the other button,
   closing, Escape cancel; a press without a held stack acts at once; a double click sends
@@ -123,19 +123,19 @@ the accent colour while the button is down, and a chest appears as the result on
   first item; Shift+click and Shift+Enter on the result send `CraftAll`; a number key over or
   focused on the result sends `CraftToHotbar`; the drag preview shows the planned counts in
   the accent colour and the floating stack what stays. See them fail.
-- [ ] `gestures.rs` (`CellGestures`, `CellDrag`, `DOUBLE_CLICK_WINDOW`,
+- [x] `gestures.rs` (`CellGestures`, `CellDrag`, `DOUBLE_CLICK_WINDOW`,
   `drag_inventory_cells_system`, `planned_drag`), the press logic in
   `click_inventory_cells_system`, the preview in `display_inventory_system`, the system in the
   chain. See them pass. Commit `feat(client): drag, double click and result keys in the
   inventory`.
 
 ### Task 6: e2e (`client/src/e2e/gestures.rs`)
-- [ ] Drag-split 17 planks over the chest ring at a table (preview, then 2 each, 1 held, a
+- [x] Drag-split 17 planks over the chest ring at a table (preview, then 2 each, 1 held, a
   chest made); right-drag 6 planks over the 2x2 grid (1 each, 2 held, a crafting table);
   Shift+click the result of 64 logs (256 planks in four stacks, the grid empty);
   double-click collect (smallest first, a full stack). See them fail on the code before
   task 5 where they can, then pass. Commit `test(client): e2e of the crafting gestures`.
 
 ### Task 7: Closing
-- [ ] Spec decisions appended; `timeout 1500 just check`; commit
+- [x] Spec decisions appended; `timeout 1500 just check`; commit
   `docs: decisions of the crafting gestures (lot 1)`.

@@ -237,3 +237,49 @@ or push.
 ## Decisions
 
 (Appended during implementation.)
+
+1. (Lot 1) `drag_plan` takes what `apply_inventory_action` takes:
+   `drag_plan(inventory, slots, one_each, in_reach, contents) -> Result<DragPlan, InventoryRefusal>`,
+   `DragPlan { slots: Vec<(u32, ItemStack)>, held: Option<ItemStack> }`: the new stack of each
+   slot the drag puts items into, ascending, and what stays held. The action runs the same
+   private computation on the inventory with the open chest or furnace lent; the client calls
+   it with the chest or furnace the server sent. A slot that holds the item keeps its stack's
+   type; an empty one takes the held stack's (a tool keeps its wear).
+2. (Lot 1) A split over more eligible slots than held items puts one item in each of the first
+   `n` slots, ascending (`n / n`): every slot of a plan gets at least one item.
+3. (Lot 1) The server applies a `Drag` over a single slot like any other; only the client turns
+   a one-slot release into the plain click.
+4. (Lot 1) The client's drag holds the pressed slot, then each slot entered that the plan with
+   it puts items into, while the plan puts items into fewer slots than the cursor holds items,
+   for both buttons: a slot entered never takes another's item away. A release with two slots
+   or more sends all of them, the pressed slot included even when the server skips it.
+5. (Lot 1) The preview shows from two slots on, since a one-slot release is a click (which may
+   swap). Its counts use `count_label`, so a single item shows its icon and no `1`.
+6. (Lot 1) `CraftAll`: "the same item" is the same `ItemId`; a round fits when the slots
+   `0..36` have room for the whole result, counted as `add_item_to_inventory` fills them.
+   `MAX_CRAFT_ALL_ROUNDS = 64`, which only a stack larger than 64 in a cell could reach.
+7. (Lot 1) `CollectAll`: `NothingHeld` without a floating stack, `CursorFull` with a full one;
+   nothing to gather is no refusal (silent, as in Minecraft). Its sources are the stacks of the
+   same `ItemId`.
+8. (Lot 1) `MoveAllOfType`: a furnace slot's zone is the furnace's three slots; the grid's zone
+   is its cells a click may reach (`check_slot`, so leftovers beyond the grid with an empty
+   cursor). `slot` must pass `check_slot`, else `InvalidSlot`. "A chest or a furnace open" means
+   its contents are lent, as for `QuickMoveSlot`.
+9. (Lot 1) `CraftToHotbar` checks `InvalidSlot`, then `NoRecipe`, then `NoRoom`, and leaves the
+   floating stack alone.
+10. (Lot 1) Double clicks use `Time<Real>`. "A press that picked a stack up" is a left press
+    without Shift, with an empty cursor, on a slot holding a stack, as the client sees it; a
+    Shift+press on a slot holding a stack records its item for the Shift+double click. Any
+    other press on a cell, on the result or elsewhere forgets the last press, and a double click
+    uses it up: a third press is a single one.
+11. (Lot 1) Shift changes only the left button and Enter, as on the cells: Shift+right click and
+    Shift+Space on the result take it once. A number key goes to the result as to a cell: the
+    ringed result while the ring shows, the hovered one otherwise.
+12. (Lot 1) The other button's press cancels the drag and does nothing else. A drag whose held
+    stack is gone (a correction from the server) ends too, sending nothing.
+13. (Lot 1) The gestures live in `client/src/ui/hud/inventory/gestures.rs`: the `CellGestures`
+    resource and `drag_inventory_cells_system`, chained right after
+    `click_inventory_cells_system`.
+14. (Lot 1) The e2e "chest ring" is the ring of eight cells around the centre of the 3x3 grid,
+    the chest's recipe. The double-click e2e runs its two clicks under
+    `TimeUpdateStrategy::ManualDuration`, so that a slow frame cannot split them.
