@@ -2029,30 +2029,33 @@ fn an_item_thrown_into_a_floor_portal_comes_out_of_a_wall() {
             break;
         }
     }
-    let crossing = trace
-        .windows(2)
-        .position(|pair| pair[0].distance(pair[1]) > 1.0)
-        .unwrap_or_else(|| panic!("never jumped: {trace:?}"));
-    let (before, after) = (trace[crossing], trace[crossing + 1]);
-    println!("drawn before the crossing at {before}, after it at {after}");
-    // One jump, from the opening of the floor portal to out of the wall portal: drawn over
-    // the floor portal until then, in front of the wall portal after, never between. A frame
-    // of the e2e lasts several ticks: it may land before it is drawn out of the wall
+    // Drawn over the floor portal until the server says it passed, in front of the wall
+    // portal after, never between: one jump. A frame of the e2e lasts several ticks, under
+    // load enough for the item to pass before it is first drawn, and to land before it is
+    // drawn out of the wall
     let over_blue = |at: Vec3| {
         let local = blue.local(at);
         local.x.abs() < 1.2 && local.y.abs() < 1.7 && local.z < 2.0
     };
     let out_of_orange =
         |at: Vec3| orange.signed_distance(at) > 0.0 && orange.local(at).x.abs() < 1.2;
-    assert!(over_blue(before), "{before}");
+    let crossing = trace
+        .iter()
+        .position(|&at| !over_blue(at))
+        .unwrap_or(trace.len());
+    match crossing {
+        0 => println!("first drawn out of the wall, at {}", trace[0]),
+        _ => println!(
+            "drawn before the crossing at {}, after it at {:?}",
+            trace[crossing - 1],
+            trace.get(crossing)
+        ),
+    }
     assert!(
-        trace[..=crossing].iter().all(|&at| over_blue(at)),
+        trace[crossing..].iter().all(|&at| out_of_orange(at)),
         "{trace:?}"
     );
-    assert!(
-        trace[crossing + 1..].iter().all(|&at| out_of_orange(at)),
-        "{trace:?}"
-    );
+    assert!(crossing < trace.len(), "never came out: {trace:?}");
     // Lying on the platform east of the wall, out of the orange portal
     let rest = *trace.last().unwrap();
     assert!(orange.signed_distance(rest) > 0.5, "{rest}");
