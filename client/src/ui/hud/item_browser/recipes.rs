@@ -203,7 +203,7 @@ mod tests {
     fn an_item_without_recipe_or_use_says_so() {
         assert_eq!(
             empty_view_message(view(ItemId::Cobblestone, RecipeTab::Recipes)),
-            "Cobblestone is gathered, not crafted. It goes into 1 recipe: see Uses."
+            "Cobblestone is gathered, not crafted. It goes into 6 recipes: see Uses."
         );
         assert_eq!(
             empty_view_message(view(ItemId::SpruceLog, RecipeTab::Recipes)),

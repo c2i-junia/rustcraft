@@ -41,14 +41,25 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
     match item {
         ItemId::Sand => Some(ItemId::Glass),
         ItemId::Cobblestone => Some(ItemId::Stone),
+        ItemId::IronOre => Some(ItemId::IronIngot),
+        ItemId::GoldOre => Some(ItemId::GoldIngot),
+        ItemId::DiamondOre => Some(ItemId::Diamond),
+        ItemId::OakLog | ItemId::SpruceLog | ItemId::JungleLog => Some(ItemId::Charcoal),
         _ => None,
     }
+}
+
+/// What a furnace makes `result` of, in the order of `ItemId::ALL`: the item browser lists them.
+pub fn smelting_inputs(result: ItemId) -> impl Iterator<Item = ItemId> {
+    ItemId::ALL
+        .into_iter()
+        .filter(move |&item| smelting_result(item) == Some(result))
 }
 
 /// How many ticks one `item` burns in a furnace, if it is a fuel: Minecraft's durations.
 pub fn fuel_ticks(item: ItemId) -> Option<u16> {
     match item {
-        ItemId::Coal => Some(1600),
+        ItemId::Coal | ItemId::Charcoal => Some(1600),
         ItemId::OakLog
         | ItemId::SpruceLog
         | ItemId::JungleLog
@@ -192,6 +203,54 @@ mod tests {
         assert_eq!(smelting_result(ItemId::Cobblestone), Some(ItemId::Stone));
         for item in [ItemId::Dirt, ItemId::Glass, ItemId::Coal, ItemId::Stick] {
             assert_eq!(smelting_result(item), None, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn ores_smelt_into_their_metal_or_gem_and_logs_into_charcoal() {
+        for (input, result) in [
+            (ItemId::IronOre, ItemId::IronIngot),
+            (ItemId::GoldOre, ItemId::GoldIngot),
+            (ItemId::DiamondOre, ItemId::Diamond),
+            (ItemId::OakLog, ItemId::Charcoal),
+            (ItemId::SpruceLog, ItemId::Charcoal),
+            (ItemId::JungleLog, ItemId::Charcoal),
+        ] {
+            assert_eq!(smelting_result(input), Some(result), "{input:?}");
+        }
+        for item in [ItemId::IronIngot, ItemId::CoalOre, ItemId::OakPlanks] {
+            assert_eq!(smelting_result(item), None, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn what_smelts_into_an_item_is_listed_in_the_order_of_the_items() {
+        let inputs = |item| smelting_inputs(item).collect::<Vec<_>>();
+        assert_eq!(
+            inputs(ItemId::Charcoal),
+            [ItemId::OakLog, ItemId::SpruceLog, ItemId::JungleLog]
+        );
+        assert_eq!(inputs(ItemId::IronIngot), [ItemId::IronOre]);
+        assert_eq!(inputs(ItemId::Glass), [ItemId::Sand]);
+        assert!(inputs(ItemId::Dirt).is_empty());
+    }
+
+    #[test]
+    fn charcoal_burns_as_coal_and_only_the_wooden_tools_burn() {
+        assert_eq!(fuel_ticks(ItemId::Charcoal), Some(COAL_TICKS));
+        for item in ItemId::ALL {
+            if let Some(tool) = item.tool() {
+                let burns = tool.tier == crate::world::ToolTier::Wood;
+                assert_eq!(fuel_ticks(item).is_some(), burns, "{item:?}");
+            }
+        }
+        for item in [
+            ItemId::IronIngot,
+            ItemId::Diamond,
+            ItemId::DiamondOre,
+            ItemId::IronBlock,
+        ] {
+            assert_eq!(fuel_ticks(item), None, "{item:?}");
         }
     }
 

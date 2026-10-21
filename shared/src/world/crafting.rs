@@ -38,6 +38,28 @@ const JUNGLE: Option<ItemId> = Some(ItemId::JunglePlanks);
 const COBBLE: Option<ItemId> = Some(ItemId::Cobblestone);
 const STICK: Option<ItemId> = Some(ItemId::Stick);
 const COAL: Option<ItemId> = Some(ItemId::Coal);
+const CHARCOAL: Option<ItemId> = Some(ItemId::Charcoal);
+const IRON: Option<ItemId> = Some(ItemId::IronIngot);
+const GOLD: Option<ItemId> = Some(ItemId::GoldIngot);
+const DIAMOND: Option<ItemId> = Some(ItemId::Diamond);
+
+/// The tools' shapes, Minecraft's, made of `m` and sticks. The wooden tools' recipes spell them
+/// out.
+const fn pickaxe(m: Option<ItemId>) -> [Option<ItemId>; 9] {
+    [m, m, m, None, STICK, None, None, STICK, None]
+}
+const fn axe(m: Option<ItemId>) -> [Option<ItemId>; 6] {
+    [m, m, m, STICK, None, STICK]
+}
+const fn shovel(m: Option<ItemId>) -> [Option<ItemId>; 3] {
+    [m, STICK, STICK]
+}
+const fn hoe(m: Option<ItemId>) -> [Option<ItemId>; 6] {
+    [m, m, None, STICK, None, STICK]
+}
+const fn sword(m: Option<ItemId>) -> [Option<ItemId>; 3] {
+    [m, m, STICK]
+}
 
 #[rustfmt::skip]
 const RECIPES: &[Recipe] = &[
@@ -241,6 +263,33 @@ const RECIPES: &[Recipe] = &[
         output: ItemId::WoodenSword,
         nb: 1,
     },
+    Recipe { width: 3, cells: &pickaxe(COBBLE), output: ItemId::StonePickaxe, nb: 1 },
+    Recipe { width: 2, cells: &axe(COBBLE), output: ItemId::StoneAxe, nb: 1 },
+    Recipe { width: 1, cells: &shovel(COBBLE), output: ItemId::StoneShovel, nb: 1 },
+    Recipe { width: 2, cells: &hoe(COBBLE), output: ItemId::StoneHoe, nb: 1 },
+    Recipe { width: 1, cells: &sword(COBBLE), output: ItemId::StoneSword, nb: 1 },
+    Recipe { width: 3, cells: &pickaxe(IRON), output: ItemId::IronPickaxe, nb: 1 },
+    Recipe { width: 2, cells: &axe(IRON), output: ItemId::IronAxe, nb: 1 },
+    Recipe { width: 1, cells: &shovel(IRON), output: ItemId::IronShovel, nb: 1 },
+    Recipe { width: 2, cells: &hoe(IRON), output: ItemId::IronHoe, nb: 1 },
+    Recipe { width: 1, cells: &sword(IRON), output: ItemId::IronSword, nb: 1 },
+    Recipe { width: 3, cells: &pickaxe(GOLD), output: ItemId::GoldenPickaxe, nb: 1 },
+    Recipe { width: 2, cells: &axe(GOLD), output: ItemId::GoldenAxe, nb: 1 },
+    Recipe { width: 1, cells: &shovel(GOLD), output: ItemId::GoldenShovel, nb: 1 },
+    Recipe { width: 2, cells: &hoe(GOLD), output: ItemId::GoldenHoe, nb: 1 },
+    Recipe { width: 1, cells: &sword(GOLD), output: ItemId::GoldenSword, nb: 1 },
+    Recipe { width: 3, cells: &pickaxe(DIAMOND), output: ItemId::DiamondPickaxe, nb: 1 },
+    Recipe { width: 2, cells: &axe(DIAMOND), output: ItemId::DiamondAxe, nb: 1 },
+    Recipe { width: 1, cells: &shovel(DIAMOND), output: ItemId::DiamondShovel, nb: 1 },
+    Recipe { width: 2, cells: &hoe(DIAMOND), output: ItemId::DiamondHoe, nb: 1 },
+    Recipe { width: 1, cells: &sword(DIAMOND), output: ItemId::DiamondSword, nb: 1 },
+    Recipe { width: 3, cells: &[IRON; 9], output: ItemId::IronBlock, nb: 1 },
+    Recipe { width: 3, cells: &[GOLD; 9], output: ItemId::GoldBlock, nb: 1 },
+    Recipe { width: 3, cells: &[DIAMOND; 9], output: ItemId::DiamondBlock, nb: 1 },
+    Recipe { width: 1, cells: &[Some(ItemId::IronBlock)], output: ItemId::IronIngot, nb: 9 },
+    Recipe { width: 1, cells: &[Some(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9 },
+    Recipe { width: 1, cells: &[Some(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9 },
+    Recipe { width: 1, cells: &[CHARCOAL, STICK], output: ItemId::Torch, nb: 4 },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -574,6 +623,93 @@ mod tests {
     }
 
     #[test]
+    fn cobblestone_ingots_and_diamonds_make_the_tools_of_their_tier() {
+        for (m, [pickaxe, axe, shovel, hoe, sword]) in [
+            (
+                COBBLE,
+                [
+                    ItemId::StonePickaxe,
+                    ItemId::StoneAxe,
+                    ItemId::StoneShovel,
+                    ItemId::StoneHoe,
+                    ItemId::StoneSword,
+                ],
+            ),
+            (
+                Some(ItemId::IronIngot),
+                [
+                    ItemId::IronPickaxe,
+                    ItemId::IronAxe,
+                    ItemId::IronShovel,
+                    ItemId::IronHoe,
+                    ItemId::IronSword,
+                ],
+            ),
+            (
+                Some(ItemId::GoldIngot),
+                [
+                    ItemId::GoldenPickaxe,
+                    ItemId::GoldenAxe,
+                    ItemId::GoldenShovel,
+                    ItemId::GoldenHoe,
+                    ItemId::GoldenSword,
+                ],
+            ),
+            (
+                Some(ItemId::Diamond),
+                [
+                    ItemId::DiamondPickaxe,
+                    ItemId::DiamondAxe,
+                    ItemId::DiamondShovel,
+                    ItemId::DiamondHoe,
+                    ItemId::DiamondSword,
+                ],
+            ),
+        ] {
+            for (cells, tool) in [
+                ([m, m, m, None, STICK, None, None, STICK, None], pickaxe),
+                ([m, m, None, m, STICK, None, None, STICK, None], axe),
+                (
+                    [m, None, None, STICK, None, None, STICK, None, None],
+                    shovel,
+                ),
+                ([m, m, None, None, STICK, None, None, STICK, None], hoe),
+                ([m, None, None, m, None, None, STICK, None, None], sword),
+            ] {
+                assert_eq!(match_recipe(&grid(cells)), made(tool, 1), "{tool:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn nine_ingots_or_diamonds_make_a_block_which_gives_them_back() {
+        for (material, block) in [
+            (ItemId::IronIngot, ItemId::IronBlock),
+            (ItemId::GoldIngot, ItemId::GoldBlock),
+            (ItemId::Diamond, ItemId::DiamondBlock),
+        ] {
+            assert_eq!(match_recipe(&grid([Some(material); 9])), made(block, 1));
+            let alone = [Some(block), None, None, None, None, None, None, None, None];
+            assert_eq!(match_recipe(&grid(alone)), made(material, 9));
+            // eight are not enough
+            let mut eight = [Some(material); 9];
+            eight[4] = None;
+            assert_eq!(match_recipe(&grid(eight)), None, "{material:?}");
+        }
+    }
+
+    #[test]
+    fn charcoal_on_a_stick_makes_four_torches_as_coal() {
+        let charcoal = Some(ItemId::Charcoal);
+        assert_eq!(
+            match_recipe(&grid([
+                charcoal, None, None, STICK, None, None, None, None, None
+            ])),
+            made(ItemId::Torch, 4)
+        );
+    }
+
+    #[test]
     fn a_recipe_also_matches_mirrored_left_to_right() {
         assert_eq!(
             match_recipe(&grid([None, OAK, OAK, None, STICK, OAK, None, STICK, None])),
@@ -595,7 +731,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 29);
+        assert_eq!(all.len(), 56);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -618,9 +754,11 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (3, 0));
-        assert_eq!(counts(ItemId::Stick), (3, 16));
+        assert_eq!(counts(ItemId::Stick), (3, 37));
         assert_eq!(counts(ItemId::OakPlanks), (1, 8));
-        assert_eq!(counts(ItemId::Cobblestone), (0, 1));
+        assert_eq!(counts(ItemId::Cobblestone), (0, 6));
+        assert_eq!(counts(ItemId::IronIngot), (1, 6));
+        assert_eq!(counts(ItemId::Torch), (2, 0));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
         assert!(uses_of(ItemId::Stick).all(|r| r.cells.contains(&STICK)));
