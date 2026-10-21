@@ -51,7 +51,8 @@
 #endif
 
 // For each texture: its first layer, its number of frames, how long a frame is shown in
-// twentieths of a second, and whether a frame fades into the next. Keep the length in sync with
+// twentieths of a second, and whether a frame fades into the next in the lowest bit of `w`,
+// with how its surface takes the rain over it (`WetSurface`). Keep the length in sync with
 // `MAX_TILES`.
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> block_textures: array<vec4<u32>, 256>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(101) var block_layers: texture_2d_array<f32>;
@@ -80,6 +81,9 @@ struct ChunkShading {
 }
 @group(#{MATERIAL_BIND_GROUP}) @binding(106) var<uniform> shading: ChunkShading;
 // At 107, the weather of the sky, `weather` of `rustcraft::sky`
+// The height at which the rain stops in each column around the camera, wrapped around
+// (`occlusion.rs`)
+@group(#{MATERIAL_BIND_GROUP}) @binding(108) var occlusion_map: texture_2d<f32>;
 
 // The values of `BiomeTint::index`
 const BIOME_TINT_GRASS: u32 = 1u;
@@ -247,7 +251,7 @@ fn texture_color(index: u32, uv: vec2<f32>) -> vec4<f32> {
     let progress = seconds() * 20.0 / f32(max(texture.z, 1u));
     let frame = u32(progress) % frames;
     let color = textureSampleLevel(block_layers, block_sampler, uv, texture.x + frame, 0.0);
-    if texture.w == 0u || frames == 1u {
+    if (texture.w & 1u) == 0u || frames == 1u {
         return color;
     }
     let next = textureSampleLevel(block_layers, block_sampler, uv, texture.x + (frame + 1u) % frames, 0.0);

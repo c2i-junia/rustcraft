@@ -2,6 +2,7 @@ use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
 use crate::world::overcast::new_weather_buffer;
+use crate::world::precipitation::occlusion::OcclusionMap;
 use crate::world::voxel::FaceColor;
 use crate::world::{new_climate_map, GlobalMaterial, GraphicsSettings, BLOCK_LIGHT};
 use bevy::asset::{load_internal_asset, uuid_handle, RenderAssetUsages};
@@ -81,6 +82,52 @@ impl Default for TextureAnimation {
     }
 }
 
+/// How the surface of a block texture takes the rain (`chunk.wgsl`): how much it darkens, how
+/// glossy it turns and whether puddles gather on it. Its value is kept in the table of the
+/// textures, over the bit of the fading of the frames.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum WetSurface {
+    /// Stone, gravel, wood and anything not known here: darker, glossy, puddles.
+    Hard = 0,
+    /// Grass and dirt: darker, less glossy, fewer puddles.
+    Soil = 1,
+    /// Sand: much darker, hardly glossy, no puddle, as it drinks the water.
+    Porous = 2,
+    /// Leaves and plants: a little darker, a faint sheen, no puddle.
+    Foliage = 3,
+    /// Glass, ice, snow, torches, the cracks of a block being broken: as they are.
+    Dry = 4,
+}
+
+impl WetSurface {
+    /// The surface of the block texture called `name`.
+    pub fn of(name: &str) -> Self {
+        match name {
+            "Glass" | "Ice" | "Snow" | "Torch" | "Water" => Self::Dry,
+            _ if name.starts_with("DestroyStage") => Self::Dry,
+            "Sand" => Self::Porous,
+            "Grass" | "GrassTop" | "GrassSideOverlay" | "Dirt" | "Moss" => Self::Soil,
+            "TallGrass" | "Fern" | "Dandelion" | "Poppy" | "Vine" | "Cocoa" | "Cactus"
+            | "CactusTop" => Self::Foliage,
+            _ if name.ends_with("Leaves") => Self::Foliage,
+            _ => Self::Hard,
+        }
+    }
+}
+
+/// The row of a texture in the table of `chunk.wgsl`: its first layer, its number of frames,
+/// how long a frame is shown, and whether a frame fades into the next, with its surface over
+/// that bit.
+fn table_row(layer: u32, frames: u32, animation: TextureAnimation, surface: WetSurface) -> UVec4 {
+    UVec4::new(
+        layer,
+        frames,
+        animation.frame_time.max(1),
+        animation.interpolate as u32 | (surface as u32) << 1,
+    )
+}
+
 const CHUNK_SHADER: Handle<Shader> = uuid_handle!("8d2b8c4e-6a51-4f7e-9b0c-3e5f1a7d9c21");
 /// `rustcraft::sky`, which `chunk.wgsl` imports.
 const SKY_SHADER: Handle<Shader> = uuid_handle!("3f0c9a61-27d4-4b8e-a5c2-9e41d7b06f18");
@@ -95,7 +142,8 @@ pub type ChunkMaterial = ExtendedMaterial<StandardMaterial, BlockLayers>;
 /// table its first layer, its number of frames, the time of a frame and whether frames fade.
 /// With them, what the grass and the leaves are coloured with: the climate around the player
 /// and the colour maps of the texture pack (see `climate.rs`), how the faces are shaded, and
-/// the weather of the sky the chunks fade into and the water reflects (`overcast.rs`).
+/// the weather of the sky the chunks fade into and the water reflects (`overcast.rs`), and
+/// where the rain stops, which says what gets wet (`occlusion.rs`).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct BlockLayers {
     #[uniform(100)]
@@ -115,6 +163,9 @@ pub struct BlockLayers {
     /// changing `shading` would prepare every chunk drawn again.
     #[storage(107, read_only)]
     pub weather: Handle<ShaderBuffer>,
+    /// Where the rain stops around the camera (`OcclusionMap`): what is under it stays dry.
+    #[texture(108, sample_type = "float", filterable = false)]
+    pub occlusion: Handle<Image>,
 }
 
 /// The bits of `ChunkShading::effects`: the plants sway in the wind, and the water ripples and
@@ -350,6 +401,7 @@ pub fn create_all_atlases(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut chunk_materials: ResMut<Assets<ChunkMaterial>>,
     graphics: Option<Res<GraphicsSettings>>,
+    occlusion: Option<Res<OcclusionMap>>,
 ) {
     let graphics = graphics.map(|graphics| *graphics).unwrap_or_default();
     let textured = |texture: Option<Handle<Image>>, alpha_mode| StandardMaterial {
@@ -371,6 +423,10 @@ pub fn create_all_atlases(
                 foliage_colors: material_resource.foliage_colors.clone(),
                 shading: ChunkShading::new(&graphics, false),
                 weather: material_resource.weather.clone(),
+                occlusion: occlusion
+                    .as_ref()
+                    .map(|occlusion| occlusion.image.clone())
+                    .unwrap_or_default(),
             };
             let chunk_material = |base, liquid| ChunkMaterial {
                 base,
@@ -490,12 +546,8 @@ fn build_block_textures(
             continue;
         };
         let animation = handles.animations.get(name).copied().unwrap_or_default();
-        table[tiles.len()] = UVec4::new(
-            layers,
-            frames.len() as u32,
-            animation.frame_time.max(1),
-            animation.interpolate as u32,
-        );
+        table[tiles.len()] =
+            table_row(layers, frames.len() as u32, animation, WetSurface::of(name));
         tiles.insert(name.clone(), tiles.len() as u32);
         layers += frames.len() as u32;
         bytes.extend(frames.into_iter().flatten());
@@ -635,6 +687,51 @@ mod tests {
                 .any(|folder| textures.join(format!("{folder}/{item:?}.png")).is_file());
             assert!(has_icon, "{item:?}");
         }
+    }
+
+    #[test]
+    fn each_block_texture_gets_wet_as_its_surface_does() {
+        for (name, surface) in [
+            ("Stone", WetSurface::Hard),
+            ("Cobblestone", WetSurface::Hard),
+            ("Gravel", WetSurface::Hard),
+            ("OakPlanks", WetSurface::Hard),
+            ("OakLogTop", WetSurface::Hard),
+            ("GrassTop", WetSurface::Soil),
+            ("Grass", WetSurface::Soil),
+            ("Dirt", WetSurface::Soil),
+            ("Moss", WetSurface::Soil),
+            ("Sand", WetSurface::Porous),
+            ("OakLeaves", WetSurface::Foliage),
+            ("TallGrass", WetSurface::Foliage),
+            ("Poppy", WetSurface::Foliage),
+            ("Cactus", WetSurface::Foliage),
+            ("Glass", WetSurface::Dry),
+            ("Ice", WetSurface::Dry),
+            ("Snow", WetSurface::Dry),
+            ("Torch", WetSurface::Dry),
+            ("DestroyStage4", WetSurface::Dry),
+            ("Water", WetSurface::Dry),
+            // a texture of a pack unknown here, as stone
+            ("Marble", WetSurface::Hard),
+        ] {
+            assert_eq!(WetSurface::of(name), surface, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_row_of_the_table_holds_the_surface_over_the_fading_of_the_frames() {
+        let fading = TextureAnimation {
+            frame_time: 10,
+            interpolate: true,
+        };
+        let row = table_row(7, 3, fading, WetSurface::Porous);
+        assert_eq!(row.truncate(), UVec3::new(7, 3, 10));
+        assert_eq!(row.w & 1, 1);
+        assert_eq!(row.w >> 1, WetSurface::Porous as u32);
+        let row = table_row(0, 1, TextureAnimation::default(), WetSurface::Dry);
+        assert_eq!(row.w & 1, 0);
+        assert_eq!(row.w >> 1, WetSurface::Dry as u32);
     }
 
     #[test]
