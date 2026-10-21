@@ -94,6 +94,12 @@ fn enter(folder: GameFolder, world: &str, quality: ShaderQuality) -> (Harness, E
     for body in bodies {
         world.entity_mut(body).insert(Visibility::Hidden);
     }
+    // Nor the outline of the block aimed at
+    world
+        .resource_mut::<GizmoConfigStore>()
+        .config_mut::<DefaultGizmoConfigGroup>()
+        .0
+        .enabled = false;
     h.app
         .init_resource::<HeldWeather>()
         .add_systems(Update, hold_weather.after(ease_weather_system));
@@ -326,6 +332,25 @@ fn snapshot_the_rain() {
     build_roof(&mut h, v.eye, ahead);
     let out = v.eye + ahead.as_vec3() * 10. + Vec3::Y * 2.;
     shoot(&mut h, camera, "rain_roof", (v.eye, out), noon, rain);
+}
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_storm_in_motion() {
+    let (mut h, camera, v) = start(ShaderQuality::High);
+    let thunder = ClientWeather::settled(WeatherKind::Thunder);
+    shoot(
+        &mut h,
+        camera,
+        "storm_motion_0",
+        (v.eye, v.across),
+        hour(0.75),
+        thunder,
+    );
+    for frame in 1..6 {
+        h.frames(1);
+        h.snapshot(&format!("weather_storm_motion_{frame}"));
+    }
 }
 
 #[test]
