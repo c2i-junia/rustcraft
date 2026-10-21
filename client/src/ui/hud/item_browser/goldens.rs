@@ -39,6 +39,9 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
             .query_filtered::<&mut Visibility, With<InventoryRoot>>();
         *root.single_mut(golden.world_mut()).unwrap() = Visibility::Visible;
     }
+    // A text not measured yet is flat, and leaves the catalog room enough that its scrollbar
+    // hides, which only the systems of `show_frames` would bring back
+    golden.wait_for_fonts();
     show_frames(golden);
 }
 
