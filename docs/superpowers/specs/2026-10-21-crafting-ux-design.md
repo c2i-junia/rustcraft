@@ -394,3 +394,49 @@ or push.
     slot holding a stack, `DropSlot { slot: selected, all: ctrl }`.
 37. (Lot 4) The e2e `the_held_stack_follows_the_cursor_and_stray_clicks_do_nothing` no longer
     clicks outside the panel, which now throws; `e2e/drop.rs` covers it.
+38. (Lot 5) The one entry point of a fill is `plan_grid_fill(inventory, recipe, times, size) ->
+    Result<GridFill, InventoryRefusal>` in `shared::players::inventory`: on a copy, the grid put
+    back, then `plan_fill`. `GridFill { recipe, emptied, plan: Option<FillPlan>, lacking:
+    Vec<bool> }`; `Err` is `UnknownRecipe`, `DoesNotFit` or `GridNotEmptied`, and `plan: None`
+    is the action's `MissingIngredients`. `lacking` (`shared::world::lacking_cells`) says which
+    cells of the recipe, row after row, one round leaves without their ingredient, served by the
+    same code as `plan_fill`. `fill_crafting_grid` applies it; the client's Ctrl+click and ghost
+    call it, so that they agree with the server.
+39. (Lot 5) `InventoryActionOutcome` gets `crafted: Option<ItemId>`: for an accepted
+    `TakeCraftResult`, `CraftAll` or `CraftToHotbar`, the item the grid made before it. The
+    Recent row reads it from the live prediction's `InventoryActionPredicted`, so that a craft
+    counts once; the server ignores it.
+40. (Lot 5) Ctrl+click is a left press with either Control key on a hovered `CatalogSlot` (the
+    grid, a bookmark, a recent item), the inventory open, in both modes, whatever the cursor
+    holds. The recipe is the first of `recipes_for(item)` that `fills_now`: no chest nor furnace
+    open in place of the grid (as `+ Fill grid`, Decision 30 of the item browser) and
+    `plan_grid_fill(.., 1, grid_in_use)` has a plan. Ctrl+left does nothing else on the browser:
+    no view in Survival; no take, no destruction in Creative, on an item, the list or the trash.
+    Ctrl with the right button, Enter or Space acts as without it, and a card's slots ignore it.
+41. (Lot 5) The key line of a catalog slot whose item has a crafting recipe ends with
+    `  Ctrl+click fill` (`R Recipes  U Uses  A Bookmark  Ctrl+click fill`, the Creative line above
+    it unchanged); an item with none (Dirt, the ores, Glass) keeps its line, a Ctrl+click on it
+    being always refused, and so do the cards' slots.
+42. (Lot 5) `fill_button(inventory, recipe, grid_size) -> Option<FillButton>`: `Fill` when
+    `recipe_problem` is `None`, `Ghost` when the only problem is missing ingredients (the recipe
+    fits the grid in use, no chest nor furnace open), else disabled. A ghost button looks as an
+    enabled one (green, in Tab). Activated, `express_fill` decides again on the inventory of that
+    frame; Shift changes nothing for a ghost. `BrowserRequests::fill` moved from
+    `catalog_actions` to `express_fill`.
+43. (Lot 5) The ghost (`GridGhost`, `ui::hud::inventory::ghost`) holds the cells of the recipe,
+    at the grid's top left corner as a fill puts it, whose grid slot is empty: their ingredient
+    and whether they lack it (`lacking`, so a plank in the grid still serves a cell once put
+    back). Each crafting cell has, after its icon, a tint (`MISSING_TINT`, the cards' `DANGER`
+    at 0.32) and a ghost icon at 40 % alpha; a family's icon shows its members in turn, in step
+    with the cards (`tag_member`). A fill refused for another reason than ingredients
+    (`GridNotEmptied`) lays no ghost.
+44. (Lot 5) The ghost goes when the inventory is hidden, when any of the nine grid stacks
+    differs from those it was laid on (a stack in or out, a count, the server's correction), or
+    when the browser sends a fill (its button or a Ctrl+click); another ghost replaces it.
+45. (Lot 5) `RecentCrafts` holds at most `RECENT_CRAFTS` = 9 items, newest first, a craft
+    moving its item to the front. It is emptied on entering a world (`OnEnter(Game)`): the
+    session is the world played, and nothing is saved. Its bar, `Recent`, is built as the
+    bookmarks' right under them, shown while it holds an item and no view shows; its slots are
+    `CatalogSlot`s with `RecentSlot`, neither searched nor counted. `show_bookmarks` became the
+    generic `show_shelf::<S: Shelf>`, run for `Bookmarks` and `RecentCrafts`, with the same
+    focus rule.
