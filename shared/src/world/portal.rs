@@ -247,12 +247,15 @@ impl Portals {
             .any(|portal| portal.face == face && portal.cells().any(|wall| wall == cell))
     }
 
-    /// Whether `portal` shares a wall cell with a portal on the same face, but the one of its
-    /// owner and colour, which it would replace.
+    /// Whether `portal` shares a wall cell with another portal, but the one of its owner and
+    /// colour, which it would replace, and one on the opposite face of the cell: a portal's box
+    /// fills the half of its cells behind its face (`client/src/portal/`), so two portals
+    /// through a wall one block thick keep apart, but two on faces at a corner would cut into
+    /// each other.
     pub fn overlaps(&self, portal: &Portal) -> bool {
         self.portals.values().any(|other| {
             (other.owner, other.color) != (portal.owner, portal.color)
-                && other.face == portal.face
+                && other.normal() != -portal.normal()
                 && other
                     .cells()
                     .any(|cell| portal.cells().any(|mine| mine == cell))
@@ -697,6 +700,32 @@ mod tests {
                 "{free:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_portal_sharing_a_wall_cell_on_another_face_overlaps_unless_on_the_opposite_face() {
+        // Orange of player 8 on the +Z face of the cells x 2 and 3 of a wall one block thick
+        let mut portals = Portals::default();
+        portals.insert(Portal {
+            owner: 8,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(2, 10, 0),
+            face: FaceDirection::PlusZ,
+        });
+        let blue = |anchor, face| Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor,
+            face,
+        };
+        // On the -Z face of the same cells, through the wall: its box keeps to the back half
+        assert!(!portals.overlaps(&blue(IVec3::new(3, 10, 0), FaceDirection::MinusZ)));
+        // On the +X face of the corner cell (3, 10, 0): its box would cut into orange's
+        let corner = blue(IVec3::new(3, 10, 1), FaceDirection::PlusX);
+        assert!(corner.cells().any(|cell| cell == IVec3::new(3, 10, 0)));
+        assert!(portals.overlaps(&corner));
+        // On the +X face of the cells beside, none of orange's
+        assert!(!portals.overlaps(&blue(IVec3::new(4, 10, 1), FaceDirection::PlusX)));
     }
 
     #[test]
