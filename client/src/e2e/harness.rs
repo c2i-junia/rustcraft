@@ -80,10 +80,16 @@ pub struct Harness {
     _watchdog: Watchdog,
 }
 
-/// How long a harness may live before the watchdog aborts the process.
-const LIFETIME: Duration = Duration::from_secs(300);
+/// How long a harness may live before the watchdog aborts the process: `E2E_LIFETIME_SECS`, for
+/// the long diagnoses run by hand (`portal_seam`), or 300 seconds.
+fn lifetime() -> Duration {
+    std::env::var("E2E_LIFETIME_SECS")
+        .ok()
+        .and_then(|secs| secs.parse().ok())
+        .map_or(Duration::from_secs(300), Duration::from_secs)
+}
 
-/// Aborts the process, saying which test it was, if its harness lives longer than [`LIFETIME`].
+/// Aborts the process, saying which test it was, if its harness lives longer than [`lifetime`].
 /// A frame stuck in the renderer cannot be timed out from the test thread, and would otherwise
 /// block the whole run.
 struct Watchdog(
@@ -117,8 +123,11 @@ impl Watchdog {
         let (done, wait) = std::sync::mpsc::channel();
         WATCHDOGS.with(|watchdogs| watchdogs.borrow_mut().push(Stop(done.clone())));
         std::thread::spawn(move || {
-            if wait.recv_timeout(LIFETIME) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-                eprintln!("the harness of {test} is stuck after {LIFETIME:?}: aborting");
+            if wait.recv_timeout(lifetime()) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                eprintln!(
+                    "the harness of {test} is stuck after {:?}: aborting",
+                    lifetime()
+                );
                 std::process::abort();
             }
         });

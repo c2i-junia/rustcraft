@@ -776,7 +776,7 @@ const WALLS_MOD: &str = r#"
 
 impl Harness {
     /// Sends `command` from the chat.
-    fn command(&mut self, command: &str) {
+    pub(super) fn command(&mut self, command: &str) {
         self.press(KeyCode::KeyT);
         self.type_text(command);
         self.press(KeyCode::Enter);
@@ -784,7 +784,7 @@ impl Harness {
 
     /// Sets the clock to the next noon (`day`) or midnight (`night`), and waits for it: for a
     /// third of a day around either, the sky stays the same colour.
-    fn set_time(&mut self, time: &str) {
+    pub(super) fn set_time(&mut self, time: &str) {
         self.command(&format!("/time set {time}"));
         let day = time == "day";
         self.wait_until("the hour", SERVER, |w| {
@@ -814,7 +814,7 @@ impl Harness {
     /// Turns the player's camera toward `point`, on a face of the block `cell`, and waits for it
     /// to aim at that block, as far as the portal gun aims.
     #[track_caller]
-    fn aim_at(&mut self, point: Vec3, cell: IVec3) {
+    pub(super) fn aim_at(&mut self, point: Vec3, cell: IVec3) {
         let world = self.world_mut();
         let eyes = world
             .query_filtered::<&Transform, With<CameraController>>()
@@ -847,7 +847,7 @@ impl Harness {
 }
 
 /// The portal of the local player of colour `color`, as the client knows it.
-fn own_portal(w: &World, color: PortalColor) -> Option<Portal> {
+pub(super) fn own_portal(w: &World, color: PortalColor) -> Option<Portal> {
     let mut players = w
         .try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
         .unwrap();
@@ -980,7 +980,7 @@ const COURSE_MOD: &str = r#"
 "#;
 
 /// The local player, as the client has it.
-fn local_player(w: &World) -> Option<Player> {
+pub(super) fn local_player(w: &World) -> Option<Player> {
     let mut players = w
         .try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
         .unwrap();
@@ -1308,7 +1308,7 @@ fn walking_through_a_portal_is_seamless() {
 /// and 5 high 8 blocks north, facing south, from a block below; `/landmark` builds a block of
 /// sand 3 blocks wide and 2 high, below the eyes, between 3 and 5 blocks north, in front of
 /// that wall.
-const FAR_MOD: &str = r#"
+pub(super) const FAR_MOD: &str = r#"
     local rc = rustcraft
     local function fill(p, x0, y0, z0, x1, y1, z1, block)
         for x = x0, x1 do

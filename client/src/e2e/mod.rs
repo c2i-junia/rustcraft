@@ -24,6 +24,7 @@ mod minimap;
 mod mobs;
 mod multi;
 mod pause;
+mod portal_seam;
 mod portals;
 mod raw_client;
 mod review;
