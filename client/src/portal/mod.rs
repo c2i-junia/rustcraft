@@ -728,6 +728,46 @@ mod tests {
     }
 
     #[test]
+    fn a_floor_portal_is_seen_through_from_above_and_its_box_lies_in_the_floor() {
+        // The blue portal on a floor, its plane y = 11, its up north, its centre (1, 11, -0.5)
+        let floor = Portal {
+            anchor: IVec3::new(0, 10, 0),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+            ..blue()
+        };
+        let mut app = app();
+        insert(&mut app, floor);
+        insert(&mut app, orange());
+        // Five blocks above it, looking straight down, the top of the view to the north
+        let above = Transform::from_xyz(1.0, 16.0, -0.5).looking_to(Vec3::NEG_Y, Vec3::NEG_Z);
+        place_player_camera(&mut app, above);
+        app.update();
+
+        let (transform, camera, _) = camera_of(&mut app, PortalColor::Blue).unwrap();
+        assert!(camera.is_active);
+        // Five blocks behind the orange portal, looking out of it, upright: the floor's up is
+        // the wall's
+        assert!(transform.translation.distance(Vec3::new(25.0, 11.5, 6.0)) < 1e-4);
+        assert!(transform.forward().distance(Vec3::NEG_X) < 1e-4);
+        assert!(transform.up().distance(Vec3::Y) < 1e-4);
+
+        // From under the floor, looking up at its back, the portal is not seen through
+        place_player_camera(
+            &mut app,
+            Transform::from_xyz(1.0, 6.0, -0.5).looking_to(Vec3::Y, Vec3::NEG_Z),
+        );
+        app.update();
+        assert!(!camera_of(&mut app, PortalColor::Blue).unwrap().1.is_active);
+
+        // Its box is hollowed into the top half of the floor cells, within the opening
+        for corner in box_corners(&floor) {
+            assert!(corner.y > 10.5 - 1e-4 && corner.y < 11.0, "{corner}");
+            assert!((0.0..=2.0).contains(&corner.x) && (-2.0..=1.0).contains(&corner.z));
+        }
+    }
+
+    #[test]
     fn a_portal_off_screen_or_seen_from_behind_has_its_camera_inactive() {
         let mut app = app();
         insert(&mut app, blue());
