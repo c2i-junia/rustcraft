@@ -68,6 +68,14 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    data/graphics/hud/furnace_arrow.png), the pack's
    gui/sprites/container/furnace/{lit_progress,burn_progress}.png, and their silhouettes
    (furnace_*_empty.png), drawn white from them.
+-> The textures of the ingots, the diamond and the charcoal (items/IronIngot.png,
+   items/GoldIngot.png, items/Diamond.png, items/Charcoal.png), of the stone, iron, golden and
+   diamond tools (items/{Stone,Iron,Golden,Diamond}{Pickaxe,Axe,Shovel,Hoe,Sword}.png), of the
+   diamond ore and of the iron, gold and diamond blocks (blocks/DiamondOre.png,
+   blocks/IronBlock.png, blocks/GoldBlock.png, blocks/DiamondBlock.png), the pack's
+   item/{iron_ingot,gold_ingot,diamond,charcoal}.png, item/{stone,iron,golden,diamond}_*.png
+   and block/{diamond_ore,iron_block,gold_block,diamond_block}.png. The coal, iron and gold
+   ores (blocks/CoalOre.png, blocks/IronOre.png, blocks/GoldOre.png) were already the pack's.
 
 ---- OTHER ----
 logo : 
