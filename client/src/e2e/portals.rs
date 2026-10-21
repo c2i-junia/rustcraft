@@ -474,29 +474,31 @@ fn bench_portal_frame_time() {
     }
 }
 
-/// The time a frame takes between the facing portals, render distance 8, the screen drawn into
-/// an image: looking into the blue portal with recursion 3 and with recursion 1, and away from
-/// both, in turns over several rounds. Then the frame on which the views of the blue portal
-/// start, looking back at it after 10 frames looking west, when every chunk is culled on the CPU for a
-/// frame (`show_chunks_to_new_views`), and the frame after it, when they get their
-/// `NoCpuCulling` back, against the frames in view. `BENCH_GPU=1` draws on the GPU instead of
-/// lavapipe.
+/// The time a frame takes between the facing portals, render distance 8 (4 on lavapipe), the
+/// screen drawn into an image: looking into the blue portal with recursion 3 and with recursion
+/// 1, and away from both, in turns over several rounds. Then the frame on which the views of
+/// the blue portal start, looking back at it after 10 frames looking west, when every chunk is
+/// culled on the CPU for a frame (`show_chunks_to_new_views`), and the frame after it, when they
+/// get their `NoCpuCulling` back, against the frames in view. `BENCH_GPU=1` draws on the GPU
+/// instead of lavapipe.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_portal_recursion_frame_time() {
     use crate::portal::PortalRecursion;
+    // Lavapipe draws fewer chunks and frames, within the harness's 300 s
+    let gpu = std::env::var_os("BENCH_GPU").is_some();
+    let (distance, rounds, warm, frames, starts) = if gpu {
+        (8, 6, 20, 300, 60)
+    } else {
+        (4, 2, 5, 10, 5)
+    };
     let folder = GameFolder::new()
-        .with_file("video.ron", "(render_distance: 8)")
+        .with_file("video.ron", &format!("(render_distance: {distance})"))
         .with_world("Facing");
     let mut h = enter_world(folder, "Facing");
     build_facing_scene(&mut h);
     let target = h.target.clone();
     h.set_camera_targets(RenderTarget::Image(target.into()));
-    let (rounds, frames, starts) = if std::env::var_os("BENCH_GPU").is_some() {
-        (6, 300, 60)
-    } else {
-        (3, 20, 10)
-    };
     let time = |h: &mut Harness| {
         let start = Instant::now();
         h.frames(1);
@@ -513,7 +515,7 @@ fn bench_portal_recursion_frame_time() {
         for (case, (_, depth, yaw)) in cases.iter().enumerate() {
             h.world_mut().insert_resource(PortalRecursion(*depth));
             look(&mut h, *yaw);
-            h.frames(20);
+            h.frames(warm);
             for _ in 0..frames {
                 samples[case].push(time(&mut h));
             }
