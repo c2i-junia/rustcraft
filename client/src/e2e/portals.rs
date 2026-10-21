@@ -1531,12 +1531,19 @@ fn the_view_through_a_portal_reaches_a_far_place() {
 
     // At night too: the fog follows the sky, which the clear colours of both cameras are. The
     // stars, which twinkle on a pixel or two here and there, are hidden: one would spoil a
-    // pixel of the sky checked
+    // pixel of the sky checked. On no layer, as their visibility is set on every frame
+    // (`underwater_fog_system`)
     h.set_time("night");
     let world = h.world_mut();
-    let mut stars = world.query_filtered::<&mut Visibility, With<Stars>>();
-    for mut visibility in stars.iter_mut(world) {
-        *visibility = Visibility::Hidden;
+    let stars: Vec<Entity> = world
+        .query_filtered::<Entity, With<Stars>>()
+        .iter(world)
+        .collect();
+    assert!(!stars.is_empty());
+    for star in stars {
+        world
+            .entity_mut(star)
+            .insert(bevy::camera::visibility::RenderLayers::none());
     }
     h.frames(10);
     let shot = h.screenshot();
