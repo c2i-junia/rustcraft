@@ -271,7 +271,11 @@ or push.
     without Shift, with an empty cursor, on a slot holding a stack, as the client sees it; a
     Shift+press on a slot holding a stack records its item for the Shift+double click. Any
     other press on a cell, on the result or elsewhere forgets the last press, and a double click
-    uses it up: a third press is a single one.
+    uses it up: a third press is a single one. The second press is a double click
+    (`CollectAll`) only when the held stack has room (`nb` below its item's max stack);
+    otherwise, a tool or a full stack, it is a plain press, the start of a drag whose release
+    puts the stack back or swaps it, so that picking a pickaxe up and putting it back quickly
+    does not thud. (Ruling of the whole-branch review.)
 11. (Lot 1) Shift changes only the left button and Enter, as on the cells: Shift+right click and
     Shift+Space on the result take it once. A number key goes to the result as to a cell: the
     ringed result while the ring shows, the hovered one otherwise.

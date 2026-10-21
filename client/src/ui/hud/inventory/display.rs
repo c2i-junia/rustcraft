@@ -2230,6 +2230,34 @@ mod tests {
     }
 
     #[test]
+    fn a_quick_second_press_with_a_full_stack_puts_it_back() {
+        let pickaxe = ItemStack {
+            item_id: ItemId::WoodenPickaxe,
+            item_type: ItemType::Tool { wear: 0 },
+            nb: 1,
+        };
+        for full in [pickaxe, dirt_stack(64)] {
+            let mut hud = Hud::new(Visibility::Visible, &[9]);
+            hud.world.resource_mut::<Inventory>().inner.insert(9, full);
+            hud.click(9, MouseButton::Left);
+            hud.world.resource_mut::<Inventory>().inner.remove(&9);
+            hud.hold(Some(full));
+            hud.wait(100);
+            // The cursor has no room to gather into: the press is a click, which puts it back
+            hud.click(9, MouseButton::Left);
+            assert_eq!(
+                hud.sent_actions(),
+                [
+                    InventoryAction::LeftClickSlot(9),
+                    InventoryAction::LeftClickSlot(9)
+                ],
+                "{:?}",
+                full.item_id
+            );
+        }
+    }
+
+    #[test]
     fn a_shift_double_click_moves_every_stack_of_the_item_it_moved() {
         let mut hud = Hud::new(Visibility::Visible, &[9]);
         hud.world

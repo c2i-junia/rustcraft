@@ -221,6 +221,27 @@ fn a_double_click_gathers_the_smallest_stacks_onto_the_cursor() {
     h.wait_until("a full stack held", SERVER, gathered);
     h.frames(30);
     assert!(gathered(h.world()));
+
+    // Put back, then picked up and put back quickly: a full stack has no room to gather into
+    put_down(&mut h, 9, planks);
+    with_steady_clock(&mut h, |h| {
+        for _ in 0..2 {
+            h.button_down(MouseButton::Left);
+            h.button_up(MouseButton::Left);
+        }
+    });
+    let put_back = |w: &World| slot(w, 9) == Some((planks, 64)) && floating(w).is_none();
+    h.wait_until("the full stack put back", SERVER, put_back);
+    h.frames(30);
+    assert!(put_back(h.world()));
+}
+
+/// Clicks the cell of `slot_id` with a full stack of `item` held and waits until it is there.
+fn put_down(h: &mut Harness, slot_id: u32, item: ItemId) {
+    h.click(&L::cell(slot_id));
+    h.wait_until("the stack put down", SERVER, |w| {
+        slot(w, slot_id) == Some((item, 64)) && floating(w).is_none()
+    });
 }
 
 #[test]

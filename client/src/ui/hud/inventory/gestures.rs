@@ -116,8 +116,9 @@ pub struct CellGestures {
 impl CellGestures {
     /// What a press of `button` on the cell of `slot`, at `now`, sends at once, the cursor
     /// holding `held` and the slot `in_slot`. With a held stack it starts a drag and sends
-    /// nothing, unless it ends a double click; Shift turns the left button into a move of the
-    /// whole stack, which starts a Shift+drag when the cursor is empty.
+    /// nothing, unless it ends a double click, which needs room on the cursor to gather into;
+    /// Shift turns the left button into a move of the whole stack, which starts a Shift+drag
+    /// when the cursor is empty.
     pub fn press(
         &mut self,
         slot: u32,
@@ -148,8 +149,10 @@ impl CellGestures {
             self.last_press = in_slot.map(|stack| remember(Pressed::ShiftMoved(stack.item_id)));
             return Some(InventoryAction::QuickMoveSlot(slot));
         }
-        if held.is_some() {
-            if left && last == Some(Pressed::PickedUp) {
+        if let Some(held) = held {
+            // A full stack, a tool for one, gathers nothing: the press puts it back
+            let room = held.nb < held.item_id.get_max_stack();
+            if left && last == Some(Pressed::PickedUp) && room {
                 return Some(InventoryAction::CollectAll);
             }
             self.drag = Some(CellDrag {
