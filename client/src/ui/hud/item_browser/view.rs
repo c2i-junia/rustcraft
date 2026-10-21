@@ -23,9 +23,9 @@ use super::recipes::{
 };
 use super::{
     BackButton, BookmarkBar, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
-    FillGridButton, ItemBrowserState, ItemCount, ItemView, MissingTint, RecipeCard, RecipeCards,
-    RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TagCell, ViewedItem,
-    ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
+    FillGridButton, ItemBrowserState, ItemCount, ItemView, MissingTint, RecentBar, RecipeCard,
+    RecipeCards, RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip,
+    TagCell, ViewedItem, ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
 };
 use crate::ui::hud::inventory::{grid_in_use, lit_flame, stack_in};
 use crate::ui::hud::{item_name, CraftResultCell, InventoryCell, InventoryRoot, UIMode};
@@ -585,7 +585,8 @@ fn spawn_fuel_card(
 #[derive(bevy::ecs::system::SystemParam)]
 pub struct ViewParts<'w, 's> {
     catalog_parts: Query<'w, 's, &'static mut Node, (With<CatalogPart>, Without<RecipePanel>)>,
-    catalog_roots: Query<'w, 's, Entity, Or<(With<CatalogPart>, With<BookmarkBar>)>>,
+    catalog_roots:
+        Query<'w, 's, Entity, Or<(With<CatalogPart>, With<BookmarkBar>, With<RecentBar>)>>,
     panel: Single<'w, 's, (Entity, &'static mut Node), (With<RecipePanel>, Without<CatalogPart>)>,
     texts: Query<
         'w,
@@ -718,7 +719,8 @@ pub fn show_view(
     if built.0 == Some(view) {
         return;
     }
-    // the search and the bookmarks too, after Enter in the search or on a bookmark
+    // the search, the bookmarks and the recent crafts too, after Enter in the search or on a
+    // bookmark
     let catalog_focused = parts.catalog_roots.iter().any(inside);
     if inside(cards) || catalog_focused {
         focus.set(*parts.back, FocusCause::Navigated);

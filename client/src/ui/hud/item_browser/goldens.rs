@@ -6,8 +6,9 @@ use bevy::prelude::*;
 use shared::players::{game_mode::GameMode, Inventory, Player};
 use shared::world::{ItemId, ItemStack};
 
-use super::bookmarks::{show_bookmarks, Bookmarks};
+use super::bookmarks::{show_shelf, Bookmarks};
 use super::layout::BrowserLayout;
+use super::recent::RecentCrafts;
 use super::{
     filter_catalog, layout_item_browser, mark_craftable_items, setup_item_browser,
     show_item_browser, show_item_icons, show_mode_footer, show_view, style_chips,
@@ -32,6 +33,7 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
     golden.world_mut().init_resource::<BrowserLayout>();
     golden.world_mut().init_resource::<CraftableNow>();
     golden.world_mut().init_resource::<Bookmarks>();
+    golden.world_mut().init_resource::<RecentCrafts>();
     golden
         .world_mut()
         .init_resource::<crate::ui::hud::CellGestures>();
@@ -65,7 +67,8 @@ fn show_frames(golden: &mut UiGolden) {
         golden.run_system(mark_craftable_items);
         golden.run_system(show_mode_footer);
         golden.run_system(show_view);
-        golden.run_system(show_bookmarks);
+        golden.run_system(show_shelf::<Bookmarks>);
+        golden.run_system(show_shelf::<RecentCrafts>);
         golden.run_system(show_item_icons);
         golden.run_system(mark_craftable_items);
         golden.run_system(style_recipe_cards);

@@ -26,7 +26,7 @@ use super::{
     BackButton, BookmarkSlot, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
     CraftableChip, CraftableDot, CraftableNow, DrawerHandle, ItemBrowser, ItemBrowserState,
     ItemCount, ItemSearchField, ItemView, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
-    RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TagCell, TrashSlot,
+    RecentSlot, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TagCell, TrashSlot,
 };
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
@@ -133,13 +133,13 @@ pub fn show_item_icons(
 }
 
 /// Shows the slots of the items the search and the category keep, and in Survival the Craftable
-/// chip, how many they are, and what the catalog says when there is none. The bookmarks are
-/// neither searched nor counted.
+/// chip, how many they are, and what the catalog says when there is none. The bookmarks and the
+/// recent crafts are neither searched nor counted.
 #[allow(clippy::type_complexity)]
 pub fn filter_catalog(
     state: Res<ItemBrowserState>,
     craftable: Res<CraftableNow>,
-    mut slots: Query<(&CatalogSlot, &mut Node), Without<BookmarkSlot>>,
+    mut slots: Query<(&CatalogSlot, &mut Node), (Without<BookmarkSlot>, Without<RecentSlot>)>,
     mut no_match: Query<&mut Node, (With<NoMatch>, Without<CatalogSlot>)>,
     mut count: Query<&mut Text, With<ItemCount>>,
     mut message: Query<&mut Text, (With<NoMatchMessage>, Without<ItemCount>)>,
@@ -886,6 +886,17 @@ mod tests {
         set_search(&mut world, "oak", None);
         assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 72");
         assert_eq!(world.get::<Node>(bookmark).unwrap().display, Display::Flex);
+    }
+
+    #[test]
+    fn recent_slots_are_neither_searched_nor_counted() {
+        let mut world = browser(Visibility::Visible);
+        let recent = world
+            .spawn((CatalogSlot(ItemId::Torch), RecentSlot, Node::default()))
+            .id();
+        set_search(&mut world, "oak", None);
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 72");
+        assert_eq!(world.get::<Node>(recent).unwrap().display, Display::Flex);
     }
 
     /// The tab indices of the field, the chip and the slots, in that order.

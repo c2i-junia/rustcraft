@@ -12,7 +12,7 @@ use shared::world::ItemId;
 use shared::GameFolderPaths;
 
 use super::setup::spawn_catalog_slot;
-use super::{BookmarkBar, BookmarkRow, BookmarkSlot, CatalogSlot, ItemBrowserState};
+use super::{BookmarkBar, BookmarkRow, BookmarkSlot, CatalogSlot, ItemBrowserState, RecentSlot};
 use crate::constants::ITEM_BROWSER_PATH;
 use crate::network::session::SessionOrigin;
 use crate::ui::assets::load_font;
@@ -141,23 +141,51 @@ pub fn load_bookmarks(
     *bookmarks = Bookmarks { key, items };
 }
 
-/// Shows the bookmarks above the catalog while there is one and no view shows, and rebuilds their
-/// slots when the list changes. A focus on a slot that goes moves to the new slot of its item,
-/// else to its slot in the grid.
+impl Shelf for Bookmarks {
+    type Bar = BookmarkBar;
+    type Row = BookmarkRow;
+    type Slot = BookmarkSlot;
+
+    fn items(&self) -> &[ItemId] {
+        &self.items
+    }
+}
+
+/// A row of catalog slots above the grid of the catalog, holding the items of a list: the
+/// bookmarks, the recent crafts.
+pub trait Shelf: Resource {
+    /// The label and the row, shown together.
+    type Bar: Component;
+    /// The row the slots are in.
+    type Row: Component;
+    /// What marks its slots apart from the grid's.
+    type Slot: Component + Default;
+
+    /// The items of its slots, in order.
+    fn items(&self) -> &[ItemId];
+}
+
+/// Shows the row of a shelf above the catalog while it holds an item and no view shows, and
+/// rebuilds its slots when its list changes. A focus on a slot that goes moves to the new slot of
+/// its item, else to its slot in the grid.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub fn show_bookmarks(
-    bookmarks: Res<Bookmarks>,
+pub fn show_shelf<S: Shelf>(
+    shelf: Res<S>,
     state: Res<ItemBrowserState>,
     materials: Res<MaterialResource>,
     asset_server: Res<AssetServer>,
-    mut bar: Single<&mut Node, With<BookmarkBar>>,
-    row: Single<(Entity, Option<&Children>), With<BookmarkRow>>,
-    shown: Query<&CatalogSlot, With<BookmarkSlot>>,
-    grid: Query<(Entity, &CatalogSlot, &Node), (Without<BookmarkSlot>, Without<BookmarkBar>)>,
+    mut bar: Single<&mut Node, With<S::Bar>>,
+    row: Single<(Entity, Option<&Children>), With<S::Row>>,
+    shown: Query<&CatalogSlot, With<S::Slot>>,
+    grid: Query<
+        (Entity, &CatalogSlot, &Node),
+        (Without<BookmarkSlot>, Without<RecentSlot>, Without<S::Bar>),
+    >,
     mut focus: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
-    let display = if bookmarks.items.is_empty() || state.view.is_some() {
+    let items = shelf.items();
+    let display = if items.is_empty() || state.view.is_some() {
         Display::None
     } else {
         Display::Flex
@@ -175,7 +203,7 @@ pub fn show_bookmarks(
     if slots
         .iter()
         .map(|&(_, item)| item)
-        .eq(bookmarks.items.iter().copied())
+        .eq(items.iter().copied())
     {
         return;
     }
@@ -189,9 +217,9 @@ pub fn show_bookmarks(
         .map(|&(_, item)| item);
     commands.entity(row).despawn_related::<Children>();
     let mut refocus = None;
-    for &item in &bookmarks.items {
+    for &item in items {
         let slot = spawn_catalog_slot(&mut commands, row, item, atlas, &font);
-        commands.entity(slot).insert(BookmarkSlot);
+        commands.entity(slot).insert(S::Slot::default());
         if focused == Some(item) {
             refocus = Some(slot);
         }

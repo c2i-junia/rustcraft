@@ -5,7 +5,8 @@
 //! It is also the recipe book: the recipes or the uses of an item replace the catalog in the same
 //! panel, from a click on an item in Survival or from R / U over any item slot, and its cards fill
 //! the crafting grid. A over any item slot bookmarks its item, for the world being played. In Creative, items come out of the catalog, and go back into it to be
-//! destroyed.
+//! destroyed. Ctrl+click on an item fills the grid at once, and the items crafted lately are at
+//! hand under the bookmarks.
 
 use bevy::prelude::*;
 use shared::world::{Ingredient, ItemCategory, ItemId, ItemTag};
@@ -22,6 +23,7 @@ pub mod express;
 #[cfg(test)]
 pub(crate) mod goldens;
 pub mod layout;
+pub mod recent;
 pub mod recipes;
 mod setup;
 mod view;
@@ -126,8 +128,22 @@ pub struct BookmarkBar;
 pub struct BookmarkRow;
 
 /// A slot of the row of bookmarks. It is also the `CatalogSlot` of its item, and acts as one.
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct BookmarkSlot;
+
+/// The items crafted lately, under the bookmarks: their label and their row, shown while there
+/// is one and the catalog shows.
+#[derive(Component)]
+pub struct RecentBar;
+
+/// The row of the slots of the recent crafts, which wraps.
+#[derive(Component)]
+pub struct RecentRow;
+
+/// A slot of the row of recent crafts. It is also the `CatalogSlot` of its item, and acts as
+/// one.
+#[derive(Component, Default)]
+pub struct RecentSlot;
 
 /// What the catalog says when nothing matches the search.
 #[derive(Component)]
@@ -261,12 +277,20 @@ pub fn item_browser_plugin(app: &mut App) {
         .init_resource::<CraftableNow>()
         .init_resource::<BrowserRequests>()
         .init_resource::<bookmarks::Bookmarks>()
+        .init_resource::<recent::RecentCrafts>()
         .add_systems(
             OnEnter(GameState::Game),
             (
                 setup_item_browser.after(crate::ui::hud::setup_inventory),
                 bookmarks::load_bookmarks,
+                recent::forget_recent_crafts,
             ),
+        )
+        .add_systems(
+            Update,
+            recent::remember_crafts
+                .after(GameSet::Simulation)
+                .run_if(in_state(GameState::Game)),
         )
         .add_systems(
             Update,
@@ -292,10 +316,15 @@ pub fn item_browser_plugin(app: &mut App) {
                         .or_else(any_match_filter::<Added<RecipePanel>>),
                 ),
                 cycle_tag_cells,
-                bookmarks::show_bookmarks.run_if(
+                bookmarks::show_shelf::<bookmarks::Bookmarks>.run_if(
                     resource_changed::<ItemBrowserState>
                         .or_else(resource_changed::<bookmarks::Bookmarks>)
                         .or_else(any_match_filter::<Added<BookmarkRow>>),
+                ),
+                bookmarks::show_shelf::<recent::RecentCrafts>.run_if(
+                    resource_changed::<ItemBrowserState>
+                        .or_else(resource_changed::<recent::RecentCrafts>)
+                        .or_else(any_match_filter::<Added<RecentRow>>),
                 ),
                 style_recipe_cards.run_if(
                     resource_changed::<shared::players::Inventory>

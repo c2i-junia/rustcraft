@@ -13,7 +13,7 @@ use super::{
     submit_search, toggle_craftable, BookmarkBar, BookmarkRow, BrowserTitle, CatalogGrid,
     CatalogList, CatalogPart, CatalogSlot, CategoryChip, CraftableChip, CraftableDot, DrawerHandle,
     ItemBrowser, ItemBrowserState, ItemCount, ItemSearchField, ModeFooter, NoMatch, NoMatchHint,
-    NoMatchMessage, TrashSlot, ITEM_BROWSER_TITLE, SEARCH_LABEL,
+    NoMatchMessage, RecentBar, RecentRow, TrashSlot, ITEM_BROWSER_TITLE, SEARCH_LABEL,
 };
 use crate::ui::assets::{load_font, MONO_FONT_PATH};
 use crate::ui::hud::{item_name, HudBottom};
@@ -130,6 +130,7 @@ pub fn setup_item_browser(
     spawn_search_field(&mut commands, panel, &state, &font, &glyph_font);
     spawn_chips(&mut commands, panel, &font);
     spawn_bookmark_bar(&mut commands, panel, &font);
+    spawn_recent_bar(&mut commands, panel, &font);
     spawn_grid(&mut commands, panel, atlas, &font);
     spawn_recipe_panel(&mut commands, panel, atlas, &font, &glyph_font);
 
@@ -339,6 +340,8 @@ fn spawn_search_field(
 
 /// The label of the bookmarks, and of their row.
 pub const BOOKMARKS_LABEL: &str = "Bookmarks";
+/// The label of the recent crafts, and of their row.
+pub const RECENT_LABEL: &str = "Recent";
 
 /// The category chips, All first, then Craftable: they wrap, so that every one is in view.
 fn spawn_chips(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
@@ -458,10 +461,34 @@ pub(super) fn spawn_catalog_slot(
 }
 
 /// The bookmarks, hidden until there is one: a label over a row of slots, which wraps as the
-/// chips do. `show_bookmarks` fills the row.
+/// chips do. `show_shelf` fills the row.
 fn spawn_bookmark_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
-    commands.spawn((
+    spawn_shelf_bar(
+        commands,
+        panel,
+        font,
+        BOOKMARKS_LABEL,
         BookmarkBar,
+        BookmarkRow,
+    );
+}
+
+/// The recent crafts, under the bookmarks, hidden until there is one, as the bookmarks.
+fn spawn_recent_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font>) {
+    spawn_shelf_bar(commands, panel, font, RECENT_LABEL, RecentBar, RecentRow);
+}
+
+/// A shelf of the catalog named `name`, hidden: `bar`, a label over `row`, which wraps.
+fn spawn_shelf_bar(
+    commands: &mut Commands,
+    panel: Entity,
+    font: &Handle<Font>,
+    name: &'static str,
+    bar: impl Component,
+    row: impl Component,
+) {
+    commands.spawn((
+        bar,
         Node {
             display: Display::None,
             flex_shrink: 0.0,
@@ -471,12 +498,12 @@ fn spawn_bookmark_bar(commands: &mut Commands, panel: Entity, font: &Handle<Font
         },
         ChildOf(panel),
         children![
-            label(BOOKMARKS_LABEL, font, FONT_S, MUTED),
+            label(name, font, FONT_S, MUTED),
             (
-                BookmarkRow,
+                row,
                 // the role before the label: the label's default node must not win
                 AccessibilityNode(accesskit::Node::new(Role::Grid)),
-                AccessibleLabel::new(BOOKMARKS_LABEL),
+                AccessibleLabel::new(name),
                 Node {
                     flex_wrap: FlexWrap::Wrap,
                     column_gap: px(SPACE_XS),
