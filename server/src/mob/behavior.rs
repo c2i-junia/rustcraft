@@ -1116,6 +1116,89 @@ mod tests {
         assert!(!map.chunks.check_collision_box(&hitbox(sheep)));
     }
 
+    /// A sheep resting in the air at `position`, which does not start a walk.
+    fn dropped_sheep(position: Vec3) -> ServerMob {
+        ServerMob {
+            action: MobAction::Idle,
+            action_ticks: u32::MAX,
+            ..ServerMob::new(MobKind::Sheep, position)
+        }
+    }
+
+    #[test]
+    fn a_sheep_dropped_from_high_into_a_floor_portal_comes_out_clear_of_blocks() {
+        // A wall two blocks in front of the orange portal: its front cells are clear, the next
+        // ones are not
+        let mut map = portal_world(true);
+        map.chunks
+            .fill_box(IVec3::new(6, 1, -2), IVec3::new(6, 4, 3), BlockId::Stone);
+        // The chunks above the portal, for the sheep to fall from 20 blocks up
+        for (x, z) in [(0, -1), (0, 0)] {
+            map.chunks
+                .insert_chunk(IVec3::new(x, 1, z), shared::world::Chunk::new());
+        }
+        map.mobs.insert(0, dropped_sheep(Vec3::new(1.0, 21.0, -0.5)));
+        let before = step_through(&mut map);
+        assert!(before.velocity.y < -30.0, "{}", before.velocity);
+        let sheep = map.mobs[&0].clone();
+        assert!(
+            !collides_at(&sheep, &map.chunks, sheep.position),
+            "{}",
+            sheep.position
+        );
+        // It flies west into the wall, and falls to its foot
+        for _ in 0..2 * TICKS_PER_SECOND {
+            run_ticks(&mut map, 1);
+            let sheep = &map.mobs[&0];
+            assert!(
+                !collides_at(sheep, &map.chunks, sheep.position),
+                "{}",
+                sheep.position
+            );
+        }
+        let sheep = &map.mobs[&0];
+        assert_eq!(sheep.passes, 1);
+        let standing = ServerMob::standing_at(MobKind::Sheep, 0.0, 1.0, 0.0).y;
+        assert!(
+            (sheep.position.y - standing).abs() < 0.1 && sheep.position.x > 7.0,
+            "{}",
+            sheep.position
+        );
+    }
+
+    #[test]
+    fn a_sheep_falling_for_long_between_a_floor_and_a_ceiling_portal_never_ends_in_a_block() {
+        // A stone ceiling 3 blocks above the ground, the orange portal under it, above the blue
+        // one on the ground: what falls into the floor falls out of the ceiling, faster and faster
+        let mut map = portal_world(true);
+        map.chunks
+            .fill_box(IVec3::new(-3, 4, -4), IVec3::new(4, 4, 3), BlockId::Stone);
+        map.chunks.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(1, 4, 0),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::MinusZ,
+        });
+        map.mobs.insert(0, dropped_sheep(Vec3::new(1.0, 2.0, -0.5)));
+        let mut passes = 0;
+        for tick in 0..10 * TICKS_PER_SECOND {
+            run_ticks(&mut map, 1);
+            let sheep = &map.mobs[&0];
+            assert!(
+                !collides_at(sheep, &map.chunks, sheep.position),
+                "tick {tick}: {} at {}",
+                sheep.position,
+                sheep.velocity
+            );
+            passes = sheep.passes;
+        }
+        // Still falling, through the pair again and again
+        assert!(passes > 50, "{passes}");
+        let sheep = &map.mobs[&0];
+        assert!(!sheep.on_ground, "{}", sheep.position);
+    }
+
     fn player_at(id: PlayerId, position: Vec3) -> Player {
         Player::new(
             id,

@@ -22,6 +22,10 @@ pub const PORTAL_HEIGHT: i32 = 3;
 /// behind, in the wall. Less than the inset of the portal's box (2 mm) on the client, so that
 /// an eye in front never is behind the front face of that box.
 pub const PORTAL_SLACK: f32 = 1e-3;
+/// How far in front of a portal at most the centre of an entity comes out of it, in blocks: the
+/// longest step of a player's move. A faster entity drops the rest of its move, as a player
+/// does, rather than come out beyond the cleared front of the portal, inside a block.
+pub const MAX_EXIT_DEPTH: f32 = 0.5;
 
 /// Append only, like `ItemId`: network messages carry the position of the variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -276,7 +280,10 @@ impl Portals {
     /// the half extents of the box, so that the box fits the opening: a box falling into a
     /// floor portal near one end comes out of a wall portal within the opening, not in the wall
     /// under it. A box that went into a portal fitted its opening, which the same shape on a
-    /// wall keeps it doing.
+    /// wall keeps it doing. Nor does the centre come out deeper in front of the twin than
+    /// `MAX_EXIT_DEPTH`, or than keeps the box within the block in front of the wall, which a
+    /// portal keeps clear (`Portal::fits`): what went in fast drops the rest of its move, as a
+    /// player's step into a portal does, rather than come out inside a block.
     pub fn pass(&self, from: Vec3, to: Vec3, extents: Vec3) -> Option<Passage> {
         let portal = self.crossed(from, to)?;
         let (through, twin) = (self.through(portal)?, self.twin(portal)?);
@@ -286,11 +293,14 @@ impl Portals {
             room(twin.right(), PORTAL_WIDTH),
             room(twin.up(), PORTAL_HEIGHT),
         );
+        // In front by more than the slack, whatever the box
+        let deep =
+            (1.0 - twin.normal().abs().dot(extents)).clamp(2.0 * PORTAL_SLACK, MAX_EXIT_DEPTH);
         let out = twin.local(through.transform_point3(to));
         let out = Vec3::new(
             out.x.clamp(-across, across),
             out.y.clamp(-high, high),
-            out.z,
+            out.z.min(deep),
         );
         Some(Passage {
             through,
@@ -634,6 +644,48 @@ mod tests {
         let (from, to) = (Vec3::new(1.0, 11.1, -1.9), Vec3::new(1.0, 10.9, -1.9));
         let passage = portals.pass(from, to, extents).unwrap();
         assert_near(passage.position, Vec3::new(21.0, 12.1, 5.9 + 0.2));
+    }
+
+    #[test]
+    fn a_fast_centre_comes_out_no_deeper_than_the_cleared_front_of_the_twin() {
+        // Three blocks into the floor in one move, out of the wall: half a block in front of it,
+        // the rest of the move dropped, its box within the front cells (z 6..7)
+        let portals = floor_and_wall();
+        let wall = *portals.get(7, PortalColor::Orange).unwrap();
+        let (from, to) = (Vec3::new(1.0, 11.1, -0.5), Vec3::new(1.0, 8.0, -0.5));
+        let passage = portals.pass(from, to, Vec3::new(0.3, 0.9, 0.3)).unwrap();
+        assert!(
+            (wall.signed_distance(passage.position) - MAX_EXIT_DEPTH).abs() < 1e-4,
+            "{}",
+            passage.position
+        );
+        // A tall box out of a ceiling: its far end no further than the block in front
+        let mut portals = floor_and_wall();
+        let ceiling = Portal {
+            up: FaceDirection::PlusX,
+            ..portal(
+                PortalColor::Orange,
+                IVec3::new(20, 30, 5),
+                FaceDirection::MinusY,
+            )
+        };
+        portals.insert(ceiling);
+        for extents in [Vec3::new(0.3, 0.9, 0.3), Vec3::new(0.45, 0.625, 0.45)] {
+            let passage = portals.pass(from, to, extents).unwrap();
+            let depth = ceiling.signed_distance(passage.position);
+            assert!(depth > PORTAL_SLACK, "{extents}: {depth}");
+            assert!(depth + extents.y <= 1.0 + 1e-4, "{extents}: {depth}");
+        }
+        // A slow one keeps where it went
+        let to = Vec3::new(1.0, 10.95, -0.5);
+        let passage = portals.pass(from, to, Vec3::new(0.3, 0.9, 0.3)).unwrap();
+        assert_near(
+            passage.position,
+            portals
+                .through(portals.get(7, PortalColor::Blue).unwrap())
+                .unwrap()
+                .transform_point3(to),
+        );
     }
 
     #[test]
