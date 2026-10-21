@@ -9,7 +9,7 @@ use crate::{
             WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
         },
     },
-    world::{world_position_to_chunk_position, BlockId, ChunkMap, PORTAL_HEIGHT, PORTAL_WIDTH},
+    world::{world_position_to_chunk_position, BlockId, ChunkMap, Passage},
 };
 use bevy::{math::Affine3A, prelude::*};
 
@@ -171,35 +171,16 @@ pub fn simulate_player_movement(
     }
 }
 
-/// Takes the player through the open portal its centre went into on its way from `from`: its
-/// position, its velocity and its camera go through the portal (`Portals::through`), and come
-/// out of the twin turned with it. The camera keeps where it looks, set upright, and is
-/// returned.
-///
-/// Out of the twin, the centre is kept within its opening shrunk by the half extents of the
-/// box, so that the box fits the opening: a player falling into a floor portal near one end
-/// comes out of a wall portal with its feet in the opening, not in the wall under it. A box
-/// that went into a portal fitted its opening, which the same shape on a wall keeps it doing.
-/// The eyes keep their height above the centre.
+/// Takes the player through the open portal its centre went into on its way from `from`
+/// (`Portals::pass`, which keeps its box within the twin's opening): its position, its
+/// velocity and its camera go through the portal, and come out of the twin turned with it. The
+/// camera keeps where it looks, set upright, and is returned. The eyes keep their height above
+/// the centre.
 fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) -> Option<Look> {
-    let portals = world_map.portals();
-    let portal = portals.crossed(from, player.position)?;
-    let (through, twin) = (portals.through(portal)?, portals.twin(portal)?);
-    let eyes = player.camera_transform.translation - player.position;
-
     let extents = Vec3::new(player.width, player.height, player.width) / 2.0;
-    let room = |side: Vec3, length: i32| (length as f32 / 2.0 - side.abs().dot(extents)).max(0.0);
-    let (across, high) = (
-        room(twin.right(), PORTAL_WIDTH),
-        room(twin.up(), PORTAL_HEIGHT),
-    );
-    let out = twin.local(through.transform_point3(player.position));
-    let out = Vec3::new(
-        out.x.clamp(-across, across),
-        out.y.clamp(-high, high),
-        out.z,
-    );
-    player.position = twin.frame().transform_point3(out);
+    let Passage { through, position } = world_map.portals().pass(from, player.position, extents)?;
+    let eyes = player.camera_transform.translation - player.position;
+    player.position = position;
     player.velocity = through.transform_vector3(player.velocity);
     // The speed goes through, not the height: a fall into a floor portal does not hurt out of
     // a wall
@@ -425,17 +406,11 @@ fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) -> Opt
 }
 
 /// Whether the centre of `player` goes, moving to `candidate`, into an open portal that lets it
-/// through (`Portals::letting_through`): the move is then made whatever lies behind the wall
-/// cells, as a floor thicker than a block does under a floor portal, and is the crossing.
+/// through (`Portals::goes_into`).
 fn goes_into_portal(player: &Player, world_map: &ChunkMap, candidate: Vec3) -> bool {
-    let portals = world_map.portals();
-    portals
-        .crossed(player.position, candidate)
-        .is_some_and(|crossed| {
-            portals
-                .letting_through(player.position, player.width / 2.0)
-                .any(|open| open == crossed)
-        })
+    world_map
+        .portals()
+        .goes_into(player.position, candidate, player.width / 2.0)
 }
 
 /// The horizontal speed of the player, in blocks/s.

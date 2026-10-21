@@ -1,6 +1,6 @@
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
-use crate::world::{ChunkMap, Portal};
+use crate::world::ChunkMap;
 
 use super::Player;
 
@@ -9,7 +9,7 @@ const VOLUME_ROUNDING: f32 = 1e-6;
 
 /// Whether the collision box of `player`, centred on `candidate_position`, would overlap a
 /// block. The wall cells of the open portals the player is in front of, within their opening
-/// (`Portals::letting_through`), do not count: the player goes into them, and through the
+/// (`Portals::passable_cells`), do not count: the player goes into them, and through the
 /// portal. Where the player is now decides, not the candidate position, so that the move that
 /// takes it behind the plane of the portal is made.
 ///
@@ -22,15 +22,10 @@ pub fn check_player_collision(
     world_map: &ChunkMap,
 ) -> bool {
     let half_size = Vec3::new(player.width, player.height, player.width) / 2.0;
-    let open: Vec<Portal> = world_map
+    let passable = world_map
         .portals()
-        .letting_through(player.position, player.width / 2.0)
-        .copied()
-        .collect();
-    let let_through = |cell: IVec3| {
-        open.iter()
-            .any(|portal| portal.cells().any(|wall| wall == cell))
-    };
+        .passable_cells(player.position, player.width / 2.0);
+    let let_through = |cell: IVec3| passable.contains(&cell);
     let candidate = Aabb3d::new(*candidate_position, half_size);
     if !world_map.check_collision_box_except(&candidate, let_through) {
         return false;
