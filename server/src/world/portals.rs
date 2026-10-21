@@ -13,8 +13,12 @@ use crate::world::data::ServerWorldMap;
 
 /// Removes the portals that no longer fit (`Portal::fits`) because one of their wall or front
 /// cells changed since the change log was last drained. The others are not looked at: a
-/// portal whose chunks are not loaded stays.
+/// portal whose chunks are not loaded stays. Without a portal, the change log, which water
+/// flowing can make long, is not looked at either.
 pub fn remove_unfit_portals(chunks: &mut ChunkMap) {
+    if chunks.portals().is_empty() {
+        return;
+    }
     let changed: HashSet<_> = chunks.changed_blocks().collect();
     let unfit: Vec<Portal> = chunks
         .portals()
