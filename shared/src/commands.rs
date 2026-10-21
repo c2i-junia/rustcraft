@@ -94,6 +94,10 @@ pub const COMMANDS: &[CommandSyntax] = &[
         name: "time",
         args: &[Arg::Word(&["set"]), Arg::Word(&["day", "night"])],
     },
+    CommandSyntax {
+        name: "weather",
+        args: &[Arg::Word(&["clear", "rain", "thunder"])],
+    },
 ];
 
 /// A value the word being typed may become.
@@ -252,10 +256,11 @@ mod tests {
     fn a_slash_alone_suggests_every_command_with_its_arguments() {
         let completion = complete("/", &[]).unwrap();
         assert_eq!(completion.word_start, 1);
-        assert_eq!(texts(&completion), ["gamemode", "give", "time"]);
+        assert_eq!(texts(&completion), ["gamemode", "give", "time", "weather"]);
         assert_eq!(completion.suggestions[0].detail, "<creative|survival>");
         assert_eq!(completion.suggestions[1].detail, "<item> <count>");
         assert_eq!(completion.suggestions[2].detail, "set <day|night>");
+        assert_eq!(completion.suggestions[3].detail, "<clear|rain|thunder>");
         assert_eq!(completion.error, None);
         assert!(completion.usage.is_empty());
     }
@@ -374,5 +379,19 @@ mod tests {
         // a word typed in full, with nothing after it, is fine
         assert_eq!(error("/time set day "), None);
         assert_eq!(error("/time set da"), None);
+    }
+
+    #[test]
+    fn the_weathers_suggested_are_those_the_server_knows() {
+        let completion = complete("/weather ", &[]).unwrap();
+        let names: Vec<&str> = crate::world::WeatherKind::ALL
+            .iter()
+            .map(|kind| kind.name())
+            .collect();
+        assert_eq!(texts(&completion), names);
+        assert_eq!(
+            complete("/weather snow", &[]).unwrap().error.as_deref(),
+            Some("Usage: /weather <clear|rain|thunder>")
+        );
     }
 }

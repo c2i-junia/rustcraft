@@ -3,10 +3,11 @@
 
 use shared::players::game_mode::GameMode;
 use shared::players::Player;
-use shared::world::{ItemId, ItemStack};
+use shared::world::{ItemId, ItemStack, WeatherKind};
 use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
 use crate::init::ServerTime;
+use crate::world::weather::ServerWeather;
 
 /// The author of the answers to a command.
 pub const SERVER_AUTHOR: &str = "Server";
@@ -14,6 +15,7 @@ pub const SERVER_AUTHOR: &str = "Server";
 const TIME_USAGE: &str = "Usage: /time set <day|night>";
 const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
+const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeOfDay {
@@ -31,6 +33,8 @@ pub enum Command {
     Give { item: ItemId, count: u32 },
     /// `/gamemode <creative|survival>`: of the author of the command.
     SetGameMode(GameMode),
+    /// `/weather <clear|rain|thunder>`: for as long as it would last on its own.
+    SetWeather(WeatherKind),
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -61,12 +65,21 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             .map(Command::SetGameMode)
             .ok_or_else(|| GAMEMODE_USAGE.to_string()),
         ["gamemode", ..] => Err(GAMEMODE_USAGE.to_string()),
+        ["weather", kind] => WeatherKind::from_name(kind)
+            .map(Command::SetWeather)
+            .ok_or_else(|| WEATHER_USAGE.to_string()),
+        ["weather", ..] => Err(WEATHER_USAGE.to_string()),
         _ => Err(format!("Unknown command: /{line}")),
     }
 }
 
 /// Runs `command` for `player`, its author, and returns the answer.
-pub fn run_command(command: Command, time: &mut ServerTime, player: &mut Player) -> String {
+pub fn run_command(
+    command: Command,
+    time: &mut ServerTime,
+    weather: &mut ServerWeather,
+    player: &mut Player,
+) -> String {
     match command {
         Command::SetTime(time_of_day) => {
             time.0 = next_tick_at(time.0, time_of_day);
@@ -93,6 +106,10 @@ pub fn run_command(command: Command, time: &mut ServerTime, player: &mut Player)
             // The simulation lands a player that may no longer fly
             player.game_mode = mode;
             format!("Game mode set to {}", mode.name())
+        }
+        Command::SetWeather(kind) => {
+            weather.set(kind, &mut rand::thread_rng());
+            format!("Weather set to {}", kind.name())
         }
     }
 }
@@ -195,8 +212,9 @@ mod tests {
                 .unwrap();
             format!("Usage: {}", command.usage())
         };
-        assert_eq!(shared::commands::COMMANDS.len(), 3);
+        assert_eq!(shared::commands::COMMANDS.len(), 4);
         assert_eq!(TIME_USAGE, usage("time"));
+        assert_eq!(WEATHER_USAGE, usage("weather"));
         assert_eq!(GIVE_USAGE, usage("give"));
         assert_eq!(GAMEMODE_USAGE, usage("gamemode"));
     }
@@ -226,10 +244,44 @@ mod tests {
         let answer = run_command(
             Command::SetGameMode(GameMode::Creative),
             &mut ServerTime(0),
+            &mut ServerWeather::new(&mut rand::thread_rng()),
             &mut player,
         );
         assert_eq!(player.game_mode, GameMode::Creative);
         assert_eq!(answer, "Game mode set to creative");
+    }
+
+    #[test]
+    fn weather_takes_clear_rain_or_thunder() {
+        assert_eq!(
+            parse_command("weather rain"),
+            Ok(Command::SetWeather(WeatherKind::Rain))
+        );
+        assert_eq!(
+            parse_command(" weather  thunder"),
+            Ok(Command::SetWeather(WeatherKind::Thunder))
+        );
+        for wrong in ["weather", "weather snow", "weather rain 600"] {
+            assert_eq!(
+                parse_command(wrong),
+                Err(WEATHER_USAGE.to_string()),
+                "{wrong}"
+            );
+        }
+    }
+
+    #[test]
+    fn weather_sets_the_weather_for_a_natural_spell_and_says_so() {
+        let mut weather = ServerWeather::new(&mut rand::thread_rng());
+        let answer = run_command(
+            Command::SetWeather(WeatherKind::Rain),
+            &mut ServerTime(0),
+            &mut weather,
+            &mut Player::default(),
+        );
+        assert_eq!(answer, "Weather set to rain");
+        assert_eq!(weather.kind, WeatherKind::Rain);
+        assert!(shared::world::STORM_TICKS.contains(&weather.ticks_left));
     }
 
     #[test]

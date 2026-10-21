@@ -26,7 +26,7 @@ use crate::world::data::ServerWorldMap;
 use crate::world::load_from_file::load_player_data;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::PlayerInputsEvent;
-use crate::world::weather::ServerWeather;
+use crate::world::weather::{send_to_players, ServerWeather};
 
 /// The transport and the authenticated players, which most handlers need.
 pub(super) struct Clients<'a> {
@@ -160,6 +160,7 @@ pub(super) fn chat_message(
     chat_conversation: &mut ChatConversation,
     world_map: &mut ServerWorldMap,
     time: &mut ServerTime,
+    weather: &mut ServerWeather,
     mods: &Mods,
 ) {
     let Clients { server, lobby } = clients;
@@ -173,8 +174,9 @@ pub(super) fn chat_message(
             return;
         };
         let clock = time.0;
+        let sky = weather.kind;
         let answer = match parse_command(line) {
-            Ok(command) => run_command(command, time, player),
+            Ok(command) => run_command(command, time, weather, player),
             Err(error) => mods
                 .run_command(line, &current_author.name, world_map)
                 .unwrap_or(error),
@@ -183,6 +185,13 @@ pub(super) fn chat_message(
             for &id in lobby.players.keys() {
                 server.send_game_message(id, ServerToClientMessage::TimeSet(time.0));
             }
+        }
+        if weather.kind != sky {
+            send_to_players(
+                server,
+                lobby,
+                ServerToClientMessage::WeatherSet(weather.kind),
+            );
         }
         if answer.is_empty() {
             return;

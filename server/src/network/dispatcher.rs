@@ -221,7 +221,7 @@ fn handle_client_messages_system(
     game_folder_paths: Res<GameFolderPaths>,
     mods: Res<Mods>,
     mut join_requests: ResMut<JoinRequests>,
-    weather: Res<ServerWeather>,
+    mut weather: ResMut<ServerWeather>,
 ) {
     for client_id in server.clients_id() {
         let mut input_budget = MAX_INPUTS_PER_TICK;
@@ -278,6 +278,7 @@ fn handle_client_messages_system(
                         &mut chat_conversation,
                         &mut world_map,
                         &mut time,
+                        &mut weather,
                         &mods,
                     );
                 }

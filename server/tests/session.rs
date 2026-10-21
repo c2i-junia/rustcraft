@@ -17,7 +17,7 @@ use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
     chunk_distance, global_block_to_chunk_pos, grid_slot, raycast, to_local_pos,
     world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap,
-    FaceDirectionExt, ItemId, ItemStack,
+    FaceDirectionExt, ItemId, ItemStack, WeatherKind,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -1845,6 +1845,61 @@ fn time_set_moves_every_client_to_midnight_or_noon_and_answers_its_author_only()
 
     alice.send(chat_message("/time set noon"));
     command_answer(&mut alice, "Usage: /time set <day|night>");
+
+    // The chat is ordered: once this message arrived, the earlier ones would have too
+    alice.send(chat_message("hello bob"));
+    received_chat(&mut alice, "hello bob");
+    received_chat(&mut bob, "hello bob");
+    assert!(
+        !bob.inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::ChatMessage(_))),
+        "bob received a command or its answer: {:?}",
+        bob.inbox
+    );
+
+    alice.send(ClientToServerMessage::Exit);
+    alice.send_packets();
+    server.join_after_exit();
+}
+
+fn weather_set(client: &mut TestClient) -> WeatherKind {
+    client.wait_for("WeatherSet", |m| match m {
+        ServerToClientMessage::WeatherSet(kind) => Some(*kind),
+        _ => None,
+    })
+}
+
+/// Authenticates `client` as `username` and returns the weather the answer carries.
+fn join_weather(client: &mut TestClient, username: &str) -> WeatherKind {
+    client.wait_connected();
+    client.send(auth_request(username));
+    client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(response) => Some(response.weather),
+        _ => None,
+    })
+}
+
+#[test]
+fn weather_set_changes_every_client_and_answers_its_author_only() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    // a new world starts clear
+    assert_eq!(join_weather(&mut alice, "alice"), WeatherKind::Clear);
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    authenticate(&mut bob, "bob");
+
+    alice.send(chat_message("/weather thunder"));
+    assert_eq!(weather_set(&mut alice), WeatherKind::Thunder);
+    assert_eq!(weather_set(&mut bob), WeatherKind::Thunder);
+    command_answer(&mut alice, "Weather set to thunder");
+
+    alice.send(chat_message("/weather snow"));
+    command_answer(&mut alice, "Usage: /weather <clear|rain|thunder>");
+
+    // A player who joins now learns the weather with its answer
+    let mut carol = TestClient::connect(server.addr, PLAYER_ID + 2);
+    assert_eq!(join_weather(&mut carol, "carol"), WeatherKind::Thunder);
 
     // The chat is ordered: once this message arrived, the earlier ones would have too
     alice.send(chat_message("hello bob"));
