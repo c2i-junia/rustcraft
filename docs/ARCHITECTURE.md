@@ -203,20 +203,29 @@ meets the aimed face (or `PORTAL_GUN_REACH` along it when nothing is aimed at), 
 whether it placed the portal; the aim stops at the wall behind a portal, so a shot never goes
 through one. The server keeps those of a tick (`ServerWorldMap::portal_shots`) and sends each to
 every player but its shooter, who predicted it, as `ServerToClientMessage::PortalShot`, before
-the `PortalUpdates` of the same tick on the same ordered channel.
+the `PortalUpdates` of the same tick on the same ordered channel. Its start is the camera of
+the input, which comes from the network: the server tells of a shot only if its ends are numbers
+and it starts within `SHOT_START_TOLERANCE` (2 blocks) of the shooter's eyes before the input
+(`is_believable`), and a client flies no bolt for a shot whose ends are not numbers, nor any for
+longer than `MAX_FLIGHT_TIME`.
 
 Players go through the open portals in the movement simulation, which both sides run, so the
 server decides and the client predicts (`shared/src/players/movement.rs`). When the centre of a
 player goes, over one input, from in front of an open portal to behind it, through the opening
 (`Portals::crossed`), its position, velocity and camera go through `Portals::through`. The
 centre comes out within the twin's opening shrunk by the box's half extents, so that a box
-falling out of a floor portal into a wall portal fits it; the camera keeps where it looks, set
+falling out of a floor portal into a wall portal fits it, and no deeper in front of the twin
+than half a block (`MAX_EXIT_DEPTH`, a player's longest step) nor than keeps the box within the
+block in front, which a portal keeps clear: the rest of a fast move is dropped, never put inside
+a block; the camera keeps where it looks, set
 upright (`Look::upright`: no roll, the pitch clamped to `MAX_PITCH_DEGREES`), and the simulation
 reports that look (`MovementOutcome::turned`). The client sets its camera to it when it predicts
 a frame, never when it replays inputs after a correction, and its next inputs carry the turned
 camera. A player keeps a horizontal velocity in the air, which only a portal gives it (falling
 into a floor portal shoots it out of a wall as fast), blocked per axis by blocks, dropped when
-it lands, flies or swims. While the centre of a player is in front of an open portal's opening,
+it lands, flies or swims. Players, mobs and items fall no faster than `TERMINAL_VELOCITY` (73.5
+blocks/s, what an item's drag tends to), so a fall between a floor and a ceiling portal settles
+at that speed rather than growing for ever. While the centre of a player is in front of an open portal's opening,
 shrunk by half its width, that portal's wall cells do not collide with it
 (`Portals::passable_cells`, `check_player_collision`), so that it walks into the wall up to the
 plane, or falls into a floor portal it stands on; the vertical step that takes its centre into
