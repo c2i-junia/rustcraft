@@ -366,3 +366,43 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
 51. Changing 42: the drops and the sheets keep a cool glimmer, (0.032, 0.038, 0.052), so that
     the rain is seen at night, still dark.
 52. The pictures of `e2e::weather` hide the outline of the block aimed at.
+53. The wetness is the client's own, never sent: it rises by the level of the drops over 40 s
+    (`precipitation() / 40` a second) and falls by 1/120 a second once nothing falls. A player
+    joining in rain or in a storm finds the world soaked.
+54. The wet world is `ShaderFeatures::wet`, High and Ultra only: elsewhere the wetness reaches
+    the shaders as 0 and every wet term is skipped, so clear weather in every preset, and rain
+    in Off, Low and Medium, draw as before.
+55. What the rain falls on comes from the occlusion map of lot 3, bound to the chunks at 108: a
+    top face is wet where its column's stop height is not above it, a side face where the column
+    in front of it lets the rain fall past it at its height (so the walls under an overhang stay
+    dry and the cliffs get wet), in streaks of columns of texels, wettest within 2 blocks under
+    the top; a bottom face never. Beyond 40 blocks along x or z, where the map may not hold the
+    column, a full light of the sky stands in for it, all of it from 48. Only the columns whose
+    climate gives rain, faded across the band of the snow line as the drops.
+56. Each block texture has a surface (`WetSurface`, in the bits of the table over the fading of
+    the frames): hard (stone, cobblestone, gravel, wood, ores, and any texture of a pack unknown
+    here) × 0.62, glossy, puddles; dirt × 0.68, less glossy, puddles at 60 %; grass × 0.72, a
+    faint sheen, no puddle (a puddle on a lawn read as a grey film); sand × 0.55, hardly glossy,
+    no puddle; leaves and plants × 0.8; glass, ice, snow, torches and the cracks as they are.
+57. The sheen is drawn by hand after the light, not by Bevy's specular: the chunks keep a
+    reflectance of 0, as the environment map would add the blue sky a second time in a clearing
+    sky. A Fresnel term with the roughness mixes the face toward the sky it reflects
+    (`sky_radiance`, blurred by the roughness, none under the horizon) and adds a lobe of the
+    sun, shadowed; it follows the pixels, more in the darker texels (the water in the cracks)
+    than on the lighter ones. An even sheen washed the cobblestone into a grey sheet at a
+    glance.
+58. The puddles lie in the hollows of a world-space noise (two octaves, 2.8 blocks and a third
+    of that, turned, spread evenly from 0 to 1) lowered by the relief of the texels, the darker
+    texels of the pixel art taken as lower: their edges follow the pixels of the blocks without
+    snapping the noise to the 16 × 16 grid, and the relief fades out where a texel is smaller
+    than a pixel. They cover up to 42 % of hard ground, filling from a wetness of 0.5 while it
+    rains and lingering down to 0.1 as it dries, and keep away from the edges where the ground
+    drops. Inside, the ground is darker (× 0.55, less at the shallow edge), under a mirror of
+    the sky by the Fresnel of water (0.02), rippled by the rings of lot 3, with a glint of the
+    sun; a flash of lightning brightens the sky they reflect by `1 + flash`.
+59. While drops fall the ground is wet all over, soaked at a wetness of 0.4; once they stop it
+    dries from the high spots of the same noise, so the hollows and the puddles dry last.
+60. The pictures of the wet world look at a terrace built on the shore (a dirt path, a plaza of
+    cobblestone and stone, sand, a low wall, a pier of planks a step up), in High, and in Ultra
+    and Medium in tests of their own. Run all at once with the others, ten clients on one
+    machine, some lost their camera: they pass with `--test-threads=4`.
