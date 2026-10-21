@@ -1,9 +1,9 @@
 //! The portals, drawn. An open portal shows what its camera sees from behind its twin; a lone
 //! one shows its colour. Seen again in that view, it shows the view of its camera of the next
 //! level, down to `PORTAL_RECURSION` levels, the last showing its colour. Each portal is a box
-//! one block deep behind the face of its wall, drawn by its inner faces, so that the near plane
-//! of the player's camera never cuts it while the player passes, and a glowing rim on the wall
-//! around it.
+//! half a block deep behind the face of its wall, drawn by its inner faces, so that the near
+//! plane of the player's camera never cuts it while the player passes, and a glowing rim on the
+//! wall around it.
 //!
 //! The portals are the client map's (`ClientWorldMap::blocks.portals()`): what is drawn follows
 //! them, frame after frame.
@@ -348,15 +348,22 @@ fn sync_portals(
     );
 }
 
-/// Where the box of a portal is in its frame: behind the face of the wall.
-const BOX_TRANSFORM: Transform = Transform::from_xyz(0.0, 0.0, -0.5);
+/// How deep the box of a portal is hollowed into its wall cells: half of them, so that the
+/// boxes of two portals on the two faces of a wall one block thick never meet. The eye of a
+/// player in the opening is never behind the plane (it goes through the portal there), so the
+/// near plane of its camera reaches behind it no further than its corners, under 0.4 block for
+/// any field of view up to 90 degrees on a 32:9 screen: it never cuts the box's back.
+const BOX_DEPTH: f32 = 0.5;
 
-/// The box of a portal, one block deep, a little smaller than its wall cells.
+/// Where the box of a portal is in its frame: behind the face of the wall.
+const BOX_TRANSFORM: Transform = Transform::from_xyz(0.0, 0.0, -BOX_DEPTH / 2.0);
+
+/// The box of a portal, half a block deep, a little smaller than its share of its wall cells.
 fn portal_box() -> Mesh {
     Cuboid::new(
         PORTAL_WIDTH as f32 - 2.0 * BOX_INSET,
         PORTAL_HEIGHT as f32 - 2.0 * BOX_INSET,
-        1.0 - 2.0 * BOX_INSET,
+        BOX_DEPTH - 2.0 * BOX_INSET,
     )
     .into()
 }
@@ -522,6 +529,65 @@ mod tests {
             .single_mut(world)
             .unwrap();
         *camera = transform;
+    }
+
+    /// The vertices of the box of `portal`, in the world.
+    fn box_corners(portal: &Portal) -> Vec<Vec3> {
+        let mesh = portal_box();
+        let to_world = portal.frame() * BOX_TRANSFORM.compute_affine();
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            .and_then(|positions| positions.as_float3())
+            .unwrap()
+            .iter()
+            .map(|position| to_world.transform_point3(Vec3::from_array(*position)))
+            .collect()
+    }
+
+    #[test]
+    fn the_boxes_of_two_portals_through_a_wall_never_meet() {
+        // Blue on the +Z face of the cells x 0 and 1 of a wall at z 0, one block thick, and
+        // orange on their -Z face
+        let back = Portal {
+            anchor: IVec3::new(1, 10, 0),
+            face: FaceDirection::MinusZ,
+            ..orange()
+        };
+        assert_eq!(
+            back.cells().collect::<std::collections::HashSet<_>>(),
+            blue().cells().collect::<std::collections::HashSet<_>>()
+        );
+        let depths = |portal: &Portal| {
+            let z = box_corners(portal)
+                .iter()
+                .map(|corner| corner.z)
+                .collect::<Vec<_>>();
+            (
+                z.iter().copied().fold(f32::MAX, f32::min),
+                z.iter().copied().fold(f32::MIN, f32::max),
+            )
+        };
+        let (front, back) = (depths(&blue()), depths(&back));
+        // Both within the wall, apart
+        assert!(front.1 < 1.0 && back.0 > 0.0, "{front:?} {back:?}");
+        assert!(back.1 < front.0, "{front:?} {back:?}");
+    }
+
+    #[test]
+    fn the_near_plane_of_a_player_in_the_opening_never_reaches_behind_the_box() {
+        // A player's eye goes through a portal when it passes the plane (`PORTAL_SLACK`): the
+        // near plane of its camera reaches no further behind the plane than its corners, which
+        // a field of view of 90 degrees on a 32:9 screen keeps within 0.39 block
+        let near = PerspectiveProjection::default().near;
+        let half_height = near * 45f32.to_radians().tan();
+        let corner = Vec3::new(half_height * 32.0 / 9.0, half_height, near).length();
+        let depth = box_corners(&blue())
+            .iter()
+            .map(|corner| 1.0 - corner.z)
+            .fold(f32::MIN, f32::max);
+        assert!(
+            depth > corner + shared::world::PORTAL_SLACK,
+            "box {depth}, near plane {corner}"
+        );
     }
 
     #[test]

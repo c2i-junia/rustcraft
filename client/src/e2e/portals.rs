@@ -268,6 +268,132 @@ fn the_view_through_a_portal_is_the_other_side() {
     assert!(blue.z > blue.x + 40.0, "not blue: {blue}");
 }
 
+const THROUGH_WALL: &str = "a_pair_through_a_thin_wall_shows_one_view";
+
+/// The classic pair: a portal on each face of the same cells of a wall one block thick, 7
+/// blocks north of the player's feet, looking north at the one on the near face. Through it,
+/// the player sees what lies north of the wall, sand, as if the wall had a hole: the box of the
+/// other portal, hollowed into the same cells from the far face, never shows in its opening,
+/// whichever colour is on the near face.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_pair_through_a_thin_wall_shows_one_view() {
+    let mut h = enter_world(GameFolder::new().with_world("Portals"), "Portals");
+    let feet = settle(&mut h);
+    {
+        let world = h.world_mut();
+        let blocks = &mut world.resource_mut::<ClientWorldMap>().blocks;
+        let mut fill = |min: IVec3, max: IVec3, id: Option<BlockId>| {
+            for x in min.x..=max.x {
+                for y in min.y..=max.y {
+                    for z in min.z..=max.z {
+                        let pos = feet + IVec3::new(x, y, z);
+                        match id {
+                            Some(id) => {
+                                blocks.set_block(pos, BlockData::new(id, BlockDirection::Front))
+                            }
+                            None => {
+                                blocks.remove_block(pos);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        fill(IVec3::new(-8, 0, -14), IVec3::new(8, 10, -1), None);
+        fill(
+            IVec3::new(-8, -2, -14),
+            IVec3::new(8, -1, -1),
+            Some(BlockId::Stone),
+        );
+        // The wall, and north of it a floor and a wall of sand, one free cell from it
+        fill(
+            IVec3::new(-3, 0, -7),
+            IVec3::new(3, 4, -7),
+            Some(BlockId::Cobblestone),
+        );
+        fill(
+            IVec3::new(-8, -2, -14),
+            IVec3::new(8, -1, -8),
+            Some(BlockId::Sand),
+        );
+        fill(
+            IVec3::new(-8, 0, -9),
+            IVec3::new(8, 8, -9),
+            Some(BlockId::Sand),
+        );
+    }
+    h.set_time("day");
+    look(&mut h, 0.0);
+
+    for near in [PortalColor::Blue, PortalColor::Orange] {
+        let far = match near {
+            PortalColor::Blue => PortalColor::Orange,
+            PortalColor::Orange => PortalColor::Blue,
+        };
+        // The cells x -1 and 0 from the feet: from the north, the anchor is on the right
+        let near_portal = Portal {
+            owner: 1,
+            color: near,
+            anchor: feet + IVec3::new(-1, 0, -7),
+            face: FaceDirection::PlusZ,
+        };
+        let far_portal = Portal {
+            owner: 1,
+            color: far,
+            anchor: feet + IVec3::new(0, 0, -7),
+            face: FaceDirection::MinusZ,
+        };
+        {
+            let world = h.world_mut();
+            let blocks = &mut world.resource_mut::<ClientWorldMap>().blocks;
+            blocks.portals_mut().insert(near_portal);
+            blocks.portals_mut().insert(far_portal);
+            assert_eq!(
+                near_portal.cells().collect::<Vec<_>>().len(),
+                far_portal
+                    .cells()
+                    .filter(|cell| near_portal.cells().any(|near| near == *cell))
+                    .count()
+            );
+        }
+        // Meshed and drawn
+        h.frames(60);
+        let shot = h.screenshot();
+        keep(&shot, THROUGH_WALL, &format!("{near:?}_on_the_near_face"));
+        assert_eq!(drawing(h.world_mut()), [(near, 1)]);
+
+        // A grid over the opening, on the near face, 0.4 block in from its edges: sand
+        // everywhere, not the view of the far portal, whose camera is off and whose image is
+        // black. By its hue, as the day may have turned to night on a busy machine
+        let plane = (feet + IVec3::new(0, 0, -6)).as_vec3();
+        let mut not_sand = Vec::new();
+        for i in 0..=6 {
+            for j in 0..=8 {
+                let point = plane
+                    + Vec3::new(
+                        -1.0 + 0.4 + 1.2 * i as f32 / 6.0,
+                        0.4 + 2.2 * j as f32 / 8.0,
+                        0.0,
+                    );
+                let color = mean_color(&shot, on_screen(&mut h, point));
+                if !(color.x > 20.0 && color.x > 1.4 * color.z && color.y > 1.2 * color.z) {
+                    not_sand.push((point - plane, color));
+                }
+            }
+        }
+        assert!(
+            not_sand.is_empty(),
+            "{near:?} on the near face, not sand at {not_sand:?}"
+        );
+
+        let world = h.world_mut();
+        let blocks = &mut world.resource_mut::<ClientWorldMap>().blocks;
+        blocks.portals_mut().remove(1, near);
+        blocks.portals_mut().remove(1, far);
+    }
+}
+
 /// Two portals facing each other, 15 blocks apart: the blue one on a wall of cobblestone 9 wide
 /// and 6 high, 8 blocks north of the player's feet, facing south, and the orange one on a wall
 /// alike 8 blocks south, facing north, on a stone floor cleared of the terrain. The player stands

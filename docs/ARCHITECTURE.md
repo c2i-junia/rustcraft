@@ -186,8 +186,8 @@ per press (`Player::portal_triggers_held`), up to `PORTAL_GUN_REACH` (32) blocks
 neither mines nor places blocks (`shared/src/players/blocks.rs`). The portal goes on the
 vertical face aimed at, on the placement of the six holding the aimed cell nearest to the
 point hit that fits: its wall cells solid full blocks, its front free of anything that
-collides, no portal of another colour or player on those cells (`fit_portal`,
-`shared/src/world/portal.rs`). Placing a colour again moves it. The client predicts a shot like
+collides, no portal of another colour or player on those cells but on their opposite face, a
+pair through a wall one block thick (`fit_portal`, `shared/src/world/portal.rs`). Placing a colour again moves it. The client predicts a shot like
 a block, and the server's `PortalUpdates`, every portal of the world, replace its portals: the
 server sends them to everyone in the tick they changed, and to a player when it joins. A
 refused shot makes the server send them again, which corrects a wrong prediction. A player's
@@ -434,8 +434,10 @@ never moves a player, so the prediction of the clients is left alone.
    The faces of the blocks a portal lies on are not meshed.
 
 Then the portals are drawn (`client/src/portal/`, in `PostUpdate` before `GameSet::Meshing`
-and the propagation of the transforms). A portal is a box hollowed into its wall, drawn by its
-inner faces, and a glowing rim. An open portal has a camera (`camera.rs`) that stands where the
+and the propagation of the transforms). A portal is a box hollowed half a block into its wall,
+drawn by its inner faces, and a glowing rim: deeper than the near plane of the player's camera
+reaches behind the portal while its eye is in the opening, and shallow enough that the boxes of
+a pair on the two faces of a wall one block thick never meet. An open portal has a camera (`camera.rs`) that stands where the
 player's camera would be if the space in front of the portal went on behind its twin
 (`through · camera`), with the twin's plane as its near plane (Bevy's oblique `near_clip_plane`,
 `projection.rs`), so that what lies between the twin and that camera is not drawn. It draws,
