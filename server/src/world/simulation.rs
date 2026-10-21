@@ -4,6 +4,7 @@ use shared::{
     messages::{PlayerFrameInput, PlayerId, PlayerUpdateEvent},
     players::{
         blocks::CallerType,
+        constants::EYE_HEIGHT,
         game_mode::{fall_damage, DeathCause, MAX_HEALTH, REGENERATION_TICKS},
         movement::FALL_LIMIT,
         simulation::simulate_player_actions,
@@ -25,6 +26,7 @@ use crate::{
         container_files::{insert_with_contents, read_chunk_contents, ChunkContents},
         data::ServerWorldMap,
         generation::{WorldGeneration, WorldGenerator},
+        portals::is_believable,
     },
 };
 
@@ -316,6 +318,8 @@ pub fn handle_player_inputs_system(
         };
         let rest = combat::interact(player, &ev.input, mob_world, &mut rng);
         let input = rest.as_ref().unwrap_or(&ev.input);
+        // The shots of the input are aimed before its move
+        let eyes = player.position + Vec3::Y * EYE_HEIGHT;
         let outcome = simulate_player_actions(player, chunks, input, CallerType::Server);
         let home = &mut world_map.home;
         home.read
@@ -337,7 +341,13 @@ pub fn handle_player_inputs_system(
                 .iter()
                 .map(|mob| ServerMob::new(mob.kind, mob.position)),
         );
-        portal_shots.extend(outcome.shots.iter().map(|shot| (player.id, *shot)));
+        portal_shots.extend(
+            outcome
+                .shots
+                .iter()
+                .filter(|shot| is_believable(shot, eyes))
+                .map(|shot| (player.id, *shot)),
+        );
         if let Some(fallen) = outcome.fallen {
             player.hurt(fall_damage(fallen), DeathCause::Fall);
         }

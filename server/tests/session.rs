@@ -2300,4 +2300,19 @@ fn a_shot_reaches_every_other_player_before_its_portal() {
         _ => None,
     });
     assert_eq!(refused, (PortalColor::Orange, false));
+
+    // A shot from a camera far from alice's eyes, or nowhere, is not told: the camera comes
+    // from the network. Bob is told of the next honest one
+    let far =
+        Transform::from_translation(eye + Vec3::new(0.0, 1.0e6, 0.0)).looking_to(Vec3::Y, Vec3::Z);
+    alice.send(shoot(45, NetworkAction::LeftClick, far));
+    let nowhere = Transform::from_translation(Vec3::NAN).looking_to(Vec3::Y, Vec3::Z);
+    alice.send(shoot(46, NetworkAction::RightClick, nowhere));
+    alice.send(shoot(47, NetworkAction::LeftClick, up));
+    sync_with_server(&mut alice, 48);
+    let told = bob.wait_for("the honest shot", |m| match m {
+        ServerToClientMessage::PortalShot { from, color, .. } => Some((*from, *color)),
+        _ => None,
+    });
+    assert_eq!(told, (eye, PortalColor::Blue));
 }

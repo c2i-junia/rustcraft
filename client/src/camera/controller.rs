@@ -4,12 +4,10 @@ use crate::ui::hud::UIMode;
 use crate::world::ClientWorldMap;
 use bevy::math::bounding::Aabb3d;
 use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
-use shared::players::constants::MAX_PITCH_DEGREES;
+use shared::players::constants::{EYE_HEIGHT, MAX_PITCH_DEGREES};
 use shared::players::ViewMode;
 use shared::world::ChunkMap;
 
-/// Height of the player's eyes above the centre of its box, standing.
-const EYE_HEIGHT: f32 = 0.8;
 /// How far behind the player the camera is in third-person view.
 const THIRD_PERSON_DISTANCE: f32 = 10.0;
 /// Half the side of the box kept free of blocks around the third-person camera. The box holds

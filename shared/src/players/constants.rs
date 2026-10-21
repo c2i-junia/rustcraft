@@ -12,6 +12,9 @@ pub const MAX_UPWARD_VELOCITY: f32 = 54.0;
 pub const TERMINAL_VELOCITY: f32 = 73.5;
 pub const FLY_SPEED_MULTIPLIER: f32 = 4.0;
 pub const SPEED: f32 = 5.0;
+/// Height of a player's eyes above the centre of its box, standing: where the client puts its
+/// first-person camera.
+pub const EYE_HEIGHT: f32 = 0.8;
 /// How far up or down a player may look, in degrees from the horizontal.
 pub const MAX_PITCH_DEGREES: f32 = 89.0;
 /// Speed of a sprinting player on foot, against `SPEED`: 1.3 times, as in Minecraft.

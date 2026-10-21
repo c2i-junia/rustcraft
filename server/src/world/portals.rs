@@ -56,6 +56,20 @@ fn portal_updates(chunks: &mut ChunkMap) -> Option<ServerToClientMessage> {
         .then(|| all_portals(chunks))
 }
 
+/// How far from the eyes of its shooter a shot may start, in blocks, to be told to the other
+/// players. The client aims from its camera, placed at the eyes as they were before the input
+/// (lowered while sneaking), or from the centre of the player in third person (`aim_ray`): a
+/// shot further away comes from a camera the server cannot believe.
+pub const SHOT_START_TOLERANCE: f32 = 2.0;
+
+/// Whether `shot`, aimed by a player whose eyes were at `eyes` when it shot, may be told to the
+/// other players: its ends are numbers, and it starts at the eyes, within
+/// `SHOT_START_TOLERANCE`. The camera it starts from comes from the network, and every other
+/// client would fly a bolt from there.
+pub fn is_believable(shot: &PortalShot, eyes: Vec3) -> bool {
+    shot.from.is_finite() && shot.to.is_finite() && shot.from.distance(eyes) <= SHOT_START_TOLERANCE
+}
+
 /// The messages telling a client of the shots of the tick: those of the other players, which
 /// it did not predict.
 fn shots_for(shots: &[(PlayerId, PortalShot)], client: PlayerId) -> Vec<ServerToClientMessage> {
@@ -302,5 +316,29 @@ mod tests {
         };
         assert_eq!(portals, [portal]);
         assert!(portal_updates(&mut chunks).is_none());
+    }
+
+    #[test]
+    fn a_shot_is_believed_from_the_eyes_or_the_centre_of_its_shooter_only() {
+        let eyes = Vec3::new(3.5, 70.8, 1.5);
+        let shot = |from: Vec3, to: Vec3| PortalShot {
+            from,
+            to,
+            color: PortalColor::Blue,
+            placed: false,
+        };
+        let ahead = Vec3::new(3.5, 70.8, -30.5);
+        // From the eyes, the eyes lowered by sneaking, or the centre in third person
+        for from in [eyes, eyes - Vec3::Y * 0.3, eyes - Vec3::Y * 0.8] {
+            assert!(is_believable(&shot(from, ahead), eyes), "{from}");
+        }
+        // From a few blocks away, far away, or nowhere
+        for from in [eyes + Vec3::X * 3.0, Vec3::splat(1.0e9), Vec3::NAN] {
+            assert!(!is_believable(&shot(from, ahead), eyes), "{from}");
+        }
+        assert!(!is_believable(
+            &shot(eyes, Vec3::new(f32::INFINITY, 0.0, 0.0)),
+            eyes
+        ));
     }
 }
