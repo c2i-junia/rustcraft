@@ -28,7 +28,7 @@ const POP_HORIZONTAL_SPEED: f32 = 2.0;
 const POP_UPWARD_SPEED: f32 = 4.0;
 /// Horizontal speed of an item a player has no room for, in blocks per second: it lands about a
 /// block ahead.
-const THROW_SPEED: f32 = 2.0;
+const OVERFLOW_SPEED: f32 = 2.0;
 /// Horizontal speed of an item a player throws out of its inventory, in blocks per second: it
 /// comes to rest a few blocks ahead, out of the player's reach, as in Minecraft.
 const THROWN_SPEED: f32 = 5.0;
@@ -122,7 +122,7 @@ impl DroppedItems {
         self.spawn(DroppedItem::new(
             stack,
             player.position,
-            throw_velocity(player, THROW_SPEED),
+            throw_velocity(player, OVERFLOW_SPEED),
         ));
     }
 
