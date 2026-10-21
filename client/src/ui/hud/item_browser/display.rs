@@ -204,8 +204,9 @@ pub fn show_mode_footer(
 }
 
 /// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
-/// their slots in the browser, a cell of a family when some member is. In Creative, the tooltips of the catalog say what its gestures
-/// take; the keys say whether A bookmarks the item or removes it from the bookmarks.
+/// their slots in the browser, a cell of a family when some member is. In Creative, the tooltips
+/// of the catalog say what its gestures take; the keys say whether A bookmarks the item or
+/// removes it from the bookmarks.
 #[allow(clippy::type_complexity)]
 pub fn mark_craftable_items(
     craftable: Res<CraftableNow>,
