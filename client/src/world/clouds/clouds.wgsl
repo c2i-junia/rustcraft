@@ -12,6 +12,7 @@
     mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
+#import rustcraft::sky::overcast_sky
 
 // Keep in sync with `CloudParams`
 struct CloudParams {
@@ -21,10 +22,12 @@ struct CloudParams {
     fade_end: f32,
     threshold: f32,
     overcast: vec4<f32>,
-    haze: vec4<f32>,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: CloudParams;
+
+// The side of a cell, `CELL` in `clouds/mod.rs`
+const CELL: i32 = 12;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -38,6 +41,16 @@ struct VertexOutput {
     @invariant @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) shade: f32,
+    // How thick the cloud of the face is, from 0 at the threshold to 1 for the clouds of a
+    // clear sky
+    @location(2) @interpolate(flat) thickness: f32,
+    // Where in the mesh, in which the cells are laid out
+    @location(3) local_position: vec3<f32>,
+}
+
+// A random number in [0, 1) for the cell `cell`.
+fn hash(cell: vec2<f32>) -> f32 {
+    return fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
 @vertex
@@ -51,6 +64,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // Shown when the cell of the face is full and the next one is not
     let high = vertex.densities.x;
     let low = vertex.densities.y;
+    out.thickness = smoothstep(params.threshold, params.threshold + 0.3, high);
+    out.local_position = vertex.position;
     if !(low <= params.threshold && params.threshold < high) {
         out.clip_position = vec4(0.0, 0.0, 0.0, 1.0);
     }
@@ -65,10 +80,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if alpha < 0.01 {
         discard;
     }
-    // Under the overcast, the clouds are of its grey, and the clouds far off fade into the
-    // grey of its horizon before they fade out
+    // Under the overcast, the clouds are of its grey, the thicker ones darker and each cell a
+    // little apart, and the clouds far off fade into the sky behind them before they fade out
     let level = params.overcast.w;
-    let color = mix(params.tint.rgb, params.overcast.rgb, level) * in.shade;
-    let haze = smoothstep(0.0, params.fade_end, distance) * level;
-    return vec4(mix(color, params.haze.rgb, haze), alpha);
+    // The cell from a point just past the edge: a face on the edge of two cells would
+    // otherwise flicker between them
+    let cell = hash(floor((in.local_position.xz + 0.01) / f32(CELL)));
+    let thick = mix(1.0, 0.72, in.thickness) * (0.92 + 0.16 * cell);
+    let grey = params.overcast.rgb * mix(1.0, thick, level);
+    let color = mix(params.tint.rgb, grey, level) * in.shade;
+    let haze = smoothstep(0.35 * params.fade_end, params.fade_end, distance) * level;
+    let sky = overcast_sky(normalize(in.world_position - view.world_position.xyz));
+    return vec4(mix(color, sky, haze), alpha);
 }

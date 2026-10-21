@@ -7,6 +7,7 @@ use bevy::{
         AsBindGroup, ColorWrites, RenderPipelineDescriptor, ShaderType,
         SpecializedMeshPipelineError,
     },
+    render::storage::ShaderBuffer,
     shader::ShaderRef,
 };
 
@@ -26,6 +27,9 @@ const CLOUDS_SHADER: Handle<Shader> = uuid_handle!("3f6c1d2a-9b7e-4c58-a1d0-5e2b
 pub struct CloudMaterial {
     #[uniform(0)]
     pub params: CloudParams,
+    /// `WeatherShading`: under the overcast, the clouds far off fade into the sky behind them.
+    #[storage(107, read_only)]
+    pub weather: Handle<ShaderBuffer>,
     /// Whether this is the first drawing, into the depth only.
     pub depth_only: bool,
 }
@@ -60,9 +64,6 @@ pub struct CloudParams {
     /// The colour of the clouds under a full overcast (`overcast_cloud_color`), as on screen,
     /// and in `w` the overcast level, by which it replaces the tint.
     pub overcast: Vec4,
-    /// The overcast sky at the horizon (`Overcast::colors`): under the overcast, the clouds far
-    /// off fade into it.
-    pub haze: Vec4,
 }
 
 impl Material for CloudMaterial {

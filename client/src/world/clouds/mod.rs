@@ -13,7 +13,7 @@ use crate::world::overcast::Overcast;
 use crate::world::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
-use crate::world::{GraphicsSettings, RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{GraphicsSettings, MaterialResource, RenderDistance, ServerRenderDistanceLimit};
 use field::{drift, threshold};
 use material::{cloud_material_plugin, CloudMaterial, CloudParams};
 use mesh::{cloud_mesh, CloudStyle};
@@ -72,8 +72,8 @@ const WARM_TINT: Vec3 = Vec3::new(1.0, 0.7, 0.5);
 
 /// The colour of the clouds under a full overcast in rain and in a thunderstorm, as a part of
 /// the overcast at the zenith: a darker blue grey, as rain clouds hang under a lighter sky.
-const RAIN_SHADE: Vec3 = Vec3::new(0.68, 0.71, 0.78);
-const STORM_SHADE: Vec3 = Vec3::new(0.56, 0.59, 0.66);
+const RAIN_SHADE: Vec3 = Vec3::new(0.85, 0.89, 0.96);
+const STORM_SHADE: Vec3 = Vec3::new(0.7, 0.74, 0.82);
 
 /// The clouds of the sky: one mesh of the cells within reach of the camera, slid along +X by
 /// the drift.
@@ -149,12 +149,21 @@ pub fn overcast_cloud_color(overcast: Overcast, sun_height: f32, physical_sky: b
 
 /// Spawns the clouds, drawn in colour, with a child that draws their depth first (see
 /// `CloudMaterial`).
-fn spawn_clouds(mut commands: Commands, mut materials: ResMut<Assets<CloudMaterial>>) {
+fn spawn_clouds(
+    mut commands: Commands,
+    resources: Option<Res<MaterialResource>>,
+    mut materials: ResMut<Assets<CloudMaterial>>,
+) {
+    let weather = resources.map(|resources| resources.weather.clone());
+    let weather = weather.unwrap_or_default();
     commands
         .spawn((
             Name::new("Clouds"),
             Clouds::default(),
-            MeshMaterial3d(materials.add(CloudMaterial::default())),
+            MeshMaterial3d(materials.add(CloudMaterial {
+                weather: weather.clone(),
+                ..default()
+            })),
             Transform::default(),
             Visibility::default(),
             NotShadowCaster,
@@ -165,6 +174,7 @@ fn spawn_clouds(mut commands: Commands, mut materials: ResMut<Assets<CloudMateri
             Name::new("Cloud depth"),
             MeshMaterial3d(materials.add(CloudMaterial {
                 depth_only: true,
+                weather,
                 ..default()
             })),
             NotShadowCaster,
@@ -241,9 +251,7 @@ pub(crate) fn cloud_uniforms_system(
     let overcast = Overcast::current(weather.as_deref());
     let reach = current_reach(&render_distance, server_limit) * overcast.fog_end();
     let physical_sky = graphics.is_some_and(|graphics| ShaderFeatures::of(graphics.shaders).sky);
-    let height = sun_height(time.0);
-    let (horizon, _) = overcast.colors(height, physical_sky);
-    let grey = overcast_cloud_color(overcast, height, physical_sky);
+    let grey = overcast_cloud_color(overcast, sun_height(time.0), physical_sky);
     let params = CloudParams {
         tint: cloud_tint(time.0).to_linear().to_vec4(),
         opacity: OPACITY.lerp(RAIN_OPACITY, overcast.level),
@@ -251,7 +259,6 @@ pub(crate) fn cloud_uniforms_system(
         fade_end: reach,
         threshold: threshold(overcast),
         overcast: grey.extend(overcast.level),
-        haze: horizon.extend(1.),
     };
     for material in &clouds {
         // Only a changed material is sent to the GPU again
@@ -318,9 +325,11 @@ mod tests {
             let rain = overcast_cloud_color(RAIN, 0.9, physical);
             let storm = overcast_cloud_color(STORM, 0.9, physical);
             assert!(rain.z > rain.x && storm.z > storm.x, "{rain} {storm}");
+            // seen from under, darker than the sky
             let brightness = |color: Vec3| color.element_sum() / 3.;
-            assert!(brightness(rain) < 0.8 * brightness(zenith), "{rain}");
-            assert!(brightness(storm) < 0.8 * brightness(rain), "{storm}");
+            let under = rain * SHADE_BOTTOM;
+            assert!(brightness(under) < 0.7 * brightness(zenith), "{rain}");
+            assert!(brightness(storm) < 0.6 * brightness(rain), "{storm}");
             // and dark at night
             let night = overcast_cloud_color(RAIN, -0.9, physical);
             assert!(night.max_element() < 0.1 * rain.min_element(), "{night}");
