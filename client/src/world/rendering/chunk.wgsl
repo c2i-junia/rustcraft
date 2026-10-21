@@ -98,6 +98,8 @@ const BLOCK_LIGHT_COLOR: vec3<f32> = vec3(1.0, 0.82, 0.6);
 // The colour of the sky, `SKY_COLOR` in `underwater.rs`, in linear values: what the water
 // reflects
 const SKY_COLOR: vec3<f32> = vec3(0.178, 0.346, 0.474);
+// How much of its blue the water loses under a full overcast
+const WATER_GREYING: f32 = 0.6;
 // The brightness of the ambient light at noon, `DAY_AMBIENT` in `graphics.rs`: when the water
 // reflects the sky as bright as it is drawn
 const DAY_AMBIENT: f32 = 400.0;
@@ -517,6 +519,13 @@ fn fragment(
         let facing = abs(dot(pbr_input.N, pbr_input.V));
         fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
         pbr_input.material.base_color.a = mix(pbr_input.material.base_color.a, 1.0, fresnel);
+        // Under the overcast, the water loses some of its blue to the grey of the sky
+        let water_color = pbr_input.material.base_color.rgb;
+        let grey = vec3(dot(water_color, vec3(0.3, 0.59, 0.11)));
+        pbr_input.material.base_color = vec4(
+            mix(water_color, grey, WATER_GREYING * weather.overcast),
+            pbr_input.material.base_color.a,
+        );
     }
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
