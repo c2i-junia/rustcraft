@@ -276,7 +276,7 @@ fn sync_portals(
                 at: portal.frame().translation.into(),
             });
             let images = [(); 2].map(|_| images.add(portal_image(size)));
-            let materials = std::array::from_fn(|index| {
+            let shown = std::array::from_fn(|index| {
                 let image = images[(index + 1) % 2].clone();
                 materials.add(PortalMaterial::new(
                     PortalLook::View,
@@ -292,7 +292,7 @@ fn sync_portals(
             let views = PortalViews {
                 cameras,
                 images,
-                materials,
+                materials: shown,
             };
             // Level 1 for the player's camera, each deeper level for the camera of its portal
             // one level up
