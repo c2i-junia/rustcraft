@@ -306,6 +306,15 @@ fn snapshot_the_rain() {
         ("rain_lake", (v.eye, v.across), noon, rain.clone()),
         ("rain_thunder", (v.eye, v.across), noon, thunder.clone()),
         ("rain_splashes", (v.over_feet, v.feet), noon, rain.clone()),
+        (
+            "rain_ripples",
+            (
+                v.eye,
+                v.eye + (v.across - v.eye).normalize() * 4. - Vec3::Y * 3.,
+            ),
+            noon,
+            rain.clone(),
+        ),
         ("rain_vista", (v.above, v.across), noon, rain.clone()),
         ("rain_midnight", (v.eye, v.across), hour(0.25), rain.clone()),
     ];
