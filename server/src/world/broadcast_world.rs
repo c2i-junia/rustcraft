@@ -63,9 +63,14 @@ pub fn broadcast_world_state(
         };
 
         let render_distance = world_map.render_distances.get(player.id);
+        let reach = ChunkReach::new(
+            world_position_to_chunk_position(player.position),
+            render_distance,
+            chunks.portals(),
+        );
         for message in mob_messages(
             player.position,
-            render_distance,
+            &reach,
             &world_map.mobs,
             &changed_mobs,
             world_map.sent_mobs.entry(player.id).or_default(),
@@ -74,11 +79,6 @@ pub fn broadcast_world_state(
         }
 
         let sent_chunks = world_map.sent_chunks.entry(player.id).or_default();
-        let reach = ChunkReach::new(
-            world_position_to_chunk_position(player.position),
-            render_distance,
-            chunks.portals(),
-        );
         let (unloads, block_updates, new_map) =
             world_messages_around(chunks, &changed, &reach, sent_chunks);
         // A client is told of the items in the chunks it has, those sent now included
@@ -158,18 +158,22 @@ fn encode_world_updates(
 /// What the client of a player at `player_position` must be told of the mobs, given the mobs
 /// it holds, `sent`, which this updates: a mob that came within reach is sent, one within
 /// reach is sent again when it changed this tick (`changed`), and the client forgets one that
-/// left its reach or the world.
+/// left its reach or the world. Within reach is within the render distance of `reach`, or in
+/// the chunks around the twin of a portal it sees (`ChunkReach::keeps`): a mob there is seen
+/// through the portal, and one that walks through it stays known.
 fn mob_messages(
     player_position: Vec3,
-    render_distance: i32,
+    reach: &ChunkReach,
     mobs: &HashMap<MobId, ServerMob>,
     changed: &HashSet<MobId>,
     sent: &mut HashSet<MobId>,
 ) -> Vec<ServerToClientMessage> {
-    let reach = (render_distance * CHUNK_SIZE) as f32;
+    let distance = (reach.distance * CHUNK_SIZE) as f32;
     let mut messages = Vec::new();
     for (id, mob) in mobs {
-        let within = mob.position.distance(player_position) < reach;
+        let chunk = world_position_to_chunk_position(mob.position);
+        let within = mob.position.distance(player_position) < distance
+            || (reach.keeps(chunk, 0) && !reach.within(chunk, 0));
         let known = sent.contains(id);
         if within && (!known || changed.contains(id)) {
             sent.insert(*id);
@@ -831,13 +835,8 @@ mod tests {
         let mut sent = HashSet::new();
         let messages = |mobs: &HashMap<MobId, ServerMob>, changed: &[MobId], sent: &mut _| {
             let changed = changed.iter().copied().collect();
-            sent_and_removed(&mob_messages(
-                Vec3::ZERO,
-                RENDER_DISTANCE,
-                mobs,
-                &changed,
-                sent,
-            ))
+            let reach = ChunkReach::new(IVec3::ZERO, RENDER_DISTANCE, &Portals::default());
+            sent_and_removed(&mob_messages(Vec3::ZERO, &reach, mobs, &changed, sent))
         };
 
         // the near one is sent, once, then again only when it changes
@@ -852,6 +851,32 @@ mod tests {
         mobs.remove(&2);
         assert_eq!(messages(&mobs, &[], &mut sent), (vec![], vec![2]));
         assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn a_mob_by_the_far_twin_of_a_portal_within_reach_is_sent_and_removed_once_it_closes() {
+        let mut chunks = ChunkMap::default();
+        open_pair(&mut chunks, 1);
+        let by_twin = (FAR_TWIN * CHUNK_SIZE).as_vec3() + Vec3::new(4.5, 5.0, 9.0);
+        let mobs = HashMap::from([(
+            1,
+            shared::world::ServerMob::new(shared::world::MobKind::Sheep, by_twin),
+        )]);
+        let mut sent = HashSet::new();
+        let messages = |chunks: &ChunkMap, sent: &mut _| {
+            let reach = ChunkReach::new(IVec3::ZERO, RENDER_DISTANCE, chunks.portals());
+            sent_and_removed(&mob_messages(
+                Vec3::ZERO,
+                &reach,
+                &mobs,
+                &HashSet::new(),
+                sent,
+            ))
+        };
+        assert_eq!(messages(&chunks, &mut sent), (vec![1], vec![]));
+        assert_eq!(messages(&chunks, &mut sent), (vec![], vec![]));
+        chunks.portals_mut().remove(1, PortalColor::Orange);
+        assert_eq!(messages(&chunks, &mut sent), (vec![], vec![1]));
     }
 
     fn xs<'a>(chunks: impl IntoIterator<Item = &'a IVec3>) -> Vec<i32> {
