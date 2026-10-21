@@ -6,7 +6,7 @@ use bevy::{
     camera::{
         primitives::Aabb,
         visibility::{NoCpuCulling, RenderLayers},
-        RenderTarget,
+        Hdr, RenderTarget,
     },
     core_pipeline::tonemapping::Tonemapping,
     prelude::*,
@@ -25,9 +25,11 @@ use crate::camera::{CameraController, FOG_START, SKY_COLOR};
 use crate::state::GameState;
 use crate::world::ClientWorldMap;
 
-/// An image a portal camera can draw into and a material can read, `size` in pixels.
+/// An image a portal camera can draw into and a material can read, `size` in pixels. In 16-bit
+/// floats: with the physical sky of the shaders, it holds colours brighter than white, before
+/// the tonemapping of the player's camera (`shaders.rs`).
 pub(super) fn portal_image(size: UVec2) -> Image {
-    Image::new_target_texture(size.x, size.y, TextureFormat::Rgba8UnormSrgb, None)
+    Image::new_target_texture(size.x, size.y, TextureFormat::Rgba16Float, None)
 }
 
 /// Spawns the camera of `level` of `portal`, drawing into `image`. It starts inactive:
@@ -143,7 +145,8 @@ struct Eye {
 /// Places the cameras of each open portal, level after level, each behind the twin of the
 /// portal, where the camera of the level above would be through the portal (the player's
 /// camera for level 1), with the twin's plane as its near plane, the sky and the tonemapping of
-/// the player's camera, and its fog (`portal_fog`). A camera draws when the camera of the level
+/// the player's camera (none with HDR, where the player's camera tonemaps the portals), and its
+/// fog (`portal_fog`). A camera draws when the camera of the level
 /// above draws (the player's always does) and sees the front of the portal, within its fog and
 /// in front of its near plane; and its level is drawn (`PortalRecursion`). A camera sees its
 /// own portal one level deeper when that level draws, else in its colour, or not at all beyond
@@ -158,6 +161,7 @@ pub(super) fn place_portal_cameras(
             &Projection,
             &Camera,
             &Tonemapping,
+            Has<Hdr>,
             Option<&DistanceFog>,
         ),
         (With<CameraController>, Without<PortalCamera>),
@@ -177,7 +181,7 @@ pub(super) fn place_portal_cameras(
     mut started: ResMut<PortalViewsStarted>,
     mut commands: Commands,
 ) {
-    let Ok((main_transform, main_projection, main_camera, main_tonemapping, main_fog)) =
+    let Ok((main_transform, main_projection, main_camera, main_tonemapping, main_hdr, main_fog)) =
         main.single()
     else {
         return;
@@ -232,10 +236,14 @@ pub(super) fn place_portal_cameras(
                     Projection::Perspective(portal_projection(perspective, &transform, twin));
             }
             camera.clear_color = main_camera.clear_color;
-            // The main camera draws without HDR, so each material tonemaps what it draws, and the
-            // portal's only copies its image: the image must be tonemapped already, as the rest of
-            // the screen is
-            tonemapping.set_if_neq(*main_tonemapping);
+            // Without HDR, each material tonemaps what it draws, and the portal only copies its
+            // image: the image must be tonemapped already, as the rest of the screen is. With
+            // HDR, the main camera tonemaps the whole screen, the portals included, once
+            tonemapping.set_if_neq(if main_hdr {
+                Tonemapping::None
+            } else {
+                *main_tonemapping
+            });
             // The fog depends on how far the camera is from the twin, which changes as the player
             // moves: it is set on every frame the camera draws
             let behind = above

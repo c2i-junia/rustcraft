@@ -41,6 +41,7 @@ use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
 use crate::camera::{underwater_fog_system, CameraController};
+use crate::portal::PortalCamera;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
 use crate::world::clouds::cloud_uniforms_system;
 use crate::world::clouds::material::CloudMaterial;
@@ -205,6 +206,7 @@ pub fn shaders_plugin(app: &mut App) {
         Update,
         (
             apply_camera_features,
+            give_portal_cameras_the_sky.after(apply_camera_features),
             apply_light_features,
             apply_atmosphere,
             follow_camera_with_fog_volume,
@@ -226,23 +228,34 @@ fn features(graphics: &GraphicsSettings) -> ShaderFeatures {
 
 /// Gives the cameras of the world the effects of the quality chosen, when it changes and when
 /// they are made.
+///
+/// A portal camera draws what the player's camera would see through the portal, into an image
+/// that the player's camera shows as it is (`portal.wgsl`): it gets what makes the picture,
+/// the physical sky, its light, the rays of light and the ambient occlusion, and leaves to the
+/// player's camera what it does to the whole screen, the portals included: the tonemapping
+/// (`place_portal_cameras`), the grading of the colours, the bloom and the smoothing of the
+/// edges. With the physical sky, its image holds the colours before the tonemapping, in 16-bit
+/// floats, as the screen of the player's camera does.
 fn apply_camera_features(
     graphics: Res<GraphicsSettings>,
-    all: Query<Entity, With<Camera3d>>,
-    added: Query<Entity, Added<Camera3d>>,
+    all: Query<(Entity, Has<PortalCamera>), With<Camera3d>>,
+    added: Query<(Entity, Has<PortalCamera>), Added<Camera3d>>,
     mut applied: Local<Option<ShaderQuality>>,
     mut commands: Commands,
 ) {
-    let cameras: Vec<Entity> = if *applied != Some(graphics.shaders) {
+    let cameras: Vec<(Entity, bool)> = if *applied != Some(graphics.shaders) {
         all.iter().collect()
     } else {
         added.iter().collect()
     };
     *applied = Some(graphics.shaders);
     let features = features(&graphics);
-    for camera in cameras {
+    for (camera, portal) in cameras {
         let mut entity = commands.entity(camera);
-        if features.sky {
+        if features.sky && portal {
+            // Its physical sky comes after the player's (`give_portal_cameras_the_sky`)
+            entity.insert(Hdr);
+        } else if features.sky {
             entity.insert((
                 Hdr,
                 Bloom::NATURAL,
@@ -282,6 +295,10 @@ fn apply_camera_features(
             Antialiasing::Msaa => {
                 entity.insert((Msaa::Sample4, ShadowFilteringMethod::Gaussian));
             }
+            // The player's camera smooths the edges seen through the portals with the rest
+            _ if portal => {
+                entity.insert((Msaa::Off, ShadowFilteringMethod::Gaussian));
+            }
             Antialiasing::Smaa => {
                 entity.insert((Msaa::Off, Smaa::default(), ShadowFilteringMethod::Gaussian));
             }
@@ -302,7 +319,10 @@ fn apply_camera_features(
                 ..default()
             });
         }
-        if let Some(step_count) = features.god_rays {
+        // Bevy's rays of light end where the depth says, which it reads with the near distance
+        // of the projection only: through the oblique near plane of a portal camera, they would
+        // end at once. A portal camera draws none
+        if let Some(step_count) = features.god_rays.filter(|_| !portal) {
             entity.insert(VolumetricFog {
                 ambient_intensity: 0.,
                 step_count,
@@ -314,6 +334,29 @@ fn apply_camera_features(
                 ..default()
             });
         }
+    }
+}
+
+/// Gives the portal cameras the physical sky of the player's camera, a frame after it got it.
+/// Bevy 0.19 fills the buffer of the atmosphere only while a single camera has one, and the
+/// cameras with one draw with it; never filled, it is missing and nothing is drawn: the player's
+/// camera must draw a frame with it alone first. The buffer, filled then, holds the atmosphere
+/// of every camera, which is the same one.
+fn give_portal_cameras_the_sky(
+    graphics: Res<GraphicsSettings>,
+    main: Query<Ref<AtmosphereSettings>, With<CameraController>>,
+    portal_cameras: Query<Entity, (With<PortalCamera>, Without<AtmosphereSettings>)>,
+    mut commands: Commands,
+) {
+    let main_sky = main.single().is_ok_and(|settings| !settings.is_added());
+    if !features(&graphics).sky || !main_sky {
+        return;
+    }
+    for camera in &portal_cameras {
+        commands.entity(camera).insert((
+            AtmosphereSettings::default(),
+            AtmosphereEnvironmentMapLight::default(),
+        ));
     }
 }
 
@@ -725,6 +768,69 @@ mod tests {
         level: 1.,
         storm: 1.,
     };
+
+    /// A portal camera gets what makes the picture, the physical sky a frame after the player's
+    /// camera, and not what the player's camera does to the whole screen.
+    #[test]
+    fn a_portal_camera_draws_the_picture_and_the_players_camera_finishes_it() {
+        let mut app = App::new();
+        app.insert_resource(GraphicsSettings {
+            shaders: ShaderQuality::Ultra,
+            ..default()
+        })
+        .add_systems(
+            Update,
+            (
+                apply_camera_features,
+                give_portal_cameras_the_sky.after(apply_camera_features),
+            ),
+        );
+        let main = app
+            .world_mut()
+            .spawn((Camera3d::default(), CameraController::default()))
+            .id();
+        let portal = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                PortalCamera {
+                    owner: 1,
+                    color: shared::world::PortalColor::Blue,
+                    level: 1,
+                },
+            ))
+            .id();
+        app.update();
+        let has = |app: &App, entity: Entity| {
+            let entity = app.world().entity(entity);
+            (
+                entity.contains::<Hdr>(),
+                entity.contains::<Bloom>(),
+                entity.contains::<TemporalAntiAliasing>(),
+                entity.contains::<VolumetricFog>(),
+                entity.contains::<ScreenSpaceAmbientOcclusion>(),
+                entity.contains::<AtmosphereSettings>(),
+            )
+        };
+        assert_eq!(has(&app, main), (true, true, true, true, true, true));
+        // The sky comes a frame later
+        assert_eq!(has(&app, portal), (true, false, false, false, true, false));
+        assert_eq!(app.world().get::<Msaa>(portal), Some(&Msaa::Off));
+        app.update();
+        assert_eq!(has(&app, portal), (true, false, false, false, true, true));
+        app.update();
+        assert!(app.world().entity(portal).contains::<AtmosphereSettings>());
+
+        // Without the shaders, neither has any of it
+        app.world_mut().resource_mut::<GraphicsSettings>().shaders = ShaderQuality::Off;
+        app.update();
+        for camera in [main, portal] {
+            assert_eq!(
+                has(&app, camera),
+                (false, false, false, false, false, false)
+            );
+        }
+    }
 
     #[test]
     fn each_quality_draws_more_than_the_one_below() {

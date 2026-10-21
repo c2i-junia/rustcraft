@@ -7,7 +7,10 @@ use std::time::{Duration, Instant};
 
 use bevy::{camera::RenderTarget, prelude::*};
 use image::RgbImage;
-use shared::world::{BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor};
+use shared::world::{
+    BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor, PORTAL_HEIGHT,
+    PORTAL_WIDTH,
+};
 use shared::{CHUNK_SIZE, DAY_DURATION_IN_TICKS, NOON_IN_DAY};
 
 use super::game::{enter_world, hold_click, slot};
@@ -20,8 +23,9 @@ use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::{sky_rotation, sun_height, CelestialRoot, Stars};
+use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
-use crate::world::ClientWorldMap;
+use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
 use shared::players::Player;
 use shared::world::{global_block_to_chunk_pos, raycast, ItemId};
 
@@ -266,6 +270,60 @@ fn the_view_through_a_portal_is_the_other_side() {
     h.snapshot("the_blue_portal_alone");
     let blue = mean_color(&shot, spot);
     assert!(blue.z > blue.x + 40.0, "not blue: {blue}");
+}
+
+/// With every quality of the shaders, the view through a portal looks as the world seen
+/// straight: the far pillar of sand through the blue portal is as bright and as warm as the
+/// near one, at the same depth, and the sky seen through the blue portal is the sky seen beside
+/// it. Each picture is kept with `UI_SNAPSHOTS=1`.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_view_through_a_portal_looks_as_the_world_with_every_shader() {
+    let mut h = enter_world(GameFolder::new().with_world("Portals"), "Portals");
+    let scene = build_scene(&mut h);
+    h.set_time("day");
+    let feet = scene.feet.as_vec3();
+    let far_sand = feet + Vec3::new(12.5, 3.4, -17.0);
+    let near_sand = feet + Vec3::new(-6.0, 3.4, -12.0);
+    // In the top left corner of the opening, the sky; just left of the wall at the same height,
+    // the sky in the same direction to within a few degrees
+    let corner = scene.blue.frame().transform_point3(Vec3::new(
+        -0.3 * PORTAL_WIDTH as f32,
+        0.4 * PORTAL_HEIGHT as f32,
+        0.0,
+    ));
+    let wall_edge = feet + Vec3::new(-2.0, 2.0, -7.0);
+    for quality in ShaderQuality::ALL {
+        h.world_mut().resource_mut::<GraphicsSettings>().shaders = quality;
+        // The effects inserted, the exposure settled and TAA's history filled
+        h.frames(40);
+        let shot = h.screenshot();
+        keep(
+            &shot,
+            "the_view_through_a_portal_looks_as_the_world_with_every_shader",
+            &format!("{quality:?}").to_lowercase(),
+        );
+        let through = mean_color(&shot, on_screen(&mut h, far_sand - THROUGH));
+        let straight = mean_color(&shot, on_screen(&mut h, near_sand));
+        assert!(
+            (through - straight).abs().max_element() < 10.0,
+            "{quality:?}: sand through the portal {through}, seen straight {straight}"
+        );
+        let corner = on_screen(&mut h, corner);
+        let beside = Vec2::new(on_screen(&mut h, wall_edge).x - 8.0, corner.y);
+        let (through, straight) = (mean_color(&shot, corner), mean_color(&shot, beside));
+        // Up to 10 levels apart with the rays of light, whose haze dims the sky seen straight
+        // and which the portal cameras do not draw (`shaders.rs`)
+        let off = if ShaderFeatures::of(quality).god_rays.is_some() {
+            12.0
+        } else {
+            4.0
+        };
+        assert!(
+            (through - straight).abs().max_element() < off,
+            "{quality:?}: sky through the portal {through}, seen straight {straight}"
+        );
+    }
 }
 
 const THROUGH_WALL: &str = "a_pair_through_a_thin_wall_shows_one_view";

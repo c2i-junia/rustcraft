@@ -669,6 +669,28 @@ mod tests {
     }
 
     #[test]
+    fn with_hdr_the_portal_cameras_leave_the_tonemapping_to_the_players() {
+        let mut app = app();
+        let world = app.world_mut();
+        let main = world
+            .query_filtered::<Entity, With<CameraController>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(main).insert(bevy::camera::Hdr);
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        app.update();
+        let world = app.world_mut();
+        let tonemapping: Vec<Tonemapping> = world
+            .query_filtered::<&Tonemapping, With<PortalCamera>>()
+            .iter(world)
+            .copied()
+            .collect();
+        assert!(!tonemapping.is_empty());
+        assert!(tonemapping.iter().all(|t| *t == Tonemapping::None));
+    }
+
+    #[test]
     fn the_portal_camera_follows_through_the_portal() {
         let mut app = app();
         insert(&mut app, blue());
