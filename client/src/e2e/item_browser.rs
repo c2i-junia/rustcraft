@@ -26,7 +26,8 @@ use crate::ui::hud::item_browser::creative::TRASH_HINT;
 use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::item_browser::{
     BookmarkBar, BookmarkRow, BookmarkSlot, CatalogGrid, CatalogList, CatalogSlot, DrawerHandle,
-    ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipePanel, TrashSlot, SEARCH_LABEL,
+    ItemBrowser, ItemCount, ItemSearchField, RecipeCard, RecipeCards, RecipePanel, TrashSlot,
+    SEARCH_LABEL,
 };
 use crate::ui::hud::{CraftResultCell, HudBottom, InventoryCell, InventoryDialog, InventoryRoot};
 use crate::ui::menus::pause::PauseMenu;
@@ -403,6 +404,13 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     assert_eq!(focused(&h), None);
 }
 
+/// How far the cards of the recipe view are scrolled down.
+fn cards_scrolled(world: &mut World) -> f32 {
+    let mut cards = world.query_filtered::<&ChildOf, With<RecipeCards>>();
+    let list = cards.single(world).unwrap().parent();
+    world.get::<ScrollPosition>(list).unwrap().y
+}
+
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
@@ -471,9 +479,18 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.wait_for(&button("<- Stick"), SCREEN);
     assert!(h.is_visible(&L::text("Uses")));
     assert!(h.is_visible(&button("Uses 9")));
+    // scrolled down, its cards are left at the top of the next view
+    let first = h.first_card_slot("Oak Planks");
+    h.hover_entity(first);
+    h.scroll(-5.);
+    h.frames(2);
+    assert!(cards_scrolled(h.world_mut()) > 0.0);
+
     // Escape and the back button walk the history back
     h.press(KeyCode::Escape);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
+    h.frames(2);
+    assert_eq!(cards_scrolled(h.world_mut()), 0.0);
     h.click(&button("<- Wooden Pickaxe"));
     h.wait_for(&button("<- Items"), SCREEN);
     assert!(h.is_visible(&button("Recipes 3")));

@@ -585,6 +585,7 @@ pub struct ViewParts<'w, 's> {
         (Without<CatalogPart>, Without<RecipePanel>),
     >,
     parents: Query<'w, 's, &'static ChildOf>,
+    scrolls: Query<'w, 's, &'static mut ScrollPosition>,
 }
 
 /// Shows the open view instead of the catalog, or the catalog: the title, the back button, the
@@ -700,6 +701,12 @@ pub fn show_view(
     }
     built.0 = Some(view);
     commands.entity(cards).despawn_related::<Children>();
+    // the cards of another view start from the top
+    if let Ok(list) = parts.parents.get(cards) {
+        if let Ok(mut scroll) = parts.scrolls.get_mut(list.parent()) {
+            *scroll = ScrollPosition::default();
+        }
+    }
     let shown = cards_of(view);
     if shown.is_empty() {
         commands.spawn((
