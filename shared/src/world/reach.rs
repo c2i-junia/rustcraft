@@ -38,8 +38,10 @@ impl ChunkReach {
         }
     }
 
-    /// Whether `chunk` is within the render distance plus `margin`.
-    fn own(&self, chunk: IVec3, margin: i32) -> bool {
+    /// Whether `chunk` is within the render distance plus `margin`: the player's own chunks,
+    /// the margin's included, which its own camera draws; the others are only seen through
+    /// portals.
+    pub fn within(&self, chunk: IVec3, margin: i32) -> bool {
         chunk_in_reach(
             chunk,
             self.center,
@@ -48,19 +50,12 @@ impl ChunkReach {
         )
     }
 
-    /// Whether `chunk` is within the render distance plus `margin`: the player's own chunks,
-    /// the margin's included, which its own camera draws; the others are only seen through
-    /// portals.
-    pub fn within(&self, chunk: IVec3, margin: i32) -> bool {
-        self.own(chunk, margin)
-    }
-
     /// The chunks of the twins of the open portals within the render distance plus `margin`,
     /// each once.
     fn twins_within(&self, margin: i32) -> Vec<IVec3> {
         let mut twins: Vec<IVec3> = Vec::new();
         for &(portal, twin) in &self.views {
-            if self.own(portal, margin) && !twins.contains(&twin) {
+            if self.within(portal, margin) && !twins.contains(&twin) {
                 twins.push(twin);
             }
         }
@@ -84,7 +79,7 @@ impl ChunkReach {
                     .iter()
                     .map(|&offset| twin + offset)
                     .filter(|&chunk| {
-                        !self.own(chunk, 0)
+                        !self.within(chunk, 0)
                             && !twins[..index].iter().any(|&before| {
                                 within_render_distance(chunk, before, PORTAL_VIEW_RADIUS)
                             })
@@ -98,7 +93,7 @@ impl ChunkReach {
     /// distance plus `margin`, or within `PORTAL_VIEW_RADIUS` plus `margin` of the twin of an
     /// open portal within the render distance plus `margin`.
     pub fn keeps(&self, chunk: IVec3, margin: i32) -> bool {
-        self.own(chunk, margin)
+        self.within(chunk, margin)
             || self.twins_within(margin).into_iter().any(|twin| {
                 chunk_in_reach(
                     chunk,
