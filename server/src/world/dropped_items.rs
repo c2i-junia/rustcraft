@@ -482,6 +482,64 @@ mod tests {
     }
 
     #[test]
+    fn an_item_thrown_through_a_portal_is_picked_up_on_the_other_side() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        // A wall facing south 4 blocks north with the blue portal, x in 0..2; a wall facing west
+        // at x = 10 with the orange one, z in 0..2: north into the blue is west out of the orange
+        let mut world = floor();
+        world.fill_box(
+            IVec3::new(-3, 64, -4),
+            IVec3::new(4, 68, -4),
+            BlockId::Stone,
+        );
+        world.fill_box(
+            IVec3::new(10, 64, -6),
+            IVec3::new(10, 68, 6),
+            BlockId::Stone,
+        );
+        let portal = |color, anchor, face| Portal {
+            owner: 7,
+            color,
+            anchor,
+            face,
+            up: FaceDirection::PlusY,
+        };
+        world.portals_mut().insert(portal(
+            PortalColor::Blue,
+            IVec3::new(0, 64, -4),
+            FaceDirection::PlusZ,
+        ));
+        world.portals_mut().insert(portal(
+            PortalColor::Orange,
+            IVec3::new(10, 64, 0),
+            FaceDirection::MinusX,
+        ));
+        // The thrower stands against the blue portal, looking north
+        let at = Vec3::new(1.0, 64.9, -2.6);
+        let camera = Transform::from_translation(at).looking_to(Vec3::NEG_Z, Vec3::Y);
+        let thrower = Player::new(1, "thrower".into(), at, camera);
+        let mut items = DroppedItems::default();
+        items.drop_from_player(stack(ItemId::WaterBucket, 1), &thrower);
+
+        // A second player waits west of the orange portal, the thrower being out of its reach
+        let waiting = Vec3::new(8.5, 64.9, 1.0);
+        let mut players = HashMap::from([(
+            2,
+            Player::new(2, "catcher".into(), waiting, Transform::default()),
+        )]);
+        for _ in 0..40 {
+            items.step(&world, DELTA);
+            items.pick_up(&mut players);
+        }
+        assert!(items.is_empty(), "{:?}", items.to_saved());
+        assert_eq!(items.take_changes().1, vec![(0, ItemRemoval::PickedUp(2))]);
+        assert_eq!(
+            players[&2].inventory.inner.get(&0).copied(),
+            Some(stack(ItemId::WaterBucket, 1))
+        );
+    }
+
+    #[test]
     fn a_broken_block_drops_its_items_at_its_centre() {
         let mut items = DroppedItems::default();
         let broken = BrokenBlock {
