@@ -232,7 +232,8 @@ fn features(graphics: &GraphicsSettings) -> ShaderFeatures {
 ///
 /// A portal camera draws what the player's camera would see through the portal, into an image
 /// that the player's camera shows as it is (`portal.wgsl`): it gets what makes the picture,
-/// the physical sky, its light, the rays of light and the ambient occlusion, and leaves to the
+/// the physical sky (its light shared, `share_the_environment_map`) and the ambient occlusion,
+/// but not the rays of light (below), and leaves to the
 /// player's camera what it does to the whole screen, the portals included: the tonemapping
 /// (`place_portal_cameras`), the grading of the colours, the bloom and the smoothing of the
 /// edges. With the physical sky, its image holds the colours before the tonemapping, in 16-bit

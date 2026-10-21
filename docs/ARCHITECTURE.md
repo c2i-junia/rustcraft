@@ -469,8 +469,9 @@ frustum-culled, so that every camera, a portal camera far from the player too, s
 same direction; under water they are hidden. With the shaders, a portal camera gets what makes
 the picture (HDR, the physical sky a frame after the player's camera, the ambient occlusion, the
 depth prepass) and leaves to the player's camera what it does to the whole screen, the portals
-included: tonemapping, colour grading, bloom, SMAA or TAA. Its image is then in 16-bit floats,
-before tonemapping. It draws no rays of light, which Bevy ends with the near distance of the
+included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
+the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
+the colours before tonemapping with the shaders, and after it without. It draws no rays of light, which Bevy ends with the near distance of the
 projection only, wrong for an oblique near plane; the horizon skirt is drawn around each camera
 (`horizon.wgsl`).
 The rim fades out within 0.3 block of its plane, where only a player passing through stands,

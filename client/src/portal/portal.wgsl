@@ -21,9 +21,10 @@ const RIM: u32 = 2u;
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // The camera of the portal sees what lies behind it from where this camera would be: its
-    // image is read at the place of the fragment on the screen. It holds colours as they are
-    // shown, tonemapped by the materials of its camera as by those of this one: they are copied
-    // as they are, as tonemapping them again would wash them out.
+    // image is read at the place of the fragment on the screen, and copied as it is. Without
+    // the shaders, it holds colours as they are shown, tonemapped by the materials of its camera
+    // as by those of this one, which tonemapping again would wash out. With them (HDR), it holds
+    // colours before the tonemapping, which this camera then gives the whole screen at once.
     if params.look == VIEW {
         let uv = (in.position.xy - view.viewport.xy) / view.viewport.zw;
         return vec4(textureSample(portal_image, portal_sampler, uv).rgb, 1.0);
