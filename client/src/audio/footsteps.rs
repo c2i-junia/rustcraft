@@ -45,13 +45,18 @@ impl Stride {
     }
 }
 
-/// The sound of one frame of the local player's movement.
+/// The sound of one frame of the local player's movement. A frame that goes through a portal is
+/// heard as such, and its leap from a portal to the other is not walked.
 fn local_movement_sound(
     stride: &mut Stride,
     from: MovementState,
     to: MovementState,
+    through_portal: bool,
     blocks: &ChunkMap,
 ) -> Option<Sound> {
+    if through_portal {
+        return Some(Sound::PortalPass);
+    }
     if to.is_flying {
         return None;
     }
@@ -68,8 +73,15 @@ pub fn local_footsteps(
     mut stride: Local<Stride>,
     mut sounds: MessageWriter<PlaySound>,
 ) {
-    for LocalPlayerMoved { from, to } in moves.read() {
-        if let Some(sound) = local_movement_sound(&mut stride, *from, *to, &world_map.blocks) {
+    for moved in moves.read() {
+        let sound = local_movement_sound(
+            &mut stride,
+            moved.from,
+            moved.to,
+            moved.through_portal,
+            &world_map.blocks,
+        );
+        if let Some(sound) = sound {
             sounds.write(PlaySound::here(sound));
         }
     }
@@ -141,8 +153,15 @@ mod tests {
                     ..default()
                 };
                 let from = player.movement_state();
-                simulate_player_movement(&mut player, world, &input);
-                local_movement_sound(&mut stride, from, player.movement_state(), world)
+                let outcome = simulate_player_movement(&mut player, world, &input);
+                let through_portal = outcome.turned.is_some();
+                local_movement_sound(
+                    &mut stride,
+                    from,
+                    player.movement_state(),
+                    through_portal,
+                    world,
+                )
             })
             .collect()
     }
@@ -180,6 +199,43 @@ mod tests {
             _ => vec![NetworkAction::MoveForward],
         };
         assert!(sounds_of(&floor(BlockId::Stone), 100, fly_forward).is_empty());
+    }
+
+    #[test]
+    fn going_through_a_portal_is_heard_instead_of_a_step() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        let mut world = floor(BlockId::Sand);
+        // The blue portal faces the player, 3.5 blocks ahead; the orange one is 20 blocks away
+        // and faces the same way, so that the player walks on out of it
+        for (color, anchor, face) in [
+            (
+                PortalColor::Blue,
+                IVec3::new(-1, 64, -4),
+                FaceDirection::PlusZ,
+            ),
+            (
+                PortalColor::Orange,
+                IVec3::new(20, 64, 10),
+                FaceDirection::MinusZ,
+            ),
+        ] {
+            world.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor,
+                face,
+            });
+        }
+        // 100 frames at 5 blocks per second: 8 blocks, the crossing on the way
+        let sounds = sounds_of(&world, 100, |_| vec![NetworkAction::MoveForward]);
+        let passes = sounds.iter().filter(|s| **s == Sound::PortalPass).count();
+        assert_eq!(passes, 1, "{sounds:?}");
+        // The steps of the 8 blocks walked, not of the jump between the portals
+        let steps = sounds
+            .iter()
+            .filter(|s| **s == Sound::Step(SoundMaterial::Sand))
+            .count();
+        assert_eq!(steps, 4, "{sounds:?}");
     }
 
     #[test]

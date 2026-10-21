@@ -187,6 +187,10 @@ pub enum Sound {
     RainIndoors,
     /// The wind, a seamless loop.
     Wind,
+    /// A portal opens: its twin was placed, or it was placed with its twin there.
+    PortalOpen,
+    /// The local player goes through a portal.
+    PortalPass,
 }
 
 impl Sound {
@@ -210,6 +214,8 @@ impl Sound {
                 Sound::ItemPlace,
                 Sound::Craft,
                 Sound::Refused,
+                Sound::PortalOpen,
+                Sound::PortalPass,
             ])
             .chain(Self::WEATHER)
     }
@@ -268,6 +274,9 @@ impl Sound {
             Sound::Rain => vec!["sounds/weather/rain.ogg".to_string()],
             Sound::RainIndoors => vec!["sounds/weather/rain_indoor.ogg".to_string()],
             Sound::Wind => vec!["sounds/ambient/wind.ogg".to_string()],
+            // No sound of their own: a knock and a glassy ring, and a short rising pop
+            Sound::PortalOpen => vec!["sounds/place/glass.ogg".to_string()],
+            Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
         }
     }
 }
@@ -294,6 +303,13 @@ pub fn load_sound_library(mut commands: Commands, asset_server: Res<AssetServer>
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn every_sound_has_a_file() {
+        for sound in Sound::all() {
+            assert!(!sound.files().is_empty(), "{sound:?}");
+        }
+    }
 
     #[test]
     fn every_file_of_every_sound_is_in_the_data_folder() {

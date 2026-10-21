@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
 use crate::dropped_items::ItemPickedUp;
+use crate::portal::PortalOpened;
 use crate::state::{GameSet, GameState};
 
 mod blocks;
@@ -39,6 +40,7 @@ pub fn audio_plugin(app: &mut App) {
                     footsteps::other_players_footsteps,
                     pickup_sounds,
                     inventory::inventory_sounds,
+                    portal_sounds,
                 )
                     .after(GameSet::Reconciliation)
                     .run_if(in_state(GameState::Game)),
@@ -55,6 +57,13 @@ fn pickup_sounds(mut pickups: MessageReader<ItemPickedUp>, mut sounds: MessageWr
     }
 }
 
+/// The opening of a portal, heard where it is.
+fn portal_sounds(mut opened: MessageReader<PortalOpened>, mut sounds: MessageWriter<PlaySound>) {
+    for PortalOpened { at } in opened.read() {
+        sounds.write(PlaySound::at(Sound::PortalOpen, *at));
+    }
+}
+
 /// A click for every widget button activated.
 fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
     sounds.write(PlaySound::here(Sound::Click));
@@ -63,6 +72,23 @@ fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_portal_that_opens_is_heard_where_it_is() {
+        let mut app = App::new();
+        app.add_message::<PlaySound>()
+            .add_message::<PortalOpened>()
+            .add_systems(Update, portal_sounds);
+        let at = Vec3::new(1.0, 2.0, 3.0);
+        app.world_mut().write_message(PortalOpened { at });
+        app.update();
+        let heard: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<PlaySound>>()
+            .drain()
+            .collect();
+        assert_eq!(heard, [PlaySound::at(Sound::PortalOpen, at)]);
+    }
 
     #[test]
     fn activating_a_widget_button_clicks() {

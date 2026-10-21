@@ -163,6 +163,13 @@ pub struct PortalCamera {
     pub level: usize,
 }
 
+/// A portal was drawn open, its centre at `at`: it was placed with its twin there, its twin
+/// was placed, or it moved.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct PortalOpened {
+    pub at: Vec3,
+}
+
 /// The portals drawn in the game, after the client map's.
 pub fn portal_plugin(app: &mut App) {
     app.add_plugins(portal_material_plugin);
@@ -173,6 +180,7 @@ pub fn portal_plugin(app: &mut App) {
 fn portal_systems(app: &mut App) {
     app.init_resource::<DrawnPortals>()
         .init_resource::<PortalRecursion>()
+        .add_message::<PortalOpened>()
         .init_resource::<PortalViewsStarted>()
         .add_systems(
             PostUpdate,
@@ -209,6 +217,7 @@ fn sync_portals(
     mut materials: ResMut<Assets<PortalMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut remesh: MessageWriter<WorldRenderRequestUpdateEvent>,
+    mut opened: MessageWriter<PortalOpened>,
     mut commands: Commands,
 ) {
     let portals = world_map.blocks.portals();
@@ -263,6 +272,9 @@ fn sync_portals(
             ))
             .id();
         let views = if open {
+            opened.write(PortalOpened {
+                at: portal.frame().translation.into(),
+            });
             let images = [(); 2].map(|_| images.add(portal_image(size)));
             let materials = std::array::from_fn(|index| {
                 let image = images[(index + 1) % 2].clone();
@@ -1113,6 +1125,41 @@ mod tests {
         assert_eq!(read, [images[0]]);
         assert_eq!(views_on(&mut app, view_layer(slot, 1)), [images[1]]);
         assert_eq!(views_on(&mut app, view_layer(slot, 2)), [images[2]]);
+    }
+
+    /// Where the portals opened during one more frame.
+    fn opened(app: &mut App) -> Vec<Vec3> {
+        app.world_mut()
+            .resource_mut::<Messages<PortalOpened>>()
+            .clear();
+        app.update();
+        let messages = app.world().resource::<Messages<PortalOpened>>();
+        messages
+            .get_cursor()
+            .read(messages)
+            .map(|opened| opened.at)
+            .collect()
+    }
+
+    #[test]
+    fn a_portal_drawn_open_is_heard_once() {
+        let mut app = app();
+        insert(&mut app, blue());
+        // Alone, it does not open
+        assert!(opened(&mut app).is_empty());
+        // With its twin, both open
+        insert(&mut app, orange());
+        let mut at = opened(&mut app);
+        at.sort_by(|a, b| a.x.total_cmp(&b.x));
+        assert_eq!(at, [Vec3::new(1.0, 11.5, 1.0), Vec3::new(20.0, 11.5, 6.0)]);
+        assert!(opened(&mut app).is_empty());
+        // Moved, the blue one opens again where it is
+        let moved = Portal {
+            anchor: IVec3::new(0, 20, 0),
+            ..blue()
+        };
+        insert(&mut app, moved);
+        assert_eq!(opened(&mut app), [Vec3::from(moved.frame().translation)]);
     }
 
     #[test]

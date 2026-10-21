@@ -73,6 +73,8 @@ const HELD_ACTIONS: [(GameAction, NetworkAction); 6] = [
 pub struct LocalPlayerMoved {
     pub from: MovementState,
     pub to: MovementState,
+    /// Whether the player went through a portal on the way.
+    pub through_portal: bool,
 }
 
 /// Whether the player sprints after this frame. As in Minecraft, the sprint key starts a sprint
@@ -146,6 +148,7 @@ pub fn player_movement_system(
     moves.write(LocalPlayerMoved {
         from,
         to: frame_inputs.0.predicted,
+        through_portal: outcome.turned.is_some(),
     });
     tick_buffer.buffer.push(frame_inputs.0.clone());
     frame_inputs.0.inventory_actions.clear();
