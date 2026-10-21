@@ -106,6 +106,7 @@ impl From<LegacyWorldData> for WorldData {
             name: legacy.name,
             time: legacy.time,
             dropped_items: Vec::new(),
+            weather: None,
         }
     }
 }

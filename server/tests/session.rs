@@ -1919,6 +1919,27 @@ fn weather_set_changes_every_client_and_answers_its_author_only() {
 }
 
 #[test]
+fn the_weather_is_still_there_after_a_restart() {
+    let mut first = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(first.addr, PLAYER_ID);
+    authenticate(&mut client, "player");
+    client.send(chat_message("/weather rain"));
+    assert_eq!(weather_set(&mut client), WeatherKind::Rain);
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    first.join_after_exit();
+    let meta = std::fs::read_to_string(first.world_dir().join("world.ron")).unwrap();
+    assert!(meta.contains("kind: Rain"), "{meta}");
+
+    let mut second = TestServer::start_in(first.tmp, WORLD_NAME);
+    let mut client = TestClient::connect(second.addr, PLAYER_ID);
+    assert_eq!(join_weather(&mut client, "player"), WeatherKind::Rain);
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    second.join_after_exit();
+}
+
+#[test]
 fn a_survival_player_cannot_take_from_the_catalog_or_destroy_its_stack() {
     let mut inventory = Inventory::new();
     inventory.inner.insert(0, stack(ItemId::Dirt, 5));

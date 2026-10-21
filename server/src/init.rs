@@ -184,11 +184,11 @@ fn run(
 
     setup_resources_and_events(&mut app);
 
-    let (world_map, seed, time) = load_world(&world_name, &game_folder_paths)?;
+    let (world_map, seed, time, weather) = load_world(&world_name, &game_folder_paths)?;
     app.insert_resource(world_map);
     app.insert_resource(seed);
     app.insert_resource(ServerTime(time));
-    app.insert_resource(ServerWeather::new(&mut rand::thread_rng()));
+    app.insert_resource(weather);
 
     let mods = Mods::new().map_err(|err| format!("Could not start the mods: {err}"))?;
     mods.load_folder(&game_folder_paths.game_folder_path.join("mods"));
@@ -237,11 +237,12 @@ fn run(
 }
 
 /// The world saved under `world_name`, or a new one when nothing was saved yet, with its
-/// seed and its time in ticks. Its chunks are read from their files as the players need them.
+/// seed, its time in ticks and its weather. Its chunks are read from their files as the
+/// players need them.
 fn load_world(
     world_name: &str,
     game_folder_paths: &GameFolderPaths,
-) -> Result<(ServerWorldMap, WorldSeed, u64), String> {
+) -> Result<(ServerWorldMap, WorldSeed, u64, ServerWeather), String> {
     // the cause alone, which names the file: the caller knows the world it asked for
     let world_data = open_world(world_name, game_folder_paths).map_err(|err| err.to_string())?;
 
@@ -270,7 +271,8 @@ fn load_world(
     };
     cleanup_all_players_from_world(&mut world_map);
 
-    Ok((world_map, world_data.seed, world_data.time))
+    let weather = ServerWeather::from_saved(world_data.weather, &mut rand::thread_rng());
+    Ok((world_map, world_data.seed, world_data.time, weather))
 }
 
 #[cfg(test)]

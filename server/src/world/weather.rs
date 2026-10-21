@@ -37,6 +37,7 @@ pub struct ServerWeather {
 
 impl ServerWeather {
     /// The weather of a new world: clear, for a clear spell.
+    #[cfg(test)]
     pub fn new(rng: &mut impl Rng) -> Self {
         Self::from_saved(None, rng)
     }

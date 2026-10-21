@@ -47,6 +47,9 @@ pub struct WorldMeta {
     /// of the same kind wrote `item_stacks`, which is ignored.
     #[serde(default)]
     pub dropped_items: Vec<DroppedItem>,
+    /// Missing from the worlds saved before the weather, which start clear.
+    #[serde(default)]
+    pub weather: Option<SavedWeather>,
 }
 
 impl WorldMeta {
@@ -58,6 +61,7 @@ impl WorldMeta {
             time,
             mobs,
             dropped_items: Vec::new(),
+            weather: None,
         }
     }
 }
@@ -76,12 +80,16 @@ pub struct WorldData {
     pub time: u64,
     #[serde(default)]
     pub dropped_items: Vec<DroppedItem>,
+    /// The single-file formats had none.
+    #[serde(default)]
+    pub weather: Option<SavedWeather>,
 }
 
 impl From<&WorldData> for WorldMeta {
     fn from(world: &WorldData) -> Self {
         Self {
             dropped_items: world.dropped_items.clone(),
+            weather: world.weather,
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -101,6 +109,7 @@ impl From<WorldMeta> for WorldData {
             name: meta.name,
             time: meta.time,
             dropped_items: meta.dropped_items,
+            weather: meta.weather,
             ..Self::default()
         }
     }
@@ -320,6 +329,29 @@ mod tests {
             ron::de::from_str(r#"(format_version: 2, name: "w", seed: (1), time: 0, mobs: {})"#)
                 .unwrap();
         assert!(before.dropped_items.is_empty());
+    }
+
+    #[test]
+    fn the_weather_is_saved_and_read_back_and_defaults_to_none() {
+        let weather = SavedWeather {
+            kind: WeatherKind::Thunder,
+            ticks_left: 1234,
+        };
+        let meta = WorldMeta {
+            weather: Some(weather),
+            ..WorldMeta::new("w".into(), WorldSeed(1), 0, HashMap::new())
+        };
+        let read: WorldMeta = ron::de::from_str(&ron::ser::to_string(&meta).unwrap()).unwrap();
+        assert_eq!(read.weather, Some(weather));
+        // and through the world loaded from it
+        let world = WorldData::from(read);
+        assert_eq!(world.weather, Some(weather));
+        assert_eq!(WorldMeta::from(&world).weather, Some(weather));
+
+        let before: WorldMeta =
+            ron::de::from_str(r#"(format_version: 5, name: "w", seed: (1), time: 0, mobs: {})"#)
+                .unwrap();
+        assert_eq!(before.weather, None);
     }
 
     #[test]

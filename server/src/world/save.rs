@@ -1,6 +1,7 @@
 use crate::init::ServerTime;
 use crate::world::container_files::{ChunkContainers, ChunkContents};
-use crate::world::format::WorldMeta;
+use crate::world::format::{SavedWeather, WorldMeta};
+use crate::world::weather::ServerWeather;
 use crate::world::writer::{SaveJob, WorldWriter};
 use bevy::prelude::*;
 use ron::ser::PrettyConfig;
@@ -36,6 +37,7 @@ pub fn save_world_system(
     mut world_map: ResMut<ServerWorldMap>,
     world_seed: Res<WorldSeed>,
     time: Res<ServerTime>,
+    weather: Res<ServerWeather>,
     mut writer: ResMut<WorldWriter>,
     mut autosave: ResMut<Autosave>,
     mut event: MessageReader<SaveRequestEvent>,
@@ -68,18 +70,25 @@ pub fn save_world_system(
     }
     if save_requested || autosave_due {
         autosave.last_save_tick = time.0;
-        queue_save(&mut world_map, *world_seed, time.0, &mut writer);
+        queue_save(
+            &mut world_map,
+            *world_seed,
+            time.0,
+            weather.saved(),
+            &mut writer,
+        );
     }
 }
 
-/// Hands the metadata, the files of the players to save and a copy of every dirty chunk, with
-/// its chests and furnaces, to the writer. A chunk is dirty until it
+/// Hands the metadata, with the `weather`, the files of the players to save and a copy of every
+/// dirty chunk, with its chests and furnaces, to the writer. A chunk is dirty until it
 /// is handed over, so a second save queued while the first is being written does not copy it
 /// again unless it changed.
 fn queue_save(
     world_map: &mut ServerWorldMap,
     seed: WorldSeed,
     tick: u64,
+    weather: SavedWeather,
     writer: &mut WorldWriter,
 ) {
     let dirty: Vec<IVec3> = world_map.dirty_chunks.drain().collect();
@@ -103,6 +112,7 @@ fn queue_save(
     let job = SaveJob {
         meta: WorldMeta {
             dropped_items: world_map.dropped_items.to_saved(),
+            weather: Some(weather),
             ..WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone())
         },
         players: std::mem::take(&mut world_map.players_to_save),
@@ -178,9 +188,14 @@ mod tests {
         use super::*;
         use crate::world::chunk_files::{read_chunks, CHUNKS_DIR};
         use crate::world::format::FORMAT_VERSION;
-        use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
+        use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap, WeatherKind};
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
+
+        const CLEAR: SavedWeather = SavedWeather {
+            kind: WeatherKind::Clear,
+            ticks_left: 1,
+        };
 
         fn stone() -> BlockData {
             BlockData::new(BlockId::Stone, BlockDirection::Front)
@@ -203,6 +218,11 @@ mod tests {
                 .insert_resource(map)
                 .insert_resource(WorldSeed(1))
                 .insert_resource(ServerTime(tick))
+                .insert_resource(ServerWeather {
+                    kind: WeatherKind::Rain,
+                    ticks_left: 777,
+                    strike_in: 1,
+                })
                 .insert_resource(writer)
                 .insert_resource(Autosave { last_save_tick: 0 })
                 .add_systems(Update, save_world_system);
@@ -226,10 +246,10 @@ mod tests {
             let mut map = world_map(3);
             map.dirty_chunks.extend([IVec3::ZERO, IVec3::X]);
 
-            queue_save(&mut map, WorldSeed(1), 1, &mut writer);
-            queue_save(&mut map, WorldSeed(1), 2, &mut writer);
+            queue_save(&mut map, WorldSeed(1), 1, CLEAR, &mut writer);
+            queue_save(&mut map, WorldSeed(1), 2, CLEAR, &mut writer);
             map.dirty_chunks.insert(IVec3::X);
-            queue_save(&mut map, WorldSeed(1), 3, &mut writer);
+            queue_save(&mut map, WorldSeed(1), 3, CLEAR, &mut writer);
             drop(writer);
 
             assert_eq!(*jobs.lock().unwrap(), vec![2, 0, 1]);
@@ -265,6 +285,8 @@ mod tests {
                 (meta.name.as_str(), meta.time, meta.format_version),
                 ("w", 10, FORMAT_VERSION)
             );
+            let weather = meta.weather.unwrap();
+            assert_eq!((weather.kind, weather.ticks_left), (WeatherKind::Rain, 777));
         }
 
         #[test]
@@ -437,7 +459,7 @@ mod tests {
             let mut writer = writer;
             writer.close_for_test();
 
-            queue_save(&mut map, WorldSeed(1), 1, &mut writer);
+            queue_save(&mut map, WorldSeed(1), 1, CLEAR, &mut writer);
 
             assert!(map.dirty_chunks.contains(&IVec3::ZERO));
         }
