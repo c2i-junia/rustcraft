@@ -6,8 +6,8 @@ use crate::{
     world::{
         fit_portal, furnace::smelting_result, global_block_to_chunk_pos, liquid::is_source,
         raycast, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap, Container,
-        FaceDirection, FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind,
-        PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
+        FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind, PortalColor,
+        RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -73,8 +73,6 @@ enum Refusal {
     NoSoil(BlockId),
     /// An empty bucket fills only from a water source.
     NotASource(BlockId),
-    /// A portal goes on a wall, not on a floor or a ceiling.
-    HorizontalFace,
     /// No portal fits on the wall around the aimed cell.
     NoRoom,
 }
@@ -296,7 +294,8 @@ fn portal_shots(player: &mut Player, action: &PlayerFrameInput) -> Vec<PortalCol
     shots
 }
 
-/// Puts the portal of colour `color` of the player where its shot hits a wall, `fit_portal`.
+/// Puts the portal of colour `color` of the player where its shot hits a block, on a wall, a
+/// floor or a ceiling, `fit_portal`.
 fn shoot_portal(
     player: &Player,
     world_map: &mut ChunkMap,
@@ -307,9 +306,6 @@ fn shoot_portal(
         target.position
     })
     .map_err(|refused| refused.reason)?;
-    if matches!(target.face, FaceDirection::PlusY | FaceDirection::MinusY) {
-        return Err(Refusal::HorizontalFace);
-    }
     // The point where the ray meets the plane of the aimed face, which a wall block fills
     let (origin, direction) = raycast::aim_ray(&action.camera, &player.position, action.view_mode);
     let normal = target.face.to_ivec3();
@@ -773,6 +769,7 @@ fn block_overlaps_player(block_position: IVec3, player: &Player) -> bool {
 mod tests {
     use super::*;
     use crate::players::game_mode::GameMode;
+    use crate::world::FaceDirection;
     use crate::world::{BlockId, Furnace, ItemId, ItemStack, PortalColor};
     use bevy::math::IVec3;
     use bevy::prelude::Transform;
@@ -1912,20 +1909,42 @@ mod tests {
     }
 
     #[test]
-    fn the_gun_places_no_portal_on_a_floor_or_a_ceiling() {
+    fn the_gun_places_portals_on_a_floor_and_a_ceiling_along_its_facing() {
+        // A stone floor at y = 10 and a ceiling at y = 20, x in 0..=7, z in -6..=6
         let mut world = gun_range();
-        let position = Vec3::new(1.5, 18.0, 0.5);
-        let camera = Transform::from_translation(position).looking_to(Vec3::NEG_Y, Vec3::Z);
+        world.fill_box(IVec3::new(0, 10, -6), IVec3::new(7, 10, 6), BlockId::Stone);
+        world.fill_box(IVec3::new(0, 20, -6), IVec3::new(7, 20, 6), BlockId::Stone);
         let mut player = gunner(0.0, 0.0, 0.0);
-        player.position = position;
-        player.camera_transform = camera;
+        player.position = Vec3::new(3.5, 12.0, 3.5);
+        let eyes = player.position + Vec3::Y * 0.8;
+        // Looking down to the north-west, mostly north, then up to the east
+        player.camera_transform =
+            Transform::from_translation(eyes).looking_to(Vec3::new(-0.3, -1.0, -0.8), Vec3::Y);
+        let left = [NetworkAction::LeftClick];
+        shoot(&mut player, &mut world, &left, CallerType::Server);
+        player.camera_transform =
+            Transform::from_translation(eyes).looking_to(Vec3::new(0.3, 1.0, 0.1), Vec3::Y);
+        shoot(&mut player, &mut world, &[], CallerType::Server);
         shoot(
             &mut player,
             &mut world,
-            &[NetworkAction::LeftClick],
+            &[NetworkAction::RightClick],
             CallerType::Server,
         );
-        assert!(world.portals().is_empty());
+
+        let blue = *world.portals().get(1, PortalColor::Blue).unwrap();
+        assert_eq!(
+            (blue.face, blue.up),
+            (FaceDirection::PlusY, FaceDirection::MinusZ)
+        );
+        assert!(blue.cells().all(|cell| cell.y == 10));
+        let orange = *world.portals().get(1, PortalColor::Orange).unwrap();
+        assert_eq!(
+            (orange.face, orange.up),
+            (FaceDirection::MinusY, FaceDirection::PlusX)
+        );
+        assert!(orange.cells().all(|cell| cell.y == 20));
+        assert!(world.portals().twin(&blue).is_some());
     }
 
     #[test]
