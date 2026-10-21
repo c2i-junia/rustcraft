@@ -9,7 +9,7 @@ use crate::{
             WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
         },
     },
-    world::{world_position_to_chunk_position, BlockId, ChunkMap},
+    world::{world_position_to_chunk_position, BlockId, ChunkMap, PORTAL_HEIGHT, PORTAL_WIDTH},
 };
 use bevy::prelude::*;
 
@@ -131,6 +131,11 @@ pub fn simulate_player_movement(
     if !in_liquid {
         finish_gravity(player, delta);
     }
+    // Only a portal gives a horizontal velocity, which the player keeps in the air
+    if landed.is_some() || in_liquid || player.is_flying {
+        player.velocity.x = 0.0;
+        player.velocity.z = 0.0;
+    }
     apply_wished_direction(player, world_map, direction, in_liquid, delta);
     MovementOutcome {
         fallen: landed,
@@ -142,13 +147,36 @@ pub fn simulate_player_movement(
 /// position, its velocity and its camera go through the portal (`Portals::through`), and come
 /// out of the twin turned with it. The camera keeps where it looks, set upright, and is
 /// returned.
+///
+/// Out of the twin, the centre is kept within its opening shrunk by the half extents of the
+/// box, so that the box fits the opening: a player falling into a floor portal near one end
+/// comes out of a wall portal with its feet in the opening, not in the wall under it. A box
+/// that went into a portal fitted its opening, which the same shape on a wall keeps it doing.
+/// The eyes keep their height above the centre.
 fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) -> Option<Look> {
     let portals = world_map.portals();
-    let through = portals.through(portals.crossed(from, player.position)?)?;
-    player.position = through.transform_point3(player.position);
+    let portal = portals.crossed(from, player.position)?;
+    let (through, twin) = (portals.through(portal)?, portals.twin(portal)?);
+    let eyes = player.camera_transform.translation - player.position;
+
+    let extents = Vec3::new(player.width, player.height, player.width) / 2.0;
+    let room = |side: Vec3, length: i32| (length as f32 / 2.0 - side.abs().dot(extents)).max(0.0);
+    let (across, high) = (
+        room(twin.right(), PORTAL_WIDTH),
+        room(twin.up(), PORTAL_HEIGHT),
+    );
+    let out = twin.local(through.transform_point3(player.position));
+    let out = Vec3::new(
+        out.x.clamp(-across, across),
+        out.y.clamp(-high, high),
+        out.z,
+    );
+    player.position = twin.frame().transform_point3(out);
     player.velocity = through.transform_vector3(player.velocity);
+
     let camera = &mut player.camera_transform;
-    camera.translation = through.transform_point3(camera.translation);
+    let level = through.transform_vector3(eyes.with_y(0.0)).with_y(0.0);
+    camera.translation = player.position + level + Vec3::Y * eyes.y;
     let look = Look::upright(Quat::from_mat3a(&through.matrix3) * camera.rotation);
     camera.rotation = look.rotation();
     Some(look)
@@ -311,9 +339,16 @@ fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) -> Opt
     let half_height = player.height / 2.0;
     for _ in 0..steps as u32 {
         let new_y = player.position.y + step;
-        if !check_player_collision(&player.position.with_y(new_y), player, world_map) {
+        let candidate = player.position.with_y(new_y);
+        let into_portal = goes_into_portal(player, world_map, candidate);
+        if into_portal || !check_player_collision(&candidate, player, world_map) {
             player.position.y = new_y;
             player.fall_distance += (-step).max(0.0);
+            if into_portal {
+                // The rest of the move is made out of the twin, in the next input
+                player.on_ground = false;
+                return None;
+            }
             continue;
         }
 
@@ -358,6 +393,20 @@ fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) -> Opt
     None
 }
 
+/// Whether the centre of `player` goes, moving to `candidate`, into an open portal that lets it
+/// through (`Portals::letting_through`): the move is then made whatever lies behind the wall
+/// cells, as a floor thicker than a block does under a floor portal, and is the crossing.
+fn goes_into_portal(player: &Player, world_map: &ChunkMap, candidate: Vec3) -> bool {
+    let portals = world_map.portals();
+    portals
+        .crossed(player.position, candidate)
+        .is_some_and(|crossed| {
+            portals
+                .letting_through(player.position, player.width / 2.0)
+                .any(|open| open == crossed)
+        })
+}
+
 /// The horizontal speed of the player, in blocks/s.
 fn speed(player: &Player, in_liquid: bool) -> f32 {
     if player.is_flying {
@@ -380,9 +429,10 @@ fn speed(player: &Player, in_liquid: bool) -> f32 {
     }
 }
 
-/// Moves the player along `direction`, along x then along z. On foot, an axis blocked by a
-/// block is left unchanged, so the player slides along walls, and a player sneaking on the
-/// ground does not step off it; a flying player goes through blocks.
+/// Moves the player along `direction`, and by its horizontal velocity, along x then along z.
+/// On foot, an axis blocked by a block is left unchanged, and its velocity dropped, so the
+/// player slides along walls, and a player sneaking on the ground does not step off it; a
+/// flying player goes through blocks.
 fn apply_wished_direction(
     player: &mut Player,
     world_map: &ChunkMap,
@@ -390,7 +440,7 @@ fn apply_wished_direction(
     in_liquid: bool,
     delta: f32,
 ) {
-    let step = direction * (speed(player, in_liquid) * delta);
+    let step = direction * (speed(player, in_liquid) * delta) + player.velocity.with_y(0.0) * delta;
     let keeps_to_the_ground = player.is_sneaking && player.on_ground;
 
     for axis in [Vec3::X, Vec3::Z] {
@@ -405,6 +455,8 @@ fn apply_wished_direction(
                     && !check_player_collision(&up, player, world_map)
                 {
                     player.position = up;
+                } else {
+                    player.velocity *= Vec3::ONE - axis;
                 }
                 continue;
             }
@@ -1568,6 +1620,241 @@ mod tests {
         for (through, open) in heights(&through).into_iter().zip(heights(&open)) {
             assert!((through - open).abs() < 1e-4, "{through} {open}");
         }
+    }
+
+    /// The flat world with the blue portal of player 7 on the floor, its opening x in 0..2 and
+    /// z in -3..0, its up north, and `twin` as the orange one, if any, with a stone wall facing
+    /// +Z at z = -20 (x 8..=15, y 64..=69) and a stone ceiling at y = 80 (x 16..=26, z -6..=6)
+    /// for it to stand on.
+    fn floor_portal_world(twin: Option<Portal>) -> ChunkMap {
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(8, 64, -20),
+            IVec3::new(15, 69, -20),
+            BlockId::Stone,
+        );
+        world.fill_box(
+            IVec3::new(16, 80, -6),
+            IVec3::new(26, 80, 6),
+            BlockId::Stone,
+        );
+        let portals = world.portals_mut();
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(0, 63, -1),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        if let Some(twin) = twin {
+            portals.insert(twin);
+        }
+        world
+    }
+
+    /// The orange portal on the wall of `floor_portal_world`, its opening x in 11..13, y in
+    /// 64..67, facing south.
+    fn wall_twin() -> Portal {
+        Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(11, 64, -20),
+            face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
+        }
+    }
+
+    /// The orange portal on the ceiling of `floor_portal_world`, its up east, facing down.
+    fn ceiling_twin() -> Portal {
+        Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(20, 80, 0),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::PlusX,
+        }
+    }
+
+    /// A player falling from `position`, looking along `looking`.
+    fn faller(position: Vec3, looking: Vec3) -> Player {
+        let mut player = standing_player();
+        player.position = position;
+        player.on_ground = false;
+        player.camera_transform =
+            Transform::from_translation(position + Vec3::Y * 0.8).looking_to(looking, Vec3::Y);
+        player
+    }
+
+    /// Simulates inputs without a key, the camera turned as the simulation leaves it, at the
+    /// eyes of the player, until the player goes through a portal. Returns its velocity before that input, and what that
+    /// input reported. No landing is reported on the way.
+    fn fall_through(player: &mut Player, world: &ChunkMap) -> (Vec3, MovementOutcome) {
+        for _ in 0..200 {
+            let before = player.velocity;
+            let mut input = frame(&[]);
+            input.camera = player.camera_transform;
+            input.camera.translation = player.position + Vec3::Y * 0.8;
+            let outcome = simulate_player_movement(player, world, &input);
+            assert_eq!(outcome.fallen, None, "landed at {}", player.position);
+            if outcome.turned.is_some() {
+                return (before, outcome);
+            }
+        }
+        panic!("never went through, at {}", player.position);
+    }
+
+    /// The vertical velocity a faller at `before` has after an input of 16 ms.
+    fn after_a_frame(before: Vec3) -> f32 {
+        before.y + GRAVITY * 0.016
+    }
+
+    #[test]
+    fn falling_into_a_floor_portal_comes_out_of_a_wall_at_the_same_speed() {
+        let world = floor_portal_world(Some(wall_twin()));
+        let mut player = faller(Vec3::new(1.0, 70.0, -1.5), Vec3::NEG_Z);
+        let (before, _) = fall_through(&mut player, &world);
+
+        // Out of the wall, southward, as fast as it fell; the floor is four blocks thick, and
+        // the fall went on through all of them
+        let speed = -after_a_frame(before);
+        assert!(speed > 10.0, "{speed}");
+        let velocity = player.velocity;
+        assert!(
+            velocity.distance(Vec3::new(0.0, 0.0, speed)) < 1e-3,
+            "{velocity}, falling at {speed}"
+        );
+        let out = player.position;
+        assert!(out.z > -19.0 && (out.x - 12.0).abs() < 1e-3, "{out}");
+        // And it flies on at that speed, falling again
+        simulate(&mut player, &world, &[], 1);
+        let step = player.position - out;
+        assert!((step.z - speed * 0.016).abs() < 1e-3, "{step}");
+        assert!(step.y < 0.0, "{step}");
+        // Until it lands, where it stops
+        simulate(&mut player, &world, &[], 120);
+        assert!(player.on_ground);
+        assert!((feet(&player) - FLOOR_TOP).abs() < 0.01);
+        assert_eq!(player.velocity, Vec3::ZERO);
+        let landed = player.position;
+        simulate(&mut player, &world, &[], 10);
+        assert_eq!(player.position, landed);
+    }
+
+    #[test]
+    fn a_player_falling_near_the_end_of_a_floor_portal_fits_the_wall_portal_it_comes_out_of() {
+        let world = floor_portal_world(Some(wall_twin()));
+        // 1.05 blocks south of the centre, along the floor portal's up: 1.05 below the centre of
+        // the wall portal, its box would reach below the opening
+        let mut player = faller(Vec3::new(1.0, 70.0, -0.45), Vec3::NEG_Z);
+        fall_through(&mut player, &world);
+        let out = player.position;
+        assert!(out.y - PLAYER_HEIGHT / 2.0 >= 64.0 - 1e-3, "{out}");
+        assert!(out.y + PLAYER_HEIGHT / 2.0 <= 67.0 + 1e-3, "{out}");
+    }
+
+    #[test]
+    fn falling_into_a_floor_portal_comes_out_of_a_ceiling_still_falling() {
+        let world = floor_portal_world(Some(ceiling_twin()));
+        let mut player = faller(Vec3::new(1.0, 70.0, -1.5), Vec3::NEG_Z);
+        let (before, _) = fall_through(&mut player, &world);
+        let velocity = player.velocity;
+        assert!(
+            velocity.distance(Vec3::new(0.0, after_a_frame(before), 0.0)) < 1e-3,
+            "{velocity}"
+        );
+        assert!(player.position.y < 80.0, "{}", player.position);
+        let ceiling = world.portals().get(7, PortalColor::Orange).unwrap();
+        assert!(ceiling.signed_distance(player.position) > 0.0);
+    }
+
+    #[test]
+    fn a_player_standing_on_an_open_floor_portal_falls_into_it() {
+        let world = floor_portal_world(Some(wall_twin()));
+        let mut player = standing_player();
+        player.position = Vec3::new(1.0, FLOOR_TOP + 0.9, -1.5);
+        let (_, outcome) = fall_through(&mut player, &world);
+        assert!(outcome.turned.is_some());
+        // Its feet over the edge of the opening, its centre beyond the opening shrunk by half
+        // its width: it stands
+        for x in [-0.1, 1.7] {
+            let mut player = standing_player();
+            player.position = Vec3::new(x, FLOOR_TOP + 0.9, -1.5);
+            simulate(&mut player, &world, &[], 60);
+            assert!((feet(&player) - FLOOR_TOP).abs() < 0.01, "{x}");
+        }
+    }
+
+    #[test]
+    fn a_player_left_in_a_floor_portal_that_closed_jumps_back_out() {
+        let world = floor_portal_world(None);
+        let mut player = standing_player();
+        // Its box 0.6 block into the floor of the blue portal
+        player.position = Vec3::new(1.0, FLOOR_TOP + 0.3, -1.5);
+        assert!(inside_blocks(&player, &world));
+        simulate(&mut player, &world, &[], 30);
+        assert!(
+            (player.position.y - (FLOOR_TOP + 0.3)).abs() < 1e-4,
+            "sank to {}",
+            player.position
+        );
+        simulate(&mut player, &world, &[NetworkAction::JumpOrFlyUp], 1);
+        simulate(&mut player, &world, &[], 60);
+        assert!(!inside_blocks(&player, &world));
+        assert!(
+            (feet(&player) - FLOOR_TOP).abs() < 0.01,
+            "{}",
+            player.position
+        );
+    }
+
+    #[test]
+    fn the_camera_comes_out_upright_looking_where_it_looked_through_the_portal() {
+        let world = floor_portal_world(Some(wall_twin()));
+        // Looking north and 80 degrees down, into the floor portal
+        let down = 80f32.to_radians();
+        let looking = Vec3::new(0.0, -down.sin(), -down.cos());
+        let mut player = faller(Vec3::new(1.0, 70.0, -1.5), looking);
+        let (_, outcome) = fall_through(&mut player, &world);
+
+        // Out of the wall: south, 10 degrees up
+        let look = outcome.turned.unwrap();
+        assert!(
+            (look.pitch - -(10f32.to_radians())).abs() < 1e-4,
+            "{look:?}"
+        );
+        assert!(look.yaw.cos() < -0.9999, "{look:?}");
+        let camera = player.camera_transform;
+        assert!(camera.rotation.angle_between(look.rotation()) < 1e-4);
+        assert!(camera.right().y.abs() < 1e-5, "{:?}", camera.right());
+        // The eyes above the centre, where the input's camera had them before its fall
+        let eyes = camera.translation - player.position;
+        assert!(eyes.xz().length() < 1e-4, "{eyes}");
+        let fall = player.velocity.length() * 0.016;
+        assert!(eyes.y > 0.8 && eyes.y < 0.8 + fall + 1e-3, "{eyes}");
+    }
+
+    #[test]
+    fn walking_into_a_wall_portal_comes_up_out_of_a_floor_looking_up_as_far_as_allowed() {
+        let world = floor_portal_world(Some(wall_twin()));
+        let mut player = standing_player();
+        player.position = Vec3::new(12.0, FLOOR_TOP + 0.9, -17.0);
+        let trace = walk(&mut player, &world, Vec3::NEG_Z, 120, |_| {
+            vec![NetworkAction::MoveForward]
+        });
+        let (out, look) = trace
+            .iter()
+            .find_map(|(position, look)| look.map(|look| (*position, look)))
+            .unwrap();
+        // Up out of the floor portal, looking straight up but for the clamp, the top of the
+        // view to the north, as the wall's up goes through to the floor's
+        let blue = world.portals().get(7, PortalColor::Blue).unwrap();
+        assert!(
+            blue.signed_distance(out) > 0.0 && blue.local(out).x.abs() < 1.0,
+            "{out}"
+        );
+        let max = MAX_PITCH_DEGREES.to_radians();
+        assert!((look.pitch + max).abs() < 1e-5, "{look:?}");
+        assert!((look.rotation() * Vec3::Y).z < -0.99, "{look:?}");
     }
 
     #[test]
