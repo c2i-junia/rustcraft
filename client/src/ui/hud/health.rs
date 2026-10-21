@@ -1,5 +1,6 @@
 //! The health of the local player in survival: ten hearts over the left of the hotbar, each one
-//! full, half or empty. The textures are Pixel Perfection's `gui/sprites/hud/heart/`.
+//! full, half or empty, hidden while the inventory is open over them. The textures are Pixel
+//! Perfection's `gui/sprites/hud/heart/`.
 
 use bevy::prelude::*;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
@@ -7,6 +8,7 @@ use shared::players::Player;
 
 use crate::player::CurrentPlayerMarker;
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
+use crate::ui::hud::InventoryRoot;
 use crate::ui::theme::{SPACE_S, SPACE_XS};
 
 pub const HEART_CONTAINER_PATH: &str = "./graphics/hud/heart_container.png";
@@ -108,26 +110,31 @@ pub fn spawn_health_bar(
     }
 }
 
-/// Fills the hearts with the health of the local player, and shows them in survival only. Writes
-/// nothing while neither changes.
+/// Fills the hearts with the health of the local player, and shows them in survival only, while
+/// the inventory is closed: open, its backpack takes their place, as in Minecraft. Writes nothing
+/// while none of these changes.
 pub fn update_health_bar(
     player: Query<&Player, With<CurrentPlayerMarker>>,
     mut bar: Query<(Entity, &mut Visibility), With<HealthBar>>,
     mut fills: Query<(&HeartFill, &mut ImageNode, &mut Visibility), Without<HealthBar>>,
+    inventory: Query<&Visibility, (With<InventoryRoot>, Without<HealthBar>, Without<HeartFill>)>,
     assets: Res<AssetServer>,
-    mut shown: Local<Option<(u32, GameMode)>>,
+    mut shown: Local<Option<(u32, GameMode, bool)>>,
     mut commands: Commands,
 ) {
     let (Ok(player), Ok((bar, mut visibility))) = (player.single(), bar.single_mut()) else {
         return;
     };
-    let state = (player.health, player.game_mode);
+    let inventory_open = inventory
+        .single()
+        .is_ok_and(|inventory| *inventory == Visibility::Visible);
+    let state = (player.health, player.game_mode, inventory_open);
     if *shown == Some(state) {
         return;
     }
     *shown = Some(state);
 
-    *visibility = if player.game_mode.takes_damage() {
+    *visibility = if player.game_mode.takes_damage() && !inventory_open {
         Visibility::Inherited
     } else {
         Visibility::Hidden

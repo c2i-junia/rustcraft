@@ -14,7 +14,7 @@ use super::seed::GameFolder;
 use crate::camera::{CameraController, FOV_DEGREES, ZOOM_SCALE};
 use crate::player::{CurrentPlayerMarker, PlayerBody, SNEAK_BODY_SCALE};
 use crate::ui::hud::health::{health_label, HealthBar};
-use crate::ui::hud::HudBottom;
+use crate::ui::hud::{HudBottom, InventoryRoot};
 use crate::ui::menus::death::{DeathScreen, DEATH_TITLE, RESPAWN};
 
 /// The local player, as the client predicts it.
@@ -56,6 +56,16 @@ fn a_deadly_fall_opens_the_death_screen_and_respawn_brings_the_player_back() {
     h.wait_for(&L::marker::<HealthBar>(), SCREEN);
     assert_eq!(h.health_label(), health_label(MAX_HEALTH));
     h.snapshot("hearts");
+
+    // The open inventory hides them, as in Minecraft: they would cover its bottom row
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+    h.frames(2);
+    assert!(!h.is_visible(&L::marker::<HealthBar>()));
+    h.snapshot("inventory_without_hearts");
+    h.press(KeyCode::KeyE);
+    h.frames(2);
+    assert!(h.is_visible(&L::marker::<HealthBar>()));
 
     // F does not fly in survival
     h.press(KeyCode::KeyF);
