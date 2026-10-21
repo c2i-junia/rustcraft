@@ -312,3 +312,40 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     `overcast_sky`, so the dome, the fog of the chunks, the water and the far clouds share it.
     Without the shaders the sky is one colour, so it has no glow.
 37. Adding to 26: the overcast at night is a faintly cool grey, not a neutral one.
+38. Changing 9: the rain and the snow have no meshes. A pass of its own builds every drop,
+    flake and splash from the vertex index alone (six vertices each, twelve for a splash), so
+    nothing is uploaded but a small uniform. It draws after the temporal anti-aliasing: drawn
+    before, thin blended streaks with no motion vectors were smeared away by the history, as
+    Bevy's docs warn for particles. It tests the depth of the world by hand, the multisampled
+    depth without the shaders, and blends premultiplied.
+39. The climate map tells what falls by its blue channel, the column's own kind (rain, snow, or
+    nothing in the desert and the savanna), not blended with its neighbours. Rain turns to snow
+    above the snow line of the generation (122), each drop at a height of its own within ±4, so
+    the line is a band, not a cut.
+40. The occlusion map is 144 × 144 R32Float, the 9 × 9 chunk columns around the eye, holding
+    the height at which what falls stops. A column not loaded stops everything; flowers, grass
+    and other decorations let the rain through; water stops it at its surface. At most 12 chunk
+    columns are scanned a frame, the nearest first; a changed block rescans its own column the
+    same frame.
+41. The counts per quality: rain and snow 2500 Off, 3500 Low, 5000 Medium, 6500 High, 8000 Ultra;
+    splashes 160 to 500. The qualities that draw fewer drops draw them more opaque (× 1.6 Off down
+    to × 0.9 Ultra), so that the rain reads as about as heavy everywhere. How many show follows
+    the level of the drops, `smoothstep(0.25, 1, rain)`.
+42. The rain falls in three bands around the eye: 15 % wide soft faint drops within 9 blocks,
+    40 % finer ones to 24, the rest finest to 40; 12 to 16 blocks a second, 0.6 to 1 block
+    long, never drawn thinner than 1.3 pixels (fainter instead, by the square root of how much
+    thinner, so far drops haze). They take the grey of the overcast a little darker than the sky,
+    with a faint floor so they glimmer at night. The snow falls in three bands too (to 8, 20 and
+    40 blocks), 1 to 2 blocks a second, swaying and spinning, as soft lobed discs a little
+    brighter than the sky.
+43. The wind blows along +X, at 0.5, 1.6 and 4.8 blocks a second in clear, rain and a storm, and
+    gusts in a storm; what falls drifts with it, so a storm slants.
+44. Splashes pop up within 16 blocks where the rain stops on open ground or water, below the snow
+    line: a soft ring thrown out and gone by half of their 0.26 s, and droplets thrown up; on the
+    water, smaller and without the ring, as the water rings itself.
+45. The rain rings the water open to the sky (sky light from 14 to 15) where the climate gives
+    rain, below the snow line: in cells of 0.55 blocks one ring at a time, living about 0.8 s and
+    spreading 0.3 blocks, in as many cells as the level of the rain says. They are part of the
+    normal of the water, so they reflect, and fade out with the footprint of a pixel. They follow
+    the water effect, as the waves.
+46. Nothing falls while the eye is under water.
