@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use bevy::{camera::RenderTarget, prelude::*};
 use image::RgbImage;
 use shared::world::{BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor};
-use shared::CHUNK_SIZE;
+use shared::{CHUNK_SIZE, DAY_DURATION_IN_TICKS, NOON_IN_DAY};
 
 use super::game::{enter_world, hold_click, slot};
 use super::harness::{Harness, SERVER};
@@ -19,7 +19,7 @@ use crate::player::CurrentPlayerMarker;
 use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::world::celestial::{sun_height, CelestialRoot};
+use crate::world::celestial::{sky_rotation, sun_height, CelestialRoot};
 use crate::world::time::ClientTime;
 use crate::world::ClientWorldMap;
 use shared::players::Player;
@@ -1014,6 +1014,9 @@ fn walking_through_a_portal_is_seamless() {
             player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
         })
     });
+    // A world starts at sunset, which lasts minutes now that a day lasts twenty: its sky would
+    // be taken for the orange portal
+    h.set_time("day");
     let start = local_player(h.world()).unwrap().position.floor().as_ivec3();
     h.command("/course");
     let blue_cell = start + IVec3::new(0, -1, -6);
@@ -1498,22 +1501,25 @@ fn the_view_through_a_portal_reaches_a_far_place() {
     // Looking through the blue portal, which faces south, is looking south out of the orange
     // one: the player looks north, as high as the sun is
     let toward = |sun: Vec3| Vec3::new(-sun.x, sun.y, -sun.z);
-    // The sun in the south, above the horizon, low enough to be seen through the opening: a day
-    // lasts a minute, and the sun sets in the south a quarter of a day after noon
-    h.command("/time set day");
+    // The sun in the south, above the horizon, low enough to be seen through the opening: it
+    // sets in the south a quarter of a day after noon. A day lasts twenty minutes, so the
+    // client's clock, which the sky follows and the server only sets on `/time set`, is set
+    // straight to the first such hour after the next noon
     let eyes_now = eyes(h.world_mut());
-    h.wait_until("the sun low in the south", Duration::from_secs(30), |w| {
-        let mut roots = w
-            .try_query_filtered::<&Transform, With<CelestialRoot>>()
-            .unwrap();
-        roots.single(w).is_ok_and(|root| {
-            let sun = root.rotation * Vec3::Z;
+    let now = h.world().resource::<ClientTime>().0;
+    let noon = now - now % DAY_DURATION_IN_TICKS + NOON_IN_DAY;
+    let low_in_the_south = (noon..noon + DAY_DURATION_IN_TICKS / 2)
+        .step_by(10)
+        .find(|&tick| {
+            let sun = sky_rotation(tick) * Vec3::Z;
             let ray = toward(sun);
             let along = -blue.signed_distance(eyes_now) / ray.dot(blue.normal());
             let hit = blue.local(eyes_now + ray * along);
             sun.z > 0.0 && sun.y > 0.03 && hit.x.abs() < 0.7 && hit.y.abs() < 1.2
         })
-    });
+        .expect("the sun is seen through the portal some time in the afternoon");
+    h.world_mut().insert_resource(ClientTime(low_in_the_south));
+    h.frames(2);
     let look_at_sun = |h: &mut Harness| {
         let direction = toward(sun(h.world_mut()));
         let world = h.world_mut();
@@ -1528,18 +1534,22 @@ fn the_view_through_a_portal_reaches_a_far_place() {
     h.frames(1);
     look_at_sun(&mut h);
     h.frames(1);
+    // Where the sun is as the screenshot is taken: it moves on while it is read back
+    let eyes = eyes(h.world_mut());
+    let direction = toward(sun(h.world_mut()));
+    let at = on_screen(&mut h, eyes + direction * 100.0);
     let shot = h.screenshot();
     keep(
         &shot,
         "the_view_through_a_portal_reaches_a_far_place",
         "far_place_sun",
     );
-    let eyes = eyes(h.world_mut());
-    let direction = toward(sun(h.world_mut()));
     assert!(blue.signed_distance(eyes + direction * 10.0) < 0.0);
-    let color = mean_color(&shot, on_screen(&mut h, eyes + direction * 100.0));
+    // Beside the crosshair, on the disk of the sun, which is drawn so bright that it shows white
+    let color = mean_color(&shot, at + Vec2::splat(6.0));
+    let sky = h.sky();
     assert!(
-        color.x > color.z + 50.0 && color.y > color.z + 50.0,
-        "not the sun through the portal: {color}"
+        color.min_element() > 240.0 && sky.max_element() < 200.0,
+        "not the sun through the portal: {color}, the sky being {sky}"
     );
 }
