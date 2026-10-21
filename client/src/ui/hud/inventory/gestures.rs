@@ -1,9 +1,11 @@
 //! The gestures of the mouse on the cells of the open inventory that last longer than a press: a
 //! drag of the held stack over cells, sent once its button is released, the double clicks, and
-//! the Mouse Tweaks sweep of Shift+drag, which quick-moves every cell it enters.
+//! the Mouse Tweaks sweep of Shift+drag, which quick-moves every cell it enters, and its wheel,
+//! which moves one item a notch.
 
 use std::time::Duration;
 
+use bevy::input::mouse::MouseWheel;
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
 use shared::players::inventory::{drag_plan, DragPlan, InventoryAction, OpenContents};
@@ -13,6 +15,7 @@ use shared::world::{ItemId, ItemStack};
 use super::{stack_in, InventoryCell, InventoryRoot};
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::ui::settings::{InterfaceSettings, InventoryTweaksChoice};
+use crate::ui::widgets::scroll::scroll_steps;
 use crate::world::ClientWorldMap;
 
 /// How soon after a press a second one on the same cell makes a double click.
@@ -106,6 +109,8 @@ pub struct CellGestures {
     /// The Shift+drag whose button is down.
     pub shift_drag: Option<ShiftDrag>,
     last_press: Option<LastPress>,
+    /// The part of a notch of the wheel the trackpad made over a stack, `scroll_steps`'.
+    wheel: f32,
 }
 
 impl CellGestures {
@@ -284,4 +289,47 @@ pub fn shift_drag_inventory_cells_system(
         }
     }
     gestures.shift_drag = Some(drag);
+}
+
+/// Sends a notch of the wheel over a cell holding a stack, the cursor empty, as the move of one
+/// item of it, either way the wheel turns: at most as many a frame as the stack holds items. The
+/// part of a notch made elsewhere is dropped. Nothing while the inventory is hidden or the
+/// inventory tweaks are off.
+#[allow(clippy::too_many_arguments)]
+pub fn wheel_inventory_cells_system(
+    mut scroll: MessageReader<MouseWheel>,
+    settings: Res<InterfaceSettings>,
+    inventory_root: Query<&Visibility, With<InventoryRoot>>,
+    cells: Query<(&Hovered, &InventoryCell)>,
+    inventory: Res<Inventory>,
+    world_map: Res<ClientWorldMap>,
+    mut gestures: ResMut<CellGestures>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+) {
+    let is_open = matches!(inventory_root.single(), Ok(&Visibility::Visible));
+    let target = cells
+        .iter()
+        .find(|(hovered, _)| hovered.0)
+        .map(|(_, cell)| cell.id)
+        .filter(|_| {
+            is_open
+                && settings.inventory_tweaks == InventoryTweaksChoice::On
+                && inventory.floating.is_none()
+        })
+        .and_then(|slot| Some((slot, stack_in(slot, &inventory, &world_map)?)));
+    let Some((slot, stack)) = target else {
+        scroll.clear();
+        gestures.wheel = 0.;
+        return;
+    };
+    let remainder = &mut gestures.wheel;
+    let notches: u32 = scroll
+        .read()
+        .map(|event| scroll_steps(remainder, event.unit, event.y).unsigned_abs())
+        .sum();
+    let moves = std::iter::repeat_n(
+        InventoryAction::QuickMoveOne(slot),
+        notches.min(stack.nb) as usize,
+    );
+    frame_inputs.0.inventory_actions.extend(moves);
 }

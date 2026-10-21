@@ -661,13 +661,14 @@ fn show_stack(
 mod tests {
     use super::*;
     use crate::ui::hud::{
-        drag_inventory_cells_system, shift_drag_inventory_cells_system, InventoryDialog,
-        InventoryTitle, DOUBLE_CLICK_WINDOW,
+        drag_inventory_cells_system, shift_drag_inventory_cells_system,
+        wheel_inventory_cells_system, InventoryDialog, InventoryTitle, DOUBLE_CLICK_WINDOW,
     };
     use crate::ui::settings::{InterfaceSettings, InventoryTweaksChoice};
     use crate::ui::theme::PANEL;
     use crate::ui::widgets::slot::slot_durability;
     use bevy::ecs::system::RunSystemOnce;
+    use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
     use shared::players::inventory::{FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT};
     use shared::world::ItemType;
     use shared::world::{grid_slot, Furnace, ItemId};
@@ -704,6 +705,7 @@ mod tests {
             world.insert_resource(time);
             world.init_resource::<CellGestures>();
             world.init_resource::<InterfaceSettings>();
+            world.init_resource::<Messages<MouseWheel>>();
             world.insert_resource(UIMode::Opened);
             world.insert_resource(crate::input::keyboard::default_bindings());
             world.spawn((
@@ -853,6 +855,10 @@ mod tests {
                 .run_system_once(shift_drag_inventory_cells_system)
                 .unwrap();
             self.world
+                .run_system_once(wheel_inventory_cells_system)
+                .unwrap();
+            self.world.resource_mut::<Messages<MouseWheel>>().clear();
+            self.world
                 .resource_mut::<ButtonInput<MouseButton>>()
                 .clear();
             self.world.resource_mut::<ButtonInput<KeyCode>>().clear();
@@ -885,6 +891,20 @@ mod tests {
             self.world
                 .resource_mut::<Time<Real>>()
                 .update_with_duration(std::time::Duration::from_millis(ms));
+        }
+
+        /// Rolls the wheel by `y` lines, or trackpad pixels, for a frame, the pointer on the cell
+        /// of `slot` or on no cell.
+        fn wheel(&mut self, slot: Option<u32>, unit: MouseScrollUnit, y: f32) {
+            self.hover(slot);
+            self.world.write_message(MouseWheel {
+                unit,
+                x: 0.,
+                y,
+                window: Entity::PLACEHOLDER,
+                phase: bevy::input::touch::TouchPhase::Moved,
+            });
+            self.frame();
         }
 
         /// Holds Shift down, or releases it.
@@ -2498,5 +2518,66 @@ mod tests {
 
         assert_eq!(hud.sent_actions(), [InventoryAction::QuickMoveSlot(9)]);
         assert_eq!(hud.world.resource::<CellGestures>().shift_drag, None);
+    }
+
+    #[test]
+    fn a_wheel_notch_over_a_stack_moves_one_item_of_it() {
+        use MouseScrollUnit::{Line, Pixel};
+        let mut hud = Hud::new(Visibility::Visible, &[0, 9]);
+        hud.put(0, dirt_stack(5));
+        let one = || InventoryAction::QuickMoveOne(0);
+
+        // Either way, a notch a line
+        hud.wheel(Some(0), Line, -1.);
+        assert_eq!(hud.sent_actions(), [one()]);
+        hud.wheel(Some(0), Line, 2.);
+        assert_eq!(hud.sent_actions(), [one(); 3]);
+        // A trackpad's pixels add up to notches
+        for _ in 0..3 {
+            hud.wheel(Some(0), Pixel, -5.);
+        }
+        assert_eq!(hud.sent_actions(), [one(); 3]);
+        hud.wheel(Some(0), Pixel, -5.);
+        assert_eq!(hud.sent_actions(), [one(); 4]);
+        // No more in a frame than the stack holds items
+        hud.clear_sent();
+        hud.wheel(Some(0), Line, -10.);
+        assert_eq!(hud.sent_actions(), [one(); 5]);
+
+        // The part of a notch made elsewhere than over a stack is dropped
+        hud.clear_sent();
+        hud.wheel(Some(0), Pixel, -15.);
+        hud.wheel(Some(9), Pixel, -5.);
+        hud.wheel(Some(0), Pixel, -5.);
+        assert!(hud.sent_actions().is_empty());
+    }
+
+    #[test]
+    fn the_wheel_moves_nothing_from_an_empty_cell_with_a_held_stack_closed_or_tweaks_off() {
+        for case in ["empty", "no cell", "held stack", "closed", "tweaks off"] {
+            let mut hud = Hud::new(Visibility::Visible, &[0, 9]);
+            hud.put(0, dirt_stack(5));
+            let mut over = Some(0);
+            match case {
+                "empty" => over = Some(9),
+                "no cell" => over = None,
+                "held stack" => hud.hold(Some(stack(ItemId::Sand, 1))),
+                "closed" => {
+                    let mut root = hud
+                        .world
+                        .query_filtered::<&mut Visibility, With<InventoryRoot>>();
+                    *root.single_mut(&mut hud.world).unwrap() = Visibility::Hidden;
+                }
+                _ => {
+                    hud.world
+                        .resource_mut::<InterfaceSettings>()
+                        .inventory_tweaks = InventoryTweaksChoice::Off
+                }
+            }
+
+            hud.wheel(over, MouseScrollUnit::Line, -1.);
+
+            assert!(hud.sent_actions().is_empty(), "{case}");
+        }
     }
 }

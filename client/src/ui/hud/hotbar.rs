@@ -299,4 +299,30 @@ mod tests {
         run.run((), &mut world).unwrap();
         assert_eq!(shown(&world, name).1, Visibility::Hidden);
     }
+
+    #[test]
+    fn the_wheel_leaves_the_hotbar_selection_alone_while_a_dialog_is_open() {
+        use bevy::ecs::system::RunSystemOnce;
+        for (mode, selected) in [
+            (UIMode::Opened, 0),
+            (UIMode::Typing, 0),
+            (UIMode::Closed, 1),
+        ] {
+            let mut world = World::new();
+            world.init_resource::<Messages<MouseWheel>>();
+            world.insert_resource(mode);
+            let hotbar = world.spawn(Hotbar { selected: 0 }).id();
+            world.write_message(MouseWheel {
+                unit: MouseScrollUnit::Line,
+                x: 0.,
+                y: -1.,
+                window: Entity::PLACEHOLDER,
+                phase: bevy::input::touch::TouchPhase::Moved,
+            });
+            world
+                .run_system_once(select_hotbar_slot_with_wheel)
+                .unwrap();
+            assert_eq!(world.get::<Hotbar>(hotbar).unwrap().selected, selected);
+        }
+    }
 }

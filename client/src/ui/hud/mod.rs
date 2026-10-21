@@ -100,6 +100,7 @@ pub fn hud_plugin(app: &mut App) {
                     click_inventory_cells_system,
                     drag_inventory_cells_system,
                     shift_drag_inventory_cells_system,
+                    wheel_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
                     clear_grid_ghost,
