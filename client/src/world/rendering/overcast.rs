@@ -61,12 +61,17 @@ const MIN_FOG_END: f32 = 48.;
 /// the world. The zenith is darker, and a storm darker and cooler.
 const PHYSICAL_DAY: Vec3 = Vec3::new(0.62, 0.64, 0.68);
 const PHYSICAL_GOLDEN: Vec3 = Vec3::new(0.24, 0.2, 0.18);
-const PHYSICAL_NIGHT: Vec3 = Vec3::new(0.018, 0.019, 0.022);
+const PHYSICAL_NIGHT: Vec3 = Vec3::new(0.017, 0.019, 0.024);
 const PLAIN_DAY: Vec3 = Vec3::new(0.3, 0.315, 0.34);
 const PLAIN_GOLDEN: Vec3 = Vec3::new(0.09, 0.077, 0.07);
-const PLAIN_NIGHT: Vec3 = Vec3::new(0.0045, 0.0048, 0.0055);
+const PLAIN_NIGHT: Vec3 = Vec3::new(0.0043, 0.0048, 0.006);
 const ZENITH: Vec3 = Vec3::new(0.7, 0.71, 0.73);
-const STORM_TINT: Vec3 = Vec3::new(0.62, 0.64, 0.66);
+/// What a storm makes of the overcast: darker and cooler, a blue slate, and darker still up
+/// high.
+const STORM_HORIZON: Vec3 = Vec3::new(0.56, 0.6, 0.67);
+const STORM_ZENITH: Vec3 = Vec3::new(0.74, 0.77, 0.82);
+/// How much of the light of the overcast sky a storm lets through.
+const STORM_SKY_LIGHT: f32 = 0.5;
 
 impl Overcast {
     pub fn of(weather: &ClientWeather) -> Self {
@@ -121,9 +126,14 @@ impl Overcast {
             PHYSICAL_SKY_LIGHT
         } else {
             PLAIN_SKY_LIGHT
-        };
+        } * self.storm_light();
         // On screen, a light is its brightness times the exposure, 1 / (1.2 * 2^ev100)
         self.level * grey * gain * 1.2 * ev100.exp2()
+    }
+
+    /// The part of the light of the sky that a storm lets through.
+    pub fn storm_light(self) -> f32 {
+        1f32.lerp(STORM_SKY_LIGHT, self.storm)
     }
 
     /// The colour of the ambient light, `clear` under a clear sky.
@@ -160,8 +170,9 @@ impl Overcast {
         } else {
             golden.lerp(night, smoothstep(0., 0.2, -sun_height))
         };
-        let horizon = horizon * Vec3::ONE.lerp(STORM_TINT, self.storm);
-        (horizon, horizon * ZENITH)
+        let horizon = horizon * Vec3::ONE.lerp(STORM_HORIZON, self.storm);
+        let zenith = horizon * ZENITH * Vec3::ONE.lerp(STORM_ZENITH, self.storm);
+        (horizon, zenith)
     }
 }
 
@@ -467,13 +478,32 @@ mod tests {
             for height in [-1., -0.05, 0., 0.1, 0.3, 0.9] {
                 for overcast in [RAIN, STORM] {
                     let (horizon, zenith) = overcast.colors(height, physical);
+                    // a grey, at most a cool slate in a storm at night
                     for color in [horizon, zenith] {
                         let spread = color.max_element() - color.min_element();
-                        assert!(spread <= 0.3 * color.max_element(), "{color}");
+                        assert!(spread <= 0.5 * color.max_element(), "{color}");
+                        assert!(color.z >= color.x || height.abs() < 0.2, "{color}");
                     }
                     assert!(brightness(horizon) >= brightness(zenith), "{height}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_storm_is_a_cooler_grey_darker_up_high() {
+        for physical in [true, false] {
+            let (rain_horizon, rain_zenith) = RAIN.colors(0.9, physical);
+            let (horizon, zenith) = STORM.colors(0.9, physical);
+            assert!(
+                zenith.z - zenith.x > rain_zenith.z - rain_zenith.x,
+                "{zenith}"
+            );
+            assert!(
+                brightness(zenith) / brightness(rain_zenith)
+                    < brightness(horizon) / brightness(rain_horizon)
+            );
+            assert!(STORM.sky_light(0.9, physical, 10.) < 0.8 * RAIN.sky_light(0.9, physical, 10.));
         }
     }
 

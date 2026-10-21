@@ -147,7 +147,7 @@ pub fn daylight_ambient_system(
 ) {
     let overcast = Overcast::current(weather.as_deref());
     let brightness = NIGHT_AMBIENT
-        + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0)
+        + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0) * overcast.storm_light()
         + overcast.sky_light(sun_height(time.0), false, BASE_EV100);
     if (ambient.brightness - brightness).abs() > 0.5 {
         ambient.brightness = brightness;
@@ -221,6 +221,8 @@ mod tests {
         );
         assert!(sky_light > 0.);
         assert_eq!(rain, DAY_AMBIENT + sky_light);
+        // a storm lets less of it through
+        assert!(ambient_at(WeatherKind::Thunder) < 0.8 * rain);
     }
 
     #[test]
