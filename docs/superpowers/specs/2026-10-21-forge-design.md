@@ -248,3 +248,34 @@ Lot 2 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-2-dialog.md` has th
 22. **No crackle sound**: the audio has no lasting emitters at a place; left for later.
 23. The review test pressed Escape once after the chat's `/`, which since the completion only puts
     the suggestions away: it stopped at its second size. Fixed on the way.
+
+Lot 3 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-3-progression.md` has them in full):
+
+24. **Tiers.** `ToolTier` gives the speed, durability and mining level of the spec's table; `Tool`
+    keeps `speed` and `durability`, filled from its new `tier`, in place of the constants of the
+    wooden tools. A sword still wears twice per block.
+25. **Required tool.** `get_required_tool` returns a `RequiredTool { kind, level }`;
+    `BlockId::is_harvested_by` decides the drops for `break_block`.
+26. **Break times**, after Minecraft's hardness as the ores' 15 steps for 3: diamond ore and the
+    gold block 15, the iron and diamond blocks 25. The storage blocks and the diamond ore are
+    mined faster by a pickaxe and sound like stone (no metal sound).
+27. **Generation.** Diamond ore is the last `Ore`: 1 attempt per chunk from y 5 to 16, clusters
+    of 2 to 6, no veins. Measured over 256 chunk columns of two seeds: 2.8 diamond ores per
+    chunk column, 0.05 % of the stone from y 0 to 24.
+28. **Recipes** appended: the twenty tools (cobblestone, iron, gold, diamond), the three storage
+    blocks, their nine ingots or diamonds back, the charcoal torch. Earlier indices unchanged.
+29. **Categories.** The diamond ore joins the browser's Ores category, with the three other ores,
+    rather than Blocks: the spec predates that category's use. Ingots, diamond and charcoal are
+    Materials, the storage blocks Blocks.
+30. **Item browser cards.** A view lists the crafting recipes, then the smeltings, then the
+    burning of a fuel; the tab chips and "It goes into N recipes" count them all. A furnace card
+    keeps the crafting card's frame and lays out the furnace dialog's column (input, lit flame,
+    fuel) as wide as the crafting grid, so its arrow and output line up with the crafting
+    cards'. A smelting card says `Furnace · 10 s`; a fuel card has the fuel in the fuel cell,
+    `Burns for 8 items` beside it (1.5 for a log, 1 item, 0.5) and `Fuel · 80 s` under it. No
+    `+ Fill grid` nor missing tint on them, and the Craftable filter counts the grid only.
+31. **Textures**, all from the pack and 16x16; our coal, iron and gold ores were already its own.
+32. **Fixes on the way.** The goldens of the item browser wait for the fonts before laying it
+    out: a catalog that now scrolls at 1280x720 lost its scrollbar about one run in ten (the
+    known flake). A new view of the browser starts at the top of its cards instead of keeping
+    the scroll of the previous one.

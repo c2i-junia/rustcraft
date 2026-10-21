@@ -71,16 +71,16 @@ press R over an iron ingot in the browser.
    smelting, and its burning if it is a fuel.
 10. **The smelting card** keeps the crafting card's frame and its two lines. Its body is the
     furnace dialog's: a column of the input cell, the lit flame (the dialog's sprite, at twice
-    its texels) and the fuel cell, dashed and empty since any fuel does, then `->` and the
-    output slot. The line under it says `Furnace · 10 s` (`COOK_TICKS` in seconds), in the
-    muted colour of a station, with no `+ Fill grid`: a furnace is filled by hand, so the
-    Craftable filter and "You have the ingredients" keep counting the crafting recipes only.
-    No missing tint either: the card says where an item is made, not what the player lacks.
-    Accessible name `Smelting of <output>`.
-11. **The fuel card** is the same body with the fuel cell holding the item and the input and
-    output cells dashed; its line says how many items one of it smelts: `Fuel · burns for 8
-    items` (`fuel_ticks / COOK_TICKS`: 1.5 for a log, 1 item for a wooden tool, 0.5 for a stick).
-    Accessible name `<item> as fuel`.
+    its texels) and the fuel cell, dashed and empty since any fuel does, as wide as the crafting
+    grid so that `->` and the output slot line up with the crafting cards'. The line under it
+    says `Furnace · 10 s` (`COOK_TICKS` in seconds), in the muted colour of a station, with no
+    `+ Fill grid`: a furnace is filled by hand, so the Craftable filter and "You have the
+    ingredients" keep counting the crafting recipes only. No missing tint either: the card says
+    where an item is made, not what the player lacks. Accessible name `Smelting of <output>`.
+11. **The fuel card** is the same column with the fuel cell holding the item and the input cell
+    dashed; beside it, how many items one of it smelts, `Burns for 8 items` (`fuel_ticks /
+    COOK_TICKS`: 1.5 for a log, 1 item for a wooden tool, 0.5 for a stick); under it how long it
+    burns, `Fuel · 80 s`. Accessible name `<item> as fuel`.
 12. **Textures** from Pixel Perfection, all 16x16: `item/iron_ingot`, `gold_ingot`, `diamond`,
     `charcoal`, the `stone_`, `iron_`, `golden_` and `diamond_` `pickaxe`, `axe`, `shovel`, `hoe`
     and `sword` in `items/`; `block/diamond_ore`, `iron_block`, `gold_block`, `diamond_block` in
@@ -91,50 +91,59 @@ press R over an iron ingot in the browser.
 ## Tasks
 
 ### Task 1: Tool tiers and mining levels (`shared`)
-- [ ] Tests (items.rs): `ToolTier` table (speed, durability, level); every tool's kind and tier
+- [x] Tests (items.rs): `ToolTier` table (speed, durability, level); every tool's kind and tier
   (the twenty-five); tools stack to 1 and start unworn. (blocks.rs): the required tool and
   level of each block; `is_harvested_by` by tier (wood on iron ore no, stone yes, gold no;
   iron on diamond ore yes; anything on dirt yes; an axe on stone no). (players/blocks.rs): iron
   ore broken with a wooden pickaxe is not harvested, with a stone one it is; a stone pickaxe
   breaks stone faster than a wooden one. See them fail.
-- [ ] The new items and blocks (appended, pinned tables, `ALL`), `ToolTier`, `Tool::tier`,
+- [x] The new items and blocks (appended, pinned tables, `ALL`), `ToolTier`, `Tool::tier`,
   `RequiredTool`, `is_harvested_by`, break times, drops, faster mining, categories, default
   types; `break_block` asks `is_harvested_by`. Client: the sounds of the new blocks; the
   preview palette; the generation test's ore list. See them pass. Commit `feat: stone, iron,
   gold and diamond tools, and the mining levels`.
 
 ### Task 2: Textures (`data`)
-- [ ] The 24 textures from the pack (16x16 checked), credited in `docs/ressources.txt`; the
-  client test that every item and block has a texture passes. Look at them. Commit `feat: the
-  textures of the ingots, the diamond, the new tools and blocks`.
+- [x] The 28 textures from the pack (16x16 checked), credited in `docs/ressources.txt`; a client
+  test checks that every item has an icon. Look at them. Commit `feat: the textures of the
+  ingots, the diamond, the new tools and blocks`, before Task 1, so that the goldens it
+  rewrites show the new icons.
 
 ### Task 3: Smelting and recipes (`shared`)
-- [ ] Tests (furnace.rs): ores and logs smelt; charcoal burns 1600; the new tools do not burn;
+- [x] Tests (furnace.rs): ores and logs smelt; charcoal burns 1600; the new tools do not burn;
   `smelting_inputs`. (crafting.rs): every tool of every material; 9 ingots ↔ a block; charcoal
   torches; the count of recipes and the uses of a stick. See them fail.
-- [ ] The tables and the recipes. See them pass. Commit `feat: ingots, diamonds and charcoal
+- [x] The tables and the recipes. See them pass. Commit `feat: ingots, diamonds and charcoal
   from the furnace, and the recipes of the new tools and blocks`.
 
 ### Task 4: Diamond ore underground (`server`)
-- [ ] Test (ores.rs): diamond ore keeps to its heights and is rarer than gold, within a share.
+- [x] Test (ores.rs): diamond ore keeps to its heights and is rarer than gold, within a share.
   See it fail. The ore. See it pass. Measure the share with `worldgen_dump`. Commit `feat(server):
   diamond ore deep underground`.
 
 ### Task 5: Smelting in the item browser (`client`)
-- [ ] Tests (recipes.rs): the texts (`Furnace · 10 s`, `Fuel · burns for 8 items`, 1.5, 1 item,
+- [x] Tests (recipes.rs): the texts (`Furnace · 10 s`, `Fuel · burns for 8 items`, 1.5, 1 item,
   0.5); the cards of a view (charcoal's three smeltings, an oak log's crafting, smelting and
   fuel); the counts and the empty message; craftable now ignores smelting. (goldens.rs): a view
   with a smelting card builds no `+ Fill grid` nor tint for it; goldens of the recipes of an
   iron ingot and of the uses of an oak log. See them fail.
-- [ ] `BrowserCard`, `cards_of`, `spawn_smelting_card`, the flame; the review test opens the
+- [x] `BrowserCard`, `cards_of`, `spawn_smelting_card`, the flame; the review test opens the
   uses of a log beside the furnace at every size. See them pass; look at the goldens and the
   review snapshots at 800x600, 1280x720 and 1920x1080. Commit `feat(client): smelting and
   fuels in the item browser`.
 
 ### Task 6: A player progresses (e2e)
-- [ ] `client/src/e2e/survival.rs` or `furnace.rs`: a player smelts iron ore into an ingot; the
-  item browser shows its smelting card. Commit `test(client): ...`.
+- [x] `client/src/e2e/furnace.rs`: a player smelts iron ore into an ingot with charcoal; R over
+  the output shows its smelting card, without `+ Fill grid`. Commit `test(client): a player
+  smelts iron ore into an ingot with charcoal`.
+
+### Found on the way
+- [x] The goldens of the item browser lost the catalog's scrollbar now and then: they wait for
+  the fonts before laying it out. Commit `test(client): the goldens of the item browser wait
+  for the fonts before laying it out`.
+- [x] A new view kept the scroll of the previous one: it starts at the top. Commit
+  `fix(client): a new view of the item browser starts at the top of its cards`.
 
 ### Task 7: Closing
-- [ ] `CHANGELOG.txt`; spec decisions appended; goldens reviewed; `timeout 1800 just check`;
+- [x] `CHANGELOG.txt`; spec decisions appended; goldens reviewed; `timeout 1800 just check`;
   commit `docs: decisions of the progression (lot 3)`.
