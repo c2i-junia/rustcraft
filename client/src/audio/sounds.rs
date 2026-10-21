@@ -113,6 +113,14 @@ pub enum Sound {
     Pickup,
     /// A bucket takes a water source, or pours one.
     Splash,
+    /// A stack goes onto the cursor in the inventory.
+    ItemPick,
+    /// Items leave the cursor into slots of the inventory.
+    ItemPlace,
+    /// A craft took the result of the crafting grid.
+    Craft,
+    /// An action the player made was refused.
+    Refused,
 }
 
 impl Sound {
@@ -127,12 +135,23 @@ impl Sound {
                     Sound::Place(material),
                 ]
             })
-            .chain([Sound::Land, Sound::Click, Sound::Pickup, Sound::Splash])
+            .chain([
+                Sound::Land,
+                Sound::Click,
+                Sound::Pickup,
+                Sound::Splash,
+                Sound::ItemPick,
+                Sound::ItemPlace,
+                Sound::Craft,
+                Sound::Refused,
+            ])
     }
 
     pub fn channel(self) -> Channel {
         match self {
-            Sound::Click => Channel::Interface,
+            Sound::Click | Sound::ItemPick | Sound::ItemPlace | Sound::Craft | Sound::Refused => {
+                Channel::Interface
+            }
             _ => Channel::Effects,
         }
     }
@@ -155,6 +174,10 @@ impl Sound {
             // No sound of its own yet: the click is short and soft enough
             Sound::Pickup => vec!["sounds/ui/click.ogg".to_string()],
             Sound::Splash => vec!["sounds/liquid/splash.ogg".to_string()],
+            Sound::ItemPick => vec!["sounds/ui/item_pick.ogg".to_string()],
+            Sound::ItemPlace => vec!["sounds/ui/item_place.ogg".to_string()],
+            Sound::Craft => vec!["sounds/ui/craft.ogg".to_string()],
+            Sound::Refused => vec!["sounds/ui/refused.ogg".to_string()],
         }
     }
 }
@@ -188,6 +211,60 @@ mod tests {
         for sound in Sound::all() {
             for file in sound.files() {
                 assert!(data.join(&file).is_file(), "{sound:?}: missing {file}");
+            }
+        }
+    }
+
+    const INVENTORY_SOUNDS: [Sound; 4] = [
+        Sound::ItemPick,
+        Sound::ItemPlace,
+        Sound::Craft,
+        Sound::Refused,
+    ];
+
+    #[test]
+    fn the_inventory_sounds_play_on_the_interface_channel() {
+        for sound in INVENTORY_SOUNDS {
+            assert!(Sound::all().any(|known| known == sound), "{sound:?}");
+            assert_eq!(sound.channel(), Channel::Interface, "{sound:?}");
+        }
+    }
+
+    /// The length of the file, and its loudest sample from 0 to 1.
+    fn length_and_peak(file: &str) -> (std::time::Duration, f32) {
+        use bevy::audio::{Decodable, Source};
+
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
+        let bytes = std::fs::read(data.join(file)).unwrap();
+        let decoder = AudioSource {
+            bytes: bytes.into(),
+        }
+        .decoder();
+        let rate = decoder.sample_rate().get() as f32;
+        let channels = decoder.channels().get() as f32;
+        let samples: Vec<f32> = decoder.collect();
+        let length = samples.len() as f32 / channels / rate;
+        let peak = samples
+            .iter()
+            .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+        (std::time::Duration::from_secs_f32(length), peak)
+    }
+
+    #[test]
+    fn the_inventory_sounds_are_short_and_neither_clipped_nor_silent() {
+        for sound in INVENTORY_SOUNDS {
+            let longest = match sound {
+                Sound::ItemPick | Sound::ItemPlace => 120,
+                _ => 300,
+            };
+            for file in sound.files() {
+                let (length, peak) = length_and_peak(&file);
+                assert!(
+                    length < std::time::Duration::from_millis(longest),
+                    "{file}: {length:?}"
+                );
+                // Under 0 dBFS, over -20 dBFS
+                assert!(peak < 1.0 && peak > 0.1, "{file}: peak {peak}");
             }
         }
     }

@@ -430,6 +430,43 @@ def build_ui_click(rng):
     return finish(tock + tick * 0.2, -24)
 
 
+def build_item_pick(rng):
+    """A stack lifted onto the cursor: a soft tick rising in pitch over a puff of cloth."""
+    d = 0.09
+    t = t_axis(d)
+    f = 520 + 380 * (1 - np.exp(-t / 0.02))
+    tick = np.sin(2 * np.pi * np.cumsum(f) / SR) * env(d, 0.003, 0.018)
+    puff = band(colored(rng, d, 1), 800, 4000) * env(d, 0.002, 0.01)
+    return finish(tick * 0.6 + puff * 0.25, -27)
+
+
+def build_item_place(rng):
+    """Items set down into a slot: a soft tap falling in pitch, lower than the pick."""
+    d = 0.09
+    t = t_axis(d)
+    f = 300 + 260 * np.exp(-t / 0.015)
+    tap = np.sin(2 * np.pi * np.cumsum(f) / SR) * env(d, 0.001, 0.016)
+    tick = band(white(rng, d), 1200, 5000) * env(d, 0.0003, 0.002)
+    felt = band(colored(rng, d, 2), high=500) * env(d, 0.001, 0.01)
+    return finish(tap * 0.6 + tick * 0.15 + felt * 0.3, -27)
+
+
+def build_craft(rng):
+    """A woody knock: the planks of the crafting table, struck once."""
+    d = 0.25
+    x = mix(contact_wood(rng, 1.0)[: n_of(d)], thump(rng, d, 260, 140, 0.02) * 0.3)
+    x[-n_of(0.05) :] *= np.linspace(1, 0, n_of(0.05)) ** 2
+    return finish(x, -21)
+
+
+def build_refused(rng):
+    """A dull low thud, muffled: the action did not go through."""
+    d = 0.2
+    body = thump(rng, d, 150, 70, 0.045)
+    felt = band(colored(rng, d, 2), high=350) * env(d, 0.002, 0.03)
+    return finish(band(body + felt * 0.5, high=900), -22)
+
+
 def build_splash(rng):
     """The entry, a crown of spray, then the air it pulled down bubbling back up."""
     total = 1.0
@@ -503,6 +540,10 @@ def main():
     write_ogg("player/hurt", build_hurt)
     write_ogg("player/pickup", build_pickup)
     write_ogg("ui/click", build_ui_click)
+    write_ogg("ui/item_pick", build_item_pick)
+    write_ogg("ui/item_place", build_item_place)
+    write_ogg("ui/craft", build_craft)
+    write_ogg("ui/refused", build_refused)
     write_ogg("liquid/splash", build_splash)
     write_ogg("ambient/wind", build_wind)
 

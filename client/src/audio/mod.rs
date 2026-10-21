@@ -10,6 +10,7 @@ use crate::state::{GameSet, GameState};
 
 mod blocks;
 mod footsteps;
+mod inventory;
 mod playback;
 pub mod settings;
 mod sounds;
@@ -35,6 +36,7 @@ pub fn audio_plugin(app: &mut App) {
                     footsteps::local_footsteps,
                     footsteps::other_players_footsteps,
                     pickup_sounds,
+                    inventory::inventory_sounds,
                 )
                     .after(GameSet::Reconciliation)
                     .run_if(in_state(GameState::Game)),
