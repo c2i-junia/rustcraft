@@ -84,21 +84,21 @@ Closing:
 ## Tasks
 
 ### Task 1: The bucket items and recipe (`shared`)
-- [ ] Tests (items.rs): pinned encodings 70 and 71; stacks of 16 and 1; Tools; names
+- [x] Tests (items.rs): pinned encodings 70 and 71; stacks of 16 and 1; Tools; names
   `bucket` and `water_bucket`; the Tools category is the tools and the buckets. (crafting.rs):
   the V makes a bucket, not in the 2x2 grid; the count of recipes (57) and the uses of an iron
   ingot. See them fail.
-- [ ] `ItemId::Bucket`, `WaterBucket`, `ALL`, `get_max_stack`, `category`, `get_default_type`,
+- [x] `ItemId::Bucket`, `WaterBucket`, `ALL`, `get_max_stack`, `category`, `get_default_type`,
   the recipe. Commit with the textures (Task 2), so that every item keeps an icon.
 
 ### Task 2: Textures (`data`)
-- [ ] `items/Bucket.png`, `items/WaterBucket.png` from the pack, 16x16 checked, credited in
+- [x] `items/Bucket.png`, `items/WaterBucket.png` from the pack, 16x16 checked, credited in
   `docs/ressources.txt`; look at them; the client test that every item has an icon passes; the
   goldens the two new items change are looked at and updated. Commit `feat: the bucket and the
   water bucket` (items, recipe, textures).
 
 ### Task 3: The bucket rules (`shared`)
-- [ ] Tests (raycast.rs): the water-source ray stops at a source as a whole block and goes
+- [x] Tests (raycast.rs): the water-source ray stops at a source as a whole block and goes
   through flowing water; the ordinary one still goes through both. (players/blocks.rs): a
   bucket on a source fills, the source goes; from a stack of 3, the water bucket goes into the
   inventory, or is returned as dropped when it is full; a bucket aimed at flowing water, at a
@@ -106,34 +106,34 @@ Closing:
   a bucket; into flowing water: a source; into a source, a decoration, an unloaded chunk:
   refused, kept, re-stated; where the player stands: poured; aimed at a chest without sneaking:
   nothing; once per press; left click with a bucket on a source breaks nothing. See them fail.
-- [ ] `raycast_to_water_source`, `aim`, `fill_bucket`, `pour_water`, `BlockInteractions::dropped`,
+- [x] `raycast_to_water_source`, `aim`, `fill_bucket`, `pour_water`, `BlockInteractions::dropped`,
   `ActionsOutcome::dropped`. See them pass. Commit `feat(shared): a bucket takes a water source
   and pours it elsewhere`.
 
 ### Task 4: The server drops what does not fit (`server`)
-- [ ] Test (session.rs): with a full inventory, a water bucket poured ahead becomes a bucket and
+- [x] Test (session.rs): with a full inventory, a water bucket poured ahead becomes a bucket and
   a source every client sees, spreading; two buckets take it back, and the water bucket that
   does not fit lands on the ground. See it fail.
-- [ ] `DroppedItems::drop_from_player`, called for `outcome.dropped`. Commit `feat(server): a
+- [x] `DroppedItems::drop_from_player`, called for `outcome.dropped`. Commit `feat(server): a
   filled bucket with no room in the inventory is dropped`.
 
 ### Task 5: The client aims and splashes (`client`)
-- [ ] Tests (audio/blocks.rs): a source that appears or goes splashes, flowing water and a
+- [x] Tests (audio/blocks.rs): a source that appears or goes splashes, flowing water and a
   block placed into a source do not. See them fail.
-- [ ] `handle_block_interactions` aims with `aim`, so that the outline, the opening of a chest
+- [x] `handle_block_interactions` aims with `aim`, so that the outline, the opening of a chest
   and the right click follow the bucket; `Sound::Splash`. Commit `feat(client): the bucket
   aims at water and splashes`.
 
 ### Task 6: A player fills and empties a bucket (e2e)
-- [ ] `client/src/e2e/bucket.rs`: pour the water bucket ahead, see the water spread, take it
+- [x] `client/src/e2e/bucket.rs`: pour the water bucket ahead, see the water spread, take it
   back with the bucket, see it drain; snapshot of the poured water. Commit `test(client): a
   player pours water from a bucket and takes it back`.
 
 ### Task 7: The hearts under the open inventory (`client`)
-- [ ] The survival e2e test opens the inventory and asserts the hearts are hidden, shown again
+- [x] The survival e2e test opens the inventory and asserts the hearts are hidden, shown again
   once it closes. See it fail. Hide them. Look at the review snapshots (inventory, chest,
   furnace) before and after. Commit `fix(client): the hearts hide under the open inventory`.
 
 ### Task 8: Closing
-- [ ] README, `docs/ARCHITECTURE.md`, `CHANGELOG.txt`; the review of the branch; spec decisions
+- [x] README, `docs/ARCHITECTURE.md`, `CHANGELOG.txt`; the review of the branch; spec decisions
   appended; `timeout 1800 just check`; commits `docs: ...`.

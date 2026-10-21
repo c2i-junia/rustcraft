@@ -279,3 +279,36 @@ Lot 3 (the plan `docs/superpowers/plans/2026-10-21-forge-lot-3-progression.md` h
     out: a catalog that now scrolls at 1280x720 lost its scrollbar about one run in ten (the
     known flake). A new view of the browser starts at the top of its cards instead of keeping
     the scroll of the previous one.
+33. **Bucket items.** `Bucket` (70) and `WaterBucket` (71) are appended to `ItemId`: the bucket
+    stacks to 16, the water bucket to 1, as Minecraft; both `ItemType::Generic`, filed under
+    Tools, Minecraft's "Tools & Utilities". Neither burns nor smelts.
+34. **Bucket recipe**, appended: three iron ingots in a V, three wide, so on a crafting table
+    only; it makes one bucket.
+35. **Aim.** An empty bucket aims with `raycast_to_water_source`: the ray stops at the first
+    water source or block, a source hit as a whole block, flowing water transparent, as
+    Minecraft's `SOURCE_ONLY`. Every other item aims through water. `aim(world, camera,
+    position, view_mode, held)` in `players/blocks.rs` serves the server, the prediction and
+    the outline; a bucket aimed at a source breaks nothing under it.
+36. **Filling.** On a source within reach, the source goes, and the flow drains the cell or
+    refills it from its neighbours. A single bucket becomes the water bucket in place; from a
+    stack, one bucket goes and the water bucket goes into the inventory, or, with no room for
+    it, is returned in `BlockInteractions::dropped` and thrown ahead of the player by the server
+    (`DroppedItems::drop_from_player`). Aimed at anything else, `Refusal::NotASource`.
+37. **Pouring** follows `place_block`, against the aimed face: into air, or into flowing water,
+    which becomes a source. Into a source, or a decoration, it is `Occupied` and the water
+    bucket is kept. Water stops nobody: it may be poured where the player stands.
+38. **Usable blocks.** A bucket or a water bucket aimed at a crafting table, a chest or a
+    furnace opens it, unless the player sneaks, as any held item.
+39. **Once per press.** After a bucket acts, the next right click waits for the button's release
+    (`UNTIL_RELEASED_MS`): held, it would pour back what it just took.
+40. **Splash.** A water source that appears or goes amid air or water is a bucket's, the flow
+    never making nor taking one: the clients play `Sound::Splash`, the until then unused
+    `data/sounds/liquid/splash.ogg`.
+41. **Bucket textures** from the pack, `item/bucket.png` and `item/water_bucket.png`, 16x16. No
+    model in the hand: the game draws none.
+42. **Hearts.** As in Minecraft, the hearts hide while the inventory is open, whatever dialog
+    it shows: they covered the bottom row of the backpack.
+43. **Closing.** The README (features, controls, saves), `docs/ARCHITECTURE.md` (the furnace,
+    its storage and files, its place in the tick, the tiers, the bucket) and `CHANGELOG.txt`
+    (the bucket, the hearts; the ores no longer "until they can be smelted") tell of the
+    forge.
