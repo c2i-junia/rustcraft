@@ -40,7 +40,7 @@ pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
 pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
 pub const HINT_TO_FURNACE: &str = "Shift+click: move to the furnace";
-pub const HINT_RESULT: &str = "Click: craft";
+pub const HINT_RESULT: &str = "Shift+click: craft all  1-9: to the hotbar";
 
 /// The durability bars of the slots, which `show_stack` sizes and colours.
 type DurabilityBars<'w, 's> = Query<
@@ -1128,6 +1128,31 @@ mod tests {
         );
         // An unworn tool shows no bar, like in Minecraft
         assert_eq!(shown(&hud, new_bar), Visibility::Hidden);
+    }
+
+    #[test]
+    fn the_result_s_tooltip_names_its_item_its_count_and_its_keys() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        hud.spawn_grid_cell(0, 0);
+        let result = hud.spawn_result_cell();
+        hud.world.resource_mut::<Inventory>().inner.insert(
+            grid_slot(0, 0),
+            ItemStack {
+                item_id: ItemId::OakLog,
+                item_type: ItemId::OakLog.get_default_type(),
+                nb: 1,
+            },
+        );
+
+        assert_eq!(
+            hud.tooltip_of(result),
+            Tooltip {
+                title: "Oak Planks".into(),
+                detail: "4 items".into(),
+                hint: "Shift+click: craft all  1-9: to the hotbar".into(),
+                ..default()
+            }
+        );
     }
 
     #[test]
