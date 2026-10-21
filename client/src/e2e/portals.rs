@@ -19,7 +19,7 @@ use crate::player::CurrentPlayerMarker;
 use crate::portal::projection::MIN_OBLIQUE_DISTANCE;
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::world::celestial::{sky_rotation, sun_height, CelestialRoot};
+use crate::world::celestial::{sky_rotation, sun_height, CelestialRoot, Stars};
 use crate::world::time::ClientTime;
 use crate::world::ClientWorldMap;
 use shared::players::Player;
@@ -1459,8 +1459,15 @@ fn the_view_through_a_portal_reaches_a_far_place() {
         "not the sky through the portal: {color}"
     );
 
-    // At night too: the fog follows the sky, which the clear colours of both cameras are
+    // At night too: the fog follows the sky, which the clear colours of both cameras are. The
+    // stars, which twinkle on a pixel or two here and there, are hidden: one would spoil a
+    // pixel of the sky checked
     h.set_time("night");
+    let world = h.world_mut();
+    let mut stars = world.query_filtered::<&mut Visibility, With<Stars>>();
+    for mut visibility in stars.iter_mut(world) {
+        *visibility = Visibility::Hidden;
+    }
     h.frames(10);
     let shot = h.screenshot();
     keep(
