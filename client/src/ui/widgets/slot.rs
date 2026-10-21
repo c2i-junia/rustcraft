@@ -243,7 +243,7 @@ fn start_refusal_shakes(
 ) {
     for refused in refusals.read() {
         if let Some(slot) = refused.slot.filter(|slot| slots.contains(*slot)) {
-            commands.entity(slot).insert(RefusalShake::default());
+            commands.entity(slot).try_insert(RefusalShake::default());
         }
     }
 }
@@ -270,7 +270,7 @@ fn shake_refused_slots(
         }
         if shake.elapsed >= SHAKE_DURATION {
             border.set_if_neq(slot_colors(hovered.0, selected.0).1);
-            commands.entity(slot).remove::<RefusalShake>();
+            commands.entity(slot).try_remove::<RefusalShake>();
         } else {
             border.set_if_neq(BorderColor::all(DANGER));
         }
