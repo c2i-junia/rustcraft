@@ -29,15 +29,16 @@ pub fn precipitation_plugin(app: &mut App) {
         );
 }
 
-/// The drops of rain, the flakes of snow and the splashes a quality of the shaders draws at
-/// most: without the shaders, still enough rain to be seen, as fewer drops are drawn more opaque.
+/// The drops of rain, the flakes of snow, the splashes and the sheets of rain a quality of the
+/// shaders draws at most: without the shaders, still enough rain to be seen, as fewer drops are
+/// drawn more opaque.
 pub fn counts(quality: ShaderQuality) -> PrecipitationParams {
-    let (rain, snow, splashes, opacity) = match quality {
-        ShaderQuality::Off => (2_500, 2_500, 160, 1.6),
-        ShaderQuality::Low => (3_500, 3_500, 220, 1.35),
-        ShaderQuality::Medium => (5_000, 5_000, 300, 1.15),
-        ShaderQuality::High => (6_500, 6_500, 400, 1.),
-        ShaderQuality::Ultra => (8_000, 8_000, 500, 0.9),
+    let (rain, snow, splashes, opacity, sheets) = match quality {
+        ShaderQuality::Off => (2_500, 2_500, 160, 1.6, 3),
+        ShaderQuality::Low => (3_500, 3_500, 220, 1.35, 3),
+        ShaderQuality::Medium => (5_000, 5_000, 300, 1.15, 4),
+        ShaderQuality::High => (6_500, 6_500, 400, 1., 4),
+        ShaderQuality::Ultra => (8_000, 8_000, 500, 0.9, 5),
     };
     PrecipitationParams {
         rain,
@@ -45,6 +46,7 @@ pub fn counts(quality: ShaderQuality) -> PrecipitationParams {
         splashes,
         level: 0.,
         opacity,
+        sheets,
     }
 }
 
@@ -84,6 +86,7 @@ fn stop_drawing_precipitation(mut draw: ResMut<PrecipitationDraw>) {
 
 #[cfg(test)]
 mod tests {
+    use super::render::SHEET_SEGMENTS;
     use super::*;
     use shared::world::{BlockData, BlockDirection, BlockId, WeatherKind};
 
@@ -100,15 +103,25 @@ mod tests {
     }
 
     #[test]
-    fn a_drop_holds_six_vertices_and_a_splash_twelve() {
+    fn a_drop_holds_six_vertices_a_splash_twelve_and_a_sheet_six_a_segment() {
         let params = PrecipitationParams {
             rain: 10,
             snow: 4,
             splashes: 3,
             level: 1.,
             opacity: 1.,
+            sheets: 2,
         };
-        assert_eq!(params.vertices(), 6 * 14 + 12 * 3);
+        assert_eq!(params.vertices(), 6 * 14 + 12 * 3 + 2 * 6 * SHEET_SEGMENTS);
+    }
+
+    #[test]
+    fn each_quality_draws_from_three_sheets_of_rain_to_five() {
+        assert_eq!(counts(ShaderQuality::Off).sheets, 3);
+        assert_eq!(counts(ShaderQuality::Ultra).sheets, 5);
+        for pair in ShaderQuality::ALL.windows(2) {
+            assert!(counts(pair[0]).sheets <= counts(pair[1]).sheets, "{pair:?}");
+        }
     }
 
     fn app(kind: WeatherKind, eye: Vec3) -> App {

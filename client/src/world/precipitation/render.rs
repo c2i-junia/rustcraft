@@ -58,13 +58,18 @@ pub struct PrecipitationParams {
     pub level: f32,
     /// How much more opaque the drops are drawn, for the qualities that draw fewer.
     pub opacity: f32,
+    /// The sheets of rain, cylinders around the eye that hold the fine drops far off.
+    pub sheets: u32,
 }
+
+/// The segments of a sheet of rain around the eye, each a quad (`precipitation.wgsl`).
+pub const SHEET_SEGMENTS: u32 = 48;
 
 impl PrecipitationParams {
     /// The vertices the pass draws: six for a drop or a flake, twelve for a splash, its ring
-    /// on the ground and its droplets.
+    /// on the ground and its droplets, and six for each segment of a sheet.
     pub fn vertices(&self) -> u32 {
-        6 * (self.rain + self.snow) + 12 * self.splashes
+        6 * (self.rain + self.snow) + 12 * self.splashes + 6 * SHEET_SEGMENTS * self.sheets
     }
 }
 

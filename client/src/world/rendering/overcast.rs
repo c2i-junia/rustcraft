@@ -73,7 +73,7 @@ const STORM_HORIZON: Vec3 = Vec3::new(0.56, 0.6, 0.67);
 const STORM_ZENITH: Vec3 = Vec3::new(0.74, 0.77, 0.82);
 /// How fast the wind blows along the drift of the clouds, +X, in blocks per second: as the
 /// clouds under a clear sky, then enough to slant the rain, and to lash it in a storm.
-const WIND: [f32; 3] = [SPEED, 1.6, 4.8];
+const WIND: [f32; 3] = [SPEED, 1.6, 6.5];
 /// How much of the light of the overcast sky a storm lets through.
 const STORM_SKY_LIGHT: f32 = 0.5;
 /// The glow of a sun low on the horizon seeping under the clouds, toward the sun, as a part of

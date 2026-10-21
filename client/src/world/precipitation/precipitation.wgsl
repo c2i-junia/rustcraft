@@ -6,8 +6,9 @@
 // or nothing; above the snow line, whatever falls is snow.
 //
 // The vertices are, in order: six for each drop of rain, six for each flake of snow, twelve
-// for each splash (a ring on the ground, and droplets thrown up). A drop beyond the part shown
-// is folded into a point, which draws nothing.
+// for each splash (a ring on the ground, and droplets thrown up), and six for each segment of
+// the sheets of rain, cylinders around the eye on which the fine drops far off are drawn as a
+// pattern that falls. A drop beyond the part shown is folded into a point, which draws nothing.
 
 #import bevy_render::view::View
 #import bevy_render::globals::Globals
@@ -22,6 +23,7 @@ struct Params {
     level: f32,
     // How much more opaque the drops are drawn, for the qualities that draw fewer
     opacity: f32,
+    sheets: u32,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -44,6 +46,7 @@ const SNOW: u32 = 1u;
 const NOTHING: u32 = 2u;
 const SPLASH_RING: u32 = 3u;
 const SPLASH_CROWN: u32 = 4u;
+const SHEET: u32 = 5u;
 
 // `SNOW_LINE` of the server's generation: above it, what falls is snow, give or take
 // `SNOW_BAND` blocks from a drop to the next
@@ -62,16 +65,21 @@ struct Band {
     alpha: f32,
 }
 
-// The band of the drop of rain picked by `pick`: a few wide, soft and faint drops near the eye,
-// finer ones further, and the finest far off, out to 40 blocks.
+// The share of the drops of rain near the eye
+const RAIN_NEAR_SHARE: f32 = 0.4;
+
+// The band of the drop of rain picked by `pick`: wide, soft and faint drops near the eye, and
+// finer ones out to 24 blocks; the sheets hold those further.
 fn rain_band(pick: f32) -> Band {
-    if pick < 0.15 {
-        return Band(vec3(9.0, 16.0, 8.0), vec4(1.5, 4.0, 6.5, 9.0), 0.022, 0.22);
+    if pick < RAIN_NEAR_SHARE {
+        return Band(vec3(9.0, 16.0, 8.0), vec4(1.5, 4.0, 6.5, 9.0), 0.02, 0.2);
     }
-    if pick < 0.55 {
-        return Band(vec3(24.0, 28.0, 14.0), vec4(6.5, 9.0, 18.0, 24.0), 0.008, 0.5);
-    }
-    return Band(vec3(40.0, 36.0, 18.0), vec4(18.0, 24.0, 32.0, 40.0), 0.007, 0.4);
+    return Band(vec3(24.0, 28.0, 14.0), vec4(6.5, 9.0, 18.0, 24.0), 0.008, 0.45);
+}
+
+// The share of the drops of rain that falls, from rain to a storm: a storm is a downpour.
+fn heaviness() -> f32 {
+    return mix(0.7, 1.0, weather.storm);
 }
 
 // The band of the flake of snow picked by `pick`: big flakes near the eye, smaller further, and
@@ -86,11 +94,20 @@ fn snow_band(pick: f32) -> Band {
     return Band(vec3(40.0, 32.0, 18.0), vec4(15.0, 20.0, 32.0, 40.0), 0.05, 0.75);
 }
 
-// The splashes: how far from the eye, how long they live, in seconds
+// The splashes: how far from the eye, half of them, and the others; how long they live, in
+// seconds
+const SPLASH_NEAR: f32 = 8.0;
 const SPLASH_REACH: f32 = 16.0;
 const SPLASH_LIFE: f32 = 0.26;
 // The thinnest a sprite is drawn, in pixels: thinner, it is drawn this wide and fainter
 const MIN_PIXELS: f32 = 1.3;
+// The sheets of rain: the segments of each, how far they reach above the eye and under it,
+// the nearest and the furthest
+const SHEET_SEGMENTS: u32 = 48u;
+const SHEET_RISE: f32 = 36.0;
+const SHEET_DEPTH: f32 = 40.0;
+const SHEET_NEAR: f32 = 12.0;
+const SHEET_FAR: f32 = 58.0;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -104,6 +121,8 @@ struct VertexOutput {
     @location(4) @interpolate(flat) shape: vec4<f32>,
     // The height under which nothing of it is drawn
     @location(5) @interpolate(flat) stop: f32,
+    // Where it is on the ground plane, for a sheet
+    @location(6) world_xz: vec2<f32>,
 }
 
 // A hash of `n`, PCG's.
@@ -193,11 +212,11 @@ fn wind_drift(at: vec2<f32>, time: f32) -> vec4<f32> {
 }
 
 // The light of what falls: the grey of the overcast, a little darker than the sky, as a drop
-// shows the sky above it and the darker world below, a glimmer even at night, and the flashes
-// of the lightning.
+// shows the sky above it and the darker world below, a cool glimmer even at night, and the
+// flashes of the lightning.
 fn sky_light() -> vec3<f32> {
     let sky = mix(weather.horizon.rgb, weather.zenith.rgb, 0.4);
-    return sky * 0.85 + vec3(0.012, 0.013, 0.016) + weather.flash * vec3(0.8, 0.82, 1.0);
+    return sky * 0.85 + vec3(0.032, 0.038, 0.052) + weather.flash * vec3(0.8, 0.82, 1.0);
 }
 
 // The width of a pixel at `dist` from the eye, in blocks.
@@ -213,14 +232,14 @@ fn clip(at: vec3<f32>) -> vec4<f32> {
 // The drop of rain `drop`, at its corner `corner`: a streak along its fall, turned to face the
 // eye around it.
 fn rain(drop: u32, corner: vec2<f32>) -> VertexOutput {
-    let shown = f32(params.rain) * params.level;
+    let shown = f32(params.rain) * params.level * heaviness();
     if f32(drop) >= shown {
         return hidden();
     }
     let r = random4(drop * 2u);
     let s = random4(drop * 2u + 1u);
     let band = rain_band(r.w);
-    let near = r.w < 0.15;
+    let near = r.w < RAIN_NEAR_SHARE;
     let extent = band.extent;
     let size = vec3(2.0 * extent.x, extent.y, 2.0 * extent.x);
     let time = globals.time;
@@ -375,8 +394,9 @@ fn splash(index: u32, vertex: u32) -> VertexOutput {
     }
     let s = random4(index * 7919u + u32(floor(round_trip)) * 104729u);
     let eye = view.world_position;
-    let low = eye.xz - SPLASH_REACH;
-    let side = 2.0 * SPLASH_REACH;
+    let reach = select(SPLASH_REACH, SPLASH_NEAR, index % 2u == 0u);
+    let low = eye.xz - reach;
+    let side = 2.0 * reach;
     let place = low + fract((s.xy * side - low) / side) * side;
     let column = floor(place);
     let stop = stop_height(column);
@@ -389,7 +409,7 @@ fn splash(index: u32, vertex: u32) -> VertexOutput {
     let to_eye = eye - foot;
     let dist = max(length(to_eye), 0.01);
     var alpha = clamp(shown - f32(index), 0.0, 1.0)
-        * (1.0 - smoothstep(0.6 * SPLASH_REACH, SPLASH_REACH, length(to_eye.xz)))
+        * (1.0 - smoothstep(0.6 * reach, reach, length(to_eye.xz)))
         * smoothstep(0.6, 1.5, dist);
 
     let corner = corner_of(vertex % 6u);
@@ -401,8 +421,8 @@ fn splash(index: u32, vertex: u32) -> VertexOutput {
             return hidden();
         }
         // The ring, flat on the ground, a little above it
-        let reach = 0.13;
-        let at = foot + vec3(corner.x * reach, 0.015, corner.y * reach);
+        let spread = 0.15;
+        let at = foot + vec3(corner.x * spread, 0.015, corner.y * spread);
         out.position = clip(at);
         out.uv = corner;
         out.world_y = at.y;
@@ -412,8 +432,8 @@ fn splash(index: u32, vertex: u32) -> VertexOutput {
     }
     // The droplets, on a quad standing on the ground, facing the eye
     let across = normalize(vec3(-to_eye.z, 0.0, to_eye.x) + vec3(1e-5, 0.0, 0.0));
-    let half_width = select(0.2, 0.14, on_water);
-    let height = select(0.24, 0.16, on_water);
+    let half_width = select(0.24, 0.17, on_water);
+    let height = select(0.3, 0.2, on_water);
     let uv = vec2(corner.x * half_width, (corner.y * 0.5 + 0.5) * height);
     let at = foot + across * uv.x + vec3(0.0, uv.y, 0.0);
     out.position = clip(at);
@@ -421,6 +441,41 @@ fn splash(index: u32, vertex: u32) -> VertexOutput {
     out.world_y = at.y;
     out.color = vec4(sky_light() * 1.4, 0.9 * alpha);
     out.kind = SPLASH_CROWN;
+    return out;
+}
+
+// The radius of the sheet `index` of `params.sheets`, from `SHEET_NEAR` to `SHEET_FAR`, each
+// further by the same ratio.
+fn sheet_radius(index: u32) -> f32 {
+    let steps = max(f32(params.sheets) - 1.0, 1.0);
+    return SHEET_NEAR * pow(SHEET_FAR / SHEET_NEAR, f32(index) / steps);
+}
+
+// The corner `corner` of the segment `segment` of the sheet `index`: a cylinder around the eye,
+// from under it to above it. Its drops are drawn by the fragments (`sheet_cover`).
+fn sheet(index: u32, segment: u32, corner: vec2<f32>) -> VertexOutput {
+    if params.level <= 0.0 {
+        return hidden();
+    }
+    let radius = sheet_radius(index);
+    let angle = (f32(segment) + corner.x * 0.5 + 0.5) / f32(SHEET_SEGMENTS) * 6.2832;
+    let eye = view.world_position;
+    let height = mix(-SHEET_DEPTH, SHEET_RISE, corner.y * 0.5 + 0.5);
+    let at = eye + vec3(cos(angle) * radius, height, sin(angle) * radius);
+    // The further sheets hold more of the drops, as they stand for a deeper slice of the rain
+    let depth = radius / SHEET_NEAR;
+    var out: VertexOutput;
+    out.position = clip(at);
+    out.uv = vec2(angle, radius);
+    out.world_y = at.y;
+    out.world_xz = at.xz;
+    out.color = vec4(
+        sky_light(),
+        params.level * heaviness() * params.opacity * mix(0.75, 1.0, depth / (SHEET_FAR / SHEET_NEAR)),
+    );
+    out.kind = SHEET;
+    out.shape = vec4(f32(index), 0.0, 0.0, 0.0);
+    out.stop = -UNKNOWN;
     return out;
 }
 
@@ -436,7 +491,13 @@ fn vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
         return snow(snow_index / 6u, corner_of(snow_index % 6u));
     }
     let splash_index = snow_index - snow_vertices;
-    return splash(splash_index / 12u, splash_index % 12u);
+    let splash_vertices = params.splashes * 12u;
+    if splash_index < splash_vertices {
+        return splash(splash_index / 12u, splash_index % 12u);
+    }
+    let sheet_index = splash_index - splash_vertices;
+    let quad = sheet_index / 6u;
+    return sheet(quad / SHEET_SEGMENTS, quad % SHEET_SEGMENTS, corner_of(sheet_index % 6u));
 }
 
 // How much of the streak of a drop covers `uv`: soft across, its head round and its tail
@@ -467,14 +528,15 @@ fn ring(uv: vec2<f32>, age: f32) -> f32 {
     return exp(-off * off) * (1.0 - spread) * (1.0 - spread);
 }
 
-// How much of the droplets of a splash cover `uv` (in blocks from its foot) at `age`: five or
-// six droplets thrown up and out, falling back.
+// How much of the droplets of a splash cover `uv` (in blocks from its foot) at `age`: a bright
+// tick where the drop hits, a crown of water rising around it, and three to five droplets
+// thrown up and out, falling back.
 fn droplets(uv: vec2<f32>, age: f32, seed: f32, on_water: bool) -> f32 {
     let time = age * SPLASH_LIFE;
     let scale = select(1.0, 0.7, on_water);
     let pixel = length(fwidth(uv));
     var cover = 0.0;
-    let count = 5u + u32(seed * 2.0);
+    let count = 3u + u32(seed * 2.999);
     for (var k = 0u; k < count; k++) {
         let r = random4(u32(seed * 65536.0) + k * 31u);
         let angle = (f32(k) + r.x * 0.6) * 6.2832 / f32(count);
@@ -484,18 +546,85 @@ fn droplets(uv: vec2<f32>, age: f32, seed: f32, on_water: bool) -> f32 {
         if at.y < -0.005 {
             continue;
         }
-        let radius = mix(0.011, 0.018, r.w) * scale * (1.0 - 0.4 * age);
+        let radius = mix(0.014, 0.022, r.w) * scale * (1.0 - 0.4 * age);
         // At least a pixel wide, and fainter then
         let wide = max(radius, pixel);
         let dist = length(uv - at);
         cover += (1.0 - smoothstep(wide * 0.3, wide, dist)) * (radius * radius) / (wide * wide);
     }
     // At first, a crown of water rises around the drop
-    let rise = (uv.y - 0.02 * scale) / (0.012 * scale);
+    let rise = (uv.y - 0.03 * scale) / (0.018 * scale);
     let crown = exp(-rise * rise)
-        * (1.0 - smoothstep(0.03, 0.09 * scale, abs(uv.x)))
-        * (1.0 - smoothstep(0.0, 0.25, age));
-    return min(cover + 0.6 * crown, 1.0);
+        * (1.0 - smoothstep(0.04, 0.12 * scale, abs(uv.x)))
+        * (1.0 - smoothstep(0.0, 0.3, age));
+    let tick_size = max(0.025 * scale, 1.5 * pixel);
+    let tick_at = vec2(uv.x * 2.0, uv.y - 0.02 * scale) / tick_size;
+    let tick = exp(-dot(tick_at, tick_at)) * (1.0 - smoothstep(0.0, 0.12, age));
+    return min(cover + 0.7 * crown + 1.5 * tick, 1.5);
+}
+
+// Four numbers from 0 to 1 for the column `cell` of the layer `layer` of a sheet.
+fn cell_random(cell: f32, layer: u32) -> vec4<f32> {
+    return random4(u32(i32(cell) + 1048576) * 4u + layer * 0x9e3779b9u);
+}
+
+// How much of a layer of the pattern of a sheet covers the point `across` (in blocks along the
+// sheet, slanted with the fall) and `along` (in blocks up, fallen with the time): in columns
+// `width` blocks apart, a streak each `period` blocks, at a place and pace of its own. `pixel`
+// is how many blocks a pixel spans across: a streak thinner than that is drawn wider and
+// fainter, and blurs into a veil far off.
+fn sheet_layer(across: f32, along: f32, width: f32, period: f32, pixel: f32, layer: u32) -> f32 {
+    let u = across / width;
+    let cell = floor(u);
+    let r = cell_random(cell, layer);
+    let fall = along / (period * mix(0.8, 1.25, r.y)) + r.x;
+    let place = fract(fall);
+    let streak_length = mix(0.18, 0.3, r.z);
+    let head = smoothstep(0.0, 0.04, place) * (1.0 - smoothstep(streak_length * 0.4, streak_length, place));
+    // A streak is 0.01 block wide
+    let core = 0.01 / width;
+    let wide = max(core, 1.2 * pixel / width);
+    let off = (fract(u) - mix(0.2, 0.8, r.w)) / wide;
+    return exp(-off * off * 2.5) * head * sqrt(core / wide);
+}
+
+// How far apart the columns of a sheet at `radius` are, as close to `width` as whole columns
+// around it allow, so that it closes without a seam.
+fn columns(radius: f32, width: f32) -> f32 {
+    let around = 6.2832 * radius;
+    return around / round(around / width);
+}
+
+// How much of the sheet of rain covers its point at `world`, `angle` around the eye at
+// `radius`: two layers of fine streaks falling, slanted by the wind and swept by its gusts,
+// over a faint veil; nothing where the rain stops, nor where no rain falls.
+fn sheet_cover(world: vec3<f32>, angle: f32, radius: f32, index: f32) -> f32 {
+    let around = angle * radius;
+    let pixel = fwidth(around);
+    let column = floor(world.xz);
+    if world.y < stop_height(column) || column_kind(column) != RAIN {
+        return 0.0;
+    }
+    let time = globals.time;
+    let wind = wind_drift(world.xz, time);
+    let tangent = vec2(-sin(angle), cos(angle));
+    let speed = 14.0;
+    // Slanted by the mean wind: by the gusts, the slant would sway with the height, and the
+    // streaks would curl
+    let height = world.y - view.world_position.y;
+    let slanted = around + height * dot(weather.wind.xy, tangent) / speed;
+    let along = height + speed * time;
+    let seed = u32(index) * 2u;
+    var cover = sheet_layer(slanted, along, columns(radius, 0.31), 7.0, pixel, seed)
+        + 0.8 * sheet_layer(slanted + 0.11, along * 1.07 + 3.0, columns(radius, 0.23), 9.0, pixel, seed + 1u);
+    // The gusts sweep the sheets: thicker where they blow harder
+    let gust = length(wind.zw) / max(length(weather.wind.xy), 0.01);
+    cover *= mix(1.0, gust * gust, weather.wind.z);
+    let veil = 0.035;
+    // Faded out high above the eye, and under the snow line
+    let fade = 1.0 - smoothstep(view.world_position.y + SHEET_RISE - 14.0, view.world_position.y + SHEET_RISE, world.y);
+    let snowless = 1.0 - smoothstep(SNOW_LINE - SNOW_BAND, SNOW_LINE + SNOW_BAND, world.y);
+    return (0.45 * cover + veil) * fade * snowless;
 }
 
 // Whether the world drawn hides the fragment at `position`.
@@ -524,11 +653,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         case SPLASH_CROWN: {
             cover = droplets(in.uv, in.shape.y, in.shape.z, in.shape.w > 0.5);
         }
+        case SHEET: {
+            let world = vec3(in.world_xz.x, in.world_y, in.world_xz.y);
+            cover = sheet_cover(world, in.uv.x, in.uv.y, in.shape.x);
+        }
         default: {
             discard;
         }
     }
-    let alpha = in.color.a * cover;
+    let alpha = min(in.color.a * cover, 1.0);
     if alpha < 0.001 {
         discard;
     }
