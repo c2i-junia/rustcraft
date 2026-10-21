@@ -17,6 +17,7 @@ use rand::{thread_rng, Rng};
 use shared::messages::PlayerId;
 use shared::players::blocks::PortalShot;
 use shared::world::{PortalColor, Portals};
+use std::collections::HashMap;
 
 use super::particles::spawn_particle;
 use super::{portal_color, DrawnPortals};
@@ -128,7 +129,7 @@ pub struct Trail;
 /// placed as it was drawn before (or none). `None` when no such bolt flies: the client map's
 /// portals are drawn as they are.
 #[derive(Resource, Default)]
-pub struct ShownPortals(Option<Portals>);
+pub struct ShownPortals(pub(super) Option<Portals>);
 
 impl ShownPortals {
     /// The portals to draw, `map` being the client map's.
@@ -346,14 +347,23 @@ fn burst(
 }
 
 /// Keeps `ShownPortals` while placed shots fly: the portals of the client map, but those whose
-/// bolt has not landed, as they are drawn.
+/// latest bolt has not landed, as they are drawn.
 pub(super) fn hold_shot_portals(
     world_map: Res<ClientWorldMap>,
     drawn: Res<DrawnPortals>,
     bolts: Query<&Bolt>,
     mut shown: ResMut<ShownPortals>,
 ) {
-    let held: Vec<_> = bolts.iter().filter_map(Bolt::holds).collect();
+    // Only the latest placed shot of a portal holds it: an earlier one, still flying, placed
+    // where the portal no longer is
+    let mut latest: HashMap<(PlayerId, PortalColor), &Bolt> = HashMap::new();
+    for bolt in bolts.iter().filter(|bolt| bolt.shot.placed) {
+        let key = (bolt.shooter, bolt.shot.color);
+        if latest.get(&key).is_none_or(|other| bolt.age < other.age) {
+            latest.insert(key, bolt);
+        }
+    }
+    let held: Vec<_> = latest.values().filter_map(|bolt| bolt.holds()).collect();
     if held.is_empty() {
         if shown.0.is_some() {
             shown.0 = None;

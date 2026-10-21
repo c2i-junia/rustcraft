@@ -3,6 +3,8 @@
 
 use bevy::prelude::*;
 
+use crate::state::GameState;
+
 pub fn simulate_particles(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Transform, &mut Particle)>,
@@ -23,7 +25,7 @@ pub fn simulate_particles(
 }
 
 /// Spawns a particle of `size` at `translation`, thrown at `velocity`, which slows down and
-/// shrinks to nothing in `lifetime` seconds.
+/// shrinks to nothing in `lifetime` seconds, or goes when the game is left.
 pub(crate) fn spawn_particle<M: Material>(
     mesh: Handle<Mesh>,
     material: Handle<M>,
@@ -46,6 +48,8 @@ pub(crate) fn spawn_particle<M: Material>(
                 scale: Vec3::splat(size),
                 ..default()
             },
+            // Frozen once the game is left, as nothing moves it then
+            DespawnOnExit(GameState::Game),
         ));
     }
 }

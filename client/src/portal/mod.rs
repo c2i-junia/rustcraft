@@ -217,10 +217,13 @@ fn portal_systems(app: &mut App) {
         )
         .add_systems(
             OnExit(GameState::Game),
-            |mut drawn: ResMut<DrawnPortals>, mut seen: ResMut<PortalsSeen>| {
-                // Their entities go with the game
+            |mut drawn: ResMut<DrawnPortals>,
+             mut seen: ResMut<PortalsSeen>,
+             mut shown: ResMut<ShownPortals>| {
+                // Their entities go with the game, the bolts too
                 drawn.0.clear();
                 seen.0 = false;
+                shown.0 = None;
             },
         );
 }
@@ -1388,12 +1391,17 @@ mod tests {
         assert!(requested(&mut app).is_empty());
     }
 
-    /// Writes a shot of colour `color` by `OWNER` from 10 blocks in front of `portal` to its
-    /// centre, which lands in a tenth of a second.
+    /// Writes a shot by `OWNER` from 10 blocks in front of `portal` to its centre, which lands
+    /// in a tenth of a second.
     fn fire_at(app: &mut App, portal: &Portal, placed: bool) -> PortalShot {
+        fire_from(app, portal, placed, 10.0)
+    }
+
+    /// `fire_at`, from `distance` blocks in front of `portal`.
+    fn fire_from(app: &mut App, portal: &Portal, placed: bool, distance: f32) -> PortalShot {
         let to = Vec3::from(portal.frame().translation);
         let shot = PortalShot {
-            from: to + portal.normal() * 10.0,
+            from: to + portal.normal() * distance,
             to,
             color: portal.color,
             placed,
@@ -1507,5 +1515,63 @@ mod tests {
         assert!(bolt_ages(&mut app).is_empty());
         let world = app.world_mut();
         assert!(world.query::<&particles::Particle>().iter(world).count() > 0);
+    }
+
+    #[test]
+    fn a_second_shot_landing_first_shows_its_portal_though_the_first_still_flies() {
+        let mut app = app();
+        insert(&mut app, blue());
+        app.update();
+        let drawn = |app: &App| {
+            app.world()
+                .resource::<DrawnPortals>()
+                .0
+                .get(&(OWNER, PortalColor::Blue))
+                .map(|drawn| drawn.portal)
+        };
+        // A long shot (0.3 s), then at once a short one (0.04 s) elsewhere
+        let first = Portal {
+            anchor: IVec3::new(0, 20, 0),
+            ..blue()
+        };
+        let second = Portal {
+            anchor: IVec3::new(0, 30, 0),
+            ..blue()
+        };
+        insert(&mut app, first);
+        fire_from(&mut app, &first, true, 30.0);
+        app.update();
+        insert(&mut app, second);
+        fire_from(&mut app, &second, true, 4.0);
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(bolt_ages(&mut app).len(), 2, "the long bolt still flies");
+        assert_eq!(drawn(&app), Some(second));
+    }
+
+    #[test]
+    fn leaving_the_game_forgets_the_shots_and_their_sparks() {
+        let mut app = app();
+        insert(&mut app, blue());
+        // A short refused shot that bursts, and a long placed one still flying
+        fire_from(&mut app, &orange(), false, 1.0);
+        fire_from(&mut app, &blue(), true, 30.0);
+        for _ in 0..3 {
+            app.update();
+        }
+        let sparks = |app: &mut App| {
+            let world = app.world_mut();
+            world.query::<&particles::Particle>().iter(world).count()
+        };
+        assert!(sparks(&mut app) > 0);
+        assert!(app.world().resource::<ShownPortals>().0.is_some());
+
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        app.update();
+        assert_eq!(sparks(&mut app), 0);
+        assert!(app.world().resource::<ShownPortals>().0.is_none());
     }
 }
