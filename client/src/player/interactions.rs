@@ -204,12 +204,14 @@ mod tests {
                     held_before: None,
                     held_after: Some(dirt),
                     result: Ok(()),
+                    thrown: None,
                 },
                 InventoryActionOutcome {
                     action: InventoryAction::TakeCraftResult,
                     held_before: Some(dirt),
                     held_after: Some(dirt),
                     result: Err(InventoryRefusal::NoRecipe),
+                    thrown: None,
                 },
             ]
         );

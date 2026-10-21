@@ -10,7 +10,8 @@ use crate::ui::widgets::slot::ActionRefused;
 
 /// The sound of an accepted inventory action: a craft knocks; a stack onto the cursor (more of
 /// its item, or another stack) is picked, items off it into slots placed, by the actions on the
-/// cursor; every other action is silent. A refusal sounds through its `ActionRefused`.
+/// cursor; every other action is silent, a drop too, as in Minecraft: the item seen flying is
+/// enough. A refusal sounds through its `ActionRefused`.
 pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
     outcome.result.ok()?;
     match outcome.action {
@@ -41,7 +42,9 @@ pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
         | InventoryAction::SwapWithHotbar { .. }
         | InventoryAction::MoveAllOfType { .. }
         | InventoryAction::FillCraftingGrid { .. }
-        | InventoryAction::DestroyFloating => None,
+        | InventoryAction::DestroyFloating
+        | InventoryAction::DropSlot { .. }
+        | InventoryAction::DropFloating { .. } => None,
     }
 }
 
@@ -92,6 +95,7 @@ mod tests {
             held_before,
             held_after,
             result: Ok(()),
+            thrown: None,
         }
     }
 
@@ -218,6 +222,23 @@ mod tests {
                 None,
                 "{action:?}"
             );
+        }
+    }
+
+    #[test]
+    fn a_drop_is_silent_even_when_it_empties_the_cursor() {
+        use InventoryAction as A;
+        let dirt = |nb| stack(ItemId::Dirt, nb);
+        for (action, before, after) in [
+            (A::DropFloating { all: true }, dirt(5), None),
+            (A::DropFloating { all: false }, dirt(5), dirt(4)),
+            (A::DropSlot { slot: 3, all: true }, None, None),
+        ] {
+            let thrown = InventoryActionOutcome {
+                thrown: dirt(1),
+                ..outcome(action, before, after)
+            };
+            assert_eq!(inventory_sound(&thrown), None, "{action:?}");
         }
     }
 

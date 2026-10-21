@@ -221,6 +221,14 @@ mod tests {
                 15,
             ),
             (InventoryAction::CraftToHotbar(0), 16),
+            (
+                InventoryAction::DropSlot {
+                    slot: 0,
+                    all: false,
+                },
+                17,
+            ),
+            (InventoryAction::DropFloating { all: false }, 18),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }
@@ -245,6 +253,22 @@ mod tests {
             (ItemRemoval::Merged(0), 2),
         ] {
             assert_eq!(variant_index(&removal), expected, "{ENCODING_WARNING}");
+        }
+    }
+
+    #[test]
+    fn the_drops_round_trip_on_the_wire() {
+        use bincode::Options;
+        for action in [
+            InventoryAction::DropSlot {
+                slot: 74,
+                all: true,
+            },
+            InventoryAction::DropFloating { all: true },
+        ] {
+            let bytes = bincode::options().serialize(&action).unwrap();
+            let back: InventoryAction = bincode::options().deserialize(&bytes).unwrap();
+            assert_eq!(back, action);
         }
     }
 

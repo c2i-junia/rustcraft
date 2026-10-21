@@ -24,7 +24,8 @@ pub fn refused_targets(action: InventoryAction) -> Vec<RefusedTarget> {
         | InventoryAction::RightClickSlot(slot)
         | InventoryAction::QuickMoveSlot(slot)
         | InventoryAction::SwapWithHotbar { slot, .. }
-        | InventoryAction::MoveAllOfType { slot, .. } => vec![RefusedTarget::Cell(slot)],
+        | InventoryAction::MoveAllOfType { slot, .. }
+        | InventoryAction::DropSlot { slot, .. } => vec![RefusedTarget::Cell(slot)],
         InventoryAction::Drag { slots, .. } => (0..u128::BITS)
             .filter(|slot| slots & 1 << slot != 0)
             .map(RefusedTarget::Cell)
@@ -39,7 +40,8 @@ pub fn refused_targets(action: InventoryAction) -> Vec<RefusedTarget> {
         | InventoryAction::TakeFromCatalog { .. }
         | InventoryAction::DestroyFloating
         | InventoryAction::FillCraftingGrid { .. }
-        | InventoryAction::CollectAll => Vec::new(),
+        | InventoryAction::CollectAll
+        | InventoryAction::DropFloating { .. } => Vec::new(),
     }
 }
 
@@ -104,6 +106,8 @@ mod tests {
             (A::TakeCraftResult, vec![Result]),
             (A::CraftAll, vec![Result]),
             (A::CraftToHotbar(9), vec![Result]),
+            (A::DropSlot { slot: 8, all: true }, vec![Cell(8)]),
+            (A::DropFloating { all: false }, vec![]),
             (A::OpenChest(IVec3::ZERO), vec![]),
             (A::OpenCraftingTable(IVec3::ZERO), vec![]),
             (A::OpenFurnace(IVec3::ZERO), vec![]),
@@ -140,6 +144,7 @@ mod tests {
             held_before: None,
             held_after: None,
             result,
+            thrown: None,
         })
     }
 

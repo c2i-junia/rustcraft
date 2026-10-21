@@ -109,6 +109,17 @@ pub enum InventoryAction {
     },
     /// Number key over the result: crafts once into this hotbar slot.
     CraftToHotbar(u32),
+    /// Drop key over a slot, with an empty cursor: one item of its stack, or all of it, is
+    /// thrown out of the inventory.
+    DropSlot {
+        slot: u32,
+        all: bool,
+    },
+    /// A press outside the inventory with a held stack: one item of it, or all of it, is
+    /// thrown out of the inventory.
+    DropFloating {
+        all: bool,
+    },
 }
 
 /// Why an inventory action changed nothing.
@@ -205,6 +216,8 @@ pub struct InventoryActionOutcome {
     pub held_before: Option<ItemStack>,
     pub held_after: Option<ItemStack>,
     pub result: Result<(), InventoryRefusal>,
+    /// What the action threw out of the inventory, for the server to drop ahead of the player.
+    pub thrown: Option<ItemStack>,
 }
 
 /// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`,
@@ -288,23 +301,24 @@ pub fn simulate_inventory_actions(
             action,
             held_before,
             held_after: player.inventory.floating,
-            result: applied,
+            result: applied.map(|_| ()),
+            thrown: applied.ok().flatten(),
         });
     }
     outcomes
 }
 
-/// Applies `action` to `inventory`. `in_reach` tells whether a position holds a block of this
-/// kind the player can use. `contents` is what the open chest or furnace holds, `None` when it
-/// is unknown: its slots cannot be used then. The actions of the item browser's catalog need
-/// `creative`.
+/// Applies `action` to `inventory`, and returns the stack it threw out of the inventory, if
+/// any. `in_reach` tells whether a position holds a block of this kind the player can use.
+/// `contents` is what the open chest or furnace holds, `None` when it is unknown: its slots
+/// cannot be used then. The actions of the item browser's catalog need `creative`.
 pub fn apply_inventory_action(
     inventory: &mut Inventory,
     action: InventoryAction,
     in_reach: impl Fn(IVec3, BlockId) -> bool,
     contents: Option<OpenContents>,
     creative: bool,
-) -> Result<(), InventoryRefusal> {
+) -> Result<Option<ItemStack>, InventoryRefusal> {
     let creative_only = matches!(
         action,
         InventoryAction::TakeFromCatalog { .. } | InventoryAction::DestroyFloating
@@ -312,9 +326,11 @@ pub fn apply_inventory_action(
     if creative_only && !creative {
         return Err(InventoryRefusal::NotInCreative);
     }
+    let mut thrown = None;
     with_lent(inventory, contents, |inventory, lent| {
-        apply_action(inventory, action, &in_reach, lent)
+        apply_action(inventory, action, &in_reach, lent, &mut thrown)
     })
+    .map(|()| thrown)
 }
 
 /// What a drag leaves: the new stack of each slot it puts items into, in ascending order, and
@@ -397,12 +413,13 @@ fn lend<T>(
 }
 
 /// `apply_inventory_action`, with the stacks of the open chest or furnace in its slots of
-/// `inventory`, as `lent` says.
+/// `inventory`, as `lent` says. What the action throws out goes to `thrown`.
 fn apply_action(
     inventory: &mut Inventory,
     action: InventoryAction,
     in_reach: impl Fn(IVec3, BlockId) -> bool,
     lent: Lent,
+    thrown: &mut Option<ItemStack>,
 ) -> Result<(), InventoryRefusal> {
     let size = grid_size(inventory, &in_reach);
     let mut floating = inventory.floating.take();
@@ -487,6 +504,23 @@ fn apply_action(
         InventoryAction::MoveAllOfType { slot, item } => {
             move_all_of_type(inventory, slot, item, size, floating, lent)
         }
+        InventoryAction::DropSlot { slot, all } => {
+            check_slot(inventory, slot, size, floating, lent).and_then(|()| {
+                if floating.is_some() {
+                    return Err(InventoryRefusal::HoldingAStack);
+                }
+                *thrown = take_from_slot(inventory, slot, all);
+                Ok(())
+            })
+        }
+        InventoryAction::DropFloating { all } => match floating {
+            Some(held) => {
+                let nb = remove_item_floating_stack(&mut floating, if all { held.nb } else { 1 });
+                *thrown = Some(ItemStack { nb, ..held });
+                Ok(())
+            }
+            None => Err(InventoryRefusal::NothingHeld),
+        },
     };
     inventory.floating = floating;
     applied
@@ -801,6 +835,14 @@ fn swap_with_hotbar(
         inventory.inner.insert(slot, stack);
     }
     Ok(())
+}
+
+/// Takes one item of the stack in `slot`, or all of it, and returns what it took.
+fn take_from_slot(inventory: &mut Inventory, slot: u32, all: bool) -> Option<ItemStack> {
+    let stack = *inventory.inner.get(&slot)?;
+    let nb = if all { stack.nb } else { 1 };
+    let nb = inventory.remove_item_from_stack(slot, nb);
+    Some(ItemStack { nb, ..stack })
 }
 
 /// Whether `slot` is a cell of the 3x3 grid outside the grid of `size` in use.
@@ -1656,6 +1698,7 @@ mod tests {
             inventory_actions: vec![
                 InventoryAction::LeftClickSlot(0),
                 InventoryAction::TakeCraftResult,
+                InventoryAction::DropFloating { all: false },
             ],
             ..Default::default()
         };
@@ -1676,12 +1719,21 @@ mod tests {
                     held_before: None,
                     held_after: dirt,
                     result: Ok(()),
+                    thrown: None,
                 },
                 InventoryActionOutcome {
                     action: InventoryAction::TakeCraftResult,
                     held_before: dirt,
                     held_after: dirt,
                     result: Err(InventoryRefusal::NoRecipe),
+                    thrown: None,
+                },
+                InventoryActionOutcome {
+                    action: InventoryAction::DropFloating { all: false },
+                    held_before: dirt,
+                    held_after: Some(stack(ItemId::Dirt, 4)),
+                    result: Ok(()),
+                    thrown: Some(stack(ItemId::Dirt, 1)),
                 },
             ]
         );
@@ -2512,7 +2564,7 @@ mod tests {
     fn creative(
         inventory: &mut Inventory,
         action: InventoryAction,
-    ) -> Result<(), InventoryRefusal> {
+    ) -> Result<Option<ItemStack>, InventoryRefusal> {
         apply_inventory_action(inventory, action, |_, _| false, None, true)
     }
 
@@ -2845,7 +2897,7 @@ mod tests {
     fn try_apply(
         inventory: &mut Inventory,
         action: InventoryAction,
-    ) -> Result<(), InventoryRefusal> {
+    ) -> Result<Option<ItemStack>, InventoryRefusal> {
         apply_inventory_action(inventory, action, |_, _| false, None, false)
     }
 
@@ -3382,5 +3434,145 @@ mod tests {
             );
         }
         assert_eq!(inventory, before);
+    }
+
+    fn drop_slot(slot: u32, all: bool) -> InventoryAction {
+        InventoryAction::DropSlot { slot, all }
+    }
+
+    /// Applies `action`, which must be accepted, and returns what it threw.
+    fn throw(inventory: &mut Inventory, action: InventoryAction) -> Option<ItemStack> {
+        apply_inventory_action(inventory, action, |_, _| false, None, false).unwrap()
+    }
+
+    /// Applies `action` as the server does, which must be accepted, and returns what it threw.
+    fn throw_by(
+        player: &mut Player,
+        world: &mut ChunkMap,
+        action: InventoryAction,
+    ) -> Option<ItemStack> {
+        let input = PlayerFrameInput {
+            inventory_actions: vec![action],
+            ..Default::default()
+        };
+        let outcomes = simulate_inventory_actions(player, world, &input, CallerType::Server);
+        assert_eq!(outcomes[0].result, Ok(()), "{action:?}");
+        outcomes[0].thrown
+    }
+
+    #[test]
+    fn dropping_from_a_slot_throws_one_item_or_the_stack() {
+        let mut inventory = inventory_with(12, stack(ItemId::Dirt, 5));
+
+        let thrown = throw(&mut inventory, drop_slot(12, false));
+        assert_eq!(thrown, Some(stack(ItemId::Dirt, 1)));
+        assert_eq!(inventory.inner[&12], stack(ItemId::Dirt, 4));
+
+        let thrown = throw(&mut inventory, drop_slot(12, true));
+        assert_eq!(thrown, Some(stack(ItemId::Dirt, 4)));
+        assert!(inventory.inner.is_empty());
+        assert_eq!(inventory.floating, None);
+    }
+
+    #[test]
+    fn dropping_from_an_empty_slot_throws_nothing() {
+        let mut inventory = Inventory::new();
+        for all in [false, true] {
+            assert_eq!(throw(&mut inventory, drop_slot(3, all)), None);
+        }
+        assert_eq!(inventory, Inventory::new());
+    }
+
+    #[test]
+    fn dropping_from_a_chest_a_furnace_output_or_a_leftover_beyond_the_grid() {
+        let (mut player, mut world) = by_an_open_chest(holding(4, stack(ItemId::Stone, 12)));
+        let thrown = throw_by(&mut player, &mut world, drop_slot(chest_slot(4), true));
+        assert_eq!(thrown, Some(stack(ItemId::Stone, 12)));
+        assert_eq!(world.container(CHEST).unwrap().slots[4], None);
+
+        let glass = Some(stack(ItemId::Glass, 5));
+        let (mut player, mut world) = by_an_open_furnace(furnace_holding(None, None, glass));
+        let thrown = throw_by(
+            &mut player,
+            &mut world,
+            drop_slot(FURNACE_OUTPUT_SLOT, false),
+        );
+        assert_eq!(thrown, Some(stack(ItemId::Glass, 1)));
+        assert_eq!(
+            world.furnace(FURNACE).unwrap().output,
+            Some(stack(ItemId::Glass, 4))
+        );
+
+        // Left beyond the 2x2 grid when a table was closed with a full inventory
+        let leftover = grid_slot(2, 2);
+        let mut inventory = inventory_with(leftover, stack(ItemId::Cobblestone, 3));
+        let thrown = throw(&mut inventory, drop_slot(leftover, true));
+        assert_eq!(thrown, Some(stack(ItemId::Cobblestone, 3)));
+        assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn dropping_from_a_slot_is_refused_out_of_reach_or_with_a_held_stack() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        for slot in [grid_slot(2, 2), chest_slot(0), FURNACE_INPUT_SLOT, 1000] {
+            assert_eq!(
+                try_apply(&mut inventory, drop_slot(slot, false)),
+                Err(InventoryRefusal::InvalidSlot(slot))
+            );
+        }
+        assert_eq!(inventory, before);
+
+        inventory.floating = Some(stack(ItemId::Stone, 1));
+        let before = inventory.clone();
+        for all in [false, true] {
+            assert_eq!(
+                try_apply(&mut inventory, drop_slot(0, all)),
+                Err(InventoryRefusal::HoldingAStack)
+            );
+        }
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn dropping_the_held_stack_throws_one_item_or_all() {
+        let mut inventory = Inventory::new();
+        inventory.floating = Some(stack(ItemId::Dirt, 5));
+
+        let thrown = throw(&mut inventory, InventoryAction::DropFloating { all: false });
+        assert_eq!(thrown, Some(stack(ItemId::Dirt, 1)));
+        assert_eq!(inventory.floating, Some(stack(ItemId::Dirt, 4)));
+
+        let thrown = throw(&mut inventory, InventoryAction::DropFloating { all: true });
+        assert_eq!(thrown, Some(stack(ItemId::Dirt, 4)));
+        assert_eq!(inventory.floating, None);
+        assert!(inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn dropping_the_held_stack_without_one_is_refused() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        for all in [false, true] {
+            assert_eq!(
+                try_apply(&mut inventory, InventoryAction::DropFloating { all }),
+                Err(InventoryRefusal::NothingHeld)
+            );
+        }
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn a_thrown_tool_keeps_its_wear() {
+        let worn = ItemStack {
+            item_type: ItemType::Tool { wear: 9 },
+            ..stack(ItemId::WoodenShovel, 1)
+        };
+        let mut inventory = inventory_with(0, worn);
+        assert_eq!(throw(&mut inventory, drop_slot(0, false)), Some(worn));
+
+        inventory.floating = Some(worn);
+        let thrown = throw(&mut inventory, InventoryAction::DropFloating { all: false });
+        assert_eq!(thrown, Some(worn));
     }
 }
