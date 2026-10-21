@@ -39,6 +39,7 @@ pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
         | InventoryAction::OpenChest(_)
         | InventoryAction::OpenFurnace(_)
         | InventoryAction::QuickMoveSlot(_)
+        | InventoryAction::QuickMoveOne(_)
         | InventoryAction::SwapWithHotbar { .. }
         | InventoryAction::MoveAllOfType { .. }
         | InventoryAction::FillCraftingGrid { .. }
@@ -188,6 +189,7 @@ mod tests {
         let dirt = stack(ItemId::Dirt, 5);
         for (action, before, after) in [
             (A::QuickMoveSlot(0), None, None),
+            (A::QuickMoveOne(0), None, None),
             (
                 A::SwapWithHotbar {
                     slot: 12,

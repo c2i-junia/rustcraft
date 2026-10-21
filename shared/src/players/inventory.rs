@@ -120,6 +120,9 @@ pub enum InventoryAction {
     DropFloating {
         all: bool,
     },
+    /// A notch of the wheel over a slot, with an empty cursor: one item of its stack goes where
+    /// a shift-click would send the stack.
+    QuickMoveOne(u32),
 }
 
 /// Why an inventory action changed nothing.
@@ -446,7 +449,9 @@ fn apply_action(
         InventoryAction::RightClickSlot(slot) => check_slot(inventory, slot, size, floating, lent)
             .and_then(|()| right_click_slot(inventory, slot, &mut floating)),
         InventoryAction::QuickMoveSlot(slot) => check_slot(inventory, slot, size, floating, lent)
-            .map(|()| quick_move_slot(inventory, slot, lent)),
+            .map(|()| {
+                quick_move_slot(inventory, slot, u32::MAX, lent);
+            }),
         InventoryAction::SwapWithHotbar { slot, hotbar } => {
             swap_with_hotbar(inventory, slot, hotbar, size, floating, lent)
         }
@@ -530,6 +535,8 @@ fn apply_action(
                 Ok(())
             })
         }
+        InventoryAction::QuickMoveOne(slot) => check_slot(inventory, slot, size, floating, lent)
+            .and_then(|()| quick_move_one(inventory, slot, floating, lent)),
         InventoryAction::DropFloating { all } => match floating {
             Some(held) => {
                 let nb = remove_item_floating_stack(&mut floating, if all { held.nb } else { 1 });
@@ -736,14 +743,20 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
 }
 
-/// Shift+click on `slot`: moves its stack from the hotbar to the backpack or the other way
-/// round, and from a crafting grid cell into the whole inventory. With a chest open, it moves
-/// it from the inventory to the chest and from the chest to the inventory; with a furnace open,
-/// from the inventory to the input if it smelts, else to the fuel slot if it burns, and from
-/// the furnace to the inventory. What does not fit stays.
-fn quick_move_slot(inventory: &mut Inventory, slot: u32, lent: Lent) {
+/// Shift+click on `slot`: moves `nb` items of its stack at most, the whole stack with
+/// `u32::MAX`, from the hotbar to the backpack or the other way round, and from a crafting grid
+/// cell into the whole inventory. With a chest open, it moves them from the inventory to the
+/// chest and from the chest to the inventory; with a furnace open, from the inventory to the
+/// input if they smelt, else to the fuel slot if they burn, and from the furnace to the
+/// inventory. What does not fit stays. Returns how many items it moved.
+fn quick_move_slot(inventory: &mut Inventory, slot: u32, nb: u32, lent: Lent) -> u32 {
     let Some(stack) = inventory.inner.remove(&slot) else {
-        return;
+        return 0;
+    };
+    let left = stack.nb.saturating_sub(nb);
+    let stack = ItemStack {
+        nb: stack.nb - left,
+        ..stack
     };
     let range = if chest_slots().contains(&slot) || furnace_slots().contains(&slot) {
         Some(0..MAX_INVENTORY_SLOTS)
@@ -764,19 +777,44 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, lent: Lent) {
         }
     };
     let kept = if let Some(range) = range {
-        let kept = inventory.add_item_to_range(stack, range);
-        (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+        inventory.add_item_to_range(stack, range)
     } else if slot < HOTBAR_SLOTS {
-        let kept = inventory.add_item_to_range(stack, HOTBAR_SLOTS..MAX_INVENTORY_SLOTS);
-        (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+        inventory.add_item_to_range(stack, HOTBAR_SLOTS..MAX_INVENTORY_SLOTS)
     } else if slot < MAX_INVENTORY_SLOTS {
-        let kept = inventory.add_item_to_range(stack, 0..HOTBAR_SLOTS);
-        (kept > 0).then_some(ItemStack { nb: kept, ..stack })
+        inventory.add_item_to_range(stack, 0..HOTBAR_SLOTS)
     } else {
-        put_back(inventory, stack)
+        inventory.add_item_to_inventory(stack)
     };
-    if let Some(kept) = kept {
-        inventory.inner.insert(slot, kept);
+    if kept + left > 0 {
+        inventory.inner.insert(
+            slot,
+            ItemStack {
+                nb: kept + left,
+                ..stack
+            },
+        );
+    }
+    stack.nb - kept
+}
+
+/// A notch of the wheel over `slot`: one item of its stack goes where a shift-click sends the
+/// stack. The cursor must be empty; an empty slot moves nothing, and an item that finds no room
+/// is refused.
+fn quick_move_one(
+    inventory: &mut Inventory,
+    slot: u32,
+    floating: Option<ItemStack>,
+    lent: Lent,
+) -> Result<(), InventoryRefusal> {
+    if floating.is_some() {
+        return Err(InventoryRefusal::HoldingAStack);
+    }
+    if !inventory.inner.contains_key(&slot) {
+        return Ok(());
+    }
+    match quick_move_slot(inventory, slot, 1, lent) {
+        0 => Err(InventoryRefusal::NoRoom),
+        _ => Ok(()),
     }
 }
 
@@ -850,7 +888,7 @@ fn move_all_of_type(
             .get(&slot)
             .is_some_and(|stack| stack.item_id == item);
         if holds_it && check_slot(inventory, slot, size, floating, lent).is_ok() {
-            quick_move_slot(inventory, slot, lent);
+            quick_move_slot(inventory, slot, u32::MAX, lent);
         }
     }
     Ok(())
@@ -3782,5 +3820,142 @@ mod tests {
         inventory.floating = Some(worn);
         let thrown = throw(&mut inventory, InventoryAction::DropFloating { all: false });
         assert_eq!(thrown, Some(worn));
+    }
+
+    #[test]
+    fn quick_move_one_moves_one_item_where_a_shift_click_sends_the_stack() {
+        // From the hotbar into the backpack, topping a stack of the item up first
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        inventory.inner.insert(30, stack(ItemId::Dirt, 2));
+        apply(&mut inventory, InventoryAction::QuickMoveOne(0));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 4));
+        assert_eq!(inventory.inner[&30], stack(ItemId::Dirt, 3));
+        assert_eq!(inventory.inner.len(), 2);
+
+        // From the backpack into the hotbar
+        let mut inventory = inventory_with(20, stack(ItemId::Sand, 3));
+        apply(&mut inventory, InventoryAction::QuickMoveOne(20));
+        assert_eq!(inventory.inner[&20], stack(ItemId::Sand, 2));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Sand, 1));
+
+        // From a cell of the grid into the inventory; the last item empties its cell
+        let cell = grid_slot(0, 0);
+        let mut inventory = inventory_with(cell, stack(ItemId::OakPlanks, 2));
+        apply(&mut inventory, InventoryAction::QuickMoveOne(cell));
+        assert_eq!(inventory.inner[&cell], stack(ItemId::OakPlanks, 1));
+        apply(&mut inventory, InventoryAction::QuickMoveOne(cell));
+        assert_eq!(inventory.inner.get(&cell), None);
+        let moved: u32 = (0..MAX_INVENTORY_SLOTS)
+            .filter_map(|slot| inventory.inner.get(&slot))
+            .map(|stack| stack.nb)
+            .sum();
+        assert_eq!(moved, 2);
+        assert_eq!(inventory.floating, None);
+    }
+
+    #[test]
+    fn quick_move_one_moves_between_the_chest_or_the_furnace_and_the_inventory() {
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Stone, 2)));
+        player.inventory.inner.insert(3, stack(ItemId::Dirt, 10));
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::QuickMoveOne(3),
+                InventoryAction::QuickMoveOne(chest_slot(0)),
+            ],
+        );
+        let mut expected = holding(0, stack(ItemId::Stone, 1));
+        expected.slots[1] = Some(stack(ItemId::Dirt, 1));
+        assert_eq!(world.container(CHEST), Some(&expected));
+        assert_eq!(player.inventory.inner[&3], stack(ItemId::Dirt, 9));
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Stone, 1));
+
+        let glass = Some(stack(ItemId::Glass, 4));
+        let (mut player, mut world) = by_an_open_furnace(furnace_holding(None, None, glass));
+        player.inventory.inner.insert(9, stack(ItemId::Coal, 5));
+        player.inventory.inner.insert(10, stack(ItemId::Sand, 5));
+        act(
+            &mut player,
+            &mut world,
+            vec![
+                InventoryAction::QuickMoveOne(9),
+                InventoryAction::QuickMoveOne(10),
+                InventoryAction::QuickMoveOne(FURNACE_OUTPUT_SLOT),
+            ],
+        );
+        let furnace = world.furnace(FURNACE).unwrap();
+        assert_eq!(furnace.fuel, Some(stack(ItemId::Coal, 1)));
+        assert_eq!(furnace.input, Some(stack(ItemId::Sand, 1)));
+        assert_eq!(furnace.output, Some(stack(ItemId::Glass, 3)));
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Glass, 1));
+    }
+
+    #[test]
+    fn quick_move_one_is_refused_out_of_reach_with_a_held_stack_or_without_room() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        for slot in [grid_slot(2, 2), chest_slot(0), FURNACE_INPUT_SLOT, 1000] {
+            assert_eq!(
+                try_apply(&mut inventory, InventoryAction::QuickMoveOne(slot)),
+                Err(InventoryRefusal::InvalidSlot(slot))
+            );
+        }
+        assert_eq!(inventory, before);
+
+        inventory.floating = Some(stack(ItemId::Stone, 1));
+        let before = inventory.clone();
+        assert_eq!(
+            try_apply(&mut inventory, InventoryAction::QuickMoveOne(0)),
+            Err(InventoryRefusal::HoldingAStack)
+        );
+        assert_eq!(inventory, before);
+
+        // A full hotbar takes nothing from the backpack
+        let mut inventory = inventory_with(20, stack(ItemId::Dirt, 5));
+        for slot in 0..HOTBAR_SLOTS {
+            inventory.inner.insert(slot, stack(ItemId::Stone, 64));
+        }
+        let before = inventory.clone();
+        assert_eq!(
+            try_apply(&mut inventory, InventoryAction::QuickMoveOne(20)),
+            Err(InventoryRefusal::NoRoom)
+        );
+        assert_eq!(inventory, before);
+
+        // By a furnace, what neither smelts nor burns stays
+        let (mut player, mut world) = by_an_open_furnace(furnace_holding(None, None, None));
+        player.inventory.inner.insert(9, stack(ItemId::Dirt, 5));
+        let input = PlayerFrameInput {
+            inventory_actions: vec![InventoryAction::QuickMoveOne(9)],
+            ..Default::default()
+        };
+        let outcomes =
+            simulate_inventory_actions(&mut player, &mut world, &input, CallerType::Server);
+        assert_eq!(outcomes[0].result, Err(InventoryRefusal::NoRoom));
+        assert_eq!(player.inventory.inner[&9], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn quick_move_one_on_an_empty_slot_moves_nothing() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        assert_eq!(
+            try_apply(&mut inventory, InventoryAction::QuickMoveOne(4)),
+            Ok(None)
+        );
+        assert_eq!(inventory, before);
+    }
+
+    #[test]
+    fn quick_move_one_keeps_the_wear_of_a_tool() {
+        let worn = ItemStack {
+            item_type: ItemType::Tool { wear: 9 },
+            ..stack(ItemId::WoodenShovel, 1)
+        };
+        let mut inventory = inventory_with(0, worn);
+        apply(&mut inventory, InventoryAction::QuickMoveOne(0));
+        assert_eq!(inventory.inner.get(&0), None);
+        assert_eq!(inventory.inner[&HOTBAR_SLOTS], worn);
     }
 }

@@ -229,6 +229,7 @@ mod tests {
                 17,
             ),
             (InventoryAction::DropFloating { all: false }, 18),
+            (InventoryAction::QuickMoveOne(0), 19),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }
@@ -257,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn the_drops_round_trip_on_the_wire() {
+    fn the_drops_and_the_move_of_one_item_round_trip_on_the_wire() {
         use bincode::Options;
         for action in [
             InventoryAction::DropSlot {
@@ -265,6 +266,7 @@ mod tests {
                 all: true,
             },
             InventoryAction::DropFloating { all: true },
+            InventoryAction::QuickMoveOne(74),
         ] {
             let bytes = bincode::options().serialize(&action).unwrap();
             let back: InventoryAction = bincode::options().deserialize(&bytes).unwrap();

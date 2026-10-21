@@ -23,6 +23,7 @@ pub fn refused_targets(action: InventoryAction) -> Vec<RefusedTarget> {
         InventoryAction::LeftClickSlot(slot)
         | InventoryAction::RightClickSlot(slot)
         | InventoryAction::QuickMoveSlot(slot)
+        | InventoryAction::QuickMoveOne(slot)
         | InventoryAction::SwapWithHotbar { slot, .. }
         | InventoryAction::MoveAllOfType { slot, .. }
         | InventoryAction::DropSlot { slot, .. } => vec![RefusedTarget::Cell(slot)],
@@ -88,6 +89,7 @@ mod tests {
             (A::LeftClickSlot(3), vec![Cell(3)]),
             (A::RightClickSlot(4), vec![Cell(4)]),
             (A::QuickMoveSlot(5), vec![Cell(5)]),
+            (A::QuickMoveOne(9), vec![Cell(9)]),
             (A::SwapWithHotbar { slot: 6, hotbar: 0 }, vec![Cell(6)]),
             (
                 A::MoveAllOfType {
