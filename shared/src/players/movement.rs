@@ -6,7 +6,8 @@ use crate::{
             FLY_SPEED_MULTIPLIER, FLY_SPRINT_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY,
             MAX_PITCH_DEGREES, MAX_UPWARD_VELOCITY, SNEAK_GROUND_PROBE, SNEAK_SPEED_MULTIPLIER,
             SPEED, SPRINT_SPEED_MULTIPLIER, SWIM_DOWN_VELOCITY, SWIM_SPEED, SWIM_UP_VELOCITY,
-            WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
+            TERMINAL_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
+            WATER_SPEED_MULTIPLIER,
         },
     },
     world::{world_position_to_chunk_position, BlockId, ChunkMap, Passage},
@@ -292,10 +293,11 @@ fn climb(player: &mut Player, world_map: &ChunkMap, action: &PlayerFrameInput, d
     }
 }
 
-/// The second half of the gravity of the frame, for a player still in the air after its move.
+/// The second half of the gravity of the frame, for a player still in the air after its move,
+/// which falls no faster than `TERMINAL_VELOCITY`.
 fn finish_gravity(player: &mut Player, delta: f32) {
     if !player.is_flying && !player.on_ground {
-        player.velocity.y += GRAVITY * delta / 2.0;
+        player.velocity.y = (player.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
     }
 }
 
@@ -333,9 +335,13 @@ fn swim(
 
 /// Moves the player by its vertical velocity, and stops it against the block in the way: on
 /// top of it when falling, which lands the player, right under it when rising, from where it
-/// falls back. Returns the blocks fallen when the player lands.
+/// falls back. Returns the blocks fallen when the player lands. It rises no faster than
+/// `MAX_UPWARD_VELOCITY` and falls no faster than `TERMINAL_VELOCITY`.
 fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) -> Option<f32> {
-    player.velocity.y = player.velocity.y.min(MAX_UPWARD_VELOCITY);
+    player.velocity.y = player
+        .velocity
+        .y
+        .clamp(-TERMINAL_VELOCITY, MAX_UPWARD_VELOCITY);
     let distance = player.velocity.y * delta;
 
     if player.is_flying {
@@ -2108,6 +2114,57 @@ mod tests {
             player.position.z > (front.z - 1) as f32,
             "{}",
             player.position
+        );
+    }
+
+    #[test]
+    fn an_ordinary_fall_speeds_up_as_before_the_terminal_speed() {
+        let world = open_air();
+        let mut player = faller(Vec3::new(0.5, 126.0, 0.5), Vec3::NEG_Z);
+        // 1.5 s: 45 blocks/s, 34 blocks down, in the air all along
+        simulate(&mut player, &world, &[], 1500 / 16);
+        let fallen = 1500 / 16 * 16;
+        let speed = -GRAVITY * fallen as f32 / 1000.0;
+        assert!(speed < TERMINAL_VELOCITY);
+        assert!(
+            (player.velocity.y + speed).abs() < 1e-3,
+            "{}",
+            player.velocity
+        );
+    }
+
+    #[test]
+    fn a_fall_between_a_floor_and_a_ceiling_portal_keeps_to_the_terminal_speed() {
+        // The orange portal on a stone ceiling 4 blocks above the floor portal, over it
+        let mut world = floor_portal_world(Some(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(1, 68, -1),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::MinusZ,
+        }));
+        world.fill_box(IVec3::new(-3, 68, -6), IVec3::new(4, 68, 3), BlockId::Stone);
+        let mut player = faller(Vec3::new(1.0, 66.0, -1.5), Vec3::NEG_Z);
+        let mut passes = 0;
+        // 30 s: without a cap, 900 blocks/s
+        for _ in 0..30_000 / 16 {
+            let mut input = frame(&[]);
+            input.camera = player.camera_transform;
+            input.camera.translation = player.position + Vec3::Y * 0.8;
+            let outcome = simulate_player_movement(&mut player, &world, &input);
+            assert_eq!(outcome.fallen, None, "landed at {}", player.position);
+            passes += outcome.turned.is_some() as u32;
+            assert!(
+                player.velocity.length() <= TERMINAL_VELOCITY + 1e-3,
+                "{}",
+                player.velocity
+            );
+        }
+        assert!(passes > 100, "{passes}");
+        assert!(
+            (player.velocity.y + TERMINAL_VELOCITY).abs() < 1e-3,
+            "{}",
+            player.velocity
         );
     }
 }

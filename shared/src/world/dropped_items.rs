@@ -4,7 +4,10 @@
 use bevy::math::{bounding::Aabb3d, Vec3};
 use serde::{Deserialize, Serialize};
 
-use crate::players::{constants::GRAVITY, movement::is_terrain_loaded};
+use crate::players::{
+    constants::{GRAVITY, TERMINAL_VELOCITY},
+    movement::is_terrain_loaded,
+};
 use crate::world::{ChunkMap, ItemStack};
 
 pub type DroppedItemId = u64;
@@ -115,8 +118,9 @@ pub fn step_dropped_item(item: &mut DroppedItem, chunks: &ChunkMap, delta: f32) 
         return;
     }
 
+    // It falls no faster than a player or a mob, which its drag alone nearly keeps it to
     if !item.on_ground {
-        item.velocity.y += GRAVITY * delta;
+        item.velocity.y = (item.velocity.y + GRAVITY * delta).max(-TERMINAL_VELOCITY);
     }
     let start = item.position;
     let falling = item.velocity.y <= 0.0;
@@ -366,6 +370,41 @@ mod tests {
         assert!(item.position.x < 9.0, "{}", item.position);
         let bottom = item.position.y - DROPPED_ITEM_SIZE / 2.0;
         assert!((bottom - FLOOR_TOP).abs() < 0.01, "{}", item.position);
+    }
+
+    #[test]
+    fn an_item_falling_between_a_floor_and_a_ceiling_portal_keeps_to_the_terminal_speed() {
+        // The orange portal on a stone ceiling over the blue one, 4 blocks above the floor
+        let mut world = floor_portal_world();
+        world.fill_box(IVec3::new(-3, 68, -5), IVec3::new(4, 68, 3), BlockId::Stone);
+        world.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(1, 68, 0),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::MinusZ,
+        });
+        // In short steps, where the drag alone would let it fall a little faster
+        let mut item = DroppedItem::new(
+            stack(ItemId::Dirt, 1),
+            Vec3::new(1.0, 66.0, -0.5),
+            Vec3::ZERO,
+        );
+        for _ in 0..3000 {
+            step_dropped_item(&mut item, &world, 0.01);
+            assert!(
+                item.velocity.length() <= TERMINAL_VELOCITY + 1e-3,
+                "{}",
+                item.velocity
+            );
+        }
+        // Falling at the terminal speed, less the drag of the step after it
+        assert!(item.passes > 100, "{}", item.passes);
+        assert!(
+            item.velocity.y < 1.0 - TERMINAL_VELOCITY,
+            "{}",
+            item.velocity
+        );
     }
 
     #[test]

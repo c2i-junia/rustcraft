@@ -6,6 +6,10 @@
 pub const GRAVITY: f32 = -30.0;
 pub const JUMP_VELOCITY: f32 = 8.66;
 pub const MAX_UPWARD_VELOCITY: f32 = 54.0;
+/// The fastest a player or a mob falls, in blocks/s: the speed a dropped item tends to under
+/// its drag (`dropped_items`), near Minecraft's 78. Reached after a fall of 90 blocks, or soon
+/// between a floor and a ceiling portal, which would otherwise speed a fall up for ever.
+pub const TERMINAL_VELOCITY: f32 = 73.5;
 pub const FLY_SPEED_MULTIPLIER: f32 = 4.0;
 pub const SPEED: f32 = 5.0;
 /// How far up or down a player may look, in degrees from the horizontal.

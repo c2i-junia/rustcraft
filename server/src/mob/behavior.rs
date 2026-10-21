@@ -16,7 +16,7 @@ use rand::Rng;
 use shared::{
     messages::PlayerId,
     players::{
-        constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY},
+        constants::{GRAVITY, JUMP_VELOCITY, MAX_UPWARD_VELOCITY, TERMINAL_VELOCITY},
         movement::{is_terrain_loaded, Look},
         Player,
     },
@@ -393,10 +393,11 @@ fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
 
 /// Same vertical motion as a player: fall while in the air, land on the first block met. Half
 /// the gravity is added before the move and half after it, so that a jump rises as high as a
-/// player's at the 20 steps per second of the mobs.
+/// player's at the 20 steps per second of the mobs. A mob falls no faster than a player
+/// (`TERMINAL_VELOCITY`).
 fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     if !mob.on_ground {
-        mob.velocity.y += GRAVITY * delta / 2.0;
+        mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
     }
     let new_y = mob.position.y + mob.velocity.y * delta;
     mob.velocity.y = mob.velocity.y.min(MAX_UPWARD_VELOCITY);
@@ -408,7 +409,7 @@ fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     } else {
         mob.position.y = new_y;
         mob.on_ground = false;
-        mob.velocity.y += GRAVITY * delta / 2.0;
+        mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
     }
 }
 
@@ -1137,7 +1138,8 @@ mod tests {
             map.chunks
                 .insert_chunk(IVec3::new(x, 1, z), shared::world::Chunk::new());
         }
-        map.mobs.insert(0, dropped_sheep(Vec3::new(1.0, 21.0, -0.5)));
+        map.mobs
+            .insert(0, dropped_sheep(Vec3::new(1.0, 21.0, -0.5)));
         let before = step_through(&mut map);
         assert!(before.velocity.y < -30.0, "{}", before.velocity);
         let sheep = map.mobs[&0].clone();
@@ -1166,10 +1168,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_sheep_falling_for_long_between_a_floor_and_a_ceiling_portal_never_ends_in_a_block() {
-        // A stone ceiling 3 blocks above the ground, the orange portal under it, above the blue
-        // one on the ground: what falls into the floor falls out of the ceiling, faster and faster
+    /// `portal_world` with a floor portal, and a stone ceiling 3 blocks above the ground, the
+    /// orange portal under it, above the blue one: what falls into the floor falls out of the
+    /// ceiling, faster and faster. A sheep dropped between them.
+    fn falling_for_ever() -> ServerWorldMap {
         let mut map = portal_world(true);
         map.chunks
             .fill_box(IVec3::new(-3, 4, -4), IVec3::new(4, 4, 3), BlockId::Stone);
@@ -1181,6 +1183,12 @@ mod tests {
             up: FaceDirection::MinusZ,
         });
         map.mobs.insert(0, dropped_sheep(Vec3::new(1.0, 2.0, -0.5)));
+        map
+    }
+
+    #[test]
+    fn a_sheep_falling_for_long_between_a_floor_and_a_ceiling_portal_never_ends_in_a_block() {
+        let mut map = falling_for_ever();
         let mut passes = 0;
         for tick in 0..10 * TICKS_PER_SECOND {
             run_ticks(&mut map, 1);
@@ -1197,6 +1205,19 @@ mod tests {
         assert!(passes > 50, "{passes}");
         let sheep = &map.mobs[&0];
         assert!(!sheep.on_ground, "{}", sheep.position);
+    }
+
+    #[test]
+    fn a_sheep_falling_for_long_between_a_floor_and_a_ceiling_portal_keeps_to_the_terminal_speed() {
+        let mut map = falling_for_ever();
+        // 30 s: without a cap, 900 blocks/s
+        for _ in 0..30 * TICKS_PER_SECOND {
+            run_ticks(&mut map, 1);
+            let velocity = map.mobs[&0].velocity;
+            assert!(velocity.length() <= TERMINAL_VELOCITY + 1e-3, "{velocity}");
+        }
+        let velocity = map.mobs[&0].velocity;
+        assert!((velocity.y + TERMINAL_VELOCITY).abs() < 1e-3, "{velocity}");
     }
 
     fn player_at(id: PlayerId, position: Vec3) -> Player {
