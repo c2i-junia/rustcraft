@@ -252,6 +252,38 @@ fn snapshot_the_weather_without_the_shaders() {
     }
 }
 
+/// Sets the blocks `blocks` in the world the client holds, `None` for air: meshed again and
+/// told to the rain as blocks placed or broken would be.
+fn place(h: &mut Harness, blocks: Vec<(IVec3, Option<BlockId>)>) {
+    let world = h.world_mut();
+    let mut chunks = Vec::new();
+    for (position, id) in blocks {
+        let block = id.map(|id| BlockData::new(id, BlockDirection::Front));
+        let mut map = world.resource_mut::<ClientWorldMap>();
+        let before = match block {
+            Some(block) => {
+                let before = map.blocks.get_block(position).copied();
+                map.blocks.set_block(position, block);
+                before
+            }
+            None => map.blocks.remove_block(position),
+        };
+        world.write_message(BlockChanged {
+            position,
+            before,
+            after: block,
+            by_local_player: false,
+        });
+        chunks.push(position.div_euclid(IVec3::splat(shared::CHUNK_SIZE)));
+    }
+    chunks.sort_by_key(|chunk| chunk.to_array());
+    chunks.dedup();
+    for chunk in chunks {
+        world.write_message(WorldRenderRequestUpdateEvent::ChunkToReload(chunk));
+    }
+    h.frames(30);
+}
+
 /// Covers the eye at `eye` with a roof of planks on four posts, its edge two blocks ahead of
 /// the eye along `ahead` (a direction along x or z), in the world the client holds: meshed and
 /// told to the rain as a block placed would be.
@@ -424,4 +456,206 @@ fn snapshot_the_snow() {
         snow.clone(),
     );
     shoot(&mut h, camera, "snow_dusk", (eye, ahead), hour(0.97), snow);
+}
+
+/// A terrace by the lake for the pictures of the wet world, and where it is looked at from.
+struct Terrace {
+    /// Standing at its back, at the height of the eyes, and what is looked at: its middle.
+    eye: Vec3,
+    look: Vec3,
+    /// Its ground, the top of the block at its back in the middle, and the axes along it,
+    /// toward the water, and across it.
+    origin: IVec3,
+    ahead: IVec3,
+    side: IVec3,
+}
+
+/// The height of the highest block of the column `(x, z)` that is not air nor a decoration.
+fn ground_height(map: &ClientWorldMap, x: i32, z: i32) -> Option<i32> {
+    (0..200).rev().find(|&y| {
+        map.blocks
+            .get_block(IVec3::new(x, y, z))
+            .is_some_and(|b| b.id.get_visibility() != BlockTransparency::Decoration)
+    })
+}
+
+/// Builds a terrace on the shore of `v`, open to the sky, toward the water: a dirt path between
+/// grass, a plaza of cobblestone around stone, a low stone wall and a patch of sand, and a pier
+/// of planks a step up running out over the water.
+fn build_terrace(h: &mut Harness, v: &Views) -> Terrace {
+    let ahead = nearest_axis(v.across - v.eye);
+    let side = IVec3::new(ahead.z, 0, ahead.x);
+    let shore = v.eye.floor().as_ivec3();
+    let map = h.world().resource::<ClientWorldMap>();
+    let g = ground_height(map, shore.x, shore.z).expect("the ground of the shore");
+    let origin = IVec3::new(shore.x, g, shore.z) - ahead * 3;
+    let mut blocks = Vec::new();
+    for along in -4..=18 {
+        for across in -6..=6 {
+            let column = origin + ahead * along + side * across;
+            let pier = along >= 11 && across.abs() <= 2;
+            let ground = match (along, across.abs()) {
+                (_, 5..) => Some(BlockId::Grass),
+                (..=3, 0..=1) => Some(BlockId::Dirt),
+                (..=3, _) => Some(BlockId::Grass),
+                (4..=10, 0..=1) if (5..=8).contains(&along) => Some(BlockId::Stone),
+                (4..=10, _) if across >= 3 && (5..=7).contains(&along) => Some(BlockId::Sand),
+                (4..=10, _) => Some(BlockId::Cobblestone),
+                _ if pier => Some(BlockId::Cobblestone),
+                _ => None,
+            };
+            let Some(ground) = ground else {
+                continue;
+            };
+            for y in 1..=12 {
+                blocks.push((column + IVec3::Y * y, None));
+            }
+            blocks.push((column, Some(ground)));
+            for y in 1..=3 {
+                blocks.push((column - IVec3::Y * y, Some(BlockId::Dirt)));
+            }
+            if pier {
+                blocks.push((column + IVec3::Y, Some(BlockId::OakPlanks)));
+            }
+            if across == -3 && (6..=9).contains(&along) {
+                blocks.push((column + IVec3::Y, Some(BlockId::Stone)));
+            }
+            if across.abs() >= 5 && (along + across).rem_euclid(3) == 0 {
+                blocks.push((column + IVec3::Y, Some(BlockId::TallGrass)));
+            }
+        }
+    }
+    place(h, blocks);
+    let top = origin.as_vec3() + Vec3::new(0.5, 1., 0.5);
+    Terrace {
+        eye: top + Vec3::Y * 1.62,
+        look: top + ahead.as_vec3() * 10.,
+        origin,
+        ahead,
+        side,
+    }
+}
+
+/// `kind`, settled, with the world as wet as `wetness`.
+fn wet(kind: WeatherKind, wetness: f32) -> ClientWeather {
+    let mut weather = ClientWeather::settled(kind);
+    weather.wetness = wetness;
+    weather
+}
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_wet_world() {
+    let (mut h, camera, v) = start(ShaderQuality::High);
+    let t = build_terrace(&mut h, &v);
+    let noon = hour(0.75);
+    let sunset = hour(0.985);
+    let ahead = t.ahead.as_vec3();
+    let pier = t.origin.as_vec3() + ahead * 11. + Vec3::new(0.5, 2., 0.5);
+    // Close, looking down at the middle of the plaza
+    let plaza = t.origin.as_vec3() + Vec3::new(0.5, 1., 0.5);
+    let close = (
+        plaza + ahead * 3. + Vec3::Y * 1.3,
+        plaza + ahead * 7. - t.side.as_vec3() * 0.5,
+    );
+    // From above the back of the terrace, over all of it
+    let above = (t.eye - ahead * 4. + Vec3::Y * 6., t.look + ahead * 4.);
+    // From the end of the pier toward where the sun sets
+    let end = pier + ahead * 6. + Vec3::Y * 1.6;
+    let west = (end, end + Vec3::new(0., -2.5, 12.));
+    let scenes = [
+        ("dry", (t.eye, t.look), noon, wet(WeatherKind::Clear, 0.)),
+        ("rain", (t.eye, t.look), noon, wet(WeatherKind::Rain, 1.)),
+        ("rain_above", above, noon, wet(WeatherKind::Rain, 1.)),
+        ("dry_above", above, noon, wet(WeatherKind::Clear, 0.)),
+        ("puddle", close, noon, wet(WeatherKind::Rain, 1.)),
+        (
+            "soaking",
+            (t.eye, t.look),
+            noon,
+            wet(WeatherKind::Rain, 0.6),
+        ),
+        (
+            "half_dried",
+            (t.eye, t.look),
+            noon,
+            wet(WeatherKind::Clear, 0.5),
+        ),
+        ("sunset_rain", west, sunset, wet(WeatherKind::Rain, 1.)),
+        ("sunset_after", west, sunset, wet(WeatherKind::Clear, 0.8)),
+        (
+            "thunder",
+            (t.eye, t.look),
+            noon,
+            wet(WeatherKind::Thunder, 1.),
+        ),
+        (
+            "midnight",
+            (t.eye, t.look),
+            hour(0.25),
+            wet(WeatherKind::Rain, 1.),
+        ),
+    ];
+    for (name, view, tick, weather) in scenes {
+        shoot(&mut h, camera, &format!("wet_{name}"), view, tick, weather);
+    }
+    // Under a roof over the back of the terrace, looking out
+    let roof_eye = t.origin.as_vec3() + Vec3::new(0.5, 2.62, 0.5);
+    let mut roof = Vec::new();
+    for along in -1..=4 {
+        for across in -3..=3 {
+            roof.push((
+                t.origin + t.ahead * along + t.side * across + IVec3::Y * 4,
+                Some(BlockId::OakPlanks),
+            ));
+        }
+    }
+    for (along, across) in [(-1, -3), (-1, 3), (4, -3), (4, 3)] {
+        for y in 1..=3 {
+            roof.push((
+                t.origin + t.ahead * along + t.side * across + IVec3::Y * y,
+                Some(BlockId::OakLog),
+            ));
+        }
+    }
+    place(&mut h, roof);
+    let out = roof_eye + t.ahead.as_vec3() * 8. - Vec3::Y * 0.6;
+    shoot(
+        &mut h,
+        camera,
+        "wet_roof",
+        (roof_eye, out),
+        noon,
+        wet(WeatherKind::Rain, 1.),
+    );
+}
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_wet_world_in_ultra() {
+    let (mut h, camera, v) = start(ShaderQuality::Ultra);
+    let t = build_terrace(&mut h, &v);
+    shoot(
+        &mut h,
+        camera,
+        "wet_ultra_rain",
+        (t.eye, t.look),
+        hour(0.75),
+        wet(WeatherKind::Rain, 1.),
+    );
+}
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_wet_world_in_medium() {
+    let (mut h, camera, v) = start(ShaderQuality::Medium);
+    let t = build_terrace(&mut h, &v);
+    shoot(
+        &mut h,
+        camera,
+        "wet_medium_rain",
+        (t.eye, t.look),
+        hour(0.75),
+        wet(WeatherKind::Rain, 1.),
+    );
 }
