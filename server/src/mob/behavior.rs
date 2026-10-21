@@ -136,7 +136,8 @@ fn step_mobs(
 
 /// Gravity, then what the mob does. A mob whose centre went into an open portal comes out of
 /// its twin (`pass_through_portal`): after its fall, which then ends its step, and after what
-/// it does.
+/// it does. A mob flung (`is_flung`) flies instead of doing anything, until it lands, which
+/// stops it.
 fn step_mob(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
@@ -150,14 +151,62 @@ fn step_mob(
         return;
     }
     let start = mob.position;
+    if is_flung(mob) {
+        if mob.on_ground {
+            mob.velocity.x = 0.0;
+            mob.velocity.z = 0.0;
+        } else {
+            fly(mob, chunks, delta);
+            pass_through_portal(mob, chunks, start);
+            return;
+        }
+    }
     act(mob, chunks, players, delta, rng);
     pass_through_portal(mob, chunks, start);
+}
+
+/// Whether `mob` goes faster than it ever goes by itself (`flee_speed`): only a portal flings
+/// it so.
+fn is_flung(mob: &ServerMob) -> bool {
+    mob.velocity.with_y(0.0).length() > flee_speed(mob.kind)
+}
+
+/// Longest horizontal move of a flung mob tested at once, in blocks, as for a player.
+const MAX_FLIGHT_STEP: f32 = 0.5;
+
+/// Moves a flung mob by its horizontal velocity, along x then z, by steps of `MAX_FLIGHT_STEP`
+/// at most: an axis a block stops loses its velocity, and a step into a portal that lets the
+/// mob through is made, and ends the move (`may_move_to`).
+fn fly(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
+    for axis in [Vec3::X, Vec3::Z] {
+        let along = mob.velocity.dot(axis) * delta;
+        if along == 0.0 {
+            continue;
+        }
+        let steps = (along.abs() / MAX_FLIGHT_STEP).ceil();
+        for _ in 0..steps as u32 {
+            let moved = mob.position + axis * (along / steps);
+            if chunks
+                .portals()
+                .goes_into(mob.position, moved, portal_margin(mob))
+            {
+                mob.position = moved;
+                return;
+            }
+            if collides_at(mob, chunks, moved) {
+                mob.velocity *= Vec3::ONE - axis;
+                break;
+            }
+            mob.position = moved;
+        }
+    }
 }
 
 /// Takes `mob` through the open portal its centre went into on its way from `from`, if any
 /// (`Portals::pass`): its position and velocity come out of the twin turned with it, its body
 /// faces where it faced turned so, upright, and the spot it walks to goes through too, so that
-/// it walks on rather than back. Returns whether it went through.
+/// it walks on rather than back; through a pair that tips the ground over, a floor and a wall,
+/// it stops walking instead. Returns whether it went through.
 fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bool {
     let extents = Vec3::new(mob.width, mob.height, mob.depth) / 2.0;
     let Some(Passage { through, position }) = chunks.portals().pass(from, mob.position, extents)
@@ -172,8 +221,13 @@ fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bo
     let half_turn = Quat::from_rotation_y(PI);
     let look = Look::through(&through, mob.rotation * half_turn);
     mob.rotation = Quat::from_rotation_y(look.yaw) * half_turn;
+    // The spot it walked to goes through too, if the ground is still down beyond the pair
     if let MobTarget::Position(target) = &mut mob.target {
-        *target = through.transform_point3(*target);
+        if through.transform_vector3(Vec3::Y).y > 1.0 - 1e-3 {
+            *target = through.transform_point3(*target);
+        } else {
+            (mob.action, mob.target, mob.action_ticks) = (MobAction::Idle, MobTarget::None, 1);
+        }
     }
     mob.passes = mob.passes.wrapping_add(1);
     true
@@ -348,7 +402,8 @@ fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     mob.velocity.y = mob.velocity.y.min(MAX_UPWARD_VELOCITY);
 
     if !may_move_to(mob, chunks, mob.position.with_y(new_y)) {
-        mob.on_ground = true;
+        // Bumping into a ceiling is not landing
+        mob.on_ground = mob.velocity.y <= 0.0;
         mob.velocity.y = 0.0;
     } else {
         mob.position.y = new_y;
@@ -364,8 +419,9 @@ fn jump(mob: &mut ServerMob) {
     mob.velocity.z = 0.0;
 }
 
-/// One step along `direction` at `speed`. A mob blocked while it was moving jumps; one blocked
-/// from a standstill slides along the obstacle on one axis, and jumps if both are blocked.
+/// One step along `direction` at `speed`, which becomes the mob's horizontal velocity. A mob
+/// blocked while it was moving jumps; one blocked from a standstill slides along the obstacle on
+/// one axis, and jumps if both are blocked.
 fn walk(mob: &mut ServerMob, chunks: &ChunkMap, direction: Vec3, speed: f32, delta: f32) {
     let step = Vec3::new(direction.x, 0.0, direction.z) * (speed * delta);
     let along_x = Vec3::new(step.x, 0.0, 0.0);
@@ -373,17 +429,17 @@ fn walk(mob: &mut ServerMob, chunks: &ChunkMap, direction: Vec3, speed: f32, del
 
     if may_move_to(mob, chunks, mob.position + step) {
         mob.position += step;
-        mob.velocity.x = step.x;
-        mob.velocity.z = step.z;
+        mob.velocity.x = direction.x * speed;
+        mob.velocity.z = direction.z * speed;
     } else if mob.on_ground && mob.velocity.x != 0.0 && mob.velocity.z != 0.0 {
         jump(mob);
     } else if mob.on_ground {
         if may_move_to(mob, chunks, mob.position + along_x) {
             mob.position += along_x;
-            mob.velocity.x = step.x;
+            mob.velocity.x = direction.x * speed;
         } else if may_move_to(mob, chunks, mob.position + along_z) {
             mob.position += along_z;
-            mob.velocity.z = step.z;
+            mob.velocity.z = direction.z * speed;
         } else {
             jump(mob);
         }
@@ -794,6 +850,69 @@ mod tests {
         assert_eq!(sheep.position.xz(), Vec2::new(0.5, 0.5));
     }
 
+    /// Runs `ticks` steps of the mob 0 of `map`.
+    fn run_ticks(map: &mut ServerWorldMap, ticks: u64) {
+        let mut rng = StdRng::seed_from_u64(1);
+        for _ in 0..ticks {
+            step_mobs(
+                &mut map.mobs,
+                &map.chunks,
+                &map.players,
+                &mut HashSet::new(),
+                tick().as_secs_f32(),
+                &mut rng,
+            );
+        }
+    }
+
+    #[test]
+    fn a_walking_sheep_goes_at_its_speed_and_jumps_onto_a_step_in_its_way() {
+        // A step one block high from x = 3 on
+        let mut map = ground_world(false);
+        map.chunks
+            .fill_box(IVec3::new(3, 1, -10), IVec3::new(9, 1, 9), BlockId::Stone);
+        let start = standing(MobKind::Sheep, 0.5, 0.5);
+        let target = ServerMob::standing_at(MobKind::Sheep, 6.5, 2.0, 3.5);
+        map.mobs.insert(
+            0,
+            ServerMob {
+                action: MobAction::Walk,
+                target: MobTarget::Position(target),
+                action_ticks: WALK_TICKS,
+                ..start.clone()
+            },
+        );
+        // A second on the flat ground: a block's walk, toward the target
+        run_ticks(&mut map, TICKS_PER_SECOND);
+        let sheep = &map.mobs[&0];
+        let walked = (sheep.position - start.position).xz();
+        assert!((walked.length() - 1.0).abs() < 0.06, "{walked}");
+        assert!(
+            walked
+                .normalize()
+                .distance((target - start.position).xz().normalize())
+                < 1e-3
+        );
+        assert!((sheep.position.y - start.position.y).abs() < 0.05);
+
+        // Then up the step, and on to the target
+        for _ in 0..WALK_TICKS {
+            run_ticks(&mut map, 1);
+            if map.mobs[&0].action != MobAction::Walk {
+                break;
+            }
+        }
+        let sheep = &map.mobs[&0];
+        assert_ne!(sheep.action, MobAction::Walk, "{}", sheep.position);
+        assert!((sheep.position - target).xz().length() < ARRIVAL_DISTANCE + 0.1);
+        // On top of the step, within a step of gravity: a mob stops above the block it meets
+        assert!(
+            (sheep.position.y - target.y).abs() < 0.1,
+            "{}",
+            sheep.position
+        );
+    }
+
     /// The ground of `ground_world`, with an open pair of portals: the blue one on a wall
     /// facing south at z = -4, x in 0..2, its bottom on the ground, and the orange one on a
     /// wall facing west at x = 8, z in 0..2. North into the blue one is west out of the orange
@@ -923,16 +1042,24 @@ mod tests {
     }
 
     #[test]
-    fn a_sheep_too_far_aside_walks_into_the_wall_beside_a_portal_and_stops() {
-        // Its box half over the wall beside the opening
-        let start = standing(MobKind::Sheep, -0.2, -1.0);
+    fn a_sheep_too_wide_for_where_it_meets_a_portal_is_stopped_by_its_wall() {
+        // Nothing beside the opening on the west: only the portal's wall stops a box over its
+        // edge. The centre is within the opening, but not within the opening shrunk by half the
+        // sheep's width
+        let mut map = portal_world(false);
+        for x in -3..=-1 {
+            for y in 1..=5 {
+                map.chunks.remove_block(IVec3::new(x, y, -4));
+            }
+        }
+        let start = standing(MobKind::Sheep, 0.3, -1.0);
         let sheep = ServerMob {
             action: MobAction::Walk,
             target: MobTarget::Position(start.position.with_z(-9.0)),
             action_ticks: WALK_TICKS,
             ..start
         };
-        let map = run_seconds(portal_world(false), sheep, 4);
+        let map = run_seconds(map, sheep, 4);
         let sheep = &map.mobs[&0];
         assert_eq!(sheep.passes, 0);
         assert!(sheep.position.z > -3.0 + 0.4, "{}", sheep.position);
@@ -940,19 +1067,24 @@ mod tests {
     }
 
     #[test]
-    fn a_sheep_falling_into_a_floor_portal_comes_out_of_a_wall() {
+    fn a_sheep_falling_into_a_floor_portal_flies_out_of_a_wall_and_stops_walking() {
         let mut map = portal_world(true);
-        let sheep = ServerMob::new(MobKind::Sheep, Vec3::new(1.0, 6.0, -1.0));
+        let start = Vec3::new(1.0, 6.0, -1.0);
+        let sheep = ServerMob {
+            action: MobAction::Walk,
+            target: MobTarget::Position(start.with_z(-8.0)),
+            action_ticks: WALK_TICKS,
+            ..ServerMob::new(MobKind::Sheep, start)
+        };
         map.mobs.insert(0, sheep);
         let before = step_through(&mut map);
-        let sheep = &map.mobs[&0];
+        let sheep = map.mobs[&0].clone();
         assert!(
             sheep.position.x < 8.0 && sheep.position.x > 7.0,
             "{}",
             sheep.position
         );
-        // Its velocity turned west, as fast as it fell, within a step of gravity: a mob has no
-        // momentum of its own, so it drops out of the wall
+        // Its velocity turned west, as fast as it fell, within a step of gravity
         assert!(
             (sheep.velocity.x - before.velocity.y).abs() < -GRAVITY * tick().as_secs_f32() + 1e-3,
             "{} out, {} in",
@@ -960,6 +1092,28 @@ mod tests {
             before.velocity
         );
         assert!(!sheep.on_ground);
+        // The spot it walked to is not on the ground of the other side: it stops walking
+        assert_ne!(sheep.action, MobAction::Walk);
+        assert!(
+            matches!(sheep.target, MobTarget::None),
+            "{:?}",
+            sheep.target
+        );
+
+        // It flies west, out of the wall, and lands more than a block away from it
+        run_ticks(&mut map, 2 * TICKS_PER_SECOND);
+        let sheep = &map.mobs[&0];
+        assert_eq!(sheep.passes, 1);
+        assert!(sheep.position.x < 7.0, "{}", sheep.position);
+        assert!(
+            (sheep.position.y - ServerMob::standing_at(MobKind::Sheep, 0.0, 1.0, 0.0).y).abs()
+                < 0.1,
+            "{}",
+            sheep.position
+        );
+        // Landing stopped the flight: it may walk again, no faster than it walks
+        assert!(!is_flung(sheep), "{}", sheep.velocity);
+        assert!(!map.chunks.check_collision_box(&hitbox(sheep)));
     }
 
     fn player_at(id: PlayerId, position: Vec3) -> Player {
