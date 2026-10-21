@@ -15,6 +15,7 @@ use super::inventory::focused_cell;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::item_browser::FILL_GRID;
 use crate::ui::hud::{GaugeFill, FURNACE_TITLE, HINT_TO_FURNACE};
 use crate::ui::widgets::tooltip::TooltipRoot;
 use crate::world::ClientWorldMap;
@@ -185,4 +186,52 @@ fn a_furnace_smelts_sand_into_glass_put_in_and_taken_out_like_a_player_does() {
     });
     assert!(!h.is_visible(&L::text(FURNACE_TITLE)));
     h.snapshot("furnace_lit_in_the_world");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn charcoal_smelts_iron_ore_into_an_ingot_whose_smelting_the_browser_shows() {
+    let folder = GameFolder::new().with_world("Iron").with_items(
+        "Iron",
+        "Tester",
+        &[
+            (0, ItemId::Furnace, 1),
+            (9, ItemId::IronOre, 1),
+            (10, ItemId::Charcoal, 1),
+        ],
+    );
+    let mut h = enter_world(folder, "Iron");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::Furnace, 1))
+    });
+    let position = place_ahead(&mut h);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_for(&L::text(FURNACE_TITLE), SCREEN);
+
+    // The ore goes to the input, the charcoal to the fuel, and an ingot comes out
+    h.key_down(KeyCode::ShiftLeft);
+    h.click(&L::cell(9));
+    h.click(&L::cell(10));
+    h.key_up(KeyCode::ShiftLeft);
+    h.wait_until("the ore and the charcoal in the furnace", SERVER, |w| {
+        stacks(w, position)[..2] == [Some((ItemId::IronOre, 1)), None]
+            && furnace(w, position).is_some_and(|furnace| furnace.is_lit())
+    });
+    h.wait_until("the ingot", SERVER, |w| {
+        stacks(w, position) == [None, None, Some((ItemId::IronIngot, 1))]
+    });
+
+    // R over it shows its recipes: out of its block, and out of the furnace, which no button fills
+    h.hover(&L::cell(FURNACE_OUTPUT_SLOT));
+    h.press(KeyCode::KeyR);
+    h.wait_for(&L::role(Role::Group, "Smelting of Iron Ingot"), SCREEN);
+    for shown in [
+        L::text("Furnace · 10 s"),
+        L::role(Role::Group, "Recipe of Iron Ingot"),
+        L::role(Role::Button, "Recipes 2"),
+    ] {
+        assert!(h.is_visible(&shown), "{shown:?}");
+    }
+    assert_eq!(h.find(&L::role(Role::Button, FILL_GRID)).len(), 1);
+    h.snapshot("iron_ingot_recipes");
 }
