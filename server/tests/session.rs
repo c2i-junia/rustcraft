@@ -2215,3 +2215,89 @@ fn a_portal_reaches_every_player_and_goes_with_its_owner() {
     alice.send_packets();
     assert_eq!(portal_updates(&mut bob), []);
 }
+
+#[test]
+fn a_shot_reaches_every_other_player_before_its_portal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let wall_mod = tmp.path().join("mods").join("wall");
+    std::fs::create_dir_all(&wall_mod).unwrap();
+    std::fs::write(wall_mod.join("init.luau"), WALL_MOD).unwrap();
+    let server = TestServer::start_with(tmp, WORLD_NAME, false);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    assert_eq!(portal_updates(&mut alice), []);
+    let (landed, _) = land_and_aim_down(&mut alice);
+    alice.send(chat_message("/wall"));
+    command_answer(&mut alice, "Wall built");
+    alice.send(chat_message("/give portal_gun 1"));
+    command_answer(&mut alice, "Gave 1 PortalGun");
+    let position = landed.translation;
+    let aimed = position.floor().as_ivec3() + IVec3::new(0, 3, -6);
+    let start = Instant::now();
+    while alice.world.get_block(aimed).is_none() {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "the wall never arrived");
+        alice.pump();
+    }
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut bob, "bob");
+    assert_eq!(portal_updates(&mut bob), []);
+
+    let eye = position + Vec3::Y * 0.8;
+    let camera = Transform::from_translation(eye)
+        .looking_at(aimed.as_vec3() + Vec3::new(0.5, 0.5, 1.0), Vec3::Y);
+    let shoot = |time_ms, button, camera| {
+        ClientToServerMessage::PlayerInputs(vec![PlayerFrameInput {
+            time_ms,
+            delta_ms: 16,
+            inputs: [button].into(),
+            camera,
+            ..Default::default()
+        }])
+    };
+    alice.send(shoot(41, NetworkAction::LeftClick, camera));
+    // The shooter predicted its own shot, and is only told of the portal
+    let blue = portal_updates(&mut alice);
+    assert_eq!(blue.len(), 1, "{blue:?}");
+    // Bob hears of the shot first, then of its portal
+    let first = bob.wait_for("the shot or its portal", |m| match m {
+        ServerToClientMessage::PortalShot { .. } | ServerToClientMessage::PortalUpdates(_) => {
+            Some(m.clone())
+        }
+        _ => None,
+    });
+    let ServerToClientMessage::PortalShot {
+        shooter,
+        from,
+        to,
+        color,
+        placed,
+    } = first
+    else {
+        panic!("the portal came before its shot: {first:?}");
+    };
+    assert_eq!(
+        (shooter, color, placed),
+        (PLAYER_ID, PortalColor::Blue, true)
+    );
+    assert_eq!(from, eye);
+    assert!((to.z - (aimed.z + 1) as f32).abs() < 1e-4, "{to}");
+    assert_eq!(portal_updates(&mut bob), blue);
+    sync_with_server(&mut alice, 42);
+    assert!(
+        !alice
+            .inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::PortalShot { .. })),
+        "the shooter was told of its own shot"
+    );
+
+    // A shot at the sky flies too, and places nothing
+    let up = Transform::from_translation(eye).looking_to(Vec3::Y, Vec3::Z);
+    alice.send(shoot(43, NetworkAction::RightClick, up));
+    sync_with_server(&mut alice, 44);
+    let refused = bob.wait_for("the refused shot", |m| match m {
+        ServerToClientMessage::PortalShot { color, placed, .. } => Some((*color, *placed)),
+        _ => None,
+    });
+    assert_eq!(refused, (PortalColor::Orange, false));
+}

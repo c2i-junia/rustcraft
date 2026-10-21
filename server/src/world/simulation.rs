@@ -254,6 +254,7 @@ pub fn handle_player_inputs_system(
     let render_distances = &world_map.render_distances;
     let saved = world_map.saved.as_deref();
     let spawn = world_map.spawn;
+    let portal_shots = &mut world_map.portal_shots;
     // The animals born with the chunks generated, and those hatched from spawn eggs
     let mut born = Vec::new();
 
@@ -336,6 +337,7 @@ pub fn handle_player_inputs_system(
                 .iter()
                 .map(|mob| ServerMob::new(mob.kind, mob.position)),
         );
+        portal_shots.extend(outcome.shots.iter().map(|shot| (player.id, *shot)));
         if let Some(fallen) = outcome.fallen {
             player.hurt(fall_damage(fallen), DeathCause::Fall);
         }

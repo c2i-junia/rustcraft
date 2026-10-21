@@ -9,7 +9,7 @@ use super::home::{HomeEvents, Places};
 use crate::mob::combat::BlowWaits;
 use shared::{
     messages::PlayerId,
-    players::Player,
+    players::{blocks::PortalShot, Player},
     world::{ChunkMap, ChunkReach, DroppedItemId, MobId, ServerMob},
     GameFolderPaths, MIN_RENDER_DISTANCE,
 };
@@ -45,6 +45,8 @@ pub struct ServerWorldMap {
     pub places: Places,
     pub home: HomeEvents,
     pub blow_waits: BlowWaits,
+    /// The shots of the portal gun of this tick, by shooter, until they are sent.
+    pub portal_shots: Vec<(PlayerId, PortalShot)>,
 }
 
 /// What one client has received of the world.

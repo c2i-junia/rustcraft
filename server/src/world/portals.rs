@@ -5,7 +5,8 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use bevy_renet::RenetServer;
-use shared::messages::ServerToClientMessage;
+use shared::messages::{PlayerId, ServerToClientMessage};
+use shared::players::blocks::PortalShot;
 use shared::world::{ChunkMap, Portal};
 
 use crate::network::extensions::SendGameMessageExtension;
@@ -55,11 +56,39 @@ fn portal_updates(chunks: &mut ChunkMap) -> Option<ServerToClientMessage> {
         .then(|| all_portals(chunks))
 }
 
-/// Sends every portal to every player in the world when they changed in this tick.
+/// The messages telling a client of the shots of the tick: those of the other players, which
+/// it did not predict.
+fn shots_for(shots: &[(PlayerId, PortalShot)], client: PlayerId) -> Vec<ServerToClientMessage> {
+    shots
+        .iter()
+        .filter(|(shooter, _)| *shooter != client)
+        .map(|(shooter, shot)| ServerToClientMessage::PortalShot {
+            shooter: *shooter,
+            from: shot.from,
+            to: shot.to,
+            color: shot.color,
+            placed: shot.placed,
+        })
+        .collect()
+}
+
+/// Sends the shots of the portal gun of this tick to every player in the world but their
+/// shooters, then every portal to all of them when they changed in this tick: on the same
+/// ordered channel, a client learns of a shot no later than of the portal it placed.
 pub fn broadcast_portals_system(
     mut server: ResMut<RenetServer>,
     mut world_map: ResMut<ServerWorldMap>,
 ) {
+    let shots = std::mem::take(&mut world_map.portal_shots);
+    if !shots.is_empty() {
+        for client in server.clients_id() {
+            if world_map.players.contains_key(&client) {
+                for message in shots_for(&shots, client) {
+                    server.send_game_message(client, message);
+                }
+            }
+        }
+    }
     let Some(message) = portal_updates(&mut world_map.chunks) else {
         return;
     };

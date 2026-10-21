@@ -282,6 +282,7 @@ fn load_world(
         places: crate::world::home::Places::load(&world_dir(game_folder_paths, world_name)?),
         home: Default::default(),
         blow_waits: Default::default(),
+        portal_shots: Vec::new(),
     };
     cleanup_all_players_from_world(&mut world_map);
 
