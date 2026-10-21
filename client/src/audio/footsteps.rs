@@ -87,6 +87,24 @@ pub fn local_footsteps(
     }
 }
 
+/// How far another player may move between two of its states and still have walked: farther, it
+/// went through a portal, respawned or was teleported.
+const MAX_REMOTE_WALK: f32 = 2.0;
+
+/// The step heard of another player seen moving from `from` to `to` on `ground`, if one is. A
+/// leap is not walked.
+fn remote_step(
+    stride: &mut Stride,
+    from: Vec3,
+    to: Vec3,
+    ground: Option<BlockId>,
+) -> Option<Sound> {
+    if from.distance(to) > MAX_REMOTE_WALK {
+        return None;
+    }
+    stride.walk(from, to, ground)
+}
+
 /// The steps of the other players, guessed from their positions: the server sends nothing
 /// else about them.
 pub fn other_players_footsteps(
@@ -105,7 +123,7 @@ pub fn other_players_footsteps(
             continue;
         }
         let ground = ground_under(player.position, player.height, &world_map.blocks);
-        if let Some(sound) = stride.walk(*last_position, player.position, ground) {
+        if let Some(sound) = remote_step(stride, *last_position, player.position, ground) {
             let feet = player.position - Vec3::Y * player.height / 2.0;
             sounds.write(PlaySound::at(sound, feet));
         }
@@ -236,6 +254,25 @@ mod tests {
             .filter(|s| **s == Sound::Step(SoundMaterial::Sand))
             .count();
         assert_eq!(steps, 4, "{sounds:?}");
+    }
+
+    #[test]
+    fn another_player_that_leaps_through_a_portal_or_respawns_takes_no_step() {
+        let mut stride = Stride::default();
+        let stone = Some(BlockId::Stone);
+        // Walked up to just short of a step
+        assert_eq!(
+            remote_step(&mut stride, Vec3::ZERO, Vec3::X * 1.7, stone),
+            None
+        );
+        // Then out of a portal 20 blocks away
+        let out = Vec3::new(20.0, 0.0, 5.0);
+        assert_eq!(remote_step(&mut stride, Vec3::X * 1.7, out, stone), None);
+        // And on: the stride it had is kept
+        assert_eq!(
+            remote_step(&mut stride, out, out + Vec3::X * 0.2, stone),
+            Some(Sound::Step(SoundMaterial::Stone))
+        );
     }
 
     #[test]
