@@ -4,6 +4,7 @@ use crate::ui::hud::UIMode;
 use crate::world::ClientWorldMap;
 use bevy::math::bounding::Aabb3d;
 use bevy::{input::mouse::MouseMotion, prelude::*, window::PrimaryWindow};
+use shared::players::constants::MAX_PITCH_DEGREES;
 use shared::players::ViewMode;
 use shared::world::ChunkMap;
 
@@ -11,8 +12,6 @@ use shared::world::ChunkMap;
 const EYE_HEIGHT: f32 = 0.8;
 /// How far behind the player the camera is in third-person view.
 const THIRD_PERSON_DISTANCE: f32 = 10.0;
-/// Largest angle the camera looks up or down by, short of flipping over.
-const MAX_PITCH_DEGREES: f32 = 89.0;
 /// Half the side of the box kept free of blocks around the third-person camera. The box holds
 /// the corners of the near plane (0.18 from the camera at most, with the default near plane and
 /// the field of view on a 21:9 screen), so that the plane never cuts through a block, even when

@@ -4,9 +4,9 @@ use crate::{
         collision::{check_player_collision, is_player_in_liquid},
         constants::{
             FLY_SPEED_MULTIPLIER, FLY_SPRINT_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY,
-            MAX_UPWARD_VELOCITY, SNEAK_GROUND_PROBE, SNEAK_SPEED_MULTIPLIER, SPEED,
-            SPRINT_SPEED_MULTIPLIER, SWIM_DOWN_VELOCITY, SWIM_SPEED, SWIM_UP_VELOCITY, WATER_DRAG,
-            WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
+            MAX_PITCH_DEGREES, MAX_UPWARD_VELOCITY, SNEAK_GROUND_PROBE, SNEAK_SPEED_MULTIPLIER,
+            SPEED, SPRINT_SPEED_MULTIPLIER, SWIM_DOWN_VELOCITY, SWIM_SPEED, SWIM_UP_VELOCITY,
+            WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
         },
     },
     world::{world_position_to_chunk_position, BlockId, ChunkMap},
@@ -48,9 +48,42 @@ pub struct MovementOutcome {
     /// How many blocks the player fell, when it landed on the ground in this input: for the
     /// server to hurt it.
     pub fallen: Option<f32>,
-    /// The yaw, in radians about the vertical, the player was turned by going through a portal
-    /// in this input: for the client to turn its camera, which the next inputs bring.
-    pub turned: Option<f32>,
+    /// Where the camera looks after going through a portal in this input, set upright: for the
+    /// client to turn its camera to, which the next inputs bring.
+    pub turned: Option<Look>,
+}
+
+/// Where a camera looks, as the client's camera controller keeps it: the yaw, in radians about
+/// the vertical (0 looking north, -Z, growing to the left), and the pitch (positive looking
+/// down), within `MAX_PITCH_DEGREES`. An upright camera, without roll.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Look {
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+impl Look {
+    /// The upright look closest to the camera rotated by `rotation`: the yaw of where it looks,
+    /// or of its up when it looks straight up or down, and its pitch, clamped.
+    pub fn upright(rotation: Quat) -> Self {
+        let (forward, up) = (rotation * Vec3::NEG_Z, rotation * Vec3::Y);
+        // The heading of a camera without roll is `forward.xz * up.y - up.xz * forward.y`, of
+        // length 1; with a roll, it is still where the camera faces
+        let heading = forward.xz() * up.y - up.xz() * forward.y;
+        let max_pitch = MAX_PITCH_DEGREES.to_radians();
+        Self {
+            yaw: (-heading.x).atan2(-heading.y),
+            pitch: (-forward.y)
+                .clamp(-1.0, 1.0)
+                .asin()
+                .clamp(-max_pitch, max_pitch),
+        }
+    }
+
+    /// The rotation of a camera looking so, as the camera controller turns it.
+    pub fn rotation(&self) -> Quat {
+        Quat::from_rotation_y(self.yaw) * Quat::from_rotation_x(-self.pitch)
+    }
 }
 
 /// Advances `player` by one input. The client (prediction) and the server (authority) both
@@ -107,19 +140,18 @@ pub fn simulate_player_movement(
 
 /// Takes the player through the open portal its centre went into on its way from `from`: its
 /// position, its velocity and its camera go through the portal (`Portals::through`), and come
-/// out of the twin turned with it. Returns the yaw it turned by: portals are vertical, so it
-/// only turns about the vertical, and the pitch of its camera is kept.
-fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) -> Option<f32> {
+/// out of the twin turned with it. The camera keeps where it looks, set upright, and is
+/// returned.
+fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) -> Option<Look> {
     let portals = world_map.portals();
     let through = portals.through(portals.crossed(from, player.position)?)?;
     player.position = through.transform_point3(player.position);
     player.velocity = through.transform_vector3(player.velocity);
     let camera = &mut player.camera_transform;
     camera.translation = through.transform_point3(camera.translation);
-    camera.rotation = (Quat::from_mat3a(&through.matrix3) * camera.rotation).normalize();
-    // The turn about the vertical takes -Z, the yaw 0, to (-sin, 0, -cos) of its angle
-    let forward = through.transform_vector3(Vec3::NEG_Z);
-    Some((-forward.x).atan2(-forward.z))
+    let look = Look::upright(Quat::from_mat3a(&through.matrix3) * camera.rotation);
+    camera.rotation = look.rotation();
+    Some(look)
 }
 
 /// Whether the player sneaks, sprints and swims in this input. Sprinting starts with the sprint
@@ -1243,7 +1275,7 @@ mod tests {
         looking: Vec3,
         frames: u32,
         actions: impl Fn(u32) -> Vec<NetworkAction>,
-    ) -> Vec<(Vec3, Option<f32>)> {
+    ) -> Vec<(Vec3, Option<Look>)> {
         let mut camera = Transform::from_translation(player.position).looking_to(looking, Vec3::Y);
         (0..frames)
             .map(|index| {
@@ -1251,21 +1283,21 @@ mod tests {
                 camera.translation = player.position + Vec3::Y * 0.8;
                 input.camera = camera;
                 let turned = simulate_player_movement(player, world, &input).turned;
-                if let Some(turned) = turned {
-                    camera.rotate_y(turned);
+                if let Some(look) = turned {
+                    camera.rotation = look.rotation();
                 }
                 (player.position, turned)
             })
             .collect()
     }
 
-    /// The turns reported while walking forward along `looking` for `frames` inputs.
+    /// The yaws turned to while walking forward along `looking` for `frames` inputs.
     fn walk_forward(player: &mut Player, world: &ChunkMap, looking: Vec3, frames: u32) -> Vec<f32> {
         walk(player, world, looking, frames, |_| {
             vec![NetworkAction::MoveForward]
         })
         .into_iter()
-        .filter_map(|(_, turned)| turned)
+        .filter_map(|(_, turned)| turned.map(|look| look.yaw))
         .collect()
     }
 
@@ -1532,7 +1564,7 @@ mod tests {
             through[crossing]
         );
         let heights =
-            |trace: &[(Vec3, Option<f32>)]| trace.iter().map(|(p, _)| p.y).collect::<Vec<_>>();
+            |trace: &[(Vec3, Option<Look>)]| trace.iter().map(|(p, _)| p.y).collect::<Vec<_>>();
         for (through, open) in heights(&through).into_iter().zip(heights(&open)) {
             assert!((through - open).abs() < 1e-4, "{through} {open}");
         }

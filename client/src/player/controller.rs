@@ -135,10 +135,11 @@ pub fn player_movement_system(
 
     let from = player.movement_state();
     let outcome = simulate_player_movement(&mut player, &world_map.blocks, &frame_inputs.0);
-    if let Some(turned) = outcome.turned {
-        // `camera_control_system` places the camera from its yaw later in the frame
+    if let Some(look) = outcome.turned {
+        // `camera_control_system` places the camera from its yaw and pitch later in the frame
         for mut camera in &mut cameras {
-            camera.angle_x += turned;
+            camera.angle_x = look.yaw;
+            camera.angle_y = look.pitch;
         }
     }
 

@@ -8,6 +8,8 @@ pub const JUMP_VELOCITY: f32 = 8.66;
 pub const MAX_UPWARD_VELOCITY: f32 = 54.0;
 pub const FLY_SPEED_MULTIPLIER: f32 = 4.0;
 pub const SPEED: f32 = 5.0;
+/// How far up or down a player may look, in degrees from the horizontal.
+pub const MAX_PITCH_DEGREES: f32 = 89.0;
 /// Speed of a sprinting player on foot, against `SPEED`: 1.3 times, as in Minecraft.
 pub const SPRINT_SPEED_MULTIPLIER: f32 = 1.3;
 /// Speed of a sprinting player in flight, against the flying speed: twice, as in Minecraft.
