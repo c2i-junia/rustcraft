@@ -90,7 +90,7 @@ impl Default for TextureAnimation {
 pub enum WetSurface {
     /// Stone, gravel, wood and anything not known here: darker, glossy, puddles.
     Hard = 0,
-    /// Grass and dirt: darker, less glossy, fewer puddles.
+    /// Dirt: darker, less glossy, fewer puddles.
     Soil = 1,
     /// Sand: much darker, hardly glossy, no puddle, as it drinks the water.
     Porous = 2,
@@ -98,6 +98,8 @@ pub enum WetSurface {
     Foliage = 3,
     /// Glass, ice, snow, torches, the cracks of a block being broken: as they are.
     Dry = 4,
+    /// Grass: darker, a faint sheen, no puddle, as a lawn drinks the water.
+    Grass = 5,
 }
 
 impl WetSurface {
@@ -107,7 +109,8 @@ impl WetSurface {
             "Glass" | "Ice" | "Snow" | "Torch" | "Water" => Self::Dry,
             _ if name.starts_with("DestroyStage") => Self::Dry,
             "Sand" => Self::Porous,
-            "Grass" | "GrassTop" | "GrassSideOverlay" | "Dirt" | "Moss" => Self::Soil,
+            "Grass" | "GrassTop" | "GrassSideOverlay" | "Moss" => Self::Grass,
+            "Dirt" => Self::Soil,
             "TallGrass" | "Fern" | "Dandelion" | "Poppy" | "Vine" | "Cocoa" | "Cactus"
             | "CactusTop" => Self::Foliage,
             _ if name.ends_with("Leaves") => Self::Foliage,
@@ -697,10 +700,10 @@ mod tests {
             ("Gravel", WetSurface::Hard),
             ("OakPlanks", WetSurface::Hard),
             ("OakLogTop", WetSurface::Hard),
-            ("GrassTop", WetSurface::Soil),
-            ("Grass", WetSurface::Soil),
+            ("GrassTop", WetSurface::Grass),
+            ("Grass", WetSurface::Grass),
             ("Dirt", WetSurface::Soil),
-            ("Moss", WetSurface::Soil),
+            ("Moss", WetSurface::Grass),
             ("Sand", WetSurface::Porous),
             ("OakLeaves", WetSurface::Foliage),
             ("TallGrass", WetSurface::Foliage),
