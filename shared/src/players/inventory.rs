@@ -15,9 +15,9 @@ use crate::{
         Inventory, Player,
     },
     world::{
-        fuel_ticks, grid_slot, match_recipe, plan_fill, recipes, smelting_result, BlockId,
-        ChunkMap, Container, CraftingGrid, Furnace, ItemId, ItemStack, ItemType, CHEST_SLOTS,
-        CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
+        fuel_ticks, grid_slot, lacking_cells, match_recipe, plan_fill, recipes, smelting_result,
+        BlockId, ChunkMap, Container, CraftingGrid, FillPlan, Furnace, ItemId, ItemStack, ItemType,
+        RecipeView, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
@@ -614,9 +614,56 @@ fn take_from_catalog(
     Ok(())
 }
 
+/// What filling the crafting grid with a recipe would do, planned on a copy of the inventory.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridFill {
+    pub recipe: RecipeView,
+    /// The inventory once the grid is back into it, from which the plan takes the ingredients.
+    pub emptied: Inventory,
+    /// What goes into the grid, `None` when the inventory lacks one round of the recipe.
+    pub plan: Option<FillPlan>,
+    /// The cells of the recipe, row after row, that one round leaves without their ingredient
+    /// (`lacking_cells`).
+    pub lacking: Vec<bool>,
+}
+
+/// What `InventoryAction::FillCraftingGrid { recipe, times }` would do with a grid of `size` in
+/// use, on a copy of `inventory`: the grid put back into the inventory, then the fill planned
+/// by `plan_fill`. Refused when no recipe has the index, when it does not fit the grid, or when
+/// the inventory has no room for the grid; without one round of the recipe, the plan is `None`
+/// and the action refused with `MissingIngredients`. The action applies it, and the client
+/// previews it, so that both agree.
+pub fn plan_grid_fill(
+    inventory: &Inventory,
+    recipe: u16,
+    times: u32,
+    size: u32,
+) -> Result<GridFill, InventoryRefusal> {
+    let recipe = recipes()
+        .nth(recipe as usize)
+        .ok_or(InventoryRefusal::UnknownRecipe(recipe))?;
+    if !recipe.fits(size) {
+        return Err(InventoryRefusal::DoesNotFit);
+    }
+    let mut emptied = inventory.clone();
+    for slot in grid_slots(CRAFTING_GRID_SIZE) {
+        if let Some(stack) = emptied.inner.remove(&slot) {
+            if put_back(&mut emptied, stack).is_some() {
+                return Err(InventoryRefusal::GridNotEmptied);
+            }
+        }
+    }
+    Ok(GridFill {
+        plan: plan_fill(&emptied, &recipe, times),
+        lacking: lacking_cells(&emptied, &recipe),
+        recipe,
+        emptied,
+    })
+}
+
 /// Puts the crafting grid back into the inventory, then the ingredients of `recipe` into the grid
-/// of `size`, unmirrored, at its top left corner, as `plan_fill` plans it: `times` rounds at most,
-/// as many as the inventory holds and a stack takes, any planks in a cell of planks. All or
+/// of `size`, unmirrored, at its top left corner, as `plan_grid_fill` plans it: `times` rounds at
+/// most, as many as the inventory holds and a stack takes, any planks in a cell of planks. All or
 /// nothing.
 fn fill_crafting_grid(
     inventory: &mut Inventory,
@@ -624,37 +671,29 @@ fn fill_crafting_grid(
     times: u32,
     size: u32,
 ) -> Result<(), InventoryRefusal> {
-    let recipe = recipes()
-        .nth(recipe as usize)
-        .ok_or(InventoryRefusal::UnknownRecipe(recipe))?;
-    if !recipe.fits(size) {
-        return Err(InventoryRefusal::DoesNotFit);
-    }
-    let mut filled = inventory.clone();
-    for slot in grid_slots(CRAFTING_GRID_SIZE) {
-        if let Some(stack) = filled.inner.remove(&slot) {
-            if put_back(&mut filled, stack).is_some() {
-                return Err(InventoryRefusal::GridNotEmptied);
-            }
-        }
-    }
-    let plan = plan_fill(&filled, &recipe, times).ok_or(InventoryRefusal::MissingIngredients)?;
+    let GridFill {
+        recipe,
+        mut emptied,
+        plan,
+        ..
+    } = plan_grid_fill(inventory, recipe, times, size)?;
+    let plan = plan.ok_or(InventoryRefusal::MissingIngredients)?;
     for (index, cell) in plan.cells.into_iter().enumerate() {
         let Some(item) = cell else {
             continue;
         };
-        let item_type = take_from_inventory(&mut filled, item, plan.rounds);
+        let item_type = take_from_inventory(&mut emptied, item, plan.rounds);
         let (row, col) = (index / recipe.width, index % recipe.width);
         let stack = ItemStack {
             item_id: item,
             item_type,
             nb: plan.rounds,
         };
-        filled
+        emptied
             .inner
             .insert(grid_slot(row as u32, col as u32), stack);
     }
-    *inventory = filled;
+    *inventory = emptied;
     Ok(())
 }
 
@@ -2863,6 +2902,108 @@ mod tests {
         );
         assert_eq!(player.inventory.floating, Some(stack(ItemId::Stick, 4)));
         assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn planning_a_fill_puts_the_grid_back_first() {
+        let mut inventory = inventory_with(0, planks(1));
+        inventory.inner.insert(grid_slot(1, 1), planks(1));
+        let sticks = oak_sticks();
+        let fill = plan_grid_fill(&inventory, sticks.index, 1, INVENTORY_GRID_SIZE).unwrap();
+        assert_eq!(fill.recipe, sticks);
+        assert_eq!(fill.emptied.inner[&0], planks(2));
+        assert_eq!(fill.emptied.inner.len(), 1);
+        assert_eq!(
+            fill.plan,
+            Some(FillPlan {
+                rounds: 1,
+                cells: vec![Some(ItemId::OakPlanks); 2]
+            })
+        );
+        assert_eq!(fill.lacking, [false, false]);
+        // The inventory is left alone
+        assert_eq!(inventory.inner[&grid_slot(1, 1)], planks(1));
+    }
+
+    #[test]
+    fn planning_a_fill_is_refused_as_the_action_is() {
+        let refusal = |inventory: &Inventory, recipe: u16| {
+            plan_grid_fill(inventory, recipe, 1, INVENTORY_GRID_SIZE).err()
+        };
+        let axe = crate::world::recipes_for(ItemId::WoodenAxe).next().unwrap();
+        let inventory = inventory_with(0, planks(1));
+        assert_eq!(
+            refusal(&inventory, u16::MAX),
+            Some(InventoryRefusal::UnknownRecipe(u16::MAX))
+        );
+        assert_eq!(
+            refusal(&inventory, axe.index),
+            Some(InventoryRefusal::DoesNotFit)
+        );
+        let mut full = Inventory::new();
+        for slot in 0..MAX_INVENTORY_SLOTS {
+            full.inner.insert(slot, stack(ItemId::Dirt, 64));
+        }
+        full.inner.insert(grid_slot(0, 0), planks(2));
+        assert_eq!(
+            refusal(&full, oak_sticks().index),
+            Some(InventoryRefusal::GridNotEmptied)
+        );
+        // Short of one round: no plan, and the cells one round leaves without
+        let fill = plan_grid_fill(&inventory, oak_sticks().index, 1, INVENTORY_GRID_SIZE).unwrap();
+        assert_eq!(fill.plan, None);
+        assert_eq!(fill.lacking, [false, true]);
+    }
+
+    #[test]
+    fn the_fill_applies_what_was_planned() {
+        let chest = crate::world::recipes_for(ItemId::Chest).next().unwrap();
+        let pickaxe = crate::world::recipes_for(ItemId::WoodenPickaxe)
+            .next()
+            .unwrap();
+        let mut with_grid = inventory_with(0, planks(1));
+        with_grid.inner.insert(grid_slot(0, 1), planks(1));
+        let mut mixed = inventory_with(3, stack(ItemId::OakPlanks, 5));
+        mixed.inner.insert(4, stack(ItemId::SprucePlanks, 4));
+        mixed.open_table = Some(TABLE);
+        let mut pickaxe_kit = inventory_with(9, planks(7));
+        pickaxe_kit.inner.insert(10, stack(ItemId::Stick, 5));
+        let mut at_table = pickaxe_kit.clone();
+        at_table.open_table = Some(TABLE);
+        let cases = [
+            (with_grid, oak_sticks(), 1),
+            (inventory_with(0, planks(1)), oak_sticks(), 1),
+            (mixed.clone(), chest, 1),
+            (mixed, chest, u32::MAX),
+            (pickaxe_kit, pickaxe, 1),
+            (at_table, pickaxe, u32::MAX),
+            (Inventory::new(), chest, 1),
+        ];
+        for (inventory, recipe, times) in cases {
+            let size = if inventory.open_table.is_some() {
+                CRAFTING_GRID_SIZE
+            } else {
+                INVENTORY_GRID_SIZE
+            };
+            let planned = plan_grid_fill(&inventory, recipe.index, times, size);
+            let mut filled = inventory.clone();
+            let applied =
+                apply_inventory_action(&mut filled, fill(recipe, times), |_, _| true, None, false);
+            let plan = planned.ok().and_then(|fill| fill.plan);
+            assert_eq!(applied.is_ok(), plan.is_some(), "{recipe:?} {times}");
+            let Some(plan) = plan else {
+                assert_eq!(filled, inventory);
+                continue;
+            };
+            for (index, cell) in plan.cells.iter().enumerate() {
+                let slot = grid_slot((index / recipe.width) as u32, (index % recipe.width) as u32);
+                let in_grid = filled
+                    .inner
+                    .get(&slot)
+                    .map(|stack| (stack.item_id, stack.nb));
+                assert_eq!(in_grid, cell.map(|item| (item, plan.rounds)), "{index}");
+            }
+        }
     }
 
     #[test]

@@ -335,6 +335,32 @@ const MAX_FILL_ROUNDS: u32 = 64;
 /// inventory holds the most of after the cells already served, the first of the family on a
 /// tie: one species is used whenever it is enough. `None` without one round.
 pub fn plan_fill(inventory: &Inventory, recipe: &RecipeView, times: u32) -> Option<FillPlan> {
+    let held = held_items(inventory);
+    (1..=times.min(MAX_FILL_ROUNDS)).rev().find_map(|rounds| {
+        let cells = serve_cells(held.clone(), recipe, rounds)
+            .into_iter()
+            .map(|cell| match cell {
+                Cell::Empty => Some(None),
+                Cell::Served(item) => Some(Some(item)),
+                Cell::Lacking => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(FillPlan { rounds, cells })
+    })
+}
+
+/// The cells of `recipe` that one round leaves without their ingredient, row after row, served
+/// from the slots of `inventory` as `plan_fill` serves them: `true` for a cell the inventory has
+/// nothing left for once the cells before it are served.
+pub fn lacking_cells(inventory: &Inventory, recipe: &RecipeView) -> Vec<bool> {
+    serve_cells(held_items(inventory), recipe, 1)
+        .into_iter()
+        .map(|cell| cell == Cell::Lacking)
+        .collect()
+}
+
+/// How many of each item the slots `0..36` of `inventory` hold, in the order first met.
+fn held_items(inventory: &Inventory) -> Vec<(ItemId, u32)> {
     let mut held: Vec<(ItemId, u32)> = Vec::new();
     for stack in (0..MAX_INVENTORY_SLOTS).filter_map(|slot| inventory.inner.get(&slot)) {
         match held.iter_mut().find(|(item, _)| *item == stack.item_id) {
@@ -342,13 +368,23 @@ pub fn plan_fill(inventory: &Inventory, recipe: &RecipeView, times: u32) -> Opti
             None => held.push((stack.item_id, stack.nb)),
         }
     }
-    (1..=times.min(MAX_FILL_ROUNDS))
-        .rev()
-        .find_map(|rounds| plan_rounds(held.clone(), recipe, rounds))
+    held
 }
 
-/// How the items `left` fill the grid with `rounds` of `recipe`, if they can.
-fn plan_rounds(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -> Option<FillPlan> {
+/// What a cell of a recipe gets in a fill.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cell {
+    /// The recipe leaves it empty.
+    Empty,
+    /// It gets the rounds of this item.
+    Served(ItemId),
+    /// Nothing left serves it.
+    Lacking,
+}
+
+/// How the items `left` serve each cell of `recipe` with `rounds` items of one item, in the
+/// order of the cells; a cell they cannot serve takes nothing.
+fn serve_cells(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -> Vec<Cell> {
     let count = |left: &[(ItemId, u32)], item: ItemId| {
         left.iter()
             .find(|(other, _)| *other == item)
@@ -359,7 +395,7 @@ fn plan_rounds(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -
     let mut cells = Vec::with_capacity(recipe.cells.len());
     for cell in recipe.cells {
         let Some(ingredient) = *cell else {
-            cells.push(None);
+            cells.push(Cell::Empty);
             continue;
         };
         let previous = last
@@ -374,10 +410,14 @@ fn plan_rounds(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -
             } else {
                 best
             }
-        })?;
-        let item = previous.unwrap_or(most);
+        });
+        let Some(item) = previous.or(most) else {
+            cells.push(Cell::Lacking);
+            continue;
+        };
         if count(&left, item) < rounds || item.get_max_stack() < rounds {
-            return None;
+            cells.push(Cell::Lacking);
+            continue;
         }
         if let Some((_, nb)) = left.iter_mut().find(|(other, _)| *other == item) {
             *nb -= rounds;
@@ -386,9 +426,9 @@ fn plan_rounds(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -
             Some((_, taken)) => *taken = item,
             None => last.push((ingredient, item)),
         }
-        cells.push(Some(item));
+        cells.push(Cell::Served(item));
     }
-    Some(FillPlan { rounds, cells })
+    cells
 }
 
 #[cfg(test)]
@@ -1048,6 +1088,32 @@ mod tests {
                 cells: vec![Some(ItemId::OakPlanks), Some(ItemId::JunglePlanks)]
             })
         );
+    }
+
+    #[test]
+    fn lacking_cells_serves_one_round_cell_by_cell() {
+        let pickaxe = recipe_of(ItemId::WoodenPickaxe);
+        // Two planks for three cells, one stick for two: the last of each lacks
+        let mut inventory = holding(&[(ItemId::OakPlanks, 2)]);
+        put(&mut inventory, 5, ItemId::Stick, 1);
+        assert_eq!(
+            lacking_cells(&inventory, &pickaxe),
+            [false, false, true, false, false, false, false, true, false]
+        );
+        // Any species serves a cell of planks
+        let mut inventory = holding(&[
+            (ItemId::OakPlanks, 1),
+            (ItemId::SprucePlanks, 1),
+            (ItemId::JunglePlanks, 1),
+        ]);
+        put(&mut inventory, 5, ItemId::Stick, 2);
+        assert_eq!(lacking_cells(&inventory, &pickaxe), [false; 9]);
+        assert!(plan_fill(&inventory, &pickaxe, 1).is_some());
+        // Nothing serves anything; the grid does not count
+        let mut inventory = Inventory::new();
+        put(&mut inventory, grid_slot(0, 0), ItemId::Coal, 1);
+        let torch = recipe_of(ItemId::Torch);
+        assert_eq!(lacking_cells(&inventory, &torch), [true, true]);
     }
 
     #[test]
