@@ -286,12 +286,6 @@ fn the_held_stack_follows_the_cursor_and_stray_clicks_do_nothing() {
     assert_eq!(slot(h.world(), 0), Some((ItemId::Stick, 3)));
     assert_eq!(slot(h.world(), 27), None);
 
-    // Outside the panel: nothing is dropped, and the inventory stays open
-    h.click_at(Vec2::new(10.0, 10.0));
-    h.frames(10);
-    assert_eq!(floating(h.world()), Some((ItemId::Dirt, 5)));
-    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
-
     // The click goes through the held stack to the slot under it
     h.click(&L::cell(20));
     h.wait_until("the dirt in slot 20", SERVER, |w| {

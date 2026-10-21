@@ -4,6 +4,7 @@ use bevy::prelude::Component;
 use shared::world::ItemId;
 
 mod display;
+mod drop;
 mod feedback;
 mod furnace;
 mod gestures;
@@ -12,6 +13,7 @@ mod goldens;
 mod setup;
 
 pub use display::*;
+pub use drop::*;
 pub use feedback::*;
 pub use furnace::*;
 pub use gestures::*;

@@ -94,6 +94,8 @@ pub fn hud_plugin(app: &mut App) {
                     toggle_inventory_system,
                     close_inventory_system,
                     sync_inventory_focus,
+                    // Before a press on a cell cancels a drag, and before the drawer closes
+                    throw_held_stack_system.before(item_browser::drawer_keys),
                     click_inventory_cells_system,
                     drag_inventory_cells_system,
                     display_inventory_system,
