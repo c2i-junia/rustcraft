@@ -165,6 +165,14 @@ pub fn hud_plugin(app: &mut App) {
         );
     app.add_systems(
         Update,
+        // The prediction of the frame knows what was refused; the audio hears it after
+        report_refused_actions
+            .after(GameSet::Simulation)
+            .before(GameSet::Reconciliation)
+            .run_if(in_state(GameState::Game)),
+    );
+    app.add_systems(
+        Update,
         (
             health::update_health_bar,
             health::raise_item_name_over_the_hearts,

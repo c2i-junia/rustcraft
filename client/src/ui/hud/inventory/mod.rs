@@ -4,6 +4,7 @@ use bevy::prelude::Component;
 use shared::world::ItemId;
 
 mod display;
+mod feedback;
 mod furnace;
 mod gestures;
 #[cfg(test)]
@@ -11,6 +12,7 @@ mod goldens;
 mod setup;
 
 pub use display::*;
+pub use feedback::*;
 pub use furnace::*;
 pub use gestures::*;
 pub use setup::*;
