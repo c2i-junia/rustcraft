@@ -10,7 +10,8 @@ use shared::{
     players::{blocks::BrokenBlock, Player},
     world::{
         step_dropped_item, world_position_to_chunk_position, ChunkMap, DroppedItem, DroppedItemId,
-        ItemStack, DROPPED_ITEM_SIZE, LIFETIME_TICKS, MERGE_RADIUS, VOID_Y,
+        ItemStack, DROPPED_ITEM_SIZE, LIFETIME_TICKS, MERGE_RADIUS, THROWN_PICKUP_DELAY_TICKS,
+        VOID_Y,
     },
     HALF_BLOCK,
 };
@@ -25,9 +26,12 @@ const PICKUP_REACH: Vec3 = Vec3::new(1.0, 0.5, 1.0);
 const POP_HORIZONTAL_SPEED: f32 = 2.0;
 /// Upward speed of an item popping out of its block, in blocks per second.
 const POP_UPWARD_SPEED: f32 = 4.0;
-/// Horizontal speed of an item a player throws, in blocks per second: it lands about a block
-/// ahead.
+/// Horizontal speed of an item a player has no room for, in blocks per second: it lands about a
+/// block ahead.
 const THROW_SPEED: f32 = 2.0;
+/// Horizontal speed of an item a player throws out of its inventory, in blocks per second: it
+/// comes to rest a few blocks ahead, out of the player's reach, as in Minecraft.
+const THROWN_SPEED: f32 = 5.0;
 /// An item that moved less than this is not sent again.
 const MOVE_EPSILON: f32 = 1.0 / 256.0;
 
@@ -115,13 +119,21 @@ impl DroppedItems {
     /// Drops `stack`, which `player` had no room for, thrown from the middle of its box toward
     /// where it looks.
     pub fn drop_from_player(&mut self, stack: ItemStack, player: &Player) {
-        let ahead = player
-            .camera_transform
-            .forward()
-            .with_y(0.0)
-            .normalize_or_zero();
-        let velocity = ahead * THROW_SPEED + Vec3::Y * POP_UPWARD_SPEED;
-        self.spawn(DroppedItem::new(stack, player.position, velocity));
+        self.spawn(DroppedItem::new(
+            stack,
+            player.position,
+            throw_velocity(player, THROW_SPEED),
+        ));
+    }
+
+    /// Throws `stack`, which `player` threw out of its inventory, from the middle of its box
+    /// toward where it looks, farther than `drop_from_player` does: it cannot be picked up for
+    /// `THROWN_PICKUP_DELAY_TICKS`.
+    pub fn throw_from_player(&mut self, stack: ItemStack, player: &Player) {
+        self.spawn(DroppedItem {
+            pickup_delay_ticks: THROWN_PICKUP_DELAY_TICKS,
+            ..DroppedItem::new(stack, player.position, throw_velocity(player, THROWN_SPEED))
+        });
     }
 
     /// One fixed step of every item: it ages, moves, and vanishes once too old or out of the
@@ -172,11 +184,16 @@ impl DroppedItems {
                 {
                     continue;
                 }
+                let wait = target
+                    .ticks_before_pickup()
+                    .max(source.ticks_before_pickup());
                 let (nb, age) = (source.stack.nb, source.age_ticks);
                 let target = self.items.get_mut(&into).expect("checked above");
                 target.stack.nb += nb;
-                // The merged stack lasts as long as the younger of the two
+                // The merged stack lasts as long as the younger of the two, and waits as long
+                // as the one that waits longer
                 target.age_ticks = target.age_ticks.min(age);
+                target.pickup_delay_ticks = target.age_ticks + wait;
                 self.changed.insert(into);
                 self.remove(from, ItemRemoval::Merged(into));
             }
@@ -210,6 +227,17 @@ impl DroppedItems {
             }
         }
     }
+}
+
+/// The velocity of an item thrown by `player`: `speed` toward where it looks, along the ground,
+/// and up as an item popping out of its block.
+fn throw_velocity(player: &Player, speed: f32) -> Vec3 {
+    let ahead = player
+        .camera_transform
+        .forward()
+        .with_y(0.0)
+        .normalize_or_zero();
+    ahead * speed + Vec3::Y * POP_UPWARD_SPEED
 }
 
 /// Whether the box of an item at `position` touches the box of `player` grown by
@@ -295,7 +323,11 @@ mod tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
     use shared::{
-        world::{global_block_to_chunk_pos, BlockId, ItemId, PICKUP_DELAY_TICKS},
+        players::PLAYER_HEIGHT,
+        world::{
+            global_block_to_chunk_pos, BlockId, ItemId, PICKUP_DELAY_TICKS,
+            THROWN_PICKUP_DELAY_TICKS,
+        },
         MAX_INVENTORY_SLOTS,
     };
 
@@ -357,6 +389,86 @@ mod tests {
         );
         assert!(item.velocity.z.abs() < 1e-5, "{}", item.velocity);
         assert!(!item.can_be_picked_up());
+        assert_eq!(item.pickup_delay_ticks, PICKUP_DELAY_TICKS);
+    }
+
+    /// A player standing on the floor at y = 64, looking east.
+    fn thrower() -> Player {
+        let position = Vec3::new(0.5, 64.0 + PLAYER_HEIGHT / 2.0, 0.5);
+        let camera = Transform::from_translation(position).looking_to(Vec3::X, Vec3::Y);
+        Player::new(1, "p".into(), position, camera)
+    }
+
+    #[test]
+    fn a_thrown_item_waits_two_seconds_before_it_can_be_picked_up() {
+        assert_eq!(THROWN_PICKUP_DELAY_TICKS as f32 * DELTA, 2.0);
+        let world = floor();
+        let mut items = DroppedItems::default();
+        items.throw_from_player(stack(ItemId::Dirt, 1), &thrower());
+        let id = *items.items.keys().next().unwrap();
+        for tick in 0..THROWN_PICKUP_DELAY_TICKS {
+            assert!(!items.get(id).unwrap().can_be_picked_up(), "tick {tick}");
+            items.step(&world, DELTA);
+        }
+        assert!(items.get(id).unwrap().can_be_picked_up());
+    }
+
+    #[test]
+    fn a_thrown_item_comes_to_rest_ahead_out_of_the_reach_of_its_thrower() {
+        let world = floor();
+        let mut items = DroppedItems::default();
+        let player = thrower();
+        items.throw_from_player(stack(ItemId::Dirt, 1), &player);
+        for _ in 0..100 {
+            items.step(&world, DELTA);
+        }
+
+        let item = items.items.values().next().unwrap();
+        assert!(item.on_ground && item.velocity.length() < 0.01, "{item:?}");
+        let ahead = item.position - player.position;
+        assert!(ahead.z.abs() < 1e-4, "{ahead}");
+        assert!(ahead.x < 4.0, "{ahead}");
+        assert!(!within_reach(&player, item.position), "{ahead}");
+    }
+
+    #[test]
+    fn merged_items_keep_the_longer_wait_left() {
+        let thrown = |item: DroppedItem| DroppedItem {
+            pickup_delay_ticks: THROWN_PICKUP_DELAY_TICKS,
+            ..item
+        };
+        let world = floor();
+        // The younger one was just thrown, and waits 20 ticks more at the merge
+        let mut items = DroppedItems::default();
+        let older = items.spawn(DroppedItem {
+            age_ticks: 500,
+            ..resting(ItemId::Dirt, 3, ON_FLOOR)
+        });
+        items.spawn(thrown(DroppedItem {
+            age_ticks: 10,
+            ..resting(ItemId::Dirt, 2, ON_FLOOR + Vec3::X * 0.3)
+        }));
+        // The older one was thrown, and waits 25 ticks more; the younger one can be picked up
+        let mut other = DroppedItems::default();
+        let older_thrown = other.spawn(thrown(DroppedItem {
+            age_ticks: 5,
+            ..resting(ItemId::Dirt, 3, ON_FLOOR)
+        }));
+        other.spawn(DroppedItem {
+            age_ticks: PICKUP_DELAY_TICKS,
+            ..resting(ItemId::Dirt, 2, ON_FLOOR + Vec3::X * 0.3)
+        });
+        for _ in 0..MERGE_INTERVAL_TICKS {
+            items.step(&world, DELTA);
+            other.step(&world, DELTA);
+        }
+
+        for (items, into, left) in [(&items, older, 20), (&other, older_thrown, 25)] {
+            assert_eq!(items.len(), 1);
+            let merged = items.get(into).unwrap();
+            assert_eq!(merged.stack.nb, 5);
+            assert_eq!(merged.pickup_delay_ticks - merged.age_ticks, left);
+        }
     }
 
     #[test]

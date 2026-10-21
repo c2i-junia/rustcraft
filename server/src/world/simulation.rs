@@ -295,6 +295,9 @@ pub fn handle_player_inputs_system(
         for stack in outcome.dropped {
             dropped_items.drop_from_player(stack, player);
         }
+        for stack in outcome.thrown {
+            dropped_items.throw_from_player(stack, player);
+        }
         born.extend(
             outcome
                 .spawned

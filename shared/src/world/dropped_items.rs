@@ -13,6 +13,9 @@ pub type DroppedItemId = u64;
 pub const DROPPED_ITEM_SIZE: f32 = 0.25;
 /// Ticks before an item can be picked up, so that it pops out of its block first.
 pub const PICKUP_DELAY_TICKS: u32 = 10;
+/// Ticks before an item a player threw can be picked up, 2 s as in Minecraft: long enough to
+/// throw it to someone, or away.
+pub const THROWN_PICKUP_DELAY_TICKS: u32 = 40;
 /// Ticks after which an item nobody picked up vanishes: 5 minutes.
 pub const LIFETIME_TICKS: u32 = 6000;
 /// Below this height an item has fallen out of the world, and vanishes.
@@ -34,9 +37,18 @@ pub struct DroppedItem {
     pub position: Vec3,
     pub velocity: Vec3,
     pub on_ground: bool,
-    /// Ticks since the item appeared: it can be picked up from `PICKUP_DELAY_TICKS` on, and
+    /// Ticks since the item appeared: it can be picked up from `pickup_delay_ticks` on, and
     /// vanishes at `LIFETIME_TICKS`.
     pub age_ticks: u32,
+    /// The age from which the item can be picked up: `PICKUP_DELAY_TICKS`, or
+    /// `THROWN_PICKUP_DELAY_TICKS` for an item a player threw. Not saved: a saved item has
+    /// waited long enough, and takes the default.
+    #[serde(skip, default = "default_pickup_delay")]
+    pub pickup_delay_ticks: u32,
+}
+
+fn default_pickup_delay() -> u32 {
+    PICKUP_DELAY_TICKS
 }
 
 impl DroppedItem {
@@ -47,11 +59,17 @@ impl DroppedItem {
             velocity,
             on_ground: false,
             age_ticks: 0,
+            pickup_delay_ticks: PICKUP_DELAY_TICKS,
         }
     }
 
     pub fn can_be_picked_up(&self) -> bool {
-        self.age_ticks >= PICKUP_DELAY_TICKS
+        self.age_ticks >= self.pickup_delay_ticks
+    }
+
+    /// The ticks left before the item can be picked up.
+    pub fn ticks_before_pickup(&self) -> u32 {
+        self.pickup_delay_ticks.saturating_sub(self.age_ticks)
     }
 
     /// Whether `other` can be added to this item's stack: same item, and room for all of it.
@@ -236,6 +254,31 @@ mod tests {
         step_dropped_item(&mut item, &world, 0.05);
         assert!(!world.check_collision_box(&hitbox(item.position)));
         assert!((item.position.y - DROPPED_ITEM_SIZE / 2.0 - 65.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn an_item_can_be_picked_up_once_its_own_delay_is_over() {
+        let mut item = DroppedItem::new(stack(ItemId::Dirt, 1), Vec3::ZERO, Vec3::ZERO);
+        assert_eq!(item.pickup_delay_ticks, PICKUP_DELAY_TICKS);
+        item.age_ticks = PICKUP_DELAY_TICKS;
+        assert!(item.can_be_picked_up());
+
+        item.pickup_delay_ticks = THROWN_PICKUP_DELAY_TICKS;
+        assert!(!item.can_be_picked_up());
+        item.age_ticks = THROWN_PICKUP_DELAY_TICKS;
+        assert!(item.can_be_picked_up());
+    }
+
+    #[test]
+    fn a_saved_thrown_item_comes_back_with_the_default_delay() {
+        let thrown = DroppedItem {
+            pickup_delay_ticks: THROWN_PICKUP_DELAY_TICKS,
+            ..DroppedItem::new(stack(ItemId::Dirt, 1), Vec3::ZERO, Vec3::ZERO)
+        };
+        let saved = ron::to_string(&thrown).unwrap();
+        let loaded: DroppedItem = ron::from_str(&saved).unwrap();
+        assert_eq!(loaded.pickup_delay_ticks, PICKUP_DELAY_TICKS);
+        assert_eq!(loaded.stack, thrown.stack);
     }
 
     #[test]
