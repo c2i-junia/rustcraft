@@ -325,6 +325,7 @@ fn shoot_portal(
         target.position,
         target.face,
         hit,
+        direction,
     )
     .ok_or(Refusal::NoRoom)?;
     world_map.portals_mut().insert(portal);

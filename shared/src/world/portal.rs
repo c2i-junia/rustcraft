@@ -1,5 +1,5 @@
-//! The portals of the world: openings 2 blocks wide and 3 high on a wall, each player owning a
-//! blue one and an orange one. What lies in front of a portal is seen, and later reached, in
+//! The portals of the world: openings 2 blocks wide and 3 high on any face of a block, each
+//! player owning a blue one and an orange one. What lies in front of a portal is seen, and later reached, in
 //! front of its twin, the portal of the other colour of the same player. They live in the
 //! `ChunkMap`, so that the simulation of both sides reads them.
 
@@ -40,16 +40,18 @@ impl PortalColor {
     }
 }
 
-/// A portal on the face `face` of six wall cells. `anchor` is the lower-left wall cell, seen
-/// from in front of the wall; the others are to its right and above it. The face is one of the
-/// four vertical ones.
+/// A portal on the face `face` of six wall cells, its long side along `up`. `anchor` is the
+/// lower-left wall cell, seen from in front of the wall, its up at the top; the others are to
+/// its right and above it. A wall, a floor or a ceiling: a portal's wall cells are those it lies
+/// on, whichever way they face.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Portal {
     pub owner: PlayerId,
     pub color: PortalColor,
     pub anchor: IVec3,
     pub face: FaceDirection,
-    /// The direction of the long side of the opening, its up: `PlusY` on a wall.
+    /// The direction of the long side of the opening, its up: `PlusY` on a wall, one of the four
+    /// horizontal directions on a floor or a ceiling (`opening_up`).
     pub up: FaceDirection,
 }
 
@@ -59,16 +61,21 @@ impl Portal {
         self.face.to_ivec3().as_vec3()
     }
 
-    /// The right of a viewer facing the portal.
+    /// The up of the portal, along its long side.
+    pub fn up(&self) -> Vec3 {
+        self.up.to_ivec3().as_vec3()
+    }
+
+    /// The right of a viewer facing the portal, its head toward the portal's up.
     pub fn right(&self) -> Vec3 {
-        Vec3::Y.cross(self.normal())
+        self.up().cross(self.normal())
     }
 
     /// The six wall cells the portal lies on.
     pub fn cells(&self) -> impl Iterator<Item = IVec3> + '_ {
-        let right = self.right().as_ivec3();
-        (0..PORTAL_HEIGHT).flat_map(move |up| {
-            (0..PORTAL_WIDTH).map(move |across| self.anchor + right * across + IVec3::Y * up)
+        let (right, up) = (self.right().as_ivec3(), self.up.to_ivec3());
+        (0..PORTAL_HEIGHT).flat_map(move |high| {
+            (0..PORTAL_WIDTH).map(move |across| self.anchor + right * across + up * high)
         })
     }
 
@@ -98,13 +105,13 @@ impl Portal {
     /// The frame of the portal in world space: its origin is the centre of the opening, on the
     /// face of the wall, and its axes are the right, the up and the normal of the portal.
     pub fn frame(&self) -> Affine3A {
-        let (right, normal) = (self.right(), self.normal());
+        let (right, up, normal) = (self.right(), self.up(), self.normal());
         let center = self.anchor.as_vec3()
             + Vec3::splat(0.5)
             + right * (PORTAL_WIDTH - 1) as f32 / 2.
-            + Vec3::Y * (PORTAL_HEIGHT - 1) as f32 / 2.
+            + up * (PORTAL_HEIGHT - 1) as f32 / 2.
             + normal * 0.5;
-        Affine3A::from_mat3_translation(Mat3::from_cols(right, Vec3::Y, normal), center)
+        Affine3A::from_mat3_translation(Mat3::from_cols(right, up, normal), center)
     }
 
     /// The chunk of what the portal opens onto: the chunk of the middle of its front cells.
@@ -125,7 +132,7 @@ impl Portal {
         let offset = point - Vec3::from(self.frame().translation);
         Vec3::new(
             self.right().dot(offset),
-            offset.y,
+            self.up().dot(offset),
             self.normal().dot(offset),
         )
     }
@@ -196,7 +203,8 @@ impl Portals {
     /// The transform from the space in front of `portal` to the space in front of its twin,
     /// `None` when it has none. A point going into `portal`, from its front to its back, comes
     /// out of the twin, from its back to its front, turned as the twin is: in the frames of the
-    /// portals, it is turned half round the vertical.
+    /// portals, it is turned half round their up. A rigid transform, whatever the faces: from a
+    /// floor to a wall, what falls into the floor comes out of the wall.
     pub fn through(&self, portal: &Portal) -> Option<Affine3A> {
         let twin = self.twin(portal)?;
         Some(
@@ -273,10 +281,27 @@ impl Portals {
     }
 }
 
-/// The portal of `owner` and `color` that a shot hitting the face `face` of the cell `aimed`
-/// at the point `hit` places, if any. Of the six placements on that face that hold the aimed
-/// cell, it is the first that fits (`Portal::fits`) and overlaps no other portal, by the
-/// distance of the centre of its opening to `hit`. A horizontal face takes none.
+/// Which way the long side of a portal shot along `direction` onto the face `face` goes: up on a
+/// wall; on a floor or a ceiling, away from the shooter, along the horizontal axis the shot goes
+/// most along, as a wall tipped over forwards.
+pub fn opening_up(face: FaceDirection, direction: Vec3) -> FaceDirection {
+    if !matches!(face, FaceDirection::PlusY | FaceDirection::MinusY) {
+        return FaceDirection::PlusY;
+    }
+    match (direction.x.abs() > direction.z.abs(), direction) {
+        (true, d) if d.x > 0.0 => FaceDirection::PlusX,
+        (true, _) => FaceDirection::MinusX,
+        (false, d) if d.z > 0.0 => FaceDirection::PlusZ,
+        (false, _) => FaceDirection::MinusZ,
+    }
+}
+
+/// The portal of `owner` and `color` that a shot along `direction` hitting the face `face` of
+/// the cell `aimed` at the point `hit` places, if any, its long side along `opening_up`. Of the
+/// six placements on that face that hold the aimed cell, it is the first that fits
+/// (`Portal::fits`) and overlaps no other portal, by the distance of the centre of its opening
+/// to `hit`.
+#[allow(clippy::too_many_arguments)]
 pub fn fit_portal(
     world: &ChunkMap,
     portals: &Portals,
@@ -285,23 +310,21 @@ pub fn fit_portal(
     aimed: IVec3,
     face: FaceDirection,
     hit: Vec3,
+    direction: Vec3,
 ) -> Option<Portal> {
-    if matches!(face, FaceDirection::PlusY | FaceDirection::MinusY) {
-        return None;
-    }
-    let placement = |across: i32, up: i32| {
+    let placement = |across: i32, high: i32| {
         let mut portal = Portal {
             owner,
             color,
             anchor: aimed,
             face,
-            up: FaceDirection::PlusY,
+            up: opening_up(face, direction),
         };
-        portal.anchor -= portal.right().as_ivec3() * across + IVec3::Y * up;
+        portal.anchor -= portal.right().as_ivec3() * across + portal.up.to_ivec3() * high;
         portal
     };
     let mut placements: Vec<Portal> = (0..PORTAL_WIDTH)
-        .flat_map(|across| (0..PORTAL_HEIGHT).map(move |up| placement(across, up)))
+        .flat_map(|across| (0..PORTAL_HEIGHT).map(move |high| placement(across, high)))
         .collect();
     let distance = |portal: &Portal| hit.distance_squared(portal.frame().translation.into());
     // A stable sort: the order of the anchors breaks ties
@@ -615,6 +638,7 @@ mod tests {
             aimed,
             FaceDirection::PlusZ,
             hit,
+            Vec3::NEG_Z,
         )
         .map(|portal| portal.anchor)
     }
@@ -650,6 +674,7 @@ mod tests {
             aimed,
             FaceDirection::PlusZ,
             Vec3::new(1.9, 11.9, 1.0),
+            Vec3::NEG_Z,
         )
         .unwrap();
         assert_eq!((portal.owner, portal.color), (7, PortalColor::Orange));
@@ -869,7 +894,7 @@ mod tests {
     }
 
     #[test]
-    fn nothing_fits_a_wall_too_narrow_or_a_horizontal_face() {
+    fn nothing_fits_a_wall_too_narrow_or_on_top_of_a_thin_one() {
         let mut world = ChunkMap::with_loaded_region(IVec3::new(-4, 0, -4), IVec3::new(8, 20, 8));
         world.fill_box(IVec3::new(0, 10, 0), IVec3::new(0, 13, 0), BlockId::Stone);
         let none = Portals::default();
@@ -883,8 +908,327 @@ mod tests {
             IVec3::new(1, 13, 0),
             FaceDirection::PlusY,
             Vec3::new(1.5, 14.0, 0.5),
+            Vec3::new(1.0, -1.0, 0.0),
         );
+        // Three cells long along the wall, but one across
         assert_eq!(floor, None);
+    }
+
+    /// A floor portal of player 7, of colour `color`, at `anchor`, its long side along `up`.
+    fn on_floor(color: PortalColor, anchor: IVec3, up: FaceDirection) -> Portal {
+        Portal {
+            up,
+            ..portal(color, anchor, FaceDirection::PlusY)
+        }
+    }
+
+    #[test]
+    fn the_opening_of_a_floor_or_ceiling_portal_lies_along_the_shot() {
+        use FaceDirection::*;
+        // Walls stand upright, whatever the shot
+        for face in [PlusX, MinusX, PlusZ, MinusZ] {
+            assert_eq!(opening_up(face, Vec3::new(0.3, -0.9, -0.2)), PlusY);
+        }
+        // A floor or a ceiling: the horizontal direction the shot goes most along
+        for face in [PlusY, MinusY] {
+            for (direction, up) in [
+                (Vec3::new(0.2, -0.9, -0.4), MinusZ),
+                (Vec3::new(-0.2, 0.9, 0.4), PlusZ),
+                (Vec3::new(0.5, -0.9, -0.4), PlusX),
+                (Vec3::new(-0.5, 0.1, 0.4), MinusX),
+            ] {
+                assert_eq!(opening_up(face, direction), up, "{face:?} {direction}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_cells_of_a_floor_portal_go_right_and_along_its_up() {
+        // Up north: a viewer looking north and down at it has east on its right
+        let north = on_floor(PortalColor::Blue, IVec3::ZERO, FaceDirection::MinusZ);
+        assert_near(north.right(), Vec3::X);
+        let cells: Vec<_> = north.cells().collect();
+        assert_eq!(cells.len(), 6);
+        for cell in [
+            IVec3::new(1, 0, 0),
+            IVec3::new(0, 0, -2),
+            IVec3::new(1, 0, -2),
+        ] {
+            assert!(cells.contains(&cell), "{cell}");
+        }
+        assert!(north.front_cells().all(|cell| cell.y == 1));
+        // Its frame: centred on the top of the six cells, up north, facing up
+        let frame = north.frame();
+        assert_near(frame.translation.into(), Vec3::new(1.0, 1.0, -0.5));
+        assert_near(frame.transform_vector3(Vec3::Y), Vec3::NEG_Z);
+        assert_near(frame.transform_vector3(Vec3::Z), Vec3::Y);
+        assert_near(frame.transform_vector3(Vec3::X), Vec3::X);
+        // On a ceiling, up east: facing down, its right is north
+        let ceiling = Portal {
+            up: FaceDirection::PlusX,
+            ..portal(PortalColor::Blue, IVec3::ZERO, FaceDirection::MinusY)
+        };
+        assert_near(ceiling.right(), Vec3::X.cross(Vec3::NEG_Y));
+        assert!(ceiling.cells().any(|cell| cell == IVec3::new(2, 0, -1)));
+        assert!(ceiling.front_cells().all(|cell| cell.y == -1));
+        assert_near(ceiling.frame().translation.into(), Vec3::new(1.5, 0.0, 0.0));
+    }
+
+    /// A blue portal on a floor, its up north, and an orange one on a wall facing +Z.
+    fn floor_and_wall() -> Portals {
+        let mut portals = Portals::default();
+        portals.insert(on_floor(
+            PortalColor::Blue,
+            IVec3::new(0, 10, 0),
+            FaceDirection::MinusZ,
+        ));
+        portals.insert(portal(
+            PortalColor::Orange,
+            IVec3::new(20, 10, 5),
+            FaceDirection::PlusZ,
+        ));
+        portals
+    }
+
+    #[test]
+    fn falling_into_a_floor_portal_comes_out_of_a_wall_upright() {
+        let portals = floor_and_wall();
+        let blue = portals.get(7, PortalColor::Blue).unwrap();
+        let through = portals.through(blue).unwrap();
+        // Down into the floor is out of the wall; the floor's up, north, is the wall's up
+        assert_near(through.transform_vector3(Vec3::NEG_Y), Vec3::Z);
+        assert_near(through.transform_vector3(Vec3::NEG_Z), Vec3::Y);
+        // The centres meet: the floor's (1, 11, -0.5), the wall's (21, 11.5, 6)
+        assert_near(
+            through.transform_point3(Vec3::new(1.0, 11.0, -0.5)),
+            Vec3::new(21.0, 11.5, 6.0),
+        );
+        // Rigid, and not mirrored
+        assert!((through.matrix3.determinant() - 1.0).abs() < 1e-5);
+        let back = portals
+            .through(portals.get(7, PortalColor::Orange).unwrap())
+            .unwrap();
+        let point = Vec3::new(3.0, 12.5, -1.0);
+        assert_near((back * through).transform_point3(point), point);
+    }
+
+    #[test]
+    fn walking_into_a_wall_portal_comes_up_out_of_a_floor() {
+        let portals = floor_and_wall();
+        let orange = portals.get(7, PortalColor::Orange).unwrap();
+        let through = portals.through(orange).unwrap();
+        // Into the wall, south to north, is up out of the floor
+        assert_near(through.transform_vector3(Vec3::NEG_Z), Vec3::Y);
+        // The wall's up is the floor's, north
+        assert_near(through.transform_vector3(Vec3::Y), Vec3::NEG_Z);
+    }
+
+    #[test]
+    fn falling_into_a_floor_portal_comes_out_of_a_ceiling_still_falling() {
+        let mut portals = Portals::default();
+        portals.insert(on_floor(
+            PortalColor::Blue,
+            IVec3::new(0, 10, 0),
+            FaceDirection::MinusZ,
+        ));
+        portals.insert(Portal {
+            up: FaceDirection::PlusX,
+            ..portal(
+                PortalColor::Orange,
+                IVec3::new(20, 30, 5),
+                FaceDirection::MinusY,
+            )
+        });
+        let through = portals
+            .through(portals.get(7, PortalColor::Blue).unwrap())
+            .unwrap();
+        assert_near(through.transform_vector3(Vec3::NEG_Y), Vec3::NEG_Y);
+        // Up north on the floor, up east on the ceiling
+        assert_near(through.transform_vector3(Vec3::NEG_Z), Vec3::X);
+        // A point a block above the floor's centre is a block below the ceiling's, behind it
+        let ceiling_centre = portals
+            .get(7, PortalColor::Orange)
+            .unwrap()
+            .frame()
+            .translation;
+        assert_near(
+            through.transform_point3(Vec3::new(1.0, 12.0, -0.5)),
+            Vec3::from(ceiling_centre) + Vec3::Y,
+        );
+    }
+
+    #[test]
+    fn a_floor_portal_lets_through_and_is_crossed_from_above_within_its_opening() {
+        let portals = floor_and_wall();
+        let letting = |point: Vec3| {
+            portals
+                .letting_through(point, 0.3)
+                .map(|portal| portal.color)
+                .collect::<Vec<_>>()
+        };
+        // The opening is x in 0..2, z in -2..1, its plane y = 11
+        assert_eq!(letting(Vec3::new(1.0, 11.9, -0.5)), [PortalColor::Blue]);
+        assert_eq!(letting(Vec3::new(1.6, 11.9, 0.6)), [PortalColor::Blue]);
+        // Too near an edge for the box to fit, and below the plane
+        assert!(letting(Vec3::new(1.8, 11.9, -0.5)).is_empty());
+        assert!(letting(Vec3::new(1.0, 11.9, 0.8)).is_empty());
+        assert!(letting(Vec3::new(1.0, 10.9, -0.5)).is_empty());
+
+        let crossed = portals.crossed(Vec3::new(1.0, 11.2, -0.5), Vec3::new(1.0, 10.8, -0.5));
+        assert_eq!(crossed.map(|portal| portal.color), Some(PortalColor::Blue));
+        // Beside the opening, or from below
+        assert!(portals
+            .crossed(Vec3::new(2.2, 11.2, -0.5), Vec3::new(2.2, 10.8, -0.5))
+            .is_none());
+        assert!(portals
+            .crossed(Vec3::new(1.0, 10.8, -0.5), Vec3::new(1.0, 11.2, -0.5))
+            .is_none());
+    }
+
+    #[test]
+    fn a_floor_portal_covers_and_opens_the_top_of_its_cells() {
+        let portals = floor_and_wall();
+        assert!(portals.covers(IVec3::new(1, 10, -2), FaceDirection::PlusY));
+        assert!(portals.opens(IVec3::new(0, 10, 0), FaceDirection::PlusY));
+        assert!(!portals.covers(IVec3::new(1, 10, -2), FaceDirection::MinusY));
+        assert!(!portals.covers(IVec3::new(1, 10, 1), FaceDirection::PlusY));
+    }
+
+    #[test]
+    fn a_floor_portal_overlaps_one_on_a_wall_at_its_edge_but_not_one_under_its_slab() {
+        let mut portals = Portals::default();
+        portals.insert(Portal {
+            owner: 8,
+            ..on_floor(
+                PortalColor::Orange,
+                IVec3::new(0, 10, 0),
+                FaceDirection::MinusZ,
+            )
+        });
+        // On the south face of its cells (0..2, 10, 0): a box in each from two sides
+        let wall = portal(PortalColor::Blue, IVec3::new(0, 8, 0), FaceDirection::PlusZ);
+        assert!(wall.cells().any(|cell| cell == IVec3::new(0, 10, 0)));
+        assert!(portals.overlaps(&wall));
+        // On the ceiling under the same cells: the opposite face
+        let under = Portal {
+            up: FaceDirection::PlusZ,
+            ..portal(
+                PortalColor::Blue,
+                IVec3::new(1, 10, -2),
+                FaceDirection::MinusY,
+            )
+        };
+        assert!(under.cells().all(|cell| cell.y == 10));
+        assert!(!portals.overlaps(&under));
+    }
+
+    /// A stone slab 9 × 9 at y = 10, x and z in -4..=4, and another at y = 20 above it.
+    fn slabs() -> ChunkMap {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(-8, 0, -8), IVec3::new(8, 31, 8));
+        world.fill_box(IVec3::new(-4, 10, -4), IVec3::new(4, 10, 4), BlockId::Stone);
+        world.fill_box(IVec3::new(-4, 20, -4), IVec3::new(4, 20, 4), BlockId::Stone);
+        world
+    }
+
+    #[test]
+    fn a_portal_fits_on_a_floor_and_a_ceiling_along_each_facing() {
+        let world = slabs();
+        let none = Portals::default();
+        let horizontal = [
+            (Vec3::new(0.1, 0.0, -1.0), FaceDirection::MinusZ),
+            (Vec3::new(0.1, 0.0, 1.0), FaceDirection::PlusZ),
+            (Vec3::new(1.0, 0.0, 0.1), FaceDirection::PlusX),
+            (Vec3::new(-1.0, 0.0, 0.1), FaceDirection::MinusX),
+        ];
+        for (face, cell_y, plane_y, down) in [
+            (FaceDirection::PlusY, 10, 11.0, -1.0),
+            (FaceDirection::MinusY, 20, 20.0, 1.0),
+        ] {
+            for (facing, up) in horizontal {
+                let direction = (facing + Vec3::Y * down).normalize();
+                let hit = Vec3::new(0.3, plane_y, 0.6);
+                let aimed = IVec3::new(0, cell_y, 0);
+                let fitted = fit_portal(
+                    &world,
+                    &none,
+                    7,
+                    PortalColor::Blue,
+                    aimed,
+                    face,
+                    hit,
+                    direction,
+                )
+                .unwrap_or_else(|| panic!("{face:?} {up:?}"));
+                assert_eq!((fitted.face, fitted.up), (face, up));
+                let cells: Vec<_> = fitted.cells().collect();
+                assert!(cells.contains(&aimed), "{face:?} {up:?}");
+                assert!(cells.iter().all(|cell| cell.y == cell_y));
+                // Three cells long along the facing, two across
+                let up_axis = up.to_ivec3().abs();
+                let span = |axis: IVec3| {
+                    let along: Vec<i32> = cells.iter().map(|cell| cell.dot(axis)).collect();
+                    along.iter().max().unwrap() - along.iter().min().unwrap() + 1
+                };
+                assert_eq!(span(up_axis), 3, "{face:?} {up:?}");
+                assert_eq!(span(IVec3::new(1, 0, 1) - up_axis), 2, "{face:?} {up:?}");
+                // The nearest of the placements to the hit point
+                let centre = Vec3::from(fitted.frame().translation);
+                assert!(centre.distance(hit) < 1.2, "{face:?} {up:?}: {centre}");
+            }
+        }
+        // Looking north and down at the floor, hit at (0.3, 11, 0.6): west and south of the
+        // aimed cell's middle, the opening reaches west of it, and north and south of it
+        let north = fit_portal(
+            &world,
+            &none,
+            7,
+            PortalColor::Blue,
+            IVec3::ZERO.with_y(10),
+            FaceDirection::PlusY,
+            Vec3::new(0.3, 11.0, 0.6),
+            Vec3::new(0.0, -1.0, -1.0).normalize(),
+        )
+        .unwrap();
+        assert_eq!(north.anchor, IVec3::new(-1, 10, 1));
+    }
+
+    #[test]
+    fn a_floor_portal_needs_free_room_above_its_six_cells() {
+        let mut world = slabs();
+        let none = Portals::default();
+        let down_north = Vec3::new(0.0, -1.0, -1.0).normalize();
+        let fit = |world: &ChunkMap| {
+            fit_portal(
+                world,
+                &none,
+                7,
+                PortalColor::Blue,
+                IVec3::new(0, 10, 0),
+                FaceDirection::PlusY,
+                Vec3::new(0.5, 11.0, 0.5),
+                down_north,
+            )
+        };
+        let free = fit(&world).unwrap();
+        // A block on one of the cells above it: the next placement, away from the block
+        let blocked = free.front_cells().next().unwrap();
+        world.fill_box(blocked, blocked, BlockId::Dirt);
+        let moved = fit(&world).unwrap();
+        assert!(moved.front_cells().all(|cell| cell != blocked));
+        // At the edge of the slab, a placement that would reach past it does not fit
+        let world = slabs();
+        let edge = fit_portal(
+            &world,
+            &none,
+            7,
+            PortalColor::Blue,
+            IVec3::new(4, 10, -4),
+            FaceDirection::PlusY,
+            Vec3::new(4.9, 11.0, -3.9),
+            down_north,
+        )
+        .unwrap();
+        assert!(edge.cells().all(|cell| cell.x <= 4 && cell.z >= -4));
     }
 
     #[test]
