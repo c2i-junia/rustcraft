@@ -7,6 +7,7 @@ mod chat;
 mod clouds;
 mod cocoa;
 mod connecting;
+mod drop;
 mod feedback;
 mod furnace;
 mod game;
