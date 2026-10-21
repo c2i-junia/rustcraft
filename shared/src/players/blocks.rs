@@ -2,11 +2,11 @@
 
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
-    players::{movement::MAX_FRAME_DELTA_MS, Player},
+    players::{movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
-        global_block_to_chunk_pos, raycast, BlockData, BlockDirection, BlockId, BlockTransparency,
-        ChunkMap, Container, FaceDirectionExt, Furnace, ItemType, MobKind, RaycastResponse,
-        ServerMob, Tool,
+        global_block_to_chunk_pos, liquid::is_source, raycast, BlockData, BlockDirection, BlockId,
+        BlockTransparency, ChunkMap, Container, FaceDirectionExt, Furnace, ItemId, ItemStack,
+        ItemType, MobKind, RaycastResponse, ServerMob, Tool,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -36,6 +36,9 @@ pub const INTERACTION_DISTANCE: f32 = 5.0;
 pub const HIT_MS: u64 = 50;
 /// Time between two blocks placed while the right button is held, four server ticks.
 pub const PLACE_REPEAT_MS: u64 = 200;
+/// The wait after a bucket was used: none ends but the release of the button, so that a bucket
+/// acts once per press and never pours back at once what it just took.
+const UNTIL_RELEASED_MS: u64 = u64::MAX;
 const CUBE_SIZE: f32 = 1.0;
 
 /// Why an interaction changed nothing.
@@ -61,6 +64,8 @@ enum Refusal {
     UsesBlock(BlockId),
     /// A vine hangs on the side of a block, never on its top or bottom.
     NotASide,
+    /// An empty bucket fills only from a water source.
+    NotASource(BlockId),
 }
 
 /// A refused interaction, and the block a client may have predicted a change at.
@@ -107,10 +112,12 @@ pub struct SpawnedMob {
 pub struct BlockInteractions {
     pub broken: Vec<BrokenBlock>,
     pub spawned: Vec<SpawnedMob>,
+    /// The water bucket a player filled and had no room for: the server drops it.
+    pub dropped: Vec<ItemStack>,
 }
 
-/// Breaks and places the blocks `action` asks for, or uses a spawn egg, and returns the blocks
-/// it broke and the mobs it made appear.
+/// Breaks and places the blocks `action` asks for, or uses a spawn egg or a bucket, and returns
+/// the blocks it broke, the mobs it made appear and what the player had no room for.
 pub fn simulate_player_block_interactions(
     player: &mut Player,
     world_map: &mut ChunkMap,
@@ -119,6 +126,7 @@ pub fn simulate_player_block_interactions(
 ) -> BlockInteractions {
     let mut broken = Vec::new();
     let mut spawned = Vec::new();
+    let mut dropped = Vec::new();
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
     let hits = mining_hits(player, action);
@@ -127,24 +135,38 @@ pub fn simulate_player_block_interactions(
         let (verb, outcome) = match network_action {
             NetworkAction::LeftClick if hits == 0 => continue,
             NetworkAction::LeftClick => (
-                "break",
+                "break a block",
                 break_block(player, world_map, action, hits).map(|block| broken.extend(block)),
             ),
             NetworkAction::RightClick if !may_place => continue,
-            NetworkAction::RightClick => (
-                "place",
-                place_block(player, world_map, action).map(|mob| {
-                    spawned.extend(mob);
-                    player.place_wait_ms = PLACE_REPEAT_MS
-                }),
-            ),
+            NetworkAction::RightClick => match held_item(player, action) {
+                Some(ItemId::Bucket) => (
+                    "fill a bucket",
+                    fill_bucket(player, world_map, action).map(|left| {
+                        dropped.extend(left);
+                        player.place_wait_ms = UNTIL_RELEASED_MS
+                    }),
+                ),
+                Some(ItemId::WaterBucket) => (
+                    "pour a bucket",
+                    pour_water(player, world_map, action)
+                        .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                ),
+                _ => (
+                    "place a block",
+                    place_block(player, world_map, action).map(|mob| {
+                        spawned.extend(mob);
+                        player.place_wait_ms = PLACE_REPEAT_MS
+                    }),
+                ),
+            },
             _ => continue,
         };
         let Err(refused) = outcome else {
             continue;
         };
         log::debug!(
-            "{} Player {} could not {verb} a block: {:?}",
+            "{} Player {} could not {verb}: {:?}",
             caller_type.as_str(),
             player.id,
             refused.reason
@@ -155,7 +177,11 @@ pub fn simulate_player_block_interactions(
             world_map.touch_block(position);
         }
     }
-    BlockInteractions { broken, spawned }
+    BlockInteractions {
+        broken,
+        spawned,
+        dropped,
+    }
 }
 
 /// Mining hits the time held in `action` adds up to; what is left of it is kept for the next
@@ -185,19 +211,36 @@ fn place_ready(player: &mut Player, action: &PlayerFrameInput) -> bool {
     player.place_wait_ms == 0
 }
 
-/// The block the player aims at, if it is within reach. An out of reach refusal names
-/// `predicted_at(target)` as the block to re-state.
+/// The block the player aims at through `camera`, holding `held`: an empty bucket aims at the
+/// water sources too, any other item through water.
+pub fn aim(
+    world_map: &ChunkMap,
+    camera: &Transform,
+    player_position: &Vec3,
+    view_mode: ViewMode,
+    held: Option<ItemId>,
+) -> Option<RaycastResponse> {
+    if held == Some(ItemId::Bucket) {
+        raycast::raycast_to_water_source(world_map, camera, player_position, view_mode)
+    } else {
+        raycast::raycast(world_map, camera, player_position, view_mode)
+    }
+}
+
+/// The block the player aims at with the item it holds, if it is within reach. An out of reach
+/// refusal names `predicted_at(target)` as the block to re-state.
 fn aimed_block(
     player: &Player,
     world_map: &ChunkMap,
     action: &PlayerFrameInput,
     predicted_at: impl Fn(&RaycastResponse) -> IVec3,
 ) -> Result<RaycastResponse, Refused> {
-    let target = raycast::raycast(
+    let target = aim(
         world_map,
         &action.camera,
         &player.position,
         action.view_mode,
+        held_item(player, action),
     )
     .ok_or(Refused {
         reason: Refusal::NoTarget,
@@ -212,6 +255,14 @@ fn aimed_block(
         ));
     }
     Ok(target)
+}
+
+/// The item in the selected hotbar slot.
+fn held_item(player: &Player, action: &PlayerFrameInput) -> Option<ItemId> {
+    if action.hotbar_slot >= MAX_INVENTORY_SLOTS {
+        return None;
+    }
+    Some(player.inventory.inner.get(&action.hotbar_slot)?.item_id)
 }
 
 /// The tool in the selected hotbar slot, if it holds one.
@@ -276,32 +327,43 @@ fn break_block(
     }))
 }
 
-/// Places the block held in the selected hotbar slot against the aimed face. A spawn egg makes
-/// its mob appear there instead, standing on the bottom of the cell, and is returned.
-fn place_block(
-    player: &mut Player,
-    world_map: &mut ChunkMap,
+/// Refuses a right click on a block that it uses, like a chest, unless the player sneaks.
+fn refuse_used_block(
+    world_map: &ChunkMap,
+    target: &RaycastResponse,
     action: &PlayerFrameInput,
-) -> Result<Option<SpawnedMob>, Refused> {
-    let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
-    let target = aimed_block(player, world_map, action, new_block_position)?;
-    if let Some(aimed) = world_map.get_block(target.position) {
-        if aimed.id.is_usable() && !action.is_pressed(NetworkAction::SneakOrFlyDown) {
-            // The client opens the block instead, and predicts no block either
-            return Err(Refused {
+) -> Result<(), Refused> {
+    match world_map.get_block(target.position) {
+        Some(aimed)
+            if aimed.id.is_usable() && !action.is_pressed(NetworkAction::SneakOrFlyDown) =>
+        {
+            // The client opens the block instead, and predicts no change either
+            Err(Refused {
                 reason: Refusal::UsesBlock(aimed.id),
                 predicted_at: None,
-            });
+            })
         }
+        _ => Ok(()),
     }
+}
+
+/// The aimed block and the cell against its aimed face, where a block can be placed: empty or
+/// replaceable, in a loaded chunk.
+fn cell_against_aimed_face(
+    player: &Player,
+    world_map: &ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<(RaycastResponse, IVec3), Refused> {
+    let new_block_position = |target: &RaycastResponse| target.position + target.face.to_ivec3();
+    let target = aimed_block(player, world_map, action, new_block_position)?;
+    refuse_used_block(world_map, &target, action)?;
     let position = new_block_position(&target);
-    let refused = |reason| Err(Refused::at(position, reason));
 
     if world_map
         .get_block(position)
         .is_some_and(|block| !block.id.is_replaceable())
     {
-        return refused(Refusal::Occupied);
+        return Err(Refused::at(position, Refusal::Occupied));
     }
     // A block is never placed into terrain that is not loaded, and must not use up the item
     // then. There is no block to re-state either: neither side has this chunk.
@@ -311,6 +373,18 @@ fn place_block(
             predicted_at: None,
         });
     }
+    Ok((target, position))
+}
+
+/// Places the block held in the selected hotbar slot against the aimed face. A spawn egg makes
+/// its mob appear there instead, standing on the bottom of the cell, and is returned.
+fn place_block(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<Option<SpawnedMob>, Refused> {
+    let (target, position) = cell_against_aimed_face(player, world_map, action)?;
+    let refused = |reason| Err(Refused::at(position, reason));
     let slot = action.hotbar_slot;
     if slot >= MAX_INVENTORY_SLOTS {
         return refused(Refusal::InvalidSlot(slot));
@@ -356,6 +430,73 @@ fn place_block(
     Ok(None)
 }
 
+/// Fills the bucket held in the selected hotbar slot from the water source the player aims at,
+/// which is taken away. A single bucket becomes the water bucket; from a stack, the water bucket
+/// goes into the inventory, and is returned when there is no room for it.
+fn fill_bucket(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<Option<ItemStack>, Refused> {
+    let target = aimed_block(player, world_map, action, |target| target.position)?;
+    refuse_used_block(world_map, &target, action)?;
+    if !is_source(&target.block) {
+        return Err(Refused::at(
+            target.position,
+            Refusal::NotASource(target.block.id),
+        ));
+    }
+
+    world_map.remove_block(target.position);
+    let water_bucket = ItemStack {
+        item_id: ItemId::WaterBucket,
+        item_type: ItemId::WaterBucket.get_default_type(),
+        nb: 1,
+    };
+    let slot = action.hotbar_slot;
+    if player
+        .inventory
+        .inner
+        .get(&slot)
+        .is_some_and(|held| held.nb == 1)
+    {
+        player.inventory.inner.insert(slot, water_bucket);
+        return Ok(None);
+    }
+    player.inventory.remove_item_from_stack(slot, 1);
+    let left = player.inventory.add_item_to_inventory(water_bucket);
+    Ok((left > 0).then_some(water_bucket))
+}
+
+/// Pours the water of the water bucket held in the selected hotbar slot against the aimed face,
+/// where a block would be placed: a source, which the flow of the server then spreads. The water
+/// bucket becomes a bucket. Water stops nobody, so it may be poured where the player stands;
+/// into a source, it would change nothing, and the water bucket is kept.
+fn pour_water(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<(), Refused> {
+    let (_, position) = cell_against_aimed_face(player, world_map, action)?;
+    if world_map.get_block(position).is_some_and(is_source) {
+        return Err(Refused::at(position, Refusal::Occupied));
+    }
+
+    world_map.set_block(
+        position,
+        BlockData::new(BlockId::Water, BlockDirection::Front),
+    );
+    player.inventory.inner.insert(
+        action.hotbar_slot,
+        ItemStack {
+            item_id: ItemId::Bucket,
+            item_type: ItemId::Bucket.get_default_type(),
+            nb: 1,
+        },
+    );
+    Ok(())
+}
+
 /// The direction that turns the front of a block toward a player looking through `camera`:
 /// against the horizontal axis it looks the most along.
 fn facing(camera: &Transform) -> BlockDirection {
@@ -380,6 +521,7 @@ fn block_overlaps_player(block_position: IVec3, player: &Player) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::players::game_mode::GameMode;
     use crate::world::{BlockId, Furnace, ItemId, ItemStack};
     use bevy::math::IVec3;
     use bevy::prelude::Transform;
@@ -537,14 +679,19 @@ mod tests {
     /// A player two blocks behind `TARGET`'s neighbour, holding dirt, right-clicking the face of
     /// a block at z = -1 that looks toward block (0,0,0): the new block goes in the next chunk.
     fn place_across_a_chunk_border(world: &mut ChunkMap) -> Player {
+        place_across_a_chunk_border_holding(world, ItemId::Dirt)
+    }
+
+    /// `place_across_a_chunk_border`, holding `item` in place of the dirt.
+    fn place_across_a_chunk_border_holding(world: &mut ChunkMap, item: ItemId) -> Player {
         let position = Vec3::new(0.5, 0.5, 2.5);
         let camera = Transform::from_translation(position);
         let mut player = Player::new(1, "tester".to_string(), position, camera);
         player.inventory.inner.insert(
             0,
             ItemStack {
-                item_id: ItemId::Dirt,
-                item_type: ItemId::Dirt.get_default_type(),
+                item_id: item,
+                item_type: item.get_default_type(),
                 nb: 1,
             },
         );
@@ -1111,5 +1258,251 @@ mod tests {
         );
         assert!(broken.harvested);
         assert!(player.inventory.inner.is_empty());
+    }
+
+    fn water(level: u8) -> BlockData {
+        BlockData {
+            level,
+            ..BlockData::new(BlockId::Water, BlockDirection::Front)
+        }
+    }
+
+    /// A player at the centre of block (0,0,0), looking down -Z, holding `held` in its first
+    /// hotbar slot, before stone at `TARGET` and `blocks` placed in front of it. Returns them
+    /// with the right click it sends.
+    fn bucket_in_front_of(
+        blocks: &[(IVec3, BlockData)],
+        held: ItemStack,
+    ) -> (Player, ChunkMap, PlayerFrameInput) {
+        let (mut player, mut world, mut input) = left_click_on(BlockId::Stone);
+        for &(position, block) in blocks {
+            world.set_block(position, block);
+        }
+        world.take_changed_blocks();
+        player.inventory.inner.insert(0, held);
+        input.inputs = [NetworkAction::RightClick].into();
+        (player, world, input)
+    }
+
+    fn right_click(
+        player: &mut Player,
+        world: &mut ChunkMap,
+        input: &PlayerFrameInput,
+    ) -> Vec<ItemStack> {
+        simulate_player_block_interactions(player, world, input, CallerType::Server).dropped
+    }
+
+    /// What the player holds in slot `slot`.
+    fn held(player: &Player, slot: u32) -> Option<(ItemId, u32)> {
+        let stack = player.inventory.inner.get(&slot)?;
+        Some((stack.item_id, stack.nb))
+    }
+
+    const IN_FRONT: IVec3 = IVec3::new(0, 0, -2);
+
+    #[test]
+    fn a_bucket_takes_the_aimed_water_source_and_becomes_a_water_bucket_in_any_mode() {
+        for mode in [GameMode::Survival, GameMode::Creative] {
+            let (mut player, mut world, input) =
+                bucket_in_front_of(&[(IN_FRONT, water(0))], stack(ItemId::Bucket, 1));
+            player.game_mode = mode;
+
+            let dropped = right_click(&mut player, &mut world, &input);
+
+            assert_eq!(world.get_block(IN_FRONT), None, "{mode:?}");
+            assert_eq!(world.take_changed_blocks(), vec![IN_FRONT], "{mode:?}");
+            assert_eq!(held(&player, 0), Some((ItemId::WaterBucket, 1)), "{mode:?}");
+            assert!(dropped.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_bucket_of_a_stack_fills_into_the_inventory_or_is_handed_to_the_server() {
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(IN_FRONT, water(0))], stack(ItemId::Bucket, 3));
+        // The hand keeps the other buckets: the first empty slot takes the water bucket
+        player.inventory.inner.insert(1, stack(ItemId::Dirt, 64));
+        assert!(right_click(&mut player, &mut world, &input).is_empty());
+        assert_eq!(held(&player, 0), Some((ItemId::Bucket, 2)));
+        assert_eq!(held(&player, 2), Some((ItemId::WaterBucket, 1)));
+
+        // With no room left, the water bucket is handed to the server to drop
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(IN_FRONT, water(0))], stack(ItemId::Bucket, 3));
+        for slot in 1..MAX_INVENTORY_SLOTS {
+            player.inventory.inner.insert(slot, stack(ItemId::Dirt, 64));
+        }
+        let dropped = right_click(&mut player, &mut world, &input);
+        assert_eq!(dropped, vec![stack(ItemId::WaterBucket, 1)]);
+        assert_eq!(held(&player, 0), Some((ItemId::Bucket, 2)));
+        assert_eq!(world.get_block(IN_FRONT), None);
+    }
+
+    #[test]
+    fn a_bucket_aims_through_flowing_water_at_the_source_behind_it() {
+        let near = IVec3::new(0, 0, -1);
+        let (mut player, mut world, input) = bucket_in_front_of(
+            &[(near, water(1)), (IN_FRONT, water(0))],
+            stack(ItemId::Bucket, 1),
+        );
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(near), Some(&water(1)));
+        assert_eq!(world.get_block(IN_FRONT), None);
+        assert_eq!(held(&player, 0), Some((ItemId::WaterBucket, 1)));
+    }
+
+    #[test]
+    fn a_bucket_aimed_at_flowing_water_or_a_block_takes_nothing() {
+        for blocks in [vec![(IN_FRONT, water(3))], vec![]] {
+            let (mut player, mut world, input) =
+                bucket_in_front_of(&blocks, stack(ItemId::Bucket, 1));
+
+            right_click(&mut player, &mut world, &input);
+
+            assert_eq!(world.get_block(IN_FRONT), blocks.first().map(|(_, b)| b));
+            assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)), "{blocks:?}");
+            // the server re-states the aimed stone
+            assert_eq!(world.take_changed_blocks(), vec![TARGET], "{blocks:?}");
+        }
+    }
+
+    #[test]
+    fn a_bucket_takes_no_source_out_of_reach() {
+        let far = IVec3::new(0, 0, -8);
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(far, water(0))], stack(ItemId::Bucket, 1));
+        world.remove_block(TARGET);
+        world.take_changed_blocks();
+
+        right_click(&mut player, &mut world, &input);
+
+        assert_eq!(world.get_block(far), Some(&water(0)));
+        assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)));
+        assert_eq!(world.take_changed_blocks(), vec![far]);
+    }
+
+    #[test]
+    fn a_water_bucket_pours_a_source_against_the_aimed_face_and_becomes_a_bucket() {
+        for (blocks, mode) in [
+            (vec![], GameMode::Survival),
+            (vec![], GameMode::Creative),
+            // Flowing water there becomes a source
+            (vec![(IN_FRONT, water(3))], GameMode::Survival),
+        ] {
+            let (mut player, mut world, input) =
+                bucket_in_front_of(&blocks, stack(ItemId::WaterBucket, 1));
+            player.game_mode = mode;
+
+            right_click(&mut player, &mut world, &input);
+
+            assert_eq!(world.get_block(IN_FRONT), Some(&water(0)), "{blocks:?}");
+            assert_eq!(world.take_changed_blocks(), vec![IN_FRONT], "{blocks:?}");
+            assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)), "{blocks:?}");
+        }
+    }
+
+    #[test]
+    fn water_poured_into_a_source_or_a_decoration_is_refused_and_the_water_bucket_kept() {
+        let torch = BlockData::new(BlockId::Torch, BlockDirection::Front);
+        for block in [water(0), torch] {
+            let (mut player, mut world, mut input) =
+                bucket_in_front_of(&[(IN_FRONT, block)], stack(ItemId::WaterBucket, 1));
+            // Over the torch, at the stone
+            let eyes = Vec3::new(0.5, 0.9, 0.5);
+            player.position = eyes;
+            input.camera = Transform::from_translation(eyes);
+
+            right_click(&mut player, &mut world, &input);
+
+            assert_eq!(world.get_block(IN_FRONT), Some(&block));
+            assert_eq!(held(&player, 0), Some((ItemId::WaterBucket, 1)));
+            // the server re-states the cell a client may have predicted water in
+            assert_eq!(world.take_changed_blocks(), vec![IN_FRONT]);
+        }
+    }
+
+    #[test]
+    fn water_poured_into_an_unloaded_chunk_is_refused() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::new(0, 0, -1), IVec3::new(0, 0, -1));
+        let player = place_across_a_chunk_border_holding(&mut world, ItemId::WaterBucket);
+        assert_eq!(held(&player, 0), Some((ItemId::WaterBucket, 1)));
+    }
+
+    #[test]
+    fn water_is_poured_where_the_player_stands_unlike_a_block() {
+        for (item, poured) in [(ItemId::WaterBucket, Some(water(0))), (ItemId::Dirt, None)] {
+            let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+            let floor = IVec3::new(0, -1, 0);
+            world.fill_box(floor, floor, BlockId::Stone);
+            let position = Vec3::splat(0.5);
+            let camera = Transform::from_translation(position).looking_to(Vec3::NEG_Y, Vec3::Z);
+            let mut player = Player::new(1, "tester".to_string(), position, camera);
+            player.inventory.inner.insert(0, stack(item, 1));
+            let input = PlayerFrameInput {
+                inputs: [NetworkAction::RightClick].into(),
+                camera,
+                ..Default::default()
+            };
+
+            right_click(&mut player, &mut world, &input);
+
+            assert_eq!(world.get_block(IVec3::ZERO).copied(), poured, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn a_bucket_aimed_at_a_chest_opens_it_unless_sneaking() {
+        for sneaking in [false, true] {
+            let chest = BlockData::new(BlockId::Chest, BlockDirection::Front);
+            let (mut player, mut world, mut input) =
+                bucket_in_front_of(&[(TARGET, chest)], stack(ItemId::WaterBucket, 1));
+            world.insert_container(TARGET, Container::default());
+            if sneaking {
+                input.inputs.insert(NetworkAction::SneakOrFlyDown);
+            }
+
+            right_click(&mut player, &mut world, &input);
+
+            let poured = sneaking.then_some(water(0));
+            assert_eq!(
+                world.get_block(IN_FRONT).copied(),
+                poured,
+                "sneaking: {sneaking}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bucket_acts_once_per_press_of_the_button() {
+        let (mut player, mut world, mut input) =
+            bucket_in_front_of(&[], stack(ItemId::WaterBucket, 1));
+        input.delta_ms = 16;
+        let mut released = input.clone();
+        released.inputs.clear();
+
+        // Poured; held a long while, the bucket does not take the water back
+        for _ in 0..100 {
+            right_click(&mut player, &mut world, &input);
+        }
+        assert_eq!(world.get_block(IN_FRONT), Some(&water(0)));
+        assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)));
+
+        // Released and pressed again, it does
+        right_click(&mut player, &mut world, &released);
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(IN_FRONT), None);
+        assert_eq!(held(&player, 0), Some((ItemId::WaterBucket, 1)));
+    }
+
+    #[test]
+    fn a_bucket_aimed_at_a_source_breaks_nothing_behind_it() {
+        let (mut player, mut world, mut input) =
+            bucket_in_front_of(&[(IN_FRONT, water(0))], stack(ItemId::Bucket, 1));
+        input.inputs = [NetworkAction::LeftClick].into();
+        for _ in 0..100 {
+            simulate_player_block_interactions(&mut player, &mut world, &input, CallerType::Server);
+        }
+        assert_eq!(world.get_block(IN_FRONT), Some(&water(0)));
+        assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, 0);
     }
 }

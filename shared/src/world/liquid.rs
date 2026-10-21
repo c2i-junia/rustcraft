@@ -177,6 +177,11 @@ fn is_water(block: &BlockData) -> bool {
     block.id == BlockId::Water
 }
 
+/// Whether `block` is a water source, which a bucket takes and the flow never makes.
+pub fn is_source(block: &BlockData) -> bool {
+    is_water(block) && block.level == SOURCE_LEVEL
+}
+
 /// Whether flowing water can take the place of `block`: air, a decoration that it washes
 /// away, or water that is not a source.
 fn can_be_flooded(block: Option<&BlockData>) -> bool {

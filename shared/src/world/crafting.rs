@@ -721,7 +721,9 @@ mod tests {
         }
         // upside down, it is nothing
         assert_eq!(
-            match_recipe(&grid([None, iron, None, iron, None, iron, None, None, None])),
+            match_recipe(&grid([
+                None, iron, None, iron, None, iron, None, None, None
+            ])),
             None
         );
         // three wide, it needs a crafting table

@@ -6,7 +6,7 @@ use crate::{
         movement::simulate_player_movement,
         Player,
     },
-    world::ChunkMap,
+    world::{ChunkMap, ItemStack},
 };
 
 /// What one input did that the server acts upon.
@@ -16,6 +16,8 @@ pub struct ActionsOutcome {
     pub broken: Vec<BrokenBlock>,
     /// The mobs the player made appear with a spawn egg.
     pub spawned: Vec<SpawnedMob>,
+    /// What the player filled and had no room for, to drop.
+    pub dropped: Vec<ItemStack>,
     /// How many blocks the player fell, when it landed.
     pub fallen: Option<f32>,
 }
@@ -36,6 +38,7 @@ pub fn simulate_player_actions(
     ActionsOutcome {
         broken: interactions.broken,
         spawned: interactions.spawned,
+        dropped: interactions.dropped,
         fallen,
     }
 }

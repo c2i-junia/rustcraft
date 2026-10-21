@@ -5,7 +5,7 @@ use bevy::{
 
 use crate::{
     players::ViewMode,
-    world::{BlockData, BlockHitbox, ChunkMap},
+    world::{liquid::is_source, BlockData, BlockHitbox, ChunkMap},
     HALF_BLOCK,
 };
 
@@ -52,12 +52,45 @@ pub fn raycast(
     player_position: &Vec3,
     view_mode: ViewMode,
 ) -> Option<RaycastResponse> {
+    cast(
+        world_map,
+        camera_transform,
+        player_position,
+        view_mode,
+        false,
+    )
+}
+
+/// `raycast`, but the ray also stops at a water source, which it hits as a whole block: what an
+/// empty bucket aims at. Flowing water stays transparent to it.
+pub fn raycast_to_water_source(
+    world_map: &ChunkMap,
+    camera_transform: &Transform,
+    player_position: &Vec3,
+    view_mode: ViewMode,
+) -> Option<RaycastResponse> {
+    cast(
+        world_map,
+        camera_transform,
+        player_position,
+        view_mode,
+        true,
+    )
+}
+
+fn cast(
+    world_map: &ChunkMap,
+    camera_transform: &Transform,
+    player_position: &Vec3,
+    view_mode: ViewMode,
+    sources: bool,
+) -> Option<RaycastResponse> {
     let origin = match view_mode {
         ViewMode::FirstPerson => camera_transform.translation,
         ViewMode::ThirdPerson => *player_position,
     };
     let direction = camera_transform.rotation.mul_vec3(Vec3::NEG_Z).normalize();
-    raycast_from_source_position_and_direction(world_map, origin, direction)
+    traverse(world_map, origin, direction, sources)
 }
 
 /// Maximum distance, in ray parameter units (blocks for a normalized direction), a ray travels.
@@ -78,12 +111,21 @@ fn max_ray_steps(direction: Vec3) -> usize {
     steps.saturating_add(3).min(MAX_RAY_STEPS_CAP)
 }
 
-// Amanatides-Woo fast traversal algorithm
-// Tweaked to include block-specific interaction boxes
 pub fn raycast_from_source_position_and_direction(
     world_map: &ChunkMap,
     origin: Vec3,
     direction: Vec3,
+) -> Option<RaycastResponse> {
+    traverse(world_map, origin, direction, false)
+}
+
+// Amanatides-Woo fast traversal algorithm
+// Tweaked to include block-specific interaction boxes, and the water sources when `sources`
+fn traverse(
+    world_map: &ChunkMap,
+    origin: Vec3,
+    direction: Vec3,
+    sources: bool,
 ) -> Option<RaycastResponse> {
     // The camera comes from the network: reject anything that cannot define a ray
     if !origin.is_finite()
@@ -112,7 +154,9 @@ pub fn raycast_from_source_position_and_direction(
         }
         if let Some(block) = world_map.get_block(voxel) {
             let entered_by = entry_face(axis, step[axis])?;
-            let hit = hit_block(*block, voxel, entered_by, origin, direction, inv_dir);
+            let hit = hit_block(
+                *block, voxel, entered_by, sources, origin, direction, inv_dir,
+            );
             if hit.is_some() {
                 return hit;
             }
@@ -172,16 +216,22 @@ fn entry_face(axis: usize, step: i32) -> Option<FaceDirection> {
 }
 
 /// Whether the ray, which entered `voxel` through `entered_by`, hits the interaction box of
-/// the `block` it holds.
+/// the `block` it holds, a whole block for a water source when it stops at `sources`.
 fn hit_block(
     block: BlockData,
     voxel: IVec3,
     entered_by: FaceDirection,
+    sources: bool,
     origin: Vec3,
     direction: Vec3,
     inv_dir: Vec3,
 ) -> Option<RaycastResponse> {
-    match block.get_ray_hitbox() {
+    let hitbox = if sources && is_source(&block) {
+        BlockHitbox::FullBlock
+    } else {
+        block.get_ray_hitbox()
+    };
+    match hitbox {
         BlockHitbox::FullBlock => Some(RaycastResponse {
             block,
             position: voxel,
@@ -325,6 +375,38 @@ mod tests {
         world.fill_box(IVec3::new(4, 0, 0), IVec3::new(4, 0, 0), BlockId::Stone);
         let hit = raycast_from_source_position_and_direction(&world, ORIGIN, Vec3::X).unwrap();
         assert_eq!(hit.position, IVec3::new(4, 0, 0));
+    }
+
+    #[test]
+    fn a_ray_to_water_sources_stops_at_a_source_and_goes_through_flowing_water() {
+        use crate::world::BlockDirection;
+        let water = |level| BlockData {
+            level,
+            ..BlockData::new(BlockId::Water, BlockDirection::Front)
+        };
+        let mut world = world_with_block(IVec3::new(6, 0, 0), BlockId::Stone);
+        world.set_block(IVec3::new(2, 0, 0), water(3));
+        world.set_block(IVec3::new(4, 0, 0), water(0));
+
+        let hit = traverse(&world, ORIGIN, Vec3::X, true).unwrap();
+        assert_eq!(hit.position, IVec3::new(4, 0, 0));
+        assert_eq!(hit.face, FaceDirection::MinusX);
+        assert_eq!(hit.block, water(0));
+        // A ray that ignores water reaches the stone
+        let hit = traverse(&world, ORIGIN, Vec3::X, false).unwrap();
+        assert_eq!(hit.position, IVec3::new(6, 0, 0));
+        // So does the camera's ray, and the bucket's stops at the source
+        let camera = Transform::from_translation(ORIGIN).looking_to(Vec3::X, Vec3::Y);
+        let view = ViewMode::FirstPerson;
+        let at = |hit: Option<RaycastResponse>| hit.map(|hit| hit.position);
+        assert_eq!(
+            at(raycast(&world, &camera, &ORIGIN, view)),
+            Some(IVec3::new(6, 0, 0))
+        );
+        assert_eq!(
+            at(raycast_to_water_source(&world, &camera, &ORIGIN, view)),
+            Some(IVec3::new(4, 0, 0))
+        );
     }
 
     #[test]
