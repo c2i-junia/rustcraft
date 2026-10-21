@@ -41,6 +41,10 @@ const SUN: [f32; 3] = [1., 0.25, 0.12];
 const EXPOSURE_SHIFT: [f32; 3] = [0., -1.3, -2.];
 /// The part of the saturation kept: 1.12 becomes 0.9 in rain.
 const SATURATION: [f32; 3] = [1., 0.9 / 1.12, 0.78];
+const AMBIENT: [f32; 3] = [1., 2., 1.6];
+const ENVIRONMENT_LIGHT: [f32; 3] = [1., 0.4, 0.3];
+/// The colour of the ambient light under the overcast: a cool grey.
+const AMBIENT_COLOR: Color = Color::srgb(0.88, 0.9, 0.95);
 /// Where the fog starts and ends, as parts of the distance to the edge of the chunks shown.
 const FOG_START: [f32; 3] = [0.6, 0.3, 0.15];
 const FOG_END: [f32; 3] = [1., 0.75, 0.6];
@@ -103,6 +107,26 @@ impl Overcast {
         let end = (distance * self.fog_end()).max(distance.min(MIN_FOG_END));
         let start = (distance * self.blend(FOG_START)).min(end);
         (start, end)
+    }
+
+    /// How much brighter the ambient light is, which keeps the world readable as the sun dims:
+    /// the even light of a grey sky.
+    pub fn ambient(self) -> f32 {
+        self.blend(AMBIENT)
+    }
+
+    /// The colour of the ambient light, `clear` under a clear sky.
+    pub fn ambient_color(self, clear: Color) -> Color {
+        if self.level == 0. {
+            return clear;
+        }
+        clear.mix(&AMBIENT_COLOR, self.level)
+    }
+
+    /// How bright the light of the physical sky is, which is blue: the grey ambient light
+    /// takes over.
+    pub fn environment_light(self) -> f32 {
+        self.blend(ENVIRONMENT_LIGHT)
     }
 
     /// How visible the sun, the moon and the stars are: gone by a level of 0.8.
@@ -361,6 +385,24 @@ mod tests {
         }
         assert!(close(RAIN.saturation(1.12), 0.9));
         assert!(STORM.saturation(1.12) <= RAIN.saturation(1.12));
+    }
+
+    #[test]
+    fn an_even_grey_light_takes_over_from_the_sun_and_the_blue_sky() {
+        assert_eq!(CLEAR.ambient(), 1.);
+        assert_eq!(CLEAR.environment_light(), 1.);
+        assert_eq!(CLEAR.ambient_color(Color::WHITE), Color::WHITE);
+        for overcast in [RAIN, STORM] {
+            assert!(overcast.ambient() > 1.);
+            assert!(overcast.environment_light() < 0.5);
+            let grey = overcast.ambient_color(Color::WHITE).to_linear();
+            assert!(
+                grey.blue >= grey.red && grey.red > 0.8 * grey.blue,
+                "{grey:?}"
+            );
+        }
+        // the light of a storm is darker than that of the rain
+        assert!(STORM.ambient() < RAIN.ambient());
     }
 
     #[test]

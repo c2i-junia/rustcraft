@@ -22,8 +22,8 @@ use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass, NormalPrep
 use bevy::light::atmosphere::ScatteringMedium;
 use bevy::light::{
     Atmosphere, AtmosphereEnvironmentMapLight, CascadeShadowConfig, CascadeShadowConfigBuilder,
-    DirectionalLightShadowMap, FogVolume, ShadowFilteringMethod, SunDisk, VolumetricFog,
-    VolumetricLight,
+    DirectionalLightShadowMap, EnvironmentMapLight, FogVolume, ShadowFilteringMethod, SunDisk,
+    VolumetricFog, VolumetricLight,
 };
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{
@@ -44,6 +44,8 @@ use crate::camera::underwater_fog_system;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
 use crate::world::clouds::cloud_uniforms_system;
 use crate::world::clouds::material::CloudMaterial;
+use crate::world::overcast::Overcast;
+use crate::world::weather::ClientWeather;
 use crate::world::{
     daylight_ambient_system, ChunkMaterial, GlobalMaterial, GraphicsSettings, MaterialResource,
     RenderDistance, ShaderQuality,
@@ -207,6 +209,7 @@ pub fn shaders_plugin(app: &mut App) {
             scale_sky_light
                 .after(celestial_light_system)
                 .after(daylight_ambient_system),
+            grade_colors.after(apply_camera_features),
         ),
     );
 }
@@ -376,6 +379,7 @@ struct GodRayVolume;
 
 fn follow_camera_with_fog_volume(
     graphics: Res<GraphicsSettings>,
+    weather: Option<Res<ClientWeather>>,
     cameras: Query<&GlobalTransform, With<Camera3d>>,
     roots: Query<&Transform, (With<CelestialRoot>, Without<GodRayVolume>)>,
     mut volumes: Query<(Entity, &mut Transform, &mut FogVolume), With<GodRayVolume>>,
@@ -395,6 +399,8 @@ fn follow_camera_with_fog_volume(
         .next()
         .map_or(0., |root| (root.rotation * Vec3::Z).y);
     let density = 0.008 * 1f32.lerp(0.12, ((sun_height - 0.1) / 0.4).clamp(0., 1.));
+    // No rays of light under an overcast sky
+    let light = Overcast::current(weather.as_deref()).celestial_visibility();
     // A layer of haze over the ground, whose top is not seen against the sky
     let at = camera.translation().with_y(SEA_LEVEL as f32 + 30.);
     let size = Vec3::new(640., 140., 640.);
@@ -403,6 +409,9 @@ fn follow_camera_with_fog_volume(
             transform.translation = at;
             if volume.density_factor != density {
                 volume.density_factor = density;
+            }
+            if volume.light_intensity != light {
+                volume.light_intensity = light;
             }
         }
         Err(_) => {
@@ -413,6 +422,7 @@ fn follow_camera_with_fog_volume(
                     scattering: 0.6,
                     absorption: 0.1,
                     scattering_asymmetry: 0.7,
+                    light_intensity: light,
                     ..default()
                 },
                 Transform::from_translation(at).with_scale(size),
@@ -483,19 +493,26 @@ fn sky_fog(graphics: Res<GraphicsSettings>, mut cameras: Query<(&mut Camera, &mu
 /// it, and the moon and the ambient light as bright on screen as without it; the exposure
 /// follows the height of the sun. The sun still lights the sky a while after it has set, from
 /// just above the horizon, so that the sky glows at dusk and dawn; the moon takes over after.
+///
+/// Under the clouds of the rain, the sun and the moon dim (`celestial_light_system` dims the
+/// moon), the eye adapts some, and a grey ambient light takes over from the blue light of the
+/// atmosphere, so that the shadows fade out.
 fn scale_sky_light(
     graphics: Res<GraphicsSettings>,
+    weather: Option<Res<ClientWeather>>,
     roots: Query<&Transform, With<CelestialRoot>>,
     mut lights: Query<
         (&mut Transform, &mut DirectionalLight),
         (With<SkyLight>, Without<CelestialRoot>),
     >,
-    mut cameras: Query<&mut Exposure, With<Camera3d>>,
+    mut cameras: Query<(&mut Exposure, Option<&mut EnvironmentMapLight>), With<Camera3d>>,
     mut ambient: ResMut<GlobalAmbientLight>,
 ) {
+    let overcast = Overcast::current(weather.as_deref());
     if !features(&graphics).sky {
-        if ambient.color != Color::WHITE {
-            ambient.color = Color::WHITE;
+        let color = overcast.ambient_color(Color::WHITE);
+        if ambient.color != color {
+            ambient.color = color;
         }
         return;
     }
@@ -503,10 +520,14 @@ fn scale_sky_light(
         return;
     };
     let sun = root.rotation * Vec3::Z;
-    let ev100 = sky_ev100(sun.y);
-    for mut exposure in &mut cameras {
+    let ev100 = sky_ev100(sun.y) + overcast.exposure_shift();
+    let environment = overcast.environment_light();
+    for (mut exposure, light) in &mut cameras {
         if exposure.ev100 != ev100 {
             exposure.ev100 = ev100;
+        }
+        if let Some(mut light) = light.filter(|light| light.intensity != environment) {
+            light.intensity = environment;
         }
     }
     for (mut transform, mut light) in &mut lights {
@@ -514,18 +535,38 @@ fn scale_sky_light(
             // From where the sun is, but never from under the ground
             let from = sun.with_y(sun.y.max(TWILIGHT_LIGHT_HEIGHT)).normalize();
             transform.rotation = Quat::from_rotation_arc(Vec3::Z, root.rotation.inverse() * from);
-            light.illuminance = RAW_SUNLIGHT * smoothstep(-TWILIGHT, 0.1, sun.y);
+            light.illuminance = RAW_SUNLIGHT * smoothstep(-TWILIGHT, 0.1, sun.y) * overcast.sun();
             light.color = Color::WHITE;
         } else {
             light.illuminance *= light_scale(ev100) * smoothstep(TWILIGHT, 2. * TWILIGHT, -sun.y);
         }
     }
-    ambient.brightness = SKY_AMBIENT * light_scale(ev100);
+    ambient.brightness = SKY_AMBIENT * light_scale(ev100) * overcast.ambient();
     if sun.y >= 0. {
-        ambient.color = Color::WHITE;
+        ambient.color = overcast.ambient_color(Color::WHITE);
     } else {
         ambient.brightness *= NIGHT_AMBIENT_BOOST;
-        ambient.color = NIGHT_AMBIENT_COLOR;
+        ambient.color = overcast.ambient_color(NIGHT_AMBIENT_COLOR);
+    }
+}
+
+/// The colours lose some of their saturation under the clouds of the rain: a touch more vivid
+/// than the picture with the physical sky, as the packs grade theirs.
+fn grade_colors(
+    graphics: Res<GraphicsSettings>,
+    weather: Option<Res<ClientWeather>>,
+    mut cameras: Query<&mut ColorGrading, With<Camera3d>>,
+) {
+    let clear = if features(&graphics).sky {
+        SATURATION
+    } else {
+        1.
+    };
+    let saturation = Overcast::current(weather.as_deref()).saturation(clear);
+    for mut grading in &mut cameras {
+        if grading.global.post_saturation != saturation {
+            grading.global.post_saturation = saturation;
+        }
     }
 }
 
@@ -658,6 +699,20 @@ fn follow_camera_with_horizon(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::celestial::sky_rotation;
+    use crate::world::overcast::Overcast;
+    use bevy::ecs::system::RunSystemOnce;
+    use shared::world::WeatherKind;
+    use shared::NOON_IN_DAY;
+
+    const RAIN_OVERCAST: Overcast = Overcast {
+        level: 1.,
+        storm: 0.,
+    };
+    const STORM_OVERCAST: Overcast = Overcast {
+        level: 1.,
+        storm: 1.,
+    };
 
     #[test]
     fn each_quality_draws_more_than_the_one_below() {
@@ -692,6 +747,70 @@ mod tests {
                 "{step}: {before} then {ev100}"
             );
             before = ev100;
+        }
+    }
+
+    /// The light of the sun, the exposure, the ambient light, the light of the atmosphere
+    /// and the saturation at noon under `kind`, with the physical sky.
+    fn daylight_under(kind: WeatherKind) -> [f32; 5] {
+        let mut world = World::new();
+        world.init_resource::<GraphicsSettings>();
+        world.insert_resource(ClientWeather::settled(kind));
+        world.init_resource::<GlobalAmbientLight>();
+        world.spawn((
+            CelestialRoot,
+            Transform::from_rotation(sky_rotation(NOON_IN_DAY)),
+        ));
+        let light = world
+            .spawn((SkyLight, DirectionalLight::default(), Transform::IDENTITY))
+            .id();
+        let camera = world
+            .spawn((
+                Camera3d::default(),
+                Exposure::default(),
+                EnvironmentMapLight {
+                    intensity: 1.,
+                    ..default()
+                },
+                ColorGrading::default(),
+            ))
+            .id();
+        world.run_system_once(scale_sky_light).unwrap();
+        world.run_system_once(grade_colors).unwrap();
+        let camera = world.entity(camera);
+        [
+            world.get::<DirectionalLight>(light).unwrap().illuminance,
+            camera.get::<Exposure>().unwrap().ev100,
+            world.resource::<GlobalAmbientLight>().brightness,
+            camera.get::<EnvironmentMapLight>().unwrap().intensity,
+            camera.get::<ColorGrading>().unwrap().global.post_saturation,
+        ]
+    }
+
+    #[test]
+    fn rain_dims_the_sun_more_than_the_exposure_makes_up_for() {
+        let [sun, ev100, ambient, environment, saturation] = daylight_under(WeatherKind::Clear);
+        assert_eq!((environment, saturation), (1., SATURATION));
+        let close = |a: f32, b: f32| (a - b).abs() <= 1e-3 * b.abs().max(1.);
+        for (kind, overcast) in [
+            (WeatherKind::Rain, RAIN_OVERCAST),
+            (WeatherKind::Thunder, STORM_OVERCAST),
+        ] {
+            let [wet_sun, wet_ev100, wet_ambient, wet_environment, wet_saturation] =
+                daylight_under(kind);
+            assert!(close(wet_sun, sun * overcast.sun()), "{kind:?}");
+            assert!(
+                close(wet_ev100, ev100 + overcast.exposure_shift()),
+                "{kind:?}"
+            );
+            // as bright on screen, times the brightening of the overcast
+            let on_screen = |ambient: f32, ev100| ambient / light_scale(ev100);
+            assert!(close(
+                on_screen(wet_ambient, wet_ev100),
+                on_screen(ambient, ev100) * overcast.ambient()
+            ));
+            assert!(close(wet_environment, overcast.environment_light()));
+            assert!(close(wet_saturation, overcast.saturation(SATURATION)));
         }
     }
 }

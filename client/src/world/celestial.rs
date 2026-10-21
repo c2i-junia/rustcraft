@@ -1,6 +1,8 @@
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
+use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
+use crate::world::weather::ClientWeather;
 use crate::world::{GraphicsSettings, ShaderQuality};
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -284,16 +286,19 @@ fn sun_color(height: f32) -> Vec3 {
     Vec3::new(1.0, 0.95, 0.86).lerp(Vec3::new(1.0, 0.45, 0.18), low)
 }
 
-/// Colours the sun, phases the moon and shows the stars at night. The physical sky of the
-/// shaders draws a glow of its own around the sun and the moon.
+/// Colours the sun, phases the moon and shows the stars at night, unless the clouds of the
+/// rain hide them. The physical sky of the shaders draws a glow of its own around the sun and
+/// the moon.
 pub fn update_celestial_materials(
     time: Res<ClientTime>,
+    weather: Option<Res<ClientWeather>>,
     graphics: Res<GraphicsSettings>,
     bodies: Query<(&MeshMaterial3d<CelestialMaterial>, Has<Stars>)>,
     mut materials: ResMut<Assets<CelestialMaterial>>,
 ) {
     let height = sun_height(time.0);
     let physical_sky = graphics.shaders != ShaderQuality::Off;
+    let visibility = Overcast::current(weather.as_deref()).celestial_visibility();
     for (handle, stars) in &bodies {
         let Some(material) = materials.get(handle) else {
             continue;
@@ -305,8 +310,9 @@ pub fn update_celestial_materials(
         } else {
             1.
         };
+        params.visibility = visibility;
         if stars {
-            params.visibility = 1. - smoothstep(-0.25, 0.05, height);
+            params.visibility *= 1. - smoothstep(-0.25, 0.05, height);
         } else if params.kind == CelestialKind::Sun as u32 {
             params.color = sun_color(height).extend(1.);
             params.glow = if physical_sky { 0.3 } else { 1. };
@@ -325,7 +331,8 @@ pub fn update_celestial_materials(
 
 /// Lights the world from the sun while it is above the horizon, and from the moon otherwise,
 /// fading out as either nears the horizon: a light from under the ground would light the faces
-/// turned down through the ground. The shadows are drawn if the settings say so.
+/// turned down through the ground. The clouds of the rain dim either. The shadows are drawn if
+/// the settings say so.
 pub fn celestial_light_system(
     roots: Query<(&Transform, &Children), With<CelestialRoot>>,
     mut lights: Query<
@@ -333,8 +340,10 @@ pub fn celestial_light_system(
         (With<SkyLight>, Without<CelestialRoot>),
     >,
     graphics: Option<Res<GraphicsSettings>>,
+    weather: Option<Res<ClientWeather>>,
 ) {
     let shadows = graphics.is_none_or(|graphics| graphics.shadows);
+    let through_clouds = Overcast::current(weather.as_deref()).sun();
     for (root, children) in &roots {
         for child in children {
             let Ok((mut transform, mut light)) = lights.get_mut(*child) else {
@@ -353,7 +362,7 @@ pub fn celestial_light_system(
             };
             let fade = (sun_height.abs() / HORIZON_FADE).clamp(0., 1.);
             transform.rotation = rotation;
-            light.illuminance = illuminance * fade * fade * (3. - 2. * fade);
+            light.illuminance = illuminance * fade * fade * (3. - 2. * fade) * through_clouds;
             light.color = color;
             if light.shadow_maps_enabled != shadows {
                 light.shadow_maps_enabled = shadows;
@@ -365,7 +374,9 @@ pub fn celestial_light_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::weather::ClientWeather;
     use bevy::ecs::system::RunSystemOnce;
+    use shared::world::WeatherKind;
     use shared::{MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
     /// How high the sun is at noon, as the sine of its height: the tilt of its path keeps it from
@@ -416,6 +427,68 @@ mod tests {
             assert!(toward.y <= 0. || illuminance == 0., "hour {hour}: {toward}");
         }
         assert!(!sky_light_at(NOON_IN_DAY, false).2);
+    }
+
+    #[test]
+    fn the_clouds_of_the_rain_dim_the_sun_and_the_moon() {
+        for tick in [NOON_IN_DAY, MIDNIGHT_IN_DAY] {
+            let (_, clear, _) = sky_light_at(tick, true);
+            let mut world = World::new();
+            world.insert_resource(ClientTime(tick));
+            world.insert_resource(ClientWeather::settled(WeatherKind::Rain));
+            let light = world
+                .spawn((SkyLight, DirectionalLight::default(), Transform::IDENTITY))
+                .id();
+            world
+                .spawn((CelestialRoot, Transform::default()))
+                .add_child(light);
+            world.run_system_once(update_celestial_bodies).unwrap();
+            world.run_system_once(celestial_light_system).unwrap();
+            let rain = world.get::<DirectionalLight>(light).unwrap().illuminance;
+            assert!((rain - 0.25 * clear).abs() < 1e-3, "{tick}: {rain}");
+        }
+    }
+
+    /// The visibility of the sun, the moon and the stars at `tick` under `kind`.
+    fn visibilities(tick: u64, kind: WeatherKind) -> [f32; 3] {
+        let mut world = World::new();
+        world.insert_resource(ClientTime(tick));
+        world.insert_resource(ClientWeather::settled(kind));
+        world.init_resource::<GraphicsSettings>();
+        world.init_resource::<Assets<CelestialMaterial>>();
+        let bodies = [
+            CelestialKind::Sun,
+            CelestialKind::Moon,
+            CelestialKind::Stars,
+        ]
+        .map(|kind| {
+            let material =
+                world
+                    .resource_mut::<Assets<CelestialMaterial>>()
+                    .add(CelestialMaterial {
+                        params: CelestialParams {
+                            kind: kind as u32,
+                            visibility: 1.,
+                            ..default()
+                        },
+                    });
+            let body = world.spawn(MeshMaterial3d(material.clone())).id();
+            if kind == CelestialKind::Stars {
+                world.entity_mut(body).insert(Stars);
+            }
+            material
+        });
+        world.run_system_once(update_celestial_materials).unwrap();
+        let materials = world.resource::<Assets<CelestialMaterial>>();
+        bodies.map(|body| materials.get(&body).unwrap().params.visibility)
+    }
+
+    #[test]
+    fn the_sun_the_moon_and_the_stars_hide_behind_the_clouds_of_the_rain() {
+        assert_eq!(visibilities(NOON_IN_DAY, WeatherKind::Clear)[..2], [1., 1.]);
+        assert_eq!(visibilities(MIDNIGHT_IN_DAY, WeatherKind::Clear)[2], 1.);
+        assert_eq!(visibilities(NOON_IN_DAY, WeatherKind::Rain), [0.; 3]);
+        assert_eq!(visibilities(MIDNIGHT_IN_DAY, WeatherKind::Thunder), [0.; 3]);
     }
 
     #[test]

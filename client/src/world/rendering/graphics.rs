@@ -6,7 +6,9 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::world::celestial::sun_height;
+use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
+use crate::world::weather::ClientWeather;
 use crate::world::{ChunkShading, GlobalMaterial, MaterialResource, WorldRenderRequestUpdateEvent};
 
 use super::render::respawn_every_group;
@@ -133,9 +135,15 @@ fn daylight(tick: u64) -> f32 {
     ((sun_height(tick) + 0.1) / 0.35).clamp(0., 1.)
 }
 
-/// Dims the ambient light at night: the faces lit by the sky only are dark, if readable.
-pub fn daylight_ambient_system(time: Res<ClientTime>, mut ambient: ResMut<GlobalAmbientLight>) {
-    let brightness = NIGHT_AMBIENT + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0);
+/// Dims the ambient light at night: the faces lit by the sky only are dark, if readable. Under
+/// the clouds of the rain, it brightens as the sun dims.
+pub fn daylight_ambient_system(
+    time: Res<ClientTime>,
+    weather: Option<Res<ClientWeather>>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+) {
+    let brightness = (NIGHT_AMBIENT + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0))
+        * Overcast::current(weather.as_deref()).ambient();
     if (ambient.brightness - brightness).abs() > 0.5 {
         ambient.brightness = brightness;
     }
@@ -146,6 +154,8 @@ mod tests {
     use super::*;
     use crate::world::ChunkRender;
     use bevy::ecs::message::Messages;
+    use bevy::ecs::system::RunSystemOnce;
+    use shared::world::WeatherKind;
     use shared::DAY_DURATION_IN_TICKS;
 
     #[test]
@@ -185,6 +195,24 @@ mod tests {
         let map = app.world().resource::<ClientWorldMap>();
         assert_eq!(map.render[&IVec2::ZERO].entity, None);
         assert_eq!(requests(&mut app), 1);
+    }
+
+    #[test]
+    fn the_ambient_light_brightens_under_the_clouds_of_the_rain() {
+        let ambient_at = |kind| {
+            let mut world = World::new();
+            world.insert_resource(ClientTime(DAY_DURATION_IN_TICKS * 3 / 4));
+            world.insert_resource(ClientWeather::settled(kind));
+            world.init_resource::<GlobalAmbientLight>();
+            world.run_system_once(daylight_ambient_system).unwrap();
+            world.resource::<GlobalAmbientLight>().brightness
+        };
+        assert_eq!(ambient_at(WeatherKind::Clear), DAY_AMBIENT);
+        let rain = ambient_at(WeatherKind::Rain);
+        assert_eq!(
+            rain,
+            DAY_AMBIENT * Overcast::of(&ClientWeather::settled(WeatherKind::Rain)).ambient()
+        );
     }
 
     #[test]
