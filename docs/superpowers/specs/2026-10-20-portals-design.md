@@ -111,3 +111,35 @@ New module `client/src/portal/`:
 Each lot: a plan in `docs/superpowers/plans/`, TDD, `cargo test` and `cargo clippy` clean,
 `docs/ARCHITECTURE.md` updated where the lot changes what it describes, review before the next
 lot. Nothing merged or pushed without asking the user.
+
+## Extension: floors and ceilings, every entity, the shot
+
+Asked by the user on 2026-10-21, after the five lots: portals on floors and ceilings too, every
+entity going through them, and the gun's shot seen flying from the player to the surface.
+
+| Topic | Choice |
+|---|---|
+| Surfaces | Every face of a solid full block: the four walls, the floor (`PlusY`) and the ceiling (`MinusY`). |
+| Orientation on a floor or ceiling | The 2 × 3 opening lies along the shooter's facing, rounded to one of the four horizontal directions: its "up" (the 3-block side) points away from the shooter, as a wall tipped over forwards. `Portal` gains that orientation (appended data; the protocol was already bumped once for the branch). Fit, overlap and removal rules are unchanged, applied to the cells of that footprint. |
+| The transform | `through(portal)` becomes a general rigid transform between two frames (`M_twin · R_half_turn_about_the_twin's_up · M_portal⁻¹`), no longer a turn about Y. |
+| Players after passing | Position and velocity go through the full transform, so falling into a floor portal shoots the player out of a wall or a ceiling portal at the same speed. The camera keeps its look direction through the transform, then is set upright again: no roll, the pitch clamped as usual, the yaw from the new look direction. The simulation reports the new yaw and pitch; the client applies them on live prediction only, as for walls. |
+| Crossing and walls | The same rules on any face: the centre crosses the plane from the front inside the opening, the opening's cells don't collide while the centre is in front of the opening shrunk by half the entity's width (or height, across a horizontal opening). A player standing on a floor portal falls into it. |
+| Every entity | Mobs and dropped items pass too, with the same crossing rule on their own simulation (server-side), position and velocity transformed, a mob's body yaw turned with the portal. Clients see them jump to the other side without being interpolated across the gap. |
+| The shot | A short glowing bolt of the portal's colour flies from the shooter's eye to the hit point at 100 blocks a second (a third of a second at the 32-block reach), leaving a fading trail, and bursts into a few sparks where it lands; the portal opens when it lands. Every player sees every shot: the shooter predicts its own, the server tells the others (`ServerToClientMessage::PortalShot { from, to, color, placed }`, appended). A refused shot flies too and bursts without a portal. |
+
+### Lots
+
+6. **Floors and ceilings.** Orientation in `Portal`, fit on horizontal faces, the general
+   transform, crossing and the wall exemption across a horizontal plane, players set upright
+   after passing, rendering (oblique near plane, surface box, rim, culling) on any face. Also:
+   with the gun held, a right click on a container (chest, crafting table, furnace) shoots
+   instead of opening it. Done when: tests of fit on floors and ceilings with each facing, of the
+   transform (floor → wall, floor → ceiling, wall → floor), of falling through a floor portal
+   and coming out of a wall at the same speed, a screenshot through a floor portal, and e2e
+   passing floor → wall.
+7. **Every entity.** Mobs and dropped items crossing on the server, no interpolation across the
+   jump on clients. Done when: simulation tests for a dropped item falling through a floor portal
+   and a mob walking through a wall portal, and an e2e of a dropped item thrown through.
+8. **The shot.** The bolt, its trail and sparks, the delay before the portal opens on the
+   shooter's screen, `PortalShot` for the others. Done when: tests of the message and of the
+   bolt's flight time, and a screenshot mid-flight.
