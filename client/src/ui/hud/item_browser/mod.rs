@@ -18,6 +18,7 @@ pub mod bookmarks;
 pub mod catalog;
 pub mod creative;
 mod display;
+pub mod express;
 #[cfg(test)]
 pub(crate) mod goldens;
 pub mod layout;
@@ -326,7 +327,7 @@ pub fn item_browser_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            catalog_actions
+            (catalog_actions, express::express_fill)
                 .after(GameSet::UiMode)
                 .after(click_items)
                 .before(GameSet::Simulation)

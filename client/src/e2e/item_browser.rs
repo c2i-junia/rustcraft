@@ -439,7 +439,9 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
         &L::text("You have the ingredients").within(tooltip()),
         SCREEN,
     );
-    assert!(h.is_visible(&L::text("R Recipes  U Uses  A Bookmark").within(tooltip())));
+    assert!(
+        h.is_visible(&L::text("R Recipes  U Uses  A Bookmark  Ctrl+click fill").within(tooltip()))
+    );
 
     // The Craftable chip, at the end of the chips, which wrap, is in view and keeps what can be
     // crafted now
@@ -881,7 +883,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     // A over a slot of the catalog bookmarks its item, says so, and saves it for this world
     h.hover(&catalog_grid_slot("Chest"));
     h.wait_for(
-        &L::text("R Recipes  U Uses  A Bookmark").within(tooltip()),
+        &L::text("R Recipes  U Uses  A Bookmark  Ctrl+click fill").within(tooltip()),
         SCREEN,
     );
     h.press(KeyCode::KeyA);
@@ -890,7 +892,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     h.frames(2);
     h.hover(&catalog_grid_slot("Chest"));
     h.wait_for(
-        &L::text("R Recipes  U Uses  A Unbookmark").within(tooltip()),
+        &L::text("R Recipes  U Uses  A Unbookmark  Ctrl+click fill").within(tooltip()),
         SCREEN,
     );
     assert_eq!(saved(&h).worlds["Bookmarks"], [ItemId::Chest]);

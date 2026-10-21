@@ -924,8 +924,9 @@ pub fn choose_tab(
 }
 
 /// A press on a slot of a card opens the recipes of its item, a right press its uses; in Survival
-/// a slot of the catalog does the same. Enter and Space do so on the focused slot while its ring
-/// shows, and not while the player types.
+/// a slot of the catalog does the same, but for a left press with Ctrl, which fills the grid
+/// (`express_fill`). Enter and Space do so on the focused slot while its ring shows, and not while
+/// the player types.
 #[allow(clippy::too_many_arguments)]
 pub fn click_items(
     mouse: Res<ButtonInput<MouseButton>>,
@@ -952,8 +953,9 @@ pub fn click_items(
         !typing && keys.just_pressed(KeyCode::Enter),
         !typing && keys.just_pressed(KeyCode::Space),
     );
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let focused = focus.get().filter(|_| focus_visible.0);
-    let tab = |entity: Entity, hovered: &Hovered| {
+    let tab = |entity: Entity, hovered: &Hovered, left: bool| {
         let (recipes, uses) = if focused == Some(entity) {
             (enter, space)
         } else if hovered.get() {
@@ -972,11 +974,11 @@ pub fn click_items(
     let from_catalog = catalog
         .iter()
         .filter(|_| craftable.survival)
-        .find_map(|(entity, hovered, slot)| Some((slot.0, tab(entity, hovered)?)));
+        .find_map(|(entity, hovered, slot)| Some((slot.0, tab(entity, hovered, left && !ctrl)?)));
     let from_cards = || {
         cards
             .iter()
-            .find_map(|(entity, hovered, slot)| Some((slot.item, tab(entity, hovered)?)))
+            .find_map(|(entity, hovered, slot)| Some((slot.item, tab(entity, hovered, left)?)))
     };
     if let Some((item, tab)) = from_catalog.or_else(from_cards) {
         state.open(ItemView { item, tab }, layout.compact);

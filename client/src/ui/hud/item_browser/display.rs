@@ -21,7 +21,7 @@ use super::bookmarks::Bookmarks;
 use super::catalog::{count_label, no_match_hint, no_match_message, shown_in};
 use super::creative::{creative_action, creative_hint, destroyed_message, Gesture};
 use super::layout::{browser_layout, BrowserLayout};
-use super::recipes::{craftable_now, item_keys_hint, CRAFTABLE_NOTE};
+use super::recipes::{catalog_keys_hint, craftable_now, item_keys_hint, CRAFTABLE_NOTE};
 use super::{
     BackButton, BookmarkSlot, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
     CraftableChip, CraftableDot, CraftableNow, DrawerHandle, ItemBrowser, ItemBrowserState,
@@ -206,7 +206,7 @@ pub fn show_mode_footer(
 /// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
 /// their slots in the browser, a cell of a family when some member is. In Creative, the tooltips
 /// of the catalog say what its gestures take; the keys say whether A bookmarks the item or
-/// removes it from the bookmarks.
+/// removes it from the bookmarks, and on the catalog that Ctrl+click fills the grid.
 #[allow(clippy::type_complexity)]
 pub fn mark_craftable_items(
     craftable: Res<CraftableNow>,
@@ -239,7 +239,11 @@ pub fn mark_craftable_items(
             tooltip.note = note.to_string();
         }
         // In Creative, what the gestures on the catalog take, above the keys
-        let keys = item_keys_hint(bookmarks.contains(item));
+        let bookmarked = bookmarks.contains(item);
+        let keys = match catalog_slot {
+            Some(_) => catalog_keys_hint(item, bookmarked),
+            None => item_keys_hint(bookmarked),
+        };
         let hint = match catalog_slot {
             Some(_) if !craftable.survival => format!("{}\n{keys}", creative_hint(item)),
             _ => keys,
@@ -575,8 +579,10 @@ pub fn catalog_actions(
 
     let typing = *ui_mode == UIMode::Typing;
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    // Ctrl+click fills the grid (`express_fill`): it takes and destroys nothing
+    let ctrl = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     let (left, right) = (
-        mouse.just_pressed(MouseButton::Left),
+        mouse.just_pressed(MouseButton::Left) && !ctrl,
         mouse.just_pressed(MouseButton::Right),
     );
     let (enter, space) = (
@@ -1050,12 +1056,12 @@ mod tests {
         set_mode(&mut world, GameMode::Survival);
         assert_eq!(
             hint(&mut world, ItemId::Chest),
-            "R Recipes  U Uses  A Bookmark"
+            "R Recipes  U Uses  A Bookmark  Ctrl+click fill"
         );
         world.resource_mut::<Bookmarks>().items.push(ItemId::Chest);
         assert_eq!(
             hint(&mut world, ItemId::Chest),
-            "R Recipes  U Uses  A Unbookmark"
+            "R Recipes  U Uses  A Unbookmark  Ctrl+click fill"
         );
         assert_eq!(
             hint(&mut world, ItemId::Dirt),
@@ -1064,7 +1070,23 @@ mod tests {
         set_mode(&mut world, GameMode::Creative);
         assert_eq!(
             hint(&mut world, ItemId::Chest),
-            "LMB 64  RMB 1  Shift to inventory\nR Recipes  U Uses  A Unbookmark"
+            "LMB 64  RMB 1  Shift to inventory\nR Recipes  U Uses  A Unbookmark  Ctrl+click fill"
+        );
+        // A card's slot has no Ctrl+click
+        let card = world
+            .spawn((
+                RecipeSlot {
+                    item: ItemId::Chest,
+                    count: 1,
+                },
+                Tooltip::default(),
+                children![()],
+            ))
+            .id();
+        world.run_system_once(mark_craftable_items).unwrap();
+        assert_eq!(
+            world.get::<Tooltip>(card).unwrap().hint,
+            "R Recipes  U Uses  A Unbookmark"
         );
     }
 

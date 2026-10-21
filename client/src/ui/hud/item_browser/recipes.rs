@@ -21,6 +21,20 @@ pub fn item_keys_hint(bookmarked: bool) -> String {
     format!("R Recipes  U Uses  A {bookmark}")
 }
 
+/// What Ctrl+click on a catalog slot does, on the key line of its tooltip.
+pub const CTRL_CLICK_HINT: &str = "Ctrl+click fill";
+
+/// The keys of the tooltip of a catalog slot (the grid, a bookmark, a recent item): those of an
+/// item slot, then Ctrl+click when the item has a recipe of the crafting grid to fill it with.
+pub fn catalog_keys_hint(item: ItemId, bookmarked: bool) -> String {
+    let keys = item_keys_hint(bookmarked);
+    if recipes_for(item).next().is_some() {
+        format!("{keys}  {CTRL_CLICK_HINT}")
+    } else {
+        keys
+    }
+}
+
 /// The line under the name of the item of the view: its category, and whether it is bookmarked.
 pub fn bookmarked_detail(item: ItemId, bookmarked: bool) -> String {
     let detail = category_detail(item);
@@ -260,6 +274,27 @@ mod tests {
         assert_eq!(
             bookmarked_detail(ItemId::WoodenAxe, true),
             "Tools · Tool · bookmarked"
+        );
+    }
+
+    #[test]
+    fn the_keys_of_a_catalog_slot_name_ctrl_click_when_the_item_is_crafted() {
+        assert_eq!(
+            catalog_keys_hint(ItemId::Chest, false),
+            "R Recipes  U Uses  A Bookmark  Ctrl+click fill"
+        );
+        assert_eq!(
+            catalog_keys_hint(ItemId::Torch, true),
+            "R Recipes  U Uses  A Unbookmark  Ctrl+click fill"
+        );
+        // Gathered or smelted, not crafted
+        assert_eq!(
+            catalog_keys_hint(ItemId::Dirt, false),
+            "R Recipes  U Uses  A Bookmark"
+        );
+        assert_eq!(
+            catalog_keys_hint(ItemId::Glass, false),
+            "R Recipes  U Uses  A Bookmark"
         );
     }
 
