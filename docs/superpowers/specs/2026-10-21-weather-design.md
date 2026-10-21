@@ -254,3 +254,43 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
 21. `/weather` naming the weather already there draws a new duration for it and sends nothing.
 22. The F3 line is `Weather: <kind> <rain>`, with `/<thunder>` while there is thunder:
     `Weather: rain 0.85`, `Weather: thunder 1.00/0.40`.
+23. The overcast reaches the shaders through one storage buffer, `WeatherShading` (the horizon
+    and zenith greys and the overcast level), at binding 107 of the chunk, horizon skirt and
+    dome materials and declared once in `rustcraft::sky`. It is rewritten in place only when it
+    changes, so `ChunkShading` stays free of per-frame values and the bind groups stay valid.
+    The clouds, which have a uniform of their own, get the same greys there.
+24. The overcast level is `smoothstep(0, 0.5, rain)` and the storm level
+    `smoothstep(0, 0.5, thunder)`: the sky is fully grey once the rain is half in, so that a
+    rain mostly in shows no blue. Every curve of the lot blends clear → rain by the first and
+    rain → storm by the second.
+25. The dome is an icosphere at the camera drawn at the far plane (depth 0) in the transparent
+    pass with a large depth bias, blending the overcast grey over the sky by the overcast level,
+    with no prepass or shadows. It exists only with the physical sky and is hidden while the
+    level is 0, so clear weather draws exactly as before. `sky_radiance` became the sky as seen
+    (without the environment-map intensity), blended to the same grey.
+26. The greys are keyframes on the sun's height (day, golden hour, night), apart for the
+    physical sky and for Off, since the two skies differ in brightness; the zenith is a little
+    darker than the horizon, and a storm darkens both. They follow the hour, not the dimmed sky.
+27. The light under the overcast is set for what the screen shows, not for physics: the sun
+    falls to 12 % in rain and 5 % in a storm (25 %/12 % left shadows hard, as the sun weighs
+    about five times the sky's light on screen), the environment-map light falls to `1 − level`,
+    and an ambient light as bright on screen as the grey sky takes over (its brightness scaled
+    by the exposure). The exposure does not change: lowering it as well made rain twice dark.
+    A rainy noon is about 30 % darker than a clear one on the hills, a storm about 40 %.
+28. Saturation is graded down in rain also in Off (× 0.9/1.12 in rain, × 0.78 in a storm, of
+    whatever the preset grades).
+29. The god rays fade by their density, not their light, and the volumetric fog does not get
+    denser in rain: unlit, Bevy's volumetric fog only darkens the sky, and it has no ambient
+    term worth using for a haze. The closer fog does the haze.
+30. The fog never ends closer than 48 blocks but never beyond the render distance either; the
+    clouds' fade follows the fog's end.
+31. The clouds' coverage grows by a density threshold measured on the field (45 %, 80 %,
+    92 %). Densities are banded so that faces of equal bands merge; a face shows when its
+    threshold lies between the densities of its two cells, so cells appear one by one, never
+    with a hole. Under the overcast the clouds take a blue grey darker than the overcast at that
+    hour (68 % of the zenith in rain, 56 % in a storm), rather than a fixed tint, so that they
+    stay darker than the sky at sunset and at night; far clouds fade into the horizon grey.
+32. Under the overcast the water loses 60 % of its blue to a grey of the same brightness.
+33. The pictures of `e2e::weather` hold the weather with a system after the easing, since
+    pausing virtual time dropped the connection; High and Off are taken in two tests, since
+    switching from High to Off in one session panics in Bevy's atmosphere.
