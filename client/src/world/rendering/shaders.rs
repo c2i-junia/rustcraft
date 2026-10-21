@@ -80,6 +80,8 @@ pub struct ShaderFeatures {
     pub shadow_map: usize,
     pub shadow_distance: f32,
     pub first_shadow_cascade: f32,
+    /// Whether the rain wets the world: darker, glossy ground and puddles (`chunk.wgsl`).
+    pub wet: bool,
 }
 
 impl ShaderFeatures {
@@ -94,6 +96,7 @@ impl ShaderFeatures {
             // Bevy's own cascades
             shadow_distance: 150.,
             first_shadow_cascade: 10.,
+            wet: false,
         };
         match quality {
             ShaderQuality::Off => off,
@@ -119,6 +122,7 @@ impl ShaderFeatures {
                 shadow_map: 2048,
                 shadow_distance: 192.,
                 first_shadow_cascade: 12.,
+                wet: true,
             },
             ShaderQuality::Ultra => Self {
                 sky: true,
@@ -129,6 +133,7 @@ impl ShaderFeatures {
                 shadow_map: 4096,
                 shadow_distance: 192.,
                 first_shadow_cascade: 12.,
+                wet: true,
             },
         }
     }
@@ -729,6 +734,12 @@ mod tests {
         let ultra = features[4];
         assert!(ultra.sky && ultra.water && ultra.ambient_occlusion.is_some());
         assert_eq!(ultra.antialiasing, Antialiasing::Taa);
+    }
+
+    #[test]
+    fn the_world_gets_wet_in_high_and_ultra_only() {
+        let wet = ShaderQuality::ALL.map(|quality| ShaderFeatures::of(quality).wet);
+        assert_eq!(wet, [false, false, false, true, true]);
     }
 
     #[test]

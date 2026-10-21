@@ -221,12 +221,15 @@ pub struct WeatherShading {
     pub storm: f32,
     /// How bright a flash of lightning lights the world, from 0: none yet.
     pub flash: f32,
+    /// How wet the world open to the rain is (`ClientWeather::wetness`), where the quality
+    /// draws it, 0 elsewhere.
+    pub wetness: f32,
 }
 
 impl WeatherShading {
-    /// What the shaders are told under `overcast`, with `rain` falling, at the world clock
-    /// `tick`.
-    pub fn new(overcast: Overcast, rain: f32, tick: u64, physical_sky: bool) -> Self {
+    /// What the shaders are told under `overcast`, with `rain` falling on a world as wet as
+    /// `wetness`, at the world clock `tick`.
+    pub fn new(overcast: Overcast, rain: f32, wetness: f32, tick: u64, physical_sky: bool) -> Self {
         let height = sun_height(tick);
         let (horizon, zenith) = overcast.colors(height, physical_sky);
         let sun = sky_rotation(tick) * Vec3::Z;
@@ -241,6 +244,7 @@ impl WeatherShading {
             rain,
             storm: overcast.storm,
             flash: 0.,
+            wetness,
         }
     }
 }
@@ -271,11 +275,17 @@ pub fn weather_shading_system(
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut written: Local<Option<WeatherShading>>,
 ) {
+    let features = ShaderFeatures::of(graphics.shaders);
+    let wetness = match weather.as_deref() {
+        Some(weather) if features.wet => weather.wetness,
+        _ => 0.,
+    };
     let shading = WeatherShading::new(
         Overcast::current(weather.as_deref()),
         weather.as_deref().map_or(0., ClientWeather::precipitation),
+        wetness,
         time.0,
-        ShaderFeatures::of(graphics.shaders).sky,
+        features.sky,
     );
     if *written == Some(shading) {
         return;
@@ -624,7 +634,7 @@ mod tests {
     #[test]
     fn the_shaders_of_the_sky_are_told_the_overcast_of_the_hour() {
         let (mut app, handle) = app(ShaderQuality::High, WeatherKind::Rain);
-        let expected = WeatherShading::new(RAIN, 1., NOON_IN_DAY, true);
+        let expected = WeatherShading::new(RAIN, 1., 1., NOON_IN_DAY, true);
         assert_eq!(expected.overcast, 1.);
         assert_eq!(
             buffer_data(&app, &handle),
@@ -636,7 +646,7 @@ mod tests {
             ..default()
         });
         app.update();
-        let expected = WeatherShading::new(RAIN, 1., NOON_IN_DAY, false);
+        let expected = WeatherShading::new(RAIN, 1., 0., NOON_IN_DAY, false);
         assert_eq!(
             buffer_data(&app, &handle),
             ShaderBuffer::from(expected).data
@@ -657,13 +667,37 @@ mod tests {
 
     #[test]
     fn the_shaders_are_told_the_drops_the_storm_and_the_wind_and_no_flash_yet() {
-        let shading = WeatherShading::new(STORM, 0.6, NOON_IN_DAY, true);
+        let shading = WeatherShading::new(STORM, 0.6, 0.3, NOON_IN_DAY, true);
         assert_eq!(shading.rain, 0.6);
+        assert_eq!(shading.wetness, 0.3);
         assert_eq!(shading.storm, 1.);
         assert_eq!(shading.flash, 0.);
         assert_eq!(shading.wind, STORM.wind().extend(1.).extend(0.));
-        let clear = WeatherShading::new(CLEAR, 0., NOON_IN_DAY, true);
-        assert_eq!((clear.rain, clear.storm), (0., 0.));
+        let clear = WeatherShading::new(CLEAR, 0., 0., NOON_IN_DAY, true);
+        assert_eq!((clear.rain, clear.storm, clear.wetness), (0., 0., 0.));
+    }
+
+    #[test]
+    fn the_shaders_are_told_how_wet_the_world_is_where_the_quality_draws_it() {
+        for (quality, told) in [
+            (ShaderQuality::Off, 0.),
+            (ShaderQuality::Medium, 0.),
+            (ShaderQuality::High, 0.4),
+            (ShaderQuality::Ultra, 0.4),
+        ] {
+            let (mut app, handle) = app(quality, WeatherKind::Clear);
+            let mut weather = ClientWeather::settled(WeatherKind::Clear);
+            weather.wetness = 0.4;
+            app.insert_resource(weather);
+            app.update();
+            let physical = ShaderFeatures::of(quality).sky;
+            let expected = WeatherShading::new(CLEAR, 0., told, NOON_IN_DAY, physical);
+            assert_eq!(
+                buffer_data(&app, &handle),
+                ShaderBuffer::from(expected).data,
+                "{quality:?}"
+            );
+        }
     }
 
     fn domes(app: &mut App) -> Vec<(Vec3, Visibility)> {

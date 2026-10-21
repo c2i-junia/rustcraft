@@ -22,4 +22,6 @@ struct Weather {
     storm: f32,
     // How bright a flash of lightning lights the world, from 0
     flash: f32,
+    // From 0 to 1, how wet the world open to the rain is: 0 in the qualities that draw it dry
+    wetness: f32,
 }
