@@ -205,6 +205,7 @@ mod tests {
                     held_after: Some(dirt),
                     result: Ok(()),
                     thrown: None,
+                    crafted: None,
                 },
                 InventoryActionOutcome {
                     action: InventoryAction::TakeCraftResult,
@@ -212,6 +213,7 @@ mod tests {
                     held_after: Some(dirt),
                     result: Err(InventoryRefusal::NoRecipe),
                     thrown: None,
+                    crafted: None,
                 },
             ]
         );

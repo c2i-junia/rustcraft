@@ -145,6 +145,7 @@ mod tests {
             held_after: None,
             result,
             thrown: None,
+            crafted: None,
         })
     }
 

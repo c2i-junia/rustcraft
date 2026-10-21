@@ -218,6 +218,8 @@ pub struct InventoryActionOutcome {
     pub result: Result<(), InventoryRefusal>,
     /// What the action threw out of the inventory, for the server to drop ahead of the player.
     pub thrown: Option<ItemStack>,
+    /// The item a craft action the simulation accepted crafted: what the grid made before it.
+    pub crafted: Option<ItemId>,
 }
 
 /// Applies the inventory actions of `input`, in order, up to `MAX_INVENTORY_ACTIONS_PER_INPUT`,
@@ -256,6 +258,20 @@ pub fn simulate_inventory_actions(
     let mut outcomes = Vec::new();
     for &action in actions.take(MAX_INVENTORY_ACTIONS_PER_INPUT) {
         let held_before = player.inventory.floating;
+        let is_craft = matches!(
+            action,
+            InventoryAction::TakeCraftResult
+                | InventoryAction::CraftAll
+                | InventoryAction::CraftToHotbar(_)
+        );
+        let made = is_craft
+            .then(|| {
+                let size = grid_size(&player.inventory, |pos, id| {
+                    block_in_reach(world_map, position, pos, id)
+                });
+                craft_result(&player.inventory, size)
+            })
+            .flatten();
         // A client learns what a chest or a furnace holds from the server, after opening it
         let inventory = &player.inventory;
         let mut chest = inventory
@@ -303,6 +319,7 @@ pub fn simulate_inventory_actions(
             held_after: player.inventory.floating,
             result: applied.map(|_| ()),
             thrown: applied.ok().flatten(),
+            crafted: made.filter(|_| applied.is_ok()).map(|made| made.item_id),
         });
     }
     outcomes
@@ -1759,6 +1776,7 @@ mod tests {
                     held_after: dirt,
                     result: Ok(()),
                     thrown: None,
+                    crafted: None,
                 },
                 InventoryActionOutcome {
                     action: InventoryAction::TakeCraftResult,
@@ -1766,6 +1784,7 @@ mod tests {
                     held_after: dirt,
                     result: Err(InventoryRefusal::NoRecipe),
                     thrown: None,
+                    crafted: None,
                 },
                 InventoryActionOutcome {
                     action: InventoryAction::DropFloating { all: false },
@@ -1773,8 +1792,56 @@ mod tests {
                     held_after: Some(stack(ItemId::Dirt, 4)),
                     result: Ok(()),
                     thrown: Some(stack(ItemId::Dirt, 1)),
+                    crafted: None,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn an_outcome_names_what_a_craft_action_crafted() {
+        let crafted = |actions: Vec<InventoryAction>, logs: u32| {
+            let mut player = Player::default();
+            player
+                .inventory
+                .inner
+                .insert(grid_slot(0, 0), stack(ItemId::OakLog, logs));
+            let input = PlayerFrameInput {
+                inventory_actions: actions,
+                ..Default::default()
+            };
+            simulate_inventory_actions(
+                &mut player,
+                &mut ChunkMap::default(),
+                &input,
+                CallerType::Client,
+            )
+            .into_iter()
+            .map(|outcome| outcome.crafted)
+            .collect::<Vec<_>>()
+        };
+        let planks = Some(ItemId::OakPlanks);
+        assert_eq!(crafted(vec![InventoryAction::TakeCraftResult], 1), [planks]);
+        assert_eq!(crafted(vec![InventoryAction::CraftAll], 3), [planks]);
+        assert_eq!(
+            crafted(vec![InventoryAction::CraftToHotbar(4)], 1),
+            [planks]
+        );
+        // A refused craft, or an action that crafts nothing, names nothing
+        assert_eq!(
+            crafted(
+                vec![
+                    InventoryAction::TakeCraftResult,
+                    InventoryAction::TakeCraftResult,
+                    InventoryAction::CraftToHotbar(9),
+                ],
+                1
+            ),
+            [planks, None, None]
+        );
+        assert_eq!(
+            crafted(vec![InventoryAction::LeftClickSlot(grid_slot(0, 0))], 1),
+            [None]
         );
     }
 

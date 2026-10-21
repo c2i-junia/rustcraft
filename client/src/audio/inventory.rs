@@ -96,6 +96,7 @@ mod tests {
             held_after,
             result: Ok(()),
             thrown: None,
+            crafted: None,
         }
     }
 
