@@ -226,10 +226,13 @@ fn write_region_files(
     let mut without_containers = Vec::new();
     let mut in_region = Vec::new();
     for (chunk_pos, chunk, contents) in chunks.iter().copied() {
+        let before = files.len();
         let written = write_held(world_dir, *chunk_pos, &contents.chests, &mut files)
             .and_then(|()| write_held(world_dir, *chunk_pos, &contents.furnaces, &mut files));
         if let Err(err) = written {
             error!("Failed to write {err}");
+            // Its chests are not put in place without its furnaces, nor without the chunk
+            files.truncate(before);
             failed.push(*chunk_pos);
             continue;
         }
@@ -546,6 +549,40 @@ mod tests {
         assert!(read_containers::<Furnace>(&furnaces_dir)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn a_chunk_whose_furnaces_cannot_be_written_keeps_its_old_chests_too() {
+        use crate::world::container_files::{read_containers, FURNACES_DIR};
+        use shared::world::{Container, Furnace};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let furnaces_dir = tmp.path().join(FURNACES_DIR);
+        std::fs::create_dir_all(&furnaces_dir).unwrap();
+        // A directory squatting on the temporary name makes the furnaces' write fail
+        std::fs::create_dir(furnaces_dir.join("1_0_0.bin.tmp")).unwrap();
+        let with_both = SaveJob {
+            meta: meta(1),
+            players: Vec::new(),
+            chunks: vec![(
+                IVec3::X,
+                stone_chunk(),
+                ChunkContents {
+                    chests: vec![(IVec3::ONE, Container::default())],
+                    furnaces: vec![(IVec3::ONE, Furnace::default())],
+                },
+            )],
+        };
+
+        let outcome = write_job(tmp.path(), with_both);
+
+        assert_eq!(outcome.failed_chunks, vec![IVec3::X]);
+        // Neither half of the chunk is in place: the next save writes both
+        assert!(
+            read_containers::<Container>(&tmp.path().join(CONTAINERS_DIR))
+                .unwrap_or_default()
+                .is_empty()
+        );
     }
 
     #[test]
