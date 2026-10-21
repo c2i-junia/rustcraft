@@ -1,7 +1,9 @@
 use bevy::{camera::visibility::RenderLayers, prelude::*};
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 
-use super::{camera_control_system, underwater_fog_system, zoom_system, Zoom, SKY_COLOR};
+use super::{
+    camera_control_system, setup_tone_curve, underwater_fog_system, zoom_system, Zoom, SKY_COLOR,
+};
 
 use crate::portal::SURFACE_LAYER;
 use crate::state::{GameSet, GameState};
@@ -47,6 +49,7 @@ impl From<Quat> for CameraController {
 /// camera has to be despawned on that transition too.
 pub fn camera_plugin(app: &mut App) {
     app.init_resource::<Zoom>()
+        .add_systems(Startup, setup_tone_curve)
         .add_systems(OnEnter(GameState::PreGameLoading), spawn_camera)
         .add_systems(
             Update,

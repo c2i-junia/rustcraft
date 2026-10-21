@@ -424,8 +424,10 @@ never moves a player, so the prediction of the clients is left alone.
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
    cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
-   its colour (`SKY_FOG_COLOR`), tonemapped by the materials, is the clear colour, which is
-   not, so that a block wholly in the fog is the sky. The groups beyond the player's own reach
+   its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
+   clear colour, which is not, so that a block wholly in the fog is the sky: it is found on
+   the CPU, by Newton's method, from the LUT of TonyMcMapface that Bevy keeps in the main
+   world (`ToneCurve`). The groups beyond the player's own reach
    (`ChunkReach::within`, the margin included), sent only for a portal, are on layer 3, which
    only the portal cameras draw (`portal_chunks_layers_system`); a group changes layer as the
    player moves, culled on the CPU for that frame like a new view's chunks.
@@ -458,7 +460,8 @@ the chunks are culled on the CPU for a frame (`show_chunks_to_new_views`).
 
 The sky follows the world clock (`ClientTime`): the sun and the moon turn around the player
 (`celestial.rs`), and the clear colour and the fog go from `SKY_COLOR` at noon to a warm
-colour at sunrise and sunset and a dark blue at night (`sky_color`, `camera/underwater.rs`);
+colour at sunrise and sunset and a dark blue at night (`sky_color`, `camera/underwater.rs`;
+the fog, `sky_fog_color`, shows as that colour once tonemapped);
 under water the fog keeps the colour of the water. The clouds (`world/clouds/`) are cells of
 12 × 12 blocks, 4 high, at y = 192, each with a density after a noise that repeats every 256
 cells and has the same seed in every world, so that all the players of a server see the same clouds

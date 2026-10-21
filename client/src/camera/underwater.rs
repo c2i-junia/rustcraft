@@ -10,7 +10,7 @@ use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
 use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
 
-use super::CameraController;
+use super::{sky_fog_color, CameraController, ToneCurve};
 
 /// The colour behind the world by day.
 pub const SKY_COLOR: Color = Color::srgb_u8(117, 159, 183);
@@ -19,11 +19,6 @@ const NIGHT_SKY_COLOR: Color = Color::srgb_u8(10, 13, 26);
 /// The colour the sky warms to while the sun is on the horizon.
 const WARM_SKY_COLOR: Color = Color::srgb_u8(235, 140, 80);
 const UNDERWATER_COLOR: Color = Color::srgb_u8(30, 62, 130);
-/// The colour of the fog of the sky. The materials tonemap what they draw, the fog included,
-/// and the clear colour is not tonemapped: this one, tonemapped (TonyMcMapface), shows as
-/// `SKY_COLOR`, so that a block wholly in the fog is the sky and not a dark shape on it.
-/// Measured on screen (`e2e::portals::the_view_through_a_portal_reaches_a_far_place`).
-pub const SKY_FOG_COLOR: Color = Color::srgb_u8(125, 183, 216);
 
 /// The colour of the sky at the world clock `tick`, after the height of the sun: dark at
 /// night, `SKY_COLOR` by day, warm while the sun is near the horizon.
@@ -69,31 +64,18 @@ pub fn eye_under_water(map: &ChunkMap, eye: Vec3) -> bool {
     liquid_height(map, eye.floor().as_ivec3()).is_some_and(|height| eye.y - eye.y.floor() < height)
 }
 
-/// The colour of the fog of the sky at the world clock `tick`, which shows as `sky_color(tick)`
-/// once tonemapped: the gain of `SKY_FOG_COLOR` over `SKY_COLOR`, in linear light, applied to
-/// the sky of the hour.
-pub fn sky_fog_color(tick: u64) -> Color {
-    fog_of_sky(sky_color(tick))
-}
-
-/// The colour of the fog that shows as `sky` once tonemapped: the gain of `SKY_FOG_COLOR` over
-/// `SKY_COLOR`, in linear light, applied to `sky`.
-pub fn fog_of_sky(sky: Color) -> Color {
-    let linear = |color: Color| Vec3::from_array(color.to_linear().to_f32_array_no_alpha());
-    let fog = linear(sky) * linear(SKY_FOG_COLOR) / linear(SKY_COLOR);
-    Color::linear_rgb(fog.x, fog.y, fog.z)
-}
-
 /// Under water, a fog the colour of the water hides what is more than a few blocks away, and the
 /// sun and the moon, which no fog hides, are hidden. Out of it, a fog the colour of the sky of
 /// the hour hides the edge of the chunks shown: it thickens over the last part of the render
-/// distance, and the world fades into the sky at its end; in rain, it closes in, and a flash of
-/// lightning lights it up. The fog is changed in place, as the sky changes every tick.
+/// distance, and the world fades into the sky at its end: its colour is the one that shows as
+/// the sky once tonemapped (`sky_fog_color`). In rain, it closes in, and a flash of lightning
+/// lights it up. The fog is changed in place, as the sky changes every tick.
 pub fn underwater_fog_system(
     world_map: Res<ClientWorldMap>,
     time: Res<ClientTime>,
     weather: Option<Res<ClientWeather>>,
     lightning: Option<Res<Lightning>>,
+    curve: Option<Res<ToneCurve>>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut cameras: Query<
@@ -126,7 +108,7 @@ pub fn underwater_fog_system(
             let (start, end) = overcast.fog_range(edge);
             let flash = lightning.as_ref().map_or(0., |lightning| lightning.flash());
             let sky = flashed_sky_color(weather_sky_color(time.0, overcast), flash);
-            (fog_of_sky(sky), sky, start, end)
+            (sky_fog_color(sky, curve.as_deref()), sky, start, end)
         };
         let falloff = FogFalloff::Linear { start, end };
         match fog {
@@ -158,6 +140,7 @@ pub const FOG_START: f32 = 0.6;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::camera::sky_fog::tests::tony_mc_mapface;
     use shared::world::{BlockId, ChunkMap, WeatherKind};
     use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
@@ -196,12 +179,6 @@ mod tests {
         assert!(lit.blue > lit.red && lit.red > 0.1, "{lit:?}");
         let half = flashed_sky_color(grey, 0.5).to_linear();
         assert!(half.red < lit.red && half.red > grey.to_linear().red);
-    }
-
-    #[test]
-    fn the_fog_of_the_sky_at_noon_is_the_one_measured() {
-        let fog = srgb(sky_fog_color(4 * DAY_DURATION_IN_TICKS + NOON_IN_DAY));
-        assert!(fog.abs_diff_eq(srgb(SKY_FOG_COLOR), 1e-3), "{fog}");
     }
 
     #[test]
@@ -259,10 +236,7 @@ mod tests {
             .translation
             .y = 3.95;
         app.update();
-        assert_eq!(
-            fog_of(&app, camera),
-            (sky_fog_color(NOON_IN_DAY), 24.0 * 16.0)
-        );
+        assert_eq!(fog_of(&app, camera), (SKY_COLOR, 24.0 * 16.0));
         assert_eq!(sun_visibility(&app), Visibility::Inherited);
         assert!(matches!(
             app.world().get::<Camera>(camera).unwrap().clear_color,
@@ -272,10 +246,7 @@ mod tests {
         // A server that allows less brings the fog nearer
         app.insert_resource(ServerRenderDistanceLimit(8));
         app.update();
-        assert_eq!(
-            fog_of(&app, camera),
-            (sky_fog_color(NOON_IN_DAY), 8.0 * 16.0)
-        );
+        assert_eq!(fog_of(&app, camera), (SKY_COLOR, 8.0 * 16.0));
     }
 
     fn clear_color_of(app: &App, camera: Entity) -> Color {
@@ -285,6 +256,8 @@ mod tests {
         }
     }
 
+    /// The fog of the sky, tonemapped as the shaders do, shows as the clear colour, by night as
+    /// by day.
     #[test]
     fn the_fog_closes_in_and_greys_under_rain() {
         let mut blocks = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
@@ -343,6 +316,7 @@ mod tests {
         })
         .insert_resource(ClientTime(NOON_IN_DAY))
         .insert_resource(RenderDistance { distance: 8 })
+        .insert_resource(tony_mc_mapface())
         .add_systems(Update, underwater_fog_system);
         let camera = app
             .world_mut()
@@ -363,8 +337,15 @@ mod tests {
         for tick in [MIDNIGHT_IN_DAY, 0, NOON_IN_DAY] {
             app.insert_resource(ClientTime(tick));
             app.update();
-            assert_eq!(fog_of(&app, camera), (sky_fog_color(tick), 8.0 * 16.0));
-            assert_eq!(clear_color_of(&app, camera), sky_color(tick));
+            let (fog, end) = fog_of(&app, camera);
+            assert_eq!(end, 8.0 * 16.0);
+            let clear = clear_color_of(&app, camera);
+            assert_eq!(clear, sky_color(tick));
+            let curve = app.world().resource::<ToneCurve>();
+            let shown = curve.apply(Vec3::from_array(fog.to_linear().to_f32_array_no_alpha()));
+            let shown = srgb(Color::linear_rgb(shown.x, shown.y, shown.z)) * 255.0;
+            let off = shown - srgb(clear) * 255.0;
+            assert!(off.abs().max_element() < 0.5, "at {tick}: {off}");
         }
         let fog = app.world().get::<DistanceFog>(camera).unwrap();
         assert_eq!(fog.directional_light_color, sun_glow);
