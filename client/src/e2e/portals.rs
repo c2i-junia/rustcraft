@@ -474,6 +474,77 @@ fn bench_portal_frame_time() {
     }
 }
 
+/// The time a frame takes between the facing portals, render distance 8, the screen drawn into
+/// an image: looking into the blue portal with recursion 3 and with recursion 1, and away from
+/// both, in turns over several rounds. Then the frame on which the views of the blue portal
+/// start, looking back at it after 10 frames looking west, when every chunk is culled on the CPU for a
+/// frame (`show_chunks_to_new_views`), and the frame after it, when they get their
+/// `NoCpuCulling` back, against the frames in view. `BENCH_GPU=1` draws on the GPU instead of
+/// lavapipe.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_portal_recursion_frame_time() {
+    use crate::portal::PortalRecursion;
+    let folder = GameFolder::new()
+        .with_file("video.ron", "(render_distance: 8)")
+        .with_world("Facing");
+    let mut h = enter_world(folder, "Facing");
+    build_facing_scene(&mut h);
+    let target = h.target.clone();
+    h.set_camera_targets(RenderTarget::Image(target.into()));
+    let (rounds, frames, starts) = if std::env::var_os("BENCH_GPU").is_some() {
+        (6, 300, 60)
+    } else {
+        (3, 20, 10)
+    };
+    let time = |h: &mut Harness| {
+        let start = Instant::now();
+        h.frames(1);
+        start.elapsed().as_secs_f64() * 1e3
+    };
+    let cases: [(&str, usize, f32); 3] = [
+        ("recursion 3, in view", 3, 0.0),
+        ("recursion 1, in view", 1, 0.0),
+        // West, along the walls: the orange portal faces the player's back
+        ("out of view", 3, PI / 2.0),
+    ];
+    let mut samples = vec![Vec::new(); cases.len()];
+    for _ in 0..rounds {
+        for (case, (_, depth, yaw)) in cases.iter().enumerate() {
+            h.world_mut().insert_resource(PortalRecursion(*depth));
+            look(&mut h, *yaw);
+            h.frames(20);
+            for _ in 0..frames {
+                samples[case].push(time(&mut h));
+            }
+        }
+    }
+    let mut started = Vec::new();
+    let mut after = Vec::new();
+    for _ in 0..starts {
+        look(&mut h, PI / 2.0);
+        h.frames(10);
+        look(&mut h, 0.0);
+        started.push(time(&mut h));
+        after.push(time(&mut h));
+        assert_eq!(drawing(h.world_mut()).len(), 3);
+    }
+    let summary = |mut samples: Vec<f64>| {
+        samples.sort_by(f64::total_cmp);
+        format!(
+            "median {:.2} ms, p95 {:.2} ms per frame ({} frames)",
+            samples[samples.len() / 2],
+            samples[samples.len() * 95 / 100],
+            samples.len()
+        )
+    };
+    for ((what, ..), samples) in cases.iter().zip(samples) {
+        println!("{what}: {}", summary(samples));
+    }
+    println!("the frame the views start: {}", summary(started));
+    println!("the frame after: {}", summary(after));
+}
+
 /// A mod with two commands: `/walls` builds two stone walls 4 wide and 4 high, from 10 blocks
 /// above the centre of its author, 8 blocks north of it facing south and 8 blocks south facing
 /// north; `/plug` puts a block in front of the north wall, 11 blocks up.
