@@ -323,3 +323,34 @@ or push.
     `build_craft` and `build_refused`. The Ogg stream serial changes at each run of the script,
     so only the new files are committed. A test decodes them: pick and place under 120 ms,
     craft and refused under 300 ms, each peak between -20 and 0 dBFS.
+22. (Lot 3) `ItemTag` and `Ingredient` live in `shared/src/world/crafting.rs`, both `Copy, Eq`.
+    `ItemTag::members()` lists a family in the order of `ItemId::ALL` (Planks: Oak, Spruce,
+    Jungle) and `ItemTag::name()` names it (`"Planks"`); `Ingredient::matches(item)` and
+    `Ingredient::members()` (an item alone for `Item`). A test pins that every item whose name
+    ends in `_planks` is a member of `Planks`.
+23. (Lot 3) Each collapsed family takes the place of its oak recipe and the spruce and jungle
+    copies go: 41 recipes, the sticks still index 3. `RecipeView::cells` holds
+    `Option<Ingredient>`; `ingredients()` and `missing()` give `(Ingredient, u32)`; `uses_of(item)`
+    is every recipe with a cell `item` matches. No recipe has two ingredients sharing an item (a
+    test pins it), so `missing` never counts a stack twice.
+24. (Lot 3) The fill's single computation is `plan_fill(inventory, recipe, times) ->
+    Option<FillPlan>`, `FillPlan { rounds, cells }` (the item of each cell of the recipe, row
+    after row), counted on the slots `0..36` once the grid is back: lot 5 can call it. The rounds
+    are the largest `r` ≤ `times` and ≤ 64 for which every cell, in order, gets `r` of one item
+    that stacks to `r`. A cell of a family takes the member the previous cell of that family took
+    while it still holds `r`, else the member held the most after the cells already served, the
+    first of the family on a tie. "The most" alone would alternate species on a tie (8 oak and 8
+    spruce for a chest would give 4 and 4) where one species is enough; staying on the member
+    keeps one species and finds the same rounds.
+25. (Lot 3) A family is written by its name, `Missing 3 Planks, 2 Stick` (`ingredient_name`); a
+    card's cell of a family is labelled, and its tooltip titled, `Any Planks`
+    (`ingredient_label`), with the category of its first member as detail, and its note says
+    `You have the ingredients` when some member is craftable now. Its `MissingTint` carries the
+    `Ingredient`, shown while the family as a whole is short.
+26. (Lot 3) A cell of a family is a `RecipeSlot` with a `TagCell(ItemTag)`; its `item` is the
+    member it shows, which a click, R, U and A act on, as on any slot. `cycle_tag_cells`, after
+    `show_view`, shows `tag_member(tag, elapsed)` = `members[whole seconds % len]` of
+    `Time<Real>`, so every cell of every card is in step. A card spawns showing the first
+    member; the goldens do not run the cycle and show it, Oak, whatever the time.
+27. (Lot 3) `mark_craftable_items` runs on `Changed<RecipeSlot>` (it ran on `Added`), so that the
+    `A Bookmark` / `A Unbookmark` of a cycling cell follows the member it shows.
