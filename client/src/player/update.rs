@@ -694,6 +694,72 @@ mod tests {
     }
 
     #[test]
+    fn a_predicted_fall_through_a_floor_portal_sets_the_camera_upright() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+
+        // The blue portal on the floor, its up north, the orange one on a wall facing south
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(8, 64, -20),
+            IVec3::new(15, 69, -20),
+            BlockId::Stone,
+        );
+        let portals = world.portals_mut();
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(0, 63, -1),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        portals.insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(11, 64, -20),
+            face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
+        });
+        let mut app = App::new();
+        app.add_message::<LocalPlayerMoved>()
+            .insert_resource(ClientWorldMap {
+                blocks: world,
+                ..default()
+            })
+            .init_resource::<PlayerTickInputsBuffer>()
+            .init_resource::<CurrentFrameInputs>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(UIMode::Closed)
+            .insert_resource(KeyMap {
+                map: BTreeMap::new(),
+            })
+            .add_systems(Update, player_movement_system);
+        // Falling fast, a hair above the floor portal, looking north and 45 degrees down
+        let position = Vec3::new(1.0, 64.05, -1.5);
+        let mut player = Player::new(PLAYER_ID, "me".into(), position, Transform::default());
+        player.velocity = Vec3::new(0.0, -10.0, 0.0);
+        app.world_mut()
+            .spawn((player, Transform::default(), CurrentPlayerMarker {}));
+        app.world_mut()
+            .spawn((Camera::default(), CameraController::default()));
+        let mut inputs = app.world_mut().resource_mut::<CurrentFrameInputs>();
+        inputs.0.delta_ms = 16;
+        inputs.0.camera = Transform::from_translation(position + Vec3::Y * 0.8)
+            .looking_to(Vec3::new(0.0, -1.0, -1.0), Vec3::Y);
+
+        app.update();
+
+        // Out of the wall, looking south and 45 degrees up
+        let world = app.world_mut();
+        let controller = world.query::<&CameraController>().single(world).unwrap();
+        assert!(
+            (controller.angle_y + std::f32::consts::FRAC_PI_4).abs() < 1e-4,
+            "{}",
+            controller.angle_y
+        );
+        assert!(controller.angle_x.cos() < -0.9999, "{}", controller.angle_x);
+    }
+
+    #[test]
     fn a_replay_crossing_a_portal_does_not_turn_the_camera() {
         let (mut app, player) = app_with_player();
         app.world_mut().resource_mut::<ClientWorldMap>().blocks = portal_world();
