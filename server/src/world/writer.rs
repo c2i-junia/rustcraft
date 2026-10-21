@@ -23,7 +23,8 @@ use super::chunk_files::{
     CHUNKS_DIR,
 };
 use super::container_files::{
-    remove_containers, write_containers_pending, ChunkContainers, CONTAINERS_DIR,
+    remove_containers, write_containers_pending, ChunkContainers, ChunkContents, Stored,
+    CONTAINERS_DIR, FURNACES_DIR,
 };
 use super::format::{
     commit, write_meta_pending, write_pending, PendingFile, WorldMeta, WORLD_FILE,
@@ -33,11 +34,11 @@ use super::format::{
 const PLAYERS_DIR: &str = "players";
 
 /// What one save writes: the metadata of the world, the file of each player to write, and a
-/// copy of each chunk to write, with the contents of its chests.
+/// copy of each chunk to write, with what its chests and furnaces hold.
 pub struct SaveJob {
     pub meta: WorldMeta,
     pub players: Vec<(PlayerId, String)>,
-    pub chunks: Vec<(IVec3, Chunk, ChunkContainers)>,
+    pub chunks: Vec<(IVec3, Chunk, ChunkContents)>,
 }
 
 /// What writing one job did.
@@ -59,11 +60,11 @@ impl JobOutcome {
 const WRITER_THREADS: usize = 8;
 
 /// The files of the chunks of a region written to be committed: the region's, and those of
-/// the chests of its chunks. The chunks whose chests no file holds any more have the file of
-/// their chests removed once they are committed.
+/// the chests and the furnaces of its chunks. A chunk left without chests, or furnaces, has
+/// that file removed once it is committed: the folder of the kind and the chunk.
 struct RegionFiles {
     files: Vec<(Owner, PendingFile)>,
-    without_containers: Vec<IVec3>,
+    without_containers: Vec<(&'static str, IVec3)>,
 }
 
 /// Whose a file of a job is.
@@ -71,7 +72,7 @@ struct RegionFiles {
 enum Owner {
     Meta,
     Player,
-    /// The chests of a chunk.
+    /// The chests or the furnaces of a chunk.
     Chunk(IVec3),
     Region(Vec<IVec3>),
 }
@@ -110,8 +111,7 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
     }
 
     let total = job.chunks.len();
-    let containers_dir = world_dir.join(CONTAINERS_DIR);
-    let mut by_region: HashMap<IVec3, Vec<&(IVec3, Chunk, ChunkContainers)>> = HashMap::new();
+    let mut by_region: HashMap<IVec3, Vec<&(IVec3, Chunk, ChunkContents)>> = HashMap::new();
     for chunk in &job.chunks {
         by_region.entry(region_of(chunk.0)).or_default().push(chunk);
     }
@@ -123,11 +123,11 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
         let threads: Vec<_> = regions
             .chunks(per_thread)
             .map(|part| {
-                let (chunks_dir, containers_dir) = (&chunks_dir, &containers_dir);
+                let chunks_dir = &chunks_dir;
                 scope.spawn(move || {
                     part.iter()
                         .map(|(region, chunks)| {
-                            write_region_files(chunks_dir, containers_dir, *region, chunks)
+                            write_region_files(world_dir, chunks_dir, *region, chunks)
                         })
                         .collect::<Vec<_>>()
                 })
@@ -151,10 +151,11 @@ pub fn write_job(world_dir: &std::path::Path, job: SaveJob) -> JobOutcome {
     // Once the chunk without a chest is in place: a crash before leaves the chest it had,
     // still with its contents
     for region in written {
-        for chunk_pos in region.without_containers {
+        for (dir, chunk_pos) in region.without_containers {
             if failed.contains(&chunk_pos) {
                 continue;
             }
+            let containers_dir = world_dir.join(dir);
             if let Err(err) = remove_containers(&containers_dir, chunk_pos) {
                 error!(
                     "Failed to write {}: {err}",
@@ -209,38 +210,34 @@ fn commit_owned(
     (meta_written, failed)
 }
 
-/// Writes the files of the chunks of `region` aside: the file of the region, and that of the
-/// chests of each chunk that has some. A chunk whose chests could not be written is left out of
-/// the region, which keeps what it held of it. The files, and the chunks not written, each
-/// failure being logged.
+/// Writes the files of the chunks of `region` aside, in the folder of the world `world_dir`:
+/// the file of the region, and those of the chests and the furnaces of each chunk that has
+/// some. A chunk whose chests or furnaces could not be written is left out of the region,
+/// which keeps what it held of it. The files, and the chunks not written, each failure being
+/// logged.
 fn write_region_files(
+    world_dir: &std::path::Path,
     chunks_dir: &std::path::Path,
-    containers_dir: &std::path::Path,
     region: IVec3,
-    chunks: &[&(IVec3, Chunk, ChunkContainers)],
+    chunks: &[&(IVec3, Chunk, ChunkContents)],
 ) -> (Option<RegionFiles>, Vec<IVec3>) {
     let mut files = Vec::new();
     let mut failed = Vec::new();
     let mut without_containers = Vec::new();
     let mut in_region = Vec::new();
-    for (chunk_pos, chunk, containers) in chunks.iter().copied() {
-        // The folder only exists in a world that has had a chest
-        if containers.is_empty() {
-            without_containers.push(*chunk_pos);
-        } else {
-            match std::fs::create_dir_all(containers_dir)
-                .and_then(|()| write_containers_pending(containers_dir, *chunk_pos, containers))
-            {
-                Ok(file) => files.push((Owner::Chunk(*chunk_pos), file)),
-                Err(err) => {
-                    error!(
-                        "Failed to write {}: {err}",
-                        containers_dir.join(chunk_file_name(*chunk_pos)).display()
-                    );
-                    failed.push(*chunk_pos);
-                    continue;
-                }
-            }
+    for (chunk_pos, chunk, contents) in chunks.iter().copied() {
+        let written = write_held(world_dir, *chunk_pos, &contents.chests, &mut files)
+            .and_then(|()| write_held(world_dir, *chunk_pos, &contents.furnaces, &mut files));
+        if let Err(err) = written {
+            error!("Failed to write {err}");
+            failed.push(*chunk_pos);
+            continue;
+        }
+        if contents.chests.is_empty() {
+            without_containers.push((CONTAINERS_DIR, *chunk_pos));
+        }
+        if contents.furnaces.is_empty() {
+            without_containers.push((FURNACES_DIR, *chunk_pos));
         }
         in_region.push((*chunk_pos, chunk));
     }
@@ -252,7 +249,7 @@ fn write_region_files(
                 "Failed to write {}: {err}",
                 chunks_dir.join(region_file_name(region)).display()
             );
-            // The chests are not put in place without their chunks
+            // The chests and the furnaces are not put in place without their chunks
             failed.extend(positions);
             return (None, failed);
         }
@@ -264,6 +261,26 @@ fn write_region_files(
         }),
         failed,
     )
+}
+
+/// Writes aside, among `files`, the file of the chunk at `chunk_pos` that holds `held`, in its
+/// folder of the world `world_dir`, when it holds some. The error names the file.
+fn write_held<T: Stored>(
+    world_dir: &std::path::Path,
+    chunk_pos: IVec3,
+    held: &ChunkContainers<T>,
+    files: &mut Vec<(Owner, PendingFile)>,
+) -> Result<(), String> {
+    if held.is_empty() {
+        return Ok(());
+    }
+    // The folder only exists in a world that has had such a block
+    let dir = world_dir.join(T::DIR);
+    let file = std::fs::create_dir_all(&dir)
+        .and_then(|()| write_containers_pending(&dir, chunk_pos, held))
+        .map_err(|err| format!("{}: {err}", dir.join(chunk_file_name(chunk_pos)).display()))?;
+    files.push((Owner::Chunk(chunk_pos), file));
+    Ok(())
 }
 
 #[derive(Resource)]
@@ -287,6 +304,7 @@ impl WorldWriter {
             if !cleaned {
                 remove_interrupted_writes(&world_dir.join(CHUNKS_DIR));
                 remove_interrupted_writes(&world_dir.join(CONTAINERS_DIR));
+                remove_interrupted_writes(&world_dir.join(FURNACES_DIR));
                 cleaned = true;
             }
             let outcome = write_job(&world_dir, job);
@@ -414,7 +432,7 @@ mod tests {
             players: Vec::new(),
             chunks: positions
                 .iter()
-                .map(|&p| (p, stone_chunk(), Vec::new()))
+                .map(|&p| (p, stone_chunk(), ChunkContents::default()))
                 .collect(),
         }
     }
@@ -470,13 +488,16 @@ mod tests {
             chunks: vec![(
                 IVec3::X,
                 stone_chunk(),
-                vec![(IVec3::ONE, Container::default())],
+                ChunkContents {
+                    chests: vec![(IVec3::ONE, Container::default())],
+                    ..Default::default()
+                },
             )],
         };
         let outcome = write_job(tmp.path(), with_chest);
         assert!(outcome.is_complete());
         assert_eq!(
-            read_containers(&containers_dir)
+            read_containers::<Container>(&containers_dir)
                 .unwrap()
                 .keys()
                 .copied()
@@ -485,7 +506,46 @@ mod tests {
         );
 
         assert!(write_job(tmp.path(), job(&[IVec3::X])).is_complete());
-        assert!(read_containers(&containers_dir).unwrap().is_empty());
+        assert!(read_containers::<Container>(&containers_dir)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn the_furnaces_of_a_chunk_are_written_with_it_and_removed_once_gone() {
+        use crate::world::container_files::{read_containers, FURNACES_DIR};
+        use shared::world::Furnace;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let furnaces_dir = tmp.path().join(FURNACES_DIR);
+        let burning = Furnace {
+            burn_left: 7,
+            burn_total: 300,
+            ..Default::default()
+        };
+        let with_furnace = SaveJob {
+            meta: meta(1),
+            players: Vec::new(),
+            chunks: vec![(
+                IVec3::X,
+                stone_chunk(),
+                ChunkContents {
+                    furnaces: vec![(IVec3::ONE, burning.clone())],
+                    ..Default::default()
+                },
+            )],
+        };
+        assert!(write_job(tmp.path(), with_furnace).is_complete());
+        assert_eq!(
+            read_containers::<Furnace>(&furnaces_dir).unwrap(),
+            HashMap::from([(IVec3::new(17, 1, 1), burning)])
+        );
+        assert!(!tmp.path().join(CONTAINERS_DIR).exists());
+
+        assert!(write_job(tmp.path(), job(&[IVec3::X])).is_complete());
+        assert!(read_containers::<Furnace>(&furnaces_dir)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -505,10 +565,14 @@ mod tests {
     }
 
     #[test]
-    fn a_world_without_chests_has_no_containers_folder() {
+    fn a_world_without_chests_or_furnaces_has_no_folder_for_them() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(write_job(tmp.path(), job(&[IVec3::ZERO])).is_complete());
         assert!(!tmp.path().join(CONTAINERS_DIR).exists());
+        assert!(!tmp
+            .path()
+            .join(crate::world::container_files::FURNACES_DIR)
+            .exists());
     }
 
     #[test]
@@ -518,7 +582,7 @@ mod tests {
         let old = SaveJob {
             meta: meta(1),
             players: Vec::new(),
-            chunks: vec![(IVec3::ZERO, Chunk::new(), Vec::new())],
+            chunks: vec![(IVec3::ZERO, Chunk::new(), ChunkContents::default())],
         };
         assert!(writer.submit(old).is_ok());
         assert!(writer.submit(job(&[IVec3::ZERO])).is_ok());

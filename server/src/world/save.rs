@@ -1,5 +1,5 @@
 use crate::init::ServerTime;
-use crate::world::container_files::ChunkContainers;
+use crate::world::container_files::{ChunkContainers, ChunkContents};
 use crate::world::format::WorldMeta;
 use crate::world::writer::{SaveJob, WorldWriter};
 use bevy::prelude::*;
@@ -72,8 +72,8 @@ pub fn save_world_system(
     }
 }
 
-/// Hands the metadata, the files of the players to save and a copy of every dirty chunk to the
-/// writer. A chunk is dirty until it
+/// Hands the metadata, the files of the players to save and a copy of every dirty chunk, with
+/// its chests and furnaces, to the writer. A chunk is dirty until it
 /// is handed over, so a second save queued while the first is being written does not copy it
 /// again unless it changed.
 fn queue_save(
@@ -93,13 +93,11 @@ fn queue_save(
         .into_iter()
         .filter_map(|pos| {
             let chunk = world_map.chunks.chunk(pos)?.clone();
-            let mut containers: ChunkContainers = world_map
-                .chunks
-                .containers_of_chunk(pos)
-                .map(|(global, container)| (to_local_pos(&global), container.clone()))
-                .collect();
-            containers.sort_by_key(|(local, _)| (local.x, local.y, local.z));
-            Some((pos, chunk, containers))
+            let contents = ChunkContents {
+                chests: by_local_pos(world_map.chunks.containers_of_chunk(pos)),
+                furnaces: by_local_pos(world_map.chunks.furnaces_of_chunk(pos)),
+            };
+            Some((pos, chunk, contents))
         })
         .collect();
     let job = SaveJob {
@@ -120,6 +118,18 @@ fn queue_save(
             .dirty_chunks
             .extend(job.chunks.into_iter().map(|(pos, ..)| pos));
     }
+}
+
+/// What the blocks of one kind of a chunk hold, given by global position, by local position
+/// and sorted.
+fn by_local_pos<'a, T: Clone + 'a>(
+    held: impl Iterator<Item = (IVec3, &'a T)>,
+) -> ChunkContainers<T> {
+    let mut held: ChunkContainers<T> = held
+        .map(|(global, value)| (to_local_pos(&global), value.clone()))
+        .collect();
+    held.sort_by_key(|(local, _)| (local.x, local.y, local.z));
+    held
 }
 
 /// Puts the file of `player`, of the world `world_name`, among `players_to_save`: the next save
@@ -279,10 +289,47 @@ mod tests {
             app.update();
             flush(&mut app);
 
-            let containers = read_containers(&tmp.path().join(CONTAINERS_DIR)).unwrap();
+            let containers =
+                read_containers::<Container>(&tmp.path().join(CONTAINERS_DIR)).unwrap();
             assert_eq!(
                 containers,
                 std::collections::HashMap::from([(chest, Container::default())])
+            );
+        }
+
+        #[test]
+        fn a_save_writes_the_furnaces_of_the_dirty_chunks() {
+            use crate::world::container_files::{read_containers, FURNACES_DIR};
+            use shared::world::Furnace;
+
+            let tmp = tempfile::tempdir().unwrap();
+            let mut map = world_map(2);
+            let furnace = IVec3::new(17, 2, 3);
+            map.chunks.set_block(
+                furnace,
+                BlockData::new(BlockId::LitFurnace, BlockDirection::Front),
+            );
+            let burning = Furnace {
+                burn_left: 9,
+                burn_total: 100,
+                ..Default::default()
+            };
+            map.chunks.insert_furnace(furnace, burning.clone());
+            map.dirty_chunks.insert(IVec3::X);
+            let mut app = app(
+                map,
+                WorldWriter::spawn(tmp.path().into(), None).unwrap(),
+                10,
+            );
+            app.world_mut().write_message(SaveRequestEvent::World);
+
+            app.update();
+            flush(&mut app);
+
+            let furnaces = read_containers::<Furnace>(&tmp.path().join(FURNACES_DIR)).unwrap();
+            assert_eq!(
+                furnaces,
+                std::collections::HashMap::from([(furnace, burning)])
             );
         }
 

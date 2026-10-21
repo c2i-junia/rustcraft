@@ -21,9 +21,7 @@ use crate::{
     network::extensions::SendGameMessageExtension,
     world::{
         chunk_files::{read_chunk, CHUNKS_DIR},
-        container_files::{
-            insert_with_chests, read_chunk_containers, ChunkContainers, CONTAINERS_DIR,
-        },
+        container_files::{insert_with_contents, read_chunk_contents, ChunkContents},
         data::ServerWorldMap,
         generation::WorldGenerator,
     },
@@ -47,7 +45,7 @@ const CHUNKS_PER_TASK: usize = 16;
 
 /// A chunk that was not loaded, read from its file or generated with the animals born in it.
 enum Made {
-    Read(Chunk, ChunkContainers),
+    Read(Chunk, ChunkContents),
     Generated(Chunk, Vec<ServerMob>),
 }
 
@@ -55,8 +53,7 @@ enum Made {
 fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, generator: &WorldGenerator) -> Made {
     if let Some(dir) = saved {
         if let Some(chunk) = read_chunk(&dir.join(CHUNKS_DIR), chunk_pos) {
-            let chests = read_chunk_containers(&dir.join(CONTAINERS_DIR), chunk_pos);
-            return Made::Read(chunk, chests);
+            return Made::Read(chunk, read_chunk_contents(dir, chunk_pos));
         }
     }
     Made::Generated(
@@ -77,7 +74,7 @@ fn insert_made(
     made: Made,
 ) {
     match made {
-        Made::Read(chunk, chests) => insert_with_chests(chunks, chunk_pos, chunk, chests),
+        Made::Read(chunk, contents) => insert_with_contents(chunks, chunk_pos, chunk, contents),
         Made::Generated(chunk, animals) => {
             if chunk.uniform().is_none() {
                 dirty_chunks.insert(chunk_pos);
@@ -600,10 +597,10 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_chunk_is_read_from_its_file_with_its_chests_and_is_not_dirty() {
+    fn a_saved_chunk_is_read_from_its_file_with_its_chests_and_furnaces_and_is_not_dirty() {
         use crate::world::chunk_files::write_chunk;
-        use crate::world::container_files::write_containers;
-        use shared::world::{BlockData, BlockDirection, BlockId, Container};
+        use crate::world::container_files::{write_containers, CONTAINERS_DIR, FURNACES_DIR};
+        use shared::world::{BlockData, BlockDirection, BlockId, Container, Furnace};
 
         let dir = tempfile::tempdir().unwrap();
         let mut saved = Chunk::new();
@@ -611,6 +608,23 @@ mod tests {
             IVec3::new(1, 2, 3),
             BlockData::new(BlockId::Chest, BlockDirection::Front),
         );
+        saved.set(
+            IVec3::new(4, 5, 6),
+            BlockData::new(BlockId::LitFurnace, BlockDirection::Back),
+        );
+        let burning = Furnace {
+            burn_left: 50,
+            burn_total: 1600,
+            ..Default::default()
+        };
+        let furnaces_dir = dir.path().join(FURNACES_DIR);
+        std::fs::create_dir_all(&furnaces_dir).unwrap();
+        write_containers(
+            &furnaces_dir,
+            IVec3::ZERO,
+            &vec![(IVec3::new(4, 5, 6), burning.clone())],
+        )
+        .unwrap();
         let chunks_dir = dir.path().join(CHUNKS_DIR);
         let containers_dir = dir.path().join(CONTAINERS_DIR);
         std::fs::create_dir_all(&chunks_dir).unwrap();
@@ -648,6 +662,7 @@ mod tests {
 
         assert_eq!(chunks.chunk(IVec3::ZERO), Some(&saved));
         assert_eq!(chunks.container(IVec3::new(1, 2, 3)), Some(&held));
+        assert_eq!(chunks.furnace(IVec3::new(4, 5, 6)), Some(&burning));
         assert!(
             !dirty.contains(&IVec3::ZERO),
             "a chunk read is saved already"

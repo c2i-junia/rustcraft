@@ -6,7 +6,7 @@ use crate::{
         status::{publish_player_count, spawn_status_responder, StatusCounter},
     },
     world::{
-        container_files::insert_with_chests,
+        container_files::insert_with_contents,
         data::{world_dir, ServerWorldMap},
         dropped_items::DroppedItems,
         generation::spawn_position,
@@ -243,10 +243,11 @@ fn load_world(
     // the cause alone, which names the file: the caller knows the world it asked for
     let world_data = open_world(world_name, game_folder_paths).map_err(|err| err.to_string())?;
 
-    // A world converted from a single file still holds its chunks, and had no chests
+    // A world converted from a single file still holds its chunks, and had no chests or
+    // furnaces
     let mut chunks = ChunkMap::default();
     for (chunk_pos, chunk) in world_data.map {
-        insert_with_chests(&mut chunks, chunk_pos, chunk, Vec::new());
+        insert_with_contents(&mut chunks, chunk_pos, chunk, Default::default());
     }
     let mut world_map = ServerWorldMap {
         // the folder the world was loaded from, whatever name its file claims
