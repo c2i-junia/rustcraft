@@ -292,6 +292,9 @@ pub fn handle_player_inputs_system(
         for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);
         }
+        for stack in outcome.dropped {
+            dropped_items.drop_from_player(stack, player);
+        }
         born.extend(
             outcome
                 .spawned

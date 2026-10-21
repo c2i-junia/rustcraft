@@ -1635,6 +1635,96 @@ fn a_furnace_fed_through_its_slots_lights_for_every_client_and_its_player_sees_i
     );
 }
 
+#[test]
+fn a_bucket_pours_water_that_spreads_and_takes_it_back_dropping_what_does_not_fit() {
+    // A full inventory: a water bucket, two buckets, and dirt
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::WaterBucket, 1));
+    inventory.inner.insert(1, stack(ItemId::Bucket, 2));
+    for slot in 2..MAX_INVENTORY_SLOTS {
+        inventory.inner.insert(slot, stack(ItemId::Dirt, 64));
+    }
+    let server = start_with_inventory(inventory);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "crafter");
+
+    // Pour the water on the ground, two blocks ahead
+    let (down, _) = land_and_aim_down(&mut client);
+    let position = down.translation;
+    let camera = Transform::from_translation(position)
+        .looking_at(position + Vec3::new(0., -1.6, -2.), Vec3::Y);
+    let ground = raycast::raycast(&client.world, &camera, &position, Default::default())
+        .expect("the player aims at the ground");
+    let water = ground.position + ground.face.to_ivec3();
+    let right_click = |time_ms, hotbar_slot| PlayerFrameInput {
+        time_ms,
+        delta_ms: 16,
+        inputs: [NetworkAction::RightClick].into(),
+        camera,
+        hotbar_slot,
+        ..Default::default()
+    };
+    client.send(ClientToServerMessage::PlayerInputs(vec![right_click(
+        100, 0,
+    )]));
+    assert_eq!(wait_for_water(&mut client, water), 0);
+    // The flow spreads it into the cells beside it that are free
+    let beside = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z].map(|side| water + side);
+    let free: Vec<IVec3> = beside
+        .into_iter()
+        .filter(|&cell| client.world.get_block(cell).is_none())
+        .collect();
+    assert!(!free.is_empty(), "the water is walled in");
+    for cell in free {
+        assert_eq!(wait_for_water(&mut client, cell), 1, "{cell}");
+    }
+
+    // Released, then the stack of buckets takes the source back
+    let released = PlayerFrameInput {
+        time_ms: 101,
+        delta_ms: 16,
+        camera,
+        ..Default::default()
+    };
+    client.send(ClientToServerMessage::PlayerInputs(vec![
+        released,
+        right_click(102, 1),
+    ]));
+    let id = client.id;
+    let inventory = client.wait_for("PlayerUpdate acknowledging the bucket", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.last_ack_time == 102 => {
+            u.inventory.clone()
+        }
+        _ => None,
+    });
+    assert_eq!(inventory.inner[&0], stack(ItemId::Bucket, 1));
+    assert_eq!(inventory.inner[&1], stack(ItemId::Bucket, 1));
+    assert!(inventory
+        .inner
+        .values()
+        .all(|held| held.item_id != ItemId::WaterBucket));
+
+    // The water bucket, with no room for it, lands on the ground
+    let thrown = client.wait_for("the water bucket dropped", |m| match m {
+        ServerToClientMessage::DroppedItems(update) => update
+            .upserts
+            .iter()
+            .find(|(_, item)| item.stack == stack(ItemId::WaterBucket, 1))
+            .map(|(_, item)| item.position),
+        _ => None,
+    });
+    assert!(thrown.distance(position) < 2.0, "dropped at {thrown}");
+    let start = Instant::now();
+    while client
+        .world
+        .get_block(water)
+        .is_some_and(|block| block.id == BlockId::Water && block.level == 0)
+    {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "the source stayed");
+        client.pump();
+    }
+}
+
 /// The answer of the status port at `addr` to a request carrying `nonce`, asked from a fresh
 /// socket, or nothing within 500 ms.
 fn ask_status(addr: std::net::SocketAddr, nonce: u64) -> Option<StatusReply> {

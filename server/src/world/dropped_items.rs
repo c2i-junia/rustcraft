@@ -25,6 +25,9 @@ const PICKUP_REACH: Vec3 = Vec3::new(1.0, 0.5, 1.0);
 const POP_HORIZONTAL_SPEED: f32 = 2.0;
 /// Upward speed of an item popping out of its block, in blocks per second.
 const POP_UPWARD_SPEED: f32 = 4.0;
+/// Horizontal speed of an item a player throws, in blocks per second: it lands about a block
+/// ahead.
+const THROW_SPEED: f32 = 2.0;
 /// An item that moved less than this is not sent again.
 const MOVE_EPSILON: f32 = 1.0 / 256.0;
 
@@ -107,6 +110,18 @@ impl DroppedItems {
             );
             self.spawn(DroppedItem::new(stack, centre, velocity));
         }
+    }
+
+    /// Drops `stack`, which `player` had no room for, thrown from the middle of its box toward
+    /// where it looks.
+    pub fn drop_from_player(&mut self, stack: ItemStack, player: &Player) {
+        let ahead = player
+            .camera_transform
+            .forward()
+            .with_y(0.0)
+            .normalize_or_zero();
+        let velocity = ahead * THROW_SPEED + Vec3::Y * POP_UPWARD_SPEED;
+        self.spawn(DroppedItem::new(stack, player.position, velocity));
     }
 
     /// One fixed step of every item: it ages, moves, and vanishes once too old or out of the
@@ -319,6 +334,29 @@ mod tests {
     fn player_at(id: PlayerId, position: Vec3) -> HashMap<PlayerId, Player> {
         let player = Player::new(id, "p".into(), position, Transform::default());
         HashMap::from([(id, player)])
+    }
+
+    #[test]
+    fn what_a_player_has_no_room_for_is_thrown_ahead_of_it() {
+        let mut items = DroppedItems::default();
+        let position = Vec3::new(0.5, 65.0, 0.5);
+        // Looking down to the east: the item goes east, and up first
+        let camera =
+            Transform::from_translation(position).looking_to(Vec3::new(1.0, -1.0, 0.0), Vec3::Y);
+        let player = Player::new(1, "p".into(), position, camera);
+
+        items.drop_from_player(stack(ItemId::WaterBucket, 1), &player);
+
+        let item = items.items.values().next().unwrap();
+        assert_eq!(item.stack, stack(ItemId::WaterBucket, 1));
+        assert_eq!(item.position, position);
+        assert!(
+            item.velocity.x > 0.0 && item.velocity.y > 0.0,
+            "{}",
+            item.velocity
+        );
+        assert!(item.velocity.z.abs() < 1e-5, "{}", item.velocity);
+        assert!(!item.can_be_picked_up());
     }
 
     #[test]
