@@ -92,6 +92,7 @@ mod tests {
             color: PortalColor::Blue,
             anchor: IVec3::new(0, 10, 0),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         };
         chunks.portals_mut().insert(portal);
         chunks.take_changed_blocks();

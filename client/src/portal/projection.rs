@@ -52,6 +52,7 @@ mod tests {
             color: PortalColor::Orange,
             anchor: IVec3::new(0, 10, 0),
             face,
+            up: FaceDirection::PlusY,
         }
     }
 

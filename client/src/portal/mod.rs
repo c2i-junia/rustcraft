@@ -421,6 +421,7 @@ mod tests {
             color: PortalColor::Blue,
             anchor: IVec3::new(0, 10, 0),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         }
     }
 
@@ -430,6 +431,7 @@ mod tests {
             color: PortalColor::Orange,
             anchor: IVec3::new(20, 10, 5),
             face: FaceDirection::MinusX,
+            up: FaceDirection::PlusY,
         }
     }
 
@@ -969,6 +971,7 @@ mod tests {
             color: PortalColor::Orange,
             anchor: IVec3::new(1, 10, 16),
             face: FaceDirection::MinusZ,
+            up: FaceDirection::PlusY,
         }
     }
 
@@ -1070,6 +1073,7 @@ mod tests {
                 color: PortalColor::Orange,
                 anchor: IVec3::new(4, 10, -10),
                 face: FaceDirection::MinusZ,
+                up: FaceDirection::PlusY,
             },
         );
         app.update();

@@ -305,6 +305,7 @@ mod tests {
                 color,
                 anchor: IVec3::new(0, 0, if color == PortalColor::Blue { 0 } else { -10 }),
                 face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
             });
         }
         // The view through it is seen there, not the wall

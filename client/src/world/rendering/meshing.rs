@@ -1129,6 +1129,7 @@ mod tests {
             color: PortalColor::Blue,
             anchor: IVec3::new(5, 5, 4),
             face: shared::world::FaceDirection::PlusZ,
+            up: shared::world::FaceDirection::PlusY,
         });
         let pierced = mesh(&world);
         // The front of the wall is no longer one rectangle: it goes round the six faces

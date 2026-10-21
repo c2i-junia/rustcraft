@@ -49,6 +49,8 @@ pub struct Portal {
     pub color: PortalColor,
     pub anchor: IVec3,
     pub face: FaceDirection,
+    /// The direction of the long side of the opening, its up: `PlusY` on a wall.
+    pub up: FaceDirection,
 }
 
 impl Portal {
@@ -293,6 +295,7 @@ pub fn fit_portal(
             color,
             anchor: aimed,
             face,
+            up: FaceDirection::PlusY,
         };
         portal.anchor -= portal.right().as_ivec3() * across + IVec3::Y * up;
         portal
@@ -319,6 +322,7 @@ mod tests {
             color,
             anchor,
             face,
+            up: FaceDirection::PlusY,
         }
     }
 
@@ -798,12 +802,14 @@ mod tests {
             color: PortalColor::Orange,
             anchor: IVec3::new(2, 10, 0),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         });
         let blue = |anchor, face| Portal {
             owner: 7,
             color: PortalColor::Blue,
             anchor,
             face,
+            up: FaceDirection::PlusY,
         };
         // On the -Z face of the same cells, through the wall: its box keeps to the back half
         assert!(!portals.overlaps(&blue(IVec3::new(3, 10, 0), FaceDirection::MinusZ)));
@@ -826,6 +832,7 @@ mod tests {
                 color,
                 anchor: IVec3::new(2, 10, 0),
                 face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
             });
             portals
         };
@@ -853,6 +860,7 @@ mod tests {
             color: PortalColor::Blue,
             anchor: IVec3::new(2, 10, 0),
             face: FaceDirection::MinusZ,
+            up: FaceDirection::PlusY,
         });
         assert_eq!(
             fitted(&world, &behind, aimed, 1.9, 11.9),

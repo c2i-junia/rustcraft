@@ -120,6 +120,7 @@ mod tests {
             color,
             anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         };
         assert_eq!(portal.chunk(), chunk);
         portal
@@ -141,6 +142,7 @@ mod tests {
             color: PortalColor::Blue,
             anchor: IVec3::new(3, 2, CHUNK_SIZE - 1),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         };
         assert_eq!(portal.chunk(), IVec3::new(0, 0, 1));
     }

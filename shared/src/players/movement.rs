@@ -1221,12 +1221,14 @@ mod tests {
             color: PortalColor::Blue,
             anchor: IVec3::new(0, 64, -4),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         });
         portals.insert(Portal {
             owner: 7,
             color: PortalColor::Orange,
             anchor: IVec3::new(10, 64, 0),
             face: FaceDirection::MinusX,
+            up: FaceDirection::PlusY,
         });
         world
     }
@@ -1421,6 +1423,7 @@ mod tests {
                     color: PortalColor::Blue,
                     anchor: IVec3::new(10, 64, 3),
                     face: FaceDirection::MinusX,
+                    up: FaceDirection::PlusY,
                 }),
             }
             // Its box 0.2 block into the wall of the blue portal

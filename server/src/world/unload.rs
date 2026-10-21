@@ -159,6 +159,7 @@ mod tests {
                 color,
                 anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
                 face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
             });
         }
 

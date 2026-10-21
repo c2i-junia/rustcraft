@@ -80,6 +80,7 @@ mod tests {
             color,
             anchor: IVec3::new(0, 10, owner as i32 * 10),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         };
         let stays = portal(2, PortalColor::Blue);
         for portal in [

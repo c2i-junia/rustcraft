@@ -242,6 +242,7 @@ mod tests {
                 color,
                 anchor,
                 face,
+                up: FaceDirection::PlusY,
             });
         }
         // 100 frames at 5 blocks per second: 8 blocks, the crossing on the way

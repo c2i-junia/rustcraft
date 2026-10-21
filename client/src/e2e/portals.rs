@@ -145,6 +145,7 @@ fn build_scene(h: &mut Harness) -> Scene {
         color: PortalColor::Blue,
         anchor: feet + IVec3::new(-1, 0, -8),
         face: FaceDirection::PlusZ,
+        up: FaceDirection::PlusY,
     };
     // Facing north, its left is to the east
     let orange = Portal {
@@ -152,6 +153,7 @@ fn build_scene(h: &mut Harness) -> Scene {
         color: PortalColor::Orange,
         anchor: feet + IVec3::new(12, 0, -12),
         face: FaceDirection::MinusZ,
+        up: FaceDirection::PlusY,
     };
     blocks.portals_mut().insert(blue);
     blocks.portals_mut().insert(orange);
@@ -395,12 +397,14 @@ fn a_pair_through_a_thin_wall_shows_one_view() {
             color: near,
             anchor: feet + IVec3::new(-1, 0, -7),
             face: FaceDirection::PlusZ,
+            up: FaceDirection::PlusY,
         };
         let far_portal = Portal {
             owner: 1,
             color: far,
             anchor: feet + IVec3::new(0, 0, -7),
             face: FaceDirection::MinusZ,
+            up: FaceDirection::PlusY,
         };
         {
             let world = h.world_mut();
@@ -496,6 +500,7 @@ fn build_facing_scene(h: &mut Harness) -> Portal {
         color: PortalColor::Blue,
         anchor: feet + IVec3::new(-1, 0, -8),
         face: FaceDirection::PlusZ,
+        up: FaceDirection::PlusY,
     };
     // Facing north, its left is to the east
     let orange = Portal {
@@ -503,6 +508,7 @@ fn build_facing_scene(h: &mut Harness) -> Portal {
         color: PortalColor::Orange,
         anchor: feet + IVec3::new(0, 0, 8),
         face: FaceDirection::MinusZ,
+        up: FaceDirection::PlusY,
     };
     blocks.portals_mut().insert(blue);
     blocks.portals_mut().insert(orange);
