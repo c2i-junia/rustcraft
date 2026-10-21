@@ -16,4 +16,5 @@ mod pool;
 pub mod save;
 pub mod simulation;
 pub mod unload;
+pub mod weather;
 pub mod writer;

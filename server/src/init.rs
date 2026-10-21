@@ -12,6 +12,7 @@ use crate::{
         generation::spawn_position,
         load_from_file::open_world,
         save::Autosave,
+        weather::ServerWeather,
         writer::WorldWriter,
     },
 };
@@ -187,6 +188,7 @@ fn run(
     app.insert_resource(world_map);
     app.insert_resource(seed);
     app.insert_resource(ServerTime(time));
+    app.insert_resource(ServerWeather::new(&mut rand::thread_rng()));
 
     let mods = Mods::new().map_err(|err| format!("Could not start the mods: {err}"))?;
     mods.load_folder(&game_folder_paths.game_folder_path.join("mods"));

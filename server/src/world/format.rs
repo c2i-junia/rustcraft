@@ -6,7 +6,7 @@ use bevy::log::debug;
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use shared::world::{Chunk, Container, DroppedItem, MobId, ServerMob, WorldSeed};
+use shared::world::{Chunk, Container, DroppedItem, MobId, ServerMob, WeatherKind, WorldSeed};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -27,6 +27,13 @@ pub const WORLD_FILE: &str = "world.ron";
 /// misread (the layout, `WorldMeta`, the chunk encoding), and add a conversion from the
 /// previous version on load. Adding a `BlockId` at the end of its enum needs no bump.
 pub const FORMAT_VERSION: u32 = 5;
+
+/// The weather of a world as `world.ron` holds it: its kind and the ticks it has left.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SavedWeather {
+    pub kind: WeatherKind,
+    pub ticks_left: u32,
+}
 
 /// What `world.ron` holds: everything about a world but its chunks and players.
 #[derive(Serialize, Deserialize)]
