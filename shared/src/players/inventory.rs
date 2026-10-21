@@ -463,8 +463,9 @@ fn apply_action(
         }
         InventoryAction::CraftAll => craft_all(inventory, size),
         InventoryAction::CraftToHotbar(hotbar) => craft_to_hotbar(inventory, hotbar, size),
-        InventoryAction::CollectAll | InventoryAction::MoveAllOfType { .. } => {
-            Err(InventoryRefusal::NoRoom)
+        InventoryAction::CollectAll => collect_all(inventory, &mut floating, lent),
+        InventoryAction::MoveAllOfType { slot, item } => {
+            move_all_of_type(inventory, slot, item, size, floating, lent)
         }
     };
     inventory.floating = floating;
@@ -682,6 +683,82 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, lent: Lent) {
     if let Some(kept) = kept {
         inventory.inner.insert(slot, kept);
     }
+}
+
+/// Double click with a held stack: takes the stacks of its item from the inventory and from an
+/// open chest, the smallest first and then in slot order, until the cursor holds a full stack.
+/// Never from the crafting grid or a furnace.
+fn collect_all(
+    inventory: &mut Inventory,
+    floating: &mut Option<ItemStack>,
+    lent: Lent,
+) -> Result<(), InventoryRefusal> {
+    let held = floating.as_mut().ok_or(InventoryRefusal::NothingHeld)?;
+    let max_stack = held.item_id.get_max_stack();
+    if held.nb >= max_stack {
+        return Err(InventoryRefusal::CursorFull);
+    }
+    let chest = match lent {
+        Lent::Chest => chest_slots(),
+        _ => 0..0,
+    };
+    let mut sources: Vec<(u32, u32)> = (0..MAX_INVENTORY_SLOTS)
+        .chain(chest)
+        .filter_map(|slot| {
+            let stack = inventory.inner.get(&slot)?;
+            (stack.item_id == held.item_id).then_some((stack.nb, slot))
+        })
+        .collect();
+    sources.sort_unstable();
+    for (_, slot) in sources {
+        let room = max_stack - held.nb;
+        if room == 0 {
+            break;
+        }
+        held.nb += inventory.remove_item_from_stack(slot, room);
+    }
+    Ok(())
+}
+
+/// The slots a Shift+double click on `slot` moves from: the grid, the chest or the furnace it is
+/// part of; with a chest or a furnace open, the whole inventory; else the hotbar or the backpack.
+fn zone_of(slot: u32, lent: Lent) -> Vec<u32> {
+    let grid: Vec<u32> = grid_slots(CRAFTING_GRID_SIZE).collect();
+    if grid.contains(&slot) {
+        grid
+    } else if chest_slots().contains(&slot) {
+        chest_slots().collect()
+    } else if furnace_slots().contains(&slot) {
+        furnace_slots().collect()
+    } else if lent != Lent::Nothing {
+        (0..MAX_INVENTORY_SLOTS).collect()
+    } else if slot < HOTBAR_SLOTS {
+        (0..HOTBAR_SLOTS).collect()
+    } else {
+        (HOTBAR_SLOTS..MAX_INVENTORY_SLOTS).collect()
+    }
+}
+
+/// Shift+double click on `slot`: every stack of `item` in its zone is quick-moved, in slot order.
+fn move_all_of_type(
+    inventory: &mut Inventory,
+    slot: u32,
+    item: ItemId,
+    size: u32,
+    floating: Option<ItemStack>,
+    lent: Lent,
+) -> Result<(), InventoryRefusal> {
+    check_slot(inventory, slot, size, floating, lent)?;
+    for slot in zone_of(slot, lent) {
+        let holds_it = inventory
+            .inner
+            .get(&slot)
+            .is_some_and(|stack| stack.item_id == item);
+        if holds_it && check_slot(inventory, slot, size, floating, lent).is_ok() {
+            quick_move_slot(inventory, slot, lent);
+        }
+    }
+    Ok(())
 }
 
 /// Number key over `slot`: exchanges it with the slot `hotbar` of the hotbar, without merging.
@@ -3024,5 +3101,180 @@ mod tests {
             );
             assert_eq!(inventory, before);
         }
+    }
+
+    #[test]
+    fn collect_all_takes_the_smallest_stacks_first_until_a_full_stack() {
+        let mut inventory = Inventory::new();
+        for (slot, item, nb) in [
+            (12, ItemId::OakPlanks, 40),
+            (25, ItemId::OakPlanks, 30),
+            (20, ItemId::OakPlanks, 30),
+            (3, ItemId::Dirt, 5),
+        ] {
+            inventory.inner.insert(slot, stack(item, nb));
+        }
+        inventory.floating = Some(planks(10));
+
+        apply(&mut inventory, InventoryAction::CollectAll);
+
+        assert_eq!(inventory.floating, Some(planks(64)));
+        // Of the two smallest, the first slot first
+        assert!(!inventory.inner.contains_key(&20));
+        assert_eq!(inventory.inner[&25], planks(6));
+        assert_eq!(inventory.inner[&12], planks(40));
+        assert_eq!(inventory.inner[&3], stack(ItemId::Dirt, 5));
+    }
+
+    #[test]
+    fn collect_all_takes_from_an_open_chest_too() {
+        let (mut player, mut world) = by_an_open_chest(holding(0, stack(ItemId::Dirt, 3)));
+        player.inventory.inner.insert(9, stack(ItemId::Dirt, 5));
+        player.inventory.floating = Some(stack(ItemId::Dirt, 1));
+
+        act(&mut player, &mut world, vec![InventoryAction::CollectAll]);
+
+        assert_eq!(player.inventory.floating, Some(stack(ItemId::Dirt, 9)));
+        assert!(world.container(CHEST).unwrap().is_empty());
+        assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn collect_all_never_takes_from_the_grid_or_a_furnace() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 3));
+        inventory.floating = Some(stack(ItemId::Dirt, 1));
+        let before = inventory.clone();
+        apply(&mut inventory, InventoryAction::CollectAll);
+        assert_eq!(inventory, before);
+
+        let furnace = furnace_holding(
+            Some(stack(ItemId::Sand, 3)),
+            None,
+            Some(stack(ItemId::Glass, 2)),
+        );
+        let (mut player, mut world) = by_an_open_furnace(furnace.clone());
+        for held in [ItemId::Sand, ItemId::Glass] {
+            player.inventory.floating = Some(stack(held, 1));
+            act(&mut player, &mut world, vec![InventoryAction::CollectAll]);
+            assert_eq!(player.inventory.floating, Some(stack(held, 1)));
+            assert_eq!(world.furnace(FURNACE), Some(&furnace));
+        }
+    }
+
+    #[test]
+    fn collect_all_needs_a_held_stack_with_room() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        for (held, refusal) in [
+            (None, InventoryRefusal::NothingHeld),
+            (
+                Some(stack(ItemId::Dirt, max_dirt())),
+                InventoryRefusal::CursorFull,
+            ),
+        ] {
+            inventory.floating = held;
+            let before = inventory.clone();
+            assert_eq!(
+                try_apply(&mut inventory, InventoryAction::CollectAll),
+                Err(refusal)
+            );
+            assert_eq!(inventory, before);
+        }
+    }
+
+    fn move_all(slot: u32, item: ItemId) -> InventoryAction {
+        InventoryAction::MoveAllOfType { slot, item }
+    }
+
+    #[test]
+    fn move_all_of_type_moves_every_stack_of_the_item_in_the_hotbar_or_the_backpack() {
+        let mut inventory = Inventory::new();
+        for (slot, item, nb) in [
+            (0, ItemId::Dirt, 5),
+            (2, ItemId::Dirt, 7),
+            (4, ItemId::Sand, 1),
+            (12, ItemId::Dirt, 3),
+        ] {
+            inventory.inner.insert(slot, stack(item, nb));
+        }
+        apply(&mut inventory, move_all(0, ItemId::Dirt));
+        assert_eq!(inventory.inner[&12], stack(ItemId::Dirt, 15));
+        assert_eq!(inventory.inner[&4], stack(ItemId::Sand, 1));
+        assert_eq!(inventory.inner.len(), 2);
+
+        // From the backpack, to the hotbar
+        inventory.inner.insert(20, stack(ItemId::Dirt, 6));
+        inventory.inner.insert(1, stack(ItemId::Dirt, 1));
+        apply(&mut inventory, move_all(12, ItemId::Dirt));
+        assert_eq!(inventory.inner[&1], stack(ItemId::Dirt, 22));
+        assert_eq!(inventory.inner[&4], stack(ItemId::Sand, 1));
+        assert_eq!(inventory.inner.len(), 2);
+    }
+
+    #[test]
+    fn move_all_of_type_moves_between_the_whole_inventory_and_the_chest() {
+        let (mut player, mut world) = by_an_open_chest(holding(5, stack(ItemId::Sand, 1)));
+        player.inventory.inner.insert(0, stack(ItemId::Dirt, 5));
+        player.inventory.inner.insert(20, stack(ItemId::Dirt, 6));
+
+        act(&mut player, &mut world, vec![move_all(0, ItemId::Dirt)]);
+        let mut expected = holding(5, stack(ItemId::Sand, 1));
+        expected.slots[0] = Some(stack(ItemId::Dirt, 11));
+        assert_eq!(world.container(CHEST), Some(&expected));
+        assert!(player.inventory.inner.is_empty());
+
+        act(
+            &mut player,
+            &mut world,
+            vec![move_all(chest_slot(5), ItemId::Dirt)],
+        );
+        assert_eq!(
+            world.container(CHEST),
+            Some(&holding(5, stack(ItemId::Sand, 1)))
+        );
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Dirt, 11));
+    }
+
+    #[test]
+    fn move_all_of_type_empties_the_grid_or_the_furnace_of_the_item() {
+        let mut inventory = inventory_with(grid_slot(0, 0), stack(ItemId::Dirt, 2));
+        inventory
+            .inner
+            .insert(grid_slot(1, 1), stack(ItemId::Dirt, 3));
+        inventory
+            .inner
+            .insert(grid_slot(0, 1), stack(ItemId::Sand, 1));
+        apply(&mut inventory, move_all(grid_slot(0, 0), ItemId::Dirt));
+        assert_eq!(inventory.inner[&0], stack(ItemId::Dirt, 5));
+        assert_eq!(inventory.inner[&grid_slot(0, 1)], stack(ItemId::Sand, 1));
+        assert_eq!(inventory.inner.len(), 2);
+
+        let (mut player, mut world) = by_an_open_furnace(furnace_holding(
+            Some(stack(ItemId::Sand, 3)),
+            None,
+            Some(stack(ItemId::Glass, 2)),
+        ));
+        act(
+            &mut player,
+            &mut world,
+            vec![move_all(FURNACE_OUTPUT_SLOT, ItemId::Glass)],
+        );
+        assert_eq!(
+            world.furnace(FURNACE),
+            Some(&furnace_holding(Some(stack(ItemId::Sand, 3)), None, None))
+        );
+        assert_eq!(player.inventory.inner[&0], stack(ItemId::Glass, 2));
+    }
+
+    #[test]
+    fn move_all_of_type_on_a_slot_out_of_reach_is_refused() {
+        let mut inventory = inventory_with(0, stack(ItemId::Dirt, 5));
+        let before = inventory.clone();
+        for slot in [1000, CHEST_SLOT_START, grid_slot(2, 2)] {
+            assert_eq!(
+                try_apply(&mut inventory, move_all(slot, ItemId::Dirt)),
+                Err(InventoryRefusal::InvalidSlot(slot))
+            );
+        }
+        assert_eq!(inventory, before);
     }
 }
