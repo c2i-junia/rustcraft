@@ -694,7 +694,7 @@ mod tests {
         // a suggestion that only contains the word has no rest
         assert_eq!(typed("/give log").ghost(), "");
         // a wrong line has none
-        assert_eq!(typed("/give diamond ").ghost(), "");
+        assert_eq!(typed("/give emerald ").ghost(), "");
         assert_eq!(typed("hello").ghost(), "");
 
         // a suggestion chosen shows before a letter is typed

@@ -169,8 +169,8 @@ mod tests {
     #[test]
     fn give_refuses_unknown_items_and_counts_that_are_not_positive() {
         assert_eq!(
-            parse_command("give diamond 1"),
-            Err("Unknown item: diamond".to_string())
+            parse_command("give emerald 1"),
+            Err("Unknown item: emerald".to_string())
         );
         // Only the names of the items, not anything serde would accept
         assert_eq!(

@@ -608,6 +608,18 @@ mod tests {
     }
 
     #[test]
+    fn every_item_has_an_icon_among_the_base_textures() {
+        // Its own, or the texture of the block of the same name
+        let textures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/graphics/base_textures");
+        for item in ItemId::ALL {
+            let has_icon = ["items", "blocks"]
+                .iter()
+                .any(|folder| textures.join(format!("{folder}/{item:?}.png")).is_file());
+            assert!(has_icon, "{item:?}");
+        }
+    }
+
+    #[test]
     fn a_strip_of_square_frames_is_cut_into_its_frames() {
         let frames = frames(&numbered(4, 12), 4).unwrap();
         assert_eq!(frames.len(), 3);

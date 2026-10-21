@@ -55,6 +55,10 @@ BLOCKS = [
     ("Vine", (88, 168, 48)),
     ("Cocoa", (131, 46, 37)),
     ("LitFurnace", (90, 90, 90)),
+    ("DiamondOre", (90, 230, 230)),
+    ("IronBlock", (220, 220, 220)),
+    ("GoldBlock", (255, 230, 90)),
+    ("DiamondBlock", (100, 235, 225)),
 ]
 AIR = 255
 WATER = 19

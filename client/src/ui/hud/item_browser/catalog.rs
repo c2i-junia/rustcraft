@@ -137,21 +137,26 @@ mod tests {
         );
         assert_eq!(
             found("ore", None),
-            [ItemId::CoalOre, ItemId::IronOre, ItemId::GoldOre]
+            [
+                ItemId::CoalOre,
+                ItemId::IronOre,
+                ItemId::GoldOre,
+                ItemId::DiamondOre
+            ]
         );
-        assert_eq!(found("", None).len(), 42);
-        assert_eq!(found("  ", None).len(), 42);
+        assert_eq!(found("", None).len(), 70);
+        assert_eq!(found("  ", None).len(), 70);
         assert!(found("zzz", None).is_empty());
     }
 
     #[test]
     fn a_hash_word_matches_the_category() {
-        assert_eq!(found("#tools", None).len(), 5);
+        assert_eq!(found("#tools", None).len(), 25);
         assert!(found("#tools", None)
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), 42);
+        assert_eq!(found("#", None).len(), 70);
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }

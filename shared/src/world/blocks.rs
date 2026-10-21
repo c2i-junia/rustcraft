@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{GameElementId, ItemId, ToolKind};
+use super::{GameElementId, ItemId, Tool, ToolKind};
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3A};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,10 @@ pub enum BlockId {
     Cocoa,
     /// A furnace while it burns: it glows, and turns back into a `Furnace` once out.
     LitFurnace,
+    DiamondOre,
+    IronBlock,
+    GoldBlock,
+    DiamondBlock,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -194,6 +198,14 @@ pub enum BlockTransparency {
     Decoration,
 }
 
+/// The tool a block must be broken with to drop its items, see `BlockId::get_required_tool`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequiredTool {
+    pub kind: ToolKind,
+    /// The lowest `ToolTier::mining_level` that harvests the block.
+    pub level: u8,
+}
+
 pub enum BlockHitbox {
     FullBlock,
     Aabb(Aabb3d),
@@ -202,7 +214,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 36] = [
+    pub const ALL: [BlockId; 40] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -239,6 +251,10 @@ impl BlockId {
         BlockId::Vine,
         BlockId::Cocoa,
         BlockId::LitFurnace,
+        BlockId::DiamondOre,
+        BlockId::IronBlock,
+        BlockId::GoldBlock,
+        BlockId::DiamondBlock,
     ];
 
     pub fn get_hitbox(&self) -> BlockHitbox {
@@ -304,7 +320,7 @@ impl BlockId {
             Self::Chest => 10,
             Self::CoalOre => 12,
             Self::IronOre => 15,
-            Self::GoldOre => 15,
+            Self::GoldOre | Self::DiamondOre => 15,
             Self::Gravel => 6,
             Self::Torch => 1,
             Self::JungleLog => 10,
@@ -313,6 +329,8 @@ impl BlockId {
             Self::Fern => 1,
             Self::Vine => 1,
             Self::Cocoa => 2,
+            Self::GoldBlock => 15,
+            Self::IronBlock | Self::DiamondBlock => 25,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -331,6 +349,10 @@ impl BlockId {
                     | Self::CoalOre
                     | Self::IronOre
                     | Self::GoldOre
+                    | Self::DiamondOre
+                    | Self::IronBlock
+                    | Self::GoldBlock
+                    | Self::DiamondBlock
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -357,19 +379,29 @@ impl BlockId {
         }
     }
 
-    /// The tool this block must be broken with to drop anything, like stone and a pickaxe.
-    /// Broken otherwise, it still goes, but drops nothing.
-    pub fn get_required_tool(&self) -> Option<ToolKind> {
-        match *self {
-            Self::Stone
-            | Self::Cobblestone
-            | Self::Furnace
-            | Self::LitFurnace
-            | Self::CoalOre
-            | Self::IronOre
-            | Self::GoldOre => Some(ToolKind::Pickaxe),
-            _ => None,
-        }
+    /// The tool this block must be broken with to drop anything, like stone and a pickaxe, and
+    /// the mining level its tier must reach, like iron ore and a stone pickaxe. Broken otherwise,
+    /// it still goes, but drops nothing.
+    pub fn get_required_tool(&self) -> Option<RequiredTool> {
+        let level = match *self {
+            Self::Stone | Self::Cobblestone | Self::Furnace | Self::LitFurnace | Self::CoalOre => 0,
+            Self::IronOre | Self::IronBlock => 1,
+            Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
+            _ => return None,
+        };
+        Some(RequiredTool {
+            kind: ToolKind::Pickaxe,
+            level,
+        })
+    }
+
+    /// Whether this block drops its items when broken holding `tool`, see `get_required_tool`.
+    pub fn is_harvested_by(&self, tool: Option<Tool>) -> bool {
+        self.get_required_tool().is_none_or(|required| {
+            tool.is_some_and(|tool| {
+                tool.kind == required.kind && tool.tier.mining_level() >= required.level
+            })
+        })
     }
 
     /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
@@ -415,9 +447,13 @@ impl BlockId {
             BlockId::Furnace | BlockId::LitFurnace => vec![(1, ItemId::Furnace, 1)],
             BlockId::Chest => vec![(1, ItemId::Chest, 1)],
             BlockId::CoalOre => vec![(1, ItemId::Coal, 1)],
-            // they will smelt into ingots: until then, they drop themselves
+            // smelted into ingots
             BlockId::IronOre => vec![(1, ItemId::IronOre, 1)],
             BlockId::GoldOre => vec![(1, ItemId::GoldOre, 1)],
+            BlockId::DiamondOre => vec![(1, ItemId::Diamond, 1)],
+            BlockId::IronBlock => vec![(1, ItemId::IronBlock, 1)],
+            BlockId::GoldBlock => vec![(1, ItemId::GoldBlock, 1)],
+            BlockId::DiamondBlock => vec![(1, ItemId::DiamondBlock, 1)],
             BlockId::Gravel => vec![(1, ItemId::Gravel, 1)],
             BlockId::Torch => vec![(1, ItemId::Torch, 1)],
             BlockId::JungleLog => vec![(1, ItemId::JungleLog, 1)],
@@ -501,7 +537,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 36] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 40] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -544,7 +580,11 @@ mod tests {
             | BlockId::Fern
             | BlockId::Vine
             | BlockId::Cocoa
-            | BlockId::LitFurnace => {}
+            | BlockId::LitFurnace
+            | BlockId::DiamondOre
+            | BlockId::IronBlock
+            | BlockId::GoldBlock
+            | BlockId::DiamondBlock => {}
         }
     }
 
@@ -628,6 +668,10 @@ mod tests {
                 BlockId::Vine => 33,
                 BlockId::Cocoa => 34,
                 BlockId::LitFurnace => 35,
+                BlockId::DiamondOre => 36,
+                BlockId::IronBlock => 37,
+                BlockId::GoldBlock => 38,
+                BlockId::DiamondBlock => 39,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -651,7 +695,8 @@ mod tests {
     fn the_lit_furnace_is_a_furnace_that_glows() {
         let (lit, out) = (BlockId::LitFurnace, BlockId::Furnace);
         assert_eq!(lit.get_break_time(), out.get_break_time());
-        assert_eq!(lit.get_required_tool(), Some(ToolKind::Pickaxe));
+        assert_eq!(lit.get_required_tool(), out.get_required_tool());
+        assert!(lit.get_required_tool().is_some());
         assert!(lit.is_mined_faster_by(ToolKind::Pickaxe));
         assert_eq!(lit.get_drops(1), HashMap::from([(ItemId::Furnace, 1)]));
         assert_eq!(lit.get_visibility(), BlockTransparency::Solid);
@@ -975,19 +1020,25 @@ mod tests {
     }
 
     #[test]
-    fn stone_blocks_need_a_pickaxe_and_the_others_nothing() {
+    fn stone_and_metal_blocks_need_a_pickaxe_of_their_level_and_the_others_nothing() {
         for id in ALL_BLOCKS {
-            let expected = matches!(
-                id,
+            let level = match id {
                 BlockId::Stone
-                    | BlockId::Cobblestone
-                    | BlockId::Furnace
-                    | BlockId::LitFurnace
-                    | BlockId::CoalOre
-                    | BlockId::IronOre
-                    | BlockId::GoldOre
-            )
-            .then_some(ToolKind::Pickaxe);
+                | BlockId::Cobblestone
+                | BlockId::Furnace
+                | BlockId::LitFurnace
+                | BlockId::CoalOre => Some(0),
+                BlockId::IronOre | BlockId::IronBlock => Some(1),
+                BlockId::GoldOre
+                | BlockId::DiamondOre
+                | BlockId::GoldBlock
+                | BlockId::DiamondBlock => Some(2),
+                _ => None,
+            };
+            let expected = level.map(|level| RequiredTool {
+                kind: ToolKind::Pickaxe,
+                level,
+            });
             assert_eq!(id.get_required_tool(), expected, "{id:?}");
         }
     }
@@ -995,9 +1046,76 @@ mod tests {
     #[test]
     fn a_block_that_needs_a_tool_is_mined_faster_by_it() {
         for id in ALL_BLOCKS {
-            if let Some(kind) = id.get_required_tool() {
-                assert!(id.is_mined_faster_by(kind), "{id:?}");
+            if let Some(required) = id.get_required_tool() {
+                assert!(id.is_mined_faster_by(required.kind), "{id:?}");
             }
+        }
+    }
+
+    #[test]
+    fn a_block_is_harvested_by_a_tool_of_its_kind_and_level() {
+        for (block, held, harvested) in [
+            (BlockId::Stone, None, false),
+            (BlockId::Stone, Some(ItemId::WoodenPickaxe), true),
+            (BlockId::Stone, Some(ItemId::GoldenPickaxe), true),
+            (BlockId::Stone, Some(ItemId::DiamondAxe), false),
+            (BlockId::IronOre, Some(ItemId::WoodenPickaxe), false),
+            (BlockId::IronOre, Some(ItemId::GoldenPickaxe), false),
+            (BlockId::IronOre, Some(ItemId::StonePickaxe), true),
+            (BlockId::IronBlock, Some(ItemId::StonePickaxe), true),
+            (BlockId::GoldOre, Some(ItemId::StonePickaxe), false),
+            (BlockId::GoldOre, Some(ItemId::IronPickaxe), true),
+            (BlockId::DiamondOre, Some(ItemId::StonePickaxe), false),
+            (BlockId::DiamondOre, Some(ItemId::IronPickaxe), true),
+            (BlockId::DiamondOre, Some(ItemId::DiamondPickaxe), true),
+            (BlockId::GoldBlock, Some(ItemId::GoldenPickaxe), false),
+            (BlockId::DiamondBlock, Some(ItemId::IronPickaxe), true),
+            (BlockId::Dirt, None, true),
+            (BlockId::Dirt, Some(ItemId::WoodenSword), true),
+        ] {
+            let tool = held.and_then(|item| item.tool());
+            assert_eq!(
+                block.is_harvested_by(tool),
+                harvested,
+                "{block:?} with {held:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn diamond_ore_drops_a_diamond_and_the_storage_blocks_themselves() {
+        assert_eq!(
+            BlockId::DiamondOre.get_drops(1),
+            HashMap::from([(ItemId::Diamond, 1)])
+        );
+        for (block, item) in [
+            (BlockId::IronBlock, ItemId::IronBlock),
+            (BlockId::GoldBlock, ItemId::GoldBlock),
+            (BlockId::DiamondBlock, ItemId::DiamondBlock),
+        ] {
+            assert_eq!(block.get_drops(1), HashMap::from([(item, 1)]), "{block:?}");
+        }
+    }
+
+    #[test]
+    fn diamond_ore_and_the_storage_blocks_break_by_minecraft_s_hardness() {
+        // Hardness 3, as the other ores, then 3 for gold and 5 for iron and diamond
+        assert_eq!(
+            BlockId::DiamondOre.get_break_time(),
+            BlockId::GoldOre.get_break_time()
+        );
+        assert_eq!(BlockId::GoldBlock.get_break_time(), Some(2 * 15));
+        assert_eq!(BlockId::IronBlock.get_break_time(), Some(2 * 25));
+        assert_eq!(BlockId::DiamondBlock.get_break_time(), Some(2 * 25));
+        for id in [
+            BlockId::DiamondOre,
+            BlockId::IronBlock,
+            BlockId::GoldBlock,
+            BlockId::DiamondBlock,
+        ] {
+            assert!(id.is_mined_faster_by(ToolKind::Pickaxe), "{id:?}");
+            assert_eq!(id.get_visibility(), BlockTransparency::Solid, "{id:?}");
+            assert!(!id.is_usable(), "{id:?}");
         }
     }
 

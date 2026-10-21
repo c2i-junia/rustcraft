@@ -255,10 +255,7 @@ fn break_block(
         return Ok(None);
     }
 
-    let harvested = block
-        .id
-        .get_required_tool()
-        .is_none_or(|kind| tool.is_some_and(|tool| tool.kind == kind));
+    let harvested = block.id.is_harvested_by(tool);
     // Like in Minecraft, the plants that break at once do not wear a tool out
     if let Some(tool) = tool {
         if block.id.get_visibility() != BlockTransparency::Decoration {
@@ -1047,6 +1044,35 @@ mod tests {
                 .2
                 .harvested
         );
+    }
+
+    #[test]
+    fn a_better_tier_breaks_stone_faster() {
+        // Stone takes 20 hits by hand
+        for (item, hits) in [
+            (ItemId::WoodenPickaxe, 10),
+            (ItemId::StonePickaxe, 5),
+            (ItemId::IronPickaxe, 4),
+            (ItemId::DiamondPickaxe, 3),
+            (ItemId::GoldenPickaxe, 2),
+        ] {
+            let (with_tool, ..) = break_holding(BlockId::Stone, tool(item));
+            assert_eq!(with_tool, hits, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn an_ore_drops_its_items_only_when_broken_with_a_pickaxe_of_its_level() {
+        for (block, item, harvested) in [
+            (BlockId::IronOre, ItemId::WoodenPickaxe, false),
+            (BlockId::IronOre, ItemId::GoldenPickaxe, false),
+            (BlockId::IronOre, ItemId::StonePickaxe, true),
+            (BlockId::DiamondOre, ItemId::StonePickaxe, false),
+            (BlockId::DiamondOre, ItemId::IronPickaxe, true),
+        ] {
+            let (.., broken) = break_holding(block, tool(item));
+            assert_eq!(broken.harvested, harvested, "{block:?} with {item:?}");
+        }
     }
 
     #[test]

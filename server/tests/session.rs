@@ -1857,8 +1857,8 @@ fn give_adds_the_items_to_the_inventory_of_its_author() {
     let mut client = TestClient::connect(server.addr, PLAYER_ID);
     join(&mut client, "crafter");
 
-    client.send(chat_message("/give diamond 1"));
-    command_answer(&mut client, "Unknown item: diamond");
+    client.send(chat_message("/give emerald 1"));
+    command_answer(&mut client, "Unknown item: emerald");
     client.send(chat_message("/give dirt 70"));
     command_answer(&mut client, "Gave 70 Dirt");
     let inventory = send_inventory_actions(&mut client, 1, vec![]);

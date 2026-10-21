@@ -327,10 +327,18 @@ mod tests {
                 "spruce_planks"
             ]
         );
-        // `stone` is a value, and `cobblestone` contains it
+        // `stone` is a value, the stone tools start with it, and `cobblestone` contains it
         assert_eq!(
             texts(&complete("/give stone", &[]).unwrap()),
-            ["stone", "cobblestone"]
+            [
+                "stone",
+                "stone_axe",
+                "stone_hoe",
+                "stone_pickaxe",
+                "stone_shovel",
+                "stone_sword",
+                "cobblestone"
+            ]
         );
         assert_eq!(complete("/give", &[]).unwrap().suggestions, []);
         assert_eq!(
@@ -353,8 +361,8 @@ mod tests {
     fn a_wrong_argument_is_told_with_the_answer_of_the_server() {
         let error = |line| complete(line, &[]).unwrap().error;
         assert_eq!(
-            error("/give diamond 3").as_deref(),
-            Some("Unknown item: diamond")
+            error("/give emerald 3").as_deref(),
+            Some("Unknown item: emerald")
         );
         assert_eq!(error("/give xyz").as_deref(), Some("Unknown item: xyz"));
         assert_eq!(error("/give dirt 0").as_deref(), Some("Invalid count: 0"));

@@ -51,7 +51,11 @@ impl SoundMaterial {
             | BlockId::LitFurnace
             | BlockId::CoalOre
             | BlockId::IronOre
-            | BlockId::GoldOre => Self::Stone,
+            | BlockId::GoldOre
+            | BlockId::DiamondOre
+            | BlockId::IronBlock
+            | BlockId::GoldBlock
+            | BlockId::DiamondBlock => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -201,6 +205,23 @@ mod tests {
             SoundMaterial::of(BlockId::LitFurnace),
             Some(SoundMaterial::Stone)
         );
+    }
+
+    #[test]
+    fn diamond_ore_and_the_storage_blocks_sound_like_stone() {
+        // there is no metal sound
+        for block in [
+            BlockId::DiamondOre,
+            BlockId::IronBlock,
+            BlockId::GoldBlock,
+            BlockId::DiamondBlock,
+        ] {
+            assert_eq!(
+                SoundMaterial::of(block),
+                Some(SoundMaterial::Stone),
+                "{block:?}"
+            );
+        }
     }
 
     #[test]

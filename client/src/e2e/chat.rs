@@ -556,8 +556,8 @@ fn commands_are_completed_as_they_are_typed() {
     assert!(!h.is_visible(&L::marker::<ChatRoot>()));
 
     // a wrong line is told before it is sent, and Escape puts the panel away first
-    h.type_text("/give diamond");
-    assert!(h.is_visible(&L::text("Unknown item: diamond")));
+    h.type_text("/give emerald");
+    assert!(h.is_visible(&L::text("Unknown item: emerald")));
     assert_eq!(h.ghost(), None);
     h.frames(10);
     h.snapshot("error");

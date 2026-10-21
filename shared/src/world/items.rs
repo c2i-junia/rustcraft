@@ -65,11 +65,39 @@ pub enum ItemId {
     Fern,
     Vine,
     CocoaBeans,
+    IronIngot,
+    GoldIngot,
+    Diamond,
+    Charcoal,
+    DiamondOre,
+    IronBlock,
+    GoldBlock,
+    DiamondBlock,
+    StonePickaxe,
+    StoneAxe,
+    StoneShovel,
+    StoneHoe,
+    StoneSword,
+    IronPickaxe,
+    IronAxe,
+    IronShovel,
+    IronHoe,
+    IronSword,
+    GoldenPickaxe,
+    GoldenAxe,
+    GoldenShovel,
+    GoldenHoe,
+    GoldenSword,
+    DiamondPickaxe,
+    DiamondAxe,
+    DiamondShovel,
+    DiamondHoe,
+    DiamondSword,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 42] = [
+    pub const ALL: [ItemId; 70] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -112,6 +140,34 @@ impl ItemId {
         Self::Fern,
         Self::Vine,
         Self::CocoaBeans,
+        Self::IronIngot,
+        Self::GoldIngot,
+        Self::Diamond,
+        Self::Charcoal,
+        Self::DiamondOre,
+        Self::IronBlock,
+        Self::GoldBlock,
+        Self::DiamondBlock,
+        Self::StonePickaxe,
+        Self::StoneAxe,
+        Self::StoneShovel,
+        Self::StoneHoe,
+        Self::StoneSword,
+        Self::IronPickaxe,
+        Self::IronAxe,
+        Self::IronShovel,
+        Self::IronHoe,
+        Self::IronSword,
+        Self::GoldenPickaxe,
+        Self::GoldenAxe,
+        Self::GoldenShovel,
+        Self::GoldenHoe,
+        Self::GoldenSword,
+        Self::DiamondPickaxe,
+        Self::DiamondAxe,
+        Self::DiamondShovel,
+        Self::DiamondHoe,
+        Self::DiamondSword,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -161,20 +217,43 @@ impl ItemId {
 
     /// What the item does as a tool, if it is one.
     pub fn tool(&self) -> Option<Tool> {
-        let (kind, wear_per_block) = match *self {
-            Self::WoodenPickaxe => (ToolKind::Pickaxe, 1),
-            Self::WoodenAxe => (ToolKind::Axe, 1),
-            Self::WoodenShovel => (ToolKind::Shovel, 1),
-            Self::WoodenHoe => (ToolKind::Hoe, 1),
-            // A weapon: like in Minecraft, mining wears it twice as fast
-            Self::WoodenSword => (ToolKind::Sword, 2),
+        use ToolKind::*;
+        use ToolTier::*;
+        let (tier, kind) = match *self {
+            Self::WoodenPickaxe => (Wood, Pickaxe),
+            Self::WoodenAxe => (Wood, Axe),
+            Self::WoodenShovel => (Wood, Shovel),
+            Self::WoodenHoe => (Wood, Hoe),
+            Self::WoodenSword => (Wood, Sword),
+            Self::StonePickaxe => (Stone, Pickaxe),
+            Self::StoneAxe => (Stone, Axe),
+            Self::StoneShovel => (Stone, Shovel),
+            Self::StoneHoe => (Stone, Hoe),
+            Self::StoneSword => (Stone, Sword),
+            Self::IronPickaxe => (Iron, Pickaxe),
+            Self::IronAxe => (Iron, Axe),
+            Self::IronShovel => (Iron, Shovel),
+            Self::IronHoe => (Iron, Hoe),
+            Self::IronSword => (Iron, Sword),
+            Self::GoldenPickaxe => (Gold, Pickaxe),
+            Self::GoldenAxe => (Gold, Axe),
+            Self::GoldenShovel => (Gold, Shovel),
+            Self::GoldenHoe => (Gold, Hoe),
+            Self::GoldenSword => (Gold, Sword),
+            Self::DiamondPickaxe => (Diamond, Pickaxe),
+            Self::DiamondAxe => (Diamond, Axe),
+            Self::DiamondShovel => (Diamond, Shovel),
+            Self::DiamondHoe => (Diamond, Hoe),
+            Self::DiamondSword => (Diamond, Sword),
             _ => return None,
         };
         Some(Tool {
             kind,
-            speed: WOODEN_TOOL_SPEED,
-            durability: WOODEN_TOOL_DURABILITY,
-            wear_per_block,
+            tier,
+            speed: tier.speed(),
+            durability: tier.durability(),
+            // A weapon: like in Minecraft, mining wears it twice as fast
+            wear_per_block: if kind == Sword { 2 } else { 1 },
         })
     }
 
@@ -192,7 +271,10 @@ impl ItemId {
             | Self::Ice
             | Self::Snow
             | Self::Torch
-            | Self::Bedrock => ItemCategory::Blocks,
+            | Self::Bedrock
+            | Self::IronBlock
+            | Self::GoldBlock
+            | Self::DiamondBlock => ItemCategory::Blocks,
             Self::OakLog
             | Self::SpruceLog
             | Self::JungleLog
@@ -207,14 +289,41 @@ impl ItemId {
             | Self::TallGrass
             | Self::Fern
             | Self::Vine => ItemCategory::Nature,
-            Self::CoalOre | Self::IronOre | Self::GoldOre => ItemCategory::Ores,
-            Self::Coal | Self::Stick | Self::Snowball | Self::CocoaBeans => ItemCategory::Materials,
+            Self::CoalOre | Self::IronOre | Self::GoldOre | Self::DiamondOre => ItemCategory::Ores,
+            Self::Coal
+            | Self::Charcoal
+            | Self::IronIngot
+            | Self::GoldIngot
+            | Self::Diamond
+            | Self::Stick
+            | Self::Snowball
+            | Self::CocoaBeans => ItemCategory::Materials,
             Self::CraftingTable | Self::Furnace | Self::Chest => ItemCategory::Stations,
             Self::WoodenPickaxe
             | Self::WoodenAxe
             | Self::WoodenShovel
             | Self::WoodenHoe
-            | Self::WoodenSword => ItemCategory::Tools,
+            | Self::WoodenSword
+            | Self::StonePickaxe
+            | Self::StoneAxe
+            | Self::StoneShovel
+            | Self::StoneHoe
+            | Self::StoneSword
+            | Self::IronPickaxe
+            | Self::IronAxe
+            | Self::IronShovel
+            | Self::IronHoe
+            | Self::IronSword
+            | Self::GoldenPickaxe
+            | Self::GoldenAxe
+            | Self::GoldenShovel
+            | Self::GoldenHoe
+            | Self::GoldenSword
+            | Self::DiamondPickaxe
+            | Self::DiamondAxe
+            | Self::DiamondShovel
+            | Self::DiamondHoe
+            | Self::DiamondSword => ItemCategory::Tools,
             Self::FoxSpawnEgg | Self::SheepSpawnEgg => ItemCategory::Mobs,
         }
     }
@@ -252,19 +361,47 @@ impl ItemId {
             Self::JungleLeaves => ItemType::Block(BlockId::JungleLeaves),
             Self::Fern => ItemType::Block(BlockId::Fern),
             Self::Vine => ItemType::Block(BlockId::Vine),
+            Self::DiamondOre => ItemType::Block(BlockId::DiamondOre),
+            Self::IronBlock => ItemType::Block(BlockId::IronBlock),
+            Self::GoldBlock => ItemType::Block(BlockId::GoldBlock),
+            Self::DiamondBlock => ItemType::Block(BlockId::DiamondBlock),
 
             Self::Snowball
             | Self::Stick
             | Self::Coal
             | Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
-            | Self::CocoaBeans => ItemType::Generic,
+            | Self::CocoaBeans
+            | Self::IronIngot
+            | Self::GoldIngot
+            | Self::Diamond
+            | Self::Charcoal => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
             | Self::WoodenShovel
             | Self::WoodenHoe
-            | Self::WoodenSword => ItemType::Tool { wear: 0 },
+            | Self::WoodenSword
+            | Self::StonePickaxe
+            | Self::StoneAxe
+            | Self::StoneShovel
+            | Self::StoneHoe
+            | Self::StoneSword
+            | Self::IronPickaxe
+            | Self::IronAxe
+            | Self::IronShovel
+            | Self::IronHoe
+            | Self::IronSword
+            | Self::GoldenPickaxe
+            | Self::GoldenAxe
+            | Self::GoldenShovel
+            | Self::GoldenHoe
+            | Self::GoldenSword
+            | Self::DiamondPickaxe
+            | Self::DiamondAxe
+            | Self::DiamondShovel
+            | Self::DiamondHoe
+            | Self::DiamondSword => ItemType::Tool { wear: 0 },
         }
     }
 }
@@ -312,10 +449,51 @@ impl ItemCategory {
     }
 }
 
-/// How many times faster a wooden tool breaks the blocks it is made for than a hand.
-pub const WOODEN_TOOL_SPEED: u8 = 2;
-/// Blocks a wooden tool breaks before it breaks itself, like in Minecraft.
-pub const WOODEN_TOOL_DURABILITY: u32 = 59;
+/// What a tool is made of, which sets how fast it mines, how long it lasts and the blocks it
+/// harvests, like Minecraft's tiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolTier {
+    Wood,
+    Stone,
+    Iron,
+    Diamond,
+    Gold,
+}
+
+impl ToolTier {
+    /// How many times faster a tool of this tier breaks the blocks it is made for than a hand.
+    pub fn speed(self) -> u8 {
+        match self {
+            Self::Wood => 2,
+            Self::Stone => 4,
+            Self::Iron => 6,
+            Self::Diamond => 8,
+            Self::Gold => 12,
+        }
+    }
+
+    /// Blocks a tool of this tier breaks before it breaks itself.
+    pub fn durability(self) -> u32 {
+        match self {
+            Self::Wood => 59,
+            Self::Stone => 131,
+            Self::Iron => 250,
+            Self::Diamond => 1561,
+            Self::Gold => 32,
+        }
+    }
+
+    /// The highest level of the blocks a tool of this tier harvests, see
+    /// `BlockId::get_required_tool`: gold is as soft as wood.
+    pub fn mining_level(self) -> u8 {
+        match self {
+            Self::Wood | Self::Gold => 0,
+            Self::Stone => 1,
+            Self::Iron => 2,
+            Self::Diamond => 3,
+        }
+    }
+}
 
 /// The kinds of tools: each one breaks some blocks faster, see `BlockId::get_tool_kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -331,6 +509,7 @@ pub enum ToolKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tool {
     pub kind: ToolKind,
+    pub tier: ToolTier,
     /// Mining hits each hit counts for on a block of its kind.
     pub speed: u8,
     /// The wear at which the tool breaks.
@@ -408,6 +587,34 @@ mod tests {
             (ItemId::Fern, 39),
             (ItemId::Vine, 40),
             (ItemId::CocoaBeans, 41),
+            (ItemId::IronIngot, 42),
+            (ItemId::GoldIngot, 43),
+            (ItemId::Diamond, 44),
+            (ItemId::Charcoal, 45),
+            (ItemId::DiamondOre, 46),
+            (ItemId::IronBlock, 47),
+            (ItemId::GoldBlock, 48),
+            (ItemId::DiamondBlock, 49),
+            (ItemId::StonePickaxe, 50),
+            (ItemId::StoneAxe, 51),
+            (ItemId::StoneShovel, 52),
+            (ItemId::StoneHoe, 53),
+            (ItemId::StoneSword, 54),
+            (ItemId::IronPickaxe, 55),
+            (ItemId::IronAxe, 56),
+            (ItemId::IronShovel, 57),
+            (ItemId::IronHoe, 58),
+            (ItemId::IronSword, 59),
+            (ItemId::GoldenPickaxe, 60),
+            (ItemId::GoldenAxe, 61),
+            (ItemId::GoldenShovel, 62),
+            (ItemId::GoldenHoe, 63),
+            (ItemId::GoldenSword, 64),
+            (ItemId::DiamondPickaxe, 65),
+            (ItemId::DiamondAxe, 66),
+            (ItemId::DiamondShovel, 67),
+            (ItemId::DiamondHoe, 68),
+            (ItemId::DiamondSword, 69),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -453,7 +660,35 @@ mod tests {
                 | ItemId::JungleLeaves
                 | ItemId::Fern
                 | ItemId::Vine
-                | ItemId::CocoaBeans => {}
+                | ItemId::CocoaBeans
+                | ItemId::IronIngot
+                | ItemId::GoldIngot
+                | ItemId::Diamond
+                | ItemId::Charcoal
+                | ItemId::DiamondOre
+                | ItemId::IronBlock
+                | ItemId::GoldBlock
+                | ItemId::DiamondBlock
+                | ItemId::StonePickaxe
+                | ItemId::StoneAxe
+                | ItemId::StoneShovel
+                | ItemId::StoneHoe
+                | ItemId::StoneSword
+                | ItemId::IronPickaxe
+                | ItemId::IronAxe
+                | ItemId::IronShovel
+                | ItemId::IronHoe
+                | ItemId::IronSword
+                | ItemId::GoldenPickaxe
+                | ItemId::GoldenAxe
+                | ItemId::GoldenShovel
+                | ItemId::GoldenHoe
+                | ItemId::GoldenSword
+                | ItemId::DiamondPickaxe
+                | ItemId::DiamondAxe
+                | ItemId::DiamondShovel
+                | ItemId::DiamondHoe
+                | ItemId::DiamondSword => {}
             }
         }
         for (id, expected) in table {
@@ -488,7 +723,7 @@ mod tests {
         assert_eq!(ItemId::from_name("OakLog"), Some(ItemId::OakLog));
         // only the names of the items, not anything serde would accept
         assert_eq!(ItemId::from_name("oak__log"), None);
-        assert_eq!(ItemId::from_name("diamond"), None);
+        assert_eq!(ItemId::from_name("emerald"), None);
     }
 
     #[test]
@@ -519,30 +754,144 @@ mod tests {
     }
 
     #[test]
-    fn the_wooden_tools_are_unworn_tools_that_stack_to_one() {
-        let tools = [
-            (ItemId::WoodenPickaxe, ToolKind::Pickaxe),
-            (ItemId::WoodenAxe, ToolKind::Axe),
-            (ItemId::WoodenShovel, ToolKind::Shovel),
-            (ItemId::WoodenHoe, ToolKind::Hoe),
-            (ItemId::WoodenSword, ToolKind::Sword),
+    fn the_tiers_are_minecraft_s() {
+        for (tier, speed, durability, mining_level) in [
+            (ToolTier::Wood, 2, 59, 0),
+            (ToolTier::Stone, 4, 131, 1),
+            (ToolTier::Iron, 6, 250, 2),
+            (ToolTier::Diamond, 8, 1561, 3),
+            (ToolTier::Gold, 12, 32, 0),
+        ] {
+            assert_eq!(
+                (tier.speed(), tier.durability(), tier.mining_level()),
+                (speed, durability, mining_level),
+                "{tier:?}"
+            );
+        }
+    }
+
+    /// Every tool, its tier and its kind.
+    fn every_tool() -> Vec<(ItemId, ToolTier, ToolKind)> {
+        let tiers = [
+            (
+                ToolTier::Wood,
+                [
+                    ItemId::WoodenPickaxe,
+                    ItemId::WoodenAxe,
+                    ItemId::WoodenShovel,
+                    ItemId::WoodenHoe,
+                    ItemId::WoodenSword,
+                ],
+            ),
+            (
+                ToolTier::Stone,
+                [
+                    ItemId::StonePickaxe,
+                    ItemId::StoneAxe,
+                    ItemId::StoneShovel,
+                    ItemId::StoneHoe,
+                    ItemId::StoneSword,
+                ],
+            ),
+            (
+                ToolTier::Iron,
+                [
+                    ItemId::IronPickaxe,
+                    ItemId::IronAxe,
+                    ItemId::IronShovel,
+                    ItemId::IronHoe,
+                    ItemId::IronSword,
+                ],
+            ),
+            (
+                ToolTier::Gold,
+                [
+                    ItemId::GoldenPickaxe,
+                    ItemId::GoldenAxe,
+                    ItemId::GoldenShovel,
+                    ItemId::GoldenHoe,
+                    ItemId::GoldenSword,
+                ],
+            ),
+            (
+                ToolTier::Diamond,
+                [
+                    ItemId::DiamondPickaxe,
+                    ItemId::DiamondAxe,
+                    ItemId::DiamondShovel,
+                    ItemId::DiamondHoe,
+                    ItemId::DiamondSword,
+                ],
+            ),
         ];
-        for (item, kind) in tools {
+        let kinds = [
+            ToolKind::Pickaxe,
+            ToolKind::Axe,
+            ToolKind::Shovel,
+            ToolKind::Hoe,
+            ToolKind::Sword,
+        ];
+        tiers
+            .into_iter()
+            .flat_map(|(tier, items)| {
+                items
+                    .into_iter()
+                    .zip(kinds)
+                    .map(move |(item, kind)| (item, tier, kind))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_tool_is_an_unworn_tool_of_its_tier_that_stacks_to_one() {
+        let tools = every_tool();
+        for &(item, tier, kind) in &tools {
             let tool = item.tool().unwrap();
-            assert_eq!(tool.kind, kind);
-            assert_eq!(tool.speed, WOODEN_TOOL_SPEED);
-            assert_eq!(tool.durability, WOODEN_TOOL_DURABILITY);
+            assert_eq!((tool.kind, tool.tier), (kind, tier), "{item:?}");
+            assert_eq!(
+                (tool.speed, tool.durability),
+                (tier.speed(), tier.durability())
+            );
+            // A weapon: mining wears it twice as fast
+            let wear = if kind == ToolKind::Sword { 2 } else { 1 };
+            assert_eq!(tool.wear_per_block, wear, "{item:?}");
             assert_eq!(item.get_max_stack(), 1, "{item:?}");
             assert_eq!(item.get_default_type(), ItemType::Tool { wear: 0 });
         }
-        assert_eq!(ItemId::WoodenSword.tool().unwrap().wear_per_block, 2);
         let others = ItemId::ALL
             .iter()
-            .filter(|item| !tools.iter().any(|(t, _)| t == *item));
+            .filter(|item| !tools.iter().any(|(t, ..)| t == *item));
         for item in others {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
         }
+    }
+
+    #[test]
+    fn ingots_and_diamonds_are_materials_and_their_blocks_are_blocks() {
+        for item in [
+            ItemId::IronIngot,
+            ItemId::GoldIngot,
+            ItemId::Diamond,
+            ItemId::Charcoal,
+        ] {
+            assert_eq!(item.category(), ItemCategory::Materials, "{item:?}");
+            assert_eq!(item.get_default_type(), ItemType::Generic, "{item:?}");
+        }
+        for (item, block, category) in [
+            (ItemId::DiamondOre, BlockId::DiamondOre, ItemCategory::Ores),
+            (ItemId::IronBlock, BlockId::IronBlock, ItemCategory::Blocks),
+            (ItemId::GoldBlock, BlockId::GoldBlock, ItemCategory::Blocks),
+            (
+                ItemId::DiamondBlock,
+                BlockId::DiamondBlock,
+                ItemCategory::Blocks,
+            ),
+        ] {
+            assert_eq!(item.category(), category, "{item:?}");
+            assert_eq!(item.get_default_type(), ItemType::Block(block), "{item:?}");
+        }
+        assert_eq!(ItemId::GoldenPickaxe.name(), "golden_pickaxe");
     }
 
     #[test]
