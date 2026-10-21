@@ -1,12 +1,15 @@
 //! The inventory slot: a sunken square holding an icon, a count and, in the hotbar, its number.
 //!
 //! The hit test of a slot is its `Hovered`; callers observe the pointer events on the entity.
-//! A slot takes the focus, and shows the focus ring, like the other widgets.
+//! A slot takes the focus, and shows the focus ring, like the other widgets. A slot whose action
+//! was refused shakes (`ActionRefused`).
+
+use std::time::Duration;
 
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode, input_focus::tab_navigation::TabIndex, picking::hover::Hovered,
-    prelude::*,
+    prelude::*, ui::UiSystems,
 };
 
 use super::focus::FocusRing;
@@ -194,7 +197,84 @@ pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font
 }
 
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(PostUpdate, style_slots);
+    app.add_message::<ActionRefused>().add_systems(
+        PostUpdate,
+        // The shake's border wins over the look, and moves the slot before the layout places it
+        (style_slots, start_refusal_shakes, shake_refused_slots)
+            .chain()
+            .before(UiSystems::Layout),
+    );
+}
+
+/// An action the player made was refused: the refused sound plays, and `slot`, when it is a
+/// `Slot`, shakes. The one way to show a refusal, whatever made the action.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActionRefused {
+    pub slot: Option<Entity>,
+}
+
+/// How far a refused slot moves to each side, in logical px.
+pub const SHAKE_AMPLITUDE: f32 = 3.0;
+/// How long a refused slot shakes, its border in `DANGER`.
+pub const SHAKE_DURATION: Duration = Duration::from_millis(240);
+/// One move left and right: three of them in a shake.
+const SHAKE_PERIOD: Duration = Duration::from_millis(80);
+
+/// A slot shaking since its action was refused, for `SHAKE_DURATION`.
+#[derive(Component, Default, Debug)]
+pub struct RefusalShake {
+    elapsed: Duration,
+}
+
+/// How far right a slot shaking for `elapsed` is, in whole logical px: none once it is over.
+pub fn shake_offset(elapsed: Duration) -> f32 {
+    if elapsed >= SHAKE_DURATION {
+        return 0.0;
+    }
+    let turn = elapsed.as_secs_f32() / SHAKE_PERIOD.as_secs_f32();
+    (SHAKE_AMPLITUDE * (std::f32::consts::TAU * turn).sin()).round()
+}
+
+/// Starts the shake of each refused slot, again from the start if it already shakes.
+fn start_refusal_shakes(
+    mut refusals: MessageReader<ActionRefused>,
+    slots: Query<(), With<Slot>>,
+    mut commands: Commands,
+) {
+    for refused in refusals.read() {
+        if let Some(slot) = refused.slot.filter(|slot| slots.contains(*slot)) {
+            commands.entity(slot).insert(RefusalShake::default());
+        }
+    }
+}
+
+/// Moves the shaking slots and keeps their border in `DANGER`; once a shake is over, the slot
+/// goes back to its place and its look.
+fn shake_refused_slots(
+    time: Res<Time<Real>>,
+    mut commands: Commands,
+    mut slots: Query<(
+        Entity,
+        &mut RefusalShake,
+        &mut UiTransform,
+        &mut BorderColor,
+        &Hovered,
+        &SlotSelected,
+    )>,
+) {
+    for (slot, mut shake, mut transform, mut border, hovered, selected) in &mut slots {
+        shake.elapsed += time.delta();
+        let translation = Val2::px(shake_offset(shake.elapsed), 0.0);
+        if transform.translation != translation {
+            transform.translation = translation;
+        }
+        if shake.elapsed >= SHAKE_DURATION {
+            border.set_if_neq(slot_colors(hovered.0, selected.0).1);
+            commands.entity(slot).remove::<RefusalShake>();
+        } else {
+            border.set_if_neq(BorderColor::all(DANGER));
+        }
+    }
 }
 
 /// The background and the border of a slot in a given state.
@@ -294,6 +374,107 @@ mod tests {
         }
         // the icon is centred on whole pixels
         assert_eq!((SLOT_SIZE - ICON_SIZE - 2.0 * BEVEL_WIDTH) % 2.0, 0.0);
+    }
+
+    #[test]
+    fn a_shake_moves_3_whole_px_both_ways_for_0_24_s() {
+        assert_eq!(SHAKE_AMPLITUDE, 3.0);
+        assert_eq!(SHAKE_DURATION, Duration::from_millis(240));
+        let offsets: Vec<f32> = (0..240)
+            .map(|ms| shake_offset(Duration::from_millis(ms)))
+            .collect();
+        assert!(offsets.iter().all(|offset| offset.abs() <= 3.0));
+        assert!(offsets.iter().all(|offset| offset.fract() == 0.0));
+        assert!(offsets.contains(&3.0) && offsets.contains(&-3.0));
+        assert_eq!(shake_offset(SHAKE_DURATION), 0.0);
+        assert_eq!(shake_offset(Duration::from_secs(1)), 0.0);
+    }
+
+    /// An app shaking the refused slots, whose real clock moves only when told.
+    fn shaking_app() -> App {
+        let mut app = App::new();
+        app.add_message::<ActionRefused>()
+            .add_systems(Update, (start_refusal_shakes, shake_refused_slots).chain());
+        // A clock's first update starts it: the next ones move it on
+        let mut time = Time::<Real>::default();
+        time.update_with_duration(Duration::ZERO);
+        app.insert_resource(time);
+        app
+    }
+
+    /// Runs frames of 20 ms for `ms` milliseconds.
+    fn run_for(app: &mut App, ms: u64) {
+        for _ in 0..ms / 20 {
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .update_with_duration(Duration::from_millis(20));
+            app.update();
+        }
+    }
+
+    fn look_of(app: &App, slot: Entity) -> (f32, BorderColor) {
+        let transform = app.world().get::<UiTransform>(slot).unwrap();
+        let Val::Px(x) = transform.translation.x else {
+            panic!("{:?}", transform.translation);
+        };
+        assert_eq!(transform.translation.y, Val::Px(0.0));
+        (x, *app.world().get::<BorderColor>(slot).unwrap())
+    }
+
+    #[test]
+    fn a_refused_slot_shakes_red_then_takes_its_look_back() {
+        let mut app = shaking_app();
+        let slot = app
+            .world_mut()
+            .spawn((Slot, SlotSelected(true), Node::default()))
+            .id();
+
+        app.world_mut()
+            .write_message(ActionRefused { slot: Some(slot) });
+        run_for(&mut app, 20);
+
+        // A quarter of a period in: the furthest right
+        assert_eq!(look_of(&app, slot), (3.0, BorderColor::all(DANGER)));
+        run_for(&mut app, 40);
+        assert_eq!(look_of(&app, slot), (-3.0, BorderColor::all(DANGER)));
+        run_for(&mut app, 180);
+        assert_eq!(look_of(&app, slot), (0.0, BorderColor::all(ACCENT)));
+        assert!(app.world().get::<RefusalShake>(slot).is_none());
+    }
+
+    #[test]
+    fn a_slot_refused_again_while_it_shakes_starts_again() {
+        let mut app = shaking_app();
+        let slot = app.world_mut().spawn((Slot, Node::default())).id();
+
+        app.world_mut()
+            .write_message(ActionRefused { slot: Some(slot) });
+        run_for(&mut app, 200);
+        app.world_mut()
+            .write_message(ActionRefused { slot: Some(slot) });
+        run_for(&mut app, 100);
+
+        assert_eq!(look_of(&app, slot).1, BorderColor::all(DANGER));
+        run_for(&mut app, 140);
+        assert_eq!(look_of(&app, slot), (0.0, slot_colors(false, false).1));
+    }
+
+    #[test]
+    fn a_refusal_without_a_slot_shakes_nothing() {
+        let mut app = shaking_app();
+        let slot = app.world_mut().spawn((Slot, Node::default())).id();
+        let not_a_slot = app.world_mut().spawn(Node::default()).id();
+
+        app.world_mut().write_message(ActionRefused { slot: None });
+        app.world_mut().write_message(ActionRefused {
+            slot: Some(not_a_slot),
+        });
+        run_for(&mut app, 20);
+
+        for entity in [slot, not_a_slot] {
+            assert!(app.world().get::<RefusalShake>(entity).is_none());
+            assert_eq!(look_of(&app, entity).0, 0.0);
+        }
     }
 
     #[test]
