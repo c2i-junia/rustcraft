@@ -125,6 +125,24 @@ mod tests {
     }
 
     #[test]
+    fn a_portal_stays_when_a_vine_hangs_on_its_wall_but_goes_for_a_cocoa_pod() {
+        // Hung on the wall under the portal, in a front cell, as a player places it there
+        let front = IVec3::new(1, 11, 1);
+        let vine = BlockData::new(BlockId::Vine, BlockDirection::Front);
+        let (mut chunks, portal) = walled_portal();
+        chunks.set_block(front, vine);
+        remove_unfit_portals(&mut chunks);
+        assert_eq!(chunks.portals().iter().collect::<Vec<_>>(), [&portal]);
+        assert!(!chunks.portals_mut().take_changed());
+
+        // A pod collides with what walks into its box
+        let (mut chunks, _) = walled_portal();
+        chunks.set_block(front, BlockData::new(BlockId::Cocoa, BlockDirection::Front));
+        remove_unfit_portals(&mut chunks);
+        assert!(chunks.portals().is_empty());
+    }
+
+    #[test]
     fn a_portal_whose_cells_did_not_change_stays_even_out_of_the_loaded_world() {
         let (mut chunks, portal) = walled_portal();
         let far = Portal {

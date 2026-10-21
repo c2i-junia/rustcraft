@@ -311,7 +311,7 @@ pub fn fit_portal(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::BlockId;
+    use crate::world::{BlockData, BlockDirection, BlockId};
 
     fn portal(color: PortalColor, anchor: IVec3, face: FaceDirection) -> Portal {
         Portal {
@@ -699,6 +699,48 @@ mod tests {
                 Some(IVec3::new(1, 10, 0)),
                 "{free:?}"
             );
+        }
+    }
+
+    #[test]
+    fn the_jungle_wood_holds_a_portal_but_not_its_leaves_vines_ferns_or_pods() {
+        let portal = portal(
+            PortalColor::Blue,
+            IVec3::new(1, 10, 0),
+            FaceDirection::PlusZ,
+        );
+        let cell = IVec3::new(2, 12, 0);
+        for (id, holds) in [
+            (BlockId::JungleLog, true),
+            (BlockId::JunglePlanks, true),
+            (BlockId::JungleLeaves, false),
+            (BlockId::Vine, false),
+            (BlockId::Fern, false),
+            (BlockId::Cocoa, false),
+        ] {
+            let mut world = wall();
+            world.fill_box(cell, cell, id);
+            assert_eq!(portal.fits(&world), holds, "{id:?}");
+        }
+    }
+
+    #[test]
+    fn a_vine_or_a_fern_in_front_lets_a_portal_open_but_a_cocoa_pod_does_not() {
+        let portal = portal(
+            PortalColor::Blue,
+            IVec3::new(1, 10, 0),
+            FaceDirection::PlusZ,
+        );
+        let front = IVec3::new(2, 12, 1);
+        // Each hangs on the wall behind it, -Z of its cell, as on a jungle tree
+        for (id, free) in [
+            (BlockId::Vine, true),
+            (BlockId::Fern, true),
+            (BlockId::Cocoa, false),
+        ] {
+            let mut world = wall();
+            world.set_block(front, BlockData::new(id, BlockDirection::Front));
+            assert_eq!(portal.fits(&world), free, "{id:?}");
         }
     }
 
