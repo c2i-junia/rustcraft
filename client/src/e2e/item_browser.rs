@@ -9,6 +9,7 @@ use bevy::{
     input::keyboard::KeyCode,
     input_focus::InputFocus,
     prelude::*,
+    time::TimeUpdateStrategy,
     ui::{Checked, InteractionDisabled},
 };
 use shared::players::{inventory::craft_result, Inventory};
@@ -1074,12 +1075,18 @@ fn ctrl_click_fills_the_grid_from_the_browser() {
             && slot(w, 9).is_none()
     });
 
-    // Nothing makes dirt: its slot shakes, and nothing is sent
+    // Nothing makes dirt: its slot shakes, and nothing is sent. A clock of 20 ms a frame: the
+    // shake lasts twelve frames, however long they take
+    h.world_mut()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            20,
+        )));
     let dirt = h.get(&catalog_slot("Dirt"));
     h.click_holding(&ctrl, &catalog_slot("Dirt"));
     h.wait_until("the dirt shaking", SCREEN, |w| {
         w.get::<RefusalShake>(dirt).is_some()
     });
+    h.world_mut().insert_resource(TimeUpdateStrategy::Automatic);
     h.frames(20);
     assert_eq!(slot(h.world(), grid_slot(0, 0)), planks(3));
     assert_eq!(h.world().resource::<ItemBrowserState>().view, None);
