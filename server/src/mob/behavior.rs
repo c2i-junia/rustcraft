@@ -171,7 +171,8 @@ fn is_flung(mob: &ServerMob) -> bool {
     mob.velocity.with_y(0.0).length() > flee_speed(mob.kind)
 }
 
-/// Longest horizontal move of a flung mob tested at once, in blocks, as for a player.
+/// Longest move of a mob tested at once, in blocks, as for a player: of its fall, and of its
+/// flight when flung.
 const MAX_FLIGHT_STEP: f32 = 0.5;
 
 /// Moves a flung mob by its horizontal velocity, along x then z, by steps of `MAX_FLIGHT_STEP`
@@ -394,23 +395,37 @@ fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
 /// Same vertical motion as a player: fall while in the air, land on the first block met. Half
 /// the gravity is added before the move and half after it, so that a jump rises as high as a
 /// player's at the 20 steps per second of the mobs. A mob falls no faster than a player
-/// (`TERMINAL_VELOCITY`).
+/// (`TERMINAL_VELOCITY`), and its move is tested by steps of `MAX_FLIGHT_STEP` at most, as a
+/// player's, so that a fast fall crosses no block: it stops after the last step a block lets it
+/// make, and a step into a portal that lets it through is made, and ends the move
+/// (`Portals::goes_into`).
 fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     if !mob.on_ground {
         mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
     }
-    let new_y = mob.position.y + mob.velocity.y * delta;
+    let distance = mob.velocity.y * delta;
     mob.velocity.y = mob.velocity.y.min(MAX_UPWARD_VELOCITY);
 
-    if !may_move_to(mob, chunks, mob.position.with_y(new_y)) {
-        // Bumping into a ceiling is not landing
-        mob.on_ground = mob.velocity.y <= 0.0;
-        mob.velocity.y = 0.0;
-    } else {
-        mob.position.y = new_y;
-        mob.on_ground = false;
-        mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
+    let steps = (distance.abs() / MAX_FLIGHT_STEP).ceil().max(1.0);
+    for _ in 0..steps as u32 {
+        let moved = mob.position + Vec3::Y * (distance / steps);
+        if chunks
+            .portals()
+            .goes_into(mob.position, moved, portal_margin(mob))
+        {
+            mob.position = moved;
+            break;
+        }
+        if collides_at(mob, chunks, moved) {
+            // Bumping into a ceiling is not landing
+            mob.on_ground = mob.velocity.y <= 0.0;
+            mob.velocity.y = 0.0;
+            return;
+        }
+        mob.position = moved;
     }
+    mob.on_ground = false;
+    mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
 }
 
 fn jump(mob: &mut ServerMob) {
@@ -1205,6 +1220,69 @@ mod tests {
         assert!(passes > 50, "{passes}");
         let sheep = &map.mobs[&0];
         assert!(!sheep.on_ground, "{}", sheep.position);
+    }
+
+    #[test]
+    fn a_sheep_at_the_terminal_speed_lands_on_a_floor_one_block_thick() {
+        // The ground of `ground_world` is one block thick, with air under it; a step of the fall
+        // would end below it
+        let mut map = ground_world(false);
+        map.mobs.insert(
+            0,
+            ServerMob {
+                velocity: Vec3::new(0.0, -TERMINAL_VELOCITY, 0.0),
+                ..dropped_sheep(Vec3::new(0.5, 2.5, 0.5))
+            },
+        );
+        run_ticks(&mut map, TICKS_PER_SECOND);
+        let sheep = &map.mobs[&0];
+        let standing = ServerMob::standing_at(MobKind::Sheep, 0.0, 1.0, 0.0).y;
+        assert!(
+            (sheep.position.y - standing).abs() < 0.1,
+            "{}",
+            sheep.position
+        );
+        assert!(!collides_at(sheep, &map.chunks, sheep.position));
+    }
+
+    #[test]
+    fn a_sheep_out_of_a_ceiling_portal_at_the_terminal_speed_lands_on_a_thin_floor_under_it() {
+        // The blue portal on the ground, the orange one under a stone ceiling at y = 8, two
+        // blocks above a stone floor one block thick (y = 5), with air under it
+        let mut map = portal_world(true);
+        map.chunks
+            .fill_box(IVec3::new(4, 8, -3), IVec3::new(7, 8, 1), BlockId::Stone);
+        map.chunks
+            .fill_box(IVec3::new(3, 5, -4), IVec3::new(7, 5, 2), BlockId::Stone);
+        map.chunks.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(6, 8, 0),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::MinusZ,
+        });
+        map.mobs.insert(
+            0,
+            ServerMob {
+                velocity: Vec3::new(0.0, -TERMINAL_VELOCITY, 0.0),
+                ..dropped_sheep(Vec3::new(1.0, 2.0, -0.5))
+            },
+        );
+        step_through(&mut map);
+        for _ in 0..2 * TICKS_PER_SECOND {
+            run_ticks(&mut map, 1);
+            let sheep = &map.mobs[&0];
+            assert!(sheep.position.y > 6.0, "{}", sheep.position);
+            assert!(!collides_at(sheep, &map.chunks, sheep.position));
+        }
+        let sheep = &map.mobs[&0];
+        assert_eq!(sheep.passes, 1);
+        let standing = ServerMob::standing_at(MobKind::Sheep, 0.0, 6.0, 0.0).y;
+        assert!(
+            (sheep.position.y - standing).abs() < 0.1,
+            "{}",
+            sheep.position
+        );
     }
 
     #[test]
