@@ -40,7 +40,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
-use crate::camera::underwater_fog_system;
+use crate::camera::{underwater_fog_system, CameraController};
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
 use crate::world::clouds::cloud_uniforms_system;
 use crate::world::clouds::material::CloudMaterial;
@@ -379,14 +379,15 @@ fn apply_atmosphere(
     }
 }
 
-/// The haze lit by the sun, a layer over the ground around the camera.
+/// The haze lit by the sun, a layer over the ground around the player's camera: a portal camera
+/// sees it where it reaches, the far one of a far twin none.
 #[derive(Component)]
 struct GodRayVolume;
 
 fn follow_camera_with_fog_volume(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, With<CameraController>>,
     roots: Query<&Transform, (With<CelestialRoot>, Without<GodRayVolume>)>,
     mut volumes: Query<(Entity, &mut Transform, &mut FogVolume), With<GodRayVolume>>,
     mut commands: Commands,
@@ -605,6 +606,10 @@ pub struct HorizonMaterial {
 }
 
 impl Material for HorizonMaterial {
+    fn vertex_shader() -> ShaderRef {
+        HORIZON_SHADER.into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         HORIZON_SHADER.into()
     }
@@ -662,13 +667,13 @@ fn horizon_ring() -> Mesh {
     .with_inserted_indices(Indices::U32(indices))
 }
 
-/// Keeps the horizon skirt around the camera, past the corners of the chunks shown, with the
-/// physical sky only.
+/// Keeps the horizon skirt around the player's camera, past the corners of the chunks shown,
+/// with the physical sky only. A portal camera draws it around itself (`horizon.wgsl`).
 fn follow_camera_with_horizon(
     graphics: Res<GraphicsSettings>,
     render_distance: Res<RenderDistance>,
     resources: Res<MaterialResource>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, With<CameraController>>,
     mut skirts: Query<(Entity, &mut Transform), With<HorizonSkirt>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<HorizonMaterial>>,
