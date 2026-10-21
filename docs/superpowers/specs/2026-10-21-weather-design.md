@@ -227,7 +227,7 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
 10. Leaves stop the rain (as in Minecraft): forests give shelter, which is good to see.
 11. Cloud coverage changes smoothly in the shader rather than by rebuilding the mesh at each
     step, to avoid hitches and pops during the 20 s transitions.
-12. Wet ground and puddles only in High and Ultra (the roadmap's call): they need SSR and
+12. Wet ground and puddles only in High and Ultra (the roadmap's call): they need HDR and
     lighting headroom to look right; lower presets get every other effect.
 13. Thunder is non-spatial with a hand-made volume and pan, because Bevy's spatial attenuation
     would silence a strike 100 blocks away.
