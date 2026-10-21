@@ -1716,6 +1716,8 @@ mod tests {
             ("_Default".to_string(), 0),
             ("Furnace".to_string(), 1),
             ("FurnaceTop".to_string(), 1),
+            ("FurnaceBottom".to_string(), 1),
+            ("FurnaceSide".to_string(), 1),
         ]);
         let (furnace, stone) = (IVec3::splat(5), IVec3::new(5, 5, 4));
         for direction in DIRECTIONS {

@@ -217,18 +217,22 @@ impl VoxelShape {
             | BlockId::SpruceLog
             | BlockId::JungleLog
             | BlockId::Cactus
-            | BlockId::Furnace
             | BlockId::Chest => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
                 shape.faces[BOTTOM].texture += "Top";
                 shape
             }
-            // The furnace, with the fire showing on its sides
-            BlockId::LitFurnace => {
+            // As the model of the texture pack: its opening, or its fire, on the front only
+            BlockId::Furnace | BlockId::LitFurnace => {
                 let mut shape = Self::full_cube(block);
-                shape.faces[TOP].texture = "FurnaceTop".into();
-                shape.faces[BOTTOM].texture = "FurnaceTop".into();
+                let textures = ["FurnaceTop", "FurnaceBottom"];
+                for (face, texture) in shape.faces.iter_mut().zip(textures) {
+                    face.texture = texture.into();
+                }
+                for side in shape.faces.iter_mut().skip(BOTTOM + 2) {
+                    side.texture = "FurnaceSide".into();
+                }
                 shape
             }
             // Like Minecraft's, the needles of the spruce are of one colour everywhere
@@ -600,36 +604,37 @@ mod tests {
     }
 
     #[test]
-    fn furnace_and_chest_have_their_own_top_texture() {
-        for (id, top, side) in [
-            (BlockId::Furnace, "FurnaceTop", "Furnace"),
-            (BlockId::Chest, "ChestTop", "Chest"),
-        ] {
-            let shape = shape_of(id);
-            assert_eq!(shape.faces[TOP].texture, top);
-            assert_eq!(shape.faces[BOTTOM].texture, top);
-            assert_eq!(shape.faces[2].texture, side);
-        }
+    fn the_chest_has_its_own_top_texture() {
+        let shape = shape_of(BlockId::Chest);
+        assert_eq!(shape.faces[TOP].texture, "ChestTop");
+        assert_eq!(shape.faces[BOTTOM].texture, "ChestTop");
+        assert_eq!(shape.faces[2].texture, "Chest");
     }
 
     #[test]
-    fn the_lit_furnace_is_the_furnace_with_its_fire_on_its_sides() {
-        let textures: Vec<_> = shape_of(BlockId::LitFurnace)
-            .faces
-            .into_iter()
-            .map(|face| face.texture)
-            .collect();
-        assert_eq!(
-            textures,
-            [
-                "FurnaceTop",
-                "FurnaceTop",
-                "LitFurnace",
-                "LitFurnace",
-                "LitFurnace",
-                "LitFurnace",
-            ]
-        );
+    fn the_furnace_lit_or_out_has_its_front_sides_top_and_bottom() {
+        for (id, front) in [
+            (BlockId::Furnace, "Furnace"),
+            (BlockId::LitFurnace, "LitFurnace"),
+        ] {
+            let textures: Vec<_> = shape_of(id)
+                .faces
+                .into_iter()
+                .map(|face| face.texture)
+                .collect();
+            assert_eq!(
+                textures,
+                [
+                    "FurnaceTop",
+                    "FurnaceBottom",
+                    front,
+                    "FurnaceSide",
+                    "FurnaceSide",
+                    "FurnaceSide",
+                ],
+                "{id:?}"
+            );
+        }
     }
 
     #[test]
