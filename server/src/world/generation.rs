@@ -1699,9 +1699,10 @@ mod tests {
                             };
                             // ores are scattered through the stone afterwards
                             let actual = chunk.get(local).map(|b| match b.id {
-                                BlockId::CoalOre | BlockId::IronOre | BlockId::GoldOre => {
-                                    BlockId::Stone
-                                }
+                                BlockId::CoalOre
+                                | BlockId::IronOre
+                                | BlockId::GoldOre
+                                | BlockId::DiamondOre => BlockId::Stone,
                                 id => id,
                             });
                             // the leaves of a bush may hang over the mouth of a cave beside it

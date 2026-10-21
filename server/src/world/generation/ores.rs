@@ -26,7 +26,7 @@ struct Ore {
 }
 
 /// The commonest first: a rarer ore is placed after, and wins a cell both claim.
-const ORES: [Ore; 3] = [
+const ORES: [Ore; 4] = [
     Ore {
         block: BlockId::CoalOre,
         lowest: 5,
@@ -53,6 +53,16 @@ const ORES: [Ore; 3] = [
         cluster: (3, 6),
         vein: (6, 10),
         veins: 0.5,
+    },
+    // Deep down, in small clusters only
+    Ore {
+        block: BlockId::DiamondOre,
+        lowest: 5,
+        highest: 16,
+        attempts: 1,
+        cluster: (2, 6),
+        vein: (0, 0),
+        veins: 0.0,
     },
 ];
 
@@ -243,7 +253,7 @@ mod tests {
     #[test]
     fn ores_keep_to_their_heights_and_are_as_common_as_meant() {
         let generator = WorldGenerator::new(42);
-        let mut counts = [0usize; 3];
+        let mut counts = [0usize; 4];
         let mut stone = 0usize;
         for x in -2..2 {
             for z in -2..2 {
@@ -269,10 +279,11 @@ mod tests {
             }
         }
         let share = |count: usize| count as f64 / (stone + counts.iter().sum::<usize>()) as f64;
-        let [coal, iron, gold] = counts.map(share);
+        let [coal, iron, gold, diamond] = counts.map(share);
         assert!((0.005..0.03).contains(&coal), "coal {coal}");
         assert!((0.002..0.015).contains(&iron), "iron {iron}");
         assert!((0.0002..0.003).contains(&gold), "gold {gold}");
-        assert!(coal > iron && iron > gold);
+        assert!((0.00003..0.001).contains(&diamond), "diamond {diamond}");
+        assert!(coal > iron && iron > gold && gold > diamond);
     }
 }
