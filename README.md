@@ -36,9 +36,12 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Day/night cycle
 - Block breaking and placing mechanics.
 - Inventory system with a functional hotbar.
-- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe. In Creative it hands out stacks of any item, and destroys the stack you hold. A over any item slot bookmarks its item: the bookmarks show above the list, kept for each world and each server.
+- An item browser beside the open inventory: every item of the game, searched by name or by `#category` and filtered by category chips; a drawer at the right edge in a small window. It is also the recipe book: the recipes and the uses of any item, the furnace's included, the ingredients you lack in red, in Survival what you can craft now, and a button that fills the crafting grid with a recipe. In Creative it hands out stacks of any item, and destroys the stack you hold. A over any item slot bookmarks its item: the bookmarks show above the list, kept for each world and each server.
 - World saving and loading.
 - Survival and creative game modes: in survival, players have 10 hearts, cannot fly and get hurt by falls of more than 3 blocks; a dead player respawns at the spawn of the world. New players start in survival.
+- A furnace that smelts with an input, a fuel and an output slot, also while nobody watches it, as long as its chunk is loaded: iron and gold ore into ingots, diamond ore into diamonds, sand into glass, cobblestone into stone and logs into charcoal. Coal and charcoal burn for 8 items, wood for 1.5, wooden tools and sticks for less. Lit, it glows; it keeps what it holds in the save and drops it when broken.
+- Tool tiers: wooden, stone, iron, golden and diamond pickaxes, axes, shovels, hoes and swords, each tier faster and longer-lasting (gold is the fastest and wears out the soonest). Ores need a pickaxe of their level, or they break without dropping anything: a wooden one for coal, a stone one for iron, an iron one for gold and diamonds, found deep underground. Nine ingots or diamonds make a block of iron, gold or diamond, and a block gives them back.
+- A bucket, of three iron ingots, takes a water source and pours it elsewhere, where it flows.
 - Sprinting, sneaking and swimming.
 - In-game chat, with commands open to every player: `/time set <day|night>`, `/give <item> <count>` (e.g. `/give oak_log 64`) and `/gamemode <creative|survival>`, completed as they are typed (Tab, ↑↓).
 - Customizable keybindings, and a render distance set in Settings > Video or with O and P.
@@ -89,6 +92,8 @@ paru -S rustcraft
 |                   |                        |                             |
 | **Gameplay**      | Destroy Block         | Left Mouse Button           |
 |                   | Place Block           | Right Mouse Button          |
+|                   | Open a crafting table, a chest or a furnace | Right Mouse Button (Left Shift: place a block against it) |
+|                   | Fill / empty a bucket | Right Mouse Button          |
 |                   |                        |                             |
 | **Hotbar**        | Select a slot         | 1–9                         |
 |                   | Next / previous slot  | Mouse wheel                 |
@@ -99,7 +104,7 @@ paru -S rustcraft
 |                   | Deposit 1 item        | Right Click (over valid stack) |
 |                   | Deposit MAX items     | Left Click (over valid stack) |
 |                   | Exchange stacks       | Left Click (over a different stack or full valid stack) |
-|                   | Move a stack between backpack and hotbar | Shift + Left Click |
+|                   | Move a stack between backpack and hotbar, or into the open chest or furnace | Shift + Left Click |
 |                   | Swap with a hotbar slot | 1–9 over a slot          |
 |                   | Move between slots     | Arrows                      |
 |                   | Take / place           | Enter                       |
@@ -186,7 +191,7 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 
 # Saves
 
-Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per region of 8×8×8 chunks and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
+Each world has its own folder under `saves/`: `world.ron` holds the metadata (name, seed, time, mobs), `chunks/` has one file per region of 8×8×8 chunks, `containers/` and `furnaces/` what the chests and the furnaces of a chunk hold, and `players/` one file per player. The game saves every 60 seconds, when a player leaves and when the game is closed. "Save now" in the game menu saves at once and says when the world is written. Closing the window in a world saves it first, with a card saying so; closing it again quits at once. Worlds saved by older versions are converted on their first load, and the old file is kept as `world.ron.legacy`. The Singleplayer screen writes `world.ron` when it creates a world, renames the folder and the name in `world.ron` when it renames one, and deletes the folder, after asking, when it deletes one. The server list is `servers.ron`, in the game folder: the Multiplayer screen writes it at once after every add, edit and remove.
 
 The settings are saved as soon as they change, in the game folder: `keybindings.ron`, `audio.ron`, `interface.ron` (UI scale) and `video.ron` (render distance, clouds, shaders and the other video settings). The bookmarks of the item browser are kept there too, in `item_browser.ron`: one list per world, by its name, and per server, by its address.
 

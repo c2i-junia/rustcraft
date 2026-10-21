@@ -29,7 +29,8 @@ server stops when its player leaves and saves on request.
   of cells it holds and a byte per cell naming its kind, else, past 256 kinds, as a dense
   array; its copies share the cells until one of them changes: meshing, sending and saving a
   chunk copy it for nothing), `ChunkMap` (the
-  loaded chunks and the log of the blocks that changed), blocks, items, mobs and the raycast.
+  loaded chunks and the log of the blocks that changed), blocks, items, mobs, the furnace and
+  the raycast.
   A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
   times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
   is how RON and the saves of format version 3 hold a chunk.
@@ -162,13 +163,37 @@ ingredients of a recipe into it, all or nothing. The client inserts the contents
 the server sent before replaying its unacknowledged actions on them, as it does for the
 inventory. A broken chest drops what it held on the ground with itself.
 
+A furnace (`shared/src/world/furnace.rs`) holds an input, a fuel and an output stack, and how
+long its fuel still burns and its input has cooked; `Furnace::tick` applies Minecraft's rules
+to it, from the shared tables `smelting_result` and `fuel_ticks`, which the dialog and the item
+browser read too. The `ChunkMap` keeps the chests' contents and the furnaces in one generic
+store, `Held<T>`, by position, with the positions whose value changed. An open furnace
+works as an open chest: its three stacks are lent to the inventory as slots 72 to 74 for the
+length of an action, and the server sends what it holds with each `PlayerUpdateEvent`
+(`open_furnace`), to its player only, 20 times a second, which the dialog draws its flame and
+its arrow from. Only the server ticks the furnaces; the client predicts the clicks on their
+slots, never the smelting. A lit furnace is a block of its own, `LitFurnace`, which the server
+swaps with `Furnace` as it lights and goes out, so that the clients learn it from the block
+updates and light it from `light_emission`.
+
+A bucket is predicted like a placed block (`fill_bucket` and `pour_water` in
+`shared/src/players/blocks.rs`). An empty bucket aims with `raycast_to_water_source`, which also
+stops at the water sources, every other item through water (`aim`, which the client outlines
+the aimed block with). Filled, it takes the source away; a water bucket pours a source against
+the aimed face, which the flow of the server then spreads. A water bucket filled from a stack
+with no room left in the inventory is returned to the server in `ActionsOutcome::dropped`, and
+dropped ahead of its player.
+
 A tool (`ItemId::tool`, `shared/src/world/items.rs`) stacks to one, and its stack carries its
 wear in its `ItemType::Tool`, so that the wear follows it into the cursor, a chest or the
 ground. Held in the selected hotbar slot, a tool made for the aimed block
 (`BlockId::is_mined_faster_by`) counts each mining hit as its speed, and each block it breaks
-wears it, until it breaks itself (`shared/src/players/blocks.rs`). A block that needs a tool
-(`BlockId::get_required_tool`), like stone and a pickaxe, still breaks without it, but its
-`BrokenBlock` is not `harvested`, and the server drops none of its items. The client predicts
+wears it, until it breaks itself (`shared/src/players/blocks.rs`). The tier of a tool
+(`ToolTier`: wood, stone, iron, diamond, gold) gives its speed, its durability and its mining
+level. A block that needs a tool (`BlockId::get_required_tool`: a kind and a mining level),
+like iron ore and a stone pickaxe, still breaks without it or with a lower tier, but its
+`BrokenBlock` is not `harvested` (`BlockId::is_harvested_by`), and the server drops none of its
+items. The client predicts
 the wear like any change of the inventory.
 
 The stance of a player is part of the `MovementState` both sides carry over
@@ -218,7 +243,9 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    interpolates (`world/caves.rs`). While no player changes chunk, the chunks around them are not looked at again
    (`LoadedAround`). A chunk is read from its file in
    the world's folder the first time a player needs it, else generated: opening a world reads
-   no chunk. Then the water flows (`world/flow.rs`): every 5 ticks, the
+   no chunk. Then every furnace of the loaded chunks ticks once (`world/furnaces.rs`), one in a
+   chunk that is not loaded waiting, as in Minecraft; a burning furnace keeps its chunk to be
+   saved. Then the water flows (`world/flow.rs`): every 5 ticks, the
    cells next to a block that changed take the level their neighbours give them
    (`shared/src/world/liquid.rs`).
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
@@ -449,17 +476,20 @@ A world is a folder under `saves/`:
 | `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
+| `furnaces/<x>_<y>_<z>.bin` | The furnaces of one chunk, what they hold and how far they burnt and cooked, likewise | the writer thread |
 | `players/<id>.ron` | Position, orientation and inventory of one player | the writer thread |
 
 Every file is written to a temporary file and renamed, so a crash never leaves a half-written
 file (`server/src/world/format.rs`). The writer thread (`world/writer.rs`) keeps the disk out
 of the tick. It writes the files of a save aside on 8 threads, syncs them all at once (one
 `syncfs` on Linux, where syncing each file costs milliseconds; a save of 16 files or fewer syncs
-each of them instead), then puts them in place, the metadata first. Only the changed chunks are written, into their regions, which keep the other chunks they held, with the file of their chests, which is
-removed once they hold none (`world/container_files.rs`). Worlds saved by older versions are converted
+each of them instead), then puts them in place, the metadata first. Only the changed chunks are written, into their regions, which keep the other chunks they held, with the files of their chests and their furnaces, each
+removed once they hold none (`world/container_files.rs`, generic over the `Stored` kind of
+block). Worlds saved by older versions are converted
 on their first load and the old files are kept: `world.ron.legacy` for the single-file formats,
 `chunks.v1/` for the chunks of format version 1, whose blocks had no level (`world/legacy.rs`,
-`world/load_from_file.rs`). Format version 2 differs from 3 only by having no `containers/`,
+`world/load_from_file.rs`). A world without `furnaces/`, saved before the furnaces smelted, has
+empty furnaces. Format version 2 differs from 3 only by having no `containers/`,
 3 from 4 only by writing a chunk cell by cell, and 4 from 5 only by a file per chunk: all load
 as they are.
 
@@ -487,7 +517,8 @@ the integrated server, on wall-clock time. How to write one is in the README.
   a client with a higher frame rate breaks blocks faster.
 - Mobs neither collide with each other nor can be hurt, and no animal is born after a chunk
   is generated: a herd led away is gone for good.
-- An item that does not fit in a full inventory is lost.
+- An item that does not fit in a full inventory is lost, but for the water bucket of a bucket
+  filled from a stack, which is dropped.
 - A player who dies keeps its inventory, and nothing hurts it but falls.
 - Any player may change its own game mode with `/gamemode`: there are no operators yet.
 - A world still loading 10 s after the quit is stopped with the process: its server cannot be
