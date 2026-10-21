@@ -23,6 +23,10 @@ use std::f32::consts::PI;
 #[derive(Component)]
 pub struct CelestialRoot;
 
+/// The quad of the sun or of the moon, or the sphere of the stars.
+#[derive(Component)]
+pub struct CelestialBody;
+
 /// The sun, drawn in the sky.
 #[derive(Component)]
 pub struct SunLight;
@@ -51,8 +55,10 @@ const HORIZON_FADE: f32 = 0.1;
 /// shader packs: never right overhead, they cast shadows at noon too.
 const PATH_TILT_DEGREES: f32 = 30.;
 /// How far the sun, the moon and the stars are drawn from the player. Drawn on the far plane,
-/// they are behind everything whatever this is; far, they are sorted behind the clouds.
-const CELESTIAL_DISTANCE: f32 = 500.;
+/// they are behind everything whatever this is; far, they are sorted behind the clouds. They
+/// stand for directions, and seen from a portal camera thousands of blocks away they must be in
+/// the same one: from 10 000 blocks away, they are off by 0.6°.
+const CELESTIAL_DISTANCE: f32 = 1_000_000.;
 /// The angular size of the square of the sun and of the moon, in radians: ten times as large
 /// as the real ones, as games draw them.
 const SUN_RADIUS: f32 = 0.045;
@@ -111,12 +117,13 @@ impl Material for CelestialMaterial {
     }
 
     /// The stars first, then the sun and the moon, then whatever else is seen through: the
-    /// transparent meshes are drawn from the farthest.
+    /// transparent meshes are drawn from the farthest. A body is up to `CELESTIAL_DISTANCE`
+    /// nearer than the camera along its view, behind it, and the bias outweighs that.
     fn depth_bias(&self) -> f32 {
         if self.params.kind == CelestialKind::Stars as u32 {
-            -2e6
+            -5. * CELESTIAL_DISTANCE
         } else {
-            -1e6
+            -3. * CELESTIAL_DISTANCE
         }
     }
 
@@ -152,7 +159,8 @@ pub fn celestial_material_plugin(app: &mut App) {
 
 /// Spawns the sun and the moon, opposite each other around an anchor attached to the player,
 /// the stars around them and the light of the sky: rotating the anchor moves them all across
-/// the sky.
+/// the sky. They are drawn so far away (`CELESTIAL_DISTANCE`) that every camera sees them in the
+/// same direction, a portal camera standing far from the player included, and never culled.
 pub fn setup_main_lighting(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -181,6 +189,9 @@ pub fn setup_main_lighting(
                 .looking_at(Vec3::ZERO, Vec3::Y),
             NotShadowCaster,
             NotShadowReceiver,
+            // Far beyond the far plane the cameras cull with
+            NoFrustumCulling,
+            CelestialBody,
         );
         commands
             .spawn((transform, Visibility::default()))
@@ -204,6 +215,7 @@ pub fn setup_main_lighting(
     let stars = commands
         .spawn((
             Stars,
+            CelestialBody,
             Mesh3d(sphere),
             material(CelestialKind::Stars),
             Transform::IDENTITY,
@@ -524,14 +536,40 @@ mod tests {
     }
 
     #[test]
+    fn the_sun_is_seen_in_the_same_direction_from_far_away() {
+        // In the morning, from the player and from 10 000 blocks away, as through a portal
+        let sun = Quat::from_rotation_x(PI / 4.0) * Vec3::new(0., 0., CELESTIAL_DISTANCE);
+        let far = Vec3::new(10_000.0, 0.0, -3_000.0);
+        let off = sun.angle_between(sun - far).to_degrees();
+        assert!(off < 1.0, "{off}°");
+    }
+
+    #[test]
+    fn the_sun_the_moon_and_the_stars_are_never_culled_and_known_as_bodies() {
+        let mut world = World::new();
+        world.init_resource::<Assets<Mesh>>();
+        world.init_resource::<Assets<CelestialMaterial>>();
+        world.run_system_once(setup_main_lighting).unwrap();
+        let mut bodies = world
+            .query_filtered::<(), (With<Mesh3d>, With<CelestialBody>, With<NoFrustumCulling>)>();
+        assert_eq!(bodies.iter(&world).count(), 3);
+    }
+
+    #[test]
     fn the_sun_is_at_its_highest_at_noon_and_lowest_at_midnight() {
         let noon = sun_position_at(5 * DAY_DURATION_IN_TICKS + NOON_IN_DAY);
         let highest = CELESTIAL_DISTANCE * noon_sun_height();
-        assert!((noon.y - highest).abs() < 1e-2, "{noon}");
+        assert!(
+            (noon.y - highest).abs() < CELESTIAL_DISTANCE * 1e-5,
+            "{noon}"
+        );
         // Leaning toward -X, not right overhead
         assert!(noon.x < -CELESTIAL_DISTANCE * 0.4, "{noon}");
         let midnight = sun_position_at(5 * DAY_DURATION_IN_TICKS + MIDNIGHT_IN_DAY);
-        assert!((midnight.y + highest).abs() < 1e-2, "{midnight}");
+        assert!(
+            (midnight.y + highest).abs() < CELESTIAL_DISTANCE * 1e-5,
+            "{midnight}"
+        );
         // An hour on either side of noon, it is lower
         for hour in [-1, 1] {
             let tick = (5 * DAY_DURATION_IN_TICKS + NOON_IN_DAY) as i64

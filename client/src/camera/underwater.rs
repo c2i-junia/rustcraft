@@ -3,7 +3,7 @@ use shared::world::liquid::liquid_height;
 use shared::world::ChunkMap;
 use shared::CHUNK_SIZE;
 
-use crate::world::celestial::{smoothstep, sun_height};
+use crate::world::celestial::{smoothstep, sun_height, CelestialBody};
 use crate::world::lightning::Lightning;
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
@@ -64,11 +64,11 @@ pub fn eye_under_water(map: &ChunkMap, eye: Vec3) -> bool {
     liquid_height(map, eye.floor().as_ivec3()).is_some_and(|height| eye.y - eye.y.floor() < height)
 }
 
-/// Under water, a fog the colour of the water hides what is more than a few blocks away. Out
-/// of it, a fog the colour of the sky of the hour hides the edge of the chunks shown: it
-/// thickens over the last part of the render distance, and the world fades into the sky at its
-/// end; in rain, it closes in, and a flash of lightning lights it up. The fog is changed in
-/// place, as the sky changes every tick.
+/// Under water, a fog the colour of the water hides what is more than a few blocks away, and the
+/// sun and the moon, which no fog hides, are hidden. Out of it, a fog the colour of the sky of
+/// the hour hides the edge of the chunks shown: it thickens over the last part of the render
+/// distance, and the world fades into the sky at its end; in rain, it closes in, and a flash of
+/// lightning lights it up. The fog is changed in place, as the sky changes every tick.
 pub fn underwater_fog_system(
     world_map: Res<ClientWorldMap>,
     time: Res<ClientTime>,
@@ -80,13 +80,23 @@ pub fn underwater_fog_system(
         (Entity, &Transform, &mut Camera, Option<&mut DistanceFog>),
         With<CameraController>,
     >,
+    mut bodies: Query<&mut Visibility, With<CelestialBody>>,
     mut commands: Commands,
 ) {
     let distance = render_distance
         .distance
         .min(server_limit.map_or(u32::MAX, |limit| limit.0));
     for (entity, transform, mut camera, fog) in &mut cameras {
-        let (color, start, end) = if eye_under_water(&world_map.blocks, transform.translation) {
+        let under_water = eye_under_water(&world_map.blocks, transform.translation);
+        let shown = if under_water {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+        for mut visibility in &mut bodies {
+            visibility.set_if_neq(shown);
+        }
+        let (color, start, end) = if under_water {
             (UNDERWATER_COLOR, 2.0, 16.0)
         } else {
             // Every chunk within the render distance of the chunk of the player is shown: the
@@ -205,9 +215,16 @@ mod tests {
                 CameraController::default(),
             ))
             .id();
+        let sun = app
+            .world_mut()
+            .spawn((CelestialBody, Visibility::Inherited))
+            .id();
+        let sun_visibility = |app: &App| *app.world().get::<Visibility>(sun).unwrap();
 
         app.update();
         assert_eq!(fog_of(&app, camera), (UNDERWATER_COLOR, 16.0));
+        // The sun and the moon, beyond any fog, are not seen through the water
+        assert_eq!(sun_visibility(&app), Visibility::Hidden);
 
         // In the top cell of the water, above its surface
         app.world_mut()
@@ -217,6 +234,7 @@ mod tests {
             .y = 3.95;
         app.update();
         assert_eq!(fog_of(&app, camera), (SKY_COLOR, 24.0 * 16.0));
+        assert_eq!(sun_visibility(&app), Visibility::Inherited);
         assert!(matches!(
             app.world().get::<Camera>(camera).unwrap().clear_color,
             ClearColorConfig::Custom(color) if color == SKY_COLOR
