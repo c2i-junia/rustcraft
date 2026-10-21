@@ -19,9 +19,58 @@ use crate::world::{
 pub struct ChunkMap {
     chunks: HashMap<IVec3, Chunk>,
     changed: HashSet<IVec3>,
-    containers: HashMap<IVec3, Container>,
-    /// The chests whose contents changed since the last `take_changed_containers`.
-    changed_containers: HashSet<IVec3>,
+    containers: Held<Container>,
+}
+
+/// What blocks of one kind hold, by position, like the contents of the chests, and the
+/// positions whose value changed, was added or was dropped since the last `take_changed`.
+#[derive(Clone, Debug)]
+struct Held<T> {
+    values: HashMap<IVec3, T>,
+    changed: HashSet<IVec3>,
+}
+
+impl<T> Default for Held<T> {
+    fn default() -> Self {
+        Self {
+            values: HashMap::default(),
+            changed: HashSet::default(),
+        }
+    }
+}
+
+impl<T> Held<T> {
+    /// The value at `pos`, to change: the position is recorded as changed.
+    fn get_mut(&mut self, pos: IVec3) -> Option<&mut T> {
+        let value = self.values.get_mut(&pos)?;
+        self.changed.insert(pos);
+        Some(value)
+    }
+
+    /// Removes the value at `pos` and returns it; the position is recorded if there was one.
+    fn take(&mut self, pos: IVec3) -> Option<T> {
+        let value = self.values.remove(&pos)?;
+        self.changed.insert(pos);
+        Some(value)
+    }
+
+    fn of_chunk(&self, chunk_pos: IVec3) -> impl Iterator<Item = (IVec3, &T)> + '_ {
+        self.values
+            .iter()
+            .filter(move |(pos, _)| global_block_to_chunk_pos(pos) == chunk_pos)
+            .map(|(pos, value)| (*pos, value))
+    }
+
+    fn take_changed(&mut self) -> Vec<IVec3> {
+        self.changed.drain().collect()
+    }
+
+    /// Forgets the values of the chunk at `chunk_pos`, and their changes.
+    fn remove_chunk(&mut self, chunk_pos: IVec3) {
+        let outside = |pos: &IVec3| global_block_to_chunk_pos(pos) != chunk_pos;
+        self.values.retain(|pos, _| outside(pos));
+        self.changed.retain(outside);
+    }
 }
 
 impl ChunkMap {
@@ -41,8 +90,7 @@ impl ChunkMap {
         let chunk = self.chunks.remove(&chunk_pos)?;
         let outside = |pos: &IVec3| global_block_to_chunk_pos(pos) != chunk_pos;
         self.changed.retain(outside);
-        self.containers.retain(|pos, _| outside(pos));
-        self.changed_containers.retain(outside);
+        self.containers.remove_chunk(chunk_pos);
         Some(chunk)
     }
 
@@ -74,7 +122,7 @@ impl ChunkMap {
         chunk.set(local, block);
         self.changed.insert(pos);
         if block.id != BlockId::Chest {
-            self.drop_container(pos);
+            self.containers.take(pos);
         }
     }
 
@@ -84,20 +132,18 @@ impl ChunkMap {
         let chunk = self.chunks.get_mut(&global_block_to_chunk_pos(&pos))?;
         let removed = chunk.remove(to_local_pos(&pos))?;
         self.changed.insert(pos);
-        self.drop_container(pos);
+        self.containers.take(pos);
         Some(removed)
     }
 
     /// The contents of the chest at `pos`, if this map holds them.
     pub fn container(&self, pos: IVec3) -> Option<&Container> {
-        self.containers.get(&pos)
+        self.containers.values.get(&pos)
     }
 
     /// The contents of the chest at `pos`, to change: the chest is recorded as changed.
     pub fn container_mut(&mut self, pos: IVec3) -> Option<&mut Container> {
-        let container = self.containers.get_mut(&pos)?;
-        self.changed_containers.insert(pos);
-        Some(container)
+        self.containers.get_mut(pos)
     }
 
     /// Stores the contents of the chest at `pos`, replacing what this map held for it. Does
@@ -108,22 +154,14 @@ impl ChunkMap {
             .get_block(pos)
             .is_some_and(|block| block.id == BlockId::Chest)
         {
-            self.containers.insert(pos, container);
+            self.containers.values.insert(pos, container);
         }
     }
 
     /// Removes the contents of the chest at `pos` from this map and returns them; the chest is
     /// recorded as changed if this map held them.
     pub fn take_container(&mut self, pos: IVec3) -> Option<Container> {
-        let container = self.containers.remove(&pos)?;
-        self.changed_containers.insert(pos);
-        Some(container)
-    }
-
-    fn drop_container(&mut self, pos: IVec3) {
-        if self.containers.remove(&pos).is_some() {
-            self.changed_containers.insert(pos);
-        }
+        self.containers.take(pos)
     }
 
     /// The contents of the chests of the chunk at `chunk_pos`, with their global position.
@@ -131,16 +169,13 @@ impl ChunkMap {
         &self,
         chunk_pos: IVec3,
     ) -> impl Iterator<Item = (IVec3, &Container)> + '_ {
-        self.containers
-            .iter()
-            .filter(move |(pos, _)| global_block_to_chunk_pos(pos) == chunk_pos)
-            .map(|(pos, container)| (*pos, container))
+        self.containers.of_chunk(chunk_pos)
     }
 
     /// The positions of the chests whose contents changed, were added or were dropped since the
     /// previous call, each once, in no order.
     pub fn take_changed_containers(&mut self) -> Vec<IVec3> {
-        self.changed_containers.drain().collect()
+        self.containers.take_changed()
     }
 
     /// Records `pos` as changed without changing it, so that whoever drains the log reports its
