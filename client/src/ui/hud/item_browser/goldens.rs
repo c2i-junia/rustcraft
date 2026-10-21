@@ -13,6 +13,7 @@ use super::{
     show_item_browser, show_item_icons, show_mode_footer, show_view, style_chips,
     style_fill_buttons, style_recipe_cards, update_craftable_now, CatalogPart, CraftableNow,
     FillGridButton, ItemBrowserState, ItemView, MissingTint, RecipeCard, RecipeSlot, RecipeTab,
+    TagCell,
 };
 use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
@@ -160,11 +161,13 @@ fn a_view_hides_the_catalog_and_builds_its_cards() {
     let state = viewing(PICKAXE_RECIPES, &[]);
     let mut golden = open_browser((1280, 720), planks_and_logs(), state);
     assert_eq!(count::<CatalogPart>(&mut golden), (3, 0));
-    assert_eq!(count::<RecipeCard>(&mut golden).0, 3);
-    // Five ingredients and the output on each card
-    assert_eq!(count::<RecipeSlot>(&mut golden).0, 18);
-    // The two sticks of the oak card, everything on the spruce and jungle cards
-    assert_eq!(count::<MissingTint>(&mut golden), (15, 2 + 5 + 5));
+    // One card for every species of planks
+    assert_eq!(count::<RecipeCard>(&mut golden).0, 1);
+    // Five ingredients and the output, three of them any planks
+    assert_eq!(count::<RecipeSlot>(&mut golden).0, 6);
+    assert_eq!(count::<TagCell>(&mut golden).0, 3);
+    // The two sticks
+    assert_eq!(count::<MissingTint>(&mut golden), (5, 2));
 
     golden.world_mut().resource_mut::<ItemBrowserState>().back();
     show_frames(&mut golden);

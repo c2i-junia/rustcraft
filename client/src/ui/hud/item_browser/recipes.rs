@@ -3,8 +3,8 @@
 
 use shared::players::Inventory;
 use shared::world::{
-    craftable, fuel_ticks, missing, recipes_for, smelting_inputs, smelting_result, uses_of, ItemId,
-    RecipeView, COOK_TICKS,
+    craftable, fuel_ticks, missing, recipes_for, smelting_inputs, smelting_result, uses_of,
+    Ingredient, ItemId, RecipeView, COOK_TICKS,
 };
 use shared::TICKS_PER_SECOND;
 
@@ -62,6 +62,22 @@ pub fn station_label(recipe: &RecipeView) -> &'static str {
     }
 }
 
+/// The name of `ingredient`: its item's, or its family's, as in `Missing 3 Planks`.
+pub fn ingredient_name(ingredient: Ingredient) -> String {
+    match ingredient {
+        Ingredient::Item(item) => item_name(item),
+        Ingredient::Tag(tag) => tag.name().to_string(),
+    }
+}
+
+/// The name of a cell of `ingredient` on a card: its item's, or `Any` and its family's.
+pub fn ingredient_label(ingredient: Ingredient) -> String {
+    match ingredient {
+        Ingredient::Item(item) => item_name(item),
+        Ingredient::Tag(tag) => format!("Any {}", tag.name()),
+    }
+}
+
 /// Why `inventory` cannot make `recipe` now with a grid of `grid_size`: the ingredients it lacks,
 /// else the crafting table it needs, else the chest or the furnace open in place of the grid.
 /// `None` when it can, and `+ Fill grid` fills the grid with it.
@@ -74,7 +90,7 @@ pub fn recipe_problem(
     if !lacking.is_empty() {
         let items: Vec<String> = lacking
             .into_iter()
-            .map(|(item, count)| format!("{count} {}", item_name(item)))
+            .map(|(ingredient, count)| format!("{count} {}", ingredient_name(ingredient)))
             .collect();
         return Some(format!("Missing {}", items.join(", ")));
     }
@@ -199,7 +215,7 @@ pub fn craftable_now(inventory: &Inventory, item: ItemId) -> bool {
 #[cfg(test)]
 mod tests {
     use shared::players::Inventory;
-    use shared::world::{grid_slot, recipes_for, ItemId, ItemStack};
+    use shared::world::{grid_slot, recipes_for, Ingredient, ItemId, ItemStack, ItemTag};
 
     use super::*;
     use crate::ui::hud::item_browser::{ItemView, RecipeTab};
@@ -254,9 +270,16 @@ mod tests {
         let mut inventory = Inventory::new();
         assert_eq!(
             recipe_problem(&inventory, &pickaxe, 2).as_deref(),
-            Some("Missing 3 Oak Planks, 2 Stick")
+            Some("Missing 3 Planks, 2 Stick")
         );
-        put(&mut inventory, 0, ItemId::OakPlanks, 3);
+        // every species counts
+        put(&mut inventory, 0, ItemId::OakPlanks, 1);
+        put(&mut inventory, 1, ItemId::JunglePlanks, 1);
+        assert_eq!(
+            recipe_problem(&inventory, &pickaxe, 2).as_deref(),
+            Some("Missing 1 Planks, 2 Stick")
+        );
+        put(&mut inventory, 2, ItemId::SprucePlanks, 1);
         put(&mut inventory, grid_slot(0, 0), ItemId::Stick, 2);
         assert_eq!(
             recipe_problem(&inventory, &pickaxe, 2).as_deref(),
@@ -275,6 +298,46 @@ mod tests {
             recipe_problem(&inventory, &stick, 2).as_deref(),
             Some("Not beside a furnace")
         );
+    }
+
+    #[test]
+    fn an_ingredient_is_named_by_its_item_or_its_family() {
+        let planks = Ingredient::Tag(ItemTag::Planks);
+        let stick = Ingredient::Item(ItemId::Stick);
+        assert_eq!(ingredient_name(planks), "Planks");
+        assert_eq!(ingredient_name(stick), "Stick");
+        assert_eq!(ingredient_label(planks), "Any Planks");
+        assert_eq!(
+            ingredient_label(Ingredient::Item(ItemId::OakPlanks)),
+            "Oak Planks"
+        );
+    }
+
+    #[test]
+    fn one_card_stands_for_every_species_of_planks() {
+        let cards = |item, tab| cards_of(view(item, tab));
+        let pickaxe = cards(ItemId::WoodenPickaxe, RecipeTab::Recipes);
+        assert_eq!(pickaxe.len(), 1);
+        assert!(matches!(pickaxe[0], BrowserCard::Crafting(recipe)
+            if recipe.ingredients()[0] == (Ingredient::Tag(ItemTag::Planks), 3)));
+        assert_eq!(cards(ItemId::Chest, RecipeTab::Recipes).len(), 1);
+        assert_eq!(cards(ItemId::Stick, RecipeTab::Recipes).len(), 1);
+        // The uses of any planks are the recipes of planks, then its burning
+        for species in ItemTag::Planks.members() {
+            let uses = cards(*species, RecipeTab::Uses);
+            assert_eq!(uses.len(), 8 + 1, "{species:?}");
+            assert_eq!(
+                uses,
+                cards(ItemId::OakPlanks, RecipeTab::Uses)[..8]
+                    .iter()
+                    .copied()
+                    .chain([BrowserCard::Fuel {
+                        item: *species,
+                        ticks: 300
+                    }])
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
@@ -297,7 +360,7 @@ mod tests {
         // An iron ingot comes out of its block, then of the furnace
         let ingot = cards(ItemId::IronIngot, RecipeTab::Recipes);
         assert!(
-            matches!(ingot[0], BrowserCard::Crafting(recipe) if recipe.cells == [Some(ItemId::IronBlock)])
+            matches!(ingot[0], BrowserCard::Crafting(recipe) if recipe.cells == [Some(Ingredient::Item(ItemId::IronBlock))])
         );
         assert_eq!(ingot[1..], [smelting(ItemId::IronOre, ItemId::IronIngot)]);
         // An oak log makes planks, smelts into charcoal, and burns

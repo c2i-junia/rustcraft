@@ -11,20 +11,20 @@ use bevy::{
     ui_widgets::{Activate, Button as UiButton},
 };
 use shared::players::{inventory::craft_result, Inventory};
-use shared::world::{recipes, ItemId, RecipeView};
+use shared::world::{recipes, Ingredient, ItemId, ItemTag, RecipeView};
 
 use super::bookmarks::{bookmark_message, write_bookmarks, Bookmarks};
 use super::catalog::category_detail;
 use super::layout::BrowserLayout;
 use super::recipes::{
     back_label, bookmarked_detail, burns_for, card_label, cards_of, empty_view_message, fuel_note,
-    item_keys_hint, recipe_problem, smelting_note, station_label, tab_label, view_title,
-    BrowserCard,
+    ingredient_label, item_keys_hint, recipe_problem, smelting_note, station_label, tab_label,
+    view_title, BrowserCard,
 };
 use super::{
     BackButton, BookmarkBar, BrowserRequests, BrowserTitle, CatalogPart, CatalogSlot, CraftableNow,
     FillGridButton, ItemBrowserState, ItemCount, ItemView, MissingTint, RecipeCard, RecipeCards,
-    RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, ViewedItem,
+    RecipeNote, RecipePanel, RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TagCell, ViewedItem,
     ViewedItemCategory, ViewedItemName, OK_HI, OK_LO,
 };
 use crate::ui::hud::inventory::{grid_in_use, lit_flame, stack_in};
@@ -37,7 +37,7 @@ use crate::ui::widgets::button::set_label;
 use crate::ui::widgets::focus::FocusRing;
 use crate::ui::widgets::hints::key_cap;
 use crate::ui::widgets::list::{spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM};
-use crate::ui::widgets::slot::{slot, ICON_SIZE, SLOT_SIZE};
+use crate::ui::widgets::slot::{slot, SlotIcon, ICON_SIZE, SLOT_SIZE};
 use crate::ui::widgets::toast::{show_toast, ToastKind};
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, ClientWorldMap, MaterialResource};
@@ -273,19 +273,22 @@ fn dashes() -> impl Iterator<Item = (Node, BackgroundColor, Pickable)> {
     })
 }
 
-/// A slot of a card showing `item`, `count` of it for the output; an ingredient of `recipe` has
-/// the tint shown when the player lacks it.
+/// A slot of a card showing `ingredient`, `count` of it for the output; an ingredient of
+/// `recipe` has the tint shown when the player lacks it. A family shows its first member, until
+/// `cycle_tag_cells` shows the others in turn.
+#[allow(clippy::too_many_arguments)]
 fn spawn_card_slot(
     commands: &mut Commands,
     parent: Entity,
-    item: ItemId,
+    ingredient: Ingredient,
     recipe: Option<u16>,
     count: u32,
     size: f32,
     atlas: &AtlasWrapper,
     font: &Handle<Font>,
 ) {
-    let name = item_name(item);
+    let name = ingredient_label(ingredient);
+    let item = ingredient.members()[0];
     let mut cell = commands.spawn((
         RecipeSlot { item, count },
         RecipeStop,
@@ -298,6 +301,9 @@ fn spawn_card_slot(
         slot(&name, None, icon(atlas, item), font.clone()),
         ChildOf(parent),
     ));
+    if let Ingredient::Tag(tag) = ingredient {
+        cell.insert(TagCell(tag));
+    }
     cell.entry::<Node>().and_modify(move |mut node| {
         node.width = px(size);
         node.height = px(size);
@@ -305,7 +311,7 @@ fn spawn_card_slot(
     if let Some(recipe) = recipe {
         // after the icon: drawn over it
         cell.with_child((
-            MissingTint { recipe, item },
+            MissingTint { recipe, ingredient },
             Node {
                 display: Display::None,
                 position_type: PositionType::Absolute,
@@ -416,14 +422,14 @@ fn spawn_card(
         .id();
     for row in 0..3 {
         for col in 0..3 {
-            let item = (row < recipe.height && col < recipe.width)
+            let ingredient = (row < recipe.height && col < recipe.width)
                 .then(|| recipe.cells[row * recipe.width + col])
                 .flatten();
-            match item {
-                Some(item) => spawn_card_slot(
+            match ingredient {
+                Some(ingredient) => spawn_card_slot(
                     commands,
                     grid,
-                    item,
+                    ingredient,
                     Some(recipe.index),
                     1,
                     CARD_CELL,
@@ -440,7 +446,7 @@ fn spawn_card(
     spawn_card_slot(
         commands,
         body,
-        output,
+        Ingredient::Item(output),
         None,
         recipe.output.nb,
         SLOT_SIZE,
@@ -502,7 +508,16 @@ fn spawn_furnace_card(
         ))
         .id();
     let cell = |commands: &mut Commands, item: Option<ItemId>| match item {
-        Some(item) => spawn_card_slot(commands, column, item, None, 1, CARD_CELL, atlas, font),
+        Some(item) => spawn_card_slot(
+            commands,
+            column,
+            Ingredient::Item(item),
+            None,
+            1,
+            CARD_CELL,
+            atlas,
+            font,
+        ),
         None => {
             commands.spawn((empty_cell(), ChildOf(column)));
         }
@@ -536,7 +551,16 @@ fn spawn_smelting_card(
         assets,
     );
     commands.spawn((card_arrow(font), ChildOf(body)));
-    spawn_card_slot(commands, body, output, None, 1, SLOT_SIZE, atlas, font);
+    spawn_card_slot(
+        commands,
+        body,
+        Ingredient::Item(output),
+        None,
+        1,
+        SLOT_SIZE,
+        atlas,
+        font,
+    );
     commands.spawn((label(&smelting_note(), font, FONT_S, MUTED), ChildOf(card)));
 }
 
@@ -730,6 +754,37 @@ pub fn show_view(
     }
 }
 
+/// The member of `tag` its cells show `elapsed` after the start: each in turn, a second each.
+pub fn tag_member(tag: ItemTag, elapsed: std::time::Duration) -> ItemId {
+    let members = tag.members();
+    members[(elapsed.as_secs() % members.len() as u64) as usize]
+}
+
+/// Shows in each cell of a family the member of the second, `tag_member`, every cell in step: its
+/// icon, and the item a click and the item keys act on.
+pub fn cycle_tag_cells(
+    time: Res<Time<Real>>,
+    materials: Res<MaterialResource>,
+    mut cells: Query<(&TagCell, &mut RecipeSlot, Option<&Children>)>,
+    mut icons: Query<&mut ImageNode, With<SlotIcon>>,
+) {
+    for (tag, mut slot, children) in &mut cells {
+        let member = tag_member(tag.0, time.elapsed());
+        if slot.item == member {
+            continue;
+        }
+        slot.item = member;
+        let (Some(atlas), Some(children)) = (materials.items.as_ref(), children) else {
+            continue;
+        };
+        for child in children.iter() {
+            if let Ok(mut icon) = icons.get_mut(child) {
+                icon.texture_atlas = atlas.sprite(&format!("{member:?}"));
+            }
+        }
+    }
+}
+
 /// Tints the ingredients the player lacks, and says under each card where it is made or why it
 /// cannot be made now, with the crafting grid in use. `+ Fill grid` is enabled, and takes Tab,
 /// when it can be made.
@@ -745,7 +800,7 @@ pub fn style_recipe_cards(
     for (tint, mut node) in &mut tints {
         let lacking = shared::world::missing(&inventory, &all[tint.recipe as usize])
             .iter()
-            .any(|(item, _)| *item == tint.item);
+            .any(|(ingredient, _)| *ingredient == tint.ingredient);
         let display = if lacking {
             Display::Flex
         } else {
@@ -1077,8 +1132,10 @@ pub fn browser_takes_escape(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use bevy::ecs::system::RunSystemOnce;
-    use shared::world::{grid_slot, recipes_for, ItemStack};
+    use shared::world::{grid_slot, recipes_for, Ingredient, ItemStack, ItemTag};
 
     use super::*;
 
@@ -1091,14 +1148,14 @@ mod tests {
         world.resource_mut::<Inventory>().inner.insert(slot, stack);
     }
 
-    /// The items whose tints show, and the note and its colour.
-    fn styled(world: &mut World) -> (Vec<ItemId>, String, Color) {
+    /// The ingredients whose tints show, and the note and its colour.
+    fn styled(world: &mut World) -> (Vec<Ingredient>, String, Color) {
         world.run_system_once(style_recipe_cards).unwrap();
         let mut tints = world.query::<(&MissingTint, &Node)>();
         let tinted = tints
             .iter(world)
             .filter(|(_, node)| node.display != Display::None)
-            .map(|(tint, _)| tint.item)
+            .map(|(tint, _)| tint.ingredient)
             .collect();
         let mut notes = world.query::<(&Text, &TextColor)>();
         let (text, color) = notes.single(world).unwrap();
@@ -1111,25 +1168,36 @@ mod tests {
         let pickaxe = recipes_for(ItemId::WoodenPickaxe).next().unwrap();
         let mut world = World::new();
         world.init_resource::<Inventory>();
-        for item in pickaxe.cells.iter().flatten() {
+        for ingredient in pickaxe.cells.iter().flatten() {
             world.spawn((
                 MissingTint {
                     recipe: pickaxe.index,
-                    item: *item,
+                    ingredient: *ingredient,
                 },
                 Node::default(),
             ));
         }
         world.spawn((RecipeNote(pickaxe.index), Text::default(), TextColor(TEXT)));
+        let (planks, stick) = (
+            Ingredient::Tag(ItemTag::Planks),
+            Ingredient::Item(ItemId::Stick),
+        );
 
-        put(&mut world, 3, ItemId::OakPlanks, 5);
+        // Any species of planks counts, all of them together
+        put(&mut world, 3, ItemId::SprucePlanks, 1);
+        put(&mut world, 4, ItemId::JunglePlanks, 1);
         assert_eq!(
             styled(&mut world),
             (
-                vec![ItemId::Stick, ItemId::Stick],
-                "Missing 2 Stick".to_string(),
+                vec![planks, planks, planks, stick, stick],
+                "Missing 1 Planks, 2 Stick".to_string(),
                 DANGER
             )
+        );
+        put(&mut world, 5, ItemId::OakPlanks, 5);
+        assert_eq!(
+            styled(&mut world),
+            (vec![stick, stick], "Missing 2 Stick".to_string(), DANGER)
         );
 
         put(&mut world, grid_slot(0, 0), ItemId::Stick, 2);
@@ -1178,5 +1246,66 @@ mod tests {
         world.resource_mut::<Inventory>().open_chest = None;
         world.resource_mut::<Inventory>().open_furnace = Some(IVec3::ZERO);
         assert_eq!(enabled(&mut world), [false, false]);
+    }
+
+    #[test]
+    fn a_family_shows_its_members_one_per_second_in_turn() {
+        let at = |ms| tag_member(ItemTag::Planks, Duration::from_millis(ms));
+        assert_eq!(at(0), ItemId::OakPlanks);
+        assert_eq!(at(999), ItemId::OakPlanks);
+        assert_eq!(at(1000), ItemId::SprucePlanks);
+        assert_eq!(at(2500), ItemId::JunglePlanks);
+        assert_eq!(at(3000), ItemId::OakPlanks);
+        assert_eq!(at(7200), ItemId::SprucePlanks);
+    }
+
+    #[test]
+    fn the_cells_of_a_family_cycle_in_step() {
+        let mut world = World::new();
+        world.init_resource::<MaterialResource>();
+        let mut time = Time::<Real>::default();
+        time.update_with_duration(Duration::ZERO);
+        world.insert_resource(time);
+        let cell = |world: &mut World| {
+            world
+                .spawn((
+                    TagCell(ItemTag::Planks),
+                    RecipeSlot {
+                        item: ItemId::OakPlanks,
+                        count: 1,
+                    },
+                ))
+                .id()
+        };
+        let cells = [cell(&mut world), cell(&mut world)];
+        let stick = world
+            .spawn(RecipeSlot {
+                item: ItemId::Stick,
+                count: 1,
+            })
+            .id();
+        let shown_after = |world: &mut World, ms: u64| {
+            world
+                .resource_mut::<Time<Real>>()
+                .update_with_duration(Duration::from_millis(ms));
+            world.run_system_once(cycle_tag_cells).unwrap();
+            [cells[0], cells[1], stick].map(|cell| world.get::<RecipeSlot>(cell).unwrap().item)
+        };
+        assert_eq!(
+            shown_after(&mut world, 400),
+            [ItemId::OakPlanks, ItemId::OakPlanks, ItemId::Stick]
+        );
+        assert_eq!(
+            shown_after(&mut world, 700),
+            [ItemId::SprucePlanks, ItemId::SprucePlanks, ItemId::Stick]
+        );
+        assert_eq!(
+            shown_after(&mut world, 1000),
+            [ItemId::JunglePlanks, ItemId::JunglePlanks, ItemId::Stick]
+        );
+        assert_eq!(
+            shown_after(&mut world, 1000),
+            [ItemId::OakPlanks, ItemId::OakPlanks, ItemId::Stick]
+        );
     }
 }

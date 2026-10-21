@@ -8,7 +8,7 @@
 //! destroyed.
 
 use bevy::prelude::*;
-use shared::world::{ItemCategory, ItemId};
+use shared::world::{Ingredient, ItemCategory, ItemId, ItemTag};
 
 use crate::state::{GameSet, GameState};
 use crate::ui::hud::style_inventory_panel;
@@ -204,15 +204,19 @@ pub struct RecipeSlot {
     pub count: u32,
 }
 
+/// A cell of a card taking any item of a family: its `RecipeSlot` shows each member in turn.
+#[derive(Component)]
+pub struct TagCell(pub ItemTag);
+
 /// A focusable part of the view, which takes Tab only while the view shows.
 #[derive(Component)]
 pub struct RecipeStop;
 
-/// The tint over an ingredient of a recipe, shown while the player lacks that item.
+/// The tint over an ingredient of a recipe, shown while the player lacks it.
 #[derive(Component)]
 pub struct MissingTint {
     pub recipe: u16,
-    pub item: ItemId,
+    pub ingredient: Ingredient,
 }
 
 /// Under a card: where its recipe is made, or why it cannot be made now.
@@ -279,13 +283,14 @@ pub fn item_browser_plugin(app: &mut App) {
                     resource_changed::<CraftableNow>
                         .or_else(resource_changed::<bookmarks::Bookmarks>)
                         .or_else(any_match_filter::<Added<CatalogSlot>>)
-                        .or_else(any_match_filter::<Added<RecipeSlot>>),
+                        .or_else(any_match_filter::<Changed<RecipeSlot>>),
                 ),
                 show_view.run_if(
                     resource_changed::<ItemBrowserState>
                         .or_else(resource_changed::<bookmarks::Bookmarks>)
                         .or_else(any_match_filter::<Added<RecipePanel>>),
                 ),
+                cycle_tag_cells,
                 bookmarks::show_bookmarks.run_if(
                     resource_changed::<ItemBrowserState>
                         .or_else(resource_changed::<bookmarks::Bookmarks>)

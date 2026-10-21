@@ -20,44 +20,95 @@ pub const fn grid_slot(row: u32, col: u32) -> u32 {
     CRAFTING_GRID_START + row * CRAFTING_GRID_SIZE + col
 }
 
+/// A family of items any of which a recipe takes in a cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemTag {
+    Planks,
+}
+
+impl ItemTag {
+    /// The items of the family, in the order of `ItemId::ALL`. A new species of wood joins
+    /// `Planks` by being listed here.
+    pub fn members(self) -> &'static [ItemId] {
+        match self {
+            Self::Planks => &[
+                ItemId::OakPlanks,
+                ItemId::SprucePlanks,
+                ItemId::JunglePlanks,
+            ],
+        }
+    }
+
+    /// The name of the family, as the UI writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Planks => "Planks",
+        }
+    }
+}
+
+/// What a cell of a recipe takes: an item, or any item of a family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ingredient {
+    Item(ItemId),
+    Tag(ItemTag),
+}
+
+impl Ingredient {
+    /// Whether a cell of this ingredient takes `item`.
+    pub fn matches(self, item: ItemId) -> bool {
+        self.members().contains(&item)
+    }
+
+    /// The items a cell of this ingredient takes: the item alone, or the family's.
+    pub fn members(&self) -> &[ItemId] {
+        match self {
+            Self::Item(item) => std::slice::from_ref(item),
+            Self::Tag(tag) => tag.members(),
+        }
+    }
+}
+
 /// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
 /// wherever that part sits in the grid, or match it mirrored left to right.
 struct Recipe {
     width: usize,
-    cells: &'static [Option<ItemId>],
+    cells: &'static [Option<Ingredient>],
     output: ItemId,
     nb: u32,
 }
 
-const OAK_LOG: Option<ItemId> = Some(ItemId::OakLog);
-const SPRUCE_LOG: Option<ItemId> = Some(ItemId::SpruceLog);
-const JUNGLE_LOG: Option<ItemId> = Some(ItemId::JungleLog);
-const OAK: Option<ItemId> = Some(ItemId::OakPlanks);
-const SPRUCE: Option<ItemId> = Some(ItemId::SprucePlanks);
-const JUNGLE: Option<ItemId> = Some(ItemId::JunglePlanks);
-const COBBLE: Option<ItemId> = Some(ItemId::Cobblestone);
-const STICK: Option<ItemId> = Some(ItemId::Stick);
-const COAL: Option<ItemId> = Some(ItemId::Coal);
-const CHARCOAL: Option<ItemId> = Some(ItemId::Charcoal);
-const IRON: Option<ItemId> = Some(ItemId::IronIngot);
-const GOLD: Option<ItemId> = Some(ItemId::GoldIngot);
-const DIAMOND: Option<ItemId> = Some(ItemId::Diamond);
+/// A cell of a recipe taking `item`.
+const fn item(item: ItemId) -> Option<Ingredient> {
+    Some(Ingredient::Item(item))
+}
 
-/// The tools' shapes, Minecraft's, made of `m` and sticks. The wooden tools' recipes spell them
-/// out.
-const fn pickaxe(m: Option<ItemId>) -> [Option<ItemId>; 9] {
+const OAK_LOG: Option<Ingredient> = item(ItemId::OakLog);
+const SPRUCE_LOG: Option<Ingredient> = item(ItemId::SpruceLog);
+const JUNGLE_LOG: Option<Ingredient> = item(ItemId::JungleLog);
+const PLANKS: Option<Ingredient> = Some(Ingredient::Tag(ItemTag::Planks));
+const COBBLE: Option<Ingredient> = item(ItemId::Cobblestone);
+const STICK: Option<Ingredient> = item(ItemId::Stick);
+const COAL: Option<Ingredient> = item(ItemId::Coal);
+const CHARCOAL: Option<Ingredient> = item(ItemId::Charcoal);
+const IRON: Option<Ingredient> = item(ItemId::IronIngot);
+const GOLD: Option<Ingredient> = item(ItemId::GoldIngot);
+const DIAMOND: Option<Ingredient> = item(ItemId::Diamond);
+
+/// The tools' shapes, Minecraft's, made of `m` and sticks.
+const fn pickaxe(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
     [m, m, m, None, STICK, None, None, STICK, None]
 }
-const fn axe(m: Option<ItemId>) -> [Option<ItemId>; 6] {
+const fn axe(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
     [m, m, m, STICK, None, STICK]
 }
-const fn shovel(m: Option<ItemId>) -> [Option<ItemId>; 3] {
+const fn shovel(m: Option<Ingredient>) -> [Option<Ingredient>; 3] {
     [m, STICK, STICK]
 }
-const fn hoe(m: Option<ItemId>) -> [Option<ItemId>; 6] {
+const fn hoe(m: Option<Ingredient>) -> [Option<Ingredient>; 6] {
     [m, m, None, STICK, None, STICK]
 }
-const fn sword(m: Option<ItemId>) -> [Option<ItemId>; 3] {
+const fn sword(m: Option<Ingredient>) -> [Option<Ingredient>; 3] {
     [m, m, STICK]
 }
 
@@ -66,13 +117,9 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 1, cells: &[OAK_LOG], output: ItemId::OakPlanks, nb: 4 },
     Recipe { width: 1, cells: &[SPRUCE_LOG], output: ItemId::SprucePlanks, nb: 4 },
     Recipe { width: 1, cells: &[JUNGLE_LOG], output: ItemId::JunglePlanks, nb: 4 },
-    Recipe { width: 1, cells: &[OAK, OAK], output: ItemId::Stick, nb: 4 },
-    Recipe { width: 1, cells: &[SPRUCE, SPRUCE], output: ItemId::Stick, nb: 4 },
-    Recipe { width: 1, cells: &[JUNGLE, JUNGLE], output: ItemId::Stick, nb: 4 },
+    Recipe { width: 1, cells: &[PLANKS, PLANKS], output: ItemId::Stick, nb: 4 },
     Recipe { width: 1, cells: &[COAL, STICK], output: ItemId::Torch, nb: 4 },
-    Recipe { width: 2, cells: &[OAK, OAK, OAK, OAK], output: ItemId::CraftingTable, nb: 1 },
-    Recipe { width: 2, cells: &[SPRUCE, SPRUCE, SPRUCE, SPRUCE], output: ItemId::CraftingTable, nb: 1 },
-    Recipe { width: 2, cells: &[JUNGLE, JUNGLE, JUNGLE, JUNGLE], output: ItemId::CraftingTable, nb: 1 },
+    Recipe { width: 2, cells: &[PLANKS; 4], output: ItemId::CraftingTable, nb: 1 },
     Recipe {
         width: 3,
         cells: &[
@@ -86,183 +133,18 @@ const RECIPES: &[Recipe] = &[
     Recipe {
         width: 3,
         cells: &[
-            OAK, OAK, OAK,
-            OAK, None, OAK,
-            OAK, OAK, OAK,
+            PLANKS, PLANKS, PLANKS,
+            PLANKS, None, PLANKS,
+            PLANKS, PLANKS, PLANKS,
         ],
         output: ItemId::Chest,
         nb: 1,
     },
-    Recipe {
-        width: 3,
-        cells: &[
-            SPRUCE, SPRUCE, SPRUCE,
-            SPRUCE, None, SPRUCE,
-            SPRUCE, SPRUCE, SPRUCE,
-        ],
-        output: ItemId::Chest,
-        nb: 1,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            JUNGLE, JUNGLE, JUNGLE,
-            JUNGLE, None, JUNGLE,
-            JUNGLE, JUNGLE, JUNGLE,
-        ],
-        output: ItemId::Chest,
-        nb: 1,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            OAK, OAK, OAK,
-            None, STICK, None,
-            None, STICK, None,
-        ],
-        output: ItemId::WoodenPickaxe,
-        nb: 1,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            SPRUCE, SPRUCE, SPRUCE,
-            None, STICK, None,
-            None, STICK, None,
-        ],
-        output: ItemId::WoodenPickaxe,
-        nb: 1,
-    },
-    Recipe {
-        width: 3,
-        cells: &[
-            JUNGLE, JUNGLE, JUNGLE,
-            None, STICK, None,
-            None, STICK, None,
-        ],
-        output: ItemId::WoodenPickaxe,
-        nb: 1,
-    },
-    Recipe {
-        width: 2,
-        cells: &[
-            OAK, OAK,
-            OAK, STICK,
-            None, STICK,
-        ],
-        output: ItemId::WoodenAxe,
-        nb: 1,
-    },
-    Recipe {
-        width: 2,
-        cells: &[
-            SPRUCE, SPRUCE,
-            SPRUCE, STICK,
-            None, STICK,
-        ],
-        output: ItemId::WoodenAxe,
-        nb: 1,
-    },
-    Recipe {
-        width: 2,
-        cells: &[
-            JUNGLE, JUNGLE,
-            JUNGLE, STICK,
-            None, STICK,
-        ],
-        output: ItemId::WoodenAxe,
-        nb: 1,
-    },
-    Recipe {
-        width: 1,
-        cells: &[
-            OAK,
-            STICK,
-            STICK,
-        ],
-        output: ItemId::WoodenShovel,
-        nb: 1,
-    },
-    Recipe {
-        width: 1,
-        cells: &[
-            SPRUCE,
-            STICK,
-            STICK,
-        ],
-        output: ItemId::WoodenShovel,
-        nb: 1,
-    },
-    Recipe {
-        width: 1,
-        cells: &[
-            JUNGLE,
-            STICK,
-            STICK,
-        ],
-        output: ItemId::WoodenShovel,
-        nb: 1,
-    },
-    Recipe {
-        width: 2,
-        cells: &[
-            OAK, OAK,
-            None, STICK,
-            None, STICK,
-        ],
-        output: ItemId::WoodenHoe,
-        nb: 1,
-    },
-    Recipe {
-        width: 2,
-        cells: &[
-            SPRUCE, SPRUCE,
-            None, STICK,
-            None, STICK,
-        ],
-        output: ItemId::WoodenHoe,
-        nb: 1,
-    },
-    Recipe {
-        width: 2,
-        cells: &[
-            JUNGLE, JUNGLE,
-            None, STICK,
-            None, STICK,
-        ],
-        output: ItemId::WoodenHoe,
-        nb: 1,
-    },
-    Recipe {
-        width: 1,
-        cells: &[
-            OAK,
-            OAK,
-            STICK,
-        ],
-        output: ItemId::WoodenSword,
-        nb: 1,
-    },
-    Recipe {
-        width: 1,
-        cells: &[
-            SPRUCE,
-            SPRUCE,
-            STICK,
-        ],
-        output: ItemId::WoodenSword,
-        nb: 1,
-    },
-    Recipe {
-        width: 1,
-        cells: &[
-            JUNGLE,
-            JUNGLE,
-            STICK,
-        ],
-        output: ItemId::WoodenSword,
-        nb: 1,
-    },
+    Recipe { width: 3, cells: &pickaxe(PLANKS), output: ItemId::WoodenPickaxe, nb: 1 },
+    Recipe { width: 2, cells: &axe(PLANKS), output: ItemId::WoodenAxe, nb: 1 },
+    Recipe { width: 1, cells: &shovel(PLANKS), output: ItemId::WoodenShovel, nb: 1 },
+    Recipe { width: 2, cells: &hoe(PLANKS), output: ItemId::WoodenHoe, nb: 1 },
+    Recipe { width: 1, cells: &sword(PLANKS), output: ItemId::WoodenSword, nb: 1 },
     Recipe { width: 3, cells: &pickaxe(COBBLE), output: ItemId::StonePickaxe, nb: 1 },
     Recipe { width: 2, cells: &axe(COBBLE), output: ItemId::StoneAxe, nb: 1 },
     Recipe { width: 1, cells: &shovel(COBBLE), output: ItemId::StoneShovel, nb: 1 },
@@ -286,9 +168,9 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &[IRON; 9], output: ItemId::IronBlock, nb: 1 },
     Recipe { width: 3, cells: &[GOLD; 9], output: ItemId::GoldBlock, nb: 1 },
     Recipe { width: 3, cells: &[DIAMOND; 9], output: ItemId::DiamondBlock, nb: 1 },
-    Recipe { width: 1, cells: &[Some(ItemId::IronBlock)], output: ItemId::IronIngot, nb: 9 },
-    Recipe { width: 1, cells: &[Some(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9 },
-    Recipe { width: 1, cells: &[Some(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9 },
+    Recipe { width: 1, cells: &[item(ItemId::IronBlock)], output: ItemId::IronIngot, nb: 9 },
+    Recipe { width: 1, cells: &[item(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9 },
+    Recipe { width: 1, cells: &[item(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9 },
     Recipe { width: 1, cells: &[CHARCOAL, STICK], output: ItemId::Torch, nb: 4 },
     Recipe { width: 3, cells: &[IRON, None, IRON, None, IRON, None], output: ItemId::Bucket, nb: 1 },
 ];
@@ -312,7 +194,14 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
         (0..height).all(|row| {
             (0..width).all(|col| {
                 let recipe_col = if mirrored { width - 1 - col } else { col };
-                recipe.cells[row * width + recipe_col] == cell(top + row, left + col)
+                match (
+                    recipe.cells[row * width + recipe_col],
+                    cell(top + row, left + col),
+                ) {
+                    (Some(ingredient), Some(item)) => ingredient.matches(item),
+                    (None, None) => true,
+                    _ => false,
+                }
             })
         })
     };
@@ -336,7 +225,7 @@ pub struct RecipeView {
     pub width: usize,
     pub height: usize,
     /// Its cells, row after row.
-    pub cells: &'static [Option<ItemId>],
+    pub cells: &'static [Option<Ingredient>],
     pub output: ItemStack,
 }
 
@@ -346,13 +235,16 @@ impl RecipeView {
         self.width <= grid_size as usize && self.height <= grid_size as usize
     }
 
-    /// The items of the recipe, one per cell, in the order of their first cell.
-    pub fn ingredients(&self) -> Vec<(ItemId, u32)> {
-        let mut ingredients: Vec<(ItemId, u32)> = Vec::new();
-        for item in self.cells.iter().flatten() {
-            match ingredients.iter_mut().find(|(other, _)| other == item) {
+    /// The ingredients of the recipe, one per cell, in the order of their first cell.
+    pub fn ingredients(&self) -> Vec<(Ingredient, u32)> {
+        let mut ingredients: Vec<(Ingredient, u32)> = Vec::new();
+        for ingredient in self.cells.iter().flatten() {
+            match ingredients
+                .iter_mut()
+                .find(|(other, _)| other == ingredient)
+            {
                 Some((_, count)) => *count += 1,
-                None => ingredients.push((*item, 1)),
+                None => ingredients.push((*ingredient, 1)),
             }
         }
         ingredients
@@ -382,21 +274,29 @@ pub fn recipes_for(item: ItemId) -> impl Iterator<Item = RecipeView> {
     recipes().filter(move |recipe| recipe.output.item_id == item)
 }
 
-/// The recipes `item` goes into.
+/// The recipes `item` goes into: those with a cell taking it.
 pub fn uses_of(item: ItemId) -> impl Iterator<Item = RecipeView> {
-    recipes().filter(move |recipe| recipe.cells.contains(&Some(item)))
+    recipes().filter(move |recipe| {
+        recipe
+            .cells
+            .iter()
+            .flatten()
+            .any(|ingredient| ingredient.matches(item))
+    })
 }
 
-/// What `inventory` lacks to make `recipe` once, in the order of its ingredients. Its slots and
-/// its crafting grid count; a chest, and the stack held by the cursor, do not.
-pub fn missing(inventory: &Inventory, recipe: &RecipeView) -> Vec<(ItemId, u32)> {
+/// What `inventory` lacks to make `recipe` once, in the order of its ingredients, the items of
+/// a family counted together. Its slots and its crafting grid count; a chest, and the stack
+/// held by the cursor, do not.
+pub fn missing(inventory: &Inventory, recipe: &RecipeView) -> Vec<(Ingredient, u32)> {
     let grid = CRAFTING_GRID_START..CRAFTING_GRID_START + CRAFTING_GRID_SIZE * CRAFTING_GRID_SIZE;
-    let held = |item: ItemId| -> u32 {
+    let held = |ingredient: Ingredient| -> u32 {
         inventory
             .inner
             .iter()
             .filter(|(slot, stack)| {
-                (**slot < MAX_INVENTORY_SLOTS || grid.contains(slot)) && stack.item_id == item
+                (**slot < MAX_INVENTORY_SLOTS || grid.contains(slot))
+                    && ingredient.matches(stack.item_id)
             })
             .map(|(_, stack)| stack.nb)
             .sum()
@@ -404,9 +304,9 @@ pub fn missing(inventory: &Inventory, recipe: &RecipeView) -> Vec<(ItemId, u32)>
     recipe
         .ingredients()
         .into_iter()
-        .filter_map(|(item, needed)| {
-            let lacking = needed.saturating_sub(held(item));
-            (lacking > 0).then_some((item, lacking))
+        .filter_map(|(ingredient, needed)| {
+            let lacking = needed.saturating_sub(held(ingredient));
+            (lacking > 0).then_some((ingredient, lacking))
         })
         .collect()
 }
@@ -414,6 +314,81 @@ pub fn missing(inventory: &Inventory, recipe: &RecipeView) -> Vec<(ItemId, u32)>
 /// Whether `inventory` holds the ingredients of `recipe`, counted as `missing` does.
 pub fn craftable(inventory: &Inventory, recipe: &RecipeView) -> bool {
     missing(inventory, recipe).is_empty()
+}
+
+/// What filling the grid with a recipe puts into it: `rounds` items of one item in each cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FillPlan {
+    /// How many items each cell gets.
+    pub rounds: u32,
+    /// The item each cell of the recipe gets, row after row, `None` for its empty cells.
+    pub cells: Vec<Option<ItemId>>,
+}
+
+/// The most rounds a fill makes: a stack in each cell.
+const MAX_FILL_ROUNDS: u32 = 64;
+
+/// How `inventory` fills the grid with `recipe`, `times` rounds at most, from its slots alone
+/// (not the grid, which the fill puts back first, nor a chest or the cursor): the most rounds,
+/// up to a stack, for which every cell can get that many of one item. A cell of a family takes
+/// the item the previous cell of that family took while it holds enough, else the one the
+/// inventory holds the most of after the cells already served, the first of the family on a
+/// tie: one species is used whenever it is enough. `None` without one round.
+pub fn plan_fill(inventory: &Inventory, recipe: &RecipeView, times: u32) -> Option<FillPlan> {
+    let mut held: Vec<(ItemId, u32)> = Vec::new();
+    for stack in (0..MAX_INVENTORY_SLOTS).filter_map(|slot| inventory.inner.get(&slot)) {
+        match held.iter_mut().find(|(item, _)| *item == stack.item_id) {
+            Some((_, nb)) => *nb += stack.nb,
+            None => held.push((stack.item_id, stack.nb)),
+        }
+    }
+    (1..=times.min(MAX_FILL_ROUNDS))
+        .rev()
+        .find_map(|rounds| plan_rounds(held.clone(), recipe, rounds))
+}
+
+/// How the items `left` fill the grid with `rounds` of `recipe`, if they can.
+fn plan_rounds(mut left: Vec<(ItemId, u32)>, recipe: &RecipeView, rounds: u32) -> Option<FillPlan> {
+    let count = |left: &[(ItemId, u32)], item: ItemId| {
+        left.iter()
+            .find(|(other, _)| *other == item)
+            .map_or(0, |(_, nb)| *nb)
+    };
+    // The item the last cell of each ingredient took
+    let mut last: Vec<(Ingredient, ItemId)> = Vec::new();
+    let mut cells = Vec::with_capacity(recipe.cells.len());
+    for cell in recipe.cells {
+        let Some(ingredient) = *cell else {
+            cells.push(None);
+            continue;
+        };
+        let previous = last
+            .iter()
+            .find(|(other, _)| *other == ingredient)
+            .map(|(_, item)| *item)
+            .filter(|&item| count(&left, item) >= rounds);
+        // the first of the most held
+        let most = ingredient.members().iter().copied().reduce(|best, item| {
+            if count(&left, item) > count(&left, best) {
+                item
+            } else {
+                best
+            }
+        })?;
+        let item = previous.unwrap_or(most);
+        if count(&left, item) < rounds || item.get_max_stack() < rounds {
+            return None;
+        }
+        if let Some((_, nb)) = left.iter_mut().find(|(other, _)| *other == item) {
+            *nb -= rounds;
+        }
+        match last.iter_mut().find(|(other, _)| *other == ingredient) {
+            Some((_, taken)) => *taken = item,
+            None => last.push((ingredient, item)),
+        }
+        cells.push(Some(item));
+    }
+    Some(FillPlan { rounds, cells })
 }
 
 #[cfg(test)]
@@ -524,8 +499,8 @@ mod tests {
             );
         }
         assert_eq!(
-            match_recipe(&grid([OAK, OAK, OAK, OAK, None, OAK, OAK, OAK, SPRUCE])),
-            None
+            match_recipe(&grid([OAK, OAK, OAK, JUNGLE, None, OAK, OAK, OAK, SPRUCE])),
+            made(ItemId::Chest, 1)
         );
     }
 
@@ -554,12 +529,18 @@ mod tests {
     }
 
     #[test]
-    fn mixed_planks_make_nothing() {
+    fn planks_of_any_kind_one_above_the_other_make_four_sticks() {
         assert_eq!(
             match_recipe(&grid([
                 OAK, None, None, SPRUCE, None, None, None, None, None
             ])),
-            None
+            made(ItemId::Stick, 4)
+        );
+        assert_eq!(
+            match_recipe(&grid([
+                None, None, None, None, JUNGLE, None, None, OAK, None
+            ])),
+            made(ItemId::Stick, 4)
         );
     }
 
@@ -752,17 +733,13 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 57);
+        assert_eq!(all.len(), 41);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
-            // what the grid makes when it holds the recipe in its top left corner
-            let mut grid = [None; 9];
-            for row in 0..recipe.height {
-                for col in 0..recipe.width {
-                    grid[row * 3 + col] = recipe.cells[row * recipe.width + col];
-                }
-            }
+            // what the grid makes when it holds the recipe in its top left corner, each cell
+            // holding the first item of its ingredient
+            let grid = grid_of(recipe, false, |ingredient| ingredient.members()[0]);
             assert_eq!(match_recipe(&grid), Some(recipe.output), "{recipe:?}");
         }
         let furnace = all.iter().find(|r| r.output.item_id == ItemId::Furnace);
@@ -774,15 +751,23 @@ mod tests {
     #[test]
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
-        assert_eq!(counts(ItemId::WoodenPickaxe), (3, 0));
-        assert_eq!(counts(ItemId::Stick), (3, 37));
+        assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
+        assert_eq!(counts(ItemId::Stick), (1, 27));
         assert_eq!(counts(ItemId::OakPlanks), (1, 8));
+        assert_eq!(counts(ItemId::SprucePlanks), (1, 8));
+        assert_eq!(counts(ItemId::JunglePlanks), (1, 8));
+        // the same recipes for each species
+        let uses = |item| uses_of(item).map(|r| r.index).collect::<Vec<_>>();
+        assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::SprucePlanks));
+        assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::JunglePlanks));
         assert_eq!(counts(ItemId::Cobblestone), (0, 6));
         assert_eq!(counts(ItemId::IronIngot), (1, 7));
         assert_eq!(counts(ItemId::Torch), (2, 0));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
-        assert!(uses_of(ItemId::Stick).all(|r| r.cells.contains(&STICK)));
+        assert!(uses_of(ItemId::Stick)
+            .all(|r| r.cells.contains(&Some(Ingredient::Item(ItemId::Stick)))));
+        assert!(uses_of(ItemId::SprucePlanks).all(|r| r.cells.contains(&Some(PLANKS))));
     }
 
     /// The first recipe making `item`.
@@ -803,11 +788,11 @@ mod tests {
     fn the_ingredients_of_a_recipe_are_counted_by_cell() {
         assert_eq!(
             recipe_of(ItemId::WoodenPickaxe).ingredients(),
-            [(ItemId::OakPlanks, 3), (ItemId::Stick, 2)]
+            [(PLANKS, 3), (Ingredient::Item(ItemId::Stick), 2)]
         );
         assert_eq!(
             recipe_of(ItemId::Furnace).ingredients(),
-            [(ItemId::Cobblestone, 8)]
+            [(Ingredient::Item(ItemId::Cobblestone), 8)]
         );
     }
 
@@ -819,15 +804,13 @@ mod tests {
     fn missing_counts_the_inventory_and_the_grid() {
         let pickaxe = recipe_of(ItemId::WoodenPickaxe);
         let mut inventory = Inventory::new();
-        assert_eq!(
-            missing(&inventory, &pickaxe),
-            [(ItemId::OakPlanks, 3), (ItemId::Stick, 2)]
-        );
+        let stick = Ingredient::Item(ItemId::Stick);
+        assert_eq!(missing(&inventory, &pickaxe), [(PLANKS, 3), (stick, 2)]);
         assert!(!craftable(&inventory, &pickaxe));
         put(&mut inventory, 0, ItemId::OakPlanks, 1);
         put(&mut inventory, grid_slot(1, 1), ItemId::OakPlanks, 2);
         put(&mut inventory, 20, ItemId::Stick, 1);
-        assert_eq!(missing(&inventory, &pickaxe), [(ItemId::Stick, 1)]);
+        assert_eq!(missing(&inventory, &pickaxe), [(stick, 1)]);
         assert!(!craftable(&inventory, &pickaxe));
         put(&mut inventory, MAX_INVENTORY_SLOTS - 1, ItemId::Stick, 1);
         assert!(missing(&inventory, &pickaxe).is_empty());
@@ -844,22 +827,267 @@ mod tests {
         inventory.floating = made(ItemId::Stick, 64);
         assert_eq!(
             missing(&inventory, &pickaxe),
-            [(ItemId::OakPlanks, 3), (ItemId::Stick, 2)]
+            [(PLANKS, 3), (Ingredient::Item(ItemId::Stick), 2)]
         );
     }
 
     #[test]
-    fn a_tool_needs_planks_of_one_kind() {
+    fn a_tool_takes_planks_of_any_kind() {
         assert_eq!(
             match_recipe(&grid([
                 OAK, OAK, SPRUCE, None, STICK, None, None, STICK, None
             ])),
-            None
+            made(ItemId::WoodenPickaxe, 1)
         );
         assert_eq!(
             match_recipe(&grid([
                 JUNGLE, JUNGLE, OAK, None, STICK, None, None, STICK, None
             ])),
+            made(ItemId::WoodenPickaxe, 1)
+        );
+        // mirrored, too
+        assert_eq!(
+            match_recipe(&grid([
+                None, SPRUCE, JUNGLE, None, STICK, OAK, None, STICK, None
+            ])),
+            made(ItemId::WoodenAxe, 1)
+        );
+    }
+
+    const PLANKS: Ingredient = Ingredient::Tag(ItemTag::Planks);
+
+    /// The grid holding `recipe` in its top left corner, each cell holding the item `pick`
+    /// chooses for its ingredient, mirrored left to right if `mirrored`.
+    fn grid_of(
+        recipe: &RecipeView,
+        mirrored: bool,
+        pick: impl Fn(Ingredient) -> ItemId,
+    ) -> CraftingGrid {
+        let mut grid = [None; 9];
+        for row in 0..recipe.height {
+            for col in 0..recipe.width {
+                let recipe_col = if mirrored {
+                    recipe.width - 1 - col
+                } else {
+                    col
+                };
+                grid[row * 3 + col] = recipe.cells[row * recipe.width + recipe_col].map(&pick);
+            }
+        }
+        grid
+    }
+
+    #[test]
+    fn every_recipe_with_planks_is_made_by_each_species() {
+        let with_planks: Vec<RecipeView> = recipes()
+            .filter(|recipe| recipe.cells.contains(&Some(PLANKS)))
+            .collect();
+        let outputs: Vec<ItemId> = with_planks.iter().map(|r| r.output.item_id).collect();
+        assert_eq!(
+            outputs,
+            [
+                ItemId::Stick,
+                ItemId::CraftingTable,
+                ItemId::Chest,
+                ItemId::WoodenPickaxe,
+                ItemId::WoodenAxe,
+                ItemId::WoodenShovel,
+                ItemId::WoodenHoe,
+                ItemId::WoodenSword,
+            ]
+        );
+        for recipe in &with_planks {
+            for species in [
+                ItemId::OakPlanks,
+                ItemId::SprucePlanks,
+                ItemId::JunglePlanks,
+            ] {
+                let pick = |ingredient: Ingredient| match ingredient {
+                    Ingredient::Item(item) => item,
+                    Ingredient::Tag(_) => species,
+                };
+                for mirrored in [false, true] {
+                    assert_eq!(
+                        match_recipe(&grid_of(recipe, mirrored, pick)),
+                        Some(recipe.output),
+                        "{species:?} {recipe:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_planks_tag_holds_every_planks_item() {
+        let planks: Vec<ItemId> = ItemId::ALL
+            .into_iter()
+            .filter(|item| item.name().ends_with("_planks"))
+            .collect();
+        assert_eq!(ItemTag::Planks.members(), planks);
+        assert_eq!(
+            planks,
+            [
+                ItemId::OakPlanks,
+                ItemId::SprucePlanks,
+                ItemId::JunglePlanks
+            ]
+        );
+        assert_eq!(ItemTag::Planks.name(), "Planks");
+    }
+
+    #[test]
+    fn an_ingredient_matches_its_items() {
+        for planks in ItemTag::Planks.members() {
+            assert!(PLANKS.matches(*planks));
+        }
+        assert!(!PLANKS.matches(ItemId::OakLog));
+        assert!(!PLANKS.matches(ItemId::Stick));
+        let stick = Ingredient::Item(ItemId::Stick);
+        assert!(stick.matches(ItemId::Stick));
+        assert!(!stick.matches(ItemId::OakPlanks));
+        assert_eq!(stick.members(), [ItemId::Stick]);
+        assert_eq!(PLANKS.members(), ItemTag::Planks.members());
+    }
+
+    #[test]
+    fn no_recipe_has_two_ingredients_sharing_an_item() {
+        for recipe in recipes() {
+            let ingredients = recipe.ingredients();
+            for (index, (first, _)) in ingredients.iter().enumerate() {
+                for (second, _) in &ingredients[index + 1..] {
+                    assert!(
+                        !first.members().iter().any(|item| second.matches(*item)),
+                        "{recipe:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn missing_counts_every_member_of_a_tag_together() {
+        let pickaxe = recipe_of(ItemId::WoodenPickaxe);
+        let stick = Ingredient::Item(ItemId::Stick);
+        let mut inventory = Inventory::new();
+        put(&mut inventory, 0, ItemId::OakPlanks, 1);
+        put(&mut inventory, 30, ItemId::SprucePlanks, 1);
+        assert_eq!(missing(&inventory, &pickaxe), [(PLANKS, 1), (stick, 2)]);
+        put(&mut inventory, grid_slot(2, 2), ItemId::JunglePlanks, 1);
+        assert_eq!(missing(&inventory, &pickaxe), [(stick, 2)]);
+        put(&mut inventory, 1, ItemId::Stick, 2);
+        assert!(craftable(&inventory, &pickaxe));
+    }
+
+    /// An inventory holding `planks` in its slots from 0, a stack each.
+    fn holding(planks: &[(ItemId, u32)]) -> Inventory {
+        let mut inventory = Inventory::new();
+        for (slot, &(item, nb)) in planks.iter().enumerate() {
+            put(&mut inventory, slot as u32, item, nb);
+        }
+        inventory
+    }
+
+    /// The items of the cells of the chest's ring, in the order of the recipe.
+    fn ring(oak: usize, spruce: usize) -> Vec<Option<ItemId>> {
+        let mut species = std::iter::repeat_n(ItemId::OakPlanks, oak)
+            .chain(std::iter::repeat_n(ItemId::SprucePlanks, spruce));
+        (0..9)
+            .map(|cell| if cell == 4 { None } else { species.next() })
+            .collect()
+    }
+
+    #[test]
+    fn a_fill_takes_one_species_when_it_is_enough() {
+        let chest = recipe_of(ItemId::Chest);
+        let plan = |planks: &[(ItemId, u32)]| plan_fill(&holding(planks), &chest, 1);
+        // the most held
+        let only_oak = plan(&[(ItemId::OakPlanks, 10), (ItemId::SprucePlanks, 3)]);
+        assert_eq!(
+            only_oak,
+            Some(FillPlan {
+                rounds: 1,
+                cells: ring(8, 0)
+            })
+        );
+        let only_spruce = plan(&[(ItemId::OakPlanks, 8), (ItemId::SprucePlanks, 9)]);
+        assert_eq!(
+            only_spruce,
+            Some(FillPlan {
+                rounds: 1,
+                cells: ring(0, 8)
+            })
+        );
+        // the first of the family on a tie
+        let tie = plan(&[(ItemId::SprucePlanks, 8), (ItemId::OakPlanks, 8)]);
+        assert_eq!(
+            tie,
+            Some(FillPlan {
+                rounds: 1,
+                cells: ring(8, 0)
+            })
+        );
+    }
+
+    #[test]
+    fn a_fill_mixes_species_when_none_is_enough() {
+        let chest = recipe_of(ItemId::Chest);
+        let inventory = holding(&[(ItemId::OakPlanks, 5), (ItemId::SprucePlanks, 4)]);
+        assert_eq!(
+            plan_fill(&inventory, &chest, 1),
+            Some(FillPlan {
+                rounds: 1,
+                cells: ring(5, 3)
+            })
+        );
+        let sticks = recipe_of(ItemId::Stick);
+        let inventory = holding(&[(ItemId::JunglePlanks, 1), (ItemId::OakPlanks, 1)]);
+        assert_eq!(
+            plan_fill(&inventory, &sticks, 1),
+            Some(FillPlan {
+                rounds: 1,
+                cells: vec![Some(ItemId::OakPlanks), Some(ItemId::JunglePlanks)]
+            })
+        );
+    }
+
+    #[test]
+    fn a_fill_makes_as_many_rounds_as_every_cell_can_get_of_one_item() {
+        let chest = recipe_of(ItemId::Chest);
+        // 3 rounds: 6 cells of oak and 2 of spruce; 4 would need 8 cells of 4
+        let inventory = holding(&[(ItemId::OakPlanks, 20), (ItemId::SprucePlanks, 10)]);
+        assert_eq!(
+            plan_fill(&inventory, &chest, u32::MAX),
+            Some(FillPlan {
+                rounds: 3,
+                cells: ring(6, 2)
+            })
+        );
+        // as many as asked
+        assert_eq!(
+            plan_fill(&inventory, &chest, 2).map(|plan| plan.rounds),
+            Some(2)
+        );
+        // a stack at most
+        let pickaxe = recipe_of(ItemId::WoodenPickaxe);
+        let mut inventory = Inventory::new();
+        for slot in 0..10 {
+            put(&mut inventory, slot, ItemId::OakPlanks, 64);
+        }
+        for slot in 10..14 {
+            put(&mut inventory, slot, ItemId::Stick, 64);
+        }
+        assert_eq!(
+            plan_fill(&inventory, &pickaxe, u32::MAX).map(|plan| plan.rounds),
+            Some(64)
+        );
+        // the grid and a chest do not count: the fill puts the grid back first
+        let mut inventory = holding(&[(ItemId::OakPlanks, 7)]);
+        put(&mut inventory, grid_slot(0, 0), ItemId::OakPlanks, 1);
+        put(&mut inventory, grid_slot(2, 2) + 1, ItemId::OakPlanks, 64);
+        assert_eq!(plan_fill(&inventory, &chest, 1), None);
+        assert_eq!(plan_fill(&Inventory::new(), &chest, 1), None);
+        assert_eq!(
+            plan_fill(&holding(&[(ItemId::OakPlanks, 8)]), &chest, 0),
             None
         );
     }

@@ -15,8 +15,8 @@ use crate::{
         Inventory, Player,
     },
     world::{
-        fuel_ticks, grid_slot, match_recipe, recipes, smelting_result, BlockId, ChunkMap,
-        Container, CraftingGrid, Furnace, ItemId, ItemStack, ItemType, CHEST_SLOTS,
+        fuel_ticks, grid_slot, match_recipe, plan_fill, recipes, smelting_result, BlockId,
+        ChunkMap, Container, CraftingGrid, Furnace, ItemId, ItemStack, ItemType, CHEST_SLOTS,
         CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
@@ -581,8 +581,9 @@ fn take_from_catalog(
 }
 
 /// Puts the crafting grid back into the inventory, then the ingredients of `recipe` into the grid
-/// of `size`, unmirrored, at its top left corner: `times` rounds at most, as many as the inventory
-/// holds and a stack of each ingredient takes. All or nothing.
+/// of `size`, unmirrored, at its top left corner, as `plan_fill` plans it: `times` rounds at most,
+/// as many as the inventory holds and a stack takes, any planks in a cell of planks. All or
+/// nothing.
 fn fill_crafting_grid(
     inventory: &mut Inventory,
     recipe: u16,
@@ -603,33 +604,17 @@ fn fill_crafting_grid(
             }
         }
     }
-    let held = |inventory: &Inventory, item: ItemId| -> u32 {
-        (0..MAX_INVENTORY_SLOTS)
-            .filter_map(|slot| inventory.inner.get(&slot))
-            .filter(|stack| stack.item_id == item)
-            .map(|stack| stack.nb)
-            .sum()
-    };
-    let rounds = recipe
-        .ingredients()
-        .into_iter()
-        .map(|(item, cells)| (held(&filled, item) / cells).min(item.get_max_stack()))
-        .min()
-        .unwrap_or(0)
-        .min(times);
-    if rounds == 0 {
-        return Err(InventoryRefusal::MissingIngredients);
-    }
-    for (index, cell) in recipe.cells.iter().enumerate() {
-        let Some(item) = *cell else {
+    let plan = plan_fill(&filled, &recipe, times).ok_or(InventoryRefusal::MissingIngredients)?;
+    for (index, cell) in plan.cells.into_iter().enumerate() {
+        let Some(item) = cell else {
             continue;
         };
-        let item_type = take_from_inventory(&mut filled, item, rounds);
+        let item_type = take_from_inventory(&mut filled, item, plan.rounds);
         let (row, col) = (index / recipe.width, index % recipe.width);
         let stack = ItemStack {
             item_id: item,
             item_type,
-            nb: rounds,
+            nb: plan.rounds,
         };
         filled
             .inner
@@ -2728,6 +2713,50 @@ mod tests {
             .map(|stack| stack.nb)
             .sum();
         assert_eq!(left, 198);
+    }
+
+    #[test]
+    fn filling_the_grid_takes_one_species_of_planks_when_it_is_enough() {
+        let chest = crate::world::recipes_for(ItemId::Chest).next().unwrap();
+        let mut inventory = inventory_with(0, stack(ItemId::SprucePlanks, 3));
+        inventory.inner.insert(1, stack(ItemId::OakPlanks, 10));
+        inventory.open_table = Some(TABLE);
+        apply_inventory_action(&mut inventory, fill(chest, 1), |_, _| true, None, false).unwrap();
+        for slot in grid_slots(CRAFTING_GRID_SIZE) {
+            let expected = (slot != grid_slot(1, 1)).then_some(stack(ItemId::OakPlanks, 1));
+            assert_eq!(inventory.inner.get(&slot).copied(), expected, "{slot}");
+        }
+        assert_eq!(inventory.inner[&0], stack(ItemId::SprucePlanks, 3));
+        assert_eq!(inventory.inner[&1], stack(ItemId::OakPlanks, 2));
+    }
+
+    #[test]
+    fn filling_the_grid_mixes_species_of_planks_when_none_is_enough() {
+        let chest = crate::world::recipes_for(ItemId::Chest).next().unwrap();
+        let mut inventory = inventory_with(0, stack(ItemId::OakPlanks, 5));
+        inventory.inner.insert(1, stack(ItemId::SprucePlanks, 4));
+        inventory.open_table = Some(TABLE);
+        apply_inventory_action(&mut inventory, fill(chest, 1), |_, _| true, None, false).unwrap();
+        let oak = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 2)];
+        let spruce = [(2, 0), (2, 1), (2, 2)];
+        for (row, col) in oak {
+            assert_eq!(
+                inventory.inner[&grid_slot(row, col)],
+                stack(ItemId::OakPlanks, 1)
+            );
+        }
+        for (row, col) in spruce {
+            assert_eq!(
+                inventory.inner[&grid_slot(row, col)],
+                stack(ItemId::SprucePlanks, 1)
+            );
+        }
+        assert!(!inventory.inner.contains_key(&0));
+        assert_eq!(inventory.inner[&1], stack(ItemId::SprucePlanks, 1));
+        assert_eq!(
+            craft_result(&inventory, CRAFTING_GRID_SIZE).map(|made| made.item_id),
+            Some(ItemId::Chest)
+        );
     }
 
     #[test]

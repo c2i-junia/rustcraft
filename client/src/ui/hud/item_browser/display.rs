@@ -26,7 +26,7 @@ use super::{
     BackButton, BookmarkSlot, BrowserRequests, CatalogGrid, CatalogList, CatalogSlot, CategoryChip,
     CraftableChip, CraftableDot, CraftableNow, DrawerHandle, ItemBrowser, ItemBrowserState,
     ItemCount, ItemSearchField, ItemView, ModeFooter, NoMatch, NoMatchHint, NoMatchMessage,
-    RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TrashSlot,
+    RecipeSlot, RecipeStop, RecipeTab, RecipeTabChip, TagCell, TrashSlot,
 };
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::player::CurrentPlayerMarker;
@@ -204,7 +204,7 @@ pub fn show_mode_footer(
 }
 
 /// Marks the items craftable now: the dot of their catalog slot, and the note of the tooltip of
-/// their slots in the browser. In Creative, the tooltips of the catalog say what its gestures
+/// their slots in the browser, a cell of a family when some member is. In Creative, the tooltips of the catalog say what its gestures
 /// take; the keys say whether A bookmarks the item or removes it from the bookmarks.
 #[allow(clippy::type_complexity)]
 pub fn mark_craftable_items(
@@ -214,6 +214,7 @@ pub fn mark_craftable_items(
         (
             Option<&CatalogSlot>,
             Option<&RecipeSlot>,
+            Option<&TagCell>,
             &mut Tooltip,
             &Children,
         ),
@@ -221,14 +222,17 @@ pub fn mark_craftable_items(
     >,
     mut dots: Query<&mut Node, With<CraftableDot>>,
 ) {
-    for (catalog_slot, recipe_slot, mut tooltip, children) in &mut slots {
+    for (catalog_slot, recipe_slot, tag, mut tooltip, children) in &mut slots {
         let Some(item) = catalog_slot
             .map(|slot| slot.0)
             .or(recipe_slot.map(|slot| slot.item))
         else {
             continue;
         };
-        let now = craftable.items.contains(&item);
+        let now = match tag {
+            Some(tag) => tag.0.members().iter().any(|m| craftable.items.contains(m)),
+            None => craftable.items.contains(&item),
+        };
         let note = if now { CRAFTABLE_NOTE } else { "" };
         if tooltip.note != note {
             tooltip.note = note.to_string();
@@ -775,12 +779,12 @@ pub fn scroll_focused_into_view(
 #[cfg(test)]
 mod tests {
     use bevy::ecs::system::RunSystemOnce;
-    use shared::world::{ItemCategory, ItemId};
+    use shared::world::{ItemCategory, ItemId, ItemTag};
 
     use super::*;
     use crate::player::CurrentPlayerMarker;
     use crate::ui::hud::item_browser::catalog::catalog;
-    use crate::ui::hud::item_browser::{browser_takes_escape, ItemView, RecipeTab};
+    use crate::ui::hud::item_browser::{browser_takes_escape, ItemView, RecipeTab, TagCell};
     use crate::ui::widgets::tooltip::Tooltip;
     use shared::players::{game_mode::GameMode, Inventory, Player};
     use shared::world::ItemStack;
@@ -1006,6 +1010,29 @@ mod tests {
             dot_and_note(&mut world, ItemId::OakPlanks),
             (false, String::new())
         );
+    }
+
+    #[test]
+    fn a_cell_of_a_family_says_so_when_some_member_is_craftable() {
+        let mut world = browser(Visibility::Visible);
+        let cell = |world: &mut World, tag: Option<ItemTag>| {
+            let slot = RecipeSlot {
+                item: ItemId::SprucePlanks,
+                count: 1,
+            };
+            let mut cell = world.spawn((slot, Tooltip::default()));
+            cell.with_child(());
+            if let Some(tag) = tag {
+                cell.insert(TagCell(tag));
+            }
+            cell.id()
+        };
+        let any_planks = cell(&mut world, Some(ItemTag::Planks));
+        let spruce_planks = cell(&mut world, None);
+        give(&mut world, ItemId::OakLog, 1);
+        let note = |world: &World, cell| world.get::<Tooltip>(cell).unwrap().note.clone();
+        assert_eq!(note(&world, any_planks), "You have the ingredients");
+        assert_eq!(note(&world, spruce_planks), "");
     }
 
     /// The hint of the tooltip of the catalog slot of `item`.
