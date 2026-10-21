@@ -1,0 +1,246 @@
+# Weather — design
+
+Date: 2026-10-21. Branch `feat/weather`, worktree `feat-weather/`, from main `b2a3bc5c`.
+
+The user picked direction D, "Météo", of the roadmap artifact
+(https://claude.ai/artifact/JLHeUcdEQAJuCKxVzncwau), delegated every decision, and asked above
+all for it to be **very aesthetic**. This file records the decisions; later rulings are appended
+under **Decisions**.
+
+## Goal
+
+Make the sky change. Rain rolls in under darkening clouds, drops streak past and splash on the
+ground and ring the water, the world turns wet and glossy, snow drifts down in the cold biomes,
+and thunderstorms crack the sky open with lightning and rumbling thunder that is heard a moment
+after the flash. Today the sky is always clear.
+
+What makes it good is the look and the feel, not the mechanics. Every lot is judged on pictures
+(see **Looking at it**), and a lot is not done until its pictures are beautiful.
+
+## Scope
+
+In:
+
+1. A weather state held by the server (clear, rain, thunderstorm), changing on its own over time,
+   kept in the save, sent to every client, set with `/weather`.
+2. The sky reacting to it: thicker and darker clouds, an overcast sky, dimmer sun, hidden sun,
+   moon and stars, closer fog, all eased in and out.
+3. Precipitation: rain streaks, snow flakes where it is cold, nothing in the deserts, stopped by
+   roofs; splashes on the ground and ripples on the water.
+4. A wet world in the High and Ultra presets: darker and glossier exposed ground, puddles that
+   reflect the sky.
+5. Thunderstorms: lightning bolts, flashes that light the world and the clouds, thunder heard
+   after the flash; rain and wind ambience muffled under a roof; a Weather volume slider.
+
+Out, on purpose:
+
+- **Gameplay effects.** Lightning does not hurt, set fires (there is no fire) or change mobs;
+  rain does not grow crops (there are none) or fill anything. Combat (direction B) and farming
+  (direction C) are where these belong.
+- Snow piling up on the ground, ice forming, rainbows, hail, fog banks, seasons, wind moving the
+  leaves harder.
+- A per-player weather setting or a "no rain" option: the presets scale the cost instead.
+
+## Lots
+
+Each lot gets its own plan in `docs/superpowers/plans/` and is built test first. `just check`
+green at the end of each lot. Commits follow the repo's Conventional Commits, in English, no
+attribution trailer.
+
+### Lot 1 — the weather state, shared and server
+
+**Model.** `shared/src/world/weather.rs`:
+
+```rust
+pub enum WeatherKind { Clear, Rain, Thunder }
+```
+
+- The server holds `ServerWeather { kind, ticks_left: u32 }`, counted down in `Simulate`. When it
+  reaches 0 the weather changes: after `Clear` comes `Rain` (2 in 3) or `Thunder` (1 in 3); after
+  `Rain` or `Thunder` comes `Clear`. Durations, drawn uniformly: clear 12 000–120 000 ticks
+  (10 min–100 min, half a day to five days), rain and thunder 6 000–18 000 ticks (5–15 min).
+- A new world starts clear, with a clear spell drawn as above.
+- The random choices go through pure helpers taking `rng: &mut impl Rng`, tested with a seeded
+  `StdRng`, as the mobs do.
+- `/weather <clear|rain|thunder>` sets the weather for a natural duration of that kind, answers
+  "Weather set to rain" to its author only, and is added to `COMMANDS` for the chat's
+  suggestions. No permissions, like the other commands.
+- **Saving.** `world.ron` gets `#[serde(default)] weather: Option<SavedWeather>` (kind and ticks
+  left); `FORMAT_VERSION` stays 5. A world without it starts clear.
+- **Network.** `AuthRegisterResponse` gets the current `weather: WeatherKind`; a new
+  `ServerToClientMessage::WeatherSet(WeatherKind)` (appended, pinned) is sent to every client when
+  the weather changes. `PROTOCOL_ID` goes 24 → 25, once for the whole branch.
+- **Lightning, server side.** During a thunderstorm the server draws a strike every 3–15 s
+  (uniform, in ticks) near a random player: a column at 16–160 blocks, any direction, struck at
+  its top non-air block. It is sent to every client as
+  `ServerToClientMessage::LightningStrike { at: IVec3, seed: u32 }`; the seed shapes the bolt so
+  that everyone sees the same one. No damage, no block change.
+
+**Client.** `ClientWeather { kind, rain: f32, thunder: f32 }`:
+
+- `rain` eases towards 1 for `Rain` and `Thunder`, and towards 0 for `Clear`; `thunder` eases
+  towards 1 for `Thunder` only. Both move at most 1/20 per second (20 s from clear to a full
+  storm and back), on a smoothstep so they start and stop gently.
+- At join both are set at once, without easing, to the state the server sends.
+- Every effect below reads these levels through its own curve, so that a storm rolls in: the
+  clouds and the sky lead (they follow `smoothstep(0, 0.5, rain)`), the drops follow
+  (`smoothstep(0.25, 1, rain)`).
+- The debug HUD (F3) shows `Weather: rain 0.85`.
+
+### Lot 2 — the sky
+
+- **Clouds.** Coverage rises from today's ~45 % to ~80 % in rain and ~92 % in a thunderstorm,
+  smoothly, with no hitch and no hole: the mesh can no longer be rebuilt at each step of the
+  threshold, so cells carry their density and the shader decides which cells and faces show
+  (a face between two cells shows when exactly one of them is above the threshold). Tint goes
+  from white to a blue-grey (`#8C93A0`-ish at noon in rain, darker in a storm, `#5A606B`-ish),
+  opacity from 0.8 to 0.95. The clouds are still lit by the time of day.
+- **Overcast.** One overcast level and colour, shared by everything that shows the sky, so
+  that no blue is left in a storm (see decision 17):
+  - a dome around the camera, drawn in the transparent pass over the sky pixels (Bevy draws the
+    sky after the opaque pass, so the dome cannot sit between them), a grey gradient lighter at
+    the horizon and darker at the zenith;
+  - `sky_radiance` (fog of the chunks, water's sky reflection), the horizon skirt and the
+    clouds blend towards the same grey;
+  - the environment-map light of the atmosphere is turned down with the overcast level and a
+    grey ambient light takes over, so the world is lit from an even grey sky;
+  - the grey's brightness follows the *clear* sky's brightness at that time of day (a function
+    of the sun's height), not the dimmed physical sky's;
+  - in the Off preset, the clear colour and the fog colour are blended to the same grey.
+- **Sun, moon and stars** fade out with the overcast level (gone by 0.8).
+- **Light.** Sun (and moon) illuminance goes down to 25 % in rain and 12 % in a storm, so shadows
+  fade out; the ambient light keeps the world readable. The exposure follows so that a rainy noon
+  is clearly darker than a clear one but not dim (about −1.3 EV in rain, −2 EV in a storm).
+  Colour grading loses some saturation (1.12 → 0.9).
+- **Fog.** Today the chunks fade between 60 % and 100 % of the render distance. In rain the fog
+  closes in: from 30 % to 75 % in rain, from 15 % to 60 % in a storm, both eased with the
+  overcast level, never ending closer than 48 blocks (low render distances, and `sky_fog`'s
+  underwater test, which takes a fog ending within 16 blocks for water). The world fades into
+  the overcast grey; the clouds' fade and the horizon skirt follow it.
+- **God rays** (High, Ultra) fade out with the sun; the volumetric fog gets a little denser in
+  rain for haze.
+
+### Lot 3 — precipitation
+
+- **Where.** Each column has a kind of precipitation, from the client's `WorldBiomes`: snow in
+  `IcePlain`, in the snowy mountains and in any column whose surface is above the snow line (122),
+  nothing in `Desert` and `Savanna`, rain elsewhere. It falls down to the column's highest block
+  that stops it: any block but air (leaves and glass stop it; water stops it at its surface).
+- **Occlusion map.** A texture of the columns around the camera (at least 96 × 96), holding for
+  each the height that stops precipitation and its kind, kept up to date as chunks arrive and
+  blocks change (a placed roof stops the rain within a frame or two). The GPU reads it; drops
+  below it are not drawn.
+- **Rain.** Thin streaks, drawn by the GPU from one static mesh (the vertex shader places,
+  moves and wraps each drop around the camera, so that drops stay put in the world as the
+  camera moves and the CPU does nothing per drop). Each drop has its own speed and length
+  (falling ~ 14 blocks/s, streaks 0.6–1 block, a few pixels wide), slanted by a slow wind that
+  follows the clouds' drift and gusts in storms. Soft-edged, translucent, lit by the sky (dim at
+  night, grey by day, bright at a lightning flash). The number drawn follows the rain level, so
+  that it starts with a few drops. Up to 8 000 drops in Ultra, fewer in lower presets
+  (Off 2 500). Two depth bands: big near drops, finer far ones, out to ~40 blocks.
+- **Snow.** Flakes: small soft round sprites, falling at ~1.5 blocks/s with a lazy sway and
+  slow spin, varied in size, out to ~48 blocks; they show snow's quiet more than its density.
+- **Splashes.** On the ground of rain columns near the camera (~16 blocks), tiny crowns of
+  droplets that pop up and fall back in a quarter of a second, scattered in time and place,
+  also GPU-driven from the occlusion map.
+- **Ripples.** On water under rain, expanding rings drawn into `water_normal` (hashed cells,
+  each with its own phase), with their number following the rain level. Every preset that draws
+  water ripples (the `effects` setting) gets them.
+- **Underwater**, no precipitation is drawn.
+
+### Lot 4 — the wet world (High, Ultra)
+
+- **Wetness** goes up while it rains (40 s to soaked) and down after it stops (2 min to dry);
+  only the columns where rain falls and that are open to the sky (sky light 15, top faces and
+  the sides near them) get wet: not under a roof, not in snow or desert columns (the climate map
+  says which).
+- **Wet surfaces** darken (albedo ×0.65 at full wetness) and turn glossy (lower roughness).
+- **Puddles.** On top faces, a world-space noise lays out puddles that fill in as the wetness
+  rises past half: near-mirror, slightly darker, with the rain's ripples in them, reflecting the
+  overcast sky (through `sky_radiance`) and catching lightning flashes. They do not reflect the
+  world (decision 16).
+- These values go through a separate uniform binding, not `ChunkShading` (changing it rebuilds
+  every chunk's bind group).
+
+### Lot 5 — thunderstorms and sound
+
+- **Bolt.** From each `LightningStrike` within the render distance: a jagged bolt from the cloud
+  base down to the struck block, with branches, shaped from the strike's seed (the same for every
+  player); a white-violet core with a glow, bright enough to bloom in the presets with HDR. It
+  lives ~0.5 s and flickers (two or three pulses).
+- **Flash.** Each pulse lights the world (ambient and exposure jump), the veil and the clouds
+  (most near the strike). A strike beyond the render distance shows only as a flash inside the
+  clouds in its direction, without a bolt.
+- **Thunder.** Heard after the flash, delayed by distance at 340 blocks/s; a sharp crack for a
+  strike within ~48 blocks, a long rumble further off, quieter with distance. Played without
+  spatial attenuation (Bevy's is too steep for this), the volume set by hand, panned towards
+  the strike.
+- **Rain sound.** A seamless rain loop and a muffled one (as heard from indoors, low-passed),
+  crossfaded after how open the player is: the share of the columns around them (radius ~6) whose
+  precipitation stops above their head. Its volume follows the rain level and the share of rain
+  columns around; snow columns play the existing `ambient/wind.ogg` instead, softly; thunderstorms
+  add wind too. Underwater, every weather sound is muffled.
+- **New sounds** are synthesised by `scripts/generate_sounds.py` like the others: the two rain
+  loops, three cracks, three rumbles.
+- **Weather volume.** A fourth audio channel, "Weather", with its slider in the Audio settings.
+
+### Closing
+
+README (features), `docs/ARCHITECTURE.md` (weather state, network messages, rendering),
+`CHANGELOG.txt`, a final independent review, and an artifact for the user with the pictures.
+
+## Looking at it
+
+A lot that draws something adds an `#[ignore]` e2e snapshot test in the style of
+`client/src/e2e/clouds.rs` (`UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored`),
+with fixed camera, time and weather levels, in the High preset unless said otherwise. The
+orchestrator looks at every picture and asks for changes until they are beautiful; this is part
+of the lot, not an afterthought. Pictures to cover, as each lot makes them possible:
+
+- noon clear / rain / thunderstorm, from the ground, looking at a landscape with water;
+- sunset in rain, midnight in rain;
+- a snow biome while it snows;
+- standing under a roof looking out at the rain;
+- a lightning bolt (frozen at its brightest pulse);
+- wet ground and puddles at noon in High;
+- rain in the Off preset.
+
+## Decisions
+
+1. The user delegated every choice and asked for it to be very aesthetic: the look decides close
+   calls, and each drawing lot is reviewed on pictures.
+2. No gameplay effect in this branch (no lightning damage, no fire, no crops): the visuals and
+   sounds are the feature; directions B and C will add effects that have something to act on.
+3. Weather cycle: clear 10–100 min, rain/thunder 5–15 min, thunder one rain in three. Shorter
+   clear spells than Minecraft's (up to 2.5 h) so that weather is actually seen in a session.
+4. `/weather` takes no duration: a natural one is drawn; one fewer argument to learn.
+5. Only the kind is sent to clients, never the time left: the client eases the levels itself, so
+   a change costs one small message and a client joining mid-storm snaps straight to it.
+6. 20 s to roll a storm in or out, with the clouds and sky leading the drops.
+7. Lightning is drawn by the server and broadcast with a seed, so that every player sees the same
+   bolt at the same place; up to 160 blocks from a player, so that most strikes are seen but some
+   only heard and glimpsed in the clouds.
+8. Rain or snow per column from the biome and the surface height, computed by the client from the
+   seed: the server does not need to know.
+9. Precipitation is entirely GPU-driven from static meshes and an occlusion texture: thousands of
+   drops cost no CPU work per frame and no entity per drop.
+10. Leaves stop the rain (as in Minecraft): forests give shelter, which is good to see.
+11. Cloud coverage changes smoothly in the shader rather than by rebuilding the mesh at each
+    step, to avoid hitches and pops during the 20 s transitions.
+12. Wet ground and puddles only in High and Ultra (the roadmap's call): they need SSR and
+    lighting headroom to look right; lower presets get every other effect.
+13. Thunder is non-spatial with a hand-made volume and pan, because Bevy's spatial attenuation
+    would silence a strike 100 blocks away.
+14. A "Weather" audio channel rather than reusing Effects: rain is long and loud, and players
+    want to turn it down without losing the block sounds.
+15. No video toggle for precipitation: the presets scale the drop count, and Off still shows
+    rain (fewer drops).
+16. Puddles reflect the sky, not the world: the only SSR is the water's, which reads the frame
+    copied for the transmissive pass; the ground is opaque and drawn before that copy. A
+    separate puddle layer in the transmissive pass would cost a mesh path for little gain under
+    a grey sky.
+17. Overcast is one shared level and colour fed to the sky dome, `sky_radiance`, the horizon
+    skirt, the clouds and the ambient light, rather than a dome alone: a dome would leave blue in
+    the water's reflection, the fog, the horizon ring and the environment light.
+18. Rain closes the fog in (the end moves, not only the start), with a 48-block floor: a storm
+    should feel closed-in, and the floor keeps low render distances and the underwater test sane.
