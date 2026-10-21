@@ -13,8 +13,8 @@ use shared::world::{
 };
 use shared::{CHUNK_SIZE, DAY_DURATION_IN_TICKS, NOON_IN_DAY};
 
-use super::game::{enter_world, hold_click, slot};
-use super::harness::{Harness, SERVER};
+use super::game::{enter_world, enter_world_with, hold_click, slot};
+use super::harness::{Harness, Options, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::CameraController;
@@ -605,11 +605,23 @@ fn facing_portals_show_each_other_three_times_and_the_player_its_body() {
 /// The time a frame takes, the screen drawn into an image, with the blue portal in view, the
 /// portals out of view, and the same view without portals, in turns over several rounds, so
 /// that the noise of the machine falls on each alike. `BENCH_GPU=1` draws on the GPU instead of
-/// lavapipe.
+/// lavapipe. `BENCH_SHADERS=high` (or `low`, `medium`, `ultra`) draws with those shaders, Off by
+/// default.
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_portal_frame_time() {
-    let mut h = enter_world(GameFolder::new().with_world("Portals"), "Portals");
+    let shaders = match std::env::var("BENCH_SHADERS").as_deref() {
+        Ok("low") => ShaderQuality::Low,
+        Ok("medium") => ShaderQuality::Medium,
+        Ok("high") => ShaderQuality::High,
+        Ok("ultra") => ShaderQuality::Ultra,
+        _ => ShaderQuality::Off,
+    };
+    let options = Options {
+        shaders: Some(shaders),
+        ..default()
+    };
+    let mut h = enter_world_with(GameFolder::new().with_world("Portals"), "Portals", options);
     let scene = build_scene(&mut h);
     // The window has no surface: the screen is drawn where the screenshots are taken from
     let target = h.target.clone();
