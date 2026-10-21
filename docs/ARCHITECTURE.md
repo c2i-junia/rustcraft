@@ -212,12 +212,25 @@ camera. A player keeps a horizontal velocity in the air, which only a portal giv
 into a floor portal shoots it out of a wall as fast), blocked per axis by blocks, dropped when
 it lands, flies or swims. While the centre of a player is in front of an open portal's opening,
 shrunk by half its width, that portal's wall cells do not collide with it
-(`Portals::letting_through`, `check_player_collision`), so that it walks into the wall up to the
+(`Portals::passable_cells`, `check_player_collision`), so that it walks into the wall up to the
 plane, or falls into a floor portal it stands on; the vertical step that takes its centre into
 such a portal is made whatever lies behind the wall cells, and ends the input's fall. In front means at most a millimetre behind the plane (`PORTAL_SLACK`), so that no
 rounding leaves a player that came out of a portal behind it, in its wall. A player left inside
 blocks, as in the wall of a portal that closed or moved, may make the moves that reach no new
 block and go no deeper into those it is in, so that it walks back out.
+
+Mobs and dropped items go through the portals by the same rule, on the server, which simulates
+them: `Portals` holds it for any entity, with its own box (`passable_cells`, `goes_into`, the
+move into a portal made whatever lies behind its wall, and `pass`, the transform and the exit
+point), and players, items (`step_dropped_item`) and mobs (`server/src/mob/behavior.rs`) call
+it. An item's half-width is half its size, a mob's half the larger of its width and depth. An
+entity that passes comes out with its velocity turned; a mob's body faces where it faced,
+turned upright as a camera's look, and the spot it walks to goes through too, so it walks on.
+Each counts the portals it went through (`DroppedItem::passes`, `ServerMob::passes`, sent with
+it): a client that sees the count change puts the entity where it is told at once, instead of
+easing it across the gap. Items are sent by the chunks a client has, those around the twins
+included, and mobs by distance or in those chunks: what walks or falls to a far twin stays
+known to a client that sees it there.
 
 The contents of a chest live in the `ChunkMap`, at its position (`shared/src/world/container.rs`):
 the server holds those of every chest, a client only those of the chest its player has open,
@@ -365,8 +378,9 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    within a few chunks of height (`within_render_distance`): nearest first
    (`render_distance_offsets`) and at most 1024 per tick, not counting the chunks of one kind
    of cell, in messages of 32 chunks encoded in parallel. A mob is sent (`MobUpdate`) when it
-   comes within the render distance of a player or changes, and `MobRemoved` when it leaves
-   it or the world (`sent_mobs` holds what each client was sent).
+   comes within the render distance of a player, or into the chunks around the twin of a
+   portal it sees, or changes, and `MobRemoved` when it leaves them or the world (`sent_mobs`
+   holds what each client was sent).
    The player chooses it, from 1 to `MAX_CHUNK_RENDER_DISTANCE_RADIUS` (64), in the Video
    tab of the settings or with the O and P keys (`RenderDistance`, saved in `video.ron`): the
    authentication request carries it and `SetRenderDistance` changes it. The answer to the
