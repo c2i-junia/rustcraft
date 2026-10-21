@@ -745,6 +745,51 @@ mod tests {
     }
 
     #[test]
+    fn a_furnace_a_chest_and_the_new_ores_and_metal_blocks_hold_a_portal() {
+        let portal = portal(
+            PortalColor::Blue,
+            IVec3::new(1, 10, 0),
+            FaceDirection::PlusZ,
+        );
+        let cell = IVec3::new(2, 12, 0);
+        // Solid full blocks, whichever way a furnace faces: the fit rule takes them
+        for id in [
+            BlockId::Furnace,
+            BlockId::LitFurnace,
+            BlockId::Chest,
+            BlockId::DiamondOre,
+            BlockId::IronBlock,
+            BlockId::GoldBlock,
+            BlockId::DiamondBlock,
+        ] {
+            for direction in [
+                BlockDirection::Front,
+                BlockDirection::Back,
+                BlockDirection::Left,
+            ] {
+                let mut world = wall();
+                world.set_block(cell, BlockData::new(id, direction));
+                assert!(portal.fits(&world), "{id:?} {direction:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_furnace_or_a_chest_in_front_keeps_a_portal_closed() {
+        let portal = portal(
+            PortalColor::Blue,
+            IVec3::new(1, 10, 0),
+            FaceDirection::PlusZ,
+        );
+        let front = IVec3::new(2, 12, 1);
+        for id in [BlockId::Furnace, BlockId::LitFurnace, BlockId::Chest] {
+            let mut world = wall();
+            world.set_block(front, BlockData::new(id, BlockDirection::Back));
+            assert!(!portal.fits(&world), "{id:?}");
+        }
+    }
+
+    #[test]
     fn a_portal_sharing_a_wall_cell_on_another_face_overlaps_unless_on_the_opposite_face() {
         // Orange of player 8 on the +Z face of the cells x 2 and 3 of a wall one block thick
         let mut portals = Portals::default();

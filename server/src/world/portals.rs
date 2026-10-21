@@ -74,7 +74,13 @@ pub fn broadcast_portals_system(
 mod tests {
     use super::*;
     use bevy::math::IVec3;
-    use shared::world::{BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor};
+    use shared::messages::{NetworkAction, PlayerFrameInput};
+    use shared::players::blocks::{simulate_player_block_interactions, CallerType};
+    use shared::players::Player;
+    use shared::world::{
+        BlockData, BlockDirection, BlockId, FaceDirection, Furnace, ItemId, ItemStack, Portal,
+        PortalColor,
+    };
 
     /// A stone wall facing +Z, x in 0..=3, y in 10..=12, z = 0, with the blue portal of player
     /// 7 on its left half, the change log empty.
@@ -138,6 +144,105 @@ mod tests {
         // A pod collides with what walks into its box
         let (mut chunks, _) = walled_portal();
         chunks.set_block(front, BlockData::new(BlockId::Cocoa, BlockDirection::Front));
+        remove_unfit_portals(&mut chunks);
+        assert!(chunks.portals().is_empty());
+    }
+
+    /// A player 3 blocks before the wall of `walled_portal`, holding `item`, aiming at the
+    /// middle of the wall cell (1, 11, 0) under the portal, and the input that presses `button`.
+    fn aiming_under_the_portal(item: ItemId, button: NetworkAction) -> (Player, PlayerFrameInput) {
+        let position = Vec3::new(1.5, 11.0, 4.0);
+        let camera = Transform::from_translation(position + Vec3::Y * 0.5)
+            .looking_at(Vec3::new(1.5, 11.5, 1.0), Vec3::Y);
+        let mut player = Player::new(1, "builder".to_string(), position, camera);
+        let stack = ItemStack {
+            item_id: item,
+            item_type: item.get_default_type(),
+            nb: 1,
+        };
+        player.inventory.inner.insert(0, stack);
+        let input = PlayerFrameInput {
+            delta_ms: 50,
+            inputs: [button].into(),
+            camera,
+            ..Default::default()
+        };
+        (player, input)
+    }
+
+    #[test]
+    fn a_portal_stays_when_a_bucket_pours_water_in_front_of_it() {
+        let (mut chunks, portal) = walled_portal();
+        let (mut player, input) =
+            aiming_under_the_portal(ItemId::WaterBucket, NetworkAction::RightClick);
+        simulate_player_block_interactions(&mut player, &mut chunks, &input, CallerType::Server);
+        let front = IVec3::new(1, 11, 1);
+        assert_eq!(
+            chunks.get_block(front).map(|block| block.id),
+            Some(BlockId::Water)
+        );
+
+        remove_unfit_portals(&mut chunks);
+        assert_eq!(chunks.portals().iter().collect::<Vec<_>>(), [&portal]);
+        assert!(!chunks.portals_mut().take_changed());
+    }
+
+    #[test]
+    fn a_portal_goes_when_a_furnace_or_a_chest_is_placed_in_front_of_it() {
+        for item in [ItemId::Furnace, ItemId::Chest] {
+            let (mut chunks, _) = walled_portal();
+            let (mut player, input) = aiming_under_the_portal(item, NetworkAction::RightClick);
+            simulate_player_block_interactions(
+                &mut player,
+                &mut chunks,
+                &input,
+                CallerType::Server,
+            );
+            assert!(chunks.get_block(IVec3::new(1, 11, 1)).is_some(), "{item:?}");
+
+            remove_unfit_portals(&mut chunks);
+            assert!(chunks.portals().is_empty(), "{item:?}");
+        }
+    }
+
+    #[test]
+    fn a_furnace_in_the_wall_holds_a_portal_lit_or_out_until_it_is_broken() {
+        let (mut chunks, portal) = walled_portal();
+        let cell = IVec3::new(1, 11, 0);
+        chunks.set_block(cell, BlockData::new(BlockId::Furnace, BlockDirection::Back));
+        chunks.insert_furnace(cell, Furnace::default());
+        remove_unfit_portals(&mut chunks);
+        assert_eq!(chunks.portals().iter().collect::<Vec<_>>(), [&portal]);
+
+        // Smelting lights it, and it goes out: the cell changes, the portal stays
+        for id in [BlockId::LitFurnace, BlockId::Furnace] {
+            chunks.set_block(cell, BlockData::new(id, BlockDirection::Back));
+            remove_unfit_portals(&mut chunks);
+            assert_eq!(
+                chunks.portals().iter().collect::<Vec<_>>(),
+                [&portal],
+                "{id:?}"
+            );
+        }
+        chunks.take_changed_blocks();
+
+        // Broken by a player, it takes the portal with it
+        let (mut player, input) =
+            aiming_under_the_portal(ItemId::WoodenPickaxe, NetworkAction::LeftClick);
+        let broken: Vec<_> = (0..200)
+            .flat_map(|_| {
+                simulate_player_block_interactions(
+                    &mut player,
+                    &mut chunks,
+                    &input,
+                    CallerType::Server,
+                )
+                .broken
+            })
+            .collect();
+        assert_eq!(broken.len(), 1);
+        assert_eq!(broken[0].block, BlockId::Furnace);
+        assert_eq!(broken[0].furnace, Some(Furnace::default()));
         remove_unfit_portals(&mut chunks);
         assert!(chunks.portals().is_empty());
     }

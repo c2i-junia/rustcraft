@@ -1945,6 +1945,33 @@ mod tests {
             assert_eq!(world.portals_mut().take_changed(), sent, "{caller_type:?}");
         }
     }
+
+    #[test]
+    fn the_gun_shoots_through_the_water_sources_that_only_a_bucket_aims_at() {
+        let mut world = gun_range();
+        // Water sources before the wall, which a bucket would aim at
+        for z in 1..=3 {
+            for x in 0..=3 {
+                for y in 10..=13 {
+                    world.set_block(IVec3::new(x, y, z), water(0));
+                }
+            }
+        }
+        world.take_changed_blocks();
+        let mut player = gunner(1.9, 11.9, 5.0);
+        shoot(
+            &mut player,
+            &mut world,
+            &[NetworkAction::RightClick],
+            CallerType::Server,
+        );
+        assert_eq!(
+            anchor(&world, PortalColor::Orange),
+            Some(IVec3::new(1, 10, 0))
+        );
+        // Nothing poured nor taken
+        assert!(world.take_changed_blocks().is_empty());
+    }
 }
 
 #[cfg(test)]
