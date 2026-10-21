@@ -7,6 +7,7 @@ use bevy::{
 };
 use shared::{CHUNK_SIZE, TICKS_PER_SECOND};
 
+use crate::camera::CameraController;
 use crate::state::{GameSet, GameState};
 use crate::world::celestial::{smoothstep, sun_height};
 use crate::world::overcast::Overcast;
@@ -199,10 +200,11 @@ fn drift_clouds_system(
 /// another cell of the pattern, or the reach or the style has changed, or the sky has started
 /// or stopped to be overcast: under a clear sky the mesh holds only the clouds of a clear sky,
 /// and as soon as it clouds over those of every weather. Only the Fancy clouds draw their depth
-/// first: the quads of the Fast ones never overlap.
+/// first: the quads of the Fast ones never overlap. The camera is the player's: the portal cameras
+/// see the clouds around it.
 #[allow(clippy::too_many_arguments)]
 fn rebuild_clouds_system(
-    cameras: Query<&Transform, (With<Camera3d>, Without<Clouds>)>,
+    cameras: Query<&Transform, (With<CameraController>, Without<Clouds>)>,
     style: Res<CloudStyle>,
     weather: Option<Res<ClientWeather>>,
     render_distance: Res<RenderDistance>,
@@ -410,8 +412,11 @@ mod tests {
                     .chain()
                     .run_if(in_state(GameState::Game)),
             );
-        app.world_mut()
-            .spawn((Camera3d::default(), Transform::from_xyz(1., 70., 1.)));
+        app.world_mut().spawn((
+            Camera3d::default(),
+            CameraController::default(),
+            Transform::from_xyz(1., 70., 1.),
+        ));
         app.update();
         app
     }
@@ -431,7 +436,7 @@ mod tests {
     fn move_camera(app: &mut App, to: Vec3) {
         let world = app.world_mut();
         let mut camera = world
-            .query_filtered::<&mut Transform, With<Camera3d>>()
+            .query_filtered::<&mut Transform, With<CameraController>>()
             .single_mut(world)
             .unwrap();
         camera.translation = to;
@@ -498,6 +503,17 @@ mod tests {
         app.insert_resource(ClientWeather::settled(WeatherKind::Clear));
         app.update();
         assert_eq!(quads_of_the_mesh(&mut app), clear);
+    }
+
+    #[test]
+    fn the_mesh_follows_the_players_camera_beside_a_portal_camera() {
+        let mut app = app();
+        // A portal camera, far away
+        app.world_mut()
+            .spawn((Camera3d::default(), Transform::from_xyz(5000., 70., 1.)));
+        let first = mesh(&mut app);
+        move_camera(&mut app, Vec3::new(CELL as f32 + 1., 70., 1.));
+        assert_ne!(mesh(&mut app), first);
     }
 
     #[test]
