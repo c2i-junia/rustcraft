@@ -39,7 +39,7 @@
     shadows::fetch_directional_shadow,
     view_transformations::{
         position_world_to_ndc, position_world_to_view, position_ndc_to_world, ndc_to_uv,
-        uv_to_ndc, depth_ndc_to_view_z,
+        uv_to_ndc, position_ndc_to_view,
     },
 }
 #ifdef DISTANCE_FOG
@@ -762,6 +762,13 @@ fn opaque_depth(uv: vec2<f32>) -> f32 {
     return prepass_depth(vec4(pixel, 0.0, 0.0), 0u);
 }
 
+// How far ahead of the camera, along -z, the point at `ndc` is. With the whole projection, not
+// only its near distance as `depth_ndc_to_view_z` does: the oblique near plane of a portal
+// camera changes the depth with the place on the screen.
+fn view_z_at(ndc: vec3<f32>) -> f32 {
+    return position_ndc_to_view(ndc).z;
+}
+
 // What the screen shows of the opaque faces at `uv`, before the water.
 fn opaque_color(uv: vec2<f32>) -> vec3<f32> {
     return textureSampleLevel(view_transmission_texture, view_transmission_sampler, uv, 0.0).rgb;
@@ -782,7 +789,7 @@ fn screen_reflection(origin: vec3<f32>, dir: vec3<f32>) -> vec4<f32> {
         let depth = opaque_depth(ndc_to_uv(ndc.xy));
         // The depth is reversed: the ray is behind the face if its own is smaller
         if depth > ndc.z {
-            let gap = depth_ndc_to_view_z(depth) - depth_ndc_to_view_z(ndc.z);
+            let gap = view_z_at(vec3(ndc.xy, depth)) - view_z_at(ndc);
             if gap > max(1.5, t * 0.1) {
                 // Behind something in front of what it meets: on with the march
                 before = t;
@@ -822,7 +829,7 @@ fn water_surface(in: VertexOutput, N: vec3<f32>, V: vec3<f32>, body: vec3<f32>, 
     let bend = (N.xz - vec2(0.0)) * 0.6 / max(-surface_z, 1.0);
     var under_uv = uv + bend;
     // What is bent from in front of the water is not under it
-    if depth_ndc_to_view_z(opaque_depth(under_uv)) > surface_z {
+    if view_z_at(vec3(uv_to_ndc(under_uv), opaque_depth(under_uv))) > surface_z {
         under_uv = uv;
     }
     let floor_depth = opaque_depth(under_uv);
