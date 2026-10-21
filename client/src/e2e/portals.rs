@@ -1846,3 +1846,220 @@ fn falling_through_a_floor_portal_comes_out_of_a_wall() {
     );
     assert_eq!(player.velocity, Vec3::ZERO);
 }
+
+/// A mod with a command, `/throwcourse`, that builds from the block its author is in: a stone
+/// platform 3 blocks down, with a hole 4 blocks north on a stone below it, and on it a stone
+/// wall 2 wide and 3 high, 5 blocks west and 8 north, its face to the east.
+const THROW_COURSE_MOD: &str = r#"
+    local rc = rustcraft
+    local function fill(p, x0, y0, z0, x1, y1, z1, block)
+        for x = x0, x1 do
+            for y = y0, y1 do
+                for z = z0, z1 do
+                    rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + z }, block)
+                end
+            end
+        end
+    end
+    rc.register_command("throwcourse", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        fill(p, -8, -3, -10, 6, -3, -5, "stone")
+        fill(p, -8, -3, -3, 6, -3, 4, "stone")
+        fill(p, -8, -3, -4, -1, -3, -4, "stone")
+        fill(p, 1, -3, -4, 6, -3, -4, "stone")
+        fill(p, 0, -4, -4, 0, -4, -4, "stone")
+        fill(p, -5, -2, -8, -5, 0, -7, "stone")
+        return "Course built"
+    end)
+"#;
+
+const THROWN: &str = "an_item_thrown_into_a_floor_portal_comes_out_of_a_wall";
+
+/// Where the dropped items are drawn.
+fn shown_items(w: &mut World) -> Vec<Vec3> {
+    w.query_filtered::<&Transform, With<crate::dropped_items::DroppedItemRoot>>()
+        .iter(w)
+        .map(|transform| transform.translation)
+        .collect()
+}
+
+/// In solo, the player stands on a platform with its blue portal on the floor just ahead,
+/// its long side north, and its orange one on a wall to the north-west, facing east. Its
+/// inventory full, it pours a water bucket into a hole beyond the floor portal, steps to the
+/// edge of the portal, and takes the water back with a second bucket: the water bucket it has
+/// no room for is thrown ahead, falls into the floor and flies east out of the wall, where it
+/// lands. The client draws it jumping from one portal to the other, never between them.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_item_thrown_into_a_floor_portal_comes_out_of_a_wall() {
+    let folder = GameFolder::new()
+        .with_world("ThrowCourse")
+        .with_player("ThrowCourse", "Tester", |player| {
+            player.position = Vec3::new(0.5, 120.9, 0.5);
+            player.game_mode = shared::players::game_mode::GameMode::Creative;
+            player.is_flying = true;
+            let stack = |item_id: ItemId, nb| shared::world::ItemStack {
+                item_id,
+                item_type: item_id.get_default_type(),
+                nb,
+            };
+            let inventory = &mut player.inventory.inner;
+            inventory.insert(0, stack(ItemId::PortalGun, 1));
+            inventory.insert(1, stack(ItemId::Bucket, 2));
+            inventory.insert(2, stack(ItemId::WaterBucket, 1));
+            for slot in 3..shared::MAX_INVENTORY_SLOTS {
+                inventory.insert(slot, stack(ItemId::Stone, 64));
+            }
+        })
+        .with_mod("throwcourse", THROW_COURSE_MOD);
+    let mut h = enter_world(folder, "ThrowCourse");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player in the air", SERVER, |w| {
+        local_player(w).is_some_and(|player| {
+            let map = &w.resource::<ClientWorldMap>().blocks;
+            player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
+        })
+    });
+    h.set_time("day");
+    let start = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    h.command("/throwcourse");
+    let floor_cell = start + IVec3::new(1, -3, -2);
+    let wall_cell = start + IVec3::new(-5, -1, -8);
+    let hole = start + IVec3::new(0, -3, -4);
+    h.wait_until("the course", SERVER, |w| {
+        let blocks = &w.resource::<ClientWorldMap>().blocks;
+        [start + IVec3::new(6, -3, 4), hole - IVec3::Y, wall_cell]
+            .iter()
+            .all(|cell| blocks.get_block(*cell).is_some())
+    });
+    // Down onto the platform
+    h.press(KeyCode::KeyF);
+    h.wait_until("the player on the platform", SERVER, |w| {
+        local_player(w).is_some_and(|player| player.on_ground)
+    });
+    h.frames(10);
+
+    // Orange on the wall, then blue on the floor ahead, looking down to the north
+    h.aim_at(wall_cell.as_vec3() + Vec3::new(1.0, 0.5, 0.5), wall_cell);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.aim_at(floor_cell.as_vec3() + Vec3::new(0.05, 1.0, 0.5), floor_cell);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.wait_until("both portals", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_some() && own_portal(w, PortalColor::Orange).is_some()
+    });
+    let blue = own_portal(h.world(), PortalColor::Blue).unwrap();
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    assert_eq!(
+        (blue.face, blue.up),
+        (FaceDirection::PlusY, FaceDirection::MinusZ)
+    );
+    assert!(blue
+        .cells()
+        .any(|cell| cell == start + IVec3::new(0, -3, -1)));
+    assert_eq!(orange.face, FaceDirection::PlusX);
+
+    // North by short sneaking steps over the edge of the floor portal, short of where the
+    // floor no longer holds the player, its centre 0.3 block over the portal: a step of a slow
+    // frame goes 0.13 block
+    set_yaw(&mut h, 0.0);
+    h.key_down(KeyCode::ShiftLeft);
+    for _ in 0..300 {
+        if local_player(h.world()).unwrap().position.z < start.z as f32 - 0.05 {
+            break;
+        }
+        h.key_down(KeyCode::KeyW);
+        h.frames(1);
+        h.key_up(KeyCode::KeyW);
+        h.frames(1);
+    }
+    h.key_up(KeyCode::ShiftLeft);
+    h.frames(10);
+    let player = local_player(h.world()).unwrap();
+    assert!(player.on_ground, "{}", player.position);
+    assert!(
+        blue.signed_distance(player.position) > 0.5,
+        "{}",
+        player.position
+    );
+
+    // The water bucket poured into the hole, aimed at its far side over the floor portal
+    h.press(KeyCode::Digit3);
+    let far_side = hole + IVec3::NEG_Z;
+    h.aim_at(far_side.as_vec3() + Vec3::new(0.5, 0.9, 1.0), far_side);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_until("the water in the hole", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(hole)
+            .is_some_and(|block| block.id == BlockId::Water)
+    });
+
+    // The second bucket takes the water back: the water bucket is thrown north, into the floor
+    h.press(KeyCode::Digit2);
+    let eyes = player.position + Vec3::Y * 0.8;
+    let water_top = hole.as_vec3() + Vec3::new(0.5, 0.95, 0.5);
+    let direction = (water_top - eyes).normalize();
+    let world = h.world_mut();
+    let mut controller = world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap();
+    controller.angle_x = (-direction.x).atan2(-direction.z);
+    controller.angle_y = -direction.y.asin();
+    h.frames(5);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_until("the thrown water bucket", SERVER, |w| {
+        w.try_query::<&crate::dropped_items::DroppedItemRoot>()
+            .is_some_and(|mut items| items.iter(w).count() == 1)
+    });
+    assert_eq!(slot(h.world(), 1), Some((ItemId::Bucket, 1)));
+
+    // Where it is drawn, a frame at a time, until it lies still
+    let mut trace = vec![shown_items(h.world_mut())[0]];
+    for _ in 0..300 {
+        h.frames(1);
+        trace.push(shown_items(h.world_mut())[0]);
+        let still = trace.len() > 30
+            && trace[trace.len() - 30..]
+                .windows(2)
+                .all(|pair| pair[0].distance(pair[1]) < 1e-3);
+        if still {
+            break;
+        }
+    }
+    let crossing = trace
+        .windows(2)
+        .position(|pair| pair[0].distance(pair[1]) > 1.0)
+        .unwrap_or_else(|| panic!("never jumped: {trace:?}"));
+    let (before, after) = (trace[crossing], trace[crossing + 1]);
+    println!("drawn before the crossing at {before}, after it at {after}");
+    // One jump, from the opening of the floor portal to out of the wall portal: drawn over
+    // the floor portal until then, in front of the wall portal after, never between. A frame
+    // of the e2e lasts several ticks: it may land before it is drawn out of the wall
+    let over_blue = |at: Vec3| {
+        let local = blue.local(at);
+        local.x.abs() < 1.2 && local.y.abs() < 1.7 && local.z < 2.0
+    };
+    let out_of_orange =
+        |at: Vec3| orange.signed_distance(at) > 0.0 && orange.local(at).x.abs() < 1.2;
+    assert!(over_blue(before), "{before}");
+    assert!(
+        trace[..=crossing].iter().all(|&at| over_blue(at)),
+        "{trace:?}"
+    );
+    assert!(
+        trace[crossing + 1..].iter().all(|&at| out_of_orange(at)),
+        "{trace:?}"
+    );
+    // Lying on the platform east of the wall, out of the orange portal
+    let rest = *trace.last().unwrap();
+    assert!(orange.signed_distance(rest) > 0.5, "{rest}");
+    assert!(
+        (rest.y - (start.y as f32 - 2.0 + 0.125)).abs() < 0.3,
+        "{rest}"
+    );
+    let shot = h.screenshot();
+    keep(&shot, THROWN, "thrown");
+}
