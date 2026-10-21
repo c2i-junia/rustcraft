@@ -204,6 +204,23 @@ mod tests {
                 10,
             ),
             (InventoryAction::OpenFurnace(IVec3::ZERO), 11),
+            (
+                InventoryAction::Drag {
+                    slots: 0,
+                    one_each: false,
+                },
+                12,
+            ),
+            (InventoryAction::CraftAll, 13),
+            (InventoryAction::CollectAll, 14),
+            (
+                InventoryAction::MoveAllOfType {
+                    slot: 0,
+                    item: crate::world::ItemId::Dirt,
+                },
+                15,
+            ),
+            (InventoryAction::CraftToHotbar(0), 16),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }
@@ -229,5 +246,17 @@ mod tests {
         ] {
             assert_eq!(variant_index(&removal), expected, "{ENCODING_WARNING}");
         }
+    }
+
+    #[test]
+    fn a_drag_s_slots_round_trip_on_the_wire() {
+        use bincode::Options;
+        let drag = InventoryAction::Drag {
+            slots: 1 << 127 | 1 << 74 | 1,
+            one_each: true,
+        };
+        let bytes = bincode::options().serialize(&drag).unwrap();
+        let back: InventoryAction = bincode::options().deserialize(&bytes).unwrap();
+        assert_eq!(back, drag);
     }
 }

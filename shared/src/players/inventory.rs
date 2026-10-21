@@ -90,6 +90,25 @@ pub enum InventoryAction {
     /// Right click on the furnace, lit or out, at this position: its slots can be used while it
     /// stays within reach.
     OpenFurnace(IVec3),
+    /// Release of a drag over at least two slots with a held stack: `slots` has bit `n` set for
+    /// slot `n`. `one_each`: right button, one item per slot; else left button, the stack split
+    /// evenly.
+    Drag {
+        slots: u128,
+        one_each: bool,
+    },
+    /// Shift+click on the result: crafts again and again into the inventory.
+    CraftAll,
+    /// Double click with a held stack: the stacks of its item gather onto the cursor.
+    CollectAll,
+    /// Shift+double click on a slot that held `item`: every other stack of `item` on that side
+    /// moves across, as a shift-click each.
+    MoveAllOfType {
+        slot: u32,
+        item: ItemId,
+    },
+    /// Number key over the result: crafts once into this hotbar slot.
+    CraftToHotbar(u32),
 }
 
 /// Why an inventory action changed nothing.
@@ -122,6 +141,10 @@ pub enum InventoryRefusal {
     /// The slot does not take the item held: the fuel slot of a furnace takes only a fuel, its
     /// output nothing.
     NotTaken(u32),
+    /// The action needs a stack held by the cursor.
+    NothingHeld,
+    /// No slot has room for what the action puts there.
+    NoRoom,
 }
 
 /// The slots of the cells of a grid of `size` by `size`, in its top left corner.
@@ -396,6 +419,11 @@ fn apply_action(
         InventoryAction::FillCraftingGrid { recipe, times } => {
             fill_crafting_grid(inventory, recipe, times, size)
         }
+        InventoryAction::Drag { .. }
+        | InventoryAction::CraftAll
+        | InventoryAction::CollectAll
+        | InventoryAction::MoveAllOfType { .. }
+        | InventoryAction::CraftToHotbar(_) => Err(InventoryRefusal::NoRoom),
     };
     inventory.floating = floating;
     applied
@@ -1775,6 +1803,18 @@ mod tests {
             [72, 73, 74]
         );
         assert_eq!(FURNACE_INPUT_SLOT, chest_slots().end);
+    }
+
+    #[test]
+    fn every_slot_is_below_128() {
+        // A drag carries its slots as the bits of a u128
+        let last = (0..MAX_INVENTORY_SLOTS)
+            .chain(grid_slots(CRAFTING_GRID_SIZE))
+            .chain(chest_slots())
+            .chain(furnace_slots())
+            .max();
+        assert_eq!(last, Some(FURNACE_OUTPUT_SLOT));
+        assert!(FURNACE_OUTPUT_SLOT < u128::BITS);
     }
 
     #[test]
