@@ -498,7 +498,12 @@ fn every_screen_at_three_resolutions() {
         h.snapshot_in_game("chat_recent");
         h.type_text("/");
         h.snapshot_in_game("chat_slash");
+        // The suggestions of the completion go away first, then the chat
         h.press(KeyCode::Escape);
+        h.press(KeyCode::Escape);
+        h.wait_until("the chat closed", SCREEN, |w| {
+            *w.resource::<UIMode>() == UIMode::Closed
+        });
 
         let assets = h.world().resource::<AssetServer>().clone();
         let card = spawn_quitting_card(&mut h.world_mut().commands(), &assets);
