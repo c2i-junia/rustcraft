@@ -93,11 +93,13 @@ pub enum ItemId {
     DiamondShovel,
     DiamondHoe,
     DiamondSword,
+    Bucket,
+    WaterBucket,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 70] = [
+    pub const ALL: [ItemId; 72] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -168,6 +170,8 @@ impl ItemId {
         Self::DiamondShovel,
         Self::DiamondHoe,
         Self::DiamondSword,
+        Self::Bucket,
+        Self::WaterBucket,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -199,10 +203,11 @@ impl ItemId {
     }
 
     pub fn get_max_stack(&self) -> u32 {
-        if self.tool().is_some() {
-            1
-        } else {
-            64
+        match *self {
+            Self::Bucket => 16,
+            Self::WaterBucket => 1,
+            _ if self.tool().is_some() => 1,
+            _ => 64,
         }
     }
 
@@ -323,7 +328,9 @@ impl ItemId {
             | Self::DiamondAxe
             | Self::DiamondShovel
             | Self::DiamondHoe
-            | Self::DiamondSword => ItemCategory::Tools,
+            | Self::DiamondSword
+            | Self::Bucket
+            | Self::WaterBucket => ItemCategory::Tools,
             Self::FoxSpawnEgg | Self::SheepSpawnEgg => ItemCategory::Mobs,
         }
     }
@@ -375,7 +382,9 @@ impl ItemId {
             | Self::IronIngot
             | Self::GoldIngot
             | Self::Diamond
-            | Self::Charcoal => ItemType::Generic,
+            | Self::Charcoal
+            | Self::Bucket
+            | Self::WaterBucket => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -615,6 +624,8 @@ mod tests {
             (ItemId::DiamondShovel, 67),
             (ItemId::DiamondHoe, 68),
             (ItemId::DiamondSword, 69),
+            (ItemId::Bucket, 70),
+            (ItemId::WaterBucket, 71),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -688,7 +699,9 @@ mod tests {
                 | ItemId::DiamondAxe
                 | ItemId::DiamondShovel
                 | ItemId::DiamondHoe
-                | ItemId::DiamondSword => {}
+                | ItemId::DiamondSword
+                | ItemId::Bucket
+                | ItemId::WaterBucket => {}
             }
         }
         for (id, expected) in table {
@@ -858,9 +871,10 @@ mod tests {
             assert_eq!(item.get_max_stack(), 1, "{item:?}");
             assert_eq!(item.get_default_type(), ItemType::Tool { wear: 0 });
         }
+        let buckets = [ItemId::Bucket, ItemId::WaterBucket];
         let others = ItemId::ALL
             .iter()
-            .filter(|item| !tools.iter().any(|(t, ..)| t == *item));
+            .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item));
         for item in others {
             assert_eq!(item.tool(), None, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
@@ -892,6 +906,20 @@ mod tests {
             assert_eq!(item.get_default_type(), ItemType::Block(block), "{item:?}");
         }
         assert_eq!(ItemId::GoldenPickaxe.name(), "golden_pickaxe");
+    }
+
+    #[test]
+    fn a_bucket_stacks_to_16_and_a_water_bucket_to_1() {
+        for (item, name, max_stack) in [
+            (ItemId::Bucket, "bucket", 16),
+            (ItemId::WaterBucket, "water_bucket", 1),
+        ] {
+            assert_eq!(item.get_max_stack(), max_stack, "{item:?}");
+            assert_eq!(item.name(), name);
+            assert_eq!(item.category(), ItemCategory::Tools, "{item:?}");
+            assert_eq!(item.get_default_type(), ItemType::Generic, "{item:?}");
+            assert_eq!(item.tool(), None, "{item:?}");
+        }
     }
 
     #[test]
@@ -933,10 +961,12 @@ mod tests {
         ] {
             assert_eq!(item.category(), category, "{item:?}");
         }
+        // The tools, and the buckets, as Minecraft's "Tools & Utilities"
         for item in ItemId::ALL {
+            let bucket = matches!(item, ItemId::Bucket | ItemId::WaterBucket);
             assert_eq!(
                 item.category() == ItemCategory::Tools,
-                item.tool().is_some(),
+                item.tool().is_some() || bucket,
                 "{item:?}"
             );
         }

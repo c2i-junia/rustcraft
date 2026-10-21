@@ -76,6 +76,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    item/{iron_ingot,gold_ingot,diamond,charcoal}.png, item/{stone,iron,golden,diamond}_*.png
    and block/{diamond_ore,iron_block,gold_block,diamond_block}.png. The coal, iron and gold
    ores (blocks/CoalOre.png, blocks/IronOre.png, blocks/GoldOre.png) were already the pack's.
+-> The textures of the bucket and of the water bucket (items/Bucket.png,
+   items/WaterBucket.png), the pack's item/{bucket,water_bucket}.png.
 
 ---- OTHER ----
 logo : 

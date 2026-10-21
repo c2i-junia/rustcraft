@@ -144,19 +144,19 @@ mod tests {
                 ItemId::DiamondOre
             ]
         );
-        assert_eq!(found("", None).len(), 70);
-        assert_eq!(found("  ", None).len(), 70);
+        assert_eq!(found("", None).len(), 72);
+        assert_eq!(found("  ", None).len(), 72);
         assert!(found("zzz", None).is_empty());
     }
 
     #[test]
     fn a_hash_word_matches_the_category() {
-        assert_eq!(found("#tools", None).len(), 25);
+        assert_eq!(found("#tools", None).len(), 27);
         assert!(found("#tools", None)
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), 70);
+        assert_eq!(found("#", None).len(), 72);
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }

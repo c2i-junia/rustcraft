@@ -290,6 +290,7 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 1, cells: &[Some(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9 },
     Recipe { width: 1, cells: &[Some(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9 },
     Recipe { width: 1, cells: &[CHARCOAL, STICK], output: ItemId::Torch, nb: 4 },
+    Recipe { width: 3, cells: &[IRON, None, IRON, None, IRON, None], output: ItemId::Bucket, nb: 1 },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -710,6 +711,24 @@ mod tests {
     }
 
     #[test]
+    fn three_iron_ingots_in_a_v_make_a_bucket() {
+        let iron = Some(ItemId::IronIngot);
+        for v in [
+            [iron, None, iron, None, iron, None, None, None, None],
+            [None, None, None, iron, None, iron, None, iron, None],
+        ] {
+            assert_eq!(match_recipe(&grid(v)), made(ItemId::Bucket, 1));
+        }
+        // upside down, it is nothing
+        assert_eq!(
+            match_recipe(&grid([None, iron, None, iron, None, iron, None, None, None])),
+            None
+        );
+        // three wide, it needs a crafting table
+        assert!(!recipe_of(ItemId::Bucket).fits(2));
+    }
+
+    #[test]
     fn a_recipe_also_matches_mirrored_left_to_right() {
         assert_eq!(
             match_recipe(&grid([None, OAK, OAK, None, STICK, OAK, None, STICK, None])),
@@ -731,7 +750,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 56);
+        assert_eq!(all.len(), 57);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -757,7 +776,7 @@ mod tests {
         assert_eq!(counts(ItemId::Stick), (3, 37));
         assert_eq!(counts(ItemId::OakPlanks), (1, 8));
         assert_eq!(counts(ItemId::Cobblestone), (0, 6));
-        assert_eq!(counts(ItemId::IronIngot), (1, 6));
+        assert_eq!(counts(ItemId::IronIngot), (1, 7));
         assert_eq!(counts(ItemId::Torch), (2, 0));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));
