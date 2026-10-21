@@ -67,9 +67,12 @@ impl Look {
     /// or of its up when it looks straight up or down, and its pitch, clamped.
     pub fn upright(rotation: Quat) -> Self {
         let (forward, up) = (rotation * Vec3::NEG_Z, rotation * Vec3::Y);
-        // The heading of a camera without roll is `forward.xz * up.y - up.xz * forward.y`, of
-        // length 1; with a roll, it is still where the camera faces
-        let heading = forward.xz() * up.y - up.xz() * forward.y;
+        // Looking straight down, the top of the view is ahead; straight up, it is behind
+        let heading = if forward.xz().length() > 1e-4 {
+            forward.xz()
+        } else {
+            up.xz() * -forward.y.signum()
+        };
         let max_pitch = MAX_PITCH_DEGREES.to_radians();
         Self {
             yaw: (-heading.x).atan2(-heading.y),
@@ -1831,6 +1834,35 @@ mod tests {
         assert!(eyes.xz().length() < 1e-4, "{eyes}");
         let fall = player.velocity.length() * 0.016;
         assert!(eyes.y > 0.8 && eyes.y < 0.8 + fall + 1e-3, "{eyes}");
+    }
+
+    #[test]
+    fn an_upright_look_keeps_the_heading_of_a_rolled_camera_or_of_one_looking_straight_down() {
+        let west = std::f32::consts::FRAC_PI_2;
+        // Looking west, rolled a quarter turn: its up to the north
+        let rolled = Transform::default().looking_to(Vec3::NEG_X, Vec3::NEG_Z);
+        let look = Look::upright(rolled.rotation);
+        assert!(
+            (look.yaw - west).abs() < 1e-5 && look.pitch.abs() < 1e-5,
+            "{look:?}"
+        );
+        // Looking a little down to the west, rolled likewise
+        let down = Vec3::new(-1.0, -0.2, 0.0);
+        let rolled = Transform::default().looking_to(down, Vec3::NEG_Z);
+        let look = Look::upright(rolled.rotation);
+        assert!((look.yaw - west).abs() < 1e-5, "{look:?}");
+        assert!(
+            (look.pitch - down.normalize().y.abs().asin()).abs() < 1e-5,
+            "{look:?}"
+        );
+        // Straight down, the top of the view to the west: the heading is the top's
+        let looking_down = Transform::default().looking_to(Vec3::NEG_Y, Vec3::NEG_X);
+        let look = Look::upright(looking_down.rotation);
+        assert!((look.yaw - west).abs() < 1e-5, "{look:?}");
+        assert!(
+            (look.pitch - MAX_PITCH_DEGREES.to_radians()).abs() < 1e-5,
+            "{look:?}"
+        );
     }
 
     #[test]
