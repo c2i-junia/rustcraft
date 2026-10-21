@@ -442,9 +442,20 @@ player's camera would be if the space in front of the portal went on behind its 
 before the main camera, into an image the size of the window, which the portal's surface reads
 where it is on the screen (`portal.wgsl`); it is on only while its portal is in view, from the
 front, and within the player's fog: a portal wholly beyond it is not drawn and its camera is off
-(`beyond_fog`). The main camera sees layers 0 and 1, the portal cameras 0, 2 and 3 (the chunks
-only portals show): a portal shows the live
-view on layer 1 and its colour on layer 2, so a portal seen through another shows its colour. A
+(`beyond_fog`). A portal seen again through itself, as two facing portals are, shows its view
+too, down to three levels (`PORTAL_RECURSION`): its camera of level l + 1 stands where its
+camera of level l would be through the portal, the player's camera being level 0, and draws
+when that one draws and sees the portal's front, in front of the twin's plane (Bevy's frustum
+leaves the oblique near plane out) and within its fog. The deepest level draws first (`order`
+-l). Each open portal has two images: level l draws into image l % 2 and reads, on its own
+portal, the image of level l + 1, so no camera reads the image it draws (wgpu forbids it). A
+portal seen through another portal shows its colour. The main camera sees layers 0 and 1 (a
+portal's view of level 1); the portal cameras see 0, the local player's body in first person
+(2, `BODY_LAYER`: the player sees itself through a portal, not from inside its body; in third
+person the body is on 0, and the sky light shadows both), the chunks only portals show (3),
+and two of the three layers of each portal drawn (`camera_layers`): its stand-in in its colour,
+or, for the portal's own cameras, the surface showing the next level when that level draws (its
+colour at the deepest level, nothing past the camera's fog). A
 lone portal shows its colour. The colours and the rims are not drawn for a camera behind their
 portal's plane, from where the front of a portal cannot be seen: a portal camera always stands
 behind the twin, inside its box when it is within 0.12 block of its plane, where it keeps the
@@ -453,7 +464,9 @@ sent around it end, but never farther than the player's own fog, which under wat
 (`portal_fog`). The sun and the moon, parented to the local player, are drawn a million blocks
 away (`CELESTIAL_DISTANCE`), unfogged and never frustum-culled, so that every camera, a portal
 camera far from the player too, sees them in the same direction; under water they are hidden.
-The aimed block is not outlined on the face of an open portal. The chunks are
+The rim fades out within 0.3 block of its plane, where only a player passing through stands,
+and from where it would be a line down the screen. The aimed block is not outlined on the face
+of an open portal. The chunks are
 culled on the GPU only, and Bevy 0.19 hands such a
 mesh only to the views there are when it becomes visible: when a portal camera is turned on,
 the chunks are culled on the CPU for a frame (`show_chunks_to_new_views`).
@@ -559,8 +572,9 @@ The client has one plugin per domain, registered by `game_plugin`: `camera`, `in
 `network`, `player`, `portal`, `ui::hud` and `world`. The player's camera is the one with a
 `CameraController`. The menus have their own plugin
 (`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
-too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audio` turns into
-sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. The sheep
+too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`, `PortalOpened`) that
+`audio` turns into sounds, a portal that opens and a passing through one included, from files
+of other sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. The sheep
 model, `data/models/animated/Sheep.glb`, is built in Blender by `scripts/generate_sheep.py`, and
 those of the other animals by `scripts/generate_animals.py`. `GameState`
 goes from `Menu` to `PreGameLoading` (connection and textures) to `Game`.
