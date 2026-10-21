@@ -125,6 +125,8 @@ pub fn hud_plugin(app: &mut App) {
             (
                 select_hotbar_slot_with_keys,
                 select_hotbar_slot_with_wheel,
+                // From the slot selected in this frame
+                drop_selected_item_system,
                 show_selected_item_name,
             )
                 .chain()

@@ -1,5 +1,5 @@
 //! What throws items out of the inventory, beside the Drop key over a cell: a press outside the
-//! open inventory with a held stack.
+//! open inventory with a held stack, and the Drop key in the game.
 
 use bevy::picking::hover::Hovered;
 use bevy::prelude::*;
@@ -9,9 +9,14 @@ use shared::players::inventory::InventoryAction;
 use shared::players::Inventory;
 
 use super::{CellGestures, InventoryDialog, InventoryRoot};
+use crate::input::data::GameAction;
+use crate::input::keyboard::is_action_just_pressed;
 use crate::network::buffered_client::CurrentFrameInputs;
+use crate::state::KeyMap;
+use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::item_browser::layout::BrowserLayout;
 use crate::ui::hud::item_browser::{DrawerHandle, ItemBrowser, ItemBrowserState};
+use crate::ui::hud::UIMode;
 
 /// Throws the stack held by the cursor on a press outside the panel of the open inventory and
 /// the item browser: all of it with the left button, one item with the right one, as in
@@ -62,6 +67,37 @@ pub fn throw_held_stack_system(
         .0
         .inventory_actions
         .push(InventoryAction::DropFloating { all });
+}
+
+/// Drop in the game throws one item of the selected hotbar slot, Ctrl+Drop its stack. Only
+/// during gameplay: not while a dialog is open or the player types.
+pub fn drop_selected_item_system(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    key_map: Res<KeyMap>,
+    ui_mode: Res<UIMode>,
+    inventory: Res<Inventory>,
+    hotbar: Query<&Hotbar>,
+    mut frame_inputs: ResMut<CurrentFrameInputs>,
+) {
+    if *ui_mode != UIMode::Closed
+        || !is_action_just_pressed(GameAction::Drop, &keyboard_input, &key_map)
+    {
+        return;
+    }
+    let Ok(hotbar) = hotbar.single() else {
+        return;
+    };
+    if !inventory.inner.contains_key(&hotbar.selected) {
+        return;
+    }
+    let all = keyboard_input.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
+    frame_inputs
+        .0
+        .inventory_actions
+        .push(InventoryAction::DropSlot {
+            slot: hotbar.selected,
+            all,
+        });
 }
 
 #[cfg(test)]
@@ -202,5 +238,78 @@ mod tests {
             press(&mut world, MouseButton::Left, OUTSIDE),
             [InventoryAction::DropFloating { all: true }]
         );
+    }
+
+    /// A player in the game, its hotbar on slot 2 which holds five dirt.
+    fn in_game() -> World {
+        let mut world = World::new();
+        world.insert_resource(ButtonInput::<KeyCode>::default());
+        world.insert_resource(crate::input::keyboard::default_bindings());
+        world.insert_resource(UIMode::Closed);
+        let mut inventory = Inventory::new();
+        inventory.inner.insert(
+            2,
+            ItemStack {
+                item_id: ItemId::Dirt,
+                item_type: ItemId::Dirt.get_default_type(),
+                nb: 5,
+            },
+        );
+        world.insert_resource(inventory);
+        world.init_resource::<CurrentFrameInputs>();
+        world.spawn(Hotbar { selected: 2 });
+        world
+    }
+
+    /// Presses Drop, with Ctrl held or not, and returns what the frame sends.
+    fn press_drop(world: &mut World, ctrl: bool) -> Vec<InventoryAction> {
+        let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
+        if ctrl {
+            keys.press(KeyCode::ControlLeft);
+        }
+        keys.press(KeyCode::KeyQ);
+        world.run_system_once(drop_selected_item_system).unwrap();
+        let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
+        keys.release_all();
+        keys.clear();
+        std::mem::take(
+            &mut world
+                .resource_mut::<CurrentFrameInputs>()
+                .0
+                .inventory_actions,
+        )
+    }
+
+    #[test]
+    fn drop_in_game_throws_one_item_of_the_selected_slot_and_ctrl_drop_its_stack() {
+        let mut world = in_game();
+        assert_eq!(
+            press_drop(&mut world, false),
+            [InventoryAction::DropSlot {
+                slot: 2,
+                all: false
+            }]
+        );
+        assert_eq!(
+            press_drop(&mut world, true),
+            [InventoryAction::DropSlot { slot: 2, all: true }]
+        );
+    }
+
+    #[test]
+    fn drop_in_game_throws_nothing_from_an_empty_slot_in_a_dialog_or_while_typing() {
+        let mut world = in_game();
+        world
+            .query::<&mut Hotbar>()
+            .single_mut(&mut world)
+            .unwrap()
+            .selected = 3;
+        assert!(press_drop(&mut world, false).is_empty());
+
+        for mode in [UIMode::Opened, UIMode::Typing] {
+            let mut world = in_game();
+            world.insert_resource(mode);
+            assert!(press_drop(&mut world, true).is_empty());
+        }
     }
 }
