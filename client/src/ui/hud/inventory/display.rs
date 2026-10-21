@@ -1,4 +1,4 @@
-use super::{item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, INVENTORY_TITLE};
+use super::{item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, FURNACE_TITLE, INVENTORY_TITLE};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -7,8 +7,8 @@ use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::{
-    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, InventoryCell,
-    InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
+    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, FurnaceRow,
+    InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
 };
 use crate::ui::theme::{BEVEL_HI, BEVEL_LO, PANEL};
 use crate::ui::widgets::slot::{
@@ -24,18 +24,21 @@ use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use bevy::window::PrimaryWindow;
 use shared::players::inventory::{
-    chest_slots, craft_result, InventoryAction, CHEST_SLOT_START, INVENTORY_GRID_SIZE,
+    chest_slots, craft_result, InventoryAction, CHEST_SLOT_START, FURNACE_FUEL_SLOT,
+    FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT, INVENTORY_GRID_SIZE,
 };
 use shared::players::Inventory;
-use shared::world::{grid_slot, ItemStack, CRAFTING_GRID_SIZE};
+use shared::world::{fuel_ticks, grid_slot, smelting_result, ItemStack, CRAFTING_GRID_SIZE};
 use shared::MAX_INVENTORY_SLOTS;
 
-/// What a click does on a slot of the hotbar, of the backpack, of the crafting grid or of a chest
-/// (`HINT_GRID`), on a slot of the inventory while a chest is open, and on the result.
+/// What a click does on a slot of the hotbar, of the backpack, of the crafting grid, of a chest
+/// or of a furnace (`HINT_GRID`), on a slot of the inventory while a chest is open, or while a
+/// furnace is open when it holds what smelts or burns, and on the result.
 pub const HINT_HOTBAR: &str = "Shift+click: move to the backpack";
 pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
 pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
+pub const HINT_TO_FURNACE: &str = "Shift+click: move to the furnace";
 pub const HINT_RESULT: &str = "Click: craft";
 
 /// The durability bars of the slots, which `show_stack` sizes and colours.
@@ -55,6 +58,7 @@ type DurabilityBars<'w, 's> = Query<
         Without<CraftingGridCell>,
         Without<ChestGrid>,
         Without<CraftingRow>,
+        Without<FurnaceRow>,
     ),
 >;
 
@@ -309,6 +313,17 @@ pub fn display_inventory_system(
         let stack = stack_in(cell.id, &inventory, &world_map);
         let hint = if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             HINT_TO_CHEST
+        } else if inventory.open_furnace.is_some() && cell.id < MAX_INVENTORY_SLOTS {
+            // A shift-click leaves what neither smelts nor burns
+            match stack {
+                Some(stack)
+                    if smelting_result(stack.item_id).is_some()
+                        || fuel_ticks(stack.item_id).is_some() =>
+                {
+                    HINT_TO_FURNACE
+                }
+                _ => "",
+            }
         } else if cell.id < MAX_HOTBAR_SLOTS {
             HINT_HOTBAR
         } else if cell.id < MAX_INVENTORY_SLOTS {
@@ -332,18 +347,24 @@ pub fn display_inventory_system(
     }
 }
 
-/// What the cell of `slot` shows: a slot of the open chest shows what the chest holds, once the
-/// server sent it.
+/// What the cell of `slot` shows: a slot of the open chest or furnace shows what it holds, once
+/// the server sent it.
 pub(crate) fn stack_in(
     slot: u32,
     inventory: &Inventory,
     world_map: &ClientWorldMap,
 ) -> Option<ItemStack> {
-    if !chest_slots().contains(&slot) {
-        return inventory.inner.get(&slot).copied();
+    if chest_slots().contains(&slot) {
+        let chest = world_map.blocks.container(inventory.open_chest?)?;
+        return chest.slots[(slot - CHEST_SLOT_START) as usize];
     }
-    let chest = world_map.blocks.container(inventory.open_chest?)?;
-    chest.slots[(slot - CHEST_SLOT_START) as usize]
+    let furnace = || world_map.blocks.furnace(inventory.open_furnace?);
+    match slot {
+        FURNACE_INPUT_SLOT => furnace()?.input,
+        FURNACE_FUEL_SLOT => furnace()?.fuel,
+        FURNACE_OUTPUT_SLOT => furnace()?.output,
+        _ => inventory.inner.get(&slot).copied(),
+    }
 }
 
 /// The width and height of the crafting grid in use: 3 at a crafting table, 2 in the inventory
@@ -386,16 +407,17 @@ pub fn style_inventory_panel(
 
 /// Shows the cells of the crafting grid in use and, in the result cell, what the grid makes.
 /// The grid is 3x3 and the dialog named after the table while a crafting table is open. While a
-/// chest is open, its slots take the place of the crafting grid, and the dialog its name.
+/// chest or a furnace is open, its slots take the place of the crafting grid, and the dialog its
+/// name.
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
     materials: Res<MaterialResource>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
     mut rows: Query<
-        (&mut Node, Has<ChestGrid>),
+        (&mut Node, Has<ChestGrid>, Has<FurnaceRow>),
         (
-            Or<(With<ChestGrid>, With<CraftingRow>)>,
+            Or<(With<ChestGrid>, With<CraftingRow>, With<FurnaceRow>)>,
             Without<CraftingGridCell>,
         ),
     >,
@@ -405,13 +427,18 @@ pub fn display_crafting_system(
     mut icons: Query<(&mut ImageNode, &mut Visibility), (With<SlotIcon>, Without<InventoryRoot>)>,
     mut bars: DurabilityBars,
 ) {
-    // The server checks that the table or the chest is still within reach; the dialog follows
-    // its updates
+    // The server checks that the table, the chest or the furnace is still within reach; the
+    // dialog follows its updates
     let size = grid_in_use(&inventory);
-    let name = match (inventory.open_chest, inventory.open_table) {
-        (Some(_), _) => CHEST_TITLE,
-        (None, Some(_)) => CRAFTING_TABLE_TITLE,
-        (None, None) => INVENTORY_TITLE,
+    let name = match (
+        inventory.open_chest,
+        inventory.open_furnace,
+        inventory.open_table,
+    ) {
+        (Some(_), _, _) => CHEST_TITLE,
+        (None, Some(_), _) => FURNACE_TITLE,
+        (None, None, Some(_)) => CRAFTING_TABLE_TITLE,
+        (None, None, None) => INVENTORY_TITLE,
     };
     if let Ok(mut title) = title.single_mut() {
         if title.0 != name {
@@ -419,11 +446,19 @@ pub fn display_crafting_system(
         }
     }
     let chest_open = inventory.open_chest.is_some();
-    for (mut node, is_chest) in &mut rows {
-        let display = match (is_chest, chest_open) {
+    let furnace_open = inventory.open_furnace.is_some();
+    for (mut node, is_chest, is_furnace) in &mut rows {
+        let shown = if is_chest {
+            chest_open
+        } else if is_furnace {
+            furnace_open
+        } else {
+            !chest_open && !furnace_open
+        };
+        let display = match (shown, is_chest) {
             (true, true) => Display::Grid,
-            (false, false) => Display::Flex,
-            _ => Display::None,
+            (true, false) => Display::Flex,
+            (false, _) => Display::None,
         };
         if node.display != display {
             node.display = display;
@@ -552,8 +587,9 @@ mod tests {
     use crate::ui::theme::PANEL;
     use crate::ui::widgets::slot::slot_durability;
     use bevy::ecs::system::RunSystemOnce;
+    use shared::players::inventory::{FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT};
     use shared::world::ItemType;
-    use shared::world::{grid_slot, ItemId};
+    use shared::world::{grid_slot, Furnace, ItemId};
 
     fn dirt_stack(nb: u32) -> ItemStack {
         ItemStack {
@@ -1157,6 +1193,115 @@ mod tests {
         }
     }
 
+    /// Opens a furnace at (1, 2, 3) that holds `furnace`, as the server sent it.
+    fn open_furnace(hud: &mut Hud, furnace: Furnace) {
+        let pos = IVec3::new(1, 2, 3);
+        let mut blocks = shared::world::ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        blocks.fill_box(pos, pos, shared::world::BlockId::Furnace);
+        blocks.insert_furnace(pos, furnace);
+        hud.world.resource_mut::<ClientWorldMap>().blocks = blocks;
+        hud.world.resource_mut::<Inventory>().open_furnace = Some(pos);
+    }
+
+    fn stack(item_id: ItemId, nb: u32) -> ItemStack {
+        ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb,
+        }
+    }
+
+    #[test]
+    fn the_furnace_cells_show_what_the_open_furnace_holds() {
+        let slots = [FURNACE_INPUT_SLOT, FURNACE_FUEL_SLOT, FURNACE_OUTPUT_SLOT];
+        let mut hud = Hud::new(Visibility::Visible, &slots);
+        for slot in slots {
+            assert_eq!(hud.shown(slot).0, "", "slot {slot}");
+        }
+
+        open_furnace(
+            &mut hud,
+            Furnace {
+                input: Some(stack(ItemId::Sand, 5)),
+                fuel: Some(stack(ItemId::Coal, 2)),
+                output: Some(stack(ItemId::Glass, 3)),
+                ..default()
+            },
+        );
+
+        let shown = slots.map(|slot| hud.shown(slot).0);
+        assert_eq!(shown, ["5", "2", "3"]);
+    }
+
+    #[test]
+    fn the_furnace_takes_the_place_of_the_crafting_row_and_names_the_dialog() {
+        let mut hud = Hud::new(Visibility::Visible, &[]);
+        let title = hud
+            .world
+            .spawn((InventoryTitle, Text::new("Inventory")))
+            .id();
+        let crafting = hud.world.spawn((CraftingRow, Node::default())).id();
+        let hidden = || Node {
+            display: Display::None,
+            ..default()
+        };
+        let chest = hud.world.spawn((ChestGrid, hidden())).id();
+        let furnace = hud.world.spawn((FurnaceRow, hidden())).id();
+        let display = |hud: &Hud, entity| hud.world.get::<Node>(entity).unwrap().display;
+
+        open_furnace(&mut hud, Furnace::default());
+        hud.show_crafting();
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, FURNACE_TITLE);
+        assert_eq!(display(&hud, crafting), Display::None);
+        assert_eq!(display(&hud, chest), Display::None);
+        assert_eq!(display(&hud, furnace), Display::Flex);
+
+        hud.world.resource_mut::<Inventory>().open_furnace = None;
+        hud.show_crafting();
+        assert_eq!(hud.world.get::<Text>(title).unwrap().0, INVENTORY_TITLE);
+        assert_eq!(display(&hud, crafting), Display::Flex);
+        assert_eq!(display(&hud, furnace), Display::None);
+    }
+
+    #[test]
+    fn with_a_furnace_open_a_hint_says_only_the_moves_a_shift_click_makes() {
+        let slots = [
+            0,
+            1,
+            MAX_HOTBAR_SLOTS,
+            FURNACE_INPUT_SLOT,
+            FURNACE_OUTPUT_SLOT,
+        ];
+        let mut hud = Hud::new(Visibility::Visible, &slots);
+        open_furnace(
+            &mut hud,
+            Furnace {
+                input: Some(stack(ItemId::Sand, 1)),
+                output: Some(stack(ItemId::Glass, 1)),
+                ..default()
+            },
+        );
+        hud.world.resource_mut::<Inventory>().inner.extend([
+            (0, stack(ItemId::Sand, 1)),
+            (1, stack(ItemId::Dirt, 1)),
+            (MAX_HOTBAR_SLOTS, stack(ItemId::Coal, 1)),
+        ]);
+
+        for (slot, hint) in [
+            // It smelts, or it burns: the furnace takes it
+            (0, HINT_TO_FURNACE),
+            (MAX_HOTBAR_SLOTS, HINT_TO_FURNACE),
+            // Neither: a shift-click leaves it
+            (1, ""),
+            (FURNACE_INPUT_SLOT, HINT_GRID),
+            (FURNACE_OUTPUT_SLOT, HINT_GRID),
+        ] {
+            let cell = hud.cell(slot);
+            let tooltip = hud.tooltip_of(cell);
+            assert_eq!(tooltip.hint, hint, "slot {slot}");
+        }
+    }
+
     #[test]
     fn the_grid_shows_only_its_2x2_corner_without_a_table() {
         let mut hud = Hud::new(Visibility::Visible, &[]);
@@ -1537,10 +1682,11 @@ mod tests {
             tile_rects: Default::default(),
         };
 
-        // The setup loads the font of the slots
+        // The setup loads the font of the slots and the sprites of the furnace
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
-            .init_asset::<Font>();
+            .init_asset::<Font>()
+            .init_asset::<Image>();
         let world = app.world_mut();
         world.insert_resource(MaterialResource {
             items: Some(atlas),
@@ -1564,10 +1710,11 @@ mod tests {
         world.run_system_once(setup_inventory).unwrap();
 
         let mut cells = world.query::<&InventoryCell>();
-        // The slots of the inventory, then the 3x3 crafting grid and the slots of a chest
+        // The slots of the inventory, then the 3x3 crafting grid, the slots of a chest and those
+        // of a furnace
         assert_eq!(
             cells.iter(world).count() as u32,
-            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS
+            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3
         );
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon

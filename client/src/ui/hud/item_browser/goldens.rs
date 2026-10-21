@@ -17,8 +17,8 @@ use super::{
 use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
 use crate::ui::hud::{
-    display_crafting_system, display_inventory_system, setup_inventory, style_inventory_panel,
-    InventoryRoot,
+    display_crafting_system, display_furnace_system, display_inventory_system, setup_inventory,
+    style_inventory_panel, InventoryRoot,
 };
 use crate::ui::widgets::list::hide_idle_scrollbars;
 use crate::ui::widgets::slot::style_slots;
@@ -49,6 +49,7 @@ fn show_frames(golden: &mut UiGolden) {
         golden.frames(1);
         golden.run_system(display_inventory_system);
         golden.run_system(display_crafting_system);
+        golden.run_system(display_furnace_system);
         golden.run_system(style_inventory_panel);
         golden.run_system(layout_item_browser);
         golden.run_system(show_item_icons);

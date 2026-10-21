@@ -3,7 +3,7 @@
 
 use bevy::prelude::*;
 use shared::players::Inventory;
-use shared::world::{grid_slot, ItemId, ItemStack};
+use shared::world::{grid_slot, Furnace, ItemId, ItemStack};
 
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::ui::golden::UiGolden;
@@ -115,4 +115,54 @@ fn an_open_chest_shows_its_slots_above_the_backpack() {
         ..default()
     };
     assert_panel_matches("chest", inventory, world_map, true);
+}
+
+/// An open furnace at (1, 2, 3) holding `furnace`, with stacks in the inventory to put in it.
+fn assert_furnace_matches(name: &str, block: shared::world::BlockId, furnace: Furnace) {
+    use shared::world::ChunkMap;
+
+    let pos = IVec3::new(1, 2, 3);
+    let mut blocks = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+    blocks.fill_box(pos, pos, block);
+    blocks.insert_furnace(pos, furnace);
+    let mut inventory = Inventory::new();
+    inventory.open_furnace = Some(pos);
+    inventory.inner.insert(0, stack(ItemId::Sand, 20));
+    inventory.inner.insert(1, stack(ItemId::Coal, 7));
+    inventory
+        .inner
+        .insert(MAX_HOTBAR_SLOTS, stack(ItemId::Cobblestone, 64));
+    let world_map = ClientWorldMap {
+        blocks,
+        ..default()
+    };
+    assert_panel_matches(name, inventory, world_map, true);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_open_furnace_shows_its_slots_flame_and_arrow_above_the_backpack() {
+    assert_furnace_matches(
+        "furnace",
+        shared::world::BlockId::Furnace,
+        Furnace::default(),
+    );
+}
+
+/// Half its coal burnt and half its sand cooked: the flame and the arrow half lit.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_lit_furnace_shows_its_fire_and_how_far_it_cooked() {
+    assert_furnace_matches(
+        "furnace_smelting",
+        shared::world::BlockId::LitFurnace,
+        Furnace {
+            input: Some(stack(ItemId::Sand, 12)),
+            fuel: Some(stack(ItemId::Coal, 3)),
+            output: Some(stack(ItemId::Glass, 5)),
+            burn_left: 800,
+            burn_total: 1600,
+            cook: 100,
+        },
+    );
 }

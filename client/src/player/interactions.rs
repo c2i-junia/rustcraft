@@ -16,7 +16,7 @@ use super::CurrentPlayerMarker;
 
 /// Outlines the block the player aims at and, while a mouse button is held on it, predicts
 /// breaking it or placing a block against it, and reports the blocks that changed. A right
-/// click on a crafting table or a chest opens it instead, unless the player sneaks.
+/// click on a crafting table, a chest or a furnace opens it instead, unless the player sneaks.
 pub fn handle_block_interactions(
     mut player_query: Query<(&mut Player, &Transform), With<CurrentPlayerMarker>>,
     camera_query: Query<&Transform, (With<Camera>, Without<CurrentPlayerMarker>)>,

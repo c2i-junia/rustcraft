@@ -1,3 +1,4 @@
+use super::furnace::spawn_furnace_row;
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::state::GameState;
 use crate::ui::assets::load_font;
@@ -32,7 +33,7 @@ const HOTBAR_BOTTOM: f32 = SPACE_L;
 pub const HOTBAR_TOP: f32 = HOTBAR_BOTTOM + SPACE_S + BEVEL_WIDTH + SPACE_S + SLOT_SIZE;
 
 /// The icon of a slot. It starts on any sprite of the items atlas, hidden.
-fn icon(atlas: &AtlasWrapper) -> ImageNode {
+pub(super) fn icon(atlas: &AtlasWrapper) -> ImageNode {
     ImageNode::from_atlas_image(
         atlas.texture.clone(),
         atlas.sprite("Dirt").unwrap_or_default(),
@@ -125,6 +126,7 @@ pub fn setup_inventory(
                                 .spawn((InventoryTitle, panel_text(INVENTORY_TITLE, &font, TEXT)));
                             spawn_crafting_row(inventory, atlas, &font);
                             spawn_chest_grid(inventory, atlas, &font);
+                            spawn_furnace_row(inventory, atlas, &font, &asset_server);
                             spawn_backpack(inventory, atlas, &font);
                         });
                     spawn_hotbar(panel, atlas, &font);

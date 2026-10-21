@@ -96,6 +96,7 @@ pub fn hud_plugin(app: &mut App) {
                     click_inventory_cells_system,
                     display_inventory_system,
                     display_crafting_system,
+                    display_furnace_system,
                     style_inventory_panel,
                 )
                     .chain()

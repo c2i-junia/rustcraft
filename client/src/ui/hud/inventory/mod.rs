@@ -4,11 +4,13 @@ use bevy::prelude::Component;
 use shared::world::ItemId;
 
 mod display;
+mod furnace;
 #[cfg(test)]
 mod goldens;
 mod setup;
 
 pub use display::*;
+pub use furnace::*;
 pub use setup::*;
 
 /// The name of an item as a player reads it: its identifier split into words.
@@ -53,13 +55,18 @@ pub struct CraftingGridCell {
     pub col: u32,
 }
 
-/// The crafting grid, its arrow and its result: hidden while a chest is open.
+/// The crafting grid, its arrow and its result: hidden while a chest or a furnace is open.
 #[derive(Component)]
 pub struct CraftingRow;
 
 /// The 3x9 slots of the open chest, above the backpack: shown while a chest is open.
 #[derive(Component)]
 pub struct ChestGrid;
+
+/// The slots, the flame and the arrow of the open furnace, above the backpack: shown while a
+/// furnace is open.
+#[derive(Component)]
+pub struct FurnaceRow;
 
 /// The cell showing what the crafting grid makes; a click on it takes it.
 #[derive(Component)]

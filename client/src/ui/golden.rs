@@ -192,12 +192,28 @@ impl UiGolden {
         }
     }
 
-    /// Lays the UI out, draws it once its fonts are loaded, and checks it against the golden
-    /// `name`.
+    /// Lays the UI out, draws it once its fonts and its images are loaded, and checks it against
+    /// the golden `name`.
     pub fn assert_matches(&mut self, name: &str) {
         self.wait_for_fonts();
+        self.wait_for_images();
         let shot = self.screenshot();
         assert_image_matches(name, &shot);
+    }
+
+    /// Runs frames until the image of every `ImageNode` is loaded, such as the sprites of the
+    /// furnace: an image is not drawn before. The atlases, made at runtime, are already there.
+    pub fn wait_for_images(&mut self) {
+        for _ in 0..MAX_FRAMES {
+            let world = self.world_mut();
+            let mut nodes = world.query::<&ImageNode>();
+            let images = world.resource::<Assets<Image>>();
+            if nodes.iter(world).all(|node| images.contains(&node.image)) {
+                return;
+            }
+            self.update();
+        }
+        panic!("the images did not load");
     }
 
     /// Runs frames until the font of every `TextFont` is loaded: a text is not drawn before.

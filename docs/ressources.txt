@@ -64,6 +64,10 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    blocks/FurnaceTop.png, blocks/FurnaceBottom.png) and of the lit furnace
    (blocks/LitFurnace.png), the pack's block/furnace_{front,side,top,bottom,front_on}.png,
    following its model.
+-> The flame and the arrow of the furnace dialog (data/graphics/hud/furnace_flame.png,
+   data/graphics/hud/furnace_arrow.png), the pack's
+   gui/sprites/container/furnace/{lit_progress,burn_progress}.png, and their silhouettes
+   (furnace_*_empty.png), drawn white from them.
 
 ---- OTHER ----
 logo : 
