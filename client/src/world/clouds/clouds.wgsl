@@ -2,6 +2,10 @@
 // to the camera. Neither the lights nor the fog of the chunks touch them. The same shader draws
 // their depth first, then their colour where the depth is equal: both must find the same
 // positions, hence `@invariant`.
+//
+// The mesh holds every face that shows at some threshold of the weather, with the densities of
+// the two cells it lies between: a face that does not show at the threshold of now is folded
+// into a point, which draws nothing.
 
 #import bevy_pbr::{
     mesh_functions::{get_world_from_local, mesh_position_local_to_world},
@@ -15,6 +19,7 @@ struct CloudParams {
     opacity: f32,
     fade_start: f32,
     fade_end: f32,
+    threshold: f32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: CloudParams;
@@ -23,6 +28,8 @@ struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
     @location(1) shade: f32,
+    // The density of the cell of the face, and of the one it looks into
+    @location(2) densities: vec2<f32>,
 }
 
 struct VertexOutput {
@@ -39,6 +46,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.clip_position = position_world_to_clip(world_position.xyz);
     out.world_position = world_position.xyz;
     out.shade = vertex.shade;
+    // Shown when the cell of the face is full and the next one is not
+    let high = vertex.densities.x;
+    let low = vertex.densities.y;
+    if !(low <= params.threshold && params.threshold < high) {
+        out.clip_position = vec4(0.0, 0.0, 0.0, 1.0);
+    }
     return out;
 }
 

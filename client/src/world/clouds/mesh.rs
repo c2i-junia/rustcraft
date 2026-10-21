@@ -6,8 +6,8 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    field::is_full, ALTITUDE, CELL, SHADE_BOTTOM, SHADE_EAST_WEST, SHADE_NORTH_SOUTH, SHADE_TOP,
-    THICKNESS,
+    field::{banded_density, NEVER},
+    ALTITUDE, CELL, SHADE_BOTTOM, SHADE_EAST_WEST, SHADE_NORTH_SOUTH, SHADE_TOP, THICKNESS,
 };
 
 /// How the clouds are drawn, a video setting saved in `video.ron`.
@@ -26,6 +26,15 @@ pub enum CloudStyle {
 pub const ATTRIBUTE_SHADE: MeshVertexAttribute =
     MeshVertexAttribute::new("CloudShade", 0x00C1_0D5A_DE00_0001, VertexFormat::Float32);
 
+/// The densities of the two cells a face lies between, the denser first, which the shader
+/// compares with the threshold of the weather: the face shows when only the denser one is
+/// full.
+pub const ATTRIBUTE_DENSITIES: MeshVertexAttribute = MeshVertexAttribute::new(
+    "CloudDensities",
+    0x00C1_0D5A_DE00_0002,
+    VertexFormat::Float32x2,
+);
+
 /// An axis-aligned rectangle of a cloud, in blocks of the pattern: `min` and `max` are equal
 /// along the axis of `normal`, which points out of the cloud.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,6 +42,11 @@ pub struct Quad {
     pub min: Vec3,
     pub max: Vec3,
     pub normal: IVec3,
+    /// The density of the cell the face belongs to, and of the cell it looks into: `NEVER`
+    /// for the sky above and below. The face shows at a threshold `t` when
+    /// `low <= t < high`.
+    pub high: f32,
+    pub low: f32,
 }
 
 impl Quad {
@@ -44,6 +58,11 @@ impl Quad {
             IVec3 { x: 1 | -1, .. } => SHADE_EAST_WEST,
             _ => SHADE_NORTH_SOUTH,
         }
+    }
+
+    /// Whether the face shows when the cells denser than `threshold` are full.
+    pub fn shows_at(&self, threshold: f32) -> bool {
+        self.low <= threshold && threshold < self.high
     }
 
     /// The four corners, counter-clockwise seen from the side `normal` points to.
@@ -65,85 +84,112 @@ impl Quad {
     }
 }
 
-/// The faces of the cells within `radius` cells of `centre` (a disk) for which `full` holds,
-/// drawn in `style`.
+/// The faces of the cells within `radius` cells of `centre` (a disk), with the density of
+/// each cell given by `density` (`NEVER` for an empty one), drawn in `style`: every face that
+/// shows at some threshold, between a cell and its neighbour or the sky. Neighbouring faces
+/// that look the same way between cells of the same densities are merged.
 pub fn quads(
     style: CloudStyle,
     centre: IVec2,
     radius: i32,
-    full: impl Fn(IVec2) -> bool,
+    density: impl Fn(IVec2) -> f32,
 ) -> Vec<Quad> {
     if style == CloudStyle::Off {
         return Vec::new();
     }
-    let in_window = |cell: IVec2| (cell - centre).length_squared() <= radius * radius;
-    let full = |cell: IVec2| in_window(cell) && full(cell);
+    // the densities of the window and of a ring of cells around it, read once
+    let side = 2 * radius + 3;
+    let corner = centre - IVec2::splat(radius + 1);
+    let densities: Vec<f32> = (0..side * side)
+        .map(|i| {
+            let cell = corner + IVec2::new(i % side, i / side);
+            if (cell - centre).length_squared() <= radius * radius {
+                density(cell)
+            } else {
+                NEVER
+            }
+        })
+        .collect();
+    let density = |cell: IVec2| {
+        let at = cell - corner;
+        densities[(at.y * side + at.x) as usize]
+    };
     let bottom = ALTITUDE as f32;
     let top = (ALTITUDE + THICKNESS) as f32;
     let block = |cells: i32| (cells * CELL) as f32;
+    let (west, east) = (centre.x - radius, centre.x + radius);
 
     let mut quads = Vec::new();
     for z in centre.y - radius..=centre.y + radius {
-        let mut x = centre.x - radius;
-        while x <= centre.x + radius {
-            if !full(IVec2::new(x, z)) {
+        let (north, south) = (block(z), block(z + 1));
+        // the tops and bottoms, along runs of cells of the same density
+        let mut x = west;
+        while x <= east {
+            let high = density(IVec2::new(x, z));
+            let start = x;
+            while x <= east && density(IVec2::new(x, z)) == high {
                 x += 1;
+            }
+            if high == NEVER {
                 continue;
             }
-            let start = x;
-            while full(IVec2::new(x, z)) {
-                x += 1;
-            }
-            // the run spans the cells `start..x` of row `z`
-            let (west, east) = (block(start), block(x));
-            let (north, south) = (block(z), block(z + 1));
+            let (min_x, max_x) = (block(start), block(x));
+            let horizontal = |y, normal| Quad {
+                min: Vec3::new(min_x, y, north),
+                max: Vec3::new(max_x, y, south),
+                normal,
+                high,
+                low: NEVER,
+            };
             if style == CloudStyle::Fast {
                 let middle = ALTITUDE as f32 + THICKNESS as f32 / 2.;
-                quads.push(Quad {
-                    min: Vec3::new(west, middle, north),
-                    max: Vec3::new(east, middle, south),
-                    normal: IVec3::Y,
-                });
+                quads.push(horizontal(middle, IVec3::Y));
+            } else {
+                quads.push(horizontal(top, IVec3::Y));
+                quads.push(horizontal(bottom, IVec3::NEG_Y));
+            }
+        }
+        if style == CloudStyle::Fast {
+            continue;
+        }
+        // the sides between a cell and the next one along +X
+        for x in west - 1..=east {
+            let (a, b) = (density(IVec2::new(x, z)), density(IVec2::new(x + 1, z)));
+            if a == b {
                 continue;
             }
+            let at = block(x + 1);
             quads.push(Quad {
-                min: Vec3::new(west, top, north),
-                max: Vec3::new(east, top, south),
-                normal: IVec3::Y,
+                min: Vec3::new(at, bottom, north),
+                max: Vec3::new(at, top, south),
+                normal: if a > b { IVec3::X } else { IVec3::NEG_X },
+                high: a.max(b),
+                low: a.min(b),
             });
-            quads.push(Quad {
-                min: Vec3::new(west, bottom, north),
-                max: Vec3::new(east, bottom, south),
-                normal: IVec3::NEG_Y,
-            });
-            quads.push(Quad {
-                min: Vec3::new(west, bottom, north),
-                max: Vec3::new(west, top, south),
-                normal: IVec3::NEG_X,
-            });
-            quads.push(Quad {
-                min: Vec3::new(east, bottom, north),
-                max: Vec3::new(east, top, south),
-                normal: IVec3::X,
-            });
-            // the sides along the run, merged where consecutive cells show them
-            for (dz, side, normal) in [(-1, north, IVec3::NEG_Z), (1, south, IVec3::Z)] {
-                let mut cell = start;
-                while cell < x {
-                    if full(IVec2::new(cell, z + dz)) {
-                        cell += 1;
-                        continue;
-                    }
-                    let from = cell;
-                    while cell < x && !full(IVec2::new(cell, z + dz)) {
-                        cell += 1;
-                    }
-                    quads.push(Quad {
-                        min: Vec3::new(block(from), bottom, side),
-                        max: Vec3::new(block(cell), top, side),
-                        normal,
-                    });
+        }
+    }
+    if style == CloudStyle::Fancy {
+        // the sides between a cell and the next one along +Z, merged along X
+        for z in centre.y - radius - 1..=centre.y + radius {
+            let at = block(z + 1);
+            let pair = |x| (density(IVec2::new(x, z)), density(IVec2::new(x, z + 1)));
+            let mut x = west;
+            while x <= east {
+                let (a, b) = pair(x);
+                let start = x;
+                while x <= east && pair(x) == (a, b) {
+                    x += 1;
                 }
+                if a == b {
+                    continue;
+                }
+                quads.push(Quad {
+                    min: Vec3::new(block(start), bottom, at),
+                    max: Vec3::new(block(x), top, at),
+                    normal: if a > b { IVec3::Z } else { IVec3::NEG_Z },
+                    high: a.max(b),
+                    low: a.min(b),
+                });
             }
         }
     }
@@ -151,9 +197,10 @@ pub fn quads(
 }
 
 /// The mesh of the clouds within `radius` cells of `centre`, in blocks of the pattern: cell `c`
-/// spans the blocks `c * CELL` to `(c + 1) * CELL`. `None` when there is nothing to draw.
+/// spans the blocks `c * CELL` to `(c + 1) * CELL`. It holds every cell full at some threshold
+/// of the weather, which the shader picks among. `None` when there is nothing to draw.
 pub fn cloud_mesh(style: CloudStyle, centre: IVec2, radius: i32) -> Option<Mesh> {
-    let quads = quads(style, centre, radius, is_full);
+    let quads = quads(style, centre, radius, banded_density);
     if quads.is_empty() {
         return None;
     }
@@ -162,6 +209,10 @@ pub fn cloud_mesh(style: CloudStyle, centre: IVec2, radius: i32) -> Option<Mesh>
         .flat_map(|quad| quad.corners().map(<[f32; 3]>::from))
         .collect();
     let shades: Vec<f32> = quads.iter().flat_map(|quad| [quad.shade(); 4]).collect();
+    let densities: Vec<[f32; 2]> = quads
+        .iter()
+        .flat_map(|quad| [[quad.high, quad.low]; 4])
+        .collect();
     let indices: Vec<u32> = (0..quads.len() as u32)
         .flat_map(|quad| [0, 1, 2, 0, 2, 3].map(|corner| quad * 4 + corner))
         .collect();
@@ -172,17 +223,30 @@ pub fn cloud_mesh(style: CloudStyle, centre: IVec2, radius: i32) -> Option<Mesh>
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
         .with_inserted_attribute(ATTRIBUTE_SHADE, shades)
+        .with_inserted_attribute(ATTRIBUTE_DENSITIES, densities)
         .with_inserted_indices(Indices::U32(indices)),
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::field::{
+        density, is_full, ALWAYS, CLEAR_THRESHOLD, RAIN_THRESHOLD, STORM_THRESHOLD,
+    };
     use super::*;
     use bevy::mesh::VertexAttributeValues;
 
+    /// The density of a cell that is full at every threshold if one of `cells`, else empty.
+    fn full_in(cells: &[IVec2], cell: IVec2) -> f32 {
+        if cells.contains(&cell) {
+            ALWAYS
+        } else {
+            NEVER
+        }
+    }
+
     fn fancy(cells: &[IVec2]) -> Vec<Quad> {
-        quads(CloudStyle::Fancy, IVec2::ZERO, 8, |c| cells.contains(&c))
+        quads(CloudStyle::Fancy, IVec2::ZERO, 8, |c| full_in(cells, c))
     }
 
     fn count(quads: &[Quad], normal: IVec3) -> usize {
@@ -242,7 +306,7 @@ mod tests {
             IVec2::new(3, 0),
             IVec2::new(0, 2),
         ];
-        let quads = quads(CloudStyle::Fast, IVec2::ZERO, 8, |c| cells.contains(&c));
+        let quads = quads(CloudStyle::Fast, IVec2::ZERO, 8, |c| full_in(&cells, c));
         assert_eq!(quads.len(), 3);
         let middle = (ALTITUDE as f32) + THICKNESS as f32 / 2.;
         assert!(quads
@@ -252,7 +316,7 @@ mod tests {
 
     #[test]
     fn off_draws_nothing() {
-        assert!(quads(CloudStyle::Off, IVec2::ZERO, 8, |_| true).is_empty());
+        assert!(quads(CloudStyle::Off, IVec2::ZERO, 8, |_| ALWAYS).is_empty());
         assert!(cloud_mesh(CloudStyle::Off, IVec2::ZERO, 8).is_none());
     }
 
@@ -285,7 +349,7 @@ mod tests {
     #[test]
     fn only_the_cells_of_the_disk_are_drawn() {
         let centre = IVec2::new(100, -50);
-        let quads = quads(CloudStyle::Fast, centre, 3, |_| true);
+        let quads = quads(CloudStyle::Fast, centre, 3, |_| ALWAYS);
         // rows of 1, 5, 5, 7, 5, 5, 1 cells
         assert_eq!(quads.len(), 7);
         let cells: f32 = quads
@@ -294,7 +358,7 @@ mod tests {
             .sum();
         assert_eq!(cells, 29.);
         // a full disk is closed on its edge
-        let fancy = super::quads(CloudStyle::Fancy, centre, 3, |_| true);
+        let fancy = super::quads(CloudStyle::Fancy, centre, 3, |_| ALWAYS);
         assert_eq!(count(&fancy, IVec3::X), 7);
         assert_eq!(count(&fancy, IVec3::NEG_X), 7);
     }
@@ -316,5 +380,113 @@ mod tests {
             SHADE_EAST_WEST
         ]
         .contains(s)));
+    }
+
+    #[test]
+    fn the_mesh_has_the_densities_of_each_face() {
+        let mesh = cloud_mesh(CloudStyle::Fancy, IVec2::ZERO, 20).expect("some clouds");
+        let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().len();
+        let Some(VertexAttributeValues::Float32x2(densities)) = mesh.attribute(ATTRIBUTE_DENSITIES)
+        else {
+            panic!("no densities");
+        };
+        assert_eq!(densities.len(), positions);
+        assert!(densities.iter().all(|[high, low]| high > low));
+    }
+
+    /// The area of the faces of `quads` that look along `axis`, in cells for the tops and
+    /// bottoms and in cell sides for the sides.
+    fn area(quads: &[Quad], normal: IVec3) -> f32 {
+        let size = |q: &Quad| {
+            let size = (q.max - q.min) / CELL as f32;
+            match normal.abs() {
+                IVec3::Y => size.x * size.z,
+                IVec3::X => size.z,
+                _ => size.x,
+            }
+        };
+        quads.iter().filter(|q| q.normal == normal).map(size).sum()
+    }
+
+    #[test]
+    fn at_any_threshold_a_face_shows_where_one_cell_is_full_and_the_next_one_is_not() {
+        let (centre, radius) = (IVec2::new(37, -11), 12);
+        let quads = quads(CloudStyle::Fancy, centre, radius, banded_density);
+        for threshold in [
+            CLEAR_THRESHOLD,
+            -0.1,
+            RAIN_THRESHOLD,
+            -0.33,
+            STORM_THRESHOLD,
+        ] {
+            let shown: Vec<Quad> = quads
+                .iter()
+                .filter(|q| q.shows_at(threshold))
+                .copied()
+                .collect();
+            let full = |cell: IVec2| {
+                (cell - centre).length_squared() <= radius * radius && density(cell) > threshold
+            };
+            let cells = || {
+                (-radius - 1..=radius).flat_map(move |z| {
+                    (-radius - 1..=radius).map(move |x| centre + IVec2::new(x, z))
+                })
+            };
+            let full_cells = cells().filter(|c| full(*c)).count() as f32;
+            assert_eq!(area(&shown, IVec3::Y), full_cells, "{threshold}");
+            assert_eq!(area(&shown, IVec3::NEG_Y), full_cells, "{threshold}");
+            for (step, normal) in [(IVec2::X, IVec3::X), (IVec2::Y, IVec3::Z)] {
+                // full then empty: the face looks along the step, else back
+                let out = cells().filter(|c| full(*c) && !full(*c + step)).count();
+                let back = cells().filter(|c| !full(*c) && full(*c + step)).count();
+                assert_eq!(area(&shown, normal), out as f32, "{threshold} {normal}");
+                assert_eq!(area(&shown, -normal), back as f32, "{threshold} {normal}");
+            }
+        }
+    }
+
+    #[test]
+    fn under_a_clear_sky_the_faces_are_those_of_the_full_cells() {
+        let (centre, radius) = (IVec2::new(-5, 70), 10);
+        let clear = |c| if is_full(c) { ALWAYS } else { NEVER };
+        let before = quads(CloudStyle::Fancy, centre, radius, clear);
+        let now: Vec<Quad> = quads(CloudStyle::Fancy, centre, radius, banded_density)
+            .into_iter()
+            .filter(|q| q.shows_at(CLEAR_THRESHOLD))
+            .collect();
+        for normal in NORMALS {
+            assert_eq!(area(&now, normal), area(&before, normal), "{normal}");
+        }
+        // and the tops of the cells full at every threshold are merged as before
+        assert_eq!(count(&now, IVec3::Y), count(&before, IVec3::Y));
+        // the fast clouds too
+        let before = quads(CloudStyle::Fast, centre, radius, clear);
+        let now: Vec<Quad> = quads(CloudStyle::Fast, centre, radius, banded_density)
+            .into_iter()
+            .filter(|q| q.shows_at(CLEAR_THRESHOLD))
+            .collect();
+        assert_eq!(now.len(), before.len());
+        assert_eq!(area(&now, IVec3::Y), area(&before, IVec3::Y));
+    }
+
+    #[test]
+    fn a_storm_shows_more_of_the_mesh_than_rain_and_rain_more_than_a_clear_sky() {
+        let quads = quads(CloudStyle::Fast, IVec2::ZERO, 30, banded_density);
+        let shown = |threshold| {
+            area(
+                &quads
+                    .iter()
+                    .filter(|q| q.shows_at(threshold))
+                    .copied()
+                    .collect::<Vec<_>>(),
+                IVec3::Y,
+            )
+        };
+        let (clear, rain, storm) = (
+            shown(CLEAR_THRESHOLD),
+            shown(RAIN_THRESHOLD),
+            shown(STORM_THRESHOLD),
+        );
+        assert!(clear < rain && rain < storm, "{clear} {rain} {storm}");
     }
 }

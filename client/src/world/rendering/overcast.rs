@@ -73,9 +73,14 @@ impl Overcast {
         clear * self.blend(SATURATION)
     }
 
+    /// Where the fog ends, as a part of where it ends under a clear sky.
+    pub fn fog_end(self) -> f32 {
+        self.blend(FOG_END)
+    }
+
     /// Where the fog starts and ends, in blocks, with the chunks shown up to `distance`.
     pub fn fog_range(self, distance: f32) -> (f32, f32) {
-        let end = (distance * self.blend(FOG_END)).max(distance.min(MIN_FOG_END));
+        let end = (distance * self.fog_end()).max(distance.min(MIN_FOG_END));
         let start = (distance * self.blend(FOG_START)).min(end);
         (start, end)
     }

@@ -1,25 +1,55 @@
 use bevy::math::{IVec2, Vec2};
+use bevy::prelude::FloatExt;
 use shared::{world::splitmix64, TICKS_PER_SECOND};
 
 use super::{CELL, PERIOD, SEED, SPEED};
+use crate::world::overcast::Overcast;
 
 /// The wavelengths of the octaves of the noise, in cells, each with half the weight of the
 /// previous one. Each divides `PERIOD`, so that the noise tiles.
 const WAVELENGTHS: [i32; 3] = [8, 4, 2];
 
-/// The density above which a cell is full, measured over one period so that a share
-/// `COVERAGE` of the cells are.
-const THRESHOLD: f32 = 0.031;
+/// The density above which a cell is full under a clear sky, in rain and in a thunderstorm,
+/// measured over one period so that a share `COVERAGE`, `RAIN_COVERAGE` and `STORM_COVERAGE`
+/// of the cells are.
+pub const CLEAR_THRESHOLD: f32 = 0.031;
+pub const RAIN_THRESHOLD: f32 = -0.256;
+pub const STORM_THRESHOLD: f32 = -0.41;
 
-/// Whether the cell `cell` of the pattern holds a cloud. The same on every call and for every
-/// player, and periodic: `cell` and `cell + PERIOD` on either axis are alike.
+/// The densities the mesh gives to the cells full at any threshold of the weather, and to
+/// those full at none.
+pub const ALWAYS: f32 = 2.;
+pub const NEVER: f32 = -2.;
+
+/// Whether the cell `cell` of the pattern holds a cloud under a clear sky. The same on every
+/// call and for every player, and periodic: `cell` and `cell + PERIOD` on either axis are
+/// alike.
 pub fn is_full(cell: IVec2) -> bool {
-    density(cell) > THRESHOLD
+    density(cell) > CLEAR_THRESHOLD
+}
+
+/// The density above which a cell is full under `overcast`: it eases from the clear threshold
+/// to the rain one with the overcast, and on to the storm one with the storm.
+pub fn threshold(overcast: Overcast) -> f32 {
+    CLEAR_THRESHOLD
+        .lerp(RAIN_THRESHOLD, overcast.level)
+        .lerp(STORM_THRESHOLD, overcast.storm)
+}
+
+/// The density of `cell` as the mesh holds it: `ALWAYS` above the clear threshold, `NEVER` at
+/// or under the storm one, so that the cells alike at every threshold of the weather merge
+/// into the same faces.
+pub fn banded_density(cell: IVec2) -> f32 {
+    match density(cell) {
+        density if density > CLEAR_THRESHOLD => ALWAYS,
+        density if density <= STORM_THRESHOLD => NEVER,
+        density => density,
+    }
 }
 
 /// Value noise in `[-1, 1]`: random values on a lattice that wraps around every period, smoothly
 /// interpolated between its points.
-fn density(cell: IVec2) -> f32 {
+pub fn density(cell: IVec2) -> f32 {
     let cell = IVec2::new(cell.x.rem_euclid(PERIOD), cell.y.rem_euclid(PERIOD));
     let (mut sum, mut total, mut weight) = (0.0, 0.0, 1.0);
     for (octave, wavelength) in WAVELENGTHS.into_iter().enumerate() {
@@ -56,7 +86,7 @@ pub fn drift(tick: u64) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::COVERAGE;
+    use super::super::{COVERAGE, RAIN_COVERAGE, STORM_COVERAGE};
     use super::*;
 
     fn period() -> impl Iterator<Item = IVec2> {
@@ -88,6 +118,38 @@ mod tests {
         let full = period().filter(|cell| is_full(*cell)).count();
         let share = full as f64 / (PERIOD * PERIOD) as f64;
         assert!((share - COVERAGE).abs() <= 0.05, "{share}");
+    }
+
+    #[test]
+    fn rain_and_storms_cover_more_of_the_sky() {
+        for (threshold, coverage) in [
+            (RAIN_THRESHOLD, RAIN_COVERAGE),
+            (STORM_THRESHOLD, STORM_COVERAGE),
+        ] {
+            let full = period().filter(|cell| density(*cell) > threshold).count();
+            let share = full as f64 / (PERIOD * PERIOD) as f64;
+            assert!((share - coverage).abs() <= 0.03, "{share}");
+        }
+    }
+
+    #[test]
+    fn the_threshold_follows_the_overcast_and_the_storm() {
+        let at = |level, storm| threshold(Overcast { level, storm });
+        assert_eq!(at(0., 0.), CLEAR_THRESHOLD);
+        assert_eq!(at(1., 0.), RAIN_THRESHOLD);
+        assert_eq!(at(1., 1.), STORM_THRESHOLD);
+        assert!(at(0.5, 0.) < CLEAR_THRESHOLD && at(0.5, 0.) > RAIN_THRESHOLD);
+    }
+
+    #[test]
+    fn a_banded_density_keeps_what_the_thresholds_of_the_weather_tell() {
+        for cell in period().step_by(3) {
+            let banded = banded_density(cell);
+            for threshold in [CLEAR_THRESHOLD, -0.1, RAIN_THRESHOLD, STORM_THRESHOLD] {
+                assert_eq!(banded > threshold, density(cell) > threshold, "{cell}");
+            }
+            assert_eq!(banded > CLEAR_THRESHOLD, is_full(cell));
+        }
     }
 
     /// Salt and pepper would make half of the neighbours differ; blobs of tens of cells, a

@@ -10,7 +10,7 @@ use bevy::{
     shader::ShaderRef,
 };
 
-use super::mesh::ATTRIBUTE_SHADE;
+use super::mesh::{ATTRIBUTE_DENSITIES, ATTRIBUTE_SHADE};
 
 const CLOUDS_SHADER: Handle<Shader> = uuid_handle!("3f6c1d2a-9b7e-4c58-a1d0-5e2b8f4c7a93");
 
@@ -54,6 +54,9 @@ pub struct CloudParams {
     pub fade_start: f32,
     /// The horizontal distance to the camera beyond which the clouds are gone, in blocks.
     pub fade_end: f32,
+    /// The density above which a cell is full, which grows the clouds in rain
+    /// (`field::threshold`).
+    pub threshold: f32,
 }
 
 impl Material for CloudMaterial {
@@ -97,6 +100,7 @@ impl Material for CloudMaterial {
         descriptor.vertex.buffers = vec![layout.0.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             ATTRIBUTE_SHADE.at_shader_location(1),
+            ATTRIBUTE_DENSITIES.at_shader_location(2),
         ])?];
         // The faces of a cloud are seen from inside it too
         descriptor.primitive.cull_mode = None;
