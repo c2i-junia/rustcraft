@@ -1003,6 +1003,8 @@ fn covered_by_portal(
         Some(IVec3::Z) => Side::PlusZ,
         Some(IVec3::NEG_X) => Side::MinusX,
         Some(IVec3::X) => Side::PlusX,
+        Some(IVec3::Y) => Side::PlusY,
+        Some(IVec3::NEG_Y) => Side::MinusY,
         _ => return false,
     };
     !world_map.portals().is_empty()
@@ -1173,6 +1175,92 @@ mod tests {
             }
         }
         cells
+    }
+
+    /// The cells under the faces of `mesh` facing along `normal`, one of the six directions.
+    fn cells_under_faces(mesh: &Mesh, normal: IVec3) -> Vec<IVec3> {
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("a chunk mesh has positions");
+        };
+        let axis = normal.abs().max_position();
+        let mut cells = Vec::new();
+        for (face, normals) in positions.chunks(4).zip(normals_of(mesh).chunks(4)) {
+            if normals[0].distance(normal.as_vec3()) > 0.1 {
+                continue;
+            }
+            let corners = face.iter().map(|p| Vec3::from(*p).round().as_ivec3());
+            let min = corners.clone().fold(IVec3::MAX, IVec3::min);
+            let mut max = corners.fold(IVec3::MIN, IVec3::max);
+            // The face lies on the side of its cell its normal points to
+            let layer = if normal[axis] > 0 {
+                max[axis] - 1
+            } else {
+                min[axis]
+            };
+            max[axis] = min[axis] + 1;
+            for x in min.x..max.x {
+                for y in min.y..max.y {
+                    for z in min.z..max.z {
+                        let mut cell = IVec3::new(x, y, z);
+                        cell[axis] = layer;
+                        cells.push(cell);
+                    }
+                }
+            }
+        }
+        cells
+    }
+
+    #[test]
+    fn the_top_or_bottom_face_a_portal_covers_is_not_meshed() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+
+        // A floor at y = 4 and a ceiling at y = 10, x and z in 4..=9
+        let mut world = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        world.fill_box(IVec3::new(4, 4, 4), IVec3::new(9, 4, 9), BlockId::Stone);
+        world.fill_box(IVec3::new(4, 10, 4), IVec3::new(9, 10, 9), BlockId::Stone);
+        let mut tiles = HashMap::new();
+        tiles.insert("_Default".to_string(), 0);
+        let mesh = |world: &ChunkMap| {
+            let chunk = world.chunk(IVec3::ZERO).unwrap();
+            generate_chunk_mesh(world, chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
+                .solid_mesh
+                .unwrap()
+        };
+        let portals = world.portals_mut();
+        // On the floor, x in 5..=6 and z in 6..=8; on the ceiling, x in 5..=7 and z in 4..=5
+        portals.insert(Portal {
+            owner: 1,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(5, 4, 8),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        portals.insert(Portal {
+            owner: 1,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(5, 10, 5),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::PlusX,
+        });
+        let pierced = mesh(&world);
+
+        let tops = cells_under_faces(&pierced, IVec3::Y);
+        for cell in [IVec3::new(5, 4, 8), IVec3::new(6, 4, 6)] {
+            assert!(!tops.contains(&cell), "the top of {cell} is drawn");
+        }
+        assert!(tops.contains(&IVec3::new(7, 4, 8)));
+        assert!(tops.contains(&IVec3::new(5, 4, 5)));
+        let bottoms = cells_under_faces(&pierced, IVec3::NEG_Y);
+        for cell in [IVec3::new(5, 10, 5), IVec3::new(7, 10, 4)] {
+            assert!(!bottoms.contains(&cell), "the bottom of {cell} is drawn");
+        }
+        assert!(bottoms.contains(&IVec3::new(8, 10, 5)));
+        assert!(bottoms.contains(&IVec3::new(5, 10, 6)));
+        // Their other faces are drawn
+        assert!(cells_under_faces(&pierced, IVec3::NEG_Y).contains(&IVec3::new(5, 4, 8)));
     }
 
     #[test]
