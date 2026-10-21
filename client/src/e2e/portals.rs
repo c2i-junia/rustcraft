@@ -5,7 +5,7 @@
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
-use bevy::{camera::RenderTarget, prelude::*};
+use bevy::{camera::RenderTarget, prelude::*, time::TimeUpdateStrategy};
 use image::RgbImage;
 use shared::world::{
     BlockData, BlockDirection, BlockId, FaceDirection, Portal, PortalColor, PORTAL_HEIGHT,
@@ -2177,13 +2177,15 @@ fn the_shot_flies_to_the_wall_and_the_portal_opens_where_it_lands() {
         portal_drawings(h.world()) > 0,
         "not drawn as the bolt landed"
     );
-    // A tenth of a second for them to fly apart
+    // A tenth of a second for them to fly apart, in four frames of 25 ms whatever lavapipe takes
+    h.world_mut()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            25,
+        )));
     h.world_mut().resource_mut::<Time<Virtual>>().unpause();
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_millis(100) {
-        h.frames(1);
-    }
+    h.frames(4);
     h.world_mut().resource_mut::<Time<Virtual>>().pause();
+    h.world_mut().insert_resource(TimeUpdateStrategy::Automatic);
     let shot = h.screenshot();
     keep(&shot, SHOT, "sparks");
     h.world_mut().resource_mut::<Time<Virtual>>().unpause();
