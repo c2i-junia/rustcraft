@@ -234,8 +234,8 @@ fn features(graphics: &GraphicsSettings) -> ShaderFeatures {
 ///
 /// A portal camera draws what the player's camera would see through the portal, into an image
 /// that the player's camera shows as it is (`portal.wgsl`): it gets what makes the picture,
-/// the physical sky (its light shared, `share_the_environment_map`), the rays of light and the
-/// ambient occlusion, and leaves to the
+/// the physical sky (its light shared, `share_the_environment_map`) and the rays of light, but
+/// not the ambient occlusion (below), and leaves to the
 /// player's camera what it does to the whole screen, the portals included: the tonemapping
 /// (`place_portal_cameras`), the grading of the colours, the bloom and the smoothing of the
 /// edges. With the physical sky, its image holds the colours before the tonemapping, in 16-bit
@@ -317,7 +317,11 @@ fn apply_camera_features(
         if features.depth_prepass() {
             entity.insert(DepthPrepass);
         }
-        if let Some(quality_level) = features.ambient_occlusion {
+        // Bevy's ambient occlusion is noisy from frame to frame and left to TAA to smooth: a
+        // portal camera has no TAA, and its occlusion through the portal was noisier and darker
+        // than the player's straight on. Without it, the view through a close portal measures
+        // as the player's (lot 10 report)
+        if let Some(quality_level) = features.ambient_occlusion.filter(|_| !portal) {
             entity.insert(ScreenSpaceAmbientOcclusion {
                 quality_level,
                 ..default()
@@ -859,7 +863,7 @@ mod tests {
             |app: &App| app.world().entity(portal).contains::<EnvironmentMapLight>();
         assert_eq!(has(&app, main), (true, true, true, true, true, true));
         // The sky comes a frame later
-        assert_eq!(has(&app, portal), (true, false, false, true, true, false));
+        assert_eq!(has(&app, portal), (true, false, false, true, false, false));
         assert_eq!(app.world().get::<Msaa>(portal), Some(&Msaa::Off));
         // The rays of light as many steps as the player's, unjittered: no TAA smooths them
         let rays = |camera: Entity| {
@@ -869,7 +873,7 @@ mod tests {
         assert_eq!(rays(main), (48, 0.5));
         assert_eq!(rays(portal), (48, 0.));
         app.update();
-        assert_eq!(has(&app, portal), (true, false, false, true, true, true));
+        assert_eq!(has(&app, portal), (true, false, false, true, false, true));
         app.update();
         assert!(app.world().entity(portal).contains::<AtmosphereSettings>());
         // The environment map of the sky is the player's camera's, not one of its own, once
