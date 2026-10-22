@@ -49,10 +49,12 @@ use crate::world::lightning::{flash_ambient, flash_exposure, Lightning};
 use crate::world::overcast::Overcast;
 use crate::world::weather::ClientWeather;
 use crate::world::{
-    daylight_ambient_system, ChunkMaterial, GlobalMaterial, GraphicsSettings, MaterialResource,
-    RenderDistance, ShaderQuality,
+    daylight_ambient_system, ChunkMaterial, ClientWorldMap, GlobalMaterial, GraphicsSettings,
+    MaterialResource, RenderDistance, ServerRenderDistanceLimit, ShaderQuality,
 };
 use shared::world::terrain::SEA_LEVEL;
+use shared::world::{world_position_to_chunk_position, ChunkReach};
+use shared::CHUNK_SIZE;
 
 /// How the edges of the faces are smoothed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -459,13 +461,37 @@ fn apply_atmosphere(
 
 /// The haze lit by the sun, a layer over the ground around the camera of the world, the player's
 /// (or the bench's), never a portal camera. The portal cameras draw it too where they see it
-/// (`apply_camera_features`): through a close portal, as the player would straight on.
+/// (`apply_camera_features`): through a close portal, as the player would straight on. It
+/// stretches over the twin of each portal the player approaches (`haze_box`), so that a portal
+/// camera there sees as much of it as the player will after crossing.
 #[derive(Component)]
 struct GodRayVolume;
 
+/// The half width of the layer of haze around a camera, in blocks.
+const HAZE_HALF_WIDTH: f32 = 320.;
+
+/// The centre and the size of the layer of haze over the camera at `camera` and the chunks
+/// `twins`: `HAZE_HALF_WIDTH` around each, in one box, as boxes that overlap would thicken it.
+fn haze_box(camera: Vec3, twins: &[IVec3]) -> (Vec3, Vec3) {
+    let (low, high) = twins.iter().fold((camera.xz(), camera.xz()), |(low, high), twin| {
+        let centre = ((*twin * CHUNK_SIZE) + CHUNK_SIZE / 2).as_vec3().xz();
+        (low.min(centre), high.max(centre))
+    });
+    let middle = (low + high) / 2.;
+    let size = high - low + Vec2::splat(2. * HAZE_HALF_WIDTH);
+    (
+        Vec3::new(middle.x, SEA_LEVEL as f32 + 30., middle.y),
+        Vec3::new(size.x, 140., size.y),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn follow_camera_with_fog_volume(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
+    world_map: Option<Res<ClientWorldMap>>,
+    render_distance: Option<Res<RenderDistance>>,
+    server_limit: Option<Res<ServerRenderDistanceLimit>>,
     cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     roots: Query<&Transform, (With<CelestialRoot>, Without<GodRayVolume>)>,
     mut volumes: Query<(Entity, &mut Transform, &mut FogVolume), With<GodRayVolume>>,
@@ -488,11 +514,24 @@ fn follow_camera_with_fog_volume(
     // No rays of light under an overcast sky: unlit, the haze would only darken the sky
     let density = density * Overcast::current(weather.as_deref()).celestial_visibility();
     // A layer of haze over the ground, whose top is not seen against the sky
-    let at = camera.translation().with_y(SEA_LEVEL as f32 + 30.);
-    let size = Vec3::new(640., 140., 640.);
+    let distance = render_distance.map_or(0, |render| {
+        render
+            .distance
+            .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32
+    });
+    let twins = world_map.map_or_else(Vec::new, |world_map| {
+        ChunkReach::new(
+            world_position_to_chunk_position(camera.translation()),
+            distance,
+            world_map.blocks.portals(),
+        )
+        .approached_twins()
+    });
+    let (at, size) = haze_box(camera.translation(), &twins);
     match volumes.single_mut() {
         Ok((_, mut transform, mut volume)) => {
             transform.translation = at;
+            transform.scale = size;
             if volume.density_factor != density {
                 volume.density_factor = density;
             }
@@ -952,6 +991,21 @@ mod tests {
             .unwrap()
             .translation;
         assert_eq!(haze.x, 5.);
+    }
+
+    #[test]
+    fn the_haze_stretches_over_the_twins_approached_in_one_layer() {
+        let camera = Vec3::new(5., 110., 0.);
+        let (at, size) = haze_box(camera, &[]);
+        assert_eq!((at.x, at.z), (5., 0.));
+        assert_eq!((size.x, size.z), (640., 640.));
+        // A twin 21 chunks south: one box over both, 320 blocks past each
+        let (at, size) = haze_box(camera, &[IVec3::new(0, 6, 21)]);
+        let twin = Vec2::new(8., 21. * 16. + 8.);
+        assert_eq!(at.z, twin.y / 2.);
+        assert_eq!(size.z, twin.y + 640.);
+        assert_eq!(at.x, (5. + 8.) / 2.);
+        assert_eq!(size.x, 3. + 640.);
     }
 
     /// Whether the ray from the origin along `direction` meets a triangle of `mesh`
