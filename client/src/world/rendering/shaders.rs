@@ -714,7 +714,9 @@ impl Material for HorizonMaterial {
 #[derive(Component)]
 struct HorizonSkirt;
 
-/// A ring of radius 1 from y = -3 up to y = 0.15, seen from inside.
+/// A ring of radius 1 from y = -3 up to y = 0.15, closed at the bottom, seen from inside: every
+/// way under the horizon meets it, the steepest too, which a portal camera looking down past the
+/// chunks held around a far twin can take.
 fn horizon_ring() -> Mesh {
     const SIDES: u32 = 96;
     let mut positions = Vec::new();
@@ -730,6 +732,13 @@ fn horizon_ring() -> Mesh {
     for i in 0..SIDES {
         let a = i * 2;
         indices.extend([a, a + 1, a + 2, a + 1, a + 3, a + 2]);
+    }
+    // The bottom, a fan from its middle to the bottom of the ring
+    let middle = positions.len() as u32;
+    positions.push([0., -3., 0.]);
+    normals.push([0., 1., 0.]);
+    for i in 0..SIDES {
+        indices.extend([middle, i * 2 + 1, i * 2 + 3]);
     }
     Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -930,6 +939,48 @@ mod tests {
             .unwrap()
             .translation;
         assert_eq!(haze.x, 5.);
+    }
+
+    /// Whether the ray from the origin along `direction` meets a triangle of `mesh`
+    /// (Möller–Trumbore).
+    fn meets(mesh: &Mesh, direction: Vec3) -> bool {
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .and_then(|positions| positions.as_float3())
+            .unwrap();
+        let indices: Vec<usize> = mesh.indices().unwrap().iter().collect();
+        indices.chunks(3).any(|triangle| {
+            let [a, b, c] = [0, 1, 2].map(|i| Vec3::from_array(positions[triangle[i]]));
+            let (ab, ac) = (b - a, c - a);
+            let p = direction.cross(ac);
+            let det = ab.dot(p);
+            if det.abs() < 1e-9 {
+                return false;
+            }
+            let t = -a;
+            let u = t.dot(p) / det;
+            let q = t.cross(ab);
+            let v = direction.dot(q) / det;
+            u >= 0. && v >= 0. && u + v <= 1. && ac.dot(q) / det > 0.
+        })
+    }
+
+    #[test]
+    fn every_way_under_the_horizon_meets_the_skirt() {
+        let ring = horizon_ring();
+        for elevation in [-1f32, -30., -70., -75., -85., -90.] {
+            for azimuth in (0..8).map(|i| i as f32 * 45. + 10.) {
+                let (elevation, azimuth) = (elevation.to_radians(), azimuth.to_radians());
+                let direction = Vec3::new(
+                    elevation.cos() * azimuth.cos(),
+                    elevation.sin(),
+                    elevation.cos() * azimuth.sin(),
+                );
+                assert!(meets(&ring, direction), "{direction}");
+            }
+        }
+        // Over its top, the sky
+        assert!(!meets(&ring, Vec3::new(1., 0.2, 0.).normalize()));
     }
 
     #[test]
