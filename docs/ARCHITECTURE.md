@@ -422,14 +422,19 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    the rest, so that neither starves, and come after the player's own on the wire. With the
    margin, they are kept while the portal is within the render distance plus the margin, and
    unloaded once it is beyond, closed or moved: the reach, portals included, is the key of
-   `SentChunks::progress`. A portal the player approaches, within `PORTAL_APPROACH_RADIUS` (2)
-   chunks of its own, has the twin's whole render distance sent instead (`TwinArea`), so that
-   after crossing the player stands in chunks it already holds: about 4 900 chunks at a render
-   distance of 8, 700 KiB over 7 broadcasts. The chunks of an area go by shells, nearest the
+   `SentChunks::progress`. A portal the player approaches has the twin's whole render distance
+   sent instead (`TwinArea`), so that after crossing the player stands in chunks it already
+   holds: about 4 900 chunks at a render distance of 8, 700 KiB over 7 broadcasts. A portal is
+   approached 2 s before the player can reach it (`approach_radius`, from the speed of its
+   stance or its velocity): within 2 chunks on foot, 6 in a flying sprint, 8 at most. The areas
+   approached add at most `MAX_APPROACHED_EXTRA_CHUNKS` (10 625, a render distance of 12)
+   chunks together to the player's own, the nearest portal first: past a render distance of 12
+   an area keeps as many shells as fit, and the client's fog follows what it holds. The chunks of an area go by shells, nearest the
    twin first and those behind its plane after (`twin_area_offsets`), merged across the areas
    (`ChunkReach::portal_chunks`, kept by `SentChunks::portal_progress` while the portals do not
    change, so that a broadcast goes on from where the last stopped); left past the approach
-   and the margin, the area shrinks back to the view radius.
+   and the margin, the area shrinks back to the view radius. The loader lists those chunks once
+   per reach too (`LoadedAround::behind_portals`).
 4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
    are handed to the writer thread. A generated chunk is saved too, but not one of a single
    kind of cell, which is generated again at once. Then, every 5 seconds, the chunks more than
@@ -473,7 +478,8 @@ never moves a player, so the prediction of the clients is left alone.
    meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player,
-   or of the twin of a portal it approaches (`shadow_centres`), cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
+   or of the twin of a portal it approaches (`Approach`, `portal/approach.rs`, which follows the
+   approach as the server reckons it and keeps a twin a chunk past it), cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
    its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
    clear colour, which is not, so that a block wholly in the fog is the sky: it is found on
    the CPU, by Newton's method, from the LUT of TonyMcMapface that Bevy keeps in the main
@@ -536,9 +542,11 @@ depth prepass) and leaves to the player's camera what it does to the whole scree
 included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
 the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
 the colours before tonemapping with the shaders, and after it without. It draws the god-ray
-haze, a layer 640 blocks wide around the player stretched in one box over the twin of each
-portal it approaches (`haze_box`, as two boxes would thicken it where they overlap), as the
-player's camera does (same steps, no jitter: the player's TAA reaches its image
+haze, a layer 640 blocks wide of its own, centred under it (`follow_cameras_with_haze`): Bevy
+draws every fog volume in every view, and its shader, changed, leaves out a volume tagged as
+one camera's (`one_camera_offset`) in every view but that camera's, so the player's view never
+changes with the portals, and a portal camera far off sees the haze the player will see after
+crossing. It draws it as the player's camera does (same steps, no jitter: the player's TAA reaches its image
 only through the motion of the portal surface), through its oblique
 near plane: Bevy's `volumetric_fog.wgsl` read the start depth of a ray with the near distance
 only and ended the rays of the sky on the far plane, which the oblique matrix brings near, and
@@ -583,9 +591,10 @@ with nothing sent. They drift east at half a block a second, from the clock, by 
 `Transform` of their entity, so that culling and sorting see where they are; their mesh holds
 the outer faces of a disk of cells around the camera, twice the render distance wide and at
 most 1024 blocks, and is built again only when the camera enters another cell of the pattern;
-it also holds a disk around the twin of each portal the player approaches
-(`ChunkReach::approached_twins`, `quads_around`), so that the clouds a portal camera shows
-there are those the player sees after crossing.
+it also holds a disk around the twin of each portal the player approaches (`Approach::twins`,
+`quads_around`, each disk meshed on its own window, the faces of the cells two disks share
+once), so that the clouds a portal camera shows there are those the player sees after
+crossing.
 Each face carries the densities of the two cells it lies between, and the shader shows it when
 the threshold of the weather lies between them, so the clouds thicken without a new mesh;
 under a clear sky the mesh holds only the cells full then, about a seventh of the faces, and is

@@ -159,13 +159,15 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
 
 | Topic | Choice |
 |---|---|
-| What is sent | Within `PORTAL_APPROACH_RADIUS` (2) chunks of an open portal, the player gets the twin's whole render distance (`TwinArea`), nearest the twin first and what lies behind its plane last, at most a quarter of each broadcast as before; past the approach and the unload margin, the area shrinks back to the view radius. About 4 900 chunks, 700 KiB over 7 broadcasts at a render distance of 8 (0.35 s), 8 900 chunks over 12 at 12. |
+| What is sent | Near an open portal, the player gets the twin's whole render distance (`TwinArea`), nearest the twin first and what lies behind its plane last, at most a quarter of each broadcast as before; past the approach and the unload margin, the area shrinks back to the view radius. About 4 900 chunks, 700 KiB over 7 broadcasts at a render distance of 8 (0.35 s), 8 900 chunks over 12 at 12. |
+| Approach | 2 s ahead of the player at the speed of its stance or its velocity (`approach_radius`): 2 chunks on foot, 6 in a flying sprint, 8 at most. |
+| Cap | The areas approached add at most 10 625 chunks (a render distance of 12) together to the player's own, the nearest portal first; nothing is capped up to a render distance of 12, and at 64 the twins add 3.8 % at most. |
 | What the client counts as held | Whole shells of chunks around the twin, in front of its plane, held and with their group's mesh shown (`HeldAreas`, `ChunkRender::meshed`): a chunk not meshed yet is a hole, not terrain. |
 | The portal camera's fog | Ends where the shells shown end, the player's own chunks counted too; their top and bottom do not count once they are as high as the player's own, so an approached twin wholly shown has the player's own fog. It opens at 96 blocks a second and closes at once. |
 | Meshing | A group around a twin waits for its neighbours there as around the player (`WaitingChunks` takes every area). |
 | Shadows | Groups within 12 chunks of an approached twin cast shadows, as around the player. |
-| Clouds | The cloud mesh also holds a disk around each approached twin. |
-| Haze | The god-ray layer spans the player and each approached twin in one box, 320 blocks past each, so a portal camera far off sees as much haze as after crossing. |
+| Clouds | The cloud mesh also holds a disk around each approached twin, each meshed on its own window: two disks cost twice one, however far apart. |
+| Haze | Each camera, the player's and each portal camera that draws, has its own layer of haze centred under it, which only it draws (Bevy's volumetric shader changed to leave out another camera's volume): the player's view never changes with a portal. A box stretched over the twin was tried first and changed the player's own view. |
 | Rain occlusion | Left to the player's camera: around a far twin, roofs do not stop the rain seen through the portal. A second occlusion map would mean a second binding and its upkeep, for rain seen under a roof through a portal. |
 | Tests | Seam e2e at 6 and 21 chunks, shaders Off and High, gated as a close crossing (median ≤ 6 for each band). |
 
