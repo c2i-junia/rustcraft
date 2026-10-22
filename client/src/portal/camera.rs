@@ -14,8 +14,8 @@ use bevy::{
     window::PrimaryWindow,
 };
 use shared::world::{
-    within_render_distance, world_position_to_chunk_position, Portal, PORTAL_HEIGHT,
-    PORTAL_VIEW_RADIUS, PORTAL_WIDTH,
+    vertical_render_distance, within_render_distance, world_position_to_chunk_position, Portal,
+    PORTAL_HEIGHT, PORTAL_VIEW_RADIUS, PORTAL_WIDTH,
 };
 use shared::CHUNK_SIZE;
 use std::f32::consts::FRAC_PI_2;
@@ -401,13 +401,17 @@ pub(super) fn half_diagonal(projection: &PerspectiveProjection) -> f32 {
 /// looking out of it `forward`, its view `half_diagonal` wide, can see them. The client holds
 /// the chunks the server sends around the twin (`PORTAL_VIEW_RADIUS`), and, when the twin is
 /// among them, the player's own: those within its render distance of the chunk `player.0`,
-/// `player.1`. Each is a square of columns, whose reach is that of its nearest edge along x
-/// and z, as for the player's own fog (`underwater.rs`), and is the larger of the two. An edge
-/// is as far as the view can see it: its distance over the cosine of the smallest angle between
-/// the view and the way to the edge, so that a side the view can never point at counts for
-/// more, and one it cannot turn to at all, or that lies behind the twin, where nothing is
-/// drawn, not at all. Through a close twin, the reach is the player's render distance or more,
-/// and the portal camera gets the player's fog (`portal_fog`).
+/// `player.1`. Each is a box of chunks, `vertical_render_distance` high, whose reach is that of
+/// its nearest face, and is the larger of the two. A face is as far as the view can see it: its
+/// distance over the cosine of the smallest angle between the view and the way to the face, so
+/// that a side the view can never point at counts for more, and one it cannot turn to at all,
+/// or that lies behind the twin, where nothing is drawn, not at all. The top and bottom of the
+/// player's box count only nearer than they are to the player at most (`vertical_render_distance`
+/// chunks), which the player's own fog does not count either (`underwater.rs`): a level view
+/// through a close twin is not clamped by them, as the player's is not. A box reaching the
+/// bedrock, at y = 0, has no bottom: nothing is seen under it. Through a close twin,
+/// the reach is the player's render distance or more, and the portal camera gets the player's
+/// fog (`portal_fog`).
 pub(super) fn held_reach(
     twin: &Portal,
     forward: Vec3,
@@ -415,19 +419,41 @@ pub(super) fn held_reach(
     player: Option<(IVec3, i32)>,
 ) -> f32 {
     let middle = Vec3::from(twin.frame().translation);
-    let own =
-        player.filter(|&(center, distance)| within_render_distance(twin.chunk(), center, distance));
-    [Some((twin.chunk(), PORTAL_VIEW_RADIUS)), own]
+    let sent = (twin.chunk(), PORTAL_VIEW_RADIUS, f32::INFINITY);
+    let own = player
+        .filter(|&(center, distance)| within_render_distance(twin.chunk(), center, distance))
+        .map(|(center, distance)| {
+            let height = (vertical_render_distance(distance) * CHUNK_SIZE) as f32;
+            (center, distance, height)
+        });
+    [Some(sent), own]
         .into_iter()
         .flatten()
-        .map(|(center, radius)| {
-            let low = ((center - radius) * CHUNK_SIZE).as_vec3();
-            let high = ((center + radius + 1) * CHUNK_SIZE).as_vec3();
+        .map(|(center, radius, uncounted_from)| {
+            let vertical = vertical_render_distance(radius);
+            let reach = IVec3::new(radius, vertical, radius);
+            let low = ((center - reach) * CHUNK_SIZE).as_vec3();
+            let high = ((center + reach + 1) * CHUNK_SIZE).as_vec3();
+            let counted = |distance: f32| {
+                if distance < uncounted_from {
+                    distance
+                } else {
+                    f32::INFINITY
+                }
+            };
+            // Under the bedrock nothing is seen: a box reaching it has no bottom
+            let below = if low.y > 0.0 {
+                counted(middle.y - low.y)
+            } else {
+                f32::INFINITY
+            };
             [
                 (Vec3::NEG_X, middle.x - low.x),
                 (Vec3::X, high.x - middle.x),
                 (Vec3::NEG_Z, middle.z - low.z),
                 (Vec3::Z, high.z - middle.z),
+                (Vec3::NEG_Y, below),
+                (Vec3::Y, counted(high.y - middle.y)),
             ]
             .into_iter()
             .filter(|(outward, _)| outward.dot(twin.normal()) > -0.5)
@@ -570,6 +596,61 @@ mod tests {
         let own = Some((IVec3::new(-7, 0, 0), 8));
         let along = Vec3::new(-0.05, 0.0, 1.0).normalize();
         assert_near(held_reach(&twin(), along, wide(), own), to_the_south_edge());
+    }
+
+    /// A twin on a ceiling at `y`, opening down.
+    fn ceiling(y: i32) -> Portal {
+        Portal {
+            owner: 1,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(0, y, 0),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::PlusZ,
+        }
+    }
+
+    #[test]
+    fn looking_down_out_of_a_far_ceiling_twin_the_chunks_end_at_the_bottom_of_those_sent() {
+        // Its plane y = 150, opening onto the chunk (0, 9, 0): the chunks sent around it reach
+        // y = 80 below, 70 blocks under its middle
+        let ceiling = ceiling(150);
+        assert_eq!(ceiling.chunk(), IVec3::new(0, 9, 0));
+        assert_near(ceiling.frame().translation.y, 150.0);
+        // The bottom, straight ahead, comes before the sides, some 65 blocks away but askew
+        assert_near(held_reach(&ceiling, Vec3::NEG_Y, wide(), None), 70.0);
+    }
+
+    #[test]
+    fn chunks_down_to_the_bedrock_have_no_bottom_to_see() {
+        // Its plane y = 40: the chunks sent reach y = -32, under the bedrock at y = 0, which
+        // closes the world. Only the sides count, 64 and more blocks away, seen 40° off at most
+        let reach = held_reach(&ceiling(40), Vec3::NEG_Y, wide(), None);
+        assert!(reach > 64.0 / 40f32.to_radians().cos(), "{reach}");
+    }
+
+    #[test]
+    fn the_bottom_of_the_players_chunks_counts_where_it_is_nearer_than_around_the_player() {
+        // A render distance of 8 around the chunk (0, 10, 0) reaches y = 32: 118 blocks under
+        // the twin, nearer than the 128 the player's own fog takes for granted, and farther
+        // than the chunks sent
+        let deep = Some((IVec3::new(0, 10, 0), 8));
+        assert_near(held_reach(&ceiling(150), Vec3::NEG_Y, wide(), deep), 118.0);
+        // Around the chunk (0, 14, 0), it reaches y = 96, 54 blocks under: the chunks sent
+        // reach farther
+        let shallow = Some((IVec3::new(0, 14, 0), 8));
+        assert_near(
+            held_reach(&ceiling(150), Vec3::NEG_Y, wide(), shallow),
+            70.0,
+        );
+    }
+
+    #[test]
+    fn the_top_and_bottom_of_the_players_chunks_clamp_no_level_view() {
+        // A render distance of 12 reaches 8 chunks up and down, 128 blocks: the twin in the
+        // player's chunk has them 132.5 and 139.5 blocks away, which the player's own fog does
+        // not count either. The west edge, 212 blocks away, is the reach
+        let own = Some((IVec3::ZERO, 12));
+        assert_near(held_reach(&twin(), Vec3::NEG_X, wide(), own), 212.0);
     }
 
     #[test]

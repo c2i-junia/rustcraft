@@ -507,9 +507,12 @@ behind the twin, inside its box when it is within 0.12 block of its plane, where
 plain projection. Its fog ends behind the twin where the chunks the client holds around it end
 (`held_reach`), but never farther than the player's own fog, which under water it keeps
 (`portal_fog`). The chunks held are those sent around the twin (`PORTAL_VIEW_RADIUS`) and, when
-the twin is among them, the player's own; each is a square of columns, which reaches as far as
-its nearest edge along x and z, as for the player's fog, an edge counting as far as the view can
-turn to it and not at all behind the twin. Through a close twin, the player's own chunks reach
+the twin is among them, the player's own; each is a box of chunks, which reaches as far as its
+nearest face, a face counting as far as the view can turn to it and not at all behind the twin.
+The top and bottom of the player's box count only nearer than they are to the player at most,
+as the player's own fog does not count them; a box reaching the bedrock (y = 0) has no bottom.
+So looking down out of a far ceiling twin, the fog ends at the bottom of the chunks sent.
+Through a close twin, the player's own chunks reach
 past its fog, and the portal camera gets that fog as it is: crossing does not change it. The sun, the moon and the stars, parented to the local player, are drawn a
 million blocks away (`CELESTIAL_DISTANCE`), on the far plane, unfogged and never
 frustum-culled, so that every camera, a portal camera far from the player too, sees them in the
