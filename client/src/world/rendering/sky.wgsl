@@ -54,8 +54,8 @@ fn clear_sky_radiance(dir: vec3<f32>, blur: f32) -> vec3<f32> {
 
 // How bright a flash of lightning makes the overcast sky, on screen: a little all over, and
 // most toward the flash in the clouds.
-const FLASH_SKY: f32 = 0.22;
-const FLASH_SKY_TOWARD: f32 = 1.1;
+const FLASH_SKY: f32 = 0.05;
+const FLASH_SKY_TOWARD: f32 = 0.55;
 
 // The overcast sky toward `dir`, as seen on screen: lighter at the horizon, darker up high,
 // and at sunrise and sunset, warm low toward the sun; lit by a flash of lightning, most toward
@@ -66,7 +66,7 @@ fn overcast_sky(dir: vec3<f32>) -> vec3<f32> {
     let glow = weather.glow.rgb * toward * toward * toward * (1.0 - smoothstep(-0.05, 0.45, dir.y));
     var sky = mix(weather.horizon.rgb, weather.zenith.rgb, up) + glow;
     if weather.flash > 0.0 {
-        let lobe = pow(max(dot(dir, weather.flash_dir.xyz), 0.0), 5.0);
+        let lobe = pow(max(dot(dir, weather.flash_dir.xyz), 0.0), 8.0);
         sky += FLASH_COLOR * weather.flash * (FLASH_SKY + FLASH_SKY_TOWARD * lobe);
     }
     return sky;

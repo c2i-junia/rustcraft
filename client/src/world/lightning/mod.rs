@@ -24,12 +24,13 @@ const NEAR: f32 = 40.;
 const FARTHEST_FLASH: f32 = 0.12;
 
 /// How bright the even light of a flash at its brightest is on screen, on a white face open to
-/// the sky: as the overcast at noon. The flash in the clouds and the bolt light more (the
+/// the sky: a quarter of the overcast at noon, so that a flash by night lights the world dimly
+/// and coldly, and one by day shows. The flash in the clouds and the bolt light more (the
 /// shaders).
-const FLASH_LIGHT: f32 = 0.5;
+const FLASH_LIGHT: f32 = 0.15;
 
 /// How much the eye opens to a flash at its brightest, in stops, with the physical sky.
-const FLASH_EXPOSURE: f32 = 0.5;
+const FLASH_EXPOSURE: f32 = 0.25;
 
 /// The brightness to add to the ambient light for the even light of the flash `flash`, at the
 /// exposure `ev100`: on screen, a light is its brightness times the exposure,

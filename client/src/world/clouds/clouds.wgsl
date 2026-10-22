@@ -29,9 +29,9 @@ struct CloudParams {
 
 // How bright a flash of lightning makes the clouds on screen: from within, around the strike,
 // over `FLASH_REACH` blocks, and a little all over.
-const FLASH_GLOW: f32 = 2.6;
+const FLASH_GLOW: f32 = 1.1;
 const FLASH_REACH: f32 = 56.0;
-const FLASH_ALL_OVER: f32 = 0.25;
+const FLASH_ALL_OVER: f32 = 0.06;
 
 // The side of a cell, `CELL` in `clouds/mod.rs`
 const CELL: i32 = 12;
@@ -103,7 +103,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // Lit from within around the strike, some cells more than others, the bottoms the most
         let off = length(in.world_position.xz - weather.strike.xz) / FLASH_REACH;
         let near = weather.strike.w * FLASH_GLOW * exp(-off * off);
-        let glow = (near + weather.flash * FLASH_ALL_OVER) * (0.55 + 0.9 * cell) / max(in.shade, 0.7);
+        let glow = (near + weather.flash * FLASH_ALL_OVER) * (0.85 + 0.3 * cell) / max(in.shade, 0.7);
         lit += FLASH_COLOR * glow;
     }
     return vec4(lit, alpha);

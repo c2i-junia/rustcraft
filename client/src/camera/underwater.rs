@@ -47,7 +47,7 @@ pub fn weather_sky_color(tick: u64, overcast: Overcast) -> Color {
 
 /// How much a flash of lightning at its brightest adds to the colour behind the world, in
 /// linear RGB: the overcast lit from within.
-const FLASH_SKY: Vec3 = Vec3::new(0.3, 0.31, 0.36);
+const FLASH_SKY: Vec3 = Vec3::new(0.12, 0.125, 0.15);
 
 /// `sky`, lit by a flash of lightning as bright as `flash`.
 pub fn flashed_sky_color(sky: Color, flash: f32) -> Color {
@@ -160,7 +160,7 @@ mod tests {
         let grey = Color::linear_rgb(0.01, 0.012, 0.015);
         assert_eq!(flashed_sky_color(grey, 0.), grey);
         let lit = flashed_sky_color(grey, 1.).to_linear();
-        assert!(lit.blue > lit.red && lit.red > 0.25, "{lit:?}");
+        assert!(lit.blue > lit.red && lit.red > 0.1, "{lit:?}");
         let half = flashed_sky_color(grey, 0.5).to_linear();
         assert!(half.red < lit.red && half.red > grey.to_linear().red);
     }
