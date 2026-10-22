@@ -58,7 +58,8 @@ fn on_screen(clip: vec4<f32>) -> vec2<f32> {
 }
 
 fn clip_of(index: u32) -> vec4<f32> {
-    return view.clip_from_world * vec4(points[index].position, 1.0);
+    // Unjittered: the TAA is done with
+    return view.unjittered_clip_from_world * vec4(points[index].position, 1.0);
 }
 
 fn direction(start: vec2<f32>, end: vec2<f32>) -> vec2<f32> {

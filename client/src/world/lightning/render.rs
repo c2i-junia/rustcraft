@@ -420,6 +420,13 @@ mod tests {
     }
 
     #[test]
+    fn the_bolt_is_drawn_after_the_taa_without_its_jitter() {
+        let source = include_str!("lightning.wgsl");
+        assert!(source.contains("view.unjittered_clip_from_world"));
+        assert!(!source.contains("view.clip_from_world"));
+    }
+
+    #[test]
     fn a_later_stroke_lights_the_main_channel_alone_and_a_far_strike_draws_nothing() {
         let peaks: Vec<f32> = lightning_at(0., 40).strikes[0].strokes.peaks().collect();
         let lightning = lightning_at(peaks[1], 40);
