@@ -349,26 +349,52 @@ fn apply_camera_features(
     }
 }
 
-/// Gives the portal cameras the physical sky of the player's camera, a frame after it got it.
-/// Bevy 0.19 fills the buffer of the atmosphere only while a single camera has one, and the
-/// cameras with one draw with it; never filled, it is missing and nothing is drawn: the player's
-/// camera must draw a frame with it alone first. The buffer, filled then, holds the atmosphere
-/// of every camera, which is the same one. The environment map of the sky, which lights the world
-/// and which the chunks fade into, is the player's camera's (`share_the_environment_map`).
+/// Gives the portal cameras the physical sky of the player's camera, a frame after Bevy made the
+/// environment map of the player's camera's sky. Bevy 0.19 fills the buffer of the atmosphere
+/// only while a single camera has one, and the cameras with one draw with it; never filled, it is
+/// missing and nothing is drawn: the player's camera must draw a frame with it alone first. The
+/// buffer, filled then, holds the atmosphere of every camera, which is the same one.
+///
+/// The environment map of the sky, which lights the world and which the chunks fade into
+/// (`share_the_environment_map`), Bevy draws with the tables of the atmosphere (its LUTs) of the
+/// first camera it finds when the map is made, and keeps those textures; and it hands the
+/// textures of a size out each frame to the cameras in the order it finds them. A portal camera
+/// that came first had the player's sky drawn with its tables, made from where it looks out:
+/// past the chunks, the ground of the planet showed over the horizon, dark, by the order the
+/// systems happened to run in. So the portal cameras get the sky once the map is made, while the
+/// player's camera was alone, and tables of other sizes (`portal_atmosphere`), which never are
+/// the player's camera's.
 fn give_portal_cameras_the_sky(
     graphics: Res<GraphicsSettings>,
-    main: Query<Ref<AtmosphereSettings>, With<CameraController>>,
+    main: Query<
+        (Ref<AtmosphereSettings>, Option<Ref<EnvironmentMapLight>>),
+        With<CameraController>,
+    >,
     portal_cameras: Query<Entity, (With<PortalCamera>, Without<AtmosphereSettings>)>,
     mut commands: Commands,
 ) {
-    let main_sky = main.single().is_ok_and(|settings| !settings.is_added());
+    let main_sky = main.single().is_ok_and(|(settings, map)| {
+        !settings.is_added() && map.is_some_and(|map| !map.is_added())
+    });
     if !features(&graphics).sky || !main_sky {
         return;
     }
     for camera in &portal_cameras {
-        commands
-            .entity(camera)
-            .insert(AtmosphereSettings::default());
+        commands.entity(camera).insert(portal_atmosphere());
+    }
+}
+
+/// The atmosphere of a portal camera: Bevy's, with tables one texel wider than the player's
+/// camera's, so that no texture of the player's camera's sky is ever handed to a portal camera
+/// (`give_portal_cameras_the_sky`).
+fn portal_atmosphere() -> AtmosphereSettings {
+    let player = AtmosphereSettings::default();
+    AtmosphereSettings {
+        transmittance_lut_size: player.transmittance_lut_size + UVec2::X,
+        multiscattering_lut_size: player.multiscattering_lut_size + UVec2::X,
+        sky_view_lut_size: player.sky_view_lut_size + UVec2::X,
+        aerial_view_lut_size: player.aerial_view_lut_size + UVec3::X,
+        ..player
     }
 }
 
@@ -919,16 +945,9 @@ mod tests {
         };
         assert_eq!(rays(main), (48, 0.5));
         assert_eq!(rays(portal), (48, 0.));
+        // Nor before Bevy made the environment map of the player's camera's sky
         app.update();
-        assert_eq!(has(&app, portal), (true, false, false, true, false, true));
-        app.update();
-        assert!(app.world().entity(portal).contains::<AtmosphereSettings>());
-        // The environment map of the sky is the player's camera's, not one of its own, once
-        // Bevy made it
-        assert!(!app
-            .world()
-            .entity(portal)
-            .contains::<AtmosphereEnvironmentMapLight>());
+        assert_eq!(has(&app, portal), (true, false, false, true, false, false));
         let images = Assets::<Image>::default();
         let map = EnvironmentMapLight {
             diffuse_map: images.reserve_handle(),
@@ -937,6 +956,30 @@ mod tests {
         };
         app.world_mut().entity_mut(main).insert(map.clone());
         app.update();
+        assert!(!app.world().entity(portal).contains::<AtmosphereSettings>());
+        // A frame after: with tables of its own, none of the player's camera's
+        app.update();
+        assert_eq!(has(&app, portal), (true, false, false, true, false, true));
+        let tables = |settings: &AtmosphereSettings| {
+            (
+                settings.transmittance_lut_size,
+                settings.multiscattering_lut_size,
+                settings.sky_view_lut_size,
+                settings.aerial_view_lut_size.xy(),
+            )
+        };
+        let (own, players) = (
+            tables(app.world().get::<AtmosphereSettings>(portal).unwrap()),
+            tables(app.world().get::<AtmosphereSettings>(main).unwrap()),
+        );
+        assert!(
+            own.0 != players.0 && own.1 != players.1 && own.2 != players.2 && own.3 != players.3
+        );
+        // The environment map of the sky is the player's camera's, not one of its own
+        assert!(!app
+            .world()
+            .entity(portal)
+            .contains::<AtmosphereEnvironmentMapLight>());
         let shared = app.world().get::<EnvironmentMapLight>(portal).unwrap();
         assert_eq!(
             (&shared.diffuse_map, &shared.specular_map),
