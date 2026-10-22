@@ -112,8 +112,8 @@ pub fn vertex_count(points: usize) -> u32 {
     6 * points.saturating_sub(1) as u32
 }
 
-/// The pass of the bolts, in the render world. It draws for the camera of the player, the
-/// `PrecipitationView` that the pass of the rain extracts.
+/// The pass of the bolts, in the render world. It draws for the camera of the player and those
+/// of the portals, the `PrecipitationView`s that the pass of the rain extracts.
 pub fn lightning_render_plugin(app: &mut App) {
     load_internal_asset!(app, LIGHTNING_SHADER, "lightning.wgsl", Shader::from_wgsl);
     app.init_resource::<LightningDraw>()

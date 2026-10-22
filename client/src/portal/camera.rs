@@ -10,7 +10,7 @@ use bevy::{
     },
     core_pipeline::tonemapping::Tonemapping,
     prelude::*,
-    render::render_resource::TextureFormat,
+    render::render_resource::{TextureFormat, TextureUsages},
     window::PrimaryWindow,
 };
 use shared::world::{
@@ -26,9 +26,12 @@ use super::shot::ShownPortals;
 use super::{
     camera_layers, DrawnPortals, OwnView, PortalCamera, PortalRecursion, PORTAL_RECURSION,
 };
-use crate::camera::{CameraController, FOG_START, SKY_COLOR};
+use crate::camera::{CameraController, SKY_COLOR};
 use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
+use crate::world::overcast::Overcast;
+use crate::world::precipitation::render::PrecipitationView;
+use crate::world::weather::ClientWeather;
 use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
 
 /// An image a portal camera can draw into and a material can read, `size` in pixels. In 16-bit
@@ -48,7 +51,15 @@ pub(super) fn spawn_portal_camera(
 ) -> Entity {
     commands
         .spawn((
-            Camera3d::default(),
+            Camera3d {
+                // Read by the passes of the rain and of the bolts, as the player's camera's is
+                depth_texture_usages: (TextureUsages::RENDER_ATTACHMENT
+                    | TextureUsages::TEXTURE_BINDING)
+                    .into(),
+                ..default()
+            },
+            // The rain, the snow and the bolts around it, as around the player's camera
+            PrecipitationView,
             Camera {
                 // Before the level above, which shows its image the same frame, the player's
                 // camera, of order 0, last
@@ -188,6 +199,7 @@ pub(super) fn place_portal_cameras(
     player: Query<&Transform, (With<CurrentPlayerMarker>, Without<PortalCamera>)>,
     render_distance: Option<Res<RenderDistance>>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
+    weather: Option<Res<ClientWeather>>,
     mut started: ResMut<PortalViewsStarted>,
     mut commands: Commands,
 ) {
@@ -196,6 +208,7 @@ pub(super) fn place_portal_cameras(
     else {
         return;
     };
+    let overcast = Overcast::current(weather.as_deref());
     // The player's own chunks, as the server sends them (`ChunkReach`), from its predicted
     // position: crossing a chunk border, they may be one chunk ahead of those sent for a few
     // frames, as the player's own fog is
@@ -282,7 +295,7 @@ pub(super) fn place_portal_cameras(
                     _ => FRAC_PI_2,
                 };
                 let reach = held_reach(twin, *transform.forward(), wide, player_chunks);
-                portal_fog(main_fog, behind, reach)
+                portal_fog(main_fog, behind, reach, overcast)
             });
             match (&new_fog, fog) {
                 (Some(new_fog), Some(mut fog)) => *fog = new_fog.clone(),
@@ -474,16 +487,22 @@ pub(super) fn held_reach(
 }
 
 /// The fog of the camera of a portal whose player's camera, of fog `main`, stands `behind` blocks
-/// from the portal, which puts the portal camera as far from the twin: it ends `reach` blocks
-/// behind the twin, where the chunks held around it end (`held_reach`), and starts as the
-/// player's does over its render distance. Never farther than the player's: a player sees no
-/// farther through a portal than around itself, and under water the fog of the water, between
-/// the eye and the portal, stays as near.
-pub(super) fn portal_fog(main: &DistanceFog, behind: f32, reach: f32) -> DistanceFog {
+/// from the portal, which puts the portal camera as far from the twin: it ends and starts behind
+/// the twin as the player's does under `overcast` with the chunks shown up to `reach`, where the
+/// chunks held around the twin end (`held_reach`): at `reach` under a clear sky, nearer in rain.
+/// Never farther than the player's: a player sees no farther through a portal than around
+/// itself, and under water the fog of the water, between the eye and the portal, stays as near.
+pub(super) fn portal_fog(
+    main: &DistanceFog,
+    behind: f32,
+    reach: f32,
+    overcast: Overcast,
+) -> DistanceFog {
+    let (fog_start, fog_end) = overcast.fog_range(reach);
     let falloff = match main.falloff {
         FogFalloff::Linear { start, end } => FogFalloff::Linear {
-            start: start.min(behind + FOG_START * reach),
-            end: end.min(behind + reach),
+            start: start.min(behind + fog_start),
+            end: end.min(behind + fog_end),
         },
         ref other => other.clone(),
     };
@@ -496,6 +515,11 @@ pub(super) fn portal_fog(main: &DistanceFog, behind: f32, reach: f32) -> Distanc
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CLEAR: Overcast = Overcast {
+        level: 0.,
+        storm: 0.,
+    };
     use shared::world::{FaceDirection, PortalColor};
 
     fn linear(color: Color, start: f32, end: f32) -> DistanceFog {
@@ -579,7 +603,7 @@ mod tests {
         // The player's fog reaches no farther: the portal camera gets it as it is
         let main = linear(SKY_COLOR, 0.6 * 128.0, 128.0);
         assert_eq!(
-            falloff(&portal_fog(&main, 0.05, reach)),
+            falloff(&portal_fog(&main, 0.05, reach, CLEAR)),
             (0.6 * 128.0, 128.0)
         );
     }
@@ -683,16 +707,38 @@ mod tests {
     #[test]
     fn a_portal_cameras_fog_ends_where_the_chunks_held_end_behind_the_twin() {
         let main = linear(SKY_COLOR, 0.6 * 384.0, 384.0);
-        let fog = portal_fog(&main, 5.0, 68.0);
+        let fog = portal_fog(&main, 5.0, 68.0, CLEAR);
         assert_eq!(fog.color, SKY_COLOR);
-        assert_eq!(falloff(&fog), (5.0 + FOG_START * 68.0, 5.0 + 68.0));
+        assert_eq!(falloff(&fog), (5.0 + 0.6 * 68.0, 5.0 + 68.0));
+    }
+
+    #[test]
+    fn in_rain_a_portal_cameras_fog_closes_in_behind_the_twin_as_the_players_does() {
+        let rain = Overcast {
+            level: 1.,
+            storm: 0.,
+        };
+        // The player's fog in rain, with a render distance of 24 chunks
+        let (start, end) = rain.fog_range(384.0);
+        let main = linear(SKY_COLOR, start, end);
+        let (twin_start, twin_end) = rain.fog_range(68.0);
+        assert!(twin_end < 68.0 && twin_start < 0.6 * twin_end);
+        assert_eq!(
+            falloff(&portal_fog(&main, 5.0, 68.0, rain)),
+            (5.0 + twin_start, 5.0 + twin_end)
+        );
+        // Through a close twin, the player's own
+        assert_eq!(falloff(&portal_fog(&main, 0.05, 400.0, rain)), (start, end));
     }
 
     #[test]
     fn under_water_or_with_a_short_render_distance_a_portal_cameras_fog_is_the_players() {
         let water = linear(Color::srgb_u8(30, 62, 130), 2.0, 16.0);
-        assert_eq!(falloff(&portal_fog(&water, 5.0, 68.0)), (2.0, 16.0));
+        assert_eq!(falloff(&portal_fog(&water, 5.0, 68.0, CLEAR)), (2.0, 16.0));
         let short = linear(SKY_COLOR, 0.6 * 32.0, 32.0);
-        assert_eq!(falloff(&portal_fog(&short, 5.0, 68.0)), (0.6 * 32.0, 32.0));
+        assert_eq!(
+            falloff(&portal_fog(&short, 5.0, 68.0, CLEAR)),
+            (0.6 * 32.0, 32.0)
+        );
     }
 }

@@ -4,6 +4,7 @@
 use bevy::prelude::*;
 
 use crate::camera::eye_under_water;
+use crate::portal::PortalCamera;
 use crate::state::GameState;
 use crate::world::weather::ClientWeather;
 use crate::world::{ClientWorldMap, GraphicsSettings, MaterialResource, ShaderQuality};
@@ -58,7 +59,7 @@ fn precipitation_draw_system(
     materials: Res<MaterialResource>,
     occlusion: Res<OcclusionMap>,
     world_map: Res<ClientWorldMap>,
-    cameras: Query<&GlobalTransform, With<PrecipitationView>>,
+    cameras: Query<&GlobalTransform, (With<PrecipitationView>, Without<PortalCamera>)>,
     mut draw: ResMut<PrecipitationDraw>,
 ) {
     let level = weather.precipitation();

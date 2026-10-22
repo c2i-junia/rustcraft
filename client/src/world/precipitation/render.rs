@@ -41,8 +41,9 @@ use crate::world::overcast::WeatherShading;
 
 const PRECIPITATION_SHADER: Handle<Shader> = uuid_handle!("a4c7e2d9-58b1-4f03-9e6a-2d71c0b8f5e4");
 
-/// Marks the camera that the rain and the snow are drawn for: the camera of the player, whose
-/// depth texture is made readable for them.
+/// Marks the cameras that the rain and the snow are drawn for: the camera of the player and the
+/// cameras of the portals, which show them around the twin, whose depth textures are made
+/// readable for them.
 #[derive(Component, Clone, Copy, Default, ExtractComponent)]
 pub struct PrecipitationView;
 
