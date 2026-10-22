@@ -64,11 +64,7 @@ pub fn broadcast_world_state(
         };
 
         let render_distance = world_map.render_distances.get(player.id);
-        let reach = ChunkReach::new(
-            world_position_to_chunk_position(player.position),
-            render_distance,
-            chunks.portals(),
-        );
+        let reach = ChunkReach::of_player(player, render_distance, chunks.portals());
         for message in mob_messages(
             player.position,
             &reach,
@@ -329,8 +325,7 @@ pub fn get_all_active_chunks<'a>(
 /// The chunks within the `radius` of each player, each once, in the order the players reach
 /// them, as they are asked for: the hundreds of thousands of a large render distance are not
 /// all listed when the first few are enough. Then those around the twins of the open portals
-/// within the radius of each player (`ChunkReach::portal_chunks`) that no player has within its
-/// radius, each once: 729 at most per twin, listed at once.
+/// within the radius of each player (`behind_portals`).
 pub fn active_chunks<'a>(
     players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
     radius: impl Fn(PlayerId) -> i32,
@@ -338,21 +333,35 @@ pub fn active_chunks<'a>(
 ) -> impl Iterator<Item = IVec3> {
     let reaches: Vec<ChunkReach> = players
         .into_iter()
-        .map(|(&id, player)| {
-            let chunk = world_position_to_chunk_position(player.position);
-            ChunkReach::new(chunk, radius(id), portals)
-        })
+        .map(|(&id, player)| ChunkReach::of_player(player, radius(id), portals))
         .collect();
+    let behind = behind_portals(&reaches);
+    active_chunks_of(&reaches, behind)
+}
+
+/// The chunks around the twins of the open portals within the reach of each of `reaches`
+/// (`ChunkReach::portal_chunks`) that none has within its render distance, each once: up to
+/// thousands around an approached twin (`MAX_APPROACHED_EXTRA_CHUNKS`), to be listed once per
+/// reach, not on every tick.
+pub fn behind_portals(reaches: &[ChunkReach]) -> Arc<[IVec3]> {
     // A single player's are each once, and not within its render distance already
     let mut seen = (reaches.len() > 1).then(HashSet::new);
-    let behind_portals: Vec<IVec3> = reaches
+    reaches
         .iter()
         .flat_map(ChunkReach::portal_chunks)
         .filter(|&chunk| match seen.as_mut() {
             Some(seen) => !reaches.iter().any(|reach| reach.within(chunk, 0)) && seen.insert(chunk),
             None => true,
         })
-        .collect();
+        .collect()
+}
+
+/// `active_chunks`, of the reaches `reaches`, with the chunks `behind_portals` of them.
+pub fn active_chunks_of(
+    reaches: &[ChunkReach],
+    behind_portals: Arc<[IVec3]>,
+) -> impl Iterator<Item = IVec3> {
+    let behind = (0..behind_portals.len()).map(move |i| behind_portals[i]);
     let around: Vec<(IVec3, std::sync::Arc<[IVec3]>)> = reaches
         .iter()
         .map(|reach| (reach.center, render_distance_offsets(reach.distance)))
@@ -363,7 +372,7 @@ pub fn active_chunks<'a>(
         .into_iter()
         .flat_map(|(chunk, offsets)| (0..offsets.len()).map(move |i| chunk + offsets[i]))
         .filter(move |chunk| seen.as_mut().is_none_or(|seen| seen.insert(*chunk)))
-        .chain(behind_portals)
+        .chain(behind)
 }
 
 #[cfg(test)]
@@ -1358,6 +1367,31 @@ mod tests {
         }
         let far = sent.chunks.iter().filter(|c| c.x > distance).count();
         assert_eq!(far, 9 * 9 * 9);
+    }
+
+    #[test]
+    fn a_player_in_a_flying_sprint_has_the_render_distance_of_a_twin_sent_from_farther() {
+        let distance = 6;
+        let chunks = {
+            let mut chunks = varied_cubes(&[(IVec3::ZERO, distance), (FAR_TWIN, distance)]);
+            open_pair(&mut chunks, 5);
+            chunks
+        };
+        let mut player = Player::new(1, "PlayerOne".into(), Vec3::splat(8.0), default());
+        let far_sent = |player: &Player| {
+            let reach = ChunkReach::of_player(player, distance, chunks.portals());
+            let mut sent = SentChunks::default();
+            for _ in 0..40 {
+                world_messages_around(&chunks, &[], &reach, &mut sent);
+            }
+            sent.chunks.iter().filter(|c| c.x > distance).count()
+        };
+        // On foot, 5 chunks from the portal: the view radius
+        assert_eq!(far_sent(&player), 9 * 9 * 9);
+        // In a flying sprint, the whole render distance
+        player.is_flying = true;
+        player.is_sprinting = true;
+        assert_eq!(far_sent(&player), render_distance_offsets(distance).len());
     }
 
     #[test]

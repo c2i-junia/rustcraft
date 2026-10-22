@@ -2,7 +2,7 @@
 //! a player ever came near, tens of thousands more at each walk with a large render distance.
 
 use bevy::prelude::*;
-use shared::world::{world_position_to_chunk_position, ChunkReach};
+use shared::world::ChunkReach;
 use shared::{TICKS_PER_SECOND, UNLOAD_MARGIN};
 
 use crate::init::ServerTime;
@@ -50,8 +50,8 @@ fn unload_far_chunks(world_map: &mut ServerWorldMap) -> usize {
         .players
         .values()
         .map(|player| {
-            ChunkReach::new(
-                world_position_to_chunk_position(player.position),
+            ChunkReach::of_player(
+                player,
                 world_map.render_distances.get(player.id),
                 world_map.chunks.portals(),
             )

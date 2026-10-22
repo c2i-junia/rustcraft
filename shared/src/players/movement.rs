@@ -419,6 +419,11 @@ fn goes_into_portal(player: &Player, world_map: &ChunkMap, candidate: Vec3) -> b
         .goes_into(player.position, candidate, player.width / 2.0)
 }
 
+/// The horizontal speed `player` moves at out of the water, in blocks/s.
+pub fn top_speed(player: &Player) -> f32 {
+    speed(player, false)
+}
+
 /// The horizontal speed of the player, in blocks/s.
 fn speed(player: &Player, in_liquid: bool) -> f32 {
     if player.is_flying {

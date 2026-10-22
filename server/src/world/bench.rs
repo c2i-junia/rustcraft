@@ -21,6 +21,21 @@ use super::data::SentChunks;
 use super::generation::{generate_chunk, WorldGenerator};
 use super::simulation::{generate_missing_chunks, ChunkLoader};
 
+/// The reaches of `players`, with the render distance `radius`, and the chunks around their
+/// twins, as the server's loader keeps them while they do not change.
+fn reaches_of(
+    players: &HashMap<u64, Player>,
+    radius: i32,
+    chunks: &ChunkMap,
+) -> (Vec<shared::world::ChunkReach>, std::sync::Arc<[IVec3]>) {
+    let reaches: Vec<_> = players
+        .values()
+        .map(|player| shared::world::ChunkReach::of_player(player, radius, chunks.portals()))
+        .collect();
+    let behind = super::broadcast_world::behind_portals(&reaches);
+    (reaches, behind)
+}
+
 const SEED: u32 = 42;
 /// The chunk of a player standing on the plains of `SEED`, around height 64.
 const PLAYER_CHUNK: IVec3 = IVec3::new(-27, 4, 27);
@@ -256,10 +271,11 @@ fn bench_join_generation() {
     let mut ticks = Vec::new();
     let tick = Duration::from_millis(1000 / TICKS_PER_SECOND);
     let start = Instant::now();
+    let (reaches, behind) = reaches_of(&players, radius, &chunks);
     loop {
         let tick_start = Instant::now();
         loader.insert_made(&mut chunks, &mut dirty, &mut Vec::new());
-        let complete = loader.ask(&players, |_| radius, &chunks, None, &mut asked);
+        let complete = loader.ask(&reaches, behind.clone(), None, &chunks, &mut asked);
         ticks.push(tick_start.elapsed().as_secs_f64() * 1e3);
         if complete || ticks.len() == 10000 {
             break;
@@ -446,9 +462,10 @@ fn bench_portal_area() {
     let tick = Duration::from_millis(1000 / TICKS_PER_SECOND);
     // The player's own render distance, made and sent
     let mut asked = 0;
+    let (reaches, behind) = reaches_of(&players, radius, &chunks);
     loop {
         loader.insert_made(&mut chunks, &mut dirty, &mut Vec::new());
-        if loader.ask(&players, |_| radius, &chunks, None, &mut asked) {
+        if loader.ask(&reaches, behind.clone(), None, &chunks, &mut asked) {
             break;
         }
         std::thread::sleep(tick);
@@ -475,15 +492,23 @@ fn bench_portal_area() {
         });
     }
     let reach = shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals());
-    let area = reach.portal_chunks().len();
-    let (mut ticks, mut bytes, mut largest, mut longest) = (0, 0, 0, 0f64);
+    let portal_chunks = reach.portal_chunks();
+    let area = portal_chunks.len();
+    let (mut ticks, mut bytes, mut largest, mut longest, mut longest_ask) = (0, 0, 0, 0f64, 0f64);
     let mut asked = 0;
     let mut generated_in = None;
     let start = Instant::now();
+    // Listed once, as the loader keeps them while the reach does not change
+    let listed = Instant::now();
+    let (reaches, behind) = reaches_of(&players, radius, &chunks);
+    let listing = listed.elapsed().as_secs_f64() * 1e3;
     while sent.chunks.len() < own + area && ticks < 10_000 {
         let tick_start = Instant::now();
         loader.insert_made(&mut chunks, &mut dirty, &mut Vec::new());
-        if loader.ask(&players, |_| radius, &chunks, None, &mut asked) && generated_in.is_none() {
+        let ask_start = Instant::now();
+        let complete = loader.ask(&reaches, behind.clone(), None, &chunks, &mut asked);
+        longest_ask = longest_ask.max(ask_start.elapsed().as_secs_f64() * 1e3);
+        if complete && generated_in.is_none() {
             generated_in = Some(start.elapsed().as_secs_f64() * 1e3);
         }
         let (_, _, new_chunks) = world_messages_around(&chunks, &[], &reach, &mut sent);
@@ -506,10 +531,11 @@ fn bench_portal_area() {
         std::thread::sleep(tick.saturating_sub(tick_start.elapsed()));
     }
     let wall = start.elapsed().as_secs_f64() * 1e3;
-    let varied = (0..area)
-        .filter(|&i| {
+    let varied = portal_chunks
+        .iter()
+        .filter(|&&chunk| {
             chunks
-                .chunk(reach.portal_chunks()[i])
+                .chunk(chunk)
                 .is_some_and(|chunk| chunk.uniform().is_none())
         })
         .count();
@@ -522,7 +548,8 @@ fn bench_portal_area() {
     println!(
         "portal area (radius {radius}): {area} chunks ({varied} varied), generated in {:.0} ms, \
          all sent in {ticks} ticks = {wall:.0} ms, {} KiB, largest message {} KiB, longest tick \
-         {longest:.1} ms; then {:.1} µs per broadcast",
+         {longest:.1} ms (of which the loader's ask {longest_ask:.2} ms; the area listed once in \
+         {listing:.1} ms); then {:.1} µs per broadcast",
         generated_in.unwrap_or(f64::NAN),
         bytes / 1024,
         largest / 1024,

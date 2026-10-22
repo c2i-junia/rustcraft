@@ -10,7 +10,7 @@ use shared::{
         simulation::simulate_player_actions,
         Player,
     },
-    world::{world_position_to_chunk_position, Chunk, ChunkMap, ChunkReach, ServerMob, WorldSeed},
+    world::{Chunk, ChunkMap, ChunkReach, ServerMob, WorldSeed},
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -30,7 +30,7 @@ use crate::{
     },
 };
 
-use super::broadcast_world::active_chunks;
+use super::broadcast_world::{self, active_chunks, active_chunks_of};
 use super::pool::generation_pool;
 
 #[derive(Message, Debug)]
@@ -169,12 +169,9 @@ impl ChunkLoader {
         }
     }
 
-    /// Asks for the missing chunks within `radius` of each of `players`, the nearest to each
-    /// player first, past the first `asked` in that order (`active_chunks`), which are known to
-    /// be loaded or in flight: those of a large render distance would otherwise be looked at
-    /// again on every tick until the last is loaded. `asked` then counts those asked for now.
-    /// Says whether every chunk within reach is loaded.
-    pub(super) fn ask<'a>(
+    /// `ask`, for the reaches of `players` with the render distance `radius`, listed anew.
+    #[cfg(test)]
+    pub(super) fn ask_players<'a>(
         &mut self,
         players: impl IntoIterator<Item = (&'a PlayerId, &'a Player)>,
         radius: impl Fn(PlayerId) -> i32,
@@ -182,7 +179,28 @@ impl ChunkLoader {
         saved: Option<&Path>,
         asked: &mut usize,
     ) -> bool {
-        let mut active = active_chunks(players, radius, chunks.portals()).skip(*asked);
+        let reaches: Vec<ChunkReach> = players
+            .into_iter()
+            .map(|(&id, player)| ChunkReach::of_player(player, radius(id), chunks.portals()))
+            .collect();
+        let behind = broadcast_world::behind_portals(&reaches);
+        self.ask(&reaches, behind, saved, chunks, asked)
+    }
+
+    /// Asks for the missing chunks within each of `reaches`, the nearest to each player first,
+    /// then those around the twins, `behind_portals` (`active_chunks_of`), past the first
+    /// `asked` in that order, which are known to be loaded or in flight: those of a large render
+    /// distance would otherwise be looked at again on every tick until the last is loaded.
+    /// `asked` then counts those asked for now. Says whether every chunk within reach is loaded.
+    pub(super) fn ask(
+        &mut self,
+        reaches: &[ChunkReach],
+        behind_portals: Arc<[IVec3]>,
+        saved: Option<&Path>,
+        chunks: &ChunkMap,
+        asked: &mut usize,
+    ) -> bool {
+        let mut active = active_chunks_of(reaches, behind_portals).skip(*asked);
         let mut missing = Vec::new();
         let mut reached_all = false;
         while self.in_flight.len() + missing.len() < self.most_in_flight {
@@ -224,6 +242,8 @@ impl ChunkLoader {
 #[derive(Default)]
 pub struct LoadedAround {
     around: Vec<(PlayerId, ChunkReach)>,
+    /// The chunks around the twins (`behind_portals`), listed once per reach.
+    behind_portals: Option<Arc<[IVec3]>>,
     asked: usize,
     complete: bool,
 }
@@ -264,11 +284,10 @@ pub fn handle_player_inputs_system(
     let mut around: Vec<_> = players
         .values()
         .map(|player| {
-            let chunk = world_position_to_chunk_position(player.position);
             let distance = render_distances.get(player.id);
             (
                 player.id,
-                ChunkReach::new(chunk, distance, chunks.portals()),
+                ChunkReach::of_player(player, distance, chunks.portals()),
             )
         })
         .collect();
@@ -292,15 +311,17 @@ pub fn handle_player_inputs_system(
     }
     if !loaded_around.complete {
         // In the order of their ids, which the count of the chunks asked for relies on
-        let mut by_id: Vec<_> = players.iter().collect();
-        by_id.sort_by_key(|&(id, _)| *id);
-        loaded_around.complete = loader.ask(
-            by_id,
-            |id| render_distances.get(id),
-            chunks,
-            saved,
-            &mut loaded_around.asked,
-        );
+        let LoadedAround {
+            around,
+            behind_portals,
+            asked,
+            complete,
+        } = &mut *loaded_around;
+        let reaches: Vec<ChunkReach> = around.iter().map(|(_, reach)| reach.clone()).collect();
+        let behind = behind_portals
+            .get_or_insert_with(|| broadcast_world::behind_portals(&reaches))
+            .clone();
+        *complete = loader.ask(&reaches, behind, saved, chunks, asked);
     }
 
     for ev in events.read() {
@@ -569,16 +590,16 @@ mod tests {
         let loaded = |chunks: &ChunkMap| chunks.chunk_positions().collect::<Vec<_>>();
         let mut asked = 0;
 
-        assert!(!loader.ask(&players, |_| 2, &chunks, None, &mut asked));
+        assert!(!loader.ask_players(&players, |_| 2, &chunks, None, &mut asked));
         // The chunk of the player and its six face neighbours
         assert_eq!(asked, 7);
-        assert!(!loader.ask(&players, |_| 2, &chunks, None, &mut asked));
+        assert!(!loader.ask_players(&players, |_| 2, &chunks, None, &mut asked));
         assert_eq!(asked, 7, "no room is left");
         insert_all_made(&mut loader, &mut chunks, &mut dirty);
         assert_eq!(loaded(&chunks).len(), 7);
         assert!(loaded(&chunks).iter().all(|c| c.abs().element_sum() <= 1));
 
-        loader.ask(&players, |_| 2, &chunks, None, &mut asked);
+        loader.ask_players(&players, |_| 2, &chunks, None, &mut asked);
         insert_all_made(&mut loader, &mut chunks, &mut dirty);
         assert_eq!(
             loaded(&chunks).len(),
@@ -589,7 +610,7 @@ mod tests {
 
         let within = active_chunks(&players, |_| 2, &Default::default()).count();
         for _ in 0..within {
-            if loader.ask(&players, |_| 2, &chunks, None, &mut asked) {
+            if loader.ask_players(&players, |_| 2, &chunks, None, &mut asked) {
                 break;
             }
             insert_all_made(&mut loader, &mut chunks, &mut dirty);
@@ -636,7 +657,7 @@ mod tests {
         let mut loader = ChunkLoader::new(1);
         let mut dirty = HashSet::new();
         let mut asked = 0;
-        while !loader.ask(&players, |_| 1, &chunks, None, &mut asked) {
+        while !loader.ask_players(&players, |_| 1, &chunks, None, &mut asked) {
             insert_all_made(&mut loader, &mut chunks, &mut dirty);
         }
         assert!(active.iter().all(|c| chunks.is_chunk_loaded(*c)));
@@ -708,20 +729,20 @@ mod tests {
         let mut loader = ChunkLoader::new(1);
 
         let mut asked = 0;
-        assert!(!loader.ask(&players, |_| 2, &chunks, None, &mut asked));
+        assert!(!loader.ask_players(&players, |_| 2, &chunks, None, &mut asked));
         assert_eq!(asked, within);
         insert_all_made(&mut loader, &mut chunks, &mut dirty);
         // A chunk among the first, removed, is not looked for again
         chunks.remove_chunk(IVec3::ZERO);
-        assert!(loader.ask(&players, |_| 2, &chunks, None, &mut asked));
+        assert!(loader.ask_players(&players, |_| 2, &chunks, None, &mut asked));
         assert_eq!(asked, within);
         assert_eq!(chunks.chunk_positions().count(), within - 1);
 
         let mut asked = 0;
-        assert!(!loader.ask(&players, |_| 2, &chunks, None, &mut asked));
+        assert!(!loader.ask_players(&players, |_| 2, &chunks, None, &mut asked));
         insert_all_made(&mut loader, &mut chunks, &mut dirty);
         assert!(chunks.is_chunk_loaded(IVec3::ZERO));
-        assert!(loader.ask(&players, |_| 2, &chunks, None, &mut asked));
+        assert!(loader.ask_players(&players, |_| 2, &chunks, None, &mut asked));
     }
 
     #[test]
@@ -731,7 +752,7 @@ mod tests {
         let mut dirty = HashSet::new();
         let mut loader = ChunkLoader::new(1);
 
-        loader.ask(&players, |_| 1, &chunks, None, &mut 0);
+        loader.ask_players(&players, |_| 1, &chunks, None, &mut 0);
         // as by `generate_missing_chunks`, then changed by a player
         let mut changed = Chunk::new();
         changed.set(
