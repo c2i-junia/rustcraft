@@ -65,7 +65,9 @@ draw with the shaders chosen and leave tonemapping, grading, bloom and anti-alia
 player's camera. After lot 10 they draw the god-ray haze too, through Bevy's volumetric fog
 with two lines of its shader changed for the oblique near plane
 (`world/rendering/volumetric_fog.rs`), and no SSAO, which needs the TAA they do not have: a
-close twin is crossed without a seam at every level, at noon, dusk and night.
+close twin is crossed without a seam at Off, Low and Medium at noon, and at High and Ultra at
+noon, dusk and night as measured (Ultra night not run); the gates cover Off, Low, Medium and
+High at noon and High at dusk.
 
 New module `client/src/portal/`:
 

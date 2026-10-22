@@ -522,7 +522,8 @@ depth prepass) and leaves to the player's camera what it does to the whole scree
 included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
 the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
 the colours before tonemapping with the shaders, and after it without. It draws the god-ray
-haze as the player's camera does (same steps, no jitter, as it has no TAA), through its oblique
+haze as the player's camera does (same steps, no jitter: the player's TAA reaches its image
+only through the motion of the portal surface), through its oblique
 near plane: Bevy's `volumetric_fog.wgsl` read the start depth of a ray with the near distance
 only and ended the rays of the sky on the far plane, which the oblique matrix brings near, and
 `world/rendering/volumetric_fog.rs` changes those two lines in Bevy's embedded shader before it
