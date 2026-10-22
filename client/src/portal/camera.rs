@@ -196,8 +196,10 @@ pub(super) fn place_portal_cameras(
     else {
         return;
     };
-    // The player's own chunks, as the server sends them (`ChunkReach`)
-    let own = player
+    // The player's own chunks, as the server sends them (`ChunkReach`), from its predicted
+    // position: crossing a chunk border, they may be one chunk ahead of those sent for a few
+    // frames, as the player's own fog is
+    let player_chunks = player
         .single()
         .ok()
         .zip(render_distance)
@@ -279,7 +281,7 @@ pub(super) fn place_portal_cameras(
                     Projection::Perspective(perspective) => half_diagonal(perspective),
                     _ => FRAC_PI_2,
                 };
-                let reach = held_reach(twin, *transform.forward(), wide, own);
+                let reach = held_reach(twin, *transform.forward(), wide, player_chunks);
                 portal_fog(main_fog, behind, reach)
             });
             match (&new_fog, fog) {
