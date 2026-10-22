@@ -904,12 +904,12 @@ mod tests {
         app.update();
         app.update();
         // Five blocks from the middle of the blue portal
-        assert!((end_of_blue_fog(&mut app) - (5.0 + 68.0)).abs() < 1e-3);
+        assert!((end_of_blue_fog(&mut app) - (5.0 + 68.0 - camera::OPENING_REACH)).abs() < 1e-3);
 
         // Three blocks farther
         place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 9.0));
         app.update();
-        assert!((end_of_blue_fog(&mut app) - (8.0 + 68.0)).abs() < 1e-3);
+        assert!((end_of_blue_fog(&mut app) - (8.0 + 68.0 - camera::OPENING_REACH)).abs() < 1e-3);
 
         // The player there, with a render distance of 8: its own chunks reach 148 blocks west
         // of the orange portal
@@ -919,7 +919,7 @@ mod tests {
             crate::player::CurrentPlayerMarker {},
         ));
         app.update();
-        assert!((end_of_blue_fog(&mut app) - (8.0 + 148.0)).abs() < 1e-3);
+        assert!((end_of_blue_fog(&mut app) - (8.0 + 148.0 - camera::OPENING_REACH)).abs() < 1e-3);
     }
 
     #[test]
@@ -1111,7 +1111,9 @@ mod tests {
             .find(|(camera, _)| camera.color == PortalColor::Blue && camera.level == 2)
             .map(|(_, fog)| fog.falloff.clone());
         match end {
-            Some(FogFalloff::Linear { end, .. }) => assert!((end - (20.0 + 80.0)).abs() < 1e-3),
+            Some(FogFalloff::Linear { end, .. }) => {
+                assert!((end - (20.0 + 80.0 - camera::OPENING_REACH)).abs() < 1e-3)
+            }
             other => panic!("{other:?}"),
         }
     }

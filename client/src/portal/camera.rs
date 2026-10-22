@@ -103,7 +103,7 @@ pub(super) fn in_front_of_twin(portal: &Portal, twin: &Portal) -> bool {
 }
 
 /// How far from its centre a portal's opening reaches: half its diagonal.
-const OPENING_REACH: f32 = 1.81;
+pub(super) const OPENING_REACH: f32 = 1.81;
 
 /// Whether `portal` is wholly beyond the end of the fog `fog` of a camera at `eye`, where
 /// nothing of it can be seen.
@@ -409,7 +409,8 @@ pub(super) fn half_diagonal(projection: &PerspectiveProjection) -> f32 {
 /// player's box count only nearer than they are to the player at most (`vertical_render_distance`
 /// chunks), which the player's own fog does not count either (`underwater.rs`): a level view
 /// through a close twin is not clamped by them, as the player's is not. A box reaching the
-/// bedrock, at y = 0, has no bottom: nothing is seen under it. Through a close twin,
+/// bedrock, at y = 0, has no bottom: nothing is seen under it. A ray crosses the opening up to
+/// `OPENING_REACH` from its middle, so each face counts that much nearer. Through a close twin,
 /// the reach is the player's render distance or more, and the portal camera gets the player's
 /// fog (`portal_fog`).
 pub(super) fn held_reach(
@@ -460,7 +461,7 @@ pub(super) fn held_reach(
             .map(|(outward, distance)| {
                 let off = (forward.angle_between(outward) - half_diagonal).max(0.0);
                 if off < FRAC_PI_2 {
-                    distance.max(0.0) / off.cos()
+                    (distance - OPENING_REACH).max(0.0) / off.cos()
                 } else {
                     f32::INFINITY
                 }
@@ -553,10 +554,16 @@ mod tests {
         assert_eq!(twin.chunk(), IVec3::new(1, 0, 0));
         // Looking west out of it, the west edge of the chunks sent, 68 blocks away, comes
         // first: the sides, some 70 and 75 blocks away, are only seen askew
-        assert_near(held_reach(&twin, Vec3::NEG_X, wide(), None), 68.0);
+        assert_near(
+            held_reach(&twin, Vec3::NEG_X, wide(), None),
+            68.0 - OPENING_REACH,
+        );
         // The player is too far for its own chunks to be around the twin
         let far = Some((IVec3::new(20, 0, 0), 8));
-        assert_near(held_reach(&twin, Vec3::NEG_X, wide(), far), 68.0);
+        assert_near(
+            held_reach(&twin, Vec3::NEG_X, wide(), far),
+            68.0 - OPENING_REACH,
+        );
     }
 
     #[test]
@@ -566,7 +573,7 @@ mod tests {
         // directly than 40° off
         let own = Some((IVec3::ZERO, 8));
         let reach = held_reach(&twin(), Vec3::NEG_X, wide(), own);
-        assert_near(reach, 148.0);
+        assert_near(reach, 148.0 - OPENING_REACH);
         // The player's fog reaches no farther: the portal camera gets it as it is
         let main = linear(SKY_COLOR, 0.6 * 128.0, 128.0);
         assert_eq!(
@@ -580,12 +587,15 @@ mod tests {
         let own = Some((IVec3::ZERO, 8));
         // Looking out of the twin 60° to the south, the wide view reaches straight south
         let askew = Vec3::new(-0.5, 0.0, 3f32.sqrt() / 2.0);
-        assert_near(held_reach(&twin(), askew, wide(), own), to_the_south_edge());
+        assert_near(
+            held_reach(&twin(), askew, wide(), own),
+            to_the_south_edge() - OPENING_REACH,
+        );
         // A view 10° wide sees the south no more directly than 20° off
         let narrow = 10f32.to_radians();
         assert_near(
             held_reach(&twin(), askew, narrow, own),
-            to_the_south_edge() / 20f32.to_radians().cos(),
+            (to_the_south_edge() - OPENING_REACH) / 20f32.to_radians().cos(),
         );
     }
 
@@ -595,7 +605,10 @@ mod tests {
         // the twin could turn to that edge, but nothing behind the twin is drawn
         let own = Some((IVec3::new(-7, 0, 0), 8));
         let along = Vec3::new(-0.05, 0.0, 1.0).normalize();
-        assert_near(held_reach(&twin(), along, wide(), own), to_the_south_edge());
+        assert_near(
+            held_reach(&twin(), along, wide(), own),
+            to_the_south_edge() - OPENING_REACH,
+        );
     }
 
     /// A twin on a ceiling at `y`, opening down.
@@ -617,7 +630,10 @@ mod tests {
         assert_eq!(ceiling.chunk(), IVec3::new(0, 9, 0));
         assert_near(ceiling.frame().translation.y, 150.0);
         // The bottom, straight ahead, comes before the sides, some 65 blocks away but askew
-        assert_near(held_reach(&ceiling, Vec3::NEG_Y, wide(), None), 70.0);
+        assert_near(
+            held_reach(&ceiling, Vec3::NEG_Y, wide(), None),
+            70.0 - OPENING_REACH,
+        );
     }
 
     #[test]
@@ -625,7 +641,10 @@ mod tests {
         // Its plane y = 40: the chunks sent reach y = -32, under the bedrock at y = 0, which
         // closes the world. Only the sides count, 64 and more blocks away, seen 40° off at most
         let reach = held_reach(&ceiling(40), Vec3::NEG_Y, wide(), None);
-        assert!(reach > 64.0 / 40f32.to_radians().cos(), "{reach}");
+        assert!(
+            reach > (64.0 - OPENING_REACH) / 40f32.to_radians().cos(),
+            "{reach}"
+        );
     }
 
     #[test]
@@ -634,13 +653,16 @@ mod tests {
         // the twin, nearer than the 128 the player's own fog takes for granted, and farther
         // than the chunks sent
         let deep = Some((IVec3::new(0, 10, 0), 8));
-        assert_near(held_reach(&ceiling(150), Vec3::NEG_Y, wide(), deep), 118.0);
+        assert_near(
+            held_reach(&ceiling(150), Vec3::NEG_Y, wide(), deep),
+            118.0 - OPENING_REACH,
+        );
         // Around the chunk (0, 14, 0), it reaches y = 96, 54 blocks under: the chunks sent
         // reach farther
         let shallow = Some((IVec3::new(0, 14, 0), 8));
         assert_near(
             held_reach(&ceiling(150), Vec3::NEG_Y, wide(), shallow),
-            70.0,
+            70.0 - OPENING_REACH,
         );
     }
 
@@ -650,7 +672,10 @@ mod tests {
         // player's chunk has them 132.5 and 139.5 blocks away, which the player's own fog does
         // not count either. The west edge, 212 blocks away, is the reach
         let own = Some((IVec3::ZERO, 12));
-        assert_near(held_reach(&twin(), Vec3::NEG_X, wide(), own), 212.0);
+        assert_near(
+            held_reach(&twin(), Vec3::NEG_X, wide(), own),
+            212.0 - OPENING_REACH,
+        );
     }
 
     #[test]
