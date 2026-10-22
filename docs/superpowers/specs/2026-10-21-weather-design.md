@@ -482,3 +482,6 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     8 or 16 levels, so that faces merge, saved only 28 % or 16 % of the quads: neighbouring
     cells differ by about 0.08 of density, more than a level, and the steps would have made the
     clouds come in by bands.
+76. Changing 68: the gain of the thunder, raised by 4/3, is at most 1, as the ear a strike is
+    heard from plays it at its whole gain and the thunder peaks at −1 dBFS: a loud strike close
+    by is heard a little softer ahead rather than clipped from the side.

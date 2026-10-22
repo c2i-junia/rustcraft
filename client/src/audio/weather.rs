@@ -225,6 +225,13 @@ pub fn ease(current: f32, target: f32, secs: f32) -> f32 {
     }
 }
 
+/// The gain the thunder of `volume` is played at: raised by `PAN_COMPENSATION`, so that ahead
+/// it is heard at `volume`, but at most 1, as the ear it comes from plays it at its whole gain
+/// and the thunder is recorded close to full scale.
+fn thunder_gain(volume: f32) -> f32 {
+    (volume * PAN_COMPENSATION).min(1.)
+}
+
 /// The volume of the thunder of a strike heard at `volume` from where the player is.
 fn thunder_volume(volume: f32, shelter: Shelter, under_water: bool) -> f32 {
     if under_water {
@@ -383,7 +390,7 @@ fn roll_thunder(
         commands.spawn((
             AudioPlayer::new(source.clone()),
             PlaybackSettings::DESPAWN
-                .with_volume(Volume::Linear(volume * PAN_COMPENSATION))
+                .with_volume(Volume::Linear(thunder_gain(volume)))
                 .with_speed(rng.gen_range(0.94..1.06))
                 .with_spatial(true),
             Transform::from_translation(emitter_position(ears, struck)),
@@ -526,6 +533,15 @@ mod tests {
         assert_eq!(emitter, Vec3::new(12., 70., 10.));
         // a strike right on the player
         assert_eq!(emitter_position(ears, ears).distance(ears), 2.);
+    }
+
+    #[test]
+    fn the_thunder_is_raised_for_the_balance_of_the_ears_but_never_past_full_volume() {
+        assert!((thunder_gain(0.3) - 0.4).abs() < 1e-6);
+        assert!((thunder_gain(0.75) - 1.).abs() < 1e-6);
+        // from the side, an ear plays it at the whole of its gain: never louder than the file
+        assert_eq!(thunder_gain(1.), 1.);
+        assert_eq!(thunder_gain(0.), 0.);
     }
 
     #[test]
