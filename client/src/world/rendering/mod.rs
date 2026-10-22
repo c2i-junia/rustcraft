@@ -9,6 +9,7 @@ pub mod overcast;
 pub mod render;
 pub mod render_distance;
 pub mod shaders;
+pub mod volumetric_fog;
 pub mod voxel;
 
 pub use climate::*;
