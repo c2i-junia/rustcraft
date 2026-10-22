@@ -54,8 +54,8 @@ const SNOW_LINE: f32 = 122.0;
 const SNOW_BAND: f32 = 4.0;
 // The part of the wind the snow drifts with, `SNOW_DRIFT` in `overcast.rs`
 const SNOW_DRIFT: f32 = 0.8;
-// The heights of `occlusion.rs` for a column not known yet, and for one with no block
-const UNKNOWN: f32 = 1e5;
+// The height of `occlusion.rs` for a column not known yet, and less it for one with no block
+const UNKNOWN: f32 = 1e6;
 
 // A band of drops around the eye: the half width of its box, its height and how far it reaches
 // under the eye; the distances from the eye over which it fades in, and out along the ground;
@@ -404,7 +404,7 @@ fn splash(index: u32, vertex: u32) -> VertexOutput {
     let place = low + fract((s.xy * side - low) / side) * side;
     let column = floor(place);
     let stop = stop_height(column);
-    if column_kind(column) != RAIN || abs(stop) > UNKNOWN
+    if column_kind(column) != RAIN || abs(stop) >= UNKNOWN
         || stop > SNOW_LINE - SNOW_BAND {
         return hidden();
     }

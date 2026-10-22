@@ -195,6 +195,16 @@ mod tests {
     }
 
     #[test]
+    fn the_shaders_know_a_column_not_known_as_the_occlusion_map_holds_it() {
+        let source = include_str!("precipitation.wgsl");
+        assert_eq!(
+            crate::world::wgsl_constant(source, "UNKNOWN"),
+            occlusion::UNKNOWN
+        );
+        assert_eq!(occlusion::OPEN, -occlusion::UNKNOWN);
+    }
+
+    #[test]
     fn nothing_falls_for_an_eye_under_water() {
         let app = app(WeatherKind::Thunder, Vec3::new(0.5, 60.3, 0.5));
         assert_eq!(drawn(&app), None);
