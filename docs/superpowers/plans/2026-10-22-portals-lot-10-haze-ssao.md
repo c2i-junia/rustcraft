@@ -81,3 +81,12 @@ If the measures show (a′) is not enough, fall back to (a) proper.
    result (a plain projection gives the same start depth).
 8. **Docs, checks, screens.** ARCHITECTURE, the spec's as-built notes; clippy, fmt, the
    workspace tests; screens to `.superpowers/sdd/portals/lot-10-screens/`.
+
+## As found
+
+- A second line of Bevy's shader is wrong under the oblique matrix: where nothing was drawn
+  (the sky, depth 0), the ray ended on the far plane, which Lengyel's matrix tilts to a finite
+  plane, behind the camera for most of the view. Found by the walk at noon: with the first
+  change alone, the step where the portal camera turns oblique changed the sky. Both lines are
+  changed.
+- F3: SSAO off on the portal cameras measured the smaller seam (see the report).

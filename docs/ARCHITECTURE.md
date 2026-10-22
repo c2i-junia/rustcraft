@@ -517,12 +517,17 @@ past its fog, and the portal camera gets that fog as it is: crossing does not ch
 million blocks away (`CELESTIAL_DISTANCE`), on the far plane, unfogged and never
 frustum-culled, so that every camera, a portal camera far from the player too, sees them in the
 same direction; under water they are hidden. With the shaders, a portal camera gets what makes
-the picture (HDR, the physical sky a frame after the player's camera, the ambient occlusion, the
+the picture (HDR, the physical sky a frame after the player's camera, the rays of light, the
 depth prepass) and leaves to the player's camera what it does to the whole screen, the portals
 included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
 the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
-the colours before tonemapping with the shaders, and after it without. It draws no rays of light, which Bevy ends with the near distance of the
-projection only, wrong for an oblique near plane; the horizon skirt, a ring closed at the bottom
+the colours before tonemapping with the shaders, and after it without. It draws the god-ray
+haze as the player's camera does (same steps, no jitter, as it has no TAA), through its oblique
+near plane: Bevy's `volumetric_fog.wgsl` read the start depth of a ray with the near distance
+only and ended the rays of the sky on the far plane, which the oblique matrix brings near, and
+`world/rendering/volumetric_fog.rs` changes those two lines in Bevy's embedded shader before it
+is loaded (the same result under a plain projection). It draws no ambient occlusion: Bevy's is
+noisy and left to TAA, and through a close portal it measured as a seam. The horizon skirt, a ring closed at the bottom
 so that no way under the horizon misses it, is drawn around each camera (`horizon.wgsl`).
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6
 block ahead of its eye) and the server's `PortalShot` for the others write a `ShotFired`, from

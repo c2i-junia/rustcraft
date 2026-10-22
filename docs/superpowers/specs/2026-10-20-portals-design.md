@@ -62,7 +62,10 @@ oblique `near_clip_plane` instead of a custom projection, the main camera's tone
 of `Tonemapping::None` (colours through a portal match), `order: -level` for the recursion, and,
 after the rebases onto main, `PortalGun` item 72 and `PROTOCOL_ID` 25, and portal cameras that
 draw with the shaders chosen and leave tonemapping, grading, bloom and anti-aliasing to the
-player's camera.
+player's camera. After lot 10 they draw the god-ray haze too, through Bevy's volumetric fog
+with two lines of its shader changed for the oblique near plane
+(`world/rendering/volumetric_fog.rs`), and no SSAO, which needs the TAA they do not have: a
+close twin is crossed without a seam at every level, at noon, dusk and night.
 
 New module `client/src/portal/`:
 
