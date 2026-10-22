@@ -440,7 +440,10 @@ out, so that a manifest written for a later game still reads.
 
 The server runs the mods (`server/src/mods.rs`) in one sandboxed Luau VM when it starts, in the
 order of the plan: a mod whose dependency failed is skipped, and a script that fails takes back
-the commands it registered. A dedicated server and the integrated one of a solo world read the
+the commands it registered and what it exported. Each script has its own globals; while it
+loads, `rustcraft.export` hands a table to the mods that need it, and `rustcraft.import` gives a
+dependency's table, from the mods its manifest names only, so that the order of loading
+guarantees the table is there. A dedicated server and the integrated one of a solo world read the
 `mods/` and the `mods.ron` of their game folder, which is the client's in solo.
 
 The Mods screen (`client/src/ui/menus/mods.rs`) shows the same plan, with the scripts compiled
@@ -466,6 +469,12 @@ the saved worlds into others. The number is encoded as the index of a variant, a
 RON, as the enum it replaced was: chunk files, messages and old `world.ron` read unchanged. The
 test `the_base_mod_gives_the_blocks_of_the_tables_it_replaced` checks every property of every
 block against what the Rust tables gave, recorded before they went.
+
+The base mod is a mod of the plan too: `find_game_mods` puts it beside those of `mods/`, marked
+`shipped`, so `mods.ron` turns it off and mods can depend on it. A world needs its blocks, so the
+server refuses to start one while it is off or cannot load (`base_mod_problem`), before reading
+the world; the Mods screen warns of it. The blocks themselves are read at start whatever the
+settings: the client needs them to join a server, whose own `mods.ron` decides there.
 
 Still in the engine: the items, the recipes, the biomes, the mobs, how a block is drawn
 (`client/src/world/rendering/voxel.rs`) and its sounds. A block added after the base ones gets

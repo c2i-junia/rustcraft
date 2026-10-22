@@ -1,0 +1,14 @@
+# A test mod that needs Shapes: without it, or with it off, it waits and does not load.
+
+[mod]
+id = "watchtower"
+name = "Watchtower"
+version = "1.0.0"
+description = "/watchtower builds a floor of planks on four pillars. Needs Shapes."
+authors = ["MizKyosia"]
+
+[game]
+api = 1
+
+[dependencies]
+shapes = "^1.0"          # loaded first; without it this mod waits

@@ -1,0 +1,13 @@
+# A test mod that needs no other: it builds pillars and floors, and hands its builders to the
+# mods that need it. Watchtower needs it; Beacon uses it when it is on. See the README's Mods
+# section.
+
+[mod]
+id = "shapes"
+name = "Shapes"
+version = "1.0.0"
+description = "/pillar <height> builds a pillar of cobblestone. Other mods build with it."
+authors = ["MizKyosia"]
+
+[game]
+api = 1

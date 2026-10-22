@@ -29,8 +29,8 @@ use bevy::{
     ui_widgets::{observe, Activate},
 };
 use shared::mods::{
-    find_mods, plan_loading, read_mods_settings, write_mods_settings, FoundMod, ModState,
-    ModsSettings, MODS_FOLDER, MODS_SETTINGS_PATH,
+    base_mod_problem, find_game_mods, plan_loading, read_mods_settings, write_mods_settings,
+    FoundMod, ModState, ModsSettings, MODS_FOLDER, MODS_SETTINGS_PATH,
 };
 use shared::GameFolderPaths;
 
@@ -90,9 +90,10 @@ struct ShownMod {
 }
 
 impl ModsScreen {
-    /// Reads the mods of `game_folder` and its `mods.ron`, and loads the icons into `images`.
+    /// Reads the mods of `game_folder`, the base mod with them, and its `mods.ron`, and loads
+    /// the icons into `images`.
     fn read(game_folder: &Path, images: &mut Assets<Image>) -> Self {
-        let mods = find_mods(&game_folder.join(MODS_FOLDER))
+        let mods = find_game_mods(game_folder)
             .into_iter()
             .map(|found| ShownMod {
                 script_error: found
@@ -139,6 +140,13 @@ impl ModsScreen {
             }
         }
         states
+    }
+
+    /// Whether no world can start with the mods as the player leaves them: the base mod is
+    /// off, or cannot load.
+    fn without_base_mod(&self) -> bool {
+        let found: Vec<FoundMod> = self.mods.iter().map(|shown| shown.found.clone()).collect();
+        base_mod_problem(&found, &plan_loading(&found, &self.settings)).is_some()
     }
 
     fn is_on(&self, index: usize) -> bool {
@@ -794,6 +802,10 @@ fn show_mods(
     // the footer
     let changes = screen.changes();
     let (line, color) = match (&screen.settings_error, changes) {
+        _ if screen.without_base_mod() => (
+            "No world starts without Rustcraft, the base mod".to_string(),
+            DANGER,
+        ),
         (_, 1) => ("1 change, applied when a world starts".to_string(), ACCENT),
         (_, n) if n > 1 => (format!("{n} changes, applied when a world starts"), ACCENT),
         (Some(error), _) => (format!("{error}: every mod is on"), DANGER),
@@ -911,11 +923,11 @@ fn show_detail(
         }
         ModState::On | ModState::Off => (),
     }
-    line(
-        &format!("Folder: {MODS_FOLDER}/{}/", found.id),
-        FONT_S,
-        MUTED,
-    );
+    let folder = match found.shipped {
+        true => "Comes with the game: it holds every block".to_string(),
+        false => format!("Folder: {MODS_FOLDER}/{}/", found.id),
+    };
+    line(&folder, FONT_S, MUTED);
     let dependencies: Vec<&str> = found
         .manifest
         .dependencies
@@ -1195,6 +1207,7 @@ mod tests {
             folder: PathBuf::from("/mods").join(&manifest.about.id),
             manifest,
             declared: true,
+            shipped: false,
             problem: None,
         }
     }

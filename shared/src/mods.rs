@@ -13,6 +13,8 @@ use std::path::{Component, Path, PathBuf};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
+use crate::world::registry::{base_mod_folder, BASE_MOD};
+
 /// The folder of the mods, in the game folder.
 pub const MODS_FOLDER: &str = "mods";
 /// The mods the player turned off, in the game folder.
@@ -83,6 +85,8 @@ pub struct FoundMod {
     pub manifest: Manifest,
     /// Whether the folder has a `mod.toml`.
     pub declared: bool,
+    /// Whether it comes with the game, as the base mod, rather than from `mods/`.
+    pub shipped: bool,
     /// Why the mod cannot load, whatever the settings: a manifest that cannot be read or that
     /// breaks a rule.
     pub problem: Option<String>,
@@ -115,6 +119,7 @@ impl FoundMod {
                 optional: BTreeMap::new(),
             },
             declared: false,
+            shipped: false,
             problem,
         }
     }
@@ -140,6 +145,49 @@ impl FoundMod {
     pub fn icon(&self) -> Option<PathBuf> {
         let icon = self.manifest.about.icon.as_deref().unwrap_or(DEFAULT_ICON);
         Some(self.folder.join(icon)).filter(|path| path.is_file())
+    }
+}
+
+/// The mods a game folder runs, by id: the base mod, which comes with the game (see
+/// `world::registry`), and those of its `mods/`. A mod of `mods/` that takes the base mod's id
+/// cannot load.
+pub fn find_game_mods(game_folder: &Path) -> Vec<FoundMod> {
+    let mut mods = find_mods(&game_folder.join(MODS_FOLDER));
+    for found in mods.iter_mut().filter(|found| found.id == BASE_MOD) {
+        found.problem = Some(format!(
+            "{BASE_MOD} is the id of the game's own mod: rename this folder and its id"
+        ));
+        // apart from the base mod: two mods of one id would mix in the plan
+        found.id = format!("{BASE_MOD} ({MODS_FOLDER}/)");
+    }
+    if let Some(mut base) = read_mod(BASE_MOD, base_mod_folder()) {
+        base.shipped = true;
+        mods.push(base);
+    }
+    mods.sort_by(|a, b| a.id.cmp(&b.id));
+    mods
+}
+
+/// Why no world can start with the mods of `plan`, made from `find_game_mods`: the base mod,
+/// which holds every block, is off, cannot load or is missing.
+pub fn base_mod_problem(mods: &[FoundMod], plan: &LoadPlan) -> Option<String> {
+    let Some(index) = mods
+        .iter()
+        .position(|found| found.shipped && found.id == BASE_MOD)
+    else {
+        return Some(format!("its base mod, {BASE_MOD}, is missing"));
+    };
+    let name = mods[index].name();
+    match &plan.states[index] {
+        ModState::On => None,
+        ModState::Off => Some(format!(
+            "its base mod, {name}, is off. Turn it on in the Mods screen"
+        )),
+        ModState::Broken(problem) => Some(format!("its base mod, {name}, cannot load: {problem}")),
+        ModState::Waiting(needs) => {
+            let needs: Vec<String> = needs.iter().map(ToString::to_string).collect();
+            Some(format!("its base mod, {name}, needs {}", needs.join("; ")))
+        }
     }
 }
 
@@ -183,6 +231,7 @@ fn read_mod(id: &str, folder: PathBuf) -> Option<FoundMod> {
                 folder,
                 manifest,
                 declared: true,
+                shipped: false,
                 problem,
             }
         }
@@ -695,5 +744,83 @@ mod tests {
 
         fs::write(folder.path().join(MODS_SETTINGS_PATH), "(disabled: [").unwrap();
         assert!(read_mods_settings(folder.path()).is_err());
+    }
+
+    #[test]
+    fn a_game_folder_runs_the_base_mod_with_its_own() {
+        let game = tempfile::tempdir().unwrap();
+        let mods = find_game_mods(game.path());
+        assert_eq!(mods.len(), 1);
+        assert!(
+            mods[0].shipped && mods[0].problem.is_none(),
+            "{:?}",
+            mods[0]
+        );
+        assert_eq!(mods[0].id, BASE_MOD);
+        assert!(mods[0].icon().is_some());
+
+        write(
+            &game.path().join(MODS_FOLDER),
+            &format!("castle/{MANIFEST_FILE}"),
+            &manifest("castle", "1.0.0", &[(BASE_MOD, "^0.1")]),
+        );
+        let mods = find_game_mods(game.path());
+        let ids: Vec<&str> = mods.iter().map(|found| found.id.as_str()).collect();
+        assert_eq!(ids, ["castle", BASE_MOD]);
+        assert_eq!(plan_loading(&mods, &ModsSettings::default()).order, [1, 0]);
+    }
+
+    #[test]
+    fn a_mod_of_the_folder_cannot_take_the_id_of_the_base_mod() {
+        let game = tempfile::tempdir().unwrap();
+        write(
+            &game.path().join(MODS_FOLDER),
+            &format!("{BASE_MOD}/{MANIFEST_FILE}"),
+            &manifest(BASE_MOD, "9.0.0", &[]),
+        );
+        let mods = find_game_mods(game.path());
+        assert_eq!(mods.len(), 2);
+        let impostor = mods.iter().find(|found| !found.shipped).unwrap();
+        assert!(impostor
+            .problem
+            .as_ref()
+            .unwrap()
+            .contains("game's own mod"));
+        let plan = plan_loading(&mods, &ModsSettings::default());
+        assert_eq!(base_mod_problem(&mods, &plan), None);
+    }
+
+    #[test]
+    fn no_world_starts_while_the_base_mod_is_off_nor_do_the_mods_that_need_it() {
+        let game = tempfile::tempdir().unwrap();
+        write(
+            &game.path().join(MODS_FOLDER),
+            &format!("castle/{MANIFEST_FILE}"),
+            &manifest("castle", "1.0.0", &[(BASE_MOD, "^0.1")]),
+        );
+        let mods = find_game_mods(game.path());
+        let mut settings = ModsSettings::default();
+        assert_eq!(
+            base_mod_problem(&mods, &plan_loading(&mods, &settings)),
+            None
+        );
+
+        settings.set_on(BASE_MOD, false);
+        let plan = plan_loading(&mods, &settings);
+        let problem = base_mod_problem(&mods, &plan).unwrap();
+        assert_eq!(
+            problem,
+            "its base mod, Rustcraft, is off. Turn it on in the Mods screen"
+        );
+        assert_eq!(
+            plan.states[0],
+            ModState::Waiting(vec![Need {
+                id: BASE_MOD.into(),
+                unmet: Unmet::Off
+            }])
+        );
+        assert!(base_mod_problem(&[], &plan_loading(&[], &settings))
+            .unwrap()
+            .contains("missing"));
     }
 }

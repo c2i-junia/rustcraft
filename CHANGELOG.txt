@@ -45,6 +45,9 @@ Date: 11.10.2026
     - Mods declare themselves in a mod.toml: their name, version, authors, icon and the mods they need, which load first. A mod whose dependencies are missing or off waits for them, and a mod that fails takes back the commands it added.
     - Added the Mods screen, on the main menu: every mod of the game folder with its switch, a search, and Turn all on and Turn all off. It says why a mod cannot load, and saves the mods turned off in mods.ron.
     - The properties of the blocks come from the base mod, in data/mods/rustcraft/blocks.toml: break times, tools, drops, boxes, light. A base mod that does not read stops the game at start and says why.
+    - The base mod shows in the Mods screen as Rustcraft and can be turned off; no world opens without it, and the screen and the world say so.
+    - Mods hand tables to the mods that need them: rustcraft.export as they load, rustcraft.import from a mod their mod.toml names.
+    - Added the example mods Shapes, Watchtower, which needs it, and Beacon, which works with it.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

@@ -227,7 +227,14 @@ A folder with only an `init.luau` still loads, named after the folder. Mods load
 first, then by id; one that fails is skipped with the mods that need it, and the server log
 says why. The script calls `rustcraft.register_command(name, function(ctx, args))`,
 `rustcraft.player_position(name)` and `rustcraft.set_block({x, y, z}, "cobblestone")`, in a
-sandbox without files or `require`.
+sandbox without files or `require`. Each mod has its own globals: as it loads, a mod hands a
+table to the mods that need it with `rustcraft.export(table)`, and they get it with
+`rustcraft.import(id)`, which gives `nil` for an optional dependency that is off. A mod imports
+only from the mods its `mod.toml` names.
+
+`examples/mods` holds a mod of each kind, to copy into the `mods` folder: Tower and Shapes need
+no other mod, Watchtower needs Shapes and waits without it, and Beacon works with Shapes when it
+is on and without it otherwise.
 
 **Mods** on the main menu lists the mods of the game folder, with their switches, a search, and
 Turn all on and Turn all off for the mods the search shows; a mod that cannot load says why, and
@@ -237,7 +244,8 @@ and the `mods.ron` of its own game folder.
 
 The blocks themselves come from the base mod, `data/mods/rustcraft`: its `blocks.toml` gives each
 its break time, tools, drops, boxes and light, in the order of their numbers. Change a value there
-and the game uses it at its next start.
+and the game uses it at its next start. The Mods screen lists it as Rustcraft and turns it off
+like any other mod, but no world starts without it: opening one then says so.
 
 <br>
 

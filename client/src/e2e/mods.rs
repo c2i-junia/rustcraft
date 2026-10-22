@@ -4,8 +4,9 @@
 use accesskit::Role;
 use bevy::prelude::*;
 use shared::mods::{read_mods_settings, MODS_SETTINGS_PATH};
+use shared::world::BASE_MOD;
 
-use super::harness::{Harness, SCREEN};
+use super::harness::{Harness, SCREEN, SERVER, STARTUP};
 use super::helpers::main_menu_with;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
@@ -15,7 +16,10 @@ use crate::ui::menus::MenuState;
 /// The texture of the torch, as the icon of Lanterns.
 const TORCH: &[u8] = include_bytes!("../../../data/graphics/base_textures/blocks/Torch.png");
 
-/// Six mods: three with a manifest, Lantern Paths needing Lanterns, which has an icon, one without a manifest,
+/// The warning of the footer while the base mod is off.
+const NO_BASE: &str = "No world starts without Rustcraft, the base mod";
+
+/// Six mods, beside the base mod that comes with the game: three with a manifest, Lantern Paths needing Lanterns, which has an icon, one without a manifest,
 /// one whose manifest does not read and one whose script does not parse.
 fn six_mods() -> GameFolder {
     GameFolder::new()
@@ -69,6 +73,7 @@ fn the_main_menu_opens_the_mods_and_esc_goes_back() {
     let mut h = open_mods(six_mods());
     assert_eq!(h.menu_state(), MenuState::Mods);
     for name in [
+        "Rustcraft",
         "Lanterns",
         "Lantern Paths",
         "Woolly Flocks",
@@ -78,7 +83,7 @@ fn the_main_menu_opens_the_mods_and_esc_goes_back() {
     ] {
         assert!(h.is_visible(&card(name, true)), "{name}");
     }
-    assert!(h.is_visible(&L::text("6 of 6 on")));
+    assert!(h.is_visible(&L::text("7 of 7 on")));
 
     h.press(KeyCode::Escape);
     h.wait_for(&L::text("Singleplayer"), SCREEN);
@@ -105,7 +110,7 @@ fn a_mod_turned_off_keeps_the_mods_that_need_it_waiting_and_done_saves_it() {
     h.click(&L::marker::<ModSwitch>().within(card("Lanterns", true)));
     h.wait_for(&card("Lanterns", false), SCREEN);
     assert!(h.is_visible(&L::text("Needs lanterns")));
-    assert!(h.is_visible(&L::text("5 of 6 on")));
+    assert!(h.is_visible(&L::text("6 of 7 on")));
     assert!(h.is_visible(&L::text("1 change, applied when a world starts")));
 
     h.click(&card("Lantern Paths", true));
@@ -122,7 +127,7 @@ fn the_mods_turned_off_in_mods_ron_show_off() {
     let folder = six_mods().with_file(MODS_SETTINGS_PATH, "(disabled: [\"woolly\"])");
     let mut h = open_mods(folder);
     assert!(h.is_visible(&card("Woolly Flocks", false)));
-    assert!(h.is_visible(&L::text("5 of 6 on")));
+    assert!(h.is_visible(&L::text("6 of 7 on")));
 }
 
 #[test]
@@ -143,9 +148,10 @@ fn turn_all_acts_on_the_mods_the_search_shows() {
     h.press(KeyCode::Escape);
     h.wait_for(&card("Woolly Flocks", true), SCREEN);
     h.click(&L::role(Role::Button, "Turn all off"));
-    h.wait_for(&L::text("0 of 6 on"), SCREEN);
+    h.wait_for(&L::text("0 of 7 on"), SCREEN);
+    assert!(h.is_visible(&L::text(NO_BASE)));
     h.click(&L::role(Role::Button, "Turn all on"));
-    h.wait_for(&L::text("6 of 6 on"), SCREEN);
+    h.wait_for(&L::text("7 of 7 on"), SCREEN);
 }
 
 #[test]
@@ -176,10 +182,71 @@ fn space_turns_the_focused_mod_off_and_revert_puts_it_back() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn without_mods_the_screen_says_where_to_put_them() {
+fn without_mods_the_screen_shows_the_base_mod_alone() {
     let mut h = open_mods(GameFolder::new());
-    assert!(h.is_visible(&L::text("No mods yet")));
-    assert!(h.is_visible(&L::text("0 of 0 on")));
+    assert!(h.is_visible(&card("Rustcraft", true)));
+    assert!(h.is_visible(&L::text("1 of 1 on")));
+    assert!(h.is_visible(&L::text("Comes with the game: it holds every block")));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn with_the_base_mod_off_no_world_starts_and_says_why() {
+    let folder = GameFolder::new().with_world("Alpha").with_mod(
+        "castle",
+        "Castle",
+        "Builds a castle.",
+        &[BASE_MOD],
+    );
+    let mut h = open_mods(folder);
+    h.click(&L::marker::<ModSwitch>().within(card("Rustcraft", true)));
+    h.wait_for(&card("Rustcraft", false), SCREEN);
+    assert!(h.is_visible(&L::text(NO_BASE)));
+    assert!(h.is_visible(&L::text("Needs rustcraft")));
+
+    // turned on again, the warning goes
+    h.click(&L::marker::<ModSwitch>().within(card("Rustcraft", false)));
+    h.wait_for(&card("Rustcraft", true), SCREEN);
+    assert!(!h.is_visible(&L::text(NO_BASE)));
+    h.click(&L::marker::<ModSwitch>().within(card("Rustcraft", true)));
+    h.wait_for(&card("Rustcraft", false), SCREEN);
+
+    h.click(&L::role(Role::Button, "Done"));
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    assert_eq!(saved(&h), Some(vec![BASE_MOD.to_string()]));
+    h.click(&L::text("Singleplayer"));
+    h.play_world("Alpha");
+    let title = L::role(Role::Dialog, "Cannot open \"Alpha\"");
+    h.wait_for(&title, SERVER);
+    let reason = "The world could not be loaded: its base mod, Rustcraft, is off. Turn it on in \
+        the Mods screen";
+    assert!(h.is_visible(&L::text(reason).within(title)));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_example_mods_show_what_they_need() {
+    let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/mods");
+    let mut folder = GameFolder::new();
+    for id in ["shapes", "watchtower", "beacon"] {
+        for file in ["mod.toml", "init.luau"] {
+            let text = std::fs::read(examples.join(id).join(file)).unwrap();
+            folder = folder.with_mod_file(id, file, text);
+        }
+    }
+    let mut h = open_mods(folder);
+    assert!(h.is_visible(&L::text("4 of 4 on")));
+    assert!(h.find(&L::text("Cannot load")).is_empty());
+
+    h.click(&L::marker::<ModSwitch>().within(card("Shapes", true)));
+    h.wait_for(&card("Shapes", false), SCREEN);
+    assert!(h.is_visible(&L::text("Needs shapes")));
+    // only Watchtower waits: Beacon works without Shapes
+    assert_eq!(h.find(&L::text("Needs shapes")).len(), 1);
+    h.click(&card("Watchtower", true));
+    h.wait_for(&L::text("Needs shapes, which is off"), SCREEN);
+    h.click(&card("Beacon", true));
+    h.wait_for(&L::text("Works with: shapes"), SCREEN);
 }
 
 #[test]

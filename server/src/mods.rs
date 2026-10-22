@@ -11,7 +11,7 @@ use bevy::math::{IVec3, Vec3};
 use bevy::prelude::*;
 use mlua::{AppDataRefMut, Function, Lua, Table};
 use shared::commands::COMMANDS;
-use shared::mods::{find_mods, plan_loading, FoundMod, ModState, ModsSettings};
+use shared::mods::{plan_loading, FoundMod, LoadPlan, ModState, ModsSettings};
 use shared::world::{BlockData, BlockDirection, BlockId, ItemId, ItemType};
 
 use crate::world::data::ServerWorldMap;
@@ -31,6 +31,17 @@ struct Host {
     positions: HashMap<String, Vec3>,
     /// The actions asked by the mod being called.
     actions: Vec<ModAction>,
+    /// What each mod handed to the mods that need it, by id.
+    exports: HashMap<String, Table>,
+    /// The mod whose script is running as it loads, and the mods it may import.
+    loading: Option<Loading>,
+}
+
+/// A mod that loads.
+struct Loading {
+    id: String,
+    /// Its dependencies, required or optional.
+    may_import: HashSet<String>,
 }
 
 /// The Luau VM that runs every mod, sandboxed: no `io`, no `require`, read-only libraries and
@@ -48,6 +59,8 @@ impl Mods {
         api.set("register_command", lua.create_function(register_command)?)?;
         api.set("player_position", lua.create_function(player_position)?)?;
         api.set("set_block", lua.create_function(set_block)?)?;
+        api.set("export", lua.create_function(export)?)?;
+        api.set("import", lua.create_function(import)?)?;
         let globals = lua.globals();
         globals.set("rustcraft", api)?;
         // mlua gives Luau a `require` that loads any script of the disk, sandbox or not
@@ -56,11 +69,16 @@ impl Mods {
         Ok(Mods { lua })
     }
 
-    /// Loads the mods of `folder` that `settings` leaves on, dependencies first, else by id. A
-    /// mod that cannot load is skipped, and so are the mods that need it.
-    pub fn load_folder(&self, folder: &Path, settings: &ModsSettings) {
-        let mods = find_mods(folder);
-        let plan = plan_loading(&mods, settings);
+    /// Loads the mods of `folder` that `settings` leaves on, as `load_mods` does.
+    #[cfg(test)]
+    pub fn load_folder(&self, folder: &Path, settings: &ModsSettings) -> LoadPlan {
+        self.load_mods(&shared::mods::find_mods(folder), settings)
+    }
+
+    /// Loads the mods of `mods` that `settings` leaves on, dependencies first, else by id, and
+    /// returns that plan. A mod that cannot load is skipped, and so are the mods that need it.
+    pub fn load_mods(&self, mods: &[FoundMod], settings: &ModsSettings) -> LoadPlan {
+        let plan = plan_loading(mods, settings);
         for (found, state) in mods.iter().zip(&plan.states) {
             match state {
                 ModState::On => (),
@@ -94,9 +112,11 @@ impl Mods {
                 }
             }
         }
+        plan
     }
 
-    /// Runs the entry script of `found`, if it has one.
+    /// Runs the entry script of `found`, if it has one. While it runs, the script may import
+    /// what its dependencies exported; what it exports itself goes if it fails.
     fn load_mod(&self, found: &FoundMod) -> mlua::Result<()> {
         let Some(entry) = found.entry() else {
             return Ok(());
@@ -104,7 +124,23 @@ impl Mods {
         let source = std::fs::read_to_string(&entry).map_err(|err| {
             mlua::Error::runtime(format!("cannot read {}: {err}", entry.display()))
         })?;
-        self.load(&script_name(found, &entry), &source)
+        let manifest = &found.manifest;
+        self.host().loading = Some(Loading {
+            id: found.id.clone(),
+            may_import: manifest
+                .dependencies
+                .keys()
+                .chain(manifest.optional.keys())
+                .cloned()
+                .collect(),
+        });
+        let result = self.load(&script_name(found, &entry), &source);
+        let mut host = self.host();
+        host.loading = None;
+        if result.is_err() {
+            host.exports.remove(&found.id);
+        }
+        result
     }
 
     /// Runs the script called `name` in the errors, `<mod>/<path>`. A script that fails takes
@@ -214,6 +250,39 @@ fn register_command(lua: &Lua, (name, function): (String, Function)) -> mlua::Re
     let mut host: AppDataRefMut<Host> = lua.app_data_mut().expect("the host is set");
     host.commands.insert(name, function);
     Ok(())
+}
+
+/// `rustcraft.export(table)`: hands `table` to the mods that need this one, which get it from
+/// `rustcraft.import`. Only while the mod loads; a second call replaces the first.
+fn export(lua: &Lua, table: Table) -> mlua::Result<()> {
+    let mut host: AppDataRefMut<Host> = lua.app_data_mut().expect("the host is set");
+    let Some(loading) = &host.loading else {
+        return Err(mlua::Error::runtime(
+            "rustcraft.export works only while the mod loads",
+        ));
+    };
+    let id = loading.id.clone();
+    host.exports.insert(id, table);
+    Ok(())
+}
+
+/// `rustcraft.import(id)`: what the mod `id` exported, or `nil` when it is not loaded, as an
+/// optional dependency that is off. Only while the mod loads, and only from a mod its
+/// `mod.toml` names, so that the order of loading guarantees it ran first.
+fn import(lua: &Lua, id: String) -> mlua::Result<Option<Table>> {
+    let host = lua.app_data_ref::<Host>().expect("the host is set");
+    let Some(loading) = &host.loading else {
+        return Err(mlua::Error::runtime(
+            "rustcraft.import works only while the mod loads",
+        ));
+    };
+    if !loading.may_import.contains(&id) {
+        return Err(mlua::Error::runtime(format!(
+            "{id} is not a dependency of {}: name it in its mod.toml",
+            loading.id
+        )));
+    }
+    Ok(host.exports.get(&id).cloned())
 }
 
 /// `rustcraft.player_position(name)`: the block `{x, y, z}` the player is in, or `nil` when
@@ -434,7 +503,7 @@ mod tests {
         );
         write(folder.path(), "bad/init.luau", "local x = = 1");
         write(folder.path(), "none/mod.toml", &shared_manifest("none"));
-        let found = find_mods(folder.path());
+        let found = shared::mods::find_mods(folder.path());
         let error_of = |id: &str| script_error(found.iter().find(|m| m.id == id).unwrap());
 
         assert_eq!(error_of("good"), None);
@@ -445,5 +514,127 @@ mod tests {
 
     fn shared_manifest(id: &str) -> String {
         format!("[mod]\nid = \"{id}\"\nname = \"{id}\"\nversion = \"1.0.0\"\n[game]\napi = 1\n")
+    }
+
+    /// The mods of `examples/mods`: Tower, Shapes, Watchtower, which needs Shapes, and Beacon,
+    /// which works with it.
+    fn examples() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/mods")
+    }
+
+    #[test]
+    fn the_example_mods_build_with_shapes_when_it_is_on() {
+        let mods = Mods::new().unwrap();
+        let plan = mods.load_folder(&examples(), &ModsSettings::default());
+        assert!(plan.states.iter().all(|state| *state == ModState::On));
+        assert_eq!(
+            mods.command_names(),
+            ["beacon", "pillar", "tower", "watchtower"]
+        );
+
+        // steve stands in (1, 2, 3): everything is built from (3, 2, 3)
+        let mut world_map = world_with_steve();
+        let answer = mods.run_command("watchtower", "steve", &mut world_map);
+        assert_eq!(answer.as_deref(), Some("Watchtower built"));
+        for (x, z) in [(3, 3), (6, 3), (3, 6), (6, 6)] {
+            for y in 2..6 {
+                assert_eq!(
+                    block(&world_map, x, y, z),
+                    Some(BlockId::OakLog),
+                    "{x} {y} {z}"
+                );
+            }
+        }
+        assert_eq!(block(&world_map, 4, 6, 5), Some(BlockId::OakPlanks));
+
+        let mut world_map = world_with_steve();
+        let answer = mods.run_command("beacon", "steve", &mut world_map);
+        assert_eq!(answer.as_deref(), Some("Beacon lit on a pillar"));
+        assert_eq!(block(&world_map, 3, 4, 3), Some(BlockId::Cobblestone));
+        assert_eq!(block(&world_map, 3, 5, 3), Some(BlockId::Torch));
+    }
+
+    #[test]
+    fn without_shapes_watchtower_waits_and_beacon_does_without() {
+        let mut settings = ModsSettings::default();
+        settings.set_on("shapes", false);
+        let mods = Mods::new().unwrap();
+        mods.load_folder(&examples(), &settings);
+        assert_eq!(mods.command_names(), ["beacon", "tower"]);
+
+        let mut world_map = world_with_steve();
+        let answer = mods.run_command("beacon", "steve", &mut world_map);
+        assert_eq!(
+            answer.as_deref(),
+            Some("Beacon lit, on the ground without Shapes")
+        );
+        assert_eq!(block(&world_map, 3, 2, 3), Some(BlockId::Torch));
+        assert_eq!(block(&world_map, 3, 3, 3), None);
+    }
+
+    #[test]
+    fn a_mod_imports_only_its_dependencies_and_only_as_it_loads() {
+        let folder = tempfile::tempdir().unwrap();
+        write(folder.path(), "lib/mod.toml", &shared_manifest("lib"));
+        write(
+            folder.path(),
+            "lib/init.luau",
+            "rustcraft.export({ answer = 42 })",
+        );
+        write(
+            folder.path(),
+            "stranger/mod.toml",
+            &shared_manifest("stranger"),
+        );
+        write(
+            folder.path(),
+            "stranger/init.luau",
+            "rustcraft.register_command('stranger', function() end)\nrustcraft.import('lib')",
+        );
+        write(
+            folder.path(),
+            "late/mod.toml",
+            &(shared_manifest("late") + "[dependencies]\nlib = \"*\"\n"),
+        );
+        write(
+            folder.path(),
+            "late/init.luau",
+            "rustcraft.register_command('late', function() \
+                return tostring(rustcraft.import('lib')) end)",
+        );
+        let mods = Mods::new().unwrap();
+        mods.load_folder(folder.path(), &ModsSettings::default());
+
+        // stranger did not name lib: its script failed and took back its command
+        assert_eq!(mods.command_names(), ["late"]);
+        let answer = mods.run_command("late", "steve", &mut world_with_steve());
+        assert_eq!(answer.as_deref(), Some("The command /late failed"));
+    }
+
+    #[test]
+    fn a_mod_that_fails_after_exporting_hands_nothing() {
+        let folder = tempfile::tempdir().unwrap();
+        write(folder.path(), "lib/mod.toml", &shared_manifest("lib"));
+        write(
+            folder.path(),
+            "lib/init.luau",
+            "rustcraft.export({})\nerror('broken')",
+        );
+        write(
+            folder.path(),
+            "user/mod.toml",
+            &(shared_manifest("user") + "[optional]\nlib = \"*\"\n"),
+        );
+        write(
+            folder.path(),
+            "user/init.luau",
+            "local lib = rustcraft.import('lib')\n\
+             rustcraft.register_command('user', function() return tostring(lib == nil) end)",
+        );
+        let mods = Mods::new().unwrap();
+        mods.load_folder(folder.path(), &ModsSettings::default());
+
+        let answer = mods.run_command("user", "steve", &mut world_with_steve());
+        assert_eq!(answer.as_deref(), Some("true"));
     }
 }

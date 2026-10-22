@@ -1,0 +1,14 @@
+# A test mod that works with Shapes when it is on, and without it otherwise.
+
+[mod]
+id = "beacon"
+name = "Beacon"
+version = "1.0.0"
+description = "/beacon lights a torch, on a pillar when Shapes is on."
+authors = ["MizKyosia"]
+
+[game]
+api = 1
+
+[optional]
+shapes = "^1.0"          # loaded first when it is there and on

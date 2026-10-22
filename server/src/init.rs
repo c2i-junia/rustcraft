@@ -183,18 +183,25 @@ fn run(
 
     setup_resources_and_events(&mut app);
 
+    // no world without the blocks of the base mod: say so before reading the world
+    let game_folder = &game_folder_paths.game_folder_path;
+    let settings = shared::mods::read_mods_settings(game_folder).unwrap_or_else(|err| {
+        warn!("{err}: every mod is on");
+        default()
+    });
+    let found_mods = shared::mods::find_game_mods(game_folder);
+    let plan = shared::mods::plan_loading(&found_mods, &settings);
+    if let Some(problem) = shared::mods::base_mod_problem(&found_mods, &plan) {
+        return Err(problem);
+    }
+
     let (world_map, seed, time) = load_world(&world_name, &game_folder_paths)?;
     app.insert_resource(world_map);
     app.insert_resource(seed);
     app.insert_resource(ServerTime(time));
 
     let mods = Mods::new().map_err(|err| format!("Could not start the mods: {err}"))?;
-    let game_folder = &game_folder_paths.game_folder_path;
-    let settings = shared::mods::read_mods_settings(game_folder).unwrap_or_else(|err| {
-        warn!("{err}: every mod is on");
-        default()
-    });
-    mods.load_folder(&game_folder.join(shared::mods::MODS_FOLDER), &settings);
+    mods.load_mods(&found_mods, &settings);
     app.insert_resource(mods);
 
     // Create save folder if does not already exist
