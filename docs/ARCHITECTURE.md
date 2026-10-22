@@ -279,8 +279,9 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    sets one for a spell of the same length. A change is sent to the authenticated clients
    (`WeatherSet`), and the answer to the authentication carries the weather of the moment.
    During a thunderstorm a strike falls every 3 to 15 seconds, on the top block of a column
-   16 to 160 blocks from a player drawn at random, and is sent to every client with a seed
-   that shapes its bolt (`LightningStrike`); a column with no block loaded gets none.
+   16 to 160 blocks from a player drawn at random, and is sent with a seed that shapes its
+   bolt (`LightningStrike`) to the clients within 1,500 blocks of it (`LIGHTNING_REACH`),
+   beyond which it is neither seen nor heard; a column whose top is not loaded gets none.
 3. **Broadcast**: block changes, new chunks and mobs are sent to each client.
 
    Each client gets the chunks within the render distance of its own player along x and z,
@@ -356,7 +357,9 @@ with nothing sent. They drift east at half a block a second, from the clock, by 
 the outer faces of a disk of cells around the camera, twice the render distance wide and at
 most 1024 blocks, and is built again only when the camera enters another cell of the pattern.
 Each face carries the densities of the two cells it lies between, and the shader shows it when
-the threshold of the weather lies between them, so the clouds thicken without a new mesh.
+the threshold of the weather lies between them, so the clouds thicken without a new mesh;
+under a clear sky the mesh holds only the cells full then, about a seventh of the faces, and is
+built with the others as soon as the sky clouds over.
 `clouds.wgsl` draws them unlit, tinted by the hour and by the side of each face, at 0.8
 opacity and fading out at the edge; a child entity first writes their depth alone, so that
 only the nearest face of a cloud is coloured and its opacity is the same from below, above
@@ -389,9 +392,10 @@ further. It greys and thickens the clouds, hides the sun, the moon and the stars
 turns the environment light down for a grey ambient light, lowers the saturation and closes the
 fog in, never nearer than 48 blocks. What the shaders know of the weather is one storage buffer,
 `WeatherShading` (`weather.wgsl`): the greys of the overcast at the horizon and the zenith, the
-wind, the levels, the wetness and the lightning, bound at 107 to every material that shows the
-sky (the chunks, for their fog and the water's reflection, the horizon skirt and the overcast
-dome) and written in place when it changes, so that no chunk's bind group is made again. The
+wind and how far it has carried what falls (summed on the CPU, `WindDrift`), the levels, the
+wetness and the lightning, bound at 107 to every material that shows the sky (the chunks, for
+their fog and the water's reflection, the horizon skirt and the overcast dome) and written in
+place when it changes, so that no chunk's bind group is made again. The
 dome is drawn on the far plane over the physical sky; without the shaders, the clear colour
 and the fog take the same grey.
 
@@ -403,7 +407,8 @@ would be smeared away. The climate map (`world/rendering/climate.rs`) tells each
 snow or nothing, from its biome, and the snow line turns rain to snow. The occlusion map
 (`occlusion.rs`) is a 144 × 144 texture of the 9 × 9 chunk columns around the eye holding the
 height at which what falls stops (any block but air and the decorations, water at its
-surface), scanned again when chunks come and go and the same frame a block changes. The rain
+surface), scanned again when chunks come and go and the same frame a block changes; a chunk
+column not scanned yet, after a jump or in a new world, stops everything. The rain
 rings the water in `chunk.wgsl`'s `water_normal`, in every preset that draws its waves.
 
 In High and Ultra (`ShaderFeatures::wet`) the world gets wet; elsewhere the wetness reaches the
@@ -418,10 +423,11 @@ a small PRNG of our own (`bolt.rs`), so every client draws the same, and flashes
 three strokes over half a second. A second pass after the TAA (`render.rs`, `lightning.wgsl`)
 draws its channels, held in a storage buffer, as ribbons facing the camera, added to the frame
 far brighter than white for the bloom; a strike beyond the render distance draws no bolt, only
-its flash in the clouds. The flash reaches the shaders through `WeatherShading` (the struck
-block and the direction of the flash in the clouds) and lights the sky, the clouds and the
-faces open to it, and the ambient light and the exposure jump with it. The strikes are aged in
-`PreUpdate`, before every system that reads the flash.
+its flash in the clouds, which fades out by 1,500 blocks, where the thunder is no longer heard.
+The flash reaches the shaders through `WeatherShading` (the struck block and the direction of
+the flash in the clouds) and lights the sky, the clouds and the faces open to it, and the
+ambient light and the exposure jump with it. The strikes are aged in `PreUpdate`, before every
+system that reads the flash.
 
 The sounds of the weather (`audio/weather.rs`) play on their own Weather volume. The thunder
 of a strike is delayed by its distance at 340 blocks a second, cracks within 48 blocks and
