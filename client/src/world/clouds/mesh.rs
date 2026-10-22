@@ -89,22 +89,38 @@ impl Quad {
 /// each cell given by `density` (`NEVER` for an empty one), drawn in `style`: every face that
 /// shows at some threshold, between a cell and its neighbour or the sky. Neighbouring faces
 /// that look the same way between cells of the same densities are merged.
+#[cfg(test)]
 pub fn quads(
     style: CloudStyle,
     centre: IVec2,
     radius: i32,
     density: impl Fn(IVec2) -> f32,
 ) -> Vec<Quad> {
-    if style == CloudStyle::Off {
+    quads_around(style, &[centre], radius, density)
+}
+
+/// `quads`, of the cells within `radius` cells of any of `centres` (disks, which may overlap).
+pub fn quads_around(
+    style: CloudStyle,
+    centres: &[IVec2],
+    radius: i32,
+    density: impl Fn(IVec2) -> f32,
+) -> Vec<Quad> {
+    if style == CloudStyle::Off || centres.is_empty() {
         return Vec::new();
     }
     // the densities of the window and of a ring of cells around it, read once
-    let side = 2 * radius + 3;
-    let corner = centre - IVec2::splat(radius + 1);
-    let densities: Vec<f32> = (0..side * side)
+    let low = centres.iter().copied().reduce(IVec2::min).unwrap();
+    let high = centres.iter().copied().reduce(IVec2::max).unwrap();
+    let side = high - low + IVec2::splat(2 * radius + 3);
+    let corner = low - IVec2::splat(radius + 1);
+    let densities: Vec<f32> = (0..side.x * side.y)
         .map(|i| {
-            let cell = corner + IVec2::new(i % side, i / side);
-            if (cell - centre).length_squared() <= radius * radius {
+            let cell = corner + IVec2::new(i % side.x, i / side.x);
+            if centres
+                .iter()
+                .any(|centre| (cell - *centre).length_squared() <= radius * radius)
+            {
                 density(cell)
             } else {
                 NEVER
@@ -113,15 +129,15 @@ pub fn quads(
         .collect();
     let density = |cell: IVec2| {
         let at = cell - corner;
-        densities[(at.y * side + at.x) as usize]
+        densities[(at.y * side.x + at.x) as usize]
     };
     let bottom = ALTITUDE as f32;
     let top = (ALTITUDE + THICKNESS) as f32;
     let block = |cells: i32| (cells * CELL) as f32;
-    let (west, east) = (centre.x - radius, centre.x + radius);
+    let (west, east) = (low.x - radius, high.x + radius);
 
     let mut quads = Vec::new();
-    for z in centre.y - radius..=centre.y + radius {
+    for z in low.y - radius..=high.y + radius {
         let (north, south) = (block(z), block(z + 1));
         // the tops and bottoms, along runs of cells of the same density
         let mut x = west;
@@ -171,7 +187,7 @@ pub fn quads(
     }
     if style == CloudStyle::Fancy {
         // the sides between a cell and the next one along +Z, merged along X
-        for z in centre.y - radius - 1..=centre.y + radius {
+        for z in low.y - radius - 1..=high.y + radius {
             let at = block(z + 1);
             let pair = |x| (density(IVec2::new(x, z)), density(IVec2::new(x, z + 1)));
             let mut x = west;
@@ -202,11 +218,22 @@ pub fn quads(
 /// threshold of the weather, which the shader picks among; else only those of a clear sky,
 /// about a seventh of the faces, which are the same at the clear threshold. `None` when there
 /// is nothing to draw.
+#[cfg(test)]
 pub fn cloud_mesh(style: CloudStyle, centre: IVec2, radius: i32, banded: bool) -> Option<Mesh> {
+    cloud_mesh_around(style, &[centre], radius, banded)
+}
+
+/// `cloud_mesh`, of the clouds within `radius` cells of any of `centres`.
+pub fn cloud_mesh_around(
+    style: CloudStyle,
+    centres: &[IVec2],
+    radius: i32,
+    banded: bool,
+) -> Option<Mesh> {
     let quads = if banded {
-        quads(style, centre, radius, banded_density)
+        quads_around(style, centres, radius, banded_density)
     } else {
-        quads(style, centre, radius, clear_density)
+        quads_around(style, centres, radius, clear_density)
     };
     if quads.is_empty() {
         return None;
@@ -515,5 +542,24 @@ mod tests {
             shown(STORM_THRESHOLD),
         );
         assert!(clear < rain && rain < storm, "{clear} {rain} {storm}");
+    }
+
+    #[test]
+    fn the_clouds_around_two_centres_far_apart_are_those_around_each() {
+        let (a, b) = (IVec2::ZERO, IVec2::new(40, 25));
+        let both = quads_around(CloudStyle::Fancy, &[a, b], 12, banded_density);
+        let each = quads(CloudStyle::Fancy, a, 12, banded_density).len()
+            + quads(CloudStyle::Fancy, b, 12, banded_density).len();
+        assert_eq!(both.len(), each);
+        // Overlapping, they share the cells between them
+        let near = quads_around(
+            CloudStyle::Fancy,
+            &[a, IVec2::new(5, 0)],
+            12,
+            banded_density,
+        );
+        assert!(near.len() < quads(CloudStyle::Fancy, a, 12, banded_density).len() * 2);
+        assert!(near.len() > quads(CloudStyle::Fancy, a, 12, banded_density).len());
+        assert!(quads_around(CloudStyle::Fancy, &[], 12, banded_density).is_empty());
     }
 }

@@ -5,6 +5,7 @@ use bevy::{
     light::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
 };
+use shared::world::{world_position_to_chunk_position, ChunkReach};
 use shared::{CHUNK_SIZE, TICKS_PER_SECOND};
 
 use crate::camera::CameraController;
@@ -14,10 +15,12 @@ use crate::world::overcast::Overcast;
 use crate::world::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
-use crate::world::{GraphicsSettings, MaterialResource, RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{
+    ClientWorldMap, GraphicsSettings, MaterialResource, RenderDistance, ServerRenderDistanceLimit,
+};
 use field::{drift, threshold};
 use material::{cloud_material_plugin, CloudMaterial, CloudParams};
-use mesh::{cloud_mesh, CloudStyle};
+use mesh::{cloud_mesh_around, CloudStyle};
 
 pub mod field;
 pub mod material;
@@ -80,9 +83,9 @@ const STORM_SHADE: Vec3 = Vec3::new(0.7, 0.74, 0.82);
 /// the drift.
 #[derive(Component, Default)]
 pub struct Clouds {
-    /// The style, the centre cell and the radius, in cells, of the window the mesh holds, and
-    /// whether it holds the cells of every weather (`cloud_mesh`).
-    window: Option<(CloudStyle, IVec2, i32, bool)>,
+    /// The style, the centre cells and the radius, in cells, of the window the mesh holds, and
+    /// whether it holds the cells of every weather (`cloud_mesh_around`).
+    window: Option<(CloudStyle, Vec<IVec2>, i32, bool)>,
 }
 
 /// The clouds, drawn while in game.
@@ -201,10 +204,13 @@ fn drift_clouds_system(
 /// or stopped to be overcast: under a clear sky the mesh holds only the clouds of a clear sky,
 /// and as soon as it clouds over those of every weather. Only the Fancy clouds draw their depth
 /// first: the quads of the Fast ones never overlap. The camera is the player's: the portal cameras
-/// see the clouds around it.
+/// see the clouds around it, and around the twin of each portal the player approaches
+/// (`ChunkReach::approached_twins`), which a portal camera shows as the player will see them
+/// after crossing.
 #[allow(clippy::too_many_arguments)]
 fn rebuild_clouds_system(
     cameras: Query<&Transform, (With<CameraController>, Without<Clouds>)>,
+    world_map: Option<Res<ClientWorldMap>>,
     style: Res<CloudStyle>,
     weather: Option<Res<ClientWeather>>,
     render_distance: Res<RenderDistance>,
@@ -216,22 +222,38 @@ fn rebuild_clouds_system(
     let Ok(camera) = cameras.single() else {
         return;
     };
+    let distance = render_distance
+        .distance
+        .min(server_limit.as_ref().map_or(u32::MAX, |limit| limit.0)) as i32;
     let reach = current_reach(&render_distance, server_limit);
     // so that the window covers the reach from anywhere in the cell of the camera
     let radius = (reach / CELL as f32).ceil() as i32 + 1;
     let banded = threshold(Overcast::current(weather.as_deref())) < field::CLEAR_THRESHOLD;
+    let twins = world_map.map_or_else(Vec::new, |world_map| {
+        ChunkReach::new(
+            world_position_to_chunk_position(camera.translation),
+            distance,
+            world_map.blocks.portals(),
+        )
+        .approached_twins()
+    });
     for (entity, mut clouds, transform, children) in &mut clouds {
-        let window = (
-            *style,
-            camera_cell(camera.translation, transform.translation.x),
-            radius,
-            banded,
-        );
-        if clouds.window == Some(window) {
+        let drift = transform.translation.x;
+        let mut centres = vec![camera_cell(camera.translation, drift)];
+        for twin in &twins {
+            let middle = ((*twin * CHUNK_SIZE) + CHUNK_SIZE / 2).as_vec3();
+            let cell = camera_cell(middle, drift);
+            if !centres.contains(&cell) {
+                centres.push(cell);
+            }
+        }
+        let window = (*style, centres, radius, banded);
+        if clouds.window.as_ref() == Some(&window) {
             continue;
         }
+        let mesh =
+            cloud_mesh_around(window.0, &window.1, window.2, window.3).map(|m| meshes.add(m));
         clouds.window = Some(window);
-        let mesh = cloud_mesh(window.0, window.1, window.2, window.3).map(|m| meshes.add(m));
         // the depth is drawn with the same mesh
         let depth = children.iter().filter(|_| *style == CloudStyle::Fancy);
         for drawing in children.iter().filter(|_| *style != CloudStyle::Fancy) {
@@ -514,6 +536,49 @@ mod tests {
         let first = mesh(&mut app);
         move_camera(&mut app, Vec3::new(CELL as f32 + 1., 70., 1.));
         assert_ne!(mesh(&mut app), first);
+    }
+
+    #[test]
+    fn the_mesh_also_holds_the_clouds_around_the_twin_of_a_portal_approached() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        let mut app = app();
+        app.init_resource::<ClientWorldMap>();
+        app.update();
+        let window = |app: &mut App| {
+            let clouds = clouds(app).unwrap();
+            app.world()
+                .get::<Clouds>(clouds)
+                .unwrap()
+                .window
+                .clone()
+                .unwrap()
+                .1
+        };
+        assert_eq!(window(&mut app).len(), 1);
+        // A portal by the camera opens onto a twin 30 chunks east
+        let twin = IVec3::new(30, 4, 0);
+        let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
+        for (color, chunk) in [
+            (PortalColor::Blue, IVec3::new(1, 4, 0)),
+            (PortalColor::Orange, twin),
+        ] {
+            map.blocks.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
+            });
+        }
+        let first = mesh(&mut app);
+        app.update();
+        let centres = window(&mut app);
+        assert_eq!(centres.len(), 2);
+        assert_eq!(centres[1].x, (30 * CHUNK_SIZE + CHUNK_SIZE / 2) / CELL);
+        assert_ne!(mesh(&mut app), first);
+        // Far from the portal, the twin's clouds go
+        move_camera(&mut app, Vec3::new(-100., 70., 1.));
+        assert_eq!(window(&mut app).len(), 1);
     }
 
     #[test]
