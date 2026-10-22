@@ -1,0 +1,15 @@
+# The recipes of Beacon. Each is shaped: `pattern` gives its rows, a character a cell and a
+# space for an empty one, with no empty row or column at its edges, and `key` the item of each
+# character. Items are named as in the commands, `oak_planks`, and those of this mod by their
+# id, `lamp`. The recipe may be mirrored left to right in the grid.
+
+# four torches around a coal, cobblestone in the corners, on a crafting table
+[[recipes]]
+pattern = [
+    "CTC",
+    "TKT",
+    "CTC",
+]
+key = { C = "cobblestone", T = "torch", K = "coal" }
+output = "lamp"
+count = 1

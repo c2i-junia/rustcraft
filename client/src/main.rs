@@ -68,11 +68,6 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    // the blocks come from the base mod: a broken one stops the game here, saying why
-    if let Err(err) = shared::world::load_blocks() {
-        eprintln!("The blocks of the base mod do not read: {err}");
-        std::process::exit(1);
-    }
     let texture_path = if args.use_custom_textures {
         TEXTURE_PATH_CUSTOM
     } else {
@@ -85,6 +80,13 @@ fn main() {
         if let Some(folder) = bundled_assets_folder(&FileAssetReader::get_base_path()) {
             game_folder_paths.assets_folder_path = folder;
         }
+    }
+    // the blocks come from the base mod and the mods that are on: a broken base mod stops the
+    // game here, saying why. Those the Mods screen turns on later need the game to start again.
+    let game_folder = &game_folder_paths.game_folder_path;
+    if let Err(err) = shared::world::load_content(Some(game_folder)) {
+        eprintln!("The blocks of the base mod do not read: {err}");
+        std::process::exit(1);
     }
 
     let mut app = App::new();

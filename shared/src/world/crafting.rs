@@ -2,7 +2,7 @@
 
 use crate::{
     players::Inventory,
-    world::{ItemId, ItemStack},
+    world::{content, ItemId, ItemStack},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -21,12 +21,14 @@ pub const fn grid_slot(row: u32, col: u32) -> u32 {
 }
 
 /// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
-/// wherever that part sits in the grid, or match it mirrored left to right.
-struct Recipe {
-    width: usize,
-    cells: &'static [Option<ItemId>],
-    output: ItemId,
-    nb: u32,
+/// wherever that part sits in the grid, or match it mirrored left to right. Those of the engine
+/// are in `RECIPES`, those of the mods in their `recipes.toml` (see `registry`).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Recipe {
+    pub(crate) width: usize,
+    pub(crate) cells: &'static [Option<ItemId>],
+    pub(crate) output: ItemId,
+    pub(crate) nb: u32,
 }
 
 const OAK_LOG: Option<ItemId> = Some(ItemId::OakLog);
@@ -178,6 +180,11 @@ const RECIPES: &[Recipe] = &[
     },
 ];
 
+/// Every recipe: those of the engine, then those of the mods, in the order they were read.
+fn all_recipes() -> impl Iterator<Item = &'static Recipe> {
+    RECIPES.iter().chain(content().recipes.iter())
+}
+
 /// What the grid makes, if it matches a recipe.
 pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
     let size = CRAFTING_GRID_SIZE as usize;
@@ -201,7 +208,7 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
             })
         })
     };
-    let recipe = RECIPES.iter().find(|recipe| {
+    let recipe = all_recipes().find(|recipe| {
         recipe.width == width
             && recipe.cells.len() == width * height
             && (matches(recipe, false) || matches(recipe, true))
@@ -214,7 +221,7 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
 }
 
 /// A recipe as the item browser reads it. Its index is its position in the table, stable for a
-/// protocol version.
+/// protocol version and the mods the game started with.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RecipeView {
     pub index: u16,
@@ -244,10 +251,9 @@ impl RecipeView {
     }
 }
 
-/// Every recipe, in the order of the table.
+/// Every recipe, in the order of the table, those of the mods after.
 pub fn recipes() -> impl Iterator<Item = RecipeView> {
-    RECIPES
-        .iter()
+    all_recipes()
         .enumerate()
         .map(|(index, recipe)| RecipeView {
             index: index as u16,

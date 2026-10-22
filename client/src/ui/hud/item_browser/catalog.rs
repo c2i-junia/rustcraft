@@ -7,13 +7,16 @@ use crate::ui::hud::item_name;
 /// Under the message saying that nothing matches.
 pub const NO_MATCH_HINT: &str = "Esc clears the search.";
 
-/// Every item, by category in the order of `ItemCategory::ALL`, then in the order of `ItemId::ALL`.
+/// Every item, by category in the order of `ItemCategory::ALL`, then in the order of
+/// `ItemId::every`: those of the engine, then those of the mods.
 pub fn catalog() -> Vec<ItemId> {
+    let items = ItemId::every();
     ItemCategory::ALL
         .into_iter()
         .flat_map(|category| {
-            ItemId::ALL
-                .into_iter()
+            items
+                .iter()
+                .copied()
                 .filter(move |item| item.category() == category)
         })
         .collect()

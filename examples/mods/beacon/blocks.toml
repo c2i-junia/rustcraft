@@ -1,0 +1,11 @@
+# The blocks of Beacon, after those of the base mod, with the same keys: see
+# data/mods/rustcraft/blocks.toml. Each is a full cube with the texture of its id in
+# textures/blocks/, and an item of its own, called by its full id: beacon:lamp.
+
+# brighter than a torch, whose light is 14
+[[blocks]]
+id = "lamp"
+name = "Lamp"
+break_steps = 3
+light = 15
+drops = [{ item = "lamp" }]

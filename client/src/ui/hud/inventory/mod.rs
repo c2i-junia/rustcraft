@@ -13,6 +13,9 @@ pub use setup::*;
 
 /// The name of an item as a player reads it: its identifier split into words.
 pub fn item_name(item: ItemId) -> String {
+    if let ItemId::Block(block) = item {
+        return block.display_name();
+    }
     let mut name = String::new();
     for letter in format!("{item:?}").chars() {
         if letter.is_uppercase() && !name.is_empty() {

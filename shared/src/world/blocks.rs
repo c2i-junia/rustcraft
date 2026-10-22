@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use super::registry::{blocks, BlockDef, BlockShape};
+use super::registry::{content, BlockDef, BlockShape};
+use bevy_log::warn_once;
 use super::{GameElementId, ItemId, ToolKind};
 use bevy::math::bounding::Aabb3d;
 use rand::Rng;
@@ -68,20 +69,60 @@ base_blocks! {
     28 Torch "torch",
 }
 
+/// The variant under which a block of a mod is encoded, with its full id, `beacon:lamp`: its
+/// number may change from a start of the game to the next, as mods are added or turned off. It
+/// is no block's number, which stays below `u16::MAX`.
+const MOD_BLOCK_TAG: u32 = u16::MAX as u32;
+const MOD_BLOCK_VARIANT: &str = "Mod";
+
+impl BlockId {
+    /// Whether the engine names it, as a base block of `BlockId::ALL`. The other blocks come
+    /// from mods, and have an item of their own, `ItemId::Block`.
+    pub const fn is_named(&self) -> bool {
+        (self.0 as usize) < BlockId::ALL.len()
+    }
+
+    /// What a player reads: `Oak Log`, `Lamp`.
+    pub fn display_name(&self) -> String {
+        self.def().display.clone()
+    }
+
+    /// The block of a mod called `full_id` in a save or a message, or, when that mod is not
+    /// loaded, the debug block in its place.
+    fn of_mod(full_id: &str) -> BlockId {
+        content().by_name(full_id).unwrap_or_else(|| {
+            warn_once!("The blocks of mods that are not loaded, as {full_id}, become debug blocks");
+            BlockId::Debug
+        })
+    }
+}
+
 impl std::fmt::Debug for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match blocks().get(*self) {
+        match content().get(*self) {
             Some(def) => f.write_str(def.name),
             None => write!(f, "BlockId({})", self.0),
         }
     }
 }
 
-/// As the enum it replaces: the index of a variant in bincode, its name in RON.
+/// A base block as the enum it replaces: the index of a variant in bincode, its name in RON.
+/// A block of a mod as the variant `Mod` holding its full id.
 impl Serialize for BlockId {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if !self.is_named() {
+            let def = content()
+                .get(*self)
+                .ok_or_else(|| S::Error::custom(format!("no block numbered {}", self.0)))?;
+            return serializer.serialize_newtype_variant(
+                "BlockId",
+                MOD_BLOCK_TAG,
+                MOD_BLOCK_VARIANT,
+                &def.full_id(),
+            );
+        }
         let name = if serializer.is_human_readable() {
-            blocks()
+            content()
                 .get(*self)
                 .map(|def| def.name)
                 .ok_or_else(|| S::Error::custom(format!("no block numbered {}", self.0)))?
@@ -108,45 +149,68 @@ impl<'de> Visitor<'de> for BlockIdVisitor {
     }
 
     fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<BlockId, A::Error> {
-        let (id, variant) = data.variant_seed(BlockTag)?;
-        variant.unit_variant()?;
-        Ok(id)
+        match data.variant_seed(BlockTag)? {
+            (Tag::Block(id), variant) => {
+                variant.unit_variant()?;
+                Ok(id)
+            }
+            (Tag::Mod, variant) => {
+                let full_id: String = variant.newtype_variant()?;
+                Ok(BlockId::of_mod(&full_id))
+            }
+        }
     }
 
     fn visit_str<E: de::Error>(self, name: &str) -> Result<BlockId, E> {
-        BlockTag.visit_str(name)
+        content()
+            .by_name(name)
+            .ok_or_else(|| E::custom(format!("no block named {name}")))
     }
 }
 
-/// The variant of a `BlockId`: its number, or its name.
+/// The variant of a `BlockId`: a base block, or a block of a mod, whose full id follows.
+enum Tag {
+    Block(BlockId),
+    Mod,
+}
+
+/// Reads the variant of a `BlockId`: its number, or its name.
 struct BlockTag;
 
 impl<'de> DeserializeSeed<'de> for BlockTag {
-    type Value = BlockId;
+    type Value = Tag;
 
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<BlockId, D::Error> {
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Tag, D::Error> {
         deserializer.deserialize_identifier(self)
     }
 }
 
 impl<'de> Visitor<'de> for BlockTag {
-    type Value = BlockId;
+    type Value = Tag;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("the number or the name of a block")
     }
 
-    fn visit_u64<E: de::Error>(self, number: u64) -> Result<BlockId, E> {
+    fn visit_u64<E: de::Error>(self, number: u64) -> Result<Tag, E> {
+        if number == MOD_BLOCK_TAG as u64 {
+            return Ok(Tag::Mod);
+        }
         u16::try_from(number)
             .ok()
             .map(BlockId)
-            .filter(|id| blocks().get(*id).is_some())
+            .filter(|id| content().get(*id).is_some())
+            .map(Tag::Block)
             .ok_or_else(|| E::custom(format!("no block numbered {number}")))
     }
 
-    fn visit_str<E: de::Error>(self, name: &str) -> Result<BlockId, E> {
-        blocks()
+    fn visit_str<E: de::Error>(self, name: &str) -> Result<Tag, E> {
+        if name == MOD_BLOCK_VARIANT {
+            return Ok(Tag::Mod);
+        }
+        content()
             .by_name(name)
+            .map(Tag::Block)
             .ok_or_else(|| E::custom(format!("no block named {name}")))
     }
 }
@@ -226,7 +290,7 @@ impl BlockId {
     /// Its properties. A number with no block, which only a broken file or message could give,
     /// takes those of the first.
     fn def(&self) -> &'static BlockDef {
-        let registry = blocks();
+        let registry = content();
         registry
             .get(*self)
             .or_else(|| registry.get(BlockId::default()))

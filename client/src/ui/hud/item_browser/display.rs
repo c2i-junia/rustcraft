@@ -87,7 +87,7 @@ pub fn update_craftable_now(
         return;
     }
     let items = if survival {
-        ItemId::ALL
+        ItemId::every()
             .into_iter()
             .filter(|&item| craftable_now(&inventory, item))
             .collect()

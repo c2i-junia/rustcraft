@@ -102,19 +102,13 @@ impl GameFolder {
 
     /// Adds a copy of the world folder `source` as the world `name`.
     pub fn with_world_copy(self, name: &str, source: &Path) -> Self {
-        fn copy(from: &Path, to: &Path) {
-            fs::create_dir_all(to).expect("a world folder");
-            for entry in fs::read_dir(from).expect("a world to copy") {
-                let entry = entry.expect("an entry of a world");
-                let target = to.join(entry.file_name());
-                if entry.file_type().expect("a file type").is_dir() {
-                    copy(&entry.path(), &target);
-                } else {
-                    fs::copy(entry.path(), target).expect("a file of a world");
-                }
-            }
-        }
-        copy(source, &self.path().join(SAVE_PATH).join(name));
+        copy_folder(source, &self.path().join(SAVE_PATH).join(name));
+        self
+    }
+
+    /// Adds a copy of the mod folder `source`, such as one of `examples/mods`, as the mod `id`.
+    pub fn with_mod_copy(self, id: &str, source: &Path) -> Self {
+        copy_folder(source, &self.path().join("mods").join(id));
         self
     }
 
@@ -199,5 +193,19 @@ impl GameFolder {
              [game]\napi = 1\n[dependencies]\n{dependencies}"
         );
         self.with_mod_file(id, "mod.toml", &manifest)
+    }
+}
+
+/// Copies the folder `from`, and all it holds, to `to`.
+fn copy_folder(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("a folder");
+    for entry in fs::read_dir(from).expect("a folder to copy") {
+        let entry = entry.expect("an entry of a folder");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("a file type").is_dir() {
+            copy_folder(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("a file of a folder");
+        }
     }
 }

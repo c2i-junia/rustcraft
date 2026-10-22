@@ -33,7 +33,7 @@ impl Arg {
     fn values(&self) -> Vec<String> {
         match self {
             Arg::Word(words) => words.iter().map(|word| word.to_string()).collect(),
-            Arg::Item => ItemId::ALL.iter().map(ItemId::name).collect(),
+            Arg::Item => ItemId::every().iter().map(ItemId::name).collect(),
             Arg::Count => Vec::new(),
         }
     }

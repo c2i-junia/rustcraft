@@ -255,7 +255,7 @@ fn escape_closes_the_inventory() {
 }
 
 /// Whether the client world holds a block at `position`.
-fn is_block(w: &World, position: IVec3) -> bool {
+pub(super) fn is_block(w: &World, position: IVec3) -> bool {
     w.resource::<ClientWorldMap>()
         .blocks
         .get_block(position)
@@ -275,7 +275,7 @@ pub(super) fn aimed_cells(w: &World, camera: Entity, player: Entity) -> Option<(
 
 /// Presses `button` over `locator`, holds it for `frames` frames, then releases it.
 #[track_caller]
-fn hold_click(h: &mut Harness, locator: &L, button: MouseButton, frames: usize) {
+pub(super) fn hold_click(h: &mut Harness, locator: &L, button: MouseButton, frames: usize) {
     let center = h.center_of(locator);
     h.move_cursor(center);
     h.frames(1);

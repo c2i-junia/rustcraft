@@ -32,6 +32,7 @@ use shared::mods::{
     base_mod_problem, find_game_mods, plan_loading, read_mods_settings, write_mods_settings,
     FoundMod, ModState, ModsSettings, MODS_FOLDER, MODS_SETTINGS_PATH,
 };
+use shared::world::{content, content_error, BLOCKS_FILE, RECIPES_FILE};
 use shared::GameFolderPaths;
 
 use super::background::menu_background;
@@ -84,7 +85,7 @@ pub struct ModsScreen {
 /// A mod of the screen.
 struct ShownMod {
     found: FoundMod,
-    /// Why its script does not parse.
+    /// Why its script does not parse, or its blocks or its recipes do not read.
     script_error: Option<String>,
     icon: Option<Handle<Image>>,
 }
@@ -99,7 +100,13 @@ impl ModsScreen {
                 script_error: found
                     .problem
                     .is_none()
-                    .then(|| server::script_error(&found))
+                    .then(|| {
+                        server::script_error(&found).or_else(|| {
+                            (!found.shipped)
+                                .then(|| content_error(&found.id, &found.folder))
+                                .flatten()
+                        })
+                    })
                     .flatten(),
                 icon: found
                     .icon()
@@ -147,6 +154,20 @@ impl ModsScreen {
     fn without_base_mod(&self) -> bool {
         let found: Vec<FoundMod> = self.mods.iter().map(|shown| shown.found.clone()).collect();
         base_mod_problem(&found, &plan_loading(&found, &self.settings)).is_some()
+    }
+
+    /// Whether the mods as the player leaves them would bring other blocks or recipes than
+    /// those the game started with: those are read once, as it starts.
+    fn needs_restart(&self) -> bool {
+        let states = self.states();
+        self.mods.iter().zip(&states).any(|(shown, state)| {
+            let found = &shown.found;
+            let has_content = [BLOCKS_FILE, RECIPES_FILE]
+                .iter()
+                .any(|file| found.folder.join(file).is_file());
+            let running = content().mods.iter().any(|loaded| loaded.id == found.id);
+            !found.shipped && has_content && (*state == ModState::On) != running
+        })
     }
 
     fn is_on(&self, index: usize) -> bool {
@@ -806,6 +827,10 @@ fn show_mods(
             "No world starts without Rustcraft, the base mod".to_string(),
             DANGER,
         ),
+        (_, n) if n > 0 && screen.needs_restart() => (
+            "Restart the game for the blocks of the mods turned on or off".to_string(),
+            ACCENT,
+        ),
         (_, 1) => ("1 change, applied when a world starts".to_string(), ACCENT),
         (_, n) if n > 1 => (format!("{n} changes, applied when a world starts"), ACCENT),
         (Some(error), _) => (format!("{error}: every mod is on"), DANGER),
@@ -1176,12 +1201,11 @@ fn save_on_exit(screen: Option<Res<ModsScreen>>, assets: Res<AssetServer>, mut c
     let font = assets.load(FONT_PATH);
     match write_mods_settings(&screen.game_folder, &screen.settings) {
         Ok(()) => {
-            show_toast(
-                &mut commands,
-                "Mods saved: they apply when a world starts",
-                ToastKind::Info,
-                font,
-            );
+            let message = match screen.needs_restart() {
+                true => "Mods saved: restart the game for their blocks",
+                false => "Mods saved: they apply when a world starts",
+            };
+            show_toast(&mut commands, message, ToastKind::Info, font);
         }
         Err(err) => {
             warn!("Could not write {MODS_SETTINGS_PATH}: {err}");

@@ -3,13 +3,15 @@ use std::fmt::Debug;
 use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Serialize};
 
-use super::{BlockId, GameElementId, MobKind};
+use super::{content, BlockId, GameElementId, MobKind};
 
 /// Append only: never reorder or remove a variant. Player files store items by name (RON), but
 /// network messages carry the position of the variant (bincode), so another order breaks the
 /// protocol: bump `PROTOCOL_ID` when this enum changes.
+///
+/// `Block` is the item of a block of a mod, which places it: its name and its texture are the
+/// block's, and it is encoded with the block, by its full id (see `BlockId`).
 #[derive(
-    Debug,
     Clone,
     Copy,
     PartialEq,
@@ -59,6 +61,54 @@ pub enum ItemId {
     FoxSpawnEgg,
     SheepSpawnEgg,
     Torch,
+    Block(BlockId),
+}
+
+/// The name of the variant, `OakLog`, for a base item; the full id of the block, `beacon:lamp`,
+/// for the item of a block of a mod. The textures and the names of the items are made from it.
+impl Debug for ItemId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Dirt => "Dirt",
+            Self::Grass => "Grass",
+            Self::Stone => "Stone",
+            Self::OakLog => "OakLog",
+            Self::OakPlanks => "OakPlanks",
+            Self::OakLeaves => "OakLeaves",
+            Self::Sand => "Sand",
+            Self::Cactus => "Cactus",
+            Self::Ice => "Ice",
+            Self::Glass => "Glass",
+            Self::Bedrock => "Bedrock",
+            Self::Dandelion => "Dandelion",
+            Self::TallGrass => "TallGrass",
+            Self::Poppy => "Poppy",
+            Self::Cobblestone => "Cobblestone",
+            Self::Snow => "Snow",
+            Self::Snowball => "Snowball",
+            Self::SpruceLog => "SpruceLog",
+            Self::Stick => "Stick",
+            Self::CraftingTable => "CraftingTable",
+            Self::SprucePlanks => "SprucePlanks",
+            Self::Furnace => "Furnace",
+            Self::Chest => "Chest",
+            Self::WoodenPickaxe => "WoodenPickaxe",
+            Self::WoodenAxe => "WoodenAxe",
+            Self::WoodenShovel => "WoodenShovel",
+            Self::WoodenHoe => "WoodenHoe",
+            Self::WoodenSword => "WoodenSword",
+            Self::Coal => "Coal",
+            Self::CoalOre => "CoalOre",
+            Self::IronOre => "IronOre",
+            Self::GoldOre => "GoldOre",
+            Self::Gravel => "Gravel",
+            Self::FoxSpawnEgg => "FoxSpawnEgg",
+            Self::SheepSpawnEgg => "SheepSpawnEgg",
+            Self::Torch => "Torch",
+            Self::Block(block) => return write!(f, "{block:?}"),
+        };
+        f.write_str(name)
+    }
 }
 
 impl ItemId {
@@ -102,8 +152,18 @@ impl ItemId {
         Self::Torch,
     ];
 
-    /// The name of the item in the commands, like in Minecraft: `oak_log`.
+    /// Every item: those of `ALL`, then the items of the blocks of the mods.
+    pub fn every() -> Vec<ItemId> {
+        let mods = content().mod_blocks().map(ItemId::Block);
+        ItemId::ALL.into_iter().chain(mods).collect()
+    }
+
+    /// The name of the item in the commands, like in Minecraft: `oak_log`, and for the item of
+    /// a block of a mod, its full id, `beacon:lamp`.
     pub fn name(&self) -> String {
+        if let Self::Block(block) = self {
+            return format!("{block:?}");
+        }
         let mut name = String::new();
         for c in format!("{self:?}").chars() {
             if c.is_uppercase() && !name.is_empty() {
@@ -115,8 +175,18 @@ impl ItemId {
     }
 
     /// The item called `name`: `oak_log` like in Minecraft, in any case, or `OakLog` like the
-    /// variant.
+    /// variant; the item of a block of a mod by its full id, `beacon:lamp`.
     pub fn from_name(name: &str) -> Option<ItemId> {
+        Self::from_base_name(name).or_else(|| {
+            content()
+                .by_name(name)
+                .filter(|block| !block.is_named())
+                .map(ItemId::Block)
+        })
+    }
+
+    /// The item of `ALL` called `name`, as `from_name` reads it.
+    pub(crate) fn from_base_name(name: &str) -> Option<ItemId> {
         let variant =
             |name: &str| ItemId::deserialize(StrDeserializer::<ValueError>::new(name)).ok();
         variant(name).or_else(|| {
@@ -196,6 +266,7 @@ impl ItemId {
             | Self::WoodenHoe
             | Self::WoodenSword => ItemCategory::Tools,
             Self::FoxSpawnEgg | Self::SheepSpawnEgg => ItemCategory::Mobs,
+            Self::Block(_) => ItemCategory::Blocks,
         }
     }
 
@@ -227,6 +298,7 @@ impl ItemId {
             Self::GoldOre => ItemType::Block(BlockId::GoldOre),
             Self::Gravel => ItemType::Block(BlockId::Gravel),
             Self::Torch => ItemType::Block(BlockId::Torch),
+            Self::Block(block) => ItemType::Block(block),
 
             Self::Snowball | Self::Stick | Self::Coal | Self::FoxSpawnEgg | Self::SheepSpawnEgg => {
                 ItemType::Generic
@@ -415,8 +487,17 @@ mod tests {
                 | ItemId::FoxSpawnEgg
                 | ItemId::SheepSpawnEgg
                 | ItemId::Torch => {}
+                // pinned below, with its block
+                ItemId::Block(_) => {}
             }
         }
+        // the item of a block: its variant, then the block as `BlockId` encodes it
+        assert_eq!(
+            bincode::options()
+                .serialize(&ItemId::Block(BlockId::Stone))
+                .unwrap(),
+            [36, 3]
+        );
         for (id, expected) in table {
             assert_eq!(
                 bincode::options().serialize(&id).unwrap(),

@@ -13,7 +13,7 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 use serde::Deserialize;
-use shared::world::{BlockId, GameElementId, ItemId};
+use shared::world::{content, BlockId, GameElementId, ItemId, BLOCK_TEXTURES};
 use shared::GameFolderPaths;
 use std::collections::HashMap;
 use std::fs;
@@ -243,6 +243,9 @@ pub fn setup_materials(
     let textures_path = paths.assets_folder_path.join(&texture_path.path);
     let blocks = textures_path.join("blocks/");
     block_atlas_handles.handles = load_textures(&asset_server, &blocks);
+    block_atlas_handles
+        .handles
+        .extend(load_mod_textures(&asset_server));
     block_atlas_handles.animations = read_animations(&blocks);
     let mut items = load_textures(&asset_server, &textures_path.join("items/"));
     // An item with no texture of its own, like most blocks, shows the texture of its block
@@ -317,6 +320,21 @@ fn load_textures(asset_server: &AssetServer, folder: &Path) -> Vec<(Handle<Image
         folder.display()
     );
     textures
+}
+
+/// Starts loading the textures of the blocks of the mods, from their `textures/blocks`: each
+/// named after the full id of its block, `beacon:lamp`, as the mesher asks for it.
+fn load_mod_textures(asset_server: &AssetServer) -> Vec<(Handle<Image>, String)> {
+    content()
+        .mods
+        .iter()
+        .filter(|found| found.folder.join(BLOCK_TEXTURES).is_dir())
+        .flat_map(|found| {
+            load_textures(asset_server, &found.folder.join(BLOCK_TEXTURES))
+                .into_iter()
+                .map(|(handle, name)| (handle, format!("{}:{name}", found.id)))
+        })
+        .collect()
 }
 
 /// The animations of the textures of `folder`, from its `<texture>.anim.ron` files. A file that

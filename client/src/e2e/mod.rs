@@ -11,6 +11,7 @@ mod helpers;
 mod hud;
 mod input;
 mod inventory;
+mod lamp;
 mod item_browser;
 mod locator;
 mod main_menu;

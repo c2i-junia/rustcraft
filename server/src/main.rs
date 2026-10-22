@@ -31,8 +31,11 @@ fn main() -> ExitCode {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-    // the blocks come from the base mod: a broken one stops the server here, saying why
-    if let Err(err) = shared::world::load_blocks() {
+    let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
+    // the blocks come from the base mod and the mods that are on: a broken base mod stops the
+    // server here, saying why
+    let game_folder = &game_folder_paths.game_folder_path;
+    if let Err(err) = shared::world::load_content(Some(game_folder)) {
         error!("The blocks of the base mod do not read: {err}");
         return ExitCode::FAILURE;
     }
@@ -67,7 +70,6 @@ fn main() -> ExitCode {
         saves: None,
         max_render_distance: args.max_render_distance,
     };
-    let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
     let result = match status {
         Some(status) => server::init_with_status(socket, status, config, game_folder_paths),
         None => server::init(socket, config, game_folder_paths),
