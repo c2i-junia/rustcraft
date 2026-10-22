@@ -1395,9 +1395,43 @@ mod tests {
     }
 
     #[test]
-    fn the_render_distance_of_a_twin_unloads_once_left_past_the_margin_but_its_view_radius() {
-        use shared::world::{PORTAL_APPROACH_RADIUS, PORTAL_VIEW_RADIUS};
+    fn releasing_a_sprint_or_landing_by_a_portal_unloads_nothing_of_its_twin() {
         let distance = 6;
+        let chunks = {
+            let mut chunks = varied_cubes(&[(IVec3::ZERO, distance), (FAR_TWIN, distance)]);
+            open_pair(&mut chunks, 5);
+            chunks
+        };
+        let mut player = Player::new(1, "PlayerOne".into(), Vec3::splat(8.0), default());
+        player.is_flying = true;
+        player.is_sprinting = true;
+        let mut sent = SentChunks::default();
+        let far_unloaded = |player: &Player, sent: &mut SentChunks| {
+            let reach = ChunkReach::of_player(player, distance, chunks.portals());
+            let mut unloaded = 0;
+            for _ in 0..40 {
+                let (unloads, _, _) = world_messages_around(&chunks, &[], &reach, sent);
+                unloaded += unloads.iter().filter(|c| c.x > distance).count();
+            }
+            (
+                unloaded,
+                sent.chunks.iter().filter(|c| c.x > distance).count(),
+            )
+        };
+        let area = render_distance_offsets(distance).len();
+        assert_eq!(far_unloaded(&player, &mut sent), (0, area));
+        // Sprint released, then landed: the portal is no longer approached, nothing goes
+        player.is_sprinting = false;
+        assert_eq!(far_unloaded(&player, &mut sent), (0, area));
+        player.is_flying = false;
+        assert_eq!(far_unloaded(&player, &mut sent), (0, area));
+    }
+
+    #[test]
+    fn the_render_distance_of_a_twin_unloads_once_left_past_the_margin_but_its_view_radius() {
+        use shared::world::{MAX_PORTAL_APPROACH_RADIUS, PORTAL_VIEW_RADIUS};
+        // Past the widest approach and the margin, the portal still within the render distance
+        let distance = MAX_PORTAL_APPROACH_RADIUS + 2;
         let mut chunks = ChunkMap::default();
         for chunk in render_distance_offsets(distance + 2)
             .iter()
@@ -1419,16 +1453,16 @@ mod tests {
         let area = render_distance_offsets(distance).len();
         let view = render_distance_offsets(PORTAL_VIEW_RADIUS).len();
         assert_eq!(walk(0, &mut sent), (0, area));
-        // Within the approach and the margin: nothing goes
+        // Within the widest approach and the margin: nothing goes, whatever the player's speed
         assert_eq!(
-            walk(-PORTAL_APPROACH_RADIUS - UNLOAD_MARGIN, &mut sent),
+            walk(-MAX_PORTAL_APPROACH_RADIUS - UNLOAD_MARGIN, &mut sent),
             (0, area)
         );
         // Past them: all but the view radius and the margin
         let around = PORTAL_VIEW_RADIUS + UNLOAD_MARGIN;
         let kept =
             (2 * around + 1) as usize * (2 * around + 1) as usize * (2 * around + 1) as usize;
-        let (unloaded, held) = walk(-PORTAL_APPROACH_RADIUS - UNLOAD_MARGIN - 1, &mut sent);
+        let (unloaded, held) = walk(-MAX_PORTAL_APPROACH_RADIUS - UNLOAD_MARGIN - 1, &mut sent);
         assert_eq!((unloaded, held), (area - kept, kept));
         assert!(kept > view);
         // Back by the portal: the area comes again

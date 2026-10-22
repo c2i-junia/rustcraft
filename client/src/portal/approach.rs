@@ -12,9 +12,10 @@ use shared::world::{
 use crate::player::CurrentPlayerMarker;
 use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
 
-/// How many chunks past its approach a twin stays approached for the shadows and the clouds, so
-/// that walking to and fro across the edge does not cast and uncast every group around the twin
-/// nor mesh the clouds again on each step.
+/// How many chunks past the widest approach (`MAX_PORTAL_APPROACH_RADIUS`) a twin stays
+/// approached for the shadows and the clouds, as the server keeps its area: walking to and fro
+/// across the edge, releasing a sprint or landing does not cast and uncast every group around
+/// the twin nor mesh the clouds again.
 const APPROACH_MARGIN: i32 = 1;
 
 /// The approach of the local player and the twins it approaches.
@@ -22,7 +23,8 @@ const APPROACH_MARGIN: i32 = 1;
 pub struct Approach {
     /// How near a portal is approached, in chunks (`approach_radius`).
     pub radius: i32,
-    /// The chunks of the twins approached, kept `APPROACH_MARGIN` chunks past the approach.
+    /// The chunks of the twins approached, kept `APPROACH_MARGIN` chunks past the widest
+    /// approach.
     pub twins: Vec<IVec3>,
 }
 
@@ -147,17 +149,20 @@ mod tests {
     }
 
     #[test]
-    fn a_twin_stays_approached_a_chunk_past_the_approach() {
+    fn a_twin_stays_approached_until_past_the_widest_approach_and_the_margin() {
+        use shared::world::MAX_PORTAL_APPROACH_RADIUS;
         let mut app = app();
         walk_to(&mut app, 0);
         assert_eq!(twins(&app), vec![TWIN]);
-        // Past the approach, within the margin: still approached
+        // Past the approach, within the widest one and the margin: still approached
         walk_to(&mut app, -PORTAL_APPROACH_RADIUS - 1);
         assert_eq!(twins(&app), vec![TWIN]);
-        // Past the margin: no longer
-        walk_to(&mut app, -PORTAL_APPROACH_RADIUS - 2);
+        walk_to(&mut app, -MAX_PORTAL_APPROACH_RADIUS - APPROACH_MARGIN);
+        assert_eq!(twins(&app), vec![TWIN]);
+        // Past them: no longer
+        walk_to(&mut app, -MAX_PORTAL_APPROACH_RADIUS - APPROACH_MARGIN - 1);
         assert!(twins(&app).is_empty());
-        // Back within the margin, not approached until within the approach
+        // Back within them, not approached until within the approach
         walk_to(&mut app, -PORTAL_APPROACH_RADIUS - 1);
         assert!(twins(&app).is_empty());
         walk_to(&mut app, -PORTAL_APPROACH_RADIUS);

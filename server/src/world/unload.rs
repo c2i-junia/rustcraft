@@ -183,10 +183,11 @@ mod tests {
     #[test]
     fn the_server_forgets_the_render_distance_of_an_approached_twin_once_left_with_the_margin() {
         use shared::world::{
-            FaceDirection, Portal, PortalColor, PORTAL_APPROACH_RADIUS, PORTAL_VIEW_RADIUS,
+            FaceDirection, Portal, PortalColor, MAX_PORTAL_APPROACH_RADIUS, PORTAL_VIEW_RADIUS,
         };
-        // A player whose render distance is past the view radius, its portal approached
-        let distance = PORTAL_VIEW_RADIUS + 3;
+        // A player whose render distance is past the widest approach and the margin, its portal
+        // approached
+        let distance = MAX_PORTAL_APPROACH_RADIUS + KEPT_MARGIN;
         let mut map = world(0);
         map.render_distances
             .set(1, distance as u32, distance as u32);
@@ -220,8 +221,8 @@ mod tests {
             (twin.x - distance - KEPT_MARGIN..=edge).collect::<Vec<_>>()
         );
 
-        // Away from the portal, within the approach and the margin: still kept
-        place(&mut map, 1 - PORTAL_APPROACH_RADIUS - KEPT_MARGIN);
+        // Away from the portal, within the widest approach and the margin: still kept
+        place(&mut map, 1 - MAX_PORTAL_APPROACH_RADIUS - KEPT_MARGIN);
         unload_far_chunks(&mut map);
         assert_eq!(
             twin_xs(&map).len(),
@@ -229,7 +230,7 @@ mod tests {
         );
 
         // One chunk farther: only the view radius and the margin
-        place(&mut map, -PORTAL_APPROACH_RADIUS - KEPT_MARGIN);
+        place(&mut map, -MAX_PORTAL_APPROACH_RADIUS - KEPT_MARGIN);
         unload_far_chunks(&mut map);
         let around = PORTAL_VIEW_RADIUS + KEPT_MARGIN;
         assert_eq!(

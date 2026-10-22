@@ -49,12 +49,23 @@ pub fn approach_radius_at(speed: f32) -> i32 {
     chunks.clamp(PORTAL_APPROACH_RADIUS, MAX_PORTAL_APPROACH_RADIUS)
 }
 
+/// The speed past which a player's velocity counts towards its approach, in blocks a second: a
+/// fall of 2.4 blocks or more, or a throw. A jump (`JUMP_VELOCITY`, 8.66) and its fall, even at
+/// a sprint, stay under it, so that they do not change the approach on every hop.
+pub const FAST_SPEED: f32 = 12.0;
+
 /// The approach of `player`, by how fast it may go: the speed of its stance (flying, sprinting)
-/// whether it moves or not, so that a key pressed does not change it, or its velocity, when
-/// falling or thrown.
+/// whether it moves or not, or its velocity, once past `FAST_SPEED`, when falling or thrown.
 pub fn approach_radius(player: &Player) -> i32 {
-    approach_radius_at(top_speed(player).max(player.velocity.length()))
+    let velocity = player.velocity.length();
+    let fast = if velocity > FAST_SPEED { velocity } else { 0.0 };
+    approach_radius_at(top_speed(player).max(fast))
 }
+
+/// The step the radius of a capped area is rounded down to (`ChunkReach::approached_radius`):
+/// the overlap with the player's own area changes it by about a shell for every chunk the
+/// player crosses, and each radius sorts its offsets anew (`twin_area_offsets`).
+pub const CAPPED_RADIUS_STEP: i32 = 4;
 
 /// How many chunks a box of `horizontal` chunks along x and z and `vertical` along y around a
 /// chunk holds.
@@ -116,27 +127,54 @@ pub fn twin_area_key(offset: IVec3, facing: IVec3) -> (i32, i32) {
     )
 }
 
-/// The offsets from a twin facing `facing` of the chunks of its area of `radius`, in the order
-/// they are sent (`twin_area_key`). Each is computed once.
-pub fn twin_area_offsets(radius: i32, facing: IVec3) -> Arc<[IVec3]> {
-    type Cache = Mutex<HashMap<(i32, IVec3), Arc<[IVec3]>>>;
-    static OFFSETS: LazyLock<Cache> = LazyLock::new(Default::default);
-    let mut offsets = OFFSETS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // A few facings at a few radii are in use at once: those of another render distance go
-    if offsets.len() >= 16 && !offsets.contains_key(&(radius, facing)) {
-        offsets.clear();
-    }
-    offsets
-        .entry((radius, facing))
-        .or_insert_with(|| {
+/// How many lists of offsets `twin_area_offsets` keeps: a few facings at a few radii are in use
+/// at once.
+const OFFSETS_KEPT: usize = 16;
+
+/// The lists of offsets of `twin_area_offsets`, the least recently used going first once
+/// `OFFSETS_KEPT` are held: the list of the client's own render distance, used every frame its
+/// fog is measured, stays while the server's capped radii come and go.
+#[derive(Default)]
+struct OffsetsCache {
+    /// Each list, with when it was last used.
+    entries: HashMap<(i32, IVec3), (Arc<[IVec3]>, u64)>,
+    /// Counts the uses.
+    clock: u64,
+}
+
+impl OffsetsCache {
+    fn get(&mut self, radius: i32, facing: IVec3) -> Arc<[IVec3]> {
+        self.clock += 1;
+        let clock = self.clock;
+        if !self.entries.contains_key(&(radius, facing)) && self.entries.len() >= OFFSETS_KEPT {
+            let oldest = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(key, _)| *key);
+            if let Some(oldest) = oldest {
+                self.entries.remove(&oldest);
+            }
+        }
+        let (offsets, used) = self.entries.entry((radius, facing)).or_insert_with(|| {
             let mut offsets = render_distance_offsets(radius).to_vec();
             // Stable: the same order on the server and the client
             offsets.sort_by_key(|offset| twin_area_key(*offset, facing));
-            offsets.into()
-        })
-        .clone()
+            (offsets.into(), 0)
+        });
+        *used = clock;
+        offsets.clone()
+    }
+}
+
+/// The offsets from a twin facing `facing` of the chunks of its area of `radius`, in the order
+/// they are sent (`twin_area_key`). Each is computed once, while in use (`OffsetsCache`).
+pub fn twin_area_offsets(radius: i32, facing: IVec3) -> Arc<[IVec3]> {
+    static OFFSETS: LazyLock<Mutex<OffsetsCache>> = LazyLock::new(Default::default);
+    OFFSETS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(radius, facing)
 }
 
 /// An open portal seen from a reach: its chunk, and its twin's chunk and facing.
@@ -198,9 +236,23 @@ impl ChunkReach {
         .approaching(approach_radius(player))
     }
 
-    /// This reach, with portals approached within `approach` chunks.
+    /// This reach, with portals approached within `approach` chunks. With no portal within the
+    /// widest approach, no approach changes anything: it is `PORTAL_APPROACH_RADIUS`, so that the
+    /// reach, compared to know whether to walk the chunks again, stays the same.
     pub fn approaching(mut self, approach: i32) -> Self {
-        self.approach = approach;
+        let near = self.views.iter().any(|view| {
+            chunk_in_reach(
+                view.portal,
+                self.center,
+                MAX_PORTAL_APPROACH_RADIUS,
+                MAX_PORTAL_APPROACH_RADIUS,
+            )
+        });
+        self.approach = if near {
+            approach
+        } else {
+            PORTAL_APPROACH_RADIUS
+        };
         self
     }
 
@@ -216,19 +268,30 @@ impl ChunkReach {
         )
     }
 
-    /// Whether the portal in the chunk `portal` is approached (`approaching`), the approach
-    /// grown by `margin`.
+    /// Whether the portal in the chunk `portal` is approached (`approaching`); with a `margin`,
+    /// whether it is within the widest approach grown by it: what was sent while the player went
+    /// faster is kept until it is that far, so that releasing a sprint or landing does not unload
+    /// it, while an area never sent costs nothing to keep.
     fn approaches(&self, portal: IVec3, margin: i32) -> bool {
-        let radius = self.approach + margin;
+        let radius = if margin > 0 {
+            MAX_PORTAL_APPROACH_RADIUS + margin
+        } else {
+            self.approach
+        };
         chunk_in_reach(portal, self.center, radius, radius)
     }
 
     /// The radius of the area around the approached twin in the chunk `twin`: the render
     /// distance, or as many chunks as the chunks it adds to the player's own fit in `budget`,
-    /// which they are taken from; `PORTAL_VIEW_RADIUS` at least.
+    /// which they are taken from, rounded down to `CAPPED_RADIUS_STEP`; `PORTAL_VIEW_RADIUS`
+    /// at least.
     fn approached_radius(&self, twin: IVec3, budget: &mut usize) -> i32 {
         let own = (self.distance, vertical_render_distance(self.distance));
-        for radius in (PORTAL_VIEW_RADIUS + 1..=self.distance).rev() {
+        let capped = (PORTAL_VIEW_RADIUS + 1..self.distance)
+            .rev()
+            .filter(|radius| radius % CAPPED_RADIUS_STEP == 0);
+        let whole = (self.distance > PORTAL_VIEW_RADIUS).then_some(self.distance);
+        for radius in whole.into_iter().chain(capped) {
             let size = (radius, vertical_render_distance(radius));
             let added = box_volume(size.0, size.1) - boxes_overlap(twin, size, self.center, own);
             if added <= *budget {
@@ -241,9 +304,10 @@ impl ChunkReach {
 
     /// The areas around the twins of the open portals within the render distance plus `margin`,
     /// one per twin: the player's render distance around the twins of the portals approached
-    /// within `margin`, as far as `MAX_APPROACHED_EXTRA_CHUNKS` allows, the nearest portal
-    /// first; `PORTAL_VIEW_RADIUS` around the others. Those approached only within the margin
-    /// are farther than the others, so each area has the same radius whatever the margin.
+    /// (with a margin, within the widest approach grown by it: `approaches`), as far as
+    /// `MAX_APPROACHED_EXTRA_CHUNKS` allows, the nearest portal first; `PORTAL_VIEW_RADIUS`
+    /// around the others. Those approached only with the margin are farther than the others, so
+    /// each area sent has the same radius whatever the margin.
     pub fn areas_within(&self, margin: i32) -> Vec<TwinArea> {
         let mut areas: Vec<TwinArea> = Vec::new();
         let mut views: Vec<&View> = self
@@ -352,7 +416,7 @@ impl ChunkReach {
     /// Whether a client keeps `chunk`, `margin` chunks beyond the reach: it is within the render
     /// distance plus `margin`, or within the area of a twin of an open portal within the render
     /// distance plus `margin` (`areas_within`), grown by `margin`. A portal approached keeps
-    /// the twin's render distance while it is within the approach plus `margin`.
+    /// the twin's render distance while it is within the widest approach plus `margin`.
     pub fn keeps(&self, chunk: IVec3, margin: i32) -> bool {
         self.kept(margin).contains(chunk)
     }
@@ -669,8 +733,16 @@ mod tests {
         assert!(!near.keeps(edge, 0));
         assert!(near.keeps(core, 0));
 
-        // Two chunks beyond: only the view radius and its margin
-        let farther = ChunkReach::new(IVec3::NEG_X, WIDE, &portals);
+        // Past the widest approach and the margin: only the view radius and its margin
+        let farther = ChunkReach::new(
+            IVec3::new(
+                PORTAL_APPROACH_RADIUS - MAX_PORTAL_APPROACH_RADIUS - 1,
+                0,
+                0,
+            ),
+            2 * WIDE,
+            &portals,
+        );
         assert!(!farther.keeps(edge, 1));
         assert!(farther.keeps(core + IVec3::X, 1));
     }
@@ -713,6 +785,124 @@ mod tests {
         player.is_flying = false;
         player.velocity = bevy::math::Vec3::new(0.0, -60.0, 0.0);
         assert_eq!(approach_radius(&player), MAX_PORTAL_APPROACH_RADIUS);
+    }
+
+    fn standing_player() -> crate::players::Player {
+        crate::players::Player::new(
+            1,
+            "PlayerOne".into(),
+            bevy::math::Vec3::splat(8.0),
+            Default::default(),
+        )
+    }
+
+    #[test]
+    fn a_jump_or_a_short_fall_does_not_change_the_reach() {
+        use crate::players::constants::JUMP_VELOCITY;
+        use bevy::math::Vec3;
+        let still = standing_player();
+        let mut near = Portals::default();
+        pair(&mut near, 1, IVec3::new(3, 0, 0), FAR);
+        for portals in [Portals::default(), near] {
+            let reach =
+                |player: &crate::players::Player| ChunkReach::of_player(player, WIDE, &portals);
+            // A bunny hop at a sprint: up, then down, every frame of it
+            for velocity in [
+                Vec3::new(5.0, JUMP_VELOCITY, 3.0),
+                Vec3::new(5.0, 8.2, 3.0),
+                Vec3::new(5.0, -JUMP_VELOCITY, 3.0),
+                // A fall of two blocks
+                Vec3::new(0.0, -10.9, 0.0),
+            ] {
+                let mut moving = still.clone();
+                moving.velocity = velocity;
+                assert_eq!(reach(&moving), reach(&still), "{velocity}");
+            }
+        }
+        // A long fall, with no portal near, nor a sprint in flight: nothing to approach
+        let mut portals = Portals::default();
+        pair(
+            &mut portals,
+            1,
+            IVec3::new(MAX_PORTAL_APPROACH_RADIUS + 1, 0, 0),
+            FAR,
+        );
+        let mut falling = still.clone();
+        falling.velocity = Vec3::new(0.0, -60.0, 0.0);
+        let mut flying = still.clone();
+        flying.is_flying = true;
+        flying.is_sprinting = true;
+        for moving in [falling, flying] {
+            assert_eq!(
+                ChunkReach::of_player(&moving, WIDE + 4, &portals),
+                ChunkReach::of_player(&still, WIDE + 4, &portals)
+            );
+        }
+    }
+
+    #[test]
+    fn releasing_a_sprint_or_landing_keeps_the_area_sent() {
+        use crate::constants::UNLOAD_MARGIN;
+        let mut portals = Portals::default();
+        pair(&mut portals, 1, IVec3::new(6, 0, 0), FAR);
+        let mut player = standing_player();
+        player.is_flying = true;
+        player.is_sprinting = true;
+        let sprint = ChunkReach::of_player(&player, WIDE + 4, &portals);
+        let sent = sprint.areas();
+        assert_eq!(sent[0].radius, WIDE + 4);
+        // Flying, then on foot: the portal is no longer approached, but what was sent stays
+        player.is_sprinting = false;
+        let flying = ChunkReach::of_player(&player, WIDE + 4, &portals);
+        player.is_flying = false;
+        let walking = ChunkReach::of_player(&player, WIDE + 4, &portals);
+        for reach in [flying, walking] {
+            assert_eq!(reach.areas()[0].radius, PORTAL_VIEW_RADIUS);
+            let kept = reach.kept(UNLOAD_MARGIN);
+            assert!(sent[0].chunks().all(|chunk| kept.contains(chunk)));
+        }
+        // Past the widest approach and the margin, it goes
+        let away = ChunkReach::new(
+            IVec3::new(6 - MAX_PORTAL_APPROACH_RADIUS - UNLOAD_MARGIN - 1, 0, 0),
+            WIDE + 4,
+            &portals,
+        );
+        let kept = away.kept(UNLOAD_MARGIN);
+        assert!(!sent[0].chunks().all(|chunk| kept.contains(chunk)));
+    }
+
+    #[test]
+    fn the_capped_radius_of_a_near_twin_seldom_changes_as_the_player_moves() {
+        let mut portals = Portals::default();
+        pair(&mut portals, 1, IVec3::ZERO, IVec3::new(21, 0, 0));
+        let radii: Vec<i32> = (-6..=6)
+            .map(|x| {
+                ChunkReach::new(IVec3::new(x, 0, 0), 32, &portals)
+                    .approaching(MAX_PORTAL_APPROACH_RADIUS)
+                    .areas()[0]
+                    .radius
+            })
+            .collect();
+        for radius in &radii {
+            assert!(
+                *radius == 32 || radius % CAPPED_RADIUS_STEP == 0,
+                "{radii:?}"
+            );
+        }
+        let changes = radii.windows(2).filter(|pair| pair[0] != pair[1]).count();
+        assert!(changes <= 4, "{radii:?}");
+    }
+
+    #[test]
+    fn the_offsets_least_used_go_first() {
+        let mut cache = OffsetsCache::default();
+        let players = cache.get(64, IVec3::Z);
+        // Many radii come and go, the player's area asked for in between
+        for radius in 5..40 {
+            cache.get(radius, IVec3::X);
+            assert!(Arc::ptr_eq(&cache.get(64, IVec3::Z), &players));
+        }
+        assert!(cache.entries.len() <= OFFSETS_KEPT);
     }
 
     /// The chunks of `area` not within the render distance of `reach`.

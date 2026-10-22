@@ -426,14 +426,21 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    sent instead (`TwinArea`), so that after crossing the player stands in chunks it already
    holds: about 4 900 chunks at a render distance of 8, 700 KiB over 7 broadcasts. A portal is
    approached 2 s before the player can reach it (`approach_radius`, from the speed of its
-   stance or its velocity): within 2 chunks on foot, 6 in a flying sprint, 8 at most. The areas
+   stance, or its velocity past 12 blocks a second, which a jump never reaches): within 2
+   chunks on foot, 6 in a flying sprint, 8 at most. With no portal within 8 chunks the
+   approach is always 2, so that it never changes the reach, which keys what is walked again.
+   The areas
    approached add at most `MAX_APPROACHED_EXTRA_CHUNKS` (10 625, a render distance of 12)
    chunks together to the player's own, the nearest portal first: past a render distance of 12
-   an area keeps as many shells as fit, and the client's fog follows what it holds. The chunks of an area go by shells, nearest the
+   an area keeps as many shells as fit, rounded down to a multiple of 4 so that moving near a
+   twin seldom changes it (`CAPPED_RADIUS_STEP`), and the client's fog follows what it holds.
+   The chunks of an area go by shells, nearest the
    twin first and those behind its plane after (`twin_area_offsets`), merged across the areas
    (`ChunkReach::portal_chunks`, kept by `SentChunks::portal_progress` while the portals do not
-   change, so that a broadcast goes on from where the last stopped); left past the approach
-   and the margin, the area shrinks back to the view radius. The loader lists those chunks once
+   change, so that a broadcast goes on from where the last stopped); left past the widest
+   approach (8) and the margin, the area shrinks back to the view radius, so that releasing a
+   sprint or landing unloads nothing. The sorted offsets are kept for the 16 (radius, facing)
+   last used (`twin_area_offsets`). The loader lists those chunks once
    per reach too (`LoadedAround::behind_portals`).
 4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
    are handed to the writer thread. A generated chunk is saved too, but not one of a single
@@ -479,7 +486,7 @@ never moves a player, so the prediction of the clients is left alone.
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player,
    or of the twin of a portal it approaches (`Approach`, `portal/approach.rs`, which follows the
-   approach as the server reckons it and keeps a twin a chunk past it), cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
+   approach as the server reckons it and keeps a twin a chunk past the widest approach), cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
    its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
    clear colour, which is not, so that a block wholly in the fog is the sky: it is found on
    the CPU, by Newton's method, from the LUT of TonyMcMapface that Bevy keeps in the main
