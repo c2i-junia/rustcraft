@@ -9,6 +9,7 @@ use crate::world::{RenderDistance, ServerRenderDistanceLimit};
 use bolt::{Bolt, Strokes, CLOUD_BASE};
 
 pub mod bolt;
+pub mod render;
 
 /// A lightning strike the server tells of: the block struck, and the seed of its shape.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,11 +127,13 @@ impl Lightning {
 
 /// The lightning of the storms, while in game.
 pub fn lightning_plugin(app: &mut App) {
-    app.init_resource::<Lightning>()
+    app.add_plugins(render::lightning_render_plugin)
+        .init_resource::<Lightning>()
         .add_message::<Strike>()
         .add_systems(OnExit(GameState::Game), forget_strikes)
+        // Before everything that reads the flash
         .add_systems(
-            Update,
+            PreUpdate,
             (advance_strikes_system, receive_strikes_system)
                 .chain()
                 .run_if(in_state(GameState::Game)),
@@ -165,7 +168,7 @@ fn receive_strikes_system(
     }
 }
 
-fn advance_strikes_system(time: Res<Time>, mut lightning: ResMut<Lightning>) {
+pub(crate) fn advance_strikes_system(time: Res<Time>, mut lightning: ResMut<Lightning>) {
     if !lightning.strikes.is_empty() {
         lightning.advance(time.delta_secs());
     }

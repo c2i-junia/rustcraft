@@ -241,9 +241,11 @@ pub struct Strokes {
     peaks: Vec<(f32, f32)>,
 }
 
-/// How long a stroke takes to rise, and how fast it decays.
+/// How long a stroke takes to rise, and how fast it decays, on the main channel and on the
+/// branches, which go dark first.
 const RISE: f32 = 0.012;
 const DECAY: f32 = 0.04;
+const BRANCH_DECAY: f32 = 0.026;
 /// How bright the channel glows between the strokes, and how long it lingers after the last.
 const GLOW: f32 = 0.12;
 const LINGER: f32 = 0.16;
@@ -267,8 +269,8 @@ impl Strokes {
         self.peaks.last().unwrap().0 + LINGER
     }
 
-    /// How bright one stroke peaking at `peak` is at `t`.
-    fn stroke(t: f32, (peak, brightness): (f32, f32)) -> f32 {
+    /// How bright one stroke peaking at `peak` is at `t`, decaying by `decay`.
+    fn stroke(t: f32, (peak, brightness): (f32, f32), decay: f32) -> f32 {
         let start = peak - RISE;
         if t < start {
             0.
@@ -276,7 +278,7 @@ impl Strokes {
             let x = (t - start) / RISE;
             brightness * x * x * (3. - 2. * x)
         } else {
-            brightness * (-(t - peak) / DECAY).exp()
+            brightness * (-(t - peak) / decay).exp()
         }
     }
 
@@ -289,7 +291,7 @@ impl Strokes {
         let strokes = self
             .peaks
             .iter()
-            .map(|&peak| Self::stroke(t, peak))
+            .map(|&peak| Self::stroke(t, peak, DECAY))
             .fold(0., f32::max);
         let last = self.peaks.last().unwrap().0;
         let fade = 1. - ((t - last) / LINGER).clamp(0., 1.);
@@ -303,7 +305,8 @@ impl Strokes {
         if t < 0. || t > self.life() {
             return 0.;
         }
-        Self::stroke(t, self.peaks[0]).max(GLOW * 0.5 * (1. - t / self.peaks[1].0).max(0.))
+        let glow = GLOW * 0.5 * (1. - t / self.peaks[1].0).max(0.);
+        Self::stroke(t, self.peaks[0], BRANCH_DECAY).max(glow)
     }
 
     /// When each stroke peaks, in seconds after the strike.
@@ -472,7 +475,7 @@ mod tests {
         let strokes = Strokes::new(11);
         let peaks: Vec<f32> = strokes.peaks().collect();
         assert_eq!(strokes.branches(peaks[0]), 1.);
-        assert!(strokes.branches(peaks[1]) < 0.15);
+        assert!(strokes.branches(peaks[1]) < 0.04);
         assert!(strokes.channel(peaks[1]) > 0.5);
         assert_eq!(strokes.branches(strokes.life() + 0.1), 0.);
     }
