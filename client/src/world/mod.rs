@@ -13,6 +13,7 @@ use weather::{ease_weather_system, ClientWeather};
 pub mod celestial;
 pub mod clouds;
 pub mod data;
+pub mod lightning;
 pub mod precipitation;
 pub mod rendering;
 pub mod time;
@@ -46,6 +47,7 @@ pub fn world_plugin(app: &mut App) {
             shaders::shaders_plugin,
             overcast::overcast_plugin,
             precipitation::precipitation_plugin,
+            lightning::lightning_plugin,
             celestial::celestial_material_plugin,
         ))
         .add_message::<WorldRenderRequestUpdateEvent>()

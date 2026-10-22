@@ -16,6 +16,7 @@ use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::ui::hud::chat_completion::ModCommands;
+use crate::world::lightning::Strike;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
 use crate::world::{
@@ -287,6 +288,7 @@ pub fn poll_network_messages(
     mut chat: ResMut<CachedChatConversation>,
     mut client_time: ResMut<ClientTime>,
     mut weather: ResMut<ClientWeather>,
+    mut ev_strike: MessageWriter<Strike>,
     mut decoding: ResMut<DecodingChunkMessages>,
 ) {
     update_world_from_network(
@@ -303,6 +305,7 @@ pub fn poll_network_messages(
         &mut chat,
         &mut client_time,
         &mut weather,
+        &mut ev_strike,
         &mut decoding,
     );
 }

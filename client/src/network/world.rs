@@ -12,6 +12,7 @@ use crate::mob::ClientMobs;
 use shared::world::SIX_OFFSETS;
 use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
 
+use crate::world::lightning::Strike;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
 use crate::world::ClientWorldMap;
@@ -92,6 +93,7 @@ pub fn update_world_from_network(
     chat: &mut ResMut<CachedChatConversation>,
     client_time: &mut ResMut<ClientTime>,
     weather: &mut ClientWeather,
+    ev_strike: &mut MessageWriter<Strike>,
     decoding: &mut DecodingChunkMessages,
 ) {
     let mut messages = Vec::new();
@@ -177,8 +179,9 @@ pub fn update_world_from_network(
             ServerToClientMessage::WeatherSet(kind) => {
                 weather.kind = kind;
             }
-            // Nothing shows a strike yet
-            ServerToClientMessage::LightningStrike { .. } => {}
+            ServerToClientMessage::LightningStrike { at, seed } => {
+                ev_strike.write(Strike { at, seed });
+            }
         }
     }
 }
