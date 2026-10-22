@@ -288,9 +288,10 @@ fn sample_pixels(
     pixels
 }
 
-/// Whether the pixel `(x, y)` is under the minimap, the hotbar or the crosshair.
+/// Whether the pixel `(x, y)` is under the minimap, the hotbar or the crosshair. The minimap's
+/// panel widens with its coordinates: at z = 346 it starts at x = 755.
 fn on_the_hud(x: u32, y: u32) -> bool {
-    (x >= 780 && y <= 172)
+    (x >= 720 && y <= 172)
         || ((234..=726).contains(&x) && (450..=512).contains(&y))
         || ((466..=494).contains(&x) && (256..=284).contains(&y))
 }
