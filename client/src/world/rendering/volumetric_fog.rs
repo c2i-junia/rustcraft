@@ -18,6 +18,12 @@
 //!   A depth of 0 now leaves the ray to the back of the volume.
 //!
 //! Under a plain projection both give what Bevy computed: the player's camera draws as before.
+//!
+//! Bevy draws every fog volume in every view; RenderLayers do not reach its volumetric pass.
+//! A volume can now belong to one camera (`one_camera_offset`): it is drawn only by the view
+//! whose camera stands at its centre, so that each camera gets its own layer of haze around it
+//! and no other's (`world/rendering/shaders.rs`, `follow_cameras_with_haze`). The tag is in its
+//! `density_texture_offset`, which only a density texture reads, and a haze has none.
 //! The shader is changed where Bevy keeps it, among its embedded assets, once the plugins are
 //! built and before it is loaded, so every camera draws with the same shader and nothing of
 //! Bevy's is copied. If Bevy's text no longer matches, the game logs an error at startup and a
@@ -41,7 +47,35 @@ struct Change {
     reads: &'static str,
 }
 
-const CHANGES: [Change; 2] = [
+/// The `density_texture_offset.y` of a fog volume that belongs to one camera
+/// (`one_camera_offset`).
+const ONE_CAMERA_TAG: f32 = -4096.0;
+
+/// The `density_texture_offset` of a fog volume of the size `size` drawn only by the view whose
+/// camera stands within half a block of its centre along x and z.
+pub fn one_camera_offset(size: Vec3) -> Vec3 {
+    Vec3::new(0.5 / size.x, ONE_CAMERA_TAG, 0.5 / size.z)
+}
+
+/// What draws a volume that belongs to one camera only in that camera's view: the camera, in
+/// the volume's own space (0 to 1), within the tolerance of its centre along x and z.
+const ONE_CAMERA_FILTER: &str = "let jitter_strength = volumetric_fog.jitter_strength;
+
+    // A volume that belongs to one camera is drawn only in its view (RustCraft)
+    if (density_texture_offset.y == -4096.0) {
+        let camera_uvw = (uvw_from_world * vec4(view.world_position, 1.0)).xyz;
+        if (any(abs(camera_uvw.xz - vec2(0.5)) > density_texture_offset.xz)) {
+            return vec4(0.0, 0.0, 0.0, 0.0);
+        }
+    }";
+
+const CHANGES: [Change; 3] = [
+    // A volume of one camera, only in its view
+    Change {
+        old: "let jitter_strength = volumetric_fog.jitter_strength;",
+        new: ONE_CAMERA_FILTER,
+        reads: "let density_texture_offset =",
+    },
     // The start depth of the ray, with the near distance only, then from its start point, on
     // the near plane or the front face of the volume
     Change {
@@ -126,7 +160,9 @@ mod tests {
     use super::*;
     use bevy::asset::AssetPlugin;
 
-    const SAMPLE: &str = "    let ndc_end_depth_from_buffer = textureLoad(depth_texture, xy, 0);\n    \
+    const SAMPLE: &str = "    let density_texture_offset = volumetric_fog.density_texture_offset;\n    \
+                          let jitter_strength = volumetric_fog.jitter_strength;\n    \
+                          let ndc_end_depth_from_buffer = textureLoad(depth_texture, xy, 0);\n    \
                           let view_start_pos = position_ndc_to_view(frag_coord_to_ndc(frag_coord));\n    \
                           end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    \
                           let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);\n";
@@ -140,6 +176,19 @@ mod tests {
             "if (ndc_end_depth_from_buffer > 0.0) {\n        \
              end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    }"
         ));
+    }
+
+    #[test]
+    fn a_volume_of_one_camera_is_drawn_only_in_the_view_at_its_centre() {
+        let changed = for_oblique_near_planes(SAMPLE).unwrap();
+        let filter = changed.find("density_texture_offset.y == -4096.0").unwrap();
+        // After the offset is read, before the ray
+        assert!(changed.find("let density_texture_offset =").unwrap() < filter);
+        assert!(filter < changed.find("let ndc_end_depth_from_buffer").unwrap());
+        assert!(ONE_CAMERA_FILTER.contains(&format!("{ONE_CAMERA_TAG:.1}")));
+        let offset = one_camera_offset(Vec3::new(640.0, 140.0, 320.0));
+        assert_eq!(offset.y, ONE_CAMERA_TAG);
+        assert_eq!((offset.x * 640.0, offset.z * 320.0), (0.5, 0.5));
     }
 
     #[test]
@@ -186,7 +235,7 @@ mod tests {
             );
         }
         assert!(
-            !source.contains(CHANGES[0].old),
+            !source.contains(CHANGES[1].old),
             "the start depth not changed"
         );
     }

@@ -40,6 +40,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
+use super::volumetric_fog::one_camera_offset;
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::portal::PortalCamera;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
@@ -49,12 +50,10 @@ use crate::world::lightning::{flash_ambient, flash_exposure, Lightning};
 use crate::world::overcast::Overcast;
 use crate::world::weather::ClientWeather;
 use crate::world::{
-    daylight_ambient_system, ChunkMaterial, ClientWorldMap, GlobalMaterial, GraphicsSettings,
-    MaterialResource, RenderDistance, ServerRenderDistanceLimit, ShaderQuality,
+    daylight_ambient_system, ChunkMaterial, GlobalMaterial, GraphicsSettings, MaterialResource,
+    RenderDistance, ShaderQuality,
 };
 use shared::world::terrain::SEA_LEVEL;
-use shared::world::{world_position_to_chunk_position, ChunkReach};
-use shared::CHUNK_SIZE;
 
 /// How the edges of the faces are smoothed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,7 +213,6 @@ pub fn shaders_plugin(app: &mut App) {
             share_the_environment_map,
             apply_light_features,
             apply_atmosphere,
-            follow_camera_with_fog_volume,
             follow_camera_with_horizon,
             apply_water_features,
             sky_fog.after(underwater_fog_system),
@@ -224,6 +222,10 @@ pub fn shaders_plugin(app: &mut App) {
                 .after(daylight_ambient_system),
             grade_colors.after(apply_camera_features),
         ),
+    )
+    .add_systems(
+        PostUpdate,
+        follow_cameras_with_haze.after(bevy::transform::TransformSystems::Propagate),
     );
 }
 
@@ -459,53 +461,62 @@ fn apply_atmosphere(
     }
 }
 
-/// The haze lit by the sun, a layer over the ground around the camera of the world, the player's
-/// (or the bench's), never a portal camera. The portal cameras draw it too where they see it
-/// (`apply_camera_features`): through a close portal, as the player would straight on. It
-/// stretches over the twin of each portal the player approaches (`haze_box`), so that a portal
-/// camera there sees as much of it as the player will after crossing.
+/// The haze lit by the sun, a layer over the ground around a camera, which only that camera
+/// draws (`one_camera_offset`): one for the camera of the world, the player's (or the bench's),
+/// and one for each portal camera that draws, so that a portal camera far from the player sees
+/// the haze the player will see after crossing, and the player's own view never changes with
+/// the portals.
 #[derive(Component)]
-struct GodRayVolume;
-
-/// The half width of the layer of haze around a camera, in blocks.
-const HAZE_HALF_WIDTH: f32 = 320.;
-
-/// The centre and the size of the layer of haze over the camera at `camera` and the chunks
-/// `twins`: `HAZE_HALF_WIDTH` around each, in one box, as boxes that overlap would thicken it.
-fn haze_box(camera: Vec3, twins: &[IVec3]) -> (Vec3, Vec3) {
-    let (low, high) = twins
-        .iter()
-        .fold((camera.xz(), camera.xz()), |(low, high), twin| {
-            let centre = ((*twin * CHUNK_SIZE) + CHUNK_SIZE / 2).as_vec3().xz();
-            (low.min(centre), high.max(centre))
-        });
-    let middle = (low + high) / 2.;
-    let size = high - low + Vec2::splat(2. * HAZE_HALF_WIDTH);
-    (
-        Vec3::new(middle.x, SEA_LEVEL as f32 + 30., middle.y),
-        Vec3::new(size.x, 140., size.y),
-    )
+struct GodRayVolume {
+    camera: Entity,
 }
 
+/// The size of the layer of haze around a camera, in blocks.
+const HAZE_SIZE: Vec3 = Vec3::new(640., 140., 640.);
+
+/// Where the layer of haze of a camera at `camera` stands: over the ground below it, whose top
+/// is not seen against the sky.
+fn haze_transform(camera: Vec3) -> Transform {
+    Transform::from_xyz(camera.x, SEA_LEVEL as f32 + 30., camera.z).with_scale(HAZE_SIZE)
+}
+
+/// Keeps a layer of haze under the camera of the world and each portal camera that draws, once
+/// the transforms are propagated, so that each stands where its camera is in the frame drawn:
+/// a camera draws only the haze centred on it, within half a block.
 #[allow(clippy::too_many_arguments)]
-fn follow_camera_with_fog_volume(
+fn follow_cameras_with_haze(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
-    world_map: Option<Res<ClientWorldMap>>,
-    render_distance: Option<Res<RenderDistance>>,
-    server_limit: Option<Res<ServerRenderDistanceLimit>>,
-    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
+    world_cameras: Query<
+        (Entity, &GlobalTransform),
+        (With<Camera3d>, Without<PortalCamera>, Without<GodRayVolume>),
+    >,
+    portal_cameras: Query<
+        (Entity, &GlobalTransform, &Camera),
+        (With<PortalCamera>, Without<GodRayVolume>),
+    >,
     roots: Query<&Transform, (With<CelestialRoot>, Without<GodRayVolume>)>,
-    mut volumes: Query<(Entity, &mut Transform, &mut FogVolume), With<GodRayVolume>>,
+    mut volumes: Query<(
+        Entity,
+        &GodRayVolume,
+        &mut Transform,
+        &mut GlobalTransform,
+        &mut FogVolume,
+    )>,
     mut commands: Commands,
 ) {
-    let camera = cameras.iter().next();
-    let (Some(camera), Some(_)) = (camera, features(&graphics).god_rays) else {
-        for (volume, ..) in &volumes {
-            commands.entity(volume).despawn();
+    let mut cameras: Vec<(Entity, Vec3)> = Vec::new();
+    if features(&graphics).god_rays.is_some() {
+        if let Some((camera, transform)) = world_cameras.iter().next() {
+            cameras.push((camera, transform.translation()));
+            cameras.extend(
+                portal_cameras
+                    .iter()
+                    .filter(|(_, _, camera)| camera.is_active)
+                    .map(|(camera, transform, _)| (camera, transform.translation())),
+            );
         }
-        return;
-    };
+    }
     // The haze thickens as the sun goes down, as in the shader packs: rays of light at dawn and
     // dusk, a clear sky at noon
     let sun_height = roots
@@ -515,43 +526,38 @@ fn follow_camera_with_fog_volume(
     let density = 0.008 * 1f32.lerp(0.12, ((sun_height - 0.1) / 0.4).clamp(0., 1.));
     // No rays of light under an overcast sky: unlit, the haze would only darken the sky
     let density = density * Overcast::current(weather.as_deref()).celestial_visibility();
-    // A layer of haze over the ground, whose top is not seen against the sky
-    let distance = render_distance.map_or(0, |render| {
-        render
-            .distance
-            .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32
-    });
-    let twins = world_map.map_or_else(Vec::new, |world_map| {
-        ChunkReach::new(
-            world_position_to_chunk_position(camera.translation()),
-            distance,
-            world_map.blocks.portals(),
-        )
-        .approached_twins()
-    });
-    let (at, size) = haze_box(camera.translation(), &twins);
-    match volumes.single_mut() {
-        Ok((_, mut transform, mut volume)) => {
-            transform.translation = at;
-            transform.scale = size;
-            if volume.density_factor != density {
-                volume.density_factor = density;
-            }
+    let mut followed = Vec::new();
+    for (volume, haze, mut transform, mut global, mut fog) in &mut volumes {
+        let Some(&(_, at)) = cameras.iter().find(|(camera, _)| *camera == haze.camera) else {
+            commands.entity(volume).despawn();
+            continue;
+        };
+        followed.push(haze.camera);
+        *transform = haze_transform(at);
+        *global = GlobalTransform::from(*transform);
+        if fog.density_factor != density {
+            fog.density_factor = density;
         }
-        Err(_) => {
-            commands.spawn((
-                GodRayVolume,
-                FogVolume {
-                    density_factor: density,
-                    scattering: 0.6,
-                    absorption: 0.1,
-                    scattering_asymmetry: 0.7,
-                    ..default()
-                },
-                Transform::from_translation(at).with_scale(size),
-                DespawnOnExit(crate::state::GameState::Game),
-            ));
+    }
+    for (camera, at) in cameras {
+        if followed.contains(&camera) {
+            continue;
         }
+        let transform = haze_transform(at);
+        commands.spawn((
+            GodRayVolume { camera },
+            FogVolume {
+                density_factor: density,
+                scattering: 0.6,
+                absorption: 0.1,
+                scattering_asymmetry: 0.7,
+                density_texture_offset: one_camera_offset(HAZE_SIZE),
+                ..default()
+            },
+            transform,
+            GlobalTransform::from(transform),
+            DespawnOnExit(crate::state::GameState::Game),
+        ));
     }
 }
 
@@ -949,10 +955,11 @@ mod tests {
         assert!(!shares_the_map(&app));
     }
 
-    /// The horizon skirt and the haze follow the camera of the world, the player's or the
-    /// bench's, never a portal camera.
+    /// The horizon skirt follows the camera of the world, the player's or the bench's, never a
+    /// portal camera; each of them has its own layer of haze, which only it draws, a portal
+    /// camera while it draws.
     #[test]
-    fn the_skirt_and_the_haze_follow_the_camera_of_the_world_not_a_portal_camera() {
+    fn the_skirt_follows_the_camera_of_the_world_and_each_camera_has_its_haze() {
         let mut app = App::new();
         app.insert_resource(GraphicsSettings {
             shaders: ShaderQuality::Ultra,
@@ -964,20 +971,25 @@ mod tests {
         .init_resource::<Assets<HorizonMaterial>>()
         .add_systems(
             Update,
-            (follow_camera_with_horizon, follow_camera_with_fog_volume),
+            (follow_camera_with_horizon, follow_cameras_with_haze),
         );
-        app.world_mut().spawn((
-            Camera3d::default(),
-            GlobalTransform::from_xyz(1000., 70., 0.),
-            PortalCamera {
-                owner: 1,
-                color: shared::world::PortalColor::Blue,
-                level: 1,
-            },
-        ));
+        let portal_camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                GlobalTransform::from_xyz(1000., 70., 0.),
+                PortalCamera {
+                    owner: 1,
+                    color: shared::world::PortalColor::Blue,
+                    level: 1,
+                },
+            ))
+            .id();
         // As `bench_shaders` makes it: no `CameraController`
-        app.world_mut()
-            .spawn((Camera3d::default(), GlobalTransform::from_xyz(5., 70., 0.)));
+        let world_camera = app
+            .world_mut()
+            .spawn((Camera3d::default(), GlobalTransform::from_xyz(5., 70., 0.)))
+            .id();
         app.update();
         app.update();
         let world = app.world_mut();
@@ -987,27 +999,36 @@ mod tests {
             .unwrap()
             .translation;
         assert_eq!(skirt.x, 5.);
-        let haze = world
-            .query_filtered::<&Transform, With<GodRayVolume>>()
-            .single(world)
+        let hazes = |app: &mut App| {
+            let world = app.world_mut();
+            let mut hazes: Vec<(Entity, f32, Vec3)> = world
+                .query::<(&GodRayVolume, &GlobalTransform, &FogVolume)>()
+                .iter(world)
+                .map(|(haze, at, fog)| {
+                    (haze.camera, at.translation().x, fog.density_texture_offset)
+                })
+                .collect();
+            hazes.sort_by(|a, b| a.1.total_cmp(&b.1));
+            hazes
+        };
+        let tag = one_camera_offset(HAZE_SIZE);
+        assert_eq!(
+            hazes(&mut app),
+            vec![(world_camera, 5., tag), (portal_camera, 1000., tag)]
+        );
+        // The portal camera moves with the player: its haze too, in the same frame
+        app.world_mut()
+            .entity_mut(portal_camera)
+            .insert(GlobalTransform::from_xyz(1020., 70., 0.));
+        app.update();
+        assert_eq!(hazes(&mut app)[1].1, 1020.);
+        // Off, it has none
+        app.world_mut()
+            .get_mut::<Camera>(portal_camera)
             .unwrap()
-            .translation;
-        assert_eq!(haze.x, 5.);
-    }
-
-    #[test]
-    fn the_haze_stretches_over_the_twins_approached_in_one_layer() {
-        let camera = Vec3::new(5., 110., 0.);
-        let (at, size) = haze_box(camera, &[]);
-        assert_eq!((at.x, at.z), (5., 0.));
-        assert_eq!((size.x, size.z), (640., 640.));
-        // A twin 21 chunks south: one box over both, 320 blocks past each
-        let (at, size) = haze_box(camera, &[IVec3::new(0, 6, 21)]);
-        let twin = Vec2::new(8., 21. * 16. + 8.);
-        assert_eq!(at.z, twin.y / 2.);
-        assert_eq!(size.z, twin.y + 640.);
-        assert_eq!(at.x, (5. + 8.) / 2.);
-        assert_eq!(size.x, 3. + 640.);
+            .is_active = false;
+        app.update();
+        assert_eq!(hazes(&mut app), vec![(world_camera, 5., tag)]);
     }
 
     /// Whether the ray from the origin along `direction` meets a triangle of `mesh`
