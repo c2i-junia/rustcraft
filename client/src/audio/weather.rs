@@ -11,7 +11,7 @@
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::prelude::*;
 use rand::{seq::SliceRandom, Rng};
-use shared::world::{BlockTransparency, ChunkMap, LIGHTNING_REACH};
+use shared::world::{BlockTransparency, ChunkMap, LIGHTNING_REACH, SNOW_LINE};
 
 use super::settings::{AudioSettings, Channel};
 use super::sounds::{Sound, SoundLibrary};
@@ -53,9 +53,6 @@ const RAY_STEP: f32 = 0.25;
 /// is not heard (the roof of a cave).
 const ROOF_LOUD: f32 = 4.;
 const ROOF_SILENT: f32 = 24.;
-
-/// `SNOW_LINE` of the server's generation: above it, the rain is snow.
-const SNOW_LINE: f32 = 122.;
 
 /// How far apart the columns around the player are on which what falls is looked at.
 const CLIMATE_SPREAD: i32 = 8;
@@ -427,7 +424,7 @@ fn falls_around(ears: Vec3, climate: Option<&Image>) -> (f32, f32) {
                 column.z + dz * CLIMATE_SPREAD,
             );
             match precipitation_at(climate, x, z) {
-                Some(PrecipitationKind::Rain) if ears.y > SNOW_LINE => snow += 1,
+                Some(PrecipitationKind::Rain) if ears.y > SNOW_LINE as f32 => snow += 1,
                 Some(PrecipitationKind::Rain) => rain += 1,
                 Some(PrecipitationKind::Snow) => snow += 1,
                 Some(PrecipitationKind::None) => {}

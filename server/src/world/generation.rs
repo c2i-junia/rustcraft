@@ -116,7 +116,6 @@ impl Decoration {
 /// From this height the ground is bare stone, and from `SNOW_LINE` snow over stone: both lines
 /// move up or down by up to `ROCK_LINE_JITTER` from one column to the next.
 const STONE_LINE: i32 = 104;
-const SNOW_LINE: i32 = 122;
 const ROCK_LINE_JITTER: u64 = 3;
 /// A mountain column higher than a neighbour by more than this is a rock face: bare stone,
 /// even under the snow line.

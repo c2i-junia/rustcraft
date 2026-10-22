@@ -8,6 +8,11 @@ use super::{
 /// Water fills every column up to this height.
 pub const SEA_LEVEL: i32 = 62;
 
+/// From this height the mountains are snowy, give or take a few blocks from a column to the
+/// next, and what falls from the sky is snow: the server's generation, the client's sounds and
+/// its shaders (`chunk.wgsl`, `precipitation.wgsl`, held to it by a test) all go by it.
+pub const SNOW_LINE: i32 = 122;
+
 /// Distance over which the temperature and the humidity go from one extreme to the other: it
 /// sets the width of the biomes.
 const CLIMATE_WAVELENGTH: f64 = 700.0;

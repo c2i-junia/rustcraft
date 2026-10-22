@@ -182,6 +182,19 @@ mod tests {
     }
 
     #[test]
+    fn the_shaders_turn_the_rain_to_snow_at_the_snow_line_of_the_generation() {
+        for source in [
+            include_str!("precipitation.wgsl"),
+            include_str!("../rendering/chunk.wgsl"),
+        ] {
+            assert_eq!(
+                crate::world::wgsl_constant(source, "SNOW_LINE"),
+                shared::world::SNOW_LINE as f32
+            );
+        }
+    }
+
+    #[test]
     fn nothing_falls_for_an_eye_under_water() {
         let app = app(WeatherKind::Thunder, Vec3::new(0.5, 60.3, 0.5));
         assert_eq!(drawn(&app), None);

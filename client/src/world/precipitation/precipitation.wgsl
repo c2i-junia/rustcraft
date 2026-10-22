@@ -48,7 +48,7 @@ const SPLASH_RING: u32 = 3u;
 const SPLASH_CROWN: u32 = 4u;
 const SHEET: u32 = 5u;
 
-// `SNOW_LINE` of the server's generation: above it, what falls is snow, give or take
+// `SNOW_LINE` of the generation, in `shared`: above it, what falls is snow, give or take
 // `SNOW_BAND` blocks from a drop to the next
 const SNOW_LINE: f32 = 122.0;
 const SNOW_BAND: f32 = 4.0;

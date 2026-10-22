@@ -114,6 +114,21 @@ fn remesh_every_chunk(
     );
 }
 
+/// The value of the constant `name`, an `f32`, in the WGSL `source`: for the tests that tie the
+/// shaders' copies of a constant to the Rust one.
+#[cfg(test)]
+pub fn wgsl_constant(source: &str, name: &str) -> f32 {
+    let declared = format!("const {name}: f32 = ");
+    let mut found = source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix(&declared));
+    let value = found
+        .next()
+        .unwrap_or_else(|| panic!("no {name} in the shader"));
+    assert!(found.next().is_none(), "{name} twice in the shader");
+    value.trim_end_matches(';').parse().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::state::app::StatesPlugin;

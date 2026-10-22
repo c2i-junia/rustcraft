@@ -115,7 +115,7 @@ const DAY_AMBIENT: f32 = 400.0;
 const RIPPLE_CELL: f32 = 0.55;
 const RIPPLE_LIFE: f32 = 0.8;
 const RIPPLE_REACH: f32 = 0.3;
-// `SNOW_LINE` of the server's generation: above it, the rain is snow
+// `SNOW_LINE` of the generation, in `shared`: above it, the rain is snow
 const SNOW_LINE: f32 = 122.0;
 // The values of `WetSurface` in `materials.rs`, in the bits of `w` over the first in the
 // table of the textures
