@@ -738,6 +738,72 @@ mod tests {
     }
 
     #[test]
+    fn leaving_a_world_forgets_its_lightning_its_rain_and_its_thunder() {
+        use crate::world::lightning::render::LightningDraw;
+        use crate::world::lightning::{lightning_plugin, Lightning};
+        use crate::world::precipitation::precipitation_plugin;
+        use crate::world::precipitation::render::{PrecipitationDraw, PrecipitationView};
+        use crate::world::{BlockChanged, ChunkLoadEvent, GraphicsSettings, RenderDistance};
+        use bevy::state::app::StatesPlugin;
+        use shared::world::WeatherKind;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<Shader>()
+            .init_asset::<AudioSource>()
+            .init_state::<GameState>()
+            .add_message::<ChunkLoadEvent>()
+            .add_message::<BlockChanged>()
+            .insert_resource(ClientWeather::settled(WeatherKind::Thunder))
+            .init_resource::<GraphicsSettings>()
+            .init_resource::<RenderDistance>()
+            .init_resource::<MaterialResource>()
+            .init_resource::<ClientWorldMap>()
+            .init_resource::<AudioSettings>()
+            .insert_resource(SoundLibrary(
+                [Sound::Rain, Sound::RainIndoors, Sound::Wind]
+                    .into_iter()
+                    .map(|sound| (sound, vec![Handle::default()]))
+                    .collect(),
+            ))
+            .add_plugins((lightning_plugin, precipitation_plugin, weather_sound_plugin));
+        app.world_mut().spawn((
+            Camera3d::default(),
+            PrecipitationView,
+            GlobalTransform::from_translation(Vec3::new(0.5, 80., 0.5)),
+        ));
+        let go_to = |app: &mut App, state| {
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(state);
+            app.update();
+        };
+        go_to(&mut app, GameState::Game);
+        app.world_mut().write_message(Strike {
+            at: IVec3::new(20, 64, 0),
+            seed: 1,
+        });
+        app.update();
+        let loops = |app: &mut App| {
+            let world = app.world_mut();
+            world.query::<&WeatherLoop>().iter(world).count()
+        };
+        assert_eq!(app.world().resource::<Lightning>().strikes.len(), 1);
+        assert!(app.world().resource::<LightningDraw>().0.is_some());
+        assert!(app.world().resource::<PrecipitationDraw>().0.is_some());
+        assert_eq!(app.world().resource::<Thunders>().0.len(), 1);
+        assert_eq!(loops(&mut app), 3);
+
+        go_to(&mut app, GameState::Menu);
+        assert!(app.world().resource::<Lightning>().strikes.is_empty());
+        assert!(app.world().resource::<LightningDraw>().0.is_none());
+        assert!(app.world().resource::<PrecipitationDraw>().0.is_none());
+        assert!(app.world().resource::<Thunders>().0.is_empty());
+        assert_eq!(loops(&mut app), 0);
+    }
+
+    #[test]
     fn a_column_unknown_is_no_open_sky_nor_a_roof() {
         let unknown = shelter(EYE, |_, _| UNKNOWN, |_| false);
         assert_eq!(
