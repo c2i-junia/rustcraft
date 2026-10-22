@@ -4,7 +4,10 @@
 
 use bevy::prelude::*;
 
+use shared::world::LIGHTNING_REACH;
+
 use crate::state::GameState;
+use crate::world::celestial::smoothstep;
 use crate::world::{RenderDistance, ServerRenderDistanceLimit};
 use bolt::{Bolt, Strokes, CLOUD_BASE};
 
@@ -19,7 +22,8 @@ pub struct Strike {
 }
 
 /// Within this distance, a strike flashes at its brightest; farther off, its flash fades with
-/// the distance, down to `FARTHEST_FLASH`.
+/// the distance, down to `FARTHEST_FLASH`, then out from halfway to `LIGHTNING_REACH`, beyond
+/// which the thunder is not heard either.
 const NEAR: f32 = 40.;
 const FARTHEST_FLASH: f32 = 0.12;
 
@@ -89,9 +93,10 @@ impl LiveStrike {
 
 /// How bright the flash of a strike `distance` blocks away is at its brightest, from 0 to 1.
 pub fn flash_strength(distance: f32) -> f32 {
-    (NEAR / distance.max(1.))
+    let strength = (NEAR / distance.max(1.))
         .powf(0.75)
-        .clamp(FARTHEST_FLASH, 1.)
+        .clamp(FARTHEST_FLASH, 1.);
+    strength * (1. - smoothstep(0.5 * LIGHTNING_REACH, LIGHTNING_REACH, distance))
 }
 
 /// The strikes being seen.
@@ -226,7 +231,27 @@ mod tests {
             before = strength;
         }
         assert!((flash_strength(160.) - 0.35).abs() < 0.02);
-        assert_eq!(flash_strength(5000.), FARTHEST_FLASH);
+    }
+
+    #[test]
+    fn a_strike_too_far_to_be_heard_does_not_flash() {
+        assert!(flash_strength(LIGHTNING_REACH * 0.5) >= FARTHEST_FLASH);
+        let mut before = FARTHEST_FLASH;
+        for part in [0.6, 0.75, 0.9, 0.99] {
+            let strength = flash_strength(LIGHTNING_REACH * part);
+            assert!(strength < before && strength > 0., "{part}");
+            before = strength;
+        }
+        assert_eq!(flash_strength(LIGHTNING_REACH), 0.);
+        assert_eq!(flash_strength(5000.), 0.);
+        let mut lightning = Lightning::default();
+        lightning
+            .strikes
+            .push(LiveStrike::new(strike(1600), Vec3::ZERO, 128.));
+        let peak = lightning.strikes[0].strokes.peaks().next().unwrap();
+        lightning.advance(peak);
+        assert_eq!(lightning.flash(), 0.);
+        assert!(lightning.brightest().is_none());
     }
 
     #[test]

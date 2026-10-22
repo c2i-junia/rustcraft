@@ -11,7 +11,7 @@
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::prelude::*;
 use rand::{seq::SliceRandom, Rng};
-use shared::world::{BlockTransparency, ChunkMap};
+use shared::world::{BlockTransparency, ChunkMap, LIGHTNING_REACH};
 
 use super::settings::{AudioSettings, Channel};
 use super::sounds::{Sound, SoundLibrary};
@@ -28,10 +28,9 @@ const SPEED_OF_SOUND: f32 = 340.;
 
 /// Within this distance a strike cracks and booms; farther off it rumbles. The thunder is
 /// heard at full volume within it, and fades with the distance beyond, down to `FAINTEST`, and
-/// is not heard at all beyond `THUNDER_REACH`.
+/// is not heard at all beyond `LIGHTNING_REACH`, where its flash fades out.
 const CRACK_REACH: f32 = 48.;
 const FAINTEST: f32 = 0.15;
-const THUNDER_REACH: f32 = 1_500.;
 
 /// How far from the ears the emitter of the thunder is kept, in blocks: within the radius where
 /// Bevy does not attenuate (`audio::SPATIAL_SCALE`).
@@ -82,9 +81,9 @@ pub fn thunder_delay(distance: f32) -> f32 {
 }
 
 /// What a strike `distance` blocks away is heard as, and how loud, from 0 to 1; `None` beyond
-/// `THUNDER_REACH`.
+/// `LIGHTNING_REACH`.
 pub fn thunder_of(distance: f32) -> Option<(Sound, f32)> {
-    if distance > THUNDER_REACH {
+    if distance > LIGHTNING_REACH {
         return None;
     }
     let sound = if distance <= CRACK_REACH {

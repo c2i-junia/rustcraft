@@ -38,6 +38,11 @@ pub const CLEAR_TICKS: RangeInclusive<u32> = 12_000..=120_000;
 /// How long rain or a thunderstorm lasts, in ticks: 5 to 15 minutes.
 pub const STORM_TICKS: RangeInclusive<u32> = 6_000..=18_000;
 
+/// How far a lightning strike is seen and heard, in blocks along the ground: the thunder is
+/// not heard beyond it, the flash fades out at it, and the server tells a strike only to the
+/// players within it.
+pub const LIGHTNING_REACH: f32 = 1_500.;
+
 /// How long a spell of `kind` lasts, in ticks, drawn uniformly.
 pub fn spell_ticks(kind: WeatherKind, rng: &mut impl Rng) -> u32 {
     match kind {

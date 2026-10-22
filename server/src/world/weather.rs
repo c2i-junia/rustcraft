@@ -9,7 +9,9 @@ use bevy_renet::RenetServer;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use shared::messages::ServerToClientMessage;
-use shared::world::{next_kind, spell_ticks, ChunkMap, WeatherKind, MAX_VERTICAL_RENDER_DISTANCE};
+use shared::world::{
+    next_kind, spell_ticks, ChunkMap, WeatherKind, LIGHTNING_REACH, MAX_VERTICAL_RENDER_DISTANCE,
+};
 use shared::CHUNK_SIZE;
 
 use crate::init::ServerLobby;
@@ -116,7 +118,7 @@ pub fn draw_strike(players: &[Vec3], chunks: &ChunkMap, rng: &mut impl Rng) -> O
 }
 
 /// Counts the weather down and tells the players when it changes, then lets a lightning
-/// strike fall when one is due.
+/// strike fall when one is due, told to the players within `LIGHTNING_REACH` of it.
 pub fn weather_system(
     mut weather: ResMut<ServerWeather>,
     mut server: ResMut<RenetServer>,
@@ -136,13 +138,23 @@ pub fn weather_system(
         .values()
         .map(|player| player.position)
         .collect();
-    if let Some(at) = draw_strike(&players, &world_map.chunks, &mut rng) {
-        let seed = rng.gen();
-        send_to_players(
-            &mut server,
-            &lobby,
-            ServerToClientMessage::LightningStrike { at, seed },
-        );
+    let Some(at) = draw_strike(&players, &world_map.chunks, &mut rng) else {
+        return;
+    };
+    let message = ServerToClientMessage::LightningStrike {
+        at,
+        seed: rng.gen(),
+    };
+    // Farther off, it would be neither heard nor seen
+    let struck = at.xz().as_vec2() + 0.5;
+    for &id in lobby.players.keys() {
+        let near = world_map
+            .players
+            .get(&id)
+            .is_some_and(|player| player.position.xz().distance(struck) <= LIGHTNING_REACH);
+        if near {
+            server.send_game_message(id, message.clone());
+        }
     }
 }
 
@@ -367,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn a_strike_is_sent_to_every_authenticated_client() {
+    fn a_strike_is_sent_to_the_authenticated_client_near_it() {
         let mut app = App::new();
         let mut server = RenetServer::new(shared::get_shared_renet_config());
         let mut client = server.new_local_client(7);
@@ -403,5 +415,55 @@ mod tests {
         };
         assert_eq!(at.y, 0);
         assert!(at.xz().as_vec2().length() >= 14.0, "{at}");
+    }
+
+    #[test]
+    fn a_strike_is_sent_only_to_the_players_close_enough_to_see_it() {
+        let mut app = App::new();
+        let mut server = RenetServer::new(shared::get_shared_renet_config());
+        let (mut near, mut far) = (server.new_local_client(7), server.new_local_client(8));
+        let mut lobby = ServerLobby::default();
+        let mut world_map = ServerWorldMap {
+            chunks: flat_ground(),
+            ..default()
+        };
+        for (id, at) in [
+            (7, Vec3::new(0.5, 1., 0.5)),
+            (8, Vec3::new(2_000., 1., 0.5)),
+        ] {
+            lobby.players.insert(id, LobbyPlayer::new("p".into()));
+            world_map
+                .players
+                .insert(id, Player::new(id, "p".into(), at, Transform::default()));
+        }
+        app.insert_resource(server)
+            .insert_resource(lobby)
+            .insert_resource(world_map)
+            .insert_resource(ServerWeather {
+                kind: WeatherKind::Thunder,
+                ticks_left: 100_000,
+                strike_in: 1,
+            })
+            .add_systems(Update, weather_system);
+
+        // the strikes fall around either player, but only the ground of the near one is loaded
+        let mut struck = 0;
+        for _ in 0..40 {
+            app.world_mut().resource_mut::<ServerWeather>().strike_in = 1;
+            app.update();
+            struck += received(&mut app, 7, &mut near).len();
+            assert!(received(&mut app, 8, &mut far).is_empty());
+        }
+        assert!(struck > 0);
+        // the far one moves close enough
+        let mut world_map = app.world_mut().resource_mut::<ServerWorldMap>();
+        world_map.players.get_mut(&8).unwrap().position = Vec3::new(LIGHTNING_REACH - 20., 1., 0.5);
+        let mut heard = 0;
+        for _ in 0..40 {
+            app.world_mut().resource_mut::<ServerWeather>().strike_in = 1;
+            app.update();
+            heard += received(&mut app, 8, &mut far).len();
+        }
+        assert!(heard > 0);
     }
 }

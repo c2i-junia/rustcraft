@@ -471,3 +471,6 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     the gusts' bounded sweep to and fro. The wind of now times the time since the start, as
     before, made the drops race sideways as the wind eased in: their pace was the wind plus
     the time times its change. `WeatherShading` is now written every frame.
+74. Changing 7 and 67: a strike is seen and heard within 1,500 blocks along the ground
+    (`LIGHTNING_REACH`, in `shared`): the server tells it only to the players within it, and
+    on the client its flash fades out from halfway to it, so that no strike flashes unheard.
