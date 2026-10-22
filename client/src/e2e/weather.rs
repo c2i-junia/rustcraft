@@ -4,7 +4,9 @@
 //! with the rain halfway in, and without the shaders. Then the rain and the snow themselves:
 //! the drops over the lake, the splashes at the feet, the rain seen from under a roof, at
 //! midnight, without the shaders and in Ultra, and the snow plain of seed 147 while it snows.
-//! Saved with `UI_SNAPSHOTS=1` as `weather_*`.
+//! Then the wet world, and the lightning: a bolt across the lake at its brightest stroke, at
+//! noon and at midnight, in High, Ultra and without the shaders, a strike too far for its bolt,
+//! and a bolt over the wet terrace. Saved with `UI_SNAPSHOTS=1` as `weather_*`.
 
 use std::time::Instant;
 
@@ -18,9 +20,13 @@ use super::seed::GameFolder;
 use super::shaders::{folder, hour, looking, surface, SITE};
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::player::{CurrentPlayerMarker, PlayerBody};
+use crate::world::lightning::{
+    advance_strikes_system, bolt::Strokes, shown_reach, Lightning, LiveStrike, Strike,
+};
 use crate::world::time::ClientTime;
 use crate::world::weather::{ease_weather_system, ClientWeather};
 use crate::world::{BlockChanged, ClientWorldMap, ShaderQuality, WorldRenderRequestUpdateEvent};
+use crate::world::{RenderDistance, ServerRenderDistanceLimit};
 use shared::world::{BlockData, BlockDirection, BlockTransparency};
 
 /// Where the pictures are taken from and looked at.
@@ -46,6 +52,14 @@ struct HeldWeather(ClientWeather);
 
 fn hold_weather(held: Res<HeldWeather>, mut weather: ResMut<ClientWeather>) {
     *weather = held.0.clone();
+}
+
+/// The strikes the pictures are taken with, held at their age whatever the clock.
+#[derive(Resource, Default)]
+struct HeldLightning(Vec<LiveStrike>);
+
+fn hold_lightning(held: Res<HeldLightning>, mut lightning: ResMut<Lightning>) {
+    lightning.strikes = held.0.clone();
 }
 
 /// A client with the shaders `quality` in the world `world` of `folder`, its chunks loaded, the
@@ -102,7 +116,9 @@ fn enter(folder: GameFolder, world: &str, quality: ShaderQuality) -> (Harness, E
         .enabled = false;
     h.app
         .init_resource::<HeldWeather>()
-        .add_systems(Update, hold_weather.after(ease_weather_system));
+        .init_resource::<HeldLightning>()
+        .add_systems(Update, hold_weather.after(ease_weather_system))
+        .add_systems(PreUpdate, hold_lightning.after(advance_strikes_system));
     (h, camera)
 }
 
@@ -657,5 +673,206 @@ fn snapshot_the_wet_world_in_medium() {
         (t.eye, t.look),
         hour(0.75),
         wet(WeatherKind::Rain, 1.),
+    );
+}
+
+/// Takes the picture `weather_<name>` as `shoot` does, with the strikes `strikes` (the block
+/// struck and the seed) at the brightest of their first stroke, or `age` seconds old.
+fn shoot_strikes(
+    h: &mut Harness,
+    camera: Entity,
+    name: &str,
+    view: (Vec3, Vec3),
+    tick: u64,
+    strikes: &[(IVec3, u32)],
+    age: Option<f32>,
+) {
+    let world = h.world_mut();
+    let reach = shown_reach(
+        world.resource::<RenderDistance>(),
+        world.get_resource::<ServerRenderDistanceLimit>(),
+    );
+    let held = strikes
+        .iter()
+        .map(|&(at, seed)| {
+            let mut strike = LiveStrike::new(Strike { at, seed }, view.0, reach);
+            strike.age = age.unwrap_or_else(|| first_peak(seed));
+            strike
+        })
+        .collect();
+    world.insert_resource(HeldLightning(held));
+    let weather = wet(WeatherKind::Thunder, 1.);
+    shoot(h, camera, name, view, tick, weather);
+    h.world_mut().insert_resource(HeldLightning::default());
+}
+
+/// When the first stroke of the strike of seed `seed` is at its brightest.
+fn first_peak(seed: u32) -> f32 {
+    Strokes::new(seed).peaks().next().unwrap()
+}
+
+/// The block struck `distance` blocks from `eye` toward `toward` on the ground plane: the top
+/// of its column.
+fn struck(h: &Harness, eye: Vec3, toward: Vec3, distance: f32) -> IVec3 {
+    let column = eye.xz() + (toward - eye).xz().normalize() * distance;
+    let (x, z) = (column.x.floor() as i32, column.y.floor() as i32);
+    let map = h.world().resource::<ClientWorldMap>();
+    let (y, _) = surface(map, x, z).expect("a struck column");
+    IVec3::new(x, y, z)
+}
+
+/// The view from `eye` toward a strike at `at`, raised to show the bolt above it.
+fn toward_strike(eye: Vec3, at: IVec3) -> (Vec3, Vec3) {
+    let foot = at.as_vec3() + Vec3::new(0.5, 1., 0.5);
+    let distance = foot.xz().distance(eye.xz());
+    (eye, foot + Vec3::Y * distance * 0.42)
+}
+
+const SEEDS: [u32; 3] = [20_261_021, 77, 4_096];
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_lightning() {
+    let (mut h, camera, v) = start(ShaderQuality::High);
+    let noon = hour(0.75);
+    let midnight = hour(0.25);
+    let near = struck(&h, v.eye, v.across, 50.);
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_near",
+        toward_strike(v.eye, near),
+        noon,
+        &[(near, SEEDS[0])],
+        None,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_night",
+        toward_strike(v.eye, near),
+        midnight,
+        &[(near, SEEDS[0])],
+        None,
+    );
+    let other = struck(&h, v.eye, v.across + Vec3::new(20., 0., 20.), 60.);
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_night_2",
+        toward_strike(v.eye, other),
+        midnight,
+        &[(other, SEEDS[1])],
+        None,
+    );
+    // The second stroke: the main channel alone
+    let second = Strokes::new(SEEDS[0]).peaks().nth(1).unwrap();
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_restrike",
+        toward_strike(v.eye, near),
+        midnight,
+        &[(near, SEEDS[0])],
+        Some(second),
+    );
+    // Too far for the bolt: the clouds flash over it
+    let far = struck(&h, v.eye, v.across, 300.);
+    let up = (
+        v.eye,
+        v.eye + (v.across - v.eye).with_y(0.).normalize() * 100. + Vec3::Y * 40.,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_far",
+        up,
+        midnight,
+        &[(far, SEEDS[2])],
+        None,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_far_noon",
+        up,
+        noon,
+        &[(far, SEEDS[2])],
+        None,
+    );
+    // Over the wet terrace, the puddles lit
+    let t = build_terrace(&mut h, &v);
+    let lake = struck(&h, t.eye, t.look, 45.);
+    let view = (
+        t.eye + Vec3::Y * 0.5,
+        t.look + (lake.as_vec3() - t.look) * 0.3 + Vec3::Y * 6.,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_lake",
+        view,
+        midnight,
+        &[(lake, SEEDS[1])],
+        None,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_lake_noon",
+        view,
+        noon,
+        &[(lake, SEEDS[1])],
+        None,
+    );
+}
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_lightning_in_ultra() {
+    let (mut h, camera, v) = start(ShaderQuality::Ultra);
+    let near = struck(&h, v.eye, v.across, 50.);
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_ultra",
+        toward_strike(v.eye, near),
+        hour(0.75),
+        &[(near, SEEDS[0])],
+        None,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_ultra_night",
+        toward_strike(v.eye, near),
+        hour(0.25),
+        &[(near, SEEDS[0])],
+        None,
+    );
+}
+
+#[test]
+#[ignore = "pictures for a human: UI_SNAPSHOTS=1 cargo test -p client e2e::weather -- --ignored"]
+fn snapshot_the_lightning_without_the_shaders() {
+    let (mut h, camera, v) = start(ShaderQuality::Off);
+    let near = struck(&h, v.eye, v.across, 50.);
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_off",
+        toward_strike(v.eye, near),
+        hour(0.75),
+        &[(near, SEEDS[0])],
+        None,
+    );
+    shoot_strikes(
+        &mut h,
+        camera,
+        "lightning_off_night",
+        toward_strike(v.eye, near),
+        hour(0.25),
+        &[(near, SEEDS[0])],
+        None,
     );
 }
