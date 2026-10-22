@@ -6,8 +6,9 @@
 //! The heights lie in a texture of one texel per column, wrapped around like the climate map:
 //! the column `(x, z)` is at `(x, z)` modulo its size. It holds the chunk columns within
 //! `REACH` of the camera's. A chunk column is scanned again when one of its chunks comes or
-//! goes and when it enters the map as the camera moves; a single column when one of its blocks
-//! changes, in the frame it does. The image changes only then.
+//! goes and when it enters the map as the camera moves, its texels not known until then; a
+//! single column when one of its blocks changes, in the frame it does. The image changes only
+//! then.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::platform::collections::{HashMap, HashSet};
@@ -189,9 +190,17 @@ impl OcclusionMap {
             for dx in -REACH..=REACH {
                 for dz in -REACH..=REACH {
                     let column = centre + IVec2::new(dx, dz);
-                    if self.slots.get(&Self::slot(column)) != Some(&column) {
-                        self.dirty.insert(column);
+                    let slot = Self::slot(column);
+                    match self.slots.get(&slot) {
+                        Some(&held) if held == column => continue,
+                        // Its texels hold another column until it is scanned: not known yet
+                        Some(_) => {
+                            self.slots.remove(&slot);
+                            unknown_column(column, writes);
+                        }
+                        None => {}
                     }
+                    self.dirty.insert(column);
                 }
             }
         }
@@ -234,6 +243,16 @@ impl OcclusionMap {
                     writes.push((origin.x + x, origin.y + z, height));
                 }
             }
+        }
+    }
+}
+
+/// Pushes to `writes` the columns of the chunk column `column` as not known yet.
+fn unknown_column(column: IVec2, writes: &mut Vec<(i32, i32, f32)>) {
+    let origin = column * CHUNK_SIZE;
+    for x in 0..CHUNK_SIZE {
+        for z in 0..CHUNK_SIZE {
+            writes.push((origin.x + x, origin.y + z, UNKNOWN));
         }
     }
 }
@@ -282,9 +301,16 @@ pub fn update_occlusion_map_system(
     }
 }
 
-/// Forgets the columns of the world left: the next one is scanned anew.
-pub fn forget_occlusion_map(mut occlusion: ResMut<OcclusionMap>) {
+/// Forgets the columns of the world left: the next one is scanned anew, from a map where no
+/// column is known.
+pub fn forget_occlusion_map(
+    mut occlusion: ResMut<OcclusionMap>,
+    mut images: ResMut<Assets<Image>>,
+) {
     occlusion.forget();
+    if let Some(mut image) = images.get_mut(&occlusion.image) {
+        *image = new_occlusion_map();
+    }
 }
 
 #[cfg(test)]
@@ -490,6 +516,36 @@ mod tests {
         assert_eq!(height_at(image(&app), 20, 4), 64.);
         // those of chunk column 0 gave their texels to chunk column 9, not held
         assert_eq!(height_at(image(&app), 3, 4), UNKNOWN);
+    }
+
+    #[test]
+    fn after_a_jump_beyond_the_map_no_column_shows_the_heights_of_the_place_left() {
+        let mut app = app(ground(), Vec3::new(10., 70., 5.));
+        assert_eq!(height_at(image(&app), 3, 4), 64.);
+        // far east, where nothing is loaded yet: the chunk column 103, 4 is the centre of the
+        // map, and the chunk column 99, 0 at its corner, scanned last, takes the texels of 0, 0
+        let world = app.world_mut();
+        let mut cameras = world.query::<&mut GlobalTransform>();
+        *cameras.single_mut(world).unwrap() = GlobalTransform::from_translation(Vec3::new(
+            103. * CHUNK_SIZE as f32 + 8.,
+            70.,
+            4. * CHUNK_SIZE as f32 + 8.,
+        ));
+        app.update();
+        let far = 99 * CHUNK_SIZE;
+        assert_eq!(texel_index(far + 3, 4), texel_index(3, 4));
+        assert_eq!(height_at(image(&app), far + 3, 4), UNKNOWN);
+        assert_eq!(height_at(image(&app), far + 20, 4), UNKNOWN);
+    }
+
+    #[test]
+    fn a_new_world_starts_from_a_map_where_no_column_is_known() {
+        let mut app = app(ground(), Vec3::new(10., 70., 5.));
+        app.world_mut()
+            .run_system_cached(forget_occlusion_map)
+            .unwrap();
+        assert_eq!(height_at(image(&app), 3, 4), UNKNOWN);
+        assert_eq!(height_at(image(&app), 31, 15), UNKNOWN);
     }
 
     #[test]
