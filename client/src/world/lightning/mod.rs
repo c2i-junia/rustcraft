@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 use shared::world::LIGHTNING_REACH;
 
+use crate::portal::PortalCamera;
 use crate::state::GameState;
 use crate::world::celestial::smoothstep;
 use crate::world::{RenderDistance, ServerRenderDistanceLimit};
@@ -160,7 +161,7 @@ pub fn shown_reach(
 fn receive_strikes_system(
     mut strikes: MessageReader<Strike>,
     mut lightning: ResMut<Lightning>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
 ) {

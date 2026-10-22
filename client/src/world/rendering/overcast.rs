@@ -20,6 +20,7 @@ use bevy::render::render_resource::{
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 
+use crate::portal::PortalCamera;
 use crate::state::GameState;
 use crate::world::celestial::{sky_rotation, smoothstep, sun_height};
 use crate::world::clouds::SPEED;
@@ -337,7 +338,7 @@ pub fn weather_shading_system(
     mut drift: ResMut<WindDrift>,
     weather: Option<Res<ClientWeather>>,
     lightning: Option<Res<Lightning>>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     graphics: Res<GraphicsSettings>,
     materials: Res<MaterialResource>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
@@ -437,7 +438,7 @@ fn follow_camera_with_dome(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
     resources: Res<MaterialResource>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut domes: Query<(Entity, &mut Transform, &mut Visibility), With<OvercastDome>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<OvercastMaterial>>,
@@ -677,6 +678,15 @@ mod tests {
     }
 
     fn app(shaders: ShaderQuality, kind: WeatherKind) -> (App, Handle<ShaderBuffer>) {
+        app_after(shaders, kind, |_| {})
+    }
+
+    /// `app`, with what `before` spawns spawned before the player's camera.
+    fn app_after(
+        shaders: ShaderQuality,
+        kind: WeatherKind,
+        before: impl FnOnce(&mut World),
+    ) -> (App, Handle<ShaderBuffer>) {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<ShaderBuffer>()
@@ -698,6 +708,7 @@ mod tests {
             weather: weather.clone(),
             ..default()
         });
+        before(app.world_mut());
         app.world_mut().spawn((
             Camera3d::default(),
             GlobalTransform::from_translation(Vec3::new(3., 70., -8.)),
@@ -909,5 +920,21 @@ mod tests {
         });
         app.update();
         assert!(domes(&mut app).is_empty());
+    }
+
+    #[test]
+    fn the_dome_follows_the_players_camera_beside_a_portal_camera() {
+        let (mut app, _) = app_after(ShaderQuality::High, WeatherKind::Rain, |world| {
+            world.spawn((
+                Camera3d::default(),
+                GlobalTransform::from_translation(Vec3::new(5000., 70., 1.)),
+                PortalCamera {
+                    owner: 1,
+                    color: shared::world::PortalColor::Blue,
+                    level: 1,
+                },
+            ));
+        });
+        assert_eq!(domes(&mut app)[0].0, Vec3::new(3., 70., -8.));
     }
 }

@@ -18,6 +18,7 @@ use shared::world::liquid::surface_height;
 use shared::world::{BlockTransparency, Chunk, ChunkMap, MAX_VERTICAL_RENDER_DISTANCE};
 use shared::CHUNK_SIZE;
 
+use crate::portal::PortalCamera;
 use crate::world::{BlockChanged, ChunkLoadEvent, ClientWorldMap};
 
 /// The chunk columns held around the camera's, along x and z: the drops fall at most 48 blocks
@@ -266,7 +267,7 @@ fn any_chunk(map: &ChunkMap, column: IVec2, top: i32, bottom: i32) -> bool {
 pub fn update_occlusion_map_system(
     mut occlusion: ResMut<OcclusionMap>,
     world_map: Res<ClientWorldMap>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut chunk_loads: MessageReader<ChunkLoadEvent>,
     mut block_changes: MessageReader<BlockChanged>,
     mut images: ResMut<Assets<Image>>,

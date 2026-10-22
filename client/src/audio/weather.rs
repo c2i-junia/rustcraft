@@ -16,6 +16,7 @@ use shared::world::{BlockTransparency, ChunkMap, LIGHTNING_REACH, SNOW_LINE};
 use super::settings::{AudioSettings, Channel};
 use super::sounds::{Sound, SoundLibrary};
 use crate::camera::eye_under_water;
+use crate::portal::PortalCamera;
 use crate::state::GameState;
 use crate::world::lightning::Strike;
 use crate::world::precipitation::occlusion::{height_at, OcclusionMap, UNKNOWN};
@@ -260,7 +261,9 @@ struct Thunders(Vec<Rolling>);
 pub(crate) struct ThunderFrom(pub Vec3);
 
 /// The ears of the player: where the camera is.
-fn ears(cameras: &Query<&GlobalTransform, With<Camera3d>>) -> Option<Vec3> {
+fn ears(
+    cameras: &Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
+) -> Option<Vec3> {
     cameras.iter().next().map(GlobalTransform::translation)
 }
 
@@ -302,7 +305,7 @@ fn spawn_weather_loops(mut commands: Commands, library: Res<SoundLibrary>) {
 fn hear_strikes(
     mut strikes: MessageReader<Strike>,
     mut thunders: ResMut<Thunders>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
 ) {
     let Some(ears) = ears(&cameras) else {
         strikes.clear();
@@ -350,7 +353,7 @@ fn roll_thunder(
     world_map: Res<ClientWorldMap>,
     occlusion: Res<OcclusionMap>,
     images: Res<Assets<Image>>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
 ) {
     if thunders.0.is_empty() {
         return;
@@ -398,7 +401,7 @@ fn roll_thunder(
 }
 
 fn keep_thunder_toward_strike(
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut emitters: Query<(&ThunderFrom, &mut Transform)>,
 ) {
     let Some(ears) = ears(&cameras) else {
@@ -448,7 +451,7 @@ fn play_weather_loops(
     occlusion: Res<OcclusionMap>,
     materials: Option<Res<MaterialResource>>,
     images: Res<Assets<Image>>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
     mut loops: Query<(&mut WeatherLoop, Option<&mut AudioSink>)>,
 ) {
     let heard = weather.precipitation() > 0. || weather.thunder > 0.;
