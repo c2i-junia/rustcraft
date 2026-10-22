@@ -49,9 +49,11 @@ const CHANGES: [(&str, &str); 2] = [
 /// `source`, Bevy's shader of the volumetric fog, with its rays right under an oblique near
 /// plane, or `None` if it no longer has, once each, the lines to change.
 fn for_oblique_near_planes(source: &str) -> Option<String> {
-    CHANGES.iter().try_fold(source.to_string(), |source, (old, new)| {
-        (source.matches(old).count() == 1).then(|| source.replace(old, new))
-    })
+    CHANGES
+        .iter()
+        .try_fold(source.to_string(), |source, (old, new)| {
+            (source.matches(old).count() == 1).then(|| source.replace(old, new))
+        })
 }
 
 /// Changes Bevy's shader of the volumetric fog among its embedded assets, before it is loaded.
@@ -80,7 +82,8 @@ mod tests {
     use bevy::asset::AssetPlugin;
     use bevy::pbr::VolumetricFogPlugin;
 
-    const SAMPLE: &str = "    let view_start_pos = position_ndc_to_view(frag_coord_to_ndc(frag_coord));\n    \
+    const SAMPLE: &str =
+        "    let view_start_pos = position_ndc_to_view(frag_coord_to_ndc(frag_coord));\n    \
                           end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    \
                           let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);\n";
 
@@ -118,6 +121,9 @@ mod tests {
         for (old, new) in CHANGES {
             assert!(source.contains(new), "not changed: {old}");
         }
-        assert!(!source.contains(CHANGES[0].0), "the start depth not changed");
+        assert!(
+            !source.contains(CHANGES[0].0),
+            "the start depth not changed"
+        );
     }
 }
