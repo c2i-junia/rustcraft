@@ -11,7 +11,9 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use shared::world::{twin_area_offsets, PORTAL_VIEW_RADIUS};
+use shared::world::{
+    twin_area_key, twin_area_offsets, vertical_render_distance, PORTAL_VIEW_RADIUS,
+};
 
 use crate::world::{
     group_of, ChunkLoadEvent, ClientWorldMap, RenderDistance, ServerRenderDistanceLimit,
@@ -61,12 +63,22 @@ impl HeldArea {
         }
     }
 
-    /// Measures the area again from the start, after a chunk of it went.
+    /// Measures the area again from where the chunk `chunk`, gone, comes in it, if it counted:
+    /// in front of the twin's plane, within the area, among the chunks checked. One behind the
+    /// twin, above or below the area or past the chunks checked changes nothing.
     pub(crate) fn forget(&mut self, chunk: IVec3) {
         let offset = chunk - self.twin;
-        if offset.abs().max_element() <= self.radius {
-            self.checked = 0;
+        if offset.dot(self.facing) < 0
+            || offset.xz().abs().max_element() > self.radius
+            || offset.y.abs() > vertical_render_distance(self.radius)
+        {
+            return;
         }
+        // The first chunk of its place in the order: those before it are still shown
+        let offsets = twin_area_offsets(self.radius, self.facing);
+        let key = twin_area_key(offset, self.facing);
+        let at = offsets.partition_point(|other| twin_area_key(*other, self.facing) < key);
+        self.checked = self.checked.min(at);
     }
 
     /// How many shells around the twin are shown whole, in front of its plane: `None` when not
@@ -143,7 +155,7 @@ pub(super) fn track_held_areas(
 mod tests {
     use super::*;
     use crate::world::ChunkRender;
-    use shared::world::{vertical_render_distance, Chunk};
+    use shared::world::Chunk;
 
     const TWIN: IVec3 = IVec3::new(10, 4, 0);
 
@@ -239,6 +251,30 @@ mod tests {
         // One beyond the area changes nothing
         area.forget(TWIN + IVec3::new(-20, 0, 0));
         assert_eq!(area.shells(), Some(1));
+    }
+
+    #[test]
+    fn a_chunk_that_goes_behind_the_twin_or_past_its_height_does_not_measure_it_again() {
+        let mut world_map = ClientWorldMap::default();
+        hold(&mut world_map, 6);
+        let mut area = HeldArea::new(TWIN, IVec3::NEG_X, 6);
+        area.update(&world_map);
+        let checked = area.checked;
+        // Behind the twin, facing west
+        let behind = TWIN + IVec3::new(2, 0, 0);
+        world_map.blocks.remove_chunk(behind);
+        area.forget(behind);
+        assert_eq!(area.checked, checked);
+        // Above the area's height
+        area.forget(TWIN + IVec3::new(-1, vertical_render_distance(6) + 1, 0));
+        assert_eq!(area.checked, checked);
+        // In front, in the fifth shell: only from there
+        let fifth = TWIN + IVec3::new(-5, 0, 0);
+        world_map.blocks.remove_chunk(fifth);
+        area.forget(fifth);
+        assert!(area.checked > 0 && area.checked < checked);
+        area.update(&world_map);
+        assert_eq!(area.shells(), Some(4));
     }
 
     #[test]

@@ -282,13 +282,18 @@ impl ChunkReach {
         self.areas_within(0)
     }
 
-    /// The chunks of the twins of the open portals the player approaches
-    /// (`PORTAL_APPROACH_RADIUS`), each once: where it may be in a moment.
+    /// The chunks of the twins of the open portals the player approaches (`approaching`), each
+    /// once: where it may be in a moment.
     pub fn approached_twins(&self) -> Vec<IVec3> {
+        self.approached_twins_within(0)
+    }
+
+    /// `approached_twins`, the approach and the render distance grown by `margin`.
+    pub fn approached_twins_within(&self, margin: i32) -> Vec<IVec3> {
         let mut twins: Vec<IVec3> = Vec::new();
         for view in &self.views {
-            if self.within(view.portal, 0)
-                && self.approaches(view.portal, 0)
+            if self.within(view.portal, margin)
+                && self.approaches(view.portal, margin)
                 && !twins.contains(&view.twin)
             {
                 twins.push(view.twin);

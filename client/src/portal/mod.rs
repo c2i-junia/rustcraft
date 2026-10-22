@@ -8,6 +8,7 @@
 //! The portals are the client map's (`ClientWorldMap::blocks.portals()`): what is drawn follows
 //! them, frame after frame.
 
+pub mod approach;
 pub mod camera;
 pub mod held;
 pub mod material;
@@ -190,6 +191,11 @@ pub fn portal_plugin(app: &mut App) {
 fn portal_systems(app: &mut App) {
     app.init_resource::<DrawnPortals>()
         .init_resource::<HeldAreas>()
+        .init_resource::<approach::Approach>()
+        .add_systems(
+            PreUpdate,
+            approach::track_approach.run_if(in_state(GameState::Game)),
+        )
         .add_message::<ChunkLoadEvent>()
         .init_resource::<PortalRecursion>()
         .add_message::<PortalOpened>()

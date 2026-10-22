@@ -308,10 +308,10 @@ pub(super) fn place_portal_cameras(
                     Projection::Perspective(perspective) => half_diagonal(perspective),
                     _ => FRAC_PI_2,
                 };
-                let shells = held.shells(twin.chunk(), twin.normal().round().as_ivec3());
+                let key = (twin.chunk(), twin.normal().round().as_ivec3());
+                let shells = held.shells(key.0, key.1);
                 let target = held_reach(twin, *transform.forward(), wide, player_chunks, shells);
-                let reach = eased_reach(fog_reach.0, target, time.delta_secs());
-                fog_reach.0 = Some(reach);
+                let reach = fog_reach.ease(key, target, time.delta_secs());
                 portal_fog(main_fog, behind, reach, overcast)
             });
             match (&new_fog, fog) {
@@ -532,9 +532,23 @@ pub(super) fn eased_reach(previous: Option<f32>, target: f32, dt: f32) -> f32 {
     }
 }
 
-/// The reach of the fog of a portal camera while it draws (`eased_reach`).
+/// The reach of the fog of a portal camera while it draws (`eased_reach`), with the twin it
+/// looks out of, by its chunk and facing: out of another twin, it starts anew.
 #[derive(Component, Default)]
-pub(super) struct FogReach(Option<f32>);
+pub(super) struct FogReach(Option<((IVec3, IVec3), f32)>);
+
+impl FogReach {
+    /// The reach of the fog out of the twin `twin` (its chunk and facing), `dt` seconds on, the
+    /// chunks held reaching `target` (`eased_reach`).
+    pub(super) fn ease(&mut self, twin: (IVec3, IVec3), target: f32, dt: f32) -> f32 {
+        let previous = self
+            .0
+            .and_then(|(from, reach)| (from == twin).then_some(reach));
+        let reach = eased_reach(previous, target, dt);
+        self.0 = Some((twin, reach));
+        reach
+    }
+}
 
 /// The fog of the camera of a portal whose player's camera, of fog `main`, stands `behind` blocks
 /// from the portal, which puts the portal camera as far from the twin: it ends and starts behind
@@ -854,5 +868,16 @@ mod tests {
         assert!(frames > 60, "{frames}");
         // Closing in, at once
         assert_eq!(eased_reach(Some(130.0), 36.0, 0.016), 36.0);
+    }
+
+    #[test]
+    fn out_of_another_twin_the_fog_starts_anew() {
+        let (a, b) = ((IVec3::ZERO, IVec3::X), (IVec3::new(9, 0, 0), IVec3::X));
+        let mut fog = FogReach::default();
+        assert_eq!(fog.ease(a, 36.0, 0.1), 36.0);
+        // Out of the same twin, it grows
+        assert_near(fog.ease(a, 130.0, 0.1), 36.0 + FOG_GROWTH * 0.1);
+        // Out of another, it takes what that one's chunks reach at once
+        assert_eq!(fog.ease(b, 130.0, 0.1), 130.0);
     }
 }

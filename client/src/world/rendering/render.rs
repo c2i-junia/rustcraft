@@ -23,7 +23,9 @@ use shared::UNLOAD_MARGIN;
 
 use crate::{
     input::{data::GameAction, keyboard::is_action_just_pressed},
-    portal::{camera::CpuCulledForAFrame, shot::ShownPortals, PORTAL_CHUNKS_LAYER},
+    portal::{
+        approach::Approach, camera::CpuCulledForAFrame, shot::ShownPortals, PORTAL_CHUNKS_LAYER,
+    },
     state::{GameState, KeyMap},
     ui::hud::UIMode,
     world::{self, MaterialResource, WorldRenderRequestUpdateEvent},
@@ -441,13 +443,17 @@ pub fn world_render_system(
     mut commands: Commands,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     (render_distance, server_limit): (Res<RenderDistance>, Option<Res<ServerRenderDistanceLimit>>),
-    (biomes, graphics, shown): (
+    (biomes, graphics, shown, approach): (
         Option<Res<WorldBiomes>>,
         Res<GraphicsSettings>,
         Res<ShownPortals>,
+        Option<Res<Approach>>,
     ),
     mut surfaces: Local<Option<Arc<TerrainSurfaces>>>,
 ) {
+    let approach = approach
+        .map(|approach| approach.clone())
+        .unwrap_or_default();
     // A set, so that a chunk asked for several times is meshed once
     requested_chunks.extend(
         ev_render
@@ -484,7 +490,8 @@ pub fn world_render_system(
     // The player's chunks, and those around the twins, which come with them
     let mut reaches = vec![(player_chunk, distance)];
     reaches.extend(
-        ChunkReach::new(player_chunk, distance, world_map.blocks.portals())
+        approach
+            .reach(player_chunk, distance, &world_map)
             .areas()
             .into_iter()
             .map(|area| (area.twin, area.radius)),
@@ -526,7 +533,7 @@ pub fn world_render_system(
 
     // The meshes shown in a frame go to the GPU before it is drawn
     let mut vertices_left = VERTICES_SHOWN_PER_FRAME;
-    let shadow_centres = shadow_centres(player_chunk, distance, world_map.blocks.portals());
+    let shadow_centres = shadow_centres(player_chunk, &approach);
     queued_meshes.meshes.retain_mut(|task| {
         if vertices_left == 0 {
             return true;
@@ -578,12 +585,11 @@ const VERTICES_SHOWN_PER_FRAME: usize = 200_000;
 pub const SHADOW_CASTER_DISTANCE: i32 = 12;
 
 /// The chunks around which the groups cast shadows (`casts_shadow`), for a player in the chunk
-/// `player_chunk` with the render distance `distance`: its own, and the twins of the portals it
-/// approaches (`ChunkReach::approached_twins`), whose portal camera draws the shadows the
-/// player will see there after crossing.
-fn shadow_centres(player_chunk: IVec3, distance: i32, portals: &Portals) -> Vec<IVec3> {
+/// `player_chunk`: its own, and the twins of the portals it approaches (`Approach::twins`),
+/// whose portal camera draws the shadows the player will see there after crossing.
+fn shadow_centres(player_chunk: IVec3, approach: &Approach) -> Vec<IVec3> {
     let mut centres = vec![player_chunk];
-    centres.extend(ChunkReach::new(player_chunk, distance, portals).approached_twins());
+    centres.extend(&approach.twins);
     centres
 }
 
@@ -606,23 +612,19 @@ fn casts_shadow(group: IVec2, centres: &[IVec3]) -> bool {
 pub fn shadow_casters_system(
     world_map: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
-    render_distance: Option<Res<RenderDistance>>,
-    server_limit: Option<Res<ServerRenderDistanceLimit>>,
+    approach: Option<Res<Approach>>,
     mut last_centres: Local<Option<Vec<IVec3>>>,
     mut commands: Commands,
 ) {
     let Ok(player) = player.single() else {
         return;
     };
-    let distance = render_distance.map_or(0, |render| {
-        render
-            .distance
-            .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32
-    });
+    let approach = approach
+        .map(|approach| approach.clone())
+        .unwrap_or_default();
     let now = shadow_centres(
         world_position_to_chunk_position(player.translation),
-        distance,
-        world_map.blocks.portals(),
+        &approach,
     );
     let Some(before) = last_centres.replace(now.clone()) else {
         return;
@@ -1283,7 +1285,6 @@ mod tests {
 
     #[test]
     fn the_groups_around_the_twin_of_an_approached_portal_cast_shadows_too() {
-        use shared::world::{FaceDirection, Portal, PortalColor};
         let mut world = World::new();
         let twin = IVec3::new(40, 4, 0);
         let mut map = ClientWorldMap::default();
@@ -1296,7 +1297,7 @@ mod tests {
             },
         );
         world.insert_resource(map);
-        world.insert_resource(RenderDistance { distance: 8 });
+        world.init_resource::<Approach>();
         world.spawn((CurrentPlayerMarker {}, Transform::from_xyz(8.0, 70.0, 8.0)));
         let mut system = IntoSystem::into_system(shadow_casters_system);
         system.initialize(&mut world);
@@ -1304,23 +1305,16 @@ mod tests {
         let casts = |world: &World| world.get::<NotShadowCaster>(entity).is_none();
         assert!(!casts(&world));
 
-        // A portal by the player opens onto the twin
-        let mut map = world.resource_mut::<ClientWorldMap>();
-        for (color, chunk) in [
-            (PortalColor::Blue, IVec3::new(1, 4, 0)),
-            (PortalColor::Orange, twin),
-        ] {
-            map.blocks.portals_mut().insert(Portal {
-                owner: 1,
-                color,
-                anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
-                face: FaceDirection::PlusZ,
-                up: FaceDirection::PlusY,
-            });
-        }
+        // The player approaches a portal whose twin is there
+        world.resource_mut::<Approach>().twins = vec![twin];
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(casts(&world));
+        // And leaves it
+        world.resource_mut::<Approach>().twins.clear();
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(!casts(&world));
     }
 
     #[test]
