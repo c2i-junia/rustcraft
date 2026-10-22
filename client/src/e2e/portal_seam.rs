@@ -1631,3 +1631,49 @@ fn own_view_high_noon_is_unchanged_by_an_approached_portal() {
 fn own_view_high_dusk_is_unchanged_by_an_approached_portal() {
     own_view_with_a_portal_approached(ShaderQuality::High, Hour::Dusk);
 }
+
+/// The sky the chunks fade into, at High noon, before and after the shaders are switched off at
+/// dusk and on again at noon: the environment map of the sky follows the hour again.
+#[test]
+#[ignore = "a regression test of minutes on lavapipe: run it by hand with --ignored"]
+fn the_sky_follows_the_hour_after_the_shaders_are_switched_off_and_on() {
+    let start = Vec3::new(-60.5, 110.9, 0.5);
+    let mut h = enter_world_with(
+        folder("Approach", start, false, false),
+        "Approach",
+        options(),
+    );
+    install(&mut h);
+    wait_for_terrain(&mut h, start);
+    set_quality(&mut h, ShaderQuality::High);
+    let pitch = -8f32.to_radians();
+    let eye = Transform::from_translation(start + Vec3::new(0.0, 1.6, 0.0))
+        .looking_to(Vec3::new(0.0, pitch.sin(), -pitch.cos()), Vec3::Y);
+    let case = "sky_switched_high_noon";
+    let before = steady_shots(&mut h, eye, Hour::Noon);
+    let _ = steady_shots(&mut h, eye, Hour::Dusk);
+    set_quality(&mut h, ShaderQuality::Off);
+    set_hour(&mut h, Hour::Noon);
+    h.frames(SETTLE);
+    set_quality(&mut h, ShaderQuality::High);
+    let after = steady_shots(&mut h, eye, Hour::Noon);
+
+    let pixels = sample_pixels(&h, &eye, None);
+    let noise = record(case, "noise", &before[0], &before[1], &pixels);
+    let (a, b) = (mean_picture(&before), mean_picture(&after));
+    save(case, "switched", &a, &b, true);
+    let rows = record(case, "switched", &a, &b, &pixels);
+    let changed: Vec<String> = rows
+        .iter()
+        .zip(&noise)
+        .filter(|((_, count, mean, ..), (_, _, noise, ..))| *count > 0 && *mean > noise.max(0.5))
+        .map(|((class, _, mean, ..), (_, _, noise, ..))| {
+            format!("{class} by {mean:.2} (noise {noise:.2})")
+        })
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "{case}: the view changed once the shaders were switched off and on: {}",
+        changed.join(", ")
+    );
+}

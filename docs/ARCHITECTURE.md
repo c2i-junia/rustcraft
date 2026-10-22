@@ -547,7 +547,19 @@ same direction; under water they are hidden. With the shaders, a portal camera g
 the picture (HDR, the physical sky a frame after the player's camera, the rays of light, the
 depth prepass) and leaves to the player's camera what it does to the whole screen, the portals
 included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
-the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
+the sky made for the player's camera. That map rests on two private internals of Bevy 0.19.1
+(`give_portal_cameras_the_sky` in `world/rendering/shaders.rs`): `prepare_probe_textures`
+takes once, for the camera of the map, the tables of the atmosphere (LUTs) of the first camera
+with an atmosphere it finds (`AtmosphereProbeTextures`), and `TextureCache::get` hands the
+textures of a descriptor to the cameras in the order they ask. So a portal camera gets its
+atmosphere a frame after the map is made, and tables one texel wider (`portal_atmosphere`):
+otherwise the player's sky could be drawn with a portal camera's tables, the ground of the
+planet over the horizon. Switched off, the sky goes from the cameras a frame after its
+atmosphere (Bevy's `extract_atmosphere` otherwise keeps it extracted, its medium gone, and
+panics), the map is put aside (`put_the_sky_map_aside_while_off`), and its tables are taken
+from the camera's render entity (`forget_the_sky_tables_while_off`, by the private name), so
+that on again Bevy takes the camera's new ones. A test fails once Bevy is another version
+(`the_sky_rests_on_the_internals_of_bevy_0_19_1`). Its image is in 16-bit floats at every quality, which hold
 the colours before tonemapping with the shaders, and after it without. It draws the god-ray
 haze, a layer 640 blocks wide of its own, centred under it (`follow_cameras_with_haze`): Bevy
 draws every fog volume in every view, and its shader, changed, leaves out a volume tagged as
