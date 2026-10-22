@@ -46,6 +46,7 @@
 #import bevy_pbr::mesh_view_bindings::fog
 #endif
 #import rustcraft::sky::{sky_radiance, has_sky, horizon_direction, overcast_sky, weather}
+#import rustcraft::weather::FLASH_COLOR
 #ifdef DEPTH_PREPASS
 #import bevy_pbr::prepass_utils::prepass_depth
 #endif
@@ -689,11 +690,35 @@ fn sun_lobe(in: VertexOutput, N: vec3<f32>, V: vec3<f32>, shininess: f32) -> vec
     return light.color.rgb * view.exposure * lobe * shadow;
 }
 
+// How bright the light of a flash of lightning is on screen: from the flash in the clouds, on
+// the faces turned toward it, and from the bolt itself, very bright on what is near it and
+// falling off over `STRIKE_REACH` blocks.
+const FLASH_TOWARD: f32 = 0.45;
+const STRIKE_LIGHT: f32 = 3.0;
+const STRIKE_REACH: f32 = 9.0;
+
+// The light of a flash of lightning on the face at `at` of normal `N`, beyond the even light
+// of the flash, which the ambient light gives. The bolt is taken as a line straight up from the
+// block it strikes.
+fn flash_light(at: vec3<f32>, N: vec3<f32>) -> vec3<f32> {
+    let channel = weather.strike.w;
+    if weather.flash <= 0.0 && channel <= 0.0 {
+        return vec3(0.0);
+    }
+    let foot = weather.strike.xyz;
+    let to = vec3(foot.x, clamp(at.y, foot.y, foot.y + 120.0), foot.z) - at;
+    let near = dot(to, to);
+    let L = to * inverseSqrt(max(near, 1e-4));
+    let bolt = channel * STRIKE_LIGHT / (1.0 + near / (STRIKE_REACH * STRIKE_REACH));
+    let toward = weather.flash * FLASH_TOWARD * max(dot(N, weather.flash_dir.xyz), 0.0);
+    return FLASH_COLOR * (bolt * (0.25 + 0.75 * max(dot(N, L), 0.0)) + toward);
+}
+
 // The face at `in` of normal `N`, lit as `lit`, as wet as `wet` says, seen along `V`, with
 // `sky_level` the light of the sky there: a sheen of the sky, blurred by the roughness, the
 // stronger the more the face is seen from the side, and of the sun; in a puddle, the ground
 // seen through the water and a near mirror of the sky, rippled by the rain. The sky
-// reflected brightens with a flash of lightning.
+// reflected brightens with a flash of lightning (`overcast_sky`).
 fn wet_color(
     in: VertexOutput,
     N: vec3<f32>,
@@ -702,7 +727,6 @@ fn wet_color(
     sky_level: f32,
     lit: vec3<f32>,
 ) -> vec3<f32> {
-    let flash = 1.0 + weather.flash;
     let roughness = wet.response.y;
     let facing = max(dot(N, V), 0.0);
     let gloss = 1.0 - roughness;
@@ -710,7 +734,7 @@ fn wet_color(
     let R = reflect(-V, N);
     // What lies under the horizon is the ground, not the sky
     let above = smoothstep(-0.05, 0.15, R.y);
-    let sky = sky_radiance(R, roughness) * sky_level * flash * above;
+    let sky = sky_radiance(R, roughness) * sky_level * above;
     let alpha = roughness * roughness;
     let shininess = clamp(2.0 / (alpha * alpha) - 2.0, 8.0, 400.0);
     let sun = sun_lobe(in, N, V, shininess) * sky_level;
@@ -721,7 +745,7 @@ fn wet_color(
     if wet.puddle > 0.0 {
         let water_facing = max(dot(wet.normal, V), 0.0);
         let water_fresnel = WET_F0 + (1.0 - WET_F0) * pow(1.0 - water_facing, 5.0);
-        let mirror = sky_radiance(reflect(-V, wet.normal), 0.0) * sky_level * flash;
+        let mirror = sky_radiance(reflect(-V, wet.normal), 0.0) * sky_level;
         let glint = sun_lobe(in, normalize(mix(N, wet.normal, 0.35)), V, 900.0) * sky_level;
         // The shallow edge shows more of the ground than the middle
         let reflected = water_fresnel * mix(0.65, 1.0, wet.deep);
@@ -921,6 +945,12 @@ fn fragment(
     let lit_by_blocks = pbr_input.material.base_color.rgb * block * BLOCK_LIGHT_COLOR
         * shading.block_light * BASE_EXPOSURE;
     out.color = vec4(max(out.color.rgb * sky, lit_by_blocks) * occlusion, out.color.a);
+    // A flash of lightning lights what is open to the sky, as its light comes from it
+    let flash = flash_light(in.world_position.xyz, pbr_input.world_normal);
+    out.color = vec4(
+        out.color.rgb + pbr_input.material.base_color.rgb * flash * sky * occlusion,
+        out.color.a,
+    );
     if wet.amount > 0.0 {
         // The corners reflect less of the sky, if not as little as they are lit
         let open = sky * mix(1.0, occlusion, 0.5);

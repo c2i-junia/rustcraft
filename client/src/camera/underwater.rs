@@ -4,6 +4,7 @@ use shared::world::ChunkMap;
 use shared::CHUNK_SIZE;
 
 use crate::world::celestial::{smoothstep, sun_height};
+use crate::world::lightning::Lightning;
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
@@ -44,6 +45,20 @@ pub fn weather_sky_color(tick: u64, overcast: Overcast) -> Color {
     sky.mix(&Color::linear_rgb(grey.x, grey.y, grey.z), overcast.level)
 }
 
+/// How much a flash of lightning at its brightest adds to the colour behind the world, in
+/// linear RGB: the overcast lit from within.
+const FLASH_SKY: Vec3 = Vec3::new(0.3, 0.31, 0.36);
+
+/// `sky`, lit by a flash of lightning as bright as `flash`.
+pub fn flashed_sky_color(sky: Color, flash: f32) -> Color {
+    if flash <= 0. {
+        return sky;
+    }
+    let linear = sky.to_linear();
+    let lit = Vec3::new(linear.red, linear.green, linear.blue) + FLASH_SKY * flash;
+    Color::linear_rgb(lit.x, lit.y, lit.z)
+}
+
 /// Whether an eye at `eye` is under the surface of a liquid.
 pub fn eye_under_water(map: &ChunkMap, eye: Vec3) -> bool {
     liquid_height(map, eye.floor().as_ivec3()).is_some_and(|height| eye.y - eye.y.floor() < height)
@@ -52,11 +67,13 @@ pub fn eye_under_water(map: &ChunkMap, eye: Vec3) -> bool {
 /// Under water, a fog the colour of the water hides what is more than a few blocks away. Out
 /// of it, a fog the colour of the sky of the hour hides the edge of the chunks shown: it
 /// thickens over the last part of the render distance, and the world fades into the sky at its
-/// end; in rain, it closes in. The fog is changed in place, as the sky changes every tick.
+/// end; in rain, it closes in, and a flash of lightning lights it up. The fog is changed in
+/// place, as the sky changes every tick.
 pub fn underwater_fog_system(
     world_map: Res<ClientWorldMap>,
     time: Res<ClientTime>,
     weather: Option<Res<ClientWeather>>,
+    lightning: Option<Res<Lightning>>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut cameras: Query<
@@ -77,7 +94,9 @@ pub fn underwater_fog_system(
             let edge = (distance * CHUNK_SIZE as u32) as f32;
             let overcast = Overcast::current(weather.as_deref());
             let (start, end) = overcast.fog_range(edge);
-            (weather_sky_color(time.0, overcast), start, end)
+            let flash = lightning.as_ref().map_or(0., |lightning| lightning.flash());
+            let sky = flashed_sky_color(weather_sky_color(time.0, overcast), flash);
+            (sky, start, end)
         };
         let falloff = FogFalloff::Linear { start, end };
         match fog {
@@ -134,6 +153,16 @@ mod tests {
             assert!(sky.x > sky.z + 0.15, "{tick}: {sky}");
             assert!(sky.x > srgb(SKY_COLOR).x, "{tick}: {sky}");
         }
+    }
+
+    #[test]
+    fn a_flash_of_lightning_lights_up_the_sky_behind_the_world() {
+        let grey = Color::linear_rgb(0.01, 0.012, 0.015);
+        assert_eq!(flashed_sky_color(grey, 0.), grey);
+        let lit = flashed_sky_color(grey, 1.).to_linear();
+        assert!(lit.blue > lit.red && lit.red > 0.25, "{lit:?}");
+        let half = flashed_sky_color(grey, 0.5).to_linear();
+        assert!(half.red < lit.red && half.red > grey.to_linear().red);
     }
 
     #[test]

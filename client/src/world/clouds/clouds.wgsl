@@ -12,7 +12,8 @@
     mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
-#import rustcraft::sky::overcast_sky
+#import rustcraft::sky::{overcast_sky, weather}
+#import rustcraft::weather::FLASH_COLOR
 
 // Keep in sync with `CloudParams`
 struct CloudParams {
@@ -25,6 +26,12 @@ struct CloudParams {
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: CloudParams;
+
+// How bright a flash of lightning makes the clouds on screen: from within, around the strike,
+// over `FLASH_REACH` blocks, and a little all over.
+const FLASH_GLOW: f32 = 2.6;
+const FLASH_REACH: f32 = 56.0;
+const FLASH_ALL_OVER: f32 = 0.25;
 
 // The side of a cell, `CELL` in `clouds/mod.rs`
 const CELL: i32 = 12;
@@ -91,5 +98,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = mix(params.tint.rgb, grey, level) * in.shade;
     let haze = smoothstep(0.35 * params.fade_end, params.fade_end, distance) * level;
     let sky = overcast_sky(normalize(in.world_position - view.world_position.xyz));
-    return vec4(mix(color, sky, haze), alpha);
+    var lit = mix(color, sky, haze);
+    if weather.flash > 0.0 || weather.strike.w > 0.0 {
+        // Lit from within around the strike, some cells more than others, the bottoms the most
+        let off = length(in.world_position.xz - weather.strike.xz) / FLASH_REACH;
+        let near = weather.strike.w * FLASH_GLOW * exp(-off * off);
+        let glow = (near + weather.flash * FLASH_ALL_OVER) * (0.55 + 0.9 * cell) / max(in.shade, 0.7);
+        lit += FLASH_COLOR * glow;
+    }
+    return vec4(lit, alpha);
 }

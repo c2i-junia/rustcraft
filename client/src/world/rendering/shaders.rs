@@ -44,6 +44,7 @@ use crate::camera::underwater_fog_system;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
 use crate::world::clouds::cloud_uniforms_system;
 use crate::world::clouds::material::CloudMaterial;
+use crate::world::lightning::{flash_ambient, flash_exposure, Lightning};
 use crate::world::overcast::Overcast;
 use crate::world::weather::ClientWeather;
 use crate::world::{
@@ -497,10 +498,12 @@ fn sky_fog(graphics: Res<GraphicsSettings>, mut cameras: Query<(&mut Camera, &mu
 ///
 /// Under the clouds of the rain, the sun and the moon dim (`celestial_light_system` dims the
 /// moon), and the even light of the grey sky, an ambient light, takes over from the blue light
-/// of the atmosphere, so that the shadows fade out.
+/// of the atmosphere, so that the shadows fade out. A flash of lightning lights the ambient
+/// light up, and the eye opens to it.
 fn scale_sky_light(
     graphics: Res<GraphicsSettings>,
     weather: Option<Res<ClientWeather>>,
+    lightning: Option<Res<Lightning>>,
     roots: Query<&Transform, With<CelestialRoot>>,
     mut lights: Query<
         (&mut Transform, &mut DirectionalLight),
@@ -523,9 +526,11 @@ fn scale_sky_light(
     let sun = root.rotation * Vec3::Z;
     let ev100 = sky_ev100(sun.y);
     let environment = overcast.environment_light();
+    let flash = lightning.map_or(0., |lightning| lightning.flash());
+    let opened = ev100 - flash_exposure(flash);
     for (mut exposure, light) in &mut cameras {
-        if exposure.ev100 != ev100 {
-            exposure.ev100 = ev100;
+        if exposure.ev100 != opened {
+            exposure.ev100 = opened;
         }
         if let Some(mut light) = light.filter(|light| light.intensity != environment) {
             light.intensity = environment;
@@ -549,7 +554,7 @@ fn scale_sky_light(
         ambient.brightness *= NIGHT_AMBIENT_BOOST;
         ambient.color = overcast.ambient_color(NIGHT_AMBIENT_COLOR);
     }
-    ambient.brightness += overcast.sky_light(sun.y, true, ev100);
+    ambient.brightness += overcast.sky_light(sun.y, true, ev100) + flash_ambient(flash, ev100);
 }
 
 /// The colours lose some of their saturation under the clouds of the rain: a touch more vivid
@@ -761,7 +766,15 @@ mod tests {
     /// The light of the sun, the exposure, the ambient light, the light of the atmosphere
     /// and the saturation at noon under `kind`, with the physical sky.
     fn daylight_under(kind: WeatherKind) -> [f32; 5] {
+        daylight_under_flash(kind, None)
+    }
+
+    /// As `daylight_under`, with the strikes of `lightning` flashing.
+    fn daylight_under_flash(kind: WeatherKind, lightning: Option<Lightning>) -> [f32; 5] {
         let mut world = World::new();
+        if let Some(lightning) = lightning {
+            world.insert_resource(lightning);
+        }
         world.init_resource::<GraphicsSettings>();
         world.insert_resource(ClientWeather::settled(kind));
         world.init_resource::<GlobalAmbientLight>();
@@ -793,6 +806,26 @@ mod tests {
             camera.get::<EnvironmentMapLight>().unwrap().intensity,
             camera.get::<ColorGrading>().unwrap().global.post_saturation,
         ]
+    }
+
+    #[test]
+    fn a_flash_of_lightning_opens_the_eye_and_lights_up_the_ambient_light() {
+        use crate::world::lightning::{LiveStrike, Strike};
+        let [_, ev100, ambient, ..] = daylight_under(WeatherKind::Thunder);
+        let mut lightning = Lightning::default();
+        let strike = Strike {
+            at: IVec3::new(20, 64, 0),
+            seed: 1,
+        };
+        lightning
+            .strikes
+            .push(LiveStrike::new(strike, Vec3::ZERO, 128.));
+        lightning.advance(0.012);
+        let flash = lightning.flash();
+        let [_, flashed_ev100, flashed_ambient, ..] =
+            daylight_under_flash(WeatherKind::Thunder, Some(lightning));
+        assert_eq!(flashed_ev100, ev100 - flash_exposure(flash));
+        assert!((flashed_ambient - ambient - flash_ambient(flash, ev100)).abs() < 1e-2 * ambient);
     }
 
     #[test]

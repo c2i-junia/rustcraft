@@ -22,6 +22,26 @@ pub struct Strike {
 const NEAR: f32 = 40.;
 const FARTHEST_FLASH: f32 = 0.12;
 
+/// How bright the even light of a flash at its brightest is on screen, on a white face open to
+/// the sky: as the overcast at noon. The flash in the clouds and the bolt light more (the
+/// shaders).
+const FLASH_LIGHT: f32 = 0.5;
+
+/// How much the eye opens to a flash at its brightest, in stops, with the physical sky.
+const FLASH_EXPOSURE: f32 = 0.5;
+
+/// The brightness to add to the ambient light for the even light of the flash `flash`, at the
+/// exposure `ev100`: on screen, a light is its brightness times the exposure,
+/// 1 / (1.2 * 2^ev100).
+pub fn flash_ambient(flash: f32, ev100: f32) -> f32 {
+    flash * FLASH_LIGHT * 1.2 * ev100.exp2()
+}
+
+/// How many stops brighter the exposure is during the flash `flash`.
+pub fn flash_exposure(flash: f32) -> f32 {
+    flash * FLASH_EXPOSURE
+}
+
 /// A strike being seen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LiveStrike {
@@ -174,6 +194,18 @@ mod tests {
         let far = LiveStrike::new(strike(150), Vec3::new(0., 75., 0.), 128.);
         assert_eq!(far.bolt, None);
         assert_eq!(far.cloud_point(), Vec3::new(150.5, CLOUD_BASE, 0.5));
+    }
+
+    #[test]
+    fn a_flash_lights_the_world_as_brightly_on_screen_at_any_exposure() {
+        assert_eq!(flash_ambient(0., 13.), 0.);
+        assert_eq!(flash_exposure(0.), 0.);
+        for ev100 in [9.4, 13.] {
+            let on_screen = flash_ambient(1., ev100) / (1.2 * ev100.exp2());
+            assert!((on_screen - FLASH_LIGHT).abs() < 1e-5);
+        }
+        assert!(flash_ambient(0.5, 13.) < flash_ambient(1., 13.));
+        assert!(flash_exposure(1.) > 0.);
     }
 
     #[test]

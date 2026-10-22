@@ -14,7 +14,7 @@
 #endif
 #endif
 
-#import rustcraft::weather::Weather
+#import rustcraft::weather::{Weather, FLASH_COLOR}
 
 // `WeatherShading` in `overcast.rs`
 @group(#{MATERIAL_BIND_GROUP}) @binding(107) var<storage, read> weather: Weather;
@@ -52,13 +52,24 @@ fn clear_sky_radiance(dir: vec3<f32>, blur: f32) -> vec3<f32> {
 #endif
 }
 
+// How bright a flash of lightning makes the overcast sky, on screen: a little all over, and
+// most toward the flash in the clouds.
+const FLASH_SKY: f32 = 0.22;
+const FLASH_SKY_TOWARD: f32 = 1.1;
+
 // The overcast sky toward `dir`, as seen on screen: lighter at the horizon, darker up high,
-// and at sunrise and sunset, warm low toward the sun.
+// and at sunrise and sunset, warm low toward the sun; lit by a flash of lightning, most toward
+// it.
 fn overcast_sky(dir: vec3<f32>) -> vec3<f32> {
     let up = smoothstep(0.0, 0.7, dir.y);
     let toward = max(dot(dir.xz / max(length(dir.xz), 1e-4), weather.sun.xy), 0.0);
     let glow = weather.glow.rgb * toward * toward * toward * (1.0 - smoothstep(-0.05, 0.45, dir.y));
-    return mix(weather.horizon.rgb, weather.zenith.rgb, up) + glow;
+    var sky = mix(weather.horizon.rgb, weather.zenith.rgb, up) + glow;
+    if weather.flash > 0.0 {
+        let lobe = pow(max(dot(dir, weather.flash_dir.xyz), 0.0), 5.0);
+        sky += FLASH_COLOR * weather.flash * (FLASH_SKY + FLASH_SKY_TOWARD * lobe);
+    }
+    return sky;
 }
 
 // The sky toward `dir` as seen: the physical sky, under the overcast of the weather.

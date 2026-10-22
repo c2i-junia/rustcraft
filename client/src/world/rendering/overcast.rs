@@ -23,6 +23,7 @@ use bevy::shader::ShaderRef;
 use crate::state::GameState;
 use crate::world::celestial::{sky_rotation, smoothstep, sun_height};
 use crate::world::clouds::SPEED;
+use crate::world::lightning::Lightning;
 use crate::world::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
@@ -213,13 +214,18 @@ pub struct WeatherShading {
     pub sun: Vec4,
     /// The wind (`Overcast::wind`) in `xy`, and in `z` how gusty it is, the storm level.
     pub wind: Vec4,
+    /// The strike flashing the brightest: the top of the block struck, and in `w` how bright
+    /// its channel is now (`Strokes::channel`), however far off it is.
+    pub strike: Vec4,
+    /// The direction from the eye to the flash in the clouds over that strike.
+    pub flash_dir: Vec4,
     /// `Overcast::level`.
     pub overcast: f32,
     /// How much rain or snow falls (`ClientWeather::precipitation`).
     pub rain: f32,
     /// `Overcast::storm`.
     pub storm: f32,
-    /// How bright a flash of lightning lights the world, from 0: none yet.
+    /// How bright a flash of lightning lights the world, from 0 to 1 (`Lightning::flash`).
     pub flash: f32,
     /// How wet the world open to the rain is (`ClientWeather::wetness`), where the quality
     /// draws it, 0 elsewhere.
@@ -240,11 +246,32 @@ impl WeatherShading {
             glow: overcast.glow(height, physical_sky).extend(1.),
             sun: azimuth.extend(0.).extend(0.),
             wind: overcast.wind().extend(overcast.storm).extend(0.),
+            strike: Vec4::ZERO,
+            flash_dir: Vec4::ZERO,
             overcast: overcast.level,
             rain,
             storm: overcast.storm,
             flash: 0.,
             wetness,
+        }
+    }
+}
+
+impl WeatherShading {
+    /// What the shaders are told, with the flash of `lightning` seen from `eye`: nothing more
+    /// while nothing flashes.
+    pub fn with_flash(self, lightning: &Lightning, eye: Vec3) -> Self {
+        let Some(strike) = lightning.brightest() else {
+            return self;
+        };
+        let foot = strike.at.as_vec3() + Vec3::new(0.5, 1., 0.5);
+        Self {
+            strike: foot.extend(strike.strokes.channel(strike.age)),
+            flash_dir: (strike.cloud_point() - eye)
+                .normalize_or(Vec3::Y)
+                .extend(0.),
+            flash: lightning.flash(),
+            ..self
         }
     }
 }
@@ -270,6 +297,8 @@ pub fn overcast_plugin(app: &mut App) {
 pub fn weather_shading_system(
     time: Res<ClientTime>,
     weather: Option<Res<ClientWeather>>,
+    lightning: Option<Res<Lightning>>,
+    cameras: Query<&GlobalTransform, With<Camera3d>>,
     graphics: Res<GraphicsSettings>,
     materials: Res<MaterialResource>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
@@ -287,6 +316,14 @@ pub fn weather_shading_system(
         time.0,
         features.sky,
     );
+    let eye = cameras
+        .iter()
+        .next()
+        .map_or(Vec3::ZERO, GlobalTransform::translation);
+    let shading = match lightning {
+        Some(lightning) => shading.with_flash(&lightning, eye),
+        None => shading,
+    };
     if *written == Some(shading) {
         return;
     }
@@ -675,6 +712,36 @@ mod tests {
         assert_eq!(shading.wind, STORM.wind().extend(1.).extend(0.));
         let clear = WeatherShading::new(CLEAR, 0., 0., NOON_IN_DAY, true);
         assert_eq!((clear.rain, clear.storm, clear.wetness), (0., 0., 0.));
+    }
+
+    #[test]
+    fn the_shaders_are_told_the_flash_of_the_brightest_strike_and_where_it_is() {
+        use crate::world::lightning::{bolt::CLOUD_BASE, LiveStrike, Strike};
+        let shading = WeatherShading::new(STORM, 1., 1., NOON_IN_DAY, true);
+        let mut lightning = Lightning::default();
+        assert_eq!(shading.with_flash(&lightning, Vec3::ZERO), shading);
+        let eye = Vec3::new(0., CLOUD_BASE, 0.);
+        let strike = Strike {
+            at: IVec3::new(80, 70, 0),
+            seed: 3,
+        };
+        lightning.strikes.push(LiveStrike::new(strike, eye, 128.));
+        let peak = lightning.strikes[0].strokes.peaks().next().unwrap();
+        lightning.advance(peak);
+        let flashed = shading.with_flash(&lightning, eye);
+        assert_eq!(flashed.flash, lightning.flash());
+        assert!(
+            flashed.flash > 0.5 && flashed.flash < 1.,
+            "{}",
+            flashed.flash
+        );
+        // the channel itself at its brightest, however far
+        assert_eq!(flashed.strike, Vec4::new(80.5, 71., 0.5, 1.));
+        assert!(flashed.flash_dir.truncate().distance(Vec3::X) < 0.01);
+        assert_eq!(
+            (flashed.overcast, flashed.rain),
+            (shading.overcast, shading.rain)
+        );
     }
 
     #[test]

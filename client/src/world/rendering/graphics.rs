@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::world::celestial::sun_height;
+use crate::world::lightning::{flash_ambient, Lightning};
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
@@ -139,16 +140,19 @@ fn daylight(tick: u64) -> f32 {
 }
 
 /// Dims the ambient light at night: the faces lit by the sky only are dark, if readable. Under
-/// the clouds of the rain, it brightens as the sun dims.
+/// the clouds of the rain, it brightens as the sun dims, and a flash of lightning lights it up.
 pub fn daylight_ambient_system(
     time: Res<ClientTime>,
     weather: Option<Res<ClientWeather>>,
+    lightning: Option<Res<Lightning>>,
     mut ambient: ResMut<GlobalAmbientLight>,
 ) {
     let overcast = Overcast::current(weather.as_deref());
+    let flash = lightning.map_or(0., |lightning| lightning.flash());
     let brightness = NIGHT_AMBIENT
         + (DAY_AMBIENT - NIGHT_AMBIENT) * daylight(time.0) * overcast.storm_light()
-        + overcast.sky_light(sun_height(time.0), false, BASE_EV100);
+        + overcast.sky_light(sun_height(time.0), false, BASE_EV100)
+        + flash_ambient(flash, BASE_EV100);
     if (ambient.brightness - brightness).abs() > 0.5 {
         ambient.brightness = brightness;
     }
@@ -223,6 +227,32 @@ mod tests {
         assert_eq!(rain, DAY_AMBIENT + sky_light);
         // a storm lets less of it through
         assert!(ambient_at(WeatherKind::Thunder) < 0.8 * rain);
+    }
+
+    #[test]
+    fn a_flash_of_lightning_lights_up_the_ambient_light() {
+        use crate::world::lightning::{LiveStrike, Strike};
+        let mut world = World::new();
+        world.insert_resource(ClientTime(DAY_DURATION_IN_TICKS / 4));
+        world.insert_resource(ClientWeather::settled(WeatherKind::Thunder));
+        world.init_resource::<GlobalAmbientLight>();
+        world.run_system_once(daylight_ambient_system).unwrap();
+        let dark = world.resource::<GlobalAmbientLight>().brightness;
+        let mut lightning = Lightning::default();
+        let strike = Strike {
+            at: IVec3::new(20, 64, 0),
+            seed: 1,
+        };
+        lightning
+            .strikes
+            .push(LiveStrike::new(strike, Vec3::ZERO, 128.));
+        lightning.advance(0.012);
+        let flash = lightning.flash();
+        world.insert_resource(lightning);
+        world.run_system_once(daylight_ambient_system).unwrap();
+        let lit = world.resource::<GlobalAmbientLight>().brightness;
+        assert_eq!(lit, dark + flash_ambient(flash, BASE_EV100));
+        assert!(lit > 3. * dark, "{dark} {lit}");
     }
 
     #[test]
