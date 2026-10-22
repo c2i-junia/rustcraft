@@ -40,6 +40,10 @@ pub struct ChunkRender {
     pub liquid_entity: Option<Entity>,
     /// When the mesh on display was requested, or when the chunk arrived if none is yet.
     pub last_mesh_ts: Instant,
+    /// Whether what is on display shows every chunk of the group that arrived: a mesh made
+    /// after the last of them is shown, or the group needs none. A chunk held but not shown yet
+    /// is a hole, which the fog of a portal camera hides (`portal::held`).
+    pub meshed: bool,
     /// The triangles of the solid and the liquid meshes on display, for the benchmarks: the
     /// data of a mesh leaves the main world once on the GPU.
     #[cfg(test)]
@@ -53,6 +57,7 @@ impl ChunkRender {
             entity: None,
             liquid_entity: None,
             last_mesh_ts: Instant::now(),
+            meshed: false,
             #[cfg(test)]
             triangles: [0; 2],
         }
@@ -79,7 +84,10 @@ impl ClientWorldMap {
         let render = self
             .render
             .entry(group_of(chunk_pos))
-            .and_modify(|render| render.last_mesh_ts = Instant::now())
+            .and_modify(|render| {
+                render.last_mesh_ts = Instant::now();
+                render.meshed = false;
+            })
             .or_insert_with(ChunkRender::new);
         render.chunks.insert(chunk_pos);
     }

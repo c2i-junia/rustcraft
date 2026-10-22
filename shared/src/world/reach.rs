@@ -184,6 +184,21 @@ impl ChunkReach {
         self.areas_within(0)
     }
 
+    /// The chunks of the twins of the open portals the player approaches
+    /// (`PORTAL_APPROACH_RADIUS`), each once: where it may be in a moment.
+    pub fn approached_twins(&self) -> Vec<IVec3> {
+        let mut twins: Vec<IVec3> = Vec::new();
+        for view in &self.views {
+            if self.within(view.portal, 0)
+                && self.approaches(view.portal, 0)
+                && !twins.contains(&view.twin)
+            {
+                twins.push(view.twin);
+            }
+        }
+        twins
+    }
+
     /// The chunks of the twins of the open portals within the render distance, each once.
     pub fn twins(&self) -> Vec<IVec3> {
         self.areas().into_iter().map(|area| area.twin).collect()
@@ -201,16 +216,15 @@ impl ChunkReach {
             .collect();
         let mut next = vec![0; areas.len()];
         let mut chunks = Vec::new();
-        loop {
-            // The area whose next chunk comes first
-            let Some(index) = (0..areas.len())
+        // The area whose next chunk comes first
+        let first = |next: &[usize]| {
+            (0..areas.len())
                 .filter(|&index| next[index] < offsets[index].len())
                 .min_by_key(|&index| {
                     twin_area_key(offsets[index][next[index]], areas[index].facing)
                 })
-            else {
-                break;
-            };
+        };
+        while let Some(index) = first(&next) {
             let chunk = areas[index].twin + offsets[index][next[index]];
             next[index] += 1;
             // Each chunk is listed by the first area it is in
@@ -423,6 +437,26 @@ mod tests {
             .all(|chunk| within_render_distance(*chunk, FAR, WIDE)));
         // Vertically too
         assert!(around.contains(&(FAR + IVec3::new(0, -WIDE, 0))));
+    }
+
+    #[test]
+    fn the_twins_approached_are_those_of_the_portals_within_the_approach() {
+        let mut portals = Portals::default();
+        pair(
+            &mut portals,
+            1,
+            IVec3::new(0, 0, PORTAL_APPROACH_RADIUS),
+            FAR,
+        );
+        pair(
+            &mut portals,
+            2,
+            IVec3::new(0, 0, -PORTAL_APPROACH_RADIUS - 1),
+            -FAR,
+        );
+        let reach = ChunkReach::new(IVec3::ZERO, WIDE, &portals);
+        // The twins of the first pair face each other: each is a portal approached or not
+        assert_eq!(reach.approached_twins(), vec![FAR]);
     }
 
     #[test]

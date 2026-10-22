@@ -9,6 +9,7 @@
 //! them, frame after frame.
 
 pub mod camera;
+pub mod held;
 pub mod material;
 pub mod particles;
 pub mod projection;
@@ -27,11 +28,12 @@ use shared::messages::PlayerId;
 use shared::world::{global_block_to_chunk_pos, Portal, PortalColor, PORTAL_HEIGHT, PORTAL_WIDTH};
 
 use crate::state::{GameSet, GameState};
-use crate::world::{ClientWorldMap, WorldRenderRequestUpdateEvent};
+use crate::world::{ChunkLoadEvent, ClientWorldMap, WorldRenderRequestUpdateEvent};
 use camera::{
     hide_portals_beyond_the_fog, place_portal_cameras, portal_image, resize_portal_images,
     show_chunks_to_new_views, spawn_portal_camera, PortalViewsStarted,
 };
+use held::{track_held_areas, HeldAreas};
 use material::{portal_material_plugin, PortalLook, PortalMaterial};
 use shot::{fly_bolts, hold_shot_portals, spawn_bolts, ShotFired, ShownPortals};
 
@@ -187,6 +189,8 @@ pub fn portal_plugin(app: &mut App) {
 /// The systems of `portal_plugin`, without the rendering of the material.
 fn portal_systems(app: &mut App) {
     app.init_resource::<DrawnPortals>()
+        .init_resource::<HeldAreas>()
+        .add_message::<ChunkLoadEvent>()
         .init_resource::<PortalRecursion>()
         .add_message::<PortalOpened>()
         .init_resource::<PortalsSeen>()
@@ -206,6 +210,7 @@ fn portal_systems(app: &mut App) {
                 sync_portals,
                 hide_portals_beyond_the_fog,
                 resize_portal_images,
+                track_held_areas,
                 place_portal_cameras,
                 show_chunks_to_new_views,
             )
@@ -491,6 +496,19 @@ mod tests {
             CameraController::default(),
         ));
         app
+    }
+
+    /// Holds the chunks the server sends around `portal` while it is the twin of a portal not
+    /// approached (`PORTAL_VIEW_RADIUS`), of air: a portal camera's fog ends where they end.
+    fn hold_around(app: &mut App, portal: Portal) {
+        let world_map = &mut app.world_mut().resource_mut::<ClientWorldMap>();
+        for offset in
+            shared::world::render_distance_offsets(shared::world::PORTAL_VIEW_RADIUS).iter()
+        {
+            world_map
+                .blocks
+                .insert_chunk(portal.chunk() + *offset, Default::default());
+        }
     }
 
     fn insert(app: &mut App, portal: Portal) {
@@ -887,6 +905,7 @@ mod tests {
         });
         insert(&mut app, blue());
         insert(&mut app, orange());
+        hold_around(&mut app, orange());
         let end_of_blue_fog = |app: &mut App| {
             let world = app.world_mut();
             let fog = world
@@ -918,8 +937,30 @@ mod tests {
             Transform::from_xyz(1.0, 10.0, 9.0),
             crate::player::CurrentPlayerMarker {},
         ));
+        // The fog opens towards them, a frame at a time
         app.update();
+        let grown = 8.0 + 68.0 - camera::OPENING_REACH + camera::FOG_GROWTH * FRAME.as_secs_f32();
+        assert!((end_of_blue_fog(&mut app) - grown).abs() < 1e-3);
+        for _ in 0..50 {
+            app.update();
+        }
         assert!((end_of_blue_fog(&mut app) - (8.0 + 148.0 - camera::OPENING_REACH)).abs() < 1e-3);
+
+        // Without the chunks around the orange portal, and the player gone, it closes at once
+        let player = app
+            .world_mut()
+            .query_filtered::<Entity, With<crate::player::CurrentPlayerMarker>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().despawn(player);
+        app.world_mut()
+            .resource_mut::<ClientWorldMap>()
+            .blocks
+            .remove_chunk(orange().chunk());
+        app.world_mut()
+            .write_message(crate::world::ChunkLoadEvent::Unloaded(orange().chunk()));
+        app.update();
+        assert!((end_of_blue_fog(&mut app) - 8.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1080,6 +1121,8 @@ mod tests {
         });
         insert(&mut app, blue());
         insert(&mut app, facing_orange());
+        hold_around(&mut app, blue());
+        hold_around(&mut app, facing_orange());
         app.update();
         app.update();
 

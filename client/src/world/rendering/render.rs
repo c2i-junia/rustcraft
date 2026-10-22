@@ -351,14 +351,16 @@ pub struct WaitingChunks {
 
 impl WaitingChunks {
     /// Of `requested`, the chunks to mesh now: while chunks keep arriving, a chunk waits for
-    /// the chunks within the render distance `distance` of the chunk `center` that its mesh
-    /// depends on: its six neighbours, and those of its group and around it, as each of them
-    /// would mesh the whole group again. Once no chunk arrived for `STREAM_PAUSE`, those that
-    /// wait are meshed too: the player may have moved, or the server grant less.
+    /// the chunks it is sent with that its mesh depends on: those within the render distance of
+    /// each of `reaches`, a chunk and a distance (the player's, and the area around each twin of
+    /// a portal, `ChunkReach::areas`), among its six neighbours, and those of its group and
+    /// around it, as each of them would mesh the whole group again. Once no chunk arrived for
+    /// `STREAM_PAUSE`, those that wait are meshed too: the player may have moved, or the server
+    /// grant less.
     fn ready(
         &mut self,
         blocks: &ChunkMap,
-        (center, distance): (IVec3, i32),
+        reaches: &[(IVec3, i32)],
         requested: impl Iterator<Item = IVec3>,
         now: Instant,
     ) -> Vec<IVec3> {
@@ -369,14 +371,18 @@ impl WaitingChunks {
             SIX_OFFSETS.iter().all(|offset| {
                 let neighbour = chunk + *offset;
                 blocks.is_chunk_loaded(neighbour)
-                    || !within_render_distance(neighbour, center, distance)
+                    || !reaches.iter().any(|&(center, distance)| {
+                        within_render_distance(neighbour, center, distance)
+                    })
             })
         };
         let mut complete: HashMap<IVec2, bool> = HashMap::new();
         let mut group_complete = |group: IVec2| {
-            *complete
-                .entry(group)
-                .or_insert_with(|| group_is_complete(blocks, group, center, distance))
+            *complete.entry(group).or_insert_with(|| {
+                reaches
+                    .iter()
+                    .all(|&(center, distance)| group_is_complete(blocks, group, center, distance))
+            })
         };
         let mut ready = Vec::new();
         for chunk in requested {
@@ -475,23 +481,29 @@ pub fn world_render_system(
         .drain()
         .filter(|chunk_pos| world_map.render.contains_key(&group_of(*chunk_pos)))
         .collect::<Vec<_>>();
+    // The player's chunks, and those around the twins, which come with them
+    let mut reaches = vec![(player_chunk, distance)];
+    reaches.extend(
+        ChunkReach::new(player_chunk, distance, world_map.blocks.portals())
+            .areas()
+            .into_iter()
+            .map(|area| (area.twin, area.radius)),
+    );
     let ready: HashSet<IVec2> = waiting
-        .ready(
-            &world_map.blocks,
-            (player_chunk, distance),
-            requested.into_iter(),
-            now,
-        )
+        .ready(&world_map.blocks, &reaches, requested.into_iter(), now)
         .into_iter()
         .map(group_of)
         .collect();
     queued_meshes.request(ready.into_iter().collect());
-    let groups: Vec<(IVec2, Vec<IVec3>)> = queued_meshes
-        .take_nearest(group_of(player_chunk))
-        .into_iter()
-        .filter(|group| needs_mesh(&world_map, *group))
-        .map(|group| (group, chunks_to_mesh(&world_map, group).collect()))
-        .collect();
+    let mut groups: Vec<(IVec2, Vec<IVec3>)> = Vec::new();
+    for group in queued_meshes.take_nearest(group_of(player_chunk)) {
+        if needs_mesh(&world_map, group) {
+            groups.push((group, chunks_to_mesh(&world_map, group).collect()));
+        } else if let Some(render) = world_map.render.get_mut(&group) {
+            // Nothing to show: what it holds is shown
+            render.meshed = true;
+        }
+    }
     if !groups.is_empty() {
         // Kept for the world, whose terrain they are
         let noises = biomes.map(|biomes| biomes.0.clone());
@@ -514,6 +526,7 @@ pub fn world_render_system(
 
     // The meshes shown in a frame go to the GPU before it is drawn
     let mut vertices_left = VERTICES_SHOWN_PER_FRAME;
+    let shadow_centres = shadow_centres(player_chunk, distance, world_map.blocks.portals());
     queued_meshes.meshes.retain_mut(|task| {
         if vertices_left == 0 {
             return true;
@@ -531,6 +544,7 @@ pub fn world_render_system(
             return true;
         };
         chunk.last_mesh_ts = task.mesh_request_ts;
+        chunk.meshed = true;
         let vertices = [&new_meshes.solid_mesh, &new_meshes.liquid_mesh]
             .into_iter()
             .flatten()
@@ -546,7 +560,7 @@ pub fn world_render_system(
             &mut commands,
             &mut meshes,
             new_meshes,
-            casts_shadow(task.group, player_chunk),
+            casts_shadow(task.group, &shadow_centres),
         );
         false
     });
@@ -563,30 +577,54 @@ const VERTICES_SHOWN_PER_FRAME: usize = 200_000;
 /// frusta of the shadow cascades in every frame.
 pub const SHADOW_CASTER_DISTANCE: i32 = 12;
 
-/// Whether the solid faces of the group `group` cast shadows, for a player in the chunk
-/// `player_chunk`: some of its columns are within `SHADOW_CASTER_DISTANCE`.
-fn casts_shadow(group: IVec2, player_chunk: IVec3) -> bool {
-    let first = group * GROUP_WIDTH;
-    let last = first + IVec2::splat(GROUP_WIDTH - 1);
-    let column = player_chunk.xz();
-    // How far the column of the player is from the nearest column of the group, along each axis
-    let apart = (first - column).max(column - last).max(IVec2::ZERO);
-    apart.max_element() <= SHADOW_CASTER_DISTANCE
+/// The chunks around which the groups cast shadows (`casts_shadow`), for a player in the chunk
+/// `player_chunk` with the render distance `distance`: its own, and the twins of the portals it
+/// approaches (`ChunkReach::approached_twins`), whose portal camera draws the shadows the
+/// player will see there after crossing.
+fn shadow_centres(player_chunk: IVec3, distance: i32, portals: &Portals) -> Vec<IVec3> {
+    let mut centres = vec![player_chunk];
+    centres.extend(ChunkReach::new(player_chunk, distance, portals).approached_twins());
+    centres
 }
 
-/// Makes the groups within `SHADOW_CASTER_DISTANCE` of the player, and only them, cast shadows,
-/// once the player is in another chunk. A group shown since was spawned as it should be.
+/// Whether the solid faces of the group `group` cast shadows, around the chunks `centres`
+/// (`shadow_centres`): some of its columns are within `SHADOW_CASTER_DISTANCE` of one.
+fn casts_shadow(group: IVec2, centres: &[IVec3]) -> bool {
+    let first = group * GROUP_WIDTH;
+    let last = first + IVec2::splat(GROUP_WIDTH - 1);
+    centres.iter().any(|centre| {
+        let column = centre.xz();
+        // How far the column is from the nearest column of the group, along each axis
+        let apart = (first - column).max(column - last).max(IVec2::ZERO);
+        apart.max_element() <= SHADOW_CASTER_DISTANCE
+    })
+}
+
+/// Makes the groups within `SHADOW_CASTER_DISTANCE` of the player and of the twins it
+/// approaches (`shadow_centres`), and only them, cast shadows, once these change. A group shown
+/// since was spawned as it should be.
 pub fn shadow_casters_system(
     world_map: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
-    mut last_chunk: Local<Option<IVec3>>,
+    render_distance: Option<Res<RenderDistance>>,
+    server_limit: Option<Res<ServerRenderDistanceLimit>>,
+    mut last_centres: Local<Option<Vec<IVec3>>>,
     mut commands: Commands,
 ) {
     let Ok(player) = player.single() else {
         return;
     };
-    let now = world_position_to_chunk_position(player.translation);
-    let Some(before) = last_chunk.replace(now) else {
+    let distance = render_distance.map_or(0, |render| {
+        render
+            .distance
+            .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32
+    });
+    let now = shadow_centres(
+        world_position_to_chunk_position(player.translation),
+        distance,
+        world_map.blocks.portals(),
+    );
+    let Some(before) = last_centres.replace(now.clone()) else {
         return;
     };
     if before == now {
@@ -596,7 +634,7 @@ pub fn shadow_casters_system(
         let Some(entity) = render.entity else {
             continue;
         };
-        match (casts_shadow(*group, before), casts_shadow(*group, now)) {
+        match (casts_shadow(*group, &before), casts_shadow(*group, &now)) {
             (false, true) => {
                 commands.entity(entity).try_remove::<NotShadowCaster>();
             }
@@ -1201,7 +1239,7 @@ mod tests {
         let mut world = World::new();
         // Its nearest column is as far as shadows are cast
         let near = IVec2::X * SHADOW_CASTER_DISTANCE / GROUP_WIDTH;
-        assert!(casts_shadow(near, IVec3::ZERO));
+        assert!(casts_shadow(near, &[IVec3::ZERO]));
         let mut map = ClientWorldMap::default();
         let mut entity_at = |world: &mut World, pos: IVec2| {
             let entity = world.spawn_empty().id();
@@ -1241,6 +1279,48 @@ mod tests {
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(!casts(&world, near_entity) && !casts(&world, far_entity));
+    }
+
+    #[test]
+    fn the_groups_around_the_twin_of_an_approached_portal_cast_shadows_too() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        let mut world = World::new();
+        let twin = IVec3::new(40, 4, 0);
+        let mut map = ClientWorldMap::default();
+        let entity = world.spawn(NotShadowCaster).id();
+        map.render.insert(
+            group_of(twin),
+            ChunkRender {
+                entity: Some(entity),
+                ..ChunkRender::new()
+            },
+        );
+        world.insert_resource(map);
+        world.insert_resource(RenderDistance { distance: 8 });
+        world.spawn((CurrentPlayerMarker {}, Transform::from_xyz(8.0, 70.0, 8.0)));
+        let mut system = IntoSystem::into_system(shadow_casters_system);
+        system.initialize(&mut world);
+        system.run((), &mut world).unwrap();
+        let casts = |world: &World| world.get::<NotShadowCaster>(entity).is_none();
+        assert!(!casts(&world));
+
+        // A portal by the player opens onto the twin
+        let mut map = world.resource_mut::<ClientWorldMap>();
+        for (color, chunk) in [
+            (PortalColor::Blue, IVec3::new(1, 4, 0)),
+            (PortalColor::Orange, twin),
+        ] {
+            map.blocks.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
+            });
+        }
+        system.run((), &mut world).unwrap();
+        world.flush();
+        assert!(casts(&world));
     }
 
     #[test]
@@ -1353,14 +1433,14 @@ mod tests {
         let requested = [IVec3::ZERO, IVec3::X];
         // The neighbours of the middle chunk above, below and on the sides are missing
         assert!(waiting
-            .ready(&blocks, reach, requested.into_iter(), start)
+            .ready(&blocks, &[reach], requested.into_iter(), start)
             .is_empty());
         for offset in [IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
             blocks.insert_chunk(offset, Chunk::new());
         }
         // Its neighbours are in, the rest of its group and around it is not
         assert!(waiting
-            .ready(&blocks, reach, [IVec3::ZERO].into_iter(), start)
+            .ready(&blocks, &[reach], [IVec3::ZERO].into_iter(), start)
             .is_empty());
         for x in -1..=1 {
             for y in -1..=1 {
@@ -1372,7 +1452,7 @@ mod tests {
         // Asked for again as the chunks arrive: its group is meshed, and the other chunk of the
         // group that waited no longer does, as it would mesh the group again
         assert_eq!(
-            waiting.ready(&blocks, reach, [IVec3::ZERO].into_iter(), start),
+            waiting.ready(&blocks, &[reach], [IVec3::ZERO].into_iter(), start),
             vec![IVec3::ZERO]
         );
         assert!(waiting.chunks.is_empty());
@@ -1380,16 +1460,38 @@ mod tests {
         // The stream pauses: a chunk that still waits is meshed as it is
         let lacking = IVec3::new(5, 0, 0);
         assert!(waiting
-            .ready(&blocks, (lacking, 1), [lacking].into_iter(), start)
+            .ready(&blocks, &[(lacking, 1)], [lacking].into_iter(), start)
             .is_empty());
         let later = start + STREAM_PAUSE;
         assert_eq!(
-            waiting.ready(&blocks, (lacking, 1), iter::empty(), later),
+            waiting.ready(&blocks, &[(lacking, 1)], iter::empty(), later),
             vec![lacking]
         );
         assert!(waiting
-            .ready(&blocks, reach, iter::empty(), later)
+            .ready(&blocks, &[reach], iter::empty(), later)
             .is_empty());
+    }
+
+    #[test]
+    fn a_chunk_around_a_twin_waits_for_its_neighbours_there_as_around_the_player() {
+        let twin = IVec3::new(40, 0, 0);
+        let mut blocks = ChunkMap::default();
+        blocks.insert_chunk(twin, Chunk::new());
+        let now = Instant::now();
+        let mut waiting = WaitingChunks {
+            last_arrival: Some(now),
+            ..default()
+        };
+        // Far beyond the player's reach, but in the area around the twin
+        let reaches = [(IVec3::ZERO, 2), (twin, 1)];
+        assert!(waiting
+            .ready(&blocks, &reaches, [twin].into_iter(), now)
+            .is_empty());
+        // Around the player only, it would not wait
+        assert_eq!(
+            waiting.ready(&blocks, &reaches[..1], [twin].into_iter(), now),
+            vec![twin]
+        );
     }
 
     #[test]
@@ -1402,7 +1504,7 @@ mod tests {
             ..default()
         };
         assert_eq!(
-            waiting.ready(&blocks, (IVec3::ZERO, 0), [IVec3::ZERO].into_iter(), now),
+            waiting.ready(&blocks, &[(IVec3::ZERO, 0)], [IVec3::ZERO].into_iter(), now),
             vec![IVec3::ZERO]
         );
     }
