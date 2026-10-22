@@ -26,7 +26,7 @@ use bevy::transform::TransformSystems;
 use image::{GrayImage, RgbImage};
 use shared::world::{
     BlockData, BlockDirection, BlockId, ChunkMap, FaceDirection, FaceDirectionExt, ItemId, Portal,
-    PortalColor, PORTAL_HEIGHT, PORTAL_WIDTH,
+    PortalColor, WeatherKind, PORTAL_HEIGHT, PORTAL_WIDTH,
 };
 use shared::{DAY_DURATION_IN_TICKS, NOON_IN_DAY};
 
@@ -42,6 +42,7 @@ use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::sun_height;
 use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
+use crate::world::weather::{ease_weather_system, ClientWeather};
 use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
 use std::time::Duration;
 
@@ -68,6 +69,14 @@ struct Pinned {
     /// The tick the clock stays at: it moves with the wall clock, so that otherwise the sun,
     /// and the shadows, moved by as much as lavapipe was slow between two pictures.
     tick: Option<(Hour, u64)>,
+    /// The weather held, whatever the levels would ease to.
+    weather: Option<ClientWeather>,
+}
+
+fn pin_weather(pinned: Res<Pinned>, mut weather: ResMut<ClientWeather>) {
+    if let Some(held) = &pinned.weather {
+        *weather = held.clone();
+    }
 }
 
 fn pin_clock(pinned: Res<Pinned>, mut time: ResMut<ClientTime>) {
@@ -116,6 +125,8 @@ fn install(h: &mut Harness) {
         PostUpdate,
         portal_fog_as_main.after(TransformSystems::Propagate),
     );
+    h.app
+        .add_systems(Update, pin_weather.after(ease_weather_system));
 }
 
 fn pinned(h: &mut Harness) -> Mut<'_, Pinned> {
@@ -810,6 +821,16 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
             crossing.case += "_late_portals";
             crossing.measure(&mut h, "baseline", true);
         }
+        Test::Weather(kind) => {
+            crossing.case += &format!("_{}", format!("{kind:?}").to_lowercase());
+            pinned(&mut h).weather = Some(ClientWeather::settled(kind));
+            h.frames(SETTLE);
+            crossing.measure(&mut h, "baseline", true);
+            // And the portal in the view, from a few steps back
+            shot_at(&mut h, eye_in_front(&blue, 6.0, pitch), SETTLE)
+                .save(out_dir().join(format!("{}_from_6.png", crossing.case)))
+                .unwrap();
+        }
         Test::Regression => {
             crossing.case += "_regression";
             let rows = crossing.measure_steady(&mut h);
@@ -865,6 +886,9 @@ enum Test {
     Together,
     /// The seam, the portals opened after the shaders were turned on.
     LatePortals,
+    /// The seam under the weather held at this one: the drops differ from a picture to the
+    /// next, so it is for the eye, and for the sky, the fog and the light of the weather.
+    Weather(WeatherKind),
     /// The seam, whose median must stay under `SEAMLESS` from 32 to 96 blocks, and with the haze
     /// past 96 blocks too, and whose mean, with the haze, under `SKY_SEAMLESS` in the sky and
     /// `SCREEN_SEAMLESS` over all.
@@ -901,6 +925,27 @@ close_seam! {
     seam_close_high_dusk_together: High, Dusk, Together, false;
     seam_close_high_noon_clouds: High, Noon, Baseline, true;
     seam_close_high_noon_late_portals: High, Noon, LatePortals, false;
+}
+
+macro_rules! close_seam_weather {
+    ($($name:ident: $quality:ident, $hour:ident, $kind:ident;)*) => {$(
+        #[test]
+        #[ignore = "a diagnosis: run it by hand"]
+        fn $name() {
+            close_seam(
+                ShaderQuality::$quality,
+                Hour::$hour,
+                Test::Weather(WeatherKind::$kind),
+                false,
+            );
+        }
+    )*};
+}
+
+close_seam_weather! {
+    seam_close_off_noon_rain: Off, Noon, Rain;
+    seam_close_high_noon_rain: High, Noon, Rain;
+    seam_close_high_noon_thunder: High, Noon, Thunder;
 }
 
 macro_rules! close_seam_regression {
