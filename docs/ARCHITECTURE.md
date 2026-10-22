@@ -422,7 +422,14 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    the rest, so that neither starves, and come after the player's own on the wire. With the
    margin, they are kept while the portal is within the render distance plus the margin, and
    unloaded once it is beyond, closed or moved: the reach, portals included, is the key of
-   `SentChunks::progress`.
+   `SentChunks::progress`. A portal the player approaches, within `PORTAL_APPROACH_RADIUS` (2)
+   chunks of its own, has the twin's whole render distance sent instead (`TwinArea`), so that
+   after crossing the player stands in chunks it already holds: about 4 900 chunks at a render
+   distance of 8, 700 KiB over 7 broadcasts. The chunks of an area go by shells, nearest the
+   twin first and those behind its plane after (`twin_area_offsets`), merged across the areas
+   (`ChunkReach::portal_chunks`, kept by `SentChunks::portal_progress` while the portals do not
+   change, so that a broadcast goes on from where the last stopped); left past the approach
+   and the margin, the area shrinks back to the view radius.
 4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
    are handed to the writer thread. A generated chunk is saved too, but not one of a single
    kind of cell, which is generated again at once. Then, every 5 seconds, the chunks more than
@@ -460,12 +467,13 @@ never moves a player, so the prediction of the clients is left alone.
    mesh, built on the async compute pool, which has up to 8 threads
    (`app::task_pool_plugin`), with a task per chunk whose faces are put together. A chunk of
    air, or buried in stone, is not meshed. While chunks arrive, a group waits until its chunks
-   and those of the columns along its sides are in (`WaitingChunks`), which would each mesh it
+   and those of the columns along its sides are in (`WaitingChunks`; around the player and
+   around each twin, `ChunkReach::areas`), which would each mesh it
    again, so that a group is meshed once; at most 128 groups are
    meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
-   (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
-   cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
+   (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player,
+   or of the twin of a portal it approaches (`shadow_centres`), cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
    its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
    clear colour, which is not, so that a block wholly in the fog is the sky: it is found on
    the CPU, by Newton's method, from the LUT of TonyMcMapface that Bevy keeps in the main
@@ -504,13 +512,19 @@ colour at the deepest level, nothing past the camera's fog). A
 lone portal shows its colour. The colours and the rims are not drawn for a camera behind their
 portal's plane, from where the front of a portal cannot be seen: a portal camera always stands
 behind the twin, inside its box when it is within 0.12 block of its plane, where it keeps the
-plain projection. Its fog ends behind the twin where the chunks the client holds around it end
+plain projection. Its fog ends behind the twin where the chunks the client shows around it end
 (`held_reach`), but never farther than the player's own fog, which under water it keeps
-(`portal_fog`). The chunks held are those sent around the twin (`PORTAL_VIEW_RADIUS`) and, when
-the twin is among them, the player's own; each is a box of chunks, which reaches as far as its
-nearest face, a face counting as far as the view can turn to it and not at all behind the twin.
-The top and bottom of the player's box count only nearer than they are to the player at most,
-as the player's own fog does not count them; a box reaching the bedrock (y = 0) has no bottom.
+(`portal_fog`). The chunks shown around a twin are counted in shells, in the order they are
+sent, as they arrive and their group's mesh is shown (`portal/held.rs`, `HeldAreas`): the
+whole shells in front of the twin's plane are a box of chunks, and when the twin is among
+them, the player's own chunks are another; each box reaches as far as its nearest face, a
+face counting as far as the view can turn to it and not at all behind the twin. The fog opens
+at `FOG_GROWTH` (96 blocks a second) and closes at once (`eased_reach`), so that a view
+streaming in shows fog moving back, not holes nor terrain popping in.
+The top and bottom of a box count only nearer than they are to the player at most, as the
+player's own fog does not count them: the twin's box as high as the player's render distance
+does not count them at all, so through an approached twin wholly shown the fog is the
+player's own; a box reaching the bedrock (y = 0) has no bottom.
 So looking down out of a far ceiling twin, the fog ends at the bottom of the chunks sent.
 Through a close twin, the player's own chunks reach
 past its fog, and the portal camera gets that fog as it is: crossing does not change it. The sun, the moon and the stars, parented to the local player, are drawn a
@@ -522,7 +536,9 @@ depth prepass) and leaves to the player's camera what it does to the whole scree
 included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
 the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
 the colours before tonemapping with the shaders, and after it without. It draws the god-ray
-haze as the player's camera does (same steps, no jitter: the player's TAA reaches its image
+haze, a layer 640 blocks wide around the player stretched in one box over the twin of each
+portal it approaches (`haze_box`, as two boxes would thicken it where they overlap), as the
+player's camera does (same steps, no jitter: the player's TAA reaches its image
 only through the motion of the portal surface), through its oblique
 near plane: Bevy's `volumetric_fog.wgsl` read the start depth of a ray with the near distance
 only and ended the rays of the sky on the far plane, which the oblique matrix brings near, and
@@ -537,7 +553,8 @@ grading and the wet ground are the same for every view. It is a `PrecipitationVi
 rain, the snow and the bolts are drawn around it, so they show through the portal around the
 twin, clipped by its near plane. The systems of the weather that follow one camera (the
 occlusion map of the rain, the dome, the flash, the ears of the weather sounds) take the camera
-of the world that is not a portal camera.
+of the world that is not a portal camera: around a far twin, the rain is not stopped by the
+roofs there.
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6
 block ahead of its eye) and the server's `PortalShot` for the others write a `ShotFired`, from
 which a bolt and its trail are spawned, moved at `BOLT_SPEED` (100 blocks a second) to the hit
@@ -565,7 +582,10 @@ cells and has the same seed in every world, so that all the players of a server 
 with nothing sent. They drift east at half a block a second, from the clock, by the
 `Transform` of their entity, so that culling and sorting see where they are; their mesh holds
 the outer faces of a disk of cells around the camera, twice the render distance wide and at
-most 1024 blocks, and is built again only when the camera enters another cell of the pattern.
+most 1024 blocks, and is built again only when the camera enters another cell of the pattern;
+it also holds a disk around the twin of each portal the player approaches
+(`ChunkReach::approached_twins`, `quads_around`), so that the clouds a portal camera shows
+there are those the player sees after crossing.
 Each face carries the densities of the two cells it lies between, and the shader shows it when
 the threshold of the weather lies between them, so the clouds thicken without a new mesh;
 under a clear sky the mesh holds only the cells full then, about a seventh of the faces, and is
