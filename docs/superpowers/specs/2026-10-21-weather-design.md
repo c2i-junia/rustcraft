@@ -406,3 +406,62 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     cobblestone and stone, sand, a low wall, a pier of planks a step up), in High, and in Ultra
     and Medium in tests of their own. Run all at once with the others, ten clients on one
     machine, some lost their camera: they pass with `--test-threads=4`.
+61. The bolt is grown from the seed of its strike by a small PRNG of our own (SplitMix64), not
+    `rand`, so that every build and every client draws the same bolt. Its main channel leaves
+    the cloud base (193) up to 28 % of its height aside, and turns at every scale (a roughness
+    of 0.34 at the scale of 3.5 blocks, 0.17 at 36, with a few sharp kinks); four to nine
+    branches leave its upper part going down, forking up to three deep, thinner and fading to
+    their tips.
+62. A strike flashes in two or three return strokes over half a second, the first the
+    brightest. Only the first lights the branches, which go dark faster than the main channel
+    (a decay of 26 ms against 40); the later strokes re-light the main channel alone, as a real
+    channel re-strikes along its ionised path.
+63. The bolt is a pass of its own after the TAA (as the rain's, decision 38): the points of the
+    channels in a storage buffer, each piece a ribbon facing the camera, mitred to the next. Its
+    hot core is drawn at least 0.75 px wide (fainter when thinner), its violet glow 11 to 18
+    times wider with the distance, at least 6 px; they are added to the frame, the core 16 times
+    brighter than white and the glow 2.6 with the shaders, for the bloom, and 1.6 and 0.75
+    without. A bolt beyond the render distance is not drawn: only its flash in the clouds.
+64. The flash reaches the shaders through `WeatherShading`: `strike` (the struck block, and the
+    level of the channel) and `flash_dir` (from the eye to the flash in the clouds). The
+    overcast sky brightens by 0.05 all over and up to 0.55 more toward it; the clouds glow within
+    56 blocks of the cloud point (1.1), and faintly all over (0.06); the chunks get a light from
+    the bolt itself, a vertical line from the struck block up (3.0, within 9 blocks), and a
+    light from the flash in the clouds on the faces turned to it (0.45), both through the light
+    of the sky, so caves stay dark. The puddles reflect the sky, which flashes already: their
+    own `1 + flash` of decision 58 is gone.
+65. The even light of a flash is added to the ambient light, a quarter of the overcast at noon
+    on screen, and with the physical sky the exposure opens by a quarter of a stop. A first
+    flash as bright as the overcast at noon washed the world into a grey sheet by night and
+    drowned the bolt by day; softer, the bolt is what shines. Without the shaders, the colour
+    behind the world and the fog brighten (`FLASH_SKY`).
+66. The strikes are aged in `PreUpdate`, before every system that reads the flash, so the
+    pictures can hold a strike at a stroke by setting its age after them.
+67. The thunder is delayed by its distance at 340 blocks a second. Within 48 blocks it cracks
+    and booms (`thunder_near`), farther it rumbles (`thunder_far`); its volume is
+    `(48 / d)^0.75`, at least 0.15, and none beyond 1,500 blocks. It is muffled to 55 % closed
+    in and 30 % under water.
+68. The thunder is not attenuated by Bevy's spatial sound, which would make a strike 100 blocks
+    away inaudible: its emitter is kept 2 blocks from the ears toward the strike, moved every
+    frame, inside the radius where rodio does not attenuate (`audio::SPATIAL_SCALE`), and only
+    its balance between the ears follows the strike; its volume is raised by 4/3, as rodio
+    plays a sound right ahead at three quarters in each ear.
+69. How open the player stands is found by 16 rays at the height of the eye, 6 blocks long,
+    stopped by any block but the decorations and the liquids, each open when it reaches a column
+    on which the rain falls below the eye (the occlusion map). A column of its own open to the
+    rain is the open; else the roof is the height of the rain's stop above the eye. The rain in
+    the open plays at the share of open rays; the drumming on the roof at full volume under a
+    roof up to 4 blocks above, none from 24 (a cave). Under a pavilion both play.
+70. The share of rain and snow around is read on the climate map at nine columns 8 blocks apart;
+    above the snow line, rain is snow. The snow and the storms bring the wind (0.6 of the snow,
+    0.5 of the storm), quieter sheltered. Under water only the drumming plays, at half.
+71. The three loops play all along the game, paused while silent, their volumes eased over
+    0.35 s, so walking through a door crossfades the open rain into the drumming.
+72. The sounds are synthesised by `scripts/generate_sounds.py`. The rain is thousands of drops
+    of a few sizes layered over a soft hiss, a 16 s loop crossfaded at its seam; indoors, the
+    same rain low-passed at 650 Hz under a drumming on planks. The thunder is heard from a
+    channel modelled as the bolt is (a tortuous line of segments with branches and strands in
+    the cloud), each segment an N-wave arriving after its distance, filtered by the air an
+    octave lower per doubling of the distance, with echoes and a roll; its time starts with the
+    sound of the foot of the channel. `--only PREFIX` writes only the files under it, so the
+    other sounds stay byte for byte as they were.
