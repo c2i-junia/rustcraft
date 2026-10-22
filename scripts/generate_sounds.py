@@ -6,10 +6,15 @@ entirely original (MIT, like the code). Crumbly materials (grass, dirt, sand,
 snow, leaves) are clouds of tiny filtered grains, after Perry Cook's PhISEM;
 hard ones (stone, wood, glass) are banks of damped resonant modes. Footsteps
 are a heel then a toe, every sound gets a faint outdoor reflection, and each
-kind of sound is normalised to one loudness (ITU-R BS.1770 K-weighting).
+kind of sound is normalised to one loudness (ITU-R BS.1770 K-weighting). The
+rain is a seamless loop of thousands of drops; the thunder is summed from the
+shocks of a whole lightning channel, as heard from near or far.
 
 Requirements: numpy, scipy, and ffmpeg built with libvorbis.
-Usage: python3 scripts/generate_sounds.py [output_dir]
+Usage: python3 scripts/generate_sounds.py [output_dir] [--only PREFIX]
+
+`--only weather/` writes only the files whose name starts with `weather/`: the encoder
+does not give the same bytes twice, so rewriting every file would change them all.
 """
 
 import subprocess
@@ -24,7 +29,9 @@ from scipy.signal import butter, fftconvolve, lfilter, sosfilt
 
 SR = 44100
 ROOT = Path(__file__).resolve().parent.parent
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data" / "sounds"
+ONLY = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else ""
+ARGS = [arg for arg in sys.argv[1:] if arg not in ("--only", ONLY)]
+OUT = Path(ARGS[0]) if ARGS else ROOT / "data" / "sounds"
 SEED = 91  # issue #91
 
 
@@ -506,6 +513,311 @@ def build_wind(rng):
     return y * 10 ** ((-24 - loudness(y)) / 20)
 
 
+# --- weather ----------------------------------------------------------------
+# Rain is a texture of thousands of drops, made fast: the drops of one size share a
+# few kernels, laid on impulse trains. Thunder follows the tortuous channel of a
+# real stroke (Ribner and Roy): each metre of it sends a shock, an N-wave, which
+# reaches the ear when its distance says, longer and duller the farther it comes
+# from, louder where the channel runs across the line of sight; the crack, the
+# claps and the rolling all come from the shape of the channel.
+
+C_AIR = 343.0
+
+
+def seam(y, d, xf):
+    """`y`, `d + xf` seconds long, made a seamless loop of `d` seconds: its last `xf`
+    seconds are crossfaded over its start with equal power, as the noise is uncorrelated."""
+    n, k = n_of(d), n_of(xf)
+    ramp = np.linspace(0, 1, k)
+    y = y.copy()
+    y[:k] = y[:k] * np.sqrt(ramp) + y[n : n + k] * np.sqrt(1 - ramp)
+    return y[:n]
+
+
+def loop_swell(rng, length, d, depth, cycles=(1, 2, 3, 5)):
+    """A slow swell around 1, of whole numbers of cycles every `d` seconds: it wraps at the seam."""
+    t = t_axis(length)
+    x = sum(np.sin(2 * np.pi * k * t / d + rng.uniform(0, 2 * np.pi)) / k**0.5 for k in cycles)
+    return 1 + depth * x / np.max(np.abs(x))
+
+
+def impulses(rng, n, rate, spread):
+    """Poisson times at `rate` a second over `n` samples, with log-normal loudnesses and
+    random signs."""
+    count = rng.poisson(rate * n / SR)
+    at = rng.integers(0, n, count)
+    gains = np.minimum(rng.lognormal(0.0, spread, count), 4.0) * rng.choice([-1.0, 1.0], count)
+    return at, gains
+
+
+def drops(rng, duration, rate, low, high, size, spread=0.7, kernels=24):
+    """Many short noise bursts at Poisson times: a cloud of drops, as `grains` but fast. Each
+    drop takes one of `kernels` bursts, of a decay within `size` and a band within [low, high]."""
+    n = n_of(duration)
+    at, gains = impulses(rng, n, rate, spread)
+    which = rng.integers(0, kernels, len(at))
+    edges = np.geomspace(low, high, 5)
+    out = np.zeros(n)
+    for i in range(kernels):
+        tau = np.exp(rng.uniform(np.log(size[0]), np.log(size[1])))
+        length = n_of(tau * 6) + 8
+        kernel = rng.standard_normal(length) * np.exp(-np.arange(length) / (tau * SR))
+        lane = rng.integers(0, 4)
+        kernel = band(np.concatenate([kernel, np.zeros(64)]), edges[lane], edges[lane + 1] * 1.6)
+        train = np.zeros(n)
+        np.add.at(train, at[which == i], gains[which == i])
+        out += fftconvolve(train, kernel)[:n]
+    return out
+
+
+def plinks(rng, duration, rate, low, high):
+    """Drops falling into the water: each a tiny bubble ringing up in pitch, very short."""
+    n = n_of(duration)
+    out = np.zeros(n)
+    at, gains = impulses(rng, n, rate, 0.6)
+    for start, gain in zip(at, gains):
+        f0 = rng.uniform(low, high)
+        tau = rng.uniform(0.003, 0.008)
+        t = t_axis(tau * 6)
+        blip = np.sin(2 * np.pi * np.cumsum(f0 * (1 + 30 * t)) / SR) * env(tau * 6, 0.0005, tau)
+        end = min(n, start + len(blip))
+        out[start:end] += blip[: end - start] * abs(gain)
+    return out
+
+
+def rain_layers(rng, length, d):
+    """The rain heard out in the open: a soft broad hiss, a dense mist of fine drops on
+    every side, closer drops tapping on the ground and the leaves, a few plinks into
+    puddles, and the weight of the downpour far off."""
+    swell = loop_swell(rng, length, d, 0.12)
+    hiss = band(band(colored(rng, length, 0.8), 350, 9000), high=7000, order=1) * swell
+    mist = drops(rng, length, 9000, 2500, 11000, (0.00006, 0.0003), 0.8)
+    near = drops(rng, length, 260, 700, 6000, (0.0004, 0.0018), 0.9, kernels=40)
+    taps = drops(rng, length, 14, 250, 2500, (0.0015, 0.005), 0.6, kernels=12)
+    water = plinks(rng, length, 5, 1300, 3200)
+    weight = band(colored(rng, length, 2), 60, 320) * swell
+    return hiss, mist, near, taps, water, weight
+
+
+def build_rain(rng):
+    """Seamless 16 s loop of rain heard out in the open."""
+    d, xf = 16.0, 2.0
+    length = d + xf
+    hiss, mist, near, taps, water, weight = rain_layers(rng, length, d)
+    y = hiss * 1.0 + mist * 0.11 + near * 0.12 + taps * 0.5 + water * 0.05 + weight * 0.45
+    # Softer at the very top: rain soothes, it does not fizz
+    y = band(y, high=12000, order=2)
+    y = seam(y, d, xf)
+    return y * 10 ** ((-22 - loudness(y)) / 20)
+
+
+def roof(rng, duration, rate, spread, low_modes, high_modes, kernels=16):
+    """Drops drumming on a roof of planks: each knocks a few of its low modes, as a hand on a
+    table, the modes a little apart from one spot of the roof to the next."""
+    n = n_of(duration)
+    at, gains = impulses(rng, n, rate, spread)
+    which = rng.integers(0, kernels, len(at))
+    out = np.zeros(n)
+    for i in range(kernels):
+        spec = [(rng.uniform(*low_modes), rng.uniform(0.012, 0.03), 1.0), (rng.uniform(*high_modes), rng.uniform(0.004, 0.01), 0.45)]
+        kernel = modes(rng, 0.2, spec, 0.04) + band(white(rng, 0.2), 300, 1800) * env(0.2, 0.0003, 0.0015) * 0.3
+        train = np.zeros(n)
+        np.add.at(train, at[which == i], gains[which == i])
+        out += fftconvolve(train, kernel)[:n]
+    return out
+
+
+def build_rain_indoor(rng):
+    """Seamless 16 s loop of the same rain heard from under a roof: the hiss through the
+    walls, dull, and the drops drumming on the planks overhead, a few heavier ones."""
+    d, xf = 16.0, 2.0
+    length = d + xf
+    hiss, mist, near, taps, water, weight = rain_layers(rng, length, d)
+    outside = band(hiss * 1.0 + mist * 0.11 + near * 0.12 + taps * 0.5 + weight * 0.6, high=650, order=4)
+    swell = loop_swell(rng, length, d, 0.15)
+    drumming = roof(rng, length, 420, 0.7, (120, 260), (420, 900)) * swell
+    heavy = roof(rng, length, 3.5, 0.5, (70, 140), (220, 400), kernels=6)
+    room = band(colored(rng, length, 2), 40, 180)
+    y = outside * 1.0 + drumming * 0.05 + heavy * 0.12 + room * 0.25
+    y = band(y, high=2200, order=2)
+    y = seam(y, d, xf)
+    return y * 10 ** ((-24 - loudness(y)) / 20)
+
+
+def stroke_channel(rng, height, branches, cloud_reach):
+    """The segments of a lightning channel in metres, the strike at the origin and the
+    ground the plane y = 0: a tortuous main channel up to the cloud base at `height`, a
+    few branches leaving it downward, and channels running through the cloud as far as
+    `cloud_reach`. Each segment as (middle, direction, length, strength)."""
+
+    def walk(start, heading, length, step, wander):
+        points = [np.array(start, float)]
+        direction = np.array(heading, float)
+        travelled = 0.0
+        while travelled < length:
+            turn = rng.standard_normal(3) * wander
+            direction = direction + turn
+            direction = 0.6 * direction / np.linalg.norm(direction) + 0.4 * np.array(heading, float)
+            direction /= np.linalg.norm(direction)
+            points.append(points[-1] + direction * step)
+            travelled += step
+        return points
+
+    lean = rng.standard_normal(3) * np.array([0.25, 0, 0.25])
+    main = walk((0, 0, 0), np.array([0, 1, 0]) + lean, height, 4.0, 0.7)
+    strands = [(main, 1.0)]
+    for _ in range(branches):
+        start = main[rng.integers(len(main) // 4, len(main) - 1)]
+        heading = rng.standard_normal(3) * np.array([1, 0, 1])
+        heading = heading / np.linalg.norm(heading) * 0.8 + np.array([0, -0.6, 0])
+        strands.append((walk(start, heading, rng.uniform(0.15, 0.4) * start[1], 4.0, 0.8), 0.6))
+    # Through the cloud the channels are fainter, and leave the upper main channel here and there
+    for _ in range(4):
+        start = main[rng.integers(len(main) * 3 // 4, len(main))]
+        heading = rng.standard_normal(3) * np.array([1, 0.2, 1])
+        reach = rng.uniform(0.3, 1.0) * cloud_reach
+        strands.append((walk(start, heading / np.linalg.norm(heading), reach, 6.0, 0.6), 0.2))
+    segments = []
+    for strand, strength in strands:
+        points = np.array(strand)
+        points[:, 1] = np.maximum(points[:, 1], 0.5)
+        middles = (points[1:] + points[:-1]) / 2
+        steps = points[1:] - points[:-1]
+        lengths = np.linalg.norm(steps, axis=1)
+        # Fainter toward the tip, and in beads along the way
+        along = np.linspace(0, 1, len(lengths))
+        beads = np.exp(np.convolve(rng.standard_normal(len(lengths)), np.ones(8) / 8, "same") * 1.2)
+        strengths = strength * (1 - 0.85 * along**1.5) * beads
+        if strand is not main:
+            strengths *= np.minimum(along * 12 + 0.2, 1)
+        segments.append((middles, steps / lengths[:, None], lengths, strengths))
+    return [np.concatenate(parts) for parts in zip(*segments)]
+
+
+def n_wave(half):
+    """The shock of a segment: a sudden rise, a straight fall through zero, a sudden return."""
+    k = max(int(half * SR), 1)
+    return np.linspace(1.0, -1.0, 2 * k)
+
+
+def thunder(rng, distance, duration, height=1600.0, branches=6, cloud_reach=2500.0):
+    """Thunder heard from `distance` metres off the strike, the shock of the foot of the
+    channel at the start: what a channel through the cloud sends from nearer is dropped.
+    Returns the shocks summed, still bright, and when each part of the sound left the
+    channel as a distance, to dull it with the distance travelled."""
+    middles, directions, lengths, strengths = stroke_channel(rng, height, branches, cloud_reach)
+    angle = rng.uniform(0, 2 * np.pi)
+    ear = np.array([np.cos(angle) * distance, 1.7, np.sin(angle) * distance])
+    to_ear = ear - middles
+    r = np.linalg.norm(to_ear, axis=1)
+    across = 1 - (np.sum(directions * to_ear, axis=1) / r) ** 2
+    gain = strengths * lengths / r**0.6 * (0.15 + across**2) * rng.lognormal(0, 0.35, len(r))
+    # The farther a shock comes from, the longer it has stretched
+    half = 0.00022 * (r / 40.0) ** 0.6 * rng.lognormal(0, 0.25, len(r))
+    n = n_of(duration)
+    first = r[0]
+    start = (r - first) / C_AIR
+    at = (start * SR).astype(int)
+    keep = (at >= 0) & (at < n)
+    out = np.zeros(n)
+    buckets = np.geomspace(half[keep].min(), half[keep].max() * 1.001, 20)
+    which = np.digitize(half, buckets)
+    for b in np.unique(which[keep]):
+        mask = keep & (which == b)
+        train = np.zeros(n)
+        np.add.at(train, at[mask], gain[mask])
+        out += fftconvolve(train, n_wave(np.mean(half[mask])))[:n]
+    # The distance each instant of the sound came from
+    travelled = first + t_axis(duration) * C_AIR
+    return out, travelled
+
+
+def air(x, travelled, reference):
+    """Dulls `x` with the distance each instant travelled through the air, past `reference`
+    metres: the cutoff falls as the distance grows."""
+    cutoffs = [14000, 7000, 3500, 1800, 900, 450, 220, 110]
+    # The cutoff for a distance: 14 kHz at the reference, an octave lower every doubling
+    wanted = 14000 * (reference / np.maximum(travelled, reference))
+    position = np.clip(np.log2(14000 / wanted), 0, len(cutoffs) - 1)
+    out = np.zeros_like(x)
+    for i, cutoff in enumerate(cutoffs):
+        weight = np.clip(1 - np.abs(position - i), 0, 1)
+        if weight.any():
+            out += band(x, high=cutoff, order=2) * weight
+    return out
+
+
+def echoes(rng, x, decay, wet, high, early=6):
+    """The thunder thrown back by the hills and the clouds: a few early echoes, then a long
+    dark tail."""
+    d = decay * 4
+    ir = band(white(rng, d), high=high, order=2) * env(d, 0.08, decay)
+    for _ in range(early):
+        ir += place_at(d, np.array([rng.uniform(0.3, 1.0)]), rng.uniform(0.12, 1.4)) * 30
+    ir = band(ir, high=high * 1.5)
+    ir /= np.sqrt(np.sum(ir**2))
+    return mix(x, fftconvolve(x, ir)[: len(x) + n_of(d)] * wet)
+
+
+def rumble_bed(rng, x, duration, low=25, high=110, smooth=0.12):
+    """A low roll that follows the loudness of `x`: the rumble carries what the shocks only
+    hint at below 100 Hz."""
+    level = np.sqrt(np.convolve(x**2, np.ones(n_of(smooth)) / n_of(smooth), "same"))
+    return band(colored(rng, duration, 2), low, high, order=2) * level / (np.max(level) or 1.0)
+
+
+def roll(rng, duration, rate, depth):
+    """A slow random swell around 1, about `rate` swells a second, `depth` decibels deep: the
+    thunder rolls in waves, as its sound comes from farther and farther parts of the sky."""
+    n = n_of(duration)
+    slow = band(rng.standard_normal(n), high=rate, order=2)
+    slow /= np.std(slow)
+    return 10 ** (depth * np.tanh(slow) / 20)
+
+
+def fade_out(x, duration, length):
+    x = x[: n_of(duration)].copy()
+    k = n_of(length)
+    x[-k:] *= np.linspace(1, 0, k) ** 2
+    return x
+
+
+def limit(x, head):
+    """`x` through a soft limiter set by its loudest part in the first `head` seconds: the
+    shocks pile up, as the ear and any microphone hear a close strike."""
+    level = np.percentile(np.abs(x[: n_of(head)]), 99.5)
+    return np.tanh(x / level)
+
+
+def build_thunder_near(rng):
+    """A strike close by: a tearing crack of shocks, a deep boom, then the long roll of the
+    rest of the channel and its echoes from the hills."""
+    d = 9.0
+    shocks, travelled = thunder(rng, rng.uniform(40, 70), d, branches=rng.integers(4, 8))
+    bright = air(limit(shocks, 0.4), travelled, 60)
+    boom = band(colored(rng, d, 2), 28, 160, order=2) * env(d, 0.025, 0.35)
+    thud = thump(rng, d, 90, 45, 0.12)
+    bed = rumble_bed(rng, bright, d, 28, 140)
+    tail = mix(np.ones(n_of(0.6)), roll(rng, d, 1.2, 4))[: n_of(d)]
+    x = (bright * 0.8 + bed * 1.5) * tail + place_at(d, boom * 3.0 + thud * 0.5, rng.uniform(0.03, 0.07))
+    x = echoes(rng, x, 0.9, 0.35, 1800)
+    x = band(x, low=28)
+    return finish(fade_out(x, d, 2.0), -11)
+
+
+def build_thunder_far(rng):
+    """A strike far off: no crack left, a low roll swelling and fading over seconds."""
+    d = 11.0
+    shocks, travelled = thunder(rng, rng.uniform(2500, 4500), d, branches=rng.integers(5, 9), cloud_reach=4000.0)
+    dull = air(shocks, travelled, 150)
+    bed = rumble_bed(rng, dull, d, 22, 90, 0.25)
+    x = (dull / np.max(np.abs(dull)) * 0.6 + bed * 1.5) * roll(rng, d, 0.9, 6)
+    x = echoes(rng, x, 1.4, 0.5, 600)
+    x = band(band(x, low=24), high=1200, order=2)
+    swell = np.minimum(t_axis(len(x) / SR) / 0.25, 1.0)
+    return finish(fade_out(x * swell, d, 3.0), -17)
+
+
 # --- output -----------------------------------------------------------------
 
 
@@ -515,6 +827,8 @@ def rng_for(name):
 
 
 def write_ogg(name, build, *args):
+    if not name.startswith(ONLY):
+        return
     path = OUT / f"{name}.ogg"
     x = build(rng_for(name), *args)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -546,6 +860,11 @@ def main():
     write_ogg("ui/refused", build_refused)
     write_ogg("liquid/splash", build_splash)
     write_ogg("ambient/wind", build_wind)
+    write_ogg("weather/rain", build_rain)
+    write_ogg("weather/rain_indoor", build_rain_indoor)
+    for i in range(1, 4):
+        write_ogg(f"weather/thunder_near{i}", build_thunder_near)
+        write_ogg(f"weather/thunder_far{i}", build_thunder_far)
 
 
 if __name__ == "__main__":

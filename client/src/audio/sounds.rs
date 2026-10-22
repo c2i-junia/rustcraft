@@ -121,6 +121,16 @@ pub enum Sound {
     Craft,
     /// An action the player made was refused.
     Refused,
+    /// A lightning strike close by: a tearing crack, a boom and its roll.
+    Thunder,
+    /// A lightning strike far off: a long low rumble.
+    DistantThunder,
+    /// The rain heard out in the open, a seamless loop.
+    Rain,
+    /// The same rain heard from under a roof, a seamless loop.
+    RainIndoors,
+    /// The wind, a seamless loop.
+    Wind,
 }
 
 impl Sound {
@@ -145,13 +155,28 @@ impl Sound {
                 Sound::Craft,
                 Sound::Refused,
             ])
+            .chain(Self::WEATHER)
     }
+
+    /// The sounds of the weather, played by `audio::weather`.
+    pub const WEATHER: [Sound; 5] = [
+        Sound::Thunder,
+        Sound::DistantThunder,
+        Sound::Rain,
+        Sound::RainIndoors,
+        Sound::Wind,
+    ];
 
     pub fn channel(self) -> Channel {
         match self {
             Sound::Click | Sound::ItemPick | Sound::ItemPlace | Sound::Craft | Sound::Refused => {
                 Channel::Interface
             }
+            Sound::Thunder
+            | Sound::DistantThunder
+            | Sound::Rain
+            | Sound::RainIndoors
+            | Sound::Wind => Channel::Weather,
             _ => Channel::Effects,
         }
     }
@@ -178,6 +203,15 @@ impl Sound {
             Sound::ItemPlace => vec!["sounds/ui/item_place.ogg".to_string()],
             Sound::Craft => vec!["sounds/ui/craft.ogg".to_string()],
             Sound::Refused => vec!["sounds/ui/refused.ogg".to_string()],
+            Sound::Thunder => (1..=3)
+                .map(|i| format!("sounds/weather/thunder_near{i}.ogg"))
+                .collect(),
+            Sound::DistantThunder => (1..=3)
+                .map(|i| format!("sounds/weather/thunder_far{i}.ogg"))
+                .collect(),
+            Sound::Rain => vec!["sounds/weather/rain.ogg".to_string()],
+            Sound::RainIndoors => vec!["sounds/weather/rain_indoor.ogg".to_string()],
+            Sound::Wind => vec!["sounds/ambient/wind.ogg".to_string()],
         }
     }
 }
@@ -267,6 +301,17 @@ mod tests {
                 assert!(peak < 1.0 && peak > 0.1, "{file}: peak {peak}");
             }
         }
+    }
+
+    #[test]
+    fn the_rain_the_wind_and_the_thunder_play_on_the_weather_channel() {
+        for sound in Sound::WEATHER {
+            assert_eq!(sound.channel(), Channel::Weather, "{sound:?}");
+            assert!(Sound::all().any(|other| other == sound), "{sound:?}");
+        }
+        assert_eq!(Sound::Thunder.files().len(), 3);
+        assert_eq!(Sound::DistantThunder.files().len(), 3);
+        assert_eq!(Sound::Splash.channel(), Channel::Effects);
     }
 
     #[test]
