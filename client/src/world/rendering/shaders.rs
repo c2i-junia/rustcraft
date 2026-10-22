@@ -473,10 +473,12 @@ const HAZE_HALF_WIDTH: f32 = 320.;
 /// The centre and the size of the layer of haze over the camera at `camera` and the chunks
 /// `twins`: `HAZE_HALF_WIDTH` around each, in one box, as boxes that overlap would thicken it.
 fn haze_box(camera: Vec3, twins: &[IVec3]) -> (Vec3, Vec3) {
-    let (low, high) = twins.iter().fold((camera.xz(), camera.xz()), |(low, high), twin| {
-        let centre = ((*twin * CHUNK_SIZE) + CHUNK_SIZE / 2).as_vec3().xz();
-        (low.min(centre), high.max(centre))
-    });
+    let (low, high) = twins
+        .iter()
+        .fold((camera.xz(), camera.xz()), |(low, high), twin| {
+            let centre = ((*twin * CHUNK_SIZE) + CHUNK_SIZE / 2).as_vec3().xz();
+            (low.min(centre), high.max(centre))
+        });
     let middle = (low + high) / 2.;
     let size = high - low + Vec2::splat(2. * HAZE_HALF_WIDTH);
     (
