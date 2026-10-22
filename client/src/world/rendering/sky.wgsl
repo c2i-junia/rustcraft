@@ -86,8 +86,14 @@ fn has_sky() -> bool {
 #endif
 }
 
-// `dir`, raised to just above the horizon if it points under it: under the horizon, past the
-// chunks, is the ground of the planet, which the horizon skirt hides.
+// `dir`, raised to just above the horizon, toward the same side, if it points under it: under
+// the horizon, past the chunks, is the ground of the planet, which the horizon skirt hides.
+// Straight down has no side: it takes one, rather than the zenith.
 fn horizon_direction(dir: vec3<f32>) -> vec3<f32> {
-    return normalize(vec3(dir.x, max(dir.y, 0.03), dir.z));
+    if dir.y >= 0.03 {
+        return normalize(dir);
+    }
+    let flat = length(dir.xz);
+    let side = select(vec2(1.0, 0.0), dir.xz / max(flat, 1e-6), flat > 1e-4);
+    return normalize(vec3(side.x, 0.03, side.y));
 }
