@@ -9,9 +9,7 @@ use bevy_renet::RenetServer;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use shared::messages::ServerToClientMessage;
-use shared::world::{
-    next_kind, spell_ticks, ChunkMap, WeatherKind, LIGHTNING_REACH, MAX_VERTICAL_RENDER_DISTANCE,
-};
+use shared::world::{next_kind, spell_ticks, ChunkMap, WeatherKind, LIGHTNING_REACH};
 use shared::CHUNK_SIZE;
 
 use crate::init::ServerLobby;
@@ -23,10 +21,6 @@ use crate::world::format::SavedWeather;
 pub const STRIKE_INTERVAL_TICKS: RangeInclusive<u32> = 60..=300;
 /// How far from a player a strike lands, along the ground, in blocks.
 const STRIKE_DISTANCE: RangeInclusive<f32> = 16.0..=160.0;
-/// How far above and below its player the top of a struck column is looked for, in blocks: the
-/// reach of a render distance.
-const STRIKE_REACH: i32 = MAX_VERTICAL_RENDER_DISTANCE * CHUNK_SIZE;
-
 /// The weather and the ticks it has left before the next one.
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct ServerWeather {
@@ -97,13 +91,30 @@ impl ServerWeather {
     }
 }
 
-/// The highest block of the column at `x`, `z`, looked for within `STRIKE_REACH` of
-/// `around_y`. `None` when it holds no block there, or its chunks are not loaded.
-pub fn struck_block(chunks: &ChunkMap, x: i32, z: i32, around_y: i32) -> Option<IVec3> {
-    (around_y - STRIKE_REACH..=around_y + STRIKE_REACH)
-        .rev()
-        .map(|y| IVec3::new(x, y, z))
-        .find(|&pos| chunks.get_block(pos).is_some())
+/// The highest block of the column at `x`, `z`, looked for from the top of its highest chunk
+/// loaded down. `None` when that is not known: when the column holds no block in its chunks
+/// loaded, when a chunk is missing between its top and its highest block, or when that block is
+/// at the very top of the chunks loaded, as under a player deep down, the sky being somewhere
+/// above.
+pub fn struck_block(chunks: &ChunkMap, x: i32, z: i32) -> Option<IVec3> {
+    let (chunk_x, chunk_z) = (x.div_euclid(CHUNK_SIZE), z.div_euclid(CHUNK_SIZE));
+    let top = chunks
+        .chunk_positions()
+        .filter(|chunk| chunk.x == chunk_x && chunk.z == chunk_z)
+        .map(|chunk| chunk.y)
+        .max()?;
+    let highest = (top + 1) * CHUNK_SIZE - 1;
+    let mut y = highest;
+    loop {
+        if !chunks.is_chunk_loaded(IVec3::new(chunk_x, y.div_euclid(CHUNK_SIZE), chunk_z)) {
+            return None;
+        }
+        let pos = IVec3::new(x, y, z);
+        if chunks.get_block(pos).is_some() {
+            return (y < highest).then_some(pos);
+        }
+        y -= 1;
+    }
 }
 
 /// Where a strike lands: on the top block of a column drawn around one of the `players`, in
@@ -114,7 +125,7 @@ pub fn draw_strike(players: &[Vec3], chunks: &ChunkMap, rng: &mut impl Rng) -> O
     let angle = rng.gen_range(0.0..std::f32::consts::TAU);
     let column = player.xz() + Vec2::from_angle(angle) * rng.gen_range(STRIKE_DISTANCE);
     let column = column.floor().as_ivec2();
-    struck_block(chunks, column.x, column.y, player.y.floor() as i32)
+    struck_block(chunks, column.x, column.y)
 }
 
 /// Counts the weather down and tells the players when it changes, then lets a lightning
@@ -325,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn the_struck_block_is_the_highest_of_its_column_within_reach() {
+    fn the_struck_block_is_the_highest_of_its_column() {
         let mut chunks =
             ChunkMap::with_loaded_region(IVec3::new(0, -16, 0), IVec3::new(15, 255, 15));
         chunks.set_block(IVec3::new(3, 2, 4), stone());
@@ -333,17 +344,38 @@ mod tests {
             IVec3::new(3, 9, 4),
             BlockData::new(BlockId::OakLeaves, BlockDirection::Front),
         );
-        assert_eq!(struck_block(&chunks, 3, 4, 70), Some(IVec3::new(3, 9, 4)));
-        // out of reach above the player
+        assert_eq!(struck_block(&chunks, 3, 4), Some(IVec3::new(3, 9, 4)));
+        // however high above
         chunks.set_block(IVec3::new(3, 200, 4), stone());
-        assert_eq!(struck_block(&chunks, 3, 4, 10), Some(IVec3::new(3, 9, 4)));
-        assert_eq!(
-            struck_block(&chunks, 3, 4, 100),
-            Some(IVec3::new(3, 200, 4))
-        );
+        assert_eq!(struck_block(&chunks, 3, 4), Some(IVec3::new(3, 200, 4)));
         // an empty column, and one whose chunks are not loaded
-        assert_eq!(struck_block(&chunks, 5, 5, 70), None);
-        assert_eq!(struck_block(&chunks, 40, 4, 70), None);
+        assert_eq!(struck_block(&chunks, 5, 5), None);
+        assert_eq!(struck_block(&chunks, 40, 4), None);
+    }
+
+    #[test]
+    fn the_struck_block_is_on_the_ground_above_a_player_deep_in_a_cave() {
+        let (min, max) = (IVec3::new(0, -320, 0), IVec3::new(15, 31, 15));
+        let mut chunks = ChunkMap::with_loaded_region(min, max);
+        // rock from the ground down past the player, at -200: 128 blocks above it the column is
+        // still rock
+        chunks.fill_box(min, max.with_y(0), BlockId::Stone);
+        assert_eq!(struck_block(&chunks, 3, 4), Some(IVec3::new(3, 0, 4)));
+    }
+
+    #[test]
+    fn a_column_whose_top_is_not_loaded_is_not_struck() {
+        // rock up to the top of the chunks loaded, as under a player deep down: the open sky is
+        // somewhere above, not known
+        let (min, max) = (IVec3::new(0, -320, 0), IVec3::new(15, -1, 15));
+        let mut chunks = ChunkMap::with_loaded_region(min, max);
+        chunks.fill_box(min, max, BlockId::Stone);
+        assert_eq!(struck_block(&chunks, 3, 4), None);
+        // nor one with a chunk missing between the air above and the ground
+        let mut chunks = ChunkMap::with_loaded_region(IVec3::new(0, 0, 0), IVec3::new(15, 63, 15));
+        chunks.set_block(IVec3::new(3, 5, 4), stone());
+        chunks.remove_chunk(IVec3::new(0, 2, 0));
+        assert_eq!(struck_block(&chunks, 3, 4), None);
     }
 
     /// Ground at y = 0 everywhere within 176 blocks of the origin.
@@ -374,6 +406,9 @@ mod tests {
         assert!(distances.iter().any(|&d| d > 145.0));
 
         assert_eq!(draw_strike(&[], &chunks, &mut rng), None);
+        // a player flying high above the ground
+        let at = draw_strike(&[player.with_y(400.)], &chunks, &mut rng).unwrap();
+        assert_eq!(at.y, 0);
         let bare = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
         assert_eq!(draw_strike(&[player], &bare, &mut rng), None);
     }

@@ -485,3 +485,8 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
 76. Changing 68: the gain of the thunder, raised by 4/3, is at most 1, as the ear a strike is
     heard from plays it at its whole gain and the thunder peaks at −1 dBFS: a loud strike close
     by is heard a little softer ahead rather than clipped from the side.
+77. Changing 20: a struck column is searched for its top block from the top of its highest chunk
+    loaded down, whatever the height of the player, so that a player flying high sees strikes
+    and one deep in a cave gets none inside the rock. A column whose top is not known is not
+    struck (the strike is skipped): one whose highest block is at the very top of its chunks
+    loaded, as the rock over a player deep down, or one with a chunk missing on the way down.
