@@ -65,6 +65,15 @@ struct Pinned {
     portal_fog_as_main: bool,
     /// Whether the portal cameras draw no fog at all, to see what lies in theirs.
     portal_fog_off: bool,
+    /// The tick the clock stays at: it moves with the wall clock, so that otherwise the sun,
+    /// and the shadows, moved by as much as lavapipe was slow between two pictures.
+    tick: Option<(Hour, u64)>,
+}
+
+fn pin_clock(pinned: Res<Pinned>, mut time: ResMut<ClientTime>) {
+    if let Some((_, tick)) = pinned.tick {
+        time.0 = tick;
+    }
 }
 
 fn pin_eye(pinned: Res<Pinned>, mut cameras: Query<&mut Transform, With<CameraController>>) {
@@ -100,6 +109,10 @@ fn install(h: &mut Harness) {
     h.app.init_resource::<Pinned>();
     h.app.add_systems(Update, pin_eye.after(GameSet::Camera));
     h.app.add_systems(
+        FixedPostUpdate,
+        pin_clock.after(crate::world::time::time_update_system),
+    );
+    h.app.add_systems(
         PostUpdate,
         portal_fog_as_main.after(TransformSystems::Propagate),
     );
@@ -133,10 +146,15 @@ fn tick_of(hour: Hour, now: u64) -> u64 {
     }
 }
 
+/// Sets the clock at `hour` and keeps it there, at the same tick every time for the same hour:
+/// the moon, which changes from a night to the next, too.
 fn set_hour(h: &mut Harness, hour: Hour) {
-    let now = h.world().resource::<ClientTime>().0;
-    h.world_mut()
-        .insert_resource(ClientTime(tick_of(hour, now)));
+    let tick = match pinned(h).tick {
+        Some((pinned_hour, tick)) if pinned_hour == hour => tick,
+        _ => tick_of(hour, h.world().resource::<ClientTime>().0),
+    };
+    h.world_mut().insert_resource(ClientTime(tick));
+    pinned(h).tick = Some((hour, tick));
 }
 
 fn set_quality(h: &mut Harness, quality: ShaderQuality) {
