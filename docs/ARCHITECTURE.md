@@ -504,9 +504,13 @@ colour at the deepest level, nothing past the camera's fog). A
 lone portal shows its colour. The colours and the rims are not drawn for a camera behind their
 portal's plane, from where the front of a portal cannot be seen: a portal camera always stands
 behind the twin, inside its box when it is within 0.12 block of its plane, where it keeps the
-plain projection. Its fog ends `PORTAL_VIEW_RADIUS` chunks behind the twin, where the chunks
-sent around it end, but never farther than the player's own fog, which under water it keeps
-(`portal_fog`). The sun, the moon and the stars, parented to the local player, are drawn a
+plain projection. Its fog ends behind the twin where the chunks the client holds around it end
+(`held_reach`), but never farther than the player's own fog, which under water it keeps
+(`portal_fog`). The chunks held are those sent around the twin (`PORTAL_VIEW_RADIUS`) and, when
+the twin is among them, the player's own; each is a square of columns, which reaches as far as
+its nearest edge along x and z, as for the player's fog, an edge counting as far as the view can
+turn to it and not at all behind the twin. Through a close twin, the player's own chunks reach
+past its fog, and the portal camera gets that fog as it is: crossing does not change it. The sun, the moon and the stars, parented to the local player, are drawn a
 million blocks away (`CELESTIAL_DISTANCE`), on the far plane, unfogged and never
 frustum-culled, so that every camera, a portal camera far from the player too, sees them in the
 same direction; under water they are hidden. With the shaders, a portal camera gets what makes
@@ -515,8 +519,8 @@ depth prepass) and leaves to the player's camera what it does to the whole scree
 included: tonemapping, colour grading, bloom, SMAA or TAA; it shares the environment map of
 the sky made for the player's camera. Its image is in 16-bit floats at every quality, which hold
 the colours before tonemapping with the shaders, and after it without. It draws no rays of light, which Bevy ends with the near distance of the
-projection only, wrong for an oblique near plane; the horizon skirt is drawn around each camera
-(`horizon.wgsl`).
+projection only, wrong for an oblique near plane; the horizon skirt, a ring closed at the bottom
+so that no way under the horizon misses it, is drawn around each camera (`horizon.wgsl`).
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6
 block ahead of its eye) and the server's `PortalShot` for the others write a `ShotFired`, from
 which a bolt and its trail are spawned, moved at `BOLT_SPEED` (100 blocks a second) to the hit

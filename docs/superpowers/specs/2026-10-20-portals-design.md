@@ -68,7 +68,9 @@ New module `client/src/portal/`:
 
 - `camera.rs`: per open portal, a `Camera3d` rendering into an `Image` the size of the window
   (`RenderTarget::Image`), `order: -level` (the deepest level of recursion first), the
-  tonemapping of the player's camera, its fog ending at `PORTAL_VIEW_RADIUS` chunks. Its transform is computed in `PostUpdate` before transform
+  tonemapping of the player's camera, its fog ending at `PORTAL_VIEW_RADIUS` chunks (as built
+  after lot 9: where the chunks held around the twin end, which through a close twin are the
+  player's own, so that it gets the player's fog unclamped). Its transform is computed in `PostUpdate` before transform
   propagation, from the player's camera: `through(portal) · camera`. Inactive when the portal is
   out of the player's view or seen from behind.
 - `projection.rs`: the main camera's `PerspectiveProjection` with Bevy's oblique
