@@ -9,7 +9,8 @@ use crate::{
     HALF_BLOCK,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Append only, like `ItemId`: network messages carry the position of the variant (portals).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FaceDirection {
     PlusX,
     MinusX,

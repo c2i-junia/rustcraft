@@ -5,6 +5,7 @@
 
 use bevy::math::{Affine3A, IVec3, Mat3, Vec3};
 use bevy_platform::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
 use crate::world::{BlockHitbox, BlockTransparency, ChunkMap, FaceDirection, FaceDirectionExt};
@@ -14,7 +15,8 @@ pub const PORTAL_WIDTH: i32 = 2;
 /// How many wall cells high a portal is.
 pub const PORTAL_HEIGHT: i32 = 3;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Append only, like `ItemId`: network messages carry the position of the variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PortalColor {
     Blue,
     Orange,
@@ -33,7 +35,7 @@ impl PortalColor {
 /// A portal on the face `face` of six wall cells. `anchor` is the lower-left wall cell, seen
 /// from in front of the wall; the others are to its right and above it. The face is one of the
 /// four vertical ones.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Portal {
     pub owner: PlayerId,
     pub color: PortalColor,
@@ -123,6 +125,15 @@ impl Portals {
         let removed = self.portals.remove(&(owner, color));
         self.changed |= removed.is_some();
         removed
+    }
+
+    /// Replaces every portal by `portals`, as a client does with those the server sends.
+    pub fn replace(&mut self, portals: Vec<Portal>) {
+        self.portals = portals
+            .into_iter()
+            .map(|portal| ((portal.owner, portal.color), portal))
+            .collect();
+        self.changed = true;
     }
 
     /// Records a change without changing anything, so that the portals are sent again. The
@@ -400,6 +411,16 @@ mod tests {
         portals.remove(7, PortalColor::Blue);
         assert!(portals.take_changed());
         portals.touch();
+        assert!(portals.take_changed());
+    }
+
+    #[test]
+    fn replacing_the_portals_keeps_only_the_new_ones() {
+        let mut portals = pair();
+        portals.take_changed();
+        let moved = portal(PortalColor::Blue, IVec3::new(3, 4, 5), FaceDirection::PlusX);
+        portals.replace(vec![moved]);
+        assert_eq!(portals.iter().collect::<Vec<_>>(), [&moved]);
         assert!(portals.take_changed());
     }
 

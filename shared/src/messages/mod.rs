@@ -4,7 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::world::{MobId, WeatherKind};
+use crate::world::{MobId, Portal, WeatherKind};
 pub use auth::*;
 use bevy::math::IVec3;
 pub use chat::*;
@@ -55,6 +55,9 @@ pub enum ServerToClientMessage {
         at: IVec3,
         seed: u32,
     },
+    /// Every portal of the world: sent to everyone when one changed, and to a player when it
+    /// joins. The client's portals become these.
+    PortalUpdates(Vec<Portal>),
 }
 
 #[cfg(test)]
@@ -62,7 +65,7 @@ mod tests {
     use super::*;
     use crate::players::game_mode::{DeathCause, GameMode};
     use crate::players::inventory::InventoryAction;
-    use crate::world::{MobAction, MobKind, MobTarget, WeatherKind};
+    use crate::world::{FaceDirection, MobAction, MobKind, MobTarget, PortalColor, WeatherKind};
     use bevy::math::{IVec3, Vec3};
 
     const ENCODING_WARNING: &str = "the order of the variants is the wire format: reordering \
@@ -178,6 +181,7 @@ mod tests {
                 },
                 12,
             ),
+            (ServerToClientMessage::PortalUpdates(vec![]), 13),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -283,6 +287,19 @@ mod tests {
             (WeatherKind::Thunder, 2),
         ] {
             assert_eq!(variant_index(&kind), expected, "{ENCODING_WARNING}");
+        }
+        for (color, expected) in [(PortalColor::Blue, 0), (PortalColor::Orange, 1)] {
+            assert_eq!(variant_index(&color), expected, "{ENCODING_WARNING}");
+        }
+        for (face, expected) in [
+            (FaceDirection::PlusX, 0),
+            (FaceDirection::MinusX, 1),
+            (FaceDirection::PlusY, 2),
+            (FaceDirection::MinusY, 3),
+            (FaceDirection::PlusZ, 4),
+            (FaceDirection::MinusZ, 5),
+        ] {
+            assert_eq!(variant_index(&face), expected, "{ENCODING_WARNING}");
         }
         for (removal, expected) in [
             (ItemRemoval::Gone, 0),

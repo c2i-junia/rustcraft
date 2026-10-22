@@ -182,6 +182,11 @@ pub fn update_world_from_network(
             ServerToClientMessage::LightningStrike { at, seed } => {
                 ev_strike.write(Strike { at, seed });
             }
+            ServerToClientMessage::PortalUpdates(portals) => {
+                // The server's portals win over those the client predicted; the portals drawn
+                // and the walls under them follow
+                world.blocks.portals_mut().replace(portals);
+            }
         }
     }
 }
