@@ -899,16 +899,27 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         };
-        let view = (shared::world::PORTAL_VIEW_RADIUS * shared::CHUNK_SIZE) as f32;
+        // With no player, only the chunks sent around the orange portal are held: they end 68
+        // blocks west of it (`camera::held_reach`)
         app.update();
         app.update();
         // Five blocks from the middle of the blue portal
-        assert!((end_of_blue_fog(&mut app) - (5.0 + view)).abs() < 1e-3);
+        assert!((end_of_blue_fog(&mut app) - (5.0 + 68.0)).abs() < 1e-3);
 
         // Three blocks farther
         place_player_camera(&mut app, Transform::from_xyz(1.0, 11.5, 9.0));
         app.update();
-        assert!((end_of_blue_fog(&mut app) - (8.0 + view)).abs() < 1e-3);
+        assert!((end_of_blue_fog(&mut app) - (8.0 + 68.0)).abs() < 1e-3);
+
+        // The player there, with a render distance of 8: its own chunks reach 148 blocks west
+        // of the orange portal
+        app.insert_resource(crate::world::RenderDistance { distance: 8 });
+        app.world_mut().spawn((
+            Transform::from_xyz(1.0, 10.0, 9.0),
+            crate::player::CurrentPlayerMarker {},
+        ));
+        app.update();
+        assert!((end_of_blue_fog(&mut app) - (8.0 + 148.0)).abs() < 1e-3);
     }
 
     #[test]
@@ -1090,17 +1101,17 @@ mod tests {
         // The orange portal is behind the player
         assert!(drawing(&mut app, PortalColor::Orange).is_empty());
 
-        // The fog of the second level ends the view radius behind the blue portal, as seen
-        // from the first level: 20 blocks from it
+        // The fog of the second level ends where the chunks sent around the orange portal end,
+        // 80 blocks north of it, behind the blue portal as seen from the first level: 20 blocks
+        // from it
         let world = app.world_mut();
         let end = world
             .query::<(&PortalCamera, &DistanceFog)>()
             .iter(world)
             .find(|(camera, _)| camera.color == PortalColor::Blue && camera.level == 2)
             .map(|(_, fog)| fog.falloff.clone());
-        let view = (shared::world::PORTAL_VIEW_RADIUS * shared::CHUNK_SIZE) as f32;
         match end {
-            Some(FogFalloff::Linear { end, .. }) => assert!((end - (20.0 + view)).abs() < 1e-3),
+            Some(FogFalloff::Linear { end, .. }) => assert!((end - (20.0 + 80.0)).abs() < 1e-3),
             other => panic!("{other:?}"),
         }
     }

@@ -13,8 +13,12 @@ use bevy::{
     render::render_resource::TextureFormat,
     window::PrimaryWindow,
 };
-use shared::world::{Portal, PORTAL_HEIGHT, PORTAL_VIEW_RADIUS, PORTAL_WIDTH};
+use shared::world::{
+    within_render_distance, world_position_to_chunk_position, Portal, PORTAL_HEIGHT,
+    PORTAL_VIEW_RADIUS, PORTAL_WIDTH,
+};
 use shared::CHUNK_SIZE;
+use std::f32::consts::FRAC_PI_2;
 
 use super::material::PortalMaterial;
 use super::projection::portal_projection;
@@ -23,8 +27,9 @@ use super::{
     camera_layers, DrawnPortals, OwnView, PortalCamera, PortalRecursion, PORTAL_RECURSION,
 };
 use crate::camera::{CameraController, FOG_START, SKY_COLOR};
+use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
-use crate::world::ClientWorldMap;
+use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
 
 /// An image a portal camera can draw into and a material can read, `size` in pixels. In 16-bit
 /// floats: with the physical sky of the shaders, it holds colours brighter than white, before
@@ -180,6 +185,9 @@ pub(super) fn place_portal_cameras(
         ),
         (With<PortalCamera>, Without<CameraController>),
     >,
+    player: Query<&Transform, (With<CurrentPlayerMarker>, Without<PortalCamera>)>,
+    render_distance: Option<Res<RenderDistance>>,
+    server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut started: ResMut<PortalViewsStarted>,
     mut commands: Commands,
 ) {
@@ -188,6 +196,20 @@ pub(super) fn place_portal_cameras(
     else {
         return;
     };
+    // The player's own chunks, as the server sends them (`ChunkReach`)
+    let own = player
+        .single()
+        .ok()
+        .zip(render_distance)
+        .map(|(player, render)| {
+            let distance = render
+                .distance
+                .min(server_limit.map_or(u32::MAX, |limit| limit.0));
+            (
+                world_position_to_chunk_position(player.translation),
+                distance as i32,
+            )
+        });
     let portals = shown.get(world_map.blocks.portals());
     let depth = recursion.0.clamp(1, PORTAL_RECURSION);
     let slots: Vec<usize> = drawn.0.values().map(|drawn| drawn.slot).collect();
@@ -246,13 +268,20 @@ pub(super) fn place_portal_cameras(
             } else {
                 *main_tonemapping
             });
-            // The fog depends on how far the camera is from the twin, which changes as the player
-            // moves: it is set on every frame the camera draws
+            // The fog depends on how far the camera is from the twin and on where it looks, which
+            // change as the player moves: it is set on every frame the camera draws
             let behind = above
                 .transform
                 .translation
                 .distance(portal.frame().translation.into());
-            let new_fog = main_fog.map(|main_fog| portal_fog(main_fog, behind));
+            let new_fog = main_fog.map(|main_fog| {
+                let wide = match main_projection {
+                    Projection::Perspective(perspective) => half_diagonal(perspective),
+                    _ => FRAC_PI_2,
+                };
+                let reach = held_reach(twin, *transform.forward(), wide, own);
+                portal_fog(main_fog, behind, reach)
+            });
             match (&new_fog, fog) {
                 (Some(new_fog), Some(mut fog)) => *fog = new_fog.clone(),
                 (Some(new_fog), None) => {
@@ -362,18 +391,70 @@ pub(super) fn resize_portal_images(
     }
 }
 
+/// The angle from the axis of the view of `projection` to its corners.
+pub(super) fn half_diagonal(projection: &PerspectiveProjection) -> f32 {
+    let tan = (projection.fov / 2.0).tan();
+    (tan * (1.0 + projection.aspect_ratio * projection.aspect_ratio).sqrt()).atan()
+}
+
+/// How far past the middle of `twin` the chunks the client holds reach, in blocks, as a camera
+/// looking out of it `forward`, its view `half_diagonal` wide, can see them. The client holds
+/// the chunks the server sends around the twin (`PORTAL_VIEW_RADIUS`), and, when the twin is
+/// among them, the player's own: those within its render distance of the chunk `player.0`,
+/// `player.1`. Each is a square of columns, whose reach is that of its nearest edge along x
+/// and z, as for the player's own fog (`underwater.rs`), and is the larger of the two. An edge
+/// is as far as the view can see it: its distance over the cosine of the smallest angle between
+/// the view and the way to the edge, so that a side the view can never point at counts for
+/// more, and one it cannot turn to at all, or that lies behind the twin, where nothing is
+/// drawn, not at all. Through a close twin, the reach is the player's render distance or more,
+/// and the portal camera gets the player's fog (`portal_fog`).
+pub(super) fn held_reach(
+    twin: &Portal,
+    forward: Vec3,
+    half_diagonal: f32,
+    player: Option<(IVec3, i32)>,
+) -> f32 {
+    let middle = Vec3::from(twin.frame().translation);
+    let own =
+        player.filter(|&(center, distance)| within_render_distance(twin.chunk(), center, distance));
+    [Some((twin.chunk(), PORTAL_VIEW_RADIUS)), own]
+        .into_iter()
+        .flatten()
+        .map(|(center, radius)| {
+            let low = ((center - radius) * CHUNK_SIZE).as_vec3();
+            let high = ((center + radius + 1) * CHUNK_SIZE).as_vec3();
+            [
+                (Vec3::NEG_X, middle.x - low.x),
+                (Vec3::X, high.x - middle.x),
+                (Vec3::NEG_Z, middle.z - low.z),
+                (Vec3::Z, high.z - middle.z),
+            ]
+            .into_iter()
+            .filter(|(outward, _)| outward.dot(twin.normal()) > -0.5)
+            .map(|(outward, distance)| {
+                let off = (forward.angle_between(outward) - half_diagonal).max(0.0);
+                if off < FRAC_PI_2 {
+                    distance.max(0.0) / off.cos()
+                } else {
+                    f32::INFINITY
+                }
+            })
+            .fold(f32::INFINITY, f32::min)
+        })
+        .fold(0.0, f32::max)
+}
+
 /// The fog of the camera of a portal whose player's camera, of fog `main`, stands `behind` blocks
-/// from the portal, which puts the portal camera as far from the twin: it ends
-/// `PORTAL_VIEW_RADIUS` chunks behind the twin, where the chunks sent around it end, and starts
-/// as the player's does over its render distance. Never farther than the player's: a player
-/// sees no farther through a portal than around itself, and under water the fog of the water,
-/// between the eye and the portal, stays as near.
-pub(super) fn portal_fog(main: &DistanceFog, behind: f32) -> DistanceFog {
-    let view = (PORTAL_VIEW_RADIUS * CHUNK_SIZE) as f32;
+/// from the portal, which puts the portal camera as far from the twin: it ends `reach` blocks
+/// behind the twin, where the chunks held around it end (`held_reach`), and starts as the
+/// player's does over its render distance. Never farther than the player's: a player sees no
+/// farther through a portal than around itself, and under water the fog of the water, between
+/// the eye and the portal, stays as near.
+pub(super) fn portal_fog(main: &DistanceFog, behind: f32, reach: f32) -> DistanceFog {
     let falloff = match main.falloff {
         FogFalloff::Linear { start, end } => FogFalloff::Linear {
-            start: start.min(behind + FOG_START * view),
-            end: end.min(behind + view),
+            start: start.min(behind + FOG_START * reach),
+            end: end.min(behind + reach),
         },
         ref other => other.clone(),
     };
@@ -386,6 +467,7 @@ pub(super) fn portal_fog(main: &DistanceFog, behind: f32) -> DistanceFog {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::world::{FaceDirection, PortalColor};
 
     fn linear(color: Color, start: f32, end: f32) -> DistanceFog {
         DistanceFog {
@@ -402,21 +484,107 @@ mod tests {
         (start, end)
     }
 
-    const VIEW: f32 = (PORTAL_VIEW_RADIUS * CHUNK_SIZE) as f32;
+    /// A twin on the west face of a wall at x = 20, opening onto the chunk (1, 0, 0): the
+    /// chunks sent around it reach x = -48 to the west, z = -64 and 80 to the sides.
+    fn twin() -> Portal {
+        Portal {
+            owner: 1,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(20, 10, 5),
+            face: FaceDirection::MinusX,
+            up: FaceDirection::PlusY,
+        }
+    }
+
+    /// How far the middle of the twin is from z = 144, the south edge of the player's chunks
+    /// around the chunk (0, 0, 0) with a render distance of 8.
+    fn to_the_south_edge() -> f32 {
+        144.0 - twin().frame().translation.z
+    }
+
+    /// The half-diagonal of the view of the player's camera on a 16:9 screen.
+    fn wide() -> f32 {
+        half_diagonal(&PerspectiveProjection {
+            fov: 60f32.to_radians(),
+            aspect_ratio: 16.0 / 9.0,
+            ..default()
+        })
+    }
+
+    fn assert_near(a: f32, b: f32) {
+        assert!((a - b).abs() < 1e-3, "{a} against {b}");
+    }
 
     #[test]
-    fn a_portal_cameras_fog_ends_the_view_radius_behind_the_twin() {
+    fn the_half_diagonal_of_a_view_reaches_its_corners() {
+        // tan 30° · √(1 + (16/9)²) = tan 49.66°
+        assert!((wide().to_degrees() - 49.66).abs() < 0.01, "{}", wide());
+    }
+
+    #[test]
+    fn through_a_far_twin_the_chunks_end_where_those_sent_around_it_end() {
+        let twin = twin();
+        assert_eq!(twin.chunk(), IVec3::new(1, 0, 0));
+        // Looking west out of it, the west edge of the chunks sent, 68 blocks away, comes
+        // first: the sides, some 70 and 75 blocks away, are only seen askew
+        assert_near(held_reach(&twin, Vec3::NEG_X, wide(), None), 68.0);
+        // The player is too far for its own chunks to be around the twin
+        let far = Some((IVec3::new(20, 0, 0), 8));
+        assert_near(held_reach(&twin, Vec3::NEG_X, wide(), far), 68.0);
+    }
+
+    #[test]
+    fn through_a_close_twin_the_chunks_are_the_players_own() {
+        // The player's own chunks, within its render distance of 8 of the chunk (0, 0, 0),
+        // reach x = -128 to the west, z = -128 and 144 to the sides, which the view sees no more
+        // directly than 40° off
+        let own = Some((IVec3::ZERO, 8));
+        let reach = held_reach(&twin(), Vec3::NEG_X, wide(), own);
+        assert_near(reach, 148.0);
+        // The player's fog reaches no farther: the portal camera gets it as it is
+        let main = linear(SKY_COLOR, 0.6 * 128.0, 128.0);
+        assert_eq!(
+            falloff(&portal_fog(&main, 0.05, reach)),
+            (0.6 * 128.0, 128.0)
+        );
+    }
+
+    #[test]
+    fn a_side_of_the_chunks_counts_as_much_as_the_view_can_turn_to_it() {
+        let own = Some((IVec3::ZERO, 8));
+        // Looking out of the twin 60° to the south, the wide view reaches straight south
+        let askew = Vec3::new(-0.5, 0.0, 3f32.sqrt() / 2.0);
+        assert_near(held_reach(&twin(), askew, wide(), own), to_the_south_edge());
+        // A view 10° wide sees the south no more directly than 20° off
+        let narrow = 10f32.to_radians();
+        assert_near(
+            held_reach(&twin(), askew, narrow, own),
+            to_the_south_edge() / 20f32.to_radians().cos(),
+        );
+    }
+
+    #[test]
+    fn the_edge_of_the_chunks_behind_the_twin_is_never_seen() {
+        // The player's chunks end 12 blocks behind the twin, at x = 32: a view all but along
+        // the twin could turn to that edge, but nothing behind the twin is drawn
+        let own = Some((IVec3::new(-7, 0, 0), 8));
+        let along = Vec3::new(-0.05, 0.0, 1.0).normalize();
+        assert_near(held_reach(&twin(), along, wide(), own), to_the_south_edge());
+    }
+
+    #[test]
+    fn a_portal_cameras_fog_ends_where_the_chunks_held_end_behind_the_twin() {
         let main = linear(SKY_COLOR, 0.6 * 384.0, 384.0);
-        let fog = portal_fog(&main, 5.0);
+        let fog = portal_fog(&main, 5.0, 68.0);
         assert_eq!(fog.color, SKY_COLOR);
-        assert_eq!(falloff(&fog), (5.0 + FOG_START * VIEW, 5.0 + VIEW));
+        assert_eq!(falloff(&fog), (5.0 + FOG_START * 68.0, 5.0 + 68.0));
     }
 
     #[test]
     fn under_water_or_with_a_short_render_distance_a_portal_cameras_fog_is_the_players() {
         let water = linear(Color::srgb_u8(30, 62, 130), 2.0, 16.0);
-        assert_eq!(falloff(&portal_fog(&water, 5.0)), (2.0, 16.0));
+        assert_eq!(falloff(&portal_fog(&water, 5.0, 68.0)), (2.0, 16.0));
         let short = linear(SKY_COLOR, 0.6 * 32.0, 32.0);
-        assert_eq!(falloff(&portal_fog(&short, 5.0)), (0.6 * 32.0, 32.0));
+        assert_eq!(falloff(&portal_fog(&short, 5.0, 68.0)), (0.6 * 32.0, 32.0));
     }
 }
