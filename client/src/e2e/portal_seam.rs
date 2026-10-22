@@ -428,6 +428,22 @@ fn mean_picture(pictures: &[RgbImage]) -> RgbImage {
     })
 }
 
+/// `STEADY_SHOTS` screenshots `STEADY_GAP` frames apart with the player's camera at `eye`, at
+/// `hour`, once the frame settled.
+fn steady_shots(h: &mut Harness, eye: Transform, hour: Hour) -> Vec<RgbImage> {
+    set_hour(h, hour);
+    pinned(h).eye = Some(eye);
+    h.frames(SETTLE);
+    (0..STEADY_SHOTS)
+        .map(|shot| {
+            if shot > 0 {
+                h.frames(STEADY_GAP);
+            }
+            h.screenshot()
+        })
+        .collect()
+}
+
 /// The two eyes of a crossing and the pixels measured.
 struct Crossing {
     case: String,
@@ -465,21 +481,8 @@ impl Crossing {
     /// up to 3.8 in the 64-96 class between two frames. Also records the noise of two single
     /// screenshots.
     fn measure_steady(&self, h: &mut Harness) -> Vec<Row> {
-        let shots = |h: &mut Harness, eye: Transform| {
-            set_hour(h, self.hour);
-            pinned(h).eye = Some(eye);
-            h.frames(SETTLE);
-            (0..STEADY_SHOTS)
-                .map(|shot| {
-                    if shot > 0 {
-                        h.frames(STEADY_GAP);
-                    }
-                    h.screenshot()
-                })
-                .collect::<Vec<_>>()
-        };
-        let a = shots(h, self.before);
-        let b = shots(h, self.after);
+        let a = steady_shots(h, self.before, self.hour);
+        let b = steady_shots(h, self.after, self.hour);
         record(&self.case, "noise", &b[0], &b[1], &self.pixels);
         let (a, b) = (mean_picture(&a), mean_picture(&b));
         save(&self.case, "baseline", &a, &b, true);
@@ -656,6 +659,17 @@ fn quality_name(quality: ShaderQuality) -> String {
 }
 
 fn folder(world: &str, at: Vec3, clouds: bool, with_gun: bool) -> GameFolder {
+    folder_at(world, at, clouds, with_gun, RENDER_DISTANCE)
+}
+
+/// `folder`, with the render distance `render_distance`.
+fn folder_at(
+    world: &str,
+    at: Vec3,
+    clouds: bool,
+    with_gun: bool,
+    render_distance: u32,
+) -> GameFolder {
     let folder = GameFolder::new()
         .with_world(world)
         .with_player(world, "Tester", |player| {
@@ -676,7 +690,7 @@ fn folder(world: &str, at: Vec3, clouds: bool, with_gun: bool) -> GameFolder {
         .with_file(
             crate::constants::VIDEO_SETTINGS_PATH,
             &format!(
-                "(render_distance: {RENDER_DISTANCE}, clouds: {})",
+                "(render_distance: {render_distance}, clouds: {})",
                 if clouds { "Fancy" } else { "Off" }
             ),
         );
@@ -834,26 +848,37 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
         Test::Regression => {
             crossing.case += "_regression";
             let rows = crossing.measure_steady(&mut h);
-            // With the haze, what it veils counts too: the far terrain, the sky, the screen
-            let hazed = ShaderFeatures::of(quality).god_rays.is_some();
-            for (class, _, mean, .., median) in &rows {
-                // The terrain by its median, which a shadow edge a pixel off does not move; the
-                // sky, which has none, and the whole screen, by their mean
-                let (what, value, threshold) = match class.as_str() {
-                    "32-64" | "64-96" => ("median", median, SEAMLESS),
-                    "96+" if hazed => ("median", median, SEAMLESS),
-                    "sky" if hazed => ("mean", mean, SKY_SEAMLESS),
-                    "all" if hazed => ("mean", mean, SCREEN_SEAMLESS),
-                    _ => continue,
-                };
-                assert!(
-                    *value < threshold,
-                    "{}: the {class} class differs by {value:.2} ({what}) across the portal",
-                    crossing.case
-                );
-            }
+            assert_seamless(&crossing.case, quality, &rows);
         }
     }
+}
+
+/// Checks that the measures `rows` of the crossing `case` at `quality` are within the gates:
+/// `SEAMLESS` on the median of the 32–64 and 64–96 blocks classes, and with the haze of the
+/// 96+ class, `SKY_SEAMLESS` and `SCREEN_SEAMLESS` on the mean of the sky and of all.
+fn assert_seamless(case: &str, quality: ShaderQuality, rows: &[Row]) {
+    // With the haze, what it veils counts too: the far terrain, the sky, the screen
+    let hazed = ShaderFeatures::of(quality).god_rays.is_some();
+    let mut failed = Vec::new();
+    for (class, _, mean, .., median) in rows {
+        // The terrain by its median, which a shadow edge a pixel off does not move; the sky,
+        // which has none, and the whole screen, by their mean
+        let (what, value, threshold) = match class.as_str() {
+            "32-64" | "64-96" => ("median", median, SEAMLESS),
+            "96+" if hazed => ("median", median, SEAMLESS),
+            "sky" if hazed => ("mean", mean, SKY_SEAMLESS),
+            "all" if hazed => ("mean", mean, SCREEN_SEAMLESS),
+            _ => continue,
+        };
+        if *value >= threshold {
+            failed.push(format!("the {class} class differs by {value:.2} ({what})"));
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "{case}: {} across the portal",
+        failed.join(", ")
+    );
 }
 
 /// How much the median pixel of the 32–64 and 64–96 blocks classes, and of the 96+ class with
@@ -1202,4 +1227,285 @@ far_seam! {
     seam_far_high_noon: High, Noon;
     seam_far_high_dusk: High, Dusk;
     seam_far_ultra_noon: Ultra, Noon;
+}
+
+/// A wall of stone 8 blocks south of the player, 4 wide and 5 high, its north face toward it.
+const SOUTH_WALL_MOD: &str = r#"
+    local rc = rustcraft
+    rc.register_command("southwall", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        for x = -2, 1 do
+            for y = -1, 3 do
+                rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + 8 }, "stone")
+            end
+        end
+        return "Wall built"
+    end)
+"#;
+
+/// How far south of the blue portal the player goes before coming back to it, in blocks: past
+/// the approach of the portal and the margin the client keeps its chunks in.
+const AWAY: f32 = 96.0;
+
+/// How long the chunks around the twin are waited for, once at the portal.
+const AREA_WAIT: Duration = Duration::from_secs(180);
+
+/// Turns the player's camera to `yaw`, level: 0 looks north (-z).
+fn look(h: &mut Harness, yaw: f32) {
+    let world = h.world_mut();
+    let mut controller = world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap();
+    controller.angle_x = yaw;
+    controller.angle_y = 0.0;
+}
+
+/// Where the player's eyes are.
+fn eyes(h: &mut Harness) -> Vec3 {
+    let world = h.world_mut();
+    world
+        .query_filtered::<&Transform, With<CameraController>>()
+        .single(world)
+        .unwrap()
+        .translation
+}
+
+/// Whether the player flies, its terrain loaded.
+fn in_the_air(w: &World) -> bool {
+    local_player(w).is_some_and(|player| {
+        let map = &w.resource::<ClientWorldMap>().blocks;
+        player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
+    })
+}
+
+/// Holds `key` until `done`, within `frames` frames.
+fn fly_until(h: &mut Harness, key: KeyCode, what: &str, done: impl Fn(Vec3) -> bool) {
+    h.key_down(key);
+    let mut frames = 0;
+    while !local_player(h.world()).is_some_and(|player| done(player.position)) {
+        h.frames(1);
+        frames += 1;
+        assert!(
+            frames < 3000,
+            "never reached {what}: {:?}",
+            local_player(h.world()).map(|p| p.position)
+        );
+    }
+    h.key_up(key);
+}
+
+/// How many of the chunks within the render distance `distance` of the chunk `twin` the client
+/// holds, and how many there are.
+fn held_around(w: &World, twin: IVec3, distance: i32) -> (usize, usize) {
+    let map = &w.resource::<ClientWorldMap>().blocks;
+    let offsets = shared::world::render_distance_offsets(distance);
+    let held = offsets
+        .iter()
+        .filter(|offset| map.is_chunk_loaded(twin + **offset))
+        .count();
+    (held, offsets.len())
+}
+
+/// Two portals of the gun in the air, `apart` chunks from each other along z: the orange one on
+/// the north face of a wall, facing north, the blue one south of it on the south face of a
+/// wall, facing south, a translation from one to the other. Through the blue one the player
+/// looks north out of the orange one, away from both. The player places them, goes `AWAY`
+/// blocks south of the blue one, comes back to it and waits for the chunks around the orange
+/// one; the picture through the portal is taken from an eye just in front of it, then the
+/// player flies through for real and the picture straight is taken from the same eye carried
+/// through. How long the chunks took to come, and how many, goes into `approach.tsv`. With
+/// `gated`, the seam must be within the gates of the close twins (`assert_seamless`).
+fn approach_seam(
+    quality: ShaderQuality,
+    hour: Hour,
+    apart: i32,
+    render_distance: u32,
+    gated: bool,
+) {
+    let start = Vec3::new(-60.5, 110.9, 0.5);
+    let folder = folder_at("Approach", start, false, true, render_distance)
+        .with_mod("southwall", SOUTH_WALL_MOD);
+    let mut h = enter_world_with(folder, "Approach", options());
+    install(&mut h);
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player in the air", SERVER, in_the_air);
+    let place = |h: &mut Harness, south: bool, button: MouseButton, color: PortalColor| {
+        let here = local_player(h.world()).unwrap().position.floor().as_ivec3();
+        let y = eyes(h).y.floor() as i32;
+        let (command, wall, face) = if south {
+            (
+                "/southwall",
+                IVec3::new(here.x, y, here.z + 8),
+                Vec3::new(0.5, 0.5, 0.0),
+            )
+        } else {
+            (
+                "/wall",
+                IVec3::new(here.x, y, here.z - 8),
+                Vec3::new(0.5, 0.5, 1.0),
+            )
+        };
+        h.command(command);
+        h.wait_until("the wall", SERVER, |w| {
+            w.resource::<ClientWorldMap>()
+                .blocks
+                .get_block(wall)
+                .is_some()
+        });
+        h.aim_at(wall.as_vec3() + face, wall);
+        hold_click(h, &L::marker::<Hotbar>(), button, 3);
+        h.wait_until("the portal", SERVER, |w| own_portal(w, color).is_some());
+    };
+    place(&mut h, true, MouseButton::Right, PortalColor::Orange);
+    look(&mut h, 0.0);
+    let z0 = local_player(h.world()).unwrap().position.z;
+    let flight = (apart * 16 + 16) as f32;
+    fly_until(&mut h, KeyCode::KeyS, "the place of the blue portal", |p| {
+        p.z > z0 + flight
+    });
+    h.frames(20);
+    h.wait_until("the player in the air", SERVER, in_the_air);
+    place(&mut h, false, MouseButton::Left, PortalColor::Blue);
+    let blue = own_portal(h.world(), PortalColor::Blue).unwrap();
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    let through = h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .portals()
+        .through(&blue)
+        .unwrap();
+    assert!(through.transform_vector3(Vec3::X).distance(Vec3::X) < 1e-4);
+    println!("blue {blue:?}, orange {orange:?}");
+    let case = format!(
+        "{}_{}_{}_rd{render_distance}",
+        if apart > 12 { "far" } else { "mid" },
+        quality_name(quality),
+        format!("{hour:?}").to_lowercase()
+    );
+    let distance = render_distance as i32;
+
+    // Away, then back to the portal
+    look(&mut h, 0.0);
+    let plane = blue.frame().translation.z;
+    fly_until(&mut h, KeyCode::KeyS, "away from the blue portal", |p| {
+        p.z > plane + AWAY
+    });
+    h.frames(30);
+    let away = held_around(h.world(), orange.chunk(), distance);
+    let back = std::time::Instant::now();
+    fly_until(&mut h, KeyCode::KeyW, "the blue portal", |p| {
+        p.z < plane + 3.0
+    });
+    let flight_back = back.elapsed().as_secs_f32();
+    let at_portal = held_around(h.world(), orange.chunk(), distance);
+    let mut waited = None;
+    while back.elapsed() < flight_back_limit(flight_back) {
+        let (held, all) = held_around(h.world(), orange.chunk(), distance);
+        if held == all {
+            waited = Some(back.elapsed().as_secs_f32());
+            break;
+        }
+        h.frames(1);
+    }
+    let then = held_around(h.world(), orange.chunk(), distance);
+    let line = format!(
+        "{case}\t{apart} chunks apart\taway {}/{}\tat the portal after {flight_back:.1} s {}/{}\t\
+         all held after {}\t{}/{}\n",
+        away.0,
+        away.1,
+        at_portal.0,
+        at_portal.1,
+        waited.map_or("never".to_string(), |s| format!("{s:.1} s")),
+        then.0,
+        then.1,
+    );
+    print!("{line}");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out_dir().join("approach.tsv"))
+        .unwrap()
+        .write_all(line.as_bytes())
+        .unwrap();
+    h.frames(60);
+    set_quality(&mut h, quality);
+
+    let pitch = -25f32.to_radians();
+    let before = eye_in_front(&blue, CROSSING, pitch);
+    let after = carried(through, &eye_in_front(&blue, -CROSSING, pitch));
+    let a = steady_shots(&mut h, before, hour);
+    describe_cameras(&mut h);
+
+    // Through, for real
+    pinned(&mut h).eye = None;
+    let player = local_player(h.world()).unwrap().position;
+    let target = Vec3::from(blue.frame().translation);
+    look(
+        &mut h,
+        (-(target.x - player.x)).atan2(-(target.z - player.z)),
+    );
+    h.frames(5);
+    let exit = Vec3::from(orange.frame().translation);
+    fly_until(&mut h, KeyCode::KeyW, "the orange portal", |p| {
+        p.distance(exit) < 12.0
+    });
+    pinned(&mut h).eye = Some(after);
+    set_hour(&mut h, hour);
+    let first = h.screenshot();
+    let b = steady_shots(&mut h, after, hour);
+    let pixels = sample_pixels(&h, &after, Some((&before, &blue)));
+    class_image(&pixels)
+        .save(out_dir().join(format!("{case}_classes.png")))
+        .unwrap();
+    record(&case, "noise", &b[0], &b[1], &pixels);
+    let (a, b) = (mean_picture(&a), mean_picture(&b));
+    save(&case, "baseline", &a, &b, true);
+    save(&case, "first_frame", &a, &first, false);
+    record(&case, "popin_0", &first, &b, &pixels);
+    let rows = record(&case, "baseline", &a, &b, &pixels);
+    if gated {
+        assert_seamless(&case, quality, &rows);
+    }
+}
+
+/// How long to wait for the chunks around the twin from the start of the flight back to the
+/// portal, which took `flight_back` seconds.
+fn flight_back_limit(flight_back: f32) -> Duration {
+    Duration::from_secs_f32(flight_back) + AREA_WAIT
+}
+
+macro_rules! approach_seam_regression {
+    ($($name:ident: $quality:ident, $hour:ident, $apart:expr;)*) => {$(
+        #[test]
+        #[ignore = "a regression test of minutes on lavapipe: run it by hand with --ignored"]
+        fn $name() {
+            approach_seam(
+                ShaderQuality::$quality,
+                Hour::$hour,
+                $apart,
+                RENDER_DISTANCE,
+                true,
+            );
+        }
+    )*};
+}
+
+// Through a twin 6 chunks away, the common case, and 21 chunks away, beyond the render
+// distance: once the player came to the portal, crossing is as seamless as through a close twin
+approach_seam_regression! {
+    seam_mid_off_noon_is_seamless: Off, Noon, 6;
+    seam_mid_high_noon_is_seamless: High, Noon, 6;
+    seam_far_off_noon_is_seamless: Off, Noon, 21;
+    seam_far_high_noon_is_seamless: High, Noon, 21;
+}
+
+/// How long the chunks around a far twin take to come at a render distance of 12, measured.
+#[test]
+#[ignore = "a measure of minutes on lavapipe: run it by hand with --ignored"]
+fn seam_far_off_noon_rd12() {
+    approach_seam(ShaderQuality::Off, Hour::Noon, 21, 12, false);
 }
