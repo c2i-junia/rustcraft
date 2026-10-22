@@ -1,10 +1,12 @@
 //! The seam of a crossing, for its diagnosis (`.superpowers/sdd/portals/seam-diagnosis.md`): the
 //! view through a portal from an eye just in front of it, against the view straight from the
 //! same eye carried through the portal (`Portals::through`), as the player sees them on the last
-//! frame before it walks through and on the first after. These are measures, not checks: each
-//! test saves its pictures, their differences and its measures into
-//! `.superpowers/sdd/portals/seam-screens/`, and is ignored. Run them with
-//! `cargo test -p client e2e::portal_seam -- --ignored --test-threads=3`.
+//! frame before it walks through and on the first after. Most are measures, not checks; the
+//! `*_is_seamless` tests also check that a close twin is crossed without a seam at the levels
+//! without haze or SSAO. Each test saves its pictures, their differences and its measures into
+//! `.superpowers/sdd/portals/seam-screens/`, and is ignored: each takes minutes. Run them, two
+//! at most at once (with three, a server timed out), with
+//! `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored --test-threads=2`.
 //!
 //! The player's camera is pinned to the eye measured (`Pinned`), so that both pictures are taken
 //! from exactly the same place, and some suspects of the seam can be turned off, one by one, to
@@ -44,8 +46,9 @@ use std::time::Duration;
 
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 540;
-/// The player's render distance: its fog ends 128 blocks away, that of a portal camera 64 blocks
-/// behind the twin (`portal_fog`).
+/// The player's render distance: its fog ends 128 blocks away, and so does that of a portal
+/// camera through a close twin; through a far one, it ends where the chunks sent around the
+/// twin end (`held_reach`).
 const RENDER_DISTANCE: u32 = 8;
 /// How far in front of the portal the eye is, on either side of the crossing.
 const CROSSING: f32 = 0.05;
@@ -341,14 +344,14 @@ fn class_image(pixels: &[(u32, u32, usize)]) -> GrayImage {
     image
 }
 
-/// Writes the measures of `a` against `b` into `results.tsv`, and prints them.
+/// Writes the measures of `a` against `b` into `results.tsv`, prints them and returns them.
 fn record(
     case: &str,
     variant: &str,
     a: &RgbImage,
     b: &RgbImage,
     pixels: &[(u32, u32, usize)],
-) -> f32 {
+) -> Vec<(String, usize, f32, f32, f32, f32)> {
     let rows = measure(a, b, pixels);
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -363,7 +366,7 @@ fn record(
     }
     file.write_all(text.as_bytes()).unwrap();
     print!("{text}");
-    rows.last().unwrap().2
+    rows
 }
 
 fn save(case: &str, variant: &str, a: &RgbImage, b: &RgbImage, pictures: bool) {
@@ -391,8 +394,13 @@ struct Crossing {
 
 impl Crossing {
     /// Measures the picture before against the picture after, as `variant`, and how much two
-    /// pictures from the same eye differ (the noise) for the baseline.
-    fn measure(&self, h: &mut Harness, variant: &str, pictures: bool) -> f32 {
+    /// pictures from the same eye differ (the noise) for the baseline, and returns the measures.
+    fn measure(
+        &self,
+        h: &mut Harness,
+        variant: &str,
+        pictures: bool,
+    ) -> Vec<(String, usize, f32, f32, f32, f32)> {
         set_hour(h, self.hour);
         let a = shot_at(h, self.before, SETTLE);
         if variant == "baseline" {
@@ -744,8 +752,27 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
             crossing.case += "_late_portals";
             crossing.measure(&mut h, "baseline", true);
         }
+        Test::Regression => {
+            crossing.case += "_regression";
+            let rows = crossing.measure(&mut h, "baseline", true);
+            for (class, _, mean, ..) in &rows {
+                if ["32-64", "64-96"].contains(&class.as_str()) {
+                    assert!(
+                        *mean < SEAMLESS,
+                        "{}: the {class} class differs by {mean:.2} across the portal",
+                        crossing.case
+                    );
+                }
+            }
+        }
     }
 }
+
+/// How much, on average, the 32–64 and 64–96 blocks classes may differ across a crossing (out of
+/// 255, `measure`) at Off, Low and Medium, which draw neither the god-ray haze nor SSAO. With
+/// the portal camera's fog shortened to 64 blocks they differed by 16 to 70; with the player's
+/// fog, by 2 to 4: the parallax of the step and the noise of the frame (lot 9 report).
+const SEAMLESS: f32 = 6.0;
 
 /// What a test of the seam measures.
 #[derive(Clone, Copy, PartialEq)]
@@ -758,6 +785,8 @@ enum Test {
     Together,
     /// The seam, the portals opened after the shaders were turned on.
     LatePortals,
+    /// The seam, which must stay under `SEAMLESS` from 32 to 96 blocks.
+    Regression,
 }
 
 macro_rules! close_seam {
@@ -790,6 +819,23 @@ close_seam! {
     seam_close_high_dusk_together: High, Dusk, Together, false;
     seam_close_high_noon_clouds: High, Noon, Baseline, true;
     seam_close_high_noon_late_portals: High, Noon, LatePortals, false;
+}
+
+macro_rules! close_seam_regression {
+    ($($name:ident: $quality:ident;)*) => {$(
+        #[test]
+        #[ignore = "a regression test of 2.5 minutes on lavapipe: run it by hand with --ignored"]
+        fn $name() {
+            close_seam(ShaderQuality::$quality, Hour::Noon, Test::Regression, false);
+        }
+    )*};
+}
+
+// Through a close twin, crossing is seamless at the levels without haze or SSAO
+close_seam_regression! {
+    seam_close_off_noon_is_seamless: Off;
+    seam_close_low_noon_is_seamless: Low;
+    seam_close_medium_noon_is_seamless: Medium;
 }
 
 /// How far south the player flies from the orange portal to place the blue one: 16 chunks, beyond
