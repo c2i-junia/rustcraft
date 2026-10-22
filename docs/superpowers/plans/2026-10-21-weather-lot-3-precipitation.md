@@ -76,48 +76,48 @@ its "Decisions" (8, 9, 10, 15, and 23 to 37 of lot 2).
 ## Tasks
 
 ### Task 1: The level of the drops and the wind (`weather.rs`, `overcast.rs`, `sky.wgsl`)
-- [ ] Tests: `precipitation()` is 0 up to a rain of 0.25, 1 at 1, rising gently; the wind
+- [x] Tests: `precipitation()` is 0 up to a rain of 0.25, 1 at 1, rising gently; the wind
   blows along +X like the clouds, stronger in a storm; `WeatherShading` holds the drops'
   level, the storm, a flash of 0 and the wind, and is the same as before in clear weather but
   for them. See them fail.
-- [ ] The functions and fields, `Weather` in WGSL in a module of its own that both `sky.wgsl`
+- [x] The functions and fields, `Weather` in WGSL in a module of its own that both `sky.wgsl`
   and the precipitation import. Commit `feat(client): the level of the drops and the wind`.
 
 ### Task 2: The kind of each column (`climate.rs`)
-- [ ] Tests: snow in the ice plains, none in deserts and savannas, rain elsewhere (oceans,
+- [x] Tests: snow in the ice plains, none in deserts and savannas, rain elsewhere (oceans,
   forests, mountains); the climate texels carry the kind of their own column, unblended. See
   them fail.
-- [ ] `PrecipitationKind`, `precipitation_kind(biome)`, the blue channel. Commit
+- [x] `PrecipitationKind`, `precipitation_kind(biome)`, the blue channel. Commit
   `feat(client): the climate map tells rain from snow`.
 
 ### Task 3: The occlusion map (`precipitation/occlusion.rs`)
-- [ ] Tests: the stop height of a column (air below a roof, leaves, glass, water at its
+- [x] Tests: the stop height of a column (air below a roof, leaves, glass, water at its
   surface, grass and flowers let it through, an empty column, a column not loaded); the texel
   of a column, wrapped, west and north of the origin too; the window of chunk columns around
   the camera; a chunk that comes, a block placed or broken, a camera that crosses a chunk
   rewrite only what they change, and the image only then. See them fail.
-- [ ] `OcclusionMap`, `stop_height`, the system. Commit `feat(client): the height that stops
+- [x] `OcclusionMap`, `stop_height`, the system. Commit `feat(client): the height that stops
   the rain around the camera`.
 
 ### Task 4: The pass of the drops (`precipitation/mod.rs`, `render.rs`, `precipitation.wgsl`)
-- [ ] Tests: the counts by preset, Off 2 500 to Ultra 8 000, more for each quality; what is
+- [x] Tests: the counts by preset, Off 2 500 to Ultra 8 000, more for each quality; what is
   extracted for the GPU: the handles, the counts, the drops' level, hidden under water and
   with no rain. See them fail.
-- [ ] The extraction, the pipeline, the bind group and the draw after the TAA; the camera's
+- [x] The extraction, the pipeline, the bind group and the draw after the TAA; the camera's
   depth readable. Rain first. Commit `feat(client): rain falls around the camera`.
-- [ ] Snow. Commit `feat(client): snow drifts down in the cold`.
-- [ ] Splashes. Commit `feat(client): the rain splashes on the ground`.
+- [x] Snow. Commit `feat(client): snow drifts down in the cold`.
+- [x] Splashes. Commit `feat(client): the rain splashes on the ground`.
 
 ### Task 5: Ripples (`chunk.wgsl`)
-- [ ] Rings in `water_normal` as above. Commit `feat(client): the rain rings the water`.
+- [x] Rings in `water_normal` as above. Commit `feat(client): the rain rings the water`.
 
 ### Task 6: Pictures (`e2e/weather.rs`)
-- [ ] Noon rain looking at the lake, noon thunder, a close-up of the splashes, the snow plain
+- [x] Noon rain looking at the lake, noon thunder, a close-up of the splashes, the snow plain
   of seed 147 while it snows, under a roof looking out, midnight rain, rain in Off, rain in
   Ultra. Commit `test(client): pictures of the rain and the snow`.
-- [ ] Look at every picture (several frames for the TAA), boards side by side, tune until
+- [x] Look at every picture (several frames for the TAA), boards side by side, tune until
   beautiful; commit each tuning. Measure the frame on lavapipe with and without rain.
 
 ### Task 7: Closing
-- [ ] Decisions appended to the spec; `just check`; commit `docs: the precipitation of the
+- [x] Decisions appended to the spec; `just check`; commit `docs: the precipitation of the
   weather (lot 3)`.

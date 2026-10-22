@@ -55,54 +55,54 @@ still. To see: `/weather rain`, `/weather thunder`, `/weather clear`, 20 s each 
 ## Tasks
 
 ### Task 1: The overcast level and its curves (`weather.rs`, `overcast.rs`)
-- [ ] Tests: `overcast()`/`storm()` follow `smoothstep(0, 0.5, ..)`; at 0 every curve is the
+- [x] Tests: `overcast()`/`storm()` follow `smoothstep(0, 0.5, ..)`; at 0 every curve is the
   clear value (sun 1, EV shift 0, fog (0.6, 1.0), saturation 1.12, visibility 1); rain gives
   sun 0.25, EV −1.3, fog (0.3, 0.75); storm 0.12, −2, (0.15, 0.6); the fog end never under
   48 blocks nor past the render distance, the start never past the end; the overcast colours
   are grey (no channel far from the others), lighter at the horizon, brighter by day than at
   dusk, darker in a storm, continuous over the day. See them fail.
-- [ ] The functions. See them pass. Commit `feat(client): the overcast level and its curves`.
+- [x] The functions. See them pass. Commit `feat(client): the overcast level and its curves`.
 
 ### Task 2: The clouds thicken (`clouds/`)
-- [ ] Tests: the measured thresholds give 45 %, 80 % and 92 % of the cells (±3 %); the
+- [x] Tests: the measured thresholds give 45 %, 80 % and 92 % of the cells (±3 %); the
   threshold follows the overcast and storm levels; `quads` takes clamped densities: a face
   shows at a threshold when exactly one of its cells is above it (checked against `is_full`
   at the clear threshold: same faces, merged as before); every cell of the storm coverage has
   its faces; the mesh carries the densities; Fast style likewise; the rain tint is a
   blue-grey darker in a storm, still lit by the hour; opacity 0.8 → 0.95. See them fail.
-- [ ] `field::density` public with `CLEAR/RAIN/STORM_THRESHOLD`, `cloud_threshold`, the
+- [x] `field::density` public with `CLEAR/RAIN/STORM_THRESHOLD`, `cloud_threshold`, the
   attribute and the shader collapse, `CloudParams { threshold, .. }`, tint and opacity from
   `ClientWeather`. See them pass. Commit `feat(client): the clouds thicken in rain`.
 
 ### Task 3: The overcast sky (`materials.rs`, `sky.wgsl`, `chunk.wgsl`, `horizon.wgsl`, dome)
-- [ ] Tests: the weather buffer is made with the materials and bound to both chunk
+- [x] Tests: the weather buffer is made with the materials and bound to both chunk
   materials; the system writes the levels and colours into it only when they change, and the
   handle stays the same; the dome follows the camera with the physical sky only, and goes in
   the Off preset. See them fail.
-- [ ] `WeatherShading`, the buffer, binding 107, `sky_radiance` blended, the Off water
+- [x] `WeatherShading`, the buffer, binding 107, `sky_radiance` blended, the Off water
   reflection blended, the dome material and shader. See them pass. Commit `feat(client): an
   overcast sky hides the blue`.
 
 ### Task 4: The light of a rainy day (`shaders.rs`, `celestial.rs`, `graphics.rs`)
-- [ ] Tests: in rain the sun's illuminance, the exposure, the ambient, the environment light
+- [x] Tests: in rain the sun's illuminance, the exposure, the ambient, the environment light
   and the saturation follow the curves (system tests, with and without the physical sky);
   the sun, the moon and the stars fade out by 0.8; clear weather leaves them as before. See
   them fail.
-- [ ] The systems. See them pass. Commit `feat(client): rain dims the sun and greys the
+- [x] The systems. See them pass. Commit `feat(client): rain dims the sun and greys the
   light`.
 
 ### Task 5: The fog closes in (`underwater.rs`, clouds' fade)
-- [ ] Tests: the fog's start and end follow the weather, the floor at 48 blocks, the
+- [x] Tests: the fog's start and end follow the weather, the floor at 48 blocks, the
   underwater fog unchanged; in Off the fog and clear colour turn grey; the clouds' fade
   follows. See them fail.
-- [ ] The systems. See them pass. Commit `feat(client): the fog closes in under rain`.
+- [x] The systems. See them pass. Commit `feat(client): the fog closes in under rain`.
 
 ### Task 6: Pictures (`e2e/weather.rs`)
-- [ ] `snapshot_the_weather`: a landscape with water at noon clear / rain / thunder from the
+- [x] `snapshot_the_weather`: a landscape with water at noon clear / rain / thunder from the
   ground, looking ahead and up; sunset and midnight in rain; mid-transition (overcast 0.5);
   rain in the Off preset. Commit `test(client): pictures of the weather`.
-- [ ] Look at every picture, tune colours, levels and fog until beautiful; commit each
+- [x] Look at every picture, tune colours, levels and fog until beautiful; commit each
   tuning as `feat(client): ...` or `fix(client): ...`.
 
 ### Task 7: Closing
-- [ ] Spec decisions appended; `just check`; commit `docs: the sky of the weather (lot 2)`.
+- [x] Spec decisions appended; `just check`; commit `docs: the sky of the weather (lot 2)`.

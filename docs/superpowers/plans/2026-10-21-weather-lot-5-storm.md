@@ -72,48 +72,48 @@ sound", and its "Decisions" (7, 13 and 14 above all, 23, 38, 52 and 58, up to 60
 ## Tasks
 
 ### Task 1: The Weather channel (`audio/settings.rs`)
-- [ ] Tests: the channel is scaled by the master volume, set and clamped, and an old file
+- [x] Tests: the channel is scaled by the master volume, set and clamped, and an old file
   loads it at full volume. See them fail.
-- [ ] `Channel::Weather`, `AudioSettings::weather`; regenerate `menu_audio.png`. Commit
+- [x] `Channel::Weather`, `AudioSettings::weather`; regenerate `menu_audio.png`. Commit
   `feat(client): a volume for the weather`.
 
 ### Task 2: The sounds of the weather (`scripts/generate_sounds.py`, `audio/sounds.rs`)
-- [ ] Rain loops, cracks and rumbles synthesised; spectrograms and seams checked; only the new
+- [x] Rain loops, cracks and rumbles synthesised; spectrograms and seams checked; only the new
   files written.
-- [ ] Tests: every file of the new sounds exists; they play on the Weather channel. Commit
+- [x] Tests: every file of the new sounds exists; they play on the Weather channel. Commit
   `feat(client): the sounds of the rain and the thunder`.
 
 ### Task 3: The bolt and its strokes (`world/lightning/bolt.rs`, `mod.rs`)
-- [ ] Tests: the same seed gives the same bolt, another seed another; the main channel goes from
+- [x] Tests: the same seed gives the same bolt, another seed another; the main channel goes from
   the cloud base to the top of the struck block, never far sideways; branches leave the main
   channel and go down, thinner and dimmer; the strokes: none before or after, two or three
   peaks, the first at 1; a strike far off has no bolt and a weaker flash. See them fail.
-- [ ] The bolt, the strokes, `Lightning`, the message from the network. Commit
+- [x] The bolt, the strokes, `Lightning`, the message from the network. Commit
   `feat(client): lightning strikes from the clouds`.
 
 ### Task 4: The flash (`overcast.rs`, `sky.wgsl`, `clouds.wgsl`, `chunk.wgsl`, `shaders.rs`)
-- [ ] Tests: the shaders are told the flash and the strike; the ambient light and the exposure
+- [x] Tests: the shaders are told the flash and the strike; the ambient light and the exposure
   jump with it; the colour behind the world brightens without the shaders. See them fail.
-- [ ] The flash everywhere. Commit `feat(client): the flash lights the world, the sky and the
+- [x] The flash everywhere. Commit `feat(client): the flash lights the world, the sky and the
   clouds`.
 
 ### Task 5: The bolt drawn (`lightning/render.rs`, `lightning.wgsl`)
-- [ ] Tests: the points sent to the pass, their segments and vertices. Commit
+- [x] Tests: the points sent to the pass, their segments and vertices. Commit
   `feat(client): the bolt is drawn, blinding`.
 
 ### Task 6: Thunder, rain and wind (`audio/weather.rs`)
-- [ ] Tests: delay by distance, crack or rumble, volume falling with distance; how open the
+- [x] Tests: delay by distance, crack or rumble, volume falling with distance; how open the
   player stands (open field, closed room, under a pavilion, by a wall, in a cave); the
   crossfade and the volumes; underwater. See them fail.
-- [ ] The systems. Commit `feat(client): the thunder rolls after the flash and the rain is
+- [x] The systems. Commit `feat(client): the thunder rolls after the flash and the rain is
   heard`.
 
 ### Task 7: Pictures (`e2e/weather.rs`)
-- [ ] A bolt 40–60 blocks off at its brightest stroke in High, Ultra and Off; a far strike; a
+- [x] A bolt 40–60 blocks off at its brightest stroke in High, Ultra and Off; a far strike; a
   strike over the lake with the wet ground; a bolt at night. Commit
   `test(client): pictures of the lightning`.
-- [ ] Look at every picture, boards, tune until beautiful; commit each tuning.
+- [x] Look at every picture, boards, tune until beautiful; commit each tuning.
 
 ### Task 8: Closing
-- [ ] Decisions appended to the spec; `just check`; commit `docs: the thunderstorms and the
+- [x] Decisions appended to the spec; `just check`; commit `docs: the thunderstorms and the
   sound of the weather (lot 5)`.

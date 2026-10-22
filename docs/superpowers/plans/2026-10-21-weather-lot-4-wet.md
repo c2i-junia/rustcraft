@@ -64,40 +64,40 @@ its "Decisions" (12, 16, 17 and 23 above all, and those of lots 2 and 3 up to 52
 ## Tasks
 
 ### Task 1: The wetness (`weather.rs`)
-- [ ] Tests: it rises to 1 in 40 s of full rain and dries in 2 min; light rain soaks slower;
+- [x] Tests: it rises to 1 in 40 s of full rain and dries in 2 min; light rain soaks slower;
   settled in rain is soaked, in clear dry; a rain caught part way keeps its wetness. See them
   fail.
-- [ ] `wetness`, moved in `advance`. Commit `feat(client): the ground soaks in rain and dries
+- [x] `wetness`, moved in `advance`. Commit `feat(client): the ground soaks in rain and dries
   after`.
 
 ### Task 2: The wetness reaches the shaders in High and Ultra (`shaders.rs`, `overcast.rs`)
-- [ ] Tests: `ShaderFeatures::wet` in High and Ultra only; `WeatherShading::wetness` is the
+- [x] Tests: `ShaderFeatures::wet` in High and Ultra only; `WeatherShading::wetness` is the
   wetness in those, 0 in the others; the buffer the system writes holds it. See them fail.
-- [ ] The field, in Rust and WGSL. Commit `feat(client): the shaders are told how wet the
+- [x] The field, in Rust and WGSL. Commit `feat(client): the shaders are told how wet the
   world is`.
 
 ### Task 3: The surfaces and the occlusion map for the chunks (`materials.rs`)
-- [ ] Tests: the kind of surface of each base texture (stone hard, grass soil, sand porous,
+- [x] Tests: the kind of surface of each base texture (stone hard, grass soil, sand porous,
   leaves foliage, glass dry, an unknown texture hard); its bits in the table, the fading bit
   kept; the chunk materials bind the occlusion map. See them fail.
-- [ ] `WetSurface`, the table, binding 108. Commit `feat(client): the chunks know what gets
+- [x] `WetSurface`, the table, binding 108. Commit `feat(client): the chunks know what gets
   wet`.
 
 ### Task 4: Wet surfaces (`chunk.wgsl`)
-- [ ] Exposure (climate, occlusion, faces), darkening, sheen. Commit `feat(client): rain
+- [x] Exposure (climate, occlusion, faces), darkening, sheen. Commit `feat(client): rain
   darkens and soaks the ground`.
 
 ### Task 5: Puddles (`chunk.wgsl`)
-- [ ] Noise, mask, mirror, ripples, flash. Commit `feat(client): puddles gather in the rain`.
+- [x] Noise, mask, mirror, ripples, flash. Commit `feat(client): puddles gather in the rain`.
 
 ### Task 6: Pictures (`e2e/weather.rs`)
-- [ ] A terrace of stone, cobblestone, gravel, a dirt path and planks among the grass by the
+- [x] A terrace of stone, cobblestone, gravel, a dirt path and planks among the grass by the
   lake: noon rain, soaked (High, Ultra, Medium), half dried under a clearing sky, under a
   roof, sunset after rain, a close-up of a puddle with rings. Commit `test(client): pictures
   of the wet world`.
-- [ ] Look at every picture, boards dry against wet, tune until beautiful; commit each tuning.
+- [x] Look at every picture, boards dry against wet, tune until beautiful; commit each tuning.
   Check that the clear pictures and Medium are unchanged.
 
 ### Task 7: Closing
-- [ ] Decisions appended to the spec; `just check`; commit `docs: the wet world of the weather
+- [x] Decisions appended to the spec; `just check`; commit `docs: the wet world of the weather
   (lot 4)`.
