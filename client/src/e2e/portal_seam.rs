@@ -2,8 +2,8 @@
 //! view through a portal from an eye just in front of it, against the view straight from the
 //! same eye carried through the portal (`Portals::through`), as the player sees them on the last
 //! frame before it walks through and on the first after. Most are measures, not checks; the
-//! `*_is_seamless` tests also check that a close twin is crossed without a seam at the levels
-//! without haze or SSAO. Each test saves its pictures, their differences and its measures into
+//! `*_is_seamless` tests also check that a close twin is crossed without a seam, at noon at every
+//! level and at dusk at High. Each test saves its pictures, their differences and its measures into
 //! `.superpowers/sdd/portals/seam-screens/`, and is ignored: each takes minutes. Run them, two
 //! at most at once (with three, a server timed out), with
 //! `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored --test-threads=2`.
@@ -40,6 +40,7 @@ use crate::portal::PortalCamera;
 use crate::state::GameSet;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::sun_height;
+use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
 use std::time::Duration;
@@ -536,6 +537,17 @@ fn remove_from_main<T: Component>(h: &mut Harness) {
     world.entity_mut(main).remove::<T>();
 }
 
+fn remove_from_portals<T: Component>(h: &mut Harness) {
+    let world = h.world_mut();
+    let cameras: Vec<Entity> = world
+        .query_filtered::<Entity, With<PortalCamera>>()
+        .iter(world)
+        .collect();
+    for camera in cameras {
+        world.entity_mut(camera).remove::<T>();
+    }
+}
+
 fn remove_from_all<T: Component>(h: &mut Harness) {
     let world = h.world_mut();
     let cameras: Vec<Entity> = world
@@ -741,13 +753,18 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
     match test {
         Test::Baseline => {
             crossing.measure(&mut h, "baseline", true);
-            if hour == Hour::Noon && !clouds {
+            if !clouds {
                 set_hour(&mut h, hour);
                 walk(&mut h, &crossing.case, &blue, through, pitch);
             }
         }
         Test::Alone => crossing.toggles_alone(&mut h, quality),
         Test::Together => crossing.toggles_together(&mut h, quality),
+        Test::PortalSsao => {
+            crossing.measure(&mut h, "baseline", true);
+            remove_from_portals::<ScreenSpaceAmbientOcclusion>(&mut h);
+            crossing.measure(&mut h, "portal_no_ssao", true);
+        }
         Test::LatePortals => {
             crossing.case += "_late_portals";
             crossing.measure(&mut h, "baseline", true);
@@ -755,14 +772,21 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
         Test::Regression => {
             crossing.case += "_regression";
             let rows = crossing.measure(&mut h, "baseline", true);
+            // With the haze, what it veils counts too: the far terrain, the sky, the screen
+            let hazed = ShaderFeatures::of(quality).god_rays.is_some();
             for (class, _, mean, ..) in &rows {
-                if ["32-64", "64-96"].contains(&class.as_str()) {
-                    assert!(
-                        *mean < SEAMLESS,
-                        "{}: the {class} class differs by {mean:.2} across the portal",
-                        crossing.case
-                    );
-                }
+                let threshold = match class.as_str() {
+                    "32-64" | "64-96" => SEAMLESS,
+                    "96+" if hazed => SEAMLESS,
+                    "sky" if hazed => SKY_SEAMLESS,
+                    "all" if hazed => SCREEN_SEAMLESS,
+                    _ => continue,
+                };
+                assert!(
+                    *mean < threshold,
+                    "{}: the {class} class differs by {mean:.2} across the portal",
+                    crossing.case
+                );
             }
         }
     }
@@ -774,10 +798,19 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
 /// fog, by 2 to 4: the parallax of the step and the noise of the frame (lot 9 report).
 const SEAMLESS: f32 = 6.0;
 
+/// How much, on average, the sky and the whole screen may differ across a crossing at High and
+/// Ultra, which draw the god-ray haze and SSAO, and the 96+ blocks class there (`SEAMLESS`).
+/// Before the portal cameras drew the haze, the sky differed by 6 at noon and 55 at dusk, the
+/// whole screen by 5.8 and 23, the 96+ class by 17 and 10; after, with no SSAO on the portal
+/// cameras, by 0.1–0.2, 0.5–1.1 and 0.4–2.4, against a noise of 0.2–2.3, 0.4–1.7 and 0.6–2.4
+/// between two pictures from the same eye (lot 10 report).
+const SKY_SEAMLESS: f32 = 3.0;
+const SCREEN_SEAMLESS: f32 = 2.5;
+
 /// What a test of the seam measures.
 #[derive(Clone, Copy, PartialEq)]
 enum Test {
-    /// The seam, and the walk through the portal at noon.
+    /// The seam, and the walk through the portal.
     Baseline,
     /// The seam with each suspect turned off alone.
     Alone,
@@ -785,7 +818,10 @@ enum Test {
     Together,
     /// The seam, the portals opened after the shaders were turned on.
     LatePortals,
-    /// The seam, which must stay under `SEAMLESS` from 32 to 96 blocks.
+    /// The seam, then the seam without SSAO on the portal cameras.
+    PortalSsao,
+    /// The seam, which must stay under `SEAMLESS` from 32 to 96 blocks, and with the haze under
+    /// `SEAMLESS` past 96 blocks, `SKY_SEAMLESS` in the sky and `SCREEN_SEAMLESS` over all.
     Regression,
 }
 
@@ -819,23 +855,29 @@ close_seam! {
     seam_close_high_dusk_together: High, Dusk, Together, false;
     seam_close_high_noon_clouds: High, Noon, Baseline, true;
     seam_close_high_noon_late_portals: High, Noon, LatePortals, false;
+    seam_close_high_noon_portal_ssao: High, Noon, PortalSsao, false;
+    seam_close_high_dusk_portal_ssao: High, Dusk, PortalSsao, false;
+    seam_close_ultra_noon_portal_ssao: Ultra, Noon, PortalSsao, false;
 }
 
 macro_rules! close_seam_regression {
-    ($($name:ident: $quality:ident;)*) => {$(
+    ($($name:ident: $quality:ident, $hour:ident;)*) => {$(
         #[test]
         #[ignore = "a regression test of 2.5 minutes on lavapipe: run it by hand with --ignored"]
         fn $name() {
-            close_seam(ShaderQuality::$quality, Hour::Noon, Test::Regression, false);
+            close_seam(ShaderQuality::$quality, Hour::$hour, Test::Regression, false);
         }
     )*};
 }
 
-// Through a close twin, crossing is seamless at the levels without haze or SSAO
+// Through a close twin, crossing is seamless at every level: with the haze at noon and at dusk,
+// when it is thickest
 close_seam_regression! {
-    seam_close_off_noon_is_seamless: Off;
-    seam_close_low_noon_is_seamless: Low;
-    seam_close_medium_noon_is_seamless: Medium;
+    seam_close_off_noon_is_seamless: Off, Noon;
+    seam_close_low_noon_is_seamless: Low, Noon;
+    seam_close_medium_noon_is_seamless: Medium, Noon;
+    seam_close_high_noon_is_seamless: High, Noon;
+    seam_close_high_dusk_is_seamless: High, Dusk;
 }
 
 /// How far south the player flies from the orange portal to place the blue one: 16 chunks, beyond
