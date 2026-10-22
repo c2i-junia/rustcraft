@@ -201,6 +201,29 @@ impl Overcast {
     }
 }
 
+/// The drift of the wind wraps around at this many blocks along x and z: a whole number of the
+/// sides of every box the drops of `precipitation.wgsl` wrap around in (18 and 48 for the rain,
+/// and 16, 40 and 80 for the snow, which drifts at `SNOW_DRIFT` of the wind), so that the wrap
+/// moves no drop, and small enough to keep the fraction of a block in an `f32`.
+pub const DRIFT_WRAP: f32 = 3600.;
+
+/// The part of the wind the snow drifts with (`precipitation.wgsl`).
+#[cfg(test)]
+const SNOW_DRIFT: f32 = 0.8;
+
+/// How far the wind has carried what falls, along the ground plane, in blocks: the wind
+/// summed frame after frame, so that as it changes the drops keep the pace of the wind of the
+/// moment, which the wind of now times the time gone by would not.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct WindDrift(pub Vec2);
+
+impl WindDrift {
+    /// The drift `secs` seconds later, carried by `wind`, wrapped around at `DRIFT_WRAP`.
+    pub fn advance(self, wind: Vec2, secs: f32) -> Self {
+        Self((self.0 + wind * secs).rem_euclid(Vec2::splat(DRIFT_WRAP)))
+    }
+}
+
 /// What the shaders of the sky know of the weather: `Weather` in `sky.wgsl`, bound at 107 in
 /// every material that shows the sky.
 #[derive(ShaderType, Clone, Copy, Debug, Default, PartialEq)]
@@ -214,6 +237,8 @@ pub struct WeatherShading {
     pub sun: Vec4,
     /// The wind (`Overcast::wind`) in `xy`, and in `z` how gusty it is, the storm level.
     pub wind: Vec4,
+    /// How far the wind has carried what falls (`WindDrift`), in `xy`.
+    pub drift: Vec4,
     /// The strike flashing the brightest: the top of the block struck, and in `w` how bright
     /// its channel is now (`Strokes::channel`), however far off it is.
     pub strike: Vec4,
@@ -246,6 +271,7 @@ impl WeatherShading {
             glow: overcast.glow(height, physical_sky).extend(1.),
             sun: azimuth.extend(0.).extend(0.),
             wind: overcast.wind().extend(overcast.storm).extend(0.),
+            drift: Vec4::ZERO,
             strike: Vec4::ZERO,
             flash_dir: Vec4::ZERO,
             overcast: overcast.level,
@@ -258,6 +284,14 @@ impl WeatherShading {
 }
 
 impl WeatherShading {
+    /// What the shaders are told, with what falls carried by the wind as far as `drift`.
+    pub fn with_drift(self, drift: Vec2) -> Self {
+        Self {
+            drift: drift.extend(0.).extend(0.),
+            ..self
+        }
+    }
+
     /// What the shaders are told, with the flash of `lightning` seen from `eye`: nothing more
     /// while nothing flashes.
     pub fn with_flash(self, lightning: &Lightning, eye: Vec3) -> Self {
@@ -287,15 +321,20 @@ const OVERCAST_SHADER: Handle<Shader> = uuid_handle!("d3e5a7c1-4f2b-4b9e-8a61-7c
 pub fn overcast_plugin(app: &mut App) {
     load_internal_asset!(app, OVERCAST_SHADER, "overcast.wgsl", Shader::from_wgsl);
     app.add_plugins(MaterialPlugin::<OvercastMaterial>::default())
+        .init_resource::<WindDrift>()
         .add_systems(
             Update,
             (weather_shading_system, follow_camera_with_dome).run_if(in_state(GameState::Game)),
         );
 }
 
-/// Tells the shaders of the sky the overcast of now, when it changes.
+/// Tells the shaders of the sky the overcast of now, when it changes, and carries what falls
+/// on with the wind.
+#[allow(clippy::too_many_arguments)]
 pub fn weather_shading_system(
     time: Res<ClientTime>,
+    frame: Res<Time>,
+    mut drift: ResMut<WindDrift>,
     weather: Option<Res<ClientWeather>>,
     lightning: Option<Res<Lightning>>,
     cameras: Query<&GlobalTransform, With<Camera3d>>,
@@ -309,13 +348,16 @@ pub fn weather_shading_system(
         Some(weather) if features.wet => weather.wetness,
         _ => 0.,
     };
+    let overcast = Overcast::current(weather.as_deref());
+    *drift = drift.advance(overcast.wind(), frame.delta_secs());
     let shading = WeatherShading::new(
-        Overcast::current(weather.as_deref()),
+        overcast,
         weather.as_deref().map_or(0., ClientWeather::precipitation),
         wetness,
         time.0,
         features.sky,
-    );
+    )
+    .with_drift(drift.0);
     let eye = cameras
         .iter()
         .next()
@@ -646,6 +688,7 @@ mod tests {
                 shaders,
                 ..default()
             })
+            .init_resource::<WindDrift>()
             .add_systems(Update, (weather_shading_system, follow_camera_with_dome));
         let weather = app
             .world_mut()
@@ -663,6 +706,11 @@ mod tests {
         (app, weather)
     }
 
+    /// `shading` with the drift of the wind of `app` now.
+    fn drifted(app: &App, shading: WeatherShading) -> WeatherShading {
+        shading.with_drift(app.world().resource::<WindDrift>().0)
+    }
+
     fn buffer_data(app: &App, handle: &Handle<ShaderBuffer>) -> Option<Vec<u8>> {
         let buffers = app.world().resource::<Assets<ShaderBuffer>>();
         buffers.get(handle).unwrap().data.clone()
@@ -671,7 +719,7 @@ mod tests {
     #[test]
     fn the_shaders_of_the_sky_are_told_the_overcast_of_the_hour() {
         let (mut app, handle) = app(ShaderQuality::High, WeatherKind::Rain);
-        let expected = WeatherShading::new(RAIN, 1., 1., NOON_IN_DAY, true);
+        let expected = drifted(&app, WeatherShading::new(RAIN, 1., 1., NOON_IN_DAY, true));
         assert_eq!(expected.overcast, 1.);
         assert_eq!(
             buffer_data(&app, &handle),
@@ -683,7 +731,7 @@ mod tests {
             ..default()
         });
         app.update();
-        let expected = WeatherShading::new(RAIN, 1., 0., NOON_IN_DAY, false);
+        let expected = drifted(&app, WeatherShading::new(RAIN, 1., 0., NOON_IN_DAY, false));
         assert_eq!(
             buffer_data(&app, &handle),
             ShaderBuffer::from(expected).data
@@ -699,6 +747,71 @@ mod tests {
         assert!(
             rain.x > 2. * SPEED && storm.x > 2.5 * rain.x,
             "{rain} {storm}"
+        );
+    }
+
+    #[test]
+    fn what_falls_keeps_the_pace_of_the_wind_when_the_wind_changes() {
+        // half an hour of rain, then a storm rolling in: carried by the wind of the moment,
+        // never by the new wind over all the time gone by
+        let frame = 1. / 60.;
+        let mut drift = WindDrift::default();
+        for step in 0..120_000 {
+            let overcast = Overcast {
+                level: 1.,
+                storm: ((step as f32 - 108_000.) / 1_200.).clamp(0., 1.),
+            };
+            let wind = overcast.wind();
+            let next = drift.advance(wind, frame);
+            let moved = next.0 - drift.0;
+            // across a wrap, the drops move by whole boxes, which shows nothing
+            let moved = moved - (moved / DRIFT_WRAP).round() * DRIFT_WRAP;
+            assert!(
+                moved.distance(wind * frame) < 1e-3,
+                "{step}: {moved} for a wind of {wind}"
+            );
+            drift = next;
+        }
+        assert!(drift.0.x >= 0. && drift.0.x < DRIFT_WRAP && drift.0.y == 0.);
+    }
+
+    /// The half sides of the boxes the bands of `function` in `precipitation.wgsl` wrap around.
+    fn band_extents(function: &str) -> Vec<f32> {
+        let source = include_str!("../precipitation/precipitation.wgsl");
+        let body = source.split(&format!("fn {function}(")).nth(1).unwrap();
+        let body = body.split("\n}").next().unwrap();
+        body.split("Band(vec3(")
+            .skip(1)
+            .map(|band| band.split(',').next().unwrap().trim().parse().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn the_drift_wraps_around_by_whole_boxes_of_every_band_of_rain_and_snow() {
+        let (rain, snow) = (band_extents("rain_band"), band_extents("snow_band"));
+        assert_eq!((rain.len(), snow.len()), (2, 3));
+        for extent in rain {
+            assert_eq!(DRIFT_WRAP % (2. * extent), 0., "{extent}");
+        }
+        // the snow drifts at a part of the wind
+        for extent in snow {
+            assert_eq!(SNOW_DRIFT * DRIFT_WRAP % (2. * extent), 0., "{extent}");
+        }
+        let source = include_str!("../precipitation/precipitation.wgsl");
+        assert!(source.contains(&format!("const SNOW_DRIFT: f32 = {SNOW_DRIFT:?};")));
+    }
+
+    #[test]
+    fn the_shaders_are_told_how_far_the_wind_has_carried_what_falls() {
+        let (mut app, handle) = app(ShaderQuality::High, WeatherKind::Thunder);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        app.update();
+        let drift = app.world().resource::<WindDrift>().0;
+        assert!(drift.x > 0., "{drift}");
+        let expected = WeatherShading::new(STORM, 1., 1., NOON_IN_DAY, true).with_drift(drift);
+        assert_eq!(
+            buffer_data(&app, &handle),
+            ShaderBuffer::from(expected).data
         );
     }
 
@@ -758,7 +871,10 @@ mod tests {
             app.insert_resource(weather);
             app.update();
             let physical = ShaderFeatures::of(quality).sky;
-            let expected = WeatherShading::new(CLEAR, 0., told, NOON_IN_DAY, physical);
+            let expected = drifted(
+                &app,
+                WeatherShading::new(CLEAR, 0., told, NOON_IN_DAY, physical),
+            );
             assert_eq!(
                 buffer_data(&app, &handle),
                 ShaderBuffer::from(expected).data,

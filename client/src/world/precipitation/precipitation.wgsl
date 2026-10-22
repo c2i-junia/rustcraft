@@ -52,6 +52,8 @@ const SHEET: u32 = 5u;
 // `SNOW_BAND` blocks from a drop to the next
 const SNOW_LINE: f32 = 122.0;
 const SNOW_BAND: f32 = 4.0;
+// The part of the wind the snow drifts with, `SNOW_DRIFT` in `overcast.rs`
+const SNOW_DRIFT: f32 = 0.8;
 // The heights of `occlusion.rs` for a column not known yet, and for one with no block
 const UNKNOWN: f32 = 1e5;
 
@@ -197,18 +199,20 @@ fn snowiness(kind: u32, height: f32, line: f32) -> f32 {
     return 0.0;
 }
 
-// How far the wind has carried what falls since the start, along the ground plane, and how
-// fast it blows now, for what started at `at`: the wind of the weather, in gusts that sweep
-// the land in a storm. The gusts are the derivative of the carriage, so that nothing jumps.
+// How far the wind has carried what falls, along the ground plane, and how fast it blows now,
+// for what started at `at`: the drift of the wind, summed by the CPU frame after frame
+// (`WindDrift`), swept to and fro by gusts in a storm. The gusts are the derivative of their
+// sweep, so that nothing jumps; the sweep is bounded, so that the pace of what falls is the
+// wind's of the moment whatever the time.
 fn wind_drift(at: vec2<f32>, time: f32) -> vec4<f32> {
     let gusty = weather.wind.z;
     let phase = dot(at, vec2(0.031, 0.017));
     let slow = 0.53;
     let fast = 1.37;
     let gust = 1.0 + gusty * (0.45 * sin(slow * time + phase) + 0.25 * sin(fast * time + at.x * 0.07));
-    let carried = time - gusty * (0.45 * cos(slow * time + phase) / slow
+    let swept = -gusty * (0.45 * cos(slow * time + phase) / slow
         + 0.25 * cos(fast * time + at.x * 0.07) / fast);
-    return vec4(weather.wind.xy * carried, weather.wind.xy * gust);
+    return vec4(weather.drift.xy + weather.wind.xy * swept, weather.wind.xy * gust);
 }
 
 // The light of what falls: the grey of the overcast, a little darker than the sky, as a drop
@@ -319,7 +323,7 @@ fn snow(flake: u32, corner: vec2<f32>) -> VertexOutput {
     let time = globals.time;
     let speed = mix(1.0, 2.0, s.x);
     let start = r.xyz * size;
-    let wind = wind_drift(start.xz, time) * 0.8;
+    let wind = wind_drift(start.xz, time) * SNOW_DRIFT;
     let sway = mix(0.2, 0.55, s.y);
     let pace = mix(0.6, 1.3, s.z);
     let phase = s.w * 6.2832;

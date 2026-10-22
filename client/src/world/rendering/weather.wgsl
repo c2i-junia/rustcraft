@@ -14,6 +14,9 @@ struct Weather {
     sun: vec4<f32>,
     // The wind along the ground plane in `xy`, in blocks per second, and in `z` how gusty it is
     wind: vec4<f32>,
+    // How far the wind has carried what falls, in `xy`, in blocks, wrapped around by whole
+    // boxes of the drops (`WindDrift`)
+    drift: vec4<f32>,
     // The strike flashing: the top of the block struck in `xyz`, and in `w` how bright its
     // channel is now, from 0 to 1, however far off it is
     strike: vec4<f32>,

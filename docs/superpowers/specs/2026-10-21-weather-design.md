@@ -465,3 +465,9 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
     octave lower per doubling of the distance, with echoes and a roll; its time starts with the
     sound of the foot of the channel. `--only PREFIX` writes only the files under it, so the
     other sounds stay byte for byte as they were.
+73. Changing 43: what falls drifts by the wind summed frame after frame on the CPU
+    (`WindDrift`), sent in `WeatherShading` and wrapped at 3,600 blocks, a whole number of the
+    boxes of every band (the snow's at the 0.8 of the wind it drifts with); the shader adds only
+    the gusts' bounded sweep to and fro. The wind of now times the time since the start, as
+    before, made the drops race sideways as the wind eased in: their pace was the wind plus
+    the time times its change. `WeatherShading` is now written every frame.
