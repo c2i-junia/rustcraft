@@ -1510,3 +1510,124 @@ approach_seam_regression! {
 fn seam_far_off_noon_rd12() {
     approach_seam(ShaderQuality::Off, Hour::Noon, 21, 12, false);
 }
+
+/// The player's own view, a portal off the screen, before and after the portal is approached:
+/// the orange portal is placed, the player flies 21 chunks south and puts up the wall for the
+/// blue one, and the view from 30 blocks west of it, looking north towards the twin, the portal
+/// out of the picture, is taken; then the blue portal opens on the wall and, once the area
+/// around the twin is held, the same view is taken again. It must be the same: the area around
+/// the twin, its clouds, its shadows and the haze of the portal camera are only for the portal
+/// cameras.
+fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
+    let render_distance = RENDER_DISTANCE;
+    let start = Vec3::new(-60.5, 110.9, 0.5);
+    let folder = folder_at("Approach", start, false, true, render_distance)
+        .with_mod("southwall", SOUTH_WALL_MOD);
+    let mut h = enter_world_with(folder, "Approach", options());
+    install(&mut h);
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player in the air", SERVER, in_the_air);
+    let wall_at = |h: &mut Harness, command: &str, dz: i32| {
+        let here = local_player(h.world()).unwrap().position.floor().as_ivec3();
+        let wall = IVec3::new(here.x, eyes(h).y.floor() as i32, here.z + dz);
+        h.command(command);
+        h.wait_until("the wall", SERVER, |w| {
+            w.resource::<ClientWorldMap>()
+                .blocks
+                .get_block(wall)
+                .is_some()
+        });
+        wall
+    };
+    let wall = wall_at(&mut h, "/southwall", 8);
+    h.aim_at(wall.as_vec3() + Vec3::new(0.5, 0.5, 0.0), wall);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.wait_until("the orange portal", SERVER, |w| {
+        own_portal(w, PortalColor::Orange).is_some()
+    });
+    look(&mut h, 0.0);
+    let z0 = local_player(h.world()).unwrap().position.z;
+    fly_until(&mut h, KeyCode::KeyS, "the place of the blue portal", |p| {
+        p.z > z0 + (21 * 16 + 16) as f32
+    });
+    h.frames(20);
+    h.wait_until("the player in the air", SERVER, in_the_air);
+    let wall = wall_at(&mut h, "/wall", -8);
+    set_quality(&mut h, quality);
+    let case = format!(
+        "own_view_{}_{}",
+        quality_name(quality),
+        format!("{hour:?}").to_lowercase()
+    );
+
+    // From 30 blocks west, looking north towards the twin, a little down: the portal's wall is
+    // 75° to the right, off the screen
+    let player = local_player(h.world()).unwrap().position;
+    let pitch = -8f32.to_radians();
+    let eye = Transform::from_translation(player + Vec3::new(-30.0, 1.6, 0.0))
+        .looking_to(Vec3::new(0.0, pitch.sin(), -pitch.cos()), Vec3::Y);
+    let alone = steady_shots(&mut h, eye, hour);
+
+    // The blue portal opens, and the player approaches it
+    pinned(&mut h).eye = None;
+    h.frames(5);
+    h.aim_at(wall.as_vec3() + Vec3::new(0.5, 0.5, 1.0), wall);
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Left, 3);
+    h.wait_until("the blue portal", SERVER, |w| {
+        own_portal(w, PortalColor::Blue).is_some()
+    });
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    let distance = render_distance as i32;
+    let waited = std::time::Instant::now();
+    while held_around(h.world(), orange.chunk(), distance).0
+        < held_around(h.world(), orange.chunk(), distance).1
+    {
+        assert!(
+            waited.elapsed() < AREA_WAIT,
+            "the area around the twin never came"
+        );
+        h.frames(1);
+    }
+    let approach = h
+        .world()
+        .resource::<crate::portal::approach::Approach>()
+        .clone();
+    assert_eq!(approach.twins, vec![orange.chunk()], "{approach:?}");
+    let approached = steady_shots(&mut h, eye, hour);
+
+    // Within the noise: two pictures of the same view, the portal not yet open, differ by as much
+    let pixels = sample_pixels(&h, &eye, None);
+    let noise = record(&case, "noise", &alone[0], &alone[1], &pixels);
+    let (a, b) = (mean_picture(&alone), mean_picture(&approached));
+    save(&case, "approached", &a, &b, true);
+    let rows = record(&case, "approached", &a, &b, &pixels);
+    let changed: Vec<String> = rows
+        .iter()
+        .zip(&noise)
+        .filter(|((_, count, mean, ..), (_, _, noise, ..))| *count > 0 && *mean > noise.max(0.3))
+        .map(|((class, _, mean, ..), (_, _, noise, ..))| {
+            format!("{class} by {mean:.2} (noise {noise:.2})")
+        })
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "{case}: the player's own view changed once a portal was approached: {}",
+        changed.join(", ")
+    );
+}
+
+/// The player's own view is the same with a portal approached, at noon and at dusk, when the
+/// haze is thickest.
+#[test]
+#[ignore = "a regression test of minutes on lavapipe: run it by hand with --ignored"]
+fn own_view_high_noon_is_unchanged_by_an_approached_portal() {
+    own_view_with_a_portal_approached(ShaderQuality::High, Hour::Noon);
+}
+
+#[test]
+#[ignore = "a regression test of minutes on lavapipe: run it by hand with --ignored"]
+fn own_view_high_dusk_is_unchanged_by_an_approached_portal() {
+    own_view_with_a_portal_approached(ShaderQuality::High, Hour::Dusk);
+}
