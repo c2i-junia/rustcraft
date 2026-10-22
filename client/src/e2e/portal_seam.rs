@@ -1466,11 +1466,34 @@ fn approach_seam(
     let (a, b) = (mean_picture(&a), mean_picture(&b));
     save(&case, "baseline", &a, &b, true);
     save(&case, "first_frame", &a, &first, false);
-    record(&case, "popin_0", &first, &b, &pixels);
+    let first_frame = record(&case, "first_frame", &a, &first, &pixels);
+    let popin = record(&case, "popin_0", &first, &b, &pixels);
     let rows = record(&case, "baseline", &a, &b, &pixels);
     if gated {
         assert_seamless(&case, quality, &rows);
+        // The first frame after crossing too, and nothing comes in after it
+        assert_seamless(&format!("{case} (first frame)"), quality, &first_frame);
+        assert_no_popin(&case, &popin);
     }
+}
+
+/// How much, on average, each class of pixels may change from the first frame after crossing to
+/// the view settled: chunks or their fog coming in late move a class by tens. Since the client
+/// holds the twin's area on arrival, 0.00–0.06 without the shaders and 0.04–1.06 at High, where
+/// the first frame has its noise (TAA, the rays of light) against a mean of three.
+const POPIN_SEAMLESS: f32 = 2.0;
+
+fn assert_no_popin(case: &str, rows: &[Row]) {
+    let failed: Vec<String> = rows
+        .iter()
+        .filter(|(_, count, mean, ..)| *count > 0 && *mean >= POPIN_SEAMLESS)
+        .map(|(class, _, mean, ..)| format!("the {class} class by {mean:.2}"))
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "{case}: the view changed after the first frame past the portal: {}",
+        failed.join(", ")
+    );
 }
 
 /// How long to wait for the chunks around the twin from the start of the flight back to the
