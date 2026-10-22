@@ -48,6 +48,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The colour maps of the grass and of the leaves by climate
    (data/graphics/base_textures/colormap/{grass,foliage}.png), the pack's colormap/ smoothed
    into gradients by scripts/smooth_colormap.py: the pack paints them as flat regions.
+-> The texture of the lamp of the example mod Beacon
+   (examples/mods/beacon/textures/blocks/lamp.png), the pack's block/redstone_lamp_on.png.
 -> The overlay of the sides of the grass block (blocks/GrassSideOverlay.png), the pack's
    block/grass_block_side_overlay.png.
 -> The texture of the torch (blocks/Torch.png, items/Torch.png), the pack's block/torch.png,
