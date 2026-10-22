@@ -25,7 +25,6 @@ use crate::portal::shot::{Bolt, ShotFired};
 use crate::portal::PortalCamera;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::{sky_rotation, sun_height, CelestialRoot, Stars};
-use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
 use shared::players::blocks::PortalShot;
@@ -317,15 +316,10 @@ fn the_view_through_a_portal_looks_as_the_world_with_every_shader() {
         let corner = on_screen(&mut h, corner);
         let beside = Vec2::new(on_screen(&mut h, wall_edge).x - 8.0, corner.y);
         let (through, straight) = (mean_color(&shot, corner), mean_color(&shot, beside));
-        // Up to 10 levels apart with the rays of light, whose haze dims the sky seen straight
-        // and which the portal cameras do not draw (`shaders.rs`)
-        let off = if ShaderFeatures::of(quality).god_rays.is_some() {
-            12.0
-        } else {
-            4.0
-        };
+        // The portal cameras draw the haze of the rays of light too (`volumetric_fog.rs`): the
+        // sky through the portal is as hazed as the sky seen straight
         assert!(
-            (through - straight).abs().max_element() < off,
+            (through - straight).abs().max_element() < 4.0,
             "{quality:?}: sky through the portal {through}, seen straight {straight}"
         );
     }
