@@ -349,23 +349,19 @@ The sky follows the world clock (`ClientTime`): the sun and the moon turn around
 (`celestial.rs`), and the clear colour and the fog go from `SKY_COLOR` at noon to a warm
 colour at sunrise and sunset and a dark blue at night (`sky_color`, `camera/underwater.rs`);
 under water the fog keeps the colour of the water. The clouds (`world/clouds/`) are cells of
-12 × 12 blocks, 4 high, at y = 192, full or empty after a noise that repeats every 256 cells
-and has the same seed in every world, so that all the players of a server see the same clouds
+12 × 12 blocks, 4 high, at y = 192, each with a density after a noise that repeats every 256
+cells and has the same seed in every world, so that all the players of a server see the same clouds
 with nothing sent. They drift east at half a block a second, from the clock, by the
 `Transform` of their entity, so that culling and sorting see where they are; their mesh holds
 the outer faces of a disk of cells around the camera, twice the render distance wide and at
 most 1024 blocks, and is built again only when the camera enters another cell of the pattern.
+Each face carries the densities of the two cells it lies between, and the shader shows it when
+the threshold of the weather lies between them, so the clouds thicken without a new mesh.
 `clouds.wgsl` draws them unlit, tinted by the hour and by the side of each face, at 0.8
 opacity and fading out at the edge; a child entity first writes their depth alone, so that
 only the nearest face of a cloud is coloured and its opacity is the same from below, above
 and inside. The player chooses Fancy, Fast (one flat layer) or Off in the Video tab
 (`CloudStyle`, saved in `video.ron` with the render distance).
-
-The weather the server tells (`ClientWeather`, `world/weather.rs`) is two levels, rain and
-thunder, from 0 to 1, that ease towards it: each follows the smoothstep of a ramp that moves
-linearly, 20 s from one end to the other, so that a storm rolls in and out gently and a
-change turned back midway does not jump. A player who joins gets them at once, and they go
-back to clear when the world is left. The debug overlay (F3) shows them.
 
 A day lasts 20 minutes. The sun and the moon go round on a path that leans 30° from the
 vertical, so they are never right overhead; `celestial.rs` draws them, and the stars, with
@@ -379,6 +375,61 @@ follows the sun, bloom and colour grading), SMAA or TAA, water reflecting the sc
 (`EFFECT_SSR` in `chunk.wgsl`), rays of light through a haze over the ground, ambient occlusion
 in screen space and longer, sharper shadows. `bench_shaders` measures what each costs on the
 GPU. The end-to-end tests draw without them unless a test asks (`Options::shaders`).
+
+The weather the server tells (`ClientWeather`, `world/weather.rs`) is two levels, rain and
+thunder, from 0 to 1, that ease towards it: each follows the smoothstep of a ramp that moves
+linearly, 20 s from one end to the other, so that a storm rolls in and out gently and a
+change turned back midway does not jump. A player who joins gets them at once, and they go
+back to clear when the world is left. The debug overlay (F3) shows them. The wetness of the world is the client's
+own too: it rises while drops fall, 40 s to soaked, and dries in 2 minutes.
+
+Every effect reads these levels through its own curve, the sky leading the drops. The overcast
+(`world/rendering/overcast.rs`) is `smoothstep(0, 0.5, rain)`, and a storm level darkens it
+further. It greys and thickens the clouds, hides the sun, the moon and the stars, dims the sun,
+turns the environment light down for a grey ambient light, lowers the saturation and closes the
+fog in, never nearer than 48 blocks. What the shaders know of the weather is one storage buffer,
+`WeatherShading` (`weather.wgsl`): the greys of the overcast at the horizon and the zenith, the
+wind, the levels, the wetness and the lightning, bound at 107 to every material that shows the
+sky (the chunks, for their fog and the water's reflection, the horizon skirt and the overcast
+dome) and written in place when it changes, so that no chunk's bind group is made again. The
+dome is drawn on the far plane over the physical sky; without the shaders, the clear colour
+and the fog take the same grey.
+
+The rain and the snow (`world/precipitation/`) have no mesh and no entity: a render pass of
+their own, in `Core3d` after the TAA and before the bloom and the tonemapping, builds every
+drop, flake, splash and sheet of far rain from the vertex index and the time, and tests the
+depth of the world by hand. Drawn before the TAA, thin blended streaks without motion vectors
+would be smeared away. The climate map (`world/rendering/climate.rs`) tells each column's rain,
+snow or nothing, from its biome, and the snow line turns rain to snow. The occlusion map
+(`occlusion.rs`) is a 144 × 144 texture of the 9 × 9 chunk columns around the eye holding the
+height at which what falls stops (any block but air and the decorations, water at its
+surface), scanned again when chunks come and go and the same frame a block changes. The rain
+rings the water in `chunk.wgsl`'s `water_normal`, in every preset that draws its waves.
+
+In High and Ultra (`ShaderFeatures::wet`) the world gets wet; elsewhere the wetness reaches the
+shaders as 0 and every wet term is skipped. The chunks bind the occlusion map at 108, so that
+`chunk.wgsl` wets only the faces the rain reaches, and each block texture has a surface
+(`WetSurface`, in the texture table) saying how much it darkens, how glossy it turns and
+whether puddles gather on it. The sheen and the puddles reflect `sky_radiance`, not the world:
+the ground is drawn before the frame the water's reflection reads.
+
+A `LightningStrike` becomes a `Strike` (`world/lightning/`). Its bolt is grown from the seed by
+a small PRNG of our own (`bolt.rs`), so every client draws the same, and flashes in two or
+three strokes over half a second. A second pass after the TAA (`render.rs`, `lightning.wgsl`)
+draws its channels, held in a storage buffer, as ribbons facing the camera, added to the frame
+far brighter than white for the bloom; a strike beyond the render distance draws no bolt, only
+its flash in the clouds. The flash reaches the shaders through `WeatherShading` (the struck
+block and the direction of the flash in the clouds) and lights the sky, the clouds and the
+faces open to it, and the ambient light and the exposure jump with it. The strikes are aged in
+`PreUpdate`, before every system that reads the flash.
+
+The sounds of the weather (`audio/weather.rs`) play on their own Weather volume. The thunder
+of a strike is delayed by its distance at 340 blocks a second, cracks within 48 blocks and
+rumbles farther, and is not attenuated by Bevy's spatial sound, which would silence a strike
+100 blocks away: its emitter is kept 2 blocks from the ears toward the strike, its volume set by
+hand. Three loops, the rain in the open, the rain drumming on a roof and the wind, play all
+along, their volumes following the weather, the share of rain and snow around, and how open the
+player stands, found by rays read against the occlusion map; under water they are muffled.
 
 The network is polled in `PreUpdate`, every frame, and the inputs are uploaded in
 `FixedUpdate`. A message of chunks of 4 KiB or more is decoded on the compute pool, and the
