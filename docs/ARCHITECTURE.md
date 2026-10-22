@@ -529,7 +529,15 @@ only and ended the rays of the sky on the far plane, which the oblique matrix br
 `world/rendering/volumetric_fog.rs` changes those two lines in Bevy's embedded shader before it
 is loaded (the same result under a plain projection). It draws no ambient occlusion: Bevy's is
 noisy and left to TAA, and through a close portal it measured as a seam. The horizon skirt, a ring closed at the bottom
-so that no way under the horizon misses it, is drawn around each camera (`horizon.wgsl`).
+so that no way under the horizon misses it, is drawn around each camera (`horizon.wgsl`), and
+so is the overcast dome (`overcast.wgsl`). Under the weather, a portal camera copies the fog
+and the clear colour of the player's camera, overcast and flashed, and its own fog behind a far
+twin closes in as the player's does (`Overcast::fog_range`); the light, the exposure, the
+grading and the wet ground are the same for every view. It is a `PrecipitationView` too: the
+rain, the snow and the bolts are drawn around it, so they show through the portal around the
+twin, clipped by its near plane. The systems of the weather that follow one camera (the
+occlusion map of the rain, the dome, the flash, the ears of the weather sounds) take the camera
+of the world that is not a portal camera.
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6
 block ahead of its eye) and the server's `PortalShot` for the others write a `ShotFired`, from
 which a bolt and its trail are spawned, moved at `BOLT_SPEED` (100 blocks a second) to the hit
