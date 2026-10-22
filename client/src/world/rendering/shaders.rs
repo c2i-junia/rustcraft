@@ -197,7 +197,7 @@ const HORIZON_SHADER: Handle<Shader> = uuid_handle!("b6a2d0f4-91c3-4e57-8d1a-5c7
 pub fn shaders_plugin(app: &mut App) {
     load_internal_asset!(app, HORIZON_SHADER, "horizon.wgsl", Shader::from_wgsl);
     // The rays of light of the portal cameras, through their oblique near plane
-    app.add_plugins(super::volumetric_fog::volumetric_fog_plugin);
+    app.add_plugins(super::volumetric_fog::VolumetricFogPatchPlugin);
     app.add_plugins(MaterialPlugin::<HorizonMaterial>::default())
         .init_resource::<DirectionalLightShadowMap>();
     // The time each pass takes on the GPU, for `bench_shaders`

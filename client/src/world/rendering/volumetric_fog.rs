@@ -18,72 +18,116 @@
 //!   A depth of 0 now leaves the ray to the back of the volume.
 //!
 //! Under a plain projection both give what Bevy computed: the player's camera draws as before.
-//! The shader is changed where Bevy keeps it, among its embedded assets, before it is loaded, so
-//! every camera draws with the same shader and nothing of Bevy's is copied.
+//! The shader is changed where Bevy keeps it, among its embedded assets, once the plugins are
+//! built and before it is loaded, so every camera draws with the same shader and nothing of
+//! Bevy's is copied. If Bevy's text no longer matches, the game logs an error at startup and a
+//! unit test fails.
 
 use std::path::{Path, PathBuf};
 
 use bevy::asset::io::embedded::EmbeddedAssetRegistry;
+use bevy::pbr::VolumetricFogPlugin;
 use bevy::prelude::*;
 
 /// Where Bevy keeps the shader of its volumetric fog, among its embedded assets.
 const SHADER_PATH: &str = "bevy_pbr/volumetric_fog/volumetric_fog.wgsl";
 
-/// The lines of Bevy's shader that are wrong under an oblique near plane, and what replaces each.
-const CHANGES: [(&str, &str); 2] = [
+/// A line of Bevy's shader that is wrong under an oblique near plane, what replaces it, and the
+/// declaration the replacement reads, which must come before it: a Bevy that renamed it would
+/// leave a shader that does not compile, and no rays of light on any camera.
+struct Change {
+    old: &'static str,
+    new: &'static str,
+    reads: &'static str,
+}
+
+const CHANGES: [Change; 2] = [
     // The start depth of the ray, with the near distance only, then from its start point, on
     // the near plane or the front face of the volume
-    (
-        "let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);",
-        "let start_depth_view = -view_start_pos.z;",
-    ),
+    Change {
+        old: "let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);",
+        new: "let start_depth_view = -view_start_pos.z;",
+        reads: "let view_start_pos =",
+    },
     // The ray ended where the depth buffer says, the far plane included, then only where
     // something was drawn
-    (
-        "end_depth_view = min(end_depth_view, view_end_depth_from_buffer);",
-        "if (ndc_end_depth_from_buffer > 0.0) {\n        \
-         end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    }",
-    ),
+    Change {
+        old: "end_depth_view = min(end_depth_view, view_end_depth_from_buffer);",
+        new: "if (ndc_end_depth_from_buffer > 0.0) {\n        \
+              end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    }",
+        reads: "let ndc_end_depth_from_buffer =",
+    },
 ];
 
 /// `source`, Bevy's shader of the volumetric fog, with its rays right under an oblique near
-/// plane, or `None` if it no longer has, once each, the lines to change.
-fn for_oblique_near_planes(source: &str) -> Option<String> {
+/// plane, or what it lacks: each line to change, once, after the declaration it then reads.
+fn for_oblique_near_planes(source: &str) -> Result<String, String> {
     CHANGES
         .iter()
-        .try_fold(source.to_string(), |source, (old, new)| {
-            (source.matches(old).count() == 1).then(|| source.replace(old, new))
+        .try_fold(source.to_string(), |source, change| {
+            let found: Vec<usize> = source.match_indices(change.old).map(|(at, _)| at).collect();
+            let [at] = found[..] else {
+                return Err(format!("`{}` {} times, not once", change.old, found.len()));
+            };
+            if !source[..at].contains(change.reads) {
+                return Err(format!("`{}` before `{}`", change.reads, change.old));
+            }
+            Ok(source.replace(change.old, change.new))
         })
 }
 
-/// Changes Bevy's shader of the volumetric fog among its embedded assets, before it is loaded.
-/// Added after Bevy's `PbrPlugin`, which embeds it. A new Bevy whose shader lacks the lines
-/// changed stops the game at once, as `the_shader_of_bevy_is_changed_for_oblique_near_planes`
-/// does: the haze through the portals would be wrong.
-pub fn volumetric_fog_plugin(app: &mut App) {
-    let Some(registry) = app.world().get_resource::<EmbeddedAssetRegistry>() else {
-        return;
-    };
+/// Changes Bevy's shader of the volumetric fog among its embedded assets, once every plugin is
+/// built (`finish`), whatever their order, and before the shader is loaded, at the first update.
+/// If Bevy's volumetric fog is there but its shader cannot be changed, it says so at startup and
+/// leaves it as it is: the player's rays of light are right, those through a portal seen from
+/// more than `MIN_OBLIQUE_DISTANCE` are not. `the_shader_of_bevy_is_changed_for_oblique_near_planes`
+/// fails then too.
+pub struct VolumetricFogPatchPlugin;
+
+impl Plugin for VolumetricFogPatchPlugin {
+    fn build(&self, _app: &mut App) {}
+
+    fn finish(&self, app: &mut App) {
+        if !app.is_plugin_added::<VolumetricFogPlugin>() {
+            // Without Bevy's volumetric fog, there is nothing to change
+            return;
+        }
+        if let Err(missing) = patch(app) {
+            error!(
+                "Bevy's {SHADER_PATH} could not be changed for the oblique near planes of the \
+                 portal cameras, whose rays of light will be wrong: {missing}"
+            );
+        }
+    }
+}
+
+fn patch(app: &App) -> Result<(), String> {
+    let registry = app
+        .world()
+        .get_resource::<EmbeddedAssetRegistry>()
+        .ok_or("no embedded assets")?;
     let path = Path::new(SHADER_PATH);
-    let Some(original) = registry.remove_asset(path) else {
-        // Without Bevy's volumetric fog, there is nothing to change
-        return;
+    let original = registry
+        .remove_asset(path)
+        .ok_or("no such embedded asset")?;
+    let changed = std::str::from_utf8(original.value())
+        .map_err(|error| error.to_string())
+        .and_then(for_oblique_near_planes);
+    let bytes = match &changed {
+        Ok(changed) => changed.as_bytes().to_vec(),
+        Err(_) => original.value().to_vec(),
     };
-    let source = std::str::from_utf8(original.value()).expect("a shader is text");
-    let changed = for_oblique_near_planes(source).unwrap_or_else(|| {
-        panic!("Bevy's {SHADER_PATH} no longer has the lines volumetric_fog.rs changes")
-    });
-    registry.insert_asset(PathBuf::from(SHADER_PATH), path, changed.into_bytes());
+    registry.insert_asset(PathBuf::from(SHADER_PATH), path, bytes);
+    changed.map(|_| ())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use bevy::asset::AssetPlugin;
-    use bevy::pbr::VolumetricFogPlugin;
 
-    const SAMPLE: &str =
-        "    let view_start_pos = position_ndc_to_view(frag_coord_to_ndc(frag_coord));\n    \
+    const SAMPLE: &str = "    let ndc_end_depth_from_buffer = textureLoad(depth_texture, xy, 0);\n    \
+                          let view_start_pos = position_ndc_to_view(frag_coord_to_ndc(frag_coord));\n    \
                           end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    \
                           let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);\n";
 
@@ -100,29 +144,49 @@ mod tests {
 
     #[test]
     fn a_shader_without_the_lines_is_not_changed() {
-        assert_eq!(for_oblique_near_planes("nothing to change"), None);
+        assert!(for_oblique_near_planes("nothing to change").is_err());
         // Each line once: a shader changed already is not changed again
         let changed = for_oblique_near_planes(SAMPLE).unwrap();
-        assert_eq!(for_oblique_near_planes(&changed), None);
+        assert!(for_oblique_near_planes(&changed).is_err());
     }
 
+    #[test]
+    fn a_shader_whose_names_the_changes_read_were_renamed_is_not_changed() {
+        let renamed = SAMPLE.replace("let view_start_pos", "let ray_start");
+        let missing = for_oblique_near_planes(&renamed).unwrap_err();
+        assert!(missing.contains("let view_start_pos"), "{missing}");
+        let renamed = SAMPLE.replace("let ndc_end_depth_from_buffer", "let end_ndc");
+        assert!(for_oblique_near_planes(&renamed).is_err());
+    }
+
+    /// The real shader of Bevy, changed whatever the order of the plugins, its names declared
+    /// before the lines that read them.
     #[test]
     fn the_shader_of_bevy_is_changed_for_oblique_near_planes() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<Mesh>()
-            .add_plugins(VolumetricFogPlugin)
-            .add_plugins(volumetric_fog_plugin);
+            .add_plugins(VolumetricFogPatchPlugin)
+            .add_plugins(VolumetricFogPlugin);
+        app.finish();
         let registry = app.world().resource::<EmbeddedAssetRegistry>();
         let shader = registry
             .remove_asset(Path::new(SHADER_PATH))
             .expect("Bevy's shader of the volumetric fog");
         let source = std::str::from_utf8(shader.value()).unwrap();
-        for (old, new) in CHANGES {
-            assert!(source.contains(new), "not changed: {old}");
+        for change in CHANGES {
+            let at = source
+                .find(change.new)
+                .unwrap_or_else(|| panic!("not changed: {}", change.old));
+            assert!(
+                source[..at].contains(change.reads),
+                "`{}` no longer declared before `{}`",
+                change.reads,
+                change.new
+            );
         }
         assert!(
-            !source.contains(CHANGES[0].0),
+            !source.contains(CHANGES[0].old),
             "the start depth not changed"
         );
     }
