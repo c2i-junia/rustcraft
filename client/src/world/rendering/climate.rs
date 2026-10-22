@@ -100,6 +100,19 @@ pub fn precipitation_kind(biome: BiomeType) -> PrecipitationKind {
     }
 }
 
+/// What falls on the column `(x, z)` after the climate map `map`; `None` while the column is not
+/// known yet.
+pub fn precipitation_at(map: &Image, x: i32, z: i32) -> Option<PrecipitationKind> {
+    let size = CLIMATE_MAP_SIZE as i32;
+    let start = ((z.rem_euclid(size) * size + x.rem_euclid(size)) * 4) as usize;
+    let texel = map.data.as_ref()?.get(start..start + 4)?;
+    (texel[3] != 0).then(|| match texel[2] {
+        0 => PrecipitationKind::Rain,
+        1 => PrecipitationKind::Snow,
+        _ => PrecipitationKind::None,
+    })
+}
+
 /// The place of `biome` on the colour maps, from their bottom right corner: the temperature
 /// along x, and the downfall times the temperature along y, as Minecraft reads them. The means
 /// of the columns are taken of these, the places themselves.
@@ -342,6 +355,31 @@ mod tests {
         }
         // A column of no chunk asked for is unknown
         assert_eq!(texel_at(&map, 20, 20)[3], 0);
+    }
+
+    #[test]
+    fn what_falls_on_a_column_is_read_back_from_the_map() {
+        let noises = TerrainNoises::new(42);
+        let mut map = new_climate_map();
+        fill_climate_map(
+            &mut map,
+            &noises,
+            &[IVec2::new(-1, 0)],
+            BiomeBlend { radius: 0 },
+        );
+        let biome = noises.column_shape(-5, 7).biome;
+        assert_eq!(
+            precipitation_at(&map, -5, 7),
+            Some(precipitation_kind(biome))
+        );
+        assert_eq!(precipitation_at(&map, 20, 20), None);
+        for (kind, byte) in [
+            (PrecipitationKind::Rain, 0),
+            (PrecipitationKind::Snow, 1),
+            (PrecipitationKind::None, 2),
+        ] {
+            assert_eq!(kind as u8, byte);
+        }
     }
 
     #[test]

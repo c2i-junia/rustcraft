@@ -13,7 +13,8 @@ mod footsteps;
 mod inventory;
 mod playback;
 pub mod settings;
-mod sounds;
+pub(crate) mod sounds;
+pub(crate) mod weather;
 
 use playback::PlaySound;
 use sounds::Sound;
@@ -26,6 +27,7 @@ const SPATIAL_SCALE: f32 = 0.25;
 pub fn audio_plugin(app: &mut App) {
     app.insert_resource(DefaultSpatialScale(SpatialScale::new(SPATIAL_SCALE)))
         .add_message::<PlaySound>()
+        .add_plugins(weather::weather_sound_plugin)
         .add_observer(click_on_activate)
         .add_systems(Startup, sounds::load_sound_library)
         .add_systems(

@@ -87,6 +87,15 @@ fn texel_index(x: i32, z: i32) -> usize {
     (z.rem_euclid(size) * size + x.rem_euclid(size)) as usize
 }
 
+/// The height at which the precipitation stops at the column `(x, z)` on `image`, the
+/// occlusion map: `UNKNOWN` for a column not known yet, `OPEN` for one with no block.
+pub fn height_at(image: &Image, x: i32, z: i32) -> f32 {
+    let start = texel_index(x, z) * 4;
+    image.data.as_ref().map_or(UNKNOWN, |data| {
+        f32::from_le_bytes(data[start..start + 4].try_into().unwrap())
+    })
+}
+
 /// The chunk column of a column.
 fn chunk_column(x: i32, z: i32) -> IVec2 {
     IVec2::new(x.div_euclid(CHUNK_SIZE), z.div_euclid(CHUNK_SIZE))
@@ -285,12 +294,6 @@ mod tests {
 
     fn block(id: BlockId) -> BlockData {
         BlockData::new(id, BlockDirection::Front)
-    }
-
-    fn height_at(image: &Image, x: i32, z: i32) -> f32 {
-        let start = texel_index(x, z) * 4;
-        let data = image.data.as_ref().unwrap();
-        f32::from_le_bytes(data[start..start + 4].try_into().unwrap())
     }
 
     /// A world of two chunk columns side by side at x = 0 and 1, z = 0: ground of stone up to

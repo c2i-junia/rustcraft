@@ -18,6 +18,8 @@ use super::game::enter_world_with;
 use super::harness::{Harness, Options};
 use super::seed::GameFolder;
 use super::shaders::{folder, hour, looking, surface, SITE};
+use crate::audio::sounds::Sound;
+use crate::audio::weather::{ThunderFrom, WeatherLoop};
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::player::{CurrentPlayerMarker, PlayerBody};
 use crate::world::lightning::{
@@ -27,6 +29,7 @@ use crate::world::time::ClientTime;
 use crate::world::weather::{ease_weather_system, ClientWeather};
 use crate::world::{BlockChanged, ClientWorldMap, ShaderQuality, WorldRenderRequestUpdateEvent};
 use crate::world::{RenderDistance, ServerRenderDistanceLimit};
+use bevy::audio::{AudioSink, AudioSinkPlayback};
 use shared::world::{BlockData, BlockDirection, BlockTransparency};
 
 /// Where the pictures are taken from and looked at.
@@ -874,5 +877,111 @@ fn snapshot_the_lightning_without_the_shaders() {
         hour(0.25),
         &[(near, SEEDS[0])],
         None,
+    );
+}
+
+/// The volume each loop of the weather plays at now, and whether it plays.
+fn loops_heard(h: &mut Harness) -> Vec<(Sound, f32, Option<bool>)> {
+    let world = h.world_mut();
+    let mut heard: Vec<_> = world
+        .query::<(&WeatherLoop, Option<&AudioSink>)>()
+        .iter(world)
+        .map(|(playing, sink)| (playing.sound, playing.volume, sink.map(|s| !s.is_paused())))
+        .collect();
+    heard.sort_by_key(|(sound, ..)| format!("{sound:?}"));
+    heard
+}
+
+/// The loops once their volumes eased to where they go.
+fn settled_loops(h: &mut Harness) -> Vec<(Sound, f32, Option<bool>)> {
+    let mut last = loops_heard(h);
+    for _ in 0..100 {
+        h.frames(10);
+        let heard = loops_heard(h);
+        if heard == last {
+            break;
+        }
+        last = heard;
+    }
+    last
+}
+
+fn volume_of(heard: &[(Sound, f32, Option<bool>)], sound: Sound) -> f32 {
+    heard.iter().find(|(s, ..)| *s == sound).unwrap().1
+}
+
+#[test]
+#[ignore = "plays sounds: cargo test -p client e2e::weather -- --ignored"]
+fn the_rain_is_heard_in_the_open_and_drums_on_a_roof_and_the_thunder_follows() {
+    let (mut h, camera, v) = start(ShaderQuality::Off);
+    let world = h.world_mut();
+    *world.get_mut::<Transform>(camera).unwrap() = Transform::from_translation(v.eye);
+    world.insert_resource(HeldWeather(ClientWeather::settled(WeatherKind::Clear)));
+    let clear = settled_loops(&mut h);
+    assert_eq!(clear.len(), 3, "{clear:?}");
+    assert!(
+        clear
+            .iter()
+            .all(|(_, volume, playing)| *volume == 0. && *playing != Some(true)),
+        "{clear:?}"
+    );
+
+    h.world_mut()
+        .insert_resource(HeldWeather(ClientWeather::settled(WeatherKind::Thunder)));
+    let open = settled_loops(&mut h);
+    eprintln!("in the open: {open:?}");
+    assert!(volume_of(&open, Sound::Rain) > 0.5, "{open:?}");
+    assert_eq!(volume_of(&open, Sound::RainIndoors), 0., "{open:?}");
+    assert!(volume_of(&open, Sound::Wind) > 0.2, "{open:?}");
+    assert!(
+        open.iter()
+            .all(|(_, volume, playing)| *volume == 0. || *playing != Some(false)),
+        "{open:?}"
+    );
+
+    // A hut of planks around the eye
+    let feet = v.eye.floor().as_ivec3() - IVec3::Y;
+    let mut hut = Vec::new();
+    for x in -3_i32..=3 {
+        for z in -3_i32..=3 {
+            for y in 0..=4 {
+                let shell = x.abs() == 3 || z.abs() == 3 || y == 4;
+                let block = shell.then_some(BlockId::OakPlanks);
+                hut.push((feet + IVec3::new(x, y, z), block));
+            }
+        }
+    }
+    place(&mut h, hut);
+    let inside = settled_loops(&mut h);
+    eprintln!("inside: {inside:?}");
+    assert_eq!(volume_of(&inside, Sound::Rain), 0., "{inside:?}");
+    assert!(volume_of(&inside, Sound::RainIndoors) > 0.5, "{inside:?}");
+    assert!(volume_of(&inside, Sound::Wind) < volume_of(&open, Sound::Wind));
+
+    // A strike 100 blocks away is heard about 0.3 s later, from its side
+    let struck = v.eye.floor().as_ivec3() + IVec3::new(100, 0, 0);
+    h.world_mut().write_message(Strike {
+        at: struck,
+        seed: 1,
+    });
+    let start = Instant::now();
+    let heard = loop {
+        h.frames(1);
+        let world = h.world_mut();
+        let emitters: Vec<Vec3> = world
+            .query_filtered::<&Transform, With<ThunderFrom>>()
+            .iter(world)
+            .map(|transform| transform.translation)
+            .collect();
+        if let Some(&emitter) = emitters.first() {
+            break (start.elapsed().as_secs_f32(), emitter);
+        }
+        assert!(start.elapsed().as_secs() < 5, "no thunder");
+    };
+    eprintln!("thunder after {:.2} s at {}", heard.0, heard.1 - v.eye);
+    assert!(heard.0 > 0.2, "{heard:?}");
+    assert!(
+        (heard.1 - (v.eye + Vec3::X * 2.)).length() < 0.1,
+        "{heard:?}"
     );
 }

@@ -168,6 +168,7 @@ impl Bolt {
     }
 
     /// Every point of every channel.
+    #[cfg(test)]
     pub fn points(&self) -> impl Iterator<Item = &BoltPoint> {
         self.branches.iter().flat_map(|branch| &branch.points)
     }
@@ -310,6 +311,7 @@ impl Strokes {
     }
 
     /// When each stroke peaks, in seconds after the strike.
+    #[cfg(test)]
     pub fn peaks(&self) -> impl Iterator<Item = f32> + '_ {
         self.peaks.iter().map(|&(at, _)| at)
     }
