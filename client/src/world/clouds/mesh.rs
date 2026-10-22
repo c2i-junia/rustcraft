@@ -6,7 +6,7 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    field::{banded_density, NEVER},
+    field::{banded_density, clear_density, NEVER},
     ALTITUDE, CELL, SHADE_BOTTOM, SHADE_EAST_WEST, SHADE_NORTH_SOUTH, SHADE_TOP, THICKNESS,
 };
 
@@ -198,10 +198,16 @@ pub fn quads(
 }
 
 /// The mesh of the clouds within `radius` cells of `centre`, in blocks of the pattern: cell `c`
-/// spans the blocks `c * CELL` to `(c + 1) * CELL`. It holds every cell full at some threshold
-/// of the weather, which the shader picks among. `None` when there is nothing to draw.
-pub fn cloud_mesh(style: CloudStyle, centre: IVec2, radius: i32) -> Option<Mesh> {
-    let quads = quads(style, centre, radius, banded_density);
+/// spans the blocks `c * CELL` to `(c + 1) * CELL`. `banded`, it holds every cell full at some
+/// threshold of the weather, which the shader picks among; else only those of a clear sky,
+/// about a seventh of the faces, which are the same at the clear threshold. `None` when there
+/// is nothing to draw.
+pub fn cloud_mesh(style: CloudStyle, centre: IVec2, radius: i32, banded: bool) -> Option<Mesh> {
+    let quads = if banded {
+        quads(style, centre, radius, banded_density)
+    } else {
+        quads(style, centre, radius, clear_density)
+    };
     if quads.is_empty() {
         return None;
     }
@@ -318,7 +324,7 @@ mod tests {
     #[test]
     fn off_draws_nothing() {
         assert!(quads(CloudStyle::Off, IVec2::ZERO, 8, |_| ALWAYS).is_empty());
-        assert!(cloud_mesh(CloudStyle::Off, IVec2::ZERO, 8).is_none());
+        assert!(cloud_mesh(CloudStyle::Off, IVec2::ZERO, 8, true).is_none());
     }
 
     #[test]
@@ -366,7 +372,7 @@ mod tests {
 
     #[test]
     fn the_mesh_has_a_shade_for_each_position() {
-        let mesh = cloud_mesh(CloudStyle::Fancy, IVec2::ZERO, 20).expect("some clouds");
+        let mesh = cloud_mesh(CloudStyle::Fancy, IVec2::ZERO, 20, true).expect("some clouds");
         let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().len();
         let Some(VertexAttributeValues::Float32(shades)) = mesh.attribute(ATTRIBUTE_SHADE) else {
             panic!("no shades");
@@ -385,7 +391,7 @@ mod tests {
 
     #[test]
     fn the_mesh_has_the_densities_of_each_face() {
-        let mesh = cloud_mesh(CloudStyle::Fancy, IVec2::ZERO, 20).expect("some clouds");
+        let mesh = cloud_mesh(CloudStyle::Fancy, IVec2::ZERO, 20, true).expect("some clouds");
         let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().len();
         let Some(VertexAttributeValues::Float32x2(densities)) = mesh.attribute(ATTRIBUTE_DENSITIES)
         else {
@@ -468,6 +474,26 @@ mod tests {
             .collect();
         assert_eq!(now.len(), before.len());
         assert_eq!(area(&now, IVec3::Y), area(&before, IVec3::Y));
+    }
+
+    #[test]
+    fn under_a_clear_sky_the_mesh_is_that_of_the_clouds_of_a_clear_sky_only() {
+        // the window of a render distance of 16 chunks, and of the farthest reach: 1,778 and
+        // 6,366 quads under a clear sky, 14,026 and 53,378 overcast
+        for radius in [44, 87] {
+            let centre = IVec2::new(13, -40);
+            let count = |banded| {
+                let mesh = cloud_mesh(CloudStyle::Fancy, centre, radius, banded).unwrap();
+                mesh.count_vertices() / 4
+            };
+            let (clear, overcast) = (count(false), count(true));
+            assert!(clear * 6 < overcast, "{clear} of {overcast}");
+            let clear_cells = |c| if is_full(c) { ALWAYS } else { NEVER };
+            assert_eq!(
+                clear,
+                quads(CloudStyle::Fancy, centre, radius, clear_cells).len()
+            );
+        }
     }
 
     #[test]

@@ -48,6 +48,16 @@ pub fn banded_density(cell: IVec2) -> f32 {
     }
 }
 
+/// The density of `cell` as the mesh of a clear sky holds it: `ALWAYS` for a cell full under a
+/// clear sky, `NEVER` for the others.
+pub fn clear_density(cell: IVec2) -> f32 {
+    if density(cell) > CLEAR_THRESHOLD {
+        ALWAYS
+    } else {
+        NEVER
+    }
+}
+
 /// Value noise in `[-1, 1]`: random values on a lattice that wraps around every period, smoothly
 /// interpolated between its points.
 pub fn density(cell: IVec2) -> f32 {

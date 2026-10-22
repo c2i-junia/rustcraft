@@ -474,3 +474,11 @@ of the lot, not an afterthought. Pictures to cover, as each lot makes them possi
 74. Changing 7 and 67: a strike is seen and heard within 1,500 blocks along the ground
     (`LIGHTNING_REACH`, in `shared`): the server tells it only to the players within it, and
     on the client its flash fades out from halfway to it, so that no strike flashes unheard.
+75. Adding to 11 and 31: under a clear sky the clouds' mesh holds only the cells full under a
+    clear sky, the mesh of before the weather (1,778 quads for a render distance of 16 against
+    14,026); it is rebuilt with the cells of every weather as soon as the threshold leaves the
+    clear one, and back once it is there again, a rebuild like that of the camera changing
+    cell, at a threshold where both show the same faces. Rounding the densities of the band to
+    8 or 16 levels, so that faces merge, saved only 28 % or 16 % of the quads: neighbouring
+    cells differ by about 0.08 of density, more than a level, and the steps would have made the
+    clouds come in by bands.

@@ -79,8 +79,9 @@ const STORM_SHADE: Vec3 = Vec3::new(0.7, 0.74, 0.82);
 /// the drift.
 #[derive(Component, Default)]
 pub struct Clouds {
-    /// The style, the centre cell and the radius, in cells, of the window the mesh holds.
-    window: Option<(CloudStyle, IVec2, i32)>,
+    /// The style, the centre cell and the radius, in cells, of the window the mesh holds, and
+    /// whether it holds the cells of every weather (`cloud_mesh`).
+    window: Option<(CloudStyle, IVec2, i32, bool)>,
 }
 
 /// The clouds, drawn while in game.
@@ -195,11 +196,15 @@ fn drift_clouds_system(
 }
 
 /// Builds the mesh of the cells within reach of the camera again when the camera has moved to
-/// another cell of the pattern, or the reach or the style has changed. Only the Fancy clouds
-/// draw their depth first: the quads of the Fast ones never overlap.
+/// another cell of the pattern, or the reach or the style has changed, or the sky has started
+/// or stopped to be overcast: under a clear sky the mesh holds only the clouds of a clear sky,
+/// and as soon as it clouds over those of every weather. Only the Fancy clouds draw their depth
+/// first: the quads of the Fast ones never overlap.
+#[allow(clippy::too_many_arguments)]
 fn rebuild_clouds_system(
     cameras: Query<&Transform, (With<Camera3d>, Without<Clouds>)>,
     style: Res<CloudStyle>,
+    weather: Option<Res<ClientWeather>>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut clouds: Query<(Entity, &mut Clouds, &Transform, &Children)>,
@@ -212,17 +217,19 @@ fn rebuild_clouds_system(
     let reach = current_reach(&render_distance, server_limit);
     // so that the window covers the reach from anywhere in the cell of the camera
     let radius = (reach / CELL as f32).ceil() as i32 + 1;
+    let banded = threshold(Overcast::current(weather.as_deref())) < field::CLEAR_THRESHOLD;
     for (entity, mut clouds, transform, children) in &mut clouds {
         let window = (
             *style,
             camera_cell(camera.translation, transform.translation.x),
             radius,
+            banded,
         );
         if clouds.window == Some(window) {
             continue;
         }
         clouds.window = Some(window);
-        let mesh = cloud_mesh(window.0, window.1, window.2).map(|m| meshes.add(m));
+        let mesh = cloud_mesh(window.0, window.1, window.2, window.3).map(|m| meshes.add(m));
         // the depth is drawn with the same mesh
         let depth = children.iter().filter(|_| *style == CloudStyle::Fancy);
         for drawing in children.iter().filter(|_| *style != CloudStyle::Fancy) {
@@ -463,6 +470,34 @@ mod tests {
         app.insert_resource(ServerRenderDistanceLimit(2));
         app.update();
         assert_ne!(mesh(&mut app), second);
+    }
+
+    fn quads_of_the_mesh(app: &mut App) -> usize {
+        let handle = mesh(app);
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        meshes.get(&handle).unwrap().count_vertices() / 4
+    }
+
+    #[test]
+    fn the_mesh_holds_the_cells_of_every_weather_only_while_the_sky_is_overcast() {
+        let mut app = app();
+        let clear = quads_of_the_mesh(&mut app);
+        let mut weather = ClientWeather::settled(WeatherKind::Clear);
+        app.insert_resource(weather.clone());
+        app.update();
+        assert_eq!(quads_of_the_mesh(&mut app), clear);
+        // the first wisp of overcast brings the cells of every weather in
+        weather.rain = 0.01;
+        app.insert_resource(weather.clone());
+        app.update();
+        let overcast = quads_of_the_mesh(&mut app);
+        assert!(overcast > 3 * clear, "{overcast} {clear}");
+        app.insert_resource(ClientWeather::settled(WeatherKind::Thunder));
+        app.update();
+        assert_eq!(quads_of_the_mesh(&mut app), overcast);
+        app.insert_resource(ClientWeather::settled(WeatherKind::Clear));
+        app.update();
+        assert_eq!(quads_of_the_mesh(&mut app), clear);
     }
 
     #[test]
