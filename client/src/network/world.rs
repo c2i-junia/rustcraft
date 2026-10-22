@@ -187,6 +187,8 @@ pub fn update_world_from_network(
                 // and the walls under them follow
                 world.blocks.portals_mut().replace(portals);
             }
+            // Not drawn yet
+            ServerToClientMessage::PortalShot { .. } => {}
         }
     }
 }

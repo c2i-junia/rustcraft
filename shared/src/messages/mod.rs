@@ -4,9 +4,9 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::world::{MobId, Portal, WeatherKind};
+use crate::world::{MobId, Portal, PortalColor, WeatherKind};
 pub use auth::*;
-use bevy::math::IVec3;
+use bevy::math::{IVec3, Vec3};
 pub use chat::*;
 use mob::MobUpdateEvent;
 pub use player::*;
@@ -58,6 +58,15 @@ pub enum ServerToClientMessage {
     /// Every portal of the world: sent to everyone when one changed, and to a player when it
     /// joins. The client's portals become these.
     PortalUpdates(Vec<Portal>),
+    /// A shot of the portal gun by `shooter` (`players::blocks::PortalShot`), sent to every
+    /// player but the shooter, who predicted it, before the `PortalUpdates` it may cause.
+    PortalShot {
+        shooter: PlayerId,
+        from: Vec3,
+        to: Vec3,
+        color: PortalColor,
+        placed: bool,
+    },
 }
 
 #[cfg(test)]
@@ -183,6 +192,16 @@ mod tests {
                 12,
             ),
             (ServerToClientMessage::PortalUpdates(vec![]), 13),
+            (
+                ServerToClientMessage::PortalShot {
+                    shooter: 0,
+                    from: Vec3::ZERO,
+                    to: Vec3::ZERO,
+                    color: PortalColor::Blue,
+                    placed: false,
+                },
+                14,
+            ),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -338,5 +357,19 @@ mod tests {
         let bytes = bincode::options().serialize(&drag).unwrap();
         let back: InventoryAction = bincode::options().deserialize(&bytes).unwrap();
         assert_eq!(back, drag);
+    }
+
+    #[test]
+    fn a_portal_shot_reaches_a_client_as_it_was_sent() {
+        let shot = ServerToClientMessage::PortalShot {
+            shooter: 3,
+            from: Vec3::new(1.0, 2.5, -3.0),
+            to: Vec3::new(20.25, 11.0, 7.5),
+            color: PortalColor::Orange,
+            placed: true,
+        };
+        let payload = crate::game_message_to_payload(shot.clone());
+        let received = crate::payload_to_game_message::<ServerToClientMessage>(&payload).unwrap();
+        assert_eq!(format!("{received:?}"), format!("{shot:?}"));
     }
 }
