@@ -234,8 +234,8 @@ fn features(graphics: &GraphicsSettings) -> ShaderFeatures {
 ///
 /// A portal camera draws what the player's camera would see through the portal, into an image
 /// that the player's camera shows as it is (`portal.wgsl`): it gets what makes the picture,
-/// the physical sky (its light shared, `share_the_environment_map`) and the ambient occlusion,
-/// but not the rays of light (below), and leaves to the
+/// the physical sky (its light shared, `share_the_environment_map`), the rays of light and the
+/// ambient occlusion, and leaves to the
 /// player's camera what it does to the whole screen, the portals included: the tonemapping
 /// (`place_portal_cameras`), the grading of the colours, the bloom and the smoothing of the
 /// edges. With the physical sky, its image holds the colours before the tonemapping, in 16-bit
@@ -323,14 +323,14 @@ fn apply_camera_features(
                 ..default()
             });
         }
-        // Bevy's rays of light end where the depth says, which it reads with the near distance
-        // of the projection only: through the oblique near plane of a portal camera, they would
-        // end at once. A portal camera draws none
-        if let Some(step_count) = features.god_rays.filter(|_| !portal) {
+        // A portal camera draws the rays of light too, through its oblique near plane
+        // (`volumetric_fog.rs`), the view through the portal hazed as the world is. Its rays
+        // start where they start, unjittered: TAA, which smooths the jitter, is the player's
+        if let Some(step_count) = features.god_rays {
             entity.insert(VolumetricFog {
                 ambient_intensity: 0.,
                 step_count,
-                jitter: if features.antialiasing == Antialiasing::Taa {
+                jitter: if features.antialiasing == Antialiasing::Taa && !portal {
                     0.5
                 } else {
                     0.
@@ -454,8 +454,8 @@ fn apply_atmosphere(
 }
 
 /// The haze lit by the sun, a layer over the ground around the camera of the world, the player's
-/// (or the bench's), never a portal camera. The portal cameras draw no rays of light
-/// (`apply_camera_features`), so they never show it.
+/// (or the bench's), never a portal camera. The portal cameras draw it too where they see it
+/// (`apply_camera_features`): through a close portal, as the player would straight on.
 #[derive(Component)]
 struct GodRayVolume;
 
@@ -859,10 +859,17 @@ mod tests {
             |app: &App| app.world().entity(portal).contains::<EnvironmentMapLight>();
         assert_eq!(has(&app, main), (true, true, true, true, true, true));
         // The sky comes a frame later
-        assert_eq!(has(&app, portal), (true, false, false, false, true, false));
+        assert_eq!(has(&app, portal), (true, false, false, true, true, false));
         assert_eq!(app.world().get::<Msaa>(portal), Some(&Msaa::Off));
+        // The rays of light as many steps as the player's, unjittered: no TAA smooths them
+        let rays = |camera: Entity| {
+            let fog = app.world().get::<VolumetricFog>(camera).unwrap();
+            (fog.step_count, fog.jitter)
+        };
+        assert_eq!(rays(main), (48, 0.5));
+        assert_eq!(rays(portal), (48, 0.));
         app.update();
-        assert_eq!(has(&app, portal), (true, false, false, false, true, true));
+        assert_eq!(has(&app, portal), (true, false, false, true, true, true));
         app.update();
         assert!(app.world().entity(portal).contains::<AtmosphereSettings>());
         // The environment map of the sky is the player's camera's, not one of its own, once
