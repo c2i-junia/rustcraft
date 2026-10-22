@@ -31,7 +31,7 @@ use crate::world::{
 };
 
 use super::lighting::{chunks_lighting, LightVolume, TerrainPrior, TerrainSurfaces, MAX_LIGHT};
-use super::meshing::{ChunkMeshResponse, Lighting};
+use super::meshing::{BlockLooks, ChunkMeshResponse, Lighting};
 
 #[derive(Debug)]
 pub struct MeshingTask {
@@ -497,7 +497,7 @@ pub fn world_render_system(
         let alone = queued_meshes.meshes.is_empty() && groups.len() == 1;
         queued_meshes.meshes.extend(spawn_meshing_tasks(
             &world_map.blocks,
-            &block_textures.tiles,
+            &block_textures.looks,
             groups,
             (surfaces.clone(), graphics.smooth_lighting, alone),
         ));
@@ -618,7 +618,7 @@ pub(crate) static MESHES_SHOWN: std::sync::atomic::AtomicUsize =
 /// instead would stall the frame once it is large.
 pub(super) fn spawn_meshing_tasks(
     blocks: &ChunkMap,
-    tiles: &HashMap<String, u32>,
+    looks: &Arc<BlockLooks>,
     groups: Vec<(IVec2, Vec<IVec3>)>,
     (surfaces, smooth, alone): (Option<Arc<TerrainSurfaces>>, bool, bool),
 ) -> Vec<MeshingTask> {
@@ -638,7 +638,6 @@ pub(super) fn spawn_meshing_tasks(
         }
     }
     let shared_blocks = Arc::new(nearby);
-    let shared_tiles = Arc::new(tiles.clone());
 
     groups
         .into_iter()
@@ -646,7 +645,7 @@ pub(super) fn spawn_meshing_tasks(
             #[cfg(test)]
             MESHES_STARTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let blocks = Arc::clone(&shared_blocks);
-            let tiles = Arc::clone(&shared_tiles);
+            let looks = Arc::clone(looks);
             let surfaces = surfaces.clone();
             MeshingTask {
                 group,
@@ -662,7 +661,7 @@ pub(super) fn spawn_meshing_tasks(
                             .into_iter()
                             .map(|chunk_pos| {
                                 let blocks = Arc::clone(&blocks);
-                                let tiles = Arc::clone(&tiles);
+                                let looks = Arc::clone(&looks);
                                 let light = Arc::clone(&light);
                                 pool.spawn(async move {
                                     let lighting = Lighting {
@@ -670,7 +669,7 @@ pub(super) fn spawn_meshing_tasks(
                                         smooth,
                                     };
                                     world::meshing::chunk_faces_at(
-                                        &blocks, chunk_pos, &tiles, lighting,
+                                        &blocks, chunk_pos, &looks, lighting,
                                     )
                                     .map(|faces| (chunk_pos, faces))
                                 })
@@ -687,7 +686,7 @@ pub(super) fn spawn_meshing_tasks(
                             smooth,
                         };
                         meshed.extend(chunks.into_iter().filter_map(|chunk_pos| {
-                            world::meshing::chunk_faces_at(&blocks, chunk_pos, &tiles, lighting)
+                            world::meshing::chunk_faces_at(&blocks, chunk_pos, &looks, lighting)
                                 .map(|faces| (chunk_pos, faces))
                         }));
                     }
@@ -971,11 +970,14 @@ mod tests {
         world.set_block(IVec3::new(CHUNK_SIZE - 1, 5, 5), stone);
         // Against the block above, in the next chunk
         world.set_block(IVec3::new(CHUNK_SIZE, 5, 5), stone);
-        let tiles = HashMap::from([("_Default".to_string(), 0)]);
+        let looks = Arc::new(BlockLooks::new(&HashMap::from([(
+            "_Default".to_string(),
+            0,
+        )])));
 
         let tasks = spawn_meshing_tasks(
             &world,
-            &tiles,
+            &looks,
             vec![(IVec2::ZERO, vec![IVec3::ZERO])],
             (None, true, true),
         );
@@ -985,7 +987,7 @@ mod tests {
             &world,
             world.chunk(IVec3::ZERO).unwrap(),
             &IVec3::ZERO,
-            &tiles,
+            &looks,
         );
         assert_eq!(
             meshes.solid_mesh.unwrap().count_vertices(),
@@ -1008,13 +1010,16 @@ mod tests {
             world.insert_chunk(chunk_pos, Default::default());
             world.set_block(chunk_pos * CHUNK_SIZE, stone);
         }
-        let tiles = HashMap::from([("_Default".to_string(), 0)]);
+        let looks = Arc::new(BlockLooks::new(&HashMap::from([(
+            "_Default".to_string(),
+            0,
+        )])));
         let group = group_of(chunks[0]);
         assert_eq!(group, group_of(chunks[1]));
 
         let tasks = spawn_meshing_tasks(
             &world,
-            &tiles,
+            &looks,
             vec![(group, chunks.to_vec())],
             (None, true, true),
         );

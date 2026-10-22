@@ -3,9 +3,8 @@
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use shared::world::{BlockData, BlockDirection, BlockId, BlockTransparency};
+use shared::world::{BlockId, BlockTransparency};
 
-use crate::world::voxel::VoxelShape;
 use crate::world::MaterialResource;
 
 /// The colour of a block whose texture could not be read.
@@ -66,7 +65,7 @@ pub fn compute_minimap_colors(
         return;
     };
     let colors = BlockId::ALL.into_iter().filter_map(|id| {
-        let shape = VoxelShape::create_from_block(&BlockData::new(id, BlockDirection::Front));
+        let shape = blocks.looks.shape(id);
         // the top face of a cube, or the only face of a plant
         let top = shape.faces.first()?;
         let image = images.get(blocks.handles.get(&top.texture)?)?;

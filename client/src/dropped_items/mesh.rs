@@ -61,7 +61,7 @@ fn cube_look(
     let ItemType::Block(block) = item.get_default_type() else {
         return None;
     };
-    let mesh = block_item_mesh(block, &materials.blocks.as_ref()?.tiles)?;
+    let mesh = block_item_mesh(block, &materials.blocks.as_ref()?.looks)?;
     let material = materials.chunk_materials.get(&GlobalMaterial::Blocks)?;
     Some(ItemLook::Cube(meshes.add(mesh), material.clone()))
 }

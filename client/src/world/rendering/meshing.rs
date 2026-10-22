@@ -10,7 +10,7 @@ use bevy::{
 use shared::{
     world::{
         liquid::corner_heights, to_global_pos, BlockData, BlockDirection, BlockId,
-        BlockTransparency, Chunk, ChunkMap, SIX_OFFSETS,
+        BlockTransparency, Chunk, ChunkMap, MAX_BREAKING_LEVEL, SIX_OFFSETS,
     },
     CHUNK_SIZE,
 };
@@ -227,9 +227,9 @@ impl MeshCreator {
 /// block wide and centred on the origin, drawn with the chunk material. `None` for a block that
 /// is not a whole cube, such as a flower, which is shown as a picture instead. An item keeps
 /// its colour wherever it lies, and is lit as under the open sky.
-pub(crate) fn block_item_mesh(block: BlockId, tiles: &HashMap<String, u32>) -> Option<Mesh> {
+pub(crate) fn block_item_mesh(block: BlockId, looks: &BlockLooks) -> Option<Mesh> {
     let block = BlockData::new(block, BlockDirection::Front);
-    let mut look = BlockLook::new(&block, tiles);
+    let mut look = looks.get(block.id).clone();
     if look
         .shape
         .faces
@@ -334,6 +334,7 @@ impl Neighbourhood {
 
 /// How a kind of block is drawn: its shape, and the block texture of each of its faces, `None` for
 /// a face that the texture pack cannot draw.
+#[derive(Clone)]
 struct BlockLook {
     shape: VoxelShape,
     tiles: Vec<Option<u32>>,
@@ -372,6 +373,45 @@ impl BlockLook {
             tiles,
             overlays,
         }
+    }
+}
+
+/// How every kind of block is drawn with the block textures of a texture pack, by `BlockId`:
+/// made once with the textures, and read by every chunk mesh and every block item.
+pub(crate) struct BlockLooks {
+    /// By `BlockId`, in the order of `BlockId::ALL`.
+    looks: Vec<BlockLook>,
+    /// The block texture of the cracks of each breaking stage, `None` where the pack lacks it.
+    cracks: [Option<u32>; MAX_BREAKING_LEVEL as usize + 1],
+}
+
+impl BlockLooks {
+    /// The looks of the blocks drawn with the block textures `tiles`, the index of each by name.
+    pub(crate) fn new(tiles: &HashMap<String, u32>) -> Self {
+        let looks = BlockId::ALL
+            .iter()
+            .map(|id| BlockLook::new(&BlockData::new(*id, BlockDirection::Front), tiles))
+            .collect();
+        let cracks =
+            std::array::from_fn(|stage| tiles.get(&format!("DestroyStage{stage}")).copied());
+        Self { looks, cracks }
+    }
+
+    fn get(&self, id: BlockId) -> &BlockLook {
+        &self.looks[id as usize]
+    }
+
+    /// The shape of `id`, with the names of the textures of its faces.
+    pub(crate) fn shape(&self, id: BlockId) -> &VoxelShape {
+        &self.get(id).shape
+    }
+}
+
+impl std::fmt::Debug for BlockLooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockLooks")
+            .field("cracks", &self.cracks)
+            .finish_non_exhaustive()
     }
 }
 
@@ -541,7 +581,7 @@ pub(crate) struct Lighting<'a> {
 }
 
 /// The mesh of `chunk`: the faces of its blocks that are not hidden by a neighbouring block,
-/// in this chunk or in the ones around it. `tiles` gives the index of each block texture. Every
+/// in this chunk or in the ones around it, each block drawn as `looks` says. Every
 /// face is lit as under the open sky.
 ///
 /// Neighbouring faces of whole blocks that look the same are merged into one rectangle (greedy
@@ -551,13 +591,13 @@ pub(crate) fn generate_chunk_mesh(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
-    tiles: &HashMap<String, u32>,
+    looks: &BlockLooks,
 ) -> ChunkMeshResponse {
     let lighting = Lighting {
         volume: &LightVolume::open_sky(),
         smooth: true,
     };
-    mesh_chunk(world_map, chunk, chunk_pos, tiles, lighting, true)
+    mesh_chunk(world_map, chunk, chunk_pos, looks, lighting, true)
 }
 
 /// `generate_chunk_mesh`, with the faces lit smoothly by the light of the chunk and of those
@@ -567,7 +607,7 @@ pub(crate) fn generate_lit_chunk_mesh(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
-    tiles: &HashMap<String, u32>,
+    looks: &BlockLooks,
 ) -> ChunkMeshResponse {
     let prior = &mut super::lighting::TerrainPrior::new(None);
     let volume = LightVolume::of_chunks(world_map, &[*chunk_pos], prior);
@@ -575,7 +615,7 @@ pub(crate) fn generate_lit_chunk_mesh(
         volume: &volume,
         smooth: true,
     };
-    mesh_chunk(world_map, chunk, chunk_pos, tiles, lighting, true)
+    mesh_chunk(world_map, chunk, chunk_pos, looks, lighting, true)
 }
 
 /// The faces of a chunk, solid and liquid, before they are drawn with those of its group.
@@ -586,11 +626,11 @@ pub(crate) struct ChunkFaces(MeshCreator, MeshCreator);
 pub(crate) fn chunk_faces_at(
     world_map: &ChunkMap,
     chunk_pos: IVec3,
-    tiles: &HashMap<String, u32>,
+    looks: &BlockLooks,
     lighting: Lighting,
 ) -> Option<ChunkFaces> {
     let chunk = world_map.chunk(chunk_pos)?;
-    let (solid, liquid) = chunk_faces(world_map, chunk, &chunk_pos, tiles, lighting, true);
+    let (solid, liquid) = chunk_faces(world_map, chunk, &chunk_pos, looks, lighting, true);
     Some(ChunkFaces(solid, liquid))
 }
 
@@ -619,12 +659,12 @@ fn mesh_chunk(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
-    tiles: &HashMap<String, u32>,
+    looks: &BlockLooks,
     lighting: Lighting,
     merge: bool,
 ) -> ChunkMeshResponse {
     let start = std::time::Instant::now();
-    let (solid, liquid) = chunk_faces(world_map, chunk, chunk_pos, tiles, lighting, merge);
+    let (solid, liquid) = chunk_faces(world_map, chunk, chunk_pos, looks, lighting, merge);
     let response = ChunkMeshResponse {
         solid_mesh: solid.build(),
         liquid_mesh: liquid.build(),
@@ -638,12 +678,11 @@ fn chunk_faces(
     world_map: &ChunkMap,
     chunk: &Chunk,
     chunk_pos: &IVec3,
-    tiles: &HashMap<String, u32>,
+    looks: &BlockLooks,
     lighting: Lighting,
     merge: bool,
 ) -> (MeshCreator, MeshCreator) {
     let blocks = Neighbourhood::new(world_map, chunk, *chunk_pos);
-    let mut looks: bevy::platform::collections::HashMap<BlockId, BlockLook> = default();
     let mut lowered_shapes: bevy::platform::collections::HashMap<(BlockId, [u32; 4]), VoxelShape> =
         default();
     let mut solid = MeshCreator::default();
@@ -673,12 +712,10 @@ fn chunk_faces(
         // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
         // faces. A custom texture folder may lack the texture: no cracks then.
         let cracks = (block.breaking_progress > 0)
-            .then(|| tiles.get(&format!("DestroyStage{}", block.get_breaking_level())))
+            .then(|| looks.cracks[block.get_breaking_level() as usize])
             .flatten();
 
-        let look = looks
-            .entry(block.id)
-            .or_insert_with(|| BlockLook::new(block, tiles));
+        let look = looks.get(block.id);
         let corners = (visibility == BlockTransparency::Liquid)
             .then(|| corner_heights(world_map, to_global_pos(chunk_pos, &local_block_pos)))
             .flatten();
@@ -735,7 +772,7 @@ fn chunk_faces(
             }
             mesh_creator.push_face(face, tile, *overlay, origin, &block.direction, &lights);
             if let Some(cracks) = cracks {
-                mesh_creator.push_face(face, *cracks, None, origin, &block.direction, &lights);
+                mesh_creator.push_face(face, cracks, None, origin, &block.direction, &lights);
             }
         }
     }
@@ -975,9 +1012,30 @@ mod tests {
         chunk.set(IVec3::new(1, 1, 1), block);
         let mut world = ChunkMap::default();
         world.insert_chunk(IVec3::ZERO, chunk.clone());
-        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, tiles)
+        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(tiles))
             .solid_mesh
             .map_or(0, |mesh| mesh.count_vertices())
+    }
+
+    #[test]
+    fn each_block_has_the_look_made_from_its_own_shape() {
+        let tiles: HashMap<String, u32> = BlockId::ALL
+            .iter()
+            .map(|id| format!("{id:?}"))
+            .chain(["DestroyStage3".to_string()])
+            .zip(0..)
+            .collect();
+        let looks = BlockLooks::new(&tiles);
+        for id in BlockId::ALL {
+            let shape = VoxelShape::create_from_block(&BlockData::new(id, BlockDirection::Front));
+            let textures: Vec<_> = looks.shape(id).faces.iter().map(|f| &f.texture).collect();
+            let expected: Vec<_> = shape.faces.iter().map(|f| &f.texture).collect();
+            assert_eq!(textures, expected, "{id:?}");
+        }
+        let cracks: Vec<_> = (0..=MAX_BREAKING_LEVEL as usize)
+            .filter_map(|stage| looks.cracks[stage].map(|tile| (stage, tile)))
+            .collect();
+        assert_eq!(cracks, [(3, tiles["DestroyStage3"])]);
     }
 
     #[test]
@@ -1003,7 +1061,7 @@ mod tests {
         world.insert_chunk(IVec3::ZERO, chunk.clone());
         let mut tiles = HashMap::new();
         tiles.insert("_Default".to_string(), 0);
-        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+        generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
     }
 
     fn vertices(mesh: &Option<Mesh>) -> usize {
@@ -1131,7 +1189,7 @@ mod tests {
         let mut world = ChunkMap::default();
         world.insert_chunk(IVec3::ZERO, chunk.clone());
         let tiles = HashMap::from([("_Default".to_string(), 0)]);
-        let water = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles);
+        let water = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles));
 
         let mut heights: HashMap<[i32; 2], f32> = HashMap::new();
         let tops = top_vertices(&water.liquid_mesh);
@@ -1290,8 +1348,22 @@ mod tests {
                 volume: &volume,
                 smooth: true,
             };
-            let merged = mesh_chunk(&world, chunk, &center, &tiles, lighting, true);
-            let squares = mesh_chunk(&world, chunk, &center, &tiles, lighting, false);
+            let merged = mesh_chunk(
+                &world,
+                chunk,
+                &center,
+                &BlockLooks::new(&tiles),
+                lighting,
+                true,
+            );
+            let squares = mesh_chunk(
+                &world,
+                chunk,
+                &center,
+                &BlockLooks::new(&tiles),
+                lighting,
+                false,
+            );
             assert!(vertices(&merged.solid_mesh) < vertices(&squares.solid_mesh));
             water += vertices(&squares.liquid_mesh);
             for (merged, squares) in [
@@ -1364,7 +1436,7 @@ mod tests {
             world.set_block(block + offset, stone);
 
             let chunk = world.chunk(IVec3::ZERO).unwrap();
-            let mesh = generate_chunk_mesh(&world, chunk, &IVec3::ZERO, &tiles);
+            let mesh = generate_chunk_mesh(&world, chunk, &IVec3::ZERO, &BlockLooks::new(&tiles));
             assert_eq!(vertices(&mesh.solid_mesh), 5 * 4, "{offset}");
         }
     }
@@ -1383,7 +1455,7 @@ mod tests {
             .iter()
             .map(|(name, tile)| (name.to_string(), *tile))
             .collect();
-        let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+        let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
             .solid_mesh
             .unwrap();
         let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
@@ -1438,7 +1510,7 @@ mod tests {
     fn an_item_keeps_its_colour_and_is_lit_as_under_the_sky_wherever_it_lies() {
         let tiles = HashMap::from([("_Default".to_string(), 0)]);
         for block in [BlockId::Grass, BlockId::OakLeaves] {
-            let mesh = block_item_mesh(block, &tiles).unwrap();
+            let mesh = block_item_mesh(block, &BlockLooks::new(&tiles)).unwrap();
             let Some(bevy::mesh::VertexAttributeValues::Unorm16x2(tiles)) = mesh.attribute(TILE)
             else {
                 panic!("no tiles");
@@ -1462,7 +1534,7 @@ mod tests {
         let mut world = ChunkMap::default();
         world.insert_chunk(IVec3::ZERO, chunk.clone());
         let tiles = HashMap::from([("_Default".to_string(), 0)]);
-        generate_lit_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+        generate_lit_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
     }
 
     /// The light of the vertices of the faces of `mesh` that look along `normal`, by position.
@@ -1638,7 +1710,7 @@ mod tests {
             chunk.set(vine, BlockData::new(BlockId::Vine, direction));
             let mut world = ChunkMap::default();
             world.insert_chunk(IVec3::ZERO, chunk.clone());
-            let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+            let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
                 .solid_mesh
                 .unwrap();
 
@@ -1678,7 +1750,7 @@ mod tests {
             chunk.set(pod, BlockData::new(BlockId::Cocoa, direction));
             let mut world = ChunkMap::default();
             world.insert_chunk(IVec3::ZERO, chunk.clone());
-            let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
+            let mesh = generate_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
                 .solid_mesh
                 .unwrap();
 
@@ -1726,9 +1798,10 @@ mod tests {
             chunk.set(furnace, BlockData::new(BlockId::Furnace, direction));
             let mut world = ChunkMap::default();
             world.insert_chunk(IVec3::ZERO, chunk.clone());
-            let mesh = generate_lit_chunk_mesh(&world, &chunk, &IVec3::ZERO, &tiles)
-                .solid_mesh
-                .unwrap();
+            let mesh =
+                generate_lit_chunk_mesh(&world, &chunk, &IVec3::ZERO, &BlockLooks::new(&tiles))
+                    .solid_mesh
+                    .unwrap();
 
             let mut sides = std::collections::HashSet::new();
             let vertices = normals_of(&mesh).into_iter().zip(lights_of(&mesh));

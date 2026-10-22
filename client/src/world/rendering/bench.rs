@@ -45,7 +45,7 @@ use serde_json::{json, Value};
 use shared::world::{BlockData, BlockDirection, BlockId, Chunk, ChunkMap, ItemId, TerrainNoises};
 use shared::{GameFolderPaths, CHUNK_SIZE};
 
-use super::meshing::{generate_chunk_mesh, generate_lit_chunk_mesh, ChunkMeshResponse};
+use super::meshing::{generate_chunk_mesh, generate_lit_chunk_mesh, BlockLooks, ChunkMeshResponse};
 use super::render::{spawn_meshing_tasks, update_chunk};
 use super::shaders::shaders_plugin;
 use crate::camera::SKY_COLOR;
@@ -296,7 +296,7 @@ fn write_results(bench: &str, results: Value) {
 #[test]
 #[ignore = "benchmark: run it in release with --ignored"]
 fn bench_meshing() {
-    let tiles = tiles();
+    let looks = Arc::new(BlockLooks::new(&tiles()));
     AsyncComputeTaskPool::get_or_init(TaskPool::default);
     let mut scenes = Vec::new();
 
@@ -312,7 +312,7 @@ fn bench_meshing() {
             let start = Instant::now();
             for pos in &positions {
                 let chunk_start = Instant::now();
-                let response = generate_chunk_mesh(&world, world.chunk(*pos).unwrap(), pos, &tiles);
+                let response = generate_chunk_mesh(&world, world.chunk(*pos).unwrap(), pos, &looks);
                 if round > 0 {
                     per_chunk.push(millis(chunk_start));
                 } else {
@@ -332,7 +332,7 @@ fn bench_meshing() {
         for round in 0..ROUNDS {
             let start = Instant::now();
             let tasks =
-                spawn_meshing_tasks(&world, &tiles, by_group(&positions), (None, true, false));
+                spawn_meshing_tasks(&world, &looks, by_group(&positions), (None, true, false));
             let main_thread = millis(start);
             for task in tasks {
                 black_box(block_on(task.thread));
@@ -352,7 +352,7 @@ fn bench_meshing() {
             let group = group_of(surface);
             let tasks = spawn_meshing_tasks(
                 &world,
-                &tiles,
+                &looks,
                 by_group(&positions)
                     .into_iter()
                     .filter(|(g, _)| *g == group)
@@ -600,13 +600,13 @@ impl Drawing {
         for entity in shown {
             self.world_mut().despawn(entity);
         }
-        let tiles = self
+        let looks = self
             .world()
             .resource::<MaterialResource>()
             .blocks
             .as_ref()
             .unwrap()
-            .tiles
+            .looks
             .clone();
         // The grass and the leaves take the colours of the climate, as in the game
         let columns: Vec<IVec2> = world
@@ -634,7 +634,7 @@ impl Drawing {
             .chunk_positions()
             .map(|pos| {
                 let response =
-                    generate_lit_chunk_mesh(world, world.chunk(pos).unwrap(), &pos, &tiles);
+                    generate_lit_chunk_mesh(world, world.chunk(pos).unwrap(), &pos, &looks);
                 stats.add(&response);
                 (pos, response)
             })

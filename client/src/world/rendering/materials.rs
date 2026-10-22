@@ -1,6 +1,7 @@
 use crate::constants::{BASE_ROUGHNESS, BASE_SPECULAR_HIGHLIGHT, GRASS_COLOR};
 use crate::state::PreLoadingCompletion;
 use crate::state::TexturePath;
+use crate::world::meshing::BlockLooks;
 use crate::world::overcast::new_weather_buffer;
 use crate::world::precipitation::occlusion::OcclusionMap;
 use crate::world::voxel::FaceColor;
@@ -22,6 +23,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct AtlasWrapper {
@@ -55,8 +57,9 @@ pub struct BlockTextures {
     /// The image each texture was read from, by name.
     pub handles: HashMap<String, Handle<Image>>,
     pub array: Handle<Image>,
-    /// The index in the table of each texture, by name.
-    pub tiles: HashMap<String, u32>,
+    /// How each block is drawn with these textures, by their indices in the table: shared with
+    /// the meshing tasks.
+    pub looks: Arc<BlockLooks>,
 }
 
 /// The most block textures a texture pack may have: the length of the table in `chunk.wgsl`.
@@ -594,7 +597,7 @@ fn build_block_textures(
                 .map(|(handle, name)| (name.clone(), handle.clone()))
                 .collect(),
             array: images.add(array),
-            tiles,
+            looks: Arc::new(BlockLooks::new(&tiles)),
         },
         table,
     ))
