@@ -69,7 +69,8 @@ pub enum WeatherKind { Clear, Rain, Thunder }
   left); `FORMAT_VERSION` stays 5. A world without it starts clear.
 - **Network.** `AuthRegisterResponse` gets the current `weather: WeatherKind`; a new
   `ServerToClientMessage::WeatherSet(WeatherKind)` (appended, pinned) is sent to every client when
-  the weather changes. `PROTOCOL_ID` goes 24 → 25, once for the whole branch.
+  the weather changes. `PROTOCOL_ID` goes up once for the whole branch: 25 → 26 after the
+  rebase onto the crafting UX, which took 25.
 - **Lightning, server side.** During a thunderstorm the server draws a strike every 3–15 s
   (uniform, in ticks) near a random player: a column at 16–160 blocks, any direction, struck at
   its top non-air block. It is sent to every client as
