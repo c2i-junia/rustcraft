@@ -100,54 +100,87 @@ pub fn quads(
 }
 
 /// `quads`, of the cells within `radius` cells of any of `centres` (disks, which may overlap).
+/// Each disk is read and meshed on its own window, so that two disks far apart cost twice one,
+/// not the rectangle between them; a face is made by the window of the first disk holding
+/// either of its cells, so that the faces of the cells two disks share are made once.
 pub fn quads_around(
     style: CloudStyle,
     centres: &[IVec2],
     radius: i32,
     density: impl Fn(IVec2) -> f32,
 ) -> Vec<Quad> {
-    if style == CloudStyle::Off || centres.is_empty() {
-        return Vec::new();
+    let mut quads = Vec::new();
+    if style == CloudStyle::Off {
+        return quads;
     }
-    // the densities of the window and of a ring of cells around it, read once
-    let low = centres.iter().copied().reduce(IVec2::min).unwrap();
-    let high = centres.iter().copied().reduce(IVec2::max).unwrap();
-    let side = high - low + IVec2::splat(2 * radius + 3);
-    let corner = low - IVec2::splat(radius + 1);
-    let densities: Vec<f32> = (0..side.x * side.y)
+    for index in 0..centres.len() {
+        window_quads(style, centres, index, radius, &density, &mut quads);
+    }
+    quads
+}
+
+/// Pushes to `quads` the faces the window of the disk `centres[index]` makes (`quads_around`).
+fn window_quads(
+    style: CloudStyle,
+    centres: &[IVec2],
+    index: usize,
+    radius: i32,
+    density: &impl Fn(IVec2) -> f32,
+    quads: &mut Vec<Quad>,
+) {
+    let centre = centres[index];
+    // The first disk holding a cell
+    let owner = |cell: IVec2| {
+        let reach = i64::from(radius) * i64::from(radius);
+        centres
+            .iter()
+            .position(|centre| (cell.as_i64vec2() - centre.as_i64vec2()).length_squared() <= reach)
+    };
+    // the densities of the window and of a ring of cells around it, read once, with whether
+    // this window makes the faces of each cell: those of the cells of its disk no earlier disk
+    // holds
+    let side = 2 * radius + 3;
+    let corner = centre - IVec2::splat(radius + 1);
+    let cells: Vec<(f32, Option<usize>)> = (0..side * side)
         .map(|i| {
-            let cell = corner + IVec2::new(i % side.x, i / side.x);
-            if centres
-                .iter()
-                .any(|centre| (cell - *centre).length_squared() <= radius * radius)
-            {
-                density(cell)
-            } else {
-                NEVER
+            let cell = corner + IVec2::new(i % side, i / side);
+            match owner(cell) {
+                Some(owner) => (density(cell), Some(owner)),
+                None => (NEVER, None),
             }
         })
         .collect();
-    let density = |cell: IVec2| {
-        let at = cell - corner;
-        densities[(at.y * side.x + at.x) as usize]
+    let cell = |at: IVec2| {
+        let at = at - corner;
+        cells[(at.y * side + at.x) as usize]
+    };
+    let density = |at: IVec2| cell(at).0;
+    let mine = |at: IVec2| cell(at).1 == Some(index);
+    // A face between two cells is made by the first disk holding either
+    let makes = |a: IVec2, b: IVec2| {
+        let first = match (cell(a).1, cell(b).1) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        first == Some(index)
     };
     let bottom = ALTITUDE as f32;
     let top = (ALTITUDE + THICKNESS) as f32;
     let block = |cells: i32| (cells * CELL) as f32;
-    let (west, east) = (low.x - radius, high.x + radius);
+    let (west, east) = (centre.x - radius, centre.x + radius);
 
-    let mut quads = Vec::new();
-    for z in low.y - radius..=high.y + radius {
+    for z in centre.y - radius..=centre.y + radius {
         let (north, south) = (block(z), block(z + 1));
         // the tops and bottoms, along runs of cells of the same density
         let mut x = west;
         while x <= east {
-            let high = density(IVec2::new(x, z));
+            let at = IVec2::new(x, z);
+            let (high, made) = (density(at), mine(at));
             let start = x;
-            while x <= east && density(IVec2::new(x, z)) == high {
+            while x <= east && (density(IVec2::new(x, z)), mine(IVec2::new(x, z))) == (high, made) {
                 x += 1;
             }
-            if high == NEVER {
+            if high == NEVER || !made {
                 continue;
             }
             let (min_x, max_x) = (block(start), block(x));
@@ -171,8 +204,9 @@ pub fn quads_around(
         }
         // the sides between a cell and the next one along +X
         for x in west - 1..=east {
-            let (a, b) = (density(IVec2::new(x, z)), density(IVec2::new(x + 1, z)));
-            if a == b {
+            let (a_at, b_at) = (IVec2::new(x, z), IVec2::new(x + 1, z));
+            let (a, b) = (density(a_at), density(b_at));
+            if a == b || !makes(a_at, b_at) {
                 continue;
             }
             let at = block(x + 1);
@@ -187,17 +221,20 @@ pub fn quads_around(
     }
     if style == CloudStyle::Fancy {
         // the sides between a cell and the next one along +Z, merged along X
-        for z in low.y - radius - 1..=high.y + radius {
+        for z in centre.y - radius - 1..=centre.y + radius {
             let at = block(z + 1);
-            let pair = |x| (density(IVec2::new(x, z)), density(IVec2::new(x, z + 1)));
+            let pair = |x| {
+                let (a, b) = (IVec2::new(x, z), IVec2::new(x, z + 1));
+                (density(a), density(b), makes(a, b))
+            };
             let mut x = west;
             while x <= east {
-                let (a, b) = pair(x);
+                let (a, b, made) = pair(x);
                 let start = x;
-                while x <= east && pair(x) == (a, b) {
+                while x <= east && pair(x) == (a, b, made) {
                     x += 1;
                 }
-                if a == b {
+                if a == b || !made {
                     continue;
                 }
                 quads.push(Quad {
@@ -210,7 +247,6 @@ pub fn quads_around(
             }
         }
     }
-    quads
 }
 
 /// The mesh of the clouds within `radius` cells of `centre`, in blocks of the pattern: cell `c`
@@ -561,5 +597,64 @@ mod tests {
         assert!(near.len() < quads(CloudStyle::Fancy, a, 12, banded_density).len() * 2);
         assert!(near.len() > quads(CloudStyle::Fancy, a, 12, banded_density).len());
         assert!(quads_around(CloudStyle::Fancy, &[], 12, banded_density).is_empty());
+    }
+
+    #[test]
+    fn the_clouds_around_two_centres_cost_two_disks_however_far_apart() {
+        use std::cell::Cell;
+        let read = Cell::new(0usize);
+        let counted = |cell: IVec2| {
+            read.set(read.get() + 1);
+            banded_density(cell)
+        };
+        quads(CloudStyle::Fancy, IVec2::ZERO, 20, counted);
+        let one = read.replace(0);
+        // 100 000 cells apart: as many cells read as twice one disk, not the rectangle between
+        let far = IVec2::new(100_000, 70_000);
+        let both = quads_around(CloudStyle::Fancy, &[IVec2::ZERO, far], 20, counted);
+        assert!(read.get() <= 2 * one, "{} > 2 × {one}", read.get());
+        let each = quads(CloudStyle::Fancy, IVec2::ZERO, 20, banded_density).len()
+            + quads(CloudStyle::Fancy, far, 20, banded_density).len();
+        assert_eq!(both.len(), each);
+    }
+
+    #[test]
+    fn the_clouds_of_overlapping_disks_are_those_of_their_union_each_face_once() {
+        let radius = 9;
+        let centres = [IVec2::ZERO, IVec2::new(6, 4)];
+        let union = |cell: IVec2| {
+            centres
+                .iter()
+                .any(|centre| (cell - *centre).length_squared() <= radius * radius)
+        };
+        let quads = quads_around(CloudStyle::Fancy, &centres, radius, |_| ALWAYS);
+        let block = CELL as f32;
+        // The tops cover each cell of the union once
+        let tops: f32 = quads
+            .iter()
+            .filter(|quad| quad.normal == IVec3::Y)
+            .map(|quad| (quad.max.x - quad.min.x) * (quad.max.z - quad.min.z))
+            .sum();
+        let cells = (-20..=20)
+            .flat_map(|x| (-20..=20).map(move |z| IVec2::new(x, z)))
+            .filter(|cell| union(*cell))
+            .count();
+        assert_eq!(tops, cells as f32 * block * block);
+        // The sides are its outline, none inside it
+        let sides: f32 = quads
+            .iter()
+            .filter(|quad| quad.normal.y == 0)
+            .map(|quad| (quad.max.x - quad.min.x) + (quad.max.z - quad.min.z))
+            .sum();
+        let outline = (-21..=21)
+            .flat_map(|x| (-21..=21).map(move |z| IVec2::new(x, z)))
+            .map(|cell| {
+                [IVec2::X, IVec2::Y]
+                    .iter()
+                    .filter(|step| union(cell) != union(cell + **step))
+                    .count()
+            })
+            .sum::<usize>();
+        assert_eq!(sides, outline as f32 * block);
     }
 }
