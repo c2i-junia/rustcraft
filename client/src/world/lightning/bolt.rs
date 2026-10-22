@@ -327,6 +327,23 @@ mod tests {
         &bolt.branches[0].points
     }
 
+    /// The most points a bolt holds: its pass draws six vertices for each. The tallest bolts,
+    /// on a block far under the clouds, hold up to about 5,900 (over 2,000 seeds).
+    const MOST_POINTS: usize = 8_192;
+
+    #[test]
+    fn a_bolt_holds_a_bounded_number_of_points_whatever_its_seed() {
+        for y in [-64, 0, 62, 150, 250] {
+            for seed in (0..400).map(|n| n * 7919 + 13) {
+                let points = Bolt::new(IVec3::new(7, y, -3), seed).points().count();
+                assert!(points <= MOST_POINTS, "{points} at {y} for {seed}");
+            }
+        }
+        // the ones of an ordinary strike, far fewer
+        let points = Bolt::new(STRUCK, 967).points().count();
+        assert!(points < MOST_POINTS / 2, "{points}");
+    }
+
     #[test]
     fn the_same_seed_draws_the_same_bolt_and_another_seed_another() {
         assert_eq!(Bolt::new(STRUCK, 7), Bolt::new(STRUCK, 7));
