@@ -643,6 +643,23 @@ mod tests {
     }
 
     #[test]
+    fn the_render_distance_of_an_approached_twin_is_loaded_after_the_players_own() {
+        use shared::world::{render_distance_offsets, within_render_distance};
+        let players = player_at_the_origin();
+        let mut chunks = ChunkMap::default();
+        open_pair(&mut chunks, IVec3::X, FAR_TWIN);
+        let distance = 6;
+
+        let active: Vec<IVec3> = active_chunks(&players, |_| distance, chunks.portals()).collect();
+        let own = render_distance_offsets(distance).len();
+        assert_eq!(active.len(), 2 * own);
+        assert!(active[own..]
+            .iter()
+            .all(|c| within_render_distance(*c, FAR_TWIN, distance)));
+        assert_eq!(active[own], FAR_TWIN);
+    }
+
+    #[test]
     fn a_portal_opened_once_the_reach_is_loaded_has_the_chunks_around_its_twin_loaded() {
         let map = ServerWorldMap {
             players: player_at_the_origin(),

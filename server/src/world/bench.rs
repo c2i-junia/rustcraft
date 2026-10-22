@@ -116,6 +116,7 @@ fn bench_broadcast_steady() {
     let mut sent = SentChunks {
         chunks: render_cube(radius).into_iter().collect(),
         progress: None,
+        portal_progress: None,
     };
     let mut samples = Vec::new();
     let reach = shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals());
@@ -416,5 +417,115 @@ fn bench_player_updates() {
          {} KiB a tick if all carry it, {} KiB if only its owner's does",
         PLAYERS * PLAYERS * with / 1024,
         (PLAYERS * with + PLAYERS * (PLAYERS - 1) * without) / 1024
+    );
+}
+
+/// A player with its own render distance loaded and sent comes to a portal whose twin is 21
+/// chunks away: the ticks of the server generate the twin's render distance (`ChunkReach`,
+/// approached) and send it within the portal budget of each broadcast. Says how many chunks
+/// are sent, their size, and how long until the client has them all, then what a broadcast
+/// costs once it does. `BENCH_RD` sets the render distance (8 by default).
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_portal_area() {
+    use shared::world::{FaceDirection, Portal, PortalColor};
+    let radius = std::env::var("BENCH_RD")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(8);
+    let mut players = HashMap::new();
+    let position = (PLAYER_CHUNK * CHUNK_SIZE).as_vec3() + Vec3::splat(8.);
+    players.insert(
+        1,
+        Player::new(1, "p".into(), position, Transform::default()),
+    );
+    let mut loader = ChunkLoader::new(SEED);
+    let mut chunks = ChunkMap::default();
+    let mut dirty = HashSet::new();
+    let mut sent = SentChunks::default();
+    let tick = Duration::from_millis(1000 / TICKS_PER_SECOND);
+    // The player's own render distance, made and sent
+    let mut asked = 0;
+    loop {
+        loader.insert_made(&mut chunks, &mut dirty, &mut Vec::new());
+        if loader.ask(&players, |_| radius, &chunks, None, &mut asked) {
+            break;
+        }
+        std::thread::sleep(tick);
+    }
+    let reach = shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals());
+    while !world_messages_around(&chunks, &[], &reach, &mut sent)
+        .2
+        .is_empty()
+    {}
+    let own = sent.chunks.len();
+
+    // The portal right by the player, its twin far east
+    let twin = PLAYER_CHUNK + IVec3::new(21, 0, 0);
+    for (color, chunk) in [
+        (PortalColor::Blue, PLAYER_CHUNK + IVec3::X),
+        (PortalColor::Orange, twin),
+    ] {
+        chunks.portals_mut().insert(Portal {
+            owner: 1,
+            color,
+            anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+            face: FaceDirection::PlusX,
+            up: FaceDirection::PlusY,
+        });
+    }
+    let reach = shared::world::ChunkReach::new(PLAYER_CHUNK, radius, chunks.portals());
+    let area = reach.portal_chunks().len();
+    let (mut ticks, mut bytes, mut largest, mut longest) = (0, 0, 0, 0f64);
+    let mut asked = 0;
+    let mut generated_in = None;
+    let start = Instant::now();
+    while sent.chunks.len() < own + area && ticks < 10_000 {
+        let tick_start = Instant::now();
+        loader.insert_made(&mut chunks, &mut dirty, &mut Vec::new());
+        if loader.ask(&players, |_| radius, &chunks, None, &mut asked) && generated_in.is_none() {
+            generated_in = Some(start.elapsed().as_secs_f64() * 1e3);
+        }
+        let (_, _, new_chunks) = world_messages_around(&chunks, &[], &reach, &mut sent);
+        for message in new_chunks.into_iter().collect::<Vec<_>>().chunks(32) {
+            let payload =
+                game_message_to_payload(ServerToClientMessage::WorldUpdate(WorldUpdate {
+                    tick: ticks,
+                    time: ticks,
+                    new_map: message
+                        .iter()
+                        .map(|(pos, chunk)| (*pos, (*chunk).clone()))
+                        .collect(),
+                    mobs: HashMap::new(),
+                }));
+            bytes += payload.len();
+            largest = largest.max(payload.len());
+        }
+        longest = longest.max(tick_start.elapsed().as_secs_f64() * 1e3);
+        ticks += 1;
+        std::thread::sleep(tick.saturating_sub(tick_start.elapsed()));
+    }
+    let wall = start.elapsed().as_secs_f64() * 1e3;
+    let varied = (0..area)
+        .filter(|&i| {
+            chunks
+                .chunk(reach.portal_chunks()[i])
+                .is_some_and(|chunk| chunk.uniform().is_none())
+        })
+        .count();
+    let mut steady = Vec::new();
+    for _ in 0..200 {
+        let start = Instant::now();
+        black_box(world_messages_around(&chunks, &[], &reach, &mut sent));
+        steady.push(micros(start));
+    }
+    println!(
+        "portal area (radius {radius}): {area} chunks ({varied} varied), generated in {:.0} ms, \
+         all sent in {ticks} ticks = {wall:.0} ms, {} KiB, largest message {} KiB, longest tick \
+         {longest:.1} ms; then {:.1} µs per broadcast",
+        generated_in.unwrap_or(f64::NAN),
+        bytes / 1024,
+        largest / 1024,
+        median(steady),
     );
 }

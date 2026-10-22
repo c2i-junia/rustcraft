@@ -53,6 +53,7 @@ mod tests {
                 SentChunks {
                     chunks: HashSet::from([IVec3::ZERO, IVec3::X]),
                     progress: None,
+                    portal_progress: None,
                 },
             );
             world_map.render_distances.set(id, 4, 6);

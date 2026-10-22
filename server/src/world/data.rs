@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use bevy::math::{IVec3, Vec3};
 use bevy_ecs::resource::Resource;
@@ -60,6 +61,11 @@ pub struct SentChunks {
     /// every chunk within reach that the server holds, so it lacks nothing once that is all of
     /// them.
     pub progress: Option<(ChunkReach, usize)>,
+    /// The chunks around the twins of the portals it sees that it is sent
+    /// (`ChunkReach::portal_chunks`), worked out once per reach, with how many of them, in order,
+    /// it holds all of: the render distance of an approached twin is thousands of chunks, not to
+    /// be listed and looked at again on every tick.
+    pub portal_progress: Option<(ChunkReach, Arc<[IVec3]>, usize)>,
 }
 
 /// The render distance of each authenticated player, in chunks, as the server grants it.

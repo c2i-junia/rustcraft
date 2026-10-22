@@ -57,11 +57,15 @@ fn unload_far_chunks(world_map: &mut ServerWorldMap) -> usize {
             )
         })
         .collect();
+    let kept: Vec<_> = reaches
+        .iter()
+        .map(|reach| reach.kept(KEPT_MARGIN))
+        .collect();
     let far: Vec<IVec3> = world_map
         .chunks
         .chunk_positions()
         .filter(|chunk| !world_map.dirty_chunks.contains(chunk))
-        .filter(|chunk| !reaches.iter().any(|reach| reach.keeps(*chunk, KEPT_MARGIN)))
+        .filter(|chunk| !kept.iter().any(|kept| kept.contains(*chunk)))
         .collect();
     for chunk in &far {
         world_map.chunks.remove_chunk(*chunk);
@@ -174,6 +178,64 @@ mod tests {
         map.chunks.portals_mut().remove(1, PortalColor::Orange);
         unload_far_chunks(&mut map);
         assert_eq!(loaded(&map), (-KEPT..=KEPT).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn the_server_forgets_the_render_distance_of_an_approached_twin_once_left_with_the_margin() {
+        use shared::world::{
+            FaceDirection, Portal, PortalColor, PORTAL_APPROACH_RADIUS, PORTAL_VIEW_RADIUS,
+        };
+        // A player whose render distance is past the view radius, its portal approached
+        let distance = PORTAL_VIEW_RADIUS + 3;
+        let mut map = world(0);
+        map.render_distances
+            .set(1, distance as u32, distance as u32);
+        let twin = IVec3::new(60, 0, 0);
+        let edge = twin.x + distance + KEPT_MARGIN;
+        for x in twin.x - edge + twin.x..=edge + 1 {
+            map.chunks
+                .insert_chunk(IVec3::new(x, 0, 0), Default::default());
+        }
+        for (color, chunk) in [(PortalColor::Blue, IVec3::X), (PortalColor::Orange, twin)] {
+            map.chunks.portals_mut().insert(Portal {
+                owner: 1,
+                color,
+                anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
+            });
+        }
+        let twin_xs = |map: &ServerWorldMap| -> Vec<i32> {
+            loaded(map).into_iter().filter(|x| *x > 30).collect()
+        };
+        let place = |map: &mut ServerWorldMap, chunk_x: i32| {
+            map.players.get_mut(&1).unwrap().position =
+                Vec3::new((chunk_x * CHUNK_SIZE) as f32 + 0.5, 0.5, 0.5);
+        };
+
+        // Approached: the whole render distance and the margin are kept, the chunk past them goes
+        unload_far_chunks(&mut map);
+        assert_eq!(
+            twin_xs(&map),
+            (twin.x - distance - KEPT_MARGIN..=edge).collect::<Vec<_>>()
+        );
+
+        // Away from the portal, within the approach and the margin: still kept
+        place(&mut map, 1 - PORTAL_APPROACH_RADIUS - KEPT_MARGIN);
+        unload_far_chunks(&mut map);
+        assert_eq!(
+            twin_xs(&map).len(),
+            (2 * (distance + KEPT_MARGIN) + 1) as usize
+        );
+
+        // One chunk farther: only the view radius and the margin
+        place(&mut map, -PORTAL_APPROACH_RADIUS - KEPT_MARGIN);
+        unload_far_chunks(&mut map);
+        let around = PORTAL_VIEW_RADIUS + KEPT_MARGIN;
+        assert_eq!(
+            twin_xs(&map),
+            (twin.x - around..=twin.x + around).collect::<Vec<_>>()
+        );
     }
 
     #[test]
