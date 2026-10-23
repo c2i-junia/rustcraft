@@ -607,7 +607,10 @@ fn casts_shadow(group: IVec2, centres: &[IVec3]) -> bool {
 
 /// Makes the groups within `SHADOW_CASTER_DISTANCE` of the player and of the twins it
 /// approaches (`shadow_centres`), and only them, cast shadows, once these change. A group shown
-/// since was spawned as it should be.
+/// since was spawned as it should be. Bevy 0.19 hands a mesh culled on the GPU only to the views
+/// it was visible to, and the shadow cascades are views: a group that starts or stops casting
+/// is culled on the CPU for a frame (`CpuCulledForAFrame`), or the cascades would never take
+/// it, nor let it go.
 pub fn shadow_casters_system(
     world_map: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
@@ -637,10 +640,16 @@ pub fn shadow_casters_system(
         };
         match (casts_shadow(*group, &before), casts_shadow(*group, &now)) {
             (false, true) => {
-                commands.entity(entity).try_remove::<NotShadowCaster>();
+                commands
+                    .entity(entity)
+                    .try_remove::<(NotShadowCaster, NoCpuCulling)>()
+                    .try_insert(CpuCulledForAFrame);
             }
             (true, false) => {
-                commands.entity(entity).try_insert(NotShadowCaster);
+                commands
+                    .entity(entity)
+                    .try_insert((NotShadowCaster, CpuCulledForAFrame))
+                    .try_remove::<NoCpuCulling>();
             }
             _ => {}
         }
@@ -1241,7 +1250,7 @@ mod tests {
         assert!(casts_shadow(near, &[IVec3::ZERO]));
         let mut map = ClientWorldMap::default();
         let mut entity_at = |world: &mut World, pos: IVec2| {
-            let entity = world.spawn_empty().id();
+            let entity = world.spawn(NoCpuCulling).id();
             map.render.insert(
                 pos,
                 ChunkRender {
@@ -1261,6 +1270,18 @@ mod tests {
         let mut system = IntoSystem::into_system(shadow_casters_system);
         system.initialize(&mut world);
         let casts = |world: &World, entity| world.get::<NotShadowCaster>(entity).is_none();
+        // Culled on the GPU, a mesh is handed only to the views it was visible to: one that
+        // starts or stops casting is culled on the CPU for a frame, so that every view, the
+        // shadow cascades among them, takes it anew (`show_chunks_to_new_views`)
+        let handed_anew = |world: &mut World, entity| {
+            let anew = world.get::<CpuCulledForAFrame>(entity).is_some()
+                && world.get::<NoCpuCulling>(entity).is_none();
+            world
+                .entity_mut(entity)
+                .remove::<CpuCulledForAFrame>()
+                .insert(NoCpuCulling);
+            anew
+        };
 
         system.run((), &mut world).unwrap();
         world.flush();
@@ -1272,12 +1293,14 @@ mod tests {
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(casts(&world, near_entity) && casts(&world, far_entity));
+        assert!(!handed_anew(&mut world, near_entity) && handed_anew(&mut world, far_entity));
 
         // Back and one more chunk the other way: both are out of reach
         world.get_mut::<Transform>(player).unwrap().translation.x = -1.;
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(!casts(&world, near_entity) && !casts(&world, far_entity));
+        assert!(handed_anew(&mut world, near_entity) && handed_anew(&mut world, far_entity));
     }
 
     #[test]
