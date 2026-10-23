@@ -2305,6 +2305,38 @@ mod tests {
         assert!((look.rotation() * Vec3::Y).z < -0.99, "{look:?}");
     }
 
+    /// A walk into a wall portal whose twin is a floor comes up out of the floor too slowly to
+    /// rise clear of it: the player is lifted just out of it and stands on it, rather than fall
+    /// back in and out of the wall the way it came.
+    #[test]
+    fn walking_into_a_wall_portal_with_a_floor_twin_comes_up_and_stands_on_the_floor() {
+        let world = floor_portal_world(Some(wall_twin()));
+        let mut player = standing_player();
+        player.position = Vec3::new(12.0, FLOOR_TOP + 0.9, -17.0);
+        player.camera_transform = Transform::default().looking_to(Vec3::NEG_Z, Vec3::Y);
+        let mut frames = 0;
+        while passes(&mut player, &world, &[NetworkAction::MoveForward], 1) == 0 {
+            frames += 1;
+            assert!(frames < 200, "never went through, at {}", player.position);
+        }
+        assert_eq!(
+            passes(&mut player, &world, &[], 120),
+            0,
+            "{}",
+            player.position
+        );
+        let blue = world.portals().get(7, PortalColor::Blue).unwrap();
+        assert!(player.on_ground, "{}", player.position);
+        assert!(player.portal_rest.is_some(), "{}", player.position);
+        assert!(
+            (blue.signed_distance(player.position) - 0.9).abs() < 0.01
+                && blue.local(player.position).x.abs() < 1.0
+                && blue.local(player.position).y.abs() < 1.5,
+            "{}",
+            player.position
+        );
+    }
+
     #[test]
     fn a_dead_player_does_not_move() {
         let world = flat_world();
