@@ -259,21 +259,28 @@ fn features(graphics: &GraphicsSettings) -> ShaderFeatures {
 /// floats, as the screen of the player's camera does.
 fn apply_camera_features(
     graphics: Res<GraphicsSettings>,
-    all: Query<(Entity, Has<PortalCamera>), With<Camera3d>>,
-    added: Query<(Entity, Has<PortalCamera>), Added<Camera3d>>,
+    all: Query<(Entity, Option<&PortalCamera>), With<Camera3d>>,
+    added: Query<(Entity, Option<&PortalCamera>), Added<Camera3d>>,
     shown: Res<SkyShown>,
     mut applied: Local<Option<(ShaderQuality, bool)>>,
     mut commands: Commands,
 ) {
-    let cameras: Vec<(Entity, bool)> = if *applied != Some((graphics.shaders, shown.0)) {
-        all.iter().collect()
+    // Each camera, and the level of a portal camera
+    let cameras: Vec<(Entity, Option<usize>)> = if *applied != Some((graphics.shaders, shown.0)) {
+        all.iter()
+            .map(|(camera, portal)| (camera, portal.map(|portal| portal.level)))
+            .collect()
     } else {
-        added.iter().collect()
+        added
+            .iter()
+            .map(|(camera, portal)| (camera, portal.map(|portal| portal.level)))
+            .collect()
     };
     *applied = Some((graphics.shaders, shown.0));
     let mut features = features(&graphics);
     features.sky = shown.0;
-    for (camera, portal) in cameras {
+    for (camera, level) in cameras {
+        let portal = level.is_some();
         let mut entity = commands.entity(camera);
         if features.sky && portal {
             // Its physical sky comes after the player's (`give_portal_cameras_the_sky`)
@@ -346,7 +353,13 @@ fn apply_camera_features(
         // A portal camera draws the rays of light too, through its oblique near plane
         // (`volumetric_fog.rs`), the view through the portal hazed as the world is. Its rays
         // start where they start, unjittered: TAA, which smooths the jitter, is the player's
-        if let Some(step_count) = features.god_rays {
+        if let Some(mut step_count) = features.god_rays {
+            // A view through a portal in a portal, small and far, marches no more steps than
+            // High: at Ultra, 1.0–1.5 ms of 17 saved with recursion 3 (lot 12 report)
+            if level.is_some_and(|level| level >= 2) {
+                let high = ShaderFeatures::of(ShaderQuality::High).god_rays;
+                step_count = step_count.min(high.unwrap_or(step_count));
+            }
             entity.insert(VolumetricFog {
                 ambient_intensity: 0.,
                 step_count,
@@ -1481,6 +1494,51 @@ mod tests {
             .is_active = false;
         app.update();
         assert_eq!(hazes(&mut app), vec![(world_camera, 5., tag)]);
+    }
+
+    /// The views through a portal seen through another, level 2 and deeper, march the haze in
+    /// no more steps than High does: at Ultra, with recursion 3, half the steps there saved
+    /// 1.0–1.5 ms of 17 on the GPU, the views small and far (lot 12 report). The player's view
+    /// and the views through the portals it sees keep the steps of the quality.
+    #[test]
+    fn the_views_through_a_portal_in_a_portal_march_the_haze_of_high_at_most() {
+        let high = ShaderFeatures::of(ShaderQuality::High).god_rays.unwrap();
+        for quality in [ShaderQuality::High, ShaderQuality::Ultra] {
+            let full = ShaderFeatures::of(quality).god_rays.unwrap();
+            let mut app = App::new();
+            app.insert_resource(GraphicsSettings {
+                shaders: quality,
+                ..default()
+            })
+            .insert_resource(SkyShown(ShaderFeatures::of(quality).sky))
+            .add_systems(Update, apply_camera_features);
+            let main = app
+                .world_mut()
+                .spawn((Camera3d::default(), CameraController::default()))
+                .id();
+            let levels: Vec<Entity> = (1..=3)
+                .map(|level| {
+                    app.world_mut()
+                        .spawn((
+                            Camera3d::default(),
+                            PortalCamera {
+                                owner: 1,
+                                color: shared::world::PortalColor::Blue,
+                                level,
+                            },
+                        ))
+                        .id()
+                })
+                .collect();
+            app.update();
+            let steps =
+                |camera: Entity| app.world().get::<VolumetricFog>(camera).unwrap().step_count;
+            assert_eq!(steps(main), full, "{quality:?}");
+            assert_eq!(steps(levels[0]), full, "{quality:?}");
+            assert_eq!(steps(levels[1]), full.min(high), "{quality:?}");
+            assert_eq!(steps(levels[2]), full.min(high), "{quality:?}");
+        }
+        assert!(ShaderFeatures::of(ShaderQuality::Ultra).god_rays.unwrap() > high);
     }
 
     /// A camera's layer of haze holds the camera when it is a portal camera, above the layer or
