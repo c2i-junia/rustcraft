@@ -8,7 +8,9 @@ use crate::world::lightning::Lightning;
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
-use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{
+    granted_render_distance, ClientWorldMap, RenderDistance, ServerRenderDistanceLimit,
+};
 
 use super::{sky_fog_color, CameraController, ToneCurve};
 
@@ -85,9 +87,7 @@ pub fn underwater_fog_system(
     mut bodies: Query<&mut Visibility, With<CelestialBody>>,
     mut commands: Commands,
 ) {
-    let distance = render_distance
-        .distance
-        .min(server_limit.map_or(u32::MAX, |limit| limit.0));
+    let distance = granted_render_distance(Some(&render_distance), server_limit.as_deref());
     for (entity, transform, mut camera, fog) in &mut cameras {
         let under_water = eye_under_water(&world_map.blocks, transform.translation);
         let shown = if under_water {

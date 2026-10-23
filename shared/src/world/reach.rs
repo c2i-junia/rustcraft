@@ -430,8 +430,11 @@ impl ChunkReach {
         chunks
     }
 
-    /// What a client keeps, `margin` chunks beyond the reach (`keeps`), worked out once for many
-    /// chunks.
+    /// What a client keeps, `margin` chunks beyond the reach, worked out once for many chunks:
+    /// within the render distance plus `margin`, or within the area of a twin of an open portal
+    /// within the render distance plus `margin` (`areas_within`), grown by `margin`. A portal
+    /// approached keeps the twin's render distance while it is within the widest approach plus
+    /// `margin`.
     pub fn kept(&self, margin: i32) -> Kept<'_> {
         Kept {
             reach: self,
@@ -440,10 +443,9 @@ impl ChunkReach {
         }
     }
 
-    /// Whether a client keeps `chunk`, `margin` chunks beyond the reach: it is within the render
-    /// distance plus `margin`, or within the area of a twin of an open portal within the render
-    /// distance plus `margin` (`areas_within`), grown by `margin`. A portal approached keeps
-    /// the twin's render distance while it is within the widest approach plus `margin`.
+    /// Whether a client keeps `chunk`, `margin` chunks beyond the reach (`kept`), for the tests,
+    /// which ask it of one chunk at a time.
+    #[cfg(test)]
     pub fn keeps(&self, chunk: IVec3, margin: i32) -> bool {
         self.kept(margin).contains(chunk)
     }

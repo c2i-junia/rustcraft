@@ -156,7 +156,7 @@ fn encode_world_updates(
 /// it holds, `sent`, which this updates: a mob that came within reach is sent, one within
 /// reach is sent again when it changed this tick (`changed`), and the client forgets one that
 /// left its reach or the world. Within reach is within the render distance of `reach`, or in
-/// the chunks around the twin of a portal it sees (`ChunkReach::keeps`): a mob there is seen
+/// the chunks around the twin of a portal it sees (`ChunkReach::kept`): a mob there is seen
 /// through the portal, and one that walks through it stays known.
 fn mob_messages(
     player_position: Vec3,
@@ -249,7 +249,7 @@ pub(super) fn world_messages_around<'a>(
     (unloads, updates, new_chunks)
 }
 
-/// The chunks of `sent` more than `UNLOAD_MARGIN` chunks beyond `reach` (`ChunkReach::keeps`),
+/// The chunks of `sent` more than `UNLOAD_MARGIN` chunks beyond `reach` (`ChunkReach::kept`),
 /// in no order. They are removed from `sent`, so that they are sent again once the player comes
 /// back. The chunks of the margin are kept but never sent first: walking to and fro across a
 /// chunk border neither unloads nor sends anything. A lowered render distance, or a portal

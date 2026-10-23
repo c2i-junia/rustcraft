@@ -10,7 +10,7 @@ use crate::portal::approach::Approach;
 use crate::portal::PortalCamera;
 use crate::state::GameState;
 use crate::world::celestial::smoothstep;
-use crate::world::{RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{granted_render_distance, RenderDistance, ServerRenderDistanceLimit};
 use bolt::{Bolt, Strokes, CLOUD_BASE};
 
 pub mod bolt;
@@ -167,9 +167,7 @@ pub fn shown_reach(
     render_distance: &RenderDistance,
     server_limit: Option<&ServerRenderDistanceLimit>,
 ) -> f32 {
-    let chunks = render_distance
-        .distance
-        .min(server_limit.map_or(u32::MAX, |limit| limit.0));
+    let chunks = granted_render_distance(Some(render_distance), server_limit);
     (chunks * shared::CHUNK_SIZE as u32) as f32
 }
 
@@ -186,13 +184,7 @@ fn receive_strikes_system(
         .next()
         .map_or(Vec3::ZERO, GlobalTransform::translation);
     let reach = shown_reach(&render_distance, server_limit.as_deref());
-    let twins: Vec<Vec3> = approach.map_or_else(Vec::new, |approach| {
-        approach
-            .twins
-            .iter()
-            .map(|chunk| (*chunk * shared::CHUNK_SIZE).as_vec3() + Vec3::splat(8.))
-            .collect()
-    });
+    let twins = approach.map_or_else(Vec::new, |approach| approach.twin_middles());
     for &strike in strikes.read() {
         lightning
             .strikes

@@ -263,11 +263,12 @@ impl Portals {
     /// front of its plane to behind it (`PORTAL_SLACK`), through its opening. The first one
     /// along the segment, if several.
     pub fn crossed(&self, from: Vec3, to: Vec3) -> Option<&Portal> {
-        self.crossed_but(from, to, Passer::default())
+        self.crossed_by(from, to, Passer::default())
     }
 
-    /// `crossed`, but never the portal `passer` rests on.
-    fn crossed_but(&self, from: Vec3, to: Vec3, passer: Passer) -> Option<&Portal> {
+    /// The open portal an entity going from `from` to `to` goes into (`crossed`), but the one
+    /// it rests on.
+    pub fn crossed_by(&self, from: Vec3, to: Vec3, passer: Passer) -> Option<&Portal> {
         let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
         self.open()
             .filter(|portal| !passer.rests_on(portal))
@@ -283,12 +284,6 @@ impl Portals {
             })
             .min_by(|(a, _), (b, _)| a.total_cmp(b))
             .map(|(_, portal)| portal)
-    }
-
-    /// The open portal an entity going from `from` to `to` goes into (`crossed`), but the one
-    /// it rests on.
-    pub fn crossed_by(&self, from: Vec3, to: Vec3, passer: Passer) -> Option<&Portal> {
-        self.crossed_but(from, to, passer)
     }
 
     /// The transform to draw an eye from when it is not on the side of a portal its body is

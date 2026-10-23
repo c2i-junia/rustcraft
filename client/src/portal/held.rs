@@ -16,7 +16,8 @@ use shared::world::{
 };
 
 use crate::world::{
-    group_of, ChunkLoadEvent, ClientWorldMap, RenderDistance, ServerRenderDistanceLimit,
+    granted_render_distance, group_of, ChunkLoadEvent, ClientWorldMap, RenderDistance,
+    ServerRenderDistanceLimit,
 };
 
 /// Whether the client shows the chunk `chunk`: it holds it, and a mesh made after it came is
@@ -120,11 +121,8 @@ pub(super) fn track_held_areas(
     mut loads: MessageReader<ChunkLoadEvent>,
     mut held: ResMut<HeldAreas>,
 ) {
-    let distance = render_distance.map_or(0, |render| {
-        render
-            .distance
-            .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32
-    });
+    let distance =
+        granted_render_distance(render_distance.as_deref(), server_limit.as_deref()) as i32;
     let radius = distance.max(PORTAL_VIEW_RADIUS);
     let portals = world_map.blocks.portals();
     let twins: Vec<(IVec3, IVec3)> = portals

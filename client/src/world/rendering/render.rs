@@ -32,8 +32,9 @@ use crate::{
 };
 
 use crate::world::{
-    group_of, group_origin, BlockChanged, ChunkLoadEvent, ChunkRender, ClientWorldMap,
-    GraphicsSettings, RenderDistance, ServerRenderDistanceLimit, WorldBiomes, GROUP_WIDTH,
+    granted_render_distance, group_of, group_origin, BlockChanged, ChunkLoadEvent, ChunkRender,
+    ClientWorldMap, GraphicsSettings, RenderDistance, ServerRenderDistanceLimit, WorldBiomes,
+    GROUP_WIDTH,
 };
 
 use super::lighting::{chunks_lighting, LightVolume, TerrainPrior, TerrainSurfaces, MAX_LIGHT};
@@ -478,9 +479,7 @@ pub fn world_render_system(
 
     let player_chunk =
         world_position_to_chunk_position(player.single().map_or(Vec3::ZERO, |t| t.translation));
-    let distance = render_distance
-        .distance
-        .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32;
+    let distance = granted_render_distance(Some(&render_distance), server_limit.as_deref()) as i32;
     // Whether a group is to be meshed is asked once it is taken: each chunk that arrives asks for
     // its group seven times, with its neighbours
     let requested = requested_chunks
@@ -664,9 +663,7 @@ pub fn portal_chunks_layers_system(
     let Ok(player) = player.single() else {
         return;
     };
-    let distance = render_distance
-        .distance
-        .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32;
+    let distance = granted_render_distance(Some(&render_distance), server_limit.as_deref()) as i32;
     let reach = ChunkReach::new(
         world_position_to_chunk_position(player.translation),
         distance,

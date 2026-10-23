@@ -223,12 +223,11 @@ fn rebuild_clouds_system(
     // so that the window covers the reach from anywhere in the cell of the camera
     let radius = (reach / CELL as f32).ceil() as i32 + 1;
     let banded = threshold(Overcast::current(weather.as_deref())) < field::CLEAR_THRESHOLD;
-    let twins = approach.map_or_else(Vec::new, |approach| approach.twins.clone());
+    let twins = approach.map_or_else(Vec::new, |approach| approach.twin_middles());
     for (entity, mut clouds, transform, children) in &mut clouds {
         let drift = transform.translation.x;
         let mut centres = vec![camera_cell(camera.translation, drift)];
-        for twin in &twins {
-            let middle = ((*twin * CHUNK_SIZE) + CHUNK_SIZE / 2).as_vec3();
+        for &middle in &twins {
             let cell = camera_cell(middle, drift);
             if !centres.contains(&cell) {
                 centres.push(cell);

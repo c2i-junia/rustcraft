@@ -33,7 +33,9 @@ use crate::state::GameState;
 use crate::world::overcast::Overcast;
 use crate::world::precipitation::render::PrecipitationView;
 use crate::world::weather::ClientWeather;
-use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{
+    granted_render_distance, ClientWorldMap, RenderDistance, ServerRenderDistanceLimit,
+};
 
 /// An image a portal camera can draw into and a material can read, `size` in pixels. In 16-bit
 /// floats: with the physical sky of the shaders, it holds colours brighter than white, before
@@ -222,9 +224,7 @@ pub(super) fn place_portal_cameras(
         .ok()
         .zip(render_distance)
         .map(|(player, render)| {
-            let distance = render
-                .distance
-                .min(server_limit.map_or(u32::MAX, |limit| limit.0));
+            let distance = granted_render_distance(Some(&render), server_limit.as_deref());
             (
                 world_position_to_chunk_position(player.translation),
                 distance as i32,

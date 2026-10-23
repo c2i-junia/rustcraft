@@ -9,8 +9,12 @@ use shared::world::{
     approach_radius, world_position_to_chunk_position, ChunkReach, PORTAL_APPROACH_RADIUS,
 };
 
+use shared::CHUNK_SIZE;
+
 use crate::player::CurrentPlayerMarker;
-use crate::world::{ClientWorldMap, RenderDistance, ServerRenderDistanceLimit};
+use crate::world::{
+    granted_render_distance, ClientWorldMap, RenderDistance, ServerRenderDistanceLimit,
+};
 
 /// How many chunks past the widest approach (`MAX_PORTAL_APPROACH_RADIUS`) a twin stays
 /// approached for the shadows and the clouds, as the server keeps its area: walking to and fro
@@ -38,6 +42,15 @@ impl Default for Approach {
 }
 
 impl Approach {
+    /// The middle of the chunk of each twin approached, in blocks: what the clouds and the
+    /// bolts are drawn around.
+    pub fn twin_middles(&self) -> Vec<Vec3> {
+        self.twins
+            .iter()
+            .map(|chunk| (*chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 / 2.))
+            .collect()
+    }
+
     /// The reach of a player in the chunk `chunk` with the render distance `distance`, at this
     /// approach.
     pub fn reach(&self, chunk: IVec3, distance: i32, world_map: &ClientWorldMap) -> ChunkReach {
@@ -77,11 +90,8 @@ pub fn track_approach(
     let Ok((player, transform)) = player.single() else {
         return;
     };
-    let distance = render_distance.map_or(0, |render| {
-        render
-            .distance
-            .min(server_limit.map_or(u32::MAX, |limit| limit.0)) as i32
-    });
+    let distance =
+        granted_render_distance(render_distance.as_deref(), server_limit.as_deref()) as i32;
     let radius = approach_radius(player);
     if approach.radius != radius {
         approach.radius = radius;

@@ -51,6 +51,21 @@ impl RenderDistance {
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct ServerRenderDistanceLimit(pub u32);
 
+/// The render distance the server grants the player, in chunks: its own, within the server's
+/// limit, or 0 before it is known. What the server sends follows it, and so must every system
+/// that reckons with what is sent (the fog, the meshing, the shells held around the twins, the
+/// approach): each reads it here.
+pub fn granted_render_distance(
+    render_distance: Option<&RenderDistance>,
+    server_limit: Option<&ServerRenderDistanceLimit>,
+) -> u32 {
+    render_distance.map_or(0, |render| {
+        render
+            .distance
+            .min(server_limit.map_or(u32::MAX, |limit| limit.0))
+    })
+}
+
 /// The video settings as `video.ron` holds them: each one missing from the file takes its
 /// default.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
