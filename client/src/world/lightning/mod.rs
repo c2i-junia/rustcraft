@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 use shared::world::LIGHTNING_REACH;
 
+use crate::portal::approach::Approach;
 use crate::portal::PortalCamera;
 use crate::state::GameState;
 use crate::world::celestial::smoothstep;
@@ -75,6 +76,20 @@ impl LiveStrike {
             distance,
             bolt: (distance <= reach).then(|| Bolt::new(strike.at, strike.seed)),
         }
+    }
+
+    /// The strike `strike` seen from `eye` as `new` sees it, and also through the portals: its
+    /// bolt is drawn when within `reach` of one of the `twins`, the middles of the twins the
+    /// player approaches, around which the chunks are shown as far as around the player.
+    pub fn seen(strike: Strike, eye: Vec3, twins: &[Vec3], reach: f32) -> Self {
+        let mut seen = Self::new(strike, eye, reach);
+        let by_a_twin = twins
+            .iter()
+            .any(|twin| strike.at.as_vec3().xz().distance(twin.xz()) <= reach);
+        if seen.bolt.is_none() && by_a_twin {
+            seen.bolt = Some(Bolt::new(strike.at, strike.seed));
+        }
+        seen
     }
 
     /// How bright its flash lights the world now, from 0 to 1.
@@ -162,6 +177,7 @@ fn receive_strikes_system(
     mut strikes: MessageReader<Strike>,
     mut lightning: ResMut<Lightning>,
     cameras: Query<&GlobalTransform, (With<Camera3d>, Without<PortalCamera>)>,
+    approach: Option<Res<Approach>>,
     render_distance: Res<RenderDistance>,
     server_limit: Option<Res<ServerRenderDistanceLimit>>,
 ) {
@@ -170,8 +186,17 @@ fn receive_strikes_system(
         .next()
         .map_or(Vec3::ZERO, GlobalTransform::translation);
     let reach = shown_reach(&render_distance, server_limit.as_deref());
+    let twins: Vec<Vec3> = approach.map_or_else(Vec::new, |approach| {
+        approach
+            .twins
+            .iter()
+            .map(|chunk| (*chunk * shared::CHUNK_SIZE).as_vec3() + Vec3::splat(8.))
+            .collect()
+    });
     for &strike in strikes.read() {
-        lightning.strikes.push(LiveStrike::new(strike, eye, reach));
+        lightning
+            .strikes
+            .push(LiveStrike::seen(strike, eye, &twins, reach));
     }
 }
 
@@ -204,6 +229,26 @@ mod tests {
         let far = LiveStrike::new(strike(150), Vec3::new(0., 75., 0.), 128.);
         assert_eq!(far.bolt, None);
         assert_eq!(far.cloud_point(), Vec3::new(150.5, CLOUD_BASE, 0.5));
+    }
+
+    /// Far from the player, a strike by a twin it approaches is seen through the portal, the
+    /// chunks around the twin shown as far as around the player: its bolt is drawn.
+    #[test]
+    fn a_strike_by_an_approached_twin_draws_its_bolt() {
+        let eye = Vec3::new(0., 75., 0.);
+        let twin = Vec3::new(1000., 70., 0.);
+        let by_twin = LiveStrike::seen(strike(1050), eye, &[twin], 128.);
+        assert_eq!(by_twin.bolt, Some(Bolt::new(by_twin.at, 5)));
+        // Its flash, which lights the player's world, still by its distance to the player
+        assert_eq!(by_twin.distance, 1050.);
+        assert_eq!(
+            LiveStrike::seen(strike(1200), eye, &[twin], 128.).bolt,
+            None
+        );
+        assert_eq!(
+            LiveStrike::seen(strike(50), eye, &[], 128.),
+            LiveStrike::new(strike(50), eye, 128.)
+        );
     }
 
     #[test]

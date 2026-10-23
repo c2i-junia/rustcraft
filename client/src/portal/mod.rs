@@ -15,6 +15,7 @@ pub mod material;
 pub mod particles;
 pub mod projection;
 pub mod shot;
+pub mod weather;
 
 use std::collections::HashMap;
 
@@ -197,6 +198,13 @@ fn portal_systems(app: &mut App) {
             approach::track_approach.run_if(in_state(GameState::Game)),
         )
         .add_message::<ChunkLoadEvent>()
+        .add_message::<crate::world::BlockChanged>()
+        .init_resource::<weather::TwinOcclusion>()
+        .add_systems(
+            Update,
+            weather::portal_cameras_under_the_weather.run_if(in_state(GameState::Game)),
+        )
+        .add_systems(OnExit(GameState::Game), weather::forget_twin_occlusion)
         .init_resource::<PortalRecursion>()
         .add_message::<PortalOpened>()
         .init_resource::<PortalsSeen>()

@@ -47,6 +47,19 @@ const PRECIPITATION_SHADER: Handle<Shader> = uuid_handle!("a4c7e2d9-58b1-4f03-9e
 #[derive(Component, Clone, Copy, Default, ExtractComponent)]
 pub struct PrecipitationView;
 
+/// A view whose eye is under water, for which no drop falls: the player's camera with its eye
+/// in the water, or a portal camera whose twin opens under water (`portal/weather.rs`). Each
+/// view by its own eye, so that through a portal between the water and the air the rain falls
+/// on the side in the air.
+#[derive(Component, Clone, Copy, Default, ExtractComponent)]
+pub struct UnderWaterView;
+
+/// The occlusion map a view's drops stop under, if not the player's: a portal camera's is the
+/// one around its twin (`portal/weather.rs`), which the player's, around the player, may not
+/// hold.
+#[derive(Component, Clone, ExtractComponent)]
+pub struct ViewOcclusion(pub Handle<Image>);
+
 /// How many drops of each kind the pass draws at most, and of them how many to show: the
 /// uniforms of `precipitation.wgsl`.
 #[derive(ShaderType, Clone, Copy, Debug, Default, PartialEq)]
@@ -99,6 +112,8 @@ pub fn precipitation_render_plugin(app: &mut App) {
     app.init_resource::<PrecipitationDraw>().add_plugins((
         ExtractResourcePlugin::<PrecipitationDraw>::default(),
         ExtractComponentPlugin::<PrecipitationView>::default(),
+        ExtractComponentPlugin::<UnderWaterView>::default(),
+        ExtractComponentPlugin::<ViewOcclusion>::default(),
     ));
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
@@ -254,15 +269,25 @@ fn prepare_precipitation_bind_groups(
     images: Res<RenderAssets<GpuImage>>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    views: Query<(Entity, &ViewDepthTexture, &Msaa), With<PrecipitationView>>,
+    views: Query<
+        (
+            Entity,
+            &ViewDepthTexture,
+            &Msaa,
+            Has<UnderWaterView>,
+            Option<&ViewOcclusion>,
+        ),
+        With<PrecipitationView>,
+    >,
 ) {
     let sources = draw.as_ref().and_then(|draw| draw.0.as_ref());
-    for (entity, depth, msaa) in &views {
-        let resources = sources.and_then(|sources| {
+    for (entity, depth, msaa, under_water, own_occlusion) in &views {
+        let resources = sources.filter(|_| !under_water).and_then(|sources| {
+            let occlusion = own_occlusion.map_or(&sources.occlusion, |own| &own.0);
             Some((
                 sources,
                 buffers.get(&sources.weather)?,
-                images.get(&sources.occlusion)?,
+                images.get(occlusion)?,
                 images.get(&sources.climate)?,
                 view_uniforms.uniforms.binding()?,
                 globals.buffer.binding()?,

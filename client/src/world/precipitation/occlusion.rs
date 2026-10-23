@@ -138,19 +138,21 @@ pub struct OcclusionMap {
 
 impl FromWorld for OcclusionMap {
     fn from_world(world: &mut World) -> Self {
-        let image = world
-            .resource_mut::<Assets<Image>>()
-            .add(new_occlusion_map());
+        Self::new(&mut world.resource_mut::<Assets<Image>>())
+    }
+}
+
+impl OcclusionMap {
+    /// A map where no column is known yet, its image added to `images`.
+    pub fn new(images: &mut Assets<Image>) -> Self {
         Self {
-            image,
+            image: images.add(new_occlusion_map()),
             slots: HashMap::new(),
             dirty: HashSet::new(),
             centre: None,
         }
     }
-}
 
-impl OcclusionMap {
     fn slot(column: IVec2) -> IVec2 {
         column.rem_euclid(IVec2::splat(MAP_CHUNKS))
     }
@@ -171,7 +173,7 @@ impl OcclusionMap {
     /// Brings the map up to date with the camera at `camera`, after the chunks `loads` came or
     /// went and the blocks at `changes` changed in `map`: pushes the heights to write to
     /// `writes`, as `(x, z, height)`.
-    fn update(
+    pub(crate) fn update(
         &mut self,
         map: &ChunkMap,
         camera: Vec3,
@@ -288,16 +290,25 @@ pub fn update_occlusion_map_system(
         changes,
         &mut writes,
     );
+    write_heights(&mut images, &occlusion.image, &writes);
+}
+
+/// Writes the heights `writes` (`OcclusionMap::update`) into the image `image`, if any.
+pub(crate) fn write_heights(
+    images: &mut Assets<Image>,
+    image: &Handle<Image>,
+    writes: &[(i32, i32, f32)],
+) {
     if writes.is_empty() {
         return;
     }
-    let Some(mut image) = images.get_mut(&occlusion.image) else {
+    let Some(mut image) = images.get_mut(image) else {
         return;
     };
     let Some(data) = image.data.as_mut() else {
         return;
     };
-    for &(x, z, height) in writes.iter() {
+    for &(x, z, height) in writes {
         write_height(data, x, z, height);
     }
 }

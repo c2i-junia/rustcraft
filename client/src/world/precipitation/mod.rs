@@ -11,7 +11,7 @@ use crate::world::{ClientWorldMap, GraphicsSettings, MaterialResource, ShaderQua
 use occlusion::{forget_occlusion_map, update_occlusion_map_system, OcclusionMap};
 use render::{
     precipitation_render_plugin, PrecipitationDraw, PrecipitationParams, PrecipitationSources,
-    PrecipitationView,
+    PrecipitationView, UnderWaterView,
 };
 
 pub mod occlusion;
@@ -25,7 +25,11 @@ pub fn precipitation_plugin(app: &mut App) {
         .add_systems(OnExit(GameState::Game), stop_drawing_precipitation)
         .add_systems(
             Update,
-            (update_occlusion_map_system, precipitation_draw_system)
+            (
+                update_occlusion_map_system,
+                precipitation_draw_system,
+                mark_views_under_water,
+            )
                 .run_if(in_state(GameState::Game)),
         );
 }
@@ -51,23 +55,17 @@ pub fn counts(quality: ShaderQuality) -> PrecipitationParams {
     }
 }
 
-/// Tells the pass of the rain and the snow what to draw: nothing while nothing falls, nor with
-/// the eye under water.
+/// Tells the pass of the rain and the snow what to draw: nothing while nothing falls. Whether a
+/// view draws them is its own (`UnderWaterView`).
 fn precipitation_draw_system(
     weather: Res<ClientWeather>,
     graphics: Res<GraphicsSettings>,
     materials: Res<MaterialResource>,
     occlusion: Res<OcclusionMap>,
-    world_map: Res<ClientWorldMap>,
-    cameras: Query<&GlobalTransform, (With<PrecipitationView>, Without<PortalCamera>)>,
     mut draw: ResMut<PrecipitationDraw>,
 ) {
     let level = weather.precipitation();
-    let seen = cameras
-        .iter()
-        .next()
-        .is_some_and(|eye| !eye_under_water(&world_map.blocks, eye.translation()));
-    let sources = (level > 0. && seen).then(|| PrecipitationSources {
+    let sources = (level > 0.).then(|| PrecipitationSources {
         weather: materials.weather.clone(),
         climate: materials.climate_map.clone(),
         occlusion: occlusion.image.clone(),
@@ -78,6 +76,26 @@ fn precipitation_draw_system(
     });
     if draw.0 != sources {
         draw.0 = sources;
+    }
+}
+
+/// Marks the view of the player's camera while its eye is under water: no drop falls for it.
+/// The portal cameras are marked by the medium their twin opens into (`portal/weather.rs`).
+fn mark_views_under_water(
+    world_map: Res<ClientWorldMap>,
+    cameras: Query<
+        (Entity, &GlobalTransform, Has<UnderWaterView>),
+        (With<PrecipitationView>, Without<PortalCamera>),
+    >,
+    mut commands: Commands,
+) {
+    for (camera, eye, marked) in &cameras {
+        let under = eye_under_water(&world_map.blocks, eye.translation());
+        if under && !marked {
+            commands.entity(camera).insert(UnderWaterView);
+        } else if !under && marked {
+            commands.entity(camera).remove::<UnderWaterView>();
+        }
     }
 }
 
@@ -138,7 +156,7 @@ mod tests {
             .init_resource::<ClientWorldMap>()
             .init_resource::<OcclusionMap>()
             .init_resource::<PrecipitationDraw>()
-            .add_systems(Update, precipitation_draw_system);
+            .add_systems(Update, (precipitation_draw_system, mark_views_under_water));
         let mut map = app.world_mut().resource_mut::<ClientWorldMap>();
         map.blocks
             .insert_chunk(IVec3::new(0, 3, 0), shared::world::Chunk::new());
@@ -205,9 +223,30 @@ mod tests {
         assert_eq!(occlusion::OPEN, -occlusion::UNKNOWN);
     }
 
+    fn under_water(app: &mut App) -> bool {
+        let world = app.world_mut();
+        world
+            .query_filtered::<Has<UnderWaterView>, With<PrecipitationView>>()
+            .single(world)
+            .unwrap()
+    }
+
+    /// The view of an eye under water draws no drop, by itself: the others, a portal camera's
+    /// whose twin opens in the air, still draw theirs.
     #[test]
     fn nothing_falls_for_an_eye_under_water() {
-        let app = app(WeatherKind::Thunder, Vec3::new(0.5, 60.3, 0.5));
-        assert_eq!(drawn(&app), None);
+        let mut app = app(WeatherKind::Thunder, Vec3::new(0.5, 60.3, 0.5));
+        assert!(drawn(&app).is_some());
+        assert!(under_water(&mut app));
+        let world = app.world_mut();
+        let view = world
+            .query_filtered::<Entity, With<PrecipitationView>>()
+            .single(world)
+            .unwrap();
+        world
+            .entity_mut(view)
+            .insert(GlobalTransform::from_xyz(0.5, 61.3, 0.5));
+        app.update();
+        assert!(!under_water(&mut app));
     }
 }
