@@ -2110,10 +2110,11 @@ fn bench_far_twin_shadows() {
     use crate::world::rendering::bench::GPU_FRAMES_MS;
     use bevy::camera::visibility::RenderLayers;
 
-    assert!(
-        std::env::var_os("BENCH_GPU").is_some() && std::env::var_os("BENCH_GPU_TIMES").is_some(),
-        "BENCH_GPU=1 BENCH_GPU_TIMES=1"
-    );
+    // Left out of the runs of the whole seam set, which select it by its module
+    if std::env::var_os("BENCH_GPU").is_none() || std::env::var_os("BENCH_GPU_TIMES").is_none() {
+        println!("skipped: needs BENCH_GPU=1 BENCH_GPU_TIMES=1");
+        return;
+    }
     let quality = match std::env::var("BENCH_SHADERS").as_deref() {
         Ok("ultra") => ShaderQuality::Ultra,
         _ => ShaderQuality::High,
