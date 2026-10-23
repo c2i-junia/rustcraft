@@ -24,9 +24,10 @@
 //! whose camera stands where the volume says, along x, y and z, and looks the way it says, so
 //! that each camera gets its own layer of haze around it and no other's
 //! (`world/rendering/shaders.rs`, `follow_cameras_with_haze`). Two cameras that stand in the
-//! same place look different ways: a portal maps a camera onto itself only where it turns the
-//! world. The tag is in its `density_texture_offset`, which only a density texture reads, and a
-//! haze has none.
+//! same place mostly look different ways: a portal maps a camera onto itself only where it turns
+//! the world, and then keeps its look only if it looks straight up or down, when the two
+//! cameras share a volume (`follow_cameras_with_haze`). The tag is in its
+//! `density_texture_offset`, which only a density texture reads, and a haze has none.
 //! The shader is changed where Bevy keeps it, among its embedded assets, once the plugins are
 //! built and before it is loaded, so every camera draws with the same shader and nothing of
 //! Bevy's is copied. If Bevy's text no longer matches, the game logs an error at startup and a
@@ -123,14 +124,20 @@ fn unpacked_look(look: f32) -> Vec3 {
     )
 }
 
-/// Whether the view of the camera `view` draws a volume of one camera centred at `centre`
-/// along x and z with the offset `offset`, as `ONE_CAMERA_FILTER` decides.
+/// Whether the view of the camera `view` may draw a volume of one camera centred at `centre`
+/// along x and z with the offset `offset`, as `ONE_CAMERA_FILTER` decides, its look a little
+/// looser (`SHARED_LOOK`): at the edge of the shader's, float noise can make the GPU draw it,
+/// and a camera that shares the volume never draws it and one of its own.
 pub fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
     let at = view.translation();
     (at.xz() - centre).abs().max_element() <= 0.5
         && (at.y - offset.x).abs() <= 0.5
-        && view.forward().dot(unpacked_look(offset.z)) >= 0.9998
+        && view.forward().dot(unpacked_look(offset.z)) >= SHARED_LOOK
 }
+
+/// The least cosine between two looks for `drawn_in`, about 1.4°: the shader's (0.9998, about
+/// 1.15°) loosened past what float noise moves it by.
+const SHARED_LOOK: f32 = 0.9997;
 
 /// What draws a volume that belongs to one camera only in that camera's view: the camera, in
 /// the volume's own space (0 to 1), within half a block of its centre along x and z, the size
@@ -138,7 +145,8 @@ pub fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
 /// half a block of the height in the offset; and its look within about a degree of the look in
 /// the offset (`packed_look`). A portal camera of a floor portal under a ceiling portal stands
 /// straight above the player's camera; one of a pair that turns the world can stand where the
-/// player's camera does, looking another way.
+/// player's camera does, looking another way, or the same way if it looks straight up or down,
+/// when the two share a volume (`drawn_in`).
 const ONE_CAMERA_FILTER: &str = "let jitter_strength = volumetric_fog.jitter_strength;
 
     // A volume that belongs to one camera is drawn only in its view (RustCraft)
@@ -372,7 +380,8 @@ mod tests {
 
     /// Each camera draws its own volume and no other's: not one straight above or under it, as
     /// the portal cameras of a floor portal under a ceiling portal are, nor one in the same
-    /// place looking another way, as through a pair that turns the world.
+    /// place looking another way, as through a pair that turns the world (unless it looks
+    /// straight up or down, when the two share a volume).
     #[test]
     fn a_camera_draws_only_its_own_volume_whoever_stands_by_it() {
         let player = GlobalTransform::from(
@@ -391,7 +400,7 @@ mod tests {
             assert!(!drawn_in(&player, centre, one_camera_offset(&above, cut)));
             // In the same place, turned about the vertical by a few degrees, or tipped over
             for turn in [
-                Quat::from_rotation_y(2f32.to_radians()),
+                Quat::from_rotation_y(3f32.to_radians()),
                 Quat::from_rotation_y(90f32.to_radians()),
                 Quat::from_rotation_x(90f32.to_radians()),
             ] {
@@ -403,6 +412,27 @@ mod tests {
                 assert!(!drawn_in(&player, centre, one_camera_offset(&turned, cut)));
             }
         }
+    }
+
+    /// A camera turned by a little more than the shader allows (1.15°) still counts as drawing
+    /// the volume on the CPU: at the edge, where float noise can make the GPU draw it, the
+    /// camera shares it rather than draw it and its own, the haze twice as thick.
+    #[test]
+    fn at_the_edge_of_the_look_the_cpu_shares_the_volume_the_gpu_might_draw() {
+        // Level, so that a turn about the vertical turns the look by as much
+        let player = GlobalTransform::from(
+            Transform::from_xyz(-40.0, 83.0, -2.5).looking_to(Vec3::new(0.3, 0.0, 1.0), Vec3::Y),
+        );
+        let centre = player.translation().xz();
+        let offset = one_camera_offset(&player, true);
+        let turned = |degrees: f32| {
+            GlobalTransform::from(
+                Transform::from_translation(player.translation())
+                    .with_rotation(Quat::from_rotation_y(degrees.to_radians()) * player.rotation()),
+            )
+        };
+        assert!(drawn_in(&turned(1.25), centre, offset));
+        assert!(!drawn_in(&turned(1.6), centre, offset));
     }
 
     /// The rays are cut to the heights of the layer only in a portal camera's volume, by its
