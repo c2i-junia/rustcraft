@@ -168,7 +168,7 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
 | Shadows | Groups within 12 chunks of an approached twin cast shadows, as around the player. |
 | Clouds | The cloud mesh also holds a disk around each approached twin, each meshed on its own window: two disks cost twice one, however far apart. |
 | Haze | Each camera, the player's and each portal camera that draws, has its own layer of haze centred under it, which only it draws (Bevy's volumetric shader changed to leave out another camera's volume): the player's view never changes with a portal. A box stretched over the twin was tried first and changed the player's own view. |
-| Rain occlusion | Left to the player's camera: around a far twin, roofs do not stop the rain seen through the portal. A second occlusion map would mean a second binding and its upkeep, for rain seen under a roof through a portal. |
+| Rain occlusion | As built after lot 12: each twin of a portal with cameras has an occlusion map of its own, centred on its opening, which its portal cameras bind instead of the player's, so roofs by a far twin stop the rain seen through the portal. Whether drops fall is decided per view: the player's eye, and for a portal camera the medium its twin opens into. |
 | Tests | Seam e2e at 6 and 21 chunks, shaders Off and High, gated as a close crossing (median ≤ 6 for each band). |
 
 ### Lots
@@ -178,3 +178,21 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
     when: server and client unit tests, the mid and far seam e2e gated at Off and High noon,
     and the cost measured (chunks and time sent at render distances 8 and 12, and the frame
     time through a portal).
+
+## As built after lot 12: the last seams
+
+- **The grey horizon (F6)** was fixed by lot 11 (the portal cameras get the sky a frame after
+  the player's camera, whose tables Bevy then takes); a gate (`horizon_colour`) now holds the
+  horizon skirt within 4 of the sky at Medium, High and Ultra, noon and dusk, with portals
+  opened before or after the shaders. A patch of the sky switched off and on, for main, which
+  has no portal cameras, is in `.superpowers/sdd/portals/lot-12-main-sky-switch.patch`.
+- **Shadows at Medium**: every filter on the portal cameras measured within the noise of no
+  shadows at all once the first measure of a run, always higher, is left out: unchanged.
+- **The haze out of its layer**: a portal camera above or under its layer stands within its
+  volume, stretched to hold it, and the shader marches only the layer; nested views (level 2
+  and deeper) march no more steps than High.
+- **The weather**: occlusion maps per twin, the under-water decision per view, bolts by an
+  approached twin. The drops in the portal views cost nothing measurable on the GPU; through
+  the portal they are 7 % less contrasted than straight, still or moving, with TAA or without.
+- Not changed: a strike's flash lights the player's world by its distance to the player, not
+  to a twin.

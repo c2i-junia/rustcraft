@@ -568,8 +568,13 @@ haze, a layer 640 blocks wide of its own, centred under it (`follow_cameras_with
 draws every fog volume in every view, and its shader, changed, leaves out a volume tagged as
 one camera's (`one_camera_offset`) in every view but that camera's, so the player's view never
 changes with the portals, and a portal camera far off sees the haze the player will see after
-crossing. It draws it as the player's camera does (same steps, no jitter: the player's TAA reaches its image
-only through the motion of the portal surface), through its oblique
+crossing. Out of the layer, above or under it, a portal camera's volume is stretched to hold
+it (`haze_transform`), which Bevy then draws from inside: from outside it rasterizes the faces
+of the volume, which the oblique near plane on the twin clips when the twin is in the layer, and
+the view had no haze. The volume's offset carries the heights of the layer, and the changed
+shader marches only between them (`START_IN_THE_LAYER`). It draws it as the player's camera
+does (same steps, no jitter: the player's TAA reaches its image only through the motion of the
+portal surface; at level 2 and deeper, no more steps than High), through its oblique
 near plane: Bevy's `volumetric_fog.wgsl` read the start depth of a ray with the near distance
 only and ended the rays of the sky on the far plane, which the oblique matrix brings near, and
 `world/rendering/volumetric_fog.rs` changes those two lines in Bevy's embedded shader before it
@@ -581,10 +586,13 @@ and the clear colour of the player's camera, overcast and flashed, and its own f
 twin closes in as the player's does (`Overcast::fog_range`); the light, the exposure, the
 grading and the wet ground are the same for every view. It is a `PrecipitationView` too: the
 rain, the snow and the bolts are drawn around it, so they show through the portal around the
-twin, clipped by its near plane. The systems of the weather that follow one camera (the
-occlusion map of the rain, the dome, the flash, the ears of the weather sounds) take the camera
-of the world that is not a portal camera: around a far twin, the rain is not stopped by the
-roofs there.
+twin, clipped by its near plane. Its drops stop under the roofs by the twin: each twin of a
+portal with cameras has an occlusion map of its own, centred on its opening
+(`portal/weather.rs`, `ViewOcclusion`), and whether a view draws drops is its own
+(`UnderWaterView`: the player's camera by its eye, a portal camera by the medium its twin opens
+into). A strike within the shown reach of an approached twin draws its bolt. The systems of
+the weather that follow one camera (the dome, the flash, the ears of the weather sounds) take
+the camera of the world that is not a portal camera.
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6
 block ahead of its eye) and the server's `PortalShot` for the others write a `ShotFired`, from
 which a bolt and its trail are spawned, moved at `BOLT_SPEED` (100 blocks a second) to the hit
