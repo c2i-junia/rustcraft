@@ -238,11 +238,17 @@ fn portal_systems(app: &mut App) {
             OnExit(GameState::Game),
             |mut drawn: ResMut<DrawnPortals>,
              mut seen: ResMut<PortalsSeen>,
-             mut shown: ResMut<ShownPortals>| {
+             mut shown: ResMut<ShownPortals>,
+             mut held: ResMut<HeldAreas>,
+             mut approach: ResMut<approach::Approach>| {
                 // Their entities go with the game, the bolts too
                 drawn.0.clear();
                 seen.0 = false;
                 shown.0 = None;
+                // The map is cleared with no chunk unloaded: what was shown around the twins
+                // and which were approached go with it
+                *held = default();
+                *approach = default();
             },
         );
 }
@@ -1661,5 +1667,41 @@ mod tests {
         app.update();
         assert_eq!(sparks(&mut app), 0);
         assert!(app.world().resource::<ShownPortals>().0.is_none());
+    }
+
+    /// The map is cleared when the world is left, its chunks not unloaded one by one: what was
+    /// shown around a twin must go with it. On joining again with the same portals, which come
+    /// before the chunks, the fog through a twin would otherwise open over chunks not there yet.
+    #[test]
+    fn leaving_the_game_forgets_the_areas_shown_around_the_twins_and_the_approach() {
+        let mut app = app();
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        hold_around(&mut app, orange());
+        app.update();
+        let twin = (orange().chunk(), orange().normal().round().as_ivec3());
+        let shells = |app: &App| app.world().resource::<HeldAreas>().shells(twin.0, twin.1);
+        assert!(shells(&app).is_some());
+        app.world_mut().resource_mut::<approach::Approach>().twins = vec![twin.0];
+
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Menu);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<approach::Approach>(),
+            approach::Approach::default()
+        );
+        // The world left as `clear_resources` leaves it, and joined again: the portals come
+        // first, the chunks after
+        app.world_mut().resource_mut::<ClientWorldMap>().blocks = Default::default();
+        insert(&mut app, blue());
+        insert(&mut app, orange());
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Game);
+        app.update();
+        app.update();
+        assert_eq!(shells(&app), None);
     }
 }
