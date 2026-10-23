@@ -111,6 +111,27 @@ pub fn one_camera_offset(camera: &GlobalTransform, cut: bool) -> Vec3 {
     )
 }
 
+/// The look `packed_look` wrote, as the shader reads it (`ONE_CAMERA_FILTER`).
+fn unpacked_look(look: f32) -> Vec3 {
+    let yaw_step = (look / LOOK_STEPS).floor();
+    let yaw = (yaw_step / (LOOK_STEPS - 1.0) * 2.0 - 1.0) * PI;
+    let pitch = ((look - yaw_step * LOOK_STEPS) / (LOOK_STEPS - 1.0) * 2.0 - 1.0) * FRAC_PI_2;
+    Vec3::new(
+        pitch.cos() * yaw.sin(),
+        pitch.sin(),
+        pitch.cos() * yaw.cos(),
+    )
+}
+
+/// Whether the view of the camera `view` draws a volume of one camera centred at `centre`
+/// along x and z with the offset `offset`, as `ONE_CAMERA_FILTER` decides.
+pub fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
+    let at = view.translation();
+    (at.xz() - centre).abs().max_element() <= 0.5
+        && (at.y - offset.x).abs() <= 0.5
+        && view.forward().dot(unpacked_look(offset.z)) >= 0.9998
+}
+
 /// What draws a volume that belongs to one camera only in that camera's view: the camera, in
 /// the volume's own space (0 to 1), within half a block of its centre along x and z, the size
 /// of the volume read from its matrix (axis-aligned: its diagonal is one over its size); within
@@ -326,25 +347,6 @@ mod tests {
     }
 
     /// The look of a camera, unpacked as `ONE_CAMERA_FILTER` unpacks it.
-    fn unpacked_look(look: f32) -> Vec3 {
-        let yaw_step = (look / LOOK_STEPS).floor();
-        let yaw = (yaw_step / (LOOK_STEPS - 1.0) * 2.0 - 1.0) * PI;
-        let pitch = ((look - yaw_step * LOOK_STEPS) / (LOOK_STEPS - 1.0) * 2.0 - 1.0) * FRAC_PI_2;
-        Vec3::new(
-            pitch.cos() * yaw.sin(),
-            pitch.sin(),
-            pitch.cos() * yaw.cos(),
-        )
-    }
-
-    /// Whether the view of the camera `view` draws a volume of one camera centred at `centre`
-    /// along x and z with the offset `offset`, as `ONE_CAMERA_FILTER` decides.
-    fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
-        let at = view.translation();
-        (at.xz() - centre).abs().max_element() <= 0.5
-            && (at.y - offset.x).abs() <= 0.5
-            && view.forward().dot(unpacked_look(offset.z)) >= 0.9998
-    }
 
     #[test]
     fn the_look_of_a_camera_is_written_exactly_within_a_tenth_of_a_degree() {

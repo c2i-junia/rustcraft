@@ -2514,6 +2514,183 @@ fn near(shot: &RgbImage, at: Vec2, wanted: impl Fn([i32; 3]) -> bool) -> bool {
     })
 }
 
+/// What the haze costs on the GPU with 1, 2 and 3 pairs of portals in view, render distance 8,
+/// recursion 1: the facing portals, and up to two more pairs beside them on the same walls,
+/// each of another player, so that 1 to 3 portal cameras draw. Each camera draws only its own
+/// layer of haze, but Bevy marches every volume in every view, and the shader leaves the others
+/// out at once: each count of pairs is timed with the haze and without (no `VolumetricLight`),
+/// and with 3 pairs, with 8 more volumes no camera draws, which is what leaving a volume out
+/// costs a view. In turns over several rounds; the GPU time of each frame is read back as the
+/// GPU finishes it (`record_gpu_frames`). Needs the GPU of the machine:
+/// `BENCH_GPU=1 BENCH_GPU_TIMES=1 BENCH_SHADERS=high cargo test -p client --release
+/// e2e::portals::bench_portal_haze_per_pair -- --ignored --nocapture`, `ultra` for Ultra.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_portal_haze_per_pair() {
+    use crate::portal::PortalRecursion;
+    use crate::world::rendering::bench::GPU_FRAMES_MS;
+    use crate::world::rendering::volumetric_fog::HazePerCamera;
+    use bevy::light::{FogVolume, VolumetricLight};
+
+    assert!(
+        std::env::var_os("BENCH_GPU").is_some() && std::env::var_os("BENCH_GPU_TIMES").is_some(),
+        "BENCH_GPU=1 BENCH_GPU_TIMES=1"
+    );
+    let shaders = match std::env::var("BENCH_SHADERS").as_deref() {
+        Ok("ultra") => ShaderQuality::Ultra,
+        _ => ShaderQuality::High,
+    };
+    let folder = GameFolder::new()
+        .with_file("video.ron", "(render_distance: 8)")
+        .with_world("Facing");
+    let options = Options {
+        shaders: Some(shaders),
+        ..default()
+    };
+    let mut h = enter_world_with(folder, "Facing", options);
+    let blue = build_facing_scene(&mut h);
+    let target = h.target.clone();
+    h.set_camera_targets(RenderTarget::Image(target.into()));
+    h.world_mut().insert_resource(PortalRecursion(1));
+    // The other pairs, 3 blocks east and west of the first, on the same walls, each orange
+    // portal a block further out than its blue one: their cameras stand apart (cameras that
+    // stand and look alike share a volume, `follow_cameras_with_haze`)
+    let feet = blue.anchor + IVec3::new(1, 0, 8);
+    let pair = |owner: u64, dx: i32| {
+        [
+            Portal {
+                owner,
+                color: PortalColor::Blue,
+                anchor: feet + IVec3::new(dx - 1, 0, -8),
+                face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
+            },
+            Portal {
+                owner,
+                color: PortalColor::Orange,
+                anchor: feet + IVec3::new(dx + dx.signum(), 0, 8),
+                face: FaceDirection::MinusZ,
+                up: FaceDirection::PlusY,
+            },
+        ]
+    };
+    let others = [pair(2, 3), pair(3, -3)];
+    let set_pairs = |h: &mut Harness, count: usize| {
+        let world = h.world_mut();
+        let blocks = &mut world.resource_mut::<ClientWorldMap>().blocks;
+        for (index, portals) in others.iter().enumerate() {
+            for portal in portals {
+                if index + 1 < count {
+                    blocks.portals_mut().insert(*portal);
+                } else {
+                    blocks.portals_mut().remove(portal.owner, portal.color);
+                }
+            }
+        }
+    };
+    let set_light = |h: &mut Harness, light: &mut Option<(Entity, VolumetricLight)>| {
+        let world = h.world_mut();
+        match light.take() {
+            Some((entity, volumetric)) => {
+                world.entity_mut(entity).insert(volumetric);
+            }
+            None => {
+                let (entity, volumetric) = world
+                    .query::<(Entity, &VolumetricLight)>()
+                    .single(world)
+                    .unwrap();
+                *light = Some((entity, *volumetric));
+                world.entity_mut(entity).remove::<VolumetricLight>();
+            }
+        }
+    };
+    // Volumes no camera draws: the player's, said to be of a camera 100 000 blocks down
+    let set_extra_volumes = |h: &mut Harness, extra: &mut Vec<Entity>, count: usize| {
+        let world = h.world_mut();
+        for entity in extra.drain(..) {
+            world.despawn(entity);
+        }
+        if count == 0 {
+            return;
+        }
+        let (fog, transform) = world
+            .query::<(&FogVolume, &Transform)>()
+            .iter(world)
+            .find(|(fog, _)| fog.density_texture_offset.y < -8000.0)
+            .map(|(fog, transform)| (fog.clone(), *transform))
+            .unwrap();
+        for _ in 0..count {
+            let mut fog = fog.clone();
+            fog.density_texture_offset.x = -100_000.0;
+            extra.push(
+                world
+                    .spawn((fog, transform, GlobalTransform::from(transform)))
+                    .id(),
+            );
+        }
+    };
+    // (name, pairs, haze, volumes no camera draws, a volume of its own for each camera)
+    let cases: [(&str, usize, bool, usize, bool); 9] = [
+        ("1 pair, haze", 1, true, 0, true),
+        ("1 pair, no haze", 1, false, 0, true),
+        ("2 pairs, haze", 2, true, 0, true),
+        ("2 pairs, no haze", 2, false, 0, true),
+        ("3 pairs, haze", 3, true, 0, true),
+        ("3 pairs, no haze", 3, false, 0, true),
+        ("3 pairs, haze, 8 volumes more", 3, true, 8, true),
+        (
+            "3 pairs, the player's haze in every view",
+            3,
+            true,
+            0,
+            false,
+        ),
+        ("1 pair, the player's haze in every view", 1, true, 0, false),
+    ];
+    let (rounds, warm, frames) = (4, 40, 200);
+    let mut samples = vec![Vec::new(); cases.len()];
+    let mut views = vec![0; cases.len()];
+    let mut volumes = vec![0; cases.len()];
+    let mut light = None;
+    let mut extra = Vec::new();
+    for _ in 0..rounds {
+        for (case, &(_, pairs, haze, more, own)) in cases.iter().enumerate() {
+            h.world_mut().insert_resource(HazePerCamera(own));
+            set_pairs(&mut h, pairs);
+            if haze != light.is_none() {
+                set_light(&mut h, &mut light);
+            }
+            look(&mut h, 0.0);
+            h.frames(warm);
+            set_extra_volumes(&mut h, &mut extra, more);
+            h.frames(warm);
+            views[case] = drawing(h.world_mut()).len();
+            let world = h.world_mut();
+            volumes[case] = world.query::<&FogVolume>().iter(world).count();
+            if haze && own && more == 0 {
+                assert_eq!(volumes[case], 1 + views[case], "a volume per camera");
+            }
+            GPU_FRAMES_MS.lock().unwrap().clear();
+            h.frames(frames);
+            samples[case].extend(GPU_FRAMES_MS.lock().unwrap().drain(..));
+            h.world_mut().insert_resource(HazePerCamera(true));
+        }
+        set_extra_volumes(&mut h, &mut extra, 0);
+    }
+    for (((what, ..), mut samples), (views, volumes)) in
+        cases.iter().zip(samples).zip(views.iter().zip(&volumes))
+    {
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "{shaders:?}, {what}: {views} portal views, {volumes} volumes: GPU median {:.3} ms, \
+             p95 {:.3} ms per frame ({} frames)",
+            samples[samples.len() / 2],
+            samples[samples.len() * 95 / 100],
+            samples.len()
+        );
+    }
+}
+
 /// The hour `bench_portal_weather_and_haze` holds.
 #[derive(Resource)]
 struct HeldTick(u64);

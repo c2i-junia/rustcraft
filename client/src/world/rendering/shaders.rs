@@ -40,7 +40,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
-use super::volumetric_fog::{one_camera_offset, HazePerCamera};
+use super::volumetric_fog::{drawn_in, one_camera_offset, HazePerCamera};
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::portal::PortalCamera;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
@@ -765,6 +765,19 @@ fn follow_cameras_with_haze(
             Vec3::ZERO
         }
     };
+    // A camera that would draw the volume of one before it, standing in the same place and
+    // looking the same way, as the portal cameras of pairs side by side whose twins are as far
+    // apart do, shares it: with one of its own, it would draw both, the haze twice as thick
+    let mut owners: Vec<(Entity, GlobalTransform, bool)> = Vec::new();
+    for (camera, at, portal) in cameras {
+        let shares = owners.iter().any(|(_, owner, owner_portal)| {
+            drawn_in(&at, owner.translation().xz(), offset(owner, *owner_portal))
+        });
+        if !shares {
+            owners.push((camera, at, portal));
+        }
+    }
+    let cameras = owners;
     // The haze thickens as the sun goes down, as in the shader packs: rays of light at dawn and
     // dusk, a clear sky at noon
     let sun_height = roots
@@ -1525,6 +1538,69 @@ mod tests {
             .is_active = false;
         app.update();
         assert_eq!(hazes(&mut app), vec![(world_camera, 5., uncut)]);
+    }
+
+    /// Portal cameras that stand in the same place and look the same way, as those of pairs
+    /// side by side whose twins are as far apart do, would each draw the volume of every other:
+    /// the haze as thick as there are cameras, and as costly. They share one; the camera that
+    /// looks another way has its own.
+    #[test]
+    fn the_portal_cameras_that_stand_and_look_alike_share_a_layer_of_haze() {
+        let mut app = App::new();
+        app.init_resource::<HazePerCamera>();
+        app.insert_resource(GraphicsSettings {
+            shaders: ShaderQuality::Ultra,
+            ..default()
+        })
+        .add_systems(Update, follow_cameras_with_haze);
+        app.world_mut()
+            .spawn((Camera3d::default(), GlobalTransform::from_xyz(5., 70., 0.)));
+        let portal_camera = |app: &mut App, at: Transform, owner| {
+            app.world_mut()
+                .spawn((
+                    Camera3d::default(),
+                    GlobalTransform::from(at),
+                    PortalCamera {
+                        owner,
+                        color: shared::world::PortalColor::Blue,
+                        level: 1,
+                    },
+                ))
+                .id()
+        };
+        let at = Transform::from_xyz(5., 70., 15.);
+        let first = portal_camera(&mut app, at, 1);
+        let alike = portal_camera(&mut app, at.with_translation(Vec3::new(5.2, 70., 15.)), 2);
+        let other = portal_camera(&mut app, at.looking_to(Vec3::X, Vec3::Y), 3);
+        app.update();
+        app.update();
+        let owners = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query::<&GodRayVolume>()
+                .iter(world)
+                .map(|haze| haze.camera)
+                .collect::<Vec<_>>()
+        };
+        let volumes = owners(&mut app);
+        assert_eq!(volumes.len(), 3, "{volumes:?}");
+        assert!(volumes.contains(&other));
+        assert!(volumes.contains(&first) != volumes.contains(&alike));
+        // The one whose volume they shared turned off: the other gets one
+        let sharing = if volumes.contains(&first) {
+            first
+        } else {
+            alike
+        };
+        app.world_mut()
+            .get_mut::<Camera>(sharing)
+            .unwrap()
+            .is_active = false;
+        app.update();
+        app.update();
+        let volumes = owners(&mut app);
+        assert_eq!(volumes.len(), 3, "{volumes:?}");
+        assert!(!volumes.contains(&sharing));
     }
 
     /// Without Bevy's shader changed (`HazePerCamera`), which would draw every camera's volume in
