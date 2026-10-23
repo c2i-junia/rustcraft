@@ -10,7 +10,7 @@
 //! the sky the chunks fade into is the sky at the horizon (`horizon_*`) and follows the hour
 //! (`the_sky_follows_*`). The diagnoses (`seam_*` but `*_is_seamless`) measure, with some
 //! suspects of the seam turned off one by one, and check little. Run them all, two at most at
-//! once (with three, a server timed out), in nearly two hours (107 minutes in the last runs),
+//! once (with three, a server timed out), in about two hours (107 to 118 minutes in the last runs),
 //! with
 //! `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored --test-threads=2`,
 //! or, before a merge, a gate of each kind, in about 8 minutes, with
@@ -18,6 +18,7 @@
 //! e2e::portal_seam::seam_close_off_noon_is_seamless
 //! e2e::portal_seam::seam_close_high_dusk_is_seamless
 //! e2e::portal_seam::seam_far_high_noon_is_seamless
+//! e2e::portal_seam::seam_far_high_dusk_is_seamless
 //! e2e::portal_seam::own_view_high_dusk_is_unchanged_by_an_approached_portal
 //! e2e::portal_seam::own_view_high_dusk_is_unchanged_by_a_stacked_floor_and_ceiling_pair
 //! e2e::portal_seam::own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin
