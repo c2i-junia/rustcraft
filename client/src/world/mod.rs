@@ -22,8 +22,31 @@ pub mod weather;
 pub use data::*;
 pub use rendering::*;
 
+/// Where the shadow roles and layers of the groups (`GameSet::Meshing`) and the filter of the
+/// portal cameras' casters (`keep_twin_shadows_to_portal_cameras`) stand among Bevy's systems.
+/// The roles and layers are set before Bevy finds what each view and each shadow cascade draws,
+/// and the filter runs once it has, on the roles of this frame: else, on the frame a far twin is
+/// crossed, the groups around the player would still be marked for the portal cameras only and
+/// be left out of its cascades, the terrain unshadowed for a frame.
+fn order_the_shadows(app: &mut App) {
+    use bevy::camera::visibility::VisibilitySystems;
+    use bevy::light::SimulationLightSystems;
+    app.configure_sets(
+        PostUpdate,
+        GameSet::Meshing.before(VisibilitySystems::CheckVisibility),
+    )
+    .add_systems(
+        PostUpdate,
+        keep_twin_shadows_to_portal_cameras
+            .after(SimulationLightSystems::CheckLightVisibility)
+            .after(GameSet::Meshing)
+            .run_if(in_state(GameState::Game)),
+    );
+}
+
 /// Chunks and their meshes, textures and atlases, the sky, the world clock and the weather.
 pub fn world_plugin(app: &mut App) {
+    order_the_shadows(app);
     app.insert_resource(ClientTime(0))
         .init_resource::<ClientWeather>()
         .insert_resource(GlobalAmbientLight {
@@ -96,12 +119,6 @@ pub fn world_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(
-            PostUpdate,
-            keep_twin_shadows_to_portal_cameras
-                .after(bevy::light::SimulationLightSystems::CheckLightVisibility)
-                .run_if(in_state(GameState::Game)),
-        )
-        .add_systems(
             FixedPostUpdate,
             time_update_system.run_if(in_state(GameState::Game)),
         );
@@ -142,6 +159,46 @@ mod tests {
     use shared::world::Chunk;
 
     use super::*;
+
+    /// The order `order_the_shadows` gives, whatever the order the systems were added in: those
+    /// of Bevy, here stand-ins in their sets, added first.
+    #[test]
+    fn the_shadow_roles_are_set_before_bevy_lists_the_casters_and_filtered_after() {
+        use bevy::camera::visibility::VisibilitySystems;
+        use bevy::ecs::schedule::SingleThreadedExecutor;
+        use bevy::light::SimulationLightSystems;
+
+        #[derive(Resource, Default)]
+        struct Ran(Vec<&'static str>);
+        let ran = |name: &'static str| move |mut ran: ResMut<Ran>| ran.0.push(name);
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin)
+            .insert_state(GameState::Game)
+            .init_resource::<Ran>()
+            .edit_schedule(PostUpdate, |schedule| {
+                schedule.set_executor(SingleThreadedExecutor::new());
+            })
+            .add_systems(
+                PostUpdate,
+                (
+                    ran("lights").in_set(SimulationLightSystems::CheckLightVisibility),
+                    ran("views").in_set(VisibilitySystems::CheckVisibility),
+                    ran("roles").in_set(GameSet::Meshing),
+                ),
+            );
+        order_the_shadows(&mut app);
+        // The filter itself, by the order it was given
+        app.add_systems(
+            PostUpdate,
+            ran("filter").after(keep_twin_shadows_to_portal_cameras),
+        );
+        app.world_mut().run_schedule(PostUpdate);
+        let ran = &app.world().resource::<Ran>().0;
+        let at = |name| ran.iter().position(|ran| *ran == name).unwrap();
+        assert!(at("roles") < at("views"), "{ran:?}");
+        assert!(at("roles") < at("lights"), "{ran:?}");
+        assert!(at("lights") < at("filter"), "{ran:?}");
+    }
 
     #[test]
     fn chunks_received_while_loading_are_meshed_in_game() {
