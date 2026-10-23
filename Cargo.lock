@@ -2322,6 +2322,7 @@ dependencies = [
  "bevy-inspector-egui",
  "bevy_egui",
  "bevy_renet",
+ "bevy_utils",
  "bincode",
  "chrono",
  "clap",
