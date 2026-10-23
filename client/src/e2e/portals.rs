@@ -5,6 +5,7 @@
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
+use bevy::input::{mouse::MouseButtonInput, ButtonState};
 use bevy::{camera::RenderTarget, prelude::*, time::TimeUpdateStrategy};
 use image::RgbImage;
 use shared::world::{
@@ -1842,6 +1843,154 @@ fn falling_through_a_floor_portal_comes_out_of_a_wall() {
         player.position
     );
     assert_eq!(player.velocity, Vec3::ZERO);
+}
+
+/// A mod with a command, `/ceilingcourse`, that builds from the block its author is in: a stone
+/// platform 3 blocks down, and a stone ceiling 4 blocks up, 8 to 13 blocks east, 4 blocks
+/// above the platform's top.
+const CEILING_COURSE_MOD: &str = r#"
+    local rc = rustcraft
+    local function fill(p, x0, y0, z0, x1, y1, z1, block)
+        for x = x0, x1 do
+            for y = y0, y1 do
+                for z = z0, z1 do
+                    rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + z }, block)
+                end
+            end
+        end
+    end
+    rc.register_command("ceilingcourse", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        fill(p, -6, -3, -6, 16, -3, 6, "stone")
+        fill(p, 8, 4, -3, 13, 4, 3, "stone")
+        return "Course built"
+    end)
+"#;
+
+/// Whether the block at `point` is a full block, which the eye must never be drawn from.
+fn solid_at(w: &World, point: Vec3) -> bool {
+    w.resource::<ClientWorldMap>()
+        .blocks
+        .get_block(point.floor().as_ivec3())
+        .is_some_and(|block| matches!(block.id.get_hitbox(), shared::world::BlockHitbox::FullBlock))
+}
+
+/// In solo, the player shoots its orange portal on a ceiling, lands on the platform, and shoots
+/// its blue one under its feet: it falls into the floor and out of the ceiling. The eye, 0.8
+/// above the centre, which crosses, comes out of the ceiling a few frames after it: the camera
+/// is drawn from above the blue portal until then, and never from inside a block.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn falling_out_of_a_ceiling_portal_the_eye_is_never_drawn_in_the_ceiling() {
+    let folder = GameFolder::new()
+        .with_world("CeilingCourse")
+        .with_player("CeilingCourse", "Tester", |player| {
+            player.position = Vec3::new(0.5, 120.9, 0.5);
+            player.game_mode = shared::players::game_mode::GameMode::Creative;
+            player.is_flying = true;
+            player.inventory.inner.insert(
+                0,
+                shared::world::ItemStack {
+                    item_id: ItemId::PortalGun,
+                    item_type: ItemId::PortalGun.get_default_type(),
+                    nb: 1,
+                },
+            );
+        })
+        .with_mod("ceilingcourse", CEILING_COURSE_MOD);
+    let mut h = enter_world(folder, "CeilingCourse");
+    h.wait_until("the gun in the hand", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::PortalGun, 1))
+    });
+    h.wait_until("the player in the air", SERVER, |w| {
+        local_player(w).is_some_and(|player| {
+            let map = &w.resource::<ClientWorldMap>().blocks;
+            player.is_flying && shared::players::movement::is_terrain_loaded(player.position, map)
+        })
+    });
+    h.set_time("day");
+    let start = local_player(h.world()).unwrap().position.floor().as_ivec3();
+    h.command("/ceilingcourse");
+    let ceiling_cell = start + IVec3::new(10, 4, 0);
+    let floor_cell = start + IVec3::new(0, -3, 0);
+    h.wait_until("the course", SERVER, |w| {
+        let blocks = &w.resource::<ClientWorldMap>().blocks;
+        [floor_cell, ceiling_cell]
+            .iter()
+            .all(|cell| blocks.get_block(*cell).is_some())
+    });
+    h.frames(10);
+
+    // Orange on the ceiling, then the player lands on the platform
+    h.aim_at(
+        ceiling_cell.as_vec3() + Vec3::new(0.5, 0.0, 0.5),
+        ceiling_cell,
+    );
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 3);
+    h.wait_until("the orange portal", SERVER, |w| {
+        own_portal(w, PortalColor::Orange).is_some()
+    });
+    let orange = own_portal(h.world(), PortalColor::Orange).unwrap();
+    assert_eq!(orange.face, FaceDirection::MinusY);
+    h.press(KeyCode::KeyF);
+    h.wait_until("the player on the platform", SERVER, |w| {
+        local_player(w).is_some_and(|player| player.on_ground && !player.is_flying)
+    });
+
+    // Blue under its feet: it falls in at once, and out of the ceiling
+    let feet = local_player(h.world()).unwrap().position - Vec3::Y * 0.9;
+    let under = feet.floor().as_ivec3() - IVec3::Y;
+    h.aim_at(under.as_vec3() + Vec3::new(0.5, 1.0, 0.5), under);
+    let center = h.center_of(&L::marker::<Hotbar>());
+    h.move_cursor(center);
+    h.frames(1);
+    let click = |h: &mut Harness, state: ButtonState| {
+        let window = h
+            .world_mut()
+            .query_filtered::<Entity, With<bevy::window::PrimaryWindow>>()
+            .single(h.world())
+            .unwrap();
+        let input = MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window,
+        };
+        h.world_mut().write_message(input);
+        h.world_mut()
+            .write_message(bevy::window::WindowEvent::MouseButtonInput(input));
+    };
+    let mut drawn_inside = Vec::new();
+    let mut passed = None;
+    for frame in 0..240 {
+        match frame {
+            0 => click(&mut h, ButtonState::Pressed),
+            3 => click(&mut h, ButtonState::Released),
+            _ => {}
+        }
+        h.frames(1);
+        let w = h.world_mut();
+        let eye = w
+            .query_filtered::<&GlobalTransform, With<CameraController>>()
+            .single(w)
+            .unwrap()
+            .translation();
+        let player = local_player(w).unwrap();
+        if solid_at(w, eye) {
+            drawn_inside.push((frame, eye, player.position));
+        }
+        if passed.is_none() && player.position.x > start.x as f32 + 5.0 {
+            passed = Some(frame);
+        }
+        if passed.is_some_and(|at| frame > at + 30) {
+            break;
+        }
+    }
+    let passed = passed.expect("the player never came out of the ceiling");
+    println!("came out of the ceiling at frame {passed}");
+    assert!(
+        drawn_inside.is_empty(),
+        "the camera was drawn from inside a block: {drawn_inside:?}"
+    );
 }
 
 /// A mod with a command, `/throwcourse`, that builds from the block its author is in: a stone

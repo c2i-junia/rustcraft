@@ -135,6 +135,49 @@ pub fn camera_control_system(
     }
 }
 
+/// The camera as the simulation knows it, at the eyes of the player, while it is drawn from
+/// the other side of a portal (`draw_the_eye_through_portals`): given back at the start of the
+/// next frame (`give_the_eye_back`), so that the inputs, the aim and the shots read it.
+#[derive(Resource, Default)]
+pub struct EyeThroughPortal(Option<Transform>);
+
+/// Draws the player's camera from where its eye is seen when it went through a portal ahead of
+/// the centre of the player (`Portals::eye_through`): rising into a ceiling portal or falling
+/// out of a ceiling twin, the eye, 0.8 above the centre, is in the portal's wall, and is drawn
+/// from in front of the twin, looking through it, as a frame before. The simulation, which
+/// crosses with the centre, is not changed.
+pub fn draw_the_eye_through_portals(
+    mut eye: ResMut<EyeThroughPortal>,
+    world_map: Res<ClientWorldMap>,
+    player: Query<&Transform, (With<CurrentPlayerMarker>, Without<CameraController>)>,
+    mut camera: Query<&mut Transform, (With<CameraController>, Without<CurrentPlayerMarker>)>,
+) {
+    let (Ok(player), Ok(mut camera)) = (player.single(), camera.single_mut()) else {
+        return;
+    };
+    let Some(through) = world_map
+        .blocks
+        .portals()
+        .eye_through(player.translation, camera.translation)
+    else {
+        return;
+    };
+    eye.0 = Some(*camera);
+    camera.translation = through.transform_point3(camera.translation);
+    camera.rotation = Quat::from_mat3a(&through.matrix3) * camera.rotation;
+}
+
+/// Puts the camera back where the simulation knows it, if it was drawn through a portal the
+/// frame before (`draw_the_eye_through_portals`).
+pub fn give_the_eye_back(
+    mut eye: ResMut<EyeThroughPortal>,
+    mut camera: Query<&mut Transform, With<CameraController>>,
+) {
+    if let (Some(known), Ok(mut camera)) = (eye.0.take(), camera.single_mut()) {
+        *camera = known;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +233,74 @@ mod tests {
         let distance = unobstructed_distance(&blocks, PLAYER, direction, THIRD_PERSON_DISTANCE);
         let camera = PLAYER + direction.normalize() * distance;
         assert!(camera.z < 4.0, "{camera}");
+    }
+    /// Out of a ceiling portal, its eye still in the ceiling, the player's camera is drawn
+    /// from above the floor portal it fell into, looking through it, and given back as it was
+    /// the next frame, for the inputs.
+    #[test]
+    fn an_eye_left_in_a_ceiling_is_drawn_through_its_portal_and_given_back() {
+        use shared::world::{FaceDirection, Portal, PortalColor};
+        let mut blocks = world();
+        blocks.fill_box(
+            IVec3::new(16, 80, -6),
+            IVec3::new(26, 80, 6),
+            BlockId::Stone,
+        );
+        let floor = Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(0, 63, -1),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        };
+        let ceiling = Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(20, 80, 0),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::PlusX,
+        };
+        blocks.portals_mut().insert(floor);
+        blocks.portals_mut().insert(ceiling);
+        let through = blocks.portals().through(&ceiling).unwrap();
+        let mut app = App::new();
+        app.insert_resource(ClientWorldMap {
+            blocks,
+            ..default()
+        })
+        .init_resource::<EyeThroughPortal>()
+        .add_systems(First, give_the_eye_back)
+        .add_systems(Update, draw_the_eye_through_portals);
+        // Just out of the ceiling, the eye 0.7 into it
+        let centre = Vec3::from(ceiling.frame().translation) - Vec3::Y * 0.1;
+        let known = Transform::from_translation(centre + Vec3::Y * 0.8)
+            .looking_to(Vec3::new(0.3, -0.5, 0.2), Vec3::Y);
+        app.world_mut()
+            .spawn((CurrentPlayerMarker {}, Transform::from_translation(centre)));
+        let camera = app
+            .world_mut()
+            .spawn((known, CameraController::default()))
+            .id();
+        app.update();
+        let drawn = *app.world().get::<Transform>(camera).unwrap();
+        let wanted = through.transform_point3(known.translation);
+        assert!(drawn.translation.distance(wanted) < 1e-4, "{drawn:?}");
+        assert!(floor.signed_distance(drawn.translation) > 0.6, "{drawn:?}");
+        let forward = Quat::from_mat3a(&through.matrix3) * known.forward().as_vec3();
+        assert!(drawn.forward().dot(forward) > 0.9999, "{drawn:?}");
+        // The next frame starts with the camera as the simulation knows it
+        app.world_mut().run_schedule(First);
+        assert_eq!(*app.world().get::<Transform>(camera).unwrap(), known);
+        // Out of the ceiling, the eye is drawn where it is
+        let lower = centre - Vec3::Y;
+        app.world_mut()
+            .query_filtered::<&mut Transform, With<CurrentPlayerMarker>>()
+            .single_mut(app.world_mut())
+            .unwrap()
+            .translation = lower;
+        let out = known.with_translation(lower + Vec3::Y * 0.8);
+        *app.world_mut().get_mut::<Transform>(camera).unwrap() = out;
+        app.update();
+        assert_eq!(*app.world().get::<Transform>(camera).unwrap(), out);
     }
 }

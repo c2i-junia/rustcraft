@@ -254,6 +254,18 @@ impl Portals {
             .map(|(_, portal)| portal)
     }
 
+    /// The transform to draw an eye from when it is not on the side of a portal its body is
+    /// on: the crossing is the centre's, and the eye of a player is 0.8 above it, so that across
+    /// a floor or a ceiling it goes into the portal first (rising into a ceiling portal), or
+    /// comes out of its twin last (falling out of a ceiling twin), in the wall of the portal.
+    /// When the segment from `center` to `eye` goes into an open portal (`crossed`), the eye
+    /// has gone through it ahead of the body: `through` that portal takes it to where it is,
+    /// in front of the twin, as it would have had it crossed with the centre. `None` when the
+    /// eye is on the body's side.
+    pub fn eye_through(&self, center: Vec3, eye: Vec3) -> Option<Affine3A> {
+        self.through(self.crossed(center, eye)?)
+    }
+
     /// The wall cells of the open portals that let in an entity centred on `center`, of half
     /// width `margin` (`letting_through`): they do not collide with it, so that it goes into
     /// them, and through the portal.

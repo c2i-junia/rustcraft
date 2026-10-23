@@ -516,7 +516,8 @@ mod tests {
             PLAYER_HEIGHT, PLAYER_WIDTH,
         },
         world::{
-            world_position_to_chunk_position, BlockId, Chunk, FaceDirection, Portal, PortalColor,
+            world_position_to_chunk_position, BlockHitbox, BlockId, Chunk, FaceDirection, Portal,
+            PortalColor,
         },
     };
 
@@ -1797,6 +1798,121 @@ mod tests {
         assert!(player.position.y < 80.0, "{}", player.position);
         let ceiling = world.portals().get(7, PortalColor::Orange).unwrap();
         assert!(ceiling.signed_distance(player.position) > 0.0);
+    }
+
+    /// Where the eye of `player` is drawn from (`Portals::eye_through`): the eye itself, or,
+    /// gone through a portal ahead of the centre, through it back.
+    fn drawn_eye(world: &ChunkMap, player: &Player) -> Vec3 {
+        let eye = player.position + Vec3::Y * 0.8;
+        world
+            .portals()
+            .eye_through(player.position, eye)
+            .map_or(eye, |through| through.transform_point3(eye))
+    }
+
+    fn solid_at(world: &ChunkMap, point: Vec3) -> bool {
+        world
+            .get_block(point.floor().as_ivec3())
+            .is_some_and(|block| matches!(block.id.get_hitbox(), BlockHitbox::FullBlock))
+    }
+
+    /// Simulates `frames` inputs of `actions` from `player`, the camera at its eyes, and checks
+    /// each frame that the eye as drawn is in no block, and moves on as the player does, its
+    /// path followed through the portal `seen` (taken from the twin's side back to the first's).
+    /// Returns for how many frames the eye itself was inside a block.
+    fn eye_inside_blocks(
+        player: &mut Player,
+        world: &ChunkMap,
+        actions: &[NetworkAction],
+        frames: u32,
+        seen: &Portal,
+    ) -> u32 {
+        let back = world.portals().through(seen).unwrap().inverse();
+        let twin = *world.portals().twin(seen).unwrap();
+        let near = |portal: &Portal, point: Vec3| point.distance(portal.frame().translation.into());
+        let side = |point: Vec3| near(seen, point) < near(&twin, point);
+        let on_first_side = |point: Vec3| {
+            if side(point) {
+                point
+            } else {
+                back.transform_point3(point)
+            }
+        };
+        let mut previous = on_first_side(drawn_eye(world, player));
+        let mut inside = 0;
+        for n in 0..frames {
+            let mut input = frame(if n == 0 { actions } else { &[] });
+            input.camera = player.camera_transform;
+            input.camera.translation = player.position + Vec3::Y * 0.8;
+            let speed = player.velocity.length();
+            simulate_player_movement(player, world, &input);
+            let speed = speed.max(player.velocity.length());
+            if solid_at(world, player.position + Vec3::Y * 0.8) {
+                inside += 1;
+            }
+            let drawn = drawn_eye(world, player);
+            assert!(
+                !solid_at(world, drawn),
+                "frame {n}: the eye drawn from {drawn} is in a block, the player at {}",
+                player.position
+            );
+            let followed = on_first_side(drawn);
+            assert!(
+                followed.distance(previous) < speed * 0.016 + 0.01,
+                "frame {n}: the eye drawn jumped from {previous} to {followed}"
+            );
+            previous = followed;
+        }
+        inside
+    }
+
+    #[test]
+    fn falling_out_of_a_ceiling_twin_the_eye_is_drawn_from_above_the_floor_portal_until_out() {
+        let world = floor_portal_world(Some(ceiling_twin()));
+        let mut player = faller(Vec3::new(1.0, 70.0, -1.5), Vec3::NEG_Z);
+        let floor = *world.portals().get(7, PortalColor::Blue).unwrap();
+        let inside = eye_inside_blocks(&mut player, &world, &[], 90, &floor);
+        // The eye itself was in the ceiling for a few frames after the crossing
+        assert!(inside >= 3, "{inside}");
+        let ceiling = world.portals().get(7, PortalColor::Orange).unwrap();
+        assert!(ceiling.signed_distance(player.position) > 1.0);
+    }
+
+    #[test]
+    fn jumping_into_a_low_ceiling_portal_the_eye_is_drawn_from_above_its_twin() {
+        let mut world = flat_world();
+        // A ceiling whose bottom is two blocks over the floor, the blue portal in it, and the
+        // orange one on the floor further east
+        world.fill_box(IVec3::new(-3, 66, -5), IVec3::new(4, 66, 3), BlockId::Stone);
+        let ceiling = Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(0, 66, -1),
+            face: FaceDirection::MinusY,
+            up: FaceDirection::MinusZ,
+        };
+        world.portals_mut().insert(ceiling);
+        world.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(20, 63, -1),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        // Under the middle of the opening
+        let middle = Vec3::from(ceiling.frame().translation);
+        let mut player = standing_player();
+        player.position = middle.with_y(FLOOR_TOP + 0.9);
+        player.camera_transform = Transform::from_translation(player.position + Vec3::Y * 0.8);
+        let inside = eye_inside_blocks(
+            &mut player,
+            &world,
+            &[NetworkAction::JumpOrFlyUp],
+            40,
+            &ceiling,
+        );
+        // The eye was in the ceiling before the centre went into it
+        assert!(inside >= 3, "{inside}");
     }
 
     #[test]

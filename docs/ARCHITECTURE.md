@@ -474,7 +474,12 @@ never moves a player, so the prediction of the clients is left alone.
 3. **Simulation**: block interactions, then movement, predicted on the local player; a
    crossed portal sets the camera's yaw and pitch.
 4. **Reconciliation**: the states received from the server are applied.
-5. **Camera**: the camera is placed on the player.
+5. **Camera**: the camera is placed on the player. Its eye, 0.8 above the centre that crosses
+   the portals, goes into a ceiling portal before the centre does and comes out of a ceiling
+   twin after it: while the segment from the centre to the eye goes into an open portal, the
+   camera is drawn through that portal, from in front of the twin (`Portals::eye_through`,
+   `draw_the_eye_through_portals`), never from inside the ceiling, and given back at the start
+   of the next frame, for the inputs, the aim and the shots.
 6. **Meshing** (in `PostUpdate`): the chunks are drawn by groups of 4 × 4 columns of chunks
    (`GROUP_WIDTH`), each one entity, and a second one for its liquids: a frame costs the CPU
    for each entity, far more than for each face. A group whose chunks changed gets a new

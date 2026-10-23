@@ -2,7 +2,8 @@ use bevy::{camera::visibility::RenderLayers, prelude::*};
 use bevy_inspector_egui::bevy_egui::PrimaryEguiContext;
 
 use super::{
-    camera_control_system, setup_tone_curve, underwater_fog_system, zoom_system, Zoom, SKY_COLOR,
+    camera_control_system, draw_the_eye_through_portals, give_the_eye_back, setup_tone_curve,
+    underwater_fog_system, zoom_system, EyeThroughPortal, Zoom, SKY_COLOR,
 };
 
 use crate::portal::SURFACE_LAYER;
@@ -57,9 +58,15 @@ pub fn camera_plugin(app: &mut App) {
                 .in_set(GameSet::Input)
                 .run_if(in_state(GameState::Game)),
         )
+        .init_resource::<EyeThroughPortal>()
+        .add_systems(First, give_the_eye_back)
         .add_systems(
             Update,
-            (camera_control_system, underwater_fog_system)
+            (
+                camera_control_system,
+                draw_the_eye_through_portals,
+                underwater_fog_system,
+            )
                 .chain()
                 .in_set(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),
