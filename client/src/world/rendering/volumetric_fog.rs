@@ -51,25 +51,58 @@ struct Change {
 /// (`one_camera_offset`).
 const ONE_CAMERA_TAG: f32 = -4096.0;
 
-/// The `density_texture_offset` of a fog volume of the size `size` drawn only by the view whose
-/// camera stands within half a block of its centre along x and z.
-pub fn one_camera_offset(size: Vec3) -> Vec3 {
-    Vec3::new(0.5 / size.x, ONE_CAMERA_TAG, 0.5 / size.z)
+/// The `density_texture_offset` of a fog volume drawn only by the view whose camera stands
+/// within half a block of its centre along x and z, and marched only between the heights
+/// `bottom` and `top`, whatever its own: a volume stretched to hold its camera, which Bevy
+/// then draws from inside, hazes no more than the layer.
+pub fn one_camera_offset(bottom: f32, top: f32) -> Vec3 {
+    Vec3::new(bottom, ONE_CAMERA_TAG, top)
 }
 
 /// What draws a volume that belongs to one camera only in that camera's view: the camera, in
-/// the volume's own space (0 to 1), within the tolerance of its centre along x and z.
+/// the volume's own space (0 to 1), within half a block of its centre along x and z, the size
+/// of the volume read from its matrix (axis-aligned: its diagonal is one over its size).
 const ONE_CAMERA_FILTER: &str = "let jitter_strength = volumetric_fog.jitter_strength;
 
     // A volume that belongs to one camera is drawn only in its view (RustCraft)
     if (density_texture_offset.y == -4096.0) {
         let camera_uvw = (uvw_from_world * vec4(view.world_position, 1.0)).xyz;
-        if (any(abs(camera_uvw.xz - vec2(0.5)) > density_texture_offset.xz)) {
+        let half_block = 0.5 * vec2(uvw_from_world[0].x, uvw_from_world[2].z);
+        if (any(abs(camera_uvw.xz - vec2(0.5)) > half_block)) {
             return vec4(0.0, 0.0, 0.0, 0.0);
         }
     }";
 
-const CHANGES: [Change; 3] = [
+/// The start depth of the ray from its start point (`CHANGES`), then, for a volume of one
+/// camera, the ray cut to the heights its offset gives (`one_camera_offset`): it starts where
+/// it enters them, its start point with it, and ends where it leaves them. Along the ray,
+/// the height grows by `rise` per unit of view depth; the camera is the origin of the view.
+const START_IN_THE_LAYER: &str = "var start_depth_view = -view_start_pos.z;
+
+    // A volume of one camera is marched only between the heights of its offset (RustCraft)
+    if (density_texture_offset.y == -4096.0) {
+        let dir_view = normalize(view_start_pos.xyz);
+        let dir_world = (view.world_from_view * vec4(dir_view, 0.0)).xyz;
+        let rise = dir_world.y / -dir_view.z;
+        let camera_y = view.world_position.y;
+        var near = start_depth_view;
+        var far = end_depth_view;
+        if (abs(rise) > 1e-6) {
+            let a = (density_texture_offset.x - camera_y) / rise;
+            let b = (density_texture_offset.z - camera_y) / rise;
+            near = max(near, min(a, b));
+            far = min(far, max(a, b));
+        } else if (camera_y < density_texture_offset.x || camera_y > density_texture_offset.z) {
+            far = near;
+        }
+        if (near > start_depth_view) {
+            view_start_pos = dir_view * (near / -dir_view.z);
+            start_depth_view = near;
+        }
+        end_depth_view = far;
+    }";
+
+const CHANGES: [Change; 4] = [
     // A volume of one camera, only in its view
     Change {
         old: "let jitter_strength = volumetric_fog.jitter_strength;",
@@ -80,8 +113,8 @@ const CHANGES: [Change; 3] = [
     // the near plane or the front face of the volume
     Change {
         old: "let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);",
-        new: "let start_depth_view = -view_start_pos.z;",
-        reads: "let view_start_pos =",
+        new: START_IN_THE_LAYER,
+        reads: "view_start_pos = position_ndc_to_view(",
     },
     // The ray ended where the depth buffer says, the far plane included, then only where
     // something was drawn
@@ -89,6 +122,12 @@ const CHANGES: [Change; 3] = [
         old: "end_depth_view = min(end_depth_view, view_end_depth_from_buffer);",
         new: "if (ndc_end_depth_from_buffer > 0.0) {\n        \
               end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    }",
+        reads: "let ndc_end_depth_from_buffer =",
+    },
+    // The start point, which the ray cut to the heights of its volume moves
+    Change {
+        old: "let view_start_pos = position_ndc_to_view(",
+        new: "var view_start_pos = position_ndc_to_view(",
         reads: "let ndc_end_depth_from_buffer =",
     },
 ];
@@ -164,13 +203,14 @@ mod tests {
                           let jitter_strength = volumetric_fog.jitter_strength;\n    \
                           let ndc_end_depth_from_buffer = textureLoad(depth_texture, xy, 0);\n    \
                           let view_start_pos = position_ndc_to_view(frag_coord_to_ndc(frag_coord));\n    \
+                          var end_depth_view = 0.0;\n    \
                           end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    \
                           let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);\n";
 
     #[test]
     fn a_ray_starts_at_its_start_point_and_ends_at_the_volume_where_nothing_was_drawn() {
         let changed = for_oblique_near_planes(SAMPLE).unwrap();
-        assert!(changed.contains("let start_depth_view = -view_start_pos.z;"));
+        assert!(changed.contains("var start_depth_view = -view_start_pos.z;"));
         assert!(!changed.contains("depth_ndc_to_view_z(frag_coord.z)"));
         assert!(changed.contains(
             "if (ndc_end_depth_from_buffer > 0.0) {\n        \
@@ -186,9 +226,26 @@ mod tests {
         assert!(changed.find("let density_texture_offset =").unwrap() < filter);
         assert!(filter < changed.find("let ndc_end_depth_from_buffer").unwrap());
         assert!(ONE_CAMERA_FILTER.contains(&format!("{ONE_CAMERA_TAG:.1}")));
-        let offset = one_camera_offset(Vec3::new(640.0, 140.0, 320.0));
-        assert_eq!(offset.y, ONE_CAMERA_TAG);
-        assert_eq!((offset.x * 640.0, offset.z * 320.0), (0.5, 0.5));
+        // Half a block, whatever the size of the volume: its scale is read from its matrix
+        assert!(ONE_CAMERA_FILTER.contains("uvw_from_world[0].x"));
+        let offset = one_camera_offset(22.0, 162.0);
+        assert_eq!(offset, Vec3::new(22.0, ONE_CAMERA_TAG, 162.0));
+    }
+
+    /// A volume of one camera is marched only between the heights its offset gives, whatever
+    /// its size: a portal camera's layer of haze is stretched to hold the camera, which Bevy then
+    /// draws from inside, its rays starting on the oblique near plane rather than clipped by it,
+    /// and the stretch is not hazed.
+    #[test]
+    fn a_volume_of_one_camera_is_marched_only_within_its_heights() {
+        let changed = for_oblique_near_planes(SAMPLE).unwrap();
+        // The start of the ray, and the start point, may move to where the ray enters the slab
+        assert!(changed.contains("var view_start_pos = position_ndc_to_view("));
+        assert!(changed.contains("var start_depth_view = -view_start_pos.z;"));
+        let clamp = changed.find("density_texture_offset.x - camera_y").unwrap();
+        assert!(changed.find("var start_depth_view").unwrap() < clamp);
+        assert!(clamp < changed.find("view_start_pos = dir_view").unwrap());
+        assert!(changed.contains("end_depth_view = far;"));
     }
 
     #[test]
@@ -203,7 +260,10 @@ mod tests {
     fn a_shader_whose_names_the_changes_read_were_renamed_is_not_changed() {
         let renamed = SAMPLE.replace("let view_start_pos", "let ray_start");
         let missing = for_oblique_near_planes(&renamed).unwrap_err();
-        assert!(missing.contains("let view_start_pos"), "{missing}");
+        assert!(
+            missing.contains("view_start_pos = position_ndc_to_view("),
+            "{missing}"
+        );
         let renamed = SAMPLE.replace("let ndc_end_depth_from_buffer", "let end_ndc");
         assert!(for_oblique_near_planes(&renamed).is_err());
     }

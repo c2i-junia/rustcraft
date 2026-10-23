@@ -675,11 +675,29 @@ struct GodRayVolume {
 
 /// The size of the layer of haze around a camera, in blocks.
 const HAZE_SIZE: Vec3 = Vec3::new(640., 140., 640.);
+/// The heights between which the layer of haze lies: over the ground, its top not seen against
+/// the sky.
+const HAZE_BOTTOM: f32 = SEA_LEVEL as f32 + 30. - HAZE_SIZE.y / 2.;
+const HAZE_TOP: f32 = SEA_LEVEL as f32 + 30. + HAZE_SIZE.y / 2.;
 
-/// Where the layer of haze of a camera at `camera` stands: over the ground below it, whose top
-/// is not seen against the sky.
-fn haze_transform(camera: Vec3) -> Transform {
-    Transform::from_xyz(camera.x, SEA_LEVEL as f32 + 30., camera.z).with_scale(HAZE_SIZE)
+/// The volume of the layer of haze of a camera at `camera`, `portal` if it is a portal camera:
+/// the layer, under the camera. A portal camera above the layer or under it stands 2 blocks
+/// within its volume, stretched to hold it, which Bevy then draws from inside: from outside, it
+/// draws the faces of the volume, which the portal camera's oblique near plane, on the twin,
+/// clips when the twin is in the layer and the camera out of it, and the view through the
+/// portal had no haze (lot 12 report). The shader marches only the layer
+/// (`one_camera_offset`).
+fn haze_transform(camera: Vec3, portal: bool) -> Transform {
+    let (mut bottom, mut top) = (HAZE_BOTTOM, HAZE_TOP);
+    if portal {
+        bottom = bottom.min(camera.y - 2.);
+        top = top.max(camera.y + 2.);
+    }
+    Transform::from_xyz(camera.x, (bottom + top) / 2., camera.z).with_scale(Vec3::new(
+        HAZE_SIZE.x,
+        top - bottom,
+        HAZE_SIZE.z,
+    ))
 }
 
 /// Keeps a layer of haze under the camera of the world and each portal camera that draws, once
@@ -707,15 +725,15 @@ fn follow_cameras_with_haze(
     )>,
     mut commands: Commands,
 ) {
-    let mut cameras: Vec<(Entity, Vec3)> = Vec::new();
+    let mut cameras: Vec<(Entity, Vec3, bool)> = Vec::new();
     if features(&graphics).god_rays.is_some() {
         if let Some((camera, transform)) = world_cameras.iter().next() {
-            cameras.push((camera, transform.translation()));
+            cameras.push((camera, transform.translation(), false));
             cameras.extend(
                 portal_cameras
                     .iter()
                     .filter(|(_, _, camera)| camera.is_active)
-                    .map(|(camera, transform, _)| (camera, transform.translation())),
+                    .map(|(camera, transform, _)| (camera, transform.translation(), true)),
             );
         }
     }
@@ -730,22 +748,23 @@ fn follow_cameras_with_haze(
     let density = density * Overcast::current(weather.as_deref()).celestial_visibility();
     let mut followed = Vec::new();
     for (volume, haze, mut transform, mut global, mut fog) in &mut volumes {
-        let Some(&(_, at)) = cameras.iter().find(|(camera, _)| *camera == haze.camera) else {
+        let Some(&(_, at, portal)) = cameras.iter().find(|(camera, ..)| *camera == haze.camera)
+        else {
             commands.entity(volume).despawn();
             continue;
         };
         followed.push(haze.camera);
-        *transform = haze_transform(at);
+        *transform = haze_transform(at, portal);
         *global = GlobalTransform::from(*transform);
         if fog.density_factor != density {
             fog.density_factor = density;
         }
     }
-    for (camera, at) in cameras {
+    for (camera, at, portal) in cameras {
         if followed.contains(&camera) {
             continue;
         }
-        let transform = haze_transform(at);
+        let transform = haze_transform(at, portal);
         commands.spawn((
             GodRayVolume { camera },
             FogVolume {
@@ -753,7 +772,7 @@ fn follow_cameras_with_haze(
                 scattering: 0.6,
                 absorption: 0.1,
                 scattering_asymmetry: 0.7,
-                density_texture_offset: one_camera_offset(HAZE_SIZE),
+                density_texture_offset: one_camera_offset(HAZE_BOTTOM, HAZE_TOP),
                 ..default()
             },
             transform,
@@ -1444,7 +1463,7 @@ mod tests {
             hazes.sort_by(|a, b| a.1.total_cmp(&b.1));
             hazes
         };
-        let tag = one_camera_offset(HAZE_SIZE);
+        let tag = one_camera_offset(HAZE_BOTTOM, HAZE_TOP);
         assert_eq!(
             hazes(&mut app),
             vec![(world_camera, 5., tag), (portal_camera, 1000., tag)]
@@ -1462,6 +1481,31 @@ mod tests {
             .is_active = false;
         app.update();
         assert_eq!(hazes(&mut app), vec![(world_camera, 5., tag)]);
+    }
+
+    /// A camera's layer of haze holds the camera when it is a portal camera, above the layer or
+    /// under it: its oblique near plane, on the twin, would otherwise clip the faces of the layer
+    /// Bevy draws from outside, and the view through the portal would have no haze. The layer
+    /// itself stays where it is, its heights in the volume's offset; the player's camera keeps
+    /// the layer as it is, which Bevy draws from outside right.
+    #[test]
+    fn a_portal_camera_out_of_the_layer_of_haze_stands_in_its_volume() {
+        for (camera, portal, (bottom, top)) in [
+            (Vec3::new(0., 70., 0.), true, (HAZE_BOTTOM, HAZE_TOP)),
+            (Vec3::new(0., 170., 0.), true, (HAZE_BOTTOM, 172.)),
+            (Vec3::new(0., 10., 0.), true, (8., HAZE_TOP)),
+            (Vec3::new(0., 170., 0.), false, (HAZE_BOTTOM, HAZE_TOP)),
+        ] {
+            let transform = haze_transform(camera, portal);
+            let (min, max) = (
+                transform.translation.y - transform.scale.y / 2.,
+                transform.translation.y + transform.scale.y / 2.,
+            );
+            assert_eq!((min, max), (bottom, top), "{camera} {portal}");
+            assert_eq!(transform.translation.xz(), camera.xz());
+            assert_eq!(transform.scale.xz(), HAZE_SIZE.xz());
+        }
+        assert_eq!(HAZE_TOP - HAZE_BOTTOM, HAZE_SIZE.y);
     }
 
     /// Whether the ray from the origin along `direction` meets a triangle of `mesh`
