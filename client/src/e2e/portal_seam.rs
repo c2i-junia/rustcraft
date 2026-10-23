@@ -1,12 +1,26 @@
-//! The seam of a crossing, for its diagnosis (`.superpowers/sdd/portals/seam-diagnosis.md`): the
-//! view through a portal from an eye just in front of it, against the view straight from the
-//! same eye carried through the portal (`Portals::through`), as the player sees them on the last
-//! frame before it walks through and on the first after. Most are measures, not checks; the
-//! `*_is_seamless` tests also check that a close twin is crossed without a seam, at noon at every
-//! level and at dusk at High. Each test saves its pictures, their differences and its measures into
-//! `.superpowers/sdd/portals/seam-screens/`, and is ignored: each takes minutes. Run them, two
-//! at most at once (with three, a server timed out), with
-//! `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored --test-threads=2`.
+//! The seam of a crossing, and the player's own view by a portal (`.superpowers/sdd/portals/
+//! seam-diagnosis.md`): the view through a portal from an eye just in front of it, against the
+//! view straight from the same eye carried through the portal (`Portals::through`), as the
+//! player sees them on the last frame before it walks through and on the first after. Each test
+//! saves its pictures, their differences and its measures into
+//! `.superpowers/sdd/portals/seam-screens/`, and is ignored: each takes minutes.
+//!
+//! Two kinds. The gates check: a close twin, one 6 and one 21 chunks away are crossed without a
+//! seam (`*_is_seamless`), the player's own view does not change with a portal (`own_view_*`),
+//! the sky the chunks fade into is the sky at the horizon (`horizon_*`) and follows the hour
+//! (`the_sky_follows_*`). The diagnoses (`seam_*` but `*_is_seamless`) measure, with some
+//! suspects of the seam turned off one by one, and check little. Run them all, two at most at
+//! once (with three, a server timed out), in about an hour, with
+//! `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored --test-threads=2`,
+//! or, before a merge, a gate of each kind, in about 8 minutes, with
+//! `E2E_LIFETIME_SECS=3000 cargo test -p client -- --ignored --test-threads=2 --exact
+//! e2e::portal_seam::seam_close_off_noon_is_seamless
+//! e2e::portal_seam::seam_close_high_dusk_is_seamless
+//! e2e::portal_seam::seam_far_high_noon_is_seamless
+//! e2e::portal_seam::own_view_high_dusk_is_unchanged_by_an_approached_portal
+//! e2e::portal_seam::own_view_high_dusk_is_unchanged_by_a_stacked_floor_and_ceiling_pair
+//! e2e::portal_seam::own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin
+//! e2e::portal_seam::horizon_high_dusk_portals_first`.
 //!
 //! The player's camera is pinned to the eye measured (`Pinned`), so that both pictures are taken
 //! from exactly the same place, and some suspects of the seam can be turned off, one by one, to
@@ -2343,6 +2357,7 @@ const SHADOWS_RENDER_DISTANCE: u32 = 18;
 /// low, its shadow would reach the player. Nothing but the approach changes: no portal, no
 /// clouds. As a control, the wall's shadow shows once its group casts in every view.
 #[test]
+#[ignore = "a regression test of a minute and a half on lavapipe: run it by hand with --ignored"]
 fn own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin() {
     let hour = Hour::Dusk;
     // In the third chunk of its group along z: the groups 16 to 19 chunks south, 14 to 17 from
