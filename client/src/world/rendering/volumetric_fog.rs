@@ -124,10 +124,10 @@ fn unpacked_look(look: f32) -> Vec3 {
     )
 }
 
-/// Whether the view of the camera `view` may draw a volume of one camera centred at `centre`
+/// Whether the view of the camera `view` draws a volume of one camera centred at `centre`
 /// along x and z with the offset `offset`, as `ONE_CAMERA_FILTER` decides, its look a little
-/// looser (`SHARED_LOOK`): at the edge of the shader's, float noise can make the GPU draw it,
-/// and a camera that shares the volume never draws it and one of its own.
+/// stricter (`SHARED_LOOK`): a camera that shares a volume is one the shader surely draws it in,
+/// or its view would have no haze.
 pub fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
     let at = view.translation();
     (at.xz() - centre).abs().max_element() <= 0.5
@@ -135,9 +135,16 @@ pub fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
         && view.forward().dot(unpacked_look(offset.z)) >= SHARED_LOOK
 }
 
-/// The least cosine between two looks for `drawn_in`, about 1.4°: the shader's (0.9998, about
-/// 1.15°) loosened past what float noise moves it by.
-const SHARED_LOOK: f32 = 0.9997;
+/// The least cosine between two looks for `drawn_in`: the shader's (`ONE_CAMERA_LOOK`) made
+/// stricter by far more than float noise moves it, so that the CPU never shares a volume the GPU
+/// might leave out. Within that margin, about 0.03° wide, a camera could draw the volume and
+/// its own; no motion through a pair brings a camera there but by chance, unlike the 90° turn
+/// at the pitch clamp a looser tolerance (0.9997) caught (`a_camera_that_shares_a_volume_always_draws_it`).
+const SHARED_LOOK: f32 = ONE_CAMERA_LOOK + 1e-5;
+
+/// The least cosine between the look of a view and that of the camera a volume belongs to, for
+/// the shader to draw the volume in that view (`ONE_CAMERA_FILTER`): about 1.15°.
+const ONE_CAMERA_LOOK: f32 = 0.9998;
 
 /// What draws a volume that belongs to one camera only in that camera's view: the camera, in
 /// the volume's own space (0 to 1), within half a block of its centre along x and z, the size
@@ -414,25 +421,72 @@ mod tests {
         }
     }
 
-    /// A camera turned by a little more than the shader allows (1.15°) still counts as drawing
-    /// the volume on the CPU: at the edge, where float noise can make the GPU draw it, the
-    /// camera shares it rather than draw it and its own, the haze twice as thick.
+    /// Whether the shader draws, in the view of the camera `view`, the volume of one camera
+    /// centred at `centre` along x and z with the offset `offset` (`ONE_CAMERA_FILTER`, its
+    /// arithmetic in f32 as on the GPU).
+    fn gpu_draws(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
+        let at = view.translation();
+        (at.xz() - centre).abs().max_element() <= 0.5
+            && (at.y - offset.x).abs() <= 0.5
+            && view.forward().dot(unpacked_look(offset.z)) >= ONE_CAMERA_LOOK
+    }
+
+    /// A camera that shares a volume (`drawn_in`) is one the shader draws it in, or its view would
+    /// have no haze. A pair on two walls at right angles turns the world by 90° about a vertical
+    /// line: a player standing on it and looking down as far as it can (`MAX_PITCH_DEGREES`) has a
+    /// portal camera where it stands, its look 1.38–1.45° off, the quantisation of the pitch
+    /// included, on either side of the tolerance the CPU had at 0.9997: it shared the player's
+    /// volume, which the shader left out of its view, and the portal showed no haze.
     #[test]
-    fn at_the_edge_of_the_look_the_cpu_shares_the_volume_the_gpu_might_draw() {
-        // Level, so that a turn about the vertical turns the look by as much
-        let player = GlobalTransform::from(
-            Transform::from_xyz(-40.0, 83.0, -2.5).looking_to(Vec3::new(0.3, 0.0, 1.0), Vec3::Y),
+    fn a_camera_that_shares_a_volume_always_draws_it() {
+        use shared::players::constants::MAX_PITCH_DEGREES;
+        let at = Vec3::new(-40.0, 83.0, -2.5);
+        let quarter = Quat::from_rotation_y(FRAC_PI_2);
+        let mut cases = 0;
+        for pitch in [
+            MAX_PITCH_DEGREES,
+            MAX_PITCH_DEGREES - 0.02,
+            MAX_PITCH_DEGREES - 0.05,
+        ] {
+            for yaw in (0..1000).map(|step| step as f32 * 0.361) {
+                let rotation = Quat::from_rotation_y(yaw.to_radians())
+                    * Quat::from_rotation_x(-pitch.to_radians());
+                let player =
+                    GlobalTransform::from(Transform::from_translation(at).with_rotation(rotation));
+                let portal = GlobalTransform::from(
+                    Transform::from_translation(at).with_rotation(quarter * rotation),
+                );
+                let offset = one_camera_offset(&player, false);
+                let shares = drawn_in(&portal, at.xz(), offset);
+                let draws = gpu_draws(&portal, at.xz(), offset);
+                assert!(!shares || draws, "{pitch}° {yaw}°: shares, not drawn");
+                // There, it is not drawn: the portal camera has a volume of its own
+                assert!(!draws, "{pitch}° {yaw}°");
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 3000);
+        // Level, turned by a little more and a little less than the tolerance (1.15°)
+        let level = GlobalTransform::from(
+            Transform::from_translation(at).looking_to(Vec3::new(0.3, 0.0, 1.0), Vec3::Y),
         );
-        let centre = player.translation().xz();
-        let offset = one_camera_offset(&player, true);
-        let turned = |degrees: f32| {
-            GlobalTransform::from(
-                Transform::from_translation(player.translation())
-                    .with_rotation(Quat::from_rotation_y(degrees.to_radians()) * player.rotation()),
-            )
-        };
-        assert!(drawn_in(&turned(1.25), centre, offset));
-        assert!(!drawn_in(&turned(1.6), centre, offset));
+        let offset = one_camera_offset(&level, true);
+        for turn in (0..400).map(|step| 1.0 + step as f32 * 0.001) {
+            let turned = GlobalTransform::from(
+                Transform::from_translation(at)
+                    .with_rotation(Quat::from_rotation_y(turn.to_radians()) * level.rotation()),
+            );
+            let shares = drawn_in(&turned, at.xz(), offset);
+            assert!(!shares || gpu_draws(&turned, at.xz(), offset), "{turn}°");
+        }
+    }
+
+    /// The shader's tolerance on the look is `ONE_CAMERA_LOOK`.
+    #[test]
+    fn the_shader_tests_the_look_against_one_camera_look() {
+        assert!(ONE_CAMERA_FILTER.contains(&format!(
+            "dot(view_forward, owner_forward) < {ONE_CAMERA_LOOK})"
+        )));
     }
 
     /// The rays are cut to the heights of the layer only in a portal camera's volume, by its
