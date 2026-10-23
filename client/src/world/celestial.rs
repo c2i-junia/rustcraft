@@ -1,5 +1,5 @@
 use crate::player::CurrentPlayerMarker;
-use crate::portal::BODY_LAYER;
+use crate::portal::{BODY_LAYER, PORTAL_CHUNKS_LAYER};
 use crate::state::GameState;
 use crate::world::overcast::Overcast;
 use crate::world::time::ClientTime;
@@ -234,8 +234,11 @@ pub fn setup_main_lighting(
                 ..default()
             },
             // A light shadows only the meshes of its layers: the body of the player in first
-            // person, seen only through the portals, keeps its shadow
-            RenderLayers::from_layers(&[0, BODY_LAYER]),
+            // person, seen only through the portals, keeps its shadow, and so do the chunks only
+            // the portals show, around a far twin, as the player sees them after crossing. Which
+            // of these cast in which view is the meshing's (`render::shadow_role`): none of
+            // them in the player's own
+            RenderLayers::from_layers(&[0, BODY_LAYER, PORTAL_CHUNKS_LAYER]),
             Transform::IDENTITY,
         ))
         .id();
@@ -548,6 +551,8 @@ mod tests {
         assert!(off < 1.0, "{off}°");
     }
 
+    /// And the chunks only the portals show (`PORTAL_CHUNKS_LAYER`): those around a far twin,
+    /// whose shadows the portal cameras draw as the player sees them after crossing.
     #[test]
     fn the_sky_light_shadows_the_world_and_the_body_seen_only_through_the_portals() {
         let mut world = World::new();
@@ -556,7 +561,7 @@ mod tests {
         world.run_system_once(setup_main_lighting).unwrap();
         let mut lights = world.query_filtered::<Option<&RenderLayers>, With<SkyLight>>();
         let layers = lights.single(&world).unwrap().cloned().unwrap_or_default();
-        for layer in [0, BODY_LAYER] {
+        for layer in [0, BODY_LAYER, PORTAL_CHUNKS_LAYER] {
             assert!(layers.intersects(&RenderLayers::layer(layer)), "{layer}");
         }
     }

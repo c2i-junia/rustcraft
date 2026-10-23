@@ -573,7 +573,7 @@ pub fn world_render_system(
             &mut commands,
             &mut meshes,
             new_meshes,
-            shadow_role(task.group, player_chunk, &approach.twins),
+            shadow_role(task.group, player_chunk, &approach.twins, distance),
         );
         false
     });
@@ -615,14 +615,25 @@ pub enum ShadowRole {
 }
 
 /// What shadows the group `group` casts, for a player in the chunk `player_chunk` who
-/// approaches the twins `twins` (`Approach::twins`): within `SHADOW_CASTER_DISTANCE` of the
-/// player, in every view; else within it of a twin, whose portal camera draws the shadows the
-/// player will see there after crossing, in the views of the portal cameras only, so that the
-/// player's own view does not change with a portal (`keep_twin_shadows_to_portal_cameras`).
-fn shadow_role(group: IVec2, player_chunk: IVec3, twins: &[IVec3]) -> ShadowRole {
-    if casts_shadow(group, &[player_chunk]) {
+/// approaches the twins `twins` (`Approach::twins`), at the render distance `distance`: within
+/// `SHADOW_CASTER_DISTANCE` of the player and within its own reach, in every view; else within
+/// it of a twin and within the reach the player will have there, whose portal camera draws the
+/// shadows the player will see there after crossing, in the views of the portal cameras only, so
+/// that the player's own view does not change with a portal
+/// (`keep_twin_shadows_to_portal_cameras`). The sky light shadows `PORTAL_CHUNKS_LAYER` too, for
+/// the groups around a far twin: a group past the player's own reach, on that layer, never casts
+/// in every view, as it would into the player's cascades from beyond its fog.
+fn shadow_role(group: IVec2, player_chunk: IVec3, twins: &[IVec3], distance: i32) -> ShadowRole {
+    let casts_around = |centre: IVec3| {
+        casts_shadow(group, &[centre])
+            && drawn_by_player(
+                group,
+                &ChunkReach::new(centre, distance, &Default::default()),
+            )
+    };
+    if casts_around(player_chunk) {
         ShadowRole::Own
-    } else if casts_shadow(group, twins) {
+    } else if twins.iter().any(|twin| casts_around(*twin)) {
         ShadowRole::ForTwinsOnly
     } else {
         ShadowRole::None
@@ -646,7 +657,8 @@ pub fn shadow_casters_system(
     world_map: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     approach: Option<Res<Approach>>,
-    mut last: Local<Option<(IVec3, Vec<IVec3>)>>,
+    (render_distance, server_limit): (Res<RenderDistance>, Option<Res<ServerRenderDistanceLimit>>),
+    mut last: Local<Option<(IVec3, Vec<IVec3>, i32)>>,
     mut commands: Commands,
 ) {
     let Ok(player) = player.single() else {
@@ -655,7 +667,12 @@ pub fn shadow_casters_system(
     let twins = approach
         .map(|approach| approach.twins.clone())
         .unwrap_or_default();
-    let now = (world_position_to_chunk_position(player.translation), twins);
+    let distance = granted_render_distance(Some(&render_distance), server_limit.as_deref()) as i32;
+    let now = (
+        world_position_to_chunk_position(player.translation),
+        twins,
+        distance,
+    );
     let Some(before) = last.replace(now.clone()) else {
         return;
     };
@@ -666,8 +683,8 @@ pub fn shadow_casters_system(
         let Some(entity) = render.entity else {
             continue;
         };
-        let role = shadow_role(*group, now.0, &now.1);
-        if shadow_role(*group, before.0, &before.1) == role {
+        let role = shadow_role(*group, now.0, &now.1, now.2);
+        if shadow_role(*group, before.0, &before.1, before.2) == role {
             continue;
         }
         let mut entity = commands.entity(entity);
@@ -1327,6 +1344,10 @@ mod tests {
         let far_entity = entity_at(&mut world, near + IVec2::X);
         world.entity_mut(far_entity).insert(NotShadowCaster);
         world.insert_resource(map);
+        // Its reach holds every group within shadow distance
+        world.insert_resource(RenderDistance {
+            distance: SHADOW_CASTER_DISTANCE as u32,
+        });
         let player = world
             .spawn((CurrentPlayerMarker {}, Transform::default()))
             .id();
@@ -1381,6 +1402,9 @@ mod tests {
         );
         world.insert_resource(map);
         world.init_resource::<Approach>();
+        world.insert_resource(RenderDistance {
+            distance: SHADOW_CASTER_DISTANCE as u32,
+        });
         world.spawn((CurrentPlayerMarker {}, Transform::from_xyz(8.0, 70.0, 8.0)));
         let mut system = IntoSystem::into_system(shadow_casters_system);
         system.initialize(&mut world);
@@ -1410,13 +1434,62 @@ mod tests {
         let twin = IVec3::new(2 * SHADOW_CASTER_DISTANCE, 4, 0);
         let player = IVec3::new(0, 4, 0);
         let near_both = group_of(IVec3::new(SHADOW_CASTER_DISTANCE, 4, 0));
+        let distance = SHADOW_CASTER_DISTANCE;
         assert!(casts_shadow(near_both, &[player]) && casts_shadow(near_both, &[twin]));
-        assert_eq!(shadow_role(near_both, player, &[twin]), ShadowRole::Own);
         assert_eq!(
-            shadow_role(group_of(twin), player, &[twin]),
+            shadow_role(near_both, player, &[twin], distance),
+            ShadowRole::Own
+        );
+        assert_eq!(
+            shadow_role(group_of(twin), player, &[twin], distance),
             ShadowRole::ForTwinsOnly
         );
-        assert_eq!(shadow_role(group_of(twin), player, &[]), ShadowRole::None);
+        assert_eq!(
+            shadow_role(group_of(twin), player, &[], distance),
+            ShadowRole::None
+        );
+    }
+
+    /// A group casts as the player sees it from where it stands or would after crossing: only
+    /// within its reach there (`drawn_by_player`), as past it the group is on
+    /// `PORTAL_CHUNKS_LAYER`, which the sky light shadows for the portal cameras. At a render
+    /// distance of 8, the groups 10 to 12 chunks from the player cast in no view, as they did
+    /// when the light left that layer out; around a far twin, they cast for the portal cameras
+    /// within the reach the player will have there, and only within it.
+    #[test]
+    fn a_group_casts_only_within_the_reach_of_where_the_player_stands_or_will_stand() {
+        let distance = 8;
+        let player = IVec3::new(0, 4, 0);
+        let twin = IVec3::new(400, 4, 0);
+        // Its nearest column 12 chunks along x: within shadow distance, beyond the reach
+        let beyond = |centre: IVec3| group_of(centre + IVec3::X * 12);
+        let near = |centre: IVec3| group_of(centre + IVec3::X * 4);
+        assert!(casts_shadow(beyond(player), &[player]));
+        assert!(!drawn_by_player(
+            beyond(player),
+            &ChunkReach::new(player, distance, &Default::default())
+        ));
+        assert_eq!(
+            shadow_role(near(player), player, &[twin], distance),
+            ShadowRole::Own
+        );
+        assert_eq!(
+            shadow_role(beyond(player), player, &[twin], distance),
+            ShadowRole::None
+        );
+        assert_eq!(
+            shadow_role(near(twin), player, &[twin], distance),
+            ShadowRole::ForTwinsOnly
+        );
+        assert_eq!(
+            shadow_role(beyond(twin), player, &[twin], distance),
+            ShadowRole::None
+        );
+        // Farther, the reach holds all within shadow distance
+        assert_eq!(
+            shadow_role(beyond(twin), player, &[twin], 12),
+            ShadowRole::ForTwinsOnly
+        );
     }
 
     #[test]
