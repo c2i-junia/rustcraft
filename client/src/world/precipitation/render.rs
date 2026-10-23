@@ -302,6 +302,8 @@ fn prepare_precipitation_bind_groups(
         uniforms.0.set(sources.params);
         uniforms.0.write_buffer(&render_device, &render_queue);
         let Some(params) = uniforms.0.binding() else {
+            // Not last frame's drops with last frame's buffers
+            commands.entity(entity).remove::<PrecipitationBindGroup>();
             continue;
         };
         let layout = if msaa.samples() > 1 {

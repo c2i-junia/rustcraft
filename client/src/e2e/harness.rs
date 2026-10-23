@@ -57,6 +57,9 @@ pub struct Options {
     /// The shaders the client draws with, whatever its game folder says; `None` keeps the
     /// saved ones. Off by default: lavapipe draws the others slowly.
     pub shaders: Option<ShaderQuality>,
+    /// Whether the render world counts the views the pass of the bolts draws, into
+    /// `LIGHTNING_VIEWS_DRAWN`: for a single test, which reads it alone.
+    pub count_bolt_views: bool,
 }
 
 impl Default for Options {
@@ -66,6 +69,7 @@ impl Default for Options {
             height: 720,
             player_name: Some("Tester".to_string()),
             shaders: Some(ShaderQuality::Off),
+            count_bolt_views: false,
         }
     }
 }
@@ -199,6 +203,7 @@ impl Harness {
             height,
             player_name,
             shaders,
+            count_bolt_views,
         } = options;
         let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../data");
         // `BENCH_GPU` renders a benchmark on the GPU of the machine, compiling the pipelines
@@ -304,6 +309,13 @@ impl Harness {
             render_app.add_systems(
                 bevy::render::Render,
                 crate::world::precipitation::render::count_views_drawn
+                    .after(bevy::render::RenderSystems::PrepareBindGroups),
+            );
+        }
+        if count_bolt_views {
+            app.sub_app_mut(bevy::render::RenderApp).add_systems(
+                bevy::render::Render,
+                crate::world::lightning::render::count_lightning_views_drawn
                     .after(bevy::render::RenderSystems::PrepareBindGroups),
             );
         }

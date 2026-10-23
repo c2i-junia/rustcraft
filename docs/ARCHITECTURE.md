@@ -604,13 +604,14 @@ grading and the wet ground are the same for every view. It is a `PrecipitationVi
 rain, the snow and the bolts are drawn around it, so they show through the portal around the
 twin, clipped by its near plane. Its drops stop under the roofs by the twin: each twin of a
 portal with cameras has an occlusion map of its own, centred on its opening
-(`portal/weather.rs`, `ViewOcclusion`), and whether a view draws drops is its own
+(`portal/weather.rs`, `ViewOcclusion`), and whether a view draws drops and bolts is its own
 (`UnderWaterView`: the player's camera by its eye, a portal camera by the medium its twin opens
-into). A strike within the shown reach of an approached twin draws its bolt, and each view
+into; under water, neither). A strike within the shown reach of an approached twin draws its bolt, and each view
 draws only the bolts struck within the shown reach of its own eye (`drawn_from`, cut in
 `lightning.wgsl`): one by a far twin shows through the portal, not over the player's horizon.
 A view that stops being a `PrecipitationView` loses the bind groups of both passes
-(`forget_views_no_longer_drawn`), which would otherwise go on drawing it. The systems of
+(`forget_views_no_longer_drawn`), which would otherwise go on drawing it, and so does a view
+in a frame that misses one of their bindings, rather than draw with last frame's. The systems of
 the weather that follow one camera (the dome, the flash, the ears of the weather sounds) take
 the camera of the world that is not a portal camera.
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6

@@ -69,14 +69,19 @@ fn hold_lightning(held: Res<HeldLightning>, mut lightning: ResMut<Lightning>) {
 /// UI and the body of the player hidden and the weather held as set; and the camera, placed
 /// by hand.
 fn enter(folder: GameFolder, world: &str, quality: ShaderQuality) -> (Harness, Entity) {
-    let mut h = enter_world_with(
+    enter_with(
         folder,
         world,
         Options {
             shaders: Some(quality),
             ..Options::default()
         },
-    );
+    )
+}
+
+/// `enter`, with `options`.
+fn enter_with(folder: GameFolder, world: &str, options: Options) -> (Harness, Entity) {
+    let mut h = enter_world_with(folder, world, options);
     let world = h.world_mut();
     let camera = world
         .query_filtered::<Entity, With<CameraController>>()
@@ -128,7 +133,15 @@ fn enter(folder: GameFolder, world: &str, quality: ShaderQuality) -> (Harness, E
 /// A client with the shaders `quality` in the world of `e2e::shaders`, as `enter`, and the
 /// views of its lake.
 fn start(quality: ShaderQuality) -> (Harness, Entity, Views) {
-    let (h, camera) = enter(folder(), "Shaders", quality);
+    start_with(Options {
+        shaders: Some(quality),
+        ..Options::default()
+    })
+}
+
+/// `start`, with `options`.
+fn start_with(options: Options) -> (Harness, Entity, Views) {
+    let (h, camera) = enter_with(folder(), "Shaders", options);
 
     // The shore of the nearest water to the site, as in `e2e::shaders`
     let map = h.world().resource::<ClientWorldMap>();
@@ -878,6 +891,61 @@ fn snapshot_the_lightning_without_the_shaders() {
         &[(near, SEEDS[0])],
         None,
     );
+}
+
+/// A bolt is drawn for an eye in the air and not for one under the water, as the drops: the
+/// pass of the bolts binds the player's view above the lake, and not below its surface
+/// (`UnderWaterView`).
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn no_bolt_is_drawn_for_an_eye_under_water() {
+    use crate::world::lightning::render::LIGHTNING_VIEWS_DRAWN;
+    use std::sync::atomic::Ordering;
+    let (mut h, camera, v) = start_with(Options {
+        shaders: Some(ShaderQuality::High),
+        count_bolt_views: true,
+        ..Options::default()
+    });
+    // In the lake, the nearest water to the shore, under its surface
+    let map = h.world().resource::<ClientWorldMap>();
+    let (x, z) = (v.eye.x as i32, v.eye.z as i32);
+    let (y, x, z) = (-30..=30)
+        .flat_map(|dz| (-30..=30).map(move |dx| (x + dx, z + dz)))
+        .filter_map(|(x, z)| {
+            let (y, block) = surface(map, x, z)?;
+            (block == BlockId::Water).then_some((y, x, z))
+        })
+        .min_by_key(|&(_, wx, wz)| (wx - x).pow(2) + (wz - z).pow(2))
+        .expect("water near the shore");
+    let water = IVec3::new(x, y, z);
+    let under = water.as_vec3() + Vec3::new(0.5, 0.5, 0.5);
+    let near = struck(&h, v.eye, v.across, 50.);
+    let reach = shown_reach(
+        h.world().resource::<RenderDistance>(),
+        h.world().get_resource::<ServerRenderDistanceLimit>(),
+    );
+    for (eye, drawn) in [(v.eye, 1), (under, 0), (v.eye, 1)] {
+        let mut strike = LiveStrike::new(
+            Strike {
+                at: near,
+                seed: SEEDS[0],
+            },
+            eye,
+            reach,
+        );
+        strike.age = first_peak(SEEDS[0]);
+        let world = h.world_mut();
+        world.insert_resource(HeldLightning(vec![strike]));
+        let (from, to) = toward_strike(eye, near);
+        *world.get_mut::<Transform>(camera).unwrap() =
+            Transform::from_translation(from).with_rotation(looking(from, to));
+        h.frames(5);
+        assert_eq!(
+            LIGHTNING_VIEWS_DRAWN.load(Ordering::Relaxed),
+            drawn,
+            "the eye at {eye}"
+        );
+    }
 }
 
 /// The volume each loop of the weather plays at now, and whether it plays.

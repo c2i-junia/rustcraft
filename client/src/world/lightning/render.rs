@@ -34,7 +34,9 @@ use bevy::shader::Shader;
 
 use super::{shown_reach, Lightning};
 use crate::state::GameState;
-use crate::world::precipitation::render::{forget_views_no_longer_drawn, PrecipitationView};
+use crate::world::precipitation::render::{
+    forget_views_no_longer_drawn, PrecipitationView, UnderWaterView,
+};
 use crate::world::shaders::ShaderFeatures;
 use crate::world::GraphicsSettings;
 use crate::world::{RenderDistance, ServerRenderDistanceLimit};
@@ -329,7 +331,7 @@ fn prepare_lightning_bind_groups(
     view_uniforms: Res<ViewUniforms>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    views: Query<(Entity, &ViewDepthTexture, &Msaa), With<PrecipitationView>>,
+    views: Query<(Entity, &ViewDepthTexture, &Msaa, Has<UnderWaterView>), With<PrecipitationView>>,
 ) {
     let drawn = draw.as_ref().and_then(|draw| draw.0.as_ref());
     let Some((points, params)) = drawn else {
@@ -347,9 +349,18 @@ fn prepare_lightning_bind_groups(
         buffers.params.binding(),
         buffers.points.binding(),
     ) else {
+        // Not last frame's bolts with last frame's buffers
+        for (entity, ..) in &views {
+            commands.entity(entity).remove::<LightningBindGroup>();
+        }
         return;
     };
-    for (entity, depth, msaa) in &views {
+    for (entity, depth, msaa, under_water) in &views {
+        // No bolt is seen from under water, as no drop falls there (`UnderWaterView`)
+        if under_water {
+            commands.entity(entity).remove::<LightningBindGroup>();
+            continue;
+        }
         let layout = if msaa.samples() > 1 {
             &pipeline.multisampled_layout
         } else {
@@ -370,6 +381,18 @@ fn prepare_lightning_bind_groups(
             vertices: vertex_count(points.len()),
         });
     }
+}
+
+/// How many views the pass of the bolts drew the last frame, for the tests
+/// (`count_lightning_views_drawn`).
+#[cfg(test)]
+pub static LIGHTNING_VIEWS_DRAWN: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts the views the pass of the bolts draws, into `LIGHTNING_VIEWS_DRAWN`.
+#[cfg(test)]
+pub fn count_lightning_views_drawn(views: Query<(), With<LightningBindGroup>>) {
+    LIGHTNING_VIEWS_DRAWN.store(views.iter().count(), std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Adds the bolts to the frame, after the TAA.
