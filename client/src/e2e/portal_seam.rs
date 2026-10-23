@@ -16,6 +16,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use bevy::anti_alias::taa::TemporalAntiAliasing;
+use bevy::light::ShadowFilteringMethod;
 use bevy::light::{NotShadowCaster, VolumetricLight};
 use bevy::math::Affine3A;
 use bevy::pbr::ScreenSpaceAmbientOcclusion;
@@ -40,6 +41,8 @@ use crate::portal::PortalCamera;
 use crate::state::GameSet;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::world::celestial::sun_height;
+use crate::world::lightning::bolt::Strokes;
+use crate::world::lightning::{advance_strikes_system, Lightning, LiveStrike, Strike};
 use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::{ease_weather_system, ClientWeather};
@@ -52,6 +55,9 @@ const HEIGHT: u32 = 540;
 /// camera through a close twin; through a far one, it ends where the chunks sent around the
 /// twin end (`held_reach`).
 const RENDER_DISTANCE: u32 = 8;
+/// The top of the layer of haze of a camera (`haze_transform` in `shaders.rs`): 30 blocks over
+/// the sea, 140 blocks high.
+const HAZE_TOP: f32 = shared::world::SEA_LEVEL as f32 + 30.0 + 70.0;
 /// How far in front of the portal the eye is, on either side of the crossing.
 const CROSSING: f32 = 0.05;
 /// Frames for the exposure, TAA's history and the effects to settle after the camera moved.
@@ -71,6 +77,14 @@ struct Pinned {
     tick: Option<(Hour, u64)>,
     /// The weather held, whatever the levels would ease to.
     weather: Option<ClientWeather>,
+    /// The strikes of lightning held at their age, whatever the clock.
+    strikes: Option<Vec<LiveStrike>>,
+}
+
+fn pin_strikes(pinned: Res<Pinned>, mut lightning: ResMut<Lightning>) {
+    if let Some(strikes) = &pinned.strikes {
+        lightning.strikes = strikes.clone();
+    }
 }
 
 fn pin_weather(pinned: Res<Pinned>, mut weather: ResMut<ClientWeather>) {
@@ -127,6 +141,8 @@ fn install(h: &mut Harness) {
     );
     h.app
         .add_systems(Update, pin_weather.after(ease_weather_system));
+    h.app
+        .add_systems(PreUpdate, pin_strikes.after(advance_strikes_system));
 }
 
 fn pinned(h: &mut Harness) -> Mut<'_, Pinned> {
@@ -254,36 +270,41 @@ const CLASSES: [&str; 5] = ["0-32", "32-64", "64-96", "96+", "sky"];
 /// the crossing): the class of its distance. When the eye `before` and its `portal` are given,
 /// only the pixels of the opening of that portal from that eye.
 fn sample_pixels(
-    h: &Harness,
+    h: &mut Harness,
     seen: &Transform,
     before: Option<(&Transform, &Portal)>,
 ) -> Vec<(u32, u32, usize)> {
-    let map = &h.world().resource::<ClientWorldMap>().blocks;
     let mut pixels = Vec::new();
-    for y in (0..HEIGHT).step_by(2) {
-        for x in (0..WIDTH).step_by(2) {
-            if on_the_hud(x, y) {
-                continue;
-            }
-            if let Some((eye, portal)) = before {
-                let direction = ray(eye, x, y);
-                let along =
-                    -portal.signed_distance(eye.translation) / direction.dot(portal.normal());
-                let local = portal.local(eye.translation + direction * along);
-                let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
-                if along <= 0.0 || local.x.abs() > half.x || local.y.abs() > half.y {
+    // A band of rows a frame: a view far over the plains walks rays of up to 400 blocks for
+    // long, longer than the connection to the server lasts without a frame
+    for band in (0..HEIGHT).step_by(32) {
+        let map = &h.world().resource::<ClientWorldMap>().blocks;
+        for y in (band..(band + 32).min(HEIGHT)).step_by(2) {
+            for x in (0..WIDTH).step_by(2) {
+                if on_the_hud(x, y) {
                     continue;
                 }
+                if let Some((eye, portal)) = before {
+                    let direction = ray(eye, x, y);
+                    let along =
+                        -portal.signed_distance(eye.translation) / direction.dot(portal.normal());
+                    let local = portal.local(eye.translation + direction * along);
+                    let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
+                    if along <= 0.0 || local.x.abs() > half.x || local.y.abs() > half.y {
+                        continue;
+                    }
+                }
+                let class = match hit_distance(map, seen.translation, ray(seen, x, y), 400.0) {
+                    Some(d) if d < 32.0 => 0,
+                    Some(d) if d < 64.0 => 1,
+                    Some(d) if d < 96.0 => 2,
+                    Some(_) => 3,
+                    None => 4,
+                };
+                pixels.push((x, y, class));
             }
-            let class = match hit_distance(map, seen.translation, ray(seen, x, y), 400.0) {
-                Some(d) if d < 32.0 => 0,
-                Some(d) if d < 64.0 => 1,
-                Some(d) if d < 96.0 => 2,
-                Some(_) => 3,
-                None => 4,
-            };
-            pixels.push((x, y, class));
         }
+        h.frames(1);
     }
     pixels
 }
@@ -488,6 +509,22 @@ impl Crossing {
         let (a, b) = (mean_picture(&a), mean_picture(&b));
         save(&self.case, "baseline", &a, &b, true);
         record(&self.case, "baseline", &a, &b, &self.pixels)
+    }
+
+    /// `measure_steady`, recorded as `variant`.
+    fn measure_steady_as(&self, h: &mut Harness, variant: &str) -> Vec<Row> {
+        let a = steady_shots(h, self.before, self.hour);
+        let b = steady_shots(h, self.after, self.hour);
+        record(
+            &self.case,
+            &format!("{variant}_noise"),
+            &b[0],
+            &b[1],
+            &self.pixels,
+        );
+        let (a, b) = (mean_picture(&a), mean_picture(&b));
+        save(&self.case, variant, &a, &b, true);
+        record(&self.case, variant, &a, &b, &self.pixels)
     }
 
     /// Turns off each suspect alone, measuring the seam each time.
@@ -774,7 +811,13 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
         face: FaceDirection::PlusX,
         up: FaceDirection::PlusY,
     };
-    let orange_y = ground(&h, -19, -12, -5) + 1;
+    // Under the top of the layer of haze, on a pillar, for the eye before the blue one to be
+    // carried above it
+    let orange_y = if test == Test::FromAbove {
+        HAZE_TOP as i32 - 6
+    } else {
+        ground(&h, -19, -12, -5) + 1
+    };
     let orange = Portal {
         owner: 1,
         color: PortalColor::Orange,
@@ -805,7 +848,7 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
     pinned(&mut h).eye = Some(after);
     h.frames(60);
     set_quality(&mut h, quality);
-    let pixels = sample_pixels(&h, &after, Some((&before, &blue)));
+    let pixels = sample_pixels(&mut h, &after, Some((&before, &blue)));
     class_image(&pixels)
         .save(out_dir().join("close_classes.png"))
         .unwrap();
@@ -845,6 +888,213 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
             shot_at(&mut h, eye_in_front(&blue, 6.0, pitch), SETTLE)
                 .save(out_dir().join(format!("{}_from_6.png", crossing.case)))
                 .unwrap();
+        }
+        Test::RainVeil => {
+            // The contrast of the drops against the sky seen through the opening, through the
+            // portal and straight, the eye still, then strafing back and forth 0.03 blocks a
+            // frame: TAA, the player's, blends the pictures of the frames along the motion of
+            // what it sees, the portal's surface's, not that of the drops behind it
+            crossing.case += "_rain_veil";
+            pinned(&mut h).weather = Some(ClientWeather::settled(WeatherKind::Rain));
+            h.frames(SETTLE);
+            let sky: Vec<(u32, u32, usize)> = crossing
+                .pixels
+                .iter()
+                .copied()
+                .filter(|(.., class)| *class == 4)
+                .collect();
+            // The drops, thin streaks, by the luma's difference to the pixels two to the left
+            // and two up, on the sky's smooth gradient
+            let contrast = |shot: &RgbImage| {
+                let near = |x: u32, y: u32| {
+                    let l = luma(shot.get_pixel(x, y));
+                    (l - luma(shot.get_pixel(x.saturating_sub(2), y))).abs()
+                        + (l - luma(shot.get_pixel(x, y.saturating_sub(2)))).abs()
+                };
+                sky.iter().map(|&(x, y, _)| near(x, y)).sum::<f32>() / sky.len() as f32
+            };
+            let right = blue.right();
+            let mut lines = Vec::new();
+            for moving in [false, true] {
+                for (view, eye) in [("portal", crossing.before), ("straight", crossing.after)] {
+                    let mut contrasts = Vec::new();
+                    for _ in 0..6 {
+                        for frame in 0..20 {
+                            let along = if moving {
+                                (frame as f32 - 10.0) * 0.03
+                            } else {
+                                0.0
+                            };
+                            pinned(&mut h).eye =
+                                Some(eye.with_translation(eye.translation + right * along));
+                            h.frames(1);
+                        }
+                        contrasts.push(contrast(&h.screenshot()));
+                    }
+                    let mean = contrasts.iter().sum::<f32>() / contrasts.len() as f32;
+                    let line = format!(
+                        "{}\t{}\t{view}\t{} sky pixels\tcontrast {mean:.2} ({})",
+                        crossing.case,
+                        if moving { "strafing" } else { "still" },
+                        sky.len(),
+                        contrasts
+                            .iter()
+                            .map(|d| format!("{d:.2}"))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    );
+                    println!("{line}");
+                    lines.push(line);
+                }
+            }
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(out_dir().join("rain_veil.tsv"))
+                .unwrap();
+            for line in lines {
+                writeln!(file, "{line}").unwrap();
+            }
+        }
+        Test::Shadows => {
+            crossing.case += "_shadows";
+            // Each filter of the shadows on every camera, or as built: the portal cameras'
+            // Gaussian, the player's temporal with TAA. A diagnosis, with no threshold: at Medium
+            // and High noon, every filter, and no shadows at all, measured the same, within the
+            // noise (lot 12 report)
+            let filters = |h: &mut Harness, filter: Option<ShadowFilteringMethod>| {
+                let world = h.world_mut();
+                let cameras: Vec<(Entity, bool)> = world
+                    .query_filtered::<(Entity, Has<PortalCamera>), With<Camera3d>>()
+                    .iter(world)
+                    .collect();
+                for (camera, portal) in cameras {
+                    let method = filter.unwrap_or(if portal {
+                        ShadowFilteringMethod::Gaussian
+                    } else {
+                        ShadowFilteringMethod::Temporal
+                    });
+                    world.entity_mut(camera).insert(method);
+                }
+            };
+            // The crossing, and from the portal camera's own eye, so that only how the two
+            // cameras draw differs, not where they stand (the pixels classed as seen after)
+            let same_eye = Crossing {
+                case: crossing.case.clone(),
+                after: carried(through, &before),
+                pixels: crossing.pixels.clone(),
+                ..crossing
+            };
+            // The first measure of a run differs from the next ones by more than the filters
+            // do (lot 12 report): it is left out, and the filters are measured in turn
+            crossing.measure_steady_as(&mut h, "warm_up");
+            for round in 0..3 {
+                for (name, filter) in [
+                    ("as_built", None),
+                    ("temporal", Some(ShadowFilteringMethod::Temporal)),
+                    ("gaussian", Some(ShadowFilteringMethod::Gaussian)),
+                    ("hardware", Some(ShadowFilteringMethod::Hardware2x2)),
+                ] {
+                    filters(&mut h, filter);
+                    crossing.measure_steady_as(&mut h, &format!("{name}_{round}"));
+                    same_eye.measure_steady_as(&mut h, &format!("same_eye_{name}_{round}"));
+                }
+            }
+            filters(&mut h, None);
+            let world = h.world_mut();
+            let mut lights = world.query::<&mut DirectionalLight>();
+            for mut light in lights.iter_mut(world) {
+                light.shadow_maps_enabled = false;
+            }
+            crossing.measure_steady_as(&mut h, "no_shadows");
+            same_eye.measure_steady_as(&mut h, "same_eye_no_shadows");
+        }
+        Test::Lightning => {
+            // A strike 40 blocks out of the twin, at the brightest of its first stroke, under a
+            // storm, the view raised to its bolt: through the portal, straight, and the portal
+            // in the view from a few steps back
+            crossing.case += "_lightning";
+            pinned(&mut h).weather = Some(ClientWeather::settled(WeatherKind::Thunder));
+            let (x, z) = (orange.anchor.x - 40, orange.anchor.z);
+            let at = IVec3::new(x, ground(&h, x, z, z), z);
+            let seed = 20_261_021;
+            let eye = h
+                .world_mut()
+                .query_filtered::<&GlobalTransform, With<CameraController>>()
+                .single(h.world())
+                .unwrap()
+                .translation();
+            let mut strike = LiveStrike::seen(Strike { at, seed }, eye, &[], 128.0);
+            strike.age = Strokes::new(seed).peaks().next().unwrap();
+            assert!(strike.bolt.is_some(), "the bolt is drawn");
+            pinned(&mut h).strikes = Some(vec![strike]);
+            let up = 20f32.to_radians();
+            crossing.before = eye_in_front(&blue, CROSSING, up);
+            crossing.after = carried(through, &eye_in_front(&blue, -CROSSING, up));
+            crossing.pixels =
+                sample_pixels(&mut h, &crossing.after, Some((&crossing.before, &blue)));
+            h.frames(SETTLE);
+            crossing.measure(&mut h, "baseline", true);
+            shot_at(&mut h, eye_in_front(&blue, 6.0, up), SETTLE)
+                .save(out_dir().join(format!("{}_from_6.png", crossing.case)))
+                .unwrap();
+        }
+        Test::FromAbove => {
+            // The twin under the top of the layer of haze, the portal seen from 8 blocks above
+            // its middle, at 45°: the portal camera stands above the layer, its twin in it. And
+            // from 1 block above, the portal camera in the layer. The view straight from where
+            // the portal camera stands is the picture after
+            let mut measured = Vec::new();
+            for (name, d, rise) in [("above", 8.0, 8.0), ("within", 4.0, 1.0)] {
+                let centre = Vec3::from(blue.frame().translation);
+                let eye = centre + blue.normal() * d + Vec3::Y * rise;
+                let before = Transform::from_translation(eye).looking_at(centre, Vec3::Y);
+                let after = carried(through, &before);
+                assert_eq!(after.translation.y > HAZE_TOP, name == "above");
+                let case = format!("{}_from_{name}", crossing.case);
+                let a = steady_shots(&mut h, before, hour);
+                // Straight from where the portal camera stands, the wall of the twin from its
+                // opening up, which the portal camera does not draw, in front of its near plane,
+                // taken away, and the portals with it
+                let wall: Vec<IVec3> = (-3..=3)
+                    .flat_map(|across| {
+                        (0..=3).map(move |up| {
+                            orange.anchor
+                                + orange.right().as_ivec3() * across
+                                + orange.up.to_ivec3() * up
+                        })
+                    })
+                    .collect();
+                let set_twin = |h: &mut Harness, open: bool| {
+                    let blocks = &mut h.world_mut().resource_mut::<ClientWorldMap>().blocks;
+                    for &cell in &wall {
+                        if open {
+                            blocks.remove_block(cell);
+                        } else {
+                            blocks.set_block(
+                                cell,
+                                BlockData::new(BlockId::Stone, BlockDirection::Front),
+                            );
+                        }
+                    }
+                    if open {
+                        blocks.portals_mut().remove(orange.owner, orange.color);
+                    } else {
+                        blocks.portals_mut().insert(orange);
+                    }
+                };
+                set_twin(&mut h, true);
+                let pixels = sample_pixels(&mut h, &after, Some((&before, &blue)));
+                let b = steady_shots(&mut h, after, hour);
+                set_twin(&mut h, false);
+                record(&case, "baseline_noise", &b[0], &b[1], &pixels);
+                let (a, b) = (mean_picture(&a), mean_picture(&b));
+                save(&case, "baseline", &a, &b, true);
+                measured.push((case.clone(), record(&case, "baseline", &a, &b, &pixels)));
+            }
+            for (case, rows) in measured {
+                assert_seamless(&case, quality, &rows, FROM_ABOVE_SEAMLESS);
+            }
         }
         Test::Regression => {
             crossing.case += "_regression";
@@ -902,6 +1152,16 @@ const SEAMLESS: f32 = 6.0;
 const SKY_SEAMLESS: f32 = 3.0;
 const SCREEN_SEAMLESS: f32 = 2.5;
 
+/// How much, on average, the whole screen may differ between the view through a portal whose
+/// twin is just under the top of the layer of haze, seen from above, and the view straight from
+/// where the portal camera stands (`Test::FromAbove`), at High. With the portal camera out of
+/// its layer, Bevy drew the layer from outside, its faces clipped by the oblique near plane on
+/// the twin: no haze through the portal, 29.7 apart at dusk and 3.1 at noon. Since, 2.6 and
+/// 0.8, against a noise of 0.05: the eye straight sees the haze between the top of the layer and
+/// the twin's plane, which the portal camera does not draw, and the eye before the haze between
+/// it and the blue portal (lot 12 report).
+const FROM_ABOVE_SEAMLESS: f32 = 4.0;
+
 /// What a test of the seam measures.
 #[derive(Clone, Copy, PartialEq)]
 enum Test {
@@ -916,6 +1176,17 @@ enum Test {
     /// The seam under the weather held at this one: the drops differ from a picture to the
     /// next, so it is for the eye, and for the sky, the fog and the light of the weather.
     Weather(WeatherKind),
+    /// A bolt of lightning out of the twin, through the portal and straight.
+    Lightning,
+    /// The contrast of the drops through the portal and straight, the eye still and strafing.
+    RainVeil,
+    /// The view through a portal whose twin is just under the top of the layer of haze, from
+    /// above, the portal camera above the layer, and from within it, against the view straight
+    /// from where the portal camera stands.
+    FromAbove,
+    /// The seam from the portal camera's own eye, under each filter of the shadows, and without
+    /// shadows.
+    Shadows,
     /// The seam, whose median must stay under `SEAMLESS` from 32 to 96 blocks, and with the haze
     /// past 96 blocks too, and whose mean, with the haze, under `SKY_SEAMLESS` in the sky and
     /// `SCREEN_SEAMLESS` over all.
@@ -952,6 +1223,14 @@ close_seam! {
     seam_close_high_dusk_together: High, Dusk, Together, false;
     seam_close_high_noon_clouds: High, Noon, Baseline, true;
     seam_close_high_noon_late_portals: High, Noon, LatePortals, false;
+    seam_close_medium_noon_shadows: Medium, Noon, Shadows, false;
+    seam_close_high_dusk_from_above: High, Dusk, FromAbove, false;
+    seam_close_high_noon_lightning: High, Noon, Lightning, false;
+    seam_close_off_night_lightning: Off, Night, Lightning, false;
+    seam_close_high_noon_from_above: High, Noon, FromAbove, false;
+    seam_close_high_noon_shadows: High, Noon, Shadows, false;
+    seam_close_high_noon_rain_veil: High, Noon, RainVeil, false;
+    seam_close_medium_noon_rain_veil: Medium, Noon, RainVeil, false;
 }
 
 macro_rules! close_seam_weather {
@@ -1190,7 +1469,7 @@ fn far_seam(quality: ShaderQuality, hour: Hour) {
         later.push((elapsed, chunks(&h), h.screenshot()));
     }
     let (_, _, last) = later.last().unwrap();
-    let pixels = sample_pixels(&h, &after, Some((&before, &blue)));
+    let pixels = sample_pixels(&mut h, &after, Some((&before, &blue)));
     class_image(&pixels)
         .save(out_dir().join("far_classes.png"))
         .unwrap();
@@ -1459,7 +1738,7 @@ fn approach_seam(
     set_hour(&mut h, hour);
     let first = h.screenshot();
     let b = steady_shots(&mut h, after, hour);
-    let pixels = sample_pixels(&h, &after, Some((&before, &blue)));
+    let pixels = sample_pixels(&mut h, &after, Some((&before, &blue)));
     class_image(&pixels)
         .save(out_dir().join(format!("{case}_classes.png")))
         .unwrap();
@@ -1637,7 +1916,7 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
     let approached = steady_shots(&mut h, eye, hour);
 
     // Within the noise: two pictures of the same view, the portal not yet open, differ by as much
-    let pixels = sample_pixels(&h, &eye, None);
+    let pixels = sample_pixels(&mut h, &eye, None);
     let noise = record(&case, "noise", &alone[0], &alone[1], &pixels);
     let (a, b) = (mean_picture(&alone), mean_picture(&approached));
     save(&case, "approached", &a, &b, true);
@@ -1697,7 +1976,7 @@ fn the_sky_follows_the_hour_after_the_shaders_are_switched_off_and_on() {
     set_quality(&mut h, ShaderQuality::High);
     let after = steady_shots(&mut h, eye, Hour::Noon);
 
-    let pixels = sample_pixels(&h, &eye, None);
+    let pixels = sample_pixels(&mut h, &eye, None);
     let noise = record(case, "noise", &before[0], &before[1], &pixels);
     let (a, b) = (mean_picture(&before), mean_picture(&after));
     save(case, "switched", &a, &b, true);
@@ -1715,4 +1994,144 @@ fn the_sky_follows_the_hour_after_the_shaders_are_switched_off_and_on() {
         "{case}: the view changed once the shaders were switched off and on: {}",
         changed.join(", ")
     );
+}
+
+/// The mean colour of the pixels of `shot` whose ray from `eye` meets no block within 400 blocks
+/// and rises by `rise` (its `y`, the ray normalised).
+fn mean_unblocked(
+    h: &Harness,
+    shot: &RgbImage,
+    eye: &Transform,
+    rise: std::ops::Range<f32>,
+) -> (Vec3, usize) {
+    let map = &h.world().resource::<ClientWorldMap>().blocks;
+    let mut sum = Vec3::ZERO;
+    let mut n = 0;
+    for y in (0..HEIGHT).step_by(2) {
+        for x in (0..WIDTH).step_by(2) {
+            let direction = ray(eye, x, y);
+            if on_the_hud(x, y)
+                || !rise.contains(&direction.y)
+                || hit_distance(map, eye.translation, direction, 400.0).is_some()
+            {
+                continue;
+            }
+            sum += Vec3::from(shot.get_pixel(x, y).0.map(f32::from));
+            n += 1;
+        }
+    }
+    (sum / n.max(1) as f32, n)
+}
+
+/// Where the sky the chunks fade into is measured: the horizon skirt under the horizon, which is
+/// drawn with it (`horizon.wgsl`, `horizon_direction`: the sky at 0.03 over the horizon), against
+/// the sky itself at that height, drawn by Bevy from the tables of the atmosphere.
+const SKIRT_RISE: std::ops::Range<f32> = -0.12..-0.035;
+const SKY_RISE: std::ops::Range<f32> = 0.025..0.035;
+
+/// The colour of the sky the chunks fade into (the horizon skirt), against that of the sky at the
+/// height it is read at, from 30 blocks over the plains of the close seam, looking west at
+/// `hour`: with the shaders switched on before the portals are opened, after, or with no portals.
+fn horizon_colour(quality: ShaderQuality, hour: Hour, portals: Option<bool>) -> f32 {
+    let player = Vec3::new(-60.5, 140.9, 4.5);
+    let mut h = enter_world_with(folder("Seam", player, false, false), "Seam", options());
+    install(&mut h);
+    wait_for_terrain(&mut h, player.with_y(0.0));
+    let floor = ground(&h, -61, 4, 4);
+    let pitch = -6f32.to_radians();
+    let eye = Transform::from_translation(Vec3::new(-60.5, floor as f32 + 30.0, 4.5))
+        .looking_to(Vec3::new(-pitch.cos(), pitch.sin(), 0.0), Vec3::Y);
+    pinned(&mut h).eye = Some(eye);
+    let open = |h: &mut Harness| {
+        let blue_y = ground(h, -20, 12, 19) + 1;
+        build_portal(
+            h,
+            Portal {
+                owner: 1,
+                color: PortalColor::Blue,
+                anchor: IVec3::new(-20, blue_y, 16),
+                face: FaceDirection::PlusX,
+                up: FaceDirection::PlusY,
+            },
+        );
+        let orange_y = ground(h, -19, -12, -5) + 1;
+        build_portal(
+            h,
+            Portal {
+                owner: 1,
+                color: PortalColor::Orange,
+                anchor: IVec3::new(-19, orange_y, -9),
+                face: FaceDirection::MinusX,
+                up: FaceDirection::PlusY,
+            },
+        );
+        h.frames(10);
+    };
+    if portals == Some(true) {
+        open(&mut h);
+    }
+    set_quality(&mut h, quality);
+    if portals == Some(false) {
+        open(&mut h);
+    }
+    let shots = steady_shots(&mut h, eye, hour);
+    let shot = mean_picture(&shots);
+    let case = format!(
+        "horizon_{}_{}_{}",
+        quality_name(quality),
+        format!("{hour:?}").to_lowercase(),
+        match portals {
+            None => "no_portals",
+            Some(true) => "portals_first",
+            Some(false) => "portals_after",
+        }
+    );
+    shot.save(out_dir().join(format!("{case}.png"))).unwrap();
+    let (skirt, n_skirt) = mean_unblocked(&h, &shot, &eye, SKIRT_RISE);
+    let (sky, n_sky) = mean_unblocked(&h, &shot, &eye, SKY_RISE);
+    let apart = (skirt - sky).abs().element_sum() / 3.0;
+    let line = format!(
+        "{case}\tskirt {:.0},{:.0},{:.0} ({n_skirt})\tsky {:.0},{:.0},{:.0} ({n_sky})\tapart {apart:.2}\n",
+        skirt.x, skirt.y, skirt.z, sky.x, sky.y, sky.z
+    );
+    print!("{line}");
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out_dir().join("horizon.tsv"))
+        .unwrap()
+        .write_all(line.as_bytes())
+        .unwrap();
+    apart
+}
+
+/// How far apart the horizon skirt and the sky over it may be (`horizon_colour`, out of 255, the
+/// mean of the channels). With the sky of the portal cameras given as before lot 11, Bevy drew
+/// the player's map of the sky with a portal camera's tables and they were 49.4–49.7 apart, the
+/// skirt a dark grey-brown 68,66,60 under a sky of 105,120,120 (F6 of the seam diagnosis); since,
+/// 0.28–0.54 at noon and 1.20–1.22 at dusk (lot 12 report).
+const HORIZON_APART: f32 = 4.0;
+
+macro_rules! horizon_colour {
+    ($($name:ident: $quality:ident, $hour:ident, $portals:expr;)*) => {$(
+        #[test]
+        #[ignore = "a regression test of a minute on lavapipe: run it by hand with --ignored"]
+        fn $name() {
+            let apart = horizon_colour(ShaderQuality::$quality, Hour::$hour, $portals);
+            assert!(
+                apart < HORIZON_APART,
+                "the sky the chunks fade into is {apart:.2} off the sky at the horizon"
+            );
+        }
+    )*};
+}
+
+// The sky the chunks fade into is the sky at the horizon, whenever the portals are opened
+horizon_colour! {
+    horizon_high_noon_no_portals: High, Noon, None;
+    horizon_high_noon_portals_first: High, Noon, Some(true);
+    horizon_high_noon_portals_after: High, Noon, Some(false);
+    horizon_high_dusk_portals_first: High, Dusk, Some(true);
+    horizon_ultra_noon_portals_first: Ultra, Noon, Some(true);
+    horizon_medium_noon_portals_first: Medium, Noon, Some(true);
 }
