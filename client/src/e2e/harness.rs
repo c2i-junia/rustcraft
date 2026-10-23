@@ -296,6 +296,12 @@ impl Harness {
             app.world_mut().resource_mut::<GraphicsSettings>().shaders = shaders;
         }
         app.finish();
+        // `BENCH_GPU_TIMES` times every frame on the GPU (`GPU_FRAMES_MS`)
+        if gpu && std::env::var_os("BENCH_GPU_TIMES").is_some() {
+            crate::world::rendering::bench::record_gpu_frames(
+                app.sub_app_mut(bevy::render::RenderApp),
+            );
+        }
         app.cleanup();
         Self {
             app,

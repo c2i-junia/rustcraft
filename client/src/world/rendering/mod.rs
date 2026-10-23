@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod bench;
+pub(crate) mod bench;
 pub mod climate;
 pub mod graphics;
 pub mod lighting;

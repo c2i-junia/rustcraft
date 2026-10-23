@@ -996,40 +996,64 @@ fn end_gpu_frame_timer(
     queue.submit([encoder.finish()]);
 }
 
+/// Times the frames of `app` on the GPU from now on, with `gpu_frame_ms`.
+pub(crate) fn time_gpu_frames(render_app: &mut SubApp) {
+    use bevy::render::renderer::{RenderGraph, RenderGraphSystems, RenderQueue};
+    let world = render_app.world_mut();
+    let timer = GpuFrameTimer::new(
+        world.resource::<RenderDevice>(),
+        world.resource::<RenderQueue>(),
+    );
+    world.insert_resource(timer);
+    render_app.add_systems(
+        RenderGraph,
+        (
+            start_gpu_frame_timer.in_set(RenderGraphSystems::Begin),
+            end_gpu_frame_timer.after(RenderGraphSystems::Submit),
+        ),
+    );
+}
+
+/// The time the GPU took to draw the last frame of the render world `world`, in ms
+/// (`time_gpu_frames`).
+pub(crate) fn gpu_frame_ms(world: &World) -> f64 {
+    let timer = world.resource::<GpuFrameTimer>();
+    let device = world.resource::<RenderDevice>();
+    let slice = timer.readback.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    device.poll(PollType::wait_indefinitely()).unwrap();
+    let range = slice.get_mapped_range();
+    let stamp = |at: usize| u64::from_le_bytes(range[at..at + 8].try_into().unwrap());
+    let stamps = [stamp(0), stamp(8)];
+    drop(range);
+    timer.readback.unmap();
+    stamps[1].saturating_sub(stamps[0]) as f64 * timer.period_ns as f64 / 1e6
+}
+
+/// The times the GPU took to draw the frames, in ms, as `record_gpu_frames` records them.
+pub(crate) static GPU_FRAMES_MS: Mutex<Vec<f64>> = Mutex::new(Vec::new());
+
+/// Times every frame of the render app `render_app` on the GPU into `GPU_FRAMES_MS`, waiting
+/// for the GPU at the end of each: for a client whose render app runs on a thread of its own.
+pub(crate) fn record_gpu_frames(render_app: &mut SubApp) {
+    use bevy::render::renderer::RenderGraph;
+    time_gpu_frames(render_app);
+    render_app.add_systems(
+        RenderGraph,
+        (|world: &World| GPU_FRAMES_MS.lock().unwrap().push(gpu_frame_ms(world)))
+            .after(end_gpu_frame_timer),
+    );
+}
+
 impl Drawing {
     /// Times the frames on the GPU from now on, with `gpu_frame_ms`.
     fn time_gpu_frames(&mut self) {
-        use bevy::render::renderer::{RenderGraph, RenderGraphSystems, RenderQueue};
-        let render_app = &mut self.apps.sub_apps.get_mut(&RenderApp.intern()).unwrap();
-        let world = render_app.world_mut();
-        let timer = GpuFrameTimer::new(
-            world.resource::<RenderDevice>(),
-            world.resource::<RenderQueue>(),
-        );
-        world.insert_resource(timer);
-        render_app.add_systems(
-            RenderGraph,
-            (
-                start_gpu_frame_timer.in_set(RenderGraphSystems::Begin),
-                end_gpu_frame_timer.after(RenderGraphSystems::Submit),
-            ),
-        );
+        time_gpu_frames(self.apps.sub_apps.get_mut(&RenderApp.intern()).unwrap());
     }
 
     /// The time the GPU took to draw the last frame, in ms.
     fn gpu_frame_ms(&self) -> f64 {
-        let world = self.render_world();
-        let timer = world.resource::<GpuFrameTimer>();
-        let device = world.resource::<RenderDevice>();
-        let slice = timer.readback.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |result| result.unwrap());
-        device.poll(PollType::wait_indefinitely()).unwrap();
-        let range = slice.get_mapped_range();
-        let stamp = |at: usize| u64::from_le_bytes(range[at..at + 8].try_into().unwrap());
-        let stamps = [stamp(0), stamp(8)];
-        drop(range);
-        timer.readback.unmap();
-        stamps[1].saturating_sub(stamps[0]) as f64 * timer.period_ns as f64 / 1e6
+        gpu_frame_ms(self.render_world())
     }
 }
 

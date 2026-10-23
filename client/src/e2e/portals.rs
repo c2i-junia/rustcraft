@@ -2244,3 +2244,239 @@ fn near(shot: &RgbImage, at: Vec2, wanted: impl Fn([i32; 3]) -> bool) -> bool {
         })
     })
 }
+
+/// The hour `bench_portal_weather_and_haze` holds.
+#[derive(Resource)]
+struct HeldTick(u64);
+
+/// The weather `bench_portal_weather_and_haze` holds, whatever the levels would ease to.
+#[derive(Resource)]
+struct HeldWeather(crate::world::weather::ClientWeather);
+
+/// What the drops and the haze cost the portal cameras on the GPU, between the facing portals,
+/// render distance 8, looking into the blue portal with recursion 3 (up to six portal cameras),
+/// in turns over several rounds: under a clear sky and in rain, with the drops in every view and
+/// only in the player's, with the haze of the portal cameras as built (no more steps than High
+/// past level 1), with the steps of the quality at every level, and with a single step;
+/// recursion 1, and out of view. Then how much the capped haze changes the picture at dusk. The
+/// GPU time of each frame is read back as the GPU finishes it (`record_gpu_frames`). Needs the
+/// GPU of the machine:
+/// `BENCH_GPU=1 BENCH_GPU_TIMES=1 BENCH_SHADERS=high cargo test -p client --release
+/// e2e::portals::bench_portal_weather_and_haze -- --ignored --nocapture`.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_portal_weather_and_haze() {
+    use crate::portal::PortalRecursion;
+    use crate::world::precipitation::render::PrecipitationView;
+    use crate::world::rendering::bench::GPU_FRAMES_MS;
+    use crate::world::weather::{ease_weather_system, ClientWeather};
+    use bevy::light::VolumetricFog;
+    use shared::world::WeatherKind;
+
+    assert!(
+        std::env::var_os("BENCH_GPU").is_some() && std::env::var_os("BENCH_GPU_TIMES").is_some(),
+        "BENCH_GPU=1 BENCH_GPU_TIMES=1"
+    );
+    let shaders = match std::env::var("BENCH_SHADERS").as_deref() {
+        Ok("ultra") => ShaderQuality::Ultra,
+        _ => ShaderQuality::High,
+    };
+    let folder = GameFolder::new()
+        .with_file("video.ron", "(render_distance: 8)")
+        .with_world("Facing");
+    let options = Options {
+        shaders: Some(shaders),
+        ..default()
+    };
+    let mut h = enter_world_with(folder, "Facing", options);
+    build_facing_scene(&mut h);
+    let target = h.target.clone();
+    h.set_camera_targets(RenderTarget::Image(target.into()));
+    h.world_mut()
+        .insert_resource(HeldWeather(ClientWeather::settled(WeatherKind::Clear)));
+    h.app.add_systems(
+        Update,
+        (|held: Res<HeldWeather>, mut weather: ResMut<ClientWeather>| {
+            *weather = held.0.clone();
+        })
+        .after(ease_weather_system),
+    );
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Haze {
+        /// The steps of the quality in every view, as before lot 12.
+        Full,
+        /// As built: no more steps than High past level 1.
+        AsBuilt,
+        OneStep,
+    }
+    let high = crate::world::rendering::shaders::ShaderFeatures::of(ShaderQuality::High)
+        .god_rays
+        .unwrap();
+    let set_haze = |h: &mut Harness, haze: Haze| {
+        let world = h.world_mut();
+        let full = world
+            .query_filtered::<&VolumetricFog, With<CameraController>>()
+            .single(world)
+            .unwrap()
+            .step_count;
+        let mut cameras = world.query::<(&PortalCamera, &mut VolumetricFog)>();
+        for (camera, mut fog) in cameras.iter_mut(world) {
+            fog.step_count = match haze {
+                Haze::Full => full,
+                Haze::AsBuilt if camera.level > 1 => full.min(high),
+                Haze::AsBuilt => full,
+                Haze::OneStep => 1,
+            };
+        }
+    };
+    let set_portal_drops = |h: &mut Harness, on: bool| {
+        let world = h.world_mut();
+        let cameras: Vec<Entity> = world
+            .query_filtered::<Entity, With<PortalCamera>>()
+            .iter(world)
+            .collect();
+        for camera in cameras {
+            if on {
+                world.entity_mut(camera).insert(PrecipitationView);
+            } else {
+                world.entity_mut(camera).remove::<PrecipitationView>();
+            }
+        }
+    };
+    let cases: [(&str, usize, WeatherKind, bool, Haze, f32); 7] = [
+        (
+            "clear, recursion 3",
+            3,
+            WeatherKind::Clear,
+            true,
+            Haze::AsBuilt,
+            0.0,
+        ),
+        (
+            "rain, recursion 3",
+            3,
+            WeatherKind::Rain,
+            true,
+            Haze::AsBuilt,
+            0.0,
+        ),
+        (
+            "rain, recursion 3, no drops in the portal views",
+            3,
+            WeatherKind::Rain,
+            false,
+            Haze::AsBuilt,
+            0.0,
+        ),
+        (
+            "clear, recursion 3, the haze steps of the quality at every level",
+            3,
+            WeatherKind::Clear,
+            true,
+            Haze::Full,
+            0.0,
+        ),
+        (
+            "clear, recursion 3, one haze step in the portal views",
+            3,
+            WeatherKind::Clear,
+            true,
+            Haze::OneStep,
+            0.0,
+        ),
+        (
+            "clear, recursion 1",
+            1,
+            WeatherKind::Clear,
+            true,
+            Haze::AsBuilt,
+            0.0,
+        ),
+        (
+            "clear, out of view",
+            3,
+            WeatherKind::Clear,
+            true,
+            Haze::AsBuilt,
+            PI / 2.0,
+        ),
+    ];
+    let (rounds, warm, frames) = (4, 30, 200);
+    let mut samples = vec![Vec::new(); cases.len()];
+    for _ in 0..rounds {
+        for (case, &(_, depth, kind, drops, haze, yaw)) in cases.iter().enumerate() {
+            h.world_mut().insert_resource(PortalRecursion(depth));
+            h.world_mut()
+                .insert_resource(HeldWeather(ClientWeather::settled(kind)));
+            look(&mut h, yaw);
+            h.frames(warm);
+            set_haze(&mut h, haze);
+            set_portal_drops(&mut h, drops);
+            h.frames(warm);
+            GPU_FRAMES_MS.lock().unwrap().clear();
+            h.frames(frames);
+            samples[case].extend(GPU_FRAMES_MS.lock().unwrap().drain(..));
+            set_haze(&mut h, Haze::AsBuilt);
+            set_portal_drops(&mut h, true);
+        }
+    }
+    // How much the haze capped changes the picture, against two pictures as built, at dusk,
+    // when the haze is thickest
+    let now = h.world().resource::<ClientTime>().0;
+    let noon = now - now % DAY_DURATION_IN_TICKS + NOON_IN_DAY + DAY_DURATION_IN_TICKS;
+    let dusk = (noon..noon + DAY_DURATION_IN_TICKS)
+        .step_by(5)
+        .find(|tick| sun_height(*tick) < 0.06)
+        .unwrap();
+    h.world_mut().insert_resource(HeldTick(dusk));
+    h.app.add_systems(
+        FixedPostUpdate,
+        (|held: Res<HeldTick>, mut time: ResMut<ClientTime>| time.0 = held.0)
+            .after(crate::world::time::time_update_system),
+    );
+    h.world_mut().insert_resource(PortalRecursion(3));
+    h.world_mut()
+        .insert_resource(HeldWeather(ClientWeather::settled(WeatherKind::Clear)));
+    look(&mut h, 0.0);
+    let apart = |a: &RgbImage, b: &RgbImage| {
+        let sum: f64 = a
+            .pixels()
+            .zip(b.pixels())
+            .map(|(a, b)| {
+                (0..3)
+                    .map(|c| (a[c] as f64 - b[c] as f64).abs())
+                    .sum::<f64>()
+                    / 3.
+            })
+            .sum();
+        sum / a.pixels().len() as f64
+    };
+    for (what, haze) in [
+        ("the haze steps of High past level 1", Haze::AsBuilt),
+        ("one haze step in the portal views", Haze::OneStep),
+    ] {
+        set_haze(&mut h, Haze::Full);
+        h.frames(warm);
+        let built = h.screenshot();
+        h.frames(10);
+        let again = h.screenshot();
+        set_haze(&mut h, haze);
+        h.frames(warm);
+        let capped = h.screenshot();
+        println!(
+            "{what}: the picture {:.3} apart on average, two as built {:.3}",
+            apart(&built, &capped),
+            apart(&built, &again)
+        );
+    }
+    for ((what, ..), mut samples) in cases.iter().zip(samples) {
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "{what}: GPU median {:.3} ms, p95 {:.3} ms per frame ({} frames)",
+            samples[samples.len() / 2],
+            samples[samples.len() * 95 / 100],
+            samples.len()
+        );
+    }
+}
