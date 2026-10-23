@@ -404,19 +404,52 @@ fn record(
     pixels: &[(u32, u32, usize)],
 ) -> Vec<Row> {
     let rows = measure(a, b, pixels);
+    write_rows(case, variant, &rows);
+    rows
+}
+
+/// Appends `rows` to `results.tsv`, and prints them.
+fn write_rows(case: &str, variant: &str, rows: &[Row]) {
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(out_dir().join("results.tsv"))
         .unwrap();
     let mut text = String::new();
-    for (class, n, mean, p95, max, lighter, median) in &rows {
+    for (class, n, mean, p95, max, lighter, median) in rows {
         text += &format!(
             "{case}\t{variant}\t{class}\t{n}\t{mean:.2}\t{p95:.1}\t{max:.1}\t{lighter:+.2}\t{median:.2}\n"
         );
     }
     file.write_all(text.as_bytes()).unwrap();
     print!("{text}");
+}
+
+/// The noise of a view held still, by class (`Row`): of every pair of shots of each of
+/// `windows`, the one whose pictures differ most. Recorded as `variant`.
+fn noise_floor(
+    case: &str,
+    variant: &str,
+    windows: &[&[RgbImage]],
+    pixels: &[(u32, u32, usize)],
+) -> Vec<Row> {
+    let pairs: Vec<Vec<Row>> = windows
+        .iter()
+        .flat_map(|shots| {
+            (0..shots.len()).flat_map(move |i| (i + 1..shots.len()).map(move |j| (i, j, shots)))
+        })
+        .map(|(i, j, shots)| measure(&shots[i], &shots[j], pixels))
+        .collect();
+    let rows: Vec<Row> = (0..pairs[0].len())
+        .map(|class| {
+            pairs
+                .iter()
+                .map(|rows| rows[class].clone())
+                .max_by(|a, b| a.2.total_cmp(&b.2))
+                .unwrap()
+        })
+        .collect();
+    write_rows(case, variant, &rows);
     rows
 }
 
@@ -463,6 +496,46 @@ fn steady_shots(h: &mut Harness, eye: Transform, hour: Hour) -> Vec<RgbImage> {
             h.screenshot()
         })
         .collect()
+}
+
+/// How much lighter or darker on average a picture may still get between two shots
+/// `STEADY_GAP` frames apart for the view to count as settled, in levels of luma (0 to 255).
+const SETTLED_DRIFT: f32 = 0.1;
+/// The most shots taken while waiting for a view to settle.
+const MAX_SETTLE_SHOTS: usize = 40;
+
+fn mean_luma(picture: &RgbImage) -> f32 {
+    picture.pixels().map(luma).sum::<f32>() / (picture.width() * picture.height()) as f32
+}
+
+/// `steady_shots`, once the view stopped drifting. After the shaders are switched, or the world
+/// changed around the eye, some effects converge for longer than `SETTLE` frames, the whole
+/// picture getting lighter or darker from shot to shot: compared with a picture of the same view
+/// taken later, settled, that drift would read as a change of the view. Shots are taken
+/// `STEADY_GAP` frames apart until each of the last `STEADY_SHOTS` is within `SETTLED_DRIFT` of
+/// the one before in mean luma.
+fn settled_shots(h: &mut Harness, eye: Transform, hour: Hour) -> Vec<RgbImage> {
+    let mut shots = steady_shots(h, eye, hour);
+    let drift = |shots: &[RgbImage]| {
+        shots
+            .windows(2)
+            .map(|pair| (mean_luma(&pair[0]) - mean_luma(&pair[1])).abs())
+            .fold(0.0, f32::max)
+    };
+    for taken in 0..MAX_SETTLE_SHOTS {
+        if drift(&shots) < SETTLED_DRIFT {
+            println!("settled after {taken} more shots");
+            return shots;
+        }
+        shots.remove(0);
+        h.frames(STEADY_GAP);
+        shots.push(h.screenshot());
+    }
+    println!(
+        "not settled after {MAX_SETTLE_SHOTS} more shots: drift {}",
+        drift(&shots)
+    );
+    shots
 }
 
 /// The two eyes of a crossing and the pixels measured.
@@ -1894,7 +1967,7 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
     let pitch = -8f32.to_radians();
     let eye = Transform::from_translation(player + Vec3::new(-30.0, 1.6, 0.0))
         .looking_to(Vec3::new(0.0, pitch.sin(), -pitch.cos()), Vec3::Y);
-    let alone = steady_shots(&mut h, eye, hour);
+    let alone = settled_shots(&mut h, eye, hour);
 
     // The blue portal opens, and the player approaches it
     pinned(&mut h).eye = None;
@@ -1921,11 +1994,11 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
         .resource::<crate::portal::approach::Approach>()
         .clone();
     assert_eq!(approach.twins, vec![orange.chunk()], "{approach:?}");
-    let approached = steady_shots(&mut h, eye, hour);
+    let approached = settled_shots(&mut h, eye, hour);
 
-    // Within the noise: two pictures of the same view, the portal not yet open, differ by as much
+    // Within the noise: two shots of a window, the view held still, differ by as much
     let pixels = sample_pixels(&mut h, &eye, None);
-    let noise = record(&case, "noise", &alone[0], &alone[1], &pixels);
+    let noise = noise_floor(&case, "noise", &[&alone, &approached], &pixels);
     let (a, b) = (mean_picture(&alone), mean_picture(&approached));
     save(&case, "approached", &a, &b, true);
     let rows = record(&case, "approached", &a, &b, &pixels);
@@ -1956,12 +2029,12 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
     strike.age = Strokes::new(seed).peaks().next().unwrap();
     assert!(strike.bolt.is_some(), "the bolt by the twin is drawn");
     pinned(&mut h).strikes = Some(vec![strike.clone()]);
-    let bolted = steady_shots(&mut h, eye, hour);
+    let bolted = settled_shots(&mut h, eye, hour);
     strike.bolt = None;
     pinned(&mut h).strikes = Some(vec![strike]);
-    let flash_only = steady_shots(&mut h, eye, hour);
+    let flash_only = settled_shots(&mut h, eye, hour);
     pinned(&mut h).strikes = None;
-    let noise = record(&case, "bolt_noise", &bolted[0], &bolted[1], &pixels);
+    let noise = noise_floor(&case, "bolt_noise", &[&bolted, &flash_only], &pixels);
     let (a, b) = (mean_picture(&bolted), mean_picture(&flash_only));
     save(&case, "bolt_by_the_twin", &a, &b, true);
     let rows = record(&case, "bolt_by_the_twin", &a, &b, &pixels);
@@ -2012,16 +2085,16 @@ fn the_sky_follows_the_hour_after_the_shaders_are_switched_off_and_on() {
     let eye = Transform::from_translation(start + Vec3::new(0.0, 1.6, 0.0))
         .looking_to(Vec3::new(0.0, pitch.sin(), -pitch.cos()), Vec3::Y);
     let case = "sky_switched_high_noon";
-    let before = steady_shots(&mut h, eye, Hour::Noon);
+    let before = settled_shots(&mut h, eye, Hour::Noon);
     let _ = steady_shots(&mut h, eye, Hour::Dusk);
     set_quality(&mut h, ShaderQuality::Off);
     set_hour(&mut h, Hour::Noon);
     h.frames(SETTLE);
     set_quality(&mut h, ShaderQuality::High);
-    let after = steady_shots(&mut h, eye, Hour::Noon);
+    let after = settled_shots(&mut h, eye, Hour::Noon);
 
     let pixels = sample_pixels(&mut h, &eye, None);
-    let noise = record(case, "noise", &before[0], &before[1], &pixels);
+    let noise = noise_floor(case, "noise", &[&before, &after], &pixels);
     let (a, b) = (mean_picture(&before), mean_picture(&after));
     save(case, "switched", &a, &b, true);
     let rows = record(case, "switched", &a, &b, &pixels);
