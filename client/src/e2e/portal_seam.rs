@@ -849,7 +849,7 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
         Test::Regression => {
             crossing.case += "_regression";
             let rows = crossing.measure_steady(&mut h);
-            assert_seamless(&crossing.case, quality, &rows);
+            assert_seamless(&crossing.case, quality, &rows, SCREEN_SEAMLESS);
         }
     }
 }
@@ -857,7 +857,8 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
 /// Checks that the measures `rows` of the crossing `case` at `quality` are within the gates:
 /// `SEAMLESS` on the median of the 32–64 and 64–96 blocks classes, and with the haze of the
 /// 96+ class, `SKY_SEAMLESS` and `SCREEN_SEAMLESS` on the mean of the sky and of all.
-fn assert_seamless(case: &str, quality: ShaderQuality, rows: &[Row]) {
+/// `screen`: how much the whole screen may differ on average, with the haze (`SCREEN_SEAMLESS`).
+fn assert_seamless(case: &str, quality: ShaderQuality, rows: &[Row], screen: f32) {
     // With the haze, what it veils counts too: the far terrain, the sky, the screen
     let hazed = ShaderFeatures::of(quality).god_rays.is_some();
     let mut failed = Vec::new();
@@ -868,7 +869,7 @@ fn assert_seamless(case: &str, quality: ShaderQuality, rows: &[Row]) {
             "32-64" | "64-96" => ("median", median, SEAMLESS),
             "96+" if hazed => ("median", median, SEAMLESS),
             "sky" if hazed => ("mean", mean, SKY_SEAMLESS),
-            "all" if hazed => ("mean", mean, SCREEN_SEAMLESS),
+            "all" if hazed => ("mean", mean, screen),
             _ => continue,
         };
         if *value >= threshold {
@@ -1470,18 +1471,33 @@ fn approach_seam(
     let popin = record(&case, "popin_0", &first, &b, &pixels);
     let rows = record(&case, "baseline", &a, &b, &pixels);
     if gated {
-        assert_seamless(&case, quality, &rows);
+        assert_seamless(&case, quality, &rows, SCREEN_SEAMLESS);
         // The first frame after crossing too, and nothing comes in after it
-        assert_seamless(&format!("{case} (first frame)"), quality, &first_frame);
+        assert_seamless(
+            &format!("{case} (first frame)"),
+            quality,
+            &first_frame,
+            FIRST_FRAME_SCREEN_SEAMLESS,
+        );
         assert_no_popin(&case, &popin);
     }
 }
 
 /// How much, on average, each class of pixels may change from the first frame after crossing to
-/// the view settled: chunks or their fog coming in late move a class by tens. Since the client
-/// holds the twin's area on arrival, 0.00–0.06 without the shaders and 0.04–1.06 at High, where
-/// the first frame has its noise (TAA, the rays of light) against a mean of three.
-const POPIN_SEAMLESS: f32 = 2.0;
+/// the view settled: chunks or their fog coming in late move a class by tens (9.8–16.7 in the
+/// 96+ class in this lot's history). Since the client holds the twin's area on arrival,
+/// 0.00–0.06 without the shaders; at High, where the first frame has its noise (TAA, the rays of
+/// light) against a mean of three, the worst class is 96+, in two modes over 39 runs:
+/// 0.41–0.56 and 1.24–1.74.
+const POPIN_SEAMLESS: f32 = 3.0;
+
+/// How much, on average, the whole screen of the first frame after crossing may differ from the
+/// view before it, with the haze (`assert_seamless`). At High it is brighter than the settled
+/// view (the `lighter` column at −0.8 to −1.3: TAA starts anew) and sits 0.25–0.3 above the
+/// baseline, steadily: 1.75–1.86 through a twin 6 chunks away and 2.00–2.06 through one 21 away,
+/// over 4 runs; without the shaders it equals the baseline, 1.93–1.94 and 2.36–2.38 over 3. What
+/// the gates are for moved it by 16–79 in this lot's history.
+const FIRST_FRAME_SCREEN_SEAMLESS: f32 = 3.0;
 
 fn assert_no_popin(case: &str, rows: &[Row]) {
     let failed: Vec<String> = rows
