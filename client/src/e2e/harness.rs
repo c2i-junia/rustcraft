@@ -152,6 +152,9 @@ static CLIENT_TESTS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 /// Told when a test stops running clients.
 static CLIENT_TEST_ENDED: std::sync::Condvar = std::sync::Condvar::new();
 
+/// Held while a client makes its renderer, one client at a time (`Harness::start`).
+static RENDERER_CREATION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 thread_local! {
     /// Whether the test of this thread may run clients. Held until the thread ends, as the
     /// watchdogs: a test with several clients takes one place, and a failed test gives it back.
@@ -251,12 +254,21 @@ impl Harness {
             })
             .disable::<WinitPlugin>()
             .disable::<GilrsPlugin>();
+        // The renderer's Vulkan instance is made while the plugins are added. The Vulkan loader
+        // is not safe while two threads make instances at once: one enumerating the instance
+        // extensions while another loads a driver crashed the test process (SIGSEGV through a
+        // null pointer in `libvulkan`). The game makes one instance per process; the tests,
+        // one per client, so they take turns
+        let creating_the_renderer = RENDERER_CREATION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // `BENCH_TRACE` keeps the logger, which writes the spans of a build with the
         // `bevy/trace_chrome` feature into a trace file
         app.add_plugins(match std::env::var_os("BENCH_TRACE") {
             Some(_) => plugins,
             None => plugins.disable::<LogPlugin>(),
         });
+        drop(creating_the_renderer);
 
         let mut image = Image::new_fill(
             Extent3d {
