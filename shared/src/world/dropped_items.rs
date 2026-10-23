@@ -8,7 +8,7 @@ use crate::players::{
     constants::{GRAVITY, TERMINAL_VELOCITY},
     movement::is_terrain_loaded,
 };
-use crate::world::{ChunkMap, ItemStack};
+use crate::world::{ChunkMap, ItemStack, Passer, PortalKey};
 
 pub type DroppedItemId = u64;
 
@@ -53,6 +53,10 @@ pub struct DroppedItem {
     /// item on the other side at once, rather than easing it across the gap.
     #[serde(default)]
     pub passes: u32,
+    /// The floor portal the item came out of too slowly to leave, and rests on
+    /// (`Portals::pass`). Not saved, as the portals.
+    #[serde(skip)]
+    pub portal_rest: Option<PortalKey>,
 }
 
 fn default_pickup_delay() -> u32 {
@@ -69,6 +73,7 @@ impl DroppedItem {
             age_ticks: 0,
             pickup_delay_ticks: PICKUP_DELAY_TICKS,
             passes: 0,
+            portal_rest: None,
         }
     }
 
@@ -105,8 +110,10 @@ pub fn step_dropped_item(item: &mut DroppedItem, chunks: &ChunkMap, delta: f32) 
         return;
     }
     let portals = chunks.portals();
-    let margin = DROPPED_ITEM_SIZE / 2.0;
-    let passable = portals.passable_cells(item.position, margin);
+    let extents = Vec3::splat(DROPPED_ITEM_SIZE / 2.0);
+    item.portal_rest = portals.still_resting(item.position, Passer::new(extents, item.portal_rest));
+    let passer = Passer::new(extents, item.portal_rest);
+    let passable = portals.passable_cells(item.position, passer);
     let collides = |position: Vec3| {
         chunks.check_collision_box_except(&hitbox(position), |cell| passable.contains(&cell))
     };
@@ -128,7 +135,7 @@ pub fn step_dropped_item(item: &mut DroppedItem, chunks: &ChunkMap, delta: f32) 
         let wished = item.velocity[axis] * delta;
         let mut to = item.position;
         to[axis] += wished;
-        if portals.goes_into(item.position, to, margin) {
+        if portals.goes_into(item.position, to, passer) {
             item.position = to;
             break;
         }
@@ -140,9 +147,10 @@ pub fn step_dropped_item(item: &mut DroppedItem, chunks: &ChunkMap, delta: f32) 
             item.on_ground = falling && moved != wished;
         }
     }
-    if let Some(passage) = portals.pass(start, item.position, Vec3::splat(margin)) {
+    if let Some(passage) = portals.pass(start, item.position, passer, item.velocity) {
         item.position = passage.position;
-        item.velocity = passage.through.transform_vector3(item.velocity);
+        item.velocity = passage.velocity;
+        item.portal_rest = passage.resting;
         item.on_ground = false;
         item.passes = item.passes.wrapping_add(1);
         return;
@@ -420,6 +428,34 @@ mod tests {
         world.portals_mut().insert(orange);
         step_through(&mut item, &world, 0.05);
         assert!(item.position.x < 10.0, "{}", item.position);
+    }
+
+    /// An item lying on a floor portal whose twin is a floor too falls in, comes out of the
+    /// twin too slowly to leave it, and lies on it: it goes through once, not back and forth.
+    #[test]
+    fn an_item_lying_on_a_floor_portal_with_a_floor_twin_goes_through_once() {
+        let mut world = floor_portal_world();
+        world.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(4, 63, 0),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        let start = Vec3::new(1.0, FLOOR_TOP + DROPPED_ITEM_SIZE / 2.0, -0.5);
+        let mut item = DroppedItem::new(stack(ItemId::Dirt, 1), start, Vec3::ZERO);
+        item.on_ground = true;
+        for _ in 0..100 {
+            step_dropped_item(&mut item, &world, 0.05);
+            assert!(item.passes <= 1, "through again, at {}", item.position);
+        }
+        assert_eq!(item.passes, 1, "{}", item.position);
+        assert!(item.on_ground, "{}", item.position);
+        assert!(
+            (item.position - Vec3::new(5.0, start.y, -0.5)).length() < 0.01,
+            "{}",
+            item.position
+        );
     }
 
     #[test]

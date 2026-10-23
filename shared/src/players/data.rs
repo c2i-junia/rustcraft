@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::game_mode::{DeathCause, GameMode, MAX_HEALTH};
 use crate::{
     messages::PlayerId,
-    world::{ItemId, ItemStack, ItemType},
+    world::{ItemId, ItemStack, ItemType, Passer, PortalKey},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -204,6 +204,11 @@ pub struct Player {
     /// shoots once per press.
     #[serde(skip)]
     pub portal_triggers_held: [bool; 2],
+    /// The floor portal the player came out of too slowly to leave, and rests on: it does not
+    /// take the player back until it has left it (`Portals::still_resting`). Not saved, as the
+    /// portals.
+    #[serde(skip)]
+    pub portal_rest: Option<PortalKey>,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -218,6 +223,7 @@ pub struct MovementState {
     pub is_sneaking: bool,
     pub is_swimming: bool,
     pub fall_distance: f32,
+    pub portal_rest: Option<PortalKey>,
 }
 
 fn full_health() -> u32 {
@@ -239,6 +245,7 @@ impl Player {
             is_sneaking: self.is_sneaking,
             is_swimming: self.is_swimming,
             fall_distance: self.fall_distance,
+            portal_rest: self.portal_rest,
         }
     }
 
@@ -251,6 +258,16 @@ impl Player {
         self.is_sneaking = state.is_sneaking;
         self.is_swimming = state.is_swimming;
         self.fall_distance = state.fall_distance;
+        self.portal_rest = state.portal_rest;
+    }
+
+    /// What the portals know of the player going through them: its box, and the floor portal it
+    /// rests on.
+    pub fn passer(&self) -> Passer {
+        Passer::new(
+            Vec3::new(self.width, self.height, self.width) / 2.0,
+            self.portal_rest,
+        )
     }
 
     pub fn is_dead(&self) -> bool {
@@ -304,6 +321,7 @@ impl Player {
             mining_carry_ms: 0,
             place_wait_ms: 0,
             portal_triggers_held: [false; 2],
+            portal_rest: None,
         }
     }
 }

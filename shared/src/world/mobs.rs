@@ -2,6 +2,7 @@ use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
+use crate::world::PortalKey;
 
 pub type MobId = u128;
 
@@ -112,6 +113,10 @@ pub struct ServerMob {
     /// it read 0.
     #[serde(default)]
     pub passes: u32,
+    /// The floor portal the mob came out of too slowly to leave, and rests on
+    /// (`Portals::pass`). Not saved, as the portals.
+    #[serde(skip)]
+    pub portal_rest: Option<PortalKey>,
 }
 
 impl ServerMob {
@@ -133,6 +138,7 @@ impl ServerMob {
             damage: 0,
             sheared: false,
             passes: 0,
+            portal_rest: None,
         }
     }
 

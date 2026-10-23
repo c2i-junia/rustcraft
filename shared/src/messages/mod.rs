@@ -151,6 +151,7 @@ mod tests {
                 damage: 0,
                 sheared: false,
                 passes: 0,
+                portal_rest: None,
             },
         };
         let update = PlayerUpdateEvent {

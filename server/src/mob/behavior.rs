@@ -21,7 +21,8 @@ use shared::{
         Player,
     },
     world::{
-        BlockHitbox, BlockId, ChunkMap, MobAction, MobId, MobKind, MobTarget, Passage, ServerMob,
+        BlockHitbox, BlockId, ChunkMap, MobAction, MobId, MobKind, MobTarget, Passage, Passer,
+        ServerMob,
     },
     TICKS_PER_SECOND,
 };
@@ -146,6 +147,7 @@ fn step_mob(
     rng: &mut impl Rng,
 ) {
     let start = mob.position;
+    mob.portal_rest = chunks.portals().still_resting(mob.position, passer(mob));
     apply_gravity(mob, chunks, delta);
     if pass_through_portal(mob, chunks, start) {
         return;
@@ -187,10 +189,7 @@ fn fly(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
         let steps = (along.abs() / MAX_FLIGHT_STEP).ceil();
         for _ in 0..steps as u32 {
             let moved = mob.position + axis * (along / steps);
-            if chunks
-                .portals()
-                .goes_into(mob.position, moved, portal_margin(mob))
-            {
+            if chunks.portals().goes_into(mob.position, moved, passer(mob)) {
                 mob.position = moved;
                 return;
             }
@@ -209,13 +208,20 @@ fn fly(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
 /// it walks on rather than back; through a pair that tips the ground over, a floor and a wall,
 /// it stops walking instead. Returns whether it went through.
 fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bool {
-    let extents = Vec3::new(mob.width, mob.height, mob.depth) / 2.0;
-    let Some(Passage { through, position }) = chunks.portals().pass(from, mob.position, extents)
+    let Some(Passage {
+        through,
+        position,
+        velocity,
+        resting,
+    }) = chunks
+        .portals()
+        .pass(from, mob.position, passer(mob), mob.velocity)
     else {
         return false;
     };
     mob.position = position;
-    mob.velocity = through.transform_vector3(mob.velocity);
+    mob.velocity = velocity;
+    mob.portal_rest = resting;
     mob.on_ground = false;
     // A mob faces +Z turned by its rotation, a camera -Z: the body's yaw is that of a camera
     // turned half round
@@ -365,18 +371,18 @@ fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
     None
 }
 
-/// Half the width a portal lets `mob` through by (`Portals::letting_through`): its box keeps
-/// its axes whatever way it faces, so the larger of its width and depth.
-fn portal_margin(mob: &ServerMob) -> f32 {
-    mob.width.max(mob.depth) / 2.0
+/// What the portals know of `mob` going through them: its box, and the floor portal it rests on.
+fn passer(mob: &ServerMob) -> Passer {
+    Passer::new(
+        Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
+        mob.portal_rest,
+    )
 }
 
 /// Whether `mob` would be inside a block at `position`. The wall cells of the open portals that
 /// let it in from where it is do not count (`Portals::passable_cells`), as for a player.
 fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
-    let passable = chunks
-        .portals()
-        .passable_cells(mob.position, portal_margin(mob));
+    let passable = chunks.portals().passable_cells(mob.position, passer(mob));
     chunks.check_collision_box_except(
         &Aabb3d::new(position, Vec3::new(mob.width, mob.height, mob.depth) / 2.0),
         |cell| passable.contains(&cell),
@@ -388,7 +394,7 @@ fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
 fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
     chunks
         .portals()
-        .goes_into(mob.position, position, portal_margin(mob))
+        .goes_into(mob.position, position, passer(mob))
         || !collides_at(mob, chunks, position)
 }
 
@@ -409,10 +415,7 @@ fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     let steps = (distance.abs() / MAX_FLIGHT_STEP).ceil().max(1.0);
     for _ in 0..steps as u32 {
         let moved = mob.position + Vec3::Y * (distance / steps);
-        if chunks
-            .portals()
-            .goes_into(mob.position, moved, portal_margin(mob))
-        {
+        if chunks.portals().goes_into(mob.position, moved, passer(mob)) {
             mob.position = moved;
             break;
         }
@@ -1178,6 +1181,48 @@ mod tests {
         let standing = ServerMob::standing_at(MobKind::Sheep, 0.0, 1.0, 0.0).y;
         assert!(
             (sheep.position.y - standing).abs() < 0.1 && sheep.position.x > 7.0,
+            "{}",
+            sheep.position
+        );
+    }
+
+    /// A sheep standing still on a floor portal whose twin is a floor too falls in, comes out
+    /// of the twin too slowly to leave it, and stands on it: it goes through once, not back and
+    /// forth for ever.
+    #[test]
+    fn a_sheep_resting_on_a_floor_portal_with_a_floor_twin_goes_through_once_and_stands() {
+        let mut map = portal_world(true);
+        map.chunks.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(4, 0, 0),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        map.mobs.insert(
+            0,
+            ServerMob {
+                action: MobAction::Idle,
+                action_ticks: u32::MAX,
+                ..standing(MobKind::Sheep, 1.0, -0.5)
+            },
+        );
+        for tick in 0..5 * TICKS_PER_SECOND {
+            run_ticks(&mut map, 1);
+            let sheep = &map.mobs[&0];
+            assert!(
+                sheep.passes <= 1,
+                "tick {tick}: through {} times, at {}",
+                sheep.passes,
+                sheep.position
+            );
+            assert!(!collides_at(sheep, &map.chunks, sheep.position));
+        }
+        let sheep = &map.mobs[&0];
+        assert_eq!(sheep.passes, 1);
+        let standing = ServerMob::standing_at(MobKind::Sheep, 5.0, 1.0, -0.5);
+        assert!(
+            sheep.position.distance(standing) < 0.1,
             "{}",
             sheep.position
         );

@@ -8,6 +8,7 @@ use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
+use crate::players::constants::GRAVITY;
 use crate::world::{
     world_position_to_chunk_position, BlockHitbox, BlockTransparency, ChunkMap, FaceDirection,
     FaceDirectionExt,
@@ -26,6 +27,13 @@ pub const PORTAL_SLACK: f32 = 1e-3;
 /// longest step of a player's move. A faster entity drops the rest of its move, as a player
 /// does, rather than come out beyond the cleared front of the portal, inside a block.
 pub const MAX_EXIT_DEPTH: f32 = 0.5;
+/// How high above a floor portal an entity that came out of it must be able to rise for the
+/// portal to take it back, in blocks, its box out of the portal by that much: a bounce. Less,
+/// and it rests on the portal (`Passage::resting`) until it leaves it.
+pub const REST_CLEARANCE: f32 = 0.5;
+/// How far over a floor portal it rests on the box of an entity too slow to leave the portal's
+/// cells is lifted, in blocks: a little room for the drag of an item and the steps of a mob.
+const REST_LIFT: f32 = 0.05;
 
 /// Append only, like `ItemId`: network messages carry the position of the variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -130,6 +138,26 @@ impl Portal {
             .dot(point - Vec3::from(self.frame().translation))
     }
 
+    /// The portal by its owner and colour.
+    pub fn key(&self) -> PortalKey {
+        (self.owner, self.color)
+    }
+
+    /// Half the size of a box of half extents `extents` across the plane of the portal: how
+    /// far in front of it its centre is when the box touches the plane.
+    pub fn depth(&self, extents: Vec3) -> f32 {
+        self.normal().abs().dot(extents)
+    }
+
+    /// Whether the wall of the portal lets in an entity centred on `center`, of `margin`: it is
+    /// in front of the plane, within the slack, and in front of the opening shrunk by `margin`
+    /// on every side.
+    fn lets_in(&self, center: Vec3, margin: f32) -> bool {
+        let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0 - margin;
+        let local = self.local(center);
+        local.z >= -PORTAL_SLACK && local.x.abs() <= half.x && local.y.abs() <= half.y
+    }
+
     /// `point` in the frame of the portal (`frame`): across to the right, up, and out of the
     /// wall, from the centre of the opening.
     pub fn local(&self, point: Vec3) -> Vec3 {
@@ -223,14 +251,16 @@ impl Portals {
         self.iter().filter(|portal| self.twin(portal).is_some())
     }
 
-    /// The open portals whose wall lets in a player centred on `center`: it is in front of them,
-    /// within the slack, and in front of their opening shrunk by `margin` on every side, half
-    /// the width of the player, so that its box fits in the opening.
-    pub fn letting_through(&self, center: Vec3, margin: f32) -> impl Iterator<Item = &Portal> {
-        let half = Vec3::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32, 0.0) / 2.0 - margin;
+    /// The open portals whose wall lets in an entity centred on `center`: it is in front of
+    /// them, within the slack, and in front of their opening shrunk on every side by its
+    /// `margin`, so that its box fits in the opening. Not the portal it rests on.
+    pub fn letting_through(
+        &self,
+        center: Vec3,
+        passer: Passer,
+    ) -> impl Iterator<Item = &Portal> + '_ {
         self.open().filter(move |portal| {
-            let local = portal.local(center);
-            local.z >= -PORTAL_SLACK && local.x.abs() <= half.x && local.y.abs() <= half.y
+            Some(portal.key()) != passer.resting && portal.lets_in(center, passer.margin())
         })
     }
 
@@ -238,8 +268,14 @@ impl Portals {
     /// front of its plane to behind it (`PORTAL_SLACK`), through its opening. The first one
     /// along the segment, if several.
     pub fn crossed(&self, from: Vec3, to: Vec3) -> Option<&Portal> {
+        self.crossed_but(from, to, None)
+    }
+
+    /// `crossed`, but never the portal `resting`, which an entity rests on.
+    fn crossed_but(&self, from: Vec3, to: Vec3, resting: Option<PortalKey>) -> Option<&Portal> {
         let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
         self.open()
+            .filter(|portal| Some(portal.key()) != resting)
             .filter_map(|portal| {
                 let (from, to) = (portal.local(from), portal.local(to));
                 if from.z < -PORTAL_SLACK || to.z >= -PORTAL_SLACK {
@@ -254,6 +290,12 @@ impl Portals {
             .map(|(_, portal)| portal)
     }
 
+    /// The open portal an entity going from `from` to `to` goes into (`crossed`), but the one
+    /// it rests on.
+    pub fn crossed_by(&self, from: Vec3, to: Vec3, passer: Passer) -> Option<&Portal> {
+        self.crossed_but(from, to, passer.resting)
+    }
+
     /// The transform to draw an eye from when it is not on the side of a portal its body is
     /// on: the crossing is the centre's, and the eye of a player is 0.8 above it, so that across
     /// a floor or a ceiling it goes into the portal first (rising into a ceiling portal), or
@@ -266,39 +308,70 @@ impl Portals {
         self.through(self.crossed(center, eye)?)
     }
 
-    /// The wall cells of the open portals that let in an entity centred on `center`, of half
-    /// width `margin` (`letting_through`): they do not collide with it, so that it goes into
-    /// them, and through the portal.
-    pub fn passable_cells(&self, center: Vec3, margin: f32) -> Vec<IVec3> {
-        self.letting_through(center, margin)
+    /// The wall cells of the open portals that let in an entity centred on `center`
+    /// (`letting_through`): they do not collide with it, so that it goes into them, and through
+    /// the portal. Those of the floor portal it rests on, while its box still reaches into them
+    /// (it came out of that portal, and rises out of its cells): they collide once it is out,
+    /// so that it lands on the portal.
+    pub fn passable_cells(&self, center: Vec3, passer: Passer) -> Vec<IVec3> {
+        let rising_out = passer
+            .resting
+            .and_then(|(owner, color)| self.get(owner, color))
+            .filter(|portal| {
+                self.twin(portal).is_some()
+                    && portal.lets_in(center, passer.margin())
+                    && portal.local(center).z < portal.depth(passer.extents)
+            });
+        self.letting_through(center, passer)
+            .chain(rising_out)
             .flat_map(Portal::cells)
             .collect()
     }
 
-    /// Whether the centre of an entity of half width `margin`, moving from `from` to `to`,
-    /// goes into an open portal that lets it through (`letting_through`): the move is then made
-    /// whatever lies behind the wall cells, as a floor thicker than a block does under a floor
-    /// portal, and is the crossing.
-    pub fn goes_into(&self, from: Vec3, to: Vec3, margin: f32) -> bool {
-        self.crossed(from, to).is_some_and(|crossed| {
-            self.letting_through(from, margin)
+    /// Whether an entity moving from `from` to `to` goes into an open portal that lets it
+    /// through (`letting_through`): the move is then made whatever lies behind the wall cells,
+    /// as a floor thicker than a block does under a floor portal, and is the crossing.
+    pub fn goes_into(&self, from: Vec3, to: Vec3, passer: Passer) -> bool {
+        self.crossed_by(from, to, passer).is_some_and(|crossed| {
+            self.letting_through(from, passer)
                 .any(|open| open == crossed)
         })
     }
 
-    /// Takes through the open portal it went into (`crossed`) a centre that moved from `from` to
-    /// `to`, of a box of half extents `extents`: the transform of the pair (`through`) and where
-    /// the centre comes out. Out of the twin, the centre is kept within its opening shrunk by
-    /// the half extents of the box, so that the box fits the opening: a box falling into a
-    /// floor portal near one end comes out of a wall portal within the opening, not in the wall
-    /// under it. A box that went into a portal fitted its opening, which the same shape on a
-    /// wall keeps it doing. Nor does the centre come out deeper in front of the twin than
+    /// The floor portal an entity centred on `center` rests on still (`Passer::resting`): while
+    /// it is open, the entity in front of its opening, and no higher above it than its box and
+    /// `REST_CLEARANCE`. An entity that walked off it, or jumped from it, has left it, and it
+    /// takes the entity again.
+    pub fn still_resting(&self, center: Vec3, passer: Passer) -> Option<PortalKey> {
+        let (owner, color) = passer.resting?;
+        let portal = self.get(owner, color)?;
+        (self.twin(portal).is_some()
+            && portal.lets_in(center, passer.margin())
+            && portal.local(center).z <= portal.depth(passer.extents) + REST_CLEARANCE)
+            .then_some(portal.key())
+    }
+
+    /// Takes through the open portal it went into (`crossed_by`) an entity whose centre moved
+    /// from `from` to `to`, at `velocity`: the transform of the pair (`through`), where the
+    /// centre comes out and how fast. Out of the twin, the centre is kept within its opening
+    /// shrunk by the half extents of the box, so that the box fits the opening: a box falling
+    /// into a floor portal near one end comes out of a wall portal within the opening, not in
+    /// the wall under it. A box that went into a portal fitted its opening, which the same shape
+    /// on a wall keeps it doing. Nor does the centre come out deeper in front of the twin than
     /// `MAX_EXIT_DEPTH`, or than keeps the box within the block in front of the wall, which a
     /// portal keeps clear (`Portal::fits`): what went in fast drops the rest of its move, as a
     /// player's step into a portal does, rather than come out inside a block.
-    pub fn pass(&self, from: Vec3, to: Vec3, extents: Vec3) -> Option<Passage> {
-        let portal = self.crossed(from, to)?;
+    ///
+    /// Out of a floor portal, gravity brings the entity back: if it comes out too slowly to
+    /// rise `REST_CLEARANCE` above the portal, it rests on it (`Passage::resting`), which does
+    /// not take it back, and it is given the speed to lift its box just out of the portal's
+    /// cells if it had not that, so that it lands on the portal. Otherwise an entity resting on
+    /// a floor portal whose twin is a floor too would fall into one, come out of the other too
+    /// slowly to leave it, fall back into it, and so on for ever.
+    pub fn pass(&self, from: Vec3, to: Vec3, passer: Passer, velocity: Vec3) -> Option<Passage> {
+        let portal = self.crossed_by(from, to, passer)?;
         let (through, twin) = (self.through(portal)?, self.twin(portal)?);
+        let extents = passer.extents;
         let room =
             |side: Vec3, length: i32| (length as f32 / 2.0 - side.abs().dot(extents)).max(0.0);
         let (across, high) = (
@@ -306,17 +379,31 @@ impl Portals {
             room(twin.up(), PORTAL_HEIGHT),
         );
         // In front by more than the slack, whatever the box
-        let deep =
-            (1.0 - twin.normal().abs().dot(extents)).clamp(2.0 * PORTAL_SLACK, MAX_EXIT_DEPTH);
+        let deep = (1.0 - twin.depth(extents)).clamp(2.0 * PORTAL_SLACK, MAX_EXIT_DEPTH);
         let out = twin.local(through.transform_point3(to));
         let out = Vec3::new(
             out.x.clamp(-across, across),
             out.y.clamp(-high, high),
             out.z.min(deep),
         );
+        let mut velocity = through.transform_vector3(velocity);
+        let mut resting = None;
+        if twin.face == FaceDirection::PlusY {
+            let gravity = -GRAVITY;
+            let rise = |speed: f32| out.z + speed.max(0.0).powi(2) / (2.0 * gravity);
+            if rise(velocity.y) < twin.depth(extents) + REST_CLEARANCE {
+                resting = Some(twin.key());
+                let lifted = twin.depth(extents) + REST_LIFT;
+                if rise(velocity.y) < lifted {
+                    velocity.y = (2.0 * gravity * (lifted - out.z)).sqrt();
+                }
+            }
+        }
         Some(Passage {
             through,
             position: twin.frame().transform_point3(out),
+            velocity,
+            resting,
         })
     }
 
@@ -354,11 +441,40 @@ impl Portals {
 /// An entity's centre gone through a portal (`Portals::pass`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Passage {
-    /// The transform of the pair, for what else goes through with the centre: its velocity,
-    /// where it looks.
+    /// The transform of the pair, for what else goes through with the centre: where it looks,
+    /// where it walks to.
     pub through: Affine3A,
     /// Where the centre comes out, in front of the twin.
     pub position: Vec3,
+    /// The velocity it comes out at: turned with the pair, and lifted out of a floor twin it
+    /// comes to rest on.
+    pub velocity: Vec3,
+    /// The floor twin it came out of too slowly to leave, and rests on.
+    pub resting: Option<PortalKey>,
+}
+
+/// A portal by its owner and colour, as an entity remembers the floor portal it rests on.
+pub type PortalKey = (PlayerId, PortalColor);
+
+/// What the portals know of an entity going through them: the half extents of its box, and the
+/// floor portal it rests on (`Passage::resting`), which does not take it back.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Passer {
+    pub extents: Vec3,
+    pub resting: Option<PortalKey>,
+}
+
+impl Passer {
+    pub fn new(extents: Vec3, resting: Option<PortalKey>) -> Self {
+        Self { extents, resting }
+    }
+
+    /// How far within the edges of an opening the centre of the entity must be for its box to
+    /// fit: the larger of its half width and half depth, as its box keeps its axes whichever
+    /// way it faces.
+    pub fn margin(&self) -> f32 {
+        self.extents.x.max(self.extents.z)
+    }
 }
 
 /// Which way the long side of a portal shot along `direction` onto the face `face` goes: up on a
@@ -427,6 +543,11 @@ mod tests {
             face,
             up: FaceDirection::PlusY,
         }
+    }
+
+    /// An entity of half width `half`, resting on no portal.
+    fn margin(half: f32) -> Passer {
+        Passer::new(Vec3::splat(half), None)
     }
 
     fn assert_near(a: Vec3, b: Vec3) {
@@ -581,7 +702,7 @@ mod tests {
         let portals = pair();
         let letting = |point: Vec3| {
             portals
-                .letting_through(point, 0.4)
+                .letting_through(point, margin(0.4))
                 .map(|portal| portal.color)
                 .collect::<Vec<_>>()
         };
@@ -604,22 +725,22 @@ mod tests {
     fn the_wall_cells_of_a_portal_that_lets_an_entity_through_are_passable() {
         let portals = pair();
         let blue = *portals.get(7, PortalColor::Blue).unwrap();
-        let mut cells = portals.passable_cells(Vec3::new(1.0, 11.0, 1.2), 0.3);
+        let mut cells = portals.passable_cells(Vec3::new(1.0, 11.0, 1.2), margin(0.3));
         cells.sort_by_key(|cell| cell.to_array());
         let mut wall: Vec<IVec3> = blue.cells().collect();
         wall.sort_by_key(|cell| cell.to_array());
         assert_eq!(cells, wall);
         // Too wide for where it is, behind the plane, or the twin gone: nothing
         assert!(portals
-            .passable_cells(Vec3::new(0.3, 11.0, 1.2), 0.9)
+            .passable_cells(Vec3::new(0.3, 11.0, 1.2), margin(0.9))
             .is_empty());
         assert!(portals
-            .passable_cells(Vec3::new(1.0, 11.0, 0.5), 0.3)
+            .passable_cells(Vec3::new(1.0, 11.0, 0.5), margin(0.3))
             .is_empty());
         let mut closed = portals.clone();
         closed.remove(7, PortalColor::Orange);
         assert!(closed
-            .passable_cells(Vec3::new(1.0, 11.0, 1.2), 0.3)
+            .passable_cells(Vec3::new(1.0, 11.0, 1.2), margin(0.3))
             .is_empty());
     }
 
@@ -627,13 +748,17 @@ mod tests {
     fn a_centre_goes_into_a_portal_that_lets_its_width_through() {
         let portals = pair();
         let (from, to) = (Vec3::new(1.0, 11.0, 1.1), Vec3::new(1.0, 11.0, 0.9));
-        assert!(portals.goes_into(from, to, 0.3));
+        assert!(portals.goes_into(from, to, margin(0.3)));
         // Into the opening, but too wide for where it crosses; narrower, it goes in
         let (from, to) = (Vec3::new(0.2, 11.0, 1.1), Vec3::new(0.2, 11.0, 0.9));
-        assert!(!portals.goes_into(from, to, 0.3));
-        assert!(portals.goes_into(from, to, 0.1));
+        assert!(!portals.goes_into(from, to, margin(0.3)));
+        assert!(portals.goes_into(from, to, margin(0.1)));
         // Staying in front
-        assert!(!portals.goes_into(Vec3::new(1.0, 11.0, 1.5), Vec3::new(1.0, 11.0, 1.1), 0.1));
+        assert!(!portals.goes_into(
+            Vec3::new(1.0, 11.0, 1.5),
+            Vec3::new(1.0, 11.0, 1.1),
+            margin(0.1)
+        ));
     }
 
     #[test]
@@ -643,18 +768,27 @@ mod tests {
         let through = portals.through(blue).unwrap();
         let extents = Vec3::new(0.3, 0.9, 0.3);
         let (from, to) = (Vec3::new(1.2, 11.0, 1.1), Vec3::new(1.2, 11.0, 0.9));
-        let passage = portals.pass(from, to, extents).unwrap();
+        let passage = portals
+            .pass(from, to, Passer::new(extents, None), Vec3::ZERO)
+            .unwrap();
         assert_eq!(passage.through, through);
         assert_near(passage.position, through.transform_point3(to));
         assert!(portals
-            .pass(from, Vec3::new(1.2, 11.0, 1.05), extents)
+            .pass(
+                from,
+                Vec3::new(1.2, 11.0, 1.05),
+                Passer::new(extents, None),
+                Vec3::ZERO
+            )
             .is_none());
 
         // Into a floor near its north end, out of the wall's opening with the box in it: its
         // centre no higher than 1.5 - 0.9 above the middle of the opening
         let portals = floor_and_wall();
         let (from, to) = (Vec3::new(1.0, 11.1, -1.9), Vec3::new(1.0, 10.9, -1.9));
-        let passage = portals.pass(from, to, extents).unwrap();
+        let passage = portals
+            .pass(from, to, Passer::new(extents, None), Vec3::ZERO)
+            .unwrap();
         assert_near(passage.position, Vec3::new(21.0, 12.1, 5.9 + 0.2));
     }
 
@@ -665,7 +799,14 @@ mod tests {
         let portals = floor_and_wall();
         let wall = *portals.get(7, PortalColor::Orange).unwrap();
         let (from, to) = (Vec3::new(1.0, 11.1, -0.5), Vec3::new(1.0, 8.0, -0.5));
-        let passage = portals.pass(from, to, Vec3::new(0.3, 0.9, 0.3)).unwrap();
+        let passage = portals
+            .pass(
+                from,
+                to,
+                Passer::new(Vec3::new(0.3, 0.9, 0.3), None),
+                Vec3::ZERO,
+            )
+            .unwrap();
         assert!(
             (wall.signed_distance(passage.position) - MAX_EXIT_DEPTH).abs() < 1e-4,
             "{}",
@@ -683,14 +824,23 @@ mod tests {
         };
         portals.insert(ceiling);
         for extents in [Vec3::new(0.3, 0.9, 0.3), Vec3::new(0.45, 0.625, 0.45)] {
-            let passage = portals.pass(from, to, extents).unwrap();
+            let passage = portals
+                .pass(from, to, Passer::new(extents, None), Vec3::ZERO)
+                .unwrap();
             let depth = ceiling.signed_distance(passage.position);
             assert!(depth > PORTAL_SLACK, "{extents}: {depth}");
             assert!(depth + extents.y <= 1.0 + 1e-4, "{extents}: {depth}");
         }
         // A slow one keeps where it went
         let to = Vec3::new(1.0, 10.95, -0.5);
-        let passage = portals.pass(from, to, Vec3::new(0.3, 0.9, 0.3)).unwrap();
+        let passage = portals
+            .pass(
+                from,
+                to,
+                Passer::new(Vec3::new(0.3, 0.9, 0.3), None),
+                Vec3::ZERO,
+            )
+            .unwrap();
         assert_near(
             passage.position,
             portals
@@ -706,7 +856,7 @@ mod tests {
         portals.remove(7, PortalColor::Orange);
         assert_eq!(
             portals
-                .letting_through(Vec3::new(1.0, 11.5, 1.3), 0.4)
+                .letting_through(Vec3::new(1.0, 11.5, 1.3), margin(0.4))
                 .count(),
             0
         );
@@ -1242,7 +1392,7 @@ mod tests {
         let portals = floor_and_wall();
         let letting = |point: Vec3| {
             portals
-                .letting_through(point, 0.3)
+                .letting_through(point, margin(0.3))
                 .map(|portal| portal.color)
                 .collect::<Vec<_>>()
         };

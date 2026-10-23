@@ -244,6 +244,15 @@ entity that passes comes out with its velocity turned; a mob's body faces where 
 turned upright as a camera's look, and the spot it walks to goes through too, so it walks on
 (through a floor and a wall it stops walking instead). A mob going faster than it goes by
 itself, which only a portal does, flies by its velocity until it lands.
+Out of a floor portal, gravity brings an entity back to it: one that comes out too slowly to
+rise `REST_CLEARANCE` (half a block) clear of the portal rests on it (`Passage::resting`, which
+players keep in `MovementState::portal_rest`, mobs and items in their own `portal_rest`, never
+saved). That portal does not take it back, and its cells collide with it once its box is out
+of them, so that it lands on it; one too slow to lift its box out of them is given just the
+speed to. The portal takes it again once it has left its front or risen above the clearance,
+as by a jump (`Portals::still_resting`). So an entity resting on a floor portal whose twin is a
+floor too goes through once and stands on the twin, rather than back and forth for ever; one
+that falls in from higher bounces from one to the other as before.
 Each counts the portals it went through (`DroppedItem::passes`, `ServerMob::passes`, sent with
 it): a client that sees the count change puts the entity where it is told at once, instead of
 easing it across the gap. Items are sent by the chunks a client has, those around the twins

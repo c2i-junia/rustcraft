@@ -24,7 +24,7 @@ pub fn check_player_collision(
     let half_size = Vec3::new(player.width, player.height, player.width) / 2.0;
     let passable = world_map
         .portals()
-        .passable_cells(player.position, player.width / 2.0);
+        .passable_cells(player.position, player.passer());
     let let_through = |cell: IVec3| passable.contains(&cell);
     let candidate = Aabb3d::new(*candidate_position, half_size);
     if !world_map.check_collision_box_except(&candidate, let_through) {
