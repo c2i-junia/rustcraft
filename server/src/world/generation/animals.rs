@@ -23,25 +23,13 @@ const SALT_ANIMAL: u64 = 0x310;
 /// How far from the centre of its herd an animal stands, along x and z.
 const HERD_SPREAD: i32 = 3;
 
-/// The herds that may live on a column of chunks of `biome`: the chance of each, and the
-/// sizes it comes in, both included. The chances of a biome add up to less than 1.
-fn herds(biome: BiomeType) -> &'static [(MobKind, f32, (u64, u64))] {
-    match biome {
-        BiomeType::Plains | BiomeType::FlowerPlains => &[(MobKind::Sheep, 0.12, (2, 4))],
-        BiomeType::Forest => &[(MobKind::Fox, 0.10, (1, 2)), (MobKind::Sheep, 0.03, (2, 3))],
-        BiomeType::MediumMountain => &[(MobKind::Sheep, 0.06, (2, 4))],
-        BiomeType::HighMountainGrass => &[(MobKind::Sheep, 0.04, (2, 3))],
-        BiomeType::IcePlain => &[(MobKind::Fox, 0.06, (1, 2))],
-        _ => &[],
-    }
-}
-
-/// Whether an animal may appear standing on `column`: dry land of grass, or snow on the ice
-/// plains, where no tree, bush or cactus grows, nor the trunk of a giant tree.
+/// Whether an animal may appear standing on `column`: dry land of grass, or snow in a frozen
+/// biome, where no tree, bush, cactus or spike grows, nor the trunk of a giant tree.
 fn may_stand_on(column: &Column, seed: u32) -> bool {
-    let ground = match column.biome_type {
-        BiomeType::IcePlain => matches!(column.surface, BlockId::Grass | BlockId::Snow),
-        _ => column.surface == BlockId::Grass,
+    let ground = if column.def().ground.frozen {
+        matches!(column.surface, BlockId::Grass | BlockId::Snow)
+    } else {
+        column.surface == BlockId::Grass
     };
     ground
         && column.height > SEA_LEVEL + 1
@@ -56,6 +44,7 @@ fn may_stand_on(column: &Column, seed: u32) -> bool {
                         | Decoration::JungleTree
                         | Decoration::Bush
                         | Decoration::Cactus
+                        | Decoration::IceSpike
                 )
             })
 }
@@ -78,10 +67,15 @@ pub(super) fn chunk_animals(seed: u32, chunk_pos: IVec3, columns: &ChunkColumns)
     }
     let roll = random.unit(SALT_HERD_ROLL);
     let mut chance = 0.0;
-    let Some(&(kind, _, (fewest, most))) = herds(centre_column.biome_type).iter().find(|herd| {
-        chance += herd.1;
+    // the herds of the biome, each after the previous one on the same roll
+    let herds = &centre_column.def().herds;
+    let Some(&Herd {
+        kind, fewest, most, ..
+    }) = herds.iter().find(|herd| {
+        chance += herd.chance;
         roll < chance
-    }) else {
+    })
+    else {
         return Vec::new();
     };
 
@@ -123,11 +117,12 @@ mod tests {
 
     /// The animals of the columns of chunks around the origin, `radius` of them on each side,
     /// generated from `seed`.
-    fn animals_around(seed: u32, radius: i32) -> Vec<ServerMob> {
+    /// The animals of the chunks within `radius` columns of chunks of `centre`.
+    fn animals_around(seed: u32, centre: IVec2, radius: i32) -> Vec<ServerMob> {
         let generator = WorldGenerator::new(seed);
         let mut animals = Vec::new();
-        for x in -radius..=radius {
-            for z in -radius..=radius {
+        for x in centre.x - radius..=centre.x + radius {
+            for z in centre.y - radius..=centre.y + radius {
                 for y in 0..12 {
                     animals.extend(generator.chunk_animals(IVec3::new(x, y, z)));
                 }
@@ -155,7 +150,8 @@ mod tests {
     fn herds_of_both_kinds_appear_on_land_standing_on_an_open_block() {
         let seed = 42;
         let generator = WorldGenerator::new(seed);
-        let animals = animals_around(seed, 24);
+        // the land west of the origin
+        let animals = animals_around(seed, IVec2::new(-16, 40), 24);
         let mut by_kind: HashMap<MobKind, usize> = HashMap::new();
         for animal in &animals {
             *by_kind.entry(animal.kind).or_default() += 1;
@@ -177,7 +173,7 @@ mod tests {
 
     #[test]
     fn no_herd_lives_in_the_jungle() {
-        assert!(herds(BiomeType::Jungle).is_empty());
+        assert!(Biomes::vanilla().get(vanilla::JUNGLE).herds.is_empty());
     }
 
     #[test]
@@ -185,13 +181,13 @@ mod tests {
         let seed = 5;
         let shape = ColumnShape {
             height: 70,
-            biome: BiomeType::Jungle,
-            jungle_depth: 1.0,
+            biome: vanilla::JUNGLE,
+            depth_in_biome: 1.0,
         };
         let mut found = Vec::new();
         for x in 0..100 {
             for z in 0..100 {
-                let column = Column::new(seed, x, z, shape, 0, 0.0, None);
+                let column = Column::new(seed, x, z, shape, &Biomes::vanilla(), 0, 0.0, None);
                 let decorations = column_decorations(&column, &random_of(seed, &column));
                 for wanted in [Decoration::JungleTree, Decoration::Bush] {
                     if decorations.contains(&wanted) {
@@ -209,14 +205,15 @@ mod tests {
         let seed = 5;
         let shape = ColumnShape {
             height: 70,
-            biome: BiomeType::Jungle,
-            jungle_depth: 1.0,
+            biome: vanilla::JUNGLE,
+            depth_in_biome: 1.0,
         };
         for x in 0..20 {
             for z in 0..20 {
-                let open = Column::new(seed, x, z, shape, 0, 0.0, None);
+                let open = Column::new(seed, x, z, shape, &Biomes::vanilla(), 0, 0.0, None);
                 for part in [GiantTrunk::Root, GiantTrunk::Beside] {
-                    let trunk = Column::new(seed, x, z, shape, 0, 0.0, Some(part));
+                    let trunk =
+                        Column::new(seed, x, z, shape, &Biomes::vanilla(), 0, 0.0, Some(part));
                     if may_stand_on(&open, seed) {
                         assert!(!may_stand_on(&trunk, seed), "({x}, {z}): {part:?}");
                     }

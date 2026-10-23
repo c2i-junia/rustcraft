@@ -23,7 +23,9 @@ use crate::network::cleanup::cleanup_player_from_world;
 use crate::network::commands::{command_line, parse_command, run_command, SERVER_AUTHOR};
 use crate::network::extensions::SendGameMessageExtension;
 use crate::world::data::ServerWorldMap;
+use crate::world::generation::WorldGeneration;
 use crate::world::load_from_file::load_player_data;
+use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::PlayerInputsEvent;
 use crate::world::weather::{send_to_players, ServerWeather};
@@ -58,7 +60,7 @@ pub(super) fn auth_register_request(
     world_map: &mut ServerWorldMap,
     chat_conversation: &ChatConversation,
     time: &ServerTime,
-    seed: WorldSeed,
+    (seed, generation): (WorldSeed, &WorldGeneration),
     game_folder_paths: &GameFolderPaths,
     max_render_distance: u32,
     mods: &Mods,
@@ -121,6 +123,8 @@ pub(super) fn auth_register_request(
         players,
         max_render_distance,
         seed: seed.0,
+        generation: generation.settings.clone(),
+        biomes: generation.biomes.defs().to_vec(),
         mod_commands: mods.command_names(),
         weather: weather.kind,
     };
@@ -162,6 +166,7 @@ pub(super) fn chat_message(
     time: &mut ServerTime,
     weather: &mut ServerWeather,
     mods: &Mods,
+    (seed, generation, locator): (WorldSeed, &WorldGeneration, &Locator),
 ) {
     let Clients { server, lobby } = clients;
     let Some(current_author) = lobby.players.get(&client_id) else {
@@ -176,7 +181,9 @@ pub(super) fn chat_message(
         let clock = time.0;
         let sky = weather.kind;
         let answer = match parse_command(line) {
-            Ok(command) => run_command(command, time, weather, player),
+            Ok(command) => run_command(command, time, weather, player, |key, from| {
+                locator.start(client_id, (seed.0, generation), key, from)
+            }),
             Err(error) => mods
                 .run_command(line, &current_author.name, world_map)
                 .unwrap_or(error),

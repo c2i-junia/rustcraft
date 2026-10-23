@@ -6,6 +6,8 @@ use crate::world;
 use crate::world::broadcast_world::broadcast_world_state;
 use crate::world::data::ServerWorldMap;
 use crate::world::dropped_items::{dropped_items_physics_system, pickup_dropped_items_system};
+use crate::world::generation::WorldGeneration;
+use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{
     broadcast_player_updates_system, handle_player_inputs_system, regenerate_health_system,
@@ -60,6 +62,7 @@ pub fn setup_resources_and_events(app: &mut App) {
         .add_message::<ServerEventMessage>()
         .init_resource::<JoinRequests>()
         .init_resource::<world::flow::WaterFlow>()
+        .init_resource::<Locator>()
         .add_observer(buffer_server_event);
 
     setup_chat_resources(app);
@@ -137,6 +140,7 @@ pub fn register_systems(app: &mut App) {
     );
 
     app.add_systems(FixedPostUpdate, update_server_time)
+        .add_systems(Update, world::locate::answer_locates_system)
         .add_systems(PreUpdate, take_join_requests_system.after(RenetReceive));
 
     // The mobs and the items move before the inputs of the tick are read
@@ -217,12 +221,14 @@ fn handle_client_messages_system(
     config: Res<GameServerConfig>,
     mut world_map: ResMut<ServerWorldMap>,
     mut time: ResMut<ServerTime>,
-    seed: Res<WorldSeed>,
+    (seed, generation, locator): (Res<WorldSeed>, Option<Res<WorldGeneration>>, Res<Locator>),
     game_folder_paths: Res<GameFolderPaths>,
     mods: Res<Mods>,
     mut join_requests: ResMut<JoinRequests>,
     mut weather: ResMut<ServerWeather>,
 ) {
+    // the base game's, for the apps of the tests that set up no world
+    let default_generation = WorldGeneration::default();
     for client_id in server.clients_id() {
         let mut input_budget = MAX_INPUTS_PER_TICK;
         let mut dropped_inputs = 0;
@@ -259,7 +265,7 @@ fn handle_client_messages_system(
                         &mut world_map,
                         &chat_conversation,
                         &time,
-                        *seed,
+                        (*seed, generation.as_deref().unwrap_or(&default_generation)),
                         &game_folder_paths,
                         config.max_render_distance,
                         &mods,
@@ -280,6 +286,11 @@ fn handle_client_messages_system(
                         &mut time,
                         &mut weather,
                         &mods,
+                        (
+                            *seed,
+                            generation.as_deref().unwrap_or(&default_generation),
+                            &locator,
+                        ),
                     );
                 }
                 ClientToServerMessage::Exit => {

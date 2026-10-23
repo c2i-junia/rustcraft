@@ -54,6 +54,8 @@ pub struct Dialog<'a> {
 pub struct DialogParts {
     pub root: Entity,
     pub actions: Vec<Entity>,
+    /// The column of the fields of a form, where a caller may add other controls under them.
+    pub form: Option<Entity>,
 }
 
 /// The root of an open dialog.
@@ -357,6 +359,7 @@ fn build_dialog(
     if !dialog.body.is_empty() {
         commands.spawn((text(dialog.body, FONT_M, MUTED), ChildOf(panel)));
     }
+    let mut form_column = None;
     if !fields.is_empty() {
         let form = commands
             .spawn((
@@ -382,6 +385,7 @@ fn build_dialog(
             commands.spawn((text(caption, FONT_S, MUTED), ChildOf(column)));
             commands.entity(field.root).insert(ChildOf(column));
         }
+        form_column = Some(form);
     }
     let actions = commands
         .spawn((
@@ -464,6 +468,7 @@ fn build_dialog(
     DialogParts {
         root,
         actions: buttons,
+        form: form_column,
     }
 }
 

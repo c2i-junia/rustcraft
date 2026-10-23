@@ -23,9 +23,9 @@ use super::simulation::{generate_missing_chunks, ChunkLoader};
 
 const SEED: u32 = 42;
 /// The chunk of a player standing on the plains of `SEED`, around height 64.
-const PLAYER_CHUNK: IVec3 = IVec3::new(0, 4, 0);
+const PLAYER_CHUNK: IVec3 = IVec3::new(-27, 4, 27);
 /// The chunk of a player standing in the jungle of `SEED`, among its giant trees.
-const JUNGLE_CHUNK: IVec3 = IVec3::new(-17, 4, 4);
+const JUNGLE_CHUNK: IVec3 = IVec3::new(-77, 4, -5);
 
 fn render_cube(radius: i32) -> Vec<IVec3> {
     cube_around(PLAYER_CHUNK, radius)

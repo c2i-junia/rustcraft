@@ -34,9 +34,37 @@ server stops when its player leaves and saves on request.
   A chunk is encoded as its runs of equal cells, half the bytes of its cells and ten
   times faster to decode; a sequence of exactly `CHUNK_SIZE`³ elements is read as cells, which
   is how RON and the saves of format version 3 hold a chunk.
+- `world/terrain.rs` and `world/biome.rs`: the shape of the world, which the server generates
+  from and the client colours and rains by (see below).
 - `players/`: `simulate_player_actions`, made of the block interactions (`blocks.rs`) and the
   movement (`movement.rs`).
 - `paths.rs`: where the game keeps its saves and assets on each platform.
+
+`TerrainNoises` gives the height and the biome of any column, a pure function of the seed, the
+world type (`WorldGenSettings`: default, large biomes, archipelago, or a single biome) and the
+biomes. Each column has a climate of five parameters, temperature, humidity, continentalness,
+erosion and weirdness, each a fractal noise remapped so that it spreads evenly over [-1, 1]
+(`Remap`): a biome's share of the climate is its share of the world. They are read where three
+layers of warp lead, the coarsest first, which bend whole biomes and fray their borders, on
+the corners of cells of 4 blocks, interpolated between (`column_shapes` reads an area,
+sharing the corners). The continentalness and the erosion shape the ground, with the hills,
+the mountain ranges, the rivers and the lakes.
+
+A biome is data, a `BiomeDef` registered by its key (`rustcraft:jungle`) in a `BiomeRegistry`:
+the boxes of the climate it holds, its priority and weight against the boxes it shares, its
+ground, its plants and trees (`Flora`), its herds, its look (colours, precipitation, map
+colour), its tags (`ocean`, `snowy`...) and the keys of the biomes it leads to: its variants
+by altitude (the mountains), its sub-biomes, in patches deep inside it (the grove in the
+plains), and the biome along its border (the jungle's edge). `BiomeRegistry::finish` gives
+the ids: the biomes of the base game first, in the order of `vanilla::KEYS`, then the others
+by key, so that a biome added or changed by code (`register`, `modify`) never moves another.
+A column takes the biome of the highest priority whose box holds its climate, moved a little
+by a white noise across the borders where both biomes allow it, one of several sharing a box
+by a slow noise (`Biomes::pick`), else the nearest box; then its border or its sub-biome,
+then the river over it, then its variant of altitude. The server sends its biomes and world
+type to each client that joins (`AuthRegisterResponse`); biomes the client does not know are
+drawn as sent, and the game warns about them. `worldgen_dump` and
+`scripts/worldgen_preview.py` draw maps of the blocks, the biomes and the climate.
 
 The enums that travel in messages or are written in chunk files are append only: their
 position is their encoding. Tests pin every value (`world/blocks.rs`, `world/items.rs`,
@@ -242,9 +270,11 @@ gives a living player a point back every `REGENERATION_TICKS` (`world/simulation
 player is not simulated: the server acknowledges its inputs without applying them, and the client
 neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the
 server, asked by `Respawn`, brings the player back. Players spawn and respawn at
-`ServerWorldMap::spawn`, computed once from the seed (`world/generation.rs`, `spawn_position`): on
-the column nearest x = 0, z = 0 that no tree or cactus tops. `/gamemode` changes the mode of its
-author.
+`ServerWorldMap::spawn`, computed once from the seed and the world type (`world/generation.rs`,
+`spawn_position`): on the column nearest x = 0, z = 0, among one every 4 blocks, that stands deep
+inside a biome that is not cold, wet or high, in a clearing where nothing grows. `/gamemode`
+changes the mode of its author. `/locate biome <biome>` searches the nearest column of a biome
+on the generation pool, and answers once it is found (`world/locate.rs`).
 
 ## One server tick
 
@@ -573,7 +603,7 @@ A world is a folder under `saves/`:
 
 | Path | Content | Written by |
 |------|---------|------------|
-| `world.ron` | Name, seed, time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
+| `world.ron` | Name, seed, world type (`generation`), time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
@@ -595,7 +625,8 @@ empty furnaces. Format version 2 differs from 3 only by having no `containers/`,
 as they are.
 
 The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
-`world.ron` when a world is created, so that the world is listed at once; a rename renames the
+`world.ron` when a world is created, with the world type chosen, so that the world is listed
+at once; a rename renames the
 folder and the name in `world.ron`, keeping its format version and its date; a delete removes
 the folder, after a confirmation.
 

@@ -32,6 +32,8 @@ const SALT_CACTUS_ROLL: u64 = 6;
 const SALT_CACTUS_HEIGHT: u64 = 7;
 const SALT_ROCK_LINE: u64 = 8;
 const SALT_FERN_ROLL: u64 = 9;
+const SALT_SPIKE_ROLL: u64 = 10;
+const SALT_SPIKE_HEIGHT: u64 = 11;
 /// Each of the two branches of a big tree uses 4 consecutive salts from here.
 const SALT_BRANCH: u64 = 0x100;
 /// One salt per leaf of the 5x5x3 crown, from here.
@@ -91,6 +93,7 @@ enum Decoration {
     JungleTree,
     Bush,
     GiantTree,
+    IceSpike,
 }
 
 impl Decoration {
@@ -109,6 +112,8 @@ impl Decoration {
             // a trunk of up to 9 logs under a plus of leaves
             Decoration::JungleTree => 10,
             Decoration::GiantTree => jungle::GIANT_HEIGHT,
+            // a column of ice (see `ice_spike_blocks`)
+            Decoration::IceSpike => ICE_SPIKE_HEIGHT,
         }
     }
 }
@@ -158,9 +163,11 @@ struct Column {
     x: i32,
     z: i32,
     height: i32,
-    biome_type: BiomeType,
-    /// How far the column lies inside the jungle (see `ColumnShape::jungle_depth`).
-    jungle_depth: f32,
+    biome: BiomeId,
+    /// The biomes of the world, which `biome` is one of.
+    biomes: Arc<Biomes>,
+    /// How far the column lies inside its biome (see `ColumnShape::depth_in_biome`).
+    depth_in_biome: f32,
     surface: BlockId,
     sub_surface: BlockId,
     /// The highest cell of the column caves may carve.
@@ -171,12 +178,15 @@ struct Column {
 
 impl Column {
     /// `drop` is how far the column stands above its lowest neighbour, and `bed_patch` the
-    /// value there of the noise that picks what covers the ground under the water.
+    /// value there of the noise that picks what covers the ground under the water. The biome
+    /// of `shape` is one of `biomes`.
+    #[allow(clippy::too_many_arguments)]
     fn new(
         seed: u32,
         x: i32,
         z: i32,
         shape: ColumnShape,
+        biomes: &Arc<Biomes>,
         drop: i32,
         bed_patch: f64,
         giant: Option<GiantTrunk>,
@@ -187,7 +197,7 @@ impl Column {
         };
         let ground = Ground {
             height: shape.height,
-            biome_type: shape.biome,
+            cover: biomes.get(shape.biome).ground,
             drop,
             bed_patch,
         };
@@ -196,8 +206,9 @@ impl Column {
             x,
             z,
             height: shape.height,
-            biome_type: shape.biome,
-            jungle_depth: shape.jungle_depth,
+            biome: shape.biome,
+            biomes: biomes.clone(),
+            depth_in_biome: shape.depth_in_biome,
             surface,
             sub_surface,
             cave_ceiling: shape.height,
@@ -205,6 +216,11 @@ impl Column {
         };
         column.cave_ceiling = cave_ceiling(&column, drop, &random);
         column
+    }
+
+    /// The definition of the column's biome.
+    fn def(&self) -> &BiomeDef {
+        self.biomes.get(self.biome)
     }
 }
 
@@ -232,7 +248,8 @@ fn cave_ceiling(column: &Column, drop: i32, random: &ColumnRandom) -> i32 {
 /// What the ground blocks of a column are chosen from.
 struct Ground {
     height: i32,
-    biome_type: BiomeType,
+    /// The ground of its biome.
+    cover: shared::world::Ground,
     /// How far the column stands above its lowest neighbour.
     drop: i32,
     bed_patch: f64,
@@ -240,16 +257,16 @@ struct Ground {
 
 /// The surface and sub-surface blocks of a column: those of its biome, except under the water,
 /// where they are sand, gravel or stone (see [`bed_blocks`]), on the beach just above it, which
-/// is sand (a frozen shore stays snowy), and high in the mountains, which are bare stone, then
-/// snow over stone.
+/// is sand (a frozen shore stays as it is), and high in the mountains, which are bare stone,
+/// then snow over stone.
 fn ground_blocks(ground: &Ground, random: &ColumnRandom) -> (BlockId, BlockId) {
     let Ground {
         height,
-        biome_type,
+        cover,
         drop,
         ..
     } = *ground;
-    let beach = height <= SEA_LEVEL + 1 && biome_type != BiomeType::IcePlain;
+    let beach = height <= SEA_LEVEL + 1 && !cover.frozen;
     let jitter = random.below(SALT_ROCK_LINE, 2 * ROCK_LINE_JITTER + 1) - ROCK_LINE_JITTER as i32;
     let rock_face = height >= MOUNTAIN_FROM && drop > ROCK_FACE;
     if height < SEA_LEVEL {
@@ -261,8 +278,7 @@ fn ground_blocks(ground: &Ground, random: &ColumnRandom) -> (BlockId, BlockId) {
     } else if height >= STONE_LINE + jitter || rock_face {
         (BlockId::Stone, BlockId::Stone)
     } else {
-        let biome = get_biome_data(biome_type);
-        (biome.surface_block, biome.sub_surface_block)
+        (cover.surface, cover.sub_surface)
     }
 }
 
@@ -293,7 +309,7 @@ fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
         Some(column.sub_surface)
     } else if y == height {
         Some(column.surface)
-    } else if y == SEA_LEVEL && column.biome_type == BiomeType::IcePlain {
+    } else if y == SEA_LEVEL && column.def().ground.frozen {
         Some(BlockId::Ice)
     } else {
         Some(BlockId::Water)
@@ -377,24 +393,26 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
     if column.height <= SEA_LEVEL {
         return decorations;
     }
-    let biome_type = column.biome_type;
-    if column.surface == BlockId::Sand {
-        if biome_type == BiomeType::Desert && random.unit(SALT_CACTUS_ROLL) < 0.01 {
-            decorations.push(Decoration::Cactus);
+    let flora = &column.def().flora;
+    match column.surface {
+        BlockId::Sand => {
+            if random.unit(SALT_CACTUS_ROLL) < flora.cacti {
+                decorations.push(Decoration::Cactus);
+            }
+            return decorations;
         }
-        return decorations;
-    }
-    // nothing grows on stone, snow or ice
-    if column.surface != BlockId::Grass {
-        return decorations;
+        BlockId::Snow => {
+            if random.unit(SALT_SPIKE_ROLL) < flora.ice_spikes {
+                decorations.push(Decoration::IceSpike);
+            }
+            return decorations;
+        }
+        // nothing else grows on stone or ice
+        BlockId::Grass => {}
+        _ => return decorations,
     }
 
-    let flower_chance = match biome_type {
-        BiomeType::FlowerPlains => 0.1,
-        BiomeType::Plains | BiomeType::Forest | BiomeType::MediumMountain => 0.02,
-        _ => 0.0,
-    };
-    if random.unit(SALT_FLOWER_ROLL) < flower_chance {
+    if random.unit(SALT_FLOWER_ROLL) < flora.flowers {
         let flower = if random.unit(SALT_FLOWER_KIND) < 0.5 {
             BlockId::Dandelion
         } else {
@@ -403,41 +421,35 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         decorations.push(Decoration::Flower(flower));
     }
 
-    // the jungle grows denser from its border to its heart
-    let depth = column.jungle_depth;
-    let tall_grass_chance = match biome_type {
-        BiomeType::HighMountainGrass => 0.0,
-        BiomeType::Savanna => 0.25,
-        BiomeType::Jungle => 0.10 + 0.12 * depth,
-        _ => 0.10,
-    };
-    if biome_type == BiomeType::Jungle && random.unit(SALT_FERN_ROLL) < 0.04 + 0.08 * depth {
+    // some biomes, such as the jungle, grow denser from their border to their heart
+    let depth = column.depth_in_biome;
+    if random.unit(SALT_FERN_ROLL) < flora.ferns.at(depth) {
         decorations.push(Decoration::Fern);
-    } else if random.unit(SALT_TALL_GRASS_ROLL) < tall_grass_chance {
+    } else if random.unit(SALT_TALL_GRASS_ROLL) < flora.tall_grass.at(depth) {
         decorations.push(Decoration::TallGrass);
     }
 
+    // the giant first, then each tree after the previous one
     let tree_roll = random.unit(SALT_TREE_ROLL);
-    // the giant first, then the jungle tree and the bush
-    let giant_chance = jungle::giant_chance(depth);
-    let jungle_tree_chance = giant_chance + 0.03 * depth;
-    let bush_chance = (0.06 * depth).max(0.01);
-    match biome_type {
-        // a candidate for a giant (see `jungle::giant_roots`) that none roots on
-        BiomeType::Jungle if tree_roll < giant_chance => {}
-        BiomeType::Jungle if tree_roll < jungle_tree_chance => {
-            decorations.push(Decoration::JungleTree)
+    let mut chance = if flora.giant_trees {
+        jungle::giant_chance(depth)
+    } else {
+        0.0
+    };
+    // below it, a candidate for a giant (see `jungle::giant_roots`) that none roots on
+    if tree_roll >= chance {
+        for (tree, tree_chance) in &flora.trees {
+            chance += tree_chance.at(depth);
+            if tree_roll < chance {
+                decorations.push(match tree {
+                    Tree::Oak => Decoration::Tree,
+                    Tree::BigOak => Decoration::BigTree,
+                    Tree::Jungle => Decoration::JungleTree,
+                    Tree::Bush => Decoration::Bush,
+                });
+                break;
+            }
         }
-        BiomeType::Jungle if tree_roll < jungle_tree_chance + bush_chance => {
-            decorations.push(Decoration::Bush)
-        }
-        BiomeType::Forest if tree_roll < 0.01 => decorations.push(Decoration::BigTree),
-        BiomeType::Forest if tree_roll < 0.06 => decorations.push(Decoration::Tree),
-        BiomeType::FlowerPlains | BiomeType::MediumMountain if tree_roll < 0.02 => {
-            decorations.push(Decoration::Tree)
-        }
-        BiomeType::Savanna if tree_roll < 0.004 => decorations.push(Decoration::Tree),
-        _ => {}
     }
     decorations
 }
@@ -532,6 +544,19 @@ fn big_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     crown_blocks(IVec3::new(root.x, leaf_start_y + 2, root.z), random, blocks);
 }
 
+/// The highest an ice spike rises above the snow.
+const ICE_SPIKE_HEIGHT: i32 = 10;
+
+/// A spike of ice: a column of 4 to `ICE_SPIKE_HEIGHT` blocks. It keeps to its own column: ice
+/// ranks as the ground, so that a wider spike would take cells of the ground of a higher
+/// neighbour.
+fn ice_spike_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
+    let height = 4 + random.below(SALT_SPIKE_HEIGHT, (ICE_SPIKE_HEIGHT - 3) as u64);
+    for dy in 0..height {
+        blocks.push((root + IVec3::Y * dy, BlockId::Ice, BlockDirection::Front));
+    }
+}
+
 fn cactus_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     let cactus_height = 2 + random.below(SALT_CACTUS_HEIGHT, 2);
     for dy in 0..cactus_height {
@@ -568,6 +593,7 @@ fn decoration_blocks(
         Decoration::JungleTree => jungle::jungle_tree_blocks(root, random, blocks),
         Decoration::Bush => jungle::bush_blocks(root, random, blocks),
         Decoration::GiantTree => jungle::giant_tree_blocks(root, random, blocks),
+        Decoration::IceSpike => ice_spike_blocks(root, random, blocks),
     }
 }
 
@@ -607,6 +633,41 @@ struct ColumnsCache {
     older: HashMap<IVec2, Arc<ChunkColumns>>,
 }
 
+/// How the world being played is generated beyond its seed: its settings, saved with it, and
+/// its biomes, those of the base game and of the mods. It stays the same while the server runs.
+#[derive(Resource, Clone)]
+pub struct WorldGeneration {
+    pub settings: WorldGenSettings,
+    pub biomes: Arc<Biomes>,
+}
+
+impl Default for WorldGeneration {
+    fn default() -> Self {
+        Self {
+            settings: WorldGenSettings::default(),
+            biomes: Biomes::vanilla(),
+        }
+    }
+}
+
+impl WorldGeneration {
+    /// The generation of a world saved with `settings`. Fails when they name a biome that is
+    /// not among `biomes`, which a world made with a mod no longer loaded may do.
+    pub fn new(settings: WorldGenSettings, biomes: Arc<Biomes>) -> Result<Self, String> {
+        if let WorldPreset::SingleBiome(key) = &settings.preset {
+            if biomes.id(key).is_none() {
+                return Err(format!("the world is made of the unknown biome {key}"));
+            }
+        }
+        Ok(Self { settings, biomes })
+    }
+
+    /// The generator of the world of `seed` made this way.
+    pub fn generator(&self, seed: u32) -> WorldGenerator {
+        WorldGenerator::with(seed, &self.settings, self.biomes.clone())
+    }
+}
+
 /// Generates the chunks of one world. Its noises are built once, from the seed.
 pub struct WorldGenerator {
     seed: u32,
@@ -617,10 +678,16 @@ pub struct WorldGenerator {
 }
 
 impl WorldGenerator {
+    /// The generator of a default world of the base game.
     pub fn new(seed: u32) -> Self {
+        Self::with(seed, &WorldGenSettings::default(), Biomes::vanilla())
+    }
+
+    /// The generator of the world of `seed` and `settings`, whose biomes are `biomes`.
+    pub fn with(seed: u32, settings: &WorldGenSettings, biomes: Arc<Biomes>) -> Self {
         Self {
             seed,
-            terrain: TerrainNoises::new(seed),
+            terrain: TerrainNoises::with(seed, settings, biomes),
             caves: Caves::new(seed),
             bed_patches: Noise3::new(seed, SALT_BED_PATCHES, BED_PATCH_WAVELENGTH, 1.0),
             columns: Mutex::default(),
@@ -629,6 +696,11 @@ impl WorldGenerator {
 
     pub fn seed(&self) -> u32 {
         self.seed
+    }
+
+    /// The noises the shape of the world comes from.
+    pub fn terrain(&self) -> &TerrainNoises {
+        &self.terrain
     }
 
     /// Generates a chunk. It is a pure function of the seed and the position: terrain comes
@@ -692,12 +764,9 @@ impl WorldGenerator {
         // outermost ones
         let ring = STRUCTURE_MARGIN + 1;
         let side = CHUNK_SIZE + 2 * ring;
-        let shapes: Vec<ColumnShape> = (0..side * side)
-            .map(|i| {
-                let (dx, dz) = (i % side - ring, i / side - ring);
-                self.terrain.column_shape(origin.x + dx, origin.y + dz)
-            })
-            .collect();
+        let shapes = self
+            .terrain
+            .column_shapes((origin.x - ring, origin.y - ring), side, side);
         let shape_at = |dx: i32, dz: i32| shapes[((dz + ring) * side + dx + ring) as usize];
         // The rare shapes the giants need beyond them come from the noise
         let in_grid = |d: i32| (-ring..CHUNK_SIZE + ring).contains(&d);
@@ -714,7 +783,13 @@ impl WorldGenerator {
         let giant_roots: Vec<bool> = (0..giant_side * giant_side)
             .map(|i| {
                 let (dx, dz) = (i % giant_side - GIANT_MARGIN, i / giant_side - GIANT_MARGIN);
-                jungle::giant_roots(self.seed, origin.x + dx, origin.y + dz, &shape_of)
+                jungle::giant_roots(
+                    self.seed,
+                    origin.x + dx,
+                    origin.y + dz,
+                    self.terrain.biomes(),
+                    &shape_of,
+                )
             })
             .collect();
         let giant_at = |x: i32, z: i32| {
@@ -737,6 +812,7 @@ impl WorldGenerator {
                     x,
                     z,
                     shape,
+                    self.terrain.biomes(),
                     shape.height - lowest,
                     self.bed_patch(x, z),
                     giant_trunk(giant_at, x, z),
@@ -897,17 +973,33 @@ impl WorldGenerator {
     }
 }
 
-/// How far from the origin, in blocks, a new player's spawn is looked for.
-const SPAWN_SEARCH_RADIUS: i32 = 512;
+/// How far from the origin, in blocks, a new player's spawn is looked for: the origin may lie
+/// far out at sea.
+const SPAWN_SEARCH_RADIUS: i32 = 1024;
+
+/// The spawn is looked for on one column every this many blocks along each axis: the corners of
+/// the cells of the climate, which cost the least to read.
+const SPAWN_SEARCH_STEP: i32 = 4;
+
+/// The tags of the biomes no player spawns in: the cold, the water, and the heights.
+const NO_SPAWN_TAGS: [&str; 4] = [tags::SNOWY, tags::OCEAN, tags::RIVER, tags::MOUNTAIN];
+
+/// How deep inside its biome a spawn is, at least (see `ColumnShape::depth_in_biome`): away from
+/// the border, where the columns of the next biome mingle.
+const SPAWN_DEPTH: f32 = 0.5;
+
+/// How many columns around the spawn, on each side, are as high as it, with nothing growing:
+/// a new player can look at the ground ahead and build on it at once.
+const SPAWN_CLEARING: i32 = 2;
 
 /// Room left under the feet of a player who spawns, so that its box is clear of the block.
 const SPAWN_GAP: f32 = 0.01;
 
-/// Where the players of a world of `seed` spawn and respawn (see
-/// [`WorldGenerator::spawn_position`]). It depends on the seed alone, so that it stays where it
+/// Where the players of a world of `seed` made by `generation` spawn and respawn (see
+/// [`WorldGenerator::spawn_position`]). It depends on these alone, so that it stays where it
 /// was however the world is built over.
-pub fn spawn_position(seed: u32) -> Vec3 {
-    WorldGenerator::new(seed).spawn_position()
+pub fn spawn_position(seed: u32, generation: &WorldGeneration) -> Vec3 {
+    generation.generator(seed).spawn_position()
 }
 
 /// The position of a player standing on the surface of the column `(x, z)` at `height`: the
@@ -921,14 +1013,15 @@ fn standing_on(x: i32, height: i32, z: i32) -> Vec3 {
 }
 
 impl WorldGenerator {
-    /// Where a new player appears: above the column nearest to the origin that is dry, below
-    /// the mountains, and free of anything growing on it or on the columns around it.
+    /// Where a new player appears: above the column nearest to the origin, among one every
+    /// `SPAWN_SEARCH_STEP` blocks, that is dry, below the mountains, deep inside a biome of
+    /// none of `NO_SPAWN_TAGS`, and free of anything growing on it or on the columns around it.
     pub fn spawn_position(&self) -> Vec3 {
         // square rings around the origin, the nearest first
-        for radius in 0..=SPAWN_SEARCH_RADIUS {
-            for i in -radius..=radius {
-                let ring = [(i, -radius), (i, radius), (-radius, i), (radius, i)];
-                for (x, z) in ring {
+        for ring in 0..=SPAWN_SEARCH_RADIUS / SPAWN_SEARCH_STEP {
+            for i in -ring..=ring {
+                let cells = [(i, -ring), (i, ring), (-ring, i), (ring, i)];
+                for (x, z) in cells.map(|(x, z)| (x * SPAWN_SEARCH_STEP, z * SPAWN_SEARCH_STEP)) {
                     if let Some(height) = self.spawn_height(x, z) {
                         return standing_on(x, height, z);
                     }
@@ -940,17 +1033,40 @@ impl WorldGenerator {
     }
 
     /// The height of the column `(x, z)` if a player may spawn on it: it is dry, below the
-    /// mountains, and nothing grows on it or on the columns around, which are as high.
+    /// mountains, `SPAWN_DEPTH` inside a biome of none of `NO_SPAWN_TAGS`, nothing grows on it
+    /// or on the columns within `SPAWN_CLEARING`, which are as high, and no tree within
+    /// `STRUCTURE_MARGIN` columns may spread its crown over it.
     fn spawn_height(&self, x: i32, z: i32) -> Option<i32> {
         let shape = self.terrain.column_shape(x, z);
         if shape.height <= SEA_LEVEL + 1 || shape.height >= MOUNTAIN_FROM {
             return None;
         }
-        for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
+        let biome = self.terrain.biomes().get(shape.biome);
+        if shape.depth_in_biome < SPAWN_DEPTH || NO_SPAWN_TAGS.iter().any(|tag| biome.has_tag(tag))
+        {
+            return None;
+        }
+        let clearing = -SPAWN_CLEARING..=SPAWN_CLEARING;
+        for (dx, dz) in clearing
+            .clone()
+            .flat_map(|dx| clearing.clone().map(move |dz| (dx, dz)))
+        {
             let column = self.column(x + dx, z + dz);
             let decorations = column_decorations(&column, &random_of(self.seed, &column));
             let grown = !decorations.is_empty() || column.giant.is_some();
             if grown || column.height != shape.height {
+                return None;
+            }
+        }
+        let margin = -STRUCTURE_MARGIN..=STRUCTURE_MARGIN;
+        for (dx, dz) in margin
+            .clone()
+            .flat_map(|dx| margin.clone().map(move |dz| (dx, dz)))
+        {
+            let column = self.column(x + dx, z + dz);
+            let decorations = column_decorations(&column, &random_of(self.seed, &column));
+            // anything taller than a plant may reach over its neighbours
+            if decorations.iter().any(|d| d.height() > 1) {
                 return None;
             }
         }
@@ -959,7 +1075,9 @@ impl WorldGenerator {
 
     /// Whether a giant tree roots on the column `(x, z)` (see `jungle::giant_roots`).
     fn giant_roots(&self, x: i32, z: i32) -> bool {
-        jungle::giant_roots(self.seed, x, z, &|x, z| self.terrain.column_shape(x, z))
+        jungle::giant_roots(self.seed, x, z, self.terrain.biomes(), &|x, z| {
+            self.terrain.column_shape(x, z)
+        })
     }
 
     /// The column `(x, z)`, its steepness read from the shapes of its four neighbours.
@@ -975,6 +1093,7 @@ impl WorldGenerator {
             x,
             z,
             shape,
+            self.terrain.biomes(),
             shape.height - lowest,
             self.bed_patch(x, z),
             giant_trunk(|x, z| self.giant_roots(x, z), x, z),
@@ -1004,7 +1123,7 @@ mod tests {
     }
 
     /// Height, biome and surface block of a world column, read back from the generated chunks.
-    fn probe(seed: u32, x: i32, z: i32) -> (i32, BiomeType, BlockId) {
+    fn probe(seed: u32, x: i32, z: i32) -> (i32, BiomeId, BlockId) {
         let biome = TerrainNoises::new(seed).column_shape(x, z).biome;
         let local = IVec3::new(x.rem_euclid(CHUNK_SIZE), 0, z.rem_euclid(CHUNK_SIZE));
         let mut surface = (-1, BlockId::Debug);
@@ -1023,28 +1142,33 @@ mod tests {
 
     #[test]
     fn terrain_is_pinned_for_a_fixed_seed() {
-        // One column of each biome, recorded when the mountains were added; the sea columns
-        // again when the beds got deeper, rougher, and covered with gravel and stone.
+        // One column of each biome, recorded when the biomes became a registry chosen by six
+        // climate parameters
         let expected = [
-            ((408, 316), (67, BiomeType::Plains, BlockId::Grass)),
-            ((478, 622), (66, BiomeType::Forest, BlockId::Grass)),
-            ((185, -880), (95, BiomeType::MediumMountain, BlockId::Grass)),
+            ((-424, 440), (68, vanilla::PLAINS, BlockId::Grass)),
+            ((868, -796), (72, vanilla::FOREST, BlockId::Grass)),
+            ((-376, 584), (84, vanilla::MEDIUM_MOUNTAIN, BlockId::Grass)),
             (
-                (-570, 710),
-                (122, BiomeType::HighMountainGrass, BlockId::Stone),
+                (-712, -160),
+                (104, vanilla::HIGH_MOUNTAIN_GRASS, BlockId::Grass),
             ),
             (
-                (466, -408),
-                (164, BiomeType::HighMountainGrass, BlockId::Snow),
+                (1152, -580),
+                (142, vanilla::HIGH_MOUNTAIN_GRASS, BlockId::Snow),
             ),
-            ((-461, -450), (69, BiomeType::Desert, BlockId::Sand)),
-            // A desert until the savanna took the wetter edge of the deserts
-            ((-878, -454), (70, BiomeType::Savanna, BlockId::Grass)),
-            ((828, 137), (79, BiomeType::IcePlain, BlockId::Snow)),
-            ((-126, 239), (67, BiomeType::FlowerPlains, BlockId::Grass)),
-            ((-38, -183), (55, BiomeType::ShallowOcean, BlockId::Stone)),
-            ((890, 975), (52, BiomeType::Ocean, BlockId::Gravel)),
-            ((-938, -559), (38, BiomeType::DeepOcean, BlockId::Stone)),
+            ((680, 80), (67, vanilla::DESERT, BlockId::Sand)),
+            ((928, -936), (74, vanilla::SAVANNA, BlockId::Grass)),
+            ((-384, 392), (66, vanilla::ICE_PLAIN, BlockId::Snow)),
+            ((256, 672), (66, vanilla::FLOWER_PLAINS, BlockId::Grass)),
+            ((-328, 248), (57, vanilla::SHALLOW_OCEAN, BlockId::Stone)),
+            ((-288, 224), (45, vanilla::OCEAN, BlockId::Gravel)),
+            ((0, 0), (34, vanilla::DEEP_OCEAN, BlockId::Stone)),
+            ((712, -704), (69, vanilla::JUNGLE, BlockId::Grass)),
+            ((680, -680), (68, vanilla::JUNGLE_EDGE, BlockId::Grass)),
+            ((-520, 288), (69, vanilla::FOREST_CLEARING, BlockId::Grass)),
+            ((-448, 432), (66, vanilla::GROVE, BlockId::Grass)),
+            ((-288, 520), (71, vanilla::ICE_SPIKES, BlockId::Snow)),
+            ((-448, 448), (60, vanilla::RIVER, BlockId::Sand)),
         ];
         for ((x, z), want) in expected {
             assert_eq!(probe(42, x, z), want, "column ({x}, {z})");
@@ -1053,13 +1177,13 @@ mod tests {
 
     fn ground_of(
         height: i32,
-        biome_type: BiomeType,
+        biome_type: BiomeId,
         drop: i32,
         bed_patch: f64,
     ) -> (BlockId, BlockId) {
         let ground = Ground {
             height,
-            biome_type,
+            cover: Biomes::vanilla().get(biome_type).ground,
             drop,
             bed_patch,
         };
@@ -1070,8 +1194,8 @@ mod tests {
     fn the_shores_are_sand_except_frozen_ones() {
         let ground = |height, biome| ground_of(height, biome, 0, 0.0);
         let sand = (BlockId::Sand, BlockId::Sand);
-        let plains = BiomeType::Plains;
-        let ice = BiomeType::IcePlain;
+        let plains = vanilla::PLAINS;
+        let ice = vanilla::ICE_PLAIN;
         assert_eq!(
             ground(SEA_LEVEL + 2, plains),
             (BlockId::Grass, BlockId::Dirt)
@@ -1084,8 +1208,7 @@ mod tests {
 
     #[test]
     fn the_bed_turns_from_sand_to_gravel_and_stone_as_the_water_deepens_or_steepens() {
-        let bed =
-            |depth, drop, patch| ground_of(SEA_LEVEL - depth, BiomeType::Ocean, drop, patch).0;
+        let bed = |depth, drop, patch| ground_of(SEA_LEVEL - depth, vanilla::OCEAN, drop, patch).0;
         assert_eq!(bed(1, 0, 0.0), BlockId::Sand);
         assert_eq!(bed(1, 0, -0.3), BlockId::Gravel);
         assert_eq!(bed(1, 0, -0.6), BlockId::Stone);
@@ -1102,13 +1225,13 @@ mod tests {
     fn high_ground_is_bare_stone_then_snow_and_rock_faces_stay_bare() {
         let stone = (BlockId::Stone, BlockId::Stone);
         let snow = (BlockId::Snow, BlockId::Stone);
-        let high = BiomeType::HighMountainGrass;
+        let high = vanilla::HIGH_MOUNTAIN_GRASS;
         for x in 0..50 {
             let random = random(1, [x, 0]);
             let ground = |height, drop| {
                 let ground = Ground {
                     height,
-                    biome_type: high,
+                    cover: Biomes::vanilla().get(high).ground,
                     drop,
                     bed_patch: 0.0,
                 };
@@ -1132,8 +1255,10 @@ mod tests {
         let seed = 42;
         let generator = WorldGenerator::new(seed);
         let mut highest = 0;
-        for x in -300..300 {
-            for z in -300..300 {
+        // the land west of the origin, its ice spikes, and the deep jungle of `giants_of_seed_42`
+        let windows = [(-600..-260, 300..600), (-1280..-1110, -128..12)];
+        for (xs, zs) in windows {
+            for (x, z) in xs.flat_map(|x| zs.clone().map(move |z| (x, z))) {
                 let column = generator.column(x, z);
                 let random = random_of(seed, &column);
                 let root = IVec3::new(x, column.height + 1, z);
@@ -1165,11 +1290,11 @@ mod tests {
         let (giant, ring) = (giant_chunk(), ring_giant().1);
         // plains, a forest with big trees, a jungle, a giant tree and one rooted in the ring
         for (cx, cz) in [
-            (0, 0),
-            (29, 38),
-            (30, 39),
-            (-13, 5),
-            (-20, 4),
+            (-27, 27),
+            (54, -50),
+            (55, -49),
+            (-77, -5),
+            (-75, -3),
             (giant.x, giant.z),
             (ring.x, ring.z),
         ] {
@@ -1208,13 +1333,13 @@ mod tests {
         let giant = giant_chunk();
         // plains, a deep sea, a mountain range and its peaks, a lake, a jungle, a giant tree
         for (cx, cz) in [
+            (-27, 27),
             (0, 0),
-            (-59, -35),
-            (-40, 40),
-            (29, -26),
-            (-16, 7),
-            (-13, 5),
-            (-20, 4),
+            (72, -36),
+            (72, -37),
+            (-31, 16),
+            (-77, -5),
+            (-75, -3),
             (giant.x, giant.z),
         ] {
             for cy in -2..=13 {
@@ -1228,18 +1353,18 @@ mod tests {
         }
     }
 
-    /// Chunks around the surface (heights 50 to 80), with positive and negative coordinates, the
-    /// last ones in a jungle, then around the root of a giant tree.
+    /// Chunks around the surface (heights 32 to 127) on the land west of the origin, the last
+    /// ones in a jungle, then around the root of a giant tree.
     fn sample_chunks() -> Vec<IVec3> {
         let giant = giant_chunk().xz();
         let mut chunks = Vec::new();
         for (cx, cz) in [
-            (0, 0),
-            (-1, -1),
-            (2, -3),
-            (-5, 4),
-            (7, 7),
-            (-13, 5),
+            (-26, 26),
+            (-27, 25),
+            (-24, 23),
+            (-31, 30),
+            (-19, 33),
+            (-77, -5),
             (giant.x, giant.y),
         ] {
             for cy in 2..=7 {
@@ -1249,12 +1374,13 @@ mod tests {
         chunks
     }
 
-    /// The roots of the giant trees in the jungle of the seed 42 nearest to the origin.
+    /// The roots of the giant trees in a window of a deep jungle of the seed 42, west of the
+    /// origin.
     fn giants_of_seed_42() -> Vec<Column> {
         let generator = WorldGenerator::new(42);
         let mut giants = Vec::new();
-        for x in -340..-170 {
-            for z in 0..140 {
+        for x in -1280..-1110 {
+            for z in -128..12 {
                 if generator.giant_roots(x, z) {
                     giants.push(generator.column(x, z));
                 }
@@ -1414,16 +1540,17 @@ mod tests {
     #[test]
     fn a_tree_across_a_horizontal_border_is_complete() {
         for axis in [0, 2] {
-            let column = find_tree(42, -100..100, -100..100, |b| spans_two_chunks(b, axis));
+            // a forest of the seed 42
+            let column = find_tree(42, 768..968, -896..-696, |b| spans_two_chunks(b, axis));
             assert_tree_is_complete(42, &column);
         }
     }
 
     #[test]
     fn a_jungle_tree_across_a_horizontal_border_is_complete() {
-        // the jungle of the seed 42 nearest to the origin
+        // the deep jungle of `giants_of_seed_42`
         for axis in [0, 2] {
-            let column = find_tree(42, -340..-180, 0..130, |b| {
+            let column = find_tree(42, -1280..-1120, -128..2, |b| {
                 b.iter().any(|(_, block, _)| *block == BlockId::JungleLog)
                     && spans_two_chunks(b, axis)
             });
@@ -1433,8 +1560,9 @@ mod tests {
 
     #[test]
     fn a_tree_across_a_vertical_border_is_complete() {
-        // Such trees are rare (only high ground puts a root near a chunk plane): search wide.
-        let column = find_tree(42, -300..300, -300..300, |b| spans_two_chunks(b, 1));
+        // Such trees are rare (only high ground puts a root near a chunk plane): search wide,
+        // over the land and hills west of the origin.
+        let column = find_tree(42, -800..-200, 200..800, |b| spans_two_chunks(b, 1));
         assert_tree_is_complete(42, &column);
     }
 
@@ -1469,7 +1597,7 @@ mod tests {
                 let shape = generator.terrain.column_shape(x, z);
                 let ocean = matches!(
                     shape.biome,
-                    BiomeType::ShallowOcean | BiomeType::Ocean | BiomeType::DeepOcean
+                    vanilla::SHALLOW_OCEAN | vanilla::OCEAN | vanilla::DEEP_OCEAN
                 );
                 if !ocean {
                     inland += 1;
@@ -1486,11 +1614,11 @@ mod tests {
 
     #[test]
     fn water_stays_at_the_sea_level_and_freezes_in_the_ice_plains() {
-        // around the origin of the seed 42: an ice plain, its frozen lakes, and liquid ones
+        // north-west of the origin of the seed 42: an ice plain, its frozen lakes, and liquid ones
         let generator = WorldGenerator::new(42);
         let (mut water, mut ice) = (0, 0);
-        for cx in -4..8 {
-            for cz in -4..8 {
+        for cx in -40..-28 {
+            for cz in -72..-60 {
                 for cy in 3..5 {
                     let chunk_pos = IVec3::new(cx, cy, cz);
                     let chunk = generator.generate_chunk(chunk_pos);
@@ -1510,10 +1638,17 @@ mod tests {
                                     }
                                 }
                             }
-                            // the ground of the ice plains is snow over ice
+                            // the ground of the ice plains is snow over ice, and spikes of
+                            // ice rise from the snow of the ice spikes
                             BlockId::Ice if pos.y > generator.column(pos.x, pos.z).height => {
-                                ice += 1;
-                                assert_eq!(pos.y, SEA_LEVEL, "ice at {pos}");
+                                let column = generator.column(pos.x, pos.z);
+                                let random = random_of(generator.seed, &column);
+                                let spike = column_decorations(&column, &random)
+                                    .contains(&Decoration::IceSpike);
+                                if !spike {
+                                    ice += 1;
+                                    assert_eq!(pos.y, SEA_LEVEL, "ice at {pos}");
+                                }
                             }
                             _ => {}
                         }
@@ -1528,8 +1663,9 @@ mod tests {
     fn caves_open_underground_and_at_the_surface_but_leave_the_bottom_whole() {
         let generator = WorldGenerator::new(42);
         let (mut underground, mut openings) = (0, 0);
-        for x in (-256..256).step_by(32) {
-            for z in (-256..256).step_by(32) {
+        // over the land west of the origin
+        for x in (-768..-256).step_by(32) {
+            for z in (256..768).step_by(32) {
                 let column = generator.column(x, z);
                 for cy in 0..=column.height / CHUNK_SIZE {
                     let chunk_pos =
@@ -1599,8 +1735,8 @@ mod tests {
         let seed = 42;
         let generator = WorldGenerator::new(seed);
         let mut mountain_columns = 0;
-        for x in (-960..-640).step_by(2) {
-            for z in (512..732).step_by(2) {
+        for x in (1152..1472).step_by(2) {
+            for z in (-640..-420).step_by(2) {
                 let column = generator.column(x, z);
                 let decorations = column_decorations(&column, &random_of(seed, &column));
                 if column.height >= MOUNTAIN_FROM {
@@ -1662,10 +1798,10 @@ mod tests {
             for z in 0..150 {
                 let shape = ColumnShape {
                     height: 70,
-                    biome: BiomeType::Forest,
-                    jungle_depth: 0.0,
+                    biome: vanilla::FOREST,
+                    depth_in_biome: 0.0,
                 };
-                let column = Column::new(seed, x, z, shape, 0, 0.0, None);
+                let column = Column::new(seed, x, z, shape, &Biomes::vanilla(), 0, 0.0, None);
                 for (pos, ..) in column_blocks(seed, &column) {
                     // the vertical culling in generate_chunk relies on this
                     assert!(pos.y > column.height, "block below its root at {pos}");
@@ -1723,10 +1859,10 @@ mod tests {
     fn jungle_column(seed: u32, x: i32, z: i32, depth: f32) -> Column {
         let shape = ColumnShape {
             height: 70,
-            biome: BiomeType::Jungle,
-            jungle_depth: depth,
+            biome: vanilla::JUNGLE,
+            depth_in_biome: depth,
         };
-        Column::new(seed, x, z, shape, 0, 0.0, None)
+        Column::new(seed, x, z, shape, &Biomes::vanilla(), 0, 0.0, None)
     }
 
     #[test]
@@ -1817,9 +1953,9 @@ mod tests {
     fn a_jungle_chunk_generated_alone_equals_it_generated_amid_its_neighbours() {
         let seed = 42;
         let terrain = TerrainNoises::new(seed);
-        for (cx, cz) in [(-13, 5), (-20, 4), (-11, 6)] {
+        for (cx, cz) in [(-77, -5), (-75, -3), (-73, -6)] {
             let middle = terrain.column_shape(cx * CHUNK_SIZE + 8, cz * CHUNK_SIZE + 8);
-            assert_eq!(middle.biome, BiomeType::Jungle, "({cx}, {cz})");
+            assert_eq!(middle.biome, vanilla::JUNGLE, "({cx}, {cz})");
             for cy in 3..=5 {
                 let chunk_pos = IVec3::new(cx, cy, cz);
                 let amid = WorldGenerator::new(seed);
@@ -1890,10 +2026,11 @@ mod tests {
                 }
                 let shape = ColumnShape {
                     height: 70,
-                    biome: BiomeType::Jungle,
-                    jungle_depth: 1.0,
+                    biome: vanilla::JUNGLE,
+                    depth_in_biome: 1.0,
                 };
-                let trunk = |part| Column::new(seed, x, z, shape, 0, 0.0, Some(part));
+                let trunk =
+                    |part| Column::new(seed, x, z, shape, &Biomes::vanilla(), 0, 0.0, Some(part));
                 let root = trunk(GiantTrunk::Root);
                 assert_eq!(column_decorations(&root, &random), [Decoration::GiantTree]);
                 assert_eq!(column_decorations(&trunk(GiantTrunk::Beside), &random), []);
@@ -1926,10 +2063,10 @@ mod tests {
         let seed = 42;
         let generator = WorldGenerator::new(seed);
         let (mut gaps, mut gaps_in_a_lower_chunk) = (0, 0);
-        // with the one giant within 1500 blocks of the origin whose trunk fills a gap in the
-        // chunk under the chunk of its root
+        // with a giant of the same jungle whose trunk fills a gap in the chunk under the chunk of
+        // its root
         let mut giants = giants_of_seed_42();
-        giants.push(generator.column(819, 1186));
+        giants.push(generator.column(-1573, -294));
         for giant in giants {
             assert_eq!(giant.giant, Some(GiantTrunk::Root));
             let blocks = column_blocks(seed, &giant);
@@ -2067,9 +2204,9 @@ mod tests {
                 .map(|block| block.id)
         };
         let mut pods = 0;
-        // the jungle along the coast west of the origin
-        for cx in -21..=-10 {
-            for cz in 3..=7 {
+        // the deep jungle of `giants_of_seed_42`
+        for cx in -79..=-68 {
+            for cz in -7..=-3 {
                 for cy in 3..=5 {
                     let chunk_pos = IVec3::new(cx, cy, cz);
                     let chunk = generator.generate_chunk(chunk_pos);
@@ -2298,7 +2435,7 @@ mod tests {
         use shared::players::{collision::check_player_collision, Player};
 
         for seed in [0, 1, 69, 1234, 987_654, 31_337] {
-            let spawn = spawn_position(seed);
+            let spawn = spawn_position(seed, &WorldGeneration::default());
             let column = spawn.floor().as_ivec3().with_y(0);
             assert!(
                 column.x.abs().max(column.z.abs()) <= SPAWN_SEARCH_RADIUS,
@@ -2353,7 +2490,7 @@ mod tests {
                 );
             }
             assert_eq!(
-                spawn_position(seed),
+                spawn_position(seed, &WorldGeneration::default()),
                 spawn,
                 "the spawn depends on the seed only"
             );

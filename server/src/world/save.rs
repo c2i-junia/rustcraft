@@ -1,13 +1,14 @@
 use crate::init::ServerTime;
 use crate::world::container_files::{ChunkContainers, ChunkContents};
 use crate::world::format::{SavedWeather, WorldMeta};
+use crate::world::generation::WorldGeneration;
 use crate::world::weather::ServerWeather;
 use crate::world::writer::{SaveJob, WorldWriter};
 use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
-use shared::world::{to_local_pos, WorldSeed};
+use shared::world::{to_local_pos, WorldGenSettings, WorldSeed};
 use shared::TICKS_PER_SECOND;
 #[cfg(test)]
 use std::path::Path;
@@ -36,6 +37,7 @@ pub struct Autosave {
 pub fn save_world_system(
     mut world_map: ResMut<ServerWorldMap>,
     world_seed: Res<WorldSeed>,
+    generation: Option<Res<WorldGeneration>>,
     time: Res<ServerTime>,
     weather: Res<ServerWeather>,
     mut writer: ResMut<WorldWriter>,
@@ -70,9 +72,10 @@ pub fn save_world_system(
     }
     if save_requested || autosave_due {
         autosave.last_save_tick = time.0;
+        let settings = generation.map(|g| g.settings.clone()).unwrap_or_default();
         queue_save(
             &mut world_map,
-            *world_seed,
+            (*world_seed, settings),
             time.0,
             weather.saved(),
             &mut writer,
@@ -80,13 +83,14 @@ pub fn save_world_system(
     }
 }
 
-/// Hands the metadata, with the `weather`, the files of the players to save and a copy of every
-/// dirty chunk, with its chests and furnaces, to the writer. A chunk is dirty until it
+/// Hands the metadata, with the seed and the generation settings of the world and the
+/// `weather`, the files of the players to save and a copy of every dirty chunk, with its chests
+/// and furnaces, to the writer. A chunk is dirty until it
 /// is handed over, so a second save queued while the first is being written does not copy it
 /// again unless it changed.
 fn queue_save(
     world_map: &mut ServerWorldMap,
-    seed: WorldSeed,
+    (seed, generation): (WorldSeed, WorldGenSettings),
     tick: u64,
     weather: SavedWeather,
     writer: &mut WorldWriter,
@@ -113,6 +117,7 @@ fn queue_save(
         meta: WorldMeta {
             dropped_items: world_map.dropped_items.to_saved(),
             weather: Some(weather),
+            generation,
             ..WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone())
         },
         players: std::mem::take(&mut world_map.players_to_save),
@@ -246,10 +251,28 @@ mod tests {
             let mut map = world_map(3);
             map.dirty_chunks.extend([IVec3::ZERO, IVec3::X]);
 
-            queue_save(&mut map, WorldSeed(1), 1, CLEAR, &mut writer);
-            queue_save(&mut map, WorldSeed(1), 2, CLEAR, &mut writer);
+            queue_save(
+                &mut map,
+                (WorldSeed(1), Default::default()),
+                1,
+                CLEAR,
+                &mut writer,
+            );
+            queue_save(
+                &mut map,
+                (WorldSeed(1), Default::default()),
+                2,
+                CLEAR,
+                &mut writer,
+            );
             map.dirty_chunks.insert(IVec3::X);
-            queue_save(&mut map, WorldSeed(1), 3, CLEAR, &mut writer);
+            queue_save(
+                &mut map,
+                (WorldSeed(1), Default::default()),
+                3,
+                CLEAR,
+                &mut writer,
+            );
             drop(writer);
 
             assert_eq!(*jobs.lock().unwrap(), vec![2, 0, 1]);
@@ -459,7 +482,13 @@ mod tests {
             let mut writer = writer;
             writer.close_for_test();
 
-            queue_save(&mut map, WorldSeed(1), 1, CLEAR, &mut writer);
+            queue_save(
+                &mut map,
+                (WorldSeed(1), Default::default()),
+                1,
+                CLEAR,
+                &mut writer,
+            );
 
             assert!(map.dirty_chunks.contains(&IVec3::ZERO));
         }

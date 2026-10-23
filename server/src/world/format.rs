@@ -6,7 +6,9 @@ use bevy::log::debug;
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use shared::world::{Chunk, Container, DroppedItem, MobId, ServerMob, WeatherKind, WorldSeed};
+use shared::world::{
+    Chunk, Container, DroppedItem, MobId, ServerMob, WeatherKind, WorldGenSettings, WorldSeed,
+};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -50,6 +52,9 @@ pub struct WorldMeta {
     /// Missing from the worlds saved before the weather, which start clear.
     #[serde(default)]
     pub weather: Option<SavedWeather>,
+    /// Missing from the worlds saved before the world types, which are of the default one.
+    #[serde(default)]
+    pub generation: WorldGenSettings,
 }
 
 impl WorldMeta {
@@ -62,6 +67,7 @@ impl WorldMeta {
             mobs,
             dropped_items: Vec::new(),
             weather: None,
+            generation: WorldGenSettings::default(),
         }
     }
 }
@@ -83,6 +89,9 @@ pub struct WorldData {
     /// The single-file formats had none.
     #[serde(default)]
     pub weather: Option<SavedWeather>,
+    /// The single-file formats had none: their worlds are of the default type.
+    #[serde(default)]
+    pub generation: WorldGenSettings,
 }
 
 impl From<&WorldData> for WorldMeta {
@@ -90,6 +99,7 @@ impl From<&WorldData> for WorldMeta {
         Self {
             dropped_items: world.dropped_items.clone(),
             weather: world.weather,
+            generation: world.generation.clone(),
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -110,6 +120,7 @@ impl From<WorldMeta> for WorldData {
             time: meta.time,
             dropped_items: meta.dropped_items,
             weather: meta.weather,
+            generation: meta.generation,
             ..Self::default()
         }
     }

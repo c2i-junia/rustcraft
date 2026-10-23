@@ -23,7 +23,7 @@ use crate::{
         chunk_files::{read_chunk, CHUNKS_DIR},
         container_files::{insert_with_contents, read_chunk_contents, ChunkContents},
         data::ServerWorldMap,
-        generation::WorldGenerator,
+        generation::{WorldGeneration, WorldGenerator},
     },
 };
 
@@ -121,14 +121,21 @@ pub struct ChunkLoader {
 }
 
 impl ChunkLoader {
+    /// The loader of a default world of `seed`.
+    #[cfg(test)]
     pub fn new(seed: u32) -> Self {
-        Self::with_most_in_flight(seed, CHUNKS_IN_FLIGHT)
+        Self::with(WorldGenerator::new(seed))
     }
 
-    fn with_most_in_flight(seed: u32, most_in_flight: usize) -> Self {
+    /// The loader of the chunks `generator` makes.
+    pub fn with(generator: WorldGenerator) -> Self {
+        Self::with_most_in_flight(generator, CHUNKS_IN_FLIGHT)
+    }
+
+    fn with_most_in_flight(generator: WorldGenerator, most_in_flight: usize) -> Self {
         let (sender, receiver) = channel();
         Self {
-            generator: Arc::new(WorldGenerator::new(seed)),
+            generator: Arc::new(generator),
             in_flight: HashSet::new(),
             sender,
             receiver,
@@ -222,12 +229,18 @@ pub fn handle_player_inputs_system(
     mut events: MessageReader<PlayerInputsEvent>,
     mut world_map: ResMut<ServerWorldMap>,
     seed: Res<WorldSeed>,
+    generation: Option<Res<WorldGeneration>>,
     mut loader: Local<Option<ChunkLoader>>,
     mut loaded_around: Local<LoadedAround>,
 ) {
-    // The noises are built once per seed, not once per chunk
+    // The noises are built once per seed, not once per chunk; the generation of the world does
+    // not change while the server runs
     if loader.as_ref().is_none_or(|l| l.generator.seed() != seed.0) {
-        *loader = Some(ChunkLoader::new(seed.0));
+        let generator = match generation {
+            Some(generation) => generation.generator(seed.0),
+            None => WorldGenerator::new(seed.0),
+        };
+        *loader = Some(ChunkLoader::with(generator));
         *loaded_around = LoadedAround::default();
     }
     let loader = loader.as_mut().unwrap();
@@ -521,7 +534,7 @@ mod tests {
         let players = player_at_the_origin();
         let mut chunks = ChunkMap::default();
         let mut dirty = HashSet::new();
-        let mut loader = ChunkLoader::with_most_in_flight(1, 7);
+        let mut loader = ChunkLoader::with_most_in_flight(WorldGenerator::new(1), 7);
         let loaded = |chunks: &ChunkMap| chunks.chunk_positions().collect::<Vec<_>>();
         let mut asked = 0;
 

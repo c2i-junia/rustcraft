@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 
 use bevy::prelude::*;
 use server::{write_meta, WorldMeta, FORMAT_VERSION, WORLD_FILE};
-use shared::world::WorldSeed;
+use shared::world::{WorldGenSettings, WorldSeed};
 
 use super::solo::SelectedWorld;
 use super::MenuState;
@@ -224,16 +224,25 @@ fn io_error(err: Box<dyn std::error::Error>) -> io::Error {
     }
 }
 
-/// Creates the world `name` in `saves` with this `seed`: its folder, never an existing one, and
-/// its `world.ron`, so that it is listed at once. On a failed write the folder is removed.
-pub fn create_world(saves: &Path, name: &str, seed: u32) -> io::Result<()> {
+/// Creates the world `name` in `saves` with this `seed` and these `generation` settings: its
+/// folder, never an existing one, and its `world.ron`, so that it is listed at once. On a failed
+/// write the folder is removed.
+pub fn create_world(
+    saves: &Path,
+    name: &str,
+    seed: u32,
+    generation: WorldGenSettings,
+) -> io::Result<()> {
     if !is_single_path_component(name) {
         return Err(invalid_name(name));
     }
     fs::create_dir_all(saves)?;
     let folder = saves.join(name);
     fs::create_dir(&folder)?;
-    let meta = WorldMeta::new(name.to_string(), WorldSeed(seed), 0, HashMap::new());
+    let meta = WorldMeta {
+        generation,
+        ..WorldMeta::new(name.to_string(), WorldSeed(seed), 0, HashMap::new())
+    };
     write_meta(&folder, &meta).map_err(|err| {
         let _ = fs::remove_dir_all(&folder);
         io_error(err)
@@ -670,7 +679,7 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         let saves = folder.path().join("saves");
 
-        create_world(&saves, "Nouveau", 7).unwrap();
+        create_world(&saves, "Nouveau", 7, Default::default()).unwrap();
 
         let meta = meta_of(&saves, "Nouveau");
         assert_eq!(meta.format_version, FORMAT_VERSION);
@@ -705,7 +714,7 @@ mod tests {
         // world.ron.tmp does not: the folder is made, then the write fails
         let saves = path_of_length(folder.path(), 4090 - "/Nouveau".len());
 
-        assert!(create_world(&saves, "Nouveau", 1).is_err());
+        assert!(create_world(&saves, "Nouveau", 1, Default::default()).is_err());
 
         assert!(saves.is_dir());
         assert!(!saves.join("Nouveau").exists());
@@ -716,13 +725,13 @@ mod tests {
         let saves = tempfile::tempdir().unwrap();
         write_world_ron(saves.path(), "Survie", "precious", HOUR);
 
-        let err = create_world(saves.path(), "Survie", 1).unwrap_err();
+        let err = create_world(saves.path(), "Survie", 1, Default::default()).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
         let contents = fs::read_to_string(saves.path().join("Survie").join(WORLD_FILE)).unwrap();
         assert_eq!(contents, "precious");
 
         for outside in ["..", "a/b"] {
-            let err = create_world(saves.path(), outside, 1).unwrap_err();
+            let err = create_world(saves.path(), outside, 1, Default::default()).unwrap_err();
             assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{outside:?}");
         }
     }

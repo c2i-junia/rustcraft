@@ -31,7 +31,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 <br>
 
 # Features
-- Procedurally generated worlds with biomes (Plains, Forest, Mountains, Desert, Savanna, Jungle, Ice Plain, Flower plains), trees, cactus, tall grass, ferns and flowers.
+- Procedurally generated worlds with biomes (Plains, Forest, Mountains, Desert, Savanna, Jungle, Ice Plain, Ice Spikes, Flower plains, Flower forest, Grove, rivers and oceans), trees, cactus, tall grass, ferns and flowers, in four world types: default, large biomes, archipelago and single biome.
 - Multiplayer functionality.
 - Day/night cycle
 - Block breaking and placing mechanics.

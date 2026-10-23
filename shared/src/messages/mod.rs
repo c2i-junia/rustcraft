@@ -107,6 +107,8 @@ mod tests {
             players: vec![],
             max_render_distance: 0,
             seed: 0,
+            generation: Default::default(),
+            biomes: vec![],
             mod_commands: vec![],
             weather: WeatherKind::Clear,
         };

@@ -12,6 +12,7 @@ pub mod furnaces;
 pub mod generation;
 mod legacy;
 pub mod load_from_file;
+pub mod locate;
 mod pool;
 pub mod save;
 pub mod simulation;

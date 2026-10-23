@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{ClientToServerMessage, PlayerSpawnEvent, ServerToClientMessage};
-use crate::world::WeatherKind;
+use crate::world::{BiomeDef, WeatherKind, WorldGenSettings};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct AuthRegisterRequest {
@@ -25,8 +25,13 @@ pub struct AuthRegisterResponse {
     pub players: Vec<PlayerSpawnEvent>, // all players (including the new one)
     /// The largest render distance this server grants, in chunks.
     pub max_render_distance: u32,
-    /// The seed of the world, from which the client finds the biome the player is in.
+    /// The seed of the world, its generation settings and its biomes, in the order of their
+    /// ids, from which the client finds the biome of each column: its colours, what falls on
+    /// it, and the name the debug overlay shows. The biomes of the mods of the server come with
+    /// them, so the client needs none of their files.
     pub seed: u32,
+    pub generation: WorldGenSettings,
+    pub biomes: Vec<BiomeDef>,
     /// The chat commands the mods of the server add, by name.
     pub mod_commands: Vec<String>,
     /// The weather at the time of the answer, which the client takes at once.

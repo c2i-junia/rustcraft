@@ -3,7 +3,7 @@
 //! giant roots, which also depends on the columns around.
 
 use bevy::prelude::*;
-use shared::world::{BiomeType, BlockDirection, BlockId, ColumnShape, SEA_LEVEL};
+use shared::world::{Biomes, BlockDirection, BlockId, ColumnShape, SEA_LEVEL};
 
 use super::{Blocks, ColumnRandom, PositionRandom, SALT_TREE_ROLL, SALT_TRUNK_HEIGHT};
 
@@ -212,7 +212,7 @@ pub(super) fn bush_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Block
 }
 
 /// The chance of a giant tree on a column `depth` deep in the jungle (see
-/// `ColumnShape::jungle_depth`): none below half depth, then smoothly up to `GIANT_CHANCE`.
+/// `ColumnShape::depth_in_biome`): none below half depth, then smoothly up to `GIANT_CHANCE`.
 pub(super) fn giant_chance(depth: f32) -> f32 {
     let t = ((depth - 0.5) / 0.5).clamp(0.0, 1.0);
     GIANT_CHANCE * t * t * (3.0 - 2.0 * t)
@@ -227,10 +227,11 @@ pub(super) fn giant_roots(
     seed: u32,
     x: i32,
     z: i32,
+    biomes: &Biomes,
     shape: &impl Fn(i32, i32) -> ColumnShape,
 ) -> bool {
     let roll = tree_roll(seed, x, z);
-    if roll >= GIANT_CHANCE || !giant_candidate(x, z, roll, shape) {
+    if roll >= GIANT_CHANCE || !giant_candidate(x, z, roll, biomes, shape) {
         return false;
     }
     for dx in -GIANT_SPACING..=GIANT_SPACING {
@@ -238,7 +239,7 @@ pub(super) fn giant_roots(
             let (other_x, other_z) = (x + dx, z + dz);
             let other = tree_roll(seed, other_x, other_z);
             let lower = (other, other_x, other_z) < (roll, x, z);
-            if lower && giant_candidate(other_x, other_z, other, shape) {
+            if lower && giant_candidate(other_x, other_z, other, biomes, shape) {
                 return false;
             }
         }
@@ -255,15 +256,21 @@ fn tree_roll(seed: u32, x: i32, z: i32) -> f32 {
     .unit(SALT_TREE_ROLL)
 }
 
-/// Whether the column `(x, z)`, whose tree roll is `roll`, may root a giant: it lies in the
-/// jungle, deep enough for its roll, and its `+x`, `+z` and `+x+z` neighbours, which hold the
+/// Whether the column `(x, z)`, whose tree roll is `roll`, may root a giant: it lies in a
+/// biome of giant trees (the jungle), deep enough for its roll, and its `+x`, `+z` and `+x+z` neighbours, which hold the
 /// rest of the trunk, are within `GIANT_STEP` blocks of its height. All four are dry: above the
 /// beach, where the surface of the jungle is grass.
-fn giant_candidate(x: i32, z: i32, roll: f32, shape: &impl Fn(i32, i32) -> ColumnShape) -> bool {
+fn giant_candidate(
+    x: i32,
+    z: i32,
+    roll: f32,
+    biomes: &Biomes,
+    shape: &impl Fn(i32, i32) -> ColumnShape,
+) -> bool {
     let root = shape(x, z);
     let dry = |height: i32| height > SEA_LEVEL + 1;
-    root.biome == BiomeType::Jungle
-        && roll < giant_chance(root.jungle_depth)
+    biomes.get(root.biome).flora.giant_trees
+        && roll < giant_chance(root.depth_in_biome)
         && dry(root.height)
         && [(1, 0), (0, 1), (1, 1)].iter().all(|(dx, dz)| {
             let height = shape(x + dx, z + dz).height;
@@ -396,6 +403,7 @@ fn giant_crown_blocks(top: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
 mod tests {
     use super::super::precedence;
     use super::*;
+    use shared::world::vanilla;
     use std::collections::{HashMap, HashSet};
 
     const ROOT: IVec3 = IVec3::new(0, 70, 0);
@@ -896,8 +904,8 @@ mod tests {
     fn flat_at(height: i32, depth: f32) -> impl Fn(i32, i32) -> ColumnShape {
         move |_, _| ColumnShape {
             height,
-            biome: BiomeType::Jungle,
-            jungle_depth: depth,
+            biome: vanilla::JUNGLE,
+            depth_in_biome: depth,
         }
     }
 
@@ -913,7 +921,7 @@ mod tests {
     fn roots(seed: u32, side: i32, shapes: &impl Fn(i32, i32) -> ColumnShape) -> Vec<IVec2> {
         (0..side)
             .flat_map(|x| (0..side).map(move |z| IVec2::new(x, z)))
-            .filter(|c| giant_roots(seed, c.x, c.y, shapes))
+            .filter(|c| giant_roots(seed, c.x, c.y, &Biomes::vanilla(), shapes))
             .collect()
     }
 
@@ -936,16 +944,16 @@ mod tests {
                         flat_at(height, 1.0)(x, z)
                     }
                 };
-                giant_roots(seed, root.x, root.y, &shapes)
+                giant_roots(seed, root.x, root.y, &Biomes::vanilla(), &shapes)
             };
             let jungle = |height| ColumnShape {
                 height,
-                biome: BiomeType::Jungle,
-                jungle_depth: 1.0,
+                biome: vanilla::JUNGLE,
+                depth_in_biome: 1.0,
             };
             let forest = ColumnShape {
-                biome: BiomeType::Forest,
-                jungle_depth: 0.0,
+                biome: vanilla::FOREST,
+                depth_in_biome: 0.0,
                 ..jungle(70)
             };
             let low = SEA_LEVEL + 2;
@@ -970,7 +978,7 @@ mod tests {
                 "{root}: a cliff behind"
             );
             let shallow = ColumnShape {
-                jungle_depth: 0.5,
+                depth_in_biome: 0.5,
                 ..jungle(70)
             };
             assert!(!roots_with(70, root, shallow), "{root}: at half depth");
@@ -1004,7 +1012,7 @@ mod tests {
             for z in 0..150 {
                 let column = IVec2::new(x, z);
                 if !candidate(column) {
-                    assert!(!giant_roots(seed, x, z, &shapes));
+                    assert!(!giant_roots(seed, x, z, &Biomes::vanilla(), &shapes));
                     continue;
                 }
                 let lower = (-GIANT_SPACING..=GIANT_SPACING)
@@ -1015,7 +1023,11 @@ mod tests {
                             && candidate(other)
                             && roll(seed, other.x, other.y) < roll(seed, x, z)
                     });
-                assert_eq!(giant_roots(seed, x, z, &shapes), !lower, "{column}");
+                assert_eq!(
+                    giant_roots(seed, x, z, &Biomes::vanilla(), &shapes),
+                    !lower,
+                    "{column}"
+                );
                 if lower {
                     beaten += 1;
                 } else {

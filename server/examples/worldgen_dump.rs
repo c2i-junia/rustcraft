@@ -1,23 +1,31 @@
 //! Dumps generated terrain for `scripts/worldgen_preview.py`, which draws it. Run it in release:
 //!
 //! ```text
-//! cargo run -p server --release --example worldgen_dump -- map <seed> <x0> <z0> <size> <out>
+//! cargo run -p server --release --example worldgen_dump -- map <seed> <x0> <z0> <size> <out> [type]
+//! cargo run -p server --release --example worldgen_dump -- climate <seed> <x0> <z0> <size> <step> <out> [type]
 //! cargo run -p server --release --example worldgen_dump -- slice <seed> <z> <x0> <width> <out>
 //! cargo run -p server --release --example worldgen_dump -- layer <seed> <y> <x0> <z0> <size> <out>
 //! ```
 //!
+//! `type` is a world type as `WorldPreset::from_name` reads it: `large_biomes`, `archipelago`,
+//! `single_biome:desert`; the default one when it is left out.
+//!
 //! Every file starts with its width and height as two little-endian `u32`. A `map` then holds,
 //! per column, row by row: the height of its top block (`i16`), that block (`u8`), the height of
-//! its highest ground block, not water nor anything growing (`i16`) and its biome (`u8`). A `slice` (the
-//! blocks of the plane `z`, from y 0 up) and a `layer` (the blocks at height `y`) hold one `u8`
-//! per cell: the `BlockId`, or 255 for air.
+//! its highest ground block, not water nor anything growing (`i16`) and its biome (`u16`). A
+//! `climate` holds, for one column every `step` blocks, row by row: its temperature, humidity,
+//! continentalness, erosion and weirdness (`i8` each, the parameter times 127) and its biome
+//! (`u16`). Both come with `<out>.biomes`, a line per biome by id: its key, its name and its
+//! map colour as `r,g,b`, separated by tabs. A `slice` (the blocks of the plane `z`, from y 0
+//! up) and a `layer` (the blocks at height `y`) hold one `u8` per cell: the `BlockId`, or 255
+//! for air.
 
 use std::collections::HashMap;
 use std::io::Write;
 
 use bevy::prelude::*;
 use server::WorldGenerator;
-use shared::world::{BlockId, Chunk, TerrainNoises};
+use shared::world::{Biomes, BlockId, Chunk, TerrainNoises, WorldGenSettings, WorldPreset};
 use shared::CHUNK_SIZE;
 
 const AIR: u8 = 255;
@@ -57,6 +65,30 @@ fn arg<T: std::str::FromStr>(args: &[String], i: usize) -> T {
         .unwrap_or_else(|| panic!("argument {i} is missing or invalid, see the doc comment"))
 }
 
+/// The settings of the world type named by the argument `i`, the default one when there is none.
+fn settings(args: &[String], i: usize) -> WorldGenSettings {
+    let preset = args.get(i).map_or(Some(WorldPreset::Default), |name| {
+        WorldPreset::from_name(name)
+    });
+    WorldGenSettings {
+        preset: preset.unwrap_or_else(|| panic!("unknown world type {:?}", args[i])),
+    }
+}
+
+/// Writes the biomes of `terrain` next to the dump `path`, as `<path>.biomes`.
+fn write_biomes(path: &str, terrain: &TerrainNoises) {
+    let lines: String = terrain
+        .biomes()
+        .defs()
+        .iter()
+        .map(|def| {
+            let [r, g, b] = def.look.map_colour;
+            format!("{}\t{}\t{r},{g},{b}\n", def.key, def.name)
+        })
+        .collect();
+    std::fs::write(format!("{path}.biomes"), lines).unwrap();
+}
+
 fn write(path: &str, width: usize, height: usize, data: &[u8]) {
     let mut file = std::fs::File::create(path).unwrap();
     file.write_all(&(width as u32).to_le_bytes()).unwrap();
@@ -87,7 +119,7 @@ fn chunk_column_tops(
     terrain: &TerrainNoises,
     cx: i32,
     cz: i32,
-) -> Vec<(i16, u8, i16, u8)> {
+) -> Vec<(i16, u8, i16, u16)> {
     let size = CHUNK_SIZE as usize;
     let mut highest = 0;
     for dx in 0..CHUNK_SIZE {
@@ -129,15 +161,15 @@ fn chunk_column_tops(
             let x = cx * CHUNK_SIZE + (i % size) as i32;
             let z = cz * CHUNK_SIZE + (i / size) as i32;
             let (top, block) = tops[i].unwrap_or((-1, AIR));
-            let biome = terrain.column_shape(x, z).biome as u8;
+            let biome = terrain.column_shape(x, z).biome.0;
             (top, block, floors[i].unwrap_or(-1), biome)
         })
         .collect()
 }
 
-fn map(seed: u32, x0: i32, z0: i32, size: i32, out: &str) {
-    let generator = WorldGenerator::new(seed);
-    let terrain = TerrainNoises::new(seed);
+fn map(seed: u32, x0: i32, z0: i32, size: i32, out: &str, settings: &WorldGenSettings) {
+    let generator = WorldGenerator::with(seed, settings, Biomes::vanilla());
+    let terrain = TerrainNoises::with(seed, settings, Biomes::vanilla());
     let chunks = size.div_euclid(CHUNK_SIZE);
     let (cx0, cz0) = (x0.div_euclid(CHUNK_SIZE), z0.div_euclid(CHUNK_SIZE));
     let positions: Vec<(i32, i32)> = (0..chunks)
@@ -152,7 +184,7 @@ fn map(seed: u32, x0: i32, z0: i32, size: i32, out: &str) {
         .collect();
 
     let width = (chunks * CHUNK_SIZE) as usize;
-    let mut data = Vec::with_capacity(width * width * 6);
+    let mut data = Vec::with_capacity(width * width * 7);
     for z in 0..width as i32 {
         for x in 0..width as i32 {
             let column = &columns[&(cx0 + x / CHUNK_SIZE, cz0 + z / CHUNK_SIZE)];
@@ -161,10 +193,47 @@ fn map(seed: u32, x0: i32, z0: i32, size: i32, out: &str) {
             data.extend(top.to_le_bytes());
             data.push(block);
             data.extend(floor.to_le_bytes());
-            data.push(biome);
+            data.extend(biome.to_le_bytes());
         }
     }
     write(out, width, width, &data);
+    write_biomes(out, &terrain);
+}
+
+/// The climate of one column every `step` blocks of the square of `size` from `(x0, z0)`.
+fn climate(
+    seed: u32,
+    (x0, z0): (i32, i32),
+    size: i32,
+    step: i32,
+    out: &str,
+    settings: &WorldGenSettings,
+) {
+    let terrain = TerrainNoises::with(seed, settings, Biomes::vanilla());
+    let side = (size / step) as usize;
+    let rows: Vec<i32> = (0..side as i32).map(|j| z0 + j * step).collect();
+    let data: Vec<u8> = parallel(&rows, |&z| {
+        let mut row = Vec::with_capacity(side * 7);
+        for i in 0..side as i32 {
+            let x = x0 + i * step;
+            let climate = terrain.climate_at(x, z);
+            let parameters = [
+                climate.temperature,
+                climate.humidity,
+                climate.continentalness,
+                climate.erosion,
+                climate.weirdness,
+            ];
+            row.extend(
+                parameters.map(|value| (value.clamp(-1.0, 1.0) * 127.0).round() as i8 as u8),
+            );
+            row.extend(terrain.column_shape(x, z).biome.0.to_le_bytes());
+        }
+        row
+    })
+    .concat();
+    write(out, side, side, &data);
+    write_biomes(out, &terrain);
 }
 
 fn slice(seed: u32, z: i32, x0: i32, width: i32, out: &str) {
@@ -226,6 +295,15 @@ fn main() {
             arg(&args, 3),
             arg(&args, 4),
             &args[5],
+            &settings(&args, 6),
+        ),
+        Some("climate") => climate(
+            arg(&args, 1),
+            (arg(&args, 2), arg(&args, 3)),
+            arg(&args, 4),
+            arg(&args, 5),
+            &args[6],
+            &settings(&args, 7),
         ),
         Some("slice") => slice(
             arg(&args, 1),
@@ -242,7 +320,7 @@ fn main() {
             arg(&args, 5),
             &args[6],
         ),
-        _ => panic!("expected map, slice or layer, see the doc comment"),
+        _ => panic!("expected map, climate, slice or layer, see the doc comment"),
     }
     eprintln!("dumped in {:?}", start.elapsed());
 }

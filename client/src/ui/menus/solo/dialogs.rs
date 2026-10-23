@@ -10,6 +10,7 @@ use bevy::{
     ui::InteractionDisabled,
     ui_widgets::SelectAllOnFocus,
 };
+use shared::world::{WorldGenSettings, WorldPreset};
 use shared::GameFolderPaths;
 
 use super::super::worlds::{
@@ -21,13 +22,14 @@ use super::WorldCard;
 use crate::constants::SAVE_PATH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::FONT_M;
+use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_XS};
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog,
     DialogClosed, DialogSubmit, FormChanged,
 };
 use crate::ui::widgets::hints::Hint;
+use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
 use crate::ui::widgets::text_field::{
     set_text, spawn_text_field, text_field_focused, value_of, FieldError, TextField,
 };
@@ -80,6 +82,18 @@ pub struct WorldNameInput;
 /// The input of the seed field of the New world dialog.
 #[derive(Component)]
 pub struct WorldSeedInput;
+
+/// The world types the New world dialog offers, by their caption. A world of a single biome is
+/// made by editing its `world.ron`, as a tool to look at one biome.
+const WORLD_TYPES: [(&str, WorldPreset); 3] = [
+    ("Default", WorldPreset::Default),
+    ("Large biomes", WorldPreset::LargeBiomes),
+    ("Archipelago", WorldPreset::Archipelago),
+];
+
+/// The index in `WORLD_TYPES` of the world type checked in the New world dialog, on its root.
+#[derive(Component, Default)]
+struct WorldTypeChoice(usize);
 
 /// The fields of an open world dialog and what they are checked against, on its root.
 #[derive(Component)]
@@ -179,15 +193,55 @@ pub fn open_new_world_dialog(
         &dialog,
         &[("Name", name), ("Seed (optional)", seed)],
         &NEW_WORLD_HINTS,
-        font,
+        font.clone(),
         focus,
     );
+    let root = parts.root;
+    if let Some(form) = parts.form {
+        let column = commands
+            .spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(SPACE_XS),
+                    ..default()
+                },
+                ChildOf(form),
+            ))
+            .id();
+        commands.spawn((
+            Text::new("World type"),
+            TextFont {
+                font: font.clone().into(),
+                font_size: px(FONT_S).into(),
+                ..default()
+            },
+            TextColor(MUTED),
+            ChildOf(column),
+        ));
+        let types = WORLD_TYPES.map(|(caption, _)| caption);
+        let segmented = Segmented {
+            label: "World type",
+            options: &types,
+            selected: 0,
+        };
+        let group = spawn_segmented(commands, &segmented, font);
+        commands.entity(group).insert(ChildOf(column)).observe(
+            move |change: On<SegmentChange>, mut choices: Query<&mut WorldTypeChoice>| {
+                if let Ok(mut choice) = choices.get_mut(root) {
+                    choice.0 = change.index;
+                }
+            },
+        );
+    }
     commands
-        .entity(parts.root)
-        .insert(WorldForm::new(name.input, Some(seed.input), others, None))
+        .entity(root)
+        .insert((
+            WorldForm::new(name.input, Some(seed.input), others, None),
+            WorldTypeChoice::default(),
+        ))
         .observe(check_world_form)
         .observe(create_world_on_submit);
-    parts.root
+    root
 }
 
 /// Opens the Rename dialog of `world`: its name field holds the current name, entirely selected.
@@ -339,13 +393,13 @@ fn delete_failure(error: &io::Error) -> &'static str {
 /// says why under the name. A dialog already closing was submitted before in this update.
 fn create_world_on_submit(
     submit: On<DialogSubmit>,
-    forms: Query<&WorldForm, Without<CloseRequest>>,
+    forms: Query<(&WorldForm, Option<&WorldTypeChoice>), Without<CloseRequest>>,
     texts: Query<&EditableText>,
     paths: Res<GameFolderPaths>,
     mut commands: Commands,
 ) {
     let root = submit.entity;
-    let Ok(form) = forms.get(root) else {
+    let Ok((form, choice)) = forms.get(root) else {
         return;
     };
     let Ok(name) = check_world_name(&value_of(&texts, form.name), &form.others) else {
@@ -359,7 +413,9 @@ fn create_world_on_submit(
         return;
     };
     let saves = paths.game_folder_path.join(SAVE_PATH);
-    match create_world(&saves, &name, seed.unwrap_or_else(rand::random)) {
+    let preset = WORLD_TYPES[choice.map_or(0, |choice| choice.0)].1.clone();
+    let generation = WorldGenSettings { preset };
+    match create_world(&saves, &name, seed.unwrap_or_else(rand::random), generation) {
         Ok(()) => {
             info!("Created the world {name:?}");
             // closing first: the card of the new world takes the focus
@@ -591,6 +647,32 @@ mod tests {
     }
 
     #[test]
+    fn a_new_world_is_saved_with_the_world_type_checked() {
+        let folder = tempfile::TempDir::new().unwrap();
+        let mut world = World::new();
+        world.insert_resource(GameFolderPaths {
+            game_folder_path: folder.path().to_path_buf(),
+            assets_folder_path: folder.path().to_path_buf(),
+        });
+        let (root, _) = form(&mut world, EditableText::new("Islands"));
+        // the third type, as the segmented control leaves it
+        world
+            .entity_mut(root)
+            .insert(WorldTypeChoice(2))
+            .observe(create_world_on_submit);
+        world.commands().trigger(DialogSubmit { entity: root });
+        world.flush();
+        let saved = folder
+            .path()
+            .join(SAVE_PATH)
+            .join("Islands")
+            .join("world.ron");
+        let meta: server::WorldMeta =
+            ron::from_str(&std::fs::read_to_string(saved).unwrap()).unwrap();
+        assert_eq!(meta.generation.preset, WorldPreset::Archipelago);
+    }
+
+    #[test]
     fn a_failed_rename_says_why_in_a_few_words() {
         let cases = [
             (io::ErrorKind::StorageFull, "The disk is full"),
@@ -615,7 +697,7 @@ mod tests {
             assets_folder_path: folder.path().to_path_buf(),
         });
         let saves = folder.path().join(SAVE_PATH);
-        create_world(&saves, "Survie", 1).unwrap();
+        create_world(&saves, "Survie", 1, Default::default()).unwrap();
         let name = world
             .spawn((EditableText::new(" Survie "), FieldError(None)))
             .id();
@@ -656,7 +738,7 @@ mod tests {
         let mut world = World::new();
         let (folder, root, name) = rename_form(&mut world, "Survie", "Base");
         let saves = folder.path().join(SAVE_PATH);
-        create_world(&saves, "Survie", 1).unwrap();
+        create_world(&saves, "Survie", 1, Default::default()).unwrap();
         // two submits in the same update, such as Enter and a click on Rename
         let mut commands = world.commands();
         commands.trigger(DialogSubmit { entity: root });

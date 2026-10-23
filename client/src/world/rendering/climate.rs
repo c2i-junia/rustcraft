@@ -16,7 +16,7 @@ use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
-use shared::world::{BiomeType, TerrainNoises};
+use shared::world::{BiomeDef, Precipitation, TerrainNoises};
 use shared::CHUNK_SIZE;
 
 use crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS;
@@ -65,22 +65,6 @@ const MAP_CHUNKS: i32 = 2 * MAX_CHUNK_RENDER_DISTANCE_RADIUS as i32 + 3;
 /// Texels along each side of the climate map.
 pub const CLIMATE_MAP_SIZE: u32 = (MAP_CHUNKS * CHUNK_SIZE) as u32;
 
-/// Where the grass and the leaves of `biome` are read on the colour maps: the temperature and
-/// the downfall Minecraft gives a biome like it, each in `[0, 1]` as Minecraft clamps them.
-fn biome_climate(biome: BiomeType) -> [f64; 2] {
-    match biome {
-        BiomeType::Desert | BiomeType::Savanna => [1.0, 0.0],
-        BiomeType::Plains => [0.8, 0.4],
-        BiomeType::Forest | BiomeType::FlowerPlains => [0.7, 0.8],
-        BiomeType::Jungle => [0.95, 0.9],
-        // As the windswept hills and the snowy slopes
-        BiomeType::MediumMountain => [0.2, 0.3],
-        BiomeType::HighMountainGrass => [0.0, 0.3],
-        BiomeType::IcePlain => [0.0, 0.5],
-        BiomeType::ShallowOcean | BiomeType::Ocean | BiomeType::DeepOcean => [0.5, 0.5],
-    }
-}
-
 /// What falls on a column from a rainy sky, after its biome. The snow line is a height: the
 /// shaders make snow of whatever falls high enough.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,12 +75,13 @@ pub enum PrecipitationKind {
     None = 2,
 }
 
-/// What falls on a column of `biome`: snow in the cold, nothing in the dry heat, rain elsewhere.
-pub fn precipitation_kind(biome: BiomeType) -> PrecipitationKind {
-    match biome {
-        BiomeType::IcePlain => PrecipitationKind::Snow,
-        BiomeType::Desert | BiomeType::Savanna => PrecipitationKind::None,
-        _ => PrecipitationKind::Rain,
+/// What falls on a column of `biome`, as its look says: snow in the cold, nothing in the dry
+/// heat, rain elsewhere.
+pub fn precipitation_kind(biome: &BiomeDef) -> PrecipitationKind {
+    match biome.look.precipitation {
+        Precipitation::Rain => PrecipitationKind::Rain,
+        Precipitation::Snow => PrecipitationKind::Snow,
+        Precipitation::None => PrecipitationKind::None,
     }
 }
 
@@ -116,8 +101,8 @@ pub fn precipitation_at(map: &Image, x: i32, z: i32) -> Option<PrecipitationKind
 /// The place of `biome` on the colour maps, from their bottom right corner: the temperature
 /// along x, and the downfall times the temperature along y, as Minecraft reads them. The means
 /// of the columns are taken of these, the places themselves.
-fn colormap_place(biome: BiomeType) -> [f64; 2] {
-    let [temperature, downfall] = biome_climate(biome);
+fn colormap_place(biome: &BiomeDef) -> [f64; 2] {
+    let [temperature, downfall] = biome.look.colormap.map(|value| value.clamp(0.0, 1.0));
     [temperature, temperature * downfall]
 }
 
@@ -141,10 +126,11 @@ fn column_texels(noises: &TerrainNoises, column: IVec2, blend: BiomeBlend) -> Ve
     let width = window as usize + 1;
     let mut sums = vec![[0.0; 2]; width * width];
     let mut kinds = vec![PrecipitationKind::Rain; width * width];
+    // row by row along x
+    let shapes = noises.column_shapes((corner.x, corner.y), window, window);
     for i in 0..window as usize {
         for j in 0..window as usize {
-            let at = corner + IVec2::new(i as i32, j as i32);
-            let biome = noises.column_shape(at.x, at.y).biome;
+            let biome = noises.biomes().get(shapes[j * window as usize + i].biome);
             kinds[i * width + j] = precipitation_kind(biome);
             let place = colormap_place(biome);
             for axis in 0..2 {
@@ -305,6 +291,7 @@ pub fn update_climate_map_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::world::vanilla;
 
     fn texel_at(map: &Image, x: i32, z: i32) -> [u8; 4] {
         let size = CLIMATE_MAP_SIZE as i32;
@@ -327,14 +314,19 @@ mod tests {
         let mut sum = [0.0; 2];
         for dx in -radius..=radius {
             for dz in -radius..=radius {
-                let place = colormap_place(noises.column_shape(x + dx, z + dz).biome);
+                let place = colormap_place(def_at(noises, x + dx, z + dz));
                 sum[0] += place[0];
                 sum[1] += place[1];
             }
         }
         let count = f64::from(blend.side() * blend.side());
-        let own = precipitation_kind(noises.column_shape(x, z).biome);
+        let own = precipitation_kind(def_at(noises, x, z));
         place_texel([sum[0] / count, sum[1] / count], own)
+    }
+
+    /// The biome of the column `(x, z)`.
+    fn def_at(noises: &TerrainNoises, x: i32, z: i32) -> &BiomeDef {
+        noises.biomes().get(noises.column_shape(x, z).biome)
     }
 
     #[test]
@@ -345,7 +337,7 @@ mod tests {
         let unblended = BiomeBlend { radius: 0 };
         fill_climate_map(&mut map, &noises, &columns, unblended);
         for (x, z) in [(-16, -32), (-1, -17), (-9, -20), (48, 0), (63, 15)] {
-            let biome = noises.column_shape(x, z).biome;
+            let biome = def_at(&noises, x, z);
             let expected = place_texel(colormap_place(biome), precipitation_kind(biome));
             let texel = texel_at(&map, x, z);
             assert!(
@@ -367,7 +359,7 @@ mod tests {
             &[IVec2::new(-1, 0)],
             BiomeBlend { radius: 0 },
         );
-        let biome = noises.column_shape(-5, 7).biome;
+        let biome = def_at(&noises, -5, 7);
         assert_eq!(
             precipitation_at(&map, -5, 7),
             Some(precipitation_kind(biome))
@@ -385,8 +377,8 @@ mod tests {
     #[test]
     fn a_column_takes_the_mean_of_the_square_around_it_across_chunk_borders() {
         let noises = TerrainNoises::new(42);
-        // Across the border of a desert and a savanna, then on the corners of a chunk
-        let column = IVec2::new(-878, -454).div_euclid(IVec2::splat(CHUNK_SIZE));
+        // Across the border of a desert and the sea, then on the corners of a chunk
+        let column = IVec2::new(723, 80).div_euclid(IVec2::splat(CHUNK_SIZE));
         for radius in [1, MAX_BIOME_BLEND] {
             let blend = BiomeBlend { radius };
             let mut map = new_climate_map();
@@ -408,13 +400,14 @@ mod tests {
         let noises = TerrainNoises::new(42);
         let blend = BiomeBlend { radius: 3 };
         // Along x from a column, the first one of another biome
-        let (x, z) = (-878, -454);
+        // in a desert by the sea
+        let (x, z) = (648, 80);
         let start = noises.column_shape(x, z).biome;
         let border = (x..x + 200)
             .find(|&x| noises.column_shape(x, z).biome != start)
             .expect("no border");
         let unblended = |x| {
-            let biome = noises.column_shape(x, z).biome;
+            let biome = def_at(&noises, x, z);
             place_texel(colormap_place(biome), precipitation_kind(biome))
         };
         let blended = |x| blended_texel(&noises, x, z, blend);
@@ -453,9 +446,9 @@ mod tests {
     fn a_new_biome_blend_colours_the_columns_held_again() {
         let noises = TerrainNoises::new(42);
         // A column on the border of two biomes, and the chunk it is in
-        let z = -454;
-        let start = noises.column_shape(-878, z).biome;
-        let x = (-878..-678)
+        let z = 80;
+        let start = noises.column_shape(648, z).biome;
+        let x = (648..848)
             .find(|&x| noises.column_shape(x, z).biome != start)
             .unwrap();
         let chunk = IVec3::new(x.div_euclid(CHUNK_SIZE), 4, z.div_euclid(CHUNK_SIZE));
@@ -485,7 +478,7 @@ mod tests {
         assert!(same_texel(texel, blended), "{texel:?}, {blended:?}");
 
         app.world_mut().resource_mut::<BiomeBlend>().radius = 0;
-        let biome = noises.column_shape(x, z).biome;
+        let biome = def_at(&noises, x, z);
         let unblended = place_texel(colormap_place(biome), precipitation_kind(biome));
         assert!(!same_texel(unblended, blended));
         let texel = texel_at(&finished_map(&mut app), x, z);
@@ -494,29 +487,27 @@ mod tests {
 
     #[test]
     fn snow_falls_in_the_ice_plains_nothing_in_the_deserts_and_rain_elsewhere() {
-        assert_eq!(
-            precipitation_kind(BiomeType::IcePlain),
-            PrecipitationKind::Snow
-        );
-        for biome in [BiomeType::Desert, BiomeType::Savanna] {
-            assert_eq!(precipitation_kind(biome), PrecipitationKind::None);
+        let biomes = shared::world::Biomes::vanilla();
+        let kind = |id| precipitation_kind(biomes.get(id));
+        for id in [vanilla::ICE_PLAIN, vanilla::ICE_SPIKES] {
+            assert_eq!(kind(id), PrecipitationKind::Snow);
         }
-        for biome in [
-            BiomeType::Plains,
-            BiomeType::Forest,
-            BiomeType::FlowerPlains,
-            BiomeType::Jungle,
-            BiomeType::MediumMountain,
-            BiomeType::HighMountainGrass,
-            BiomeType::ShallowOcean,
-            BiomeType::Ocean,
-            BiomeType::DeepOcean,
+        for id in [vanilla::DESERT, vanilla::SAVANNA] {
+            assert_eq!(kind(id), PrecipitationKind::None);
+        }
+        for id in [
+            vanilla::PLAINS,
+            vanilla::FOREST,
+            vanilla::FLOWER_PLAINS,
+            vanilla::JUNGLE,
+            vanilla::MEDIUM_MOUNTAIN,
+            vanilla::HIGH_MOUNTAIN_GRASS,
+            vanilla::SHALLOW_OCEAN,
+            vanilla::OCEAN,
+            vanilla::DEEP_OCEAN,
+            vanilla::RIVER,
         ] {
-            assert_eq!(
-                precipitation_kind(biome),
-                PrecipitationKind::Rain,
-                "{biome:?}"
-            );
+            assert_eq!(kind(id), PrecipitationKind::Rain, "{id:?}");
         }
     }
 
@@ -524,10 +515,10 @@ mod tests {
     fn each_texel_tells_the_kind_of_its_own_column_unblended() {
         let noises = TerrainNoises::new(42);
         // Across the border of a desert, where nothing falls, and of a biome where rain does
-        let z = -454;
-        let border = (-878i32..-478)
+        let z = 80;
+        let border = (648i32..1048)
             .find(|&x| {
-                let kind = |x| precipitation_kind(noises.column_shape(x, z).biome);
+                let kind = |x| precipitation_kind(def_at(&noises, x, z));
                 // both in the same chunk
                 x.rem_euclid(CHUNK_SIZE) < CHUNK_SIZE - 1
                     && kind(x) == PrecipitationKind::None
@@ -540,7 +531,7 @@ mod tests {
         let origin = column * CHUNK_SIZE;
         for dx in 0..CHUNK_SIZE {
             let x = origin.x + dx;
-            let kind = precipitation_kind(noises.column_shape(x, z).biome);
+            let kind = precipitation_kind(def_at(&noises, x, z));
             assert_eq!(texel_at(&map, x, z)[2], kind as u8, "{x}");
         }
     }

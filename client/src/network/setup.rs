@@ -6,7 +6,7 @@ use bevy_renet::netcode::{
 };
 use bevy_renet::{RenetClient, RenetClientPlugin};
 use rand::Rng;
-use shared::world::TerrainNoises;
+use shared::world::{BiomeDef, Biomes, TerrainNoises, WorldGenSettings};
 use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CHANNEL};
 
 use crate::menus::solo::SelectedWorld;
@@ -15,7 +15,9 @@ use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
 use crate::state::{GameState, PlayerNameSupplied};
+use crate::ui::assets::load_font;
 use crate::ui::hud::chat_completion::ModCommands;
+use crate::ui::widgets::toast::{show_toast, ToastKind};
 use crate::world::lightning::Strike;
 use crate::world::time::ClientTime;
 use crate::world::weather::ClientWeather;
@@ -125,6 +127,12 @@ pub fn add_base_netcode(app: &mut App) {
             .before(NetcodeClientPlugin::disconnect_on_exit),
     );
 
+    app.add_systems(
+        Update,
+        show_unknown_biomes_warning
+            .run_if(in_state(GameState::Game).and_then(resource_exists::<UnknownBiomesWarning>)),
+    );
+
     // The username is taken from the player profile when the connection starts
     app.insert_resource(TargetServer {
         address: None,
@@ -132,6 +140,59 @@ pub fn add_base_netcode(app: &mut App) {
         session_token: None,
         state: TargetServerState::Initial,
     });
+}
+
+/// The noises of the world of `seed` made with `settings` and the biomes `defs` of the server,
+/// with a warning when these are not all of the base game: the server runs mods, whose biomes
+/// are drawn as the server describes them but may look off. Biomes that cannot be built are
+/// replaced by those of the base game, with a warning too.
+fn world_noises(
+    seed: u32,
+    settings: &WorldGenSettings,
+    defs: Vec<BiomeDef>,
+) -> (TerrainNoises, Option<String>) {
+    let vanilla = Biomes::vanilla();
+    let unknown: Vec<String> = defs
+        .iter()
+        .filter(|def| vanilla.id(&def.key).is_none())
+        .map(|def| def.key.clone())
+        .collect();
+    match Biomes::from_defs(defs) {
+        Ok(biomes) => {
+            let warning = (!unknown.is_empty()).then(|| {
+                format!(
+                    "This server adds biomes this game does not know: {}",
+                    unknown.join(", ")
+                )
+            });
+            (
+                TerrainNoises::with(seed, settings, Arc::new(biomes)),
+                warning,
+            )
+        }
+        Err(err) => {
+            let warning = format!("The biomes of this server are invalid ({err}): the colours of the world may be wrong");
+            (TerrainNoises::with(seed, settings, vanilla), Some(warning))
+        }
+    }
+}
+
+/// A warning about the biomes of the server joined, shown once the game is on screen.
+#[derive(Resource)]
+pub struct UnknownBiomesWarning(pub String);
+
+fn show_unknown_biomes_warning(
+    mut commands: Commands,
+    warning: Res<UnknownBiomesWarning>,
+    assets: Res<AssetServer>,
+) {
+    show_toast(
+        &mut commands,
+        &warning.0,
+        ToastKind::Error,
+        load_font(&assets),
+    );
+    commands.remove_resource::<UnknownBiomesWarning>();
 }
 
 /// The thread of the embedded solo server, with the error it stopped on.
@@ -461,7 +522,13 @@ pub fn establish_authenticated_connection_to_server(
                 target.state = TargetServerState::ConnectionEstablished;
                 client_time.0 = message.tick;
                 commands.insert_resource(ServerRenderDistanceLimit(message.max_render_distance));
-                commands.insert_resource(WorldBiomes(Arc::new(TerrainNoises::new(message.seed))));
+                let (noises, warning) =
+                    world_noises(message.seed, &message.generation, message.biomes);
+                commands.insert_resource(WorldBiomes(Arc::new(noises)));
+                if let Some(warning) = warning {
+                    warn!("{warning}");
+                    commands.insert_resource(UnknownBiomesWarning(warning));
+                }
                 commands.insert_resource(ModCommands(message.mod_commands));
                 // Joined in the middle of a storm: the storm is there at once
                 commands.insert_resource(ClientWeather::settled(message.weather));
@@ -488,6 +555,32 @@ mod tests {
     use crate::network::finish_stopping_local_server;
     use bevy::state::app::StatesPlugin;
     use std::sync::mpsc::channel;
+
+    #[test]
+    fn the_biomes_of_a_server_with_mods_are_drawn_with_a_warning() {
+        let settings = WorldGenSettings::default();
+        let vanilla = shared::world::vanilla::definitions();
+        let (_, warning) = world_noises(42, &settings, vanilla.clone());
+        assert_eq!(warning, None);
+
+        // a mod adds a biome, which the client draws as the server describes it
+        let mut defs = vanilla.clone();
+        let mut badlands = BiomeDef::new("mymod:badlands", "Badlands");
+        badlands.climate = vec![Default::default()];
+        badlands.priority = 5;
+        defs.push(badlands);
+        let (noises, warning) = world_noises(42, &settings, defs);
+        assert!(warning.unwrap().contains("mymod:badlands"));
+        let biome = noises.column_shape(100, 100).biome;
+        assert_eq!(noises.biomes().get(biome).key, "mymod:badlands");
+
+        // biomes that cannot be built: those of the base game instead
+        let mut broken = vanilla;
+        broken[0].sub_biomes = vec![("mymod:nowhere".into(), 0.5)];
+        let (noises, warning) = world_noises(42, &settings, broken);
+        assert!(warning.unwrap().contains("invalid"));
+        assert_eq!(noises.biomes().defs().len(), Biomes::vanilla().defs().len());
+    }
     use std::time::Duration;
 
     /// The saves of a world go with its server: once it is joined in the menus, a server session

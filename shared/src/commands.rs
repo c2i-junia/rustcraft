@@ -4,7 +4,7 @@
 
 use std::ops::Range;
 
-use crate::world::ItemId;
+use crate::world::{Biomes, ItemId, BASE_NAMESPACE};
 
 /// An argument of a command.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,6 +15,9 @@ pub enum Arg {
     Item,
     /// A whole number above 0.
     Count,
+    /// The key of a biome, such as `jungle` or `rustcraft:jungle`. The biomes of the base game
+    /// are suggested; those the mods of the server add are only known to it.
+    Biome,
 }
 
 impl Arg {
@@ -26,6 +29,7 @@ impl Arg {
             Arg::Word(words) => format!("<{}>", words.join("|")),
             Arg::Item => "<item>".into(),
             Arg::Count => "<count>".into(),
+            Arg::Biome => "<biome>".into(),
         }
     }
 
@@ -35,6 +39,16 @@ impl Arg {
             Arg::Word(words) => words.iter().map(|word| word.to_string()).collect(),
             Arg::Item => ItemId::ALL.iter().map(ItemId::name).collect(),
             Arg::Count => Vec::new(),
+            Arg::Biome => Biomes::vanilla()
+                .defs()
+                .iter()
+                .map(|def| {
+                    def.key
+                        .strip_prefix(BASE_NAMESPACE)
+                        .unwrap_or(&def.key)
+                        .to_string()
+                })
+                .collect(),
         }
     }
 
@@ -44,6 +58,8 @@ impl Arg {
             Arg::Word(words) => words.contains(&word),
             Arg::Item => ItemId::from_name(word).is_some(),
             Arg::Count => word.parse::<u32>().is_ok_and(|count| count > 0),
+            // a biome of a mod is checked by the server
+            Arg::Biome => true,
         }
     }
 }
@@ -76,6 +92,7 @@ impl CommandSyntax {
             Arg::Word(_) => format!("Usage: {}", self.usage()),
             Arg::Item => format!("Unknown item: {word}"),
             Arg::Count => format!("Invalid count: {word}"),
+            Arg::Biome => format!("Unknown biome: {word}"),
         }
     }
 }
@@ -89,6 +106,10 @@ pub const COMMANDS: &[CommandSyntax] = &[
     CommandSyntax {
         name: "give",
         args: &[Arg::Item, Arg::Count],
+    },
+    CommandSyntax {
+        name: "locate",
+        args: &[Arg::Word(&["biome"]), Arg::Biome],
     },
     CommandSyntax {
         name: "time",
@@ -256,13 +277,33 @@ mod tests {
     fn a_slash_alone_suggests_every_command_with_its_arguments() {
         let completion = complete("/", &[]).unwrap();
         assert_eq!(completion.word_start, 1);
-        assert_eq!(texts(&completion), ["gamemode", "give", "time", "weather"]);
+        assert_eq!(
+            texts(&completion),
+            ["gamemode", "give", "locate", "time", "weather"]
+        );
         assert_eq!(completion.suggestions[0].detail, "<creative|survival>");
         assert_eq!(completion.suggestions[1].detail, "<item> <count>");
-        assert_eq!(completion.suggestions[2].detail, "set <day|night>");
-        assert_eq!(completion.suggestions[3].detail, "<clear|rain|thunder>");
+        assert_eq!(completion.suggestions[2].detail, "biome <biome>");
+        assert_eq!(completion.suggestions[3].detail, "set <day|night>");
+        assert_eq!(completion.suggestions[4].detail, "<clear|rain|thunder>");
         assert_eq!(completion.error, None);
         assert!(completion.usage.is_empty());
+    }
+
+    #[test]
+    fn a_biome_is_completed_from_those_of_the_base_game_and_any_is_accepted() {
+        let completion = complete("/locate biome jun", &[]).unwrap();
+        assert_eq!(texts(&completion), ["jungle", "jungle_edge"]);
+        assert_eq!(completion.usage, ["/locate", "biome", "<biome>"]);
+        assert_eq!(completion.current, Some(2));
+        // the biome of a mod of the server, which only the server knows
+        let completion = complete("/locate biome mymod:mangrove", &[]).unwrap();
+        assert_eq!(completion.error, None);
+        let completion = complete("/locate jungle", &[]).unwrap();
+        assert_eq!(
+            completion.error.as_deref(),
+            Some("Usage: /locate biome <biome>")
+        );
     }
 
     #[test]

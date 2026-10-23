@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use bevy::prelude::{Transform, Vec3};
+use server::WorldGenerator;
 use shared::players::Player;
 use shared::world::{ItemId, ItemStack};
 use tempfile::TempDir;
@@ -126,13 +127,14 @@ impl GameFolder {
         self
     }
 
-    /// Saves the inventory of `player` in `world`: each item is `(slot, item, count)`.
+    /// Saves the inventory of `player` in `world`, a world of the seed 42 as `with_world` makes
+    /// them, standing at its spawn: each item is `(slot, item, count)`.
     pub fn with_items(self, world: &str, player: &str, items: &[(u32, ItemId, u32)]) -> Self {
         let id = hash_string_to_u64(player);
         let mut saved = Player::new(
             id,
             player.to_string(),
-            Vec3::new(0., 80., 0.),
+            WorldGenerator::new(42).spawn_position(),
             Transform::default(),
         );
         for &(slot, item_id, nb) in items {

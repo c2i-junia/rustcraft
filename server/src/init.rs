@@ -9,7 +9,7 @@ use crate::{
         container_files::insert_with_contents,
         data::{world_dir, ServerWorldMap},
         dropped_items::DroppedItems,
-        generation::spawn_position,
+        generation::{spawn_position, WorldGeneration},
         load_from_file::open_world,
         save::Autosave,
         weather::ServerWeather,
@@ -26,7 +26,7 @@ use shared::{
     get_shared_renet_config,
     messages::PlayerId,
     status::status_port,
-    world::{ChunkMap, WorldSeed},
+    world::{Biomes, ChunkMap, WorldSeed},
     GameFolderPaths, GameServerConfig, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
@@ -184,9 +184,10 @@ fn run(
 
     setup_resources_and_events(&mut app);
 
-    let (world_map, seed, time, weather) = load_world(&world_name, &game_folder_paths)?;
+    let (world_map, seed, generation, time, weather) = load_world(&world_name, &game_folder_paths)?;
     app.insert_resource(world_map);
     app.insert_resource(seed);
+    app.insert_resource(generation);
     app.insert_resource(ServerTime(time));
     app.insert_resource(weather);
 
@@ -237,14 +238,24 @@ fn run(
 }
 
 /// The world saved under `world_name`, or a new one when nothing was saved yet, with its
-/// seed, its time in ticks and its weather. Its chunks are read from their files as the
+/// seed, how it is generated, its time in ticks and its weather. Its chunks are read from their files as the
 /// players need them.
 fn load_world(
     world_name: &str,
     game_folder_paths: &GameFolderPaths,
-) -> Result<(ServerWorldMap, WorldSeed, u64, ServerWeather), String> {
+) -> Result<
+    (
+        ServerWorldMap,
+        WorldSeed,
+        WorldGeneration,
+        u64,
+        ServerWeather,
+    ),
+    String,
+> {
     // the cause alone, which names the file: the caller knows the world it asked for
     let world_data = open_world(world_name, game_folder_paths).map_err(|err| err.to_string())?;
+    let generation = WorldGeneration::new(world_data.generation.clone(), Biomes::vanilla())?;
 
     // A world converted from a single file still holds its chunks, and had no chests or
     // furnaces
@@ -267,12 +278,18 @@ fn load_world(
         dirty_chunks: HashSet::new(),
         players_to_save: Vec::new(),
         saved: Some(world_dir(game_folder_paths, world_name)?),
-        spawn: spawn_position(world_data.seed.0),
+        spawn: spawn_position(world_data.seed.0, &generation),
     };
     cleanup_all_players_from_world(&mut world_map);
 
     let weather = ServerWeather::from_saved(world_data.weather, &mut rand::thread_rng());
-    Ok((world_map, world_data.seed, world_data.time, weather))
+    Ok((
+        world_map,
+        world_data.seed,
+        generation,
+        world_data.time,
+        weather,
+    ))
 }
 
 #[cfg(test)]

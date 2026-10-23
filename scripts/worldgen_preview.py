@@ -5,10 +5,12 @@
     worldgen_preview.py biome <dump> <out.png>   top view coloured by biome
     worldgen_preview.py height <dump> <out.png>  top view coloured by height, sea in blue
     worldgen_preview.py view  <dump> <out.png>   oblique view of the map, from the south
+    worldgen_preview.py climate <dump> <out.png> the five climate parameters, then the biomes
     worldgen_preview.py slice <dump> <out.png>   vertical slice, one pixel per block
     worldgen_preview.py layer <dump> <out.png>   horizontal layer, one pixel per block
 
-`map` and `biome` also print the height statistics and the share of each biome.
+`map` and `biome` also print the height statistics and the share of each biome, `climate`
+the share of each biome. The biomes, their names and colours are read from `<dump>.biomes`.
 Needs Pillow and NumPy.
 """
 
@@ -64,25 +66,21 @@ AIR = 255
 WATER = 19
 ICE = 9
 
-# In the order of the variants of BiomeType (shared/src/world/data.rs)
-BIOMES = [
-    ("Plains", (140, 190, 90)),
-    ("Forest", (40, 120, 50)),
-    ("MediumMountain", (150, 140, 120)),
-    ("HighMountainGrass", (200, 200, 200)),
-    ("Desert", (230, 210, 140)),
-    ("IcePlain", (200, 230, 250)),
-    ("FlowerPlains", (200, 180, 90)),
-    ("ShallowOcean", (90, 160, 220)),
-    ("Ocean", (50, 100, 200)),
-    ("DeepOcean", (20, 50, 140)),
-    ("Savanna", (210, 140, 60)),
-    ("Jungle", (150, 200, 0)),
-]
+CLIMATE = ["temperature", "humidity", "continentalness", "erosion", "weirdness"]
 
 
-def palette(table):
-    colours = np.zeros((256, 3), np.float32)
+def read_biomes(path):
+    """The (name, colour) of each biome of the dump `path`, by id, from `<path>.biomes`."""
+    biomes = []
+    with open(path + ".biomes", encoding="utf-8") as lines:
+        for line in lines:
+            _key, name, colour = line.rstrip("\n").split("\t")
+            biomes.append((name, tuple(int(c) for c in colour.split(","))))
+    return biomes
+
+
+def palette(table, size=256):
+    colours = np.zeros((max(size, len(table)), 3), np.float32)
     for i, (_, colour) in enumerate(table):
         colours[i] = colour
     return colours
@@ -96,7 +94,7 @@ def read(path):
 
 def read_map(path):
     width, height, data = read(path)
-    record = np.dtype([("top", "<i2"), ("block", "u1"), ("floor", "<i2"), ("biome", "u1")])
+    record = np.dtype([("top", "<i2"), ("block", "u1"), ("floor", "<i2"), ("biome", "<u2")])
     columns = data.view(record).reshape(height, width)
     return columns["top"].astype(np.float32), columns["block"], columns["floor"].astype(np.float32), columns["biome"]
 
@@ -135,7 +133,41 @@ def coloured_map(top, block, floor):
     return np.clip(colours, 0, 255).astype(np.uint8)
 
 
-def stats(top, block, floor, biome):
+def read_climate(path):
+    width, height, data = read(path)
+    record = np.dtype([(name, "i1") for name in CLIMATE] + [("biome", "<u2")])
+    samples = data.view(record).reshape(height, width)
+    parameters = [samples[name].astype(np.float32) / 127.0 for name in CLIMATE]
+    return parameters, samples["biome"]
+
+
+def diverging(values):
+    """-1 in blue, 0 in white, 1 in red."""
+    t = values[..., None]
+    blue, white, red = np.array((40, 80, 200)), np.array((245, 245, 245)), np.array((200, 50, 40))
+    colours = np.where(t < 0, white + (blue - white) * -t, white + (red - white) * t)
+    return colours.clip(0, 255).astype(np.uint8)
+
+
+def climate_mosaic(parameters, biome, biomes):
+    """The parameters and the biomes side by side, three by two, a gap between them."""
+    panels = [diverging(p) for p in parameters]
+    panels.append(palette(biomes)[biome].astype(np.uint8))
+    height, width = biome.shape
+    gap = 4
+    image = np.full((2 * height + gap, 3 * width + 2 * gap, 3), 30, np.uint8)
+    for i, panel in enumerate(panels):
+        y, x = (i // 3) * (height + gap), (i % 3) * (width + gap)
+        image[y:y + height, x:x + width] = panel
+    return image
+
+
+def biome_shares(biome, biomes):
+    return ", ".join(f"{name} {100 * (biome == i).mean():.1f}%"
+                     for i, (name, _) in enumerate(biomes) if (biome == i).any())
+
+
+def stats(top, block, floor, biome, biomes):
     land = (block != WATER) & (block != ICE)
     print(f"floor height: min {floor.min():.0f}, p10 {np.percentile(floor, 10):.0f}, "
           f"median {np.median(floor):.0f}, p90 {np.percentile(floor, 90):.0f}, "
@@ -145,9 +177,7 @@ def stats(top, block, floor, biome):
     steps = np.abs(np.diff(floor, axis=1))
     print(f"steps between neighbours: >2 {100 * (steps > 2).mean():.2f}%, "
           f">4 {100 * (steps > 4).mean():.2f}%, max {steps.max():.0f}")
-    shares = ", ".join(f"{name} {100 * (biome == i).mean():.1f}%"
-                       for i, (name, _) in enumerate(BIOMES) if (biome == i).any())
-    print(f"biomes: {shares}")
+    print(f"biomes: {biome_shares(biome, biomes)}")
     # the width of the biome a column stands in, along x, averaged over the columns: thin
     # bands between two biomes weigh as little as the area they cover
     runs = []
@@ -185,16 +215,23 @@ def main():
     mode, path, out = sys.argv[1:]
     if mode in ("map", "biome", "view", "height"):
         top, block, floor, biome = read_map(path)
+        biomes = read_biomes(path)
         if mode == "map":
             image = coloured_map(top, block, floor)
         elif mode == "height":
             image = height_map(block, floor)
         elif mode == "biome":
-            image = (palette(BIOMES)[biome] * relief(floor)[..., None]).clip(0, 255).astype(np.uint8)
+            image = (palette(biomes)[biome] * relief(floor)[..., None]).clip(0, 255).astype(np.uint8)
         else:
             image = oblique(top, block, floor)
         if mode != "view":
-            stats(top, block, floor, biome)
+            stats(top, block, floor, biome, biomes)
+    elif mode == "climate":
+        parameters, biome = read_climate(path)
+        biomes = read_biomes(path)
+        image = climate_mosaic(parameters, biome, biomes)
+        print("panels: " + ", ".join(CLIMATE) + ", biomes")
+        print(f"biomes: {biome_shares(biome, biomes)}")
     elif mode in ("slice", "layer"):
         width, height, data = read(path)
         cells = data.reshape(height, width)

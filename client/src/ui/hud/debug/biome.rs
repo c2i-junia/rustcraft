@@ -16,9 +16,10 @@ pub fn biome_text_update_system(
     };
     let position = transform.translation.floor().as_ivec3();
     let biome = biomes.0.column_shape(position.x, position.z).biome;
+    let name = &biomes.0.biomes().get(biome).name;
 
     for entity in query.iter() {
-        *writer.text(entity, 0) = format!("Biome: {biome:?}");
+        *writer.text(entity, 0) = format!("Biome: {name}");
     }
 }
 
@@ -36,7 +37,7 @@ mod tests {
         let text = world.spawn((BiomeText, Text::new("Biome: N/A"))).id();
         world.spawn((
             CurrentPlayerMarker {},
-            Transform::from_xyz(478.6, 70.0, 622.4),
+            Transform::from_xyz(868.6, 70.0, -795.6),
         ));
         world.run_system_once(biome_text_update_system).unwrap();
         // No seed yet: the line is left as it is

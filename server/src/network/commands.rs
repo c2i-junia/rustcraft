@@ -1,6 +1,7 @@
 //! The chat commands: a chat message that starts with `/` is run by the server for its author,
 //! who alone gets the answer, instead of being relayed.
 
+use bevy::math::Vec3;
 use shared::players::game_mode::GameMode;
 use shared::players::Player;
 use shared::world::{ItemId, ItemStack, WeatherKind};
@@ -16,6 +17,7 @@ const TIME_USAGE: &str = "Usage: /time set <day|night>";
 const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
+const LOCATE_USAGE: &str = "Usage: /locate biome <biome>";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeOfDay {
@@ -35,6 +37,8 @@ pub enum Command {
     SetGameMode(GameMode),
     /// `/weather <clear|rain|thunder>`: for as long as it would last on its own.
     SetWeather(WeatherKind),
+    /// `/locate biome <biome>`: the nearest column of the biome to the author of the command.
+    LocateBiome(String),
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -69,16 +73,21 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             .map(Command::SetWeather)
             .ok_or_else(|| WEATHER_USAGE.to_string()),
         ["weather", ..] => Err(WEATHER_USAGE.to_string()),
+        ["locate", "biome", biome] => Ok(Command::LocateBiome(biome.to_string())),
+        ["locate", ..] => Err(LOCATE_USAGE.to_string()),
         _ => Err(format!("Unknown command: /{line}")),
     }
 }
 
-/// Runs `command` for `player`, its author, and returns the answer.
+/// Runs `command` for `player`, its author, and returns the answer. `locate` starts the search
+/// of a biome by its key from the position of the player, and returns the answer to give at once
+/// (`Locator::start`).
 pub fn run_command(
     command: Command,
     time: &mut ServerTime,
     weather: &mut ServerWeather,
     player: &mut Player,
+    locate: impl FnOnce(&str, Vec3) -> String,
 ) -> String {
     match command {
         Command::SetTime(time_of_day) => {
@@ -111,6 +120,7 @@ pub fn run_command(
             weather.set(kind, &mut rand::thread_rng());
             format!("Weather set to {}", kind.name())
         }
+        Command::LocateBiome(key) => locate(&key, player.position),
     }
 }
 
@@ -212,7 +222,8 @@ mod tests {
                 .unwrap();
             format!("Usage: {}", command.usage())
         };
-        assert_eq!(shared::commands::COMMANDS.len(), 4);
+        assert_eq!(shared::commands::COMMANDS.len(), 5);
+        assert_eq!(LOCATE_USAGE, usage("locate"));
         assert_eq!(TIME_USAGE, usage("time"));
         assert_eq!(WEATHER_USAGE, usage("weather"));
         assert_eq!(GIVE_USAGE, usage("give"));
@@ -246,6 +257,7 @@ mod tests {
             &mut ServerTime(0),
             &mut ServerWeather::new(&mut rand::thread_rng()),
             &mut player,
+            |_, _| unreachable!(),
         );
         assert_eq!(player.game_mode, GameMode::Creative);
         assert_eq!(answer, "Game mode set to creative");
@@ -278,10 +290,43 @@ mod tests {
             &mut ServerTime(0),
             &mut weather,
             &mut Player::default(),
+            |_, _| unreachable!(),
         );
         assert_eq!(answer, "Weather set to rain");
         assert_eq!(weather.kind, WeatherKind::Rain);
         assert!(shared::world::STORM_TICKS.contains(&weather.ticks_left));
+    }
+
+    #[test]
+    fn locate_searches_a_biome_from_its_author() {
+        assert_eq!(
+            parse_command("locate biome jungle"),
+            Ok(Command::LocateBiome("jungle".into()))
+        );
+        for wrong in [
+            "locate",
+            "locate jungle",
+            "locate biome",
+            "locate biome a b",
+        ] {
+            assert_eq!(
+                parse_command(wrong),
+                Err(LOCATE_USAGE.to_string()),
+                "{wrong}"
+            );
+        }
+        let player = Player {
+            position: Vec3::new(10.0, 70.0, -3.0),
+            ..Player::default()
+        };
+        let answer = run_command(
+            Command::LocateBiome("mymod:mangrove".into()),
+            &mut ServerTime(0),
+            &mut ServerWeather::new(&mut rand::thread_rng()),
+            &mut player.clone(),
+            |key, from| format!("{key} from {from}"),
+        );
+        assert_eq!(answer, format!("mymod:mangrove from {}", player.position));
     }
 
     #[test]
