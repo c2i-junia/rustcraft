@@ -165,7 +165,7 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
 | What the client counts as held | Whole shells of chunks around the twin, in front of its plane, held and with their group's mesh shown (`HeldAreas`, `ChunkRender::meshed`): a chunk not meshed yet is a hole, not terrain. |
 | The portal camera's fog | Ends where the shells shown end, the player's own chunks counted too; their top and bottom do not count once they are as high as the player's own, so an approached twin wholly shown has the player's own fog. It opens at 96 blocks a second and closes at once. |
 | Meshing | A group around a twin waits for its neighbours there as around the player (`WaitingChunks` takes every area). |
-| Shadows | Groups within 12 chunks of an approached twin cast shadows, as around the player, but in the views of the portal cameras only when they are not within 12 of the player too (`ShadowRole::ForTwinsOnly`): culled on the CPU, they are taken out of the other cameras' shadow cascades (`keep_twin_shadows_to_portal_cameras`). Around a close twin they are among the player's own chunks past a render distance of 12, and at a low sun their shadows reached its view: 1.47 levels on average with a wall 14 chunks towards a dusk sun, 0.25 now against a noise of 0.27 (`own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin`). A group that starts or stops casting is culled on the CPU for a frame, or the cascades, which Bevy hands a mesh culled on the GPU only once, would never take it nor let it go. |
+| Shadows | Groups within 12 chunks of an approached twin cast shadows, as around the player, but in the views of the portal cameras only when they are not within 12 of the player too (`ShadowRole::ForTwinsOnly`): culled on the CPU, they are taken out of the other cameras' shadow cascades (`keep_twin_shadows_to_portal_cameras`). Around a close twin they are among the player's own chunks past a render distance of 12, and at a low sun their shadows reached its view: 1.47 levels on average with a wall 14 chunks towards a dusk sun, 0.25 now against a noise of 0.27 (`own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin`). A group that starts or stops casting is culled on the CPU for a frame, or the cascades, which Bevy hands a mesh culled on the GPU only once, would never take it nor let it go. Since lot 14 the sky light shadows the groups only portals show too, and the roles hold to the reach of where the player stands or will stand after crossing: through a far twin, the shadows are those after crossing. |
 | Clouds | The cloud mesh also holds a disk around each approached twin, each meshed on its own window: two disks cost twice one, however far apart. |
 | Haze | Each camera, the player's and each portal camera that draws, has its own layer of haze centred under it, which only it draws (Bevy's volumetric shader changed to leave out a volume whose camera does not stand within half a block of the view's along x, y and z and look within a degree of its way): the player's view never changes with a portal, a floor portal under a ceiling portal included. Cameras that stand and look alike share one volume. A box stretched over the twin was tried first and changed the player's own view. Each view marches its own layer, 0.6 ms of GPU (High) to 1.3 ms (Ultra) a view at 960×540 on an RTX 5060 Ti, and leaves another's out for about 15 µs (`bench_portal_haze_per_pair`). If Bevy's shader text no longer matches, an error is logged and only the player's camera draws haze, from one untagged volume (`HazePerCamera`). |
 | Rain occlusion | As built after lot 12: each twin of a portal with cameras has an occlusion map of its own, centred on its opening, which its portal cameras bind instead of the player's, so roofs by a far twin stop the rain seen through the portal. Whether drops fall is decided per view: the player's eye, and for a portal camera the medium its twin opens into. |
@@ -229,6 +229,22 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
   and 1.1 ms for 1, 4 and 8 players each by a portal (4.4 ms for 8 before), and the rest of
   what the portals cost a tick is within 5 µs at 8 players; the look for the chunks to forget,
   every 5 s, takes 3.1 ms at 8 players by portals (1.15 ms without).
-- Not changed: the groups only portals show (layer 3) cast no shadow, as the sky light shadows
-  layers 0 and 2 only; through a far twin the terrain past the player's reach is unshadowed
-  until the player crosses.
+- Not changed then: the groups only portals show (layer 3) cast no shadow, as the sky light
+  shadowed layers 0 and 2 only; through a far twin the terrain past the player's reach was
+  unshadowed until the player crossed. Lot 14 below.
+
+## Lot 14: the shadows through a far twin
+
+- **Cause**: Bevy 0.19 filters the shadow casters by the layers of the light, not of the view,
+  and the sky light shadowed layers 0 and 2; its cascades are fitted to each camera, the portal
+  cameras included.
+- **Built**: the sky light shadows layer 3 too. A group casts in every view only within 12
+  chunks of the player and within its own reach (the layer used to imply it); within 12 of an
+  approached twin and within the reach the player will have there, in the portal cameras' views
+  only (`ShadowRole::ForTwinsOnly`). The player's cascades get nothing new; a portal camera's get
+  what the player's will after crossing.
+- **Measured**: through a twin 21 chunks away at dusk, the mean of the 64–96 blocks class across
+  the crossing went from 6.02 (High) and 6.17 (Medium) to 2.83 at both
+  (`seam_far_{medium,high}_dusk_is_seamless`, `SHADOWS_SEAMLESS` = 4.5, with an in-test and a
+  red control). GPU, RTX 5060 Ti, 960×540, the twin in view: +0.24 ms at High (3.31 → 3.54) and
+  +0.52 ms at Ultra (4.93 → 5.45); no portal in view, unchanged (`bench_far_twin_shadows`).

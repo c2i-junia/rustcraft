@@ -510,17 +510,23 @@ never moves a player, so the prediction of the clients is left alone.
    meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
    (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
-   cast shadows in every view, and those within 12 of the twin of a portal it approaches but
-   not of the player (`Approach`, `portal/approach.rs`, which follows the approach as the
-   server reckons it and keeps a twin a chunk past the widest approach) in the views of the
+   and within its own reach cast shadows in every view, and those within 12 of the twin of a
+   portal it approaches and within the reach the player will have there, but not of the player
+   (`Approach`, `portal/approach.rs`, which follows the approach as the
+   server reckons it and keeps a twin a chunk past the widest approach), in the views of the
    portal cameras only (`ShadowRole`): culled on the CPU, they are taken out of the shadow
    cascades of every other camera once Bevy has listed them
    (`keep_twin_shadows_to_portal_cameras`), so that around a close twin, among the player's
    own chunks at a render distance past 12, their long shadows at a low sun never reach the
    player's view. Bevy hands a mesh culled on the GPU only to the views it was visible to, and
    the cascades are views: a group that starts or stops casting is culled on the CPU for a
-   frame (`CpuCulledForAFrame`). The groups only portals show (layer 3) cast no shadow, as the
-   sky light shadows layers 0 and 2 only; and a fog of the colour of the sky hides the edge of the render distance:
+   frame (`CpuCulledForAFrame`). Bevy 0.19 filters the casters by the layers of the light, not
+   of the view, but fits the cascades to each camera: the sky light shadows layer 3 too, the
+   groups only portals show, so that through a far twin the portal camera draws the shadows the
+   player sees after crossing (0.24 ms more of GPU at High and 0.52 ms at Ultra with such a twin
+   in view, at 960×540 on an RTX 5060 Ti, `bench_far_twin_shadows`; nothing without), and none of
+   them ever casts in every view, as it would into the player's cascades from beyond its fog.
+   And a fog of the colour of the sky hides the edge of the render distance:
    its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
    clear colour, which is not, so that a block wholly in the fog is the sky: it is found on
    the CPU, by Newton's method, from the LUT of TonyMcMapface that Bevy keeps in the main
@@ -552,7 +558,8 @@ portal, the image of level l + 1, so no camera reads the image it draws (wgpu fo
 portal seen through another portal shows its colour. The main camera sees layers 0 and 1 (a
 portal's view of level 1); the portal cameras see 0, the local player's body in first person
 (2, `BODY_LAYER`: the player sees itself through a portal, not from inside its body; in third
-person the body is on 0, and the sky light shadows both), the chunks only portals show (3),
+person the body is on 0, and the sky light shadows both), the chunks only portals show (3,
+which the sky light shadows too),
 and two of the three layers of each portal drawn (`camera_layers`): its stand-in in its colour,
 or, for the portal's own cameras, the surface showing the next level when that level draws (its
 colour at the deepest level, nothing past the camera's fog). A
