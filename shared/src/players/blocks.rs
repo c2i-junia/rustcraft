@@ -2121,6 +2121,59 @@ mod tests {
         assert!(shots[0].to.distance(eye + Vec3::Y * PORTAL_GUN_REACH) < 1e-4);
     }
 
+    /// The gun's ray goes through what a player walks through, as the front of a portal lets
+    /// it be: a vine on the wall, tall grass, a fern, flowers, a torch. A block that collides,
+    /// leaves or a cocoa pod, stops it, and no portal goes there.
+    #[test]
+    fn the_gun_shoots_through_what_a_player_walks_through() {
+        use crate::world::BlockDirection;
+        let walk_through = [
+            (IVec3::new(1, 11, 1), BlockId::Vine),
+            (IVec3::new(1, 11, 2), BlockId::TallGrass),
+            (IVec3::new(1, 11, 2), BlockId::Fern),
+            (IVec3::new(1, 11, 3), BlockId::Poppy),
+            (IVec3::new(1, 11, 3), BlockId::Dandelion),
+            (IVec3::new(1, 11, 4), BlockId::Torch),
+        ];
+        for (cell, id) in walk_through {
+            let mut world = gun_range();
+            // A vine hangs on the wall behind it, north
+            world.set_block(cell, BlockData::new(id, BlockDirection::Front));
+            world.take_changed_blocks();
+            let mut player = gunner(1.5, 11.3, 5.0);
+            let shots = shots_of(&mut player, &mut world);
+            assert_eq!(shots.len(), 1, "{id:?}: {shots:?}");
+            assert!(shots[0].placed, "{id:?}: {shots:?}");
+            assert!((shots[0].to.z - 1.0).abs() < 1e-4, "{id:?}: {shots:?}");
+            assert!(anchor(&world, PortalColor::Blue).is_some(), "{id:?}");
+        }
+        for id in [BlockId::OakLeaves, BlockId::Glass] {
+            let mut world = gun_range();
+            world.set_block(
+                IVec3::new(1, 11, 3),
+                BlockData::new(id, BlockDirection::Front),
+            );
+            world.take_changed_blocks();
+            let mut player = gunner(1.5, 11.3, 5.0);
+            let shots = shots_of(&mut player, &mut world);
+            assert!(!shots[0].placed, "{id:?}: {shots:?}");
+            assert!((shots[0].to.z - 4.0).abs() < 1e-4, "{id:?}: {shots:?}");
+        }
+        // The hand still aims at the vine, which it breaks
+        let mut world = gun_range();
+        let vine = BlockData::new(BlockId::Vine, BlockDirection::Front);
+        world.set_block(IVec3::new(1, 11, 1), vine);
+        let player = gunner(1.5, 11.3, 2.0);
+        let hit = aim(
+            &world,
+            &player.camera_transform,
+            &player.position,
+            ViewMode::FirstPerson,
+            None,
+        );
+        assert_eq!(hit.map(|hit| hit.position), Some(IVec3::new(1, 11, 1)));
+    }
+
     #[test]
     fn the_gun_shoots_through_the_water_sources_that_only_a_bucket_aims_at() {
         let mut world = gun_range();

@@ -186,7 +186,8 @@ per press (`Player::portal_triggers_held`), up to `PORTAL_GUN_REACH` (32) blocks
 neither mines nor places blocks (`shared/src/players/blocks.rs`); a right click on a
 container shoots too, where it would open it. It aims as any item but the empty bucket (`aim`),
 through water sources, and further: its ray goes 36 blocks (`raycast_far`), every other item's
-20. The portal goes on the face aimed at, a wall, a floor or a ceiling, its long side up on a
+20, and only a block that collides stops it, so that it shoots through the vines, the flora and
+the torches that may stand in front of a portal. The portal goes on the face aimed at, a wall, a floor or a ceiling, its long side up on a
 wall and, on a floor or a ceiling, away from the shooter along the horizontal axis the shot
 goes most along (`opening_up`), on the placement of the six holding the aimed cell nearest to the
 point hit that fits: its wall cells solid full blocks (a furnace or a chest is one), its

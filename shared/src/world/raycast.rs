@@ -45,6 +45,18 @@ pub struct RaycastResponse {
     pub bbox: Aabb3d,
 }
 
+/// What stops a ray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stop {
+    /// The box rays hit of every block but water (`BlockData::get_ray_hitbox`).
+    RayHitbox,
+    /// The same, and a water source as a whole block.
+    WaterSources,
+    /// Only a block that collides, which a player cannot walk through, by its ray box: the
+    /// flora, the vines, the torches and the water let it through, as the front of a portal.
+    Colliding,
+}
+
 /// The first block hit by the ray the player aims with, `aim_ray`, within `AIM_DISTANCE`.
 pub fn raycast(
     world_map: &ChunkMap,
@@ -57,12 +69,14 @@ pub fn raycast(
         camera_transform,
         player_position,
         view_mode,
-        false,
+        Stop::RayHitbox,
         AIM_DISTANCE,
     )
 }
 
-/// `raycast`, but within `MAX_RAY_DISTANCE`: what the portal gun aims at.
+/// What the portal gun aims at: the first block hit that a player cannot walk through, within
+/// `MAX_RAY_DISTANCE`. A vine, tall grass, a flower or a torch, which may stand in front of a
+/// portal (`Portal::fits`), does not stop its shot.
 pub fn raycast_far(
     world_map: &ChunkMap,
     camera_transform: &Transform,
@@ -74,7 +88,7 @@ pub fn raycast_far(
         camera_transform,
         player_position,
         view_mode,
-        false,
+        Stop::Colliding,
         MAX_RAY_DISTANCE,
     )
 }
@@ -92,7 +106,7 @@ pub fn raycast_to_water_source(
         camera_transform,
         player_position,
         view_mode,
-        true,
+        Stop::WaterSources,
         AIM_DISTANCE,
     )
 }
@@ -102,11 +116,11 @@ fn cast(
     camera_transform: &Transform,
     player_position: &Vec3,
     view_mode: ViewMode,
-    sources: bool,
+    stop: Stop,
     reach: f32,
 ) -> Option<RaycastResponse> {
     let (origin, direction) = aim_ray(camera_transform, player_position, view_mode);
-    traverse(world_map, origin, direction, sources, reach)
+    traverse(world_map, origin, direction, stop, reach)
 }
 
 /// The origin and the direction of the ray the player aims with. The ray follows the camera's
@@ -153,16 +167,22 @@ pub fn raycast_from_source_position_and_direction(
     origin: Vec3,
     direction: Vec3,
 ) -> Option<RaycastResponse> {
-    traverse(world_map, origin, direction, false, MAX_RAY_DISTANCE)
+    traverse(
+        world_map,
+        origin,
+        direction,
+        Stop::RayHitbox,
+        MAX_RAY_DISTANCE,
+    )
 }
 
 // Amanatides-Woo fast traversal algorithm
-// Tweaked to include block-specific interaction boxes, and the water sources when `sources`
+// Tweaked to include block-specific interaction boxes, and what else `stop` says
 fn traverse(
     world_map: &ChunkMap,
     origin: Vec3,
     direction: Vec3,
-    sources: bool,
+    stop: Stop,
     reach: f32,
 ) -> Option<RaycastResponse> {
     // The camera comes from the network: reject anything that cannot define a ray
@@ -192,9 +212,7 @@ fn traverse(
         }
         if let Some(block) = world_map.get_block(voxel) {
             let entered_by = entry_face(axis, step[axis])?;
-            let hit = hit_block(
-                *block, voxel, entered_by, sources, origin, direction, inv_dir,
-            );
+            let hit = hit_block(*block, voxel, entered_by, stop, origin, direction, inv_dir);
             if hit.is_some() {
                 return hit;
             }
@@ -254,20 +272,21 @@ fn entry_face(axis: usize, step: i32) -> Option<FaceDirection> {
 }
 
 /// Whether the ray, which entered `voxel` through `entered_by`, hits the interaction box of
-/// the `block` it holds, a whole block for a water source when it stops at `sources`.
+/// the `block` it holds, as `stop` says: a whole block for a water source, nothing for a block
+/// that does not collide.
 fn hit_block(
     block: BlockData,
     voxel: IVec3,
     entered_by: FaceDirection,
-    sources: bool,
+    stop: Stop,
     origin: Vec3,
     direction: Vec3,
     inv_dir: Vec3,
 ) -> Option<RaycastResponse> {
-    let hitbox = if sources && is_source(&block) {
-        BlockHitbox::FullBlock
-    } else {
-        block.get_ray_hitbox()
+    let hitbox = match stop {
+        Stop::WaterSources if is_source(&block) => BlockHitbox::FullBlock,
+        Stop::Colliding if matches!(block.get_hitbox(), BlockHitbox::None) => BlockHitbox::None,
+        _ => block.get_ray_hitbox(),
     };
     match hitbox {
         BlockHitbox::FullBlock => Some(RaycastResponse {
@@ -426,12 +445,19 @@ mod tests {
         world.set_block(IVec3::new(2, 0, 0), water(3));
         world.set_block(IVec3::new(4, 0, 0), water(0));
 
-        let hit = traverse(&world, ORIGIN, Vec3::X, true, MAX_RAY_DISTANCE).unwrap();
+        let hit = traverse(
+            &world,
+            ORIGIN,
+            Vec3::X,
+            Stop::WaterSources,
+            MAX_RAY_DISTANCE,
+        )
+        .unwrap();
         assert_eq!(hit.position, IVec3::new(4, 0, 0));
         assert_eq!(hit.face, FaceDirection::MinusX);
         assert_eq!(hit.block, water(0));
         // A ray that ignores water reaches the stone
-        let hit = traverse(&world, ORIGIN, Vec3::X, false, MAX_RAY_DISTANCE).unwrap();
+        let hit = traverse(&world, ORIGIN, Vec3::X, Stop::RayHitbox, MAX_RAY_DISTANCE).unwrap();
         assert_eq!(hit.position, IVec3::new(6, 0, 0));
         // So does the camera's ray, and the bucket's stops at the source
         let camera = Transform::from_translation(ORIGIN).looking_to(Vec3::X, Vec3::Y);
