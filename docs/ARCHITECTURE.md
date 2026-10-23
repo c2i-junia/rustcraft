@@ -433,7 +433,8 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    approached add at most `MAX_APPROACHED_EXTRA_CHUNKS` (10 625, a render distance of 12)
    chunks together to the player's own, the nearest portal first: past a render distance of 12
    an area keeps as many shells as fit, rounded down to a multiple of 4 so that moving near a
-   twin seldom changes it (`CAPPED_RADIUS_STEP`), and the client's fog follows what it holds.
+   twin seldom changes it (`CAPPED_RADIUS_STEP`), and kept a step wider, so that a step back
+   across a chunk border unloads none of it; the client's fog follows what it holds.
    The chunks of an area go by shells, nearest the
    twin first and those behind its plane after (`twin_area_offsets`), merged across the areas
    (`ChunkReach::portal_chunks`, kept by `SentChunks::portal_progress` while the portals do not

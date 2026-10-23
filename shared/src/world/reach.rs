@@ -307,7 +307,8 @@ impl ChunkReach {
     /// (with a margin, within the widest approach grown by it: `approaches`), as far as
     /// `MAX_APPROACHED_EXTRA_CHUNKS` allows, the nearest portal first; `PORTAL_VIEW_RADIUS`
     /// around the others. Those approached only with the margin are farther than the others, so
-    /// each area sent has the same radius whatever the margin.
+    /// each area sent has the same radius whatever the margin; with a margin, a capped area is
+    /// a `CAPPED_RADIUS_STEP` wider, what keeping it needs across a chunk border.
     pub fn areas_within(&self, margin: i32) -> Vec<TwinArea> {
         let mut areas: Vec<TwinArea> = Vec::new();
         let mut views: Vec<&View> = self
@@ -320,7 +321,14 @@ impl ChunkReach {
         let mut budget = MAX_APPROACHED_EXTRA_CHUNKS;
         for view in views {
             let radius = if self.approaches(view.portal, margin) {
-                self.approached_radius(view.twin, &mut budget)
+                let radius = self.approached_radius(view.twin, &mut budget);
+                if margin > 0 && radius < self.distance {
+                    // Kept a step wider: a step back across a chunk border can round the capped
+                    // radius down a whole step, and what was sent at the wider one stays
+                    (radius + CAPPED_RADIUS_STEP).min(self.distance)
+                } else {
+                    radius
+                }
             } else {
                 PORTAL_VIEW_RADIUS
             };
@@ -894,6 +902,23 @@ mod tests {
     }
 
     #[test]
+    fn stepping_to_and_fro_by_a_portal_unloads_nothing_of_its_twin() {
+        use crate::constants::UNLOAD_MARGIN;
+        for (distance, twin) in [(32, 21), (32, 40), (64, 50)] {
+            let mut portals = Portals::default();
+            pair(&mut portals, 1, IVec3::ZERO, IVec3::new(twin, 0, 0));
+            let mut sent: std::collections::HashSet<IVec3> = Default::default();
+            for (step, x) in [0, 1, 0, 1, 0, -1, 0, 2, 1, 0].into_iter().enumerate() {
+                let reach = ChunkReach::new(IVec3::new(x, 0, 0), distance, &portals);
+                let kept = reach.kept(UNLOAD_MARGIN);
+                let unloaded = sent.iter().filter(|chunk| !kept.contains(**chunk)).count();
+                assert_eq!(unloaded, 0, "{distance}, {twin}: step {step}, at {x}");
+                sent.extend(reach.portal_chunks());
+            }
+        }
+    }
+
+    #[test]
     fn the_offsets_least_used_go_first() {
         let mut cache = OffsetsCache::default();
         let players = cache.get(64, IVec3::Z);
@@ -967,10 +992,15 @@ mod tests {
         assert!(added <= MAX_APPROACHED_EXTRA_CHUNKS + 3 * 729, "{added}");
         // The nearest gets the most
         assert!(areas.iter().any(|area| area.radius > PORTAL_VIEW_RADIUS));
-        // Kept with a margin, each keeps the radius it is sent
+        // Kept with a margin, each keeps at least the radius it is sent
         let kept = reach.areas_within(3);
         for area in &areas {
-            assert!(kept.contains(area), "{area:?}");
+            assert!(
+                kept.iter().any(|kept| kept.twin == area.twin
+                    && kept.facing == area.facing
+                    && kept.radius >= area.radius),
+                "{area:?}"
+            );
         }
     }
 }
