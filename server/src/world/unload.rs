@@ -2,8 +2,8 @@
 //! a player ever came near, tens of thousands more at each walk with a large render distance.
 
 use bevy::prelude::*;
-use shared::world::ChunkReach;
-use shared::{TICKS_PER_SECOND, UNLOAD_MARGIN};
+use shared::world::{ChunkReach, MAX_REACH_MARGIN};
+use shared::TICKS_PER_SECOND;
 
 use crate::init::ServerTime;
 use crate::world::data::ServerWorldMap;
@@ -14,8 +14,9 @@ const UNLOAD_INTERVAL_TICKS: u64 = 5 * TICKS_PER_SECOND;
 
 /// How many chunks beyond its render distance a player keeps its chunks on the server: more than
 /// its client keeps (`UNLOAD_MARGIN`), so that a chunk is forgotten once no client has it, and
-/// a player who turns back does not have the chunks read again at once.
-const KEPT_MARGIN: i32 = UNLOAD_MARGIN + 2;
+/// a player who turns back does not have the chunks read again at once. The widest a reach
+/// knows its portals for (`MAX_REACH_MARGIN`).
+const KEPT_MARGIN: i32 = MAX_REACH_MARGIN;
 
 /// Every `UNLOAD_INTERVAL_TICKS`, forgets the chunks beyond the reach of every player. A chunk
 /// that changed since its last save stays until a save writes it; and none is forgotten while

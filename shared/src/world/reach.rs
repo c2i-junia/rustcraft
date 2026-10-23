@@ -185,13 +185,21 @@ struct View {
     facing: IVec3,
 }
 
+/// The widest margin a reach is asked about (`areas_within`, `approached_twins_within`,
+/// `kept`): the server's, which keeps what it loaded that much beyond (`KEPT_MARGIN`,
+/// `server/src/world/unload.rs`).
+pub const MAX_REACH_MARGIN: i32 = crate::UNLOAD_MARGIN + 2;
+
 /// The reach of a player in the chunk `center` with the render distance `distance`, among the
 /// portals of the world.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChunkReach {
     pub center: IVec3,
     pub distance: i32,
-    /// The open portals, sorted.
+    /// The open portals within the render distance plus `MAX_REACH_MARGIN`, the only ones a
+    /// reach ever uses, sorted: a portal opened farther leaves the reach as it was, and the
+    /// server, which walks a client's chunks again when its reach changes, does not walk them
+    /// for every shot in the world.
     views: Vec<View>,
     /// How near a portal is approached, in chunks (`approach_radius`).
     approach: i32,
@@ -199,8 +207,17 @@ pub struct ChunkReach {
 
 impl ChunkReach {
     pub fn new(center: IVec3, distance: i32, portals: &Portals) -> Self {
+        let reaches = |chunk: IVec3| {
+            chunk_in_reach(
+                chunk,
+                center,
+                distance + MAX_REACH_MARGIN,
+                vertical_render_distance(distance) + MAX_REACH_MARGIN,
+            )
+        };
         let mut views: Vec<View> = portals
             .iter()
+            .filter(|portal| reaches(portal.chunk()))
             .filter_map(|portal| {
                 let twin = portals.twin(portal)?;
                 Some(View {
@@ -310,6 +327,7 @@ impl ChunkReach {
     /// each area sent has the same radius whatever the margin; with a margin, a capped area is
     /// a `CAPPED_RADIUS_STEP` wider, what keeping it needs across a chunk border.
     pub fn areas_within(&self, margin: i32) -> Vec<TwinArea> {
+        debug_assert!(margin <= MAX_REACH_MARGIN, "{margin}");
         let mut areas: Vec<TwinArea> = Vec::new();
         let mut views: Vec<&View> = self
             .views
@@ -362,6 +380,7 @@ impl ChunkReach {
 
     /// `approached_twins`, the approach and the render distance grown by `margin`.
     pub fn approached_twins_within(&self, margin: i32) -> Vec<IVec3> {
+        debug_assert!(margin <= MAX_REACH_MARGIN, "{margin}");
         let mut twins: Vec<IVec3> = Vec::new();
         for view in &self.views {
             if self.within(view.portal, margin)
@@ -487,6 +506,40 @@ mod tests {
             up: FaceDirection::PlusY,
         };
         assert_eq!(portal.chunk(), IVec3::new(0, 0, 1));
+    }
+
+    /// A reach knows only the portals within the render distance plus the widest margin it is
+    /// asked about: a pair opened or moved farther, or a far portal of a pair whose twin is
+    /// near, leaves it equal, and the server walks nothing again.
+    #[test]
+    fn a_portal_beyond_the_widest_margin_leaves_the_reach_as_it_was() {
+        let mut portals = Portals::default();
+        pair(&mut portals, 1, IVec3::new(1, 0, 0), FAR);
+        let reach = ChunkReach::new(IVec3::ZERO, DISTANCE, &portals);
+        let edge = DISTANCE + MAX_REACH_MARGIN;
+        pair(
+            &mut portals,
+            2,
+            IVec3::new(625, 0, 0),
+            IVec3::new(edge + 1, 0, 0),
+        );
+        assert_eq!(ChunkReach::new(IVec3::ZERO, DISTANCE, &portals), reach);
+        // Within it, it counts: its twin's area is kept with the widest margin
+        pair(
+            &mut portals,
+            2,
+            IVec3::new(625, 0, 0),
+            IVec3::new(edge, 0, 0),
+        );
+        let near = ChunkReach::new(IVec3::ZERO, DISTANCE, &portals);
+        assert_ne!(near, reach);
+        assert_eq!(
+            near.areas_within(MAX_REACH_MARGIN)
+                .iter()
+                .map(|area| area.twin)
+                .collect::<Vec<_>>(),
+            vec![FAR, IVec3::new(625, 0, 0)]
+        );
     }
 
     #[test]

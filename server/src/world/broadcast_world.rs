@@ -1214,6 +1214,34 @@ mod tests {
         assert!(far_xs(&sent.chunks).is_empty());
     }
 
+    /// A pair opened far from the player, by another player say, is no part of its reach: its
+    /// chunks are not walked again, nor the list of those around the twins it sees made anew.
+    #[test]
+    fn a_pair_opened_far_off_leaves_what_a_client_holds_unwalked() {
+        let mut chunks = chunks_between(-KEPT - 2, FAR_TWIN.x + PORTAL_VIEW_RADIUS + 2);
+        open_pair(&mut chunks, 1);
+        let mut sent = SentChunks::default();
+        walk_to(&chunks, 0, &mut sent);
+        let (then, _) = sent.progress.clone().unwrap();
+        let (_, list, _) = sent.portal_progress.clone().unwrap();
+        // Another player's pair, 10 000 blocks away
+        for (color, x) in [(PortalColor::Blue, 600), (PortalColor::Orange, 640)] {
+            chunks.portals_mut().insert(Portal {
+                owner: 2,
+                color,
+                anchor: IVec3::new(x, 0, 0) * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                face: FaceDirection::PlusZ,
+                up: FaceDirection::PlusY,
+            });
+        }
+        let (unloads, new_chunks) = walk_to(&chunks, 0, &mut sent);
+        assert!(unloads.is_empty() && new_chunks.is_empty());
+        assert_eq!(sent.progress.as_ref().unwrap().0, then);
+        let (now, kept, _) = sent.portal_progress.as_ref().unwrap();
+        assert_eq!(*now, then);
+        assert!(Arc::ptr_eq(kept, &list), "the list was made anew");
+    }
+
     #[test]
     fn a_portal_that_closes_unloads_the_chunks_around_its_twin() {
         let mut chunks = chunks_between(-KEPT - 2, FAR_TWIN.x + PORTAL_VIEW_RADIUS + 2);
