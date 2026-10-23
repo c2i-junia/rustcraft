@@ -11,6 +11,8 @@
 struct Params {
     core: f32,
     glow: f32,
+    // How far the chunks are shown: a bolt struck farther from the eye is not drawn
+    reach: f32,
 }
 
 // `BoltVertex` in `render.rs`
@@ -19,6 +21,8 @@ struct BoltVertex {
     width: f32,
     brightness: f32,
     ends: u32,
+    // Where its bolt struck, along x and z
+    root: vec2<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -78,6 +82,13 @@ fn vertex(@builtin(vertex_index) index: u32) -> VertexOutput {
     var sides = array<f32, 6>(-1.0, 1.0, -1.0, -1.0, 1.0, 1.0);
     let folded = vec4(0.0, 0.0, 0.0, 1.0);
     if (points[segment].ends & LAST) != 0u {
+        out.position = folded;
+        return out;
+    }
+    // Each view draws the bolts struck within reach of its eye (`drawn_from` in `render.rs`):
+    // one by a far twin shows through the portal, not over the player's own horizon
+    let point_root = points[segment].root;
+    if distance(point_root, view.world_position.xz) > params.reach {
         out.position = folded;
         return out;
     }

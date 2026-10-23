@@ -127,6 +127,8 @@ pub fn precipitation_render_plugin(app: &mut App) {
             (
                 prepare_precipitation_pipelines.in_set(RenderSystems::Prepare),
                 prepare_precipitation_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+                forget_views_no_longer_drawn::<PrecipitationBindGroup>
+                    .in_set(RenderSystems::PrepareBindGroups),
             ),
         )
         .add_systems(
@@ -327,6 +329,29 @@ fn prepare_precipitation_bind_groups(
     }
 }
 
+/// Takes the bind group `B` of a pass from the views that are no longer `PrecipitationView`s:
+/// Bevy keeps a view's render entity from frame to frame, and the pass, which draws every view
+/// with its bind group, would go on drawing with the last one.
+pub fn forget_views_no_longer_drawn<B: Component>(
+    stale: Query<Entity, (With<B>, Without<PrecipitationView>)>,
+    mut commands: Commands,
+) {
+    for view in &stale {
+        commands.entity(view).remove::<B>();
+    }
+}
+
+/// How many views the pass of the drops drew the last frame, for the benches
+/// (`count_views_drawn`).
+#[cfg(test)]
+pub static VIEWS_DRAWN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts the views the pass of the drops draws, into `VIEWS_DRAWN`.
+#[cfg(test)]
+pub fn count_views_drawn(views: Query<(), With<PrecipitationBindGroup>>) {
+    VIEWS_DRAWN.store(views.iter().count(), std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Draws the rain, the snow and the splashes over the frame, after the TAA.
 fn draw_precipitation(
     view: ViewQuery<(
@@ -357,4 +382,25 @@ fn draw_precipitation(
         pass.set_camera_viewport(viewport);
     }
     pass.draw(0..bind_group.vertices, 0..1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Component)]
+    struct BindGroup;
+
+    /// A view that stops being a `PrecipitationView` loses the bind group it was drawn with, so
+    /// that no pass draws it any more; the others keep theirs.
+    #[test]
+    fn a_view_no_longer_drawn_loses_its_bind_group() {
+        let mut app = App::new();
+        app.add_systems(Update, forget_views_no_longer_drawn::<BindGroup>);
+        let drawn = app.world_mut().spawn((PrecipitationView, BindGroup)).id();
+        let gone = app.world_mut().spawn(BindGroup).id();
+        app.update();
+        assert!(app.world().entity(drawn).contains::<BindGroup>());
+        assert!(!app.world().entity(gone).contains::<BindGroup>());
+    }
 }

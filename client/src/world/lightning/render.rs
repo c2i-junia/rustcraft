@@ -32,11 +32,12 @@ use bevy::render::{
 };
 use bevy::shader::Shader;
 
-use super::Lightning;
+use super::{shown_reach, Lightning};
 use crate::state::GameState;
-use crate::world::precipitation::render::PrecipitationView;
+use crate::world::precipitation::render::{forget_views_no_longer_drawn, PrecipitationView};
 use crate::world::shaders::ShaderFeatures;
 use crate::world::GraphicsSettings;
+use crate::world::{RenderDistance, ServerRenderDistanceLimit};
 
 const LIGHTNING_SHADER: Handle<Shader> = uuid_handle!("6e1f0b3c-27d4-4a8e-b5c9-d0a4f8e2c7b1");
 
@@ -50,6 +51,19 @@ pub struct BoltVertex {
     pub brightness: f32,
     /// `FIRST` for the first point of a channel, `LAST` for its last.
     pub ends: u32,
+    /// Where its bolt struck, along x and z: a view draws the bolt only within the shown reach
+    /// of its own eye (`drawn_from`).
+    pub root: Vec2,
+}
+
+/// Whether a view whose eye is at `eye` draws the point `vertex`: its bolt struck within `reach`
+/// blocks of the eye, as `LiveStrike::new` measures it. A bolt by a far twin the player
+/// approaches is drawn through the portal, by the portal camera behind the twin, and not in the
+/// player's own view, where a strike that far only flashes. `lightning.wgsl` cuts by the same
+/// rule; this is its statement, for the tests.
+#[cfg(test)]
+pub fn drawn_from(vertex: &BoltVertex, eye: Vec3, reach: f32) -> bool {
+    vertex.root.distance(eye.xz()) <= reach
 }
 
 pub const FIRST: u32 = 1;
@@ -62,6 +76,9 @@ pub struct LightningParams {
     /// for the bloom, and as bright as white without.
     pub core: f32,
     pub glow: f32,
+    /// How far the chunks are shown, in blocks (`shown_reach`): the bolts struck farther from a
+    /// view's eye are not drawn in it.
+    pub reach: f32,
 }
 
 /// The core and the glow with the shaders, and without.
@@ -99,6 +116,7 @@ pub fn bolt_vertices(lightning: &Lightning) -> Vec<BoltVertex> {
                         width: point.width,
                         brightness: point.brightness * level,
                         ends: if i == 0 { FIRST } else { 0 } | if i == last { LAST } else { 0 },
+                        root: strike.at.as_vec3().xz(),
                     }),
             );
         }
@@ -135,6 +153,8 @@ pub fn lightning_render_plugin(app: &mut App) {
             (
                 prepare_lightning_pipelines.in_set(RenderSystems::Prepare),
                 prepare_lightning_bind_groups.in_set(RenderSystems::PrepareBindGroups),
+                forget_views_no_longer_drawn::<LightningBindGroup>
+                    .in_set(RenderSystems::PrepareBindGroups),
             ),
         )
         .add_systems(
@@ -149,6 +169,8 @@ pub fn lightning_render_plugin(app: &mut App) {
 fn lightning_draw_system(
     lightning: Res<Lightning>,
     graphics: Res<GraphicsSettings>,
+    render_distance: Res<RenderDistance>,
+    server_limit: Option<Res<ServerRenderDistanceLimit>>,
     mut draw: ResMut<LightningDraw>,
 ) {
     let vertices = bolt_vertices(&lightning);
@@ -163,7 +185,8 @@ fn lightning_draw_system(
     } else {
         LDR_BRIGHTNESS
     };
-    draw.0 = Some((vertices, LightningParams { core, glow }));
+    let reach = shown_reach(&render_distance, server_limit.as_deref());
+    draw.0 = Some((vertices, LightningParams { core, glow, reach }));
 }
 
 fn stop_drawing_lightning(mut draw: ResMut<LightningDraw>) {
@@ -417,6 +440,34 @@ mod tests {
             vertex_count(vertices.len()),
             6 * (vertices.len() as u32 - 1)
         );
+    }
+
+    /// Each view draws only the bolts struck within the shown reach of its own eye: a bolt by a
+    /// far twin the player approaches shows through the portal, from the portal camera behind
+    /// the twin, and not over the player's own horizon, unfogged, far past what it shows.
+    #[test]
+    fn each_view_draws_only_the_bolts_within_reach_of_its_eye() {
+        let mut lightning = Lightning::default();
+        let twin = Vec3::new(1000., 70., 0.);
+        let strike = Strike {
+            at: IVec3::new(1050, 64, 0),
+            seed: 9,
+        };
+        lightning
+            .strikes
+            .push(LiveStrike::seen(strike, Vec3::ZERO, &[twin], 128.));
+        lightning.advance(0.012);
+        let vertices = bolt_vertices(&lightning);
+        assert!(!vertices.is_empty());
+        // Every point carries where its bolt struck, so a bolt is drawn whole or not at all
+        assert!(vertices.iter().all(|v| v.root == Vec2::new(1050., 0.)));
+        let player = Vec3::new(0., 75., 0.);
+        let portal_camera = Vec3::new(1010., 75., 3.);
+        assert!(vertices.iter().all(|v| !drawn_from(v, player, 128.)));
+        assert!(vertices.iter().all(|v| drawn_from(v, portal_camera, 128.)));
+        // The shader cuts by the same rule
+        let source = include_str!("lightning.wgsl");
+        assert!(source.contains("distance(point_root, view.world_position.xz) > params.reach"));
     }
 
     #[test]

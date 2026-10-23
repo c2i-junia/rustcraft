@@ -572,7 +572,8 @@ crossing. Out of the layer, above or under it, a portal camera's volume is stret
 it (`haze_transform`), which Bevy then draws from inside: from outside it rasterizes the faces
 of the volume, which the oblique near plane on the twin clips when the twin is in the layer, and
 the view had no haze. The volume's offset carries the heights of the layer, and the changed
-shader marches only between them (`START_IN_THE_LAYER`). It draws it as the player's camera
+shader marches only between them (`START_IN_THE_LAYER`); the player's volume, which is the
+layer, carries none (`one_camera_offset_uncut`), and its rays are marched as before. It draws it as the player's camera
 does (same steps, no jitter: the player's TAA reaches its image only through the motion of the
 portal surface; at level 2 and deeper, no more steps than High), through its oblique
 near plane: Bevy's `volumetric_fog.wgsl` read the start depth of a ray with the near distance
@@ -590,7 +591,11 @@ twin, clipped by its near plane. Its drops stop under the roofs by the twin: eac
 portal with cameras has an occlusion map of its own, centred on its opening
 (`portal/weather.rs`, `ViewOcclusion`), and whether a view draws drops is its own
 (`UnderWaterView`: the player's camera by its eye, a portal camera by the medium its twin opens
-into). A strike within the shown reach of an approached twin draws its bolt. The systems of
+into). A strike within the shown reach of an approached twin draws its bolt, and each view
+draws only the bolts struck within the shown reach of its own eye (`drawn_from`, cut in
+`lightning.wgsl`): one by a far twin shows through the portal, not over the player's horizon.
+A view that stops being a `PrecipitationView` loses the bind groups of both passes
+(`forget_views_no_longer_drawn`), which would otherwise go on drawing it. The systems of
 the weather that follow one camera (the dome, the flash, the ears of the weather sounds) take
 the camera of the world that is not a portal camera.
 A shot is seen flying (`portal/shot.rs`): the prediction of the local player (its bolt 0.6

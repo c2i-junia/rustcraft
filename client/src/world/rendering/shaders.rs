@@ -40,7 +40,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
-use super::volumetric_fog::one_camera_offset;
+use super::volumetric_fog::{one_camera_offset, one_camera_offset_uncut};
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::portal::PortalCamera;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
@@ -355,7 +355,7 @@ fn apply_camera_features(
         // start where they start, unjittered: TAA, which smooths the jitter, is the player's
         if let Some(mut step_count) = features.god_rays {
             // A view through a portal in a portal, small and far, marches no more steps than
-            // High: at Ultra, 1.0–1.5 ms of 17 saved with recursion 3 (lot 12 report)
+            // High: at Ultra, 0.9–1.1 ms of 17 saved with recursion 3 (lot 12 report)
             if level.is_some_and(|level| level >= 2) {
                 let high = ShaderFeatures::of(ShaderQuality::High).god_rays;
                 step_count = step_count.min(high.unwrap_or(step_count));
@@ -691,7 +691,7 @@ const HAZE_SIZE: Vec3 = Vec3::new(640., 140., 640.);
 /// The heights between which the layer of haze lies: over the ground, its top not seen against
 /// the sky.
 const HAZE_BOTTOM: f32 = SEA_LEVEL as f32 + 30. - HAZE_SIZE.y / 2.;
-const HAZE_TOP: f32 = SEA_LEVEL as f32 + 30. + HAZE_SIZE.y / 2.;
+pub(crate) const HAZE_TOP: f32 = SEA_LEVEL as f32 + 30. + HAZE_SIZE.y / 2.;
 
 /// The volume of the layer of haze of a camera at `camera`, `portal` if it is a portal camera:
 /// the layer, under the camera. A portal camera above the layer or under it stands 2 blocks
@@ -785,7 +785,12 @@ fn follow_cameras_with_haze(
                 scattering: 0.6,
                 absorption: 0.1,
                 scattering_asymmetry: 0.7,
-                density_texture_offset: one_camera_offset(HAZE_BOTTOM, HAZE_TOP),
+                // Only a portal camera's volume, stretched to hold it, is cut to the layer
+                density_texture_offset: if portal {
+                    one_camera_offset(HAZE_BOTTOM, HAZE_TOP)
+                } else {
+                    one_camera_offset_uncut()
+                },
                 ..default()
             },
             transform,
@@ -1476,10 +1481,13 @@ mod tests {
             hazes.sort_by(|a, b| a.1.total_cmp(&b.1));
             hazes
         };
-        let tag = one_camera_offset(HAZE_BOTTOM, HAZE_TOP);
+        let (uncut, cut) = (
+            one_camera_offset_uncut(),
+            one_camera_offset(HAZE_BOTTOM, HAZE_TOP),
+        );
         assert_eq!(
             hazes(&mut app),
-            vec![(world_camera, 5., tag), (portal_camera, 1000., tag)]
+            vec![(world_camera, 5., uncut), (portal_camera, 1000., cut)]
         );
         // The portal camera moves with the player: its haze too, in the same frame
         app.world_mut()
@@ -1493,12 +1501,12 @@ mod tests {
             .unwrap()
             .is_active = false;
         app.update();
-        assert_eq!(hazes(&mut app), vec![(world_camera, 5., tag)]);
+        assert_eq!(hazes(&mut app), vec![(world_camera, 5., uncut)]);
     }
 
     /// The views through a portal seen through another, level 2 and deeper, march the haze in
     /// no more steps than High does: at Ultra, with recursion 3, half the steps there saved
-    /// 1.0–1.5 ms of 17 on the GPU, the views small and far (lot 12 report). The player's view
+    /// 0.9–1.1 ms of 17 on the GPU, the views small and far (lot 12 report). The player's view
     /// and the views through the portals it sees keep the steps of the quality.
     #[test]
     fn the_views_through_a_portal_in_a_portal_march_the_haze_of_high_at_most() {

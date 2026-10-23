@@ -2414,6 +2414,15 @@ fn bench_portal_weather_and_haze() {
             set_haze(&mut h, haze);
             set_portal_drops(&mut h, drops);
             h.frames(warm);
+            // The views the pass of the drops really draws, in the render world
+            let drawing_drops = crate::world::precipitation::render::VIEWS_DRAWN
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let portal_views = drawing(h.world_mut()).len();
+            match (kind, drops) {
+                (WeatherKind::Rain, true) => assert_eq!(drawing_drops, 1 + portal_views),
+                (WeatherKind::Rain, false) => assert_eq!(drawing_drops, 1),
+                _ => assert_eq!(drawing_drops, 0),
+            }
             GPU_FRAMES_MS.lock().unwrap().clear();
             h.frames(frames);
             samples[case].extend(GPU_FRAMES_MS.lock().unwrap().drain(..));

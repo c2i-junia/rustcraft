@@ -55,9 +55,6 @@ const HEIGHT: u32 = 540;
 /// camera through a close twin; through a far one, it ends where the chunks sent around the
 /// twin end (`held_reach`).
 const RENDER_DISTANCE: u32 = 8;
-/// The top of the layer of haze of a camera (`haze_transform` in `shaders.rs`): 30 blocks over
-/// the sea, 140 blocks high.
-const HAZE_TOP: f32 = shared::world::SEA_LEVEL as f32 + 30.0 + 70.0;
 /// How far in front of the portal the eye is, on either side of the crossing.
 const CROSSING: f32 = 0.05;
 /// Frames for the exposure, TAA's history and the effects to settle after the camera moved.
@@ -268,7 +265,9 @@ const CLASSES: [&str; 5] = ["0-32", "32-64", "64-96", "96+", "sky"];
 
 /// The pixels measured, one in four, with what each shows from the eye `seen` (straight, after
 /// the crossing): the class of its distance. When the eye `before` and its `portal` are given,
-/// only the pixels of the opening of that portal from that eye.
+/// only the pixels of the opening of that portal from that eye. It runs a frame of the game
+/// for each band of 32 rows, and reads the map of the chunks anew each band: take the pictures
+/// before, or pin the eye, the clock and the strikes, so that every band sees the same world.
 fn sample_pixels(
     h: &mut Harness,
     seen: &Transform,
@@ -814,7 +813,7 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
     // Under the top of the layer of haze, on a pillar, for the eye before the blue one to be
     // carried above it
     let orange_y = if test == Test::FromAbove {
-        HAZE_TOP as i32 - 6
+        crate::world::rendering::shaders::HAZE_TOP as i32 - 6
     } else {
         ground(&h, -19, -12, -5) + 1
     };
@@ -1050,7 +1049,10 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
                 let eye = centre + blue.normal() * d + Vec3::Y * rise;
                 let before = Transform::from_translation(eye).looking_at(centre, Vec3::Y);
                 let after = carried(through, &before);
-                assert_eq!(after.translation.y > HAZE_TOP, name == "above");
+                assert_eq!(
+                    after.translation.y > crate::world::rendering::shaders::HAZE_TOP,
+                    name == "above"
+                );
                 let case = format!("{}_from_{name}", crossing.case);
                 let a = steady_shots(&mut h, before, hour);
                 // Straight from where the portal camera stands, the wall of the twin from its
@@ -1092,8 +1094,12 @@ fn close_seam(quality: ShaderQuality, hour: Hour, test: Test, clouds: bool) {
                 save(&case, "baseline", &a, &b, true);
                 measured.push((case.clone(), record(&case, "baseline", &a, &b, &pixels)));
             }
+            let screen = match hour {
+                Hour::Noon => FROM_ABOVE_SEAMLESS_NOON,
+                _ => FROM_ABOVE_SEAMLESS_DUSK,
+            };
             for (case, rows) in measured {
-                assert_seamless(&case, quality, &rows, FROM_ABOVE_SEAMLESS);
+                assert_seamless(&case, quality, &rows, screen);
             }
         }
         Test::Regression => {
@@ -1159,8 +1165,10 @@ const SCREEN_SEAMLESS: f32 = 2.5;
 /// the twin: no haze through the portal, 29.7 apart at dusk and 3.1 at noon. Since, 2.6 and
 /// 0.8, against a noise of 0.05: the eye straight sees the haze between the top of the layer and
 /// the twin's plane, which the portal camera does not draw, and the eye before the haze between
-/// it and the blue portal (lot 12 report).
-const FROM_ABOVE_SEAMLESS: f32 = 4.0;
+/// it and the blue portal (lot 12 report). Each hour has its own gate, between the two, so that
+/// each fails without the fix: the haze at noon is thin.
+const FROM_ABOVE_SEAMLESS_NOON: f32 = 1.5;
+const FROM_ABOVE_SEAMLESS_DUSK: f32 = 6.0;
 
 /// What a test of the seam measures.
 #[derive(Clone, Copy, PartialEq)]
@@ -1934,6 +1942,42 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
         "{case}: the player's own view changed once a portal was approached: {}",
         changed.join(", ")
     );
+
+    // A bolt struck 20 blocks out of the twin, far past the player's reach, at the brightest of
+    // its first stroke: drawn through the portal, never in the player's own view, which is the
+    // same as with the strike's flash alone (the bolt taken away)
+    let reach = (render_distance * shared::CHUNK_SIZE as u32) as f32;
+    let twin = Vec3::from(orange.frame().translation);
+    let at = (twin + orange.normal() * 20.0).floor().as_ivec3();
+    let player = eye.translation;
+    assert!(at.as_vec3().xz().distance(player.xz()) > reach + 100.0);
+    let seed = 20_261_023;
+    let mut strike = LiveStrike::seen(Strike { at, seed }, player, &[twin], reach);
+    strike.age = Strokes::new(seed).peaks().next().unwrap();
+    assert!(strike.bolt.is_some(), "the bolt by the twin is drawn");
+    pinned(&mut h).strikes = Some(vec![strike.clone()]);
+    let bolted = steady_shots(&mut h, eye, hour);
+    strike.bolt = None;
+    pinned(&mut h).strikes = Some(vec![strike]);
+    let flash_only = steady_shots(&mut h, eye, hour);
+    pinned(&mut h).strikes = None;
+    let noise = record(&case, "bolt_noise", &bolted[0], &bolted[1], &pixels);
+    let (a, b) = (mean_picture(&bolted), mean_picture(&flash_only));
+    save(&case, "bolt_by_the_twin", &a, &b, true);
+    let rows = record(&case, "bolt_by_the_twin", &a, &b, &pixels);
+    let changed: Vec<String> = rows
+        .iter()
+        .zip(&noise)
+        .filter(|((_, count, mean, ..), (_, _, noise, ..))| *count > 0 && *mean > noise.max(0.3))
+        .map(|((class, _, mean, ..), (_, _, noise, ..))| {
+            format!("{class} by {mean:.2} (noise {noise:.2})")
+        })
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "{case}: a bolt by the far twin showed in the player's own view: {}",
+        changed.join(", ")
+    );
 }
 
 /// The player's own view is the same with a portal approached, at noon and at dusk, when the
@@ -2089,6 +2133,12 @@ fn horizon_colour(quality: ShaderQuality, hour: Hour, portals: Option<bool>) -> 
     shot.save(out_dir().join(format!("{case}.png"))).unwrap();
     let (skirt, n_skirt) = mean_unblocked(&h, &shot, &eye, SKIRT_RISE);
     let (sky, n_sky) = mean_unblocked(&h, &shot, &eye, SKY_RISE);
+    // Both read over enough pixels (9712 and 1368 as built): an empty band would read black on
+    // both sides, and pass
+    assert!(
+        n_skirt >= 500 && n_sky >= 500,
+        "{case}: the horizon read over {n_skirt} pixels of skirt and {n_sky} of sky"
+    );
     let apart = (skirt - sky).abs().element_sum() / 3.0;
     let line = format!(
         "{case}\tskirt {:.0},{:.0},{:.0} ({n_skirt})\tsky {:.0},{:.0},{:.0} ({n_sky})\tapart {apart:.2}\n",

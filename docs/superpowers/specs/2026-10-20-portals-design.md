@@ -183,16 +183,21 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
 
 - **The grey horizon (F6)** was fixed by lot 11 (the portal cameras get the sky a frame after
   the player's camera, whose tables Bevy then takes); a gate (`horizon_colour`) now holds the
-  horizon skirt within 4 of the sky at Medium, High and Ultra, noon and dusk, with portals
-  opened before or after the shaders. A patch of the sky switched off and on, for main, which
+  horizon skirt within 4 of the sky at Medium, High and Ultra at noon, and at High at dusk,
+  with portals opened before or after the shaders (at High noon). A patch of the sky switched off and on, for main, which
   has no portal cameras, is in `.superpowers/sdd/portals/lot-12-main-sky-switch.patch`.
 - **Shadows at Medium**: every filter on the portal cameras measured within the noise of no
   shadows at all once the first measure of a run, always higher, is left out: unchanged.
 - **The haze out of its layer**: a portal camera above or under its layer stands within its
-  volume, stretched to hold it, and the shader marches only the layer; nested views (level 2
-  and deeper) march no more steps than High.
+  volume, stretched to hold it, and the shader marches only the layer; the player's volume is
+  not cut, so its rays are marched as before. Nested views (level 2 and deeper) march no more
+  steps than High, which saves 0.9–1.1 ms of 17 at Ultra with recursion 3; that the cap does
+  not show rests on one facing scene, 0.15 apart against a noise of 0.08.
 - **The weather**: occlusion maps per twin, the under-water decision per view, bolts by an
-  approached twin. The drops in the portal views cost nothing measurable on the GPU; through
-  the portal they are 7 % less contrasted than straight, still or moving, with TAA or without.
+  approached twin, each view drawing only the bolts within the shown reach of its own eye, so
+  a bolt by a far twin shows through the portal and not over the player's horizon. The drops
+  in three portal views cost 0.09 ms at High and 0.15 ms at Ultra on the GPU (fix round 1;
+  the first measure left them drawn); through the portal they are 7 % less contrasted than
+  straight, still or moving, with TAA or without.
 - Not changed: a strike's flash lights the player's world by its distance to the player, not
   to a twin.

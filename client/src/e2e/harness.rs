@@ -296,10 +296,15 @@ impl Harness {
             app.world_mut().resource_mut::<GraphicsSettings>().shaders = shaders;
         }
         app.finish();
-        // `BENCH_GPU_TIMES` times every frame on the GPU (`GPU_FRAMES_MS`)
+        // `BENCH_GPU_TIMES` times every frame on the GPU (`GPU_FRAMES_MS`), and counts the views
+        // the drops are drawn in (`VIEWS_DRAWN`)
         if gpu && std::env::var_os("BENCH_GPU_TIMES").is_some() {
-            crate::world::rendering::bench::record_gpu_frames(
-                app.sub_app_mut(bevy::render::RenderApp),
+            let render_app = app.sub_app_mut(bevy::render::RenderApp);
+            crate::world::rendering::bench::record_gpu_frames(render_app);
+            render_app.add_systems(
+                bevy::render::Render,
+                crate::world::precipitation::render::count_views_drawn
+                    .after(bevy::render::RenderSystems::PrepareBindGroups),
             );
         }
         app.cleanup();

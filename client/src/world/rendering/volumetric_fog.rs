@@ -39,12 +39,13 @@ use bevy::prelude::*;
 const SHADER_PATH: &str = "bevy_pbr/volumetric_fog/volumetric_fog.wgsl";
 
 /// A line of Bevy's shader that is wrong under an oblique near plane, what replaces it, and the
-/// declaration the replacement reads, which must come before it: a Bevy that renamed it would
-/// leave a shader that does not compile, and no rays of light on any camera.
+/// lines the replacement depends on, which must come before it: a Bevy that renamed a
+/// declaration it reads would leave a shader that does not compile, and no rays of light on any
+/// camera; one that moved a line it must follow would overwrite what it sets.
 struct Change {
     old: &'static str,
     new: &'static str,
-    reads: &'static str,
+    reads: &'static [&'static str],
 }
 
 /// The `density_texture_offset.y` of a fog volume that belongs to one camera
@@ -57,6 +58,13 @@ const ONE_CAMERA_TAG: f32 = -4096.0;
 /// then draws from inside, hazes no more than the layer.
 pub fn one_camera_offset(bottom: f32, top: f32) -> Vec3 {
     Vec3::new(bottom, ONE_CAMERA_TAG, top)
+}
+
+/// The `density_texture_offset` of a fog volume drawn only by the view whose camera stands at
+/// its centre, and marched as Bevy marches it, with no heights to cut its rays to: the player's
+/// layer of haze, which is the layer and nothing more.
+pub fn one_camera_offset_uncut() -> Vec3 {
+    Vec3::new(0., ONE_CAMERA_TAG, 0.)
 }
 
 /// What draws a volume that belongs to one camera only in that camera's view: the camera, in
@@ -74,13 +82,14 @@ const ONE_CAMERA_FILTER: &str = "let jitter_strength = volumetric_fog.jitter_str
     }";
 
 /// The start depth of the ray from its start point (`CHANGES`), then, for a volume of one
-/// camera, the ray cut to the heights its offset gives (`one_camera_offset`): it starts where
-/// it enters them, its start point with it, and ends where it leaves them. Along the ray,
+/// camera with heights (`one_camera_offset`, a portal camera's), the ray cut to them: it starts
+/// where it enters them, its start point with it, and ends where it leaves them. Along the ray,
 /// the height grows by `rise` per unit of view depth; the camera is the origin of the view.
+/// The player's volume has none (`one_camera_offset_uncut`): its rays are marched as before.
 const START_IN_THE_LAYER: &str = "var start_depth_view = -view_start_pos.z;
 
     // A volume of one camera is marched only between the heights of its offset (RustCraft)
-    if (density_texture_offset.y == -4096.0) {
+    if (density_texture_offset.y == -4096.0 && density_texture_offset.x < density_texture_offset.z) {
         let dir_view = normalize(view_start_pos.xyz);
         let dir_world = (view.world_from_view * vec4(dir_view, 0.0)).xyz;
         let rise = dir_world.y / -dir_view.z;
@@ -107,14 +116,18 @@ const CHANGES: [Change; 4] = [
     Change {
         old: "let jitter_strength = volumetric_fog.jitter_strength;",
         new: ONE_CAMERA_FILTER,
-        reads: "let density_texture_offset =",
+        reads: &["let density_texture_offset ="],
     },
     // The start depth of the ray, with the near distance only, then from its start point, on
     // the near plane or the front face of the volume
     Change {
         old: "let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);",
         new: START_IN_THE_LAYER,
-        reads: "view_start_pos = position_ndc_to_view(",
+        // It sets where the ray ends: after Bevy ends it at the depth buffer
+        reads: &[
+            "view_start_pos = position_ndc_to_view(",
+            "end_depth_view = min(end_depth_view, view_end_depth_from_buffer);",
+        ],
     },
     // The ray ended where the depth buffer says, the far plane included, then only where
     // something was drawn
@@ -122,18 +135,18 @@ const CHANGES: [Change; 4] = [
         old: "end_depth_view = min(end_depth_view, view_end_depth_from_buffer);",
         new: "if (ndc_end_depth_from_buffer > 0.0) {\n        \
               end_depth_view = min(end_depth_view, view_end_depth_from_buffer);\n    }",
-        reads: "let ndc_end_depth_from_buffer =",
+        reads: &["let ndc_end_depth_from_buffer ="],
     },
     // The start point, which the ray cut to the heights of its volume moves
     Change {
         old: "let view_start_pos = position_ndc_to_view(",
         new: "var view_start_pos = position_ndc_to_view(",
-        reads: "let ndc_end_depth_from_buffer =",
+        reads: &[],
     },
 ];
 
 /// `source`, Bevy's shader of the volumetric fog, with its rays right under an oblique near
-/// plane, or what it lacks: each line to change, once, after the declaration it then reads.
+/// plane, or what it lacks: each line to change, once, after the lines it depends on.
 fn for_oblique_near_planes(source: &str) -> Result<String, String> {
     CHANGES
         .iter()
@@ -142,8 +155,12 @@ fn for_oblique_near_planes(source: &str) -> Result<String, String> {
             let [at] = found[..] else {
                 return Err(format!("`{}` {} times, not once", change.old, found.len()));
             };
-            if !source[..at].contains(change.reads) {
-                return Err(format!("`{}` before `{}`", change.reads, change.old));
+            if let Some(read) = change
+                .reads
+                .iter()
+                .find(|read| !source[..at].contains(**read))
+            {
+                return Err(format!("`{read}` before `{}`", change.old));
             }
             Ok(source.replace(change.old, change.new))
         })
@@ -230,6 +247,39 @@ mod tests {
         assert!(ONE_CAMERA_FILTER.contains("uvw_from_world[0].x"));
         let offset = one_camera_offset(22.0, 162.0);
         assert_eq!(offset, Vec3::new(22.0, ONE_CAMERA_TAG, 162.0));
+        // The player's volume carries the tag and no heights to cut its rays to
+        let offset = one_camera_offset_uncut();
+        assert_eq!(offset.y, ONE_CAMERA_TAG);
+        assert!(offset.x >= offset.z);
+    }
+
+    /// The rays are cut to the heights of the layer only in a volume that has them, a portal
+    /// camera's: the player's view is marched as before lot 12, by construction.
+    #[test]
+    fn only_a_volume_with_heights_is_cut_to_them() {
+        assert!(START_IN_THE_LAYER.contains(
+            "density_texture_offset.y == -4096.0 && density_texture_offset.x < density_texture_offset.z"
+        ));
+    }
+
+    /// The cut sets where the ray ends: it must come after Bevy ends it at the depth buffer,
+    /// or Bevy would overwrite it and haze the whole stretch of a portal camera's volume.
+    #[test]
+    fn a_shader_that_ends_its_rays_after_it_starts_them_is_not_changed() {
+        let start = "    let start_depth_view = -depth_ndc_to_view_z(frag_coord.z);\n";
+        let moved = SAMPLE.replace(start, "");
+        let moved = moved.replace(
+            "    var end_depth_view = 0.0;\n",
+            &format!("    var end_depth_view = 0.0;\n{start}"),
+        );
+        let missing = for_oblique_near_planes(&moved).unwrap_err();
+        assert!(missing.contains("view_end_depth_from_buffer"), "{missing}");
+        // In the shader changed, the cut comes after the end at the depth buffer
+        let changed = for_oblique_near_planes(SAMPLE).unwrap();
+        assert!(
+            changed.find("end_depth_view = min(").unwrap()
+                < changed.find("end_depth_view = far;").unwrap()
+        );
     }
 
     /// A volume of one camera is marched only between the heights its offset gives, whatever
@@ -283,16 +333,27 @@ mod tests {
             .remove_asset(Path::new(SHADER_PATH))
             .expect("Bevy's shader of the volumetric fog");
         let source = std::str::from_utf8(shader.value()).unwrap();
+        // The cut of the rays to the layer after Bevy ends them at the depth buffer
+        assert!(
+            source.find("if (ndc_end_depth_from_buffer > 0.0)").unwrap()
+                < source.find("end_depth_view = far;").unwrap()
+        );
         for change in CHANGES {
             let at = source
                 .find(change.new)
                 .unwrap_or_else(|| panic!("not changed: {}", change.old));
-            assert!(
-                source[..at].contains(change.reads),
-                "`{}` no longer declared before `{}`",
-                change.reads,
-                change.new
-            );
+            // The end at the depth buffer is changed itself, after the cut checked it came first
+            for read in change
+                .reads
+                .iter()
+                .filter(|read| !read.starts_with("end_depth_view"))
+            {
+                assert!(
+                    source[..at].contains(read),
+                    "`{read}` no longer before `{}`",
+                    change.new
+                );
+            }
         }
         assert!(
             !source.contains(CHANGES[1].old),
