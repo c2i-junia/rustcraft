@@ -456,12 +456,16 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    change, so that a broadcast goes on from where the last stopped); left past the widest
    approach (8) and the margin, the area shrinks back to the view radius, so that releasing a
    sprint or landing unloads nothing. The sorted offsets are kept for the 16 (radius, facing)
-   last used (`twin_area_offsets`). The loader lists those chunks once
-   per reach too (`LoadedAround::behind_portals`).
+   last used (`twin_area_offsets`). A reach holds only the open portals within its render
+   distance plus the widest margin it is asked about (`MAX_REACH_MARGIN`), so that a pair
+   opened far off leaves every reach, and what it keys, as it was. The loader lists those
+   chunks once per reach too (`LoadedAround::behind_portals`), each tested only against the
+   reaches near its twins: 1.1 ms for 8 players each by a portal at a render distance of 8,
+   each time one comes into another chunk (`bench_portal_players`).
 4. **Save**: on request or every 60 seconds, the metadata, the players and the changed chunks
    are handed to the writer thread. A generated chunk is saved too, but not one of a single
    kind of cell, which is generated again at once. Then, every 5 seconds, the chunks more than
-   `KEPT_MARGIN` beyond the reach of every player (`ChunkReach::keeps`) are forgotten
+   `KEPT_MARGIN` beyond the reach of every player (`ChunkReach::kept`) are forgotten
    (`world/unload.rs`), but those
    not saved yet, and none while the writer has saves to write: their file could be read back
    before it is written. A mob over chunks that are not loaded stays where it is.
@@ -505,9 +509,18 @@ never moves a player, so the prediction of the clients is left alone.
    again, so that a group is meshed once; at most 128 groups are
    meshed at once, the nearest to the player first, and about 200 000 vertices are shown a
    frame. A vertex holds its normal and colour in bytes and its atlas tile in a `u16`
-   (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player,
-   or of the twin of a portal it approaches (`Approach`, `portal/approach.rs`, which follows the
-   approach as the server reckons it and keeps a twin a chunk past the widest approach), cast shadows; and a fog of the colour of the sky hides the edge of the render distance:
+   (`meshing.rs`), 32 bytes in all. The GPU culls the groups (`NoCpuCulling`); only those within 12 chunks of the player
+   cast shadows in every view, and those within 12 of the twin of a portal it approaches but
+   not of the player (`Approach`, `portal/approach.rs`, which follows the approach as the
+   server reckons it and keeps a twin a chunk past the widest approach) in the views of the
+   portal cameras only (`ShadowRole`): culled on the CPU, they are taken out of the shadow
+   cascades of every other camera once Bevy has listed them
+   (`keep_twin_shadows_to_portal_cameras`), so that around a close twin, among the player's
+   own chunks at a render distance past 12, their long shadows at a low sun never reach the
+   player's view. Bevy hands a mesh culled on the GPU only to the views it was visible to, and
+   the cascades are views: a group that starts or stops casting is culled on the CPU for a
+   frame (`CpuCulledForAFrame`). The groups only portals show (layer 3) cast no shadow, as the
+   sky light shadows layers 0 and 2 only; and a fog of the colour of the sky hides the edge of the render distance:
    its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
    clear colour, which is not, so that a block wholly in the fog is the sky: it is found on
    the CPU, by Newton's method, from the LUT of TonyMcMapface that Bevy keeps in the main
@@ -586,9 +599,17 @@ Bevy's `debug` feature, which `client/Cargo.toml` asks of `bevy_utils`. A test f
 the colours before tonemapping with the shaders, and after it without. It draws the god-ray
 haze, a layer 640 blocks wide of its own, centred under it (`follow_cameras_with_haze`): Bevy
 draws every fog volume in every view, and its shader, changed, leaves out a volume tagged as
-one camera's (`one_camera_offset`) in every view but that camera's, so the player's view never
-changes with the portals, and a portal camera far off sees the haze the player will see after
-crossing. Out of the layer, above or under it, a portal camera's volume is stretched to hold
+one camera's (`one_camera_offset`) in every view whose camera does not stand within half a
+block of where it says along x, y and z and look within a degree of its way, so the player's
+view never changes with the portals, not even under a floor portal stacked under a ceiling
+portal, whose cameras stand straight above it, and a portal camera far off sees the haze the
+player will see after crossing. Cameras that stand and look alike, as those of pairs side by
+side whose twins are as far apart do, share one volume (`drawn_in`, the filter on the CPU):
+each would draw the other's. Each view marches its own layer, about 0.6 ms of GPU at High and
+1.3 ms at Ultra at 960×540 on an RTX 5060 Ti; leaving out another camera's volume costs a view
+about 15 µs (`bench_portal_haze_per_pair`). If Bevy's shader text no longer matches, the game
+logs an error and a unit test fails, and the haze is as before the portal cameras drew it: the
+player's camera alone, with one volume, untagged (`HazePerCamera`). Out of the layer, above or under it, a portal camera's volume is stretched to hold
 it (`haze_transform`), which Bevy then draws from inside: from outside it rasterizes the faces
 of the volume, which the oblique near plane on the twin clips when the twin is in the layer, and
 the view had no haze. The volume's offset carries the heights of the layer, and the changed

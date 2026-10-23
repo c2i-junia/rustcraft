@@ -165,9 +165,9 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
 | What the client counts as held | Whole shells of chunks around the twin, in front of its plane, held and with their group's mesh shown (`HeldAreas`, `ChunkRender::meshed`): a chunk not meshed yet is a hole, not terrain. |
 | The portal camera's fog | Ends where the shells shown end, the player's own chunks counted too; their top and bottom do not count once they are as high as the player's own, so an approached twin wholly shown has the player's own fog. It opens at 96 blocks a second and closes at once. |
 | Meshing | A group around a twin waits for its neighbours there as around the player (`WaitingChunks` takes every area). |
-| Shadows | Groups within 12 chunks of an approached twin cast shadows, as around the player. |
+| Shadows | Groups within 12 chunks of an approached twin cast shadows, as around the player, but in the views of the portal cameras only when they are not within 12 of the player too (`ShadowRole::ForTwinsOnly`): culled on the CPU, they are taken out of the other cameras' shadow cascades (`keep_twin_shadows_to_portal_cameras`). Around a close twin they are among the player's own chunks past a render distance of 12, and at a low sun their shadows reached its view: 1.47 levels on average with a wall 14 chunks towards a dusk sun, 0.25 now against a noise of 0.27 (`own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin`). A group that starts or stops casting is culled on the CPU for a frame, or the cascades, which Bevy hands a mesh culled on the GPU only once, would never take it nor let it go. |
 | Clouds | The cloud mesh also holds a disk around each approached twin, each meshed on its own window: two disks cost twice one, however far apart. |
-| Haze | Each camera, the player's and each portal camera that draws, has its own layer of haze centred under it, which only it draws (Bevy's volumetric shader changed to leave out another camera's volume): the player's view never changes with a portal. A box stretched over the twin was tried first and changed the player's own view. |
+| Haze | Each camera, the player's and each portal camera that draws, has its own layer of haze centred under it, which only it draws (Bevy's volumetric shader changed to leave out a volume whose camera does not stand within half a block of the view's along x, y and z and look within a degree of its way): the player's view never changes with a portal, a floor portal under a ceiling portal included. Cameras that stand and look alike share one volume. A box stretched over the twin was tried first and changed the player's own view. Each view marches its own layer, 0.6 ms of GPU (High) to 1.3 ms (Ultra) a view at 960×540 on an RTX 5060 Ti, and leaves another's out for about 15 µs (`bench_portal_haze_per_pair`). If Bevy's shader text no longer matches, an error is logged and only the player's camera draws haze, from one untagged volume (`HazePerCamera`). |
 | Rain occlusion | As built after lot 12: each twin of a portal with cameras has an occlusion map of its own, centred on its opening, which its portal cameras bind instead of the player's, so roofs by a far twin stop the rain seen through the portal. Whether drops fall is decided per view: the player's eye, and for a portal camera the medium its twin opens into. |
 | Tests | Seam e2e at 6 and 21 chunks, shaders Off and High, gated as a close crossing (median ≤ 6 for each band). |
 
@@ -211,3 +211,24 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
   test twice as noisy as the reference. Their resolution: about half a level of luma on the far
   terrain (96+), the sky and the whole picture, and 2 levels on the mid-distance terrain
   (64-96), which every run checks it would see; a single level there is not guaranteed.
+
+## As built after the final fix round 2
+
+- **The haze, told apart in 3D and by its look**: a camera draws a volume only if it stands
+  within half a block of the volume's camera along x, y and z and looks within a degree of its
+  way; the stacked floor and ceiling pair is gated (0.19 against a noise of 0.15; 1.63 with the
+  height not checked). Cameras that stand and look alike share one volume: three pairs side by
+  side whose twins were as far apart drew each other's haze, 5.63 ms at High for 4 views,
+  2.48 ms once their cameras stand apart, and the haze of each view is its own.
+- **Shadows around a twin** in the portal cameras' views only (the Shadows row), and the groups
+  that start or stop casting now do so in every view: before, a group that came within 12
+  chunks went on casting no shadow until it was meshed again.
+- **Leaving a world** forgets the areas shown around the twins and the approach.
+- **The server**: a reach keeps only the portals near enough to matter to it, so a pair opened
+  far off walks nobody's chunks again; the chunks behind the portals are listed in 0.14, 0.56
+  and 1.1 ms for 1, 4 and 8 players each by a portal (4.4 ms for 8 before), and the rest of
+  what the portals cost a tick is within 5 µs at 8 players; the look for the chunks to forget,
+  every 5 s, takes 3.1 ms at 8 players by portals (1.15 ms without).
+- Not changed: the groups only portals show (layer 3) cast no shadow, as the sky light shadows
+  layers 0 and 2 only; through a far twin the terrain past the player's reach is unshadowed
+  until the player crosses.
