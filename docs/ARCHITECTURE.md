@@ -250,9 +250,14 @@ players keep in `MovementState::portal_rest`, mobs and items in their own `porta
 saved). That portal does not take it back, and its cells collide with it once its box is out
 of them, so that it lands on it; one too slow to lift its box out of them is given just the
 speed to. The portal takes it again once it has left its front or risen above the clearance,
-as by a jump (`Portals::still_resting`). So an entity resting on a floor portal whose twin is a
-floor too goes through once and stands on the twin, rather than back and forth for ever; one
-that falls in from higher bounces from one to the other as before.
+as by a jump, or once it or its twin was shot again or went, as it may now lead elsewhere: the
+rest keeps both portals as they were (`PortalRest`, `Portals::still_resting`). So an entity
+resting on a floor portal whose twin is a floor too goes through once and stands on the twin,
+rather than back and forth for ever; one that falls in from higher bounces from one to the
+other as before. The rule holds for every pair whose exit is a floor: a player walking into a
+wall portal whose twin is a floor comes up and stands on it. An item, whose gravity comes before
+its move and its drag after, rises a little less high than it is lifted for: the cells of the
+portal it rests on collide with it once it no longer rises, and it goes up out of them onto it.
 Each counts the portals it went through (`DroppedItem::passes`, `ServerMob::passes`, sent with
 it): a client that sees the count change puts the entity where it is told at once, instead of
 easing it across the gap. Items are sent by the chunks a client has, those around the twins

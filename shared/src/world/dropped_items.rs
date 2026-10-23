@@ -8,7 +8,7 @@ use crate::players::{
     constants::{GRAVITY, TERMINAL_VELOCITY},
     movement::is_terrain_loaded,
 };
-use crate::world::{ChunkMap, ItemStack, Passer, PortalKey};
+use crate::world::{ChunkMap, ItemStack, Passer, PortalRest};
 
 pub type DroppedItemId = u64;
 
@@ -56,7 +56,7 @@ pub struct DroppedItem {
     /// The floor portal the item came out of too slowly to leave, and rests on
     /// (`Portals::pass`). Not saved, as the portals.
     #[serde(skip)]
-    pub portal_rest: Option<PortalKey>,
+    pub portal_rest: Option<PortalRest>,
 }
 
 fn default_pickup_delay() -> u32 {
@@ -113,7 +113,14 @@ pub fn step_dropped_item(item: &mut DroppedItem, chunks: &ChunkMap, delta: f32) 
     let extents = Vec3::splat(DROPPED_ITEM_SIZE / 2.0);
     item.portal_rest = portals.still_resting(item.position, Passer::new(extents, item.portal_rest));
     let passer = Passer::new(extents, item.portal_rest);
-    let passable = portals.passable_cells(item.position, passer);
+    let mut passable = portals.passable_cells(item.position, passer);
+    // Gravity comes before the move and the drag after it, so that an item rises a little less
+    // high than the speed it is lifted at out of the portal it rests on would take a body: it
+    // may fall back before its box is out of the portal's cells. Those collide with it once it
+    // no longer rises, and it goes up out of them as out of a block, onto the portal.
+    if let Some(rest) = item.portal_rest.filter(|_| item.velocity.y <= 0.0) {
+        passable.retain(|cell| !rest.on.cells().any(|wall| wall == *cell));
+    }
     let collides = |position: Vec3| {
         chunks.check_collision_box_except(&hitbox(position), |cell| passable.contains(&cell))
     };
@@ -224,7 +231,7 @@ mod tests {
     /// A stone floor whose top is at `FLOOR_TOP`.
     fn floor() -> ChunkMap {
         let mut world =
-            ChunkMap::with_loaded_region(IVec3::new(-16, 48, -16), IVec3::new(15, 79, 15));
+            ChunkMap::with_loaded_region(IVec3::new(-16, 32, -16), IVec3::new(15, 79, 15));
         world.fill_box(
             IVec3::new(-16, 63, -16),
             IVec3::new(15, 63, 15),
@@ -434,14 +441,7 @@ mod tests {
     /// twin too slowly to leave it, and lies on it: it goes through once, not back and forth.
     #[test]
     fn an_item_lying_on_a_floor_portal_with_a_floor_twin_goes_through_once() {
-        let mut world = floor_portal_world();
-        world.portals_mut().insert(Portal {
-            owner: 7,
-            color: PortalColor::Orange,
-            anchor: IVec3::new(4, 63, 0),
-            face: FaceDirection::PlusY,
-            up: FaceDirection::MinusZ,
-        });
+        let world = floor_pair_world();
         let start = Vec3::new(1.0, FLOOR_TOP + DROPPED_ITEM_SIZE / 2.0, -0.5);
         let mut item = DroppedItem::new(stack(ItemId::Dirt, 1), start, Vec3::ZERO);
         item.on_ground = true;
@@ -453,6 +453,81 @@ mod tests {
         assert!(item.on_ground, "{}", item.position);
         assert!(
             (item.position - Vec3::new(5.0, start.y, -0.5)).length() < 0.01,
+            "{}",
+            item.position
+        );
+    }
+
+    /// `floor_portal_world`, its orange portal shot onto the floor at x 4 to 5, a floor twin.
+    fn floor_pair_world() -> ChunkMap {
+        let mut world = floor_portal_world();
+        world.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Orange,
+            anchor: IVec3::new(4, 63, 0),
+            face: FaceDirection::PlusY,
+            up: FaceDirection::MinusZ,
+        });
+        world
+    }
+
+    /// An item dropped a little above a floor portal whose twin is a floor too, as one thrown
+    /// down or let fall from a ledge, falls in, comes out of the twin and lies on it: through
+    /// once, from up to 0.3 above it (from half a block, it bounces back, as a body would),
+    /// though its own steps rise less high than the speed it is lifted at would take a body.
+    #[test]
+    fn an_item_dropped_onto_a_floor_portal_with_a_floor_twin_goes_through_once() {
+        let world = floor_pair_world();
+        for height in [0.02, 0.05, 0.1, 0.2, 0.3] {
+            let start = Vec3::new(1.0, FLOOR_TOP + DROPPED_ITEM_SIZE / 2.0 + height, -0.5);
+            let mut item = DroppedItem::new(stack(ItemId::Dirt, 1), start, Vec3::ZERO);
+            for _ in 0..100 {
+                step_dropped_item(&mut item, &world, 0.05);
+                assert!(
+                    item.passes <= 1,
+                    "dropped from {height}: through again, at {}",
+                    item.position
+                );
+            }
+            assert_eq!(item.passes, 1, "dropped from {height}: {}", item.position);
+            assert!(item.on_ground, "dropped from {height}: {}", item.position);
+            assert!(
+                (item.position.x - 5.0).abs() < 0.01
+                    && (item.position.y - (FLOOR_TOP + DROPPED_ITEM_SIZE / 2.0)).abs() < 0.01,
+                "dropped from {height}: {}",
+                item.position
+            );
+        }
+    }
+
+    /// An item lying on the floor twin it came out of falls into it once its twin is shot
+    /// again elsewhere: the portal it lies on now leads to a wall, and takes it.
+    #[test]
+    fn an_item_resting_on_a_floor_portal_falls_into_it_once_its_twin_is_shot_onto_a_wall() {
+        let mut world = floor_pair_world();
+        let start = Vec3::new(1.0, FLOOR_TOP + DROPPED_ITEM_SIZE / 2.0, -0.5);
+        let mut item = DroppedItem::new(stack(ItemId::Dirt, 1), start, Vec3::ZERO);
+        item.on_ground = true;
+        for _ in 0..40 {
+            step_dropped_item(&mut item, &world, 0.05);
+        }
+        assert_eq!(item.passes, 1, "{}", item.position);
+        assert!(item.portal_rest.is_some(), "{}", item.position);
+
+        // The blue portal, the twin of the orange one it lies on, shot onto the wall
+        world.portals_mut().insert(Portal {
+            owner: 7,
+            color: PortalColor::Blue,
+            anchor: IVec3::new(10, 64, 0),
+            face: FaceDirection::MinusX,
+            up: FaceDirection::PlusY,
+        });
+        for _ in 0..40 {
+            step_dropped_item(&mut item, &world, 0.05);
+        }
+        assert_eq!(item.passes, 2, "{}", item.position);
+        assert!(
+            item.position.x < 10.0 && item.position.y > FLOOR_TOP,
             "{}",
             item.position
         );

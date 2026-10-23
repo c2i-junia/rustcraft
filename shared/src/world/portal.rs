@@ -138,11 +138,6 @@ impl Portal {
             .dot(point - Vec3::from(self.frame().translation))
     }
 
-    /// The portal by its owner and colour.
-    pub fn key(&self) -> PortalKey {
-        (self.owner, self.color)
-    }
-
     /// Half the size of a box of half extents `extents` across the plane of the portal: how
     /// far in front of it its centre is when the box touches the plane.
     pub fn depth(&self, extents: Vec3) -> f32 {
@@ -260,7 +255,7 @@ impl Portals {
         passer: Passer,
     ) -> impl Iterator<Item = &Portal> + '_ {
         self.open().filter(move |portal| {
-            Some(portal.key()) != passer.resting && portal.lets_in(center, passer.margin())
+            !passer.rests_on(portal) && portal.lets_in(center, passer.margin())
         })
     }
 
@@ -268,14 +263,14 @@ impl Portals {
     /// front of its plane to behind it (`PORTAL_SLACK`), through its opening. The first one
     /// along the segment, if several.
     pub fn crossed(&self, from: Vec3, to: Vec3) -> Option<&Portal> {
-        self.crossed_but(from, to, None)
+        self.crossed_but(from, to, Passer::default())
     }
 
-    /// `crossed`, but never the portal `resting`, which an entity rests on.
-    fn crossed_but(&self, from: Vec3, to: Vec3, resting: Option<PortalKey>) -> Option<&Portal> {
+    /// `crossed`, but never the portal `passer` rests on.
+    fn crossed_but(&self, from: Vec3, to: Vec3, passer: Passer) -> Option<&Portal> {
         let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0;
         self.open()
-            .filter(|portal| Some(portal.key()) != resting)
+            .filter(|portal| !passer.rests_on(portal))
             .filter_map(|portal| {
                 let (from, to) = (portal.local(from), portal.local(to));
                 if from.z < -PORTAL_SLACK || to.z >= -PORTAL_SLACK {
@@ -293,7 +288,7 @@ impl Portals {
     /// The open portal an entity going from `from` to `to` goes into (`crossed`), but the one
     /// it rests on.
     pub fn crossed_by(&self, from: Vec3, to: Vec3, passer: Passer) -> Option<&Portal> {
-        self.crossed_but(from, to, passer.resting)
+        self.crossed_but(from, to, passer)
     }
 
     /// The transform to draw an eye from when it is not on the side of a portal its body is
@@ -314,16 +309,15 @@ impl Portals {
     /// (it came out of that portal, and rises out of its cells): they collide once it is out,
     /// so that it lands on the portal.
     pub fn passable_cells(&self, center: Vec3, passer: Passer) -> Vec<IVec3> {
-        let rising_out = passer
-            .resting
-            .and_then(|(owner, color)| self.get(owner, color))
+        let rising_out = self
+            .still_resting(center, passer)
+            .map(|rest| rest.on)
             .filter(|portal| {
-                self.twin(portal).is_some()
-                    && portal.lets_in(center, passer.margin())
+                portal.lets_in(center, passer.margin())
                     && portal.local(center).z < portal.depth(passer.extents)
             });
         self.letting_through(center, passer)
-            .chain(rising_out)
+            .chain(rising_out.as_ref())
             .flat_map(Portal::cells)
             .collect()
     }
@@ -339,16 +333,18 @@ impl Portals {
     }
 
     /// The floor portal an entity centred on `center` rests on still (`Passer::resting`): while
-    /// it is open, the entity in front of its opening, and no higher above it than its box and
-    /// `REST_CLEARANCE`. An entity that walked off it, or jumped from it, has left it, and it
-    /// takes the entity again.
-    pub fn still_resting(&self, center: Vec3, passer: Passer) -> Option<PortalKey> {
-        let (owner, color) = passer.resting?;
-        let portal = self.get(owner, color)?;
-        (self.twin(portal).is_some()
+    /// it and its twin are where they were when the entity came out of it, the entity in front
+    /// of its opening, and no higher above it than its box and `REST_CLEARANCE`. An entity that
+    /// walked off it, or jumped from it, has left it, and it takes the entity again; so does a
+    /// portal shot again, or whose twin was, or went: it may now lead elsewhere.
+    pub fn still_resting(&self, center: Vec3, passer: Passer) -> Option<PortalRest> {
+        let rest = passer.resting?;
+        let portal = self.get(rest.on.owner, rest.on.color)?;
+        (*portal == rest.on
+            && self.twin(portal) == Some(&rest.twin)
             && portal.lets_in(center, passer.margin())
             && portal.local(center).z <= portal.depth(passer.extents) + REST_CLEARANCE)
-            .then_some(portal.key())
+            .then_some(rest)
     }
 
     /// Takes through the open portal it went into (`crossed_by`) an entity whose centre moved
@@ -392,7 +388,10 @@ impl Portals {
             let gravity = -GRAVITY;
             let rise = |speed: f32| out.z + speed.max(0.0).powi(2) / (2.0 * gravity);
             if rise(velocity.y) < twin.depth(extents) + REST_CLEARANCE {
-                resting = Some(twin.key());
+                resting = Some(PortalRest {
+                    on: *twin,
+                    twin: *portal,
+                });
                 let lifted = twin.depth(extents) + REST_LIFT;
                 if rise(velocity.y) < lifted {
                     velocity.y = (2.0 * gravity * (lifted - out.z)).sqrt();
@@ -450,23 +449,33 @@ pub struct Passage {
     /// comes to rest on.
     pub velocity: Vec3,
     /// The floor twin it came out of too slowly to leave, and rests on.
-    pub resting: Option<PortalKey>,
+    pub resting: Option<PortalRest>,
 }
 
-/// A portal by its owner and colour, as an entity remembers the floor portal it rests on.
-pub type PortalKey = (PlayerId, PortalColor);
+/// The floor portal an entity rests on (`Passage::resting`), and its twin, as they were when the
+/// entity came out of it: should either be shot again, the rest ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortalRest {
+    pub on: Portal,
+    pub twin: Portal,
+}
 
 /// What the portals know of an entity going through them: the half extents of its box, and the
 /// floor portal it rests on (`Passage::resting`), which does not take it back.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Passer {
     pub extents: Vec3,
-    pub resting: Option<PortalKey>,
+    pub resting: Option<PortalRest>,
 }
 
 impl Passer {
-    pub fn new(extents: Vec3, resting: Option<PortalKey>) -> Self {
+    pub fn new(extents: Vec3, resting: Option<PortalRest>) -> Self {
         Self { extents, resting }
+    }
+
+    /// Whether the entity rests on `portal`, which then does not take it.
+    fn rests_on(&self, portal: &Portal) -> bool {
+        self.resting.is_some_and(|rest| rest.on == *portal)
     }
 
     /// How far within the edges of an opening the centre of the entity must be for its box to

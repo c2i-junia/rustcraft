@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::game_mode::{DeathCause, GameMode, MAX_HEALTH};
 use crate::{
     messages::PlayerId,
-    world::{ItemId, ItemStack, ItemType, Passer, PortalKey},
+    world::{ItemId, ItemStack, ItemType, Passer, PortalRest},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -208,7 +208,7 @@ pub struct Player {
     /// take the player back until it has left it (`Portals::still_resting`). Not saved, as the
     /// portals.
     #[serde(skip)]
-    pub portal_rest: Option<PortalKey>,
+    pub portal_rest: Option<PortalRest>,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -223,7 +223,7 @@ pub struct MovementState {
     pub is_sneaking: bool,
     pub is_swimming: bool,
     pub fall_distance: f32,
-    pub portal_rest: Option<PortalKey>,
+    pub portal_rest: Option<PortalRest>,
 }
 
 fn full_health() -> u32 {

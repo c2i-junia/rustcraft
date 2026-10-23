@@ -2,7 +2,7 @@ use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
-use crate::world::PortalKey;
+use crate::world::PortalRest;
 
 pub type MobId = u128;
 
@@ -116,7 +116,7 @@ pub struct ServerMob {
     /// The floor portal the mob came out of too slowly to leave, and rests on
     /// (`Portals::pass`). Not saved, as the portals.
     #[serde(skip)]
-    pub portal_rest: Option<PortalKey>,
+    pub portal_rest: Option<PortalRest>,
 }
 
 impl ServerMob {
