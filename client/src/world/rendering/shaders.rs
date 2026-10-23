@@ -40,7 +40,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::{ColorGrading, ColorGradingGlobal};
 use bevy::shader::ShaderRef;
 
-use super::volumetric_fog::{one_camera_offset, one_camera_offset_uncut};
+use super::volumetric_fog::{one_camera_offset, HazePerCamera};
 use crate::camera::{underwater_fog_system, CameraController};
 use crate::portal::PortalCamera;
 use crate::world::celestial::{celestial_light_system, smoothstep, CelestialRoot, SkyLight};
@@ -259,6 +259,7 @@ fn features(graphics: &GraphicsSettings) -> ShaderFeatures {
 /// floats, as the screen of the player's camera does.
 fn apply_camera_features(
     graphics: Res<GraphicsSettings>,
+    per_camera: Res<HazePerCamera>,
     all: Query<(Entity, Option<&PortalCamera>), With<Camera3d>>,
     added: Query<(Entity, Option<&PortalCamera>), Added<Camera3d>>,
     shown: Res<SkyShown>,
@@ -353,7 +354,9 @@ fn apply_camera_features(
         // A portal camera draws the rays of light too, through its oblique near plane
         // (`volumetric_fog.rs`), the view through the portal hazed as the world is. Its rays
         // start where they start, unjittered: TAA, which smooths the jitter, is the player's
-        if let Some(mut step_count) = features.god_rays {
+        // Not without the shader changed for it (`HazePerCamera`): Bevy's would draw the haze of
+        // every portal camera in the player's view too
+        if let Some(mut step_count) = features.god_rays.filter(|_| !portal || per_camera.0) {
             // A view through a portal in a portal, small and far, marches no more steps than
             // High: at Ultra, 0.9–1.1 ms of 17 saved with recursion 3 (lot 12 report)
             if level.is_some_and(|level| level >= 2) {
@@ -690,7 +693,7 @@ struct GodRayVolume {
 const HAZE_SIZE: Vec3 = Vec3::new(640., 140., 640.);
 /// The heights between which the layer of haze lies: over the ground, its top not seen against
 /// the sky.
-const HAZE_BOTTOM: f32 = SEA_LEVEL as f32 + 30. - HAZE_SIZE.y / 2.;
+pub(crate) const HAZE_BOTTOM: f32 = SEA_LEVEL as f32 + 30. - HAZE_SIZE.y / 2.;
 pub(crate) const HAZE_TOP: f32 = SEA_LEVEL as f32 + 30. + HAZE_SIZE.y / 2.;
 
 /// The volume of the layer of haze of a camera at `camera`, `portal` if it is a portal camera:
@@ -715,10 +718,13 @@ fn haze_transform(camera: Vec3, portal: bool) -> Transform {
 
 /// Keeps a layer of haze under the camera of the world and each portal camera that draws, once
 /// the transforms are propagated, so that each stands where its camera is in the frame drawn:
-/// a camera draws only the haze centred on it, within half a block.
+/// a camera draws only the haze that says where it stands and where it looks
+/// (`one_camera_offset`). Without the shader changed for that (`HazePerCamera`), only the camera
+/// of the world has its layer, untagged, as before the portal cameras drew the haze.
 #[allow(clippy::too_many_arguments)]
 fn follow_cameras_with_haze(
     graphics: Res<GraphicsSettings>,
+    per_camera: Res<HazePerCamera>,
     weather: Option<Res<ClientWeather>>,
     world_cameras: Query<
         (Entity, &GlobalTransform),
@@ -738,18 +744,27 @@ fn follow_cameras_with_haze(
     )>,
     mut commands: Commands,
 ) {
-    let mut cameras: Vec<(Entity, Vec3, bool)> = Vec::new();
+    let mut cameras: Vec<(Entity, GlobalTransform, bool)> = Vec::new();
     if features(&graphics).god_rays.is_some() {
         if let Some((camera, transform)) = world_cameras.iter().next() {
-            cameras.push((camera, transform.translation(), false));
-            cameras.extend(
-                portal_cameras
-                    .iter()
-                    .filter(|(_, _, camera)| camera.is_active)
-                    .map(|(camera, transform, _)| (camera, transform.translation(), true)),
-            );
+            cameras.push((camera, *transform, false));
+            if per_camera.0 {
+                cameras.extend(
+                    portal_cameras
+                        .iter()
+                        .filter(|(_, _, camera)| camera.is_active)
+                        .map(|(camera, transform, _)| (camera, *transform, true)),
+                );
+            }
         }
     }
+    let offset = |camera: &GlobalTransform, portal: bool| {
+        if per_camera.0 {
+            one_camera_offset(camera, portal)
+        } else {
+            Vec3::ZERO
+        }
+    };
     // The haze thickens as the sun goes down, as in the shader packs: rays of light at dawn and
     // dusk, a clear sky at noon
     let sun_height = roots
@@ -761,23 +776,25 @@ fn follow_cameras_with_haze(
     let density = density * Overcast::current(weather.as_deref()).celestial_visibility();
     let mut followed = Vec::new();
     for (volume, haze, mut transform, mut global, mut fog) in &mut volumes {
-        let Some(&(_, at, portal)) = cameras.iter().find(|(camera, ..)| *camera == haze.camera)
+        let Some((_, at, portal)) = cameras.iter().find(|(camera, ..)| *camera == haze.camera)
         else {
             commands.entity(volume).despawn();
             continue;
         };
         followed.push(haze.camera);
-        *transform = haze_transform(at, portal);
+        *transform = haze_transform(at.translation(), *portal);
         *global = GlobalTransform::from(*transform);
-        if fog.density_factor != density {
+        let offset = offset(at, *portal);
+        if fog.density_factor != density || fog.density_texture_offset != offset {
             fog.density_factor = density;
+            fog.density_texture_offset = offset;
         }
     }
     for (camera, at, portal) in cameras {
         if followed.contains(&camera) {
             continue;
         }
-        let transform = haze_transform(at, portal);
+        let transform = haze_transform(at.translation(), portal);
         commands.spawn((
             GodRayVolume { camera },
             FogVolume {
@@ -786,11 +803,7 @@ fn follow_cameras_with_haze(
                 absorption: 0.1,
                 scattering_asymmetry: 0.7,
                 // Only a portal camera's volume, stretched to hold it, is cut to the layer
-                density_texture_offset: if portal {
-                    one_camera_offset(HAZE_BOTTOM, HAZE_TOP)
-                } else {
-                    one_camera_offset_uncut()
-                },
+                density_texture_offset: offset(&at, portal),
                 ..default()
             },
             transform,
@@ -1106,6 +1119,7 @@ mod tests {
     #[test]
     fn a_portal_camera_draws_the_picture_and_the_players_camera_finishes_it() {
         let mut app = App::new();
+        app.init_resource::<HazePerCamera>();
         app.insert_resource(GraphicsSettings {
             shaders: ShaderQuality::Ultra,
             ..default()
@@ -1224,6 +1238,7 @@ mod tests {
     #[test]
     fn switched_off_the_sky_leaves_the_cameras_a_frame_after_its_atmosphere() {
         let mut app = App::new();
+        app.init_resource::<HazePerCamera>();
         app.insert_resource(GraphicsSettings {
             shaders: ShaderQuality::High,
             ..default()
@@ -1276,6 +1291,7 @@ mod tests {
     #[test]
     fn a_sky_off_for_a_frame_comes_back_without_the_portal_cameras_atmosphere() {
         let mut app = App::new();
+        app.init_resource::<HazePerCamera>();
         app.insert_resource(GraphicsSettings {
             shaders: ShaderQuality::High,
             ..default()
@@ -1431,6 +1447,7 @@ mod tests {
     #[test]
     fn the_skirt_follows_the_camera_of_the_world_and_each_camera_has_its_haze() {
         let mut app = App::new();
+        app.init_resource::<HazePerCamera>();
         app.insert_resource(GraphicsSettings {
             shaders: ShaderQuality::Ultra,
             ..default()
@@ -1482,8 +1499,8 @@ mod tests {
             hazes
         };
         let (uncut, cut) = (
-            one_camera_offset_uncut(),
-            one_camera_offset(HAZE_BOTTOM, HAZE_TOP),
+            one_camera_offset(&GlobalTransform::from_xyz(5., 70., 0.), false),
+            one_camera_offset(&GlobalTransform::from_xyz(1000., 70., 0.), true),
         );
         assert_eq!(
             hazes(&mut app),
@@ -1495,6 +1512,12 @@ mod tests {
             .insert(GlobalTransform::from_xyz(1020., 70., 0.));
         app.update();
         assert_eq!(hazes(&mut app)[1].1, 1020.);
+        // Turned, its volume says so
+        let turned =
+            GlobalTransform::from(Transform::from_xyz(1020., 70., 0.).looking_to(Vec3::X, Vec3::Y));
+        app.world_mut().entity_mut(portal_camera).insert(turned);
+        app.update();
+        assert_eq!(hazes(&mut app)[1].2, one_camera_offset(&turned, true));
         // Off, it has none
         app.world_mut()
             .get_mut::<Camera>(portal_camera)
@@ -1502,6 +1525,52 @@ mod tests {
             .is_active = false;
         app.update();
         assert_eq!(hazes(&mut app), vec![(world_camera, 5., uncut)]);
+    }
+
+    /// Without Bevy's shader changed (`HazePerCamera`), which would draw every camera's volume in
+    /// every view, only the camera of the world draws haze, with one volume, untagged: the
+    /// portal cameras draw none, as before lot 10.
+    #[test]
+    fn without_the_shader_changed_only_the_camera_of_the_world_draws_haze() {
+        let mut app = App::new();
+        app.insert_resource(HazePerCamera(false))
+            .insert_resource(GraphicsSettings {
+                shaders: ShaderQuality::Ultra,
+                ..default()
+            })
+            .insert_resource(SkyShown(true))
+            .add_systems(Update, (apply_camera_features, follow_cameras_with_haze));
+        let main = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                CameraController::default(),
+                GlobalTransform::from_xyz(5., 70., 0.),
+            ))
+            .id();
+        let portal = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                GlobalTransform::from_xyz(1000., 70., 0.),
+                PortalCamera {
+                    owner: 1,
+                    color: shared::world::PortalColor::Blue,
+                    level: 1,
+                },
+            ))
+            .id();
+        app.update();
+        app.update();
+        assert!(app.world().entity(main).contains::<VolumetricFog>());
+        assert!(!app.world().entity(portal).contains::<VolumetricFog>());
+        let world = app.world_mut();
+        let hazes: Vec<(Entity, Vec3)> = world
+            .query::<(&GodRayVolume, &FogVolume)>()
+            .iter(world)
+            .map(|(haze, fog)| (haze.camera, fog.density_texture_offset))
+            .collect();
+        assert_eq!(hazes, vec![(main, Vec3::ZERO)]);
     }
 
     /// The views through a portal seen through another, level 2 and deeper, march the haze in
@@ -1514,6 +1583,7 @@ mod tests {
         for quality in [ShaderQuality::High, ShaderQuality::Ultra] {
             let full = ShaderFeatures::of(quality).god_rays.unwrap();
             let mut app = App::new();
+            app.init_resource::<HazePerCamera>();
             app.insert_resource(GraphicsSettings {
                 shaders: quality,
                 ..default()

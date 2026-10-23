@@ -2155,6 +2155,150 @@ fn own_view_high_dusk_is_unchanged_by_an_approached_portal() {
     own_view_with_a_portal_approached(ShaderQuality::High, Hour::Dusk);
 }
 
+/// How much the haze must change the view of `own_view_high_dusk_is_unchanged_by_a_stacked_...`
+/// on average, for the gate to check it: a layer of haze drawn twice must show.
+const HAZE_SEEN: f32 = 0.5;
+
+/// A floor portal straight under a ceiling portal, the same opening, the same up: as a player
+/// makes them by shooting down, then up, from where it stands. `Portals::through` is then a
+/// vertical translation, and the portal cameras of every level stand straight above the
+/// player's camera. The player's own view, looking down into the floor portal at High dusk,
+/// the haze at its thickest, against the same view with the ceiling portal gone, the floor
+/// portal lone: the same but for the opening and its rim. Each camera draws only its own layer
+/// of haze, whatever the cameras over or under it.
+#[test]
+#[ignore = "a regression test of minutes on lavapipe: run it by hand with --ignored"]
+fn own_view_high_dusk_is_unchanged_by_a_stacked_floor_and_ceiling_pair() {
+    let (quality, hour) = (ShaderQuality::High, Hour::Dusk);
+    let case = "own_view_stacked_high_dusk";
+    let player = Vec3::new(-60.5, 140.9, 4.5);
+    let mut h = enter_world_with(folder("Seam", player, false, false), "Seam", options());
+    install(&mut h);
+    wait_for_terrain(&mut h, player.with_y(0.0));
+    // A stone floor and, 12 blocks over it, a stone ceiling, the air between them cleared
+    let (x0, z0) = (-40, 4);
+    let floor_y = ground(&h, x0, z0 - 4, z0 + 6);
+    let ceiling_y = floor_y + 12;
+    {
+        let blocks = &mut h.world_mut().resource_mut::<ClientWorldMap>().blocks;
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        for x in x0 - 5..=x0 + 4 {
+            for z in z0 - 4..=z0 + 6 {
+                blocks.set_block(IVec3::new(x, floor_y, z), stone);
+                blocks.set_block(IVec3::new(x, ceiling_y, z), stone);
+                for y in floor_y + 1..ceiling_y {
+                    blocks.remove_block(IVec3::new(x, y, z));
+                }
+            }
+        }
+    }
+    let floor = Portal {
+        owner: 1,
+        color: PortalColor::Blue,
+        anchor: IVec3::new(x0, floor_y, z0),
+        face: FaceDirection::PlusY,
+        up: FaceDirection::PlusZ,
+    };
+    let ceiling = Portal {
+        owner: 1,
+        color: PortalColor::Orange,
+        anchor: IVec3::new(x0 - 1, ceiling_y, z0),
+        face: FaceDirection::MinusY,
+        up: FaceDirection::PlusZ,
+    };
+    let (floor_at, ceiling_at) = (
+        Vec3::from(floor.frame().translation),
+        Vec3::from(ceiling.frame().translation),
+    );
+    assert_eq!(floor_at.xz(), ceiling_at.xz());
+    // From 4 blocks over the floor and 4 back from the opening, looking down into it
+    let eye_at = floor_at + Vec3::new(0.0, 4.0, -4.0);
+    let eye = Transform::from_translation(eye_at).looking_at(floor_at, Vec3::Y);
+    h.world_mut()
+        .resource_mut::<ClientWorldMap>()
+        .blocks
+        .portals_mut()
+        .insert(floor);
+    pinned(&mut h).eye = Some(eye);
+    h.frames(60);
+    set_quality(&mut h, quality);
+
+    let lone = settled_shots(&mut h, eye, hour);
+    h.world_mut()
+        .resource_mut::<ClientWorldMap>()
+        .blocks
+        .portals_mut()
+        .insert(ceiling);
+    let through = h
+        .world()
+        .resource::<ClientWorldMap>()
+        .blocks
+        .portals()
+        .through(&floor)
+        .unwrap();
+    // A vertical translation only
+    assert!(through.transform_vector3(Vec3::X).distance(Vec3::X) < 1e-4);
+    assert!(through.transform_vector3(Vec3::Z).distance(Vec3::Z) < 1e-4);
+    assert!(Vec3::from(through.translation).xz().length() < 1e-4);
+    let paired = settled_shots(&mut h, eye, hour);
+    // And without the haze, which the gate must see. From the light: Bevy 0.19 leaves the rays
+    // of a camera drawn once it loses its `VolumetricFog`, as long as some light has a
+    // `VolumetricLight`
+    let haze = take::<VolumetricLight>(&mut h, false);
+    let unhazed = settled_shots(&mut h, eye, hour);
+    give_back(&mut h, haze);
+    // The portal cameras drew, straight above the player's
+    let above: Vec<Vec3> = {
+        let world = h.world_mut();
+        world
+            .query::<(&GlobalTransform, &Camera, &PortalCamera)>()
+            .iter(world)
+            .filter(|(_, camera, _)| camera.is_active)
+            .map(|(at, ..)| at.translation())
+            .collect()
+    };
+    println!("{case}: portal cameras drawing at {above:?}");
+    assert!(!above.is_empty(), "no portal camera drew");
+    assert!(above.iter().all(|at| at.xz().distance(eye_at.xz()) < 1e-3));
+
+    // Every pixel but those of the opening and its rim, half a block around it
+    let pixels: Vec<(u32, u32, usize)> = sample_pixels(&mut h, &eye, None)
+        .into_iter()
+        .filter(|&(x, y, _)| {
+            let direction = ray(&eye, x, y);
+            let along = -floor.signed_distance(eye_at) / direction.dot(floor.normal());
+            let local = floor.local(eye_at + direction * along);
+            let half = Vec2::new(PORTAL_WIDTH as f32, PORTAL_HEIGHT as f32) / 2.0 + 0.5;
+            along <= 0.0 || local.x.abs() > half.x || local.y.abs() > half.y
+        })
+        .collect();
+    let hazed = record(
+        case,
+        "haze",
+        &mean_picture(&unhazed),
+        &mean_picture(&paired),
+        &pixels,
+    );
+    let all = hazed.last().unwrap().2;
+    assert!(
+        all > HAZE_SEEN,
+        "{case}: the haze changes the view by {all:.2} only"
+    );
+    let changed = unchanged_view(
+        case,
+        "stacked",
+        (&lone, &paired),
+        &pixels,
+        0.3,
+        Flicker::Checked,
+    );
+    assert!(
+        changed.is_empty(),
+        "{case}: the player's own view changed with a ceiling portal over the floor portal: {}",
+        changed.join(", ")
+    );
+}
+
 /// The sky the chunks fade into, at High noon, before and after the shaders are switched off at
 /// dusk and on again at noon: the environment map of the sky follows the hour again.
 #[test]

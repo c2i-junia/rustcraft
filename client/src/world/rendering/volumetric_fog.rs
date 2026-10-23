@@ -21,14 +21,19 @@
 //!
 //! Bevy draws every fog volume in every view; RenderLayers do not reach its volumetric pass.
 //! A volume can now belong to one camera (`one_camera_offset`): it is drawn only by the view
-//! whose camera stands at its centre, so that each camera gets its own layer of haze around it
-//! and no other's (`world/rendering/shaders.rs`, `follow_cameras_with_haze`). The tag is in its
-//! `density_texture_offset`, which only a density texture reads, and a haze has none.
+//! whose camera stands where the volume says, along x, y and z, and looks the way it says, so
+//! that each camera gets its own layer of haze around it and no other's
+//! (`world/rendering/shaders.rs`, `follow_cameras_with_haze`). Two cameras that stand in the
+//! same place look different ways: a portal maps a camera onto itself only where it turns the
+//! world. The tag is in its `density_texture_offset`, which only a density texture reads, and a
+//! haze has none.
 //! The shader is changed where Bevy keeps it, among its embedded assets, once the plugins are
 //! built and before it is loaded, so every camera draws with the same shader and nothing of
 //! Bevy's is copied. If Bevy's text no longer matches, the game logs an error at startup and a
-//! unit test fails.
+//! unit test fails, and the haze falls back to what it was before the portal cameras drew it
+//! (`HazePerCamera`): the player's camera alone, with one volume, untagged.
 
+use std::f32::consts::{FRAC_PI_2, PI};
 use std::path::{Path, PathBuf};
 
 use bevy::asset::io::embedded::EmbeddedAssetRegistry;
@@ -49,47 +54,101 @@ struct Change {
 }
 
 /// The `density_texture_offset.y` of a fog volume that belongs to one camera
-/// (`one_camera_offset`).
+/// (`one_camera_offset`), and is marched only within the layer of haze, a portal camera's.
 const ONE_CAMERA_TAG: f32 = -4096.0;
+/// The same, for a volume marched as Bevy marches it, the player's camera's.
+const ONE_CAMERA_TAG_UNCUT: f32 = -8192.0;
 
-/// The `density_texture_offset` of a fog volume drawn only by the view whose camera stands
-/// within half a block of its centre along x and z, and marched only between the heights
-/// `bottom` and `top`, whatever its own: a volume stretched to hold its camera, which Bevy
-/// then draws from inside, hazes no more than the layer.
-pub fn one_camera_offset(bottom: f32, top: f32) -> Vec3 {
-    Vec3::new(bottom, ONE_CAMERA_TAG, top)
+/// Whether each camera draws a layer of haze of its own, only it, the portal cameras too: the
+/// shader is changed (`VolumetricFogPatchPlugin`). Otherwise Bevy's shader, as it is, draws
+/// every volume in every view, and the portal cameras draw no haze, so that the player's view
+/// has only its own.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct HazePerCamera(pub bool);
+
+impl Default for HazePerCamera {
+    fn default() -> Self {
+        Self(true)
+    }
 }
 
-/// The `density_texture_offset` of a fog volume drawn only by the view whose camera stands at
-/// its centre, and marched as Bevy marches it, with no heights to cut its rays to: the player's
-/// layer of haze, which is the layer and nothing more.
-pub fn one_camera_offset_uncut() -> Vec3 {
-    Vec3::new(0., ONE_CAMERA_TAG, 0.)
+/// How many steps the yaw and the pitch of a camera's look are each written in, in
+/// `one_camera_offset`: both in one float, exactly.
+const LOOK_STEPS: f32 = 2048.0;
+
+/// The look `forward` of a camera, its yaw and its pitch each rounded to one of `LOOK_STEPS`
+/// steps, in one float: a whole number under 2^22, which a float holds exactly. A step is
+/// 0.18° of yaw and 0.09° of pitch, well within what tells two cameras apart in the shader
+/// (`ONE_CAMERA_FILTER`, about a degree).
+fn packed_look(forward: Vec3) -> f32 {
+    let step = |value: f32, half_range: f32| {
+        ((value / half_range + 1.0) / 2.0 * (LOOK_STEPS - 1.0))
+            .round()
+            .clamp(0.0, LOOK_STEPS - 1.0)
+    };
+    let yaw = forward.x.atan2(forward.z);
+    let pitch = forward.y.clamp(-1.0, 1.0).asin();
+    step(yaw, PI) * LOOK_STEPS + step(pitch, FRAC_PI_2)
+}
+
+/// The `density_texture_offset` of a fog volume drawn only by the view of the camera
+/// `camera`: the view whose camera stands within half a block of the volume's centre along x
+/// and z, within half a block of the camera's height, and looks within a degree of the
+/// camera's look. A volume `cut`, a portal camera's, is marched only between the heights of the
+/// layer of haze, whatever its own (`START_IN_THE_LAYER`): stretched to hold its camera, which
+/// Bevy then draws from inside, it hazes no more than the layer. The player's, which is the
+/// layer and nothing more, is marched as Bevy marches it.
+pub fn one_camera_offset(camera: &GlobalTransform, cut: bool) -> Vec3 {
+    let tag = if cut {
+        ONE_CAMERA_TAG
+    } else {
+        ONE_CAMERA_TAG_UNCUT
+    };
+    Vec3::new(
+        camera.translation().y,
+        tag,
+        packed_look(camera.forward().as_vec3()),
+    )
 }
 
 /// What draws a volume that belongs to one camera only in that camera's view: the camera, in
 /// the volume's own space (0 to 1), within half a block of its centre along x and z, the size
-/// of the volume read from its matrix (axis-aligned: its diagonal is one over its size).
+/// of the volume read from its matrix (axis-aligned: its diagonal is one over its size); within
+/// half a block of the height in the offset; and its look within about a degree of the look in
+/// the offset (`packed_look`). A portal camera of a floor portal under a ceiling portal stands
+/// straight above the player's camera; one of a pair that turns the world can stand where the
+/// player's camera does, looking another way.
 const ONE_CAMERA_FILTER: &str = "let jitter_strength = volumetric_fog.jitter_strength;
 
     // A volume that belongs to one camera is drawn only in its view (RustCraft)
-    if (density_texture_offset.y == -4096.0) {
+    if (density_texture_offset.y == -4096.0 || density_texture_offset.y == -8192.0) {
         let camera_uvw = (uvw_from_world * vec4(view.world_position, 1.0)).xyz;
         let half_block = 0.5 * vec2(uvw_from_world[0].x, uvw_from_world[2].z);
-        if (any(abs(camera_uvw.xz - vec2(0.5)) > half_block)) {
+        let look = density_texture_offset.z;
+        let yaw_step = floor(look / 2048.0);
+        let yaw = (yaw_step / 2047.0 * 2.0 - 1.0) * 3.14159265;
+        let pitch = ((look - yaw_step * 2048.0) / 2047.0 * 2.0 - 1.0) * 1.57079633;
+        let owner_forward = vec3(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw));
+        let view_forward = -normalize(view.world_from_view[2].xyz);
+        if (any(abs(camera_uvw.xz - vec2(0.5)) > half_block)
+            || abs(view.world_position.y - density_texture_offset.x) > 0.5
+            || dot(view_forward, owner_forward) < 0.9998) {
             return vec4(0.0, 0.0, 0.0, 0.0);
         }
     }";
 
 /// The start depth of the ray from its start point (`CHANGES`), then, for a volume of one
-/// camera with heights (`one_camera_offset`, a portal camera's), the ray cut to them: it starts
-/// where it enters them, its start point with it, and ends where it leaves them. Along the ray,
-/// the height grows by `rise` per unit of view depth; the camera is the origin of the view.
-/// The player's volume has none (`one_camera_offset_uncut`): its rays are marched as before.
+/// camera cut to the layer of haze (`one_camera_offset`, a portal camera's), the ray cut to the
+/// heights of the layer, `HAZE_BOTTOM` and `HAZE_TOP` (`world/rendering/shaders.rs`): it
+/// starts where it enters them, its start point with it, and ends where it leaves them. Along
+/// the ray, the height grows by `rise` per unit of view depth; the camera is the origin of the
+/// view. The player's volume is not cut: its rays are marched as before.
 const START_IN_THE_LAYER: &str = "var start_depth_view = -view_start_pos.z;
 
-    // A volume of one camera is marched only between the heights of its offset (RustCraft)
-    if (density_texture_offset.y == -4096.0 && density_texture_offset.x < density_texture_offset.z) {
+    // A volume of one camera is marched only between the heights of the layer (RustCraft)
+    if (density_texture_offset.y == -4096.0) {
+        let bottom = 22.0;
+        let top = 162.0;
         let dir_view = normalize(view_start_pos.xyz);
         let dir_world = (view.world_from_view * vec4(dir_view, 0.0)).xyz;
         let rise = dir_world.y / -dir_view.z;
@@ -97,11 +156,11 @@ const START_IN_THE_LAYER: &str = "var start_depth_view = -view_start_pos.z;
         var near = start_depth_view;
         var far = end_depth_view;
         if (abs(rise) > 1e-6) {
-            let a = (density_texture_offset.x - camera_y) / rise;
-            let b = (density_texture_offset.z - camera_y) / rise;
+            let a = (bottom - camera_y) / rise;
+            let b = (top - camera_y) / rise;
             near = max(near, min(a, b));
             far = min(far, max(a, b));
-        } else if (camera_y < density_texture_offset.x || camera_y > density_texture_offset.z) {
+        } else if (camera_y < bottom || camera_y > top) {
             far = near;
         }
         if (near > start_depth_view) {
@@ -168,14 +227,17 @@ fn for_oblique_near_planes(source: &str) -> Result<String, String> {
 
 /// Changes Bevy's shader of the volumetric fog among its embedded assets, once every plugin is
 /// built (`finish`), whatever their order, and before the shader is loaded, at the first update.
-/// If Bevy's volumetric fog is there but its shader cannot be changed, it says so at startup and
-/// leaves it as it is: the player's rays of light are right, those through a portal seen from
-/// more than `MIN_OBLIQUE_DISTANCE` are not. `the_shader_of_bevy_is_changed_for_oblique_near_planes`
-/// fails then too.
+/// If Bevy's volumetric fog is there but its shader cannot be changed, it says so at startup,
+/// leaves it as it is, and the haze falls back to the player's camera alone (`HazePerCamera`):
+/// Bevy's shader would draw every camera's volume in every view, the player's included. The
+/// views through the portals then have no rays of light.
+/// `the_shader_of_bevy_is_changed_for_oblique_near_planes` fails then too.
 pub struct VolumetricFogPatchPlugin;
 
 impl Plugin for VolumetricFogPatchPlugin {
-    fn build(&self, _app: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.init_resource::<HazePerCamera>();
+    }
 
     fn finish(&self, app: &mut App) {
         if !app.is_plugin_added::<VolumetricFogPlugin>() {
@@ -184,9 +246,10 @@ impl Plugin for VolumetricFogPatchPlugin {
         }
         if let Err(missing) = patch(app) {
             error!(
-                "Bevy's {SHADER_PATH} could not be changed for the oblique near planes of the \
-                 portal cameras, whose rays of light will be wrong: {missing}"
+                "Bevy's {SHADER_PATH} could not be changed: the portal cameras draw no rays of \
+                 light, and the player's camera only its own ({missing})"
             );
+            app.insert_resource(HazePerCamera(false));
         }
     }
 }
@@ -242,24 +305,113 @@ mod tests {
         // After the offset is read, before the ray
         assert!(changed.find("let density_texture_offset =").unwrap() < filter);
         assert!(filter < changed.find("let ndc_end_depth_from_buffer").unwrap());
-        assert!(ONE_CAMERA_FILTER.contains(&format!("{ONE_CAMERA_TAG:.1}")));
+        for tag in [ONE_CAMERA_TAG, ONE_CAMERA_TAG_UNCUT] {
+            assert!(ONE_CAMERA_FILTER.contains(&format!("density_texture_offset.y == {tag:.1}")));
+        }
         // Half a block, whatever the size of the volume: its scale is read from its matrix
         assert!(ONE_CAMERA_FILTER.contains("uvw_from_world[0].x"));
-        let offset = one_camera_offset(22.0, 162.0);
-        assert_eq!(offset, Vec3::new(22.0, ONE_CAMERA_TAG, 162.0));
-        // The player's volume carries the tag and no heights to cut its rays to
-        let offset = one_camera_offset_uncut();
+        // The look as `packed_look` writes it
+        assert!(ONE_CAMERA_FILTER.contains(&format!("look / {LOOK_STEPS:.1}")));
+        assert!(ONE_CAMERA_FILTER.contains(&format!("/ {:.1} * 2.0 - 1.0", LOOK_STEPS - 1.0)));
+        let camera = GlobalTransform::from(
+            Transform::from_xyz(3.0, 70.0, -2.0).looking_to(Vec3::new(1.0, -0.5, 0.2), Vec3::Y),
+        );
+        let offset = one_camera_offset(&camera, true);
+        assert_eq!(offset.x, 70.0);
         assert_eq!(offset.y, ONE_CAMERA_TAG);
-        assert!(offset.x >= offset.z);
+        // The player's volume carries the other tag, which is not cut to the layer
+        let offset = one_camera_offset(&camera, false);
+        assert_eq!(offset.y, ONE_CAMERA_TAG_UNCUT);
+        assert!(!START_IN_THE_LAYER.contains("-8192"));
     }
 
-    /// The rays are cut to the heights of the layer only in a volume that has them, a portal
-    /// camera's: the player's view is marched as before lot 12, by construction.
+    /// The look of a camera, unpacked as `ONE_CAMERA_FILTER` unpacks it.
+    fn unpacked_look(look: f32) -> Vec3 {
+        let yaw_step = (look / LOOK_STEPS).floor();
+        let yaw = (yaw_step / (LOOK_STEPS - 1.0) * 2.0 - 1.0) * PI;
+        let pitch = ((look - yaw_step * LOOK_STEPS) / (LOOK_STEPS - 1.0) * 2.0 - 1.0) * FRAC_PI_2;
+        Vec3::new(
+            pitch.cos() * yaw.sin(),
+            pitch.sin(),
+            pitch.cos() * yaw.cos(),
+        )
+    }
+
+    /// Whether the view of the camera `view` draws a volume of one camera centred at `centre`
+    /// along x and z with the offset `offset`, as `ONE_CAMERA_FILTER` decides.
+    fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
+        let at = view.translation();
+        (at.xz() - centre).abs().max_element() <= 0.5
+            && (at.y - offset.x).abs() <= 0.5
+            && view.forward().dot(unpacked_look(offset.z)) >= 0.9998
+    }
+
     #[test]
-    fn only_a_volume_with_heights_is_cut_to_them() {
-        assert!(START_IN_THE_LAYER.contains(
-            "density_texture_offset.y == -4096.0 && density_texture_offset.x < density_texture_offset.z"
-        ));
+    fn the_look_of_a_camera_is_written_exactly_within_a_tenth_of_a_degree() {
+        for yaw in (-180..=180).step_by(5) {
+            for pitch in (-89..=89).step_by(4) {
+                let (yaw, pitch) = ((yaw as f32).to_radians(), (pitch as f32).to_radians());
+                let forward = Vec3::new(
+                    pitch.cos() * yaw.sin(),
+                    pitch.sin(),
+                    pitch.cos() * yaw.cos(),
+                );
+                let look = packed_look(forward);
+                // A whole number a float holds exactly
+                assert_eq!(look, look.round());
+                assert!(look < (1 << 22) as f32);
+                let angle = forward.angle_between(unpacked_look(look)).to_degrees();
+                assert!(angle < 0.1, "{forward} {angle}");
+                // Well within what the filter allows
+                assert!(forward.dot(unpacked_look(look)) > 0.9999);
+            }
+        }
+    }
+
+    /// Each camera draws its own volume and no other's: not one straight above or under it, as
+    /// the portal cameras of a floor portal under a ceiling portal are, nor one in the same
+    /// place looking another way, as through a pair that turns the world.
+    #[test]
+    fn a_camera_draws_only_its_own_volume_whoever_stands_by_it() {
+        let player = GlobalTransform::from(
+            Transform::from_xyz(-40.0, 83.0, -2.5).looking_at(Vec3::new(-40.0, 79.0, 1.5), Vec3::Y),
+        );
+        let centre = player.translation().xz();
+        for cut in [false, true] {
+            let offset = one_camera_offset(&player, cut);
+            assert!(drawn_in(&player, centre, offset));
+            // Stacked: 11 blocks over it, the same look
+            let above = GlobalTransform::from(
+                Transform::from_translation(player.translation() + Vec3::Y * 11.0)
+                    .with_rotation(player.rotation()),
+            );
+            assert!(!drawn_in(&above, centre, offset));
+            assert!(!drawn_in(&player, centre, one_camera_offset(&above, cut)));
+            // In the same place, turned about the vertical by a few degrees, or tipped over
+            for turn in [
+                Quat::from_rotation_y(2f32.to_radians()),
+                Quat::from_rotation_y(90f32.to_radians()),
+                Quat::from_rotation_x(90f32.to_radians()),
+            ] {
+                let turned = GlobalTransform::from(
+                    Transform::from_translation(player.translation())
+                        .with_rotation(turn * player.rotation()),
+                );
+                assert!(!drawn_in(&turned, centre, offset), "{turn}");
+                assert!(!drawn_in(&player, centre, one_camera_offset(&turned, cut)));
+            }
+        }
+    }
+
+    /// The rays are cut to the heights of the layer only in a portal camera's volume, by its
+    /// tag: the player's view is marched as before lot 12, by construction. The heights are the
+    /// layer's.
+    #[test]
+    fn only_a_portal_cameras_volume_is_cut_to_the_layer() {
+        use crate::world::rendering::shaders::{HAZE_BOTTOM, HAZE_TOP};
+        assert!(START_IN_THE_LAYER.contains("if (density_texture_offset.y == -4096.0) {"));
+        assert!(START_IN_THE_LAYER.contains(&format!("let bottom = {HAZE_BOTTOM:.1};")));
+        assert!(START_IN_THE_LAYER.contains(&format!("let top = {HAZE_TOP:.1};")));
     }
 
     /// The cut sets where the ray ends: it must come after Bevy ends it at the depth buffer,
@@ -292,7 +444,7 @@ mod tests {
         // The start of the ray, and the start point, may move to where the ray enters the slab
         assert!(changed.contains("var view_start_pos = position_ndc_to_view("));
         assert!(changed.contains("var start_depth_view = -view_start_pos.z;"));
-        let clamp = changed.find("density_texture_offset.x - camera_y").unwrap();
+        let clamp = changed.find("(bottom - camera_y) / rise").unwrap();
         assert!(changed.find("var start_depth_view").unwrap() < clamp);
         assert!(clamp < changed.find("view_start_pos = dir_view").unwrap());
         assert!(changed.contains("end_depth_view = far;"));
@@ -328,6 +480,10 @@ mod tests {
             .add_plugins(VolumetricFogPatchPlugin)
             .add_plugins(VolumetricFogPlugin);
         app.finish();
+        assert_eq!(
+            *app.world().resource::<HazePerCamera>(),
+            HazePerCamera(true)
+        );
         let registry = app.world().resource::<EmbeddedAssetRegistry>();
         let shader = registry
             .remove_asset(Path::new(SHADER_PATH))
@@ -359,5 +515,38 @@ mod tests {
             !source.contains(CHANGES[1].old),
             "the start depth not changed"
         );
+    }
+
+    /// Another Bevy, whose shader no longer has the lines: the shader is left as it is, and the
+    /// haze falls back to the player's camera alone, which Bevy's shader draws right.
+    #[test]
+    fn a_shader_that_cannot_be_changed_leaves_the_haze_to_the_players_camera() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Mesh>()
+            .add_plugins(VolumetricFogPatchPlugin)
+            .add_plugins(VolumetricFogPlugin);
+        app.world()
+            .resource::<EmbeddedAssetRegistry>()
+            .insert_asset(
+                PathBuf::from(SHADER_PATH),
+                Path::new(SHADER_PATH),
+                b"another shader".to_vec(),
+            );
+        assert_eq!(
+            *app.world().resource::<HazePerCamera>(),
+            HazePerCamera(true)
+        );
+        app.finish();
+        assert_eq!(
+            *app.world().resource::<HazePerCamera>(),
+            HazePerCamera(false)
+        );
+        let shader = app
+            .world()
+            .resource::<EmbeddedAssetRegistry>()
+            .remove_asset(Path::new(SHADER_PATH))
+            .unwrap();
+        assert_eq!(shader.value(), b"another shader");
     }
 }
