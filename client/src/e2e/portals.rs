@@ -2071,13 +2071,25 @@ fn the_body_is_not_drawn(h: &mut Harness, frame: u32) {
         let apart = |a: &image::Rgb<u8>, b: &image::Rgb<u8>| {
             a.0.iter().zip(b.0).any(|(a, b)| a.abs_diff(b) > 8)
         };
-        let differing = shown
+        let body = RgbImage::from_fn(shown.width(), shown.height(), |x, y| {
+            let (before, hidden, after) = (
+                shown.get_pixel(x, y),
+                hidden.get_pixel(x, y),
+                shown_again.get_pixel(x, y),
+            );
+            // Not the minimap, which goes on with the world around
+            let minimap = x >= 1090 && y <= 180;
+            if !minimap && !apart(before, after) && apart(before, hidden) && apart(after, hidden) {
+                image::Rgb([255, 0, 255])
+            } else {
+                *hidden
+            }
+        });
+        keep(&body, CEILING, &format!("drawn_through_{index}_body"));
+        let differing = body
             .pixels()
             .zip(hidden.pixels())
-            .zip(shown_again.pixels())
-            .filter(|((before, hidden), after)| {
-                !apart(before, after) && apart(before, hidden) && apart(after, hidden)
-            })
+            .filter(|(body, hidden)| body != hidden)
             .count();
         println!("pitch {angle:.2}: {differing} pixels of the body");
         seen.push((angle, differing));
