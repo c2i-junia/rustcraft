@@ -1,5 +1,6 @@
 //! Throwing items out of the inventory, through the integrated server: Q in the game and over a
-//! slot of the open inventory, and a click outside the panel with a held stack.
+//! slot of the open inventory, a click outside the panel with a held stack, and a stack dragged
+//! out of the panel and dropped.
 
 use std::time::{Duration, Instant};
 
@@ -143,6 +144,35 @@ fn a_click_outside_the_panel_throws_the_held_stack() {
     // A left click throws the rest; the inventory stays open
     h.click_at(outside);
     h.wait_until("the held stack thrown", SERVER, |w| {
+        floating(w).is_none() && !lying(w).is_empty()
+    });
+    h.frames(10);
+    assert_eq!(slot(h.world(), 10), None);
+    assert!(h.is_visible(&L::marker::<InventoryRoot>()));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_stack_dragged_out_of_the_panel_is_thrown_on_release() {
+    let folder =
+        GameFolder::new()
+            .with_world("Drag")
+            .with_items("Drag", "Tester", &[(10, ItemId::Dirt, 5)]);
+    let mut h = enter_world(folder, "Drag");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 10) == Some((ItemId::Dirt, 5))
+    });
+    h.press(KeyCode::KeyE);
+    h.wait_for(&L::marker::<InventoryRoot>(), SCREEN);
+
+    // Picked up by the press, carried out of the panel, let go top left
+    h.mouse_down(&L::cell(10));
+    h.wait_until("the dirt carried", SERVER, |w| {
+        floating(w) == Some((ItemId::Dirt, 5))
+    });
+    h.hover_at(Vec2::new(10.0, 10.0));
+    h.mouse_up();
+    h.wait_until("the carried stack thrown", SERVER, |w| {
         floating(w).is_none() && !lying(w).is_empty()
     });
     h.frames(10);

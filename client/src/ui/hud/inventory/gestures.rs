@@ -1,7 +1,8 @@
 //! The gestures of the mouse on the cells of the open inventory that last longer than a press: a
 //! drag of the held stack over cells, sent once its button is released, the double clicks, and
-//! the Mouse Tweaks sweep of Shift+drag, which quick-moves every cell it enters, and its wheel,
-//! which moves one item a notch.
+//! the Mouse Tweaks sweep of Shift+drag, which quick-moves every cell it enters, its wheel,
+//! which moves one item a notch, and the stack picked up by a press, carried until its button is
+//! released.
 
 use std::time::Duration;
 
@@ -108,6 +109,9 @@ pub struct CellGestures {
     pub drag: Option<CellDrag>,
     /// The Shift+drag whose button is down.
     pub shift_drag: Option<ShiftDrag>,
+    /// The button of the press that picked a stack up from a cell, while it is down: released
+    /// outside the inventory, it throws that stack (`throw_carried_stack_system`).
+    pub carry: Option<MouseButton>,
     last_press: Option<LastPress>,
     /// The part of a notch of the wheel the trackpad made over a stack, `scroll_steps`'.
     wheel: f32,
@@ -133,6 +137,7 @@ impl CellGestures {
             .take()
             .filter(|last| last.slot == slot && now.saturating_sub(last.at) <= DOUBLE_CLICK_WINDOW)
             .map(|last| last.pressed);
+        self.carry = None;
         let left = button == MouseButton::Left;
         let remember = |pressed| LastPress {
             slot,
@@ -161,6 +166,9 @@ impl CellGestures {
                 slots: 1 << slot,
             });
             return None;
+        }
+        if in_slot.is_some() {
+            self.carry = Some(button);
         }
         if !left {
             return Some(InventoryAction::RightClickSlot(slot));

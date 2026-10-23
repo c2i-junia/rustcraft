@@ -173,11 +173,12 @@ made the action (`report_refused_actions` for a predicted one, the item browser 
 Ctrl+click): the audio plays the refused thud, and its slot shakes (`RefusalShake`). A refusal
 of a slot already shaking shows nothing more, so that a burst of refusals shakes and thuds once.
 
-What a player throws out of its inventory (Q, or a click outside the panel with a held stack)
-comes back to the server in `ActionsOutcome::thrown`, beside `dropped`, what it had no room
-for: `throw_from_player` throws it faster, out of the player's reach, and it cannot be picked
-up for 40 ticks (`THROWN_PICKUP_DELAY_TICKS`, 2 s, as in Minecraft) where an overflow waits 10.
-The delay is not saved: a loaded item takes the shorter one.
+What a player throws out of its inventory (Q, a click outside the panel with a held stack, or a
+stack picked up from a cell and released outside the panel) comes back to the server in
+`ActionsOutcome::thrown`, beside `dropped`, what it had no room for: `throw_from_player`
+throws it faster, out of the player's reach, and it cannot be picked up for 40 ticks
+(`THROWN_PICKUP_DELAY_TICKS`, 2 s, as in Minecraft) where an overflow waits 10. The delay is
+not saved: a loaded item takes the shorter one.
 
 A recipe cell is an `Ingredient` (`shared/src/world/crafting.rs`): an item, or a family,
 `ItemTag`, whose members any one of fills it (`ItemTag::Planks`: every planks item), so that a
@@ -368,9 +369,9 @@ and inside. The player chooses Fancy, Fast (one flat layer) or Off in the Video 
 
 A day lasts 20 minutes. The sun and the moon go round on a path that leans 30° from the
 vertical, so they are never right overhead; `celestial.rs` draws them, and the stars, with
-`CelestialMaterial` (`celestial.wgsl`) on the far plane: a round sun reddening near the
-horizon, a moon of 16 × 16 pixels that waxes and wanes over 8 days, and stars that turn with
-the sky and show at night. The shaders (`world/rendering/shaders.rs`) are chosen in the Video
+`CelestialMaterial` (`celestial.wgsl`) on the far plane: a square sun reddening near the
+horizon, a square moon of 16 × 16 pixels that waxes and wanes over 8 days, and stars that turn
+with the sky and show at night. The shaders (`world/rendering/shaders.rs`) are chosen in the Video
 tab, Off, Low, Medium, High (the default) or Ultra (`ShaderQuality`, saved in `video.ron`), and
 applied in game at once by inserting and removing Bevy's components on the camera and the
 light of the sky: a physical sky (Bevy's atmosphere, in an HDR target, with an exposure that

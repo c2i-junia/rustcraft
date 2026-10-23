@@ -2180,6 +2180,28 @@ mod tests {
         assert_eq!(hud.world.resource::<CellGestures>().drag, None);
     }
 
+    #[test]
+    fn a_press_that_picks_a_stack_up_carries_it_and_one_on_an_empty_cell_or_holding_does_not() {
+        for button in [MouseButton::Left, MouseButton::Right] {
+            let mut hud = Hud::new(Visibility::Visible, &[9, 10]);
+            hud.world
+                .resource_mut::<Inventory>()
+                .inner
+                .insert(9, dirt_stack(5));
+            hud.press(9, button);
+            assert_eq!(hud.world.resource::<CellGestures>().carry, Some(button));
+            hud.release(button);
+
+            hud.press(10, button);
+            assert_eq!(hud.world.resource::<CellGestures>().carry, None);
+            hud.release(button);
+
+            hud.hold(Some(dirt_stack(5)));
+            hud.press(9, button);
+            assert_eq!(hud.world.resource::<CellGestures>().carry, None);
+        }
+    }
+
     /// A click on the cell of `slot`, holding 5 dirt, that picks them up, as the prediction
     /// would.
     fn pick_up(hud: &mut Hud, slot: u32) {

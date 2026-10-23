@@ -53,7 +53,7 @@ const PATH_TILT_DEGREES: f32 = 30.;
 /// How far the sun, the moon and the stars are drawn from the player. Drawn on the far plane,
 /// they are behind everything whatever this is; far, they are sorted behind the clouds.
 const CELESTIAL_DISTANCE: f32 = 500.;
-/// The angular radius of the disk of the sun and of the moon, in radians: ten times as large
+/// The angular size of the square of the sun and of the moon, in radians: ten times as large
 /// as the real ones, as games draw them.
 const SUN_RADIUS: f32 = 0.045;
 const MOON_RADIUS: f32 = 0.035;

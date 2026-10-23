@@ -1,6 +1,6 @@
 // The sun, the moon and the stars (`CelestialMaterial` in `celestial.rs`), drawn behind
-// everything else: the depth of the far plane, where only the sky is. The sun is a round disk
-// with a glow, reddened as it nears the horizon; the moon a disk of 16 by 16 pixels, like the
+// everything else: the depth of the far plane, where only the sky is. The sun is a square with
+// a round glow, reddened as it nears the horizon; the moon a square of 16 by 16 pixels, like the
 // textures, which waxes and wanes over 8 days; the stars squares of a pixel or two that twinkle,
 // fixed to the sky as it turns. All three fade out under the horizon.
 
@@ -80,9 +80,10 @@ fn above_horizon(y: f32) -> f32 {
 // The sun, with `at` from -1 to 1 across its quad, which spans 8 times its radius.
 fn sun(at: vec2<f32>) -> vec4<f32> {
     let r = length(at) * 8.0;
-    // A disk a little darker at its edge, as the real one
-    let disk = 1.0 - smoothstep(0.92, 1.0, r);
-    let limb = mix(0.75, 1.0, sqrt(max(1.0 - r * r, 0.0)));
+    // A square a little darker at its edge, as the disk of the real one
+    let edge = max(abs(at.x), abs(at.y)) * 8.0;
+    let disk = 1.0 - smoothstep(0.92, 1.0, edge);
+    let limb = mix(0.75, 1.0, sqrt(max(1.0 - edge * edge, 0.0)));
     let glow = params.glow * (0.5 * exp(-r * 1.4) + 0.12 * exp(-r * 0.45));
     let color = params.color.rgb;
     return vec4(color * (disk * limb * 14.0 + glow * 2.0), 1.0);
@@ -106,11 +107,12 @@ fn moon(at: vec2<f32>) -> vec4<f32> {
     let pixel = floor(disk_at * 8.0);
     let center = (pixel + 0.5) / 8.0;
     var color = vec3(0.0);
-    let r2 = dot(center, center);
-    if r2 < 1.0 {
+    let edge = max(abs(center.x), abs(center.y));
+    if edge < 1.0 {
         // The sun lights the half of the sphere turned toward it, which turns away from us
-        // over the days
-        let normal = vec3(center, sqrt(1.0 - r2));
+        // over the days: the square is drawn as the sphere squeezed into it
+        let on_disk = center * edge / max(length(center), 1e-4);
+        let normal = vec3(on_disk, sqrt(max(1.0 - dot(on_disk, on_disk), 0.0)));
         let angle = params.phase * 6.2831853;
         let to_sun = vec3(sin(angle), 0.0, cos(angle));
         let lit = step(0.0, dot(normal, to_sun));
@@ -119,8 +121,9 @@ fn moon(at: vec2<f32>) -> vec4<f32> {
         color = params.color.rgb * ground * mix(0.05, 1.6, lit);
     }
     let r = length(disk_at);
+    let outside = step(1.0, max(abs(disk_at.x), abs(disk_at.y)));
     let glow = params.glow * 0.25 * exp(-max(r - 1.0, 0.0) * 1.8) * (1.0 - abs(params.phase * 2.0 - 1.0));
-    return vec4(color + params.color.rgb * glow * step(1.0, r), 1.0);
+    return vec4(color + params.color.rgb * glow * outside, 1.0);
 }
 
 // The stars toward `dir`, in the frame of the sky: in cells of a grid on each face of a cube

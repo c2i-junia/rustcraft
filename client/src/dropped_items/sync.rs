@@ -23,6 +23,7 @@ pub(super) fn apply_dropped_items_updates(
     mut looks: ResMut<ItemLooks>,
     mut meshes: ResMut<Assets<Mesh>>,
     materials: Res<MaterialResource>,
+    images: Res<Assets<Image>>,
     mut roots: Query<(&mut DroppedItemRoot, &Transform)>,
     players: Query<(Entity, &Player)>,
     profile: Res<CurrentPlayerProfile>,
@@ -46,7 +47,8 @@ pub(super) fn apply_dropped_items_updates(
                 }
                 commands.entity(entity).despawn();
             }
-            let Some(look) = looks.get(state.stack.item_id, &materials, &mut meshes) else {
+            let Some(look) = looks.get(state.stack.item_id, &materials, &mut meshes, &images)
+            else {
                 continue;
             };
             let entity = spawn_item(&mut commands, *id, state, &look, shown_at);
