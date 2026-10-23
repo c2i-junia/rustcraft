@@ -1961,6 +1961,7 @@ fn falling_out_of_a_ceiling_portal_the_eye_is_never_drawn_in_the_ceiling() {
     };
     let mut drawn_inside = Vec::new();
     let mut passed = None;
+    let mut body_checked = false;
     for frame in 0..240 {
         match frame {
             0 => click(&mut h, ButtonState::Pressed),
@@ -1978,6 +1979,12 @@ fn falling_out_of_a_ceiling_portal_the_eye_is_never_drawn_in_the_ceiling() {
         if solid_at(w, eye) {
             drawn_inside.push((frame, eye, player.position));
         }
+        // Drawn from the twin, far from the player's eye: the body, out of the ceiling under
+        // the eye, is not in the picture through the portal
+        if !body_checked && eye.distance(player.position + Vec3::Y * 0.8) > 1.0 {
+            body_checked = true;
+            the_body_is_not_drawn(&mut h, frame);
+        }
         if passed.is_none() && player.position.x > start.x as f32 + 5.0 {
             passed = Some(frame);
         }
@@ -1991,7 +1998,108 @@ fn falling_out_of_a_ceiling_portal_the_eye_is_never_drawn_in_the_ceiling() {
         drawn_inside.is_empty(),
         "the camera was drawn from inside a block: {drawn_inside:?}"
     );
+    assert!(body_checked, "the eye was never drawn from the twin");
 }
+
+/// While it is there, the local player is held where it is: a clock ahead of time gives its
+/// frames no time (`SyncTime`), and the game does not simulate a frame without time.
+#[derive(Resource)]
+struct HeldPlayer;
+
+fn hold_the_player(
+    held: Option<Res<HeldPlayer>>,
+    mut clock: ResMut<crate::network::buffered_client::SyncTime>,
+) {
+    if held.is_some() {
+        clock.curr_time_ms = u64::MAX / 2;
+    }
+}
+
+/// Holds the local player where it is, the camera drawn as it is, and compares the picture with
+/// the player's body shown and hidden: they are the same, the body not in the picture. Then
+/// lets the player go.
+fn the_body_is_not_drawn(h: &mut Harness, frame: u32) {
+    use crate::network::buffered_client::SyncTime;
+    use crate::player::PlayerBody;
+    let bodies = |h: &mut Harness, visibility: Visibility| {
+        let w = h.world_mut();
+        let bodies: Vec<Entity> = w
+            .query_filtered::<Entity, With<PlayerBody>>()
+            .iter(w)
+            .collect();
+        assert!(!bodies.is_empty());
+        for body in bodies {
+            w.entity_mut(body).insert(visibility);
+        }
+    };
+    let position = |h: &mut Harness| local_player(h.world_mut()).unwrap().position;
+    fn pitch(h: &mut Harness) -> Mut<'_, CameraController> {
+        let w = h.world_mut();
+        w.query::<&mut CameraController>().single_mut(w).unwrap()
+    }
+    h.app.add_systems(First, hold_the_player);
+    h.world_mut().insert_resource(HeldPlayer);
+    hold_the_player_now(h);
+    let held = position(h);
+    let own = pitch(h).angle_y;
+    // Looking down as the player did, then less and less: the legs in the lower half of the view
+    let mut seen = Vec::new();
+    for (index, angle) in [own, 1.2, 0.9, 0.6, 0.3].into_iter().enumerate() {
+        pitch(h).angle_y = angle;
+        h.frames(3);
+        let shown = h.screenshot();
+        bodies(h, Visibility::Hidden);
+        h.frames(3);
+        let hidden = h.screenshot();
+        bodies(h, Visibility::Inherited);
+        h.frames(3);
+        let shown_again = h.screenshot();
+        assert_eq!(position(h), held, "the player was not held");
+        keep(
+            &shown,
+            CEILING,
+            &format!("drawn_through_{index}_body_shown"),
+        );
+        keep(
+            &hidden,
+            CEILING,
+            &format!("drawn_through_{index}_body_hidden"),
+        );
+        // The body's pixels: those the hidden body changes from the pictures before and after
+        // it, which agree. Not what changes meanwhile anyway: the shadows as the sun goes on,
+        // the map
+        let apart = |a: &image::Rgb<u8>, b: &image::Rgb<u8>| {
+            a.0.iter().zip(b.0).any(|(a, b)| a.abs_diff(b) > 8)
+        };
+        let differing = shown
+            .pixels()
+            .zip(hidden.pixels())
+            .zip(shown_again.pixels())
+            .filter(|((before, hidden), after)| {
+                !apart(before, after) && apart(before, hidden) && apart(after, hidden)
+            })
+            .count();
+        println!("pitch {angle:.2}: {differing} pixels of the body");
+        seen.push((angle, differing));
+    }
+    pitch(h).angle_y = own;
+    // Given back to the clock
+    h.world_mut().remove_resource::<HeldPlayer>();
+    h.world_mut().resource_mut::<SyncTime>().curr_time_ms = shared::utils::unix_time_ms();
+    assert!(
+        seen.iter().all(|(_, differing)| *differing < 50),
+        "frame {frame}: the body is in the picture drawn through the portal: {seen:?}"
+    );
+}
+
+/// `hold_the_player` at once, before the next frame's clock reads the time.
+fn hold_the_player_now(h: &mut Harness) {
+    h.world_mut()
+        .resource_mut::<crate::network::buffered_client::SyncTime>()
+        .curr_time_ms = u64::MAX / 2;
+}
+
+const CEILING: &str = "falling_out_of_a_ceiling_portal_the_eye_is_never_drawn_in_the_ceiling";
 
 /// A mod with a command, `/throwcourse`, that builds from the block its author is in: a stone
 /// platform 3 blocks down, with a hole 4 blocks north on a stone below it, and on it a stone
