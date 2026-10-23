@@ -1766,15 +1766,17 @@ fn in_the_air(w: &World) -> bool {
     })
 }
 
-/// Holds `key` until `done`, within `frames` frames.
+/// Holds `key` until `done`, within 3000 frames or two minutes, whichever is longer: on the GPU
+/// of the machine (`BENCH_GPU`), 3000 frames go by before the player has flown far.
 fn fly_until(h: &mut Harness, key: KeyCode, what: &str, done: impl Fn(Vec3) -> bool) {
     h.key_down(key);
     let mut frames = 0;
+    let started = std::time::Instant::now();
     while !local_player(h.world()).is_some_and(|player| done(player.position)) {
         h.frames(1);
         frames += 1;
         assert!(
-            frames < 3000,
+            frames < 3000 || started.elapsed() < Duration::from_secs(120),
             "never reached {what}: {:?}",
             local_player(h.world()).map(|p| p.position)
         );
@@ -1794,22 +1796,15 @@ fn held_around(w: &World, twin: IVec3, distance: i32) -> (usize, usize) {
     (held, offsets.len())
 }
 
-/// Two portals of the gun in the air, `apart` chunks from each other along z: the orange one on
-/// the north face of a wall, facing north, the blue one south of it on the south face of a
-/// wall, facing south, a translation from one to the other. Through the blue one the player
-/// looks north out of the orange one, away from both. The player places them, goes `AWAY`
-/// blocks south of the blue one, comes back to it and waits for the chunks around the orange
-/// one; the picture through the portal is taken from an eye just in front of it, then the
-/// player flies through for real and the picture straight is taken from the same eye carried
-/// through. How long the chunks took to come, and how many, goes into `approach.tsv`. With
-/// `gated`, the seam must be within the gates of the close twins (`assert_seamless`).
-fn approach_seam(
-    quality: ShaderQuality,
-    hour: Hour,
+/// The pair of `approach_seam`, `apart` chunks apart, placed, and the player back at the blue
+/// portal from `AWAY` blocks south of it, once the chunks around the orange one are held: the
+/// harness, the blue and the orange portals, and the motion through the blue one. How long the
+/// chunks took to come, and how many, goes into `approach.tsv` as `case`.
+fn back_at_the_blue_portal(
+    case: &str,
     apart: i32,
     render_distance: u32,
-    gated: bool,
-) {
+) -> (Harness, Portal, Portal, Affine3A) {
     let start = Vec3::new(-60.5, 110.9, 0.5);
     let folder = folder_at("Approach", start, false, true, render_distance)
         .with_mod("southwall", SOUTH_WALL_MOD);
@@ -1867,12 +1862,6 @@ fn approach_seam(
         .unwrap();
     assert!(through.transform_vector3(Vec3::X).distance(Vec3::X) < 1e-4);
     println!("blue {blue:?}, orange {orange:?}");
-    let case = format!(
-        "{}_{}_{}_rd{render_distance}",
-        if apart > 12 { "far" } else { "mid" },
-        quality_name(quality),
-        format!("{hour:?}").to_lowercase()
-    );
     let distance = render_distance as i32;
 
     // Away, then back to the portal
@@ -1918,6 +1907,34 @@ fn approach_seam(
         .unwrap()
         .write_all(line.as_bytes())
         .unwrap();
+    (h, blue, orange, through)
+}
+
+/// Two portals of the gun in the air, `apart` chunks from each other along z: the orange one on
+/// the north face of a wall, facing north, the blue one south of it on the south face of a
+/// wall, facing south, a translation from one to the other. Through the blue one the player
+/// looks north out of the orange one, away from both. The player places them, goes `AWAY`
+/// blocks south of the blue one, comes back to it and waits for the chunks around the orange
+/// one; the picture through the portal is taken from an eye just in front of it, then the
+/// player flies through for real and the picture straight is taken from the same eye carried
+/// through. How long the chunks took to come, and how many, goes into `approach.tsv`. With
+/// `gated`, the seam must be within the gates of the close twins (`assert_seamless`), and at
+/// dusk the shadows the same on both sides (`SHADOWS_SEAMLESS`), which the view through the
+/// portal with the groups around the twin casting none must fail.
+fn approach_seam(
+    quality: ShaderQuality,
+    hour: Hour,
+    apart: i32,
+    render_distance: u32,
+    gated: bool,
+) {
+    let case = format!(
+        "{}_{}_{}_rd{render_distance}",
+        if apart > 12 { "far" } else { "mid" },
+        quality_name(quality),
+        format!("{hour:?}").to_lowercase()
+    );
+    let (mut h, blue, orange, through) = back_at_the_blue_portal(&case, apart, render_distance);
     h.frames(60);
     set_quality(&mut h, quality);
 
@@ -1926,6 +1943,25 @@ fn approach_seam(
     let after = carried(through, &eye_in_front(&blue, -CROSSING, pitch));
     let a = steady_shots(&mut h, before, hour);
     describe_cameras(&mut h);
+    // The control of the shadows: through the portal, the groups around the twin cast none, as
+    // before lot 14 those past the player's reach did not
+    let unshadowed = (hour == Hour::Dusk).then(|| {
+        let world = h.world_mut();
+        let casters: Vec<Entity> = world
+            .query_filtered::<Entity, With<CastsForTwinsOnly>>()
+            .iter(world)
+            .collect();
+        assert!(!casters.is_empty(), "{case}: no group casts for the twin");
+        for &entity in &casters {
+            world.entity_mut(entity).insert(NotShadowCaster);
+        }
+        let shots = steady_shots(&mut h, before, hour);
+        let world = h.world_mut();
+        for &entity in &casters {
+            world.entity_mut(entity).remove::<NotShadowCaster>();
+        }
+        mean_picture(&shots)
+    });
 
     // Through, for real
     pinned(&mut h).eye = None;
@@ -1956,6 +1992,20 @@ fn approach_seam(
     let popin = record(&case, "popin_0", &first, &b, &pixels);
     let rows = record(&case, "baseline", &a, &b, &pixels);
     if gated {
+        if let Some(unshadowed) = unshadowed {
+            save(&case, "unshadowed", &unshadowed, &b, true);
+            let control = record(&case, "unshadowed", &unshadowed, &b, &pixels);
+            assert!(
+                !shadows_seamless(&control).is_empty(),
+                "{case}: the gate of the shadows does not see them taken off: {control:?}"
+            );
+            let failed = shadows_seamless(&rows);
+            assert!(
+                failed.is_empty(),
+                "{case}: the shadows differ across the portal: {}",
+                failed.join(", ")
+            );
+        }
         assert_seamless(&case, quality, &rows, SCREEN_SEAMLESS);
         // The first frame after crossing too, and nothing comes in after it
         assert_seamless(
@@ -1997,6 +2047,21 @@ fn assert_no_popin(case: &str, rows: &[Row]) {
     );
 }
 
+/// How much, on average, the mid-distance terrain (64–96 blocks) may differ across a crossing
+/// through a far twin at dusk, where the shadows are long: the median (`SEAMLESS`) does not see
+/// them, as most pixels of the class are lit on both sides. With the groups only the portals
+/// show casting no shadow (before lot 14), 6.02 at High and 6.17 at Medium; since, 2.76 at both,
+/// against a noise of 0.34–0.42; at noon, without the long shadows, 3.3–3.8 (lot 14 report).
+const SHADOWS_SEAMLESS: f32 = 4.5;
+
+/// The classes of `rows` whose mean is past `SHADOWS_SEAMLESS`, with the reasons.
+fn shadows_seamless(rows: &[Row]) -> Vec<String> {
+    rows.iter()
+        .filter(|(class, _, mean, ..)| class == "64-96" && *mean >= SHADOWS_SEAMLESS)
+        .map(|(class, _, mean, ..)| format!("the {class} class by {mean:.2} (mean)"))
+        .collect()
+}
+
 /// How long to wait for the chunks around the twin from the start of the flight back to the
 /// portal, which took `flight_back` seconds.
 fn flight_back_limit(flight_back: f32) -> Duration {
@@ -2026,6 +2091,93 @@ approach_seam_regression! {
     seam_mid_high_noon_is_seamless: High, Noon, 6;
     seam_far_off_noon_is_seamless: Off, Noon, 21;
     seam_far_high_noon_is_seamless: High, Noon, 21;
+    seam_far_medium_dusk_is_seamless: Medium, Dusk, 21;
+    seam_far_high_dusk_is_seamless: High, Dusk, 21;
+}
+
+/// What the shadows of the groups only the portals show cost on the GPU (lot 14), through the far
+/// twin of `seam_far_*_dusk_is_seamless`, 21 chunks away, render distance 8, at dusk: with the
+/// eye in front of the blue portal, looking through it, and turned away from it, no portal in
+/// view; each as built and with those groups casting no shadow, as before lot 14. In turns over
+/// several rounds; the GPU time of each frame is read back as the GPU finishes it. Needs the GPU
+/// of the machine: `BENCH_GPU=1 BENCH_GPU_TIMES=1 BENCH_SHADERS=high cargo test -p client
+/// --release e2e::portal_seam::bench_far_twin_shadows -- --ignored --nocapture`, `ultra` for
+/// Ultra.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_far_twin_shadows() {
+    use crate::portal::PORTAL_CHUNKS_LAYER;
+    use crate::world::rendering::bench::GPU_FRAMES_MS;
+    use bevy::camera::visibility::RenderLayers;
+
+    assert!(
+        std::env::var_os("BENCH_GPU").is_some() && std::env::var_os("BENCH_GPU_TIMES").is_some(),
+        "BENCH_GPU=1 BENCH_GPU_TIMES=1"
+    );
+    let quality = match std::env::var("BENCH_SHADERS").as_deref() {
+        Ok("ultra") => ShaderQuality::Ultra,
+        _ => ShaderQuality::High,
+    };
+    let hour = Hour::Dusk;
+    let case = format!("bench_far_{}_dusk", quality_name(quality));
+    let (mut h, blue, ..) = back_at_the_blue_portal(&case, 21, RENDER_DISTANCE);
+    h.frames(60);
+    set_quality(&mut h, quality);
+    // Drawn into the image of the screenshots, in every frame
+    let target = h.target.clone();
+    h.set_camera_targets(bevy::camera::RenderTarget::Image(target.into()));
+    let pitch = -25f32.to_radians();
+    let through = eye_in_front(&blue, CROSSING, pitch);
+    let away = eye_in_front(&blue, CROSSING + 2.0, pitch)
+        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI) * through.rotation);
+    let world = h.world_mut();
+    let casters: Vec<Entity> = world
+        .query_filtered::<(Entity, &RenderLayers), With<CastsForTwinsOnly>>()
+        .iter(world)
+        .filter(|(_, layers)| layers.intersects(&RenderLayers::layer(PORTAL_CHUNKS_LAYER)))
+        .map(|(entity, _)| entity)
+        .collect();
+    println!(
+        "{} groups only the portals show cast for the twin",
+        casters.len()
+    );
+    assert!(!casters.is_empty());
+    // (name, eye, the groups only the portals show cast)
+    let cases = [
+        ("far twin in view", through, true),
+        ("far twin in view, before lot 14", through, false),
+        ("no portal in view", away, true),
+        ("no portal in view, before lot 14", away, false),
+    ];
+    let (rounds, warm, frames) = (4, 40, 200);
+    let mut samples = vec![Vec::new(); cases.len()];
+    for _ in 0..rounds {
+        for (index, &(_, eye, cast)) in cases.iter().enumerate() {
+            let world = h.world_mut();
+            for &entity in &casters {
+                if cast {
+                    world.entity_mut(entity).remove::<NotShadowCaster>();
+                } else {
+                    world.entity_mut(entity).insert(NotShadowCaster);
+                }
+            }
+            set_hour(&mut h, hour);
+            pinned(&mut h).eye = Some(eye);
+            h.frames(warm);
+            GPU_FRAMES_MS.lock().unwrap().clear();
+            h.frames(frames);
+            samples[index].extend(GPU_FRAMES_MS.lock().unwrap().drain(..));
+        }
+    }
+    for ((what, ..), mut samples) in cases.iter().zip(samples) {
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "{quality:?}, {what}: GPU median {:.3} ms, p95 {:.3} ms per frame ({} frames)",
+            samples[samples.len() / 2],
+            samples[samples.len() * 95 / 100],
+            samples.len()
+        );
+    }
 }
 
 /// How long the chunks around a far twin take to come at a render distance of 12, measured.
