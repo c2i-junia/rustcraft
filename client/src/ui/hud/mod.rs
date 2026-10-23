@@ -151,13 +151,15 @@ pub fn hud_plugin(app: &mut App) {
                     coords_text_update_system,
                     biome_text_update_system,
                     loaded_chunks_text_update_system,
-                    block_text_update_system,
+                    // Aimed from the camera as the game knows it, before it may be drawn
+                    // through a portal (`draw_the_eye_through_portals`), as the hand aims
+                    block_text_update_system.before(GameSet::Camera),
                     time_text_update_system,
                     weather_text_update_system,
                 )
                     .run_if(debug_overlay_shown),
                 chunk_ghost_update_system,
-                raycast_debug_update_system,
+                raycast_debug_update_system.before(GameSet::Camera),
             )
                 .run_if(in_state(GameState::Game)),
         )
