@@ -355,7 +355,7 @@ pub(super) fn place_portal_cameras(
 
 /// Whether a portal camera started drawing this frame.
 #[derive(Resource, Default)]
-pub(super) struct PortalViewsStarted(bool);
+pub(crate) struct PortalViewsStarted(pub(crate) bool);
 
 /// Marks a mesh whose `NoCpuCulling` was taken away for a frame by `show_chunks_to_new_views`.
 #[derive(Component)]
@@ -369,7 +369,7 @@ pub(crate) struct CpuCulledForAFrame;
 /// anew. The meshes already culled on the CPU for a frame, which would be given their
 /// `NoCpuCulling` back too late for this frame's query, stay culled on the CPU for another; those
 /// that cast shadows for the twins only stay culled on the CPU (`CastsForTwinsOnly`).
-pub(super) fn show_chunks_to_new_views(
+pub(crate) fn show_chunks_to_new_views(
     mut started: ResMut<PortalViewsStarted>,
     gpu_culled: Query<Entity, With<NoCpuCulling>>,
     cpu_culled_for_a_frame: Query<Entity, (With<CpuCulledForAFrame>, Without<CastsForTwinsOnly>)>,

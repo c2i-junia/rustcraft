@@ -1492,6 +1492,108 @@ mod tests {
         );
     }
 
+    /// No group past the player's own reach, on `PORTAL_CHUNKS_LAYER`, which the sky light
+    /// shadows for the far twins, ever casts in every view: its shadows would reach the
+    /// player's cascades from beyond its fog. The groups are shown with their roles as the
+    /// meshing gives them, then the systems of a frame run in their order as the player walks
+    /// past a twin 40 chunks away and its render distance changes, a portal camera starting on
+    /// the way: after each frame, a group on that layer casts no shadow or for the twins only.
+    #[test]
+    fn no_group_past_the_players_reach_ever_casts_in_every_view() {
+        use crate::portal::camera::{show_chunks_to_new_views, PortalViewsStarted};
+        let twin = IVec3::new(40, 4, 0);
+        let at = |chunk: i32| Vec3::new((chunk * CHUNK_SIZE) as f32 + 8.0, 70.0, 8.0);
+        let mut world = World::new();
+        world.insert_resource(RenderDistance { distance: 8 });
+        world.insert_resource(Approach {
+            twins: vec![twin],
+            ..default()
+        });
+        world.init_resource::<PortalViewsStarted>();
+        let player = world
+            .spawn((CurrentPlayerMarker {}, Transform::from_translation(at(0))))
+            .id();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut map = ClientWorldMap::default();
+        let mut materials = MaterialResource::default();
+        materials
+            .chunk_materials
+            .insert(world::GlobalMaterial::Blocks, Handle::default());
+        let mut queue = CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &world);
+        for x in -4..=20 {
+            for z in -3..=3 {
+                let group = IVec2::new(x, z);
+                let mut render = ChunkRender::new();
+                update_chunk(
+                    &mut render,
+                    group_origin(group),
+                    &materials,
+                    &mut commands,
+                    &mut meshes,
+                    some_mesh(),
+                    shadow_role(group, IVec3::new(0, 4, 0), &[twin], 8),
+                );
+                map.render.insert(group, render);
+            }
+        }
+        queue.apply(&mut world);
+        world.insert_resource(map);
+        let mut frame = Schedule::default();
+        frame.add_systems(
+            (
+                show_chunks_to_new_views,
+                shadow_casters_system,
+                portal_chunks_layers_system,
+            )
+                .chain(),
+        );
+        let check = |world: &mut World, when: &str| {
+            let mut groups = world.query::<(
+                Option<&RenderLayers>,
+                Has<NotShadowCaster>,
+                Has<CastsForTwinsOnly>,
+                Has<NoCpuCulling>,
+            )>();
+            let portal_layer = RenderLayers::layer(PORTAL_CHUNKS_LAYER);
+            let mut past_the_reach = 0;
+            for (layers, not_caster, for_twins, gpu_culled) in groups.iter(world) {
+                if layers == Some(&portal_layer) {
+                    past_the_reach += 1;
+                    assert!(
+                        not_caster || for_twins,
+                        "{when}: a group past the reach casts"
+                    );
+                }
+                if gpu_culled && !not_caster {
+                    assert!(
+                        layers.is_none_or(|layers| *layers == RenderLayers::layer(0)),
+                        "{when}: a group culled on the GPU casts off layer 0"
+                    );
+                }
+            }
+            past_the_reach
+        };
+        frame.run(&mut world);
+        let mut past = 0;
+        for chunk in 0..=60 {
+            world.get_mut::<Transform>(player).unwrap().translation = at(chunk);
+            if chunk == 20 {
+                world.resource_mut::<PortalViewsStarted>().0 = true;
+            }
+            for distance in [8, 12, 5] {
+                if chunk % 10 == 0 || distance == 8 {
+                    world.resource_mut::<RenderDistance>().distance = distance;
+                    frame.run(&mut world);
+                    frame.run(&mut world);
+                    past += check(&mut world, &format!("chunk {chunk}, distance {distance}"));
+                }
+            }
+        }
+        // Many groups were past the reach on the way
+        assert!(past > 1000, "{past}");
+    }
+
     #[test]
     fn the_groups_casting_for_the_twins_only_are_left_out_of_the_players_shadows() {
         use bevy::camera::visibility::VisibleMeshEntities;
