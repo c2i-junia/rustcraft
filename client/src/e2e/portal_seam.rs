@@ -425,6 +425,12 @@ fn write_rows(case: &str, variant: &str, rows: &[Row]) {
     print!("{text}");
 }
 
+/// How far over the noise (`noise_floor`) the pictures of two windows may differ and still show
+/// the same view: two windows taken apart also differ by what changes from one to the other run
+/// to run, which no pair within a window shows (up to 1.1 times the noise seen, against 2.5 and
+/// more for a fog moved in by 3 %).
+const NOISE_MARGIN: f32 = 1.5;
+
 /// The noise of a view held still, by class (`Row`): of every pair of shots of each of
 /// `windows`, the one whose pictures differ most. Recorded as `variant`.
 fn noise_floor(
@@ -2005,7 +2011,9 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
     let changed: Vec<String> = rows
         .iter()
         .zip(&noise)
-        .filter(|((_, count, mean, ..), (_, _, noise, ..))| *count > 0 && *mean > noise.max(0.3))
+        .filter(|((_, count, mean, ..), (_, _, noise, ..))| {
+            *count > 0 && *mean > (noise * NOISE_MARGIN).max(0.3)
+        })
         .map(|((class, _, mean, ..), (_, _, noise, ..))| {
             format!("{class} by {mean:.2} (noise {noise:.2})")
         })
@@ -2041,7 +2049,9 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
     let changed: Vec<String> = rows
         .iter()
         .zip(&noise)
-        .filter(|((_, count, mean, ..), (_, _, noise, ..))| *count > 0 && *mean > noise.max(0.3))
+        .filter(|((_, count, mean, ..), (_, _, noise, ..))| {
+            *count > 0 && *mean > (noise * NOISE_MARGIN).max(0.3)
+        })
         .map(|((class, _, mean, ..), (_, _, noise, ..))| {
             format!("{class} by {mean:.2} (noise {noise:.2})")
         })
@@ -2101,7 +2111,9 @@ fn the_sky_follows_the_hour_after_the_shaders_are_switched_off_and_on() {
     let changed: Vec<String> = rows
         .iter()
         .zip(&noise)
-        .filter(|((_, count, mean, ..), (_, _, noise, ..))| *count > 0 && *mean > noise.max(0.5))
+        .filter(|((_, count, mean, ..), (_, _, noise, ..))| {
+            *count > 0 && *mean > (noise * NOISE_MARGIN).max(0.5)
+        })
         .map(|((class, _, mean, ..), (_, _, noise, ..))| {
             format!("{class} by {mean:.2} (noise {noise:.2})")
         })
