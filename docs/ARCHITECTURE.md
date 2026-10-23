@@ -559,7 +559,9 @@ planet over the horizon. Switched off, the sky goes from the cameras a frame aft
 atmosphere (Bevy's `extract_atmosphere` otherwise keeps it extracted, its medium gone, and
 panics), the map is put aside (`put_the_sky_map_aside_while_off`), and its tables are taken
 from the camera's render entity (`forget_the_sky_tables_while_off`, by the private name), so
-that on again Bevy takes the camera's new ones. A test fails once Bevy is another version
+that on again Bevy takes the camera's new ones; once off, the sky is shown again only after
+every camera lost its atmosphere (`settle_the_sky`), however short the switch. The name needs
+Bevy's `debug` feature, which `client/Cargo.toml` asks of `bevy_utils`. A test fails once Bevy is another version
 (`the_sky_rests_on_the_internals_of_bevy_0_19_1`). Its image is in 16-bit floats at every quality, which hold
 the colours before tonemapping with the shaders, and after it without. It draws the god-ray
 haze, a layer 640 blocks wide of its own, centred under it (`follow_cameras_with_haze`): Bevy

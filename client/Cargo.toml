@@ -7,6 +7,9 @@ edition = "2021"
 # system_clipboard: the text fields copy and paste through the clipboard of the system, not one of
 # their own
 bevy = { version = "=0.19.1", features = ["serialize", "system_clipboard"] }
+# debug: the components keep their names, by which `world/rendering/shaders.rs` finds one that
+# Bevy keeps private (`forget_the_sky_tables_while_off`); bevy_egui happens to turn it on too
+bevy_utils = { version = "=0.19.1", features = ["debug"] }
 # The accessibility roles of the widgets, which Bevy does not re-export
 accesskit = "0.24"
 rand = "0.8.5"

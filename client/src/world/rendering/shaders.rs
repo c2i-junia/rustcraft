@@ -205,30 +205,35 @@ pub fn shaders_plugin(app: &mut App) {
     if std::env::var_os("RUSTCRAFT_GPU_TIMINGS").is_some() {
         app.add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin);
     }
-    app.add_systems(
-        Update,
-        (
-            apply_camera_features,
-            give_portal_cameras_the_sky.after(apply_camera_features),
-            share_the_environment_map,
-            apply_light_features,
-            apply_atmosphere,
-            drop_the_sky_once_its_atmosphere_is_gone.before(apply_atmosphere),
-            put_the_sky_map_aside_while_off,
-            follow_camera_with_horizon,
-            apply_water_features,
-            sky_fog.after(underwater_fog_system),
-            brighten_clouds.after(cloud_uniforms_system),
-            scale_sky_light
-                .after(celestial_light_system)
-                .after(daylight_ambient_system),
-            grade_colors.after(apply_camera_features),
-        ),
-    )
-    .add_systems(
-        PostUpdate,
-        follow_cameras_with_haze.after(bevy::transform::TransformSystems::Propagate),
-    );
+    app.init_resource::<SkyShown>()
+        .add_systems(
+            Update,
+            (
+                (
+                    apply_camera_features,
+                    give_portal_cameras_the_sky.after(apply_camera_features),
+                    share_the_environment_map,
+                    apply_atmosphere,
+                    drop_the_sky_once_its_atmosphere_is_gone.before(apply_atmosphere),
+                    put_the_sky_map_aside_while_off,
+                )
+                    .after(settle_the_sky),
+                settle_the_sky,
+                apply_light_features,
+                follow_camera_with_horizon,
+                apply_water_features,
+                sky_fog.after(underwater_fog_system),
+                brighten_clouds.after(cloud_uniforms_system),
+                scale_sky_light
+                    .after(celestial_light_system)
+                    .after(daylight_ambient_system),
+                grade_colors.after(apply_camera_features),
+            ),
+        )
+        .add_systems(
+            PostUpdate,
+            follow_cameras_with_haze.after(bevy::transform::TransformSystems::Propagate),
+        );
     if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
         render_app.add_systems(
             bevy::render::Render,
@@ -256,16 +261,18 @@ fn apply_camera_features(
     graphics: Res<GraphicsSettings>,
     all: Query<(Entity, Has<PortalCamera>), With<Camera3d>>,
     added: Query<(Entity, Has<PortalCamera>), Added<Camera3d>>,
-    mut applied: Local<Option<ShaderQuality>>,
+    shown: Res<SkyShown>,
+    mut applied: Local<Option<(ShaderQuality, bool)>>,
     mut commands: Commands,
 ) {
-    let cameras: Vec<(Entity, bool)> = if *applied != Some(graphics.shaders) {
+    let cameras: Vec<(Entity, bool)> = if *applied != Some((graphics.shaders, shown.0)) {
         all.iter().collect()
     } else {
         added.iter().collect()
     };
-    *applied = Some(graphics.shaders);
-    let features = features(&graphics);
+    *applied = Some((graphics.shaders, shown.0));
+    let mut features = features(&graphics);
+    features.sky = shown.0;
     for (camera, portal) in cameras {
         let mut entity = commands.entity(camera);
         if features.sky && portal {
@@ -374,22 +381,23 @@ fn apply_camera_features(
 /// looks out: past the chunks, the ground of the planet showed over the horizon, dark, by the
 /// order the systems happened to run in. So the portal cameras get the sky once the map is made,
 /// while the player's camera was alone, and tables of other sizes (`portal_atmosphere`), which
-/// never are the player's camera's. `forget_the_sky_tables_while_off` and
-/// `put_the_sky_map_aside_while_off` keep it so across the sky switched off and on;
+/// never are the player's camera's. `forget_the_sky_tables_while_off`,
+/// `put_the_sky_map_aside_while_off` and `settle_the_sky` keep it so across the sky switched off
+/// and on;
 /// `the_sky_rests_on_the_internals_of_bevy_0_19_1` fails once Bevy is another version.
 fn give_portal_cameras_the_sky(
-    graphics: Res<GraphicsSettings>,
     main: Query<
         (Ref<AtmosphereSettings>, Option<Ref<EnvironmentMapLight>>),
         With<CameraController>,
     >,
     portal_cameras: Query<Entity, (With<PortalCamera>, Without<AtmosphereSettings>)>,
+    shown: Res<SkyShown>,
     mut commands: Commands,
 ) {
     let main_sky = main.single().is_ok_and(|(settings, map)| {
         !settings.is_added() && map.is_some_and(|map| !map.is_added())
     });
-    if !features(&graphics).sky || !main_sky {
+    if !shown.0 || !main_sky {
         return;
     }
     for camera in &portal_cameras {
@@ -416,12 +424,12 @@ fn portal_atmosphere() -> AtmosphereSettings {
 /// filtered again on every frame, its camera drawing or not: a pair of portals has six cameras.
 /// The sky is the same seen from them, near enough.
 fn share_the_environment_map(
-    graphics: Res<GraphicsSettings>,
+    shown: Res<SkyShown>,
     main: Query<&EnvironmentMapLight, (With<CameraController>, Without<PortalCamera>)>,
     portal_cameras: Query<(Entity, Option<&EnvironmentMapLight>), With<PortalCamera>>,
     mut commands: Commands,
 ) {
-    let shared = main.single().ok().filter(|_| features(&graphics).sky);
+    let shared = main.single().ok().filter(|_| shown.0);
     for (camera, map) in &portal_cameras {
         match (shared, map) {
             (Some(shared), Some(map))
@@ -477,12 +485,12 @@ fn apply_light_features(
 
 /// The planet under the world, with the physical sky only: its ground is at y = 0.
 fn apply_atmosphere(
-    graphics: Res<GraphicsSettings>,
+    shown: Res<SkyShown>,
     atmospheres: Query<Entity, With<Atmosphere>>,
     mut media: ResMut<Assets<ScatteringMedium>>,
     mut commands: Commands,
 ) {
-    let sky = features(&graphics).sky;
+    let sky = shown.0;
     if sky && atmospheres.is_empty() {
         // The ground of the planet shows under the horizon past the horizon skirt: dark and
         // green, it reads as land far off in the haze
@@ -500,6 +508,31 @@ fn apply_atmosphere(
     }
 }
 
+/// Whether the physical sky is shown: as the settings say (`ShaderFeatures::sky`), but once off,
+/// on again only after every camera lost its atmosphere (`settle_the_sky`).
+#[derive(Resource, Default)]
+pub struct SkyShown(pub bool);
+
+/// Shows the physical sky as the settings say, but, once it went off, shows it again only once
+/// the atmosphere is gone and no camera has `AtmosphereSettings` left
+/// (`drop_the_sky_once_its_atmosphere_is_gone`, a frame after). Switched off for a single frame,
+/// the portal cameras kept theirs: Bevy, taking the tables of the player's sky anew
+/// (`forget_the_sky_tables_while_off`), could take a portal camera's, and the ground of the
+/// planet showed over the horizon until the next switch.
+fn settle_the_sky(
+    graphics: Res<GraphicsSettings>,
+    atmospheres: Query<(), With<Atmosphere>>,
+    cameras: Query<(), With<AtmosphereSettings>>,
+    mut shown: ResMut<SkyShown>,
+) {
+    let wanted = features(&graphics).sky;
+    let settled = shown.0 || (atmospheres.is_empty() && cameras.is_empty());
+    let next = wanted && settled;
+    if shown.0 != next {
+        shown.0 = next;
+    }
+}
+
 /// Takes the physical sky from the cameras once its atmosphere is gone, switched off
 /// (`apply_atmosphere`), a frame after. Bevy 0.19.1's `extract_atmosphere` takes the atmosphere
 /// it extracted (`ExtractedAtmosphere`) only from the cameras that still have
@@ -507,12 +540,12 @@ fn apply_atmosphere(
 /// render entity, the atmosphere's `ScatteringMedium` dropped, and
 /// `prepare_atmosphere_bind_groups` panicked on the next frame.
 fn drop_the_sky_once_its_atmosphere_is_gone(
-    graphics: Res<GraphicsSettings>,
+    shown: Res<SkyShown>,
     atmospheres: Query<(), With<Atmosphere>>,
     cameras: Query<Entity, With<AtmosphereSettings>>,
     mut commands: Commands,
 ) {
-    if features(&graphics).sky || !atmospheres.is_empty() {
+    if shown.0 || !atmospheres.is_empty() {
         return;
     }
     for camera in &cameras {
@@ -526,7 +559,7 @@ fn drop_the_sky_once_its_atmosphere_is_gone(
 struct SkyMapAside(GeneratedEnvironmentMapLight);
 
 /// Puts aside the map of the sky of the player's camera while the physical sky is off, and gives
-/// it back, with a new render entity, once it is on again. Bevy 0.19.1 makes the map once
+/// it back once it is on again, for Bevy to make anew. Bevy 0.19.1 makes the map once
 /// (`prepare_atmosphere_probe_components`, which leaves a camera that has its private
 /// `AtmosphereEnvironmentMap`), and keeps it, and its `EnvironmentMapLight`, once the
 /// atmosphere goes: off, the world was still lit by the sky of the moment it went off. And it
@@ -534,10 +567,11 @@ struct SkyMapAside(GeneratedEnvironmentMapLight);
 /// (`prepare_probe_textures`, `AtmosphereProbeTextures`): on again, the camera's tables were
 /// new textures (`TextureCache::get` drops those unused for 3 frames), the map was drawn with
 /// the old ones, as they were when the sky went off, and the chunks faded into a sky of dusk at
-/// noon. A new render entity has none of it: Bevy takes them anew, the player's camera alone
-/// with an atmosphere then (`give_portal_cameras_the_sky`).
+/// noon: `forget_the_sky_tables_while_off` takes them from the same render entity while the sky
+/// is off, and Bevy takes them anew once it is on, the player's camera alone with an atmosphere
+/// then (`settle_the_sky`, `give_portal_cameras_the_sky`).
 fn put_the_sky_map_aside_while_off(
-    graphics: Res<GraphicsSettings>,
+    shown: Res<SkyShown>,
     cameras: Query<
         (
             Entity,
@@ -549,7 +583,7 @@ fn put_the_sky_map_aside_while_off(
     mut was_on: Local<Option<bool>>,
     mut commands: Commands,
 ) {
-    let on = features(&graphics).sky;
+    let on = shown.0;
     if was_on.replace(on).is_none_or(|was_on| was_on == on) {
         return;
     }
@@ -581,13 +615,20 @@ const PROBE_TEXTURES: &str = "bevy_pbr::atmosphere::environment::AtmosphereProbe
 /// own tables were new textures by then (`TextureCache::get` drops those unused for 3 frames)
 /// and the map was drawn with the old ones, as they were when the sky went off: the chunks
 /// faded into a sky of dusk at noon. It takes them anew while the player's camera is alone with
-/// an atmosphere (`give_portal_cameras_the_sky`, after `put_the_sky_map_aside_while_off`).
+/// an atmosphere (`settle_the_sky`, `give_portal_cameras_the_sky`). The name needs Bevy's
+/// `debug` feature, which `client/Cargo.toml` asks of `bevy_utils`. Only the player's camera has
+/// an `AtmosphereEnvironmentMapLight` here; on a `LightProbe` entity, which never has an
+/// `ExtractedAtmosphere`, Bevy would make the tables again every frame.
 fn forget_the_sky_tables_while_off(
     world: &mut World,
     mut probe_textures: Local<Option<bevy::ecs::component::ComponentId>>,
     mut frames_without: Local<u32>,
+    mut looked_among: Local<usize>,
 ) {
-    if probe_textures.is_none() {
+    // Looked for again only once more components are known
+    let known = world.components().len();
+    if probe_textures.is_none() && known != *looked_among {
+        *looked_among = known;
         *probe_textures = world
             .components()
             .iter_registered()
@@ -1032,13 +1073,18 @@ mod tests {
             shaders: ShaderQuality::Ultra,
             ..default()
         })
+        .init_resource::<SkyShown>()
         .add_systems(
             Update,
             (
-                apply_camera_features,
-                give_portal_cameras_the_sky.after(apply_camera_features),
-                share_the_environment_map,
-                drop_the_sky_once_its_atmosphere_is_gone,
+                (
+                    apply_camera_features,
+                    give_portal_cameras_the_sky.after(apply_camera_features),
+                    share_the_environment_map,
+                    drop_the_sky_once_its_atmosphere_is_gone,
+                )
+                    .after(settle_the_sky),
+                settle_the_sky,
             ),
         );
         let main = app
@@ -1146,12 +1192,17 @@ mod tests {
             ..default()
         })
         .init_resource::<Assets<ScatteringMedium>>()
+        .init_resource::<SkyShown>()
         .add_systems(
             Update,
             (
-                apply_camera_features,
-                apply_atmosphere,
-                drop_the_sky_once_its_atmosphere_is_gone.before(apply_atmosphere),
+                (
+                    apply_camera_features,
+                    apply_atmosphere,
+                    drop_the_sky_once_its_atmosphere_is_gone.before(apply_atmosphere),
+                )
+                    .after(settle_the_sky),
+                settle_the_sky,
             ),
         );
         let main = app
@@ -1182,6 +1233,84 @@ mod tests {
         assert_eq!(state(&mut app), (1, true));
     }
 
+    /// Switched off for a single frame, the sky comes back only once every camera lost its
+    /// atmosphere: the portal cameras kept theirs, and Bevy, taking the tables of the player's
+    /// sky anew, could take a portal camera's.
+    #[test]
+    fn a_sky_off_for_a_frame_comes_back_without_the_portal_cameras_atmosphere() {
+        let mut app = App::new();
+        app.insert_resource(GraphicsSettings {
+            shaders: ShaderQuality::High,
+            ..default()
+        })
+        .init_resource::<Assets<ScatteringMedium>>()
+        .init_resource::<SkyShown>()
+        .add_systems(
+            Update,
+            (
+                settle_the_sky,
+                apply_camera_features.after(settle_the_sky),
+                give_portal_cameras_the_sky
+                    .after(apply_camera_features)
+                    .after(settle_the_sky),
+                apply_atmosphere.after(settle_the_sky),
+                drop_the_sky_once_its_atmosphere_is_gone
+                    .before(apply_atmosphere)
+                    .after(settle_the_sky),
+                put_the_sky_map_aside_while_off.after(settle_the_sky),
+            ),
+        );
+        let images = Assets::<Image>::default();
+        let main = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                CameraController::default(),
+                EnvironmentMapLight {
+                    diffuse_map: images.reserve_handle(),
+                    specular_map: images.reserve_handle(),
+                    ..default()
+                },
+            ))
+            .id();
+        let portal = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                PortalCamera {
+                    owner: 1,
+                    color: shared::world::PortalColor::Blue,
+                    level: 1,
+                },
+            ))
+            .id();
+        let sky =
+            |app: &App, camera: Entity| app.world().entity(camera).contains::<AtmosphereSettings>();
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(sky(&app, main) && sky(&app, portal));
+        // Off for one frame, then on: the player's camera never has its sky back while a
+        // portal camera still has one
+        app.world_mut().resource_mut::<GraphicsSettings>().shaders = ShaderQuality::Off;
+        app.update();
+        app.world_mut().resource_mut::<GraphicsSettings>().shaders = ShaderQuality::High;
+        let mut back = false;
+        for _ in 0..4 {
+            let had = sky(&app, main);
+            app.update();
+            if !had && sky(&app, main) {
+                back = true;
+                assert!(!sky(&app, portal), "the portal camera kept its atmosphere");
+            }
+        }
+        // Taken from every camera, then given back
+        assert!(
+            back,
+            "the sky was never taken from the player's camera, or never came back"
+        );
+    }
+
     /// Switched off, the player's camera puts the map Bevy made of the sky aside, and no longer
     /// lights the world with it; switched on again, it gets it back, made anew, and a new render
     /// entity, on which Bevy takes the tables of the sky afresh.
@@ -1193,7 +1322,14 @@ mod tests {
             shaders: ShaderQuality::High,
             ..default()
         })
-        .add_systems(Update, put_the_sky_map_aside_while_off);
+        .init_resource::<SkyShown>()
+        .add_systems(
+            Update,
+            (
+                settle_the_sky,
+                put_the_sky_map_aside_while_off.after(settle_the_sky),
+            ),
+        );
         let images = Assets::<Image>::default();
         let generated = GeneratedEnvironmentMapLight {
             environment_map: images.reserve_handle(),
