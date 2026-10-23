@@ -425,11 +425,101 @@ fn write_rows(case: &str, variant: &str, rows: &[Row]) {
     print!("{text}");
 }
 
-/// How far over the noise (`noise_floor`) the pictures of two windows may differ and still show
-/// the same view: two windows taken apart also differ by what changes from one to the other run
-/// to run, which no pair within a window shows (up to 1.1 times the noise seen, against 2.5 and
-/// more for a fog moved in by 3 %).
+/// How far over the noise of the reference window (`noise_floor`) the pictures of two windows
+/// may differ and still show the same view: two windows taken apart also differ by what changes
+/// from one to the other run to run, which no pair within a window shows.
 const NOISE_MARGIN: f32 = 1.5;
+/// The most two windows may differ in a class and still show the same view, whatever the noise:
+/// a class as noisy as the mid-distance terrain (64-96) would otherwise let a change of a level
+/// or two through.
+const MOST_UNCHANGED: f32 = 1.5;
+/// How many times noisier than the reference window the window under test may be: more, and the
+/// view under test flickers, which its mean picture would hide.
+const FLICKER: f32 = 2.0;
+/// The noise under which a window under test never counts as flickering, whatever the reference.
+const FLICKER_FLOOR: f32 = 0.5;
+/// Whether `unchanged_view` checks that the window under test does not flicker (`FLICKER`): not
+/// after the shaders were switched off and on, when the first window still varies more from
+/// shot to shot one run in two (1.4 against 0.55 in the mid-distance class), though it no longer
+/// drifts.
+#[derive(Clone, Copy, PartialEq)]
+enum Flicker {
+    Checked,
+    Unchecked,
+}
+/// The change every "unchanged view" gate must see in a run: its mid-distance terrain lighter by
+/// so many levels (`unchanged_view`).
+const RESOLUTION: u8 = 2;
+
+/// Whether the window `tested` shows the view of the window `reference`, held still: the classes
+/// in which they differ, with the reasons, empty if none. The noise is the reference window's
+/// only (`noise_floor`): should the view under test flicker, its own noise would hide it. A class
+/// changed if the mean pictures of the windows differ by more than `NOISE_MARGIN` times that
+/// noise, at least `floor`, at most `MOST_UNCHANGED`; or, if `flicker` is checked, if the window
+/// under test is `FLICKER` times noisier than the reference. And the gate must see in this run a
+/// change of `RESOLUTION` levels of its mid-distance terrain: it panics if it would not.
+fn unchanged_view(
+    case: &str,
+    variant: &str,
+    (reference, tested): (&[RgbImage], &[RgbImage]),
+    pixels: &[(u32, u32, usize)],
+    floor: f32,
+    flicker: Flicker,
+) -> Vec<String> {
+    let noise = noise_floor(case, &format!("{variant}_noise"), &[reference], pixels);
+    let tested_noise = noise_floor(case, &format!("{variant}_tested_noise"), &[tested], pixels);
+    let (a, b) = (mean_picture(reference), mean_picture(tested));
+    save(case, variant, &a, &b, true);
+    let rows = record(case, variant, &a, &b, pixels);
+    let threshold = |noise: f32| (noise * NOISE_MARGIN).max(floor).min(MOST_UNCHANGED);
+    let changed = |rows: &[Row]| -> Vec<String> {
+        rows.iter()
+            .zip(&noise)
+            .zip(&tested_noise)
+            .filter_map(|(((class, count, mean, ..), noise), tested)| {
+                let (noise, tested) = (noise.2, tested.2);
+                if *count == 0 {
+                    None
+                } else if *mean > threshold(noise) {
+                    Some(format!("{class} by {mean:.2} (noise {noise:.2})"))
+                } else if flicker == Flicker::Checked
+                    && tested > (noise * FLICKER).max(FLICKER_FLOOR)
+                {
+                    Some(format!(
+                        "{class} flickers by {tested:.2} (noise {noise:.2})"
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+    // The same view, its mid-distance terrain a little lighter: the gate sees it
+    let mid = CLASSES.iter().position(|class| *class == "64-96").unwrap();
+    if pixels.iter().any(|&(.., class)| class == mid) {
+        let sees = |levels: u8| {
+            let mut lighter = b.clone();
+            for &(x, y, class) in pixels {
+                if class == mid {
+                    let pixel = lighter.get_pixel_mut(x, y);
+                    pixel.0 = pixel.0.map(|c| c.saturating_add(levels));
+                }
+            }
+            let seen = changed(&measure(&a, &lighter, pixels));
+            seen.iter().any(|reason| reason.starts_with("64-96 by"))
+        };
+        println!(
+            "{case} {variant}: the mid-distance terrain a level lighter seen: {}",
+            sees(1)
+        );
+        assert!(
+            sees(RESOLUTION),
+            "{case} {variant}: too noisy to see the mid-distance terrain {RESOLUTION} levels \
+             lighter"
+        );
+    }
+    changed(&rows)
+}
 
 /// The noise of a view held still, by class (`Row`): of every pair of shots of each of
 /// `windows`, the one whose pictures differ most. Recorded as `variant`.
@@ -2004,20 +2094,14 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
 
     // Within the noise: two shots of a window, the view held still, differ by as much
     let pixels = sample_pixels(&mut h, &eye, None);
-    let noise = noise_floor(&case, "noise", &[&alone, &approached], &pixels);
-    let (a, b) = (mean_picture(&alone), mean_picture(&approached));
-    save(&case, "approached", &a, &b, true);
-    let rows = record(&case, "approached", &a, &b, &pixels);
-    let changed: Vec<String> = rows
-        .iter()
-        .zip(&noise)
-        .filter(|((_, count, mean, ..), (_, _, noise, ..))| {
-            *count > 0 && *mean > (noise * NOISE_MARGIN).max(0.3)
-        })
-        .map(|((class, _, mean, ..), (_, _, noise, ..))| {
-            format!("{class} by {mean:.2} (noise {noise:.2})")
-        })
-        .collect();
+    let changed = unchanged_view(
+        &case,
+        "approached",
+        (&alone, &approached),
+        &pixels,
+        0.3,
+        Flicker::Checked,
+    );
     assert!(
         changed.is_empty(),
         "{case}: the player's own view changed once a portal was approached: {}",
@@ -2042,20 +2126,14 @@ fn own_view_with_a_portal_approached(quality: ShaderQuality, hour: Hour) {
     pinned(&mut h).strikes = Some(vec![strike]);
     let flash_only = settled_shots(&mut h, eye, hour);
     pinned(&mut h).strikes = None;
-    let noise = noise_floor(&case, "bolt_noise", &[&bolted, &flash_only], &pixels);
-    let (a, b) = (mean_picture(&bolted), mean_picture(&flash_only));
-    save(&case, "bolt_by_the_twin", &a, &b, true);
-    let rows = record(&case, "bolt_by_the_twin", &a, &b, &pixels);
-    let changed: Vec<String> = rows
-        .iter()
-        .zip(&noise)
-        .filter(|((_, count, mean, ..), (_, _, noise, ..))| {
-            *count > 0 && *mean > (noise * NOISE_MARGIN).max(0.3)
-        })
-        .map(|((class, _, mean, ..), (_, _, noise, ..))| {
-            format!("{class} by {mean:.2} (noise {noise:.2})")
-        })
-        .collect();
+    let changed = unchanged_view(
+        &case,
+        "bolt_by_the_twin",
+        (&flash_only, &bolted),
+        &pixels,
+        0.3,
+        Flicker::Checked,
+    );
     assert!(
         changed.is_empty(),
         "{case}: a bolt by the far twin showed in the player's own view: {}",
@@ -2104,20 +2182,14 @@ fn the_sky_follows_the_hour_after_the_shaders_are_switched_off_and_on() {
     let after = settled_shots(&mut h, eye, Hour::Noon);
 
     let pixels = sample_pixels(&mut h, &eye, None);
-    let noise = noise_floor(case, "noise", &[&before, &after], &pixels);
-    let (a, b) = (mean_picture(&before), mean_picture(&after));
-    save(case, "switched", &a, &b, true);
-    let rows = record(case, "switched", &a, &b, &pixels);
-    let changed: Vec<String> = rows
-        .iter()
-        .zip(&noise)
-        .filter(|((_, count, mean, ..), (_, _, noise, ..))| {
-            *count > 0 && *mean > (noise * NOISE_MARGIN).max(0.5)
-        })
-        .map(|((class, _, mean, ..), (_, _, noise, ..))| {
-            format!("{class} by {mean:.2} (noise {noise:.2})")
-        })
-        .collect();
+    let changed = unchanged_view(
+        case,
+        "switched",
+        (&before, &after),
+        &pixels,
+        0.5,
+        Flicker::Unchecked,
+    );
     assert!(
         changed.is_empty(),
         "{case}: the view changed once the shaders were switched off and on: {}",

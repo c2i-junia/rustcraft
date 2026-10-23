@@ -202,3 +202,12 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
   straight, still or moving, with TAA or without.
 - Not changed: a strike's flash lights the player's world by its distance to the player, not
   to a twin.
+- **The "unchanged view" gates** (the player's own view with a portal approached and with a
+  bolt by the twin, the sky after the shaders are switched off and on; lot 13): each compares
+  two windows of three shots, taken once the picture stopped drifting. The noise is the
+  reference window's only, the largest difference of its shots, so that a view under test that
+  flickers cannot hide behind its own noise. A class changed past 1.5 times that noise, at
+  least 0.3 (0.5 for the sky gate), at most 1.5; the own-view gates also fail a window under
+  test twice as noisy as the reference. Their resolution: about half a level of luma on the far
+  terrain (96+), the sky and the whole picture, and 2 levels on the mid-distance terrain
+  (64-96), which every run checks it would see; a single level there is not guaranteed.
