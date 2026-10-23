@@ -2159,6 +2159,21 @@ mod tests {
             assert!(!shots[0].placed, "{id:?}: {shots:?}");
             assert!((shots[0].to.z - 4.0).abs() < 1e-4, "{id:?}: {shots:?}");
         }
+        // A cocoa pod, the one block whose box is not the whole cell, stops it at its cell
+        let mut world = gun_range();
+        world.set_block(
+            IVec3::new(1, 11, 3),
+            BlockData::new(BlockId::Cocoa, BlockDirection::Front),
+        );
+        world.take_changed_blocks();
+        let mut player = gunner(1.5, 11.3, 5.0);
+        let shots = shots_of(&mut player, &mut world);
+        assert!(!shots[0].placed, "{shots:?}");
+        assert!(
+            shots[0].to.z > 3.0 && shots[0].to.z < 4.0 + 1e-4,
+            "{shots:?}"
+        );
+        assert!(anchor(&world, PortalColor::Blue).is_none());
         // The hand still aims at the vine, which it breaks
         let mut world = gun_range();
         let vine = BlockData::new(BlockId::Vine, BlockDirection::Front);
