@@ -46,7 +46,7 @@ pub fn unload_far_chunks_system(
 /// Forgets the chunks of `world_map` beyond `KEPT_MARGIN` of the reach of every player
 /// (`ChunkReach::kept`, the chunks around the twins of the portals it sees included) but those
 /// not saved yet, and says how many.
-fn unload_far_chunks(world_map: &mut ServerWorldMap) -> usize {
+pub(super) fn unload_far_chunks(world_map: &mut ServerWorldMap) -> usize {
     let reaches: Vec<ChunkReach> = world_map
         .players
         .values()

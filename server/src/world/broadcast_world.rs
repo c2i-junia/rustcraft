@@ -11,8 +11,9 @@ use shared::messages::mob::MobUpdateEvent;
 use shared::messages::{BlockUpdate, PlayerId, ServerToClientMessage, WorldUpdate};
 use shared::players::Player;
 use shared::world::{
-    global_block_to_chunk_pos, render_distance_offsets, world_position_to_chunk_position, Chunk,
-    ChunkMap, ChunkReach, MobId, Portals, ServerMob,
+    global_block_to_chunk_pos, render_distance_offsets, vertical_render_distance,
+    world_position_to_chunk_position, Chunk, ChunkMap, ChunkReach, MobId, Portals, ServerMob,
+    TwinArea,
 };
 use shared::{game_message_to_payload, CHUNK_SIZE, STC_CHUNK_DATA_CHANNEL, UNLOAD_MARGIN};
 use std::collections::{HashMap, HashSet};
@@ -342,18 +343,53 @@ pub fn active_chunks<'a>(
 /// The chunks around the twins of the open portals within the reach of each of `reaches`
 /// (`ChunkReach::portal_chunks`) that none has within its render distance, each once: up to
 /// thousands around an approached twin (`MAX_APPROACHED_EXTRA_CHUNKS`), to be listed once per
-/// reach, not on every tick.
+/// reach, not on every tick. Each chunk is tested only against the reaches that come near the
+/// twins of its own, and remembered, so as to be listed once, only if the area of another
+/// reach comes near them too: against every reach and all remembered, 8 players each by a
+/// portal cost 4.4 ms each time one came into another chunk, 1.1 ms now
+/// (`bench_portal_players`).
 pub fn behind_portals(reaches: &[ChunkReach]) -> Arc<[IVec3]> {
-    // A single player's are each once, and not within its render distance already
-    let mut seen = (reaches.len() > 1).then(HashSet::new);
-    reaches
-        .iter()
-        .flat_map(ChunkReach::portal_chunks)
-        .filter(|&chunk| match seen.as_mut() {
-            Some(seen) => !reaches.iter().any(|reach| reach.within(chunk, 0)) && seen.insert(chunk),
-            None => true,
-        })
-        .collect()
+    // Whether the boxes of two areas, or of a reach and an area, meet
+    let meet = |a: IVec3, a_radius: i32, b: IVec3, b_radius: i32| {
+        let gap = (a - b).abs();
+        gap.x.max(gap.z) <= a_radius + b_radius
+            && gap.y <= vertical_render_distance(a_radius) + vertical_render_distance(b_radius)
+    };
+    let areas: Vec<Vec<TwinArea>> = reaches.iter().map(ChunkReach::areas).collect();
+    let mut seen = HashSet::new();
+    let mut behind = Vec::new();
+    for (index, reach) in reaches.iter().enumerate() {
+        let own = &areas[index];
+        let near: Vec<&ChunkReach> = reaches
+            .iter()
+            .enumerate()
+            .filter(|&(other, other_reach)| {
+                other != index
+                    && own.iter().any(|area| {
+                        meet(
+                            other_reach.center,
+                            other_reach.distance,
+                            area.twin,
+                            area.radius,
+                        )
+                    })
+            })
+            .map(|(_, other)| other)
+            .collect();
+        let shared = areas.iter().enumerate().any(|(other, theirs)| {
+            other != index
+                && own.iter().any(|area| {
+                    theirs
+                        .iter()
+                        .any(|their| meet(area.twin, area.radius, their.twin, their.radius))
+                })
+        });
+        // Its own render distance holds none of them already
+        behind.extend(reach.portal_chunks().into_iter().filter(|&chunk| {
+            !near.iter().any(|other| other.within(chunk, 0)) && (!shared || seen.insert(chunk))
+        }));
+    }
+    behind.into()
 }
 
 /// `active_chunks`, of the reaches `reaches`, with the chunks `behind_portals` of them.
@@ -386,6 +422,67 @@ mod tests {
 
     fn stone() -> BlockData {
         BlockData::new(BlockId::Stone, BlockDirection::Front)
+    }
+
+    /// `behind_portals` as it was first written: every chunk tested against every reach.
+    fn behind_portals_of_every_reach(reaches: &[ChunkReach]) -> Vec<IVec3> {
+        let mut seen = (reaches.len() > 1).then(HashSet::new);
+        reaches
+            .iter()
+            .flat_map(ChunkReach::portal_chunks)
+            .filter(|&chunk| match seen.as_mut() {
+                Some(seen) => {
+                    !reaches.iter().any(|reach| reach.within(chunk, 0)) && seen.insert(chunk)
+                }
+                None => true,
+            })
+            .collect()
+    }
+
+    /// The chunks behind the portals are tested only against the reaches that come near the
+    /// twins: the same chunks, in the same order, as against every reach, whether the players
+    /// stand far apart, in each other's render distance, or by each other's twins.
+    #[test]
+    fn the_chunks_behind_the_portals_are_those_no_reach_holds_whoever_stands_near() {
+        let portal = |owner, color, chunk: IVec3, face| Portal {
+            owner,
+            color,
+            anchor: chunk * CHUNK_SIZE + IVec3::new(4, 4, 4),
+            face,
+            up: FaceDirection::PlusY,
+        };
+        let mut portals = Portals::default();
+        for (owner, z) in [(1, 0), (2, 100), (3, 6)] {
+            portals.insert(portal(
+                owner,
+                PortalColor::Blue,
+                IVec3::new(1, 4, z),
+                FaceDirection::PlusX,
+            ));
+            portals.insert(portal(
+                owner,
+                PortalColor::Orange,
+                IVec3::new(21, 4, z),
+                FaceDirection::MinusX,
+            ));
+        }
+        // Far apart, overlapping, one standing by another's twin, one beyond every twin
+        let centres = [
+            IVec3::new(0, 4, 0),
+            IVec3::new(0, 4, 100),
+            IVec3::new(0, 4, 6),
+            IVec3::new(24, 4, 2),
+            IVec3::new(-60, 4, -60),
+        ];
+        for count in 1..=centres.len() {
+            let reaches: Vec<ChunkReach> = centres[..count]
+                .iter()
+                .map(|&centre| ChunkReach::new(centre, 4, &portals))
+                .collect();
+            let listed = behind_portals(&reaches);
+            assert!(!listed.is_empty());
+            assert_eq!(*listed, *behind_portals_of_every_reach(&reaches), "{count}");
+        }
     }
 
     /// Loaded chunks at x in `0..count`, on the line y = z = 0.

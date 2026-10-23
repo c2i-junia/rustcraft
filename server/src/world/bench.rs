@@ -556,3 +556,106 @@ fn bench_portal_area() {
         median(steady),
     );
 }
+
+/// What the server spends each tick on the reaches of 1, 4 and 8 players, each by a portal of
+/// its own whose twin is 21 chunks away, against as many players and no portal, render
+/// distance 8, once every chunk is sent: the reaches the simulation and the broadcast make of
+/// each player every tick (`ChunkReach::of_player`), the steady broadcast of each
+/// (`world_messages_around`), the chunks behind the portals listed again when a player comes
+/// into another chunk (`behind_portals`), and the look for the chunks to forget, every 5 s
+/// (`unload_far_chunks`). The players stand 100 chunks apart; the chunks are empty, which
+/// costs these alike.
+#[test]
+#[ignore = "benchmark: run it in release with --ignored"]
+fn bench_portal_players() {
+    use super::data::ServerWorldMap;
+    use shared::world::{ChunkReach, FaceDirection, Portal, PortalColor};
+    const RADIUS: i32 = 8;
+    for count in [1u64, 4, 8] {
+        for with_portals in [false, true] {
+            let mut map = ServerWorldMap::default();
+            for id in 1..=count {
+                let chunk = PLAYER_CHUNK + IVec3::new(0, 0, 100 * id as i32);
+                let position = (chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(8.);
+                map.players.insert(
+                    id,
+                    Player::new(id, format!("p{id}"), position, Transform::default()),
+                );
+                map.render_distances.set(id, RADIUS as u32, RADIUS as u32);
+                if with_portals {
+                    for (color, at) in [
+                        (PortalColor::Blue, chunk + IVec3::X),
+                        (PortalColor::Orange, chunk + IVec3::new(21, 0, 0)),
+                    ] {
+                        map.chunks.portals_mut().insert(Portal {
+                            owner: id,
+                            color,
+                            anchor: at * CHUNK_SIZE + IVec3::new(4, 4, 4),
+                            face: FaceDirection::PlusX,
+                            up: FaceDirection::PlusY,
+                        });
+                    }
+                }
+            }
+            let reaches = |map: &ServerWorldMap| -> Vec<ChunkReach> {
+                map.players
+                    .values()
+                    .map(|player| ChunkReach::of_player(player, RADIUS, map.chunks.portals()))
+                    .collect()
+            };
+            // Every chunk of every reach, there and sent
+            let mut sent: HashMap<u64, SentChunks> = HashMap::new();
+            for (id, reach) in map.players.keys().copied().zip(reaches(&map)) {
+                let offsets = render_distance_offsets(RADIUS);
+                let own = offsets.iter().map(|&offset| reach.center + offset);
+                for chunk in own.chain(reach.portal_chunks()) {
+                    map.chunks.insert_chunk(chunk, Chunk::default());
+                }
+                let sent = sent.entry(id).or_default();
+                while !world_messages_around(&map.chunks, &[], &reach, sent)
+                    .2
+                    .is_empty()
+                {}
+            }
+            let loaded = map.chunks.chunk_positions().count();
+            let time = |run: &mut dyn FnMut()| {
+                let samples: Vec<f64> = (0..200)
+                    .map(|_| {
+                        let start = Instant::now();
+                        run();
+                        micros(start)
+                    })
+                    .collect();
+                median(samples)
+            };
+            let reach_time = time(&mut || {
+                black_box(reaches(&map));
+            });
+            let broadcast = time(&mut || {
+                for player in map.players.values() {
+                    let reach = ChunkReach::of_player(player, RADIUS, map.chunks.portals());
+                    let sent = sent.get_mut(&player.id).unwrap();
+                    black_box(world_messages_around(&map.chunks, &[], &reach, sent));
+                }
+            });
+            let all = reaches(&map);
+            let behind = time(&mut || {
+                black_box(super::broadcast_world::behind_portals(&all));
+            });
+            let unload = time(&mut || {
+                assert_eq!(super::unload::unload_far_chunks(&mut map), 0);
+            });
+            println!(
+                "{count} players, {}: {loaded} chunks; per tick: reaches {reach_time:.1} µs \
+                 (made twice), steady broadcast {broadcast:.1} µs; behind the portals {behind:.1} \
+                 µs when one moves; the look for the chunks to forget {:.2} ms every 5 s",
+                if with_portals {
+                    "each by a portal"
+                } else {
+                    "no portal"
+                },
+                unload / 1e3,
+            );
+        }
+    }
+}
