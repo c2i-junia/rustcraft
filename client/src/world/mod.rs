@@ -96,6 +96,12 @@ pub fn world_plugin(app: &mut App) {
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(
+            PostUpdate,
+            keep_twin_shadows_to_portal_cameras
+                .after(bevy::light::SimulationLightSystems::CheckLightVisibility)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
             FixedPostUpdate,
             time_update_system.run_if(in_state(GameState::Game)),
         );

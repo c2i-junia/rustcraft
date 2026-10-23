@@ -659,7 +659,7 @@ impl Drawing {
                             &mut commands,
                             &mut meshes,
                             response,
-                            true,
+                            super::render::ShadowRole::Own,
                         );
                     }
                 },

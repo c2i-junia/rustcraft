@@ -8,7 +8,7 @@ use std::{
 
 use bevy::{
     asset::Assets,
-    camera::visibility::{NoCpuCulling, RenderLayers},
+    camera::visibility::{CascadesVisibleEntities, NoCpuCulling, RenderLayers},
     light::NotShadowCaster,
     math::IVec3,
     prelude::*,
@@ -24,7 +24,8 @@ use shared::UNLOAD_MARGIN;
 use crate::{
     input::{data::GameAction, keyboard::is_action_just_pressed},
     portal::{
-        approach::Approach, camera::CpuCulledForAFrame, shot::ShownPortals, PORTAL_CHUNKS_LAYER,
+        approach::Approach, camera::CpuCulledForAFrame, shot::ShownPortals, PortalCamera,
+        PORTAL_CHUNKS_LAYER,
     },
     state::{GameState, KeyMap},
     ui::hud::UIMode,
@@ -97,7 +98,7 @@ impl QueuedMeshes {
 /// Shows `new_meshes` for the chunk: the chunk entities are kept and only their meshes
 /// replaced, so that the chunk never disappears for a frame. The solid and the liquid faces
 /// have an entity each, and only while they have faces. A solid entity spawned now casts
-/// shadows if `casts_shadow` (`shadow_casters_system`).
+/// shadows as `shadow` says (`shadow_casters_system`).
 pub(super) fn update_chunk(
     chunk: &mut ChunkRender,
     origin: IVec3,
@@ -105,7 +106,7 @@ pub(super) fn update_chunk(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     new_meshes: ChunkMeshResponse,
-    casts_shadow: bool,
+    shadow: ShadowRole,
 ) {
     #[cfg(test)]
     {
@@ -119,11 +120,11 @@ pub(super) fn update_chunk(
             triangles(&new_meshes.liquid_mesh),
         ];
     }
-    let mut show = |entity: &mut Option<Entity>, mesh, material, casts_shadow| {
+    let mut show = |entity: &mut Option<Entity>, mesh, material, shadow| {
         show_mesh(
             entity,
             mesh,
-            (material, casts_shadow),
+            (material, shadow),
             origin,
             material_resource,
             commands,
@@ -134,23 +135,23 @@ pub(super) fn update_chunk(
         &mut chunk.entity,
         new_meshes.solid_mesh,
         world::GlobalMaterial::Blocks,
-        casts_shadow,
+        shadow,
     );
     // The light goes through a liquid: it does not darken the ground below
     show(
         &mut chunk.liquid_entity,
         new_meshes.liquid_mesh,
         world::GlobalMaterial::Liquids,
-        false,
+        ShadowRole::None,
     );
 }
 
 /// Shows `mesh` drawn with `material` on `entity`, spawning it or despawning it as needed. An
-/// entity spawned casts shadows if `casts_shadow`.
+/// entity spawned casts shadows as `shadow` says.
 fn show_mesh(
     entity: &mut Option<Entity>,
     mesh: Option<Mesh>,
-    (material, casts_shadow): (world::GlobalMaterial, bool),
+    (material, shadow): (world::GlobalMaterial, ShadowRole),
     origin: IVec3,
     material_resource: &MaterialResource,
     commands: &mut Commands,
@@ -172,10 +173,17 @@ fn show_mesh(
                 DespawnOnExit(GameState::Game),
                 Mesh3d(meshes.add(mesh)),
                 MeshMaterial3d(handle.clone()),
-                bevy::camera::visibility::NoCpuCulling,
             ));
-            if !casts_shadow {
-                new_entity.insert(NotShadowCaster);
+            match shadow {
+                ShadowRole::None => {
+                    new_entity.insert((NotShadowCaster, NoCpuCulling));
+                }
+                ShadowRole::Own => {
+                    new_entity.insert(NoCpuCulling);
+                }
+                ShadowRole::ForTwinsOnly => {
+                    new_entity.insert(CastsForTwinsOnly);
+                }
             }
             *entity = Some(new_entity.id());
         }
@@ -532,7 +540,6 @@ pub fn world_render_system(
 
     // The meshes shown in a frame go to the GPU before it is drawn
     let mut vertices_left = VERTICES_SHOWN_PER_FRAME;
-    let shadow_centres = shadow_centres(player_chunk, &approach);
     queued_meshes.meshes.retain_mut(|task| {
         if vertices_left == 0 {
             return true;
@@ -566,7 +573,7 @@ pub fn world_render_system(
             &mut commands,
             &mut meshes,
             new_meshes,
-            casts_shadow(task.group, &shadow_centres),
+            shadow_role(task.group, player_chunk, &approach.twins),
         );
         false
     });
@@ -583,17 +590,8 @@ const VERTICES_SHOWN_PER_FRAME: usize = 200_000;
 /// frusta of the shadow cascades in every frame.
 pub const SHADOW_CASTER_DISTANCE: i32 = 12;
 
-/// The chunks around which the groups cast shadows (`casts_shadow`), for a player in the chunk
-/// `player_chunk`: its own, and the twins of the portals it approaches (`Approach::twins`),
-/// whose portal camera draws the shadows the player will see there after crossing.
-fn shadow_centres(player_chunk: IVec3, approach: &Approach) -> Vec<IVec3> {
-    let mut centres = vec![player_chunk];
-    centres.extend(&approach.twins);
-    centres
-}
-
-/// Whether the solid faces of the group `group` cast shadows, around the chunks `centres`
-/// (`shadow_centres`): some of its columns are within `SHADOW_CASTER_DISTANCE` of one.
+/// Whether the solid faces of the group `group` cast shadows, around the chunks `centres`: some
+/// of its columns are within `SHADOW_CASTER_DISTANCE` of one.
 fn casts_shadow(group: IVec2, centres: &[IVec3]) -> bool {
     let first = group * GROUP_WIDTH;
     let last = first + IVec2::splat(GROUP_WIDTH - 1);
@@ -605,30 +603,60 @@ fn casts_shadow(group: IVec2, centres: &[IVec3]) -> bool {
     })
 }
 
+/// What shadows the solid faces of a group cast (`shadow_role`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShadowRole {
+    /// None.
+    None,
+    /// Shadows in every view.
+    Own,
+    /// Shadows in the views of the portal cameras only (`CastsForTwinsOnly`).
+    ForTwinsOnly,
+}
+
+/// What shadows the group `group` casts, for a player in the chunk `player_chunk` who
+/// approaches the twins `twins` (`Approach::twins`): within `SHADOW_CASTER_DISTANCE` of the
+/// player, in every view; else within it of a twin, whose portal camera draws the shadows the
+/// player will see there after crossing, in the views of the portal cameras only, so that the
+/// player's own view does not change with a portal (`keep_twin_shadows_to_portal_cameras`).
+fn shadow_role(group: IVec2, player_chunk: IVec3, twins: &[IVec3]) -> ShadowRole {
+    if casts_shadow(group, &[player_chunk]) {
+        ShadowRole::Own
+    } else if casts_shadow(group, twins) {
+        ShadowRole::ForTwinsOnly
+    } else {
+        ShadowRole::None
+    }
+}
+
+/// Marks a group that casts shadows for the twins only (`ShadowRole::ForTwinsOnly`). It is
+/// culled on the CPU, as Bevy lists per camera the meshes so culled that each shadow cascade
+/// draws, and `keep_twin_shadows_to_portal_cameras` takes it out of the lists of the other
+/// cameras: a mesh culled on the GPU goes to every cascade of the light alike.
+#[derive(Component)]
+pub(crate) struct CastsForTwinsOnly;
+
 /// Makes the groups within `SHADOW_CASTER_DISTANCE` of the player and of the twins it
-/// approaches (`shadow_centres`), and only them, cast shadows, once these change. A group shown
-/// since was spawned as it should be. Bevy 0.19 hands a mesh culled on the GPU only to the views
-/// it was visible to, and the shadow cascades are views: a group that starts or stops casting
-/// is culled on the CPU for a frame (`CpuCulledForAFrame`), or the cascades would never take
-/// it, nor let it go.
+/// approaches, and only them, cast shadows as `shadow_role` says, once these change. A group
+/// shown since was spawned as it should be. Bevy 0.19 hands a mesh culled on the GPU only to the
+/// views it was visible to, and the shadow cascades are views: a group that comes to be culled
+/// on the GPU again is culled on the CPU for a frame first (`CpuCulledForAFrame`), or the
+/// cascades would never take it, nor let it go.
 pub fn shadow_casters_system(
     world_map: Res<ClientWorldMap>,
     player: Query<&Transform, With<CurrentPlayerMarker>>,
     approach: Option<Res<Approach>>,
-    mut last_centres: Local<Option<Vec<IVec3>>>,
+    mut last: Local<Option<(IVec3, Vec<IVec3>)>>,
     mut commands: Commands,
 ) {
     let Ok(player) = player.single() else {
         return;
     };
-    let approach = approach
-        .map(|approach| approach.clone())
+    let twins = approach
+        .map(|approach| approach.twins.clone())
         .unwrap_or_default();
-    let now = shadow_centres(
-        world_position_to_chunk_position(player.translation),
-        &approach,
-    );
-    let Some(before) = last_centres.replace(now.clone()) else {
+    let now = (world_position_to_chunk_position(player.translation), twins);
+    let Some(before) = last.replace(now.clone()) else {
         return;
     };
     if before == now {
@@ -638,20 +666,55 @@ pub fn shadow_casters_system(
         let Some(entity) = render.entity else {
             continue;
         };
-        match (casts_shadow(*group, &before), casts_shadow(*group, &now)) {
-            (false, true) => {
-                commands
-                    .entity(entity)
-                    .try_remove::<(NotShadowCaster, NoCpuCulling)>()
-                    .try_insert(CpuCulledForAFrame);
-            }
-            (true, false) => {
-                commands
-                    .entity(entity)
+        let role = shadow_role(*group, now.0, &now.1);
+        if shadow_role(*group, before.0, &before.1) == role {
+            continue;
+        }
+        let mut entity = commands.entity(entity);
+        match role {
+            ShadowRole::None => {
+                entity
                     .try_insert((NotShadowCaster, CpuCulledForAFrame))
-                    .try_remove::<NoCpuCulling>();
+                    .try_remove::<(NoCpuCulling, CastsForTwinsOnly)>();
             }
-            _ => {}
+            ShadowRole::Own => {
+                entity.try_insert(CpuCulledForAFrame).try_remove::<(
+                    NotShadowCaster,
+                    NoCpuCulling,
+                    CastsForTwinsOnly,
+                )>();
+            }
+            ShadowRole::ForTwinsOnly => {
+                entity
+                    .try_insert(CastsForTwinsOnly)
+                    .try_remove::<(NotShadowCaster, NoCpuCulling)>();
+            }
+        }
+    }
+}
+
+/// Takes the groups that cast shadows for the twins only (`CastsForTwinsOnly`) out of the
+/// shadow cascades of every camera but the portal cameras, once Bevy has listed what each
+/// cascade draws: around a close twin, they are among the player's own chunks, and at a low sun
+/// their shadows reach the player's own view, which must not change with a portal.
+pub fn keep_twin_shadows_to_portal_cameras(
+    for_twins_only: Query<(), With<CastsForTwinsOnly>>,
+    portal_cameras: Query<(), With<PortalCamera>>,
+    mut lights: Query<&mut CascadesVisibleEntities>,
+) {
+    if for_twins_only.is_empty() {
+        return;
+    }
+    for mut lists in &mut lights {
+        for (camera, cascades) in &mut lists.entities {
+            if portal_cameras.contains(*camera) {
+                continue;
+            }
+            for cascade in cascades {
+                cascade
+                    .entities
+                    .retain(|entity| !for_twins_only.contains(*entity));
+            }
         }
     }
 }
@@ -1237,7 +1300,7 @@ mod tests {
             &mut commands,
             meshes,
             response,
-            true,
+            ShadowRole::Own,
         );
         queue.apply(world);
     }
@@ -1325,16 +1388,78 @@ mod tests {
         let casts = |world: &World| world.get::<NotShadowCaster>(entity).is_none();
         assert!(!casts(&world));
 
-        // The player approaches a portal whose twin is there
+        // The player approaches a portal whose twin is there: the group casts for the portal
+        // cameras only, culled on the CPU
         world.resource_mut::<Approach>().twins = vec![twin];
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(casts(&world));
-        // And leaves it
+        assert!(world.get::<CastsForTwinsOnly>(entity).is_some());
+        assert!(world.get::<NoCpuCulling>(entity).is_none());
+        // And leaves it: culled on the GPU again, after a frame
         world.resource_mut::<Approach>().twins.clear();
         system.run((), &mut world).unwrap();
         world.flush();
         assert!(!casts(&world));
+        assert!(world.get::<CastsForTwinsOnly>(entity).is_none());
+        assert!(world.get::<CpuCulledForAFrame>(entity).is_some());
+    }
+
+    #[test]
+    fn a_group_near_both_the_player_and_a_twin_casts_in_every_view() {
+        let twin = IVec3::new(2 * SHADOW_CASTER_DISTANCE, 4, 0);
+        let player = IVec3::new(0, 4, 0);
+        let near_both = group_of(IVec3::new(SHADOW_CASTER_DISTANCE, 4, 0));
+        assert!(casts_shadow(near_both, &[player]) && casts_shadow(near_both, &[twin]));
+        assert_eq!(shadow_role(near_both, player, &[twin]), ShadowRole::Own);
+        assert_eq!(
+            shadow_role(group_of(twin), player, &[twin]),
+            ShadowRole::ForTwinsOnly
+        );
+        assert_eq!(shadow_role(group_of(twin), player, &[]), ShadowRole::None);
+    }
+
+    #[test]
+    fn the_groups_casting_for_the_twins_only_are_left_out_of_the_players_shadows() {
+        use bevy::camera::visibility::VisibleMeshEntities;
+        use shared::world::PortalColor;
+        let mut world = World::new();
+        let own = world.spawn_empty().id();
+        let for_twins = world.spawn(CastsForTwinsOnly).id();
+        let player_camera = world.spawn_empty().id();
+        let portal_camera = world
+            .spawn(PortalCamera {
+                owner: 1,
+                color: PortalColor::Blue,
+                level: 1,
+            })
+            .id();
+        let cascades = || {
+            vec![
+                VisibleMeshEntities {
+                    entities: vec![own, for_twins],
+                };
+                2
+            ]
+        };
+        let mut lists = CascadesVisibleEntities::default();
+        lists.entities.insert(player_camera, cascades());
+        lists.entities.insert(portal_camera, cascades());
+        let light = world.spawn(lists).id();
+
+        world
+            .run_system_once(keep_twin_shadows_to_portal_cameras)
+            .unwrap();
+        let lists = &world
+            .get::<CascadesVisibleEntities>(light)
+            .unwrap()
+            .entities;
+        for cascade in &lists[&player_camera] {
+            assert_eq!(cascade.entities, vec![own]);
+        }
+        for cascade in &lists[&portal_camera] {
+            assert_eq!(cascade.entities, vec![own, for_twins]);
+        }
     }
 
     #[test]

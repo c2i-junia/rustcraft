@@ -32,6 +32,7 @@ use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::world::overcast::Overcast;
 use crate::world::precipitation::render::PrecipitationView;
+use crate::world::rendering::render::CastsForTwinsOnly;
 use crate::world::weather::ClientWeather;
 use crate::world::{
     granted_render_distance, ClientWorldMap, RenderDistance, ServerRenderDistanceLimit,
@@ -366,11 +367,12 @@ pub(crate) struct CpuCulledForAFrame;
 /// portal camera is turned on, the chunks are culled on the CPU for a frame, which every view
 /// draws them through, and then given back their `NoCpuCulling`, which hands them to every view
 /// anew. The meshes already culled on the CPU for a frame, which would be given their
-/// `NoCpuCulling` back too late for this frame's query, stay culled on the CPU for another.
+/// `NoCpuCulling` back too late for this frame's query, stay culled on the CPU for another; those
+/// that cast shadows for the twins only stay culled on the CPU (`CastsForTwinsOnly`).
 pub(super) fn show_chunks_to_new_views(
     mut started: ResMut<PortalViewsStarted>,
     gpu_culled: Query<Entity, With<NoCpuCulling>>,
-    cpu_culled_for_a_frame: Query<Entity, With<CpuCulledForAFrame>>,
+    cpu_culled_for_a_frame: Query<Entity, (With<CpuCulledForAFrame>, Without<CastsForTwinsOnly>)>,
     mut commands: Commands,
 ) {
     if std::mem::take(&mut started.0) {
@@ -588,6 +590,18 @@ mod tests {
 
     /// The chunks sent around a twin while its portal is not approached, all held.
     const SENT: Option<i32> = Some(PORTAL_VIEW_RADIUS);
+
+    #[test]
+    fn a_group_casting_for_the_twins_only_stays_culled_on_the_cpu() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.init_resource::<PortalViewsStarted>();
+        let for_a_frame = world.spawn(CpuCulledForAFrame).id();
+        let for_twins = world.spawn((CpuCulledForAFrame, CastsForTwinsOnly)).id();
+        world.run_system_once(show_chunks_to_new_views).unwrap();
+        assert!(world.get::<NoCpuCulling>(for_a_frame).is_some());
+        assert!(world.get::<NoCpuCulling>(for_twins).is_none());
+    }
 
     fn linear(color: Color, start: f32, end: f32) -> DistanceFog {
         DistanceFog {

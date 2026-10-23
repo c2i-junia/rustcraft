@@ -37,16 +37,18 @@ use super::locator::Locator as L;
 use super::portals::{local_player, own_portal, FAR_MOD};
 use super::seed::GameFolder;
 use crate::camera::{CameraController, FOV_DEGREES};
+use crate::portal::approach::{track_approach, Approach};
 use crate::portal::PortalCamera;
 use crate::state::GameSet;
 use crate::ui::hud::hotbar::Hotbar;
-use crate::world::celestial::sun_height;
+use crate::world::celestial::{sky_rotation, sun_height};
 use crate::world::lightning::bolt::Strokes;
 use crate::world::lightning::{advance_strikes_system, Lightning, LiveStrike, Strike};
+use crate::world::rendering::render::CastsForTwinsOnly;
 use crate::world::rendering::shaders::ShaderFeatures;
 use crate::world::time::ClientTime;
 use crate::world::weather::{ease_weather_system, ClientWeather};
-use crate::world::{ClientWorldMap, GraphicsSettings, ShaderQuality};
+use crate::world::{group_of, ClientWorldMap, GraphicsSettings, ShaderQuality};
 use std::time::Duration;
 
 const WIDTH: u32 = 960;
@@ -76,6 +78,16 @@ struct Pinned {
     weather: Option<ClientWeather>,
     /// The strikes of lightning held at their age, whatever the clock.
     strikes: Option<Vec<LiveStrike>>,
+    /// The twins the player approaches, whatever the portals (`Approach::twins`).
+    twins: Option<Vec<IVec3>>,
+}
+
+fn pin_approach(pinned: Res<Pinned>, mut approach: ResMut<Approach>) {
+    if let Some(twins) = &pinned.twins {
+        if approach.twins != *twins {
+            approach.twins.clone_from(twins);
+        }
+    }
 }
 
 fn pin_strikes(pinned: Res<Pinned>, mut lightning: ResMut<Lightning>) {
@@ -140,6 +152,8 @@ fn install(h: &mut Harness) {
         .add_systems(Update, pin_weather.after(ease_weather_system));
     h.app
         .add_systems(PreUpdate, pin_strikes.after(advance_strikes_system));
+    h.app
+        .add_systems(PreUpdate, pin_approach.after(track_approach));
 }
 
 fn pinned(h: &mut Harness) -> Mut<'_, Pinned> {
@@ -2296,6 +2310,135 @@ fn own_view_high_dusk_is_unchanged_by_a_stacked_floor_and_ceiling_pair() {
         changed.is_empty(),
         "{case}: the player's own view changed with a ceiling portal over the floor portal: {}",
         changed.join(", ")
+    );
+}
+
+/// A wall of stone 224 blocks south of the player, 48 wide, 2 deep, from 60 blocks under it up
+/// to it.
+const SHADOW_WALL_MOD: &str = r#"
+    local rc = rustcraft
+    rc.register_command("shadowwall", function(ctx, args)
+        local p = rc.player_position(ctx.player)
+        for x = -24, 23 do
+            for y = -60, 0 do
+                for z = 224, 225 do
+                    rc.set_block({ x = p.x + x, y = p.y + y, z = p.z + z }, "stone")
+                end
+            end
+        end
+        return "Wall built"
+    end)
+"#;
+
+/// The player's render distance in `own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin`:
+/// past `SHADOW_CASTER_DISTANCE`, so that the player holds groups that cast shadows only around
+/// a twin.
+const SHADOWS_RENDER_DISTANCE: u32 = 18;
+
+/// The player's own view at High dusk, looking away from the sun, a little down, with a twin
+/// approached 6 chunks towards the sun and without: the groups within `SHADOW_CASTER_DISTANCE`
+/// of the twin cast shadows for the portal cameras, some of them 12 to 18 chunks from the
+/// player, among its own chunks at a render distance of 18. A stone wall 60 blocks high and 48
+/// wide stands 14 chunks towards the sun among them (`SHADOW_WALL_MOD`): with the sun that
+/// low, its shadow would reach the player. Nothing but the approach changes: no portal, no
+/// clouds. As a control, the wall's shadow shows once its group casts in every view.
+#[test]
+fn own_view_dusk_is_unchanged_by_the_shadows_of_a_close_twin() {
+    let hour = Hour::Dusk;
+    // In the third chunk of its group along z: the groups 16 to 19 chunks south, 14 to 17 from
+    // the player, cast no shadows but around a twin 6 chunks south, and are whole
+    let start = Vec3::new(-60.5, 110.9, 40.5);
+    let folder = folder_at("Approach", start, false, false, SHADOWS_RENDER_DISTANCE)
+        .with_mod("shadowwall", SHADOW_WALL_MOD);
+    let mut h = enter_world_with(folder, "Approach", options());
+    install(&mut h);
+    let reach = SHADOWS_RENDER_DISTANCE as i32 - 1;
+    h.wait_until("the terrain", SERVER, |w| {
+        let map = &w.resource::<ClientWorldMap>().blocks;
+        (-reach..=reach).all(|cx| {
+            (-reach..=reach).all(|cz| {
+                map.get_height_ground(start + Vec3::new(cx as f32, 0.0, cz as f32) * 16.0) > 0
+            })
+        })
+    });
+    h.frames(120);
+    pinned(&mut h).twins = Some(Vec::new());
+    set_hour(&mut h, hour);
+    let tick = pinned(&mut h).tick.unwrap().1;
+    let sun = sky_rotation(tick) * Vec3::Z;
+    let towards = sun.xz().normalize();
+    // The sun is south at dusk, and low
+    assert!(towards.y > 0.99 && sun.y < 0.1, "{sun}");
+    let towards = Vec3::new(towards.x, 0.0, towards.y);
+    let twin = shared::world::world_position_to_chunk_position(start) + IVec3::Z * 6;
+    let case = "own_view_shadows_dusk";
+    h.command("/shadowwall");
+    let wall = (start + Vec3::new(0.0, -10.0, 224.0)).floor().as_ivec3();
+    h.wait_until("the wall", SERVER, |w| {
+        w.resource::<ClientWorldMap>()
+            .blocks
+            .get_block(wall)
+            .is_some()
+    });
+    h.frames(120);
+    set_quality(&mut h, ShaderQuality::High);
+    let pitch = -12f32.to_radians();
+    // Away from the sun: the faces it lights, which a shadow darkens, are in view
+    let eye = Transform::from_translation(start + Vec3::Y * 1.6)
+        .looking_to(-towards * pitch.cos() + Vec3::Y * pitch.sin(), Vec3::Y);
+    let alone = settled_shots(&mut h, eye, hour);
+    pinned(&mut h).twins = Some(vec![twin]);
+    h.frames(10);
+    let approached = settled_shots(&mut h, eye, hour);
+    // The control: the groups that cast for the twin only cast in every view
+    let world = h.world_mut();
+    let for_twins: Vec<Entity> = world
+        .query_filtered::<Entity, With<CastsForTwinsOnly>>()
+        .iter(world)
+        .collect();
+    let wall_group = group_of(shared::world::world_position_to_chunk_position(
+        wall.as_vec3(),
+    ));
+    let wall_entity = world.resource::<ClientWorldMap>().render[&wall_group].entity;
+    assert!(
+        wall_entity.is_some_and(|wall| for_twins.contains(&wall)),
+        "the wall casts for the twin only"
+    );
+    for &entity in &for_twins {
+        world.entity_mut(entity).remove::<CastsForTwinsOnly>();
+    }
+    h.frames(10);
+    let in_every_view = settled_shots(&mut h, eye, hour);
+    let world = h.world_mut();
+    for &entity in &for_twins {
+        world.entity_mut(entity).insert(CastsForTwinsOnly);
+    }
+    pinned(&mut h).twins = Some(Vec::new());
+    h.frames(10);
+    let pixels = sample_pixels(&mut h, &eye, None);
+    let control = unchanged_view(
+        case,
+        "in_every_view",
+        (&alone, &in_every_view),
+        &pixels,
+        0.3,
+        Flicker::Unchecked,
+    );
+    assert!(
+        control.iter().any(|reason| reason.starts_with("64-96 by")),
+        "{case}: the wall's shadow does not show even in every view: {control:?}"
+    );
+    let changed = unchanged_view(
+        case,
+        "approached",
+        (&alone, &approached),
+        &pixels,
+        0.3,
+        Flicker::Checked,
+    );
+    assert!(
+        changed.is_empty(),
+        "{case}: the player's own view changed with the twin approached: {changed:?}"
     );
 }
 
