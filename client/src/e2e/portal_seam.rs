@@ -12,11 +12,16 @@
 //! suspects of the seam turned off one by one, and check little. Run them all, two at most at
 //! once (with three, a server timed out), in about two hours (107 to 118 minutes in the last
 //! runs), with `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored
-//! --test-threads=2`, or, before a merge, a gate of each kind, in about 12 minutes, with
+//! --test-threads=2`, or, before a merge, a gate of each kind and those of the approach, 12
+//! tests in about 18 minutes (1053 s in the last run), with
 //! `E2E_LIFETIME_SECS=3000 cargo test -p client -- --ignored --test-threads=2 --exact
 //! e2e::portal_seam::seam_close_off_noon_is_seamless
 //! e2e::portal_seam::seam_close_high_dusk_is_seamless
+//! e2e::portal_seam::seam_mid_off_noon_is_seamless
+//! e2e::portal_seam::seam_mid_high_noon_is_seamless
+//! e2e::portal_seam::seam_far_off_noon_is_seamless
 //! e2e::portal_seam::seam_far_high_noon_is_seamless
+//! e2e::portal_seam::seam_far_medium_dusk_is_seamless
 //! e2e::portal_seam::seam_far_high_dusk_is_seamless
 //! e2e::portal_seam::own_view_high_dusk_is_unchanged_by_an_approached_portal
 //! e2e::portal_seam::own_view_high_dusk_is_unchanged_by_a_stacked_floor_and_ceiling_pair
@@ -1960,7 +1965,6 @@ fn approach_seam(
     let a = steady_shots(&mut h, before, hour);
     describe_cameras(&mut h);
     // The control of the shadows: through the portal, the groups around the twin cast none, as
-    // before lot 14 those past the player's reach did not
     // before lot 14 those past the player's reach did not; and with one group in three casting
     // none, a partial regression
     let mut without_casters = |every: usize| {
@@ -2095,6 +2099,17 @@ fn flight_back_limit(flight_back: f32) -> Duration {
     Duration::from_secs_f32(flight_back) + AREA_WAIT
 }
 
+/// The mean luma of the middle of a screenshot, for the diagnoses that trace it.
+fn middle_luma(shot: &RgbImage) -> f32 {
+    let mut sum = 0.0;
+    for y in 300..440 {
+        for x in 300..700 {
+            sum += luma(shot.get_pixel(x, y));
+        }
+    }
+    sum / (140.0 * 400.0)
+}
+
 /// Why the terrain through a far twin looks darker than straight after crossing (lot 14 fix
 /// round 1): the crossing of `approach_seam`, each picture taken as built, then with the fog of
 /// every camera off, with no shadows anywhere, and with the portal camera given the player's
@@ -2169,21 +2184,12 @@ fn darker_through_a_far_twin(quality: ShaderQuality, hour: Hour) {
     };
     // How the view through the portal settles: the mean luma of the middle of the screen, a
     // shot every 20 frames
-    let middle = |shot: &RgbImage| {
-        let mut sum = 0.0;
-        for y in 300..440 {
-            for x in 300..700 {
-                sum += luma(shot.get_pixel(x, y));
-            }
-        }
-        sum / (140.0 * 400.0)
-    };
     set_hour(&mut h, hour);
     pinned(&mut h).eye = Some(before);
     let trace: Vec<String> = (0..30)
         .map(|_| {
             h.frames(20);
-            format!("{:.2}", middle(&h.screenshot()))
+            format!("{:.2}", middle_luma(&h.screenshot()))
         })
         .collect();
     println!(
@@ -2253,21 +2259,12 @@ fn settling_after_the_shaders(quality: ShaderQuality, hour: Hour, taa: bool) {
     if !taa {
         remove_from_all::<TemporalAntiAliasing>(&mut h);
     }
-    let middle = |shot: &RgbImage| {
-        let mut sum = 0.0;
-        for y in 300..440 {
-            for x in 300..700 {
-                sum += luma(shot.get_pixel(x, y));
-            }
-        }
-        sum / (140.0 * 400.0)
-    };
     let trace = |h: &mut Harness, eye: Transform, what: &str, shots: usize| {
         pinned(h).eye = Some(eye);
         let values: Vec<String> = (0..shots)
             .map(|_| {
                 h.frames(20);
-                format!("{:.2}", middle(&h.screenshot()))
+                format!("{:.2}", middle_luma(&h.screenshot()))
             })
             .collect();
         println!("{case}: {what}, every 20 frames: {}", values.join(" "));
