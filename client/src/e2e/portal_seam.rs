@@ -86,6 +86,8 @@ struct Pinned {
     portal_fog_as_main: bool,
     /// Whether the portal cameras draw no fog at all, to see what lies in theirs.
     portal_fog_off: bool,
+    /// Whether the player's camera draws no fog at all.
+    main_fog_off: bool,
     /// The tick the clock stays at: it moves with the wall clock, so that otherwise the sun,
     /// and the shadows, moved by as much as lavapipe was slow between two pictures.
     tick: Option<(Hour, u64)>,
@@ -134,12 +136,19 @@ fn pin_eye(pinned: Res<Pinned>, mut cameras: Query<&mut Transform, With<CameraCo
 /// After `place_portal_cameras`, which runs before the propagation of the transforms.
 fn portal_fog_as_main(
     pinned: Res<Pinned>,
-    main: Query<&DistanceFog, (With<CameraController>, Without<PortalCamera>)>,
+    mut main: Query<&mut DistanceFog, (With<CameraController>, Without<PortalCamera>)>,
     mut portals: Query<&mut DistanceFog, (With<PortalCamera>, Without<CameraController>)>,
 ) {
-    let Ok(main) = main.single() else {
+    let Ok(mut main) = main.single_mut() else {
         return;
     };
+    if pinned.main_fog_off {
+        main.falloff = FogFalloff::Linear {
+            start: 1e4,
+            end: 2e4,
+        };
+    }
+    let main = main.clone();
     for mut fog in &mut portals {
         if pinned.portal_fog_off {
             fog.falloff = FogFalloff::Linear {
@@ -2084,6 +2093,218 @@ fn shadows_seamless(rows: &[Row]) -> Vec<String> {
 /// portal, which took `flight_back` seconds.
 fn flight_back_limit(flight_back: f32) -> Duration {
     Duration::from_secs_f32(flight_back) + AREA_WAIT
+}
+
+/// Why the terrain through a far twin looks darker than straight after crossing (lot 14 fix
+/// round 1): the crossing of `approach_seam`, each picture taken as built, then with the fog of
+/// every camera off, with no shadows anywhere, and with the portal camera given the player's
+/// fog; how many groups are meshed again after the crossing, and the view again once they are.
+fn darker_through_a_far_twin(quality: ShaderQuality, hour: Hour) {
+    use crate::world::rendering::render::MESHES_SHOWN;
+    use std::sync::atomic::Ordering;
+    let case = format!(
+        "darker_{}_{}",
+        quality_name(quality),
+        format!("{hour:?}").to_lowercase()
+    );
+    let (mut h, blue, orange, through) = back_at_the_blue_portal(&case, 21, RENDER_DISTANCE);
+    h.frames(60);
+    set_quality(&mut h, quality);
+    let pitch = -25f32.to_radians();
+    let before = eye_in_front(&blue, CROSSING, pitch);
+    let after = carried(through, &eye_in_front(&blue, -CROSSING, pitch));
+    let shadows = |h: &mut Harness, cast: bool| {
+        let world = h.world_mut();
+        let meshes: Vec<Entity> = world
+            .query_filtered::<Entity, With<Mesh3d>>()
+            .iter(world)
+            .collect();
+        for entity in meshes {
+            if cast {
+                world.entity_mut(entity).remove::<NotShadowCaster>();
+            } else {
+                world.entity_mut(entity).insert(NotShadowCaster);
+            }
+        }
+    };
+    // Each variant: (name, fog off, no shadows, portal fog as the player's)
+    let variants = [
+        ("as_built", false, false, false),
+        ("no_fog", true, false, false),
+        ("no_shadows", false, true, false),
+        ("portal_fog_as_main", false, false, true),
+        ("as_built_again", false, false, false),
+    ];
+    let shots = |h: &mut Harness, eye: Transform, portal_side: bool| -> Vec<RgbImage> {
+        variants
+            .iter()
+            .map(|&(_, fog_off, no_shadows, fog_as_main)| {
+                {
+                    let mut pinned = pinned(h);
+                    pinned.portal_fog_off = fog_off;
+                    pinned.main_fog_off = fog_off;
+                    pinned.portal_fog_as_main = fog_as_main && portal_side;
+                }
+                if no_shadows {
+                    let world = h.world_mut();
+                    let kept: Vec<Entity> = world
+                        .query_filtered::<Entity, (With<Mesh3d>, Without<NotShadowCaster>)>()
+                        .iter(world)
+                        .collect();
+                    shadows(h, false);
+                    let shot = mean_picture(&steady_shots(h, eye, hour));
+                    let world = h.world_mut();
+                    for entity in kept {
+                        // Meshed again meanwhile, the group has another entity
+                        if let Ok(mut entity) = world.get_entity_mut(entity) {
+                            entity.remove::<NotShadowCaster>();
+                        }
+                    }
+                    shot
+                } else {
+                    mean_picture(&steady_shots(h, eye, hour))
+                }
+            })
+            .collect()
+    };
+    // How the view through the portal settles: the mean luma of the middle of the screen, a
+    // shot every 20 frames
+    let middle = |shot: &RgbImage| {
+        let mut sum = 0.0;
+        for y in 300..440 {
+            for x in 300..700 {
+                sum += luma(shot.get_pixel(x, y));
+            }
+        }
+        sum / (140.0 * 400.0)
+    };
+    set_hour(&mut h, hour);
+    pinned(&mut h).eye = Some(before);
+    let trace: Vec<String> = (0..30)
+        .map(|_| {
+            h.frames(20);
+            format!("{:.2}", middle(&h.screenshot()))
+        })
+        .collect();
+    println!(
+        "{case}: through the portal, every 20 frames: {}",
+        trace.join(" ")
+    );
+    let a = shots(&mut h, before, true);
+    {
+        let mut pinned = pinned(&mut h);
+        pinned.portal_fog_off = false;
+        pinned.main_fog_off = false;
+        pinned.portal_fog_as_main = false;
+    }
+    // Through, for real
+    pinned(&mut h).eye = None;
+    let player = local_player(h.world()).unwrap().position;
+    let target = Vec3::from(blue.frame().translation);
+    look(
+        &mut h,
+        (-(target.x - player.x)).atan2(-(target.z - player.z)),
+    );
+    h.frames(5);
+    let exit = Vec3::from(orange.frame().translation);
+    let shown = MESHES_SHOWN.load(Ordering::Relaxed);
+    fly_until(&mut h, KeyCode::KeyW, "the orange portal", |p| {
+        p.distance(exit) < 12.0
+    });
+    pinned(&mut h).eye = Some(after);
+    let b = shots(&mut h, after, false);
+    let remeshed = MESHES_SHOWN.load(Ordering::Relaxed) - shown;
+    h.frames(300);
+    let late = mean_picture(&steady_shots(&mut h, after, hour));
+    let remeshed_late = MESHES_SHOWN.load(Ordering::Relaxed) - shown;
+    println!("{case}: {remeshed} groups meshed after the crossing, {remeshed_late} 300 frames on");
+    let pixels = sample_pixels(&mut h, &after, Some((&before, &blue)));
+    for (index, (name, ..)) in variants.iter().enumerate() {
+        save(&case, name, &a[index], &b[index], true);
+        record(&case, name, &a[index], &b[index], &pixels);
+    }
+    save(&case, "late", &a[0], &late, true);
+    record(&case, "late", &a[0], &late, &pixels);
+    record(&case, "settled_vs_late", &b[0], &late, &pixels);
+}
+
+/// How the views settle once the shaders are switched on (lot 14 fix round 1): the mean luma
+/// of the middle of the screen every 20 frames, first with the player's camera turned a quarter
+/// away from the portal, out of view, then looking through it.
+fn settling_after_the_shaders(quality: ShaderQuality, hour: Hour, taa: bool) {
+    let case = format!(
+        "settling_{}{}_{}",
+        if taa { "" } else { "no_taa_" },
+        quality_name(quality),
+        format!("{hour:?}").to_lowercase()
+    );
+    let (mut h, blue, ..) = back_at_the_blue_portal(&case, 21, RENDER_DISTANCE);
+    h.frames(60);
+    let pitch = -25f32.to_radians();
+    let before = eye_in_front(&blue, CROSSING, pitch);
+    let away = eye_in_front(&blue, CROSSING + 2.0, pitch)
+        .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2) * before.rotation);
+    set_hour(&mut h, hour);
+    // Switched on while looking through the portal (switched while it was out of view, the
+    // screenshots of lavapipe were never captured)
+    pinned(&mut h).eye = Some(before);
+    h.frames(20);
+    set_quality(&mut h, quality);
+    if !taa {
+        remove_from_all::<TemporalAntiAliasing>(&mut h);
+    }
+    let middle = |shot: &RgbImage| {
+        let mut sum = 0.0;
+        for y in 300..440 {
+            for x in 300..700 {
+                sum += luma(shot.get_pixel(x, y));
+            }
+        }
+        sum / (140.0 * 400.0)
+    };
+    let trace = |h: &mut Harness, eye: Transform, what: &str, shots: usize| {
+        pinned(h).eye = Some(eye);
+        let values: Vec<String> = (0..shots)
+            .map(|_| {
+                h.frames(20);
+                format!("{:.2}", middle(&h.screenshot()))
+            })
+            .collect();
+        println!("{case}: {what}, every 20 frames: {}", values.join(" "));
+    };
+    // On lavapipe the first screenshot of a view just switched waits for its pipelines
+    pinned(&mut h).eye = Some(away);
+    h.frames(100);
+    trace(&mut h, away, "the player's own view, turned away", 45);
+    trace(&mut h, before, "through the portal", 45);
+}
+
+#[test]
+#[ignore = "a diagnosis: run it by hand"]
+fn settling_after_the_shaders_medium_dusk() {
+    settling_after_the_shaders(ShaderQuality::Medium, Hour::Dusk, true);
+}
+
+#[test]
+#[ignore = "a diagnosis: run it by hand"]
+fn settling_after_the_shaders_medium_dusk_no_taa() {
+    settling_after_the_shaders(ShaderQuality::Medium, Hour::Dusk, false);
+}
+
+macro_rules! darker_through_a_far_twin {
+    ($($name:ident: $quality:ident, $hour:ident;)*) => {$(
+        #[test]
+        #[ignore = "a diagnosis: run it by hand"]
+        fn $name() {
+            darker_through_a_far_twin(ShaderQuality::$quality, Hour::$hour);
+        }
+    )*};
+}
+
+darker_through_a_far_twin! {
+    seam_far_darker_off_noon: Off, Noon;
+    seam_far_darker_medium_dusk: Medium, Dusk;
+    seam_far_darker_high_noon: High, Noon;
 }
 
 macro_rules! approach_seam_regression {
