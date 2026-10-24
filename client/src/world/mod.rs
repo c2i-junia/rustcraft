@@ -161,7 +161,8 @@ mod tests {
     use super::*;
 
     /// The order `order_the_shadows` gives, whatever the order the systems were added in: those
-    /// of Bevy, here stand-ins in their sets, added first.
+    /// of Bevy, here stand-ins in their sets, added first, the lights after the views as Bevy
+    /// orders them.
     #[test]
     fn the_shadow_roles_are_set_before_bevy_lists_the_casters_and_filtered_after() {
         use bevy::camera::visibility::VisibilitySystems;
@@ -181,7 +182,9 @@ mod tests {
             .add_systems(
                 PostUpdate,
                 (
-                    ran("lights").in_set(SimulationLightSystems::CheckLightVisibility),
+                    ran("lights")
+                        .in_set(SimulationLightSystems::CheckLightVisibility)
+                        .after(VisibilitySystems::CheckVisibility),
                     ran("views").in_set(VisibilitySystems::CheckVisibility),
                     ran("roles").in_set(GameSet::Meshing),
                 ),
