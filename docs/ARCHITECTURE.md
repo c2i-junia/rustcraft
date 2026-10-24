@@ -614,9 +614,10 @@ view never changes with the portals, not even under a floor portal stacked under
 portal, whose cameras stand straight above it, and a portal camera far off sees the haze the
 player will see after crossing. Cameras that stand and look alike, as those of pairs side by
 side whose twins are as far apart do, share one volume (`drawn_in`, the filter on the CPU):
-each would draw the other's. The CPU's test of the look is a hair stricter than the shader's
-(`SHARED_LOOK` against `ONE_CAMERA_LOOK`), so that float rounding never lets a camera share a
-volume its shader would leave out, at the clamp of the pitch too. Each view marches its own layer, about 0.6 ms of GPU at High and
+each would draw the other's. The CPU's test of the look is stricter than the shader's by 1e-4
+of cosine (`SHARED_LOOK` against `ONE_CAMERA_LOOK`), a hundred times what the sines and cosines
+of desktop GPUs are off by, so that a camera never shares a volume its shader would leave out,
+at the clamp of the pitch too; with looks 0.81° to 1.15° apart, it draws two hazes instead. Each view marches its own layer, about 0.6 ms of GPU at High and
 1.3 ms at Ultra at 960×540 on an RTX 5060 Ti; leaving out another camera's volume costs a view
 about 15 µs (`bench_portal_haze_per_pair`). If Bevy's shader text no longer matches, the game
 logs an error and a unit test fails, and the haze is as before the portal cameras drew it: the

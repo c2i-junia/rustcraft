@@ -136,11 +136,13 @@ pub fn drawn_in(view: &GlobalTransform, centre: Vec2, offset: Vec3) -> bool {
 }
 
 /// The least cosine between two looks for `drawn_in`: the shader's (`ONE_CAMERA_LOOK`) made
-/// stricter by far more than float noise moves it, so that the CPU never shares a volume the GPU
-/// might leave out. Within that margin, about 0.03° wide, a camera could draw the volume and
-/// its own; no motion through a pair brings a camera there but by chance, unlike the 90° turn
-/// at the pitch clamp a looser tolerance (0.9997) caught (`a_camera_that_shares_a_volume_always_draws_it`).
-const SHARED_LOOK: f32 = ONE_CAMERA_LOOK + 1e-5;
+/// stricter by 1e-4, so that the CPU never shares a volume the GPU might leave out. The shader
+/// rebuilds the look from sines and cosines, unnormalised, which desktop GPUs compute to about
+/// 1e-6; the loosest WGSL allows (2^-11) could move the dot by 1e-3. Between the two cosines,
+/// looks 0.81° to 1.15° apart, a camera draws the volume and its own; no motion through a pair
+/// brings a camera there but by chance, unlike the 90° turn at the pitch clamp a looser
+/// tolerance (0.9997) caught (`a_camera_that_shares_a_volume_always_draws_it`).
+const SHARED_LOOK: f32 = ONE_CAMERA_LOOK + 1e-4;
 
 /// The least cosine between the look of a view and that of the camera a volume belongs to, for
 /// the shader to draw the volume in that view (`ONE_CAMERA_FILTER`): about 1.15°.
