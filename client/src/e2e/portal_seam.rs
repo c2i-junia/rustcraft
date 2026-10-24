@@ -1919,8 +1919,9 @@ fn back_at_the_blue_portal(
 /// player flies through for real and the picture straight is taken from the same eye carried
 /// through. How long the chunks took to come, and how many, goes into `approach.tsv`. With
 /// `gated`, the seam must be within the gates of the close twins (`assert_seamless`), and at
-/// dusk the shadows the same on both sides (`SHADOWS_SEAMLESS`), which the view through the
-/// portal with the groups around the twin casting none must fail.
+/// dusk, the TAA of the player's camera taken off, the shadows the same on both sides
+/// (`SHADOWS_SEAMLESS`), which the view through the portal with the groups around the twin
+/// casting none, or one in three of them, must fail.
 fn approach_seam(
     quality: ShaderQuality,
     hour: Hour,
@@ -1937,6 +1938,12 @@ fn approach_seam(
     let (mut h, blue, orange, through) = back_at_the_blue_portal(&case, apart, render_distance);
     h.frames(60);
     set_quality(&mut h, quality);
+    // The shadows are gated on how much lighter the view gets across the portal, which the TAA
+    // of the player's camera skews by the time since its history was last reset (lot 14 fix
+    // round 1): taken off, both views are steady from their first frame
+    if hour == Hour::Dusk {
+        remove_from_all::<TemporalAntiAliasing>(&mut h);
+    }
 
     let pitch = -25f32.to_radians();
     let before = eye_in_front(&blue, CROSSING, pitch);
@@ -1945,11 +1952,14 @@ fn approach_seam(
     describe_cameras(&mut h);
     // The control of the shadows: through the portal, the groups around the twin cast none, as
     // before lot 14 those past the player's reach did not
-    let unshadowed = (hour == Hour::Dusk).then(|| {
+    // before lot 14 those past the player's reach did not; and with one group in three casting
+    // none, a partial regression
+    let mut without_casters = |every: usize| {
         let world = h.world_mut();
         let casters: Vec<Entity> = world
             .query_filtered::<Entity, With<CastsForTwinsOnly>>()
             .iter(world)
+            .step_by(every)
             .collect();
         assert!(!casters.is_empty(), "{case}: no group casts for the twin");
         for &entity in &casters {
@@ -1961,7 +1971,8 @@ fn approach_seam(
             world.entity_mut(entity).remove::<NotShadowCaster>();
         }
         mean_picture(&shots)
-    });
+    };
+    let unshadowed = (hour == Hour::Dusk).then(|| (without_casters(1), without_casters(3)));
 
     // Through, for real
     pinned(&mut h).eye = None;
@@ -1992,13 +2003,17 @@ fn approach_seam(
     let popin = record(&case, "popin_0", &first, &b, &pixels);
     let rows = record(&case, "baseline", &a, &b, &pixels);
     if gated {
-        if let Some(unshadowed) = unshadowed {
+        if let Some((unshadowed, third)) = unshadowed {
             save(&case, "unshadowed", &unshadowed, &b, true);
-            let control = record(&case, "unshadowed", &unshadowed, &b, &pixels);
-            assert!(
-                !shadows_seamless(&control).is_empty(),
-                "{case}: the gate of the shadows does not see them taken off: {control:?}"
-            );
+            save(&case, "third_unshadowed", &third, &b, true);
+            for (variant, picture) in [("unshadowed", &unshadowed), ("third_unshadowed", &third)] {
+                let control = record(&case, variant, picture, &b, &pixels);
+                assert!(
+                    !shadows_seamless(&control).is_empty(),
+                    "{case}: the gate of the shadows does not see them taken off ({variant}): \
+                     {control:?}"
+                );
+            }
             let failed = shadows_seamless(&rows);
             assert!(
                 failed.is_empty(),
@@ -2047,18 +2062,21 @@ fn assert_no_popin(case: &str, rows: &[Row]) {
     );
 }
 
-/// How much, on average, the mid-distance terrain (64–96 blocks) may differ across a crossing
-/// through a far twin at dusk, where the shadows are long: the median (`SEAMLESS`) does not see
-/// them, as most pixels of the class are lit on both sides. With the groups only the portals
-/// show casting no shadow (before lot 14), 6.02 at High and 6.17 at Medium; since, 2.76 at both,
-/// against a noise of 0.34–0.42; at noon, without the long shadows, 3.3–3.8 (lot 14 report).
-const SHADOWS_SEAMLESS: f32 = 4.5;
+/// How much lighter or darker on average the mid-distance terrain (64–96 blocks) may get
+/// across a crossing through a far twin at dusk, where the shadows are long: the median
+/// (`SEAMLESS`) does not see them, as most pixels of the class are lit on both sides, and
+/// shadows missing only make the view lighter. Without the TAA of the player's camera (lot 14
+/// fix round 1): −0.13 to +0.04 over 3 runs, against a noise of ±0.02; with the groups only the
+/// portals show casting no shadow (before lot 14), +4.05 to +4.37, and with one in three casting
+/// none, +1.36 to +2.94 over 2 runs.
+const SHADOWS_SEAMLESS: f32 = 1.0;
 
-/// The classes of `rows` whose mean is past `SHADOWS_SEAMLESS`, with the reasons.
+/// The classes of `rows` that got lighter or darker by `SHADOWS_SEAMLESS` or more, with the
+/// reasons.
 fn shadows_seamless(rows: &[Row]) -> Vec<String> {
     rows.iter()
-        .filter(|(class, _, mean, ..)| class == "64-96" && *mean >= SHADOWS_SEAMLESS)
-        .map(|(class, _, mean, ..)| format!("the {class} class by {mean:.2} (mean)"))
+        .filter(|(class, .., lighter, _)| class == "64-96" && lighter.abs() >= SHADOWS_SEAMLESS)
+        .map(|(class, .., lighter, _)| format!("the {class} class by {lighter:+.2} (lighter)"))
         .collect()
 }
 
