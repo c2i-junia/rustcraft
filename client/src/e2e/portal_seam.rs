@@ -2360,7 +2360,7 @@ fn bench_far_twin_shadows() {
     };
     let hour = Hour::Dusk;
     let case = format!("bench_far_{}_dusk", quality_name(quality));
-    let (mut h, blue, ..) = back_at_the_blue_portal(&case, 21, RENDER_DISTANCE);
+    let (mut h, blue, orange, _) = back_at_the_blue_portal(&case, 21, RENDER_DISTANCE);
     h.frames(60);
     set_quality(&mut h, quality);
     // Drawn into the image of the screenshots, in every frame
@@ -2382,17 +2382,49 @@ fn bench_far_twin_shadows() {
         casters.len()
     );
     assert!(!casters.is_empty());
-    // (name, eye, the groups only the portals show cast)
+    // Up to two more pairs, of other players, 3 blocks east and west of the first, in the
+    // client's map only: their cameras see the same area around the twin. From 8 blocks back,
+    // a little down, the three blue portals are in view
+    let pair = |owner: u64, dx: i32| {
+        [blue, orange].map(|portal| Portal {
+            owner,
+            anchor: portal.anchor + IVec3::X * dx,
+            ..portal
+        })
+    };
+    let others = [pair(2, 3), pair(3, -3)];
+    let set_pairs = |h: &mut Harness, count: usize| {
+        let blocks = &mut h.world_mut().resource_mut::<ClientWorldMap>().blocks;
+        for (index, portals) in others.iter().enumerate() {
+            for portal in portals {
+                if index + 1 < count {
+                    blocks.portals_mut().insert(*portal);
+                } else {
+                    blocks.portals_mut().remove(portal.owner, portal.color);
+                }
+            }
+        }
+    };
+    let back = eye_in_front(&blue, 8.0, -15f32.to_radians());
+    // (name, eye, pairs, the groups only the portals show cast)
     let cases = [
-        ("far twin in view", through, true),
-        ("far twin in view, before lot 14", through, false),
-        ("no portal in view", away, true),
-        ("no portal in view, before lot 14", away, false),
+        ("far twin in view", through, 1, true),
+        ("far twin in view, before lot 14", through, 1, false),
+        ("no portal in view", away, 1, true),
+        ("no portal in view, before lot 14", away, 1, false),
+        ("1 pair from 8 blocks back", back, 1, true),
+        ("1 pair from 8 blocks back, before lot 14", back, 1, false),
+        ("2 pairs from 8 blocks back", back, 2, true),
+        ("2 pairs from 8 blocks back, before lot 14", back, 2, false),
+        ("3 pairs from 8 blocks back", back, 3, true),
+        ("3 pairs from 8 blocks back, before lot 14", back, 3, false),
     ];
     let (rounds, warm, frames) = (4, 40, 200);
     let mut samples = vec![Vec::new(); cases.len()];
+    let mut views = vec![0; cases.len()];
     for _ in 0..rounds {
-        for (index, &(_, eye, cast)) in cases.iter().enumerate() {
+        for (index, &(_, eye, pairs, cast)) in cases.iter().enumerate() {
+            set_pairs(&mut h, pairs);
             let world = h.world_mut();
             for &entity in &casters {
                 if cast {
@@ -2404,15 +2436,22 @@ fn bench_far_twin_shadows() {
             set_hour(&mut h, hour);
             pinned(&mut h).eye = Some(eye);
             h.frames(warm);
+            let world = h.world_mut();
+            views[index] = world
+                .query_filtered::<&Camera, With<PortalCamera>>()
+                .iter(world)
+                .filter(|camera| camera.is_active)
+                .count();
             GPU_FRAMES_MS.lock().unwrap().clear();
             h.frames(frames);
             samples[index].extend(GPU_FRAMES_MS.lock().unwrap().drain(..));
         }
     }
-    for ((what, ..), mut samples) in cases.iter().zip(samples) {
+    for (((what, ..), mut samples), views) in cases.iter().zip(samples).zip(views) {
         samples.sort_by(f64::total_cmp);
         println!(
-            "{quality:?}, {what}: GPU median {:.3} ms, p95 {:.3} ms per frame ({} frames)",
+            "{quality:?}, {what}: {views} portal views: GPU median {:.3} ms, p95 {:.3} ms per \
+             frame ({} frames)",
             samples[samples.len() / 2],
             samples[samples.len() * 95 / 100],
             samples.len()
