@@ -516,15 +516,17 @@ never moves a player, so the prediction of the clients is left alone.
    server reckons it and keeps a twin a chunk past the widest approach), in the views of the
    portal cameras only (`ShadowRole`): culled on the CPU, they are taken out of the shadow
    cascades of every other camera once Bevy has listed them
-   (`keep_twin_shadows_to_portal_cameras`), so that around a close twin, among the player's
+   (`keep_twin_shadows_to_portal_cameras`, after `CheckLightVisibility`; the meshing, which sets
+   the roles, runs before `CheckVisibility`: `order_the_shadows`, `world/mod.rs`), so that around a close twin, among the player's
    own chunks at a render distance past 12, their long shadows at a low sun never reach the
    player's view. Bevy hands a mesh culled on the GPU only to the views it was visible to, and
    the cascades are views: a group that starts or stops casting is culled on the CPU for a
    frame (`CpuCulledForAFrame`). Bevy 0.19 filters the casters by the layers of the light, not
    of the view, but fits the cascades to each camera: the sky light shadows layer 3 too, the
    groups only portals show, so that through a far twin the portal camera draws the shadows the
-   player sees after crossing (0.24 ms more of GPU at High and 0.52 ms at Ultra with such a twin
-   in view, at 960×540 on an RTX 5060 Ti, `bench_far_twin_shadows`; nothing without), and none of
+   player sees after crossing (about 0.25 ms more of GPU at High and 0.5 ms at Ultra per portal
+   view showing such a twin, linear up to 3 views: +0.76 and +1.43 ms; at 960×540 on an RTX 5060
+   Ti, `bench_far_twin_shadows`; nothing without), and none of
    them ever casts in every view, as it would into the player's cascades from beyond its fog.
    And a fog of the colour of the sky hides the edge of the render distance:
    its colour (`sky_fog_color`, `camera/sky_fog.rs`), tonemapped by the materials, is the
@@ -612,7 +614,9 @@ view never changes with the portals, not even under a floor portal stacked under
 portal, whose cameras stand straight above it, and a portal camera far off sees the haze the
 player will see after crossing. Cameras that stand and look alike, as those of pairs side by
 side whose twins are as far apart do, share one volume (`drawn_in`, the filter on the CPU):
-each would draw the other's. Each view marches its own layer, about 0.6 ms of GPU at High and
+each would draw the other's. The CPU's test of the look is a hair stricter than the shader's
+(`SHARED_LOOK` against `ONE_CAMERA_LOOK`), so that float rounding never lets a camera share a
+volume its shader would leave out, at the clamp of the pitch too. Each view marches its own layer, about 0.6 ms of GPU at High and
 1.3 ms at Ultra at 960×540 on an RTX 5060 Ti; leaving out another camera's volume costs a view
 about 15 µs (`bench_portal_haze_per_pair`). If Bevy's shader text no longer matches, the game
 logs an error and a unit test fails, and the haze is as before the portal cameras drew it: the

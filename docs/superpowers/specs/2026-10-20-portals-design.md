@@ -244,7 +244,20 @@ gates held only for a close twin. A twin 6 or 21 chunks away now crosses as seam
   only (`ShadowRole::ForTwinsOnly`). The player's cascades get nothing new; a portal camera's get
   what the player's will after crossing.
 - **Measured**: through a twin 21 chunks away at dusk, the mean of the 64–96 blocks class across
-  the crossing went from 6.02 (High) and 6.17 (Medium) to 2.83 at both
-  (`seam_far_{medium,high}_dusk_is_seamless`, `SHADOWS_SEAMLESS` = 4.5, with an in-test and a
-  red control). GPU, RTX 5060 Ti, 960×540, the twin in view: +0.24 ms at High (3.31 → 3.54) and
+  the crossing went from 6.02 (High) and 6.17 (Medium) to 2.83 at both. Fix round 1: the gate
+  (`seam_far_{medium,high}_dusk_is_seamless`) takes the player's TAA off and checks how much
+  lighter the class gets, `SHADOWS_SEAMLESS` = 1.0 level: −0.13 to +0.04 as built; +4.05 to
+  +4.37 with the twin's casters off (in-test control) or the sky light without layer 3 (red
+  control); +1.36 to +2.94 with one in three off (in-test control).
+- **The darker view through the portal** (fix round 1): with TAA, the view through a far twin
+  read ~2.2 levels darker than straight after crossing. Not the portal: Bevy's TAA weighs a new
+  frame at 1.5% once the eye is still and clips its history to the neighbourhood, so a still
+  view settles over hundreds of frames after a change (122.8 → 124.9 through the portal over 900
+  frames), and the picture through the portal was taken sooner after a change than the one
+  after the flight. Without TAA both are flat from the first frame (126.1 and 126.3); waited out,
+  the offset is gone with TAA too (+0.15). The portal cameras have no TAA.
+- **Cost**: GPU, RTX 5060 Ti, 960×540, the twin in view: +0.24 ms at High (3.31 → 3.54) and
   +0.52 ms at Ultra (4.93 → 5.45); no portal in view, unchanged (`bench_far_twin_shadows`).
+  Fix round 1, from 8 blocks back with 1, 2 and 3 pairs side by side in view: +0.26, +0.51 and
+  +0.76 ms at High (3.52 → 3.77, 5.08 → 5.59, 6.66 → 7.41), +0.48, +0.97 and +1.43 ms at Ultra
+  (5.14 → 5.62, 7.38 → 8.35, 9.61 → 11.04): linear in the portal views.
