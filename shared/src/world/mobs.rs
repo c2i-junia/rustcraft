@@ -46,6 +46,22 @@ impl MobKind {
         }
     }
 
+    /// The name the player reads, in the death messages.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            MobKind::Fox => "Fox",
+            MobKind::Sheep => "Sheep",
+            MobKind::Cow => "Cow",
+            MobKind::Pig => "Pig",
+            MobKind::Chicken => "Chicken",
+            MobKind::Rabbit => "Rabbit",
+            MobKind::Wolf => "Wolf",
+            MobKind::Horse => "Horse",
+            MobKind::Goat => "Goat",
+            MobKind::Cat => "Cat",
+        }
+    }
+
     /// Width, height and depth of the hitbox, in blocks. It does not turn with the mob, so it
     /// is as wide as it is deep.
     pub fn size(self) -> Vec3 {

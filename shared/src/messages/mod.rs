@@ -282,7 +282,16 @@ mod tests {
         for (mode, expected) in [(GameMode::Survival, 0), (GameMode::Creative, 1)] {
             assert_eq!(variant_index(&mode), expected, "{ENCODING_WARNING}");
         }
-        for (cause, expected) in [(DeathCause::Fall, 0), (DeathCause::Void, 1)] {
+        for (cause, expected) in [
+            (DeathCause::Fall, 0),
+            (DeathCause::Void, 1),
+            (DeathCause::Drowning, 2),
+            (DeathCause::Fire, 3),
+            (DeathCause::Lava, 4),
+            (DeathCause::Starvation, 5),
+            (DeathCause::Mob(MobKind::Fox), 6),
+            (DeathCause::ThrownOff(MobKind::Fox), 7),
+        ] {
             assert_eq!(variant_index(&cause), expected, "{ENCODING_WARNING}");
         }
         assert_eq!(variant_index(&MobKind::Fox), 0, "{ENCODING_WARNING}");

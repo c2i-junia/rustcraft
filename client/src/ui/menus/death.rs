@@ -69,7 +69,7 @@ fn show_death_screen(
                 *inventory = Visibility::Hidden;
             }
             let cause = player.death_cause.map(|cause| cause.message());
-            spawn_death_screen(&mut commands, &assets, cause, origin.as_deref());
+            spawn_death_screen(&mut commands, &assets, cause.as_deref(), origin.as_deref());
         }
         (false, Ok(screen)) => {
             commands.entity(screen).despawn();

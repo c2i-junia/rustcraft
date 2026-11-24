@@ -5,7 +5,7 @@ use shared::{
     players::{
         blocks::CallerType,
         constants::EYE_HEIGHT,
-        game_mode::{fall_damage, DeathCause, MAX_HEALTH, REGENERATION_TICKS},
+        game_mode::{fall_damage, DamageSource, MAX_HEALTH, REGENERATION_TICKS},
         movement::FALL_LIMIT,
         simulation::simulate_player_actions,
         Player,
@@ -370,7 +370,7 @@ pub fn handle_player_inputs_system(
                 .map(|shot| (player.id, *shot)),
         );
         if let Some(fallen) = outcome.fallen {
-            player.hurt(fall_damage(fallen), DeathCause::Fall);
+            player.hurt(fall_damage(fallen), DamageSource::Fall);
         }
         if player.position.y < FALL_LIMIT {
             fall_out_of_the_world(player, spawn);
@@ -400,12 +400,20 @@ pub fn handle_player_inputs_system(
 
 /// A player below `FALL_LIMIT` is taken back to `spawn`, and dies on the way in survival.
 fn fall_out_of_the_world(player: &mut Player, spawn: Vec3) {
-    player.hurt(player.health, DeathCause::Void);
+    player.hurt(player.health, DamageSource::Void);
     player.set_movement_state(shared::players::MovementState {
         position: spawn,
         is_flying: player.is_flying,
         ..Default::default()
     });
+}
+
+/// Counts down the invulnerability of each player after a hit, and its memory of the last mob
+/// that hit it. Runs first in the tick, so a hit lands again `INVULNERABILITY_TICKS` later.
+pub fn tick_damage_timers_system(mut world_map: ResMut<ServerWorldMap>) {
+    for player in world_map.players.values_mut() {
+        player.tick_damage_timers();
+    }
 }
 
 /// Every `REGENERATION_TICKS`, each living player gets a point of health back.
@@ -462,7 +470,28 @@ pub fn broadcast_player_updates_system(
 mod tests {
     use super::*;
     use crate::world::broadcast_world::get_all_active_chunks;
-    use shared::players::game_mode::GameMode;
+    use shared::players::game_mode::{DeathCause, GameMode, INVULNERABILITY_TICKS};
+    use shared::world::MobKind;
+
+    #[test]
+    fn the_damage_timers_count_down_every_tick() {
+        let mut app = App::new();
+        let mut world_map = ServerWorldMap::default();
+        let mut player = Player::new(1, "hit".into(), Vec3::ZERO, Transform::default());
+        player.hurt(1, DamageSource::Mob(MobKind::Wolf));
+        world_map.players.insert(1, player);
+        app.insert_resource(world_map)
+            .add_systems(Update, tick_damage_timers_system);
+        let player = |app: &App| app.world().resource::<ServerWorldMap>().players[&1].clone();
+
+        app.update();
+        assert_eq!(player(&app).invulnerable_ticks, INVULNERABILITY_TICKS - 1);
+        for _ in 1..INVULNERABILITY_TICKS {
+            app.update();
+        }
+        assert_eq!(player(&app).invulnerable_ticks, 0);
+        assert!(player(&app).last_mob_hit.is_some());
+    }
 
     #[test]
     fn a_player_out_of_the_world_comes_back_at_the_spawn_and_dies_in_survival() {

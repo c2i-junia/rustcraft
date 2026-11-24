@@ -11,7 +11,7 @@ use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{
     broadcast_player_updates_system, handle_player_inputs_system, regenerate_health_system,
-    PlayerInputsEvent,
+    tick_damage_timers_system, PlayerInputsEvent,
 };
 use crate::world::weather::ServerWeather;
 use bevy::prelude::*;
@@ -115,6 +115,7 @@ pub fn register_systems(app: &mut App) {
     .add_systems(
         FixedUpdate,
         (
+            tick_damage_timers_system,
             handle_player_inputs_system,
             world::furnaces::tick_furnaces_system,
             regenerate_health_system,

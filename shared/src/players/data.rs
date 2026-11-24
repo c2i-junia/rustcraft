@@ -7,10 +7,12 @@ use bevy::{
 use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
-use super::game_mode::{DeathCause, GameMode, MAX_HEALTH};
+use super::game_mode::{
+    DamageSource, DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH, THROWN_OFF_TICKS,
+};
 use crate::{
     messages::PlayerId,
-    world::{ItemId, ItemStack, ItemType, Passer, PortalRest},
+    world::{ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
     MAX_INVENTORY_SLOTS,
 };
 
@@ -209,6 +211,13 @@ pub struct Player {
     /// portals.
     #[serde(skip)]
     pub portal_rest: Option<PortalRest>,
+    /// Ticks left during which a hit is ignored, but from the sources that pierce it.
+    #[serde(skip)]
+    pub invulnerable_ticks: u32,
+    /// The kind of the mob that hit the player last, and the ticks left during which a deadly
+    /// fall is put on it.
+    #[serde(skip)]
+    pub last_mob_hit: Option<(MobKind, u32)>,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -225,6 +234,9 @@ pub struct MovementState {
     pub fall_distance: f32,
     pub portal_rest: Option<PortalRest>,
 }
+
+/// The upward velocity a knock back gives at least, in blocks/s: a hop of a quarter of a block.
+pub const KNOCK_BACK_HOP: f32 = 4.0;
 
 fn full_health() -> u32 {
     MAX_HEALTH
@@ -274,15 +286,51 @@ impl Player {
         self.health == 0
     }
 
-    /// Takes `damage` points of health, if the game mode lets it, and dies of `cause` when none
-    /// is left. A dead player takes no more.
-    pub fn hurt(&mut self, damage: u32, cause: DeathCause) {
-        if damage == 0 || self.is_dead() || !self.game_mode.takes_damage() {
+    /// The one door of damage: takes `amount` points of health from `source`, if the game mode
+    /// lets it and the player was not hit within the last `INVULNERABILITY_TICKS` (unless the
+    /// source pierces that), and names the cause when none is left. A hit by a mob is
+    /// remembered for `THROWN_OFF_TICKS` even when it is ignored, as its knock back is not.
+    /// Returns whether the hit took health.
+    pub fn hurt(&mut self, amount: u32, source: DamageSource) -> bool {
+        if amount == 0 || self.is_dead() || !self.game_mode.takes_damage() {
+            return false;
+        }
+        if let DamageSource::Mob(kind) = source {
+            self.last_mob_hit = Some((kind, THROWN_OFF_TICKS));
+        }
+        if self.invulnerable_ticks > 0 && !source.pierces_invulnerability() {
+            return false;
+        }
+        self.invulnerable_ticks = INVULNERABILITY_TICKS;
+        self.health = self.health.saturating_sub(amount);
+        if self.is_dead() {
+            let thrown_by = self.last_mob_hit.map(|(kind, _)| kind);
+            self.death_cause = Some(DeathCause::of(source, thrown_by));
+        }
+        true
+    }
+
+    /// Counts down the invulnerability and the memory of the last mob hit, once a tick.
+    pub fn tick_damage_timers(&mut self) {
+        self.invulnerable_ticks = self.invulnerable_ticks.saturating_sub(1);
+        self.last_mob_hit = self
+            .last_mob_hit
+            .map(|(kind, ticks)| (kind, ticks - 1))
+            .filter(|&(_, ticks)| ticks > 0);
+    }
+
+    /// Pushes the player away along the horizontal part of `direction` at `strength` blocks/s,
+    /// and lifts it in a small hop. The movement simulation carries the push on through the air,
+    /// as it does a portal's, and drops it on landing, in a liquid or in flight; as the velocity is part of the `MovementState`, the client resumes from the push.
+    pub fn knock_back(&mut self, direction: Vec3, strength: f32) {
+        if self.is_dead() {
             return;
         }
-        self.health = self.health.saturating_sub(damage);
-        if self.is_dead() {
-            self.death_cause = Some(cause);
+        let push = direction.with_y(0.0).normalize_or_zero() * strength;
+        self.velocity.x = push.x;
+        self.velocity.z = push.z;
+        if !self.is_flying {
+            self.velocity.y = self.velocity.y.max(KNOCK_BACK_HOP);
         }
     }
 
@@ -296,6 +344,8 @@ impl Player {
         });
         self.health = MAX_HEALTH;
         self.death_cause = None;
+        self.invulnerable_ticks = 0;
+        self.last_mob_hit = None;
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -322,6 +372,8 @@ impl Player {
             place_wait_ms: 0,
             portal_triggers_held: [false; 2],
             portal_rest: None,
+            invulnerable_ticks: 0,
+            last_mob_hit: None,
         }
     }
 }
@@ -351,6 +403,8 @@ impl ViewMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::players::game_mode::{INVULNERABILITY_TICKS, THROWN_OFF_TICKS};
+    use crate::world::MobKind;
 
     fn stack(item_id: ItemId, nb: u32) -> ItemStack {
         ItemStack {
@@ -362,6 +416,142 @@ mod tests {
 
     fn max_stack() -> u32 {
         ItemId::Dirt.get_max_stack()
+    }
+
+    fn survivor() -> Player {
+        Player::new(1, "survivor".into(), Vec3::ZERO, Transform::default())
+    }
+
+    #[test]
+    fn a_hit_takes_its_points_of_health() {
+        let mut player = survivor();
+        assert!(player.hurt(3, DamageSource::Fire));
+        assert_eq!(player.health, MAX_HEALTH - 3);
+        assert_eq!(player.death_cause, None);
+    }
+
+    #[test]
+    fn creative_dead_players_and_harmless_hits_take_nothing() {
+        let mut creative = Player {
+            game_mode: GameMode::Creative,
+            ..survivor()
+        };
+        assert!(!creative.hurt(5, DamageSource::Lava));
+        assert!(!creative.hurt(5, DamageSource::Void));
+        assert_eq!(creative.health, MAX_HEALTH);
+
+        let mut player = survivor();
+        assert!(!player.hurt(0, DamageSource::Fall));
+        assert_eq!(
+            player.invulnerable_ticks, 0,
+            "a harmless hit protects nothing"
+        );
+
+        player.health = 0;
+        assert!(!player.hurt(2, DamageSource::Void));
+        assert_eq!(player.death_cause, None);
+    }
+
+    #[test]
+    fn a_second_hit_within_ten_ticks_is_ignored() {
+        let mut player = survivor();
+        assert!(player.hurt(2, DamageSource::Mob(MobKind::Wolf)));
+        for _ in 1..INVULNERABILITY_TICKS {
+            player.tick_damage_timers();
+            assert!(!player.hurt(2, DamageSource::Fire));
+        }
+        assert_eq!(player.health, MAX_HEALTH - 2);
+        player.tick_damage_timers();
+        assert!(player.hurt(2, DamageSource::Fire));
+        assert_eq!(player.health, MAX_HEALTH - 4);
+    }
+
+    #[test]
+    fn the_void_and_starvation_pierce_the_invulnerability() {
+        let mut player = survivor();
+        player.hurt(1, DamageSource::Fall);
+        assert!(player.hurt(1, DamageSource::Starvation));
+        assert!(player.hurt(player.health, DamageSource::Void));
+        assert_eq!(player.death_cause, Some(DeathCause::Void));
+    }
+
+    #[test]
+    fn the_last_hit_names_the_cause_of_death() {
+        let mut player = survivor();
+        player.hurt(MAX_HEALTH - 1, DamageSource::Fire);
+        assert_eq!(player.death_cause, None);
+        for _ in 0..INVULNERABILITY_TICKS {
+            player.tick_damage_timers();
+        }
+        player.hurt(5, DamageSource::Drowning);
+        assert!(player.is_dead());
+        assert_eq!(player.death_cause, Some(DeathCause::Drowning));
+    }
+
+    #[test]
+    fn a_deadly_fall_within_three_seconds_of_a_mob_hit_is_the_mobs() {
+        let fall_after = |ticks: u32| {
+            let mut player = survivor();
+            player.hurt(1, DamageSource::Mob(MobKind::Goat));
+            for _ in 0..ticks {
+                player.tick_damage_timers();
+            }
+            player.hurt(MAX_HEALTH, DamageSource::Fall);
+            player.death_cause
+        };
+        assert_eq!(fall_after(20), Some(DeathCause::ThrownOff(MobKind::Goat)));
+        assert_eq!(
+            fall_after(THROWN_OFF_TICKS - 1),
+            Some(DeathCause::ThrownOff(MobKind::Goat))
+        );
+        assert_eq!(fall_after(THROWN_OFF_TICKS), Some(DeathCause::Fall));
+    }
+
+    #[test]
+    fn a_mob_hit_swallowed_by_the_invulnerability_still_names_the_mob() {
+        let mut player = survivor();
+        player.hurt(1, DamageSource::Fire);
+        assert!(!player.hurt(1, DamageSource::Mob(MobKind::Wolf)));
+        for _ in 0..INVULNERABILITY_TICKS {
+            player.tick_damage_timers();
+        }
+        player.hurt(MAX_HEALTH, DamageSource::Fall);
+        assert_eq!(
+            player.death_cause,
+            Some(DeathCause::ThrownOff(MobKind::Wolf))
+        );
+    }
+
+    #[test]
+    fn a_respawn_forgets_the_timers() {
+        let mut player = survivor();
+        player.hurt(1, DamageSource::Mob(MobKind::Wolf));
+        player.hurt(MAX_HEALTH, DamageSource::Void);
+        player.respawn(Vec3::ONE);
+        assert_eq!(player.invulnerable_ticks, 0);
+        assert_eq!(player.last_mob_hit, None);
+        assert!(player.hurt(1, DamageSource::Fall));
+        player.health = 1;
+        player.invulnerable_ticks = 0;
+        player.hurt(1, DamageSource::Fall);
+        assert_eq!(player.death_cause, Some(DeathCause::Fall));
+    }
+
+    #[test]
+    fn a_knock_back_pushes_along_the_ground_with_a_hop() {
+        let mut player = survivor();
+        player.knock_back(Vec3::new(3.0, 5.0, 4.0), 10.0);
+        assert!((player.velocity.x - 6.0).abs() < 1e-5);
+        assert!((player.velocity.z - 8.0).abs() < 1e-5);
+        assert_eq!(player.velocity.y, KNOCK_BACK_HOP);
+
+        // A dead player stays where it lies
+        let mut dead = Player {
+            health: 0,
+            ..survivor()
+        };
+        dead.knock_back(Vec3::X, 10.0);
+        assert_eq!(dead.velocity, Vec3::ZERO);
     }
 
     #[test]

@@ -589,6 +589,35 @@ mod tests {
     }
 
     #[test]
+    fn a_knocked_back_player_slides_away_and_stops() {
+        let world = flat_world();
+        let mut player = standing_player();
+        let start = player.position;
+        player.knock_back(Vec3::X, 6.0);
+        simulate(&mut player, &world, &[], 10);
+        assert!(!player.on_ground, "the hop lifts it");
+        assert!(player.position.y > start.y + 0.1);
+        simulate(&mut player, &world, &[], 120);
+        assert_eq!(player.velocity, Vec3::ZERO);
+        assert!(player.on_ground);
+        let pushed = player.position.x - start.x;
+        assert!((1.0..4.0).contains(&pushed), "pushed {pushed} blocks");
+        assert_eq!(player.position.z, start.z);
+    }
+
+    #[test]
+    fn a_wall_stops_a_knock_back() {
+        let mut world = flat_world();
+        world.fill_box(IVec3::new(2, 64, -5), IVec3::new(2, 70, 5), BlockId::Stone);
+        let mut player = standing_player();
+        player.knock_back(Vec3::new(1.0, 0.0, 0.2), 20.0);
+        simulate(&mut player, &world, &[], 120);
+        assert!(player.position.x + player.width / 2.0 <= 2.0);
+        assert!(player.position.z > 0.5, "it slides along the wall");
+        assert_eq!(player.velocity, Vec3::ZERO);
+    }
+
+    #[test]
     fn player_standing_on_the_floor_stays_on_it() {
         let world = flat_world();
         let mut player = standing_player();

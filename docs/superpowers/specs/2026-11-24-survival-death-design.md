@@ -25,7 +25,7 @@ them. Later rulings are appended under **Decisions**.
   live in `shared` as functions unit-tested there; server systems apply them.
 - Enums that travel or are saved (`BlockId`, `ItemId`, `MobKind`, `DeathCause`, messages,
   `MobAction`, `NetworkAction`) are **append only**, and their pinned-index tests get the new
-  variants. `PROTOCOL_ID` goes 28 → 29 once, in lot 1, and stays 29 for the whole branch.
+  variants. `PROTOCOL_ID` goes 29 → 30 once, in lot 1, and stays 30 for the whole branch.
   `FORMAT_VERSION` only moves if a saved encoding changes; new `Player`/`WorldMeta` fields use
   `#[serde(default)]` so old saves load.
 - Textures come from Pixel Perfection (see `CLAUDE.md`), already downloaded to
@@ -60,7 +60,7 @@ them. Later rulings are appended under **Decisions**.
   the movement state the client reconciles with.
 - Client feedback when the local player's health drops: red edge vignette fading over 0.5 s,
   a short camera tilt, `player/hurt.ogg`. Hearts blink briefly.
-- PROTOCOL_ID 29.
+- PROTOCOL_ID 30.
 
 ### Lot 2 — drowning
 
