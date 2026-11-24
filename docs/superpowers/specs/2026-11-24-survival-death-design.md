@@ -107,61 +107,59 @@ them. Later rulings are appended under **Decisions**.
 - World generation: cave air at y ≤ 10 is filled with lava sources (lava lakes at the bottom of
   caves). Spawn search must not put players in lava.
 
-### Lot 5 — combat
+### Lot 5 — combat, on top of main's blows
 
-- Client→server `AttackMob { mob_id }`, appended. The client aims at mob hitboxes as well as
-  blocks: a left click on a mob closer than the aimed block attacks it (no mining). The server
-  checks reach (3.5 blocks from the eyes to the hitbox) and a 10-tick cooldown.
-- Damage: fist 1; wooden and golden sword 4, stone 5, iron 6, diamond 7; axes wood 3, gold 3,
-  stone 4, iron 5, diamond 6; other tools 2. A weapon loses 1 durability per hit (2 for tools
-  that are not swords). Axes deal ×1.5 to Stumpling (lot 9).
-- `ServerMob` gains `health` and `hurt_ticks` (10 ticks of invulnerability). Per kind max
-  health: chicken 4, rabbit 3, sheep 8, pig 10, cow 10, goat 10, fox 10, wolf 8, cat 10,
-  horse 15. A hit knocks the mob back (6 blocks/s horizontally, a small hop) and makes animals
-  flee for 5 s. `MobUpdate` carries the hurt flash so the client tints the mob red for 0.3 s and
-  plays a hurt sound.
-- At 0 health the mob is removed and drops loot as dropped items: pig 1–3 RawPorkchop, cow 1–3
-  RawBeef + 0–2 Leather, sheep 1–2 RawMutton, chicken 1 RawChicken + 0–2 Feather, rabbit 1
-  RawRabbit; others nothing. New items with their textures: RawPorkchop, CookedPorkchop,
-  RawBeef, CookedBeef, RawMutton, CookedMutton, RawChicken, CookedChicken, RawRabbit,
-  CookedRabbit, Leather, Feather (category: a new `Food` category for food; Leather and
-  Feather go to Materials). Furnace smelts each raw meat into the cooked one.
+Main already has blows (`server/src/mob/combat.rs`, `ItemId::attack_damage`, `MobKind::health`,
+sheep drop mutton and wool). This lot completes it rather than redoing it:
 
-### Lot 6 — hunger and eating
+- Mobs get 10 ticks of invulnerability after a blow, a horizontal knock back away from the
+  player (6 blocks/s, main's hop kept), and animals flee for 5 s once hit. Axes deal ×1.5 to
+  Stumpling (lot 9, a `MobKind` hook now).
+- A blow costs the weapon durability: 1 for swords and the spear, 2 for other tools.
+- The client tints a hit mob red for 0.3 s and plays a hurt sound (`MobUpdate` carries what it
+  needs; append fields with care for the pinned encodings).
+- Loot for every animal, as dropped items, following main's naming (`RawMutton` /
+  `RoastMutton`): pig 1–3 `RawPork`, cow 1–3 `RawBeef` + 0–2 `Leather`, chicken 1 `RawChicken` +
+  0–2 `Feather`, rabbit 1 `RawRabbit`; others nothing. Their roast versions (`RoastPork`,
+  `RoastBeef`, `RoastChicken`, `RoastRabbit`) are smelted in the furnace and eaten through
+  main's food door (lot 6 turns it into hunger). Textures from Pixel Perfection (raw and
+  cooked meats, leather, feather), in main's food category if it has one.
+- The hostile lots plug into the same blow path (health, loot, hurt flash).
 
-- `Player.food: u8` (0–20), `saturation: f32` (≤ food), `exhaustion: f32`. Exhaustion grows:
-  sprinting 0.1 per block, jumping 0.05 (0.2 while sprinting), swimming 0.01 per block, breaking
-  a block 0.005, attacking 0.1, taking damage 0.1, regenerating a point of health 6. At 4 it
-  wraps: saturation −1, or food −1 when saturation is 0.
-- Health regeneration (existing 1 point per 80 ticks) only when food ≥ 18. At food 0, 1 damage
-  every 80 ticks (`DamageSource::Starvation`, which can kill). Sprinting is refused at food ≤ 6.
-  Creative: no hunger. Peaceful does not change hunger. Respawn: food 20, saturation 5.
-- Eating: holding right click with a food item for 32 ticks (1.6 s) eats it (stack −1) when food
-  < 20. The client shows the held item bobbing and plays a munch sound; letting go cancels.
-- Food values (food, saturation): Bread 5/6, Carrot 3/3.6, Potato 1/0.6, BakedPotato 5/6,
-  RawPorkchop 3/1.8, CookedPorkchop 8/12.8, RawBeef 3/1.8, CookedBeef 8/12.8, RawMutton 2/1.2,
-  CookedMutton 6/9.6, RawChicken 2/1.2, CookedChicken 6/7.2, RawRabbit 3/1.8, CookedRabbit 5/6.
-- HUD: 10 drumsticks (`food_full/half/empty.png`) right above the hotbar, filled right to left;
-  the `*_hunger` variants are not used. Bubbles move above them.
+### Lot 6 — hunger
 
-### Lot 7 — farming
+Main's food restores health directly (`ItemId::food_health`, a right click, refused at full
+health). Hunger changes that door:
 
-- `BlockId::Farmland`: a hoe right-clicked on the top of grass or dirt with air above makes
-  farmland (hoe durability −1). Texture `farmland.png` top, `farmland_moist.png` when moist (water
-  within 4 blocks horizontally, same level or one below; recomputed on random ticks; state in
-  `BlockData.level`), dirt sides. Breaking it drops dirt. A block placed on it or a jump onto it
-  is not needed in this lot.
-- Crops: `BlockId::Wheat`, `Carrots`, `Potatoes`, decorations with a cross shape, no hitbox,
-  age 0–7 in `BlockData.level`, one texture per stage (wheat `wheat_stage0..6` +
-  `wheat_stage_full_7` scaled to 16x16; carrots and potatoes use stage `age / 2` of their 4).
-  They only stand on farmland; without it they pop off as their seed item.
-- Growth on random ticks: one age with chance 1/3 on moist farmland, 1/6 on dry.
-- Items: WheatSeeds (12.5 % drop from tall grass and fern), Wheat, Bread (crafting: three wheat
-  in a row), Carrot and Potato (each 2 % from tall grass; they are planted as crops), BakedPotato
-  (furnace). Breaking ripe wheat drops 1 wheat + 0–3 seeds, unripe 1 seed; ripe carrots or
-  potatoes drop 2–4, unripe 1.
-- Right click on the top of farmland with seeds, a carrot or a potato plants it (eating has
-  priority only when not aiming at farmland).
+- `Player.food: u8` (0–20), `saturation: f32` (≤ food), `exhaustion: f32`, saved with serde
+  defaults. Exhaustion grows: sprinting 0.1 per block, jumping 0.05 (0.2 while sprinting),
+  swimming 0.01 per block, breaking a block 0.005, a blow 0.1, taking damage 0.1, regenerating a
+  point of health 6. At 4 it wraps: saturation −1, or food −1 when saturation is 0.
+- Health regeneration (1 point per 80 ticks) only when food ≥ 18. At food 0, 1 damage every 80
+  ticks (`DamageSource::Starvation`, which can kill). Sprinting is refused at food ≤ 6.
+  Creative: no hunger. Respawn: food 20, saturation 5.
+- Eating keeps main's gesture but gives food and saturation instead of health, and is refused
+  at full food instead of full health. `food_health` becomes `food_value() -> Option<(u8, f32)>`
+  for every food item (main's and lot 5's): raw meats ≈ 2–3 food, roasts 6–8, bread 5, berries
+  2, roast mushroom 4, carrot 3, potato 1, baked potato 5 — balance against main's values and
+  write the table in the plan.
+- HUD: 10 drumsticks (`food_full/half/empty.png` from Pixel Perfection, 9x9) right above the
+  hotbar, filled right to left; the air bubbles move above them.
+
+### Lot 7 — more farming, one random tick
+
+Main has farming (`TilledSoil`, rye, berry bushes, saplings, `server/src/world/growth.rs`).
+This lot extends it:
+
+- **One random tick system**: fold lot 3's `world/ticks.rs` and main's `growth.rs` into one,
+  keeping both behaviours (plants, cisterns, campfires in rain, fire, lava igniting) and the
+  fire update bound.
+- Carrots and potatoes as two more crops on tilled soil, grown like rye: items `Carrot`,
+  `Potato` (each 2 % from tall grass, planted by a right click on tilled soil), `BakedPotato`
+  (furnace). Crop blocks with Pixel Perfection stage textures (`carrots_stage0..3`,
+  `potatoes_stage0..3`). Ripe crops drop 2–4, unripe 1.
+- Tilled soil near water (4 blocks) grows crops twice as fast, if main's rules do not already
+  do something like it.
 
 ### Lot 8 — hostile spawning, difficulty, and the three simple mobs
 
