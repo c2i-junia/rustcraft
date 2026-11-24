@@ -32,12 +32,31 @@ pub fn flammability(block: BlockId) -> Option<Flammability> {
         BlockId::OakPlanks
         | BlockId::SprucePlanks
         | BlockId::JunglePlanks
+        | BlockId::WillowPlanks
+        | BlockId::AcaciaPlanks
+        | BlockId::WoodenSlab
+        | BlockId::WoodenStairs
+        | BlockId::Fence
         | BlockId::CraftingTable => (5, 20),
-        BlockId::OakLog | BlockId::SpruceLog | BlockId::JungleLog => (5, 5),
-        BlockId::OakLeaves | BlockId::SpruceLeaves | BlockId::JungleLeaves | BlockId::Cocoa => {
-            (30, 60)
-        }
-        BlockId::TallGrass | BlockId::Fern | BlockId::Dandelion | BlockId::Poppy => (60, 100),
+        BlockId::OakLog
+        | BlockId::SpruceLog
+        | BlockId::JungleLog
+        | BlockId::WillowLog
+        | BlockId::AcaciaLog => (5, 5),
+        BlockId::OakLeaves
+        | BlockId::SpruceLeaves
+        | BlockId::JungleLeaves
+        | BlockId::WillowLeaves
+        | BlockId::AcaciaLeaves
+        | BlockId::Cocoa
+        | BlockId::Wool => (30, 60),
+        // As Minecraft's hay bale
+        BlockId::Thatch => (60, 20),
+        BlockId::TallGrass
+        | BlockId::Fern
+        | BlockId::Dandelion
+        | BlockId::Poppy
+        | BlockId::Heather => (60, 100),
         BlockId::Vine => (15, 100),
         _ => return None,
     };
@@ -180,6 +199,13 @@ mod tests {
             BlockId::Poppy,
             BlockId::Cocoa,
             BlockId::CraftingTable,
+            BlockId::AcaciaLog,
+            BlockId::WillowPlanks,
+            BlockId::WillowLeaves,
+            BlockId::WoodenStairs,
+            BlockId::Thatch,
+            BlockId::Wool,
+            BlockId::Heather,
         ] {
             assert!(flammability(block).is_some(), "{block:?}");
         }
