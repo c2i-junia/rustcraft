@@ -393,7 +393,8 @@ server, asked by `Respawn`, brings the player back. Players spawn and respawn at
 `spawn_position`): on the column nearest x = 0, z = 0, among one every 4 blocks, that stands deep
 inside a biome that is not cold, wet or high, in a clearing where nothing grows. `/gamemode`
 changes the mode of its author. `/locate biome <biome>` searches the nearest column of a biome
-on the generation pool, and answers once it is found (`world/locate.rs`).
+on the generation pool, and answers once it is found (`world/locate.rs`); `/locate village` the
+nearest village, the same way.
 
 ## One server tick
 
@@ -520,6 +521,18 @@ The animals are born with the chunks (`world/generation/animals.rs`): each colum
 may hold a herd, decided by its position and the biome of its centre, which belongs to the
 chunk holding the surface there. That chunk is saved once generated, so the herd is never
 born again. A spawn egg used on a block brings its mob there too (`place_block`).
+
+The villages (`world/generation/village/`) are built where `WorldGenSettings::villages` is set,
+which a new world has and a world saved before them has not. The world is cut into regions of
+512 blocks, each holding at most one village, whose centre is drawn from the seed and the
+region and kept where its biome has a `VillageStyle`, deep inside it, on dry, rather flat land
+(`placement.rs`). Its plan, a square around a well, streets and buildings along them, is laid
+out from the seed and `TerrainNoises` alone (`layout.rs`, the buildings in `pieces.rs`), cached
+by region in the `WorldGenerator`, and each chunk it touches places the blocks of the plan that
+fall in it after the terrain and the plants: a village is the same whichever of its chunks is
+generated first. Nothing grows on its columns (`Column::village`), and the caves stay under
+them. The chests and barrels of a generated chunk come filled (`loot.rs`), and the animals of
+its pens are born with it, like the herds.
 
 The systems of the server run one after the other on its thread: an integrated server would
 otherwise share the compute pool with its client, whose frames would wait for its ticks.
