@@ -1,5 +1,7 @@
 //! The animals: those that live in a new world, and those a spawn egg hatches.
 
+use std::time::Duration;
+
 use bevy::input::{mouse::MouseButtonInput, ButtonState};
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowEvent};
@@ -70,7 +72,8 @@ fn right_click(h: &mut Harness) {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn animals_live_in_a_new_world_and_stand_on_the_ground() {
-    let folder = GameFolder::new().with_world("Meadow");
+    // A seed whose spawn has herds around it: that of 42 has none within two chunks
+    let folder = GameFolder::new().with_seeded_world("Meadow", 12, 0, Duration::ZERO);
     let mut h = enter_world(folder, "Meadow");
     // Standing: the bottom of its hitbox on the top of a block. The animals in sight may walk
     // out of reach, so whichever stands is looked at.
