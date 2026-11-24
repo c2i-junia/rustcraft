@@ -2052,7 +2052,8 @@ fn give_adds_the_items_to_the_inventory_of_its_author() {
 
 #[test]
 fn a_survival_player_is_hurt_by_a_fall_dies_of_a_higher_one_and_respawns_at_the_spawn() {
-    use shared::players::game_mode::{DeathCause, GameMode, MAX_HEALTH};
+    use shared::players::game_mode::{DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH};
+    use shared::TICKS_PER_SECOND;
 
     let mut server = TestServer::start(WORLD_NAME);
     let mut client = TestClient::connect(server.addr, PLAYER_ID);
@@ -2104,6 +2105,9 @@ fn a_survival_player_is_hurt_by_a_fall_dies_of_a_higher_one_and_respawns_at_the_
         update.health
     );
     assert_eq!(update.death_cause, None);
+    // The frames go in bursts: a second fall would land within the invulnerability of the first
+    let invulnerability = INVULNERABILITY_TICKS as u64 * 1000 / TICKS_PER_SECOND;
+    thread::sleep(Duration::from_millis(2 * invulnerability));
 
     // 30 blocks kill it
     set_game_mode(&mut client, "creative");
