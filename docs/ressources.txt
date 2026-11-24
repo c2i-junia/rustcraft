@@ -90,6 +90,10 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    block/lava_still.png, and its animation (blocks/Lava.anim.ron) from its .mcmeta; the
    textures of the obsidian and of the lava bucket (blocks/Obsidian.png,
    items/LavaBucket.png), the pack's block/obsidian.png and item/lava_bucket.png.
+-> The textures of the meats of the animals, raw and roast, of the leather and of the feather
+   (items/{RawPork,RoastPork,RawBeef,RoastBeef,RawChicken,RoastChicken,RawRabbit,RoastRabbit,
+   Leather,Feather}.png), the pack's item/{porkchop,cooked_porkchop,beef,cooked_beef,chicken,
+   cooked_chicken,rabbit,cooked_rabbit,leather,feather}.png.
 
 -> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.

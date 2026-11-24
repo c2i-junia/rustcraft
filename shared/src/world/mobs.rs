@@ -2,7 +2,7 @@ use bevy::math::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
-use crate::world::PortalRest;
+use crate::world::{ItemId, PortalRest, ToolKind};
 
 pub type MobId = u128;
 
@@ -43,6 +43,27 @@ impl MobKind {
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
             MobKind::Sheep => 8,
+        }
+    }
+
+    /// Whether an axe deals this kind half again its damage (`blow_damage`). None does yet: the
+    /// Stumpling, a walking stump, will.
+    pub fn weak_to_axes(self) -> bool {
+        false
+    }
+
+    /// The points of health a blow with `held` in hand takes from a mob of this kind: the
+    /// weapon's (`ItemId::attack_damage`), 1 bare-handed, and half again with an axe against a
+    /// kind `weak_to_axes`, rounded down.
+    pub fn blow_damage(self, held: Option<ItemId>) -> u32 {
+        let damage = held.map_or(1, |item| item.attack_damage());
+        let axe = held
+            .and_then(|item| item.tool())
+            .is_some_and(|tool| tool.kind == ToolKind::Axe);
+        if axe && self.weak_to_axes() {
+            damage * 3 / 2
+        } else {
+            damage
         }
     }
 
@@ -162,5 +183,21 @@ impl ServerMob {
     /// `ground_y`, at `(x, z)`.
     pub fn standing_at(kind: MobKind, x: f32, ground_y: f32, z: f32) -> Vec3 {
         Vec3::new(x, ground_y + kind.size().y / 2.0, z)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_blow_takes_the_damage_of_the_weapon_and_one_bare_handed() {
+        for kind in MobKind::ALL {
+            assert!(!kind.weak_to_axes(), "{kind:?}");
+            assert_eq!(kind.blow_damage(None), 1);
+            for item in [ItemId::IronSword, ItemId::DiamondAxe, ItemId::Spear] {
+                assert_eq!(kind.blow_damage(Some(item)), item.attack_damage());
+            }
+        }
     }
 }

@@ -54,6 +54,10 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
         ItemId::TinOre => Some(ItemId::TinIngot),
         ItemId::Mushroom => Some(ItemId::RoastMushroom),
         ItemId::RawMutton => Some(ItemId::RoastMutton),
+        ItemId::RawPork => Some(ItemId::RoastPork),
+        ItemId::RawBeef => Some(ItemId::RoastBeef),
+        ItemId::RawChicken => Some(ItemId::RoastChicken),
+        ItemId::RawRabbit => Some(ItemId::RoastRabbit),
         _ => None,
     }
 }
@@ -251,6 +255,23 @@ mod tests {
             assert_eq!(smelting_result(input), Some(result), "{input:?}");
         }
         for item in [ItemId::IronIngot, ItemId::CoalOre, ItemId::OakPlanks] {
+            assert_eq!(smelting_result(item), None, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn every_raw_meat_roasts() {
+        for (raw, roast) in [
+            (ItemId::RawMutton, ItemId::RoastMutton),
+            (ItemId::RawPork, ItemId::RoastPork),
+            (ItemId::RawBeef, ItemId::RoastBeef),
+            (ItemId::RawChicken, ItemId::RoastChicken),
+            (ItemId::RawRabbit, ItemId::RoastRabbit),
+        ] {
+            assert_eq!(smelting_result(raw), Some(roast), "{raw:?}");
+            assert_eq!(smelting_result(roast), None, "{roast:?}");
+        }
+        for item in [ItemId::Leather, ItemId::Feather] {
             assert_eq!(smelting_result(item), None, "{item:?}");
         }
     }

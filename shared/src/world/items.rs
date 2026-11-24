@@ -173,11 +173,21 @@ pub enum ItemId {
     FlintAndSteel,
     Obsidian,
     LavaBucket,
+    RawPork,
+    RoastPork,
+    RawBeef,
+    RoastBeef,
+    RawChicken,
+    RoastChicken,
+    RawRabbit,
+    RoastRabbit,
+    Leather,
+    Feather,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 149] = [
+    pub const ALL: [ItemId; 159] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -327,6 +337,16 @@ impl ItemId {
         Self::FlintAndSteel,
         Self::Obsidian,
         Self::LavaBucket,
+        Self::RawPork,
+        Self::RoastPork,
+        Self::RawBeef,
+        Self::RoastBeef,
+        Self::RawChicken,
+        Self::RoastChicken,
+        Self::RawRabbit,
+        Self::RoastRabbit,
+        Self::Leather,
+        Self::Feather,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -387,6 +407,16 @@ impl ItemId {
         }
     }
 
+    /// How much a blow on a mob wears the item: a sword is made for it, another tool wears as
+    /// it does on a block it is not made for; the rest does not wear.
+    pub fn blow_wear(&self) -> u32 {
+        match self.tool() {
+            Some(tool) if tool.kind == ToolKind::Sword => 1,
+            Some(_) => 2,
+            None => 0,
+        }
+    }
+
     /// The points of health eating the item gives back, two to a heart, if it is eaten.
     pub fn food_health(&self) -> Option<u32> {
         match *self {
@@ -394,6 +424,12 @@ impl ItemId {
             Self::RoastMushroom => Some(2),
             Self::RyeBread => Some(4),
             Self::RoastMutton => Some(6),
+            // Minecraft's food points, until hunger
+            Self::RawMutton | Self::RawChicken => Some(2),
+            Self::RawPork | Self::RawBeef | Self::RawRabbit => Some(3),
+            Self::RoastPork | Self::RoastBeef => Some(8),
+            Self::RoastChicken => Some(6),
+            Self::RoastRabbit => Some(5),
             _ => None,
         }
     }
@@ -570,7 +606,17 @@ impl ItemId {
             | Self::RyeBread
             | Self::RawMutton
             | Self::RoastMutton
-            | Self::Berries => ItemCategory::Materials,
+            | Self::Berries
+            | Self::RawPork
+            | Self::RoastPork
+            | Self::RawBeef
+            | Self::RoastBeef
+            | Self::RawChicken
+            | Self::RoastChicken
+            | Self::RawRabbit
+            | Self::RoastRabbit
+            | Self::Leather
+            | Self::Feather => ItemCategory::Materials,
             Self::CraftingTable
             | Self::Furnace
             | Self::Chest
@@ -747,7 +793,17 @@ impl ItemId {
             | Self::Berries
             | Self::Spear
             | Self::PortalGun
-            | Self::LavaBucket => ItemType::Generic,
+            | Self::LavaBucket
+            | Self::RawPork
+            | Self::RoastPork
+            | Self::RawBeef
+            | Self::RoastBeef
+            | Self::RawChicken
+            | Self::RoastChicken
+            | Self::RawRabbit
+            | Self::RoastRabbit
+            | Self::Leather
+            | Self::Feather => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1076,6 +1132,16 @@ mod tests {
             (ItemId::FlintAndSteel, 146),
             (ItemId::Obsidian, 147),
             (ItemId::LavaBucket, 148),
+            (ItemId::RawPork, 149),
+            (ItemId::RoastPork, 150),
+            (ItemId::RawBeef, 151),
+            (ItemId::RoastBeef, 152),
+            (ItemId::RawChicken, 153),
+            (ItemId::RoastChicken, 154),
+            (ItemId::RawRabbit, 155),
+            (ItemId::RoastRabbit, 156),
+            (ItemId::Leather, 157),
+            (ItemId::Feather, 158),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1228,7 +1294,17 @@ mod tests {
                 | ItemId::PortalGun
                 | ItemId::FlintAndSteel
                 | ItemId::Obsidian
-                | ItemId::LavaBucket => {}
+                | ItemId::LavaBucket
+                | ItemId::RawPork
+                | ItemId::RoastPork
+                | ItemId::RawBeef
+                | ItemId::RoastBeef
+                | ItemId::RawChicken
+                | ItemId::RoastChicken
+                | ItemId::RawRabbit
+                | ItemId::RoastRabbit
+                | ItemId::Leather
+                | ItemId::Feather => {}
             }
         }
         for (id, expected) in table {
@@ -1498,6 +1574,46 @@ mod tests {
             (ItemId::JungleLeaves, ItemId::OakLeaves),
         ] {
             assert_eq!(jungle.category(), oak.category(), "{jungle:?}");
+        }
+    }
+
+    #[test]
+    fn the_meats_are_eaten_raw_or_roasted_and_leather_and_feathers_are_materials() {
+        for (item, health) in [
+            (ItemId::RawMutton, Some(2)),
+            (ItemId::RoastMutton, Some(6)),
+            (ItemId::RawPork, Some(3)),
+            (ItemId::RoastPork, Some(8)),
+            (ItemId::RawBeef, Some(3)),
+            (ItemId::RoastBeef, Some(8)),
+            (ItemId::RawChicken, Some(2)),
+            (ItemId::RoastChicken, Some(6)),
+            (ItemId::RawRabbit, Some(3)),
+            (ItemId::RoastRabbit, Some(5)),
+            (ItemId::Leather, None),
+            (ItemId::Feather, None),
+        ] {
+            assert_eq!(item.food_health(), health, "{item:?}");
+            assert_eq!(item.category(), ItemCategory::Materials, "{item:?}");
+            assert_eq!(item.get_default_type(), ItemType::Generic, "{item:?}");
+            assert_eq!(item.get_max_stack(), 64, "{item:?}");
+        }
+        assert_eq!(ItemId::RawPork.name(), "raw_pork");
+    }
+
+    #[test]
+    fn a_blow_wears_a_sword_by_one_another_tool_by_two_and_nothing_else() {
+        for (item, wear) in [
+            (ItemId::IronSword, 1),
+            (ItemId::WoodenSword, 1),
+            (ItemId::IronPickaxe, 2),
+            (ItemId::StoneAxe, 2),
+            (ItemId::GoldenHoe, 2),
+            (ItemId::Spear, 0),
+            (ItemId::FlintAndSteel, 0),
+            (ItemId::Stick, 0),
+        ] {
+            assert_eq!(item.blow_wear(), wear, "{item:?}");
         }
     }
 

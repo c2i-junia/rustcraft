@@ -571,7 +571,17 @@ fn use_block(
         (BlockId::UnlitCampfire, Some(ItemId::Torch | ItemId::Flint | ItemId::FlintAndSteel)) => {
             become_block(world_map, pos, BlockId::Campfire);
         }
-        (BlockId::Campfire, Some(raw @ (ItemId::RawMutton | ItemId::Mushroom))) => {
+        (
+            BlockId::Campfire,
+            Some(
+                raw @ (ItemId::RawMutton
+                | ItemId::RawPork
+                | ItemId::RawBeef
+                | ItemId::RawChicken
+                | ItemId::RawRabbit
+                | ItemId::Mushroom),
+            ),
+        ) => {
             player.inventory.remove_item_from_stack(slot, 1);
             if let Some(roast) = smelting_result(raw) {
                 give(player, roast, 1);
@@ -2454,6 +2464,26 @@ mod use_tests {
                 .look_to(Vec3::new(0.0, -0.1, -1.0), Vec3::Y);
             click(&mut player, &mut world, NetworkAction::RightClick);
             assert_eq!(id(&world, AT), Some(after), "{block:?}");
+        }
+    }
+
+    #[test]
+    fn a_campfire_roasts_the_raw_meats_and_the_mushroom() {
+        for (raw, roast) in [
+            (ItemId::RawMutton, ItemId::RoastMutton),
+            (ItemId::RawPork, ItemId::RoastPork),
+            (ItemId::RawBeef, ItemId::RoastBeef),
+            (ItemId::RawChicken, ItemId::RoastChicken),
+            (ItemId::RawRabbit, ItemId::RoastRabbit),
+            (ItemId::Mushroom, ItemId::RoastMushroom),
+        ] {
+            let (mut player, mut world) = facing_a(BlockId::Campfire, Some(raw));
+            player
+                .camera_transform
+                .look_to(Vec3::new(0.0, -0.1, -1.0), Vec3::Y);
+            click(&mut player, &mut world, NetworkAction::RightClick);
+            let held = player.inventory.inner.values().map(|stack| stack.item_id);
+            assert_eq!(held.collect::<Vec<_>>(), [roast], "{raw:?}");
         }
     }
 
