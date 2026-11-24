@@ -5,12 +5,14 @@ use shared::players::{Inventory, Player, ViewMode};
 use crate::state::{GameSet, GameState};
 
 mod controller;
+mod hurt;
 mod interactions;
 mod labels;
 mod stance;
 mod update;
 
 pub use controller::*;
+pub use hurt::*;
 pub use interactions::*;
 pub use labels::*;
 pub use stance::*;
@@ -18,6 +20,7 @@ pub use update::*;
 
 /// The local player and the other players: their spawn, movement, prediction and labels.
 pub fn player_plugin(app: &mut App) {
+    hurt_plugin(app);
     app.insert_resource(ViewMode::FirstPerson)
         .insert_resource(Inventory::new())
         .add_message::<PlayerSpawnEvent>()
@@ -60,6 +63,18 @@ pub fn player_plugin(app: &mut App) {
             Update,
             update_players_system
                 .in_set(GameSet::Reconciliation)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            (
+                detect_local_hurt,
+                advance_hurt_feedback,
+                update_hurt_vignette,
+            )
+                .chain()
+                .after(GameSet::Reconciliation)
+                .before(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(

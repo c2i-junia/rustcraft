@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
 
 use crate::dropped_items::ItemPickedUp;
+use crate::player::LocalPlayerHurt;
 use crate::portal::PortalOpened;
 use crate::state::{GameSet, GameState};
 
@@ -39,6 +40,7 @@ pub fn audio_plugin(app: &mut App) {
                     footsteps::local_footsteps,
                     footsteps::other_players_footsteps,
                     pickup_sounds,
+                    hurt_sounds,
                     inventory::inventory_sounds,
                     portal_sounds,
                 )
@@ -57,6 +59,13 @@ fn pickup_sounds(mut pickups: MessageReader<ItemPickedUp>, mut sounds: MessageWr
     }
 }
 
+/// A grunt for every hurt of the local player.
+fn hurt_sounds(mut hurts: MessageReader<LocalPlayerHurt>, mut sounds: MessageWriter<PlaySound>) {
+    for _ in hurts.read() {
+        sounds.write(PlaySound::here(Sound::Hurt));
+    }
+}
+
 /// The opening of a portal, heard where it is.
 fn portal_sounds(mut opened: MessageReader<PortalOpened>, mut sounds: MessageWriter<PlaySound>) {
     for PortalOpened { at } in opened.read() {
@@ -72,6 +81,22 @@ fn click_on_activate(_: On<Activate>, mut sounds: MessageWriter<PlaySound>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hurt_of_the_local_player_plays_the_hurt_sound() {
+        let mut app = App::new();
+        app.add_message::<PlaySound>()
+            .add_message::<LocalPlayerHurt>()
+            .add_systems(Update, hurt_sounds);
+        app.world_mut().write_message(LocalPlayerHurt);
+        app.update();
+        let heard: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<PlaySound>>()
+            .drain()
+            .collect();
+        assert_eq!(heard, [PlaySound::here(Sound::Hurt)]);
+    }
 
     #[test]
     fn a_portal_that_opens_is_heard_where_it_is() {

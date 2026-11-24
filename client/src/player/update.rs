@@ -314,6 +314,84 @@ mod tests {
     }
 
     #[test]
+    fn a_knock_back_by_the_server_sticks_through_the_reconciliation() {
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(63));
+        blocks.fill_box(
+            IVec3::new(-32, 0, -32),
+            IVec3::new(32, 3, 32),
+            BlockId::Stone,
+        );
+        let mut client = Player::new(PLAYER_ID, "me".into(), Vec3::new(0.5, 4.9, 0.5), default());
+        client.on_ground = true;
+        let mut server = client.clone();
+        let start = client.position;
+        let frame = |time_ms| PlayerFrameInput {
+            time_ms,
+            delta_ms: 50,
+            ..default()
+        };
+
+        // The client predicted three inputs standing still
+        let mut sent: Vec<_> = [10, 20, 30].map(frame).into();
+        for input in &mut sent {
+            simulate_player_movement(&mut client, &blocks, input);
+            input.predicted = client.movement_state();
+        }
+        // The server simulated the first, then a mob knocked the player back
+        simulate_player_movement(&mut server, &blocks, &sent[0]);
+        server.knock_back(Vec3::X, 6.0);
+        let update = |server: &Player, last_ack_time| PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: server.movement_state(),
+            orientation: Quat::IDENTITY,
+            last_ack_time,
+            inventory: None,
+            open_chest: None,
+            open_furnace: None,
+            health: server.health,
+            game_mode: server.game_mode,
+            death_cause: None,
+        };
+        reconcile_prediction(
+            &mut client,
+            &update(&server, 10),
+            &mut sent,
+            &mut [],
+            &blocks,
+        );
+
+        // The client resumed from the push and replayed its two other inputs on it
+        for input in &sent[1..] {
+            simulate_player_movement(&mut server, &blocks, input);
+        }
+        assert_eq!(client.movement_state(), server.movement_state());
+        assert!(client.position.x > start.x + 0.2, "at {}", client.position);
+
+        // The next update agrees with what the client now predicts: nothing is corrected
+        let mut expected = server.clone();
+        let mut server = Player::new(PLAYER_ID, "me".into(), start, default());
+        server.on_ground = true;
+        simulate_player_movement(&mut server, &blocks, &frame(10));
+        server.knock_back(Vec3::X, 6.0);
+        simulate_player_movement(&mut server, &blocks, &frame(20));
+        client.position.y += 100.0;
+        reconcile_prediction(
+            &mut client,
+            &update(&server, 20),
+            &mut sent,
+            &mut [],
+            &blocks,
+        );
+        assert_eq!(
+            client.position.y,
+            expected.position.y + 100.0,
+            "not resynced"
+        );
+        expected.position.y += 100.0;
+        assert_eq!(client.movement_state(), expected.movement_state());
+    }
+
+    #[test]
     fn an_ack_matching_no_pending_input_resyncs_on_the_server_position() {
         let (mut app, player) = app_with_player();
         let server_position = Vec3::new(1.0, 2.0, 3.0);

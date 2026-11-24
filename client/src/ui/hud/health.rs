@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::Player;
 
-use crate::player::CurrentPlayerMarker;
+use crate::player::{CurrentPlayerMarker, HurtFeedback};
 use crate::ui::hud::hotbar::{Hotbar, HotbarItemName};
 use crate::ui::hud::InventoryRoot;
 use crate::ui::theme::{SPACE_S, SPACE_XS};
@@ -111,15 +111,16 @@ pub fn spawn_health_bar(
 }
 
 /// Fills the hearts with the health of the local player, and shows them in survival only, while
-/// the inventory is closed: open, its backpack takes their place, as in Minecraft. Writes nothing
-/// while none of these changes.
+/// the inventory is closed: open, its backpack takes their place, as in Minecraft. After a hurt,
+/// the hearts blink empty. Writes nothing while none of these changes.
 pub fn update_health_bar(
     player: Query<&Player, With<CurrentPlayerMarker>>,
     mut bar: Query<(Entity, &mut Visibility), With<HealthBar>>,
     mut fills: Query<(&HeartFill, &mut ImageNode, &mut Visibility), Without<HealthBar>>,
     inventory: Query<&Visibility, (With<InventoryRoot>, Without<HealthBar>, Without<HeartFill>)>,
     assets: Res<AssetServer>,
-    mut shown: Local<Option<(u32, GameMode, bool)>>,
+    feedback: Option<Res<HurtFeedback>>,
+    mut shown: Local<Option<(u32, GameMode, bool, bool)>>,
     mut commands: Commands,
 ) {
     let (Ok(player), Ok((bar, mut visibility))) = (player.single(), bar.single_mut()) else {
@@ -128,7 +129,8 @@ pub fn update_health_bar(
     let inventory_open = inventory
         .single()
         .is_ok_and(|inventory| *inventory == Visibility::Visible);
-    let state = (player.health, player.game_mode, inventory_open);
+    let blinked = feedback.is_some_and(|feedback| feedback.hearts_hidden());
+    let state = (player.health, player.game_mode, inventory_open, blinked);
     if *shown == Some(state) {
         return;
     }
@@ -144,6 +146,10 @@ pub fn update_health_bar(
         .insert(AccessibleLabel::new(health_label(player.health)));
     for (fill, mut image, mut visibility) in &mut fills {
         let path = match heart(player.health, fill.index) {
+            _ if blinked => {
+                *visibility = Visibility::Hidden;
+                continue;
+            }
             Heart::Empty => {
                 *visibility = Visibility::Hidden;
                 continue;

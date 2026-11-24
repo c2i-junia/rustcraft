@@ -55,30 +55,30 @@ vignette, a camera tilt, the hurt sound, blinking hearts. To see: fly 8 blocks u
 ## Tasks
 
 ### Task 1: Damage in shared
-- [ ] Tests (`game_mode.rs`, `data.rs`): `hurt` takes the amount and returns true; creative,
+- [x] Tests (`game_mode.rs`, `data.rs`): `hurt` takes the amount and returns true; creative,
   dead and zero take nothing; a second hit within 10 ticks is ignored, after 10 it lands; Void
   and Starvation pierce; the cause of each source; a fall within 60 ticks of a mob hit is
   `ThrownOff`, after it `Fall`; `respawn` clears the timers; messages and display names;
   pinned indices of the new `DeathCause` variants.
-- [ ] `DamageSource`, `DeathCause` variants, `of`, `message`, `MobKind::display_name`,
+- [x] `DamageSource`, `DeathCause` variants, `of`, `message`, `MobKind::display_name`,
   `hurt`, `tick_damage_timers`, `PROTOCOL_ID` 30.
 
 ### Task 2: Knock back in shared
-- [ ] Tests (`movement.rs`): a knocked back player slides away and stops; a wall stops it; a
+- [x] Tests (`movement.rs`): a knocked back player slides away and stops; a wall stops it; a
   hop lifts it.
-- [ ] `knock_back`, `KNOCK_BACK_HOP`, drags, `apply_horizontal_velocity`.
+- [x] `knock_back`, `KNOCK_BACK_HOP`, drags, `apply_horizontal_velocity`.
 
 ### Task 3: Server
-- [ ] Tests: the fall and void go through `hurt`; `tick_damage_timers_system` counts down.
-- [ ] Callers, the system in the schedule.
+- [x] Tests: the fall and void go through `hurt`; `tick_damage_timers_system` counts down.
+- [x] Callers, the system in the schedule.
 
 ### Task 4: Reconciliation keeps a knock back
-- [ ] Test (`client/src/player/update.rs`): the server knocks the player back after the input
+- [x] Test (`client/src/player/update.rs`): the server knocks the player back after the input
   it acknowledges; the client resumes from it, its replayed inputs carry the push, and the
   next update matches its prediction.
 
 ### Task 5: Client feedback
-- [ ] Unit tests: a drop of health writes `LocalPlayerHurt`, a respawn does not; the vignette
+- [x] Unit tests: a drop of health writes `LocalPlayerHurt`, a respawn does not; the vignette
   alpha and tilt fade to 0 over 0.5 s.
-- [ ] e2e (`survival.rs`): a fall of 8 blocks hurts and shows the vignette, which goes again.
-- [ ] Module, sound, hearts blink, vignette, tilt.
+- [x] e2e (`survival.rs`): a fall of 8 blocks hurts and shows the vignette, which goes again.
+- [x] Module, sound, hearts blink, vignette, tilt.

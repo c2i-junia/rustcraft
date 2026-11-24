@@ -353,7 +353,14 @@ server's: they are saved with the player, sent in every `PlayerUpdate`, and the 
 them as they come, before it checks its prediction. The simulation reads the mode, which keeps
 a survival player from flying, but changes neither: the server hurts a player that landed
 (`fall_damage`, one point per block beyond 3) or fell below `FALL_LIMIT`, in survival only, and
-gives a living player a point back every `REGENERATION_TICKS` (`world/simulation.rs`). A dead
+gives a living player a point back every `REGENERATION_TICKS` (`world/simulation.rs`). Every hurt
+goes through `Player::hurt(amount, DamageSource)`, which ignores a hit within
+`INVULNERABILITY_TICKS` of the last one (the void and starvation pierce it) and turns the source
+into the `DeathCause`, a deadly fall within `THROWN_OFF_TICKS` of a mob's hit being that mob's.
+`Player::knock_back` sets a horizontal velocity, which the movement simulation carries and brakes:
+being part of the `MovementState`, it reaches the client through the reconciliation. The client
+sees its health drop and answers with a red vignette, a camera tilt, the hurt sound and blinking
+hearts (`player/hurt.rs`). A dead
 player is not simulated: the server acknowledges its inputs without applying them, and the client
 neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the
 server, asked by `Respawn`, brings the player back. Players spawn and respawn at

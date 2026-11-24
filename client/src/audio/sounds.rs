@@ -163,6 +163,8 @@ pub enum Sound {
     Place(SoundMaterial),
     /// The local player lands after a fall.
     Land,
+    /// The local player is hurt.
+    Hurt,
     /// A button of the interface is pressed.
     Click,
     /// The local player picks up an item lying in the world.
@@ -207,6 +209,7 @@ impl Sound {
             })
             .chain([
                 Sound::Land,
+                Sound::Hurt,
                 Sound::Click,
                 Sound::Pickup,
                 Sound::Splash,
@@ -257,6 +260,7 @@ impl Sound {
             Sound::Break(material) => variants("break", material, 3),
             Sound::Place(material) => vec![format!("sounds/place/{}.ogg", material.file_name())],
             Sound::Land => vec!["sounds/player/land.ogg".to_string()],
+            Sound::Hurt => vec!["sounds/player/hurt.ogg".to_string()],
             Sound::Click => vec!["sounds/ui/click.ogg".to_string()],
             // The click, short and soft enough: `player/pickup.ogg` sounds passing through a
             // portal

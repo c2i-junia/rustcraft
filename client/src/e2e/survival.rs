@@ -12,7 +12,7 @@ use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::{CameraController, FOV_DEGREES, ZOOM_SCALE};
-use crate::player::{CurrentPlayerMarker, PlayerBody, SNEAK_BODY_SCALE};
+use crate::player::{CurrentPlayerMarker, HurtVignette, PlayerBody, SNEAK_BODY_SCALE};
 use crate::ui::hud::health::{health_label, HealthBar};
 use crate::ui::hud::{HudBottom, InventoryRoot};
 use crate::ui::menus::death::{DeathScreen, DEATH_TITLE, RESPAWN};
@@ -105,6 +105,40 @@ fn a_deadly_fall_opens_the_death_screen_and_respawn_brings_the_player_back() {
         back.distance(spawn) < 0.5,
         "respawned at {back}, spawned at {spawn}"
     );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_fall_that_hurts_reddens_the_edges_of_the_screen_for_a_moment() {
+    let mut h = enter_world(GameFolder::new().with_world("Hurt"), "Hurt");
+    h.wait_until("the player on the ground", SERVER, |w| player(w).on_ground);
+    let ground = player(h.world()).position.y;
+    assert!(!h.is_visible(&L::marker::<HurtVignette>()));
+
+    h.set_game_mode(GameMode::Creative);
+    h.press(KeyCode::KeyF);
+    h.wait_until("the flight", SCREEN, |w| player(w).is_flying);
+    h.key_down(KeyCode::Space);
+    h.wait_until("8 blocks up", SERVER, |w| {
+        player(w).position.y > ground + 8.0
+    });
+    h.key_up(KeyCode::Space);
+
+    // Back in survival, it falls and lands hurt
+    h.set_game_mode(GameMode::Survival);
+    h.wait_for(&L::marker::<HurtVignette>(), SERVER);
+    let health = player(h.world()).health;
+    assert!(health < MAX_HEALTH && health > 0, "health {health}");
+    assert_eq!(h.health_label(), health_label(health));
+    h.snapshot("hurt");
+    h.wait_until("the vignette gone", SCREEN, |w| {
+        w.get::<Visibility>(
+            w.try_query_filtered::<Entity, With<HurtVignette>>()
+                .unwrap()
+                .single(w)
+                .unwrap(),
+        ) == Some(&Visibility::Hidden)
+    });
 }
 
 #[test]
