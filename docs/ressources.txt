@@ -61,6 +61,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    drawn as Minecraft's model of the torch.
 -> The hearts of the health bar (data/graphics/hud/heart_*.png), the pack's
    gui/sprites/hud/heart/{container,full,half}.png.
+-> The bubbles of the air bar (data/graphics/hud/air.png, air_bursting.png), the pack's
+   gui/sprites/hud/air.png and air_bursting.png.
 -> The textures of the furnace (blocks/Furnace.png, blocks/FurnaceSide.png,
    blocks/FurnaceTop.png, blocks/FurnaceBottom.png) and of the lit furnace
    (blocks/LitFurnace.png), the pack's block/furnace_{front,side,top,bottom,front_on}.png,

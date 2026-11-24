@@ -360,7 +360,12 @@ into the `DeathCause`, a deadly fall within `THROWN_OFF_TICKS` of a mob's hit be
 `Player::knock_back` sets a horizontal velocity, which the movement simulation carries and brakes:
 being part of the `MovementState`, it reaches the client through the reconciliation. The client
 sees its health drop and answers with a red vignette, a camera tilt, the hurt sound and blinking
-hearts (`player/hurt.rs`). A dead
+hearts (`player/hurt.rs`). The air (`players/air.rs`) is the server's too, sent in every
+`PlayerUpdate` but not saved: `breathe_system` takes a tick of it each tick the eyes
+(`Player::eye_position`, where the client's camera is) are under the surface of a liquid
+(`eye_in_liquid`, which the underwater fog reads as well), and with none left the player drowns,
+2 damage every 20 ticks. The client draws it as bubbles over the right of the hotbar
+(`ui/hud/air.rs`) while it is not full. A dead
 player is not simulated: the server acknowledges its inputs without applying them, and the client
 neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the
 server, asked by `Respawn`, brings the player back. Players spawn and respawn at
@@ -958,7 +963,7 @@ the integrated server, on wall-clock time. How to write one is in the README.
   is generated: a herd led away is gone for good.
 - An item that does not fit in a full inventory is lost, but for the water bucket of a bucket
   filled from a stack, which is dropped.
-- A player who dies keeps its inventory, and nothing hurts it but falls.
+- A player who dies keeps its inventory, and nothing hurts it but falls and drowning.
 - Any player may change its own game mode with `/gamemode`: there are no operators yet.
 - A world still loading 10 s after the quit is stopped with the process: its server cannot be
   told to stop before it accepts the player. Its files are written atomically, so the save stays

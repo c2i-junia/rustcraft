@@ -63,7 +63,14 @@ a lake deeper than 2 blocks and stay at the bottom.
 - [x] The system in the schedule, `air` in `PlayerUpdateEvent`.
 
 ### Task 3: Client
-- [ ] Unit test: the label of the bubbles.
-- [ ] e2e (`survival.rs`): a player standing at the bottom of a lake sees the bubbles appear and
+- [x] Unit test: the label of the bubbles.
+- [x] e2e (`survival.rs`): a player standing at the bottom of a lake sees the bubbles appear and
   go down.
-- [ ] `air` from the update, the HUD row, the textures and their credit, `docs/ARCHITECTURE.md`.
+- [x] `air` from the update, the HUD row, the textures and their credit, `docs/ARCHITECTURE.md`.
+
+## Notes
+
+- The lake e2e test puts the player at the bottom of the first lake 4 blocks deep or more near
+  the spawn of the seed 42, found from the generator's column shapes at run time. It starts
+  under water, so the check that no bubble shows with a full air went to the deadly fall test,
+  on land.

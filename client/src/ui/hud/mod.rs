@@ -22,6 +22,7 @@ use crate::ui::menus::pause::pause_plugin;
 use crate::ui::theme::WIREFRAME;
 use bevy::ui::UiSystems;
 
+pub mod air;
 pub mod chat;
 pub mod chat_completion;
 pub mod corner;
@@ -65,7 +66,12 @@ pub fn hud_plugin(app: &mut App) {
         )
         .add_systems(
             OnEnter(GameState::Game),
-            (setup_inventory, health::spawn_health_bar).chain(),
+            (
+                setup_inventory,
+                health::spawn_health_bar,
+                air::spawn_air_bar,
+            )
+                .chain(),
         )
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
         .add_systems(
@@ -189,6 +195,7 @@ pub fn hud_plugin(app: &mut App) {
         (
             health::update_health_bar,
             health::raise_item_name_over_the_hearts,
+            air::update_air_bar,
         )
             .chain()
             .after(GameSet::Reconciliation)
