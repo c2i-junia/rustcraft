@@ -18,7 +18,7 @@ const TIME_USAGE: &str = "Usage: /time set <day|night>";
 const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
-const LOCATE_USAGE: &str = "Usage: /locate biome <biome>";
+const LOCATE_USAGE: &str = "Usage: /locate <biome|village> <biome>";
 const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|normal>";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,10 +39,19 @@ pub enum Command {
     SetGameMode(GameMode),
     /// `/weather <clear|rain|thunder>`: for as long as it would last on its own.
     SetWeather(WeatherKind),
-    /// `/locate biome <biome>`: the nearest column of the biome to the author of the command.
-    LocateBiome(String),
+    /// `/locate biome <biome>` or `/locate village`: the nearest column of the biome, or the
+    /// nearest village, to the author of the command.
+    Locate(Place),
     /// `/difficulty <peaceful|normal>`: of the world.
     SetDifficulty(Difficulty),
+}
+
+/// What `/locate` looks for.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Place {
+    /// A biome, by its key.
+    Biome(String),
+    Village,
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -77,7 +86,8 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             .map(Command::SetWeather)
             .ok_or_else(|| WEATHER_USAGE.to_string()),
         ["weather", ..] => Err(WEATHER_USAGE.to_string()),
-        ["locate", "biome", biome] => Ok(Command::LocateBiome(biome.to_string())),
+        ["locate", "biome", biome] => Ok(Command::Locate(Place::Biome(biome.to_string()))),
+        ["locate", "village"] => Ok(Command::Locate(Place::Village)),
         ["locate", ..] => Err(LOCATE_USAGE.to_string()),
         ["difficulty", difficulty] => Difficulty::from_name(difficulty)
             .map(Command::SetDifficulty)
@@ -95,7 +105,7 @@ pub fn run_command(
     command: Command,
     (time, weather, difficulty): (&mut ServerTime, &mut ServerWeather, &mut Difficulty),
     player: &mut Player,
-    locate: impl FnOnce(&str, Vec3) -> String,
+    locate: impl FnOnce(Place, Vec3) -> String,
 ) -> String {
     match command {
         Command::SetTime(time_of_day) => {
@@ -128,7 +138,7 @@ pub fn run_command(
             weather.set(kind, &mut rand::thread_rng());
             format!("Weather set to {}", kind.name())
         }
-        Command::LocateBiome(key) => locate(&key, player.position),
+        Command::Locate(place) => locate(place, player.position),
         Command::SetDifficulty(new) => {
             *difficulty = new;
             format!("Difficulty set to {}", new.name())
@@ -344,13 +354,18 @@ mod tests {
     fn locate_searches_a_biome_from_its_author() {
         assert_eq!(
             parse_command("locate biome jungle"),
-            Ok(Command::LocateBiome("jungle".into()))
+            Ok(Command::Locate(Place::Biome("jungle".into())))
+        );
+        assert_eq!(
+            parse_command("locate village"),
+            Ok(Command::Locate(Place::Village))
         );
         for wrong in [
             "locate",
             "locate jungle",
             "locate biome",
             "locate biome a b",
+            "locate village a",
         ] {
             assert_eq!(
                 parse_command(wrong),
@@ -363,16 +378,19 @@ mod tests {
             ..Player::default()
         };
         let answer = run_command(
-            Command::LocateBiome("mymod:mangrove".into()),
+            Command::Locate(Place::Biome("mymod:mangrove".into())),
             (
                 &mut ServerTime(0),
                 &mut ServerWeather::new(&mut rand::thread_rng()),
                 &mut Difficulty::Normal,
             ),
             &mut player.clone(),
-            |key, from| format!("{key} from {from}"),
+            |place, from| format!("{place:?} from {from}"),
         );
-        assert_eq!(answer, format!("mymod:mangrove from {}", player.position));
+        assert_eq!(
+            answer,
+            format!("Biome(\"mymod:mangrove\") from {}", player.position)
+        );
     }
 
     #[test]

@@ -10,6 +10,9 @@ use jungle::{GIANT_MARGIN, GIANT_SINK, GIANT_STEP};
 mod animals;
 mod jungle;
 mod ores;
+pub mod village;
+
+use village::VillagePlan;
 
 /// Largest horizontal distance between the column a structure is rooted in and any of its
 /// blocks. It is set by the big tree: a branch starts at most 1 block from the trunk and is
@@ -195,6 +198,8 @@ struct Column {
     cave_ceiling: i32,
     /// The part of a giant tree's trunk the column holds, decided with the columns around.
     giant: Option<GiantTrunk>,
+    /// Whether a village keeps the column clear: nothing grows on it (see `VillagePlan::covers`).
+    village: bool,
 }
 
 impl Column {
@@ -234,9 +239,20 @@ impl Column {
             sub_surface,
             cave_ceiling: shape.height,
             giant,
+            village: false,
         };
         column.cave_ceiling = cave_ceiling(&column, drop, &random);
         column
+    }
+
+    /// The column, kept clear by a village if `village`: nothing grows on it, and the caves
+    /// stay `VILLAGE_ROOF` under its surface, under the streets and the foundations.
+    fn in_village(mut self, village: bool) -> Self {
+        if village {
+            self.village = true;
+            self.cave_ceiling = self.cave_ceiling.min(self.height - VILLAGE_ROOF);
+        }
+        self
     }
 
     /// The definition of the column's biome.
@@ -247,6 +263,8 @@ impl Column {
 
 /// Thickness of the rock kept between a cave and the water above it or beside it.
 const CAVE_ROOF: i32 = 4;
+/// Thickness of the ground kept above the caves under a village.
+const VILLAGE_ROOF: i32 = 6;
 
 /// The highest cell of `column` caves may carve: they stay `CAVE_ROOF` under the ground of the
 /// column and of its neighbours where either holds water, so that no water touches a cave,
@@ -431,6 +449,9 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         None => {}
     }
     let mut decorations = Vec::new();
+    if column.village {
+        return decorations;
+    }
     if column.height <= SEA_LEVEL {
         return decorations;
     }
@@ -726,6 +747,8 @@ struct ChunkColumns {
     /// The giant trees rooted in the ring beyond the margin, up to `GIANT_MARGIN` columns from
     /// the chunk: the block above the surface of each root, in world coordinate order.
     ring_giants: Vec<IVec3>,
+    /// The villages that change or keep clear a column of the chunk or of its margin.
+    villages: Vec<Arc<VillagePlan>>,
 }
 
 /// Columns along a side of `ChunkColumns`.
@@ -791,6 +814,10 @@ pub struct WorldGenerator {
     caves: Caves,
     bed_patches: Noise3,
     columns: Mutex<ColumnsCache>,
+    /// Whether the world has villages (`WorldGenSettings::villages`).
+    villages: bool,
+    /// The village of each region laid out so far, or `None` for a region without one.
+    plans: Mutex<HashMap<IVec2, Option<Arc<VillagePlan>>>>,
 }
 
 impl WorldGenerator {
@@ -807,7 +834,62 @@ impl WorldGenerator {
             caves: Caves::new(seed),
             bed_patches: Noise3::new(seed, SALT_BED_PATCHES, BED_PATCH_WAVELENGTH, 1.0),
             columns: Mutex::default(),
+            villages: settings.villages,
+            plans: Mutex::default(),
         }
+    }
+
+    /// The village of `region`, if it holds one, from the cache or laid out.
+    pub fn village(&self, region: IVec2) -> Option<Arc<VillagePlan>> {
+        if !self.villages {
+            return None;
+        }
+        if let Some(plan) = self.plans.lock().unwrap().get(&region) {
+            return plan.clone();
+        }
+        // laid out of the lock: two tasks may lay out the same, which is rare and harmless
+        let plan = village::site(self.seed, &self.terrain, region)
+            .map(|site| Arc::new(village::layout(self.seed, &self.terrain, site)));
+        self.plans.lock().unwrap().insert(region, plan.clone());
+        plan
+    }
+
+    /// The villages that change or keep clear a column within `margin` of the columns from
+    /// `min` to `max`, by region.
+    fn villages_near(&self, min: IVec2, max: IVec2, margin: i32) -> Vec<Arc<VillagePlan>> {
+        let (low, high) = (min - margin, max + margin);
+        let (first, last) = (
+            village::region_of(low.x, low.y),
+            village::region_of(high.x, high.y),
+        );
+        let mut plans = Vec::new();
+        for rx in first.x..=last.x {
+            for rz in first.y..=last.y {
+                if let Some(plan) = self.village(IVec2::new(rx, rz)) {
+                    if plan.touches(min, max, margin) {
+                        plans.push(plan);
+                    }
+                }
+            }
+        }
+        plans
+    }
+
+    /// Whether a village keeps the column `(x, z)` clear.
+    fn village_covers(&self, x: i32, z: i32) -> bool {
+        self.village(village::region_of(x, z))
+            .is_some_and(|plan| plan.covers(x, z))
+    }
+
+    /// What the chests and barrels of the villages in the chunk at `chunk_pos` hold, by their
+    /// position in the chunk.
+    pub fn chunk_containers(&self, chunk_pos: IVec3) -> Vec<(IVec3, Container)> {
+        let origin = chunk_pos.xz() * CHUNK_SIZE;
+        let last = origin + IVec2::splat(CHUNK_SIZE - 1);
+        self.villages_near(origin, last, 0)
+            .iter()
+            .flat_map(|plan| plan.chunk_containers(chunk_pos).collect::<Vec<_>>())
+            .collect()
     }
 
     pub fn seed(&self) -> u32 {
@@ -849,7 +931,12 @@ impl WorldGenerator {
         if chunk_origin.y > HIGHEST_SURFACE || chunk_origin.y + CHUNK_SIZE - 1 < LOWEST_SURFACE {
             return Vec::new();
         }
-        animals::chunk_animals(self.seed, chunk_pos, &self.chunk_columns(chunk_pos.xz()))
+        let columns = self.chunk_columns(chunk_pos.xz());
+        let mut animals = animals::chunk_animals(self.seed, chunk_pos, &columns);
+        for plan in &columns.villages {
+            animals.extend(plan.chunk_animals(chunk_pos));
+        }
+        animals
     }
 
     /// The `ChunkColumns` of the column of chunks `chunk_column`, from the cache or computed.
@@ -913,6 +1000,11 @@ impl WorldGenerator {
             giant_roots[(dz * giant_side + dx) as usize]
         };
 
+        let villages = self.villages_near(
+            origin,
+            origin + IVec2::splat(CHUNK_SIZE - 1),
+            STRUCTURE_MARGIN,
+        );
         let mut columns = Vec::with_capacity((MARGIN_SIDE * MARGIN_SIDE) as usize);
         for dz in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
             for dx in -STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN {
@@ -923,16 +1015,19 @@ impl WorldGenerator {
                     .min()
                     .unwrap();
                 let (x, z) = (origin.x + dx, origin.y + dz);
-                columns.push(Column::new(
-                    self.seed,
-                    x,
-                    z,
-                    shape,
-                    self.terrain.biomes(),
-                    shape.height - lowest,
-                    self.bed_patch(x, z),
-                    giant_trunk(giant_at, x, z),
-                ));
+                columns.push(
+                    Column::new(
+                        self.seed,
+                        x,
+                        z,
+                        shape,
+                        self.terrain.biomes(),
+                        shape.height - lowest,
+                        self.bed_patch(x, z),
+                        giant_trunk(giant_at, x, z),
+                    )
+                    .in_village(villages.iter().any(|plan| plan.covers(x, z))),
+                );
             }
         }
         let in_margin = |d: i32| (-STRUCTURE_MARGIN..CHUNK_SIZE + STRUCTURE_MARGIN).contains(&d);
@@ -966,6 +1061,7 @@ impl WorldGenerator {
                     .iter()
                     .map(|root| root.y - 1 + jungle::GIANT_HEIGHT),
             )
+            .chain(villages.iter().map(|plan| plan.top))
             .max()
             .unwrap();
         ChunkColumns {
@@ -973,6 +1069,7 @@ impl WorldGenerator {
             top,
             highest,
             ring_giants,
+            villages,
         }
     }
 
@@ -1092,6 +1189,10 @@ impl WorldGenerator {
                 }
             }
         }
+        // the villages replace whatever stands where they are built
+        for plan in &columns.villages {
+            plan.place_blocks(&mut chunk, chunk_pos);
+        }
         ores::place_ores(seed, chunk_pos, &mut chunk);
         chunk
     }
@@ -1177,7 +1278,7 @@ impl WorldGenerator {
         {
             let column = self.column(x + dx, z + dz);
             let decorations = column_decorations(&column, &random_of(self.seed, &column));
-            let grown = !decorations.is_empty() || column.giant.is_some();
+            let grown = !decorations.is_empty() || column.giant.is_some() || column.village;
             if grown || column.height != shape.height {
                 return None;
             }
@@ -1222,6 +1323,7 @@ impl WorldGenerator {
             self.bed_patch(x, z),
             giant_trunk(|x, z| self.giant_roots(x, z), x, z),
         )
+        .in_village(self.village_covers(x, z))
     }
 
     fn bed_patch(&self, x: i32, z: i32) -> f64 {

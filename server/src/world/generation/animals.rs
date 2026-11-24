@@ -34,6 +34,7 @@ fn may_stand_on(column: &Column, seed: u32) -> bool {
     ground
         && column.height > SEA_LEVEL + 1
         && column.giant.is_none()
+        && !column.village
         && !column_decorations(column, &random_of(seed, column))
             .iter()
             .any(|d| {

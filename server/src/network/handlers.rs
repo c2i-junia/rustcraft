@@ -20,7 +20,7 @@ use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::mods::Mods;
 use crate::network::broadcast_chat::record_chat_message;
 use crate::network::cleanup::cleanup_player_from_world;
-use crate::network::commands::{command_line, parse_command, run_command, SERVER_AUTHOR};
+use crate::network::commands::{command_line, parse_command, run_command, Place, SERVER_AUTHOR};
 use crate::network::extensions::SendGameMessageExtension;
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
@@ -190,7 +190,10 @@ pub(super) fn chat_message(
                 command,
                 (time, weather, &mut world_map.difficulty),
                 player,
-                |key, from| locator.start(client_id, (seed.0, generation), key, from),
+                |place, from| match place {
+                    Place::Biome(key) => locator.start(client_id, (seed.0, generation), &key, from),
+                    Place::Village => locator.start_village(client_id, (seed.0, generation), from),
+                },
             ),
             Err(error) => mods
                 .run_command(line, &current_author.name, world_map)

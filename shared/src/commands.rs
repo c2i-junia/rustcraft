@@ -113,7 +113,8 @@ pub const COMMANDS: &[CommandSyntax] = &[
     },
     CommandSyntax {
         name: "locate",
-        args: &[Arg::Word(&["biome"]), Arg::Biome],
+        // `/locate village` stops after its first word
+        args: &[Arg::Word(&["biome", "village"]), Arg::Biome],
     },
     CommandSyntax {
         name: "time",
@@ -295,7 +296,7 @@ mod tests {
         assert_eq!(completion.suggestions[0].detail, "<peaceful|normal>");
         assert_eq!(completion.suggestions[1].detail, "<creative|survival>");
         assert_eq!(completion.suggestions[2].detail, "<item> <count>");
-        assert_eq!(completion.suggestions[3].detail, "biome <biome>");
+        assert_eq!(completion.suggestions[3].detail, "<biome|village> <biome>");
         assert_eq!(completion.suggestions[4].detail, "set <day|night>");
         assert_eq!(completion.suggestions[5].detail, "<clear|rain|thunder>");
         assert_eq!(completion.error, None);
@@ -314,7 +315,7 @@ mod tests {
     fn a_biome_is_completed_from_those_of_the_base_game_and_any_is_accepted() {
         let completion = complete("/locate biome jun", &[]).unwrap();
         assert_eq!(texts(&completion), ["jungle", "jungle_edge"]);
-        assert_eq!(completion.usage, ["/locate", "biome", "<biome>"]);
+        assert_eq!(completion.usage, ["/locate", "<biome|village>", "<biome>"]);
         assert_eq!(completion.current, Some(2));
         // the biome of a mod of the server, which only the server knows
         let completion = complete("/locate biome mymod:mangrove", &[]).unwrap();
@@ -322,7 +323,7 @@ mod tests {
         let completion = complete("/locate jungle", &[]).unwrap();
         assert_eq!(
             completion.error.as_deref(),
-            Some("Usage: /locate biome <biome>")
+            Some("Usage: /locate <biome|village> <biome>")
         );
     }
 

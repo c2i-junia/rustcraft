@@ -72,6 +72,7 @@ fn settings(args: &[String], i: usize) -> WorldGenSettings {
     });
     WorldGenSettings {
         preset: preset.unwrap_or_else(|| panic!("unknown world type {:?}", args[i])),
+        ..Default::default()
     }
 }
 
