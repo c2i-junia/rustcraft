@@ -130,6 +130,14 @@ fn herd(kind: MobKind, chance: f32, fewest: u64, most: u64) -> Herd {
 pub fn definitions() -> Vec<BiomeDef> {
     let sheep = |chance, fewest, most| herd(MobKind::Sheep, chance, fewest, most);
     let fox = |chance, fewest, most| herd(MobKind::Fox, chance, fewest, most);
+    let cow = |chance, fewest, most| herd(MobKind::Cow, chance, fewest, most);
+    let pig = |chance, fewest, most| herd(MobKind::Pig, chance, fewest, most);
+    let chicken = |chance, fewest, most| herd(MobKind::Chicken, chance, fewest, most);
+    let rabbit = |chance, fewest, most| herd(MobKind::Rabbit, chance, fewest, most);
+    let wolf = |chance, fewest, most| herd(MobKind::Wolf, chance, fewest, most);
+    let horse = |chance, fewest, most| herd(MobKind::Horse, chance, fewest, most);
+    let goat = |chance, fewest, most| herd(MobKind::Goat, chance, fewest, most);
+    let cat = |chance, fewest, most| herd(MobKind::Cat, chance, fewest, most);
     vec![
         BiomeDef {
             climate: vec![
@@ -138,7 +146,14 @@ pub fn definitions() -> Vec<BiomeDef> {
             ],
             sub_biomes: vec![(key(GROVE), 0.12)],
             flora: meadow(0.02),
-            herds: vec![sheep(0.12, 2, 4)],
+            herds: vec![
+                sheep(0.06, 2, 4),
+                cow(0.05, 2, 4),
+                pig(0.04, 2, 4),
+                chicken(0.04, 2, 4),
+                horse(0.025, 2, 4),
+                rabbit(0.02, 1, 3),
+            ],
             look: BiomeLook::new([0.8, 0.4], [140, 190, 90]),
             ..land_biome(PLAINS, "Plains")
         },
@@ -160,7 +175,14 @@ pub fn definitions() -> Vec<BiomeDef> {
                 ],
                 ..meadow(0.02)
             },
-            herds: vec![fox(0.10, 1, 2), sheep(0.03, 2, 3)],
+            herds: vec![
+                fox(0.05, 1, 2),
+                wolf(0.03, 2, 4),
+                sheep(0.02, 2, 3),
+                pig(0.03, 2, 3),
+                chicken(0.02, 2, 3),
+                cat(0.015, 1, 2),
+            ],
             look: BiomeLook::new([0.7, 0.8], [40, 120, 50]),
             ..land_biome(FOREST, "Forest")
         },
@@ -171,14 +193,14 @@ pub fn definitions() -> Vec<BiomeDef> {
                 trees: vec![(Tree::Oak, Chance::flat(0.02))],
                 ..meadow(0.02)
             },
-            herds: vec![sheep(0.06, 2, 4)],
+            herds: vec![sheep(0.04, 2, 4), goat(0.05, 2, 4)],
             // As the windswept hills
             look: BiomeLook::new([0.2, 0.3], [150, 140, 120]),
             ..BiomeDef::new(&key(MEDIUM_MOUNTAIN), "MediumMountain")
         },
         BiomeDef {
             tags: vec![tags::MOUNTAIN.into()],
-            herds: vec![sheep(0.04, 2, 3)],
+            herds: vec![sheep(0.01, 2, 3), goat(0.05, 2, 3)],
             // As the snowy slopes
             look: BiomeLook::new([0.0, 0.3], [200, 200, 200]),
             ..BiomeDef::new(&key(HIGH_MOUNTAIN_GRASS), "HighMountainGrass")
@@ -205,7 +227,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 ..Ground::of(BlockId::Snow, BlockId::Ice)
             },
             flora: meadow(0.0),
-            herds: vec![fox(0.06, 1, 2)],
+            herds: vec![fox(0.04, 1, 2), wolf(0.03, 2, 4), rabbit(0.04, 1, 3)],
             look: BiomeLook {
                 precipitation: Precipitation::Snow,
                 ..BiomeLook::new([0.0, 0.5], [200, 230, 250])
@@ -220,7 +242,14 @@ pub fn definitions() -> Vec<BiomeDef> {
                 trees: vec![(Tree::Oak, Chance::flat(0.02))],
                 ..meadow(0.1)
             },
-            herds: vec![sheep(0.12, 2, 4)],
+            herds: vec![
+                sheep(0.06, 2, 4),
+                cow(0.05, 2, 4),
+                pig(0.04, 2, 4),
+                chicken(0.04, 2, 4),
+                horse(0.02, 2, 4),
+                rabbit(0.03, 1, 3),
+            ],
             look: BiomeLook::new([0.7, 0.8], [200, 180, 90]),
             ..land_biome(FLOWER_PLAINS, "FlowerPlains")
         },
@@ -245,6 +274,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 trees: vec![(Tree::Oak, Chance::flat(0.004))],
                 ..Flora::default()
             },
+            herds: vec![cow(0.05, 2, 4), horse(0.04, 2, 4), goat(0.02, 2, 3)],
             look: BiomeLook {
                 precipitation: Precipitation::None,
                 ..BiomeLook::new([1.0, 0.0], [210, 140, 60])
@@ -303,7 +333,15 @@ pub fn definitions() -> Vec<BiomeDef> {
                 tall_grass: Chance::flat(0.08),
                 ..meadow(0.15)
             },
-            herds: vec![fox(0.10, 1, 2), sheep(0.03, 2, 3)],
+            herds: vec![
+                fox(0.05, 1, 2),
+                wolf(0.03, 2, 4),
+                sheep(0.02, 2, 3),
+                pig(0.03, 2, 3),
+                chicken(0.02, 2, 3),
+                cat(0.015, 1, 2),
+                rabbit(0.03, 1, 3),
+            ],
             look: BiomeLook::new([0.7, 0.8], [230, 110, 170]),
             ..land_biome(FLOWER_FOREST, "FlowerForest")
         },
@@ -312,7 +350,14 @@ pub fn definitions() -> Vec<BiomeDef> {
                 tall_grass: Chance::flat(0.2),
                 ..meadow(0.06)
             },
-            herds: vec![sheep(0.12, 2, 4)],
+            herds: vec![
+                sheep(0.06, 2, 4),
+                cow(0.05, 2, 4),
+                pig(0.04, 2, 4),
+                chicken(0.04, 2, 4),
+                rabbit(0.03, 1, 3),
+                cat(0.02, 1, 2),
+            ],
             look: BiomeLook::new([0.7, 0.8], [110, 170, 80]),
             ..land_biome(FOREST_CLEARING, "ForestClearing")
         },
@@ -325,7 +370,13 @@ pub fn definitions() -> Vec<BiomeDef> {
                 ],
                 ..meadow(0.02)
             },
-            herds: vec![fox(0.05, 1, 2), sheep(0.06, 2, 3)],
+            herds: vec![
+                fox(0.04, 1, 2),
+                wolf(0.02, 2, 3),
+                sheep(0.04, 2, 3),
+                cow(0.03, 2, 3),
+                cat(0.02, 1, 2),
+            ],
             look: BiomeLook::new([0.75, 0.7], [70, 140, 60]),
             ..land_biome(GROVE, "Grove")
         },

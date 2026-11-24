@@ -1,12 +1,13 @@
 //! How mobs live, once per fixed step: gravity, then what their action asks. An animal rests
-//! (a sheep grazes while it does), walks to a spot nearby, and rests again; a fox runs away
-//! from a player who comes too close.
+//! (some graze while they do), walks to a spot nearby, and rests again; the shy ones run away
+//! from a player who comes too close. Then the animals are pushed out of the players and of one
+//! another.
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use bevy::{
-    math::{bounding::Aabb3d, ops::atan2, IVec3, Quat, Vec3},
+    math::{bounding::Aabb3d, ops::atan2, IVec2, IVec3, Quat, Vec3},
     time::{Fixed, Time},
 };
 use bevy_ecs::system::{Res, ResMut};
@@ -28,11 +29,11 @@ use crate::world::data::ServerWorldMap;
 const ARRIVAL_DISTANCE: f32 = 0.5;
 /// A fleeing mob stops once it is this far from its target.
 const SAFE_DISTANCE: f32 = 15.0;
-/// A fox runs away from a player who comes this close.
+/// A shy animal runs away from a player who comes this close.
 const FEAR_DISTANCE: f32 = 6.0;
 /// How long an animal rests before it walks somewhere else, in ticks: 3 to 10 seconds.
 const REST_TICKS: Range<u32> = 3 * TICKS_PER_SECOND as u32..10 * TICKS_PER_SECOND as u32;
-/// How often a sheep that rests grazes.
+/// How often an animal that grazes does so while it rests.
 const GRAZE_CHANCE: f64 = 0.35;
 /// How far from where it stands an animal walks to, in blocks.
 const WANDER_DISTANCE: Range<f32> = 2.0..7.0;
@@ -44,20 +45,43 @@ const WALK_TICKS: u32 = 10 * TICKS_PER_SECOND as u32;
 /// walk off a higher drop.
 const WANDER_DROP: i32 = 3;
 
+/// How fast a mob is pushed at most, in blocks per second: faster than a sprint, so that a
+/// player does not run through it.
+const MAX_PUSH_SPEED: f32 = 8.0;
+/// An overlap this small is left, so that mobs side by side are not moved for ever.
+const PUSH_SLACK: f32 = 0.01;
+/// The side of the cells the mobs are sorted into to find those that touch, in blocks: more than
+/// the width of any of them.
+const PUSH_CELL: f32 = 2.0;
+
 /// Speed of a walking mob, in blocks per second.
 fn walk_speed(kind: MobKind) -> f32 {
     match kind {
-        MobKind::Fox => 1.6,
-        MobKind::Sheep => 1.0,
+        MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
+        MobKind::Horse => 1.5,
+        MobKind::Goat => 1.2,
+        MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 1.0,
     }
 }
 
 /// Speed of a fleeing mob, in blocks per second.
 fn flee_speed(kind: MobKind) -> f32 {
     match kind {
-        MobKind::Fox => 4.0,
-        MobKind::Sheep => 2.0,
+        MobKind::Horse => 6.0,
+        MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
+        MobKind::Goat => 3.0,
+        MobKind::Sheep | MobKind::Cow | MobKind::Pig | MobKind::Chicken => 2.0,
     }
+}
+
+/// Whether a mob runs away from the players.
+fn is_shy(kind: MobKind) -> bool {
+    matches!(kind, MobKind::Fox | MobKind::Rabbit)
+}
+
+/// Whether a mob eats the grass.
+fn grazes(kind: MobKind) -> bool {
+    !matches!(kind, MobKind::Fox | MobKind::Wolf | MobKind::Cat)
 }
 
 pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time<Fixed>>) {
@@ -77,6 +101,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         delta,
         &mut rand::thread_rng(),
     );
+    push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
 
 /// One step of every mob. Those that moved or changed what they do are added to `changed`.
@@ -114,7 +139,7 @@ fn step_mob(
     rng: &mut impl Rng,
 ) {
     apply_gravity(mob, chunks, delta);
-    if mob.kind == MobKind::Fox && mob.action != MobAction::Flee {
+    if is_shy(mob.kind) && mob.action != MobAction::Flee {
         if let Some(id) = nearest_player(players, mob.position, FEAR_DISTANCE) {
             mob.action = MobAction::Flee;
             mob.target = MobTarget::Player(id);
@@ -180,9 +205,9 @@ fn nearest_player(
         .map(|(id, _)| id)
 }
 
-/// Stops the mob for a while: a sheep grazes some of the time.
+/// Stops the mob for a while: some kinds graze some of the time.
 fn rest(mob: &mut ServerMob, rng: &mut impl Rng) {
-    mob.action = if mob.kind == MobKind::Sheep && rng.gen_bool(GRAZE_CHANCE) {
+    mob.action = if grazes(mob.kind) && rng.gen_bool(GRAZE_CHANCE) {
         MobAction::Graze
     } else {
         MobAction::Idle
@@ -306,6 +331,113 @@ fn flee(mob: &mut ServerMob, chunks: &ChunkMap, threat: Vec3, speed: f32, delta:
     }
     if away != Vec3::ZERO {
         mob.rotation = Quat::from_rotation_y(atan2(away.x, away.z));
+    }
+}
+
+/// What pushes a mob: its position, half its width and half its height.
+#[derive(Clone, Copy)]
+struct Pusher {
+    position: Vec3,
+    half: f32,
+    half_height: f32,
+}
+
+/// How far, on the horizontal plane, a mob must go to leave `pusher`: zero when they do not
+/// touch. `tie` is the way it goes when they stand on the same spot.
+fn push_out(mob: &Pusher, pusher: &Pusher, tie: Vec3) -> Vec3 {
+    let apart = mob.position - pusher.position;
+    // One standing on the other is not pushed
+    if apart.y.abs() >= mob.half_height + pusher.half_height {
+        return Vec3::ZERO;
+    }
+    let apart = apart.with_y(0.0);
+    let overlap = mob.half + pusher.half - apart.length();
+    if overlap <= PUSH_SLACK {
+        return Vec3::ZERO;
+    }
+    apart.try_normalize().unwrap_or(tie) * overlap
+}
+
+/// The cell of the grid of `push_mobs` a position is in.
+fn push_cell(position: Vec3) -> IVec2 {
+    IVec2::new(
+        (position.x / PUSH_CELL).floor() as i32,
+        (position.z / PUSH_CELL).floor() as i32,
+    )
+}
+
+/// Pushes the mobs out of the players, who are not slowed by them, and out of one another, each
+/// of two by half of the overlap. A mob against a block slides along it.
+fn push_mobs(
+    mobs: &mut HashMap<MobId, ServerMob>,
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    changed: &mut HashSet<MobId>,
+    delta: f32,
+) {
+    let mut grid: HashMap<IVec2, Vec<(Option<MobId>, Pusher)>> = HashMap::new();
+    for (&id, mob) in mobs.iter() {
+        if mob.position.is_finite() && is_terrain_loaded(mob.position, chunks) {
+            let pusher = mob_pusher(mob);
+            let cell = grid.entry(push_cell(mob.position)).or_default();
+            cell.push((Some(id), pusher));
+        }
+    }
+    for player in players.values() {
+        // A flying player goes through everything
+        if player.is_dead() || player.is_flying || !player.position.is_finite() {
+            continue;
+        }
+        let pusher = Pusher {
+            position: player.position,
+            half: player.width / 2.0,
+            half_height: player.height / 2.0,
+        };
+        let cell = grid.entry(push_cell(player.position)).or_default();
+        cell.push((None, pusher));
+    }
+
+    for &(id, ref me) in grid.values().flatten() {
+        let Some(id) = id else { continue };
+        let centre = push_cell(me.position);
+        let mut push = Vec3::ZERO;
+        for dx in -1..=1 {
+            for dz in -1..=1 {
+                for (other, pusher) in grid
+                    .get(&(centre + IVec2::new(dx, dz)))
+                    .into_iter()
+                    .flatten()
+                {
+                    match other {
+                        Some(other) if *other == id => {}
+                        Some(other) => {
+                            let tie = if id < *other { Vec3::X } else { Vec3::NEG_X };
+                            push += push_out(me, pusher, tie) / 2.0;
+                        }
+                        None => push += push_out(me, pusher, Vec3::X),
+                    }
+                }
+            }
+        }
+        let push = push.clamp_length_max(MAX_PUSH_SPEED * delta);
+        let Some(mob) = mobs.get_mut(&id) else {
+            continue;
+        };
+        for axis in [Vec3::X, Vec3::Z] {
+            let step = push * axis;
+            if step != Vec3::ZERO && !collides_at(mob, chunks, mob.position + step) {
+                mob.position += step;
+                changed.insert(id);
+            }
+        }
+    }
+}
+
+fn mob_pusher(mob: &ServerMob) -> Pusher {
+    Pusher {
+        position: mob.position,
+        half: mob.width / 2.0,
+        half_height: mob.height / 2.0,
     }
 }
 
@@ -596,6 +728,66 @@ mod tests {
             position,
             Transform::from_translation(position),
         )
+    }
+
+    #[test]
+    fn a_player_pushes_a_sheep_it_walks_into() {
+        let mut map = ground_world(false);
+        map.players
+            .insert(7, player_at(7, Vec3::new(0.1, 1.9, 0.5)));
+        let sheep = ServerMob {
+            action_ticks: 1000,
+            ..standing(MobKind::Sheep, 0.5, 0.5)
+        };
+        let map = run_seconds(map, sheep, 1);
+        let sheep = &map.mobs[&0];
+        let player = &map.players[&7];
+        let touching = (sheep.width + player.width) / 2.0;
+        assert!((sheep.position.x - player.position.x - touching).abs() < 0.05);
+        assert!((sheep.position.z - 0.5).abs() < 0.01);
+        assert!(map.changed_mobs.contains(&0));
+    }
+
+    #[test]
+    fn a_player_who_flies_or_stands_above_pushes_nothing() {
+        for (height, flying) in [(1.9, true), (4.0, false)] {
+            let mut map = ground_world(false);
+            let mut player = player_at(7, Vec3::new(0.1, height, 0.5));
+            player.is_flying = flying;
+            map.players.insert(7, player);
+            let sheep = ServerMob {
+                action_ticks: 1000,
+                ..standing(MobKind::Sheep, 0.5, 0.5)
+            };
+            let map = run_seconds(map, sheep, 1);
+            assert_eq!(map.mobs[&0].position.xz(), Vec2::new(0.5, 0.5));
+        }
+    }
+
+    #[test]
+    fn a_sheep_is_not_pushed_into_a_wall() {
+        let mut map = ground_world(true);
+        map.players
+            .insert(7, player_at(7, Vec3::new(0.0, 1.9, 0.5)));
+        let sheep = ServerMob {
+            action_ticks: 1000,
+            ..standing(MobKind::Sheep, -0.5, 0.5)
+        };
+        let map = run_seconds(map, sheep, 1);
+        assert!(!map.chunks.check_collision_box(&hitbox(&map.mobs[&0])));
+    }
+
+    #[test]
+    fn two_animals_on_the_same_spot_come_apart() {
+        let mut map = ground_world(false);
+        let cow = ServerMob {
+            action_ticks: 1000,
+            ..standing(MobKind::Cow, 0.5, 0.5)
+        };
+        map.mobs.insert(1, cow.clone());
+        let map = run_seconds(map, cow, 1);
+        let apart = map.mobs[&0].position.distance(map.mobs[&1].position);
+        assert!((apart - 0.9).abs() < 0.05, "{apart}");
     }
 
     #[test]

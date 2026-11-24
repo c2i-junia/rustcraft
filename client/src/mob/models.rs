@@ -17,31 +17,37 @@ pub enum MobClip {
 /// The model of a kind of mob.
 pub struct MobModel {
     pub path: &'static str,
-    /// The scale the model is drawn at: the fox is modelled in centimetres.
-    pub scale: f32,
-    /// The index in the model of the animation of each clip it has.
+    /// The index in the model of the animation of each clip it has, which the exporter sorts by
+    /// name.
     clips: &'static [(MobClip, usize)],
 }
 
-pub const FOX_PATH: &str = "models/animated/Fox.glb";
-/// Built by `scripts/generate_sheep.py`.
-pub const SHEEP_PATH: &str = "models/animated/Sheep.glb";
+const GRAZER_CLIPS: &[(MobClip, usize)] = &[
+    (MobClip::Eat, 0),
+    (MobClip::Idle, 1),
+    (MobClip::Run, 2),
+    (MobClip::Walk, 3),
+];
+const HUNTER_CLIPS: &[(MobClip, usize)] =
+    &[(MobClip::Idle, 0), (MobClip::Run, 1), (MobClip::Walk, 2)];
+const SHEEP_CLIPS: &[(MobClip, usize)] =
+    &[(MobClip::Eat, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)];
 
+/// The models are built by `scripts/generate_sheep.py` and `scripts/generate_animals.py`.
 pub fn model(kind: MobKind) -> MobModel {
-    match kind {
-        MobKind::Fox => MobModel {
-            path: FOX_PATH,
-            scale: 0.01,
-            // Survey, Walk and Run
-            clips: &[(MobClip::Idle, 0), (MobClip::Walk, 1), (MobClip::Run, 2)],
-        },
-        MobKind::Sheep => MobModel {
-            path: SHEEP_PATH,
-            scale: 1.0,
-            // sorted by name when exported: Eat, Idle and Walk
-            clips: &[(MobClip::Eat, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)],
-        },
-    }
+    let (path, clips) = match kind {
+        MobKind::Sheep => ("models/animated/Sheep.glb", SHEEP_CLIPS),
+        MobKind::Fox => ("models/animated/Fox.glb", HUNTER_CLIPS),
+        MobKind::Wolf => ("models/animated/Wolf.glb", HUNTER_CLIPS),
+        MobKind::Cat => ("models/animated/Cat.glb", HUNTER_CLIPS),
+        MobKind::Cow => ("models/animated/Cow.glb", GRAZER_CLIPS),
+        MobKind::Pig => ("models/animated/Pig.glb", GRAZER_CLIPS),
+        MobKind::Chicken => ("models/animated/Chicken.glb", GRAZER_CLIPS),
+        MobKind::Rabbit => ("models/animated/Rabbit.glb", GRAZER_CLIPS),
+        MobKind::Horse => ("models/animated/Horse.glb", GRAZER_CLIPS),
+        MobKind::Goat => ("models/animated/Goat.glb", GRAZER_CLIPS),
+    };
+    MobModel { path, clips }
 }
 
 /// The clip a mob of `kind` doing `action` plays, among those its model has: one without a run

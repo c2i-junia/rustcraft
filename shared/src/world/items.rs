@@ -95,11 +95,19 @@ pub enum ItemId {
     DiamondSword,
     Bucket,
     WaterBucket,
+    CowSpawnEgg,
+    PigSpawnEgg,
+    ChickenSpawnEgg,
+    RabbitSpawnEgg,
+    WolfSpawnEgg,
+    HorseSpawnEgg,
+    GoatSpawnEgg,
+    CatSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 72] = [
+    pub const ALL: [ItemId; 80] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -172,6 +180,14 @@ impl ItemId {
         Self::DiamondSword,
         Self::Bucket,
         Self::WaterBucket,
+        Self::CowSpawnEgg,
+        Self::PigSpawnEgg,
+        Self::ChickenSpawnEgg,
+        Self::RabbitSpawnEgg,
+        Self::WolfSpawnEgg,
+        Self::HorseSpawnEgg,
+        Self::GoatSpawnEgg,
+        Self::CatSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -216,6 +232,14 @@ impl ItemId {
         match *self {
             Self::FoxSpawnEgg => Some(MobKind::Fox),
             Self::SheepSpawnEgg => Some(MobKind::Sheep),
+            Self::CowSpawnEgg => Some(MobKind::Cow),
+            Self::PigSpawnEgg => Some(MobKind::Pig),
+            Self::ChickenSpawnEgg => Some(MobKind::Chicken),
+            Self::RabbitSpawnEgg => Some(MobKind::Rabbit),
+            Self::WolfSpawnEgg => Some(MobKind::Wolf),
+            Self::HorseSpawnEgg => Some(MobKind::Horse),
+            Self::GoatSpawnEgg => Some(MobKind::Goat),
+            Self::CatSpawnEgg => Some(MobKind::Cat),
             _ => None,
         }
     }
@@ -331,7 +355,16 @@ impl ItemId {
             | Self::DiamondSword
             | Self::Bucket
             | Self::WaterBucket => ItemCategory::Tools,
-            Self::FoxSpawnEgg | Self::SheepSpawnEgg => ItemCategory::Mobs,
+            Self::FoxSpawnEgg
+            | Self::SheepSpawnEgg
+            | Self::CowSpawnEgg
+            | Self::PigSpawnEgg
+            | Self::ChickenSpawnEgg
+            | Self::RabbitSpawnEgg
+            | Self::WolfSpawnEgg
+            | Self::HorseSpawnEgg
+            | Self::GoatSpawnEgg
+            | Self::CatSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -378,6 +411,14 @@ impl ItemId {
             | Self::Coal
             | Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
+            | Self::CowSpawnEgg
+            | Self::PigSpawnEgg
+            | Self::ChickenSpawnEgg
+            | Self::RabbitSpawnEgg
+            | Self::WolfSpawnEgg
+            | Self::HorseSpawnEgg
+            | Self::GoatSpawnEgg
+            | Self::CatSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -626,6 +667,14 @@ mod tests {
             (ItemId::DiamondSword, 69),
             (ItemId::Bucket, 70),
             (ItemId::WaterBucket, 71),
+            (ItemId::CowSpawnEgg, 72),
+            (ItemId::PigSpawnEgg, 73),
+            (ItemId::ChickenSpawnEgg, 74),
+            (ItemId::RabbitSpawnEgg, 75),
+            (ItemId::WolfSpawnEgg, 76),
+            (ItemId::HorseSpawnEgg, 77),
+            (ItemId::GoatSpawnEgg, 78),
+            (ItemId::CatSpawnEgg, 79),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -665,6 +714,14 @@ mod tests {
                 | ItemId::Gravel
                 | ItemId::FoxSpawnEgg
                 | ItemId::SheepSpawnEgg
+                | ItemId::CowSpawnEgg
+                | ItemId::PigSpawnEgg
+                | ItemId::ChickenSpawnEgg
+                | ItemId::RabbitSpawnEgg
+                | ItemId::WolfSpawnEgg
+                | ItemId::HorseSpawnEgg
+                | ItemId::GoatSpawnEgg
+                | ItemId::CatSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks

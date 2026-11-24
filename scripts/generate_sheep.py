@@ -122,9 +122,9 @@ FACES = (
 )
 
 
-def palette_material(colours):
+def palette_material(colours, name="Sheep"):
     """A material whose texture holds one colour per pixel, and the pixel of each colour."""
-    image = bpy.data.images.new("sheep_palette", PALETTE_SIZE, PALETTE_SIZE, alpha=False)
+    image = bpy.data.images.new(f"{name.lower()}_palette", PALETTE_SIZE, PALETTE_SIZE, alpha=False)
     pixels = [0.0] * (PALETTE_SIZE * PALETTE_SIZE * 4)
     index = {}
     for n, colour in enumerate(colours):
@@ -132,11 +132,11 @@ def palette_material(colours):
         index[colour] = n
     image.pixels.foreach_set(pixels)
     # Saved to a file so that the exporter embeds the pixels rather than a blank generated image
-    image.filepath_raw = str(Path(tempfile.mkdtemp()) / "sheep_palette.png")
+    image.filepath_raw = str(Path(tempfile.mkdtemp()) / f"{name.lower()}_palette.png")
     image.file_format = "PNG"
     image.save()
 
-    material = bpy.data.materials.new("Sheep")
+    material = bpy.data.materials.new(name)
     nodes = material.node_tree.nodes
     bsdf = next(n for n in nodes if n.type == "BSDF_PRINCIPLED")
     bsdf.inputs["Roughness"].default_value = 0.9
@@ -281,4 +281,5 @@ def main():
           f"{len(index)} colours")
 
 
-main()
+if __name__ == "__main__":
+    main()

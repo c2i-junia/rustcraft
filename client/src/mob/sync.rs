@@ -104,8 +104,7 @@ fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetSe
             DespawnOnExit(GameState::Game),
             children![(
                 WorldAssetRoot(scene),
-                Transform::from_xyz(0.0, -server.kind.size().y / 2.0, 0.0)
-                    .with_scale(Vec3::splat(model.scale)),
+                Transform::from_xyz(0.0, -server.kind.size().y / 2.0, 0.0),
             )],
         ))
         .id()

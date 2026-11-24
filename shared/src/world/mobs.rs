@@ -10,10 +10,29 @@ pub type MobId = u128;
 pub enum MobKind {
     Fox,
     Sheep,
+    Cow,
+    Pig,
+    Chicken,
+    Rabbit,
+    Wolf,
+    Horse,
+    Goat,
+    Cat,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 2] = [MobKind::Fox, MobKind::Sheep];
+    pub const ALL: [MobKind; 10] = [
+        MobKind::Fox,
+        MobKind::Sheep,
+        MobKind::Cow,
+        MobKind::Pig,
+        MobKind::Chicken,
+        MobKind::Rabbit,
+        MobKind::Wolf,
+        MobKind::Horse,
+        MobKind::Goat,
+        MobKind::Cat,
+    ];
 
     /// Width, height and depth of the hitbox, in blocks. It does not turn with the mob, so it
     /// is as wide as it is deep.
@@ -21,6 +40,14 @@ impl MobKind {
         match self {
             MobKind::Fox => Vec3::new(0.7, 0.7, 0.7),
             MobKind::Sheep => Vec3::new(0.9, 1.25, 0.9),
+            MobKind::Cow => Vec3::new(0.9, 1.4, 0.9),
+            MobKind::Pig => Vec3::new(0.9, 0.9, 0.9),
+            MobKind::Chicken => Vec3::new(0.5, 0.8, 0.5),
+            MobKind::Rabbit => Vec3::new(0.4, 0.6, 0.4),
+            MobKind::Wolf => Vec3::new(0.7, 0.95, 0.7),
+            MobKind::Horse => Vec3::new(1.2, 1.7, 1.2),
+            MobKind::Goat => Vec3::new(0.9, 1.3, 0.9),
+            MobKind::Cat => Vec3::new(0.6, 0.7, 0.6),
         }
     }
 }

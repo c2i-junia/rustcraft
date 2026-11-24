@@ -862,12 +862,12 @@ mod tests {
             shown_slots(&mut world),
             [ItemId::OakLog, ItemId::OakPlanks, ItemId::OakLeaves]
         );
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 72");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 80");
         assert_eq!(single::<Node, NoMatch>(&mut world).display, Display::None);
 
         set_search(&mut world, "oak", Some(ItemCategory::Wood));
         assert_eq!(shown_slots(&mut world).len(), 2);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "2 / 72");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "2 / 80");
 
         set_search(&mut world, "zzz", Some(ItemCategory::Wood));
         assert!(shown_slots(&mut world).is_empty());
@@ -885,7 +885,7 @@ mod tests {
             .spawn((CatalogSlot(ItemId::Chest), BookmarkSlot, Node::default()))
             .id();
         set_search(&mut world, "oak", None);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 72");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 80");
         assert_eq!(world.get::<Node>(bookmark).unwrap().display, Display::Flex);
     }
 
@@ -896,7 +896,7 @@ mod tests {
             .spawn((CatalogSlot(ItemId::Torch), RecentSlot, Node::default()))
             .id();
         set_search(&mut world, "oak", None);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 72");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "3 / 80");
         assert_eq!(world.get::<Node>(recent).unwrap().display, Display::Flex);
     }
 
@@ -982,7 +982,7 @@ mod tests {
         world.resource_mut::<ItemBrowserState>().craftable = true;
         world.run_system_once(filter_catalog).unwrap();
         assert_eq!(shown_slots(&mut world), [ItemId::OakPlanks]);
-        assert_eq!(single::<Text, ItemCount>(&mut world).0, "1 / 72");
+        assert_eq!(single::<Text, ItemCount>(&mut world).0, "1 / 80");
 
         // Nothing craftable: the empty state says so
         give(&mut world, ItemId::Dirt, 1);
@@ -994,7 +994,7 @@ mod tests {
 
         // Creative has no such filter
         set_mode(&mut world, GameMode::Creative);
-        assert_eq!(shown_slots(&mut world).len(), 72);
+        assert_eq!(shown_slots(&mut world).len(), 80);
         assert!(!world.resource::<CraftableNow>().survival);
     }
 

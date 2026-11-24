@@ -260,6 +260,14 @@ mod tests {
         }
         assert_eq!(variant_index(&MobKind::Fox), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::Sheep), 1, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Cow), 2, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Pig), 3, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Chicken), 4, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Rabbit), 5, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Wolf), 6, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Horse), 7, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Goat), 8, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Cat), 9, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);

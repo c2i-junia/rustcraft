@@ -352,7 +352,9 @@ born again. A spawn egg used on a block brings its mob there too (`place_block`)
 The systems of the server run one after the other on its thread: an integrated server would
 otherwise share the compute pool with its client, whose frames would wait for its ticks.
 
-The mobs and the dropped items move first, before the inputs of the tick are read.
+The mobs and the dropped items move first, before the inputs of the tick are read. The mobs are
+then pushed out of the players and of one another (`push_mobs`): only the server does it, and it
+never moves a player, so the prediction of the clients is left alone.
 
 ## One client frame
 
@@ -478,7 +480,8 @@ The client has one plugin per domain, registered by `game_plugin`: `camera`, `in
 (`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
 too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`) that `audio` turns into
 sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. The sheep
-model, `data/models/animated/Sheep.glb`, is built in Blender by `scripts/generate_sheep.py`. `GameState`
+model, `data/models/animated/Sheep.glb`, is built in Blender by `scripts/generate_sheep.py`, and
+those of the other animals by `scripts/generate_animals.py`. `GameState`
 goes from `Menu` to `PreGameLoading` (connection and textures) to `Game`.
 
 ## UI widgets
@@ -647,7 +650,7 @@ the integrated server, on wall-clock time. How to write one is in the README.
   id. This is fine among friends, not for a server open to anyone.
 - Block interactions are processed once per input, so once per rendered frame of the client:
   a client with a higher frame rate breaks blocks faster.
-- Mobs neither collide with each other nor can be hurt, and no animal is born after a chunk
+- Mobs cannot be hurt, and a player is not held back by those it pushes; no animal is born after a chunk
   is generated: a herd led away is gone for good.
 - An item that does not fit in a full inventory is lost, but for the water bucket of a bucket
   filled from a stack, which is dropped.

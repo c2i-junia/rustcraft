@@ -48,7 +48,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The texture of the vine (blocks/Vine.png).
 -> The texture of the cocoa pod (blocks/Cocoa.png), the pack's block/cocoa_stage2.png, whose
    faces are cut following its model, and the icon of the cocoa beans (items/CocoaBeans.png).
--> The textures of the spawn eggs (items/FoxSpawnEgg.png, items/SheepSpawnEgg.png).
+-> The spawn eggs (items/*SpawnEgg.png) are our own,
+   drawn by scripts/generate_spawn_eggs.py.
 -> The animated texture of the water (blocks/Water.png, 16 frames), the pack's
    block/water_still.png, and its animation (blocks/Water.anim.ron) from its .mcmeta.
 -> The colour maps of the grass and of the leaves by climate
