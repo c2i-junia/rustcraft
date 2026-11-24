@@ -308,7 +308,9 @@ mod tests {
     use std::path::PathBuf;
     use std::time::SystemTime;
 
-    const TIMEOUT: Duration = Duration::from_secs(10);
+    /// Long enough for a server that generates a new world on a loaded machine, as the e2e
+    /// tests wait for one (`SERVER`): 10 s failed one run in eight of this module alone.
+    const TIMEOUT: Duration = Duration::from_secs(30);
 
     /// Runs frames of `app` until `done` holds. Fails the test after `TIMEOUT`.
     fn update_until(app: &mut App, what: &str, done: impl Fn(&mut App) -> bool) {
