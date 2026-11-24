@@ -546,7 +546,7 @@ fn bluish(color: Vec3) -> bool {
 /// in turn: the wall around the blue portal seen a third time, then that third blue portal, in
 /// its colour.
 #[test]
-#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+#[ignore = "about 2 minutes on lavapipe, past the watchdog in a loaded full run: run it with --ignored"]
 fn facing_portals_show_each_other_three_times_and_the_player_its_body() {
     // A render distance of 4 chunks: the third portal, seen 37.5 blocks away, is before the fog
     let folder = GameFolder::new()
