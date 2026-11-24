@@ -72,12 +72,14 @@ impl Ingredient {
 }
 
 /// A shaped recipe: its cells, row after row, must match the filled part of the grid exactly,
-/// wherever that part sits in the grid, or match it mirrored left to right.
+/// wherever that part sits in the grid, or match it mirrored left to right. A shapeless one only
+/// needs its ingredients in the grid, one per cell, anywhere.
 struct Recipe {
     width: usize,
     cells: &'static [Option<Ingredient>],
     output: ItemId,
     nb: u32,
+    shapeless: bool,
 }
 
 /// A cell of a recipe taking `item`.
@@ -97,6 +99,7 @@ const IRON: Option<Ingredient> = item(ItemId::IronIngot);
 const GOLD: Option<Ingredient> = item(ItemId::GoldIngot);
 const BRONZE: Option<Ingredient> = item(ItemId::BronzeIngot);
 const DIAMOND: Option<Ingredient> = item(ItemId::Diamond);
+const FLINT: Option<Ingredient> = item(ItemId::Flint);
 
 /// The tools' shapes, Minecraft's, made of `m` and sticks.
 const fn pickaxe(m: Option<Ingredient>) -> [Option<Ingredient>; 9] {
@@ -118,12 +121,12 @@ const GLASS: Option<Ingredient> = item(ItemId::Glass);
 
 #[rustfmt::skip]
 const RECIPES: &[Recipe] = &[
-    Recipe { width: 1, cells: &[OAK_LOG], output: ItemId::OakPlanks, nb: 4 },
-    Recipe { width: 1, cells: &[SPRUCE_LOG], output: ItemId::SprucePlanks, nb: 4 },
-    Recipe { width: 1, cells: &[JUNGLE_LOG], output: ItemId::JunglePlanks, nb: 4 },
-    Recipe { width: 1, cells: &[PLANKS, PLANKS], output: ItemId::Stick, nb: 4 },
-    Recipe { width: 1, cells: &[COAL, STICK], output: ItemId::Torch, nb: 4 },
-    Recipe { width: 2, cells: &[PLANKS; 4], output: ItemId::CraftingTable, nb: 1 },
+    Recipe { width: 1, cells: &[OAK_LOG], output: ItemId::OakPlanks, nb: 4, shapeless: false },
+    Recipe { width: 1, cells: &[SPRUCE_LOG], output: ItemId::SprucePlanks, nb: 4, shapeless: false },
+    Recipe { width: 1, cells: &[JUNGLE_LOG], output: ItemId::JunglePlanks, nb: 4, shapeless: false },
+    Recipe { width: 1, cells: &[PLANKS, PLANKS], output: ItemId::Stick, nb: 4, shapeless: false },
+    Recipe { width: 1, cells: &[COAL, STICK], output: ItemId::Torch, nb: 4, shapeless: false },
+    Recipe { width: 2, cells: &[PLANKS; 4], output: ItemId::CraftingTable, nb: 1, shapeless: false },
     Recipe {
         width: 3,
         cells: &[
@@ -133,6 +136,7 @@ const RECIPES: &[Recipe] = &[
         ],
         output: ItemId::Furnace,
         nb: 1,
+        shapeless: false,
     },
     Recipe {
         width: 3,
@@ -143,83 +147,84 @@ const RECIPES: &[Recipe] = &[
         ],
         output: ItemId::Chest,
         nb: 1,
+        shapeless: false,
     },
-    Recipe { width: 3, cells: &pickaxe(PLANKS), output: ItemId::WoodenPickaxe, nb: 1 },
-    Recipe { width: 2, cells: &axe(PLANKS), output: ItemId::WoodenAxe, nb: 1 },
-    Recipe { width: 1, cells: &shovel(PLANKS), output: ItemId::WoodenShovel, nb: 1 },
-    Recipe { width: 2, cells: &hoe(PLANKS), output: ItemId::WoodenHoe, nb: 1 },
-    Recipe { width: 1, cells: &sword(PLANKS), output: ItemId::WoodenSword, nb: 1 },
-    Recipe { width: 3, cells: &pickaxe(COBBLE), output: ItemId::StonePickaxe, nb: 1 },
-    Recipe { width: 2, cells: &axe(COBBLE), output: ItemId::StoneAxe, nb: 1 },
-    Recipe { width: 1, cells: &shovel(COBBLE), output: ItemId::StoneShovel, nb: 1 },
-    Recipe { width: 2, cells: &hoe(COBBLE), output: ItemId::StoneHoe, nb: 1 },
-    Recipe { width: 1, cells: &sword(COBBLE), output: ItemId::StoneSword, nb: 1 },
-    Recipe { width: 3, cells: &pickaxe(IRON), output: ItemId::IronPickaxe, nb: 1 },
-    Recipe { width: 2, cells: &axe(IRON), output: ItemId::IronAxe, nb: 1 },
-    Recipe { width: 1, cells: &shovel(IRON), output: ItemId::IronShovel, nb: 1 },
-    Recipe { width: 2, cells: &hoe(IRON), output: ItemId::IronHoe, nb: 1 },
-    Recipe { width: 1, cells: &sword(IRON), output: ItemId::IronSword, nb: 1 },
-    Recipe { width: 3, cells: &pickaxe(GOLD), output: ItemId::GoldenPickaxe, nb: 1 },
-    Recipe { width: 2, cells: &axe(GOLD), output: ItemId::GoldenAxe, nb: 1 },
-    Recipe { width: 1, cells: &shovel(GOLD), output: ItemId::GoldenShovel, nb: 1 },
-    Recipe { width: 2, cells: &hoe(GOLD), output: ItemId::GoldenHoe, nb: 1 },
-    Recipe { width: 1, cells: &sword(GOLD), output: ItemId::GoldenSword, nb: 1 },
-    Recipe { width: 3, cells: &pickaxe(DIAMOND), output: ItemId::DiamondPickaxe, nb: 1 },
-    Recipe { width: 2, cells: &axe(DIAMOND), output: ItemId::DiamondAxe, nb: 1 },
-    Recipe { width: 1, cells: &shovel(DIAMOND), output: ItemId::DiamondShovel, nb: 1 },
-    Recipe { width: 2, cells: &hoe(DIAMOND), output: ItemId::DiamondHoe, nb: 1 },
-    Recipe { width: 1, cells: &sword(DIAMOND), output: ItemId::DiamondSword, nb: 1 },
-    Recipe { width: 3, cells: &[IRON; 9], output: ItemId::IronBlock, nb: 1 },
-    Recipe { width: 3, cells: &[GOLD; 9], output: ItemId::GoldBlock, nb: 1 },
-    Recipe { width: 3, cells: &[DIAMOND; 9], output: ItemId::DiamondBlock, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::IronBlock)], output: ItemId::IronIngot, nb: 9 },
-    Recipe { width: 1, cells: &[item(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9 },
-    Recipe { width: 1, cells: &[item(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9 },
-    Recipe { width: 1, cells: &[CHARCOAL, STICK], output: ItemId::Torch, nb: 4 },
-    Recipe { width: 3, cells: &[IRON, None, IRON, None, IRON, None], output: ItemId::Bucket, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::WillowLog)], output: ItemId::WillowPlanks, nb: 4 },
-    Recipe { width: 1, cells: &[item(ItemId::AcaciaLog)], output: ItemId::AcaciaPlanks, nb: 4 },
-    Recipe { width: 1, cells: &[item(ItemId::Stone), item(ItemId::Stone)], output: ItemId::HewnStone, nb: 2 },
-    Recipe { width: 2, cells: &[item(ItemId::FiredBrick), item(ItemId::FiredBrick), item(ItemId::FiredBrick), item(ItemId::FiredBrick)], output: ItemId::BrickWall, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::Dirt), item(ItemId::Dirt), item(ItemId::Gravel)], output: ItemId::RammedEarth, nb: 2 },
-    Recipe { width: 2, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber)], output: ItemId::Thatch, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber)], output: ItemId::Rope, nb: 2 },
-    Recipe { width: 2, cells: &[item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::TinIngot)], output: ItemId::BronzeIngot, nb: 4 },
-    Recipe { width: 3, cells: &[item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal)], output: ItemId::CoalBlock, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::CoalBlock)], output: ItemId::Coal, nb: 9 },
-    Recipe { width: 3, cells: &[item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot)], output: ItemId::CopperBlock, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::CopperBlock)], output: ItemId::CopperIngot, nb: 9 },
-    Recipe { width: 3, cells: &[item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot)], output: ItemId::TinBlock, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::TinBlock)], output: ItemId::TinIngot, nb: 9 },
-    Recipe { width: 3, cells: &[item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot)], output: ItemId::BronzeBlock, nb: 1 },
-    Recipe { width: 1, cells: &[item(ItemId::BronzeBlock)], output: ItemId::BronzeIngot, nb: 9 },
-    Recipe { width: 3, cells: &[PLANKS; 3], output: ItemId::WoodenSlab, nb: 6 },
-    Recipe { width: 3, cells: &[item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneSlab, nb: 6 },
-    Recipe { width: 3, cells: &[item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickSlab, nb: 6 },
-    Recipe { width: 3, cells: &[None, item(ItemId::IronIngot), None, item(ItemId::IronIngot), item(ItemId::Torch), item(ItemId::IronIngot), None, item(ItemId::IronIngot), None], output: ItemId::Lantern, nb: 1 },
-    Recipe { width: 3, cells: &pickaxe(BRONZE), output: ItemId::BronzePickaxe, nb: 1 },
-    Recipe { width: 2, cells: &axe(BRONZE), output: ItemId::BronzeAxe, nb: 1 },
-    Recipe { width: 1, cells: &shovel(BRONZE), output: ItemId::BronzeShovel, nb: 1 },
-    Recipe { width: 2, cells: &hoe(BRONZE), output: ItemId::BronzeHoe, nb: 1 },
-    Recipe { width: 1, cells: &sword(BRONZE), output: ItemId::BronzeSword, nb: 1 },
-    Recipe { width: 2, cells: &[PLANKS, None, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::WoodenStairs, nb: 4 },
-    Recipe { width: 2, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneStairs, nb: 4 },
-    Recipe { width: 2, cells: &[item(ItemId::BrickWall), None, item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickStairs, nb: 4 },
-    Recipe { width: 2, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::Door, nb: 1 },
-    Recipe { width: 3, cells: &[STICK, item(ItemId::Rope), STICK, STICK, STICK, STICK, None, item(ItemId::Rope), None], output: ItemId::Ladder, nb: 3 },
-    Recipe { width: 3, cells: &[STICK, PLANKS, STICK, STICK, PLANKS, STICK], output: ItemId::Fence, nb: 3 },
-    Recipe { width: 3, cells: &[item(ItemId::Glass), item(ItemId::Glass), item(ItemId::Glass)], output: ItemId::GlassPane, nb: 8 },
-    Recipe { width: 2, cells: &[item(ItemId::Flint), item(ItemId::Rope), STICK, None, STICK, None], output: ItemId::Spear, nb: 1 },
-    Recipe { width: 3, cells: &[item(ItemId::Rye), item(ItemId::Rye), item(ItemId::Rye)], output: ItemId::RyeBread, nb: 1 },
-    Recipe { width: 3, cells: &[item(ItemId::Wool), item(ItemId::Wool), item(ItemId::Wool), item(ItemId::Rope), None, item(ItemId::Rope)], output: ItemId::Bedroll, nb: 1 },
-    Recipe { width: 3, cells: &[PLANKS, item(ItemId::Rope), PLANKS, PLANKS, None, PLANKS, PLANKS, item(ItemId::Rope), PLANKS], output: ItemId::Barrel, nb: 1 },
-    Recipe { width: 3, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::Bucket), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::RainCistern, nb: 1 },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::OakLog), item(ItemId::OakLog), item(ItemId::OakLog)], output: ItemId::Campfire, nb: 1 },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::SpruceLog), item(ItemId::SpruceLog), item(ItemId::SpruceLog)], output: ItemId::Campfire, nb: 1 },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::JungleLog), item(ItemId::JungleLog), item(ItemId::JungleLog)], output: ItemId::Campfire, nb: 1 },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::WillowLog), item(ItemId::WillowLog), item(ItemId::WillowLog)], output: ItemId::Campfire, nb: 1 },
-    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::AcaciaLog), item(ItemId::AcaciaLog), item(ItemId::AcaciaLog)], output: ItemId::Campfire, nb: 1 },
-    Recipe { width: 3, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, None, STICK, None], output: ItemId::Sign, nb: 1 },
+    Recipe { width: 3, cells: &pickaxe(PLANKS), output: ItemId::WoodenPickaxe, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &axe(PLANKS), output: ItemId::WoodenAxe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &shovel(PLANKS), output: ItemId::WoodenShovel, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &hoe(PLANKS), output: ItemId::WoodenHoe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &sword(PLANKS), output: ItemId::WoodenSword, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &pickaxe(COBBLE), output: ItemId::StonePickaxe, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &axe(COBBLE), output: ItemId::StoneAxe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &shovel(COBBLE), output: ItemId::StoneShovel, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &hoe(COBBLE), output: ItemId::StoneHoe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &sword(COBBLE), output: ItemId::StoneSword, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &pickaxe(IRON), output: ItemId::IronPickaxe, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &axe(IRON), output: ItemId::IronAxe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &shovel(IRON), output: ItemId::IronShovel, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &hoe(IRON), output: ItemId::IronHoe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &sword(IRON), output: ItemId::IronSword, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &pickaxe(GOLD), output: ItemId::GoldenPickaxe, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &axe(GOLD), output: ItemId::GoldenAxe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &shovel(GOLD), output: ItemId::GoldenShovel, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &hoe(GOLD), output: ItemId::GoldenHoe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &sword(GOLD), output: ItemId::GoldenSword, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &pickaxe(DIAMOND), output: ItemId::DiamondPickaxe, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &axe(DIAMOND), output: ItemId::DiamondAxe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &shovel(DIAMOND), output: ItemId::DiamondShovel, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &hoe(DIAMOND), output: ItemId::DiamondHoe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &sword(DIAMOND), output: ItemId::DiamondSword, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[IRON; 9], output: ItemId::IronBlock, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[GOLD; 9], output: ItemId::GoldBlock, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[DIAMOND; 9], output: ItemId::DiamondBlock, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::IronBlock)], output: ItemId::IronIngot, nb: 9, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::GoldBlock)], output: ItemId::GoldIngot, nb: 9, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::DiamondBlock)], output: ItemId::Diamond, nb: 9, shapeless: false },
+    Recipe { width: 1, cells: &[CHARCOAL, STICK], output: ItemId::Torch, nb: 4, shapeless: false },
+    Recipe { width: 3, cells: &[IRON, None, IRON, None, IRON, None], output: ItemId::Bucket, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::WillowLog)], output: ItemId::WillowPlanks, nb: 4, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::AcaciaLog)], output: ItemId::AcaciaPlanks, nb: 4, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::Stone), item(ItemId::Stone)], output: ItemId::HewnStone, nb: 2, shapeless: false },
+    Recipe { width: 2, cells: &[item(ItemId::FiredBrick), item(ItemId::FiredBrick), item(ItemId::FiredBrick), item(ItemId::FiredBrick)], output: ItemId::BrickWall, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::Dirt), item(ItemId::Dirt), item(ItemId::Gravel)], output: ItemId::RammedEarth, nb: 2, shapeless: false },
+    Recipe { width: 2, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber)], output: ItemId::Thatch, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::Fiber), item(ItemId::Fiber), item(ItemId::Fiber)], output: ItemId::Rope, nb: 2, shapeless: false },
+    Recipe { width: 2, cells: &[item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::TinIngot)], output: ItemId::BronzeIngot, nb: 4, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal), item(ItemId::Coal)], output: ItemId::CoalBlock, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::CoalBlock)], output: ItemId::Coal, nb: 9, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot), item(ItemId::CopperIngot)], output: ItemId::CopperBlock, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::CopperBlock)], output: ItemId::CopperIngot, nb: 9, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot), item(ItemId::TinIngot)], output: ItemId::TinBlock, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::TinBlock)], output: ItemId::TinIngot, nb: 9, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot), item(ItemId::BronzeIngot)], output: ItemId::BronzeBlock, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[item(ItemId::BronzeBlock)], output: ItemId::BronzeIngot, nb: 9, shapeless: false },
+    Recipe { width: 3, cells: &[PLANKS; 3], output: ItemId::WoodenSlab, nb: 6, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneSlab, nb: 6, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickSlab, nb: 6, shapeless: false },
+    Recipe { width: 3, cells: &[None, item(ItemId::IronIngot), None, item(ItemId::IronIngot), item(ItemId::Torch), item(ItemId::IronIngot), None, item(ItemId::IronIngot), None], output: ItemId::Lantern, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &pickaxe(BRONZE), output: ItemId::BronzePickaxe, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &axe(BRONZE), output: ItemId::BronzeAxe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &shovel(BRONZE), output: ItemId::BronzeShovel, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &hoe(BRONZE), output: ItemId::BronzeHoe, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &sword(BRONZE), output: ItemId::BronzeSword, nb: 1, shapeless: false },
+    Recipe { width: 2, cells: &[PLANKS, None, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::WoodenStairs, nb: 4, shapeless: false },
+    Recipe { width: 2, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::HewnStoneStairs, nb: 4, shapeless: false },
+    Recipe { width: 2, cells: &[item(ItemId::BrickWall), None, item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall), item(ItemId::BrickWall)], output: ItemId::BrickStairs, nb: 4, shapeless: false },
+    Recipe { width: 2, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS], output: ItemId::Door, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[STICK, item(ItemId::Rope), STICK, STICK, STICK, STICK, None, item(ItemId::Rope), None], output: ItemId::Ladder, nb: 3, shapeless: false },
+    Recipe { width: 3, cells: &[STICK, PLANKS, STICK, STICK, PLANKS, STICK], output: ItemId::Fence, nb: 3, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::Glass), item(ItemId::Glass), item(ItemId::Glass)], output: ItemId::GlassPane, nb: 8, shapeless: false },
+    Recipe { width: 2, cells: &[item(ItemId::Flint), item(ItemId::Rope), STICK, None, STICK, None], output: ItemId::Spear, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::Rye), item(ItemId::Rye), item(ItemId::Rye)], output: ItemId::RyeBread, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::Wool), item(ItemId::Wool), item(ItemId::Wool), item(ItemId::Rope), None, item(ItemId::Rope)], output: ItemId::Bedroll, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[PLANKS, item(ItemId::Rope), PLANKS, PLANKS, None, PLANKS, PLANKS, item(ItemId::Rope), PLANKS], output: ItemId::Barrel, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[item(ItemId::HewnStone), None, item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::Bucket), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone), item(ItemId::HewnStone)], output: ItemId::RainCistern, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::OakLog), item(ItemId::OakLog), item(ItemId::OakLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::SpruceLog), item(ItemId::SpruceLog), item(ItemId::SpruceLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::JungleLog), item(ItemId::JungleLog), item(ItemId::JungleLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::WillowLog), item(ItemId::WillowLog), item(ItemId::WillowLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[None, STICK, None, STICK, None, STICK, item(ItemId::AcaciaLog), item(ItemId::AcaciaLog), item(ItemId::AcaciaLog)], output: ItemId::Campfire, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, PLANKS, None, STICK, None], output: ItemId::Sign, nb: 1, shapeless: false },
     // A lens, a body of iron round a core of gold, and a handle
     Recipe {
         width: 3,
@@ -230,6 +235,14 @@ const RECIPES: &[Recipe] = &[
         ],
         output: ItemId::PortalGun,
         nb: 1,
+        shapeless: false,
+    },
+    Recipe {
+        width: 2,
+        cells: &[IRON, FLINT],
+        output: ItemId::FlintAndSteel,
+        nb: 1,
+        shapeless: true,
     },
 ];
 
@@ -263,7 +276,11 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
             })
         })
     };
+    let filled: Vec<ItemId> = grid.iter().flatten().copied().collect();
     let recipe = RECIPES.iter().find(|recipe| {
+        if recipe.shapeless {
+            return matches_shapeless(recipe, &filled);
+        }
         recipe.width == width
             && recipe.cells.len() == width * height
             && (matches(recipe, false) || matches(recipe, true))
@@ -272,6 +289,22 @@ pub fn match_recipe(grid: &CraftingGrid) -> Option<ItemStack> {
         item_id: recipe.output,
         item_type: recipe.output.get_default_type(),
         nb: recipe.nb,
+    })
+}
+
+/// Whether the items `filled` in a grid are the ingredients of the shapeless `recipe`, one for
+/// each, in any order.
+fn matches_shapeless(recipe: &Recipe, filled: &[ItemId]) -> bool {
+    let ingredients: Vec<Ingredient> = recipe.cells.iter().flatten().copied().collect();
+    if ingredients.len() != filled.len() {
+        return false;
+    }
+    let mut used = vec![false; filled.len()];
+    // An ingredient takes the first item left it matches: the recipes have no family that
+    // another ingredient of theirs is in, so no other choice could match where this fails
+    ingredients.iter().all(|ingredient| {
+        let found = (0..filled.len()).find(|&i| !used[i] && ingredient.matches(filled[i]));
+        found.inspect(|&i| used[i] = true).is_some()
     })
 }
 
@@ -810,6 +843,41 @@ mod tests {
     }
 
     #[test]
+    fn an_iron_ingot_and_a_flint_anywhere_make_a_flint_and_steel() {
+        let (iron, flint) = (Some(ItemId::IronIngot), Some(ItemId::Flint));
+        for cells in [
+            [iron, flint, None, None, None, None, None, None, None],
+            [flint, iron, None, None, None, None, None, None, None],
+            [None, None, flint, None, None, None, None, iron, None],
+            [iron, None, None, None, None, None, None, None, flint],
+            [None, flint, None, iron, None, None, None, None, None],
+        ] {
+            assert_eq!(
+                match_recipe(&grid(cells)),
+                made(ItemId::FlintAndSteel, 1),
+                "{cells:?}"
+            );
+        }
+        // not with one more ingredient, nor one less
+        assert_eq!(
+            match_recipe(&grid([
+                iron, flint, flint, None, None, None, None, None, None
+            ])),
+            None
+        );
+        assert_eq!(
+            match_recipe(&grid([
+                flint, None, None, None, None, None, None, None, None
+            ])),
+            None
+        );
+        // it fits the grid of the inventory, as a row of two
+        let recipe = recipe_of(ItemId::FlintAndSteel);
+        assert!(recipe.fits(2));
+        assert_eq!(recipe.cells, &[IRON, FLINT]);
+    }
+
+    #[test]
     fn a_recipe_also_matches_mirrored_left_to_right() {
         assert_eq!(
             match_recipe(&grid([None, OAK, OAK, None, STICK, OAK, None, STICK, None])),
@@ -831,7 +899,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 85);
+        assert_eq!(all.len(), 86);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -859,7 +927,7 @@ mod tests {
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::SprucePlanks));
         assert_eq!(uses(ItemId::OakPlanks), uses(ItemId::JunglePlanks));
         assert_eq!(counts(ItemId::Cobblestone), (0, 6));
-        assert_eq!(counts(ItemId::IronIngot), (1, 9));
+        assert_eq!(counts(ItemId::IronIngot), (1, 10));
         assert_eq!(counts(ItemId::Torch), (2, 1));
         assert_eq!(counts(ItemId::Bedrock), (0, 0));
         assert!(recipes_for(ItemId::Chest).all(|r| r.output.item_id == ItemId::Chest));

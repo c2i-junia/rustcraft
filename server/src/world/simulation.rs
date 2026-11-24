@@ -5,12 +5,15 @@ use shared::{
     players::{
         blocks::CallerType,
         constants::EYE_HEIGHT,
+        fire::{body_in_fire, is_doused},
         game_mode::{fall_damage, DamageSource, MAX_HEALTH, REGENERATION_TICKS},
         movement::FALL_LIMIT,
         simulation::simulate_player_actions,
         Player,
     },
-    world::{liquid::eye_in_liquid, Chunk, ChunkMap, ChunkReach, ServerMob, WorldSeed},
+    world::{
+        liquid::eye_in_liquid, Chunk, ChunkMap, ChunkReach, ServerMob, WeatherKind, WorldSeed,
+    },
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -27,6 +30,7 @@ use crate::{
         data::ServerWorldMap,
         generation::{WorldGeneration, WorldGenerator},
         portals::is_believable,
+        weather::ServerWeather,
     },
 };
 
@@ -427,6 +431,20 @@ pub fn breathe_system(mut world_map: ResMut<ServerWorldMap>) {
     }
 }
 
+/// Each player in a fire catches it, and a burning player burns for a tick, unless water or
+/// the rain under the open sky puts it out. Runs once the inputs of the tick moved the players.
+pub fn burn_system(mut world_map: ResMut<ServerWorldMap>, weather: Res<ServerWeather>) {
+    let raining = weather.kind != WeatherKind::Clear;
+    let ServerWorldMap {
+        chunks, players, ..
+    } = &mut *world_map;
+    for player in players.values_mut() {
+        let in_fire = body_in_fire(chunks, player);
+        let doused = is_doused(chunks, player, raining);
+        player.burn(in_fire, doused);
+    }
+}
+
 /// Every `REGENERATION_TICKS`, each living player gets a point of health back.
 pub fn regenerate_health_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
     if !time.0.is_multiple_of(REGENERATION_TICKS) {
@@ -458,6 +476,7 @@ pub fn broadcast_player_updates_system(
                 open_furnace,
                 health: player.health,
                 air: player.air,
+                burning_ticks: player.burning_ticks,
                 game_mode: player.game_mode,
                 death_cause: player.death_cause,
             })
@@ -540,6 +559,42 @@ mod tests {
         let players = &app.world().resource::<ServerWorldMap>().players;
         assert_eq!(players[&1].air, MAX_AIR - 10);
         assert_eq!(players[&2].air, MAX_AIR);
+    }
+
+    #[test]
+    fn a_player_standing_in_a_fire_burns_unless_it_rains_on_it() {
+        for (kind, burns) in [(WeatherKind::Clear, true), (WeatherKind::Rain, false)] {
+            let mut world_map = ServerWorldMap {
+                chunks: ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15)),
+                ..Default::default()
+            };
+            world_map
+                .chunks
+                .fill_box(IVec3::ZERO, IVec3::new(15, 0, 15), BlockId::Stone);
+            world_map
+                .chunks
+                .fill_box(IVec3::new(1, 1, 1), IVec3::new(1, 1, 1), BlockId::Fire);
+            let player = Player {
+                id: 1,
+                position: Vec3::new(1.5, 1.0 + PLAYER_HEIGHT / 2.0, 1.5),
+                ..Default::default()
+            };
+            world_map.players.insert(1, player);
+            let mut weather = ServerWeather::new(&mut rand::thread_rng());
+            weather.kind = kind;
+            let mut app = App::new();
+            app.insert_resource(world_map)
+                .insert_resource(weather)
+                .add_systems(Update, (tick_damage_timers_system, burn_system).chain());
+
+            for _ in 0..21 {
+                app.update();
+            }
+            let player = &app.world().resource::<ServerWorldMap>().players[&1];
+            assert_eq!(player.is_burning(), burns, "{kind:?}");
+            let health = if burns { MAX_HEALTH - 2 } else { MAX_HEALTH };
+            assert_eq!(player.health, health, "{kind:?}");
+        }
     }
 
     #[test]

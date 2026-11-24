@@ -23,6 +23,7 @@ use crate::ui::theme::WIREFRAME;
 use bevy::ui::UiSystems;
 
 pub mod air;
+pub mod burning;
 pub mod chat;
 pub mod chat_completion;
 pub mod corner;
@@ -74,6 +75,7 @@ pub fn hud_plugin(app: &mut App) {
                 .chain(),
         )
         .add_systems(OnEnter(GameState::Game), setup_chunk_ghost)
+        .add_systems(OnEnter(GameState::Game), burning::spawn_burning_flames)
         .add_systems(
             OnEnter(GameState::Game),
             (
@@ -196,6 +198,7 @@ pub fn hud_plugin(app: &mut App) {
             health::update_health_bar,
             health::raise_item_name_over_the_hearts,
             air::update_air_bar,
+            burning::update_burning_flames,
         )
             .chain()
             .after(GameSet::Reconciliation)

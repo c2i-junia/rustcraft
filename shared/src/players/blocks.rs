@@ -4,10 +4,10 @@ use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{game_mode::MAX_HEALTH, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
-        fit_portal, furnace::smelting_result, global_block_to_chunk_pos, liquid::is_source,
-        raycast, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap, Container,
-        FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind, PortalColor,
-        RaycastResponse, ServerMob, Tool, ToolKind,
+        fire::fire_can_stay, fit_portal, furnace::smelting_result, global_block_to_chunk_pos,
+        liquid::is_source, raycast, BlockData, BlockDirection, BlockId, BlockTransparency,
+        ChunkMap, Container, FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind,
+        PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -75,6 +75,8 @@ enum Refusal {
     NotASource(BlockId),
     /// No portal fits on the wall around the aimed cell.
     NoRoom,
+    /// A fire is lit only in the air, on a whole block or by a block that burns.
+    FireWouldNotStay,
 }
 
 /// A refused interaction, and the block a client may have predicted a change at.
@@ -222,6 +224,11 @@ pub fn simulate_player_block_interactions(
                 Some(food) if food.food_health().is_some() => (
                     "eat",
                     eat(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                ),
+                Some(ItemId::FlintAndSteel) => (
+                    "light a fire",
+                    light_fire(player, world_map, action)
+                        .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
                 _ => (
                     "place a block",
@@ -551,7 +558,7 @@ fn use_block(
             player.inventory.remove_item_from_stack(slot, 1);
             give(player, ItemId::Bucket, 1);
         }
-        (BlockId::UnlitCampfire, Some(ItemId::Torch | ItemId::Flint)) => {
+        (BlockId::UnlitCampfire, Some(ItemId::Torch | ItemId::Flint | ItemId::FlintAndSteel)) => {
             become_block(world_map, pos, BlockId::Campfire);
         }
         (BlockId::Campfire, Some(raw @ (ItemId::RawMutton | ItemId::Mushroom))) => {
@@ -786,6 +793,29 @@ fn pour_water(
             nb: 1,
         },
     );
+    Ok(())
+}
+
+/// Lights a fire with the flint and steel held in the selected hotbar slot, in the air cell
+/// against the aimed face, where a fire stays (`fire_can_stay`). The flint and steel wears by
+/// one. A fire stops nobody: it may be lit where the player stands.
+fn light_fire(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+) -> Result<(), Refused> {
+    let (_, position) = cell_against_aimed_face(player, world_map, action)?;
+    if world_map.get_block(position).is_some() {
+        return Err(Refused::at(position, Refusal::Occupied));
+    }
+    if !fire_can_stay(world_map, position) {
+        return Err(Refused::at(position, Refusal::FireWouldNotStay));
+    }
+    world_map.set_block(
+        position,
+        BlockData::new(BlockId::Fire, BlockDirection::Front),
+    );
+    player.inventory.wear_tool(action.hotbar_slot, 1);
     Ok(())
 }
 
@@ -1779,6 +1809,74 @@ mod tests {
 
             assert_eq!(world.get_block(IVec3::ZERO).copied(), poured, "{item:?}");
         }
+    }
+
+    /// The flint and steel held in the first slot, worn by `wear`.
+    fn wear_of_lighter(player: &Player) -> Option<u32> {
+        match player.inventory.inner.get(&0)? {
+            ItemStack {
+                item_id: ItemId::FlintAndSteel,
+                item_type: ItemType::Tool { wear },
+                ..
+            } => Some(*wear),
+            _ => None,
+        }
+    }
+
+    fn lighter(wear: u32) -> ItemStack {
+        ItemStack {
+            item_type: ItemType::Tool { wear },
+            ..stack(ItemId::FlintAndSteel, 1)
+        }
+    }
+
+    const UNDER_IN_FRONT: IVec3 = IVec3::new(0, -1, -2);
+
+    #[test]
+    fn a_flint_and_steel_lights_a_fire_against_the_aimed_face_and_wears_once_per_press() {
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(UNDER_IN_FRONT, stone)], lighter(0));
+
+        right_click(&mut player, &mut world, &input);
+
+        let fire = BlockData::new(BlockId::Fire, BlockDirection::Front);
+        assert_eq!(world.get_block(IN_FRONT), Some(&fire));
+        assert_eq!(world.take_changed_blocks(), vec![IN_FRONT]);
+        assert_eq!(wear_of_lighter(&player), Some(1));
+        // held down, it lights nothing more, even once the fire is gone
+        world.remove_block(IN_FRONT);
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(IN_FRONT), None);
+        assert_eq!(wear_of_lighter(&player), Some(1));
+    }
+
+    #[test]
+    fn a_flint_and_steel_lights_nothing_where_a_fire_would_not_stay_nor_in_water() {
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        for blocks in [vec![], vec![(UNDER_IN_FRONT, stone), (IN_FRONT, water(0))]] {
+            let (mut player, mut world, input) = bucket_in_front_of(&blocks, lighter(0));
+
+            right_click(&mut player, &mut world, &input);
+
+            let fire = world
+                .get_block(IN_FRONT)
+                .is_some_and(|block| block.id == BlockId::Fire);
+            assert!(!fire, "{blocks:?}");
+            assert_eq!(wear_of_lighter(&player), Some(0), "{blocks:?}");
+            assert_eq!(world.take_changed_blocks(), vec![IN_FRONT], "{blocks:?}");
+        }
+    }
+
+    #[test]
+    fn a_flint_and_steel_breaks_at_its_last_fire() {
+        let stone = BlockData::new(BlockId::Stone, BlockDirection::Front);
+        let durability = ItemId::FlintAndSteel.durability().unwrap();
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(UNDER_IN_FRONT, stone)], lighter(durability - 1));
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(IN_FRONT).map(|b| b.id), Some(BlockId::Fire));
+        assert_eq!(player.inventory.inner.get(&0), None);
     }
 
     #[test]

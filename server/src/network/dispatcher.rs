@@ -10,7 +10,7 @@ use crate::world::generation::WorldGeneration;
 use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{
-    breathe_system, broadcast_player_updates_system, handle_player_inputs_system,
+    breathe_system, broadcast_player_updates_system, burn_system, handle_player_inputs_system,
     regenerate_health_system, tick_damage_timers_system, PlayerInputsEvent,
 };
 use crate::world::weather::ServerWeather;
@@ -62,6 +62,7 @@ pub fn setup_resources_and_events(app: &mut App) {
         .add_message::<ServerEventMessage>()
         .init_resource::<JoinRequests>()
         .init_resource::<world::flow::WaterFlow>()
+        .init_resource::<world::ticks::BlockTicks>()
         .init_resource::<Locator>()
         .add_observer(buffer_server_event);
 
@@ -118,11 +119,14 @@ pub fn register_systems(app: &mut App) {
             tick_damage_timers_system,
             handle_player_inputs_system,
             breathe_system,
+            burn_system,
             world::furnaces::tick_furnaces_system,
             regenerate_health_system,
             pickup_dropped_items_system,
             world::home::home_system,
             world::growth::growth_system,
+            // before the flow, which washes the fires away and fills what they burnt
+            world::ticks::block_ticks_system,
             world::flow::water_flow_system,
             world::weather::weather_system,
             // After every block change of the tick

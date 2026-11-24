@@ -365,7 +365,11 @@ hearts (`player/hurt.rs`). The air (`players/air.rs`) is the server's too, sent 
 (`Player::eye_position`, where the client's camera is) are under the surface of a liquid
 (`eye_in_liquid`, which the underwater fog reads as well), and with none left the player drowns,
 2 damage every 20 ticks. The client draws it as bubbles over the right of the hotbar
-(`ui/hud/air.rs`) while it is not full. A dead
+(`ui/hud/air.rs`) while it is not full. Fire (`players/fire.rs`) works alike: `burn_system`
+sets a player whose body touches a fire block burning for 80 ticks (`burning_ticks`, not saved),
+1 damage every 20 ticks, until water around the body or rain on the head under the open sky puts
+it out; the client draws flames over the bottom of the screen meanwhile (`ui/hud/burning.rs`).
+A dead
 player is not simulated: the server acknowledges its inputs without applying them, and the client
 neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the
 server, asked by `Respawn`, brings the player back. Players spawn and respawn at
@@ -402,8 +406,13 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    the world's folder the first time a player needs it, else generated: opening a world reads
    no chunk. Then every furnace of the loaded chunks ticks once (`world/furnaces.rs`), one in a
    chunk that is not loaded waiting, as in Minecraft; a burning furnace keeps its chunk to be
-   saved. Then the water flows (`world/flow.rs`): every 5 ticks, the
-   cells next to a block that changed take the level their neighbours give them
+   saved. Then the blocks get their ticks (`world/ticks.rs`): 3 random cells of each loaded
+   chunk within `SIMULATION_DISTANCE` (4 chunks) of a player, but the chunks of air, get a
+   random tick, what the shared rules make of them (`shared/src/world/ticks.rs`,
+   `random_tick`); fires get theirs on their own schedule instead, every 30 to 40 ticks, at
+   most 64 a tick (`shared/src/world/fire.rs`: they age, spread to and burn what is flammable,
+   and go out in the rain or without support). Then the water flows (`world/flow.rs`): every 5
+   ticks, the cells next to a block that changed take the level their neighbours give them
    (`shared/src/world/liquid.rs`). Then the weather counts down (`world/weather.rs`): a clear
    spell of 10 to 100 minutes is followed by rain (2 in 3) or a thunderstorm (1 in 3) of 5 to
    15 minutes, then by a clear spell again (`shared/src/world/weather.rs`), and `/weather`

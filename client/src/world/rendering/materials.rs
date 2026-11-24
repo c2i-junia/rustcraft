@@ -109,9 +109,8 @@ impl WetSurface {
     /// The surface of the block texture called `name`.
     pub fn of(name: &str) -> Self {
         match name {
-            "Glass" | "CampfireFlame" | "Wool" | "Lantern" | "Ice" | "Snow" | "Torch" | "Water" => {
-                Self::Dry
-            }
+            "Glass" | "CampfireFlame" | "Wool" | "Lantern" | "Ice" | "Snow" | "Torch" | "Water"
+            | "Fire" => Self::Dry,
             _ if name.starts_with("DestroyStage") => Self::Dry,
             "Sand" => Self::Porous,
             "Grass" | "GrassTop" | "GrassSideOverlay" | "Moss" => Self::Grass,

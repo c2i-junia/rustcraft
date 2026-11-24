@@ -81,6 +81,11 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    ores (blocks/CoalOre.png, blocks/IronOre.png, blocks/GoldOre.png) were already the pack's.
 -> The textures of the bucket and of the water bucket (items/Bucket.png,
    items/WaterBucket.png), the pack's item/{bucket,water_bucket}.png.
+-> The animated texture of the fire (blocks/Fire.png, 8 frames), the pack's block/fire_0.png,
+   and its animation (blocks/Fire.anim.ron) from its .mcmeta; the flames over the screen of a
+   burning player are cut from it.
+-> The texture of the flint and steel (items/FlintAndSteel.png), the pack's
+   item/flint_and_steel.png.
 
 -> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.

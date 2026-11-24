@@ -7,16 +7,18 @@ use bevy::prelude::*;
 use shared::players::air::MAX_AIR;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::{Player, PLAYER_HEIGHT};
-use shared::world::SEA_LEVEL;
+use shared::world::{ItemId, SEA_LEVEL};
 
-use super::game::enter_world;
+use super::game::{enter_world, hold_click, slot};
 use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::camera::{CameraController, FOV_DEGREES, ZOOM_SCALE};
 use crate::player::{CurrentPlayerMarker, HurtVignette, PlayerBody, SNEAK_BODY_SCALE};
 use crate::ui::hud::air::{air_label, AirBar};
+use crate::ui::hud::burning::BurningFlames;
 use crate::ui::hud::health::{health_label, HealthBar};
+use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{HudBottom, InventoryRoot};
 use crate::ui::menus::death::{DeathScreen, DEATH_TITLE, RESPAWN};
 use server::WorldGenerator;
@@ -299,4 +301,36 @@ fn a_player_with_its_head_under_water_sees_its_bubbles_go() {
     assert_eq!(h.air_label(), air_label(air));
     assert_ne!(h.air_label(), air_label(MAX_AIR));
     h.snapshot("bubbles");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_fire_lit_at_the_feet_burns_the_player_who_sees_its_flames() {
+    let folder = GameFolder::new().with_world("Fire").with_items(
+        "Fire",
+        "Tester",
+        &[(0, ItemId::FlintAndSteel, 1)],
+    );
+    let mut h = enter_world(folder, "Fire");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::FlintAndSteel, 1))
+    });
+    h.wait_until("the player on the ground", SERVER, |w| player(w).on_ground);
+    // Straight down, at the ground under the feet
+    let world = h.world_mut();
+    world
+        .query::<&mut CameraController>()
+        .single_mut(world)
+        .unwrap()
+        .angle_y = 1.5;
+    h.frames(10);
+    assert!(!h.is_visible(&L::marker::<BurningFlames>()));
+
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_until("the player on fire", SERVER, |w| player(w).is_burning());
+    h.wait_for(&L::marker::<BurningFlames>(), SCREEN);
+    h.wait_until("a hit of the fire", SERVER, |w| {
+        player(w).health < MAX_HEALTH
+    });
+    h.snapshot("burning");
 }

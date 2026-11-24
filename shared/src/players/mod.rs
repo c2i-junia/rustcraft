@@ -3,6 +3,7 @@ pub mod blocks;
 pub mod collision;
 pub mod constants;
 mod data;
+pub mod fire;
 pub mod game_mode;
 pub mod inventory;
 pub mod movement;

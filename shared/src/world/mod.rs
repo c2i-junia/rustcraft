@@ -6,6 +6,7 @@ pub mod container;
 pub mod crafting;
 pub mod data;
 pub mod dropped_items;
+pub mod fire;
 pub mod furnace;
 pub mod items;
 pub mod liquid;
@@ -16,6 +17,7 @@ pub mod reach;
 pub mod terrain;
 #[cfg(any(test, feature = "test-helpers"))]
 mod test_helpers;
+pub mod ticks;
 mod utils;
 pub mod weather;
 

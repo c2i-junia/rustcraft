@@ -56,6 +56,8 @@ pub struct PlayerUpdateEvent {
     pub health: u32,
     /// The ticks of air the player has left (`Player::air`).
     pub air: u16,
+    /// The ticks the player has left to burn (`Player::burning_ticks`).
+    pub burning_ticks: u16,
     pub game_mode: GameMode,
     /// What killed the player, while it is dead.
     pub death_cause: Option<DeathCause>,

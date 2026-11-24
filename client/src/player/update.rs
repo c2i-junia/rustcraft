@@ -159,6 +159,7 @@ pub fn update_players_system(
 
         player.health = event.health;
         player.air = event.air;
+        player.burning_ticks = event.burning_ticks;
         player.game_mode = event.game_mode;
         player.death_cause = event.death_cause;
         if event.id != my_id {
@@ -351,6 +352,7 @@ mod tests {
             open_furnace: None,
             health: server.health,
             air: server.air,
+            burning_ticks: server.burning_ticks,
             game_mode: server.game_mode,
             death_cause: None,
         };
@@ -411,6 +413,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         });
@@ -450,6 +453,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         });
@@ -485,6 +489,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         });
@@ -530,6 +535,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         });
@@ -586,6 +592,7 @@ mod tests {
             open_furnace: Some(server_furnace),
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         });
@@ -877,6 +884,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         });
@@ -1025,6 +1033,7 @@ mod tests {
                 open_furnace: None,
                 health: self.server_player.health,
                 air: self.server_player.air,
+                burning_ticks: self.server_player.burning_ticks,
                 game_mode: self.server_player.game_mode,
                 death_cause: self.server_player.death_cause,
             };

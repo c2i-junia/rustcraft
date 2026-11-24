@@ -164,6 +164,7 @@ mod tests {
             open_furnace: None,
             health: 0,
             air: 0,
+            burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
         };

@@ -128,12 +128,13 @@ impl Inventory {
         let Some(stack) = self.inner.get_mut(&slot) else {
             return false;
         };
-        let (Some(tool), ItemType::Tool { wear: worn }) = (stack.item_id.tool(), stack.item_type)
+        let (Some(durability), ItemType::Tool { wear: worn }) =
+            (stack.item_id.durability(), stack.item_type)
         else {
             return false;
         };
         let worn = worn.saturating_add(wear);
-        if worn < tool.durability {
+        if worn < durability {
             stack.item_type = ItemType::Tool { wear: worn };
             return false;
         }
@@ -226,6 +227,12 @@ pub struct Player {
     /// The ticks spent with no air left since the last hit of drowning.
     #[serde(skip)]
     pub drowning_ticks: u16,
+    /// The ticks the player has left to burn, set by a fire it touches. Not saved.
+    #[serde(skip)]
+    pub burning_ticks: u16,
+    /// The ticks to the next hit of a burning player: it is hit when they reach 0.
+    #[serde(skip)]
+    pub fire_damage_wait: u16,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -356,6 +363,8 @@ impl Player {
         self.last_mob_hit = None;
         self.air = MAX_AIR;
         self.drowning_ticks = 0;
+        self.burning_ticks = 0;
+        self.fire_damage_wait = 0;
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -386,6 +395,8 @@ impl Player {
             last_mob_hit: None,
             air: MAX_AIR,
             drowning_ticks: 0,
+            burning_ticks: 0,
+            fire_damage_wait: 0,
         }
     }
 }

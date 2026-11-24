@@ -169,11 +169,13 @@ pub enum ItemId {
     Berries,
     Spear,
     PortalGun,
+    /// Lights a fire. It wears out, though it is not a mining tool: see `durability`.
+    FlintAndSteel,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 146] = [
+    pub const ALL: [ItemId; 147] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -320,6 +322,7 @@ impl ItemId {
         Self::Berries,
         Self::Spear,
         Self::PortalGun,
+        Self::FlintAndSteel,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -354,7 +357,7 @@ impl ItemId {
         match *self {
             Self::Bucket => 16,
             Self::WaterBucket | Self::Spear | Self::PortalGun => 1,
-            _ if self.tool().is_some() => 1,
+            _ if self.durability().is_some() => 1,
             _ => 64,
         }
     }
@@ -453,6 +456,15 @@ impl ItemId {
             // A weapon: like in Minecraft, mining wears it twice as fast
             wear_per_block: if kind == Sword { 2 } else { 1 },
         })
+    }
+
+    /// The wear at which the item breaks, for the items that wear out: the tools, and the flint
+    /// and steel, which wears by the fires it lights.
+    pub fn durability(&self) -> Option<u32> {
+        match *self {
+            Self::FlintAndSteel => Some(64),
+            _ => self.tool().map(|tool| tool.durability),
+        }
     }
 
     /// The category the item browser files the item under.
@@ -594,7 +606,8 @@ impl ItemId {
             | Self::BronzeHoe
             | Self::BronzeSword
             | Self::Spear
-            | Self::PortalGun => ItemCategory::Tools,
+            | Self::PortalGun
+            | Self::FlintAndSteel => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -757,7 +770,8 @@ impl ItemId {
             | Self::BronzeAxe
             | Self::BronzeShovel
             | Self::BronzeHoe
-            | Self::BronzeSword => ItemType::Tool { wear: 0 },
+            | Self::BronzeSword
+            | Self::FlintAndSteel => ItemType::Tool { wear: 0 },
         }
     }
 }
@@ -1051,6 +1065,7 @@ mod tests {
             (ItemId::Berries, 143),
             (ItemId::Spear, 144),
             (ItemId::PortalGun, 145),
+            (ItemId::FlintAndSteel, 146),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1200,7 +1215,8 @@ mod tests {
                 | ItemId::RoastMutton
                 | ItemId::Berries
                 | ItemId::Spear
-                | ItemId::PortalGun => {}
+                | ItemId::PortalGun
+                | ItemId::FlintAndSteel => {}
             }
         }
         for (id, expected) in table {
@@ -1236,6 +1252,28 @@ mod tests {
         // only the names of the items, not anything serde would accept
         assert_eq!(ItemId::from_name("oak__log"), None);
         assert_eq!(ItemId::from_name("emerald"), None);
+    }
+
+    #[test]
+    fn the_flint_and_steel_wears_out_in_64_fires_and_is_no_mining_tool() {
+        let lighter = ItemId::FlintAndSteel;
+        assert_eq!(lighter.durability(), Some(64));
+        assert_eq!(lighter.tool(), None);
+        assert_eq!(lighter.get_max_stack(), 1);
+        assert_eq!(lighter.get_default_type(), ItemType::Tool { wear: 0 });
+        assert_eq!(lighter.category(), ItemCategory::Tools);
+        assert_eq!(lighter.name(), "flint_and_steel");
+        let flint = ItemId::Flint;
+        assert_eq!(flint.durability(), None);
+        assert_eq!(flint.get_default_type(), ItemType::Generic);
+        assert_eq!(flint.category(), ItemCategory::Materials);
+        assert_eq!(flint.get_max_stack(), 64);
+        // a tool lasts as long as its tier
+        let pickaxe = ItemId::IronPickaxe;
+        assert_eq!(
+            pickaxe.durability(),
+            Some(pickaxe.tool().unwrap().durability)
+        );
     }
 
     #[test]
@@ -1381,7 +1419,12 @@ mod tests {
             assert_eq!(item.get_max_stack(), 1, "{item:?}");
             assert_eq!(item.get_default_type(), ItemType::Tool { wear: 0 });
         }
-        let buckets = [ItemId::Bucket, ItemId::WaterBucket, ItemId::Spear];
+        let buckets = [
+            ItemId::Bucket,
+            ItemId::WaterBucket,
+            ItemId::Spear,
+            ItemId::FlintAndSteel,
+        ];
         let others = ItemId::ALL
             .iter()
             .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item))
@@ -1472,11 +1515,14 @@ mod tests {
         ] {
             assert_eq!(item.category(), category, "{item:?}");
         }
-        // The tools, and the buckets, as Minecraft's "Tools & Utilities"
+        // The tools, the buckets and the flint and steel, as Minecraft's "Tools & Utilities"
         // The portal gun is filed with the tools, though it breaks no block
         assert_eq!(ItemId::PortalGun.category(), ItemCategory::Tools);
         for item in ItemId::ALL {
-            let bucket = matches!(item, ItemId::Bucket | ItemId::WaterBucket | ItemId::Spear);
+            let bucket = matches!(
+                item,
+                ItemId::Bucket | ItemId::WaterBucket | ItemId::Spear | ItemId::FlintAndSteel
+            );
             assert_eq!(
                 item.category() == ItemCategory::Tools,
                 item.tool().is_some() || bucket || item == ItemId::PortalGun,
@@ -1508,6 +1554,6 @@ mod tests {
         assert_eq!(ItemId::PortalGun.get_max_stack(), 1);
         assert_eq!(ItemId::PortalGun.get_default_type(), ItemType::Generic);
         assert_eq!(ItemId::PortalGun.name(), "portal_gun");
-        assert_eq!(ItemId::ALL.last(), Some(&ItemId::PortalGun));
+        assert_eq!(ItemId::ALL[145], ItemId::PortalGun);
     }
 }

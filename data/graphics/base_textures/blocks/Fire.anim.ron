@@ -1,0 +1,2 @@
+// As fire_0.png.mcmeta of Pixel Perfection: a frame every 2 ticks, without fading
+(frame_time: 2, interpolate: false)

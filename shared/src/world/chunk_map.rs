@@ -359,6 +359,11 @@ impl ChunkMap {
                 .is_some_and(|block| block.id.get_visibility() == BlockTransparency::Liquid)
         })
     }
+
+    /// Whether `hitbox` overlaps a cell that holds a block of `id`.
+    pub fn touches_block(&self, hitbox: &Aabb3d, id: BlockId) -> bool {
+        cells_overlapped(hitbox).any(|pos| self.get_block(pos).is_some_and(|block| block.id == id))
+    }
 }
 
 /// The cells that `hitbox` overlaps.

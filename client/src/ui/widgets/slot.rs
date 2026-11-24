@@ -120,11 +120,11 @@ pub fn slot_durability() -> impl Bundle {
 
 /// The wear and the durability of a tool stack, `None` for any other item.
 pub fn tool_wear(stack: &ItemStack) -> Option<(u32, u32)> {
-    let tool = stack.item_id.tool()?;
+    let durability = stack.item_id.durability()?;
     let ItemType::Tool { wear } = stack.item_type else {
         return None;
     };
-    Some((wear, tool.durability))
+    Some((wear, durability))
 }
 
 /// The share of its durability a worn tool has left, from 0 to 1, and the colour of its bar:

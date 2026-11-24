@@ -332,6 +332,8 @@ impl VoxelShape {
                 Self::boxed(block, SLAB)
             }
             BlockId::Lantern => Self::boxed(block, LANTERN),
+            // Its flames, unlike the plants, are not stirred by the wind
+            BlockId::Fire => Self::flora(block),
             BlockId::TallGrass | BlockId::Fern => Self::flora(block)
                 .biome_tinted(BiomeTint::Grass)
                 .swaying(Sway::Top),

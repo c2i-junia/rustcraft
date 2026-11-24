@@ -121,6 +121,8 @@ pub enum BlockId {
     Campfire,
     UnlitCampfire,
     Sign,
+    /// Its age, from 0 to `fire::MAX_FIRE_AGE`, is its `BlockData::level`.
+    Fire,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -334,7 +336,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 96] = [
+    pub const ALL: [BlockId; 97] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -431,6 +433,7 @@ impl BlockId {
         BlockId::Campfire,
         BlockId::UnlitCampfire,
         BlockId::Sign,
+        BlockId::Fire,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -520,7 +523,8 @@ impl BlockId {
             | Self::YoungRye
             | Self::RipeRye
             | Self::Ladder
-            | Self::Sign => BlockHitbox::None,
+            | Self::Sign
+            | Self::Fire => BlockHitbox::None,
             Self::WoodenSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
             Self::Lantern => BlockHitbox::Aabb(LANTERN),
             Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
@@ -583,6 +587,11 @@ impl BlockId {
             Self::HangingLantern => BlockHitbox::Aabb(HANGING_LANTERN),
             Self::Ladder => BlockHitbox::Aabb(LADDER),
             Self::Sign => BlockHitbox::Aabb(SIGN),
+            // the bottom of the flames, where the ground under them would be clicked
+            Self::Fire => BlockHitbox::Aabb(Aabb3d::new(
+                Vec3A::new(0.5, 0.2, 0.5),
+                Vec3A::new(0.5, 0.2, 0.5),
+            )),
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -682,6 +691,8 @@ impl BlockId {
             Self::Campfire => 8,
             Self::UnlitCampfire => 8,
             Self::Sign => 6,
+            // put out by the first hit: a break time of 0 would have no breaking stages
+            Self::Fire => return Some(1),
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -956,7 +967,7 @@ impl BlockId {
 
     /// Whether a block placed in the cell of this one takes its place.
     pub fn is_replaceable(&self) -> bool {
-        matches!(*self, Self::Water)
+        matches!(*self, Self::Water | Self::Fire)
     }
 
     pub fn get_visibility(&self) -> BlockTransparency {
@@ -999,7 +1010,8 @@ impl BlockId {
             | Self::Bedroll
             | Self::Campfire
             | Self::UnlitCampfire
-            | Self::Sign => BlockTransparency::Decoration,
+            | Self::Sign
+            | Self::Fire => BlockTransparency::Decoration,
             Self::Glass
             | Self::OakLeaves
             | Self::SpruceLeaves
@@ -1026,6 +1038,7 @@ impl BlockId {
     /// The light the block gives, from 0 for none to 15, as Minecraft's light levels.
     pub fn light_emission(&self) -> u8 {
         match *self {
+            Self::Fire => 15,
             Self::Torch => 14,
             Self::Lantern | Self::HangingLantern => 15,
             Self::Campfire => 13,
@@ -1054,7 +1067,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 96] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 97] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -1157,7 +1170,8 @@ mod tests {
             | BlockId::FullRainCistern
             | BlockId::Campfire
             | BlockId::UnlitCampfire
-            | BlockId::Sign => {}
+            | BlockId::Sign
+            | BlockId::Fire => {}
         }
     }
 
@@ -1301,6 +1315,7 @@ mod tests {
                 BlockId::Campfire => 93,
                 BlockId::UnlitCampfire => 94,
                 BlockId::Sign => 95,
+                BlockId::Fire => 96,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1318,6 +1333,40 @@ mod tests {
             assert_eq!(item.get_default_type(), ItemType::Block(block));
         }
         assert_eq!(ItemId::Stick.get_default_type(), ItemType::Generic);
+    }
+
+    #[test]
+    fn fire_is_a_glowing_decoration_put_out_by_a_hit_that_drops_nothing() {
+        let fire = BlockId::Fire;
+        assert!(matches!(fire.get_hitbox(), BlockHitbox::None));
+        let BlockHitbox::Aabb(ray) = fire.get_ray_hitbox() else {
+            panic!("a fire is aimed at");
+        };
+        assert!(ray.max.y < 0.5, "a small box at the bottom of the cell");
+        assert_eq!(fire.get_break_time(), Some(1));
+        assert_eq!(fire.get_required_tool(), None);
+        assert!(fire.get_drops(10).is_empty());
+        assert!(fire.is_replaceable());
+        assert_eq!(fire.get_visibility(), BlockTransparency::Decoration);
+        assert_eq!(fire.light_emission(), 15);
+        // its last stage of breaking is reached at the first hit, without a division by zero
+        let hit = BlockData {
+            breaking_progress: 1,
+            ..BlockData::new(fire, BlockDirection::Front)
+        };
+        assert_eq!(hit.get_breaking_level(), MAX_BREAKING_LEVEL);
+    }
+
+    #[test]
+    fn gravel_drops_flint_one_time_in_ten() {
+        assert_eq!(
+            BlockId::Gravel.get_drop_table(),
+            vec![(9, ItemId::Gravel, 1), (1, ItemId::Flint, 1)]
+        );
+        let drops = BlockId::Gravel.get_drops(2000);
+        let flint = drops.get(&ItemId::Flint).copied().unwrap_or(0);
+        assert!((100..300).contains(&flint), "{flint} flint in 2000");
+        assert_eq!(drops[&ItemId::Gravel] + flint, 2000);
     }
 
     #[test]
