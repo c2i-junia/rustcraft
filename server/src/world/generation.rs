@@ -34,6 +34,20 @@ const SALT_ROCK_LINE: u64 = 8;
 const SALT_FERN_ROLL: u64 = 9;
 const SALT_SPIKE_ROLL: u64 = 10;
 const SALT_SPIKE_HEIGHT: u64 = 11;
+const SALT_WILLOW_ROLL: u64 = 12;
+const SALT_REED_ROLL: u64 = 13;
+const SALT_PLANT_ROLL: u64 = 14;
+
+/// Willows and reeds stand at most this high above the sea.
+const WILLOW_REACH: i32 = 3;
+const REED_REACH: i32 = 1;
+const WILLOW_CHANCE: f32 = 0.01;
+const REED_CHANCE: f32 = 0.06;
+/// Heather grows on grass from this height.
+const HEATHER_LINE: i32 = 80;
+const HEATHER_CHANCE: f32 = 0.06;
+const MUSHROOM_CHANCE: f32 = 0.006;
+const BERRY_CHANCE: f32 = 0.004;
 /// Each of the two branches of a big tree uses 4 consecutive salts from here.
 const SALT_BRANCH: u64 = 0x100;
 /// One salt per leaf of the 5x5x3 crown, from here.
@@ -94,15 +108,20 @@ enum Decoration {
     Bush,
     GiantTree,
     IceSpike,
+    Willow,
+    Acacia,
+    Reed,
 }
 
 impl Decoration {
     /// The highest block the decoration may reach above the surface of its column.
     fn height(&self) -> i32 {
         match self {
-            Decoration::Flower(_) | Decoration::TallGrass | Decoration::Fern => 1,
+            Decoration::Flower(_) | Decoration::TallGrass | Decoration::Fern | Decoration::Reed => {
+                1
+            }
             // a trunk of up to 5 logs, whose top holds the lowest of the 3 layers of the crown
-            Decoration::Tree => 7,
+            Decoration::Tree | Decoration::Willow | Decoration::Acacia => 7,
             // a 6-log trunk from the block above the surface, its leaves reaching 3 blocks above
             // the top of the trunk (`1 + 6 - 2 + 2 + 2`)
             Decoration::BigTree => 9,
@@ -133,6 +152,8 @@ const BED_PATCH_WAVELENGTH: f64 = 24.0;
 const BED_DEPTH_BIAS: f64 = 0.03;
 const BED_GRAVEL_BELOW: f64 = -0.1;
 const BED_STONE_BELOW: f64 = -0.4;
+/// Patches of clay lie in the sand of the shallows.
+const BED_CLAY_ABOVE: f64 = 0.35;
 const BED_STEEP: i32 = 2;
 /// The salt of the bed patch noise, apart from those of the caves.
 const SALT_BED_PATCHES: u64 = 0x200;
@@ -289,6 +310,8 @@ fn bed_blocks(ground: &Ground) -> (BlockId, BlockId) {
     let score = ground.bed_patch - BED_DEPTH_BIAS * depth as f64;
     if ground.drop > BED_STEEP || score < BED_STONE_BELOW {
         (BlockId::Stone, BlockId::Stone)
+    } else if score > BED_CLAY_ABOVE {
+        (BlockId::Clay, BlockId::Clay)
     } else if score < BED_GRAVEL_BELOW {
         (BlockId::Gravel, BlockId::Gravel)
     } else {
@@ -323,11 +346,23 @@ fn terrain_block(y: i32, column: &Column) -> Option<BlockId> {
 /// same in every chunk.
 fn precedence(block: BlockId) -> u8 {
     match block {
-        BlockId::Dandelion | BlockId::Poppy => 1,
+        BlockId::Dandelion
+        | BlockId::Poppy
+        | BlockId::Heather
+        | BlockId::Mushroom
+        | BlockId::Reed
+        | BlockId::RipeBerryBush => 1,
         BlockId::TallGrass | BlockId::Fern | BlockId::Vine => 2,
-        BlockId::OakLeaves | BlockId::JungleLeaves => 3,
+        BlockId::OakLeaves
+        | BlockId::JungleLeaves
+        | BlockId::WillowLeaves
+        | BlockId::AcaciaLeaves => 3,
         BlockId::Cocoa => 4,
-        BlockId::OakLog | BlockId::JungleLog | BlockId::Cactus => 5,
+        BlockId::OakLog
+        | BlockId::JungleLog
+        | BlockId::WillowLog
+        | BlockId::AcaciaLog
+        | BlockId::Cactus => 5,
         _ => 6,
     }
 }
@@ -398,6 +433,11 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         BlockId::Sand => {
             if random.unit(SALT_CACTUS_ROLL) < flora.cacti {
                 decorations.push(Decoration::Cactus);
+            } else if column.height <= SEA_LEVEL + REED_REACH
+                && !column.def().ground.frozen
+                && random.unit(SALT_REED_ROLL) < REED_CHANCE
+            {
+                decorations.push(Decoration::Reed);
             }
             return decorations;
         }
@@ -410,6 +450,17 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
         // nothing else grows on stone or ice
         BlockId::Grass => {}
         _ => return decorations,
+    }
+
+    let forest = column.def().has_tag(shared::world::biome::tags::FOREST);
+    let hot = column.def().has_tag(shared::world::biome::tags::HOT);
+    let plant_roll = random.unit(SALT_PLANT_ROLL);
+    if column.height >= HEATHER_LINE && plant_roll < HEATHER_CHANCE {
+        decorations.push(Decoration::Flower(BlockId::Heather));
+    } else if forest && !hot && plant_roll > 1.0 - BERRY_CHANCE {
+        decorations.push(Decoration::Flower(BlockId::RipeBerryBush));
+    } else if forest && !hot && plant_roll < MUSHROOM_CHANCE {
+        decorations.push(Decoration::Flower(BlockId::Mushroom));
     }
 
     if random.unit(SALT_FLOWER_ROLL) < flora.flowers {
@@ -446,9 +497,18 @@ fn column_decorations(column: &Column, random: &ColumnRandom) -> Vec<Decoration>
                     Tree::BigOak => Decoration::BigTree,
                     Tree::Jungle => Decoration::JungleTree,
                     Tree::Bush => Decoration::Bush,
+                    Tree::Acacia => Decoration::Acacia,
                 });
-                break;
+                return decorations;
             }
+        }
+        // where no other tree grows, near the water of a temperate land
+        if column.height <= SEA_LEVEL + WILLOW_REACH
+            && !column.def().ground.frozen
+            && !column.def().has_tag(shared::world::biome::tags::HOT)
+            && random.unit(SALT_WILLOW_ROLL) < WILLOW_CHANCE
+        {
+            decorations.push(Decoration::Willow);
         }
     }
     decorations
@@ -544,6 +604,38 @@ fn big_tree_blocks(root: IVec3, random: &ColumnRandom, blocks: &mut Blocks) {
     crown_blocks(IVec3::new(root.x, leaf_start_y + 2, root.z), random, blocks);
 }
 
+/// Every block of the tree a sapling grows into, rooted at `root`.
+pub(super) fn sapling_tree(
+    sapling: BlockId,
+    root: IVec3,
+    seed: u32,
+) -> Vec<(IVec3, BlockId, BlockDirection)> {
+    let random = PositionRandom {
+        seed,
+        coords: [root.x, root.z],
+    };
+    let mut blocks = Blocks::new();
+    if sapling == BlockId::JungleSapling {
+        jungle::jungle_tree_blocks(root, &random, &mut blocks);
+        return blocks;
+    }
+    tree_blocks(root, &random, &mut blocks);
+    let (log, leaves) = match sapling {
+        BlockId::SpruceSapling => (BlockId::SpruceLog, BlockId::SpruceLeaves),
+        BlockId::WillowSapling => (BlockId::WillowLog, BlockId::WillowLeaves),
+        BlockId::AcaciaSapling => (BlockId::AcaciaLog, BlockId::AcaciaLeaves),
+        _ => (BlockId::OakLog, BlockId::OakLeaves),
+    };
+    for (_, block, _) in &mut blocks {
+        *block = if *block == BlockId::OakLog {
+            log
+        } else {
+            leaves
+        };
+    }
+    blocks
+}
+
 /// The highest an ice spike rises above the snow.
 const ICE_SPIKE_HEIGHT: i32 = 10;
 
@@ -587,6 +679,24 @@ fn decoration_blocks(
         Decoration::Flower(flower) => blocks.push((root, flower, BlockDirection::Front)),
         Decoration::TallGrass => blocks.push((root, BlockId::TallGrass, BlockDirection::Front)),
         Decoration::Tree => tree_blocks(root, random, blocks),
+        Decoration::Willow | Decoration::Acacia => {
+            let (log, leaves) = if decoration == Decoration::Willow {
+                (BlockId::WillowLog, BlockId::WillowLeaves)
+            } else {
+                (BlockId::AcaciaLog, BlockId::AcaciaLeaves)
+            };
+            let mut oak = Blocks::new();
+            tree_blocks(root, random, &mut oak);
+            blocks.extend(oak.into_iter().map(|(pos, block, direction)| {
+                let own = if block == BlockId::OakLog {
+                    log
+                } else {
+                    leaves
+                };
+                (pos, own, direction)
+            }));
+        }
+        Decoration::Reed => blocks.push((root, BlockId::Reed, BlockDirection::Front)),
         Decoration::BigTree => big_tree_blocks(root, random, blocks),
         Decoration::Cactus => cactus_blocks(root, random, blocks),
         Decoration::Fern => blocks.push((root, BlockId::Fern, BlockDirection::Front)),
@@ -1218,7 +1328,8 @@ mod tests {
         assert_eq!(bed(20, 0, 0.1), BlockId::Stone);
         // a steep bed is bare whatever the patch
         assert_eq!(bed(2, BED_STEEP + 1, 0.5), BlockId::Stone);
-        assert_eq!(bed(2, BED_STEEP, 0.5), BlockId::Sand);
+        assert_eq!(bed(2, BED_STEEP, 0.5), BlockId::Clay);
+        assert_eq!(bed(2, BED_STEEP, 0.3), BlockId::Sand);
     }
 
     #[test]
@@ -1837,7 +1948,11 @@ mod tests {
                                 BlockId::CoalOre
                                 | BlockId::IronOre
                                 | BlockId::GoldOre
-                                | BlockId::DiamondOre => BlockId::Stone,
+                                | BlockId::DiamondOre
+                                | BlockId::CopperOre
+                                | BlockId::TinOre
+                                | BlockId::Slate
+                                | BlockId::Limestone => BlockId::Stone,
                                 id => id,
                             });
                             // the leaves of a bush may hang over the mouth of a cave beside it

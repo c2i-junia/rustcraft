@@ -192,6 +192,11 @@ fn block_in_reach(world_map: &ChunkMap, position: Vec3, pos: IVec3, id: BlockId)
         && (pos.as_vec3() + HALF_BLOCK).distance(position) <= INTERACTION_DISTANCE
 }
 
+/// Whether `pos` holds a chest or a barrel `in_reach`.
+fn container_in_reach(in_reach: impl Fn(IVec3, BlockId) -> bool, pos: IVec3) -> bool {
+    in_reach(pos, BlockId::Chest) || in_reach(pos, BlockId::Barrel)
+}
+
 /// Whether `pos` holds a furnace, lit or out, `in_reach`.
 fn furnace_in_reach(in_reach: impl Fn(IVec3, BlockId) -> bool, pos: IVec3) -> bool {
     in_reach(pos, BlockId::Furnace) || in_reach(pos, BlockId::LitFurnace)
@@ -244,7 +249,10 @@ pub fn simulate_inventory_actions(
         }
     }
     if let Some(chest) = inventory.open_chest {
-        if !block_in_reach(world_map, position, chest, BlockId::Chest) {
+        if !container_in_reach(
+            |pos, id| block_in_reach(world_map, position, pos, id),
+            chest,
+        ) {
             inventory.open_chest = None;
         }
     }
@@ -483,7 +491,7 @@ fn apply_action(
             }
         }
         InventoryAction::OpenChest(chest) => {
-            if in_reach(chest, BlockId::Chest) {
+            if container_in_reach(in_reach, chest) {
                 inventory.open_chest = Some(chest);
                 inventory.open_table = None;
                 inventory.open_furnace = None;

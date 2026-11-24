@@ -56,7 +56,7 @@ impl Stored for Container {
     const NAME: &'static str = "chest";
 
     fn held_by(id: BlockId) -> bool {
-        id == BlockId::Chest
+        id.is_container()
     }
 
     fn insert_into(chunks: &mut ChunkMap, pos: IVec3, value: Self) {

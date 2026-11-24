@@ -412,10 +412,10 @@ mod tests {
         // The uses of any planks are the recipes of planks, then its burning
         for species in ItemTag::Planks.members() {
             let uses = cards(*species, RecipeTab::Uses);
-            assert_eq!(uses.len(), 8 + 1, "{species:?}");
+            assert_eq!(uses.len(), 14 + 1, "{species:?}");
             assert_eq!(
                 uses,
-                cards(ItemId::OakPlanks, RecipeTab::Uses)[..8]
+                cards(ItemId::OakPlanks, RecipeTab::Uses)[..14]
                     .iter()
                     .copied()
                     .chain([BrowserCard::Fuel {
@@ -438,6 +438,8 @@ mod tests {
                 smelting(ItemId::OakLog, ItemId::Charcoal),
                 smelting(ItemId::SpruceLog, ItemId::Charcoal),
                 smelting(ItemId::JungleLog, ItemId::Charcoal),
+                smelting(ItemId::WillowLog, ItemId::Charcoal),
+                smelting(ItemId::AcaciaLog, ItemId::Charcoal),
             ]
         );
         assert_eq!(
@@ -456,7 +458,7 @@ mod tests {
             matches!(log[0], BrowserCard::Crafting(recipe) if recipe.output.item_id == ItemId::OakPlanks)
         );
         assert_eq!(
-            log[1..],
+            log[2..],
             [
                 smelting(ItemId::OakLog, ItemId::Charcoal),
                 BrowserCard::Fuel {
@@ -515,7 +517,7 @@ mod tests {
         );
         assert_eq!(
             empty_view_message(view(ItemId::SpruceLog, RecipeTab::Recipes)),
-            "Spruce Log is gathered, not crafted. It goes into 3 recipes: see Uses."
+            "Spruce Log is gathered, not crafted. It goes into 4 recipes: see Uses."
         );
         assert_eq!(
             empty_view_message(view(ItemId::Bedrock, RecipeTab::Recipes)),

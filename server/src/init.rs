@@ -279,6 +279,9 @@ fn load_world(
         players_to_save: Vec::new(),
         saved: Some(world_dir(game_folder_paths, world_name)?),
         spawn: spawn_position(world_data.seed.0, &generation),
+        places: crate::world::home::Places::load(&world_dir(game_folder_paths, world_name)?),
+        home: Default::default(),
+        blow_waits: Default::default(),
     };
     cleanup_all_players_from_world(&mut world_map);
 

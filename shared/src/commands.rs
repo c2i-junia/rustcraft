@@ -359,7 +359,16 @@ mod tests {
     #[test]
     fn items_that_start_with_the_word_come_before_those_that_contain_it() {
         let completion = complete("/give LOG", &[]).unwrap();
-        assert_eq!(texts(&completion), ["jungle_log", "oak_log", "spruce_log"]);
+        assert_eq!(
+            texts(&completion),
+            [
+                "acacia_log",
+                "jungle_log",
+                "oak_log",
+                "spruce_log",
+                "willow_log"
+            ]
+        );
         assert_eq!(completion.suggestions[0].matched, 7..10);
         let completion = complete("/give s", &[]).unwrap();
         assert_eq!(
@@ -367,10 +376,10 @@ mod tests {
             [
                 "sand",
                 "sheep_spawn_egg",
+                "sign",
+                "slate",
                 "snow",
-                "snowball",
-                "spruce_log",
-                "spruce_planks"
+                "snowball"
             ]
         );
         // `stone` is a value, the stone tools start with it, and `cobblestone` contains it
@@ -383,7 +392,11 @@ mod tests {
                 "stone_pickaxe",
                 "stone_shovel",
                 "stone_sword",
-                "cobblestone"
+                "cobblestone",
+                "hewn_stone",
+                "hewn_stone_slab",
+                "hewn_stone_stairs",
+                "limestone"
             ]
         );
         assert_eq!(complete("/give", &[]).unwrap().suggestions, []);

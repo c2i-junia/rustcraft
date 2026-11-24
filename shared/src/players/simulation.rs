@@ -1,3 +1,5 @@
+use bevy::math::IVec3;
+
 use crate::{
     messages::PlayerFrameInput,
     players::{
@@ -20,6 +22,9 @@ pub struct ActionsOutcome {
     pub dropped: Vec<ItemStack>,
     /// What the player threw out of its inventory, to throw ahead of it.
     pub thrown: Vec<ItemStack>,
+    /// The signs the player reads, and the bedrolls it lies on.
+    pub signs: Vec<IVec3>,
+    pub bedrolls: Vec<IVec3>,
     /// How many blocks the player fell, when it landed.
     pub fallen: Option<f32>,
 }
@@ -41,6 +46,8 @@ pub fn simulate_player_actions(
         broken: interactions.broken,
         spawned: interactions.spawned,
         dropped: interactions.dropped,
+        signs: interactions.signs,
+        bedrolls: interactions.bedrolls,
         thrown: inventory
             .iter()
             .filter_map(|outcome| outcome.thrown)

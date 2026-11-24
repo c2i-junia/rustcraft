@@ -34,6 +34,17 @@ impl MobKind {
         MobKind::Cat,
     ];
 
+    /// The points of health of a mob of this kind.
+    pub fn health(self) -> u32 {
+        match self {
+            MobKind::Fox | MobKind::Pig | MobKind::Goat | MobKind::Cat => 10,
+            MobKind::Cow => 12,
+            MobKind::Wolf | MobKind::Horse => 16,
+            MobKind::Chicken | MobKind::Rabbit => 4,
+            MobKind::Sheep => 8,
+        }
+    }
+
     /// Width, height and depth of the hitbox, in blocks. It does not turn with the mob, so it
     /// is as wide as it is deep.
     pub fn size(self) -> Vec3 {
@@ -90,6 +101,12 @@ pub struct ServerMob {
     /// Ticks left before the mob does something else. Saves from before it read 0.
     #[serde(default)]
     pub action_ticks: u32,
+    /// The points of health the mob lost.
+    #[serde(default)]
+    pub damage: u32,
+    /// Whether a sheep waits for its wool to grow back.
+    #[serde(default)]
+    pub sheared: bool,
 }
 
 impl ServerMob {
@@ -108,6 +125,8 @@ impl ServerMob {
             velocity: Vec3::ZERO,
             depth: size.z,
             action_ticks: 0,
+            damage: 0,
+            sheared: false,
         }
     }
 

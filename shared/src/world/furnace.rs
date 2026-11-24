@@ -44,7 +44,16 @@ pub fn smelting_result(item: ItemId) -> Option<ItemId> {
         ItemId::IronOre => Some(ItemId::IronIngot),
         ItemId::GoldOre => Some(ItemId::GoldIngot),
         ItemId::DiamondOre => Some(ItemId::Diamond),
-        ItemId::OakLog | ItemId::SpruceLog | ItemId::JungleLog => Some(ItemId::Charcoal),
+        ItemId::OakLog
+        | ItemId::SpruceLog
+        | ItemId::JungleLog
+        | ItemId::WillowLog
+        | ItemId::AcaciaLog => Some(ItemId::Charcoal),
+        ItemId::Clay => Some(ItemId::FiredBrick),
+        ItemId::CopperOre => Some(ItemId::CopperIngot),
+        ItemId::TinOre => Some(ItemId::TinIngot),
+        ItemId::Mushroom => Some(ItemId::RoastMushroom),
+        ItemId::RawMutton => Some(ItemId::RoastMutton),
         _ => None,
     }
 }
@@ -60,12 +69,18 @@ pub fn smelting_inputs(result: ItemId) -> impl Iterator<Item = ItemId> {
 pub fn fuel_ticks(item: ItemId) -> Option<u16> {
     match item {
         ItemId::Coal | ItemId::Charcoal => Some(1600),
+        // 80 items
+        ItemId::CoalBlock => Some(80 * COOK_TICKS),
         ItemId::OakLog
         | ItemId::SpruceLog
         | ItemId::JungleLog
         | ItemId::OakPlanks
         | ItemId::SprucePlanks
         | ItemId::JunglePlanks
+        | ItemId::WillowLog
+        | ItemId::WillowPlanks
+        | ItemId::AcaciaLog
+        | ItemId::AcaciaPlanks
         | ItemId::CraftingTable
         | ItemId::Chest => Some(300),
         ItemId::WoodenPickaxe
@@ -228,7 +243,13 @@ mod tests {
         let inputs = |item| smelting_inputs(item).collect::<Vec<_>>();
         assert_eq!(
             inputs(ItemId::Charcoal),
-            [ItemId::OakLog, ItemId::SpruceLog, ItemId::JungleLog]
+            [
+                ItemId::OakLog,
+                ItemId::SpruceLog,
+                ItemId::JungleLog,
+                ItemId::WillowLog,
+                ItemId::AcaciaLog
+            ]
         );
         assert_eq!(inputs(ItemId::IronIngot), [ItemId::IronOre]);
         assert_eq!(inputs(ItemId::Glass), [ItemId::Sand]);

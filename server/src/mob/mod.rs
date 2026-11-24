@@ -1,4 +1,5 @@
 pub mod behavior;
+pub mod combat;
 
 use std::collections::{HashMap, HashSet};
 

@@ -119,6 +119,8 @@ pub fn register_systems(app: &mut App) {
             world::furnaces::tick_furnaces_system,
             regenerate_health_system,
             pickup_dropped_items_system,
+            world::home::home_system,
+            world::growth::growth_system,
             world::flow::water_flow_system,
             world::weather::weather_system,
         )

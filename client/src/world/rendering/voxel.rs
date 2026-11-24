@@ -1,5 +1,9 @@
 use crate::constants::{GRASS_COLOR, WATER_COLOR};
-use bevy::math::Vec3;
+use bevy::math::bounding::Aabb3d;
+use bevy::math::{IVec3, Vec3};
+use shared::world::blocks::{
+    BEDROLL, CAMPFIRE, DOOR, HANGING_LANTERN, LANTERN, OPEN_DOOR, SIGN, SLAB, STAIR_BACK,
+};
 use shared::world::{BlockData, BlockId, VINE_GAP};
 
 /// Specifies which position in the voxel this face occupies
@@ -216,7 +220,10 @@ impl VoxelShape {
             BlockId::OakLog
             | BlockId::SpruceLog
             | BlockId::JungleLog
+            | BlockId::WillowLog
+            | BlockId::AcaciaLog
             | BlockId::Cactus
+            | BlockId::Barrel
             | BlockId::Chest => {
                 let mut shape = Self::full_cube(block);
                 shape.faces[TOP].texture += "Top";
@@ -236,7 +243,10 @@ impl VoxelShape {
                 shape
             }
             // Like Minecraft's, the needles of the spruce are of one colour everywhere
-            BlockId::OakLeaves | BlockId::JungleLeaves => Self::full_cube(block)
+            BlockId::OakLeaves
+            | BlockId::JungleLeaves
+            | BlockId::WillowLeaves
+            | BlockId::AcaciaLeaves => Self::full_cube(block)
                 .biome_tinted(BiomeTint::Foliage)
                 .swaying(Sway::Whole),
             BlockId::SpruceLeaves => Self::full_cube(block)
@@ -250,8 +260,78 @@ impl VoxelShape {
                 }
                 shape
             }
-            BlockId::Poppy | BlockId::Dandelion => Self::flora(block).swaying(Sway::Top),
+            BlockId::OakSapling
+            | BlockId::SpruceSapling
+            | BlockId::JungleSapling
+            | BlockId::WillowSapling
+            | BlockId::AcaciaSapling
+            | BlockId::BerryBush
+            | BlockId::RipeBerryBush
+            | BlockId::RyeSprout
+            | BlockId::YoungRye
+            | BlockId::RipeRye
+            | BlockId::Poppy
+            | BlockId::Dandelion
+            | BlockId::Reed
+            | BlockId::Heather
+            | BlockId::Mushroom => Self::flora(block).swaying(Sway::Top),
+            id if id.is_stairs() => {
+                let texture = match id {
+                    BlockId::WoodenStairs => "WoodenSlab",
+                    BlockId::HewnStoneStairs => "HewnStone",
+                    _ => "BrickWall",
+                };
+                Self::boxes(texture, &[SLAB, STAIR_BACK])
+            }
+            BlockId::Door => Self::boxed(block, DOOR),
+            BlockId::DoorTop => Self::boxed(block, DOOR),
+            BlockId::OpenDoor => Self::boxes("Door", &[OPEN_DOOR]),
+            BlockId::OpenDoorTop => Self::boxes("DoorTop", &[OPEN_DOOR]),
+            BlockId::Ladder => Self::plate(block),
+            BlockId::Fence => Self::arms(
+                "OakPlanks",
+                6.,
+                10.,
+                &[(7., 9., 6., 9.), (7., 9., 12., 15.)],
+            ),
+            BlockId::GlassPane => Self::arms("Glass", 7., 9., &[(7., 9., 0., 16.)]),
+            BlockId::HangingLantern => Self::boxes("Lantern", &[HANGING_LANTERN]),
+            BlockId::Bedroll => Self::boxed(block, BEDROLL),
+            BlockId::Sign => {
+                let post = Aabb3d {
+                    min: Vec3::new(7., 0., 7.).to_vec3a() / 16.,
+                    max: Vec3::new(9., 8., 9.).to_vec3a() / 16.,
+                };
+                Self::boxes("OakPlanks", &[SIGN, post])
+            }
+            BlockId::UnlitCampfire => Self::boxes("OakLog", &[CAMPFIRE]),
+            BlockId::Campfire => {
+                let mut shape = Self::boxes("OakLog", &[CAMPFIRE]);
+                let mut flame = Self::flora(block);
+                flame.faces[0].texture = "CampfireFlame".into();
+                shape.faces.extend(flame.faces);
+                shape
+            }
+            BlockId::RainCistern | BlockId::FullRainCistern => {
+                let mut shape = Self::full_cube(block);
+                shape.faces[TOP].texture += "Top";
+                for face in shape.faces.iter_mut().skip(BOTTOM) {
+                    face.texture = "RainCistern".into();
+                }
+                shape
+            }
+            BlockId::TilledSoil => {
+                let mut shape = Self::full_cube(block);
+                for face in shape.faces.iter_mut().skip(BOTTOM) {
+                    face.texture = "Dirt".into();
+                }
+                shape
+            }
             BlockId::Torch => Self::torch(block),
+            BlockId::WoodenSlab | BlockId::HewnStoneSlab | BlockId::BrickSlab => {
+                Self::boxed(block, SLAB)
+            }
+            BlockId::Lantern => Self::boxed(block, LANTERN),
             BlockId::TallGrass | BlockId::Fern => Self::flora(block)
                 .biome_tinted(BiomeTint::Grass)
                 .swaying(Sway::Top),
@@ -476,6 +556,70 @@ impl VoxelShape {
             }
         }
         VoxelShape { faces }
+    }
+
+    /// The six faces of `hitbox`, each showing the part of the texture of the block that lies
+    /// over it, as a whole cube would.
+    pub fn boxed(block: &BlockData, hitbox: Aabb3d) -> VoxelShape {
+        Self::boxes(&format!("{:?}", block.id), &[hitbox])
+    }
+
+    /// A post from `from` to `to` sixteenths across the middle of the cell, then for each side
+    /// of `ARM_SIDES` the `arms` that reach to it, each from a side to another and from a height
+    /// to another: `ARM_FACES` faces a box.
+    pub fn arms(texture: &str, from: f32, to: f32, arms: &[(f32, f32, f32, f32)]) -> VoxelShape {
+        let of = |a: [f32; 3], b: [f32; 3]| Aabb3d {
+            min: (Vec3::from(a) / 16.).to_vec3a(),
+            max: (Vec3::from(b) / 16.).to_vec3a(),
+        };
+        let mut hitboxes = vec![of([from, 0., from], [to, 16., to])];
+        for side in 0..4 {
+            for &(near, far, low, high) in arms {
+                hitboxes.push(match side {
+                    0 => of([near, low, 0.], [far, high, from]),
+                    1 => of([near, low, to], [far, high, 16.]),
+                    2 => of([0., low, near], [from, high, far]),
+                    _ => of([to, low, near], [16., high, far]),
+                });
+            }
+        }
+        Self::boxes(texture, &hitboxes)
+    }
+
+    /// The side the face `face_index` of `arms` reaches to, `None` for a face of the post.
+    pub fn arm_side(id: BlockId, face_index: usize) -> Option<IVec3> {
+        let per_side = match id {
+            BlockId::Fence => 12,
+            BlockId::GlassPane => 6,
+            _ => return None,
+        };
+        let sides = [IVec3::NEG_Z, IVec3::Z, IVec3::NEG_X, IVec3::X];
+        Some(sides[face_index.checked_sub(6)? / per_side])
+    }
+
+    /// The faces of each of `hitboxes`, as `boxed`, showing `texture`.
+    pub fn boxes(texture: &str, hitboxes: &[Aabb3d]) -> VoxelShape {
+        let faces = hitboxes
+            .iter()
+            .flat_map(|hitbox| Self::box_faces(texture, *hitbox))
+            .collect();
+        VoxelShape { faces }
+    }
+
+    fn box_faces(texture: &str, hitbox: Aabb3d) -> Vec<Face> {
+        let (from, to) = (Vec3::from(hitbox.min), Vec3::from(hitbox.max));
+        let side = |from: f32, to: f32| [from, 1. - hitbox.max.y, to, 1. - hitbox.min.y];
+        [
+            (Vec3::Y, [from.x, from.z, to.x, to.z]),
+            (Vec3::NEG_Y, [from.x, from.z, to.x, to.z]),
+            (Vec3::NEG_Z, side(from.x, to.x)),
+            (Vec3::Z, side(from.x, to.x)),
+            (Vec3::NEG_X, side(from.z, to.z)),
+            (Vec3::X, side(from.z, to.z)),
+        ]
+        .into_iter()
+        .map(|(normal, uvs)| Face::of_model(texture, from, to, normal, uvs))
+        .collect()
     }
 
     pub fn flora(block: &BlockData) -> VoxelShape {

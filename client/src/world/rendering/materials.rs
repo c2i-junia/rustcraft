@@ -109,13 +109,17 @@ impl WetSurface {
     /// The surface of the block texture called `name`.
     pub fn of(name: &str) -> Self {
         match name {
-            "Glass" | "Ice" | "Snow" | "Torch" | "Water" => Self::Dry,
+            "Glass" | "CampfireFlame" | "Wool" | "Lantern" | "Ice" | "Snow" | "Torch" | "Water" => {
+                Self::Dry
+            }
             _ if name.starts_with("DestroyStage") => Self::Dry,
             "Sand" => Self::Porous,
             "Grass" | "GrassTop" | "GrassSideOverlay" | "Moss" => Self::Grass,
-            "Dirt" => Self::Soil,
-            "TallGrass" | "Fern" | "Dandelion" | "Poppy" | "Vine" | "Cocoa" | "Cactus"
-            | "CactusTop" => Self::Foliage,
+            "Dirt" | "Clay" | "TilledSoil" | "RammedEarth" => Self::Soil,
+            "Reed" | "BerryBush" | "RipeBerryBush" | "RyeSprout" | "YoungRye" | "RipeRye"
+            | "OakSapling" | "SpruceSapling" | "JungleSapling" | "WillowSapling"
+            | "AcaciaSapling" | "Heather" | "Mushroom" | "Thatch" | "TallGrass" | "Fern"
+            | "Dandelion" | "Poppy" | "Vine" | "Cocoa" | "Cactus" | "CactusTop" => Self::Foliage,
             _ if name.ends_with("Leaves") => Self::Foliage,
             _ => Self::Hard,
         }

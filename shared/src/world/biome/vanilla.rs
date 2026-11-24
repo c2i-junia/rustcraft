@@ -271,7 +271,10 @@ pub fn definitions() -> Vec<BiomeDef> {
             tags: vec![tags::HOT.into(), tags::DRY.into()],
             flora: Flora {
                 tall_grass: Chance::flat(0.25),
-                trees: vec![(Tree::Oak, Chance::flat(0.004))],
+                trees: vec![
+                    (Tree::Oak, Chance::flat(0.001)),
+                    (Tree::Acacia, Chance::flat(0.004)),
+                ],
                 ..Flora::default()
             },
             herds: vec![cow(0.05, 2, 4), horse(0.04, 2, 4), goat(0.02, 2, 3)],

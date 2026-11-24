@@ -103,11 +103,76 @@ pub enum ItemId {
     HorseSpawnEgg,
     GoatSpawnEgg,
     CatSpawnEgg,
+    SpruceLeaves,
+    HewnStone,
+    Limestone,
+    Slate,
+    Clay,
+    BrickWall,
+    RammedEarth,
+    Thatch,
+    CoalBlock,
+    CopperOre,
+    TinOre,
+    CopperBlock,
+    TinBlock,
+    BronzeBlock,
+    WillowLog,
+    WillowPlanks,
+    WillowLeaves,
+    AcaciaLog,
+    AcaciaPlanks,
+    AcaciaLeaves,
+    Reed,
+    Heather,
+    Mushroom,
+    WoodenSlab,
+    HewnStoneSlab,
+    BrickSlab,
+    Lantern,
+    FiredBrick,
+    Fiber,
+    Rope,
+    Flint,
+    CopperIngot,
+    TinIngot,
+    BronzeIngot,
+    RoastMushroom,
+    BronzePickaxe,
+    BronzeAxe,
+    BronzeShovel,
+    BronzeHoe,
+    BronzeSword,
+    WoodenStairs,
+    HewnStoneStairs,
+    BrickStairs,
+    Door,
+    Ladder,
+    Fence,
+    GlassPane,
+    OakSapling,
+    SpruceSapling,
+    JungleSapling,
+    WillowSapling,
+    AcaciaSapling,
+    Wool,
+    BerryBush,
+    Bedroll,
+    Barrel,
+    RainCistern,
+    Campfire,
+    Sign,
+    Rye,
+    RyeBread,
+    RawMutton,
+    RoastMutton,
+    Berries,
+    Spear,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 80] = [
+    pub const ALL: [ItemId; 145] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -188,6 +253,71 @@ impl ItemId {
         Self::HorseSpawnEgg,
         Self::GoatSpawnEgg,
         Self::CatSpawnEgg,
+        Self::SpruceLeaves,
+        Self::HewnStone,
+        Self::Limestone,
+        Self::Slate,
+        Self::Clay,
+        Self::BrickWall,
+        Self::RammedEarth,
+        Self::Thatch,
+        Self::CoalBlock,
+        Self::CopperOre,
+        Self::TinOre,
+        Self::CopperBlock,
+        Self::TinBlock,
+        Self::BronzeBlock,
+        Self::WillowLog,
+        Self::WillowPlanks,
+        Self::WillowLeaves,
+        Self::AcaciaLog,
+        Self::AcaciaPlanks,
+        Self::AcaciaLeaves,
+        Self::Reed,
+        Self::Heather,
+        Self::Mushroom,
+        Self::WoodenSlab,
+        Self::HewnStoneSlab,
+        Self::BrickSlab,
+        Self::Lantern,
+        Self::FiredBrick,
+        Self::Fiber,
+        Self::Rope,
+        Self::Flint,
+        Self::CopperIngot,
+        Self::TinIngot,
+        Self::BronzeIngot,
+        Self::RoastMushroom,
+        Self::BronzePickaxe,
+        Self::BronzeAxe,
+        Self::BronzeShovel,
+        Self::BronzeHoe,
+        Self::BronzeSword,
+        Self::WoodenStairs,
+        Self::HewnStoneStairs,
+        Self::BrickStairs,
+        Self::Door,
+        Self::Ladder,
+        Self::Fence,
+        Self::GlassPane,
+        Self::OakSapling,
+        Self::SpruceSapling,
+        Self::JungleSapling,
+        Self::WillowSapling,
+        Self::AcaciaSapling,
+        Self::Wool,
+        Self::BerryBush,
+        Self::Bedroll,
+        Self::Barrel,
+        Self::RainCistern,
+        Self::Campfire,
+        Self::Sign,
+        Self::Rye,
+        Self::RyeBread,
+        Self::RawMutton,
+        Self::RoastMutton,
+        Self::Berries,
+        Self::Spear,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -221,9 +351,41 @@ impl ItemId {
     pub fn get_max_stack(&self) -> u32 {
         match *self {
             Self::Bucket => 16,
-            Self::WaterBucket => 1,
+            Self::WaterBucket | Self::Spear => 1,
             _ if self.tool().is_some() => 1,
             _ => 64,
+        }
+    }
+
+    /// The points of health a blow with the item takes from a mob.
+    pub fn attack_damage(&self) -> u32 {
+        if *self == Self::Spear {
+            return 4;
+        }
+        let Some(tool) = self.tool() else {
+            return 1;
+        };
+        let tier = match tool.tier {
+            ToolTier::Wood | ToolTier::Gold => 0,
+            ToolTier::Stone | ToolTier::Bronze => 1,
+            ToolTier::Iron => 2,
+            ToolTier::Diamond => 3,
+        };
+        match tool.kind {
+            ToolKind::Sword => 4 + tier,
+            ToolKind::Axe => 3 + tier,
+            _ => 2 + tier,
+        }
+    }
+
+    /// The points of health eating the item gives back, two to a heart, if it is eaten.
+    pub fn food_health(&self) -> Option<u32> {
+        match *self {
+            Self::Berries => Some(1),
+            Self::RoastMushroom => Some(2),
+            Self::RyeBread => Some(4),
+            Self::RoastMutton => Some(6),
+            _ => None,
         }
     }
 
@@ -274,6 +436,11 @@ impl ItemId {
             Self::DiamondShovel => (Diamond, Shovel),
             Self::DiamondHoe => (Diamond, Hoe),
             Self::DiamondSword => (Diamond, Sword),
+            Self::BronzePickaxe => (Bronze, Pickaxe),
+            Self::BronzeAxe => (Bronze, Axe),
+            Self::BronzeShovel => (Bronze, Shovel),
+            Self::BronzeHoe => (Bronze, Hoe),
+            Self::BronzeSword => (Bronze, Sword),
             _ => return None,
         };
         Some(Tool {
@@ -303,13 +470,41 @@ impl ItemId {
             | Self::Bedrock
             | Self::IronBlock
             | Self::GoldBlock
-            | Self::DiamondBlock => ItemCategory::Blocks,
+            | Self::DiamondBlock
+            | Self::HewnStone
+            | Self::Limestone
+            | Self::Slate
+            | Self::Clay
+            | Self::BrickWall
+            | Self::RammedEarth
+            | Self::Thatch
+            | Self::CoalBlock
+            | Self::CopperBlock
+            | Self::TinBlock
+            | Self::BronzeBlock
+            | Self::WoodenSlab
+            | Self::HewnStoneSlab
+            | Self::BrickSlab
+            | Self::Lantern
+            | Self::WoodenStairs
+            | Self::HewnStoneStairs
+            | Self::BrickStairs
+            | Self::Door
+            | Self::Ladder
+            | Self::Fence
+            | Self::GlassPane
+            | Self::Wool
+            | Self::Sign => ItemCategory::Blocks,
             Self::OakLog
             | Self::SpruceLog
             | Self::JungleLog
             | Self::OakPlanks
             | Self::SprucePlanks
-            | Self::JunglePlanks => ItemCategory::Wood,
+            | Self::JunglePlanks
+            | Self::WillowLog
+            | Self::WillowPlanks
+            | Self::AcaciaLog
+            | Self::AcaciaPlanks => ItemCategory::Wood,
             Self::OakLeaves
             | Self::JungleLeaves
             | Self::Cactus
@@ -317,8 +512,25 @@ impl ItemId {
             | Self::Poppy
             | Self::TallGrass
             | Self::Fern
-            | Self::Vine => ItemCategory::Nature,
-            Self::CoalOre | Self::IronOre | Self::GoldOre | Self::DiamondOre => ItemCategory::Ores,
+            | Self::Vine
+            | Self::SpruceLeaves
+            | Self::WillowLeaves
+            | Self::AcaciaLeaves
+            | Self::Reed
+            | Self::Heather
+            | Self::Mushroom
+            | Self::OakSapling
+            | Self::SpruceSapling
+            | Self::JungleSapling
+            | Self::WillowSapling
+            | Self::AcaciaSapling
+            | Self::BerryBush => ItemCategory::Nature,
+            Self::CoalOre
+            | Self::IronOre
+            | Self::GoldOre
+            | Self::DiamondOre
+            | Self::CopperOre
+            | Self::TinOre => ItemCategory::Ores,
             Self::Coal
             | Self::Charcoal
             | Self::IronIngot
@@ -326,8 +538,27 @@ impl ItemId {
             | Self::Diamond
             | Self::Stick
             | Self::Snowball
-            | Self::CocoaBeans => ItemCategory::Materials,
-            Self::CraftingTable | Self::Furnace | Self::Chest => ItemCategory::Stations,
+            | Self::CocoaBeans
+            | Self::FiredBrick
+            | Self::Fiber
+            | Self::Rope
+            | Self::Flint
+            | Self::CopperIngot
+            | Self::TinIngot
+            | Self::BronzeIngot
+            | Self::RoastMushroom
+            | Self::Rye
+            | Self::RyeBread
+            | Self::RawMutton
+            | Self::RoastMutton
+            | Self::Berries => ItemCategory::Materials,
+            Self::CraftingTable
+            | Self::Furnace
+            | Self::Chest
+            | Self::Bedroll
+            | Self::Barrel
+            | Self::RainCistern
+            | Self::Campfire => ItemCategory::Stations,
             Self::WoodenPickaxe
             | Self::WoodenAxe
             | Self::WoodenShovel
@@ -354,7 +585,13 @@ impl ItemId {
             | Self::DiamondHoe
             | Self::DiamondSword
             | Self::Bucket
-            | Self::WaterBucket => ItemCategory::Tools,
+            | Self::WaterBucket
+            | Self::BronzePickaxe
+            | Self::BronzeAxe
+            | Self::BronzeShovel
+            | Self::BronzeHoe
+            | Self::BronzeSword
+            | Self::Spear => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -405,6 +642,53 @@ impl ItemId {
             Self::IronBlock => ItemType::Block(BlockId::IronBlock),
             Self::GoldBlock => ItemType::Block(BlockId::GoldBlock),
             Self::DiamondBlock => ItemType::Block(BlockId::DiamondBlock),
+            Self::SpruceLeaves => ItemType::Block(BlockId::SpruceLeaves),
+            Self::HewnStone => ItemType::Block(BlockId::HewnStone),
+            Self::Limestone => ItemType::Block(BlockId::Limestone),
+            Self::Slate => ItemType::Block(BlockId::Slate),
+            Self::Clay => ItemType::Block(BlockId::Clay),
+            Self::BrickWall => ItemType::Block(BlockId::BrickWall),
+            Self::RammedEarth => ItemType::Block(BlockId::RammedEarth),
+            Self::Thatch => ItemType::Block(BlockId::Thatch),
+            Self::CoalBlock => ItemType::Block(BlockId::CoalBlock),
+            Self::CopperOre => ItemType::Block(BlockId::CopperOre),
+            Self::TinOre => ItemType::Block(BlockId::TinOre),
+            Self::CopperBlock => ItemType::Block(BlockId::CopperBlock),
+            Self::TinBlock => ItemType::Block(BlockId::TinBlock),
+            Self::BronzeBlock => ItemType::Block(BlockId::BronzeBlock),
+            Self::WillowLog => ItemType::Block(BlockId::WillowLog),
+            Self::WillowPlanks => ItemType::Block(BlockId::WillowPlanks),
+            Self::WillowLeaves => ItemType::Block(BlockId::WillowLeaves),
+            Self::AcaciaLog => ItemType::Block(BlockId::AcaciaLog),
+            Self::AcaciaPlanks => ItemType::Block(BlockId::AcaciaPlanks),
+            Self::AcaciaLeaves => ItemType::Block(BlockId::AcaciaLeaves),
+            Self::Reed => ItemType::Block(BlockId::Reed),
+            Self::Heather => ItemType::Block(BlockId::Heather),
+            Self::Mushroom => ItemType::Block(BlockId::Mushroom),
+            Self::WoodenSlab => ItemType::Block(BlockId::WoodenSlab),
+            Self::HewnStoneSlab => ItemType::Block(BlockId::HewnStoneSlab),
+            Self::BrickSlab => ItemType::Block(BlockId::BrickSlab),
+            Self::Lantern => ItemType::Block(BlockId::Lantern),
+            Self::WoodenStairs => ItemType::Block(BlockId::WoodenStairs),
+            Self::HewnStoneStairs => ItemType::Block(BlockId::HewnStoneStairs),
+            Self::BrickStairs => ItemType::Block(BlockId::BrickStairs),
+            Self::Door => ItemType::Block(BlockId::Door),
+            Self::Ladder => ItemType::Block(BlockId::Ladder),
+            Self::Fence => ItemType::Block(BlockId::Fence),
+            Self::GlassPane => ItemType::Block(BlockId::GlassPane),
+            Self::OakSapling => ItemType::Block(BlockId::OakSapling),
+            Self::SpruceSapling => ItemType::Block(BlockId::SpruceSapling),
+            Self::JungleSapling => ItemType::Block(BlockId::JungleSapling),
+            Self::WillowSapling => ItemType::Block(BlockId::WillowSapling),
+            Self::AcaciaSapling => ItemType::Block(BlockId::AcaciaSapling),
+            Self::Wool => ItemType::Block(BlockId::Wool),
+            Self::BerryBush => ItemType::Block(BlockId::BerryBush),
+            Self::Bedroll => ItemType::Block(BlockId::Bedroll),
+            Self::Barrel => ItemType::Block(BlockId::Barrel),
+            Self::RainCistern => ItemType::Block(BlockId::RainCistern),
+            Self::Campfire => ItemType::Block(BlockId::Campfire),
+            Self::Sign => ItemType::Block(BlockId::Sign),
+            Self::Rye => ItemType::Block(BlockId::RyeSprout),
 
             Self::Snowball
             | Self::Stick
@@ -425,7 +709,20 @@ impl ItemId {
             | Self::Diamond
             | Self::Charcoal
             | Self::Bucket
-            | Self::WaterBucket => ItemType::Generic,
+            | Self::WaterBucket
+            | Self::FiredBrick
+            | Self::Fiber
+            | Self::Rope
+            | Self::Flint
+            | Self::CopperIngot
+            | Self::TinIngot
+            | Self::BronzeIngot
+            | Self::RoastMushroom
+            | Self::RyeBread
+            | Self::RawMutton
+            | Self::RoastMutton
+            | Self::Berries
+            | Self::Spear => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -451,7 +748,12 @@ impl ItemId {
             | Self::DiamondAxe
             | Self::DiamondShovel
             | Self::DiamondHoe
-            | Self::DiamondSword => ItemType::Tool { wear: 0 },
+            | Self::DiamondSword
+            | Self::BronzePickaxe
+            | Self::BronzeAxe
+            | Self::BronzeShovel
+            | Self::BronzeHoe
+            | Self::BronzeSword => ItemType::Tool { wear: 0 },
         }
     }
 }
@@ -508,6 +810,8 @@ pub enum ToolTier {
     Iron,
     Diamond,
     Gold,
+    /// Between stone and iron: it lasts longer than stone and harvests the same blocks.
+    Bronze,
 }
 
 impl ToolTier {
@@ -519,6 +823,7 @@ impl ToolTier {
             Self::Iron => 6,
             Self::Diamond => 8,
             Self::Gold => 12,
+            Self::Bronze => 5,
         }
     }
 
@@ -530,6 +835,7 @@ impl ToolTier {
             Self::Iron => 250,
             Self::Diamond => 1561,
             Self::Gold => 32,
+            Self::Bronze => 190,
         }
     }
 
@@ -538,7 +844,7 @@ impl ToolTier {
     pub fn mining_level(self) -> u8 {
         match self {
             Self::Wood | Self::Gold => 0,
-            Self::Stone => 1,
+            Self::Stone | Self::Bronze => 1,
             Self::Iron => 2,
             Self::Diamond => 3,
         }
@@ -675,6 +981,71 @@ mod tests {
             (ItemId::HorseSpawnEgg, 77),
             (ItemId::GoatSpawnEgg, 78),
             (ItemId::CatSpawnEgg, 79),
+            (ItemId::SpruceLeaves, 80),
+            (ItemId::HewnStone, 81),
+            (ItemId::Limestone, 82),
+            (ItemId::Slate, 83),
+            (ItemId::Clay, 84),
+            (ItemId::BrickWall, 85),
+            (ItemId::RammedEarth, 86),
+            (ItemId::Thatch, 87),
+            (ItemId::CoalBlock, 88),
+            (ItemId::CopperOre, 89),
+            (ItemId::TinOre, 90),
+            (ItemId::CopperBlock, 91),
+            (ItemId::TinBlock, 92),
+            (ItemId::BronzeBlock, 93),
+            (ItemId::WillowLog, 94),
+            (ItemId::WillowPlanks, 95),
+            (ItemId::WillowLeaves, 96),
+            (ItemId::AcaciaLog, 97),
+            (ItemId::AcaciaPlanks, 98),
+            (ItemId::AcaciaLeaves, 99),
+            (ItemId::Reed, 100),
+            (ItemId::Heather, 101),
+            (ItemId::Mushroom, 102),
+            (ItemId::WoodenSlab, 103),
+            (ItemId::HewnStoneSlab, 104),
+            (ItemId::BrickSlab, 105),
+            (ItemId::Lantern, 106),
+            (ItemId::FiredBrick, 107),
+            (ItemId::Fiber, 108),
+            (ItemId::Rope, 109),
+            (ItemId::Flint, 110),
+            (ItemId::CopperIngot, 111),
+            (ItemId::TinIngot, 112),
+            (ItemId::BronzeIngot, 113),
+            (ItemId::RoastMushroom, 114),
+            (ItemId::BronzePickaxe, 115),
+            (ItemId::BronzeAxe, 116),
+            (ItemId::BronzeShovel, 117),
+            (ItemId::BronzeHoe, 118),
+            (ItemId::BronzeSword, 119),
+            (ItemId::WoodenStairs, 120),
+            (ItemId::HewnStoneStairs, 121),
+            (ItemId::BrickStairs, 122),
+            (ItemId::Door, 123),
+            (ItemId::Ladder, 124),
+            (ItemId::Fence, 125),
+            (ItemId::GlassPane, 126),
+            (ItemId::OakSapling, 127),
+            (ItemId::SpruceSapling, 128),
+            (ItemId::JungleSapling, 129),
+            (ItemId::WillowSapling, 130),
+            (ItemId::AcaciaSapling, 131),
+            (ItemId::Wool, 132),
+            (ItemId::BerryBush, 133),
+            (ItemId::Bedroll, 134),
+            (ItemId::Barrel, 135),
+            (ItemId::RainCistern, 136),
+            (ItemId::Campfire, 137),
+            (ItemId::Sign, 138),
+            (ItemId::Rye, 139),
+            (ItemId::RyeBread, 140),
+            (ItemId::RawMutton, 141),
+            (ItemId::RoastMutton, 142),
+            (ItemId::Berries, 143),
+            (ItemId::Spear, 144),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -758,7 +1129,72 @@ mod tests {
                 | ItemId::DiamondHoe
                 | ItemId::DiamondSword
                 | ItemId::Bucket
-                | ItemId::WaterBucket => {}
+                | ItemId::WaterBucket
+                | ItemId::SpruceLeaves
+                | ItemId::HewnStone
+                | ItemId::Limestone
+                | ItemId::Slate
+                | ItemId::Clay
+                | ItemId::BrickWall
+                | ItemId::RammedEarth
+                | ItemId::Thatch
+                | ItemId::CoalBlock
+                | ItemId::CopperOre
+                | ItemId::TinOre
+                | ItemId::CopperBlock
+                | ItemId::TinBlock
+                | ItemId::BronzeBlock
+                | ItemId::WillowLog
+                | ItemId::WillowPlanks
+                | ItemId::WillowLeaves
+                | ItemId::AcaciaLog
+                | ItemId::AcaciaPlanks
+                | ItemId::AcaciaLeaves
+                | ItemId::Reed
+                | ItemId::Heather
+                | ItemId::Mushroom
+                | ItemId::WoodenSlab
+                | ItemId::HewnStoneSlab
+                | ItemId::BrickSlab
+                | ItemId::Lantern
+                | ItemId::FiredBrick
+                | ItemId::Fiber
+                | ItemId::Rope
+                | ItemId::Flint
+                | ItemId::CopperIngot
+                | ItemId::TinIngot
+                | ItemId::BronzeIngot
+                | ItemId::RoastMushroom
+                | ItemId::BronzePickaxe
+                | ItemId::BronzeAxe
+                | ItemId::BronzeShovel
+                | ItemId::BronzeHoe
+                | ItemId::BronzeSword
+                | ItemId::WoodenStairs
+                | ItemId::HewnStoneStairs
+                | ItemId::BrickStairs
+                | ItemId::Door
+                | ItemId::Ladder
+                | ItemId::Fence
+                | ItemId::GlassPane
+                | ItemId::OakSapling
+                | ItemId::SpruceSapling
+                | ItemId::JungleSapling
+                | ItemId::WillowSapling
+                | ItemId::AcaciaSapling
+                | ItemId::Wool
+                | ItemId::BerryBush
+                | ItemId::Bedroll
+                | ItemId::Barrel
+                | ItemId::RainCistern
+                | ItemId::Campfire
+                | ItemId::Sign
+                | ItemId::Rye
+                | ItemId::RyeBread
+                | ItemId::RawMutton
+                | ItemId::RoastMutton
+                | ItemId::Berries
+                | ItemId::Spear => {}
             }
         }
         for (id, expected) in table {
@@ -824,13 +1260,14 @@ mod tests {
     }
 
     #[test]
-    fn the_tiers_are_minecraft_s() {
+    fn the_tiers_keep_their_numbers() {
         for (tier, speed, durability, mining_level) in [
             (ToolTier::Wood, 2, 59, 0),
             (ToolTier::Stone, 4, 131, 1),
             (ToolTier::Iron, 6, 250, 2),
             (ToolTier::Diamond, 8, 1561, 3),
             (ToolTier::Gold, 12, 32, 0),
+            (ToolTier::Bronze, 5, 190, 1),
         ] {
             assert_eq!(
                 (tier.speed(), tier.durability(), tier.mining_level()),
@@ -893,6 +1330,16 @@ mod tests {
                     ItemId::DiamondSword,
                 ],
             ),
+            (
+                ToolTier::Bronze,
+                [
+                    ItemId::BronzePickaxe,
+                    ItemId::BronzeAxe,
+                    ItemId::BronzeShovel,
+                    ItemId::BronzeHoe,
+                    ItemId::BronzeSword,
+                ],
+            ),
         ];
         let kinds = [
             ToolKind::Pickaxe,
@@ -928,7 +1375,7 @@ mod tests {
             assert_eq!(item.get_max_stack(), 1, "{item:?}");
             assert_eq!(item.get_default_type(), ItemType::Tool { wear: 0 });
         }
-        let buckets = [ItemId::Bucket, ItemId::WaterBucket];
+        let buckets = [ItemId::Bucket, ItemId::WaterBucket, ItemId::Spear];
         let others = ItemId::ALL
             .iter()
             .filter(|item| !tools.iter().any(|(t, ..)| t == *item) && !buckets.contains(item));
@@ -1020,7 +1467,7 @@ mod tests {
         }
         // The tools, and the buckets, as Minecraft's "Tools & Utilities"
         for item in ItemId::ALL {
-            let bucket = matches!(item, ItemId::Bucket | ItemId::WaterBucket);
+            let bucket = matches!(item, ItemId::Bucket | ItemId::WaterBucket | ItemId::Spear);
             assert_eq!(
                 item.category() == ItemCategory::Tools,
                 item.tool().is_some() || bucket,

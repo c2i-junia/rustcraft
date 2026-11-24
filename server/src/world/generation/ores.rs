@@ -23,10 +23,12 @@ struct Ore {
     vein: (u64, u64),
     /// Share of the attempts that are veins, the others are clusters.
     veins: f32,
+    /// Whether it only takes plain stone, and never the cell of another ore.
+    only_stone: bool,
 }
 
 /// The commonest first: a rarer ore is placed after, and wins a cell both claim.
-const ORES: [Ore; 4] = [
+const ORES: [Ore; 8] = [
     Ore {
         block: BlockId::CoalOre,
         lowest: 5,
@@ -35,6 +37,7 @@ const ORES: [Ore; 4] = [
         cluster: (6, 14),
         vein: (8, 14),
         veins: 0.2,
+        only_stone: false,
     },
     Ore {
         block: BlockId::IronOre,
@@ -44,6 +47,7 @@ const ORES: [Ore; 4] = [
         cluster: (4, 8),
         vein: (6, 12),
         veins: 0.4,
+        only_stone: false,
     },
     Ore {
         block: BlockId::GoldOre,
@@ -53,6 +57,7 @@ const ORES: [Ore; 4] = [
         cluster: (3, 6),
         vein: (6, 10),
         veins: 0.5,
+        only_stone: false,
     },
     // Deep down, in small clusters only
     Ore {
@@ -63,6 +68,49 @@ const ORES: [Ore; 4] = [
         cluster: (2, 6),
         vein: (0, 0),
         veins: 0.0,
+        only_stone: false,
+    },
+    // Added after the others, whose ranks the worlds depend on: they leave their cells alone
+    Ore {
+        block: BlockId::CopperOre,
+        lowest: 5,
+        highest: 96,
+        attempts: 5,
+        cluster: (5, 10),
+        vein: (6, 12),
+        veins: 0.3,
+        only_stone: true,
+    },
+    Ore {
+        block: BlockId::TinOre,
+        lowest: 5,
+        highest: 64,
+        attempts: 4,
+        cluster: (4, 8),
+        vein: (5, 10),
+        veins: 0.3,
+        only_stone: true,
+    },
+    // Pockets of rock rather than ores
+    Ore {
+        block: BlockId::Slate,
+        lowest: 5,
+        highest: 30,
+        attempts: 12,
+        cluster: (20, 27),
+        vein: (0, 0),
+        veins: 0.0,
+        only_stone: true,
+    },
+    Ore {
+        block: BlockId::Limestone,
+        lowest: 40,
+        highest: 100,
+        attempts: 8,
+        cluster: (20, 27),
+        vein: (0, 0),
+        veins: 0.0,
+        only_stone: true,
     },
 ];
 
@@ -100,7 +148,8 @@ pub(super) fn place_ores(seed: u32, chunk_pos: IVec3, chunk: &mut Chunk) {
                     continue;
                 }
                 let replaced = chunk.get(local).is_some_and(|block| {
-                    block.id == BlockId::Stone || lower_ranks.iter().any(|o| o.block == block.id)
+                    block.id == BlockId::Stone
+                        || !ore.only_stone && lower_ranks.iter().any(|o| o.block == block.id)
                 });
                 if replaced {
                     chunk.set(local, BlockData::new(ore.block, BlockDirection::Front));
@@ -241,7 +290,7 @@ mod tests {
                     .map(|b| b.id);
                 // the ore, a rarer one, or what was not stone
                 let ok = match block.and_then(ore_rank) {
-                    Some(found) => found >= rank,
+                    Some(found) => found >= rank || ore.only_stone,
                     None => block != Some(BlockId::Stone),
                 };
                 assert!(ok, "{:?} at {cell} instead of {:?}", block, ore.block);
@@ -253,7 +302,7 @@ mod tests {
     #[test]
     fn ores_keep_to_their_heights_and_are_as_common_as_meant() {
         let generator = WorldGenerator::new(42);
-        let mut counts = [0usize; 4];
+        let mut counts = [0usize; 8];
         let mut stone = 0usize;
         for x in -2..2 {
             for z in -2..2 {
@@ -279,11 +328,13 @@ mod tests {
             }
         }
         let share = |count: usize| count as f64 / (stone + counts.iter().sum::<usize>()) as f64;
-        let [coal, iron, gold, diamond] = counts.map(share);
+        let [coal, iron, gold, diamond, copper, tin, ..] = counts.map(share);
         assert!((0.005..0.03).contains(&coal), "coal {coal}");
         assert!((0.002..0.015).contains(&iron), "iron {iron}");
         assert!((0.0002..0.003).contains(&gold), "gold {gold}");
         assert!((0.00003..0.001).contains(&diamond), "diamond {diamond}");
+        assert!((0.002..0.03).contains(&copper), "copper {copper}");
+        assert!((0.001..0.02).contains(&tin), "tin {tin}");
         assert!(coal > iron && iron > gold && gold > diamond);
     }
 }

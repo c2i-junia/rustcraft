@@ -65,6 +65,62 @@ pub enum BlockId {
     IronBlock,
     GoldBlock,
     DiamondBlock,
+    HewnStone,
+    Limestone,
+    Slate,
+    Clay,
+    BrickWall,
+    RammedEarth,
+    Thatch,
+    CoalBlock,
+    CopperOre,
+    TinOre,
+    CopperBlock,
+    TinBlock,
+    BronzeBlock,
+    WillowLog,
+    WillowPlanks,
+    WillowLeaves,
+    AcaciaLog,
+    AcaciaPlanks,
+    AcaciaLeaves,
+    Reed,
+    Heather,
+    Mushroom,
+    WoodenSlab,
+    HewnStoneSlab,
+    BrickSlab,
+    Lantern,
+    WoodenStairs,
+    HewnStoneStairs,
+    BrickStairs,
+    Door,
+    DoorTop,
+    OpenDoor,
+    OpenDoorTop,
+    Ladder,
+    Fence,
+    GlassPane,
+    HangingLantern,
+    OakSapling,
+    SpruceSapling,
+    JungleSapling,
+    WillowSapling,
+    AcaciaSapling,
+    Wool,
+    BerryBush,
+    RipeBerryBush,
+    TilledSoil,
+    RyeSprout,
+    YoungRye,
+    RipeRye,
+    Bedroll,
+    Barrel,
+    RainCistern,
+    FullRainCistern,
+    Campfire,
+    UnlitCampfire,
+    Sign,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -123,6 +179,59 @@ const COCOA_POD: Aabb3d = Aabb3d {
     max: Vec3A::new(12.0 / 16.0, 12.0 / 16.0, 9.0 / 16.0),
 };
 
+/// The lower half of its cell.
+pub const SLAB: Aabb3d = Aabb3d {
+    min: Vec3A::ZERO,
+    max: Vec3A::new(1.0, 0.5, 1.0),
+};
+
+/// The box of a lantern standing in the middle of its cell.
+pub const LANTERN: Aabb3d = Aabb3d {
+    min: Vec3A::new(5.0 / 16.0, 0.0, 5.0 / 16.0),
+    max: Vec3A::new(11.0 / 16.0, 10.0 / 16.0, 11.0 / 16.0),
+};
+
+/// The back half of a stair, above its lower half.
+pub const STAIR_BACK: Aabb3d = Aabb3d {
+    min: Vec3A::new(0.0, 0.5, 0.5),
+    max: Vec3A::ONE,
+};
+/// A shut door lies on the front of its cell, an open one on its left.
+pub const DOOR: Aabb3d = Aabb3d {
+    min: Vec3A::ZERO,
+    max: Vec3A::new(1.0, 1.0, 3.0 / 16.0),
+};
+pub const OPEN_DOOR: Aabb3d = Aabb3d {
+    min: Vec3A::ZERO,
+    max: Vec3A::new(3.0 / 16.0, 1.0, 1.0),
+};
+/// Higher than its cell: see `ChunkMap::check_collision_box`.
+pub const FENCE: Aabb3d = Aabb3d {
+    min: Vec3A::ZERO,
+    max: Vec3A::new(1.0, 1.5, 1.0),
+};
+pub const LADDER: Aabb3d = Aabb3d {
+    min: Vec3A::ZERO,
+    max: Vec3A::new(1.0, 1.0, 2.0 / 16.0),
+};
+pub const SIGN: Aabb3d = Aabb3d {
+    min: Vec3A::new(1.0 / 16.0, 0.5, 7.0 / 16.0),
+    max: Vec3A::new(15.0 / 16.0, 15.0 / 16.0, 9.0 / 16.0),
+};
+/// A lantern hung under a block.
+pub const HANGING_LANTERN: Aabb3d = Aabb3d {
+    min: Vec3A::new(5.0 / 16.0, 6.0 / 16.0, 5.0 / 16.0),
+    max: Vec3A::new(11.0 / 16.0, 1.0, 11.0 / 16.0),
+};
+pub const BEDROLL: Aabb3d = Aabb3d {
+    min: Vec3A::new(1.0 / 16.0, 0.0, 0.0),
+    max: Vec3A::new(15.0 / 16.0, 3.0 / 16.0, 1.0),
+};
+pub const CAMPFIRE: Aabb3d = Aabb3d {
+    min: Vec3A::new(1.0 / 16.0, 0.0, 1.0 / 16.0),
+    max: Vec3A::new(15.0 / 16.0, 5.0 / 16.0, 15.0 / 16.0),
+};
+
 /// Data associated with a given `BlockId`
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockData {
@@ -159,6 +268,17 @@ impl BlockData {
     /// for a cocoa pod, its box against the block holding it.
     pub fn get_hitbox(&self) -> BlockHitbox {
         self.turned(self.id.get_hitbox())
+    }
+
+    /// The second collision box of a block made of two, such as a stair.
+    pub fn get_second_hitbox(&self) -> Option<Aabb3d> {
+        if !self.id.is_stairs() {
+            return None;
+        }
+        match self.turned(BlockHitbox::Aabb(STAIR_BACK)) {
+            BlockHitbox::Aabb(hitbox) => Some(hitbox),
+            _ => None,
+        }
     }
 
     /// `hitbox`, the box of a block turned to the front, turned to the direction of this one
@@ -214,7 +334,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 40] = [
+    pub const ALL: [BlockId; 96] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -255,7 +375,127 @@ impl BlockId {
         BlockId::IronBlock,
         BlockId::GoldBlock,
         BlockId::DiamondBlock,
+        BlockId::HewnStone,
+        BlockId::Limestone,
+        BlockId::Slate,
+        BlockId::Clay,
+        BlockId::BrickWall,
+        BlockId::RammedEarth,
+        BlockId::Thatch,
+        BlockId::CoalBlock,
+        BlockId::CopperOre,
+        BlockId::TinOre,
+        BlockId::CopperBlock,
+        BlockId::TinBlock,
+        BlockId::BronzeBlock,
+        BlockId::WillowLog,
+        BlockId::WillowPlanks,
+        BlockId::WillowLeaves,
+        BlockId::AcaciaLog,
+        BlockId::AcaciaPlanks,
+        BlockId::AcaciaLeaves,
+        BlockId::Reed,
+        BlockId::Heather,
+        BlockId::Mushroom,
+        BlockId::WoodenSlab,
+        BlockId::HewnStoneSlab,
+        BlockId::BrickSlab,
+        BlockId::Lantern,
+        BlockId::WoodenStairs,
+        BlockId::HewnStoneStairs,
+        BlockId::BrickStairs,
+        BlockId::Door,
+        BlockId::DoorTop,
+        BlockId::OpenDoor,
+        BlockId::OpenDoorTop,
+        BlockId::Ladder,
+        BlockId::Fence,
+        BlockId::GlassPane,
+        BlockId::HangingLantern,
+        BlockId::OakSapling,
+        BlockId::SpruceSapling,
+        BlockId::JungleSapling,
+        BlockId::WillowSapling,
+        BlockId::AcaciaSapling,
+        BlockId::Wool,
+        BlockId::BerryBush,
+        BlockId::RipeBerryBush,
+        BlockId::TilledSoil,
+        BlockId::RyeSprout,
+        BlockId::YoungRye,
+        BlockId::RipeRye,
+        BlockId::Bedroll,
+        BlockId::Barrel,
+        BlockId::RainCistern,
+        BlockId::FullRainCistern,
+        BlockId::Campfire,
+        BlockId::UnlitCampfire,
+        BlockId::Sign,
     ];
+
+    pub fn is_stairs(&self) -> bool {
+        matches!(
+            *self,
+            Self::WoodenStairs | Self::HewnStoneStairs | Self::BrickStairs
+        )
+    }
+
+    /// Whether this block holds a `Container`.
+    pub fn is_container(&self) -> bool {
+        matches!(*self, Self::Chest | Self::Barrel)
+    }
+
+    /// For a half of a door: the same half once opened or shut, and the step to the other half.
+    pub fn door(&self) -> Option<(BlockId, IVec3)> {
+        match *self {
+            Self::Door => Some((Self::OpenDoor, IVec3::Y)),
+            Self::DoorTop => Some((Self::OpenDoorTop, IVec3::NEG_Y)),
+            Self::OpenDoor => Some((Self::Door, IVec3::Y)),
+            Self::OpenDoorTop => Some((Self::DoorTop, IVec3::NEG_Y)),
+            _ => None,
+        }
+    }
+
+    /// The sapling the leaves sometimes drop.
+    pub fn sapling(&self) -> Option<ItemId> {
+        match *self {
+            Self::OakLeaves => Some(ItemId::OakSapling),
+            Self::SpruceLeaves => Some(ItemId::SpruceSapling),
+            Self::JungleLeaves => Some(ItemId::JungleSapling),
+            Self::WillowLeaves => Some(ItemId::WillowSapling),
+            Self::AcaciaLeaves => Some(ItemId::AcaciaSapling),
+            _ => None,
+        }
+    }
+
+    /// The blocks this one may be planted on, if it only stands on some.
+    pub fn soil(&self) -> Option<&'static [BlockId]> {
+        match *self {
+            Self::RyeSprout => Some(&[Self::TilledSoil]),
+            Self::OakSapling
+            | Self::SpruceSapling
+            | Self::JungleSapling
+            | Self::WillowSapling
+            | Self::AcaciaSapling
+            | Self::BerryBush => Some(&[Self::Dirt, Self::Grass, Self::TilledSoil]),
+            _ => None,
+        }
+    }
+
+    /// The other blocks a fence or a pane reaches out to.
+    pub fn connects_to(&self, other: BlockId) -> bool {
+        other == *self
+            || other.get_visibility() == BlockTransparency::Solid
+            || other == Self::Glass && *self == Self::GlassPane
+    }
+
+    fn low_box(&self) -> Aabb3d {
+        match *self {
+            Self::Bedroll => BEDROLL,
+            Self::Campfire | Self::UnlitCampfire => CAMPFIRE,
+            _ => SLAB,
+        }
+    }
 
     pub fn get_hitbox(&self) -> BlockHitbox {
         match *self {
@@ -265,8 +505,36 @@ impl BlockId {
             | Self::Poppy
             | Self::Dandelion
             | Self::Torch
-            | Self::Vine => BlockHitbox::None,
+            | Self::Vine
+            | Self::Reed
+            | Self::Heather
+            | Self::Mushroom
+            | Self::OakSapling
+            | Self::SpruceSapling
+            | Self::JungleSapling
+            | Self::WillowSapling
+            | Self::AcaciaSapling
+            | Self::BerryBush
+            | Self::RipeBerryBush
+            | Self::RyeSprout
+            | Self::YoungRye
+            | Self::RipeRye
+            | Self::Ladder
+            | Self::Sign => BlockHitbox::None,
+            Self::WoodenSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
+            Self::Lantern => BlockHitbox::Aabb(LANTERN),
             Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
+            Self::WoodenStairs
+            | Self::HewnStoneStairs
+            | Self::BrickStairs
+            | Self::Bedroll
+            | Self::Campfire
+            | Self::UnlitCampfire => BlockHitbox::Aabb(self.low_box()),
+            Self::Door | Self::DoorTop => BlockHitbox::Aabb(DOOR),
+            Self::OpenDoor | Self::OpenDoorTop => BlockHitbox::Aabb(OPEN_DOOR),
+            Self::HangingLantern => BlockHitbox::Aabb(HANGING_LANTERN),
+            // Its arms are too high to be jumped over
+            Self::Fence => BlockHitbox::Aabb(FENCE),
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -274,9 +542,26 @@ impl BlockId {
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
         match *self {
             Self::Water => BlockHitbox::None,
-            Self::TallGrass | Self::Fern | Self::Poppy | Self::Dandelion => BlockHitbox::Aabb(
-                Aabb3d::new(Vec3A::splat(0.5).with_y(0.3), Vec3A::splat(0.3)),
-            ),
+            Self::TallGrass
+            | Self::Fern
+            | Self::Poppy
+            | Self::Dandelion
+            | Self::Reed
+            | Self::Heather
+            | Self::Mushroom
+            | Self::OakSapling
+            | Self::SpruceSapling
+            | Self::JungleSapling
+            | Self::WillowSapling
+            | Self::AcaciaSapling
+            | Self::BerryBush
+            | Self::RipeBerryBush
+            | Self::RyeSprout
+            | Self::YoungRye
+            | Self::RipeRye => BlockHitbox::Aabb(Aabb3d::new(
+                Vec3A::splat(0.5).with_y(0.3),
+                Vec3A::splat(0.3),
+            )),
             // The stick, a little wider to be easier to aim at
             Self::Torch => BlockHitbox::Aabb(Aabb3d::new(
                 Vec3A::new(0.5, 0.3, 0.5),
@@ -288,6 +573,16 @@ impl BlockId {
                 Vec3A::new(0.5, 0.5, VINE_GAP / 2.0),
             )),
             Self::Cocoa => BlockHitbox::Aabb(COCOA_POD),
+            Self::WoodenSlab | Self::HewnStoneSlab | Self::BrickSlab => BlockHitbox::Aabb(SLAB),
+            Self::Lantern => BlockHitbox::Aabb(LANTERN),
+            Self::Bedroll | Self::Campfire | Self::UnlitCampfire => {
+                BlockHitbox::Aabb(self.low_box())
+            }
+            Self::Door | Self::DoorTop => BlockHitbox::Aabb(DOOR),
+            Self::OpenDoor | Self::OpenDoorTop => BlockHitbox::Aabb(OPEN_DOOR),
+            Self::HangingLantern => BlockHitbox::Aabb(HANGING_LANTERN),
+            Self::Ladder => BlockHitbox::Aabb(LADDER),
+            Self::Sign => BlockHitbox::Aabb(SIGN),
             _ => BlockHitbox::FullBlock,
         }
     }
@@ -331,6 +626,62 @@ impl BlockId {
             Self::Cocoa => 2,
             Self::GoldBlock => 15,
             Self::IronBlock | Self::DiamondBlock => 25,
+            Self::HewnStone => 12,
+            Self::Limestone => 8,
+            Self::Slate => 12,
+            Self::Clay => 6,
+            Self::BrickWall => 12,
+            Self::RammedEarth => 8,
+            Self::Thatch => 3,
+            Self::CoalBlock => 15,
+            Self::CopperOre => 13,
+            Self::TinOre => 14,
+            Self::CopperBlock => 18,
+            Self::TinBlock => 18,
+            Self::BronzeBlock => 20,
+            Self::WillowLog => 10,
+            Self::WillowPlanks => 10,
+            Self::WillowLeaves => 2,
+            Self::AcaciaLog => 10,
+            Self::AcaciaPlanks => 10,
+            Self::AcaciaLeaves => 2,
+            Self::Reed => 1,
+            Self::Heather => 1,
+            Self::Mushroom => 1,
+            Self::WoodenSlab => 8,
+            Self::HewnStoneSlab => 10,
+            Self::BrickSlab => 10,
+            Self::Lantern => 4,
+            Self::WoodenStairs => 8,
+            Self::HewnStoneStairs => 8,
+            Self::BrickStairs => 8,
+            Self::Door => 8,
+            Self::DoorTop => 8,
+            Self::OpenDoor => 8,
+            Self::OpenDoorTop => 8,
+            Self::Ladder => 4,
+            Self::Fence => 8,
+            Self::GlassPane => 3,
+            Self::HangingLantern => 4,
+            Self::OakSapling => 1,
+            Self::SpruceSapling => 1,
+            Self::JungleSapling => 1,
+            Self::WillowSapling => 1,
+            Self::AcaciaSapling => 1,
+            Self::Wool => 4,
+            Self::BerryBush => 2,
+            Self::RipeBerryBush => 2,
+            Self::TilledSoil => 5,
+            Self::RyeSprout => 1,
+            Self::YoungRye => 1,
+            Self::RipeRye => 1,
+            Self::Bedroll => 4,
+            Self::Barrel => 10,
+            Self::RainCistern => 10,
+            Self::FullRainCistern => 10,
+            Self::Campfire => 8,
+            Self::UnlitCampfire => 8,
+            Self::Sign => 6,
             Self::Bedrock | Self::Water => return None,
         };
         Some(2 * steps)
@@ -353,6 +704,24 @@ impl BlockId {
                     | Self::IronBlock
                     | Self::GoldBlock
                     | Self::DiamondBlock
+                    | Self::HewnStone
+                    | Self::Limestone
+                    | Self::Slate
+                    | Self::BrickWall
+                    | Self::CoalBlock
+                    | Self::CopperOre
+                    | Self::TinOre
+                    | Self::CopperBlock
+                    | Self::TinBlock
+                    | Self::BronzeBlock
+                    | Self::HewnStoneSlab
+                    | Self::BrickSlab
+                    | Self::Lantern
+                    | Self::HewnStoneStairs
+                    | Self::BrickStairs
+                    | Self::HangingLantern
+                    | Self::RainCistern
+                    | Self::FullRainCistern
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -365,15 +734,43 @@ impl BlockId {
                     | Self::CraftingTable
                     | Self::Chest
                     | Self::Cocoa
+                    | Self::WillowLog
+                    | Self::WillowPlanks
+                    | Self::AcaciaLog
+                    | Self::AcaciaPlanks
+                    | Self::WoodenSlab
+                    | Self::WoodenStairs
+                    | Self::Door
+                    | Self::DoorTop
+                    | Self::OpenDoor
+                    | Self::OpenDoorTop
+                    | Self::Ladder
+                    | Self::Fence
+                    | Self::Barrel
+                    | Self::Campfire
+                    | Self::UnlitCampfire
+                    | Self::Sign
             ),
             ToolKind::Shovel => matches!(
                 *self,
-                Self::Dirt | Self::Grass | Self::Sand | Self::Snow | Self::Gravel
+                Self::Dirt
+                    | Self::Grass
+                    | Self::Sand
+                    | Self::Snow
+                    | Self::Gravel
+                    | Self::Clay
+                    | Self::RammedEarth
+                    | Self::TilledSoil
             ),
             ToolKind::Hoe | ToolKind::Sword => {
                 matches!(
                     *self,
-                    Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves
+                    Self::OakLeaves
+                        | Self::SpruceLeaves
+                        | Self::JungleLeaves
+                        | Self::Thatch
+                        | Self::WillowLeaves
+                        | Self::AcaciaLeaves
                 )
             }
         }
@@ -384,8 +781,25 @@ impl BlockId {
     /// it still goes, but drops nothing.
     pub fn get_required_tool(&self) -> Option<RequiredTool> {
         let level = match *self {
-            Self::Stone | Self::Cobblestone | Self::Furnace | Self::LitFurnace | Self::CoalOre => 0,
-            Self::IronOre | Self::IronBlock => 1,
+            Self::Stone
+            | Self::Cobblestone
+            | Self::Furnace
+            | Self::LitFurnace
+            | Self::CoalOre
+            | Self::HewnStone
+            | Self::Limestone
+            | Self::Slate
+            | Self::BrickWall
+            | Self::CoalBlock
+            | Self::CopperOre
+            | Self::CopperBlock
+            | Self::HewnStoneSlab
+            | Self::BrickSlab
+            | Self::HewnStoneStairs
+            | Self::BrickStairs => 0,
+            Self::IronOre | Self::IronBlock | Self::TinOre | Self::TinBlock | Self::BronzeBlock => {
+                1
+            }
             Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
             _ => return None,
         };
@@ -405,7 +819,7 @@ impl BlockId {
     }
 
     /// What breaking this block `nb_drops` times gives. Each drop is picked at random in the
-    /// drop table; a table of one entry, like every current one, always gives that entry. Only
+    /// drop table; a table of one entry always gives that entry. Only
     /// the server rolls it: the items it drops are what the clients are told of.
     pub fn get_drops(&self, nb_drops: u32) -> HashMap<ItemId, u32> {
         let table = self.get_drop_table();
@@ -437,7 +851,11 @@ impl BlockId {
             BlockId::Ice => vec![(1, ItemId::Ice, 1)],
             BlockId::Dandelion => vec![(1, ItemId::Dandelion, 1)],
             BlockId::Poppy => vec![(1, ItemId::Poppy, 1)],
-            BlockId::TallGrass => vec![(1, ItemId::TallGrass, 1)],
+            BlockId::TallGrass => vec![
+                (3, ItemId::TallGrass, 1),
+                (2, ItemId::Fiber, 1),
+                (1, ItemId::Rye, 1),
+            ],
             BlockId::Fern => vec![(1, ItemId::Fern, 1)],
             BlockId::Vine => vec![(1, ItemId::Vine, 1)],
             BlockId::SpruceLog => vec![(1, ItemId::SpruceLog, 1)],
@@ -454,11 +872,64 @@ impl BlockId {
             BlockId::IronBlock => vec![(1, ItemId::IronBlock, 1)],
             BlockId::GoldBlock => vec![(1, ItemId::GoldBlock, 1)],
             BlockId::DiamondBlock => vec![(1, ItemId::DiamondBlock, 1)],
-            BlockId::Gravel => vec![(1, ItemId::Gravel, 1)],
+            BlockId::Gravel => vec![(9, ItemId::Gravel, 1), (1, ItemId::Flint, 1)],
             BlockId::Torch => vec![(1, ItemId::Torch, 1)],
             BlockId::JungleLog => vec![(1, ItemId::JungleLog, 1)],
             BlockId::JunglePlanks => vec![(1, ItemId::JunglePlanks, 1)],
             BlockId::Cocoa => vec![(1, ItemId::CocoaBeans, 2)],
+            BlockId::HewnStone => vec![(1, ItemId::HewnStone, 1)],
+            BlockId::Limestone => vec![(1, ItemId::Limestone, 1)],
+            BlockId::Slate => vec![(1, ItemId::Slate, 1)],
+            BlockId::Clay => vec![(1, ItemId::Clay, 1)],
+            BlockId::BrickWall => vec![(1, ItemId::BrickWall, 1)],
+            BlockId::RammedEarth => vec![(1, ItemId::RammedEarth, 1)],
+            BlockId::Thatch => vec![(1, ItemId::Thatch, 1)],
+            BlockId::CoalBlock => vec![(1, ItemId::CoalBlock, 1)],
+            BlockId::CopperOre => vec![(1, ItemId::CopperOre, 1)],
+            BlockId::TinOre => vec![(1, ItemId::TinOre, 1)],
+            BlockId::CopperBlock => vec![(1, ItemId::CopperBlock, 1)],
+            BlockId::TinBlock => vec![(1, ItemId::TinBlock, 1)],
+            BlockId::BronzeBlock => vec![(1, ItemId::BronzeBlock, 1)],
+            BlockId::WillowLog => vec![(1, ItemId::WillowLog, 1)],
+            BlockId::WillowPlanks => vec![(1, ItemId::WillowPlanks, 1)],
+            BlockId::AcaciaLog => vec![(1, ItemId::AcaciaLog, 1)],
+            BlockId::AcaciaPlanks => vec![(1, ItemId::AcaciaPlanks, 1)],
+            BlockId::Reed => vec![(1, ItemId::Fiber, 1)],
+            BlockId::Heather => vec![(1, ItemId::Heather, 1)],
+            BlockId::Mushroom => vec![(1, ItemId::Mushroom, 1)],
+            BlockId::WoodenSlab => vec![(1, ItemId::WoodenSlab, 1)],
+            BlockId::HewnStoneSlab => vec![(1, ItemId::HewnStoneSlab, 1)],
+            BlockId::BrickSlab => vec![(1, ItemId::BrickSlab, 1)],
+            BlockId::Lantern => vec![(1, ItemId::Lantern, 1)],
+            BlockId::WoodenStairs => vec![(1, ItemId::WoodenStairs, 1)],
+            BlockId::HewnStoneStairs => vec![(1, ItemId::HewnStoneStairs, 1)],
+            BlockId::BrickStairs => vec![(1, ItemId::BrickStairs, 1)],
+            BlockId::Door => vec![(1, ItemId::Door, 1)],
+            BlockId::DoorTop => vec![(1, ItemId::Door, 1)],
+            BlockId::OpenDoor => vec![(1, ItemId::Door, 1)],
+            BlockId::OpenDoorTop => vec![(1, ItemId::Door, 1)],
+            BlockId::Ladder => vec![(1, ItemId::Ladder, 1)],
+            BlockId::Fence => vec![(1, ItemId::Fence, 1)],
+            BlockId::HangingLantern => vec![(1, ItemId::Lantern, 1)],
+            BlockId::OakSapling => vec![(1, ItemId::OakSapling, 1)],
+            BlockId::SpruceSapling => vec![(1, ItemId::SpruceSapling, 1)],
+            BlockId::JungleSapling => vec![(1, ItemId::JungleSapling, 1)],
+            BlockId::WillowSapling => vec![(1, ItemId::WillowSapling, 1)],
+            BlockId::AcaciaSapling => vec![(1, ItemId::AcaciaSapling, 1)],
+            BlockId::Wool => vec![(1, ItemId::Wool, 1)],
+            BlockId::BerryBush => vec![(1, ItemId::BerryBush, 1)],
+            BlockId::RipeBerryBush => vec![(1, ItemId::BerryBush, 1)],
+            BlockId::TilledSoil => vec![(1, ItemId::Dirt, 1)],
+            BlockId::RyeSprout => vec![(1, ItemId::Rye, 1)],
+            BlockId::YoungRye => vec![(1, ItemId::Rye, 1)],
+            BlockId::RipeRye => vec![(1, ItemId::Rye, 3)],
+            BlockId::Bedroll => vec![(1, ItemId::Bedroll, 1)],
+            BlockId::Barrel => vec![(1, ItemId::Barrel, 1)],
+            BlockId::RainCistern => vec![(1, ItemId::RainCistern, 1)],
+            BlockId::FullRainCistern => vec![(1, ItemId::RainCistern, 1)],
+            BlockId::Campfire => vec![(1, ItemId::Campfire, 1)],
+            BlockId::UnlitCampfire => vec![(1, ItemId::Campfire, 1)],
+            BlockId::Sign => vec![(1, ItemId::Sign, 1)],
             _ => vec![],
         }
     }
@@ -466,7 +937,16 @@ impl BlockId {
     /// Whether a right click on this block uses it, like a crafting table or a chest, instead of
     /// placing a block against it. Sneaking places the block.
     pub fn is_usable(&self) -> bool {
-        matches!(*self, Self::CraftingTable | Self::Chest) || self.is_furnace()
+        matches!(
+            *self,
+            Self::CraftingTable
+                | Self::Chest
+                | Self::Barrel
+                | Self::Sign
+                | Self::Bedroll
+                | Self::RipeBerryBush
+        ) || self.door().is_some()
+            || self.is_furnace()
     }
 
     /// Whether this block is a furnace, lit or out: both hold a `Furnace` and open alike.
@@ -487,10 +967,45 @@ impl BlockId {
             | Self::Fern
             | Self::Torch
             | Self::Vine
-            | Self::Cocoa => BlockTransparency::Decoration,
-            Self::Glass | Self::OakLeaves | Self::SpruceLeaves | Self::JungleLeaves => {
-                BlockTransparency::Transparent
-            }
+            | Self::Cocoa
+            | Self::Reed
+            | Self::Heather
+            | Self::Mushroom
+            | Self::WoodenSlab
+            | Self::HewnStoneSlab
+            | Self::BrickSlab
+            | Self::Lantern
+            | Self::WoodenStairs
+            | Self::HewnStoneStairs
+            | Self::BrickStairs
+            | Self::Door
+            | Self::DoorTop
+            | Self::OpenDoor
+            | Self::OpenDoorTop
+            | Self::Ladder
+            | Self::Fence
+            | Self::GlassPane
+            | Self::HangingLantern
+            | Self::OakSapling
+            | Self::SpruceSapling
+            | Self::JungleSapling
+            | Self::WillowSapling
+            | Self::AcaciaSapling
+            | Self::BerryBush
+            | Self::RipeBerryBush
+            | Self::RyeSprout
+            | Self::YoungRye
+            | Self::RipeRye
+            | Self::Bedroll
+            | Self::Campfire
+            | Self::UnlitCampfire
+            | Self::Sign => BlockTransparency::Decoration,
+            Self::Glass
+            | Self::OakLeaves
+            | Self::SpruceLeaves
+            | Self::JungleLeaves
+            | Self::WillowLeaves
+            | Self::AcaciaLeaves => BlockTransparency::Transparent,
             Self::Water => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
         }
@@ -512,6 +1027,8 @@ impl BlockId {
     pub fn light_emission(&self) -> u8 {
         match *self {
             Self::Torch => 14,
+            Self::Lantern | Self::HangingLantern => 15,
+            Self::Campfire => 13,
             Self::LitFurnace => 13,
             _ => 0,
         }
@@ -537,7 +1054,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 40] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 96] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
@@ -584,7 +1101,63 @@ mod tests {
             | BlockId::DiamondOre
             | BlockId::IronBlock
             | BlockId::GoldBlock
-            | BlockId::DiamondBlock => {}
+            | BlockId::DiamondBlock
+            | BlockId::HewnStone
+            | BlockId::Limestone
+            | BlockId::Slate
+            | BlockId::Clay
+            | BlockId::BrickWall
+            | BlockId::RammedEarth
+            | BlockId::Thatch
+            | BlockId::CoalBlock
+            | BlockId::CopperOre
+            | BlockId::TinOre
+            | BlockId::CopperBlock
+            | BlockId::TinBlock
+            | BlockId::BronzeBlock
+            | BlockId::WillowLog
+            | BlockId::WillowPlanks
+            | BlockId::WillowLeaves
+            | BlockId::AcaciaLog
+            | BlockId::AcaciaPlanks
+            | BlockId::AcaciaLeaves
+            | BlockId::Reed
+            | BlockId::Heather
+            | BlockId::Mushroom
+            | BlockId::WoodenSlab
+            | BlockId::HewnStoneSlab
+            | BlockId::BrickSlab
+            | BlockId::Lantern
+            | BlockId::WoodenStairs
+            | BlockId::HewnStoneStairs
+            | BlockId::BrickStairs
+            | BlockId::Door
+            | BlockId::DoorTop
+            | BlockId::OpenDoor
+            | BlockId::OpenDoorTop
+            | BlockId::Ladder
+            | BlockId::Fence
+            | BlockId::GlassPane
+            | BlockId::HangingLantern
+            | BlockId::OakSapling
+            | BlockId::SpruceSapling
+            | BlockId::JungleSapling
+            | BlockId::WillowSapling
+            | BlockId::AcaciaSapling
+            | BlockId::Wool
+            | BlockId::BerryBush
+            | BlockId::RipeBerryBush
+            | BlockId::TilledSoil
+            | BlockId::RyeSprout
+            | BlockId::YoungRye
+            | BlockId::RipeRye
+            | BlockId::Bedroll
+            | BlockId::Barrel
+            | BlockId::RainCistern
+            | BlockId::FullRainCistern
+            | BlockId::Campfire
+            | BlockId::UnlitCampfire
+            | BlockId::Sign => {}
         }
     }
 
@@ -672,6 +1245,62 @@ mod tests {
                 BlockId::IronBlock => 37,
                 BlockId::GoldBlock => 38,
                 BlockId::DiamondBlock => 39,
+                BlockId::HewnStone => 40,
+                BlockId::Limestone => 41,
+                BlockId::Slate => 42,
+                BlockId::Clay => 43,
+                BlockId::BrickWall => 44,
+                BlockId::RammedEarth => 45,
+                BlockId::Thatch => 46,
+                BlockId::CoalBlock => 47,
+                BlockId::CopperOre => 48,
+                BlockId::TinOre => 49,
+                BlockId::CopperBlock => 50,
+                BlockId::TinBlock => 51,
+                BlockId::BronzeBlock => 52,
+                BlockId::WillowLog => 53,
+                BlockId::WillowPlanks => 54,
+                BlockId::WillowLeaves => 55,
+                BlockId::AcaciaLog => 56,
+                BlockId::AcaciaPlanks => 57,
+                BlockId::AcaciaLeaves => 58,
+                BlockId::Reed => 59,
+                BlockId::Heather => 60,
+                BlockId::Mushroom => 61,
+                BlockId::WoodenSlab => 62,
+                BlockId::HewnStoneSlab => 63,
+                BlockId::BrickSlab => 64,
+                BlockId::Lantern => 65,
+                BlockId::WoodenStairs => 66,
+                BlockId::HewnStoneStairs => 67,
+                BlockId::BrickStairs => 68,
+                BlockId::Door => 69,
+                BlockId::DoorTop => 70,
+                BlockId::OpenDoor => 71,
+                BlockId::OpenDoorTop => 72,
+                BlockId::Ladder => 73,
+                BlockId::Fence => 74,
+                BlockId::GlassPane => 75,
+                BlockId::HangingLantern => 76,
+                BlockId::OakSapling => 77,
+                BlockId::SpruceSapling => 78,
+                BlockId::JungleSapling => 79,
+                BlockId::WillowSapling => 80,
+                BlockId::AcaciaSapling => 81,
+                BlockId::Wool => 82,
+                BlockId::BerryBush => 83,
+                BlockId::RipeBerryBush => 84,
+                BlockId::TilledSoil => 85,
+                BlockId::RyeSprout => 86,
+                BlockId::YoungRye => 87,
+                BlockId::RipeRye => 88,
+                BlockId::Bedroll => 89,
+                BlockId::Barrel => 90,
+                BlockId::RainCistern => 91,
+                BlockId::FullRainCistern => 92,
+                BlockId::Campfire => 93,
+                BlockId::UnlitCampfire => 94,
+                BlockId::Sign => 95,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1027,8 +1656,23 @@ mod tests {
                 | BlockId::Cobblestone
                 | BlockId::Furnace
                 | BlockId::LitFurnace
-                | BlockId::CoalOre => Some(0),
-                BlockId::IronOre | BlockId::IronBlock => Some(1),
+                | BlockId::CoalOre
+                | BlockId::HewnStone
+                | BlockId::Limestone
+                | BlockId::Slate
+                | BlockId::BrickWall
+                | BlockId::CoalBlock
+                | BlockId::CopperOre
+                | BlockId::CopperBlock
+                | BlockId::HewnStoneSlab
+                | BlockId::BrickSlab
+                | BlockId::HewnStoneStairs
+                | BlockId::BrickStairs => Some(0),
+                BlockId::IronOre
+                | BlockId::IronBlock
+                | BlockId::TinOre
+                | BlockId::TinBlock
+                | BlockId::BronzeBlock => Some(1),
                 BlockId::GoldOre
                 | BlockId::DiamondOre
                 | BlockId::GoldBlock

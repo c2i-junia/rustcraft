@@ -5,6 +5,8 @@ use bevy::math::{IVec3, Vec3};
 use bevy_ecs::resource::Resource;
 
 use super::dropped_items::DroppedItems;
+use super::home::{HomeEvents, Places};
+use crate::mob::combat::BlowWaits;
 use shared::{
     messages::PlayerId,
     players::Player,
@@ -40,6 +42,9 @@ pub struct ServerWorldMap {
     pub saved: Option<PathBuf>,
     /// Where a new player appears, and a dead one comes back (`generation::spawn_position`).
     pub spawn: Vec3,
+    pub places: Places,
+    pub home: HomeEvents,
+    pub blow_waits: BlowWaits,
 }
 
 /// What one client has received of the world.

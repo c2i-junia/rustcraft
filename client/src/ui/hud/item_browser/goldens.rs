@@ -211,13 +211,13 @@ const LOG_USES: ItemView = ItemView {
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_cards_of_the_furnace_have_no_fill_button_nor_tint() {
-    // The planks of the log, its charcoal, its burning
+    // The planks of the log, the campfire it lacks the rest of, its charcoal, its burning
     let mut golden = open_browser((1280, 720), planks_and_logs(), viewing(LOG_USES, &[]));
-    assert_eq!(count::<RecipeCard>(&mut golden).0, 3);
-    assert_eq!(count::<FillGridButton>(&mut golden).0, 1);
-    assert_eq!(count::<MissingTint>(&mut golden).0, 1);
+    assert_eq!(count::<RecipeCard>(&mut golden).0, 4);
+    assert_eq!(count::<FillGridButton>(&mut golden).0, 2);
+    assert_eq!(count::<MissingTint>(&mut golden).0, 7);
     // the log of the planks, the log in and the charcoal out, the log burning
-    assert_eq!(count::<RecipeSlot>(&mut golden).0, 2 + 2 + 1);
+    assert_eq!(count::<RecipeSlot>(&mut golden).0, 2 + 7 + 2 + 1);
 }
 
 #[test]

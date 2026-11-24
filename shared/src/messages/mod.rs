@@ -136,6 +136,8 @@ mod tests {
                 velocity: Vec3::ZERO,
                 depth: 1.0,
                 action_ticks: 0,
+                damage: 0,
+                sheared: false,
             },
         };
         let update = PlayerUpdateEvent {

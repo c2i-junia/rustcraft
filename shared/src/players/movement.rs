@@ -9,7 +9,7 @@ use crate::{
             WATER_EXIT_VELOCITY, WATER_GRAVITY, WATER_SPEED_MULTIPLIER,
         },
     },
-    world::{world_position_to_chunk_position, ChunkMap},
+    world::{world_position_to_chunk_position, BlockId, ChunkMap},
 };
 use bevy::prelude::*;
 
@@ -32,6 +32,12 @@ pub const FALL_LIMIT: f32 = -50.0;
 /// Room left between a player and the block it lands on or bumps into: a box that touches a
 /// cell to the last bit could be read as inside it.
 const CONTACT_GAP: f32 = 1e-3;
+
+/// Speed of a player up or down a ladder, in blocks/s.
+const LADDER_SPEED: f32 = 3.0;
+
+/// How high a player on the ground steps up without jumping, onto a slab or a stair.
+const STEP_HEIGHT: f32 = 0.5 + 2.0 * CONTACT_GAP;
 
 /// Longest vertical move tested at once, in blocks, so that a fast fall cannot cross a block.
 const MAX_VERTICAL_STEP: f32 = 0.5;
@@ -77,6 +83,7 @@ pub fn simulate_player_movement(
         swim(player, world_map, action, direction, delta);
     } else {
         apply_vertical_velocity(player, action, delta);
+        climb(player, world_map, action, direction);
     }
     let landed = move_vertically(player, world_map, delta);
     if !in_liquid {
@@ -157,6 +164,31 @@ fn apply_vertical_velocity(player: &mut Player, action: &PlayerFrameInput, delta
         player.on_ground = false;
     }
     player.velocity.y += GRAVITY * delta / 2.0;
+}
+
+/// On a ladder, a player falls slowly, climbs by jumping or by walking against a block, and
+/// holds on by sneaking.
+fn climb(player: &mut Player, world_map: &ChunkMap, action: &PlayerFrameInput, direction: Vec3) {
+    let feet = player.position - Vec3::Y * (player.height / 2.0 - 0.1);
+    let on_ladder = [feet, player.position].into_iter().any(|point| {
+        world_map
+            .get_block(point.floor().as_ivec3())
+            .is_some_and(|block| block.id == BlockId::Ladder)
+    });
+    if player.is_flying || !on_ladder {
+        return;
+    }
+    player.fall_distance = 0.0;
+    let ahead = player.position + direction.with_y(0.0) * 0.1;
+    let climbs = action.is_pressed(NetworkAction::JumpOrFlyUp)
+        || direction != Vec3::ZERO && check_player_collision(&ahead, player, world_map);
+    if climbs {
+        player.velocity.y = LADDER_SPEED;
+    } else if player.is_sneaking {
+        player.velocity.y = 0.0;
+    } else {
+        player.velocity.y = player.velocity.y.max(-LADDER_SPEED);
+    }
 }
 
 /// The second half of the gravity of the frame, for a player still in the air after its move.
@@ -241,6 +273,17 @@ fn move_vertically(player: &mut Player, world_map: &ChunkMap, delta: f32) -> Opt
         {
             player.fall_distance += (player.position.y - contact).max(0.0);
             player.position.y = contact;
+        } else if falling {
+            // A block lower than its cell, such as a slab: its top is a whole sixteenth
+            let feet = ((new_y - half_height) * 16.0).floor();
+            let top = (1..=8)
+                .map(|step| (feet + step as f32) / 16.0 + half_height + CONTACT_GAP)
+                .take_while(|y| *y <= player.position.y)
+                .find(|y| !check_player_collision(&player.position.with_y(*y), player, world_map));
+            if let Some(top) = top {
+                player.fall_distance += player.position.y - top;
+                player.position.y = top;
+            }
         }
         player.velocity.y = 0.0;
         player.on_ground = falling;
@@ -293,6 +336,15 @@ fn apply_wished_direction(
         let moved = player.position + step * axis;
         if !player.is_flying {
             if check_player_collision(&moved, player, world_map) {
+                let up = moved + Vec3::Y * STEP_HEIGHT;
+                let over = player.position + Vec3::Y * STEP_HEIGHT;
+                if player.on_ground
+                    && step * axis != Vec3::ZERO
+                    && !check_player_collision(&over, player, world_map)
+                    && !check_player_collision(&up, player, world_map)
+                {
+                    player.position = up;
+                }
                 continue;
             }
             let below = moved - Vec3::Y * SNEAK_GROUND_PROBE;
@@ -318,7 +370,7 @@ mod tests {
             game_mode::GameMode,
             PLAYER_HEIGHT,
         },
-        world::{world_position_to_chunk_position, BlockId, Chunk},
+        world::{world_position_to_chunk_position, Chunk},
     };
 
     /// Top surface of the test floor.
@@ -1124,5 +1176,37 @@ mod tests {
         let start = player.position;
         simulate(&mut player, &world, &[NetworkAction::MoveForward], 50);
         assert_eq!(player.position, start);
+    }
+
+    #[test]
+    fn a_player_steps_up_stairs_and_is_stopped_by_a_fence() {
+        use crate::world::{BlockData, BlockDirection};
+        for (id, height) in [(BlockId::WoodenStairs, 1.0), (BlockId::WoodenSlab, 0.5)] {
+            let mut world = flat_world();
+            let mut player = standing_player();
+            let front = player.position.floor().as_ivec3().with_y(FLOOR_TOP as i32);
+            // The back of the stair, its high side, is away from the player, who walks to -Z
+            for dz in 1..4 {
+                let pos = front - IVec3::Z * dz;
+                world.set_block(pos, BlockData::new(id, BlockDirection::Back));
+            }
+            simulate(&mut player, &world, &[NetworkAction::MoveForward], 20);
+            let rise = player.position.y - player.height / 2.0 - FLOOR_TOP;
+            assert!((rise - height).abs() < 0.05, "{id:?}: {rise}");
+        }
+        let mut world = flat_world();
+        let mut player = standing_player();
+        let front = player.position.floor().as_ivec3().with_y(FLOOR_TOP as i32);
+        for dx in -15..15 {
+            let pos = front + IVec3::new(dx, 0, -2);
+            world.set_block(pos, BlockData::new(BlockId::Fence, BlockDirection::Front));
+        }
+        let keys = [NetworkAction::MoveForward, NetworkAction::JumpOrFlyUp];
+        simulate(&mut player, &world, &keys, 200);
+        assert!(
+            player.position.z > (front.z - 1) as f32,
+            "{}",
+            player.position
+        );
     }
 }

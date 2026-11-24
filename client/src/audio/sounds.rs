@@ -41,9 +41,32 @@ impl SoundMaterial {
             | BlockId::Vine
             | BlockId::Dandelion
             | BlockId::Poppy
-            | BlockId::Cactus => Self::Grass,
-            BlockId::Dirt => Self::Dirt,
-            BlockId::Stone
+            | BlockId::Cactus
+            | BlockId::Thatch
+            | BlockId::Reed
+            | BlockId::Heather
+            | BlockId::Mushroom
+            | BlockId::OakSapling
+            | BlockId::SpruceSapling
+            | BlockId::JungleSapling
+            | BlockId::WillowSapling
+            | BlockId::AcaciaSapling
+            | BlockId::Wool
+            | BlockId::BerryBush
+            | BlockId::RipeBerryBush
+            | BlockId::RyeSprout
+            | BlockId::YoungRye
+            | BlockId::RipeRye
+            | BlockId::Bedroll => Self::Grass,
+            BlockId::Dirt | BlockId::Clay | BlockId::RammedEarth | BlockId::TilledSoil => {
+                Self::Dirt
+            }
+            BlockId::HewnStoneStairs
+            | BlockId::BrickStairs
+            | BlockId::HangingLantern
+            | BlockId::RainCistern
+            | BlockId::FullRainCistern
+            | BlockId::Stone
             | BlockId::Cobblestone
             | BlockId::Bedrock
             | BlockId::Debug
@@ -55,7 +78,20 @@ impl SoundMaterial {
             | BlockId::DiamondOre
             | BlockId::IronBlock
             | BlockId::GoldBlock
-            | BlockId::DiamondBlock => Self::Stone,
+            | BlockId::DiamondBlock
+            | BlockId::HewnStone
+            | BlockId::Limestone
+            | BlockId::Slate
+            | BlockId::BrickWall
+            | BlockId::CoalBlock
+            | BlockId::CopperOre
+            | BlockId::TinOre
+            | BlockId::CopperBlock
+            | BlockId::TinBlock
+            | BlockId::BronzeBlock
+            | BlockId::HewnStoneSlab
+            | BlockId::BrickSlab
+            | BlockId::Lantern => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -65,11 +101,31 @@ impl SoundMaterial {
             | BlockId::CraftingTable
             | BlockId::Chest
             | BlockId::Torch
-            | BlockId::Cocoa => Self::Wood,
-            BlockId::OakLeaves | BlockId::SpruceLeaves | BlockId::JungleLeaves => Self::Leaves,
+            | BlockId::Cocoa
+            | BlockId::WillowLog
+            | BlockId::WillowPlanks
+            | BlockId::AcaciaLog
+            | BlockId::AcaciaPlanks
+            | BlockId::WoodenSlab
+            | BlockId::WoodenStairs
+            | BlockId::Door
+            | BlockId::DoorTop
+            | BlockId::OpenDoor
+            | BlockId::OpenDoorTop
+            | BlockId::Ladder
+            | BlockId::Fence
+            | BlockId::Barrel
+            | BlockId::Campfire
+            | BlockId::UnlitCampfire
+            | BlockId::Sign => Self::Wood,
+            BlockId::OakLeaves
+            | BlockId::SpruceLeaves
+            | BlockId::JungleLeaves
+            | BlockId::WillowLeaves
+            | BlockId::AcaciaLeaves => Self::Leaves,
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
-            BlockId::Glass | BlockId::Ice => Self::Glass,
+            BlockId::Glass | BlockId::Ice | BlockId::GlassPane => Self::Glass,
             BlockId::Water => return None,
         })
     }

@@ -1263,8 +1263,10 @@ mod tests {
         assert_eq!(at(999), ItemId::OakPlanks);
         assert_eq!(at(1000), ItemId::SprucePlanks);
         assert_eq!(at(2500), ItemId::JunglePlanks);
-        assert_eq!(at(3000), ItemId::OakPlanks);
-        assert_eq!(at(7200), ItemId::SprucePlanks);
+        assert_eq!(at(3000), ItemId::WillowPlanks);
+        assert_eq!(at(4000), ItemId::AcaciaPlanks);
+        assert_eq!(at(5000), ItemId::OakPlanks);
+        assert_eq!(at(11200), ItemId::SprucePlanks);
     }
 
     #[test]
@@ -1313,7 +1315,7 @@ mod tests {
         );
         assert_eq!(
             shown_after(&mut world, 1000),
-            [ItemId::OakPlanks, ItemId::OakPlanks, ItemId::Stick]
+            [ItemId::WillowPlanks, ItemId::WillowPlanks, ItemId::Stick]
         );
     }
 }

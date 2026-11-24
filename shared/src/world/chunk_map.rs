@@ -2,6 +2,7 @@ use bevy_platform::collections::{HashMap, HashSet};
 
 use bevy::math::{bounding::Aabb3d, IVec3, Vec3};
 
+use crate::world::blocks::FENCE;
 use crate::world::{
     global_block_to_chunk_pos, to_local_pos, BlockData, BlockHitbox, BlockId, BlockTransparency,
     Chunk, Container, Furnace,
@@ -124,7 +125,7 @@ impl ChunkMap {
         }
         chunk.set(local, block);
         self.changed.insert(pos);
-        if block.id != BlockId::Chest {
+        if !block.id.is_container() {
             self.containers.take(pos);
         }
         // A furnace that lights or goes out keeps what it holds
@@ -161,7 +162,7 @@ impl ChunkMap {
     pub fn insert_container(&mut self, pos: IVec3, container: Container) {
         if self
             .get_block(pos)
-            .is_some_and(|block| block.id == BlockId::Chest)
+            .is_some_and(|block| block.id.is_container())
         {
             self.containers.values.insert(pos, container);
         }
@@ -270,24 +271,36 @@ impl ChunkMap {
 
     /// Whether `hitbox` overlaps the hitbox of a block.
     pub fn check_collision_box(&self, hitbox: &Aabb3d) -> bool {
-        cells_overlapped(hitbox).any(|pos| {
-            let Some(block) = self.get_block(pos) else {
-                return false;
-            };
-            match block.get_hitbox() {
-                BlockHitbox::FullBlock => true,
-                BlockHitbox::None => false,
-                BlockHitbox::Aabb(block_hitbox) => {
-                    // The block's box is relative to its cell
-                    let cell = pos.as_vec3a();
-                    let min = hitbox.min.max(block_hitbox.min + cell);
-                    let max = hitbox.max.min(block_hitbox.max + cell);
-
-                    // The two boxes overlap when their intersection is not empty
+        // A fence of the cell below reaches into the lowest cells
+        let mut feet = *hitbox;
+        feet.min.y -= 1.0;
+        feet.max.y = feet.min.y;
+        let fence = cells_overlapped(&feet).any(|pos| {
+            self.get_block(pos)
+                .is_some_and(|block| block.id == BlockId::Fence)
+                && hitbox.min.y <= pos.y as f32 + FENCE.max.y
+        });
+        fence
+            || cells_overlapped(hitbox).any(|pos| {
+                let Some(block) = self.get_block(pos) else {
+                    return false;
+                };
+                let cell = pos.as_vec3a();
+                let overlaps = |part: Aabb3d| {
+                    let min = hitbox.min.max(part.min + cell);
+                    let max = hitbox.max.min(part.max + cell);
                     min.cmple(max).all()
+                };
+                if block.get_second_hitbox().is_some_and(overlaps) {
+                    return true;
                 }
-            }
-        })
+                match block.get_hitbox() {
+                    BlockHitbox::FullBlock => true,
+                    BlockHitbox::None => false,
+                    // Its box is relative to its cell
+                    BlockHitbox::Aabb(block_hitbox) => overlaps(block_hitbox),
+                }
+            })
     }
 
     /// Whether `hitbox` overlaps a cell that holds a liquid.

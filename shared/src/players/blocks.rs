@@ -2,11 +2,11 @@
 
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
-    players::{movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
+    players::{game_mode::MAX_HEALTH, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
-        global_block_to_chunk_pos, liquid::is_source, raycast, BlockData, BlockDirection, BlockId,
-        BlockTransparency, ChunkMap, Container, FaceDirectionExt, Furnace, ItemId, ItemStack,
-        ItemType, MobKind, RaycastResponse, ServerMob, Tool,
+        furnace::smelting_result, global_block_to_chunk_pos, liquid::is_source, raycast, BlockData,
+        BlockDirection, BlockId, BlockTransparency, ChunkMap, Container, FaceDirectionExt, Furnace,
+        ItemId, ItemStack, ItemType, MobKind, RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -64,6 +64,10 @@ enum Refusal {
     UsesBlock(BlockId),
     /// A vine hangs on the side of a block, never on its top or bottom.
     NotASide,
+    /// The player has all its health, and eats nothing.
+    NotHurt,
+    /// The block only stands on a soil that is not there.
+    NoSoil(BlockId),
     /// An empty bucket fills only from a water source.
     NotASource(BlockId),
 }
@@ -114,6 +118,9 @@ pub struct BlockInteractions {
     pub spawned: Vec<SpawnedMob>,
     /// The water bucket a player filled and had no room for: the server drops it.
     pub dropped: Vec<ItemStack>,
+    /// The signs a player reads, and the bedrolls it lies on.
+    pub signs: Vec<IVec3>,
+    pub bedrolls: Vec<IVec3>,
 }
 
 /// Breaks and places the blocks `action` asks for, or uses a spawn egg or a bucket, and returns
@@ -127,6 +134,7 @@ pub fn simulate_player_block_interactions(
     let mut broken = Vec::new();
     let mut spawned = Vec::new();
     let mut dropped = Vec::new();
+    let (mut signs, mut bedrolls) = (Vec::new(), Vec::new());
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
     let hits = mining_hits(player, action);
@@ -139,6 +147,19 @@ pub fn simulate_player_block_interactions(
                 break_block(player, world_map, action, hits).map(|block| broken.extend(block)),
             ),
             NetworkAction::RightClick if !may_place => continue,
+            NetworkAction::RightClick
+                if use_block(
+                    player,
+                    world_map,
+                    action,
+                    &mut dropped,
+                    &mut signs,
+                    &mut bedrolls,
+                ) =>
+            {
+                player.place_wait_ms = UNTIL_RELEASED_MS;
+                continue;
+            }
             NetworkAction::RightClick => match held_item(player, action) {
                 Some(ItemId::Bucket) => (
                     "fill a bucket",
@@ -151,6 +172,10 @@ pub fn simulate_player_block_interactions(
                     "pour a bucket",
                     pour_water(player, world_map, action)
                         .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                ),
+                Some(food) if food.food_health().is_some() => (
+                    "eat",
+                    eat(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
                 _ => (
                     "place a block",
@@ -181,6 +206,8 @@ pub fn simulate_player_block_interactions(
         broken,
         spawned,
         dropped,
+        signs,
+        bedrolls,
     }
 }
 
@@ -318,6 +345,16 @@ fn break_block(
     let contents = world_map.take_container(position);
     let furnace = world_map.take_furnace(position);
     world_map.remove_block(position);
+    // The other half of a door goes with it
+    if let Some((_, step)) = block.id.door() {
+        let other = position + step;
+        if world_map
+            .get_block(other)
+            .is_some_and(|half| half.id.door().is_some())
+        {
+            world_map.remove_block(other);
+        }
+    }
     Ok(Some(BrokenBlock {
         position,
         block: block.id,
@@ -325,6 +362,87 @@ fn break_block(
         furnace,
         harvested,
     }))
+}
+
+/// Uses the aimed block, if a right click with the held item changes it: a door, a bush of ripe
+/// berries, a soil and a hoe, a cistern and a bucket, a campfire and what it cooks or what lights
+/// it; or if it is a sign or a bedroll, which the server acts upon. Returns whether it did.
+fn use_block(
+    player: &mut Player,
+    world_map: &mut ChunkMap,
+    action: &PlayerFrameInput,
+    dropped: &mut Vec<ItemStack>,
+    signs: &mut Vec<IVec3>,
+    bedrolls: &mut Vec<IVec3>,
+) -> bool {
+    if action.is_pressed(NetworkAction::SneakOrFlyDown) {
+        return false;
+    }
+    let Ok(target) = aimed_block(player, world_map, action, |target| target.position) else {
+        return false;
+    };
+    let (pos, block) = (target.position, target.block);
+    let become_block = |world_map: &mut ChunkMap, pos: IVec3, id: BlockId| {
+        world_map.set_block(pos, BlockData::new(id, block.direction))
+    };
+    let slot = action.hotbar_slot;
+    let held = held_item(player, action);
+    let mut give = |player: &mut Player, item_id: ItemId, nb: u32| {
+        let stack = ItemStack {
+            item_id,
+            item_type: item_id.get_default_type(),
+            nb,
+        };
+        let left = player.inventory.add_item_to_inventory(stack);
+        if left > 0 {
+            dropped.push(ItemStack { nb: left, ..stack });
+        }
+    };
+    if let Some((turned, step)) = block.id.door() {
+        become_block(world_map, pos, turned);
+        let other = pos + step;
+        let half = world_map.get_block(other).and_then(|half| half.id.door());
+        if let Some((other_turned, _)) = half {
+            become_block(world_map, other, other_turned);
+        }
+        return true;
+    }
+    match (block.id, held) {
+        (BlockId::Sign, _) => signs.push(pos),
+        (BlockId::Bedroll, _) => bedrolls.push(pos),
+        (BlockId::RipeBerryBush, _) => {
+            become_block(world_map, pos, BlockId::BerryBush);
+            give(player, ItemId::Berries, 2);
+        }
+        (BlockId::Dirt | BlockId::Grass, Some(item))
+            if item.tool().is_some_and(|tool| tool.kind == ToolKind::Hoe)
+                && world_map.get_block(pos + IVec3::Y).is_none() =>
+        {
+            become_block(world_map, pos, BlockId::TilledSoil);
+            player.inventory.wear_tool(slot, 1);
+        }
+        (BlockId::FullRainCistern, Some(ItemId::Bucket)) => {
+            become_block(world_map, pos, BlockId::RainCistern);
+            player.inventory.remove_item_from_stack(slot, 1);
+            give(player, ItemId::WaterBucket, 1);
+        }
+        (BlockId::RainCistern, Some(ItemId::WaterBucket)) => {
+            become_block(world_map, pos, BlockId::FullRainCistern);
+            player.inventory.remove_item_from_stack(slot, 1);
+            give(player, ItemId::Bucket, 1);
+        }
+        (BlockId::UnlitCampfire, Some(ItemId::Torch | ItemId::Flint)) => {
+            become_block(world_map, pos, BlockId::Campfire);
+        }
+        (BlockId::Campfire, Some(raw @ (ItemId::RawMutton | ItemId::Mushroom))) => {
+            player.inventory.remove_item_from_stack(slot, 1);
+            if let Some(roast) = smelting_result(raw) {
+                give(player, roast, 1);
+            }
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Refuses a right click on a block that it uses, like a chest, unless the player sneaks.
@@ -407,27 +525,73 @@ fn place_block(
         return refused(Refusal::NotABlock(item.item_type));
     };
 
+    if let Some(soils) = block_id.soil() {
+        let below = world_map.get_block(position - IVec3::Y);
+        if !below.is_some_and(|below| soils.contains(&below.id)) {
+            return refused(Refusal::NoSoil(block_id));
+        }
+    }
+    if block_id == BlockId::Door {
+        let above = position + IVec3::Y;
+        if world_map.get_block(above).is_some()
+            || !world_map.is_chunk_loaded(global_block_to_chunk_pos(&above))
+        {
+            return refused(Refusal::Occupied);
+        }
+        let top = BlockData::new(BlockId::DoorTop, facing(&action.camera));
+        world_map.set_block(above, top);
+    }
+    // A lantern placed under a block hangs from it
+    let hangs = block_id == BlockId::Lantern && target.face.to_ivec3() == IVec3::NEG_Y;
+    let block_id = if hangs {
+        BlockId::HangingLantern
+    } else {
+        block_id
+    };
+
     // A vine is turned toward the block it is placed against, a furnace toward the player
     let direction = match block_id {
-        BlockId::Vine => {
+        BlockId::Vine | BlockId::Ladder => {
             let Some(toward) = BlockDirection::toward(-target.face.to_ivec3()) else {
                 return refused(Refusal::NotASide);
             };
             toward
         }
-        BlockId::Furnace => facing(&action.camera),
+        BlockId::Furnace | BlockId::Door | BlockId::Bedroll | BlockId::Sign => {
+            facing(&action.camera)
+        }
+        id if id.is_stairs() => facing(&action.camera),
         _ => BlockDirection::Front,
     };
 
     player.inventory.remove_item_from_stack(slot, 1);
     world_map.set_block(position, BlockData::new(block_id, direction));
-    if block_id == BlockId::Chest {
+    if block_id.is_container() {
         world_map.insert_container(position, Container::default());
     }
     if block_id == BlockId::Furnace {
         world_map.insert_furnace(position, Furnace::default());
     }
     Ok(None)
+}
+
+/// Eats one of the food held in the selected hotbar slot, which gives health back. It is refused
+/// to a player who has all its health, so that no food is lost.
+fn eat(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
+    let slot = action.hotbar_slot;
+    let refused = |reason| Refused {
+        reason,
+        predicted_at: None,
+    };
+    let health = held_item(player, action)
+        .and_then(|item| item.food_health())
+        .ok_or(refused(Refusal::EmptySlot(slot)))?;
+    if player.health >= MAX_HEALTH {
+        return Err(refused(Refusal::NotHurt));
+    }
+    player.inventory.remove_item_from_stack(slot, 1);
+    player.health = (player.health + health).min(MAX_HEALTH);
+    Ok(())
 }
 
 /// Fills the bucket held in the selected hotbar slot from the water source the player aims at,
@@ -1504,5 +1668,130 @@ mod tests {
         }
         assert_eq!(world.get_block(IN_FRONT), Some(&water(0)));
         assert_eq!(world.get_block(TARGET).unwrap().breaking_progress, 0);
+    }
+}
+
+#[cfg(test)]
+mod food_tests {
+    use super::*;
+
+    #[test]
+    fn food_heals_a_hurt_player_and_is_kept_by_a_healthy_one() {
+        let item = ItemId::RoastMushroom;
+        for (before, after, left) in [
+            (MAX_HEALTH, MAX_HEALTH, 2),
+            (MAX_HEALTH - 1, MAX_HEALTH, 1),
+            (3, 5, 1),
+        ] {
+            let camera = Transform::from_translation(Vec3::splat(0.5));
+            let mut player = Player::new(1, "tester".into(), Vec3::splat(0.5), camera);
+            player.health = before;
+            let stack = ItemStack {
+                item_id: item,
+                item_type: item.get_default_type(),
+                nb: 2,
+            };
+            player.inventory.inner.insert(0, stack);
+            // No block around: food is eaten whatever the player aims at
+            let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+            let input = PlayerFrameInput {
+                delta_ms: HIT_MS,
+                inputs: [NetworkAction::RightClick].into(),
+                camera,
+                ..Default::default()
+            };
+            // Held, the button eats once
+            for _ in 0..10 {
+                simulate_player_block_interactions(
+                    &mut player,
+                    &mut world,
+                    &input,
+                    CallerType::Server,
+                );
+            }
+            assert_eq!(player.health, after);
+            assert_eq!(player.inventory.inner[&0].nb, left);
+        }
+    }
+}
+
+#[cfg(test)]
+mod use_tests {
+    use super::*;
+
+    const AT: IVec3 = IVec3::new(0, 0, -3);
+
+    /// A player looking at `AT`, which holds `block`, with `item` in hand.
+    fn facing_a(block: BlockId, item: Option<ItemId>) -> (Player, ChunkMap) {
+        let camera = Transform::from_translation(Vec3::splat(0.5));
+        let mut player = Player::new(1, "tester".into(), Vec3::splat(0.5), camera);
+        if let Some(item_id) = item {
+            let stack = ItemStack {
+                item_id,
+                item_type: item_id.get_default_type(),
+                nb: 1,
+            };
+            player.inventory.inner.insert(0, stack);
+        }
+        let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        world.set_block(AT, BlockData::new(block, BlockDirection::Back));
+        (player, world)
+    }
+
+    fn click(player: &mut Player, world: &mut ChunkMap, action: NetworkAction) {
+        let input = PlayerFrameInput {
+            delta_ms: 100,
+            inputs: [action].into(),
+            camera: player.camera_transform,
+            ..Default::default()
+        };
+        simulate_player_block_interactions(player, world, &input, CallerType::Server);
+    }
+
+    fn id(world: &ChunkMap, pos: IVec3) -> Option<BlockId> {
+        world.get_block(pos).map(|block| block.id)
+    }
+
+    #[test]
+    fn a_right_click_turns_the_block_into_another() {
+        for (block, item, after) in [
+            (BlockId::RipeBerryBush, None, BlockId::BerryBush),
+            (BlockId::Grass, Some(ItemId::StoneHoe), BlockId::TilledSoil),
+            (
+                BlockId::FullRainCistern,
+                Some(ItemId::Bucket),
+                BlockId::RainCistern,
+            ),
+            (
+                BlockId::UnlitCampfire,
+                Some(ItemId::Flint),
+                BlockId::Campfire,
+            ),
+            (BlockId::Grass, Some(ItemId::StoneAxe), BlockId::Grass),
+        ] {
+            let (mut player, mut world) = facing_a(block, item);
+            // A campfire is low: the player looks down at it
+            player
+                .camera_transform
+                .look_to(Vec3::new(0.0, -0.1, -1.0), Vec3::Y);
+            click(&mut player, &mut world, NetworkAction::RightClick);
+            assert_eq!(id(&world, AT), Some(after), "{block:?}");
+        }
+    }
+
+    #[test]
+    fn both_halves_of_a_door_turn_and_break_together() {
+        let (mut player, mut world) = facing_a(BlockId::Door, None);
+        let top = AT + IVec3::Y;
+        world.set_block(top, BlockData::new(BlockId::DoorTop, BlockDirection::Back));
+        click(&mut player, &mut world, NetworkAction::RightClick);
+        assert_eq!(id(&world, AT), Some(BlockId::OpenDoor));
+        assert_eq!(id(&world, top), Some(BlockId::OpenDoorTop));
+        // An open door lies beside the aim: shut again, it is broken
+        world.set_block(AT, BlockData::new(BlockId::Door, BlockDirection::Back));
+        for _ in 0..40 {
+            click(&mut player, &mut world, NetworkAction::LeftClick);
+        }
+        assert_eq!((id(&world, AT), id(&world, top)), (None, None));
     }
 }

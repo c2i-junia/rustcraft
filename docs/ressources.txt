@@ -80,6 +80,9 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> The textures of the bucket and of the water bucket (items/Bucket.png,
    items/WaterBucket.png), the pack's item/{bucket,water_bucket}.png.
 
+-> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
+-> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.
+
 ---- OTHER ----
 logo : 
 https://textcraft.net/

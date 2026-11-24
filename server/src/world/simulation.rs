@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use crate::{
     init::ServerTime,
+    mob::combat::{self, MobWorld},
     network::extensions::SendGameMessageExtension,
     world::{
         chunk_files::{read_chunk, CHUNKS_DIR},
@@ -301,7 +302,21 @@ pub fn handle_player_inputs_system(
             continue;
         };
 
-        let outcome = simulate_player_actions(player, chunks, &ev.input, CallerType::Server);
+        let mob_world = MobWorld {
+            mobs: &mut world_map.mobs,
+            changed: &mut world_map.changed_mobs,
+            items: dropped_items,
+            chunks,
+            waits: &mut world_map.blow_waits,
+        };
+        let rest = combat::interact(player, &ev.input, mob_world, &mut rng);
+        let input = rest.as_ref().unwrap_or(&ev.input);
+        let outcome = simulate_player_actions(player, chunks, input, CallerType::Server);
+        let home = &mut world_map.home;
+        home.read
+            .extend(outcome.signs.iter().map(|&pos| (ev.client_id, pos)));
+        home.slept
+            .extend(outcome.bedrolls.iter().map(|&pos| (ev.client_id, pos)));
         for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);
         }

@@ -181,6 +181,9 @@ pub(super) fn chat_message(
         let clock = time.0;
         let sky = weather.kind;
         let answer = match parse_command(line) {
+            _ if line.starts_with("sign ") => {
+                crate::world::home::write_sign(world_map, client_id, &line[5..])
+            }
             Ok(command) => run_command(command, time, weather, player, |key, from| {
                 locator.start(client_id, (seed.0, generation), key, from)
             }),
@@ -286,7 +289,10 @@ pub(super) fn set_render_distance(
 
 /// Brings the player of `client_id` back to the spawn, if it is dead.
 pub(super) fn respawn(client_id: ClientId, world_map: &mut ServerWorldMap) {
-    let spawn = world_map.spawn;
+    let Some(player) = world_map.players.get(&client_id) else {
+        return;
+    };
+    let spawn = crate::world::home::respawn_position(world_map, player);
     let Some(player) = world_map.players.get_mut(&client_id) else {
         return;
     };

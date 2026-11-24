@@ -106,7 +106,17 @@ impl DroppedItems {
             .iter()
             .flat_map(|contents| contents.stacks());
         let furnace = broken.furnace.iter().flat_map(|furnace| furnace.stacks());
-        for stack in drops.chain(contents).chain(furnace) {
+        // Leaves sometimes hold a sapling
+        let sapling = broken
+            .block
+            .sapling()
+            .filter(|_| broken.harvested && rng.gen_ratio(1, 12))
+            .map(|item_id| ItemStack {
+                item_id,
+                item_type: item_id.get_default_type(),
+                nb: 1,
+            });
+        for stack in drops.chain(sapling).chain(contents).chain(furnace) {
             let velocity = Vec3::new(
                 rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
                 POP_UPWARD_SPEED,

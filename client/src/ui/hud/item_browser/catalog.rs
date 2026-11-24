@@ -115,24 +115,38 @@ mod tests {
                 ItemId::SpruceLog,
                 ItemId::SprucePlanks,
                 ItemId::JungleLog,
-                ItemId::JunglePlanks
+                ItemId::JunglePlanks,
+                ItemId::WillowLog,
+                ItemId::WillowPlanks,
+                ItemId::AcaciaLog,
+                ItemId::AcaciaPlanks
             ]
         );
     }
 
     #[test]
     fn each_word_of_the_search_must_match_the_name() {
-        assert_eq!(found("sp pl", None), [ItemId::SprucePlanks]);
+        assert_eq!(
+            found("sp pl", None),
+            [ItemId::SprucePlanks, ItemId::SpruceSapling]
+        );
         assert_eq!(
             found("oak", None),
-            [ItemId::OakLog, ItemId::OakPlanks, ItemId::OakLeaves]
+            [
+                ItemId::OakLog,
+                ItemId::OakPlanks,
+                ItemId::OakLeaves,
+                ItemId::OakSapling
+            ]
         );
         assert_eq!(
             found("PLANKS", None),
             [
                 ItemId::OakPlanks,
                 ItemId::SprucePlanks,
-                ItemId::JunglePlanks
+                ItemId::JunglePlanks,
+                ItemId::WillowPlanks,
+                ItemId::AcaciaPlanks
             ]
         );
         assert_eq!(
@@ -141,22 +155,24 @@ mod tests {
                 ItemId::CoalOre,
                 ItemId::IronOre,
                 ItemId::GoldOre,
-                ItemId::DiamondOre
+                ItemId::DiamondOre,
+                ItemId::CopperOre,
+                ItemId::TinOre
             ]
         );
-        assert_eq!(found("", None).len(), 80);
-        assert_eq!(found("  ", None).len(), 80);
+        assert_eq!(found("", None).len(), ItemId::ALL.len());
+        assert_eq!(found("  ", None).len(), ItemId::ALL.len());
         assert!(found("zzz", None).is_empty());
     }
 
     #[test]
     fn a_hash_word_matches_the_category() {
-        assert_eq!(found("#tools", None).len(), 27);
+        assert_eq!(found("#tools", None).len(), 33);
         assert!(found("#tools", None)
             .iter()
             .all(|item| item.category() == Tools));
         assert_eq!(found("#wo", None), found("", Some(Wood)));
-        assert_eq!(found("#", None).len(), 80);
+        assert_eq!(found("#", None).len(), ItemId::ALL.len());
         assert_eq!(found("#ores coal", None), [ItemId::CoalOre]);
         assert!(found("#tools planks", None).is_empty());
     }

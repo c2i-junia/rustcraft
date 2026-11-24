@@ -744,6 +744,13 @@ fn chunk_faces(
             let Some(tile) = *tile else {
                 continue;
             };
+            // An arm of a fence only reaches to what it connects to
+            if let Some(step) = VoxelShape::arm_side(block.id, face_index) {
+                let next = world_map.get_block(block_pos + step);
+                if !next.is_some_and(|next| block.id.connects_to(next.id)) {
+                    continue;
+                }
+            }
             // A side of a turned block lies on the side it is turned to
             let side = face_normal(&face.direction).map(|normal| turn(normal, &block.direction));
             if !should_render_face(&blocks, local_block_pos, side, &visibility) {

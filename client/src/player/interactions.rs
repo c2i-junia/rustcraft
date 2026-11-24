@@ -60,6 +60,21 @@ pub fn handle_block_interactions(
         *view_mode,
         held_item(&player, &frame_inputs.0),
     ) else {
+        // Food is eaten wherever the player looks, and a mob is hit in front of the sky
+        for (button, action) in [
+            (MouseButton::Left, NetworkAction::LeftClick),
+            (MouseButton::Right, NetworkAction::RightClick),
+        ] {
+            if held(button) {
+                frame_inputs.0.inputs.insert(action);
+            }
+        }
+        simulate_player_block_interactions(
+            &mut player,
+            &mut world_map.blocks,
+            &frame_inputs.0,
+            CallerType::Client,
+        );
         return;
     };
 
@@ -84,7 +99,7 @@ pub fn handle_block_interactions(
         .map(|block| block.id)
     {
         Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(target.position)),
-        Some(BlockId::Chest) => Some(InventoryAction::OpenChest(target.position)),
+        Some(BlockId::Chest | BlockId::Barrel) => Some(InventoryAction::OpenChest(target.position)),
         Some(BlockId::Furnace | BlockId::LitFurnace) => {
             Some(InventoryAction::OpenFurnace(target.position))
         }

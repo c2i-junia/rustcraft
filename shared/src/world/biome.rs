@@ -182,6 +182,7 @@ pub enum Tree {
     BigOak,
     Jungle,
     Bush,
+    Acacia,
 }
 
 /// What grows on a biome. The chances are per column.

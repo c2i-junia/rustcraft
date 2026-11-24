@@ -149,6 +149,10 @@ fn step_mob(
         MobAction::Idle | MobAction::Graze => {
             mob.action_ticks = mob.action_ticks.saturating_sub(1);
             if mob.action_ticks == 0 {
+                // What it grazed grows its wool back
+                if mob.action == MobAction::Graze {
+                    mob.sheared = false;
+                }
                 start_walk(mob, chunks, rng);
             }
         }
