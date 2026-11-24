@@ -111,6 +111,23 @@ impl Harness {
         lefts.len()
     }
 
+    /// Scrolls the catalog with the wheel, as a player does, until the slot `locator` finds lies
+    /// whole inside its list: the catalog holds more items than it shows.
+    #[track_caller]
+    fn scroll_to(&mut self, locator: &L) {
+        for _ in 0..60 {
+            let list = self.rect_of(&L::marker::<CatalogList>());
+            let slot = self.rect_of(locator);
+            if list.contains(slot.min) && list.contains(slot.max) {
+                return;
+            }
+            self.hover_at(list.center());
+            self.scroll(if slot.min.y < list.min.y { 1.0 } else { -1.0 });
+            self.frames(2);
+        }
+        panic!("the wheel does not bring {locator:?} into the catalog");
+    }
+
     /// Erases `n` characters before the caret of the focused field.
     fn erase(&mut self, n: usize) {
         for _ in 0..n {
@@ -137,8 +154,8 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
-    assert_eq!(h.item_count(), "80 / 80");
-    assert_eq!(h.shown_items().len(), 80);
+    assert_eq!(h.item_count(), "145 / 145");
+    assert_eq!(h.shown_items().len(), 145);
     assert_eq!(h.catalog_columns(), 8);
     let window = Rect::new(0.0, 0.0, 1280.0, 720.0);
     let browser = h.rect_of(&L::marker::<ItemBrowser>());
@@ -154,12 +171,15 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.click(&search_field());
     h.type_text("sp pl");
     h.frames(1);
-    assert_eq!(h.item_count(), "1 / 80");
-    assert_eq!(h.shown_items(), [ItemId::SprucePlanks]);
+    assert_eq!(h.item_count(), "2 / 145");
+    assert_eq!(
+        h.shown_items(),
+        [ItemId::SprucePlanks, ItemId::SpruceSapling]
+    );
     h.erase(5);
     h.type_text("#tools");
     h.frames(1);
-    assert_eq!(h.item_count(), "27 / 80");
+    assert_eq!(h.item_count(), "33 / 145");
 
     // Nothing matches
     h.type_text("zzz");
@@ -168,35 +188,38 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     assert!(h.shown_items().is_empty());
     h.erase(9);
     h.frames(1);
-    assert_eq!(h.item_count(), "80 / 80");
+    assert_eq!(h.item_count(), "145 / 145");
     assert!(!h.is_visible(&L::text("Esc clears the search.")));
 
     // A chip keeps one category
     h.click(&L::role(Role::Button, "Wood"));
     h.frames(1);
-    assert_eq!(h.item_count(), "6 / 80");
+    assert_eq!(h.item_count(), "10 / 145");
     let wood = h.get(&L::role(Role::Button, "Wood"));
     assert!(h.world().get::<Checked>(wood).is_some());
     h.click(&L::role(Role::Button, "All"));
     h.frames(1);
-    assert_eq!(h.item_count(), "80 / 80");
+    assert_eq!(h.item_count(), "145 / 145");
     assert!(h.world().get::<Checked>(wood).is_none());
 
     // The tooltip names the item and its category
     let tooltip = L::marker::<TooltipRoot>;
+    h.scroll_to(&catalog_slot("Oak Log"));
     h.hover(&catalog_slot("Oak Log"));
     for text in ["Oak Log", "Wood"] {
         h.wait_for(&L::text(text).within(tooltip()), SCREEN);
     }
+    h.scroll_to(&catalog_slot("Wooden Pickaxe"));
     h.hover(&catalog_slot("Wooden Pickaxe"));
     h.wait_for(&L::text("Tools · Tool").within(tooltip()), SCREEN);
 
     // In Survival, a click on an item opens its recipes, and takes nothing; Escape goes back to
     // it
+    h.scroll_to(&catalog_slot("Oak Log"));
     let oak_log = h.get(&catalog_slot("Oak Log"));
     h.click(&catalog_slot("Oak Log"));
     h.wait_for(
-        &L::text("Oak Log is gathered, not crafted. It goes into 3 recipes: see Uses."),
+        &L::text("Oak Log is gathered, not crafted. It goes into 4 recipes: see Uses."),
         SCREEN,
     );
     h.frames(10);
@@ -204,7 +227,7 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     assert_eq!(floating(h.world()), None);
     h.press(KeyCode::Escape);
     h.frames(2);
-    assert!(h.is_visible(&L::text("80 / 80")));
+    assert!(h.is_visible(&L::text("145 / 145")));
     assert_eq!(h.world().resource::<InputFocus>().get(), Some(oak_log));
 
     // The search stays while the inventory is closed
@@ -219,7 +242,7 @@ fn the_item_browser_lists_searches_and_filters_the_items() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     assert_eq!(h.value_of::<ItemSearchField>(), "oak");
-    assert_eq!(h.item_count(), "3 / 80");
+    assert_eq!(h.item_count(), "4 / 145");
 }
 
 #[test]
@@ -388,7 +411,7 @@ fn the_keyboard_reaches_the_item_browser_and_typing_in_it_moves_nothing() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     assert_eq!(focused(&h), Some(h.get(&button("<- Items"))));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("3 / 80"), SCREEN);
+    h.wait_for(&L::text("5 / 145"), SCREEN);
     assert_eq!(focused(&h), Some(oak_planks));
 
     // Tab walks the inventory and the browser, and stays among them
@@ -436,6 +459,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     let tooltip = L::marker::<TooltipRoot>;
 
     // A new player is in Survival: an item craftable now says so, and the keys of the browser
+    h.scroll_to(&catalog_slot("Oak Planks"));
     h.hover(&catalog_slot("Oak Planks"));
     h.wait_for(
         &L::text("You have the ingredients").within(tooltip()),
@@ -455,16 +479,24 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     );
     h.click(&button("Craftable"));
     h.frames(1);
-    assert_eq!(h.item_count(), "3 / 80");
-    let shown = h.shown_items();
-    for item in [ItemId::OakPlanks, ItemId::Stick, ItemId::CraftingTable] {
-        assert!(shown.contains(&item), "{item:?} not in {shown:?}");
-    }
+    assert_eq!(h.item_count(), "5 / 145");
+    // whatever the grid size: the slab and the stairs need the table
+    assert_eq!(
+        h.shown_items(),
+        [
+            ItemId::WoodenSlab,
+            ItemId::WoodenStairs,
+            ItemId::Stick,
+            ItemId::CraftingTable,
+            ItemId::OakPlanks
+        ]
+    );
     h.click(&button("Craftable"));
     h.frames(1);
-    assert_eq!(h.item_count(), "80 / 80");
+    assert_eq!(h.item_count(), "145 / 145");
 
     // A click on an item shows its recipes, with what the inventory lacks
+    h.scroll_to(&catalog_slot("Wooden Pickaxe"));
     h.click(&catalog_slot("Wooden Pickaxe"));
     h.wait_for(&button("Recipes 1"), SCREEN);
     for shown in [
@@ -475,18 +507,18 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     ] {
         assert!(h.is_visible(&shown), "{shown:?}");
     }
-    assert!(!h.is_visible(&L::text("80 / 80")));
+    assert!(!h.is_visible(&L::text("145 / 145")));
 
     // An ingredient shows its recipes, a right click its uses, each going on the history
     let stick = h.first_card_slot("Stick");
     h.click_entity(stick, MouseButton::Left);
     h.wait_for(&button("<- Wooden Pickaxe"), SCREEN);
-    assert!(h.is_visible(&button("Uses 28")));
+    assert!(h.is_visible(&button("Uses 42")));
     let planks = h.first_card_slot("Any Planks");
     h.click_entity(planks, MouseButton::Right);
     h.wait_for(&button("<- Stick"), SCREEN);
     assert!(h.is_visible(&L::text("Uses")));
-    assert!(h.is_visible(&button("Uses 9")));
+    assert!(h.is_visible(&button("Uses 15")));
     // scrolled down, its cards are left at the top of the next view
     let first = h.first_card_slot("Any Planks");
     h.hover_entity(first);
@@ -508,11 +540,12 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.wait_for(&L::text("Burns for 1 item"), SCREEN);
     assert!(h.is_visible(&button("<- Items")));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
     assert!(h.is_visible(&L::marker::<InventoryRoot>()));
     assert!(!h.is_visible(&L::marker::<PauseMenu>()));
 
     // A right click shows the uses; an item without recipe says where it comes from
+    h.scroll_to(&catalog_slot("Cobblestone"));
     h.right_click(&catalog_slot("Cobblestone"));
     h.wait_for(&button("Uses 7"), SCREEN);
     h.click(&button("Recipes 0"));
@@ -524,7 +557,7 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     // `/` leaves the view for the search; then Escape leaves the search, and closes the inventory
     h.type_on(KeyCode::Slash, '/');
     h.frames(2);
-    assert!(h.is_visible(&L::text("80 / 80")));
+    assert!(h.is_visible(&L::text("145 / 145")));
     let field = h.get(&search_field());
     assert_eq!(h.world().resource::<InputFocus>().get(), Some(field));
     h.press(KeyCode::Escape);
@@ -555,12 +588,14 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     // In Creative, no Craftable chip, and a click on an item takes it rather than showing its
     // recipes; a second one gives it back
     assert!(!h.is_visible(&button("Craftable")));
+    h.scroll_to(&catalog_slot("Oak Log"));
     h.click(&catalog_slot("Oak Log"));
     h.wait_until("the logs on the cursor", SCREEN, |w| {
         floating(w) == Some((ItemId::OakLog, 64))
     });
-    assert!(h.is_visible(&L::text("80 / 80")));
+    assert!(h.is_visible(&L::text("145 / 145")));
     assert!(!h.is_visible(&L::marker::<RecipePanel>()));
+    h.scroll_to(&catalog_slot("Oak Log"));
     h.click(&catalog_slot("Oak Log"));
     h.wait_until("an empty cursor", SCREEN, |w| floating(w).is_none());
 
@@ -570,23 +605,24 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     assert!(h.is_visible(&L::text("Oak Planks").within(L::marker::<RecipePanel>())));
     h.press(KeyCode::KeyU);
-    h.wait_for(&button("Uses 9"), SCREEN);
+    h.wait_for(&button("Uses 15"), SCREEN);
     assert!(h.is_visible(&button("<- Oak Planks")));
 
     // R over a slot of a card, and over one of the catalog
     let stick = h.first_card_slot("Stick");
     h.hover_entity(stick);
     h.press(KeyCode::KeyR);
-    h.wait_for(&button("Uses 28"), SCREEN);
+    h.wait_for(&button("Uses 42"), SCREEN);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
+    h.scroll_to(&catalog_slot("Chest"));
     h.hover(&catalog_slot("Chest"));
     h.press(KeyCode::KeyR);
     h.wait_for(&button("Recipes 1"), SCREEN);
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
 
     // In a drawer, U opens the drawer on the uses; Escape then goes back, closes the drawer, and
     // closes the inventory
@@ -595,10 +631,10 @@ fn r_and_u_work_over_any_slot_in_both_modes_and_open_the_drawer() {
     assert!(!h.is_visible(&L::marker::<ItemBrowser>()));
     h.hover(&L::cell(0));
     h.press(KeyCode::KeyU);
-    h.wait_for(&button("Uses 9"), SCREEN);
+    h.wait_for(&button("Uses 15"), SCREEN);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
     assert!(h.is_visible(&L::marker::<ItemBrowser>()));
     h.press(KeyCode::Escape);
     h.frames(2);
@@ -632,6 +668,7 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
     };
 
     // The tooltip says what the gestures take
+    h.scroll_to(&catalog_slot("Dirt"));
     h.hover(&catalog_slot("Dirt"));
     h.wait_for(
         &L::text_containing("LMB 64  RMB 1  Shift to inventory").within(L::marker::<TooltipRoot>()),
@@ -639,6 +676,7 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
     );
 
     // A click takes a full stack; a click on the list destroys it, and says so
+    h.scroll_to(&catalog_slot("Dirt"));
     h.click(&catalog_slot("Dirt"));
     held(&mut h, "a stack of dirt", Some((ItemId::Dirt, 64)));
     let list = h.rect_of(&L::marker::<CatalogList>());
@@ -648,15 +686,18 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
 
     // A right click takes one, and one more each time; on another item it destroys them
     for _ in 0..3 {
+        h.scroll_to(&catalog_slot("Stone"));
         h.right_click(&catalog_slot("Stone"));
         h.frames(1);
     }
     held(&mut h, "three stones", Some((ItemId::Stone, 3)));
+    h.scroll_to(&catalog_slot("Dirt"));
     h.right_click(&catalog_slot("Dirt"));
     h.wait_for(&L::text("Destroyed 3 Stone"), SCREEN);
     held(&mut h, "an empty cursor", None);
 
     // Shift+click puts a full stack into the inventory, the hotbar first: a tool comes alone
+    h.scroll_to(&catalog_slot("Wooden Pickaxe"));
     h.key_down(KeyCode::ShiftLeft);
     h.click(&catalog_slot("Wooden Pickaxe"));
     h.key_up(KeyCode::ShiftLeft);
@@ -666,6 +707,7 @@ fn creative_takes_from_the_catalog_and_the_list_destroys_the_held_stack() {
     assert_eq!(floating(h.world()), None);
 
     // The trash destroys the held stack too
+    h.scroll_to(&catalog_slot("Dirt"));
     h.click(&catalog_slot("Dirt"));
     held(&mut h, "a stack of dirt", Some((ItemId::Dirt, 64)));
     h.click(&L::marker::<TrashSlot>());
@@ -723,6 +765,7 @@ fn fill_grid_moves_a_recipe_into_the_grid() {
     h.frames(2);
 
     // The sticks can be made: their button is enabled
+    h.scroll_to(&catalog_slot("Stick"));
     h.click(&catalog_slot("Stick"));
     h.wait_for(&button("Recipes 1"), SCREEN);
     h.frames(2);
@@ -803,6 +846,7 @@ fn fill_grid_mixes_the_species_of_planks_at_a_table() {
     h.frames(2);
 
     // One card makes the chest, its ring any planks, the species counted together
+    h.scroll_to(&catalog_slot("Chest"));
     h.click(&catalog_slot("Chest"));
     h.wait_for(&button("Recipes 1"), SCREEN);
     h.frames(2);
@@ -883,6 +927,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     };
 
     // A over a slot of the catalog bookmarks its item, says so, and saves it for this world
+    h.scroll_to(&catalog_grid_slot("Chest"));
     h.hover(&catalog_grid_slot("Chest"));
     h.wait_for(
         &L::text("R Recipes  U Uses  A Bookmark  Ctrl+click fill").within(tooltip()),
@@ -892,6 +937,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     h.wait_for(&L::text("Bookmarked Chest"), SCREEN);
     // the row of bookmarks shows above the grid, which moves down
     h.frames(2);
+    h.scroll_to(&catalog_grid_slot("Chest"));
     h.hover(&catalog_grid_slot("Chest"));
     h.wait_for(
         &L::text("R Recipes  U Uses  A Unbookmark  Ctrl+click fill").within(tooltip()),
@@ -906,7 +952,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
         SCREEN,
     );
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
 
     // A over a slot of the inventory too
     h.hover(&L::cell(0));
@@ -928,7 +974,7 @@ fn a_bookmarks_any_item_and_the_bookmarks_are_kept_per_world() {
     h.wait_for(&button("Recipes 1"), SCREEN);
     assert!(!h.is_visible(&L::marker::<BookmarkBar>()));
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
     assert!(h.is_visible(&bookmark_slot("Chest")));
 
     // The arrows reach them from the grid. A on the focused one removes it, and the focus goes
@@ -1047,6 +1093,7 @@ fn ctrl_click_fills_the_grid_from_the_browser() {
     let ctrl = [KeyCode::ControlLeft];
 
     // The tooltip says so
+    h.scroll_to(&catalog_slot("Stick"));
     h.hover(&catalog_slot("Stick"));
     h.wait_for(
         &L::text("R Recipes  U Uses  A Bookmark  Ctrl+click fill")
@@ -1055,6 +1102,7 @@ fn ctrl_click_fills_the_grid_from_the_browser() {
     );
 
     // Ctrl+click fills one round of the sticks, and opens no view
+    h.scroll_to(&catalog_slot("Stick"));
     h.click_holding(&ctrl, &catalog_slot("Stick"));
     h.wait_until("one round of sticks in the grid", SERVER, |w| {
         slot(w, grid_slot(0, 0)) == planks(1)
@@ -1082,6 +1130,7 @@ fn ctrl_click_fills_the_grid_from_the_browser() {
             20,
         )));
     let dirt = h.get(&catalog_slot("Dirt"));
+    h.scroll_to(&catalog_slot("Dirt"));
     h.click_holding(&ctrl, &catalog_slot("Dirt"));
     h.wait_until("the dirt shaking", SCREEN, |w| {
         w.get::<RefusalShake>(dirt).is_some()
@@ -1098,6 +1147,7 @@ fn ctrl_click_fills_the_grid_from_the_browser() {
     h.press(KeyCode::KeyE);
     h.wait_for(&L::text("Items"), SCREEN);
     h.frames(2);
+    h.scroll_to(&catalog_slot("Crafting Table"));
     h.click_holding(&ctrl, &catalog_slot("Crafting Table"));
     h.wait_until("the square of planks in the grid", SERVER, |w| {
         [(0, 0), (0, 1), (1, 0), (1, 1)]
@@ -1130,6 +1180,7 @@ fn a_card_missing_ingredients_lays_a_ghost_until_the_grid_changes() {
         h.press(KeyCode::KeyE);
         h.wait_for(&L::text("Items"), SCREEN);
         h.frames(2);
+        h.scroll_to(&catalog_slot("Torch"));
         h.click(&catalog_slot("Torch"));
         h.wait_for(&button("Recipes 2"), SCREEN);
         h.frames(2);
@@ -1190,7 +1241,8 @@ fn a_card_missing_ingredients_lays_a_ghost_until_the_grid_changes() {
 
     // And a fill replaces it: Ctrl+click on the crafting table puts the grid back and fills it
     h.press(KeyCode::Escape);
-    h.wait_for(&L::text("80 / 80"), SCREEN);
+    h.wait_for(&L::text("145 / 145"), SCREEN);
+    h.scroll_to(&catalog_slot("Crafting Table"));
     h.click_holding(&[KeyCode::ControlLeft], &catalog_slot("Crafting Table"));
     h.wait_until("the square of planks in the grid", SERVER, |w| {
         [(0, 0), (0, 1), (1, 0), (1, 1)]
@@ -1225,6 +1277,7 @@ fn the_items_crafted_go_into_recent() {
     };
 
     // Planks from a log, then sticks: the newest first
+    h.scroll_to(&catalog_grid_slot("Oak Planks"));
     h.click_holding(&ctrl, &catalog_grid_slot("Oak Planks"));
     h.wait_until("a log in the grid", SERVER, |w| {
         slot(w, grid_slot(0, 0)) == Some((ItemId::OakLog, 1))
@@ -1235,6 +1288,7 @@ fn the_items_crafted_go_into_recent() {
     h.wait_until("four planks", SERVER, |w| {
         (0..36).any(|n| slot(w, n) == Some((ItemId::OakPlanks, 4)))
     });
+    h.scroll_to(&catalog_grid_slot("Stick"));
     h.click_holding(&ctrl, &catalog_grid_slot("Stick"));
     h.wait_until("planks in the grid", SERVER, |w| {
         slot(w, grid_slot(1, 0)) == Some((ItemId::OakPlanks, 1))
@@ -1247,6 +1301,7 @@ fn the_items_crafted_go_into_recent() {
     h.wait_until("an empty grid", SERVER, |w| {
         slot(w, grid_slot(0, 0)).is_none() && slot(w, grid_slot(1, 0)).is_none()
     });
+    h.scroll_to(&catalog_grid_slot("Oak Planks"));
     h.click_holding(&ctrl, &catalog_grid_slot("Oak Planks"));
     h.wait_until("the other log in the grid", SERVER, |w| {
         slot(w, grid_slot(0, 0)) == Some((ItemId::OakLog, 1))
