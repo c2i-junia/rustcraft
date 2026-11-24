@@ -163,6 +163,7 @@ mod tests {
             open_chest: None,
             open_furnace: None,
             health: 0,
+            air: 0,
             game_mode: Default::default(),
             death_cause: None,
         };

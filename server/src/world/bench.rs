@@ -421,6 +421,7 @@ fn bench_player_updates() {
             open_chest: None,
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
+            air: shared::players::air::MAX_AIR,
             game_mode: Default::default(),
             death_cause: None,
         }))

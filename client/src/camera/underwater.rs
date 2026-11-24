@@ -1,6 +1,4 @@
 use bevy::prelude::*;
-use shared::world::liquid::liquid_height;
-use shared::world::ChunkMap;
 use shared::CHUNK_SIZE;
 
 use crate::world::celestial::{smoothstep, sun_height, CelestialBody};
@@ -61,10 +59,8 @@ pub fn flashed_sky_color(sky: Color, flash: f32) -> Color {
     Color::linear_rgb(lit.x, lit.y, lit.z)
 }
 
-/// Whether an eye at `eye` is under the surface of a liquid.
-pub fn eye_under_water(map: &ChunkMap, eye: Vec3) -> bool {
-    liquid_height(map, eye.floor().as_ivec3()).is_some_and(|height| eye.y - eye.y.floor() < height)
-}
+/// Whether an eye at `eye` is under the surface of a liquid, as the server reads it for the air.
+pub use shared::world::liquid::eye_in_liquid as eye_under_water;
 
 /// Under water, a fog the colour of the water hides what is more than a few blocks away, and the
 /// sun and the moon, which no fog hides, are hidden. Out of it, a fog the colour of the sky of

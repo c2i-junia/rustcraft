@@ -42,3 +42,6 @@ pub const SWIM_DOWN_VELOCITY: f32 = -4.0;
 /// Speed of a swimming player, along where it looks, in blocks/s: faster than walking in the
 /// water, slower than sprinting on land.
 pub const SWIM_SPEED: f32 = 4.5;
+
+/// Height of a sneaking body, relative to a standing one: its eyes go down with it.
+pub const SNEAK_BODY_SCALE: f32 = 0.8;

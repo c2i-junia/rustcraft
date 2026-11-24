@@ -1,3 +1,4 @@
+pub mod air;
 pub mod blocks;
 pub mod collision;
 pub mod constants;

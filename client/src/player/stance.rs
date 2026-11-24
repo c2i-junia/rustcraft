@@ -13,8 +13,7 @@ use super::CurrentPlayerMarker;
 #[derive(Component)]
 pub struct PlayerBody;
 
-/// Height of a sneaking body, relative to a standing one.
-pub const SNEAK_BODY_SCALE: f32 = 0.8;
+pub use shared::players::constants::SNEAK_BODY_SCALE;
 
 /// Field of view of a sprinting player, relative to `FOV_DEGREES`.
 const SPRINT_FOV_SCALE: f32 = 1.1;

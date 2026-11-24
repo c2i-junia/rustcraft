@@ -1,7 +1,7 @@
 //! The levels of a liquid, stored in `BlockData::level`: a source is at level 0, the liquid
 //! that flows away from it on the ground at levels 1 to 7, and the liquid that falls at level 8.
 
-use bevy::math::IVec3;
+use bevy::math::{IVec3, Vec3};
 
 use crate::world::{
     global_block_to_chunk_pos, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap,
@@ -39,6 +39,12 @@ pub fn liquid_height(world_map: &ChunkMap, pos: IVec3) -> Option<f32> {
     } else {
         Some(surface_height(block.level))
     }
+}
+
+/// Whether an eye at `eye` is under the surface of a liquid, any liquid.
+pub fn eye_in_liquid(world_map: &ChunkMap, eye: Vec3) -> bool {
+    liquid_height(world_map, eye.floor().as_ivec3())
+        .is_some_and(|height| eye.y - eye.y.floor() < height)
 }
 
 /// Heights of the four top corners of the liquid at `pos` above the bottom of its cell, in
@@ -248,6 +254,22 @@ mod tests {
         world.fill_box(bottom + IVec3::Y, bottom + IVec3::Y, BlockId::Water);
         assert_eq!(liquid_height(&world, bottom), Some(1.0));
         assert_eq!(liquid_height(&world, bottom + IVec3::Y), Some(8.0 / 9.0));
+    }
+
+    #[test]
+    fn an_eye_is_in_a_liquid_only_below_its_surface() {
+        let mut world = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        let cell = IVec3::new(1, 1, 1);
+        let eye = |y: f32| Vec3::new(1.5, y, 1.5);
+        assert!(!eye_in_liquid(&world, eye(1.5)));
+
+        world.fill_box(cell, cell, BlockId::Water);
+        // A source fills 8/9 of its cell
+        assert!(eye_in_liquid(&world, eye(1.5)));
+        assert!(eye_in_liquid(&world, eye(1.85)));
+        assert!(!eye_in_liquid(&world, eye(1.95)));
+        // Feet in the water are not the eyes
+        assert!(!eye_in_liquid(&world, eye(2.5)));
     }
 
     #[test]

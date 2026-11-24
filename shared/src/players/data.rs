@@ -7,6 +7,7 @@ use bevy::{
 use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+use super::air::{full_air, MAX_AIR};
 use super::game_mode::{
     DamageSource, DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH, THROWN_OFF_TICKS,
 };
@@ -218,6 +219,13 @@ pub struct Player {
     /// fall is put on it.
     #[serde(skip)]
     pub last_mob_hit: Option<(MobKind, u32)>,
+    /// The ticks of air left, up to `MAX_AIR`, while the eyes are in a liquid. Not saved: a
+    /// player who joins breathes.
+    #[serde(skip, default = "full_air")]
+    pub air: u16,
+    /// The ticks spent with no air left since the last hit of drowning.
+    #[serde(skip)]
+    pub drowning_ticks: u16,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -346,6 +354,8 @@ impl Player {
         self.death_cause = None;
         self.invulnerable_ticks = 0;
         self.last_mob_hit = None;
+        self.air = MAX_AIR;
+        self.drowning_ticks = 0;
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -374,6 +384,8 @@ impl Player {
             portal_rest: None,
             invulnerable_ticks: 0,
             last_mob_hit: None,
+            air: MAX_AIR,
+            drowning_ticks: 0,
         }
     }
 }

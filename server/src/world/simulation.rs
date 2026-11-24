@@ -10,7 +10,7 @@ use shared::{
         simulation::simulate_player_actions,
         Player,
     },
-    world::{Chunk, ChunkMap, ChunkReach, ServerMob, WorldSeed},
+    world::{liquid::eye_in_liquid, Chunk, ChunkMap, ChunkReach, ServerMob, WorldSeed},
 };
 use std::collections::HashSet;
 use std::path::Path;
@@ -416,6 +416,17 @@ pub fn tick_damage_timers_system(mut world_map: ResMut<ServerWorldMap>) {
     }
 }
 
+/// Each player breathes for a tick: it loses air while its eyes are in a liquid, and drowns
+/// with none left. Runs once the inputs of the tick moved the players.
+pub fn breathe_system(mut world_map: ResMut<ServerWorldMap>) {
+    let ServerWorldMap {
+        chunks, players, ..
+    } = &mut *world_map;
+    for player in players.values_mut() {
+        player.breathe(eye_in_liquid(chunks, player.eye_position()));
+    }
+}
+
 /// Every `REGENERATION_TICKS`, each living player gets a point of health back.
 pub fn regenerate_health_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
     if !time.0.is_multiple_of(REGENERATION_TICKS) {
@@ -446,6 +457,7 @@ pub fn broadcast_player_updates_system(
                 open_chest,
                 open_furnace,
                 health: player.health,
+                air: player.air,
                 game_mode: player.game_mode,
                 death_cause: player.death_cause,
             })
@@ -471,6 +483,8 @@ mod tests {
     use super::*;
     use crate::world::broadcast_world::get_all_active_chunks;
     use shared::players::game_mode::{DeathCause, GameMode, INVULNERABILITY_TICKS};
+    use shared::players::{air::MAX_AIR, PLAYER_HEIGHT};
+    use shared::world::BlockId;
     use shared::world::MobKind;
 
     #[test]
@@ -491,6 +505,41 @@ mod tests {
         }
         assert_eq!(player(&app).invulnerable_ticks, 0);
         assert!(player(&app).last_mob_hit.is_some());
+    }
+
+    #[test]
+    fn a_player_whose_head_is_under_water_loses_air_and_one_with_wet_feet_does_not() {
+        let mut world_map = ServerWorldMap {
+            chunks: ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15)),
+            ..Default::default()
+        };
+        // A pool two blocks deep at x = 1, one block deep at x = 5, on stone
+        world_map
+            .chunks
+            .fill_box(IVec3::ZERO, IVec3::new(15, 0, 15), BlockId::Stone);
+        world_map
+            .chunks
+            .fill_box(IVec3::new(1, 1, 1), IVec3::new(1, 2, 1), BlockId::Water);
+        world_map
+            .chunks
+            .fill_box(IVec3::new(5, 1, 1), IVec3::new(5, 1, 1), BlockId::Water);
+        let standing_in = |id, x: f32| Player {
+            id,
+            position: Vec3::new(x, 1.0 + PLAYER_HEIGHT / 2.0, 1.5),
+            ..Default::default()
+        };
+        world_map.players.insert(1, standing_in(1, 1.5));
+        world_map.players.insert(2, standing_in(2, 5.5));
+        let mut app = App::new();
+        app.insert_resource(world_map)
+            .add_systems(Update, breathe_system);
+
+        for _ in 0..10 {
+            app.update();
+        }
+        let players = &app.world().resource::<ServerWorldMap>().players;
+        assert_eq!(players[&1].air, MAX_AIR - 10);
+        assert_eq!(players[&2].air, MAX_AIR);
     }
 
     #[test]

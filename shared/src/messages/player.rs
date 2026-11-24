@@ -54,6 +54,8 @@ pub struct PlayerUpdateEvent {
     /// `last_ack_time`, as `open_chest`.
     pub open_furnace: Option<Furnace>,
     pub health: u32,
+    /// The ticks of air the player has left (`Player::air`).
+    pub air: u16,
     pub game_mode: GameMode,
     /// What killed the player, while it is dead.
     pub death_cause: Option<DeathCause>,
