@@ -66,7 +66,8 @@ vignette, a camera tilt, the hurt sound, blinking hearts. To see: fly 8 blocks u
 ### Task 2: Knock back in shared
 - [x] Tests (`movement.rs`): a knocked back player slides away and stops; a wall stops it; a
   hop lifts it.
-- [x] `knock_back`, `KNOCK_BACK_HOP`, drags, `apply_horizontal_velocity`.
+- [x] `knock_back`, `KNOCK_BACK_HOP`, drags, `apply_horizontal_velocity` (since the rebase on
+  main, main's horizontal velocity of the portals carries the push instead).
 
 ### Task 3: Server
 - [x] Tests: the fall and void go through `hurt`; `tick_damage_timers_system` counts down.

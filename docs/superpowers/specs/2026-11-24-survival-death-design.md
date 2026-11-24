@@ -1,7 +1,7 @@
 # Survival, death, hunger and hostile mobs — design
 
 Date: 2026-11-24. Branch `feat/survival-death`, worktree `feat-survival-death/`, from main
-`c5eec11b` (protocol 28).
+`80544cca` (protocol 29; first cut from `c5eec11b`, rebased on 2026-11-25).
 
 The user asked for death in survival (falls, drowning, fire), hostile mobs modelled in Blender,
 and a visual proposal first: https://claude.ai/artifact/4KGRvVzjr4xWM7AV6Vyh4X . They then said
@@ -227,4 +227,22 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
 
 ## Decisions
 
-(append here)
+- **Rebase on main `80544cca`** (2026-11-25). Appended after main's variants: `BlockId::Fire`
+  96, `Lava` 97, `Obsidian` 98; `ItemId::FlintAndSteel` 146, `Obsidian` 147, `LavaBucket` 148;
+  the flint and steel recipe is the last one (85). `ItemId::Flint` (110) and its drop from
+  gravel were main's already: lot 3 reuses them, and main's texture. A flint and steel lights
+  an unlit campfire as a flint does.
+- Main moves a player by its horizontal velocity (the portals' throws) in
+  `apply_wished_direction`, keeps it through the air and drops it on landing, in a liquid or in
+  flight. The knock back uses that: lot 1's own braking (`apply_horizontal_velocity`) is gone,
+  so a knock back in water does not push.
+- What main already has that later lots must build on, not redo: mob blows
+  (`server/src/mob/combat.rs`: `aimed_mob` casts against the mobs' boxes with `aabb_ray_hit`
+  and stops at the block `aim` finds, reach 3 or 5 with the `Spear`; `ItemId::attack_damage`;
+  `ServerMob::damage` against `MobKind::health`; sheep drop mutton and wool); food
+  (`ItemId::food_health`, eaten by a right click to give health back, refused at full health:
+  hunger should change that door); farming (`TilledSoil`, rye, berry bushes, saplings) grown by
+  `server/src/world/growth.rs`, a second random-tick system beside lot 3's `world/ticks.rs`.
+  The player's aim is `players::blocks::aim` (`raycast` within `AIM_DISTANCE` 20, the bucket's
+  `raycast_to_source`, the portal gun's `raycast_far`); `shared/src/world/reach.rs` is about
+  which chunks a client is sent, not about the player's reach.
