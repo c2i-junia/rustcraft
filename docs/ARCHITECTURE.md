@@ -177,7 +177,7 @@ result from the same input.
 
 Blocks follow the same idea: the client applies its own clicks at once, and the server sends
 `BlockUpdates` for every block that changed. When the server refuses an interaction, it
-restates the block so that a wrong prediction is corrected. The flow of water is not
+restates the block so that a wrong prediction is corrected. The flow of the liquids is not
 predicted: the client only receives the cells it changes.
 
 The portals are placed with the portal gun (`ItemId::PortalGun`): held in the selected slot,
@@ -318,13 +318,14 @@ slots, never the smelting. A lit furnace is a block of its own, `LitFurnace`, wh
 swaps with `Furnace` as it lights and goes out, so that the clients learn it from the block
 updates and light it from `light_emission`.
 
-A bucket is predicted like a placed block (`fill_bucket` and `pour_water` in
-`shared/src/players/blocks.rs`). An empty bucket aims with `raycast_to_water_source`, which also
-stops at the water sources, every other item through water (`aim`, which the client outlines
-the aimed block with). Filled, it takes the source away; a water bucket pours a source against
-the aimed face, which the flow of the server then spreads. A water bucket filled from a stack
-with no room left in the inventory is returned to the server in `ActionsOutcome::dropped`, and
-dropped ahead of its player.
+A bucket is predicted like a placed block (`fill_bucket` and `pour_liquid` in
+`shared/src/players/blocks.rs`). An empty bucket aims with `raycast_to_source`, which also
+stops at the sources of water and lava, every other item through them (`aim`, which the client
+outlines the aimed block with). Filled, it takes the source away; a water or lava bucket pours a
+source against the aimed face, which the flow of the server then spreads. A full bucket filled
+from a stack with no room left in the inventory is returned to the server in
+`ActionsOutcome::dropped`, and dropped ahead of its player. A lava bucket burnt in a furnace
+leaves its bucket in the fuel slot (`fuel_remains`).
 
 A tool (`ItemId::tool`, `shared/src/world/items.rs`) stacks to one, and its stack carries its
 wear in its `ItemType::Tool`, so that the wear follows it into the cursor, a chest or the
@@ -369,6 +370,9 @@ hearts (`player/hurt.rs`). The air (`players/air.rs`) is the server's too, sent 
 sets a player whose body touches a fire block burning for 80 ticks (`burning_ticks`, not saved),
 1 damage every 20 ticks, until water around the body or rain on the head under the open sky puts
 it out; the client draws flames over the bottom of the screen meanwhile (`ui/hud/burning.rs`).
+Lava first (`bathe_in_lava`): a body in it burns for 300 ticks, which nothing puts out while it
+stays there, and takes 4 damage every 10 ticks; it moves at 0.3 of its speed, and its eyes in
+lava see an orange fog two blocks deep (`eye_liquid`).
 A dead
 player is not simulated: the server acknowledges its inputs without applying them, and the client
 neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the
@@ -411,9 +415,14 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    random tick, what the shared rules make of them (`shared/src/world/ticks.rs`,
    `random_tick`); fires get theirs on their own schedule instead, every 30 to 40 ticks, at
    most 64 a tick (`shared/src/world/fire.rs`: they age, spread to and burn what is flammable,
-   and go out in the rain or without support). Then the water flows (`world/flow.rs`): every 5
-   ticks, the cells next to a block that changed take the level their neighbours give them
-   (`shared/src/world/liquid.rs`). Then the weather counts down (`world/weather.rs`): a clear
+   and go out in the rain or without support); lava may set fire to the air by a flammable
+   block near it (`shared/src/world/lava.rs`). Then the liquids flow (`world/flow.rs`): every
+   5 ticks for water and 30 for lava (`Liquid::ticks_per_step`), the cells next to a block that
+   changed take the level their neighbours give them, lava 2 levels down a cell so that it
+   reaches 3 cells, and lava touched by water hardens into obsidian (a source) or cobblestone
+   (`shared/src/world/liquid.rs`). A generated chunk changes no cell, so the lava lakes that
+   fill the caves up to y = 10 (`LAVA_LEVEL`) are not scheduled until something touches them.
+   Then the weather counts down (`world/weather.rs`): a clear
    spell of 10 to 100 minutes is followed by rain (2 in 3) or a thunderstorm (1 in 3) of 5 to
    15 minutes, then by a clear spell again (`shared/src/world/weather.rs`), and `/weather`
    sets one for a spell of the same length. A change is sent to the authenticated clients

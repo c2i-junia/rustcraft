@@ -21,8 +21,8 @@ use shared::{
         Player,
     },
     world::{
-        BlockHitbox, BlockId, ChunkMap, MobAction, MobId, MobKind, MobTarget, Passage, Passer,
-        ServerMob,
+        BlockHitbox, BlockTransparency, ChunkMap, MobAction, MobId, MobKind, MobTarget, Passage,
+        Passer, ServerMob,
     },
     TICKS_PER_SECOND,
 };
@@ -351,7 +351,8 @@ fn start_walk(mob: &mut ServerMob, chunks: &ChunkMap, rng: &mut impl Rng) {
 
 /// The height of the ground an animal whose feet are in the cell at height `feet` would stand
 /// on at `(x, z)`: the highest block with a hitbox from one block above its feet down to
-/// `WANDER_DROP` below them, with room above it. None over water, a wall, or a deeper drop.
+/// `WANDER_DROP` below them, with room above it. None over water or lava, a wall, or a deeper
+/// drop.
 fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
     let (x, z) = (x.floor() as i32, z.floor() as i32);
     let solid = |y: i32| {
@@ -360,8 +361,10 @@ fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
             .is_some_and(|block| !matches!(block.id.get_hitbox(), BlockHitbox::None))
     };
     for y in (feet - WANDER_DROP..=feet + 1).rev() {
-        let id = chunks.get_block(IVec3::new(x, y, z)).map(|block| block.id);
-        if id == Some(BlockId::Water) {
+        let liquid = chunks
+            .get_block(IVec3::new(x, y, z))
+            .is_some_and(|block| block.id.get_visibility() == BlockTransparency::Liquid);
+        if liquid {
             return None;
         }
         if solid(y) {
@@ -850,23 +853,25 @@ mod tests {
     }
 
     #[test]
-    fn an_animal_does_not_walk_into_water() {
-        let mut map = ground_world(false);
-        // water all around a single dry block
-        map.chunks
-            .fill_box(IVec3::new(-10, 1, -10), IVec3::new(9, 1, 9), BlockId::Water);
-        map.chunks
-            .fill_box(IVec3::new(0, 1, 0), IVec3::new(0, 1, 0), BlockId::Stone);
-        let sheep = ServerMob {
-            action_ticks: 1,
-            ..ServerMob::new(
-                MobKind::Sheep,
-                ServerMob::standing_at(MobKind::Sheep, 0.5, 2.0, 0.5),
-            )
-        };
-        let map = run_seconds(map, sheep, 30);
-        let sheep = &map.mobs[&0];
-        assert_eq!(sheep.position.xz(), Vec2::new(0.5, 0.5));
+    fn an_animal_does_not_walk_into_water_nor_lava() {
+        for liquid in [BlockId::Water, BlockId::Lava] {
+            let mut map = ground_world(false);
+            // the liquid all around a single dry block
+            map.chunks
+                .fill_box(IVec3::new(-10, 1, -10), IVec3::new(9, 1, 9), liquid);
+            map.chunks
+                .fill_box(IVec3::new(0, 1, 0), IVec3::new(0, 1, 0), BlockId::Stone);
+            let sheep = ServerMob {
+                action_ticks: 1,
+                ..ServerMob::new(
+                    MobKind::Sheep,
+                    ServerMob::standing_at(MobKind::Sheep, 0.5, 2.0, 0.5),
+                )
+            };
+            let map = run_seconds(map, sheep, 30);
+            let sheep = &map.mobs[&0];
+            assert_eq!(sheep.position.xz(), Vec2::new(0.5, 0.5), "{liquid:?}");
+        }
     }
 
     /// Runs `ticks` steps of the mob 0 of `map`.

@@ -340,7 +340,7 @@ impl VoxelShape {
             // Held on the side of a block, it does not sway
             BlockId::Vine => Self::plate(block).biome_tinted(BiomeTint::Foliage),
             BlockId::Cocoa => Self::pod(block),
-            // Its texture is grey too
+            // Its texture is grey too. Lava's is orange: it stays a plain cube
             BlockId::Water => Self::full_cube(block).tinted(FaceColor::Water),
             _ => Self::full_cube(block),
         }
@@ -821,6 +821,19 @@ mod tests {
             .uvs
             .iter()
             .all(|uv| (7. / 16. ..=9. / 16.).contains(&uv[0])));
+    }
+
+    #[test]
+    fn water_is_tinted_blue_and_lava_keeps_the_colours_of_its_texture() {
+        for face in shape_of(BlockId::Water).faces {
+            assert_eq!(face.color, FaceColor::Water);
+        }
+        let lava = shape_of(BlockId::Lava);
+        assert_eq!(lava.faces.len(), 6);
+        for face in lava.faces {
+            assert_eq!(face.color, FaceColor::White);
+            assert_eq!(face.sway, Sway::None);
+        }
     }
 
     #[test]

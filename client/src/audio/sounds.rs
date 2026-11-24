@@ -32,7 +32,7 @@ impl SoundMaterial {
         SoundMaterial::Glass,
     ];
 
-    /// The material of `block`; `None` for water and fire, which make no block sound.
+    /// The material of `block`; `None` for the liquids and fire, which make no block sound.
     pub fn of(block: BlockId) -> Option<Self> {
         Some(match block {
             BlockId::Grass
@@ -91,7 +91,8 @@ impl SoundMaterial {
             | BlockId::BronzeBlock
             | BlockId::HewnStoneSlab
             | BlockId::BrickSlab
-            | BlockId::Lantern => Self::Stone,
+            | BlockId::Lantern
+            | BlockId::Obsidian => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog
@@ -126,7 +127,7 @@ impl SoundMaterial {
             BlockId::Sand | BlockId::Gravel => Self::Sand,
             BlockId::Snow => Self::Snow,
             BlockId::Glass | BlockId::Ice | BlockId::GlassPane => Self::Glass,
-            BlockId::Water | BlockId::Fire => return None,
+            BlockId::Water | BlockId::Lava | BlockId::Fire => return None,
         })
     }
 

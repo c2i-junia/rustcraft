@@ -171,11 +171,13 @@ pub enum ItemId {
     PortalGun,
     /// Lights a fire. It wears out, though it is not a mining tool: see `durability`.
     FlintAndSteel,
+    Obsidian,
+    LavaBucket,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 147] = [
+    pub const ALL: [ItemId; 149] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -323,6 +325,8 @@ impl ItemId {
         Self::Spear,
         Self::PortalGun,
         Self::FlintAndSteel,
+        Self::Obsidian,
+        Self::LavaBucket,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -356,7 +360,7 @@ impl ItemId {
     pub fn get_max_stack(&self) -> u32 {
         match *self {
             Self::Bucket => 16,
-            Self::WaterBucket | Self::Spear | Self::PortalGun => 1,
+            Self::WaterBucket | Self::LavaBucket | Self::Spear | Self::PortalGun => 1,
             _ if self.durability().is_some() => 1,
             _ => 64,
         }
@@ -508,7 +512,8 @@ impl ItemId {
             | Self::Fence
             | Self::GlassPane
             | Self::Wool
-            | Self::Sign => ItemCategory::Blocks,
+            | Self::Sign
+            | Self::Obsidian => ItemCategory::Blocks,
             Self::OakLog
             | Self::SpruceLog
             | Self::JungleLog
@@ -600,6 +605,7 @@ impl ItemId {
             | Self::DiamondSword
             | Self::Bucket
             | Self::WaterBucket
+            | Self::LavaBucket
             | Self::BronzePickaxe
             | Self::BronzeAxe
             | Self::BronzeShovel
@@ -704,6 +710,7 @@ impl ItemId {
             Self::RainCistern => ItemType::Block(BlockId::RainCistern),
             Self::Campfire => ItemType::Block(BlockId::Campfire),
             Self::Sign => ItemType::Block(BlockId::Sign),
+            Self::Obsidian => ItemType::Block(BlockId::Obsidian),
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
 
             Self::Snowball
@@ -739,7 +746,8 @@ impl ItemId {
             | Self::RoastMutton
             | Self::Berries
             | Self::Spear
-            | Self::PortalGun => ItemType::Generic,
+            | Self::PortalGun
+            | Self::LavaBucket => ItemType::Generic,
 
             Self::WoodenPickaxe
             | Self::WoodenAxe
@@ -1066,6 +1074,8 @@ mod tests {
             (ItemId::Spear, 144),
             (ItemId::PortalGun, 145),
             (ItemId::FlintAndSteel, 146),
+            (ItemId::Obsidian, 147),
+            (ItemId::LavaBucket, 148),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1216,7 +1226,9 @@ mod tests {
                 | ItemId::Berries
                 | ItemId::Spear
                 | ItemId::PortalGun
-                | ItemId::FlintAndSteel => {}
+                | ItemId::FlintAndSteel
+                | ItemId::Obsidian
+                | ItemId::LavaBucket => {}
             }
         }
         for (id, expected) in table {
@@ -1422,6 +1434,7 @@ mod tests {
         let buckets = [
             ItemId::Bucket,
             ItemId::WaterBucket,
+            ItemId::LavaBucket,
             ItemId::Spear,
             ItemId::FlintAndSteel,
         ];
@@ -1463,10 +1476,11 @@ mod tests {
     }
 
     #[test]
-    fn a_bucket_stacks_to_16_and_a_water_bucket_to_1() {
+    fn a_bucket_stacks_to_16_and_a_full_bucket_to_1() {
         for (item, name, max_stack) in [
             (ItemId::Bucket, "bucket", 16),
             (ItemId::WaterBucket, "water_bucket", 1),
+            (ItemId::LavaBucket, "lava_bucket", 1),
         ] {
             assert_eq!(item.get_max_stack(), max_stack, "{item:?}");
             assert_eq!(item.name(), name);
@@ -1521,7 +1535,11 @@ mod tests {
         for item in ItemId::ALL {
             let bucket = matches!(
                 item,
-                ItemId::Bucket | ItemId::WaterBucket | ItemId::Spear | ItemId::FlintAndSteel
+                ItemId::Bucket
+                    | ItemId::WaterBucket
+                    | ItemId::LavaBucket
+                    | ItemId::Spear
+                    | ItemId::FlintAndSteel
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

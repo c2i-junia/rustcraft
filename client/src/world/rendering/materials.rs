@@ -110,7 +110,7 @@ impl WetSurface {
     pub fn of(name: &str) -> Self {
         match name {
             "Glass" | "CampfireFlame" | "Wool" | "Lantern" | "Ice" | "Snow" | "Torch" | "Water"
-            | "Fire" => Self::Dry,
+            | "Lava" | "Fire" => Self::Dry,
             _ if name.starts_with("DestroyStage") => Self::Dry,
             "Sand" => Self::Porous,
             "Grass" | "GrassTop" | "GrassSideOverlay" | "Moss" => Self::Grass,
@@ -721,6 +721,8 @@ mod tests {
             ("Torch", WetSurface::Dry),
             ("DestroyStage4", WetSurface::Dry),
             ("Water", WetSurface::Dry),
+            ("Lava", WetSurface::Dry),
+            ("Obsidian", WetSurface::Hard),
             // a texture of a pack unknown here, as stone
             ("Marble", WetSurface::Hard),
         ] {

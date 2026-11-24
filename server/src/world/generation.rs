@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use bevy::prelude::*;
 use shared::{players::PLAYER_HEIGHT, world::*, CHUNK_SIZE};
 
-use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR};
+use super::caves::{CaveMask, Caves, Noise3, CAVE_FLOOR, LAVA_LEVEL};
 use jungle::{GIANT_MARGIN, GIANT_SINK, GIANT_STEP};
 
 mod animals;
@@ -365,6 +365,12 @@ fn precedence(block: BlockId) -> u8 {
         | BlockId::Cactus => 5,
         _ => 6,
     }
+}
+
+/// What a cell that a cave carves at height `y` holds: a lava source up to `LAVA_LEVEL`, air
+/// above.
+fn carved_block(y: i32) -> Option<BlockData> {
+    (y <= LAVA_LEVEL).then(|| BlockData::new(BlockId::Lava, BlockDirection::Front))
 }
 
 /// Writes `block`, turned to `direction`, at a world position if it falls inside the chunk and
@@ -982,7 +988,12 @@ impl WorldGenerator {
                 for z in 0..CHUNK_SIZE {
                     let local = IVec3::new(x, y, z);
                     if caves.contains(local) {
-                        chunk.remove(local);
+                        match carved_block(chunk_origin.y + y) {
+                            Some(block) => chunk.set(local, block),
+                            None => {
+                                chunk.remove(local);
+                            }
+                        }
                     } else if chunk_origin.y + y == 0 {
                         chunk.set(
                             local,
@@ -1051,6 +1062,9 @@ impl WorldGenerator {
                         let carved = y <= column.cave_ceiling
                             && caves.as_ref().is_some_and(|caves| caves.contains(local));
                         if carved {
+                            if let Some(block) = carved_block(y) {
+                                chunk.set(local, block);
+                            }
                             continue;
                         }
                         if let Some(block) = terrain_block(y, column) {
@@ -1700,6 +1714,63 @@ mod tests {
     }
 
     #[test]
+    fn no_player_spawns_in_lava_as_every_surface_lies_above_it() {
+        // the spawn stands on a surface, and animals too (`animals::may_stand_on`)
+        const { assert!(LOWEST_SURFACE > LAVA_LEVEL + 1) };
+        for seed in [1, 42, 1234] {
+            let generator = WorldGenerator::new(seed);
+            let spawn = generator.spawn_position().floor().as_ivec3();
+            for pos in [spawn + IVec3::NEG_Y * 2, spawn + IVec3::NEG_Y, spawn] {
+                let chunk = generate_chunk(pos.div_euclid(IVec3::splat(CHUNK_SIZE)), seed);
+                let block = chunk.get(pos.rem_euclid(IVec3::splat(CHUNK_SIZE)));
+                assert!(
+                    block.is_none_or(|block| block.id != BlockId::Lava),
+                    "seed {seed}: lava at {pos}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn caves_are_flooded_with_lava_sources_up_to_the_lava_level() {
+        let generator = WorldGenerator::new(42);
+        let (mut lava, mut air) = (0, 0);
+        for x in (-768..-256).step_by(16) {
+            for z in (256..768).step_by(16) {
+                let column = generator.column(x, z);
+                for cy in 0..2 {
+                    let chunk_pos =
+                        IVec3::new(x, cy * CHUNK_SIZE, z).div_euclid(IVec3::splat(CHUNK_SIZE));
+                    let chunk = generator.generate_chunk(chunk_pos);
+                    let caves = generator.caves.carve(chunk_pos * CHUNK_SIZE);
+                    let (lx, lz) = (x.rem_euclid(CHUNK_SIZE), z.rem_euclid(CHUNK_SIZE));
+                    for ly in 0..CHUNK_SIZE {
+                        let y = cy * CHUNK_SIZE + ly;
+                        let local = IVec3::new(lx, ly, lz);
+                        let block = chunk.get(local);
+                        if y <= LAVA_LEVEL {
+                            assert!(block.is_some(), "air at ({x}, {y}, {z})");
+                        }
+                        let carved = y <= column.cave_ceiling && caves.contains(local);
+                        if !carved {
+                            continue;
+                        }
+                        if y <= LAVA_LEVEL {
+                            assert_eq!(block.copied(), carved_block(y), "({x}, {y}, {z})");
+                            assert_eq!(block.unwrap().level, 0, "a source");
+                            lava += 1;
+                        } else {
+                            assert_eq!(block, None, "({x}, {y}, {z})");
+                            air += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(lava > 20 && air > 20, "{lava} lava, {air} air");
+    }
+
+    #[test]
     fn rivers_and_lakes_hold_water_inland() {
         let generator = WorldGenerator::new(42);
         let (mut inland, mut wet) = (0, 0);
@@ -1939,7 +2010,7 @@ mod tests {
                         if y <= column.height || y <= SEA_LEVEL {
                             let carved = y <= column.cave_ceiling && caves.contains(local);
                             let expected = if carved {
-                                None
+                                carved_block(y).map(|block| block.id)
                             } else {
                                 terrain_block(y, &column)
                             };

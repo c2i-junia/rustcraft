@@ -50,8 +50,8 @@ pub struct RaycastResponse {
 enum Stop {
     /// The box rays hit of every block but water (`BlockData::get_ray_hitbox`).
     RayHitbox,
-    /// The same, and a water source as a whole block.
-    WaterSources,
+    /// The same, and the source of a liquid, water or lava, as a whole block.
+    Sources,
     /// Only a block that collides, which a player cannot walk through, by its ray box: the
     /// flora, the vines, the torches and the water let it through, as the front of a portal.
     Colliding,
@@ -93,9 +93,9 @@ pub fn raycast_far(
     )
 }
 
-/// `raycast`, but the ray also stops at a water source, which it hits as a whole block: what an
-/// empty bucket aims at. Flowing water stays transparent to it.
-pub fn raycast_to_water_source(
+/// `raycast`, but the ray also stops at the source of a liquid, water or lava, which it hits as
+/// a whole block: what an empty bucket aims at. A flowing liquid stays transparent to it.
+pub fn raycast_to_source(
     world_map: &ChunkMap,
     camera_transform: &Transform,
     player_position: &Vec3,
@@ -106,7 +106,7 @@ pub fn raycast_to_water_source(
         camera_transform,
         player_position,
         view_mode,
-        Stop::WaterSources,
+        Stop::Sources,
         AIM_DISTANCE,
     )
 }
@@ -272,8 +272,8 @@ fn entry_face(axis: usize, step: i32) -> Option<FaceDirection> {
 }
 
 /// Whether the ray, which entered `voxel` through `entered_by`, hits the interaction box of
-/// the `block` it holds, as `stop` says: a whole block for a water source, nothing for a block
-/// that does not collide.
+/// the `block` it holds, as `stop` says: a whole block for the source of a liquid, nothing for
+/// a block that does not collide.
 fn hit_block(
     block: BlockData,
     voxel: IVec3,
@@ -284,7 +284,7 @@ fn hit_block(
     inv_dir: Vec3,
 ) -> Option<RaycastResponse> {
     let hitbox = match stop {
-        Stop::WaterSources if is_source(&block) => BlockHitbox::FullBlock,
+        Stop::Sources if is_source(&block) => BlockHitbox::FullBlock,
         Stop::Colliding if matches!(block.get_hitbox(), BlockHitbox::None) => BlockHitbox::None,
         _ => block.get_ray_hitbox(),
     };
@@ -445,14 +445,7 @@ mod tests {
         world.set_block(IVec3::new(2, 0, 0), water(3));
         world.set_block(IVec3::new(4, 0, 0), water(0));
 
-        let hit = traverse(
-            &world,
-            ORIGIN,
-            Vec3::X,
-            Stop::WaterSources,
-            MAX_RAY_DISTANCE,
-        )
-        .unwrap();
+        let hit = traverse(&world, ORIGIN, Vec3::X, Stop::Sources, MAX_RAY_DISTANCE).unwrap();
         assert_eq!(hit.position, IVec3::new(4, 0, 0));
         assert_eq!(hit.face, FaceDirection::MinusX);
         assert_eq!(hit.block, water(0));
@@ -468,7 +461,7 @@ mod tests {
             Some(IVec3::new(6, 0, 0))
         );
         assert_eq!(
-            at(raycast_to_water_source(&world, &camera, &ORIGIN, view)),
+            at(raycast_to_source(&world, &camera, &ORIGIN, view)),
             Some(IVec3::new(4, 0, 0))
         );
     }

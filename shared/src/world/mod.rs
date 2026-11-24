@@ -9,6 +9,7 @@ pub mod dropped_items;
 pub mod fire;
 pub mod furnace;
 pub mod items;
+pub mod lava;
 pub mod liquid;
 pub mod mobs;
 pub mod portal;

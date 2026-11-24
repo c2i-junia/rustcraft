@@ -7,7 +7,7 @@ use bevy::math::IVec3;
 use rand::Rng;
 
 use crate::world::ChunkMap;
-use crate::world::{fire, global_block_to_chunk_pos, BlockData, BlockId, BlockTransparency};
+use crate::world::{fire, global_block_to_chunk_pos, lava, BlockData, BlockId, BlockTransparency};
 use crate::CHUNK_SIZE;
 
 /// The cells of a 16³ chunk that get a random tick in each tick, as Minecraft's default.
@@ -40,6 +40,7 @@ pub fn random_tick(
         Some(block) if block.id == BlockId::Fire => {
             fire::fire_tick(world, pos, block, context, rng)
         }
+        Some(block) if block.id == BlockId::Lava => lava::lava_tick(world, pos, rng),
         _ => Vec::new(),
     }
 }

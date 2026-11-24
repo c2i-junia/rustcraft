@@ -5,7 +5,7 @@ use shared::{
     players::{
         blocks::CallerType,
         constants::EYE_HEIGHT,
-        fire::{body_in_fire, is_doused},
+        fire::{body_in_fire, body_in_lava, is_doused},
         game_mode::{fall_damage, DamageSource, MAX_HEALTH, REGENERATION_TICKS},
         movement::FALL_LIMIT,
         simulation::simulate_player_actions,
@@ -431,16 +431,19 @@ pub fn breathe_system(mut world_map: ResMut<ServerWorldMap>) {
     }
 }
 
-/// Each player in a fire catches it, and a burning player burns for a tick, unless water or
-/// the rain under the open sky puts it out. Runs once the inputs of the tick moved the players.
+/// Each player in lava is hurt by it and set burning, each player in a fire catches it, and a
+/// burning player burns for a tick, unless water or the rain under the open sky puts it out,
+/// which they do not while it is in lava. Runs once the inputs of the tick moved the players.
 pub fn burn_system(mut world_map: ResMut<ServerWorldMap>, weather: Res<ServerWeather>) {
     let raining = weather.kind != WeatherKind::Clear;
     let ServerWorldMap {
         chunks, players, ..
     } = &mut *world_map;
     for player in players.values_mut() {
+        let in_lava = body_in_lava(chunks, player);
+        player.bathe_in_lava(in_lava);
         let in_fire = body_in_fire(chunks, player);
-        let doused = is_doused(chunks, player, raining);
+        let doused = !in_lava && is_doused(chunks, player, raining);
         player.burn(in_fire, doused);
     }
 }
@@ -595,6 +598,39 @@ mod tests {
             let health = if burns { MAX_HEALTH - 2 } else { MAX_HEALTH };
             assert_eq!(player.health, health, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn a_player_in_lava_burns_even_in_the_rain_and_takes_four_every_ten_ticks() {
+        let mut world_map = ServerWorldMap {
+            chunks: ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15)),
+            ..Default::default()
+        };
+        world_map
+            .chunks
+            .fill_box(IVec3::ZERO, IVec3::new(15, 0, 15), BlockId::Stone);
+        world_map
+            .chunks
+            .fill_box(IVec3::new(1, 1, 1), IVec3::new(1, 1, 1), BlockId::Lava);
+        let player = Player {
+            id: 1,
+            position: Vec3::new(1.5, 1.0 + PLAYER_HEIGHT / 2.0, 1.5),
+            ..Default::default()
+        };
+        world_map.players.insert(1, player);
+        let mut weather = ServerWeather::new(&mut rand::thread_rng());
+        weather.kind = WeatherKind::Rain;
+        let mut app = App::new();
+        app.insert_resource(world_map)
+            .insert_resource(weather)
+            .add_systems(Update, (tick_damage_timers_system, burn_system).chain());
+
+        for _ in 0..21 {
+            app.update();
+        }
+        let player = &app.world().resource::<ServerWorldMap>().players[&1];
+        assert!(player.is_burning());
+        assert_eq!(player.health, MAX_HEALTH - 12);
     }
 
     #[test]

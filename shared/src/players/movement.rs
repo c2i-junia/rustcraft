@@ -4,9 +4,9 @@ use crate::{
         collision::{check_player_collision, is_player_in_liquid},
         constants::{
             FLY_SPEED_MULTIPLIER, FLY_SPRINT_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY,
-            MAX_PITCH_DEGREES, MAX_UPWARD_VELOCITY, SNEAK_GROUND_PROBE, SNEAK_SPEED_MULTIPLIER,
-            SPEED, SPRINT_SPEED_MULTIPLIER, SWIM_DOWN_VELOCITY, SWIM_SPEED, SWIM_UP_VELOCITY,
-            TERMINAL_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
+            LAVA_SPEED_MULTIPLIER, MAX_PITCH_DEGREES, MAX_UPWARD_VELOCITY, SNEAK_GROUND_PROBE,
+            SNEAK_SPEED_MULTIPLIER, SPEED, SPRINT_SPEED_MULTIPLIER, SWIM_DOWN_VELOCITY, SWIM_SPEED,
+            SWIM_UP_VELOCITY, TERMINAL_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
             WATER_SPEED_MULTIPLIER,
         },
     },
@@ -167,7 +167,8 @@ pub fn simulate_player_movement(
         .crossed_by(start, player.position, player.passer())
         .is_none()
     {
-        apply_wished_direction(player, world_map, direction, in_liquid, delta);
+        let in_lava = in_liquid && world_map.touches_block(&player.body(), BlockId::Lava);
+        apply_wished_direction(player, world_map, direction, in_liquid, in_lava, delta);
     }
     MovementOutcome {
         fallen: landed,
@@ -431,11 +432,11 @@ fn goes_into_portal(player: &Player, world_map: &ChunkMap, candidate: Vec3) -> b
 
 /// The horizontal speed `player` moves at out of the water, in blocks/s.
 pub fn top_speed(player: &Player) -> f32 {
-    speed(player, false)
+    speed(player, false, false)
 }
 
 /// The horizontal speed of the player, in blocks/s.
-fn speed(player: &Player, in_liquid: bool) -> f32 {
+fn speed(player: &Player, in_liquid: bool, in_lava: bool) -> f32 {
     if player.is_flying {
         let sprint = if player.is_sprinting {
             FLY_SPRINT_SPEED_MULTIPLIER
@@ -443,6 +444,8 @@ fn speed(player: &Player, in_liquid: bool) -> f32 {
             1.0
         };
         SPEED * FLY_SPEED_MULTIPLIER * sprint
+    } else if in_lava {
+        SPEED * LAVA_SPEED_MULTIPLIER
     } else if player.is_swimming {
         SWIM_SPEED
     } else if in_liquid {
@@ -467,9 +470,11 @@ fn apply_wished_direction(
     world_map: &ChunkMap,
     direction: Vec3,
     in_liquid: bool,
+    in_lava: bool,
     delta: f32,
 ) {
-    let step = direction * (speed(player, in_liquid) * delta) + player.velocity.with_y(0.0) * delta;
+    let step = direction * (speed(player, in_liquid, in_lava) * delta)
+        + player.velocity.with_y(0.0) * delta;
     let keeps_to_the_ground = player.is_sneaking && player.on_ground;
 
     for axis in [Vec3::X, Vec3::Z] {
@@ -961,6 +966,31 @@ mod tests {
         simulate(&mut player, &world, &[NetworkAction::MoveForward], 50);
         let expected = 4.0 * WATER_SPEED_MULTIPLIER;
         assert!((start.z - player.position.z - expected).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_player_walks_slower_in_lava_than_in_water_and_cannot_swim_faster() {
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(-40, 64, -40),
+            IVec3::new(40, 67, 40),
+            BlockId::Lava,
+        );
+        for inputs in [
+            &[NetworkAction::MoveForward][..],
+            &[NetworkAction::MoveForward, NetworkAction::Sprint],
+        ] {
+            let mut player = standing_player();
+            let start = player.position;
+            simulate(&mut player, &world, inputs, 50);
+            let expected = 4.0 * LAVA_SPEED_MULTIPLIER;
+            assert!(
+                (walked(&player, start) - expected).abs() < 1e-3,
+                "{inputs:?}: {}",
+                walked(&player, start)
+            );
+        }
+        const { assert!(LAVA_SPEED_MULTIPLIER < WATER_SPEED_MULTIPLIER) };
     }
 
     #[test]

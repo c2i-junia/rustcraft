@@ -1,0 +1,3 @@
+// As lava_still.png.mcmeta of Pixel Perfection: its 16 frames in order, one every 4 ticks,
+// without fading
+(frame_time: 4, interpolate: false)

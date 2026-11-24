@@ -123,6 +123,11 @@ pub enum BlockId {
     Sign,
     /// Its age, from 0 to `fire::MAX_FIRE_AGE`, is its `BlockData::level`.
     Fire,
+    /// A liquid like water, that flows slower and shorter (see `liquid::LAVA`), glows, and
+    /// burns whoever swims in it.
+    Lava,
+    /// What a lava source becomes where water meets it.
+    Obsidian,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -336,7 +341,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 97] = [
+    pub const ALL: [BlockId; 99] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -434,6 +439,8 @@ impl BlockId {
         BlockId::UnlitCampfire,
         BlockId::Sign,
         BlockId::Fire,
+        BlockId::Lava,
+        BlockId::Obsidian,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -503,6 +510,7 @@ impl BlockId {
     pub fn get_hitbox(&self) -> BlockHitbox {
         match *self {
             Self::Water
+            | Self::Lava
             | Self::TallGrass
             | Self::Fern
             | Self::Poppy
@@ -545,7 +553,7 @@ impl BlockId {
 
     pub fn get_ray_hitbox(&self) -> BlockHitbox {
         match *self {
-            Self::Water => BlockHitbox::None,
+            Self::Water | Self::Lava => BlockHitbox::None,
             Self::TallGrass
             | Self::Fern
             | Self::Poppy
@@ -693,7 +701,10 @@ impl BlockId {
             Self::Sign => 6,
             // put out by the first hit: a break time of 0 would have no breaking stages
             Self::Fire => return Some(1),
-            Self::Bedrock | Self::Water => return None,
+            // Minecraft's hardness of 50 would be 500 hits, more than a `breaking_progress`
+            // holds: as long as it gets
+            Self::Obsidian => return Some(250),
+            Self::Bedrock | Self::Water | Self::Lava => return None,
         };
         Some(2 * steps)
     }
@@ -715,6 +726,7 @@ impl BlockId {
                     | Self::IronBlock
                     | Self::GoldBlock
                     | Self::DiamondBlock
+                    | Self::Obsidian
                     | Self::HewnStone
                     | Self::Limestone
                     | Self::Slate
@@ -812,6 +824,7 @@ impl BlockId {
                 1
             }
             Self::GoldOre | Self::DiamondOre | Self::GoldBlock | Self::DiamondBlock => 2,
+            Self::Obsidian => 3,
             _ => return None,
         };
         Some(RequiredTool {
@@ -941,6 +954,7 @@ impl BlockId {
             BlockId::Campfire => vec![(1, ItemId::Campfire, 1)],
             BlockId::UnlitCampfire => vec![(1, ItemId::Campfire, 1)],
             BlockId::Sign => vec![(1, ItemId::Sign, 1)],
+            BlockId::Obsidian => vec![(1, ItemId::Obsidian, 1)],
             _ => vec![],
         }
     }
@@ -967,7 +981,7 @@ impl BlockId {
 
     /// Whether a block placed in the cell of this one takes its place.
     pub fn is_replaceable(&self) -> bool {
-        matches!(*self, Self::Water | Self::Fire)
+        matches!(*self, Self::Water | Self::Lava | Self::Fire)
     }
 
     pub fn get_visibility(&self) -> BlockTransparency {
@@ -1018,7 +1032,7 @@ impl BlockId {
             | Self::JungleLeaves
             | Self::WillowLeaves
             | Self::AcaciaLeaves => BlockTransparency::Transparent,
-            Self::Water => BlockTransparency::Liquid,
+            Self::Water | Self::Lava => BlockTransparency::Liquid,
             _ => BlockTransparency::Solid,
         }
     }
@@ -1038,7 +1052,7 @@ impl BlockId {
     /// The light the block gives, from 0 for none to 15, as Minecraft's light levels.
     pub fn light_emission(&self) -> u8 {
         match *self {
-            Self::Fire => 15,
+            Self::Fire | Self::Lava => 15,
             Self::Torch => 14,
             Self::Lantern | Self::HangingLantern => 15,
             Self::Campfire => 13,
@@ -1067,10 +1081,10 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 97] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 99] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
-    const UNBREAKABLE_BLOCKS: [BlockId; 2] = [BlockId::Bedrock, BlockId::Water];
+    const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
 
     /// Fails to compile when a `BlockId` variant is added without updating `ALL_BLOCKS`.
     fn all_blocks_is_exhaustive(id: BlockId) {
@@ -1171,7 +1185,9 @@ mod tests {
             | BlockId::Campfire
             | BlockId::UnlitCampfire
             | BlockId::Sign
-            | BlockId::Fire => {}
+            | BlockId::Fire
+            | BlockId::Lava
+            | BlockId::Obsidian => {}
         }
     }
 
@@ -1316,6 +1332,8 @@ mod tests {
                 BlockId::UnlitCampfire => 94,
                 BlockId::Sign => 95,
                 BlockId::Fire => 96,
+                BlockId::Lava => 97,
+                BlockId::Obsidian => 98,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1355,6 +1373,43 @@ mod tests {
             ..BlockData::new(fire, BlockDirection::Front)
         };
         assert_eq!(hit.get_breaking_level(), MAX_BREAKING_LEVEL);
+    }
+
+    #[test]
+    fn lava_is_a_glowing_unbreakable_liquid_that_a_block_replaces() {
+        let lava = BlockId::Lava;
+        assert_eq!(lava.get_visibility(), BlockTransparency::Liquid);
+        assert!(matches!(lava.get_hitbox(), BlockHitbox::None));
+        assert!(matches!(lava.get_ray_hitbox(), BlockHitbox::None));
+        assert_eq!(lava.get_break_time(), None);
+        assert!(lava.is_replaceable());
+        assert_eq!(lava.light_emission(), 15);
+        assert!(lava.get_drops(5).is_empty());
+    }
+
+    #[test]
+    fn obsidian_takes_long_needs_a_diamond_pickaxe_and_drops_itself() {
+        let obsidian = BlockId::Obsidian;
+        assert_eq!(obsidian.get_break_time(), Some(250));
+        assert!(obsidian.is_mined_faster_by(ToolKind::Pickaxe));
+        assert_eq!(
+            obsidian.get_required_tool(),
+            Some(RequiredTool {
+                kind: ToolKind::Pickaxe,
+                level: 3
+            })
+        );
+        assert!(obsidian.is_harvested_by(ItemId::DiamondPickaxe.tool()));
+        assert!(!obsidian.is_harvested_by(ItemId::IronPickaxe.tool()));
+        assert_eq!(
+            obsidian.get_drops(1),
+            HashMap::from([(ItemId::Obsidian, 1)])
+        );
+        assert_eq!(obsidian.get_visibility(), BlockTransparency::Solid);
+        assert_eq!(
+            ItemId::Obsidian.get_default_type(),
+            ItemType::Block(obsidian)
+        );
     }
 
     #[test]
@@ -1726,6 +1781,7 @@ mod tests {
                 | BlockId::DiamondOre
                 | BlockId::GoldBlock
                 | BlockId::DiamondBlock => Some(2),
+                BlockId::Obsidian => Some(3),
                 _ => None,
             };
             let expected = level.map(|level| RequiredTool {

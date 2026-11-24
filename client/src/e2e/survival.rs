@@ -1,19 +1,21 @@
 //! Survival in the game, through the integrated server: the hearts, a deadly fall, the death
 //! screen and the respawn. And the stances: sprinting widens the view, sneaking lowers the eyes.
-//! And the zoom, which narrows the view and slows the mouse.
+//! And the zoom, which narrows the view and slows the mouse. And what drowns and burns: water,
+//! fire and lava.
 
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use shared::players::air::MAX_AIR;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
 use shared::players::{Player, PLAYER_HEIGHT};
-use shared::world::{ItemId, SEA_LEVEL};
+use shared::world::{BlockId, ItemId, SEA_LEVEL};
+use shared::CHUNK_SIZE;
 
 use super::game::{enter_world, hold_click, slot};
 use super::harness::{Harness, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
-use crate::camera::{CameraController, FOV_DEGREES, ZOOM_SCALE};
+use crate::camera::{CameraController, FOV_DEGREES, LAVA_FOG_COLOR, ZOOM_SCALE};
 use crate::player::{CurrentPlayerMarker, HurtVignette, PlayerBody, SNEAK_BODY_SCALE};
 use crate::ui::hud::air::{air_label, AirBar};
 use crate::ui::hud::burning::BurningFlames;
@@ -282,6 +284,65 @@ fn holding_c_zooms_and_slows_the_mouse() {
     h.wait_until("the view back", SCREEN, |w| {
         fov(w) == FOV_DEGREES.to_radians()
     });
+}
+
+/// Where a player stands at the bottom of a lava lake two blocks deep or more, at the bottom of
+/// a cave of the world of the seed 42, near its spawn.
+fn lava_lake_bottom() -> Vec3 {
+    let generator = WorldGenerator::new(42);
+    let centre = generator
+        .spawn_position()
+        .as_ivec3()
+        .div_euclid(IVec3::splat(CHUNK_SIZE));
+    let is_lava = |chunk: &shared::world::Chunk, local: IVec3| {
+        chunk
+            .get(local)
+            .is_some_and(|block| block.id == BlockId::Lava)
+    };
+    for ring in 0..16 {
+        for i in -ring..=ring {
+            for (dx, dz) in [(i, -ring), (i, ring), (-ring, i), (ring, i)] {
+                let chunk_pos = IVec3::new(centre.x + dx, 0, centre.z + dz);
+                let chunk = generator.generate_chunk(chunk_pos);
+                for (local, _) in chunk.iter() {
+                    let deep = (0..2).all(|dy| is_lava(&chunk, local + IVec3::Y * dy));
+                    let floor = local.y > 0
+                        && chunk
+                            .get(local - IVec3::Y)
+                            .is_some_and(|block| block.id != BlockId::Lava);
+                    if deep && floor {
+                        let cell = chunk_pos * CHUNK_SIZE + local;
+                        return Vec3::new(
+                            cell.x as f32 + 0.5,
+                            cell.y as f32 + PLAYER_HEIGHT / 2.0 + 0.01,
+                            cell.z as f32 + 0.5,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    panic!("no lava lake near the spawn");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_player_in_lava_burns_loses_health_and_sees_an_orange_fog() {
+    let folder =
+        GameFolder::new()
+            .with_world("Lava")
+            .with_player_at("Lava", "Tester", lava_lake_bottom());
+    let mut h = enter_world(folder, "Lava");
+    h.wait_until("the player on fire", SERVER, |w| player(w).is_burning());
+    h.wait_until("a hit of the lava", SERVER, |w| {
+        player(w).health < MAX_HEALTH
+    });
+    h.wait_for(&L::marker::<BurningFlames>(), SCREEN);
+    h.wait_until("the orange fog", SCREEN, |w| {
+        let mut fogs = w.try_query::<&DistanceFog>().unwrap();
+        fogs.iter(w).any(|fog| fog.color == LAVA_FOG_COLOR)
+    });
+    h.snapshot("lava");
 }
 
 #[test]

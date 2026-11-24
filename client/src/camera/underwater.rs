@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use shared::world::{liquid::eye_liquid, BlockId};
 use shared::CHUNK_SIZE;
 
 use crate::world::celestial::{smoothstep, sun_height, CelestialBody};
@@ -19,6 +20,8 @@ const NIGHT_SKY_COLOR: Color = Color::srgb_u8(10, 13, 26);
 /// The colour the sky warms to while the sun is on the horizon.
 const WARM_SKY_COLOR: Color = Color::srgb_u8(235, 140, 80);
 const UNDERWATER_COLOR: Color = Color::srgb_u8(30, 62, 130);
+/// The colour of the fog with the eyes in lava, which hides all but what is at arm's length.
+pub(crate) const LAVA_FOG_COLOR: Color = Color::srgb_u8(210, 70, 10);
 
 /// The colour of the sky at the world clock `tick`, after the height of the sun: dark at
 /// night, `SKY_COLOR` by day, warm while the sun is near the horizon.
@@ -62,12 +65,13 @@ pub fn flashed_sky_color(sky: Color, flash: f32) -> Color {
 /// Whether an eye at `eye` is under the surface of a liquid, as the server reads it for the air.
 pub use shared::world::liquid::eye_in_liquid as eye_under_water;
 
-/// Under water, a fog the colour of the water hides what is more than a few blocks away, and the
-/// sun and the moon, which no fog hides, are hidden. Out of it, a fog the colour of the sky of
-/// the hour hides the edge of the chunks shown: it thickens over the last part of the render
-/// distance, and the world fades into the sky at its end: its colour is the one that shows as
-/// the sky once tonemapped (`sky_fog_color`). In rain, it closes in, and a flash of lightning
-/// lights it up. The fog is changed in place, as the sky changes every tick.
+/// Under water, a fog the colour of the water hides what is more than a few blocks away; in
+/// lava, an orange one all but what is within two blocks. In either, the sun and the moon,
+/// which no fog hides, are hidden. Out of it, a fog the colour of the sky of the hour hides the
+/// edge of the chunks shown: it thickens over the last part of the render distance, and the
+/// world fades into the sky at its end: its colour is the one that shows as the sky once
+/// tonemapped (`sky_fog_color`). In rain, it closes in, and a flash of lightning lights it up.
+/// The fog is changed in place, as the sky changes every tick.
 pub fn underwater_fog_system(
     world_map: Res<ClientWorldMap>,
     time: Res<ClientTime>,
@@ -85,8 +89,8 @@ pub fn underwater_fog_system(
 ) {
     let distance = granted_render_distance(Some(&render_distance), server_limit.as_deref());
     for (entity, transform, mut camera, fog) in &mut cameras {
-        let under_water = eye_under_water(&world_map.blocks, transform.translation);
-        let shown = if under_water {
+        let liquid = eye_liquid(&world_map.blocks, transform.translation);
+        let shown = if liquid.is_some() {
             Visibility::Hidden
         } else {
             Visibility::Inherited
@@ -94,17 +98,19 @@ pub fn underwater_fog_system(
         for mut visibility in &mut bodies {
             visibility.set_if_neq(shown);
         }
-        let (color, clear, start, end) = if under_water {
-            (UNDERWATER_COLOR, UNDERWATER_COLOR, 2.0, 16.0)
-        } else {
-            // Every chunk within the render distance of the chunk of the player is shown: the
-            // edge is at least this far from the player along x and z
-            let edge = (distance * CHUNK_SIZE as u32) as f32;
-            let overcast = Overcast::current(weather.as_deref());
-            let (start, end) = overcast.fog_range(edge);
-            let flash = lightning.as_ref().map_or(0., |lightning| lightning.flash());
-            let sky = flashed_sky_color(weather_sky_color(time.0, overcast), flash);
-            (sky_fog_color(sky, curve.as_deref()), sky, start, end)
+        let (color, clear, start, end) = match liquid {
+            Some(BlockId::Lava) => (LAVA_FOG_COLOR, LAVA_FOG_COLOR, 0.0, 2.0),
+            Some(_) => (UNDERWATER_COLOR, UNDERWATER_COLOR, 2.0, 16.0),
+            None => {
+                // Every chunk within the render distance of the chunk of the player is shown: the
+                // edge is at least this far from the player along x and z
+                let edge = (distance * CHUNK_SIZE as u32) as f32;
+                let overcast = Overcast::current(weather.as_deref());
+                let (start, end) = overcast.fog_range(edge);
+                let flash = lightning.as_ref().map_or(0., |lightning| lightning.flash());
+                let sky = flashed_sky_color(weather_sky_color(time.0, overcast), flash);
+                (sky_fog_color(sky, curve.as_deref()), sky, start, end)
+            }
         };
         let falloff = FogFalloff::Linear { start, end };
         match fog {
@@ -240,6 +246,32 @@ mod tests {
         app.insert_resource(ServerRenderDistanceLimit(8));
         app.update();
         assert_eq!(fog_of(&app, camera), (SKY_COLOR, 8.0 * 16.0));
+    }
+
+    #[test]
+    fn in_lava_the_fog_is_orange_and_hides_all_but_two_blocks() {
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::ZERO, IVec3::splat(15));
+        blocks.fill_box(IVec3::ZERO, IVec3::new(15, 3, 15), BlockId::Lava);
+        let mut app = App::new();
+        app.insert_resource(ClientWorldMap {
+            blocks,
+            ..default()
+        })
+        .insert_resource(ClientTime(NOON_IN_DAY))
+        .insert_resource(RenderDistance { distance: 24 })
+        .add_systems(Update, underwater_fog_system);
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_xyz(5.5, 2.5, 5.5),
+                CameraController::default(),
+            ))
+            .id();
+        app.update();
+        assert_eq!(fog_of(&app, camera), (LAVA_FOG_COLOR, 2.0));
+        let orange = srgb(LAVA_FOG_COLOR);
+        assert!(orange.x > 0.6 && orange.x > 2.0 * orange.y && orange.y > orange.z);
     }
 
     fn clear_color_of(app: &App, camera: Entity) -> Color {

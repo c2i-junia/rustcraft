@@ -233,6 +233,9 @@ pub struct Player {
     /// The ticks to the next hit of a burning player: it is hit when they reach 0.
     #[serde(skip)]
     pub fire_damage_wait: u16,
+    /// The ticks to the next hit of lava while the player is in it: it is hit when they reach 0.
+    #[serde(skip)]
+    pub lava_damage_wait: u16,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -365,6 +368,7 @@ impl Player {
         self.drowning_ticks = 0;
         self.burning_ticks = 0;
         self.fire_damage_wait = 0;
+        self.lava_damage_wait = 0;
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -397,6 +401,7 @@ impl Player {
             drowning_ticks: 0,
             burning_ticks: 0,
             fire_damage_wait: 0,
+            lava_damage_wait: 0,
         }
     }
 }

@@ -89,6 +89,16 @@ pub fn fuel_ticks(item: ItemId) -> Option<u16> {
         | ItemId::WoodenHoe
         | ItemId::WoodenSword => Some(200),
         ItemId::Stick => Some(100),
+        ItemId::LavaBucket => Some(20000),
+        _ => None,
+    }
+}
+
+/// What stays in the fuel slot once one `item` is burnt, for a fuel held in a container: the
+/// bucket of a lava bucket. Such a fuel stacks to 1, so the slot holds nothing else.
+pub fn fuel_remains(item: ItemId) -> Option<ItemId> {
+    match item {
+        ItemId::LavaBucket => Some(ItemId::Bucket),
         _ => None,
     }
 }
@@ -154,7 +164,14 @@ impl Furnace {
         let Some(ticks) = fuel_ticks(fuel.item_id) else {
             return;
         };
-        self.fuel = one_less(fuel);
+        self.fuel = match fuel_remains(fuel.item_id) {
+            Some(remains) => Some(ItemStack {
+                item_id: remains,
+                item_type: remains.get_default_type(),
+                nb: 1,
+            }),
+            None => one_less(fuel),
+        };
         self.burn_left = ticks;
         self.burn_total = ticks;
     }
@@ -341,6 +358,28 @@ mod tests {
         lit.tick();
         assert_eq!(lit.fuel, None);
         assert_eq!(lit.burn_total, 100);
+    }
+
+    #[test]
+    fn a_lava_bucket_burns_twenty_thousand_ticks_and_leaves_its_bucket() {
+        assert_eq!(fuel_ticks(ItemId::LavaBucket), Some(20000));
+        assert_eq!(fuel_remains(ItemId::LavaBucket), Some(ItemId::Bucket));
+        assert_eq!(fuel_remains(ItemId::Coal), None);
+        assert_eq!(ItemId::LavaBucket.get_max_stack(), 1);
+        let mut lit = furnace(
+            Some(stack(ItemId::Sand, 3)),
+            Some(stack(ItemId::LavaBucket, 1)),
+            None,
+        );
+        lit.tick();
+        assert!(lit.is_lit());
+        assert_eq!(lit.burn_total, 20000);
+        assert_eq!(lit.fuel, Some(stack(ItemId::Bucket, 1)));
+        // the bucket is no fuel: it waits there to be taken
+        lit.burn_left = 1;
+        lit.tick();
+        assert!(!lit.is_lit());
+        assert_eq!(lit.fuel, Some(stack(ItemId::Bucket, 1)));
     }
 
     #[test]

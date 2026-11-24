@@ -86,6 +86,10 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    burning player are cut from it.
 -> The texture of the flint and steel (items/FlintAndSteel.png), the pack's
    item/flint_and_steel.png.
+-> The animated texture of the lava (blocks/Lava.png, 16 frames), the pack's
+   block/lava_still.png, and its animation (blocks/Lava.anim.ron) from its .mcmeta; the
+   textures of the obsidian and of the lava bucket (blocks/Obsidian.png,
+   items/LavaBucket.png), the pack's block/obsidian.png and item/lava_bucket.png.
 
 -> Drawn for Rustcraft, not from the pack: HewnStone, Limestone, Slate, Clay, BrickWall, RammedEarth, Thatch, CoalBlock, CopperOre, TinOre, CopperBlock, TinBlock, BronzeBlock, WillowLog, WillowLogTop, WillowPlanks, WillowLeaves, AcaciaLog, AcaciaLogTop, AcaciaPlanks, AcaciaLeaves, WoodenSlab, HewnStoneSlab, BrickSlab, Lantern, Reed, Heather, Mushroom, CopperIngot, TinIngot, BronzeIngot, FiredBrick, Fiber, Rope, Flint, RoastMushroom, BronzePickaxe, BronzeAxe, BronzeShovel, BronzeHoe, BronzeSword.
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.

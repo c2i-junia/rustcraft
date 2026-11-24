@@ -37,6 +37,8 @@ pub const SWIM_UP_VELOCITY: f32 = 4.0;
 /// 1.2 blocks out of the water (v² / 2g = 8.5² / 60) and climb onto the shore.
 pub const WATER_EXIT_VELOCITY: f32 = 8.5;
 pub const WATER_SPEED_MULTIPLIER: f32 = 0.6;
+/// Lava is thicker: a player in it walks at this part of its speed, and cannot swim faster.
+pub const LAVA_SPEED_MULTIPLIER: f32 = 0.3;
 /// Downward velocity of a player holding sneak in water, in blocks/s.
 pub const SWIM_DOWN_VELOCITY: f32 = -4.0;
 /// Speed of a swimming player, along where it looks, in blocks/s: faster than walking in the

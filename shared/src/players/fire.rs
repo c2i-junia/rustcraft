@@ -1,5 +1,5 @@
 //! A player on fire: a fire block it touches sets it burning for a while, which hurts it until
-//! it is over or water or rain puts it out.
+//! it is over or water or rain puts it out. Lava burns it the same, and hurts it more.
 
 use bevy::math::{bounding::Aabb3d, Vec3};
 
@@ -13,10 +13,16 @@ pub const BURNING_TICKS: u16 = 80;
 pub const FIRE_DAMAGE: u32 = 1;
 /// The ticks between two hits of a burning player.
 pub const FIRE_DAMAGE_INTERVAL: u16 = 20;
+/// The ticks a player burns once out of lava: 15 s.
+pub const LAVA_BURNING_TICKS: u16 = 300;
+/// The damage a player in lava takes every `LAVA_DAMAGE_INTERVAL` ticks, the first at once.
+pub const LAVA_DAMAGE: u32 = 4;
+/// The ticks between two hits of lava, as long as the invulnerability after a hit.
+pub const LAVA_DAMAGE_INTERVAL: u16 = 10;
 
 impl Player {
     /// The collision box of the player, where it is.
-    fn body(&self) -> Aabb3d {
+    pub(crate) fn body(&self) -> Aabb3d {
         Aabb3d::new(
             self.position,
             Vec3::new(self.width, self.height, self.width) / 2.0,
@@ -51,6 +57,32 @@ impl Player {
         self.fire_damage_wait -= 1;
         self.burning_ticks -= 1;
     }
+}
+
+impl Player {
+    /// One tick of lava, before the tick of fire (`burn`). In lava (`in_lava`), the player
+    /// burns for at least `LAVA_BURNING_TICKS`, and takes `LAVA_DAMAGE` at once, then every
+    /// `LAVA_DAMAGE_INTERVAL` ticks; a hit the invulnerability refuses is tried again the next
+    /// tick. Creative and dead players are not harmed.
+    pub fn bathe_in_lava(&mut self, in_lava: bool) {
+        if !in_lava || self.is_dead() || !self.game_mode.takes_damage() {
+            self.lava_damage_wait = 0;
+            return;
+        }
+        self.burning_ticks = self.burning_ticks.max(LAVA_BURNING_TICKS);
+        if self.lava_damage_wait == 0 {
+            if !self.hurt(LAVA_DAMAGE, DamageSource::Lava) {
+                return;
+            }
+            self.lava_damage_wait = LAVA_DAMAGE_INTERVAL;
+        }
+        self.lava_damage_wait -= 1;
+    }
+}
+
+/// Whether the body of `player` touches lava.
+pub fn body_in_lava(world: &ChunkMap, player: &Player) -> bool {
+    world.touches_block(&player.body(), BlockId::Lava)
 }
 
 /// Whether the body of `player` touches a fire block.
@@ -168,5 +200,68 @@ mod tests {
         assert!(!is_doused(&world, &player, true));
         world.fill_box(IVec3::new(4, 1, 4), IVec3::new(4, 1, 4), BlockId::Water);
         assert!(is_doused(&world, &player, false));
+    }
+
+    /// `ticks` in lava then fire, as on the server.
+    fn bathe(player: &mut Player, in_lava: bool, doused: bool, ticks: u32) {
+        for _ in 0..ticks {
+            player.tick_damage_timers();
+            player.bathe_in_lava(in_lava);
+            player.burn(false, doused && !in_lava);
+        }
+    }
+
+    #[test]
+    fn lava_hits_four_every_ten_ticks_and_sets_the_player_burning() {
+        let mut player = survivor();
+        bathe(&mut player, true, false, 1);
+        assert_eq!(
+            player.health,
+            MAX_HEALTH - LAVA_DAMAGE,
+            "the first hit at once"
+        );
+        assert_eq!(player.burning_ticks, LAVA_BURNING_TICKS - 1);
+        bathe(&mut player, true, false, 9);
+        assert_eq!(player.health, MAX_HEALTH - LAVA_DAMAGE);
+        bathe(&mut player, true, false, 1);
+        assert_eq!(player.health, MAX_HEALTH - 2 * LAVA_DAMAGE);
+        // the fire's damage falls in the invulnerability of the lava's
+        bathe(&mut player, true, false, 20);
+        assert_eq!(player.health, MAX_HEALTH - 4 * LAVA_DAMAGE);
+        bathe(&mut player, true, false, 20);
+        assert!(player.is_dead());
+        assert_eq!(player.death_cause, Some(DeathCause::Lava));
+    }
+
+    #[test]
+    fn out_of_lava_the_player_burns_on_until_water_puts_it_out() {
+        let mut player = survivor();
+        bathe(&mut player, true, false, 1);
+        bathe(&mut player, false, false, 40);
+        assert!(player.is_burning());
+        // burning: 1 a second once the lava's invulnerability is over
+        assert_eq!(player.health, MAX_HEALTH - LAVA_DAMAGE - 2);
+        bathe(&mut player, false, true, 1);
+        assert!(!player.is_burning());
+        // in lava, water touched on the other side or rain do not put it out
+        bathe(&mut player, true, true, 1);
+        assert!(player.is_burning());
+    }
+
+    #[test]
+    fn creative_players_take_nothing_from_lava() {
+        let mut player = survivor();
+        player.game_mode = GameMode::Creative;
+        bathe(&mut player, true, false, 50);
+        assert_eq!(player.health, MAX_HEALTH);
+        assert!(!player.is_burning());
+    }
+
+    #[test]
+    fn lava_at_the_feet_touches_the_body() {
+        let (mut world, player) = standing();
+        assert!(!body_in_lava(&world, &player));
+        world.fill_box(IVec3::new(4, 1, 4), IVec3::new(4, 1, 4), BlockId::Lava);
+        assert!(body_in_lava(&world, &player));
     }
 }

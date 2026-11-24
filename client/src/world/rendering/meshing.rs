@@ -704,11 +704,11 @@ fn chunk_faces(
         let visibility = kind.1;
 
         let origin = local_block_pos.as_vec3();
-        // How much a liquid is seen through is the alpha of its texture
-        let mesh_creator = match visibility {
-            BlockTransparency::Liquid => &mut liquid,
-            _ => &mut solid,
-        };
+        // How much a liquid is seen through is the alpha of its texture. Lava is not seen
+        // through, and the material of the liquids draws the waves and the mirror of water:
+        // it goes with the solid faces, sloping as water
+        let blended = visibility == BlockTransparency::Liquid && block.id != BlockId::Lava;
+        let mesh_creator = if blended { &mut liquid } else { &mut solid };
         // The cracks of a block being broken (stages 0 to 9) are drawn over each of its
         // faces. A custom texture folder may lack the texture: no cracks then.
         let cracks = (block.breaking_progress > 0)
@@ -773,7 +773,7 @@ fn chunk_faces(
                 let look = FaceLook {
                     tile,
                     colouring: Colouring::of(face, *overlay),
-                    liquid: visibility == BlockTransparency::Liquid,
+                    liquid: blended,
                     height: face_height,
                     light: lights[0],
                 };
@@ -1272,6 +1272,20 @@ mod tests {
         let water = mesh_of(&[(IVec3::ONE, BlockId::Water)]);
         assert_eq!(vertices(&water.solid_mesh), 0);
         assert_eq!(vertices(&water.liquid_mesh), vertices(&stone.solid_mesh));
+    }
+
+    #[test]
+    fn lava_is_drawn_with_the_solid_faces_and_slopes_as_water() {
+        let stone = mesh_of(&[(IVec3::ONE, BlockId::Stone)]);
+        let lava = mesh_of(&[(IVec3::ONE, BlockId::Lava)]);
+        assert_eq!(vertices(&lava.liquid_mesh), 0);
+        assert_eq!(vertices(&lava.solid_mesh), vertices(&stone.solid_mesh));
+        // a source alone sinks towards the air around it, as water does
+        let highest = top_vertices(&lava.solid_mesh)
+            .iter()
+            .map(|p| p.y)
+            .fold(f32::MIN, f32::max);
+        assert_eq!(highest, 1.0 + 80.0 / 117.0);
     }
 
     /// The normal of each vertex of `mesh`.

@@ -61,7 +61,7 @@ pub fn setup_resources_and_events(app: &mut App) {
         .add_message::<PlayerInputsEvent>()
         .add_message::<ServerEventMessage>()
         .init_resource::<JoinRequests>()
-        .init_resource::<world::flow::WaterFlow>()
+        .init_resource::<world::flow::LiquidFlow>()
         .init_resource::<world::ticks::BlockTicks>()
         .init_resource::<Locator>()
         .add_observer(buffer_server_event);
@@ -127,7 +127,7 @@ pub fn register_systems(app: &mut App) {
             world::growth::growth_system,
             // before the flow, which washes the fires away and fills what they burnt
             world::ticks::block_ticks_system,
-            world::flow::water_flow_system,
+            world::flow::liquid_flow_system,
             world::weather::weather_system,
             // After every block change of the tick
             world::portals::remove_unfit_portals_system,

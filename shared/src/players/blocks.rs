@@ -4,10 +4,14 @@ use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{game_mode::MAX_HEALTH, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
-        fire::fire_can_stay, fit_portal, furnace::smelting_result, global_block_to_chunk_pos,
-        liquid::is_source, raycast, BlockData, BlockDirection, BlockId, BlockTransparency,
-        ChunkMap, Container, FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind,
-        PortalColor, RaycastResponse, ServerMob, Tool, ToolKind,
+        fire::fire_can_stay,
+        fit_portal,
+        furnace::smelting_result,
+        global_block_to_chunk_pos,
+        liquid::{is_source, Liquid, LAVA, WATER},
+        raycast, BlockData, BlockDirection, BlockId, BlockTransparency, ChunkMap, Container,
+        FaceDirectionExt, Furnace, ItemId, ItemStack, ItemType, MobKind, PortalColor,
+        RaycastResponse, ServerMob, Tool, ToolKind,
     },
     HALF_BLOCK, MAX_INVENTORY_SLOTS,
 };
@@ -71,7 +75,7 @@ enum Refusal {
     NotHurt,
     /// The block only stands on a soil that is not there.
     NoSoil(BlockId),
-    /// An empty bucket fills only from a water source.
+    /// An empty bucket fills only from the source of a liquid.
     NotASource(BlockId),
     /// No portal fits on the wall around the aimed cell.
     NoRoom,
@@ -136,7 +140,7 @@ pub struct PortalShot {
 pub struct BlockInteractions {
     pub broken: Vec<BrokenBlock>,
     pub spawned: Vec<SpawnedMob>,
-    /// The water bucket a player filled and had no room for: the server drops it.
+    /// The full bucket a player filled and had no room for: the server drops it.
     pub dropped: Vec<ItemStack>,
     /// The signs a player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
@@ -218,7 +222,12 @@ pub fn simulate_player_block_interactions(
                 ),
                 Some(ItemId::WaterBucket) => (
                     "pour a bucket",
-                    pour_water(player, world_map, action)
+                    pour_liquid(player, world_map, action, WATER)
+                        .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
+                ),
+                Some(ItemId::LavaBucket) => (
+                    "pour a bucket",
+                    pour_liquid(player, world_map, action, LAVA)
                         .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
                 Some(food) if food.food_health().is_some() => (
@@ -293,7 +302,8 @@ fn place_ready(player: &mut Player, action: &PlayerFrameInput) -> bool {
 }
 
 /// The block the player aims at through `camera`, holding `held`: an empty bucket aims at the
-/// water sources too, any other item through water. The portal gun aims further than the rest.
+/// sources of the liquids too, any other item through them. The portal gun aims further than
+/// the rest.
 pub fn aim(
     world_map: &ChunkMap,
     camera: &Transform,
@@ -303,7 +313,7 @@ pub fn aim(
 ) -> Option<RaycastResponse> {
     match held {
         Some(ItemId::Bucket) => {
-            raycast::raycast_to_water_source(world_map, camera, player_position, view_mode)
+            raycast::raycast_to_source(world_map, camera, player_position, view_mode)
         }
         Some(ItemId::PortalGun) => {
             raycast::raycast_far(world_map, camera, player_position, view_mode)
@@ -727,9 +737,9 @@ fn eat(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
     Ok(())
 }
 
-/// Fills the bucket held in the selected hotbar slot from the water source the player aims at,
-/// which is taken away. A single bucket becomes the water bucket; from a stack, the water bucket
-/// goes into the inventory, and is returned when there is no room for it.
+/// Fills the bucket held in the selected hotbar slot from the source the player aims at, water
+/// or lava, which is taken away. A single bucket becomes the full bucket; from a stack, the
+/// full bucket goes into the inventory, and is returned when there is no room for it.
 fn fill_bucket(
     player: &mut Player,
     world_map: &mut ChunkMap,
@@ -746,10 +756,15 @@ fn fill_bucket(
         ));
     }
 
+    let full = if target.block.id == BlockId::Lava {
+        ItemId::LavaBucket
+    } else {
+        ItemId::WaterBucket
+    };
     world_map.remove_block(target.position);
     let water_bucket = ItemStack {
-        item_id: ItemId::WaterBucket,
-        item_type: ItemId::WaterBucket.get_default_type(),
+        item_id: full,
+        item_type: full.get_default_type(),
         nb: 1,
     };
     let slot = action.hotbar_slot;
@@ -767,24 +782,22 @@ fn fill_bucket(
     Ok((left > 0).then_some(water_bucket))
 }
 
-/// Pours the water of the water bucket held in the selected hotbar slot against the aimed face,
-/// where a block would be placed: a source, which the flow of the server then spreads. The water
-/// bucket becomes a bucket. Water stops nobody, so it may be poured where the player stands;
-/// into a source, it would change nothing, and the water bucket is kept.
-fn pour_water(
+/// Pours the `liquid` of the full bucket held in the selected hotbar slot against the aimed
+/// face, where a block would be placed: a source, which the flow of the server then spreads.
+/// The full bucket becomes a bucket. A liquid stops nobody, so it may be poured where the
+/// player stands; into a source, it would change nothing, and the full bucket is kept.
+fn pour_liquid(
     player: &mut Player,
     world_map: &mut ChunkMap,
     action: &PlayerFrameInput,
+    liquid: Liquid,
 ) -> Result<(), Refused> {
     let (_, position) = cell_against_aimed_face(player, world_map, action)?;
     if world_map.get_block(position).is_some_and(is_source) {
         return Err(Refused::at(position, Refusal::Occupied));
     }
 
-    world_map.set_block(
-        position,
-        BlockData::new(BlockId::Water, BlockDirection::Front),
-    );
+    world_map.set_block(position, liquid.at(0));
     player.inventory.inner.insert(
         action.hotbar_slot,
         ItemStack {
@@ -1637,6 +1650,27 @@ mod tests {
             assert_eq!(held(&player, 0), Some((ItemId::WaterBucket, 1)), "{mode:?}");
             assert!(dropped.is_empty());
         }
+    }
+
+    #[test]
+    fn a_bucket_takes_a_lava_source_into_a_lava_bucket_which_pours_it_back() {
+        let lava = LAVA.at(0);
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(IN_FRONT, lava)], stack(ItemId::Bucket, 1));
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(IN_FRONT), None);
+        assert_eq!(held(&player, 0), Some((ItemId::LavaBucket, 1)));
+
+        // flowing lava is not taken
+        let (mut player, mut world, input) =
+            bucket_in_front_of(&[(IN_FRONT, LAVA.at(2))], stack(ItemId::Bucket, 1));
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)));
+
+        let (mut player, mut world, input) = bucket_in_front_of(&[], stack(ItemId::LavaBucket, 1));
+        right_click(&mut player, &mut world, &input);
+        assert_eq!(world.get_block(IN_FRONT), Some(&lava));
+        assert_eq!(held(&player, 0), Some((ItemId::Bucket, 1)));
     }
 
     #[test]
