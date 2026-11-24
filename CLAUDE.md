@@ -24,3 +24,19 @@ pack (XSSheep's, kept up by Nova_Wostra): https://github.com/NovaWostra/Pixel-Pe
 - The repository has no license file, only the credits in its `pack.txt`. Say which textures
   came from it in the commit message, and credit the pack in `docs/ressources.txt`.
 - Draw a texture only when the pack has none for it.
+
+## Building and testing
+
+- On a computer (`CLAUDE_CODE_REMOTE` unset), never run the whole test suite nor the game unasked:
+  one `nice -n 19 cargo check -j 2 -p <crate>` per batch of changes, then the tests of the changed
+  modules with `-j 2` and `--test-threads 2`.
+- In a cloud session (`CLAUDE_CODE_REMOTE=true`), use `CARGO_TARGET_DIR=/opt/rustcraft-target`. The
+  first build takes long: run cargo in the background and wait for it. The screenshots and the e2e
+  tests run on lavapipe, without a GPU, as in the CI.
+- Before opening a pull request from a cloud session: `cargo fmt --all -- --check`, clippy as in
+  `.github/workflows/ci.yml`, and `cargo test --workspace`, the e2e tests included.
+- One task, one branch, one pull request; never push to `main`.
+- `BlockId`, `ItemId`, `MobKind` and `PROTOCOL_ID` conflict between branches. On a rebase, keep the
+  variants of `main` first, put yours after, and renumber the tables of the tests.
+- Adding an item changes the counts of `client/src/e2e/item_browser.rs`, and the goldens
+  (`UPDATE_GOLDEN=1`): look at the difference before accepting one.

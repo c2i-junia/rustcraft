@@ -21,6 +21,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/cloud/session-start.sh",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
