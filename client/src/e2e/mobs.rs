@@ -444,3 +444,54 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
     }
     h.snapshot("hostiles");
 }
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_cow_held_rye_eats_one_and_hearts_rise_over_it() {
+    let folder = GameFolder::new().with_world("Farm").with_items(
+        "Farm",
+        "Tester",
+        &[(0, ItemId::CowSpawnEgg, 1), (1, ItemId::Rye, 5)],
+    );
+    let mut h = enter_world(folder, "Farm");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::Rye, 5))
+    });
+    let player = look_at_the_ground_ahead(&mut h);
+    right_click(&mut h);
+    h.wait_until("the hatched cow", SERVER, |w| {
+        animals(w)
+            .iter()
+            .any(|&(kind, at)| kind == MobKind::Cow && at.distance(player) < 5.0)
+    });
+    h.press(KeyCode::Digit2);
+    h.frames(2);
+    // The cow may walk: it is looked at again before each try
+    for _ in 0..10 {
+        let cow = animals(h.world())
+            .into_iter()
+            .find(|&(kind, _)| kind == MobKind::Cow)
+            .unwrap()
+            .1;
+        look_at(&mut h, cow);
+        h.frames(2);
+        right_click(&mut h);
+        h.frames(10);
+        if slot(h.world(), 1) == Some((ItemId::Rye, 4)) {
+            break;
+        }
+    }
+    h.wait_until("one rye eaten", SERVER, |w| {
+        slot(w, 1) == Some((ItemId::Rye, 4))
+    });
+    h.wait_until("hearts over the cow", SERVER, |w| {
+        let in_love = w
+            .try_query::<&Mob>()
+            .is_some_and(|mut mobs| mobs.iter(w).any(|mob| mob.in_love));
+        let hearts = w
+            .try_query::<&crate::portal::particles::Particle>()
+            .is_some_and(|mut hearts| hearts.iter(w).count() > 0);
+        in_love && hearts
+    });
+    h.snapshot("cow_in_love");
+}

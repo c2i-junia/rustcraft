@@ -46,6 +46,8 @@ pub struct ServerWorldMap {
     pub places: Places,
     pub home: HomeEvents,
     pub blow_waits: BlowWaits,
+    /// Time left before each player feeds an animal again (`mob::combat::interact`).
+    pub feed_waits: BlowWaits,
     /// The shots of the portal gun of this tick, by shooter, until they are sent.
     pub portal_shots: Vec<(PlayerId, PortalShot)>,
     /// How hard the world is: whether hostile mobs live in it. Saved in `world.ron`.

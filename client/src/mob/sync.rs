@@ -59,6 +59,32 @@ pub struct Mob {
     damage: u32,
     /// The time since the mob was last hurt, while it flashes red (`hurt::flash_hurt_mobs`).
     pub hurt_seconds: Option<f32>,
+    /// How big the mob is drawn: smaller while young (`ServerMob::is_young`).
+    pub scale: f32,
+    /// Whether the mob wants a mate: hearts rise over it (`hearts::show_hearts`).
+    pub in_love: bool,
+    /// Whether the mob was tamed: hearts burst over it when it is.
+    pub tamed: bool,
+}
+
+/// The model of a mob, a child of its entity, scaled with the mob.
+#[derive(Component)]
+pub struct MobModel;
+
+/// How big a mob of `server` is drawn, against an adult of its kind.
+fn scale_of(server: &ServerMob) -> f32 {
+    if server.is_young() {
+        server.height / server.kind.size().y
+    } else {
+        1.0
+    }
+}
+
+/// The transform of the model of a mob of `kind` drawn at `scale`: standing on the bottom of
+/// its hitbox.
+fn model_transform(kind: MobKind, scale: f32) -> Transform {
+    Transform::from_xyz(0.0, -(kind.size().y / 2.0 + model_lift(kind)) * scale, 0.0)
+        .with_scale(Vec3::splat(scale))
 }
 
 impl Mob {
@@ -72,6 +98,9 @@ impl Mob {
             passes: server.passes,
             damage: server.damage,
             hurt_seconds: None,
+            scale: scale_of(server),
+            in_love: server.in_love > 0,
+            tamed: server.owner.is_some(),
         }
     }
 }
@@ -125,6 +154,9 @@ fn take_update(mob: &mut Mob, transform: &mut Transform, server: &ServerMob) -> 
         mob.hurt_seconds = Some(0.0);
     }
     mob.action = server.action;
+    mob.scale = scale_of(server);
+    mob.in_love = server.in_love > 0;
+    mob.tamed = server.owner.is_some();
     mob.position = server.position;
     mob.rotation = server.rotation;
     if mob.passes != server.passes {
@@ -149,14 +181,27 @@ fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetSe
             DespawnOnExit(GameState::Game),
             children![(
                 WorldAssetRoot(scene),
-                Transform::from_xyz(
-                    0.0,
-                    -server.kind.size().y / 2.0 - model_lift(server.kind),
-                    0.0
-                ),
+                MobModel,
+                model_transform(server.kind, scale_of(server)),
             )],
         ))
         .id()
+}
+
+/// Scales the model of each mob that grew up, or was first drawn young.
+pub fn scale_mob_models(
+    mobs: Query<(&Mob, &Children), Changed<Mob>>,
+    mut models: Query<&mut Transform, With<MobModel>>,
+) {
+    for (mob, children) in &mobs {
+        for &child in children {
+            if let Ok(mut transform) = models.get_mut(child) {
+                if transform.scale.x != mob.scale {
+                    *transform = model_transform(mob.kind, mob.scale);
+                }
+            }
+        }
+    }
 }
 
 /// Moves each mob drawn toward where the server last said it is.
@@ -278,6 +323,9 @@ mod tests {
             passes: 0,
             damage: 0,
             hurt_seconds: None,
+            scale: 1.0,
+            in_love: false,
+            tamed: false,
         };
         let mut transform = Transform::from_translation(shown).with_rotation(mob.rotation);
         let mut server = ServerMob {

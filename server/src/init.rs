@@ -282,6 +282,7 @@ fn load_world(
         places: crate::world::home::Places::load(&world_dir(game_folder_paths, world_name)?),
         home: Default::default(),
         blow_waits: Default::default(),
+        feed_waits: Default::default(),
         portal_shots: Vec::new(),
         difficulty: world_data.difficulty,
     };

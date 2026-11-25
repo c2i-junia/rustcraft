@@ -522,6 +522,20 @@ may hold a herd, decided by its position and the biome of its centre, which belo
 chunk holding the surface there. That chunk is saved once generated, so the herd is never
 born again. A spawn egg used on a block brings its mob there too (`place_block`).
 
+The animals breed (`mob/breeding.rs`). A right click on an animal with its food in hand
+(`MobKind::eats`: rye, carrots, potatoes, berries or meat by kind) feeds it, one item every
+half second the button is held, rather than the player eating it (`combat::interact`). A fed
+adult wants a mate for 30 s (`ServerMob::in_love`); `breed`, after the moves, walks two that
+want one within 8 blocks to each other and, once 1.5 blocks apart, adds a young one between
+them (`ServerMob::young`, half the size, `growing` for 10 minutes, then `grow_up`), and the
+parents wait 5 minutes before they breed again. A young one fed grows up a tenth of its time
+sooner, is not shorn and leaves no loot. A wolf or a cat fed its meat is tamed one time in
+three (`TAME_CHANCE`): its `owner` is the player's name, as the ids change with each
+connection. A tamed one runs to its owner farther than 6 blocks until 2.5 away, is brought to
+its feet beyond 24 (`behavior::follow_owner`), and only tamed ones of the same owner breed,
+their young belonging to them. The client draws a young one smaller (`MobModel`) and lets
+hearts rise over one that wants a mate, and burst over one as it is tamed (`mob/hearts.rs`).
+
 The villages (`world/generation/village/`) are built where `WorldGenSettings::villages` is set,
 which a new world has and a world saved before them has not. The world is cut into regions of
 512 blocks, each holding at most one village, whose centre is drawn from the seed and the
@@ -543,8 +557,8 @@ never moves a player, so the prediction of the clients is left alone.
 
 ### The systems of a tick, in order
 
-Before **Receive**: `mob_behavior_system` (the animals wander and flee, the hostiles hunt and
-strike, `push_mobs`), `cinder_system` (the embers fly), `hostile_spawning_system`, and
+Before **Receive**: `mob_behavior_system` (the animals wander, flee, follow their owner and
+breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `hostile_spawning_system`, and
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava

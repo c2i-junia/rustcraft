@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
 use crate::world::{ItemId, PortalRest, ToolKind};
+use crate::TICKS_PER_SECOND;
 
 pub type MobId = u128;
 
@@ -122,6 +123,46 @@ impl MobKind {
         }
     }
 
+    /// Whether mobs of this kind are animals: neither hostile nor projectiles.
+    pub fn is_animal(self) -> bool {
+        !self.is_hostile() && !self.is_projectile()
+    }
+
+    /// Whether a player tames mobs of this kind by feeding them (`MobKind::eats`): the wolf
+    /// and the cat. A tamed one follows its owner, and only tamed ones breed.
+    pub fn is_tameable(self) -> bool {
+        matches!(self, MobKind::Wolf | MobKind::Cat)
+    }
+
+    /// Whether mobs of this kind eat `item` from a player's hand: fed to an adult, it makes it
+    /// want a mate (`LOVE_TICKS`), fed to a young one it grows it up faster, and fed to a wolf
+    /// or a cat not yet tamed it may tame it (`TAME_CHANCE`).
+    pub fn eats(self, item: ItemId) -> bool {
+        use ItemId as I;
+        match self {
+            MobKind::Cow | MobKind::Sheep | MobKind::Goat | MobKind::Chicken => item == I::Rye,
+            MobKind::Horse => matches!(item, I::Carrot | I::Rye),
+            MobKind::Pig => matches!(item, I::Carrot | I::Potato),
+            MobKind::Rabbit => item == I::Carrot,
+            MobKind::Fox => item == I::Berries,
+            MobKind::Wolf => matches!(
+                item,
+                I::RawMutton
+                    | I::RawPork
+                    | I::RawBeef
+                    | I::RawChicken
+                    | I::RawRabbit
+                    | I::RoastMutton
+                    | I::RoastPork
+                    | I::RoastBeef
+                    | I::RoastChicken
+                    | I::RoastRabbit
+            ),
+            MobKind::Cat => matches!(item, I::RawChicken | I::RawRabbit),
+            _ => false,
+        }
+    }
+
     /// The name the player reads, in the death messages.
     pub fn display_name(self) -> &'static str {
         match self {
@@ -181,6 +222,19 @@ impl MobKind {
     }
 }
 
+/// Ticks a young animal takes to grow up: 10 minutes.
+pub const GROW_TICKS: u32 = 10 * 60 * TICKS_PER_SECOND as u32;
+/// Ticks an adult fed its food wants a mate: 30 seconds.
+pub const LOVE_TICKS: u32 = 30 * TICKS_PER_SECOND as u32;
+/// Ticks after giving birth before an animal wants a mate again: 5 minutes.
+pub const BREED_WAIT_TICKS: u32 = 5 * 60 * TICKS_PER_SECOND as u32;
+/// The share of its time to grow up a young animal fed its food is spared.
+pub const FED_YOUNG_SPEED_UP: f32 = 0.1;
+/// The chance that a wolf or a cat fed its food is tamed.
+pub const TAME_CHANCE: f64 = 1.0 / 3.0;
+/// How big a young animal is, against an adult.
+pub const YOUNG_SCALE: f32 = 0.5;
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum MobTarget {
     None,
@@ -236,6 +290,20 @@ pub struct ServerMob {
     /// it read 0.
     #[serde(default)]
     pub passes: u32,
+    /// Ticks left before a young animal grows up; 0 for an adult. Saves from before it read 0.
+    #[serde(default)]
+    pub growing: u32,
+    /// Ticks left during which an animal fed its food wants a mate (`LOVE_TICKS`); the clients
+    /// show hearts over it meanwhile.
+    #[serde(default)]
+    pub in_love: u32,
+    /// The name of the player who tamed the animal, which follows that player.
+    #[serde(default)]
+    pub owner: Option<String>,
+    /// Ticks left before the animal may want a mate again (`BREED_WAIT_TICKS`). Neither saved
+    /// nor sent.
+    #[serde(skip)]
+    pub breed_wait: u32,
     /// The floor portal the mob came out of too slowly to leave, and rests on
     /// (`Portals::pass`). Not saved, as the portals.
     #[serde(skip)]
@@ -268,10 +336,41 @@ impl ServerMob {
             damage: 0,
             sheared: false,
             passes: 0,
+            growing: 0,
+            in_love: 0,
+            owner: None,
+            breed_wait: 0,
             portal_rest: None,
             hurt_ticks: 0,
             attack_wait: 0,
         }
+    }
+
+    /// A young animal of `kind` just born, half the size of an adult, its hitbox centred on
+    /// `position`.
+    pub fn young(kind: MobKind, position: Vec3) -> Self {
+        let size = kind.size() * YOUNG_SCALE;
+        Self {
+            height: size.y,
+            width: size.x,
+            depth: size.z,
+            growing: GROW_TICKS,
+            ..Self::new(kind, position)
+        }
+    }
+
+    /// Whether the mob is a young animal, not grown up yet.
+    pub fn is_young(&self) -> bool {
+        self.growing > 0
+    }
+
+    /// Grows a young animal up: its hitbox becomes that of an adult, standing where its feet
+    /// were.
+    pub fn grow_up(&mut self) {
+        let size = self.kind.size();
+        self.position.y += (size.y - self.height) / 2.0;
+        (self.width, self.height, self.depth) = (size.x, size.y, size.z);
+        self.growing = 0;
     }
 
     /// The position of a mob of `kind` standing on the block whose top face is at

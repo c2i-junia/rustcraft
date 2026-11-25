@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::state::GameState;
 
+mod hearts;
 mod hurt;
 mod models;
 mod sync;
@@ -21,10 +22,13 @@ pub fn mob_plugin(app: &mut App) {
         .init_resource::<MobEntities>()
         .init_resource::<models::MobAnimations>()
         .init_resource::<hurt::HurtMaterials>()
+        .init_resource::<hearts::Hearts>()
         .add_systems(
             Update,
             (
                 apply_mob_updates,
+                scale_mob_models,
+                hearts::show_hearts,
                 hurt::flash_hurt_mobs,
                 smooth_mob_motion,
                 setup_mob_animators,

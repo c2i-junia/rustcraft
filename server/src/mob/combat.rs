@@ -1,4 +1,5 @@
-//! What the players do to the mobs they aim at: blows, and taking the wool of a sheep.
+//! What the players do to the mobs they aim at: blows, taking the wool of a sheep, and feeding
+//! an animal its food (`breeding::feed`).
 
 use bevy::prelude::*;
 use rand::Rng;
@@ -26,6 +27,8 @@ const REACH: f32 = 3.0;
 const SPEAR_REACH: f32 = 5.0;
 /// Time between two blows while the button is held.
 const BLOW_MS: u64 = 500;
+/// Time between two meals given while the button is held.
+const FEED_MS: u64 = 500;
 /// Upward speed of a mob that takes a blow.
 const KNOCK_SPEED: f32 = 4.0;
 /// Horizontal speed of a mob that takes a blow, away from the player, in blocks per second:
@@ -46,6 +49,8 @@ pub struct MobWorld<'a> {
     pub items: &'a mut DroppedItems,
     pub chunks: &'a mut ChunkMap,
     pub waits: &'a mut BlowWaits,
+    /// Time left before each player holding the right button feeds an animal again.
+    pub feed_waits: &'a mut BlowWaits,
 }
 
 /// Runs the clicks of `input` on the mob the player aims at, if any, and takes them out of the
@@ -64,16 +69,26 @@ pub fn interact(
     } else {
         0
     };
+    let feed_wait = world.feed_waits.entry(player.id).or_default();
+    *feed_wait = if right {
+        feed_wait.saturating_sub(input.delta_ms.min(100))
+    } else {
+        0
+    };
     if player.is_dead() || !(left || right) {
         return None;
     }
     let held = held_item(player, input);
     let id = aimed_mob(player, input, held, world.mobs, world.chunks)?;
     let mob = world.mobs.get_mut(&id)?;
+    // An animal held its food is fed, rather than the player eating it
+    let feeds = right && held.is_some_and(|item| mob.kind.eats(item));
     let shears = right
+        && !feeds
         && mob.kind == MobKind::Sheep
+        && !mob.is_young()
         && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_value().is_some());
-    if !left && !shears {
+    if !left && !shears && !feeds {
         return None;
     }
     let target = aim(
@@ -97,6 +112,18 @@ pub fn interact(
             mob.sheared = true;
             world.changed.insert(id);
             drops.push((ItemId::Wool, rng.gen_range(1..=2)));
+        }
+    }
+    if feeds {
+        rest.inputs.remove(&NetworkAction::RightClick);
+        if let (0, Some(item)) = (*feed_wait, held) {
+            *feed_wait = FEED_MS;
+            if super::breeding::feed(mob, &player.name, item, rng) {
+                player
+                    .inventory
+                    .remove_item_from_stack(input.hotbar_slot, 1);
+                world.changed.insert(id);
+            }
         }
     }
     let position = mob.position;
@@ -153,6 +180,10 @@ pub fn interact(
 /// What `mob` drops when it dies: its meat, and its wool, leather or feathers. Counts of zero
 /// are left out.
 pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
+    // A young animal leaves nothing
+    if mob.is_young() {
+        return vec![];
+    }
     let mut drops = match mob.kind {
         MobKind::Sheep => vec![
             (ItemId::RawMutton, rng.gen_range(1..=2)),
@@ -271,6 +302,7 @@ mod tests {
         chunks: ChunkMap,
         changed: HashSet<MobId>,
         waits: BlowWaits,
+        feed_waits: BlowWaits,
         rng: StdRng,
     }
 
@@ -282,6 +314,7 @@ mod tests {
                 chunks: ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15)),
                 changed: HashSet::new(),
                 waits: BlowWaits::new(),
+                feed_waits: BlowWaits::new(),
                 rng: StdRng::seed_from_u64(1),
             }
         }
@@ -301,6 +334,7 @@ mod tests {
                 items: &mut self.items,
                 chunks: &mut self.chunks,
                 waits: &mut self.waits,
+                feed_waits: &mut self.feed_waits,
             };
             interact(player, &input, world, &mut self.rng);
             for mob in self.mobs.values_mut() {
@@ -440,6 +474,38 @@ mod tests {
                 "{item:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_cow_held_rye_eats_one_and_wants_a_mate_and_a_beef_is_not_for_it() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        let mut player = fighter(1, Some(ItemId::Rye));
+        player.inventory.inner.get_mut(&0).unwrap().nb = 3;
+        // Held down, it eats once
+        for _ in 0..5 {
+            arena.tick(&mut player, &NetworkAction::RightClick, true);
+        }
+        assert_eq!(player.inventory.inner[&0].nb, 2);
+        assert!(arena.mobs[&7].in_love > 0);
+        assert!(arena.changed.contains(&7));
+        // Wanting a mate already, it eats no more
+        arena.click(&mut player, NetworkAction::RightClick, 2);
+        assert_eq!(player.inventory.inner[&0].nb, 2);
+
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        let mut player = fighter(1, Some(ItemId::RawBeef));
+        arena.click(&mut player, NetworkAction::RightClick, 1);
+        assert_eq!(arena.mobs[&7].in_love, 0);
+        assert_eq!(player.inventory.inner[&0].nb, 1);
+    }
+
+    #[test]
+    fn a_young_sheep_is_not_shorn_and_a_young_animal_leaves_nothing() {
+        let young = ServerMob::young(MobKind::Sheep, AHEAD);
+        let mut arena = Arena::with(young.clone());
+        arena.click(&mut fighter(1, None), NetworkAction::RightClick, 1);
+        assert!(!arena.mobs[&7].sheared);
+        assert!(loot(&young, &mut StdRng::seed_from_u64(1)).is_empty());
     }
 
     #[test]

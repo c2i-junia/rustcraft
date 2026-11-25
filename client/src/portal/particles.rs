@@ -34,6 +34,25 @@ pub(crate) fn spawn_particle<M: Material>(
     size: f32,
     velocity: Vec3,
 ) -> impl Command {
+    spawn_turned_particle(
+        mesh,
+        material,
+        Transform::from_translation(translation),
+        lifetime,
+        size,
+        velocity,
+    )
+}
+
+/// A particle as `spawn_particle` makes, placed and turned as `transform` says.
+pub(crate) fn spawn_turned_particle<M: Material>(
+    mesh: Handle<Mesh>,
+    material: Handle<M>,
+    transform: Transform,
+    lifetime: f32,
+    size: f32,
+    velocity: Vec3,
+) -> impl Command {
     move |world: &mut World| {
         world.spawn((
             Particle {
@@ -43,11 +62,7 @@ pub(crate) fn spawn_particle<M: Material>(
             },
             Mesh3d(mesh),
             MeshMaterial3d(material),
-            Transform {
-                translation,
-                scale: Vec3::splat(size),
-                ..default()
-            },
+            transform.with_scale(Vec3::splat(size)),
             // Frozen once the game is left, as nothing moves it then
             DespawnOnExit(GameState::Game),
         ));

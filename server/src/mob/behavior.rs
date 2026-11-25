@@ -27,6 +27,7 @@ use shared::{
     TICKS_PER_SECOND,
 };
 
+use super::breeding::{FOLLOW_START, FOLLOW_STOP, FOLLOW_TELEPORT};
 use crate::world::data::ServerWorldMap;
 
 /// A walking mob this close to its target, on the horizontal plane, has arrived.
@@ -122,6 +123,9 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         delta,
         &mut rand::thread_rng(),
     );
+    super::breeding::breed(mobs, changed_mobs, |position| {
+        is_terrain_loaded(position, chunks)
+    });
     push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
 
@@ -314,6 +318,9 @@ fn wander_or_flee(
     delta: f32,
     rng: &mut impl Rng,
 ) {
+    if follow_owner(mob, chunks, players, delta, rng) {
+        return;
+    }
     if is_shy(mob.kind) && mob.action != MobAction::Flee {
         if let Some(id) = nearest_player(players, mob.position, FEAR_DISTANCE) {
             mob.action = MobAction::Flee;
@@ -346,6 +353,53 @@ fn wander_or_flee(
         // An animal never hunts nor burrows
         MobAction::Chase | MobAction::Attack | MobAction::Burrow => rest(mob, rng),
     }
+}
+
+/// What a tamed animal does to keep up with its owner, when it is there: farther than
+/// `FOLLOW_START`, it runs to it until `FOLLOW_STOP` away; farther than `FOLLOW_TELEPORT`, from
+/// an owner standing on the ground, it is brought to its feet. One that flees or goes to a
+/// mate does not follow. Returns whether it followed, which is all it did this step.
+fn follow_owner(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    delta: f32,
+    rng: &mut impl Rng,
+) -> bool {
+    let Some(owner) = super::breeding::owner_of(players, mob) else {
+        return false;
+    };
+    if mob.action == MobAction::Flee || mob.in_love > 0 {
+        return false;
+    }
+    let distance = mob.position.distance(owner.position);
+    if distance > FOLLOW_TELEPORT && owner.on_ground {
+        mob.position = owner.position + Vec3::Y * (mob.height / 2.0);
+        mob.velocity = Vec3::ZERO;
+        rest(mob, rng);
+        return true;
+    }
+    let following = mob.action == MobAction::Walk
+        && matches!(mob.target, MobTarget::Player(id) if id == owner.id);
+    if distance > FOLLOW_START || following && distance > FOLLOW_STOP {
+        mob.action = MobAction::Walk;
+        mob.target = MobTarget::Player(owner.id);
+        mob.action_ticks = WALK_TICKS;
+        let towards = (owner.position - mob.position).with_y(0.0);
+        walk(
+            mob,
+            chunks,
+            towards.normalize_or_zero(),
+            flee_speed(mob.kind),
+            delta,
+        );
+        return true;
+    }
+    if following {
+        rest(mob, rng);
+        return true;
+    }
+    false
 }
 
 /// What a mob that rests or walks somewhere does: it rests until its time is up, walks to a
@@ -886,6 +940,80 @@ mod tests {
         let expected = flee_speed(MobKind::Fox);
         assert!((moved.dot(away) - expected).abs() < 0.2, "moved {moved}");
         assert!(moved.y.abs() < 0.05);
+    }
+
+    /// A player named "Ann" standing at `feet`.
+    fn owner_at(feet: Vec3) -> Player {
+        let mut player = Player::new(5, "Ann".into(), feet, Transform::from_translation(feet));
+        player.on_ground = true;
+        player
+    }
+
+    fn tamed_wolf(x: f32, z: f32) -> ServerMob {
+        ServerMob {
+            owner: Some("Ann".into()),
+            ..standing(MobKind::Wolf, x, z)
+        }
+    }
+
+    #[test]
+    fn a_tamed_wolf_runs_to_its_owner_and_stops_near_it() {
+        let mut map = ground_world(false);
+        let feet = Vec3::new(8.5, 1.0, 0.5);
+        map.players.insert(5, owner_at(feet));
+        let map = run_seconds(map, tamed_wolf(-5.5, 0.5), 5);
+        let wolf = &map.mobs[&0];
+        let distance = wolf.position.with_y(0.0).distance(feet.with_y(0.0));
+        assert!(distance <= FOLLOW_START, "{distance}");
+        assert!(distance >= FOLLOW_STOP - 0.5, "{distance}");
+    }
+
+    #[test]
+    fn a_tamed_wolf_left_far_behind_is_brought_to_its_owner_and_a_wild_one_is_not() {
+        for (owner, expected) in [(Some("Ann"), true), (None, false)] {
+            let mut map = ground_world(false);
+            let feet = Vec3::new(0.5, 40.0, 0.5);
+            map.players.insert(5, owner_at(feet));
+            let wolf = ServerMob {
+                owner: owner.map(str::to_string),
+                ..standing(MobKind::Wolf, 0.5, 0.5)
+            };
+            let map = run_behavior_in(map, wolf);
+            let wolf = &map.mobs[&0];
+            assert_eq!(wolf.position.y > 30.0, expected, "{owner:?}");
+        }
+    }
+
+    #[test]
+    fn two_fed_cows_on_the_ground_meet_and_have_a_young_one() {
+        let mut map = ground_world(false);
+        let mut rng = StdRng::seed_from_u64(3);
+        let mut other = standing(MobKind::Cow, 4.5, 0.5);
+        assert!(super::super::breeding::feed(
+            &mut other,
+            "Ann",
+            shared::world::ItemId::Rye,
+            &mut rng
+        ));
+        map.mobs.insert(1, other);
+        let mut cow = standing(MobKind::Cow, -2.5, 0.5);
+        super::super::breeding::feed(&mut cow, "Ann", shared::world::ItemId::Rye, &mut rng);
+        let map = run_seconds(map, cow, 8);
+        let young: Vec<_> = map.mobs.values().filter(|mob| mob.is_young()).collect();
+        assert_eq!(young.len(), 1);
+        assert_eq!(young[0].kind, MobKind::Cow);
+    }
+
+    /// One step of `mob` in `map`.
+    fn run_behavior_in(mut map: ServerWorldMap, mob: ServerMob) -> ServerWorldMap {
+        map.mobs.insert(0, mob);
+        let mut world = World::new();
+        world.insert_resource(map);
+        let mut time = Time::<Fixed>::default();
+        time.advance_by(tick());
+        world.insert_resource(time);
+        world.run_system_once(mob_behavior_system).unwrap();
+        world.remove_resource::<ServerWorldMap>().unwrap()
     }
 
     #[test]
