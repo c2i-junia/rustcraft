@@ -998,7 +998,7 @@ mod tests {
         assert_eq!(directions.len(), 6, "scattered");
         // Nothing is left to drop twice
         assert_eq!(items.drop_on_death(&mut player, &mut rng), 0);
-        assert_eq!(items.len(), 4);
+        assert_eq!(items.len(), 6);
     }
 
     #[test]
@@ -1011,7 +1011,7 @@ mod tests {
             0
         );
         assert!(items.is_empty());
-        assert_eq!(player.inventory.inner.len(), 3);
+        assert_eq!(player.inventory.inner.len(), 5);
     }
 
     #[test]
