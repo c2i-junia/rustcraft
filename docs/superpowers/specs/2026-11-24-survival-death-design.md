@@ -292,3 +292,30 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   The furnace and the campfire bake potatoes. Hooks for lot 8: `chunks_near_players(chunks,
   players, radius)` for per-player iteration, `TickContext` (only `raining` so far) for the
   night, and `growth::rained_on`.
+- **Lot 8** (plan `2026-11-24-survival-lot-8-hostiles.md`). Appended `MobKind` 10–12 `Gnawer`,
+  `Bramble`, `Roller` (only the kinds of this lot: the four big ones are appended by their
+  lots), `MobAction` 4–5 `Chase`, `Attack`, `ItemId` 162–164 their spawn eggs (Mobs, drawn by
+  `scripts/generate_spawn_eggs.py`). The rules are shared (`shared/src/world/hostiles.rs`:
+  `is_night`, `Difficulty`, `MobKind::hunt`/`strike`, `is_prey`, `line_of_sight`,
+  `surroundings`, `is_dark`, `spawn_kind`, `pack_size`, `may_spawn_at`); the server has
+  `mob/hostile.rs` (the hunt) and `mob/spawning.rs` (`hostile_spawning_system`, chained after
+  `mob_behavior_system`). `ServerWorldMap.difficulty` is saved in `world.ron`
+  (`WorldMeta`/`WorldData.difficulty`, serde default Normal, copied by both `From`s, the save and
+  `load_world`); `/difficulty` is the sixth command; peaceful removes the hostiles on the next
+  tick, a hatched one included. Spawning: per player every 40 ticks, a spot 24–64 blocks away
+  (from every player), a random height within 24 of its feet scanned down ≤ 24 cells for a
+  floor with two free cells; dark = (night and open sky) or covered, and no light emitter in
+  the 17³ cube around it; caps 10 per player within 64, 40 per world; despawn beyond 96 checked
+  every 40 ticks. "Forests and jungles" for the Bramble are told by leaves within 8 blocks of a
+  grass spot at night (covered or not), not by the biome. Rollers above y = 100 and 1 in 4 of
+  the cave spawns (covered, y < 50), Gnawers the other 3. Reach is from the mob's centre to the
+  player's box; sight and the forget distance likewise. Melee strikes knock back nothing; the
+  Roller's 8. A strike shows as `Attack` for 10 ticks (the clip plays once), then `Chase` or
+  `Idle`. A hostile hit by a player takes it as prey (`hostile::provoke`) instead of fleeing.
+  The Gnawer's box is 0.6 × 0.6 (its model is 0.625 tall), the Bramble's 1.0 × 0.75, the
+  Roller's 0.75; the Gnawer wanders at 1.4 b/s without a prey. The Roller's roll moves it
+  without a velocity, so `is_flung` stays for throws; it rolls 60 ticks at most, rests 20 after
+  a hit, is stunned 40 after a block. Extension point for lots 9–12: an arm per kind in
+  `hostile::act` (after the generic prey kept / forgotten / found), a row in `spawn_kind`, and
+  the kind's `hunt`, `strike`, `health`, `size`, `display_name`, `is_hostile`, `loot`, model
+  with `HOSTILE_CLIPS`; a flier or swimmer also gates `behavior::apply_gravity`.
