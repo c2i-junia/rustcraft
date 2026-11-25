@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use clap::Parser;
 use rustcraft_hub::{
     config::{self, Cli, Command, ServeArgs},
-    connect, router, AppState,
+    connect, maintenance, router, AppState,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -32,9 +32,14 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         public_url: args.public_url.trim_end_matches('/').into(),
         signing_key: Arc::new(signing_key),
         ip_secret: ip_secret.into(),
+        trusted_ranges: args.trusted_ranges.into(),
+        hasher: Default::default(),
+        logins: Default::default(),
     };
+    maintenance::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     tracing::info!(listen = %args.listen, "the hub is up");
-    axum::serve(listener, router(state)).await?;
+    let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
+    axum::serve(listener, app).await?;
     Ok(())
 }

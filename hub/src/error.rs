@@ -1,7 +1,7 @@
 //! The error every route returns: the spec's body and status codes.
 
 use axum::{
-    http::StatusCode,
+    http::{header::RETRY_AFTER, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -12,6 +12,8 @@ use rustcraft_protocol::api::{ErrorBody, ErrorCode};
 pub struct AppError {
     pub code: ErrorCode,
     pub message: String,
+    /// Seconds, sent in a `Retry-After` header.
+    pub retry_after: Option<u64>,
 }
 
 impl AppError {
@@ -19,6 +21,15 @@ impl AppError {
         Self {
             code,
             message: message.into(),
+            retry_after: None,
+        }
+    }
+
+    /// The same error, telling the client to wait that many seconds.
+    pub fn retry_after(self, seconds: u64) -> Self {
+        Self {
+            retry_after: Some(seconds),
+            ..self
         }
     }
 
@@ -47,7 +58,11 @@ impl IntoResponse for AppError {
             error: self.code,
             message: self.message,
         };
-        (status, Json(body)).into_response()
+        let mut response = (status, Json(body)).into_response();
+        if let Some(seconds) = self.retry_after {
+            response.headers_mut().insert(RETRY_AFTER, seconds.into());
+        }
+        response
     }
 }
 
@@ -75,6 +90,15 @@ mod tests {
             body,
             serde_json::json!({"error": "username_taken", "message": "That name is taken."})
         );
+    }
+
+    #[test]
+    fn a_rate_limit_tells_when_to_retry() {
+        let response = AppError::new(ErrorCode::RateLimited, "Slow down.")
+            .retry_after(42)
+            .into_response();
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[RETRY_AFTER], "42");
     }
 
     #[test]

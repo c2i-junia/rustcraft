@@ -1,14 +1,23 @@
 //! The Rustcraft hub: accounts, device certificates and hosted worlds.
 
+pub mod accounts;
+pub mod audit;
 pub mod config;
 pub mod error;
+pub mod maintenance;
+pub mod password;
+pub mod ratelimit;
 pub mod routes;
+pub mod sessions;
 
 use std::{sync::Arc, time::Duration};
 
 use ed25519_dalek::SigningKey;
+use ipnet::IpNet;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
+use password::Hasher;
+use ratelimit::LoginLimiter;
 pub use routes::router;
 
 /// The id of the signing key in certificates; there is one key for now.
@@ -23,6 +32,10 @@ pub struct AppState {
     pub signing_key: Arc<SigningKey>,
     /// Keys the sign-up address hashes.
     pub ip_secret: Arc<[u8]>,
+    /// Sign-ups from these ranges have a higher limit.
+    pub trusted_ranges: Arc<[IpNet]>,
+    pub hasher: Hasher,
+    pub logins: Arc<LoginLimiter>,
 }
 
 /// Connects to the database and applies the migrations.

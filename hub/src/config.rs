@@ -11,6 +11,7 @@ use std::{
 use anyhow::{bail, Context};
 use clap::{Args, Parser, Subcommand};
 use ed25519_dalek::SigningKey;
+use ipnet::IpNet;
 use rand::rngs::OsRng;
 
 #[derive(Parser)]
@@ -54,6 +55,9 @@ pub struct ServeArgs {
     /// The name of the hub, shown to players.
     #[arg(long, env = "HUB_NAME", default_value = "Rustcraft")]
     pub name: String,
+    /// Address ranges (comma-separated CIDRs) allowed more sign-ups, such as a school network.
+    #[arg(long, env = "HUB_TRUSTED_RANGES", value_delimiter = ',')]
+    pub trusted_ranges: Vec<IpNet>,
 }
 
 impl ServeArgs {
@@ -155,6 +159,7 @@ mod tests {
             signing_key_file: PathBuf::new(),
             ip_secret_file: PathBuf::new(),
             name: String::new(),
+            trusted_ranges: Vec::new(),
         };
         assert_eq!(
             args(None, Some(&path)).database_url().unwrap(),

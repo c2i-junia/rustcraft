@@ -1,10 +1,14 @@
 //! A router over a fresh database, dropped with the `TestHub`, even when the test fails.
 
-use std::sync::Arc;
+// Each test file uses some of the helpers only.
+#![allow(dead_code)]
+
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     body::Body,
-    http::{Request, Response},
+    extract::ConnectInfo,
+    http::{header, Request, Response},
     Router,
 };
 use ed25519_dalek::SigningKey;
@@ -48,6 +52,9 @@ impl TestHub {
             public_url: "https://hub.example".into(),
             signing_key: Arc::new(SigningKey::generate(&mut OsRng)),
             ip_secret: Arc::from(vec![7u8; 32]),
+            trusted_ranges: Arc::from([]),
+            hasher: Default::default(),
+            logins: Default::default(),
         };
         Self {
             app: router(state.clone()),
@@ -59,6 +66,33 @@ impl TestHub {
 
     pub async fn get(&self, path: &str) -> Response<Body> {
         let request = Request::get(path).body(Body::empty()).unwrap();
+        self.app.clone().oneshot(request).await.unwrap()
+    }
+
+    /// A request from the TCP peer `peer` (such as `"203.0.113.1:4000"`), with a JSON body and a
+    /// bearer token when given.
+    pub async fn send(
+        &self,
+        method: &str,
+        path: &str,
+        peer: &str,
+        token: Option<&str>,
+        body: Option<serde_json::Value>,
+    ) -> Response<Body> {
+        let mut request = Request::builder().method(method).uri(path);
+        if let Some(token) = token {
+            request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        let mut request = match body {
+            Some(body) => request
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string())),
+            None => request.body(Body::empty()),
+        }
+        .unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
         self.app.clone().oneshot(request).await.unwrap()
     }
 }

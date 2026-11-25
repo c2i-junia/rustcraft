@@ -10,22 +10,32 @@ description = "The Rustcraft hub: accounts, device certificates and hosted world
 
 [dependencies]
 anyhow = "1"
+argon2 = "0.5"
 axum = "0.8"
+base64 = "0.22"
 clap = { version = "4", features = ["derive", "env"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "rand_core"] }
 hex = "0.4"
+hmac = "0.12"
+ipnet = "2"
 rand = "0.8"
 rustcraft-protocol = { path = "../crates/protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 # `macros` is on only for `sqlx::migrate!`; the queries are checked at runtime.
-sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "uuid", "time", "migrate", "macros"] }
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "uuid", "time", "json", "migrate", "macros"] }
 time = "0.3"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+zxcvbn = { version = "3", default-features = false }
 
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+
+# Argon2 and zxcvbn are far too slow unoptimised: the tests hash many passwords.
+[profile.dev.package."*"]
+opt-level = 3
