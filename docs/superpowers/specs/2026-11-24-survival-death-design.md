@@ -244,3 +244,15 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   The player's aim is `players::blocks::aim` (`raycast` within `AIM_DISTANCE` 20, the bucket's
   `raycast_to_source`, the portal gun's `raycast_far`); `shared/src/world/reach.rs` is about
   which chunks a client is sent, not about the player's reach.
+- **Lot 5** (plan `2026-11-24-survival-lot-5-combat.md`). `ItemId` 149–158: `RawPork`,
+  `RoastPork`, `RawBeef`, `RoastBeef`, `RawChicken`, `RoastChicken`, `RawRabbit`,
+  `RoastRabbit`, `Leather`, `Feather`, filed under Materials as main's mutton. Every meat is
+  edible through `food_health` with Minecraft's food points (raw 2–3, roasts 5–8), main's raw
+  mutton included; the campfire roasts every raw meat as the furnace does. The spear has no
+  durability in main, so a blow wears only swords (1) and other tools (2). Hooks for the
+  hostile lots: `ServerMob.hurt_ticks` (invulnerability, not saved nor sent), the blow path
+  in `server/src/mob/combat.rs::interact` (damage by `MobKind::blow_damage(held)`, with
+  `MobKind::weak_to_axes` for the Stumpling; knock back; `Flee` for `FLEE_TICKS`, which a
+  hostile kind will replace by its chase), loot by `combat::loot(&ServerMob, rng)` (add an arm
+  per kind), and the client's red flash and `MobHurt` sound, started by any rise of
+  `ServerMob::damage` in a `MobUpdate`. A killed mob is removed at once: no flash, no sound.

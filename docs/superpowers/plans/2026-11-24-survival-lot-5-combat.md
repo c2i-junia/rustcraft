@@ -83,4 +83,4 @@ furnace or on a campfire and eaten. To see: hit a pig with a sword, roast the po
 - [x] `hurt.rs`, sound, plugin.
 
 ### Task 4: Goldens, e2e counts, `just check`
-- [ ] Item browser e2e counts 149 → 159; regenerate the goldens the new items change only.
+- [x] Item browser e2e counts 149 → 159; regenerate the goldens the new items change only.
