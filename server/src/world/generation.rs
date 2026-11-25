@@ -1944,7 +1944,12 @@ mod tests {
 
     #[test]
     fn caves_are_flooded_with_lava_sources_up_to_the_lava_level() {
-        let generator = WorldGenerator::new(42);
+        // Dungeons and the lair build into the caves
+        let settings = WorldGenSettings {
+            dungeons: false,
+            ..Default::default()
+        };
+        let generator = WorldGenerator::with(42, &settings, Biomes::vanilla());
         let (mut lava, mut air) = (0, 0);
         for x in (-768..-256).step_by(16) {
             for z in (256..768).step_by(16) {

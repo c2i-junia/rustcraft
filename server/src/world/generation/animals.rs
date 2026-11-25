@@ -166,8 +166,7 @@ mod tests {
             assert!(column.height > SEA_LEVEL, "{animal:?}");
         }
         // 49 x 49 columns of chunks: a few herds of each kind, but no crowd
-        let animals = |kind: &MobKind| !kind.is_hostile() && !kind.is_projectile();
-        for kind in MobKind::ALL.into_iter().filter(animals) {
+        for kind in MobKind::ALL.into_iter().filter(|kind| kind.is_animal()) {
             let count = by_kind.get(&kind).copied().unwrap_or(0);
             assert!((3..1000).contains(&count), "{kind:?}: {count}");
         }
