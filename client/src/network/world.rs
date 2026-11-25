@@ -168,7 +168,9 @@ pub fn update_world_from_network(
             ServerToClientMessage::PlayerUpdate(update) => {
                 ev_player_update.write(update);
             }
-            ServerToClientMessage::AuthRegisterResponse(_) => {}
+            // on the authentication channel, which this does not read
+            ServerToClientMessage::AuthRegisterResponse(_)
+            | ServerToClientMessage::Dismissed(_) => {}
             ServerToClientMessage::DroppedItems(update) => {
                 ev_dropped_items.write(update);
             }

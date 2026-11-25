@@ -9,6 +9,7 @@ use shared::world::{ItemId, ItemStack, WeatherKind};
 use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
 use crate::init::ServerTime;
+use crate::network::permissions::{Admin, WhitelistAction};
 use crate::world::weather::ServerWeather;
 
 /// The author of the answers to a command.
@@ -20,6 +21,17 @@ const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
 const LOCATE_USAGE: &str = "Usage: /locate <biome|village> <biome>";
 const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|normal>";
+const OP_USAGE: &str = "Usage: /op <player>";
+const DEOP_USAGE: &str = "Usage: /deop <player>";
+const KICK_USAGE: &str = "Usage: /kick <player> [reason]";
+const BAN_USAGE: &str = "Usage: /ban <player> [reason]";
+const PARDON_USAGE: &str = "Usage: /pardon <player>";
+const WHITELIST_USAGE: &str = "Usage: /whitelist <on|off|add|remove|list> <player>";
+const LIST_USAGE: &str = "Usage: /list";
+
+/// The commands every player may run on a dedicated server; the others are the operators'.
+/// `sign` is not typed by the player: the client sends it when a sign is written.
+const OPEN_COMMANDS: &[&str] = &["list", "sign"];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeOfDay {
@@ -44,6 +56,42 @@ pub enum Command {
     Locate(Place),
     /// `/difficulty <peaceful|normal>`: of the world.
     SetDifficulty(Difficulty),
+    /// `/list`: the players online.
+    List,
+    /// A command on who may do what (`permissions::Permissions::apply`).
+    Admin(Admin),
+}
+
+/// The answer to a player who may not run the command `name`, or `None` when the player may.
+/// `known` tells whether the command exists, the base game's or a mod's: an unknown command is
+/// answered as unknown, whoever types it. Every command but those of `OPEN_COMMANDS` is an
+/// operator's, the commands of the mods included: they change the world.
+pub fn refusal(name: &str, known: bool, is_operator: bool) -> Option<String> {
+    (known && !is_operator && !OPEN_COMMANDS.contains(&name))
+        .then(|| format!("You must be an operator to use /{name}"))
+}
+
+/// The answer to `/list`: the names of the players online, sorted.
+pub fn list_players(mut names: Vec<&str>) -> String {
+    names.sort_unstable();
+    match names.len() {
+        1 => format!("1 player online: {}", names[0]),
+        count => format!("{count} players online: {}", names.join(", ")),
+    }
+}
+
+/// The reason after the name of the player, in `line`: the words after the first two, with
+/// the spaces typed between them.
+fn reason_in(line: &str) -> Option<String> {
+    let mut rest = line.trim_start();
+    for _ in 0..2 {
+        rest = rest
+            .split_once(char::is_whitespace)
+            .map_or("", |(_, rest)| rest)
+            .trim_start();
+    }
+    let reason = rest.trim_end();
+    (!reason.is_empty()).then(|| reason.to_string())
 }
 
 /// What `/locate` looks for.
@@ -93,14 +141,42 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             .map(Command::SetDifficulty)
             .ok_or_else(|| DIFFICULTY_USAGE.to_string()),
         ["difficulty", ..] => Err(DIFFICULTY_USAGE.to_string()),
+        ["list"] => Ok(Command::List),
+        ["list", ..] => Err(LIST_USAGE.to_string()),
+        ["op", name] => Ok(Command::Admin(Admin::Op(name.to_string()))),
+        ["op", ..] => Err(OP_USAGE.to_string()),
+        ["deop", name] => Ok(Command::Admin(Admin::Deop(name.to_string()))),
+        ["deop", ..] => Err(DEOP_USAGE.to_string()),
+        ["kick", name, ..] => Ok(Command::Admin(Admin::Kick {
+            name: name.to_string(),
+            reason: reason_in(line),
+        })),
+        ["kick"] => Err(KICK_USAGE.to_string()),
+        ["ban", name, ..] => Ok(Command::Admin(Admin::Ban {
+            name: name.to_string(),
+            reason: reason_in(line),
+        })),
+        ["ban"] => Err(BAN_USAGE.to_string()),
+        ["pardon", name] => Ok(Command::Admin(Admin::Pardon(name.to_string()))),
+        ["pardon", ..] => Err(PARDON_USAGE.to_string()),
+        ["whitelist", ..] => match words[1..] {
+            ["on"] => Ok(WhitelistAction::On),
+            ["off"] => Ok(WhitelistAction::Off),
+            ["list"] => Ok(WhitelistAction::List),
+            ["add", name] => Ok(WhitelistAction::Add(name.to_string())),
+            ["remove", name] => Ok(WhitelistAction::Remove(name.to_string())),
+            _ => Err(WHITELIST_USAGE.to_string()),
+        }
+        .map(|action| Command::Admin(Admin::Whitelist(action))),
         _ => Err(format!("Unknown command: /{line}")),
     }
 }
 
-/// Runs `command` for `player`, its author, and returns the answer. `locate` starts the search
-/// of a biome by its key from the position of the player, and returns the answer to give at once
-/// (`Locator::start`). A world made peaceful loses its hostiles on the next tick
-/// (`mob::spawning`).
+/// Runs `command`, a command of the game (not `List` nor `Admin`, which the handler runs with
+/// the lobby and the permissions), for `player`, its author, and returns the answer. `locate`
+/// starts the search of a biome by its key from the position of the player, and returns the
+/// answer to give at once (`Locator::start`). A world made peaceful loses its hostiles on the
+/// next tick (`mob::spawning`).
 pub fn run_command(
     command: Command,
     (time, weather, difficulty): (&mut ServerTime, &mut ServerWeather, &mut Difficulty),
@@ -143,6 +219,8 @@ pub fn run_command(
             *difficulty = new;
             format!("Difficulty set to {}", new.name())
         }
+        // run by the handler
+        Command::List | Command::Admin(_) => String::new(),
     }
 }
 
@@ -244,7 +322,14 @@ mod tests {
                 .unwrap();
             format!("Usage: {}", command.usage())
         };
-        assert_eq!(shared::commands::COMMANDS.len(), 6);
+        assert_eq!(shared::commands::COMMANDS.len(), 13);
+        assert_eq!(OP_USAGE, usage("op"));
+        assert_eq!(DEOP_USAGE, usage("deop"));
+        assert_eq!(KICK_USAGE, usage("kick"));
+        assert_eq!(BAN_USAGE, usage("ban"));
+        assert_eq!(PARDON_USAGE, usage("pardon"));
+        assert_eq!(WHITELIST_USAGE, usage("whitelist"));
+        assert_eq!(LIST_USAGE, usage("list"));
         assert_eq!(DIFFICULTY_USAGE, usage("difficulty"));
         assert_eq!(LOCATE_USAGE, usage("locate"));
         assert_eq!(TIME_USAGE, usage("time"));
@@ -429,5 +514,112 @@ mod tests {
                 "{now} {time_of_day:?}"
             );
         }
+    }
+
+    #[test]
+    fn every_command_but_list_is_an_operators() {
+        for command in shared::commands::COMMANDS {
+            let refused = refusal(command.name, true, false);
+            assert_eq!(
+                refused.is_some(),
+                command.name != "list",
+                "{}",
+                command.name
+            );
+            assert_eq!(refusal(command.name, true, true), None);
+        }
+        assert_eq!(
+            refusal("give", true, false).as_deref(),
+            Some("You must be an operator to use /give")
+        );
+        // the commands of the mods too, but an unknown one is answered as unknown
+        assert!(refusal("tower", true, false).is_some());
+        assert_eq!(refusal("fly", false, false), None);
+        assert_eq!(refusal("sign", true, false), None);
+    }
+
+    #[test]
+    fn op_deop_pardon_take_a_player() {
+        let admin = |admin| Ok(Command::Admin(admin));
+        assert_eq!(parse_command("op Steve"), admin(Admin::Op("Steve".into())));
+        assert_eq!(
+            parse_command("deop steve"),
+            admin(Admin::Deop("steve".into()))
+        );
+        assert_eq!(
+            parse_command("pardon steve"),
+            admin(Admin::Pardon("steve".into()))
+        );
+        assert_eq!(parse_command("op"), Err(OP_USAGE.to_string()));
+        assert_eq!(parse_command("deop a b"), Err(DEOP_USAGE.to_string()));
+        assert_eq!(parse_command("pardon"), Err(PARDON_USAGE.to_string()));
+    }
+
+    #[test]
+    fn kick_and_ban_take_a_player_and_the_rest_of_the_line_as_reason() {
+        assert_eq!(
+            parse_command("kick steve"),
+            Ok(Command::Admin(Admin::Kick {
+                name: "steve".into(),
+                reason: None
+            }))
+        );
+        assert_eq!(
+            parse_command(" ban  steve   griefed  my house "),
+            Ok(Command::Admin(Admin::Ban {
+                name: "steve".into(),
+                reason: Some("griefed  my house".into())
+            }))
+        );
+        assert_eq!(parse_command("kick"), Err(KICK_USAGE.to_string()));
+        assert_eq!(parse_command("ban"), Err(BAN_USAGE.to_string()));
+    }
+
+    #[test]
+    fn whitelist_takes_an_action() {
+        let whitelist = |action| Ok(Command::Admin(Admin::Whitelist(action)));
+        assert_eq!(
+            parse_command("whitelist on"),
+            whitelist(WhitelistAction::On)
+        );
+        assert_eq!(
+            parse_command("whitelist off"),
+            whitelist(WhitelistAction::Off)
+        );
+        assert_eq!(
+            parse_command("whitelist list"),
+            whitelist(WhitelistAction::List)
+        );
+        assert_eq!(
+            parse_command("whitelist add alex"),
+            whitelist(WhitelistAction::Add("alex".into()))
+        );
+        assert_eq!(
+            parse_command("whitelist remove alex"),
+            whitelist(WhitelistAction::Remove("alex".into()))
+        );
+        for wrong in [
+            "whitelist",
+            "whitelist add",
+            "whitelist on now",
+            "whitelist clear",
+        ] {
+            assert_eq!(
+                parse_command(wrong),
+                Err(WHITELIST_USAGE.to_string()),
+                "{wrong}"
+            );
+        }
+    }
+
+    #[test]
+    fn list_names_the_players_online() {
+        assert_eq!(parse_command("list"), Ok(Command::List));
+        assert_eq!(parse_command("list all"), Err(LIST_USAGE.to_string()));
+        assert_eq!(list_players(vec!["steve"]), "1 player online: steve");
+        assert_eq!(
+            list_players(vec!["steve", "alex"]),
+            "2 players online: alex, steve"
+        );
     }
 }

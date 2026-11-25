@@ -22,6 +22,11 @@ struct Args {
     /// The largest render distance a player may ask for, in chunks
     #[arg(long, default_value_t = DEFAULT_MAX_RENDER_DISTANCE)]
     max_render_distance: u32,
+
+    /// Makes this player an operator before the server starts, in `ops.ron` of the game
+    /// folder: how a server gets its first operator. May be given several times
+    #[arg(long = "op", value_name = "NAME")]
+    ops: Vec<String>,
 }
 
 fn main() -> ExitCode {
@@ -63,6 +68,13 @@ fn main() -> ExitCode {
         max_render_distance: args.max_render_distance,
     };
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
+    if !args.ops.is_empty() {
+        let folder = &game_folder_paths.game_folder_path;
+        if let Err(err) = server::Permissions::add_operators(folder, &args.ops) {
+            error!("{err}");
+            return ExitCode::FAILURE;
+        }
+    }
     let result = match status {
         Some(status) => server::init_with_status(socket, status, config, game_folder_paths),
         None => server::init(socket, config, game_folder_paths),

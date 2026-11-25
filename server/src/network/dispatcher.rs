@@ -28,7 +28,8 @@ use shared::{
 use std::collections::HashMap;
 
 use super::extensions::SendGameMessageExtension;
-use super::handlers::{self, Clients};
+use super::handlers::{self, Access, Clients};
+use super::permissions::{disconnect_dismissed_system, Dismissals, Permissions};
 
 /// bevy_renet reports connections as observer events: this buffers them as a message so that
 /// `handle_connection_events_system` still reads them in `Update`. The event is copied field by field
@@ -66,6 +67,9 @@ pub fn setup_resources_and_events(app: &mut App) {
         .init_resource::<world::flow::LiquidFlow>()
         .init_resource::<world::ticks::BlockTicks>()
         .init_resource::<Locator>()
+        // a dedicated server replaces them with those of its files (`init::run`)
+        .init_resource::<Permissions>()
+        .init_resource::<Dismissals>()
         .add_observer(buffer_server_event);
 
     setup_chat_resources(app);
@@ -160,6 +164,7 @@ pub fn register_systems(app: &mut App) {
 
     app.add_systems(FixedPostUpdate, update_server_time)
         .add_systems(Update, world::locate::answer_locates_system)
+        .add_systems(Update, disconnect_dismissed_system)
         .add_systems(PreUpdate, take_join_requests_system.after(RenetReceive));
 
     // The mobs and the items move before the inputs of the tick are read
@@ -254,6 +259,7 @@ fn handle_client_messages_system(
     mods: Res<Mods>,
     mut join_requests: ResMut<JoinRequests>,
     mut weather: ResMut<ServerWeather>,
+    (mut permissions, mut dismissals): (ResMut<Permissions>, ResMut<Dismissals>),
 ) {
     // the base game's, for the apps of the tests that set up no world
     let default_generation = WorldGeneration::default();
@@ -298,6 +304,11 @@ fn handle_client_messages_system(
                         config.max_render_distance,
                         &mods,
                         &weather,
+                        Access {
+                            permissions: &mut permissions,
+                            dismissals: &mut dismissals,
+                            is_solo: config.is_solo,
+                        },
                     );
                     // The client was refused: drop the rest of its messages
                     if flow.is_break() {
@@ -319,6 +330,11 @@ fn handle_client_messages_system(
                             generation.as_deref().unwrap_or(&default_generation),
                             &locator,
                         ),
+                        Access {
+                            permissions: &mut permissions,
+                            dismissals: &mut dismissals,
+                            is_solo: config.is_solo,
+                        },
                     );
                 }
                 ClientToServerMessage::Exit => {

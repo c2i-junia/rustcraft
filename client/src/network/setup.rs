@@ -11,7 +11,7 @@ use shared::{get_shared_renet_config, GameServerConfig, SaveCounter, STC_AUTH_CH
 
 use crate::menus::solo::SelectedWorld;
 use crate::mob::ClientMobs;
-use crate::network::session::{end_session, ConnectError, SessionOrigin};
+use crate::network::session::{end_session, ConnectError, Dismissal, SessionOrigin};
 use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
 use crate::player::skin::ChosenSkin;
@@ -544,6 +544,10 @@ pub fn establish_authenticated_connection_to_server(
                     ev_spawn.write(player);
                 }
                 info!("Connected! {:?}", target);
+            }
+            // banned, or not on the whitelist: the session ends with the reason
+            ServerToClientMessage::Dismissed(reason) => {
+                commands.insert_resource(Dismissal(reason));
             }
             other => {
                 // Only the variant name: the content comes from a server we do not trust

@@ -150,6 +150,9 @@ pub fn error_text(error: &ConnectError, origin: &SessionOrigin) -> (String, Stri
             }
             .to_string(),
         ),
+        ConnectError::Dismissed(reason) => {
+            (format!("Disconnected from \"{name}\""), reason.clone())
+        }
         ConnectError::ConnectionLost => (
             format!("Connection to \"{name}\" lost"),
             if world {
@@ -316,6 +319,8 @@ mod tests {
             ConnectError::NoConnection("no socket".into()),
             ConnectError::ServerStopped,
             ConnectError::ConnectionLost,
+            // an operator may pardon the player, or put it on the whitelist
+            ConnectError::Dismissed("You are banned from this server.".into()),
         ] {
             assert!(can_try_again(&error), "{error:?}");
         }
@@ -413,6 +418,12 @@ mod tests {
             &server,
             "Connection to \"Nowhere\" lost",
             "The server stopped answering while the world was loading.",
+        );
+        says(
+            ConnectError::Dismissed("You were kicked from the server: too loud".into()),
+            &server,
+            "Disconnected from \"Nowhere\"",
+            "You were kicked from the server: too loud",
         );
         says(
             ConnectError::NoConnection("no socket".into()),
