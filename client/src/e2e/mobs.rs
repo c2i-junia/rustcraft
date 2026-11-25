@@ -1,7 +1,7 @@
 //! The animals: those that live in a new world, and those a spawn egg hatches. The
 //! villagers, who trade. And the hostiles: drawn, and biting a survival player.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::input::{mouse::MouseButtonInput, ButtonState};
 use bevy::prelude::*;
@@ -469,8 +469,10 @@ fn a_cow_held_rye_eats_one_and_hearts_rise_over_it() {
     });
     h.press(KeyCode::Digit2);
     h.frames(2);
-    // The cow may walk: it is looked at again before each try
-    for _ in 0..10 {
+    // The cow may walk: it is looked at again before each try, for as long as a server may take
+    let start = Instant::now();
+    while slot(h.world(), 1) != Some((ItemId::Rye, 4)) {
+        assert!(start.elapsed() < SERVER, "no rye eaten");
         let cow = animals(h.world())
             .into_iter()
             .find(|&(kind, _)| kind == MobKind::Cow)
@@ -480,13 +482,7 @@ fn a_cow_held_rye_eats_one_and_hearts_rise_over_it() {
         h.frames(2);
         right_click(&mut h);
         h.frames(10);
-        if slot(h.world(), 1) == Some((ItemId::Rye, 4)) {
-            break;
-        }
     }
-    h.wait_until("one rye eaten", SERVER, |w| {
-        slot(w, 1) == Some((ItemId::Rye, 4))
-    });
     h.wait_until("hearts over the cow", SERVER, |w| {
         let in_love = w
             .try_query::<&Mob>()
