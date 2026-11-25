@@ -2,7 +2,8 @@
 //! generic part keeps or forgets the prey and looks for one (`prey`), then one arm per kind
 //! (`act`) goes at it and strikes. The Gnawer and the Bramble strike in reach (`melee`); the
 //! Roller winds up and rolls (`roll`). The Stumpling strikes in reach too, but flees fire
-//! first (`stumpling`), and sinks into the ground at dawn (`burrow`).
+//! first (`stumpling`), and sinks into the ground at dawn (`burrow`). The Drowner swims at its
+//! prey in water and drags it down, and walks back to the water from land (`swim`).
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -18,7 +19,7 @@ use shared::{
     },
 };
 
-use super::behavior::{flee, may_move_to, rest, walk, wander};
+use super::behavior::{flee, is_in_water, may_move_to, rest, walk, walk_speed, wander};
 
 /// How long a strike shows (`MobAction::Attack`), in ticks: the client plays the Attack clip
 /// once each time the action starts.
@@ -35,6 +36,8 @@ pub const ROLL_REST_TICKS: u32 = 20;
 pub const BURROW_TICKS: u32 = 40;
 /// How near a fire or lava frightens a Stumpling, in blocks.
 pub const FIRE_FEAR_DISTANCE: i32 = 6;
+/// How far, horizontally, a Drowner on land looks for water to go back to, in blocks.
+pub const WATER_SEARCH_DISTANCE: i32 = 8;
 
 /// How fast a hostile of `kind` moves by its own velocity at most, in blocks per second: a
 /// faster one was thrown (`behavior::is_flung`). The Roller's roll moves it without a
@@ -72,6 +75,7 @@ pub fn act(
     match mob.kind {
         MobKind::Roller => roll(mob, chunks, players, prey, (hunt, strike), delta),
         MobKind::Stumpling => stumpling(mob, chunks, players, prey, (hunt, strike), delta, rng),
+        MobKind::Drowner => swim(mob, chunks, players, prey, (hunt, strike), delta, rng),
         _ => melee(mob, chunks, players, prey, (hunt, strike), delta, rng),
     }
 }
@@ -193,12 +197,33 @@ fn face(mob: &mut ServerMob, target: Vec3) {
 }
 
 /// `mob` strikes `player` (`Player::hurt`, which its invulnerability may ignore), and knocks it
-/// away from itself.
+/// away from itself; a Drowner's grab drags it down (`Player::drag`).
 fn strike_player(mob: &ServerMob, player: &mut Player, strike: &Strike, away: Vec3) {
     player.hurt(strike.damage, DamageSource::Mob(mob.kind));
     if strike.knock_back > 0.0 {
         player.knock_back(away, strike.knock_back);
     }
+    if mob.kind == MobKind::Drowner {
+        player.drag();
+    }
+}
+
+/// Strikes `player` if it is in reach and the cooldown of `mob` is over, and shows it for
+/// `ATTACK_SHOW_TICKS`. Returns whether `mob` is busy striking: it then stands.
+fn strike_in_reach(mob: &mut ServerMob, player: &mut Player, strike: &Strike) -> bool {
+    if distance(mob, player) <= strike.reach && mob.attack_wait == 0 {
+        let away = player.position - mob.position;
+        strike_player(mob, player, strike, away);
+        mob.attack_wait = strike.cooldown;
+        mob.action = MobAction::Attack;
+        mob.action_ticks = ATTACK_SHOW_TICKS;
+        return true;
+    }
+    if mob.action == MobAction::Attack && mob.action_ticks > 1 {
+        mob.action_ticks -= 1;
+        return true;
+    }
+    false
 }
 
 /// Stops `mob` where it stands, which a strike or a wind-up does.
@@ -228,16 +253,7 @@ fn melee(
     };
     let in_reach = distance(mob, player) <= strike.reach;
     face(mob, player.position);
-    if in_reach && mob.attack_wait == 0 {
-        let away = player.position - mob.position;
-        strike_player(mob, player, &strike, away);
-        mob.attack_wait = strike.cooldown;
-        mob.action = MobAction::Attack;
-        mob.action_ticks = ATTACK_SHOW_TICKS;
-        return stand(mob);
-    }
-    if mob.action == MobAction::Attack && mob.action_ticks > 1 {
-        mob.action_ticks -= 1;
+    if strike_in_reach(mob, player, &strike) {
         return stand(mob);
     }
     if in_reach || hunt.speed == 0.0 {
@@ -250,6 +266,99 @@ fn melee(
         .with_y(0.0)
         .normalize_or_zero();
     walk(mob, chunks, towards, hunt.speed, delta);
+}
+
+/// The Drowner. In water (`behavior::is_in_water`, where it floats) it swims straight at its
+/// prey's centre at its hunting speed, a step taken only if its box is free there and its centre
+/// stays in water, and rests without a prey. Anywhere, it grabs its prey in reach
+/// (`strike_in_reach`, which drags it down). On land it does not chase: it walks back to the
+/// nearest water (`nearest_water`) at its walking speed, or wanders when there is none near.
+fn swim(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &mut HashMap<PlayerId, Player>,
+    prey: Option<PlayerId>,
+    (hunt, strike): (Hunt, Strike),
+    delta: f32,
+    rng: &mut impl Rng,
+) {
+    let in_water = is_in_water(chunks, mob.position);
+    if let Some(player) = prey.and_then(|id| players.get_mut(&id)) {
+        face(mob, player.position);
+        if strike_in_reach(mob, player, &strike) {
+            return stand(mob);
+        }
+        if in_water {
+            if distance(mob, player) <= strike.reach {
+                (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
+                return;
+            }
+            mob.action = MobAction::Chase;
+            let towards = (player.position - mob.position).normalize_or_zero();
+            let step = towards * (hunt.speed * delta);
+            // Straight on, else along the ground or straight up or down
+            for step in [step, step.with_y(0.0), Vec3::Y * step.y] {
+                let moved = mob.position + step;
+                if step != Vec3::ZERO
+                    && is_in_water(chunks, moved)
+                    && may_move_to(mob, chunks, moved)
+                {
+                    mob.position = moved;
+                    break;
+                }
+            }
+            return;
+        }
+    } else if in_water {
+        if mob.action != MobAction::Idle {
+            (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
+        }
+        return;
+    }
+    // On land
+    match nearest_water(chunks, mob) {
+        Some(water) => {
+            mob.action = MobAction::Walk;
+            mob.target = prey.map_or(MobTarget::None, MobTarget::Player);
+            let towards = (water - mob.position).with_y(0.0).normalize_or_zero();
+            walk(mob, chunks, towards, walk_speed(mob.kind), delta);
+        }
+        None => {
+            if mob.action == MobAction::Walk && !matches!(mob.target, MobTarget::Position(_)) {
+                rest(mob, rng);
+            }
+            wander(mob, chunks, players, delta, rng);
+        }
+    }
+}
+
+/// The cells within `WATER_SEARCH_DISTANCE` horizontally, nearest first, at the height of the
+/// feet and one below.
+static WATER_OFFSETS: LazyLock<Vec<IVec3>> = LazyLock::new(|| {
+    let r = WATER_SEARCH_DISTANCE;
+    let mut offsets: Vec<IVec3> = (-r..=r)
+        .flat_map(|x| (-1..=0).flat_map(move |y| (-r..=r).map(move |z| IVec3::new(x, y, z))))
+        .filter(|offset| offset.x * offset.x + offset.z * offset.z <= r * r)
+        .collect();
+    offsets.sort_by_key(|offset| (offset.x * offset.x + offset.z * offset.z, -offset.y));
+    offsets
+});
+
+/// The centre of the nearest water cell around the feet of `mob` (`WATER_OFFSETS`, at most 402
+/// lookups), if any.
+fn nearest_water(chunks: &ChunkMap, mob: &ServerMob) -> Option<Vec3> {
+    let feet = (mob.position - Vec3::Y * (mob.height / 2.0 - 0.1))
+        .floor()
+        .as_ivec3();
+    WATER_OFFSETS
+        .iter()
+        .map(|offset| feet + *offset)
+        .find(|pos| {
+            chunks
+                .get_block(*pos)
+                .is_some_and(|block| block.id == BlockId::Water)
+        })
+        .map(|pos| pos.as_vec3() + Vec3::splat(0.5))
 }
 
 /// The Roller: at rest (`Idle`) until it has a prey, then it winds up facing it
@@ -325,6 +434,7 @@ mod tests {
     use bevy::math::IVec3;
     use bevy::prelude::{Transform, World};
     use bevy::time::{Fixed, Time};
+    use shared::players::constants::DRAG_MS;
     use shared::players::game_mode::{DeathCause, GameMode, MAX_HEALTH};
     use shared::world::BlockId;
     use shared::TICKS_PER_SECOND;
@@ -710,6 +820,120 @@ mod tests {
         run(&mut w, 5);
         assert!((start.y - mob(&w).position.y - 1.95).abs() < 1e-3);
         assert_eq!(mob(&w).position.x, start.x);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH);
+    }
+
+    /// `ground` with water from y = 1 to y = 8 over x up to 4: the land begins at x = 5.
+    fn lake() -> World {
+        let mut map = ground();
+        map.chunks.fill_box(
+            IVec3::new(-40, 1, -40),
+            IVec3::new(4, 8, 39),
+            BlockId::Water,
+        );
+        world(map)
+    }
+
+    fn put(w: &mut World, mob: ServerMob, players: Vec<Player>) {
+        let mut map = w.resource_mut::<ServerWorldMap>();
+        map.mobs.insert(0, mob);
+        map.players = players.into_iter().map(|p| (p.id, p)).collect();
+    }
+
+    /// A player floating in the lake, its centre at `at`.
+    fn swimmer(id: PlayerId, at: Vec3) -> Player {
+        let mut player = player_at(id, at.x, at.z);
+        player.position = at;
+        player.on_ground = false;
+        player
+    }
+
+    #[test]
+    fn a_drowner_swims_at_its_prey_in_three_dimensions_at_three_blocks_a_second() {
+        let mut w = lake();
+        let start = Vec3::new(-10.5, 2.5, 0.5);
+        put(
+            &mut w,
+            ServerMob::new(MobKind::Drowner, start),
+            vec![swimmer(1, Vec3::new(-2.5, 6.5, 0.5))],
+        );
+        run(&mut w, 1);
+        assert_eq!(mob(&w).action, MobAction::Chase);
+        run(&mut w, 19);
+        let swum = mob(&w).position - start;
+        assert!((swum.length() - 3.0).abs() < 0.2, "{swum}");
+        assert!(swum.y > 1.0, "it rises toward its prey: {swum}");
+        assert!(swum.x > 2.0, "{swum}");
+    }
+
+    #[test]
+    fn a_drowner_grabs_its_prey_for_two_and_drags_it_down() {
+        let mut w = lake();
+        put(
+            &mut w,
+            ServerMob::new(MobKind::Drowner, Vec3::new(-5.5, 4.0, 0.5)),
+            vec![swimmer(1, Vec3::new(-4.0, 4.5, 0.5))],
+        );
+        run(&mut w, 1);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 2);
+        assert_eq!(player(&w, 1).dragged_ms, DRAG_MS);
+        assert_eq!(mob(&w).action, MobAction::Attack);
+        assert_eq!(
+            player(&w, 1).death_cause,
+            None,
+            "{:?}",
+            player(&w, 1).health
+        );
+        run(&mut w, 20);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 4);
+    }
+
+    #[test]
+    fn a_drowner_in_water_floats_and_a_blow_does_not_fling_it() {
+        let mut w = lake();
+        let start = Vec3::new(-10.5, 4.5, 0.5);
+        let mut drowner = ServerMob::new(MobKind::Drowner, start);
+        drowner.velocity = Vec3::new(6.0, 4.0, 0.0);
+        put(&mut w, drowner, vec![]);
+        run(&mut w, 20);
+        assert!(
+            mob(&w).position.distance(start) < 0.5,
+            "{}",
+            mob(&w).position
+        );
+        assert_eq!(mob(&w).velocity, Vec3::ZERO);
+    }
+
+    #[test]
+    fn a_drowner_does_not_leave_the_water_for_its_prey_and_walks_back_to_it_from_land() {
+        // In the water by the shore, its prey on land: it stays in the water
+        let mut w = lake();
+        put(
+            &mut w,
+            ServerMob::new(MobKind::Drowner, Vec3::new(3.5, 2.0, 0.5)),
+            vec![player_at(1, 10.5, 0.5)],
+        );
+        run(&mut w, 40);
+        let at = mob(&w).position;
+        assert_eq!(
+            w.resource::<ServerWorldMap>()
+                .chunks
+                .get_block(at.floor().as_ivec3())
+                .map(|block| block.id),
+            Some(BlockId::Water),
+            "at {at}"
+        );
+        assert_eq!(player(&w, 1).health, MAX_HEALTH);
+
+        // On land, its prey farther inland: it walks back to the water at 0.8 a second
+        let mut w = lake();
+        let start = ServerMob::standing_at(MobKind::Drowner, 7.5, 1.0, 0.5);
+        let mut drowner = ServerMob::new(MobKind::Drowner, start);
+        drowner.on_ground = true;
+        put(&mut w, drowner, vec![player_at(1, 12.5, 0.5)]);
+        run(&mut w, 20);
+        let walked = start.x - mob(&w).position.x;
+        assert!((0.7..=0.9).contains(&walked), "{walked}");
         assert_eq!(player(&w, 1).health, MAX_HEALTH);
     }
 }

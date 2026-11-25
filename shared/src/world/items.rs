@@ -192,11 +192,12 @@ pub enum ItemId {
     BrambleSpawnEgg,
     RollerSpawnEgg,
     StumplingSpawnEgg,
+    DrownerSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 166] = [
+    pub const ALL: [ItemId; 167] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -363,6 +364,7 @@ impl ItemId {
         Self::BrambleSpawnEgg,
         Self::RollerSpawnEgg,
         Self::StumplingSpawnEgg,
+        Self::DrownerSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -470,6 +472,7 @@ impl ItemId {
             Self::BrambleSpawnEgg => Some(MobKind::Bramble),
             Self::RollerSpawnEgg => Some(MobKind::Roller),
             Self::StumplingSpawnEgg => Some(MobKind::Stumpling),
+            Self::DrownerSpawnEgg => Some(MobKind::Drowner),
             _ => None,
         }
     }
@@ -699,7 +702,8 @@ impl ItemId {
             | Self::GnawerSpawnEgg
             | Self::BrambleSpawnEgg
             | Self::RollerSpawnEgg
-            | Self::StumplingSpawnEgg => ItemCategory::Mobs,
+            | Self::StumplingSpawnEgg
+            | Self::DrownerSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -808,6 +812,7 @@ impl ItemId {
             | Self::BrambleSpawnEgg
             | Self::RollerSpawnEgg
             | Self::StumplingSpawnEgg
+            | Self::DrownerSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1186,6 +1191,7 @@ mod tests {
             (ItemId::BrambleSpawnEgg, 163),
             (ItemId::RollerSpawnEgg, 164),
             (ItemId::StumplingSpawnEgg, 165),
+            (ItemId::DrownerSpawnEgg, 166),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1237,6 +1243,7 @@ mod tests {
                 | ItemId::BrambleSpawnEgg
                 | ItemId::RollerSpawnEgg
                 | ItemId::StumplingSpawnEgg
+                | ItemId::DrownerSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks

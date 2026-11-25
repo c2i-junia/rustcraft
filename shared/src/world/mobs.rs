@@ -27,10 +27,12 @@ pub enum MobKind {
     Roller,
     /// A walking stump, out of the grass at night, back into the ground at dawn.
     Stumpling,
+    /// A drowned thing that swims at its prey in deep water and drags it down.
+    Drowner,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 14] = [
+    pub const ALL: [MobKind; 15] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -45,6 +47,7 @@ impl MobKind {
         MobKind::Bramble,
         MobKind::Roller,
         MobKind::Stumpling,
+        MobKind::Drowner,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -52,7 +55,11 @@ impl MobKind {
     pub fn is_hostile(self) -> bool {
         matches!(
             self,
-            MobKind::Gnawer | MobKind::Bramble | MobKind::Roller | MobKind::Stumpling
+            MobKind::Gnawer
+                | MobKind::Bramble
+                | MobKind::Roller
+                | MobKind::Stumpling
+                | MobKind::Drowner
         )
     }
 
@@ -64,6 +71,7 @@ impl MobKind {
             MobKind::Bramble => 12,
             MobKind::Roller => 16,
             MobKind::Stumpling => 24,
+            MobKind::Drowner => 18,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
@@ -109,6 +117,7 @@ impl MobKind {
             MobKind::Bramble => "Bramble",
             MobKind::Roller => "Roller",
             MobKind::Stumpling => "Stumpling",
+            MobKind::Drowner => "Drowner",
         }
     }
 
@@ -134,6 +143,8 @@ impl MobKind {
             MobKind::Roller => Vec3::new(0.75, 0.75, 0.75),
             // 1.125 wide with its arms, 2.06 tall: its box fits the two free cells of a spawn
             MobKind::Stumpling => Vec3::new(0.9, 1.95, 0.9),
+            // 1.0 wide with its arms, 1.56 tall
+            MobKind::Drowner => Vec3::new(0.8, 1.5, 0.8),
         }
     }
 }

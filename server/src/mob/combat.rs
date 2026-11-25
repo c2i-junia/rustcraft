@@ -182,7 +182,8 @@ pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
         | MobKind::Horse
         | MobKind::Goat
         | MobKind::Cat
-        | MobKind::Gnawer => vec![],
+        | MobKind::Gnawer
+        | MobKind::Drowner => vec![],
     };
     drops.retain(|&(_, nb)| nb > 0);
     drops
@@ -463,6 +464,7 @@ mod tests {
             MobKind::Goat,
             MobKind::Cat,
             MobKind::Gnawer,
+            MobKind::Drowner,
         ] {
             assert_eq!(drops(kind), [], "{kind:?}");
         }

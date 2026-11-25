@@ -47,3 +47,8 @@ pub const SWIM_SPEED: f32 = 4.5;
 
 /// Height of a sneaking body, relative to a standing one: its eyes go down with it.
 pub const SNEAK_BODY_SCALE: f32 = 0.8;
+
+/// How fast a player grabbed by a Drowner is dragged down in a liquid, in blocks/s.
+pub const DRAG_SPEED: f32 = 1.0;
+/// How long a Drowner's grab drags the player down, in ms of input: 40 ticks.
+pub const DRAG_MS: u32 = 2000;

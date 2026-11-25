@@ -8,6 +8,7 @@ use bevy_platform::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::air::{full_air, MAX_AIR};
+use super::constants::DRAG_MS;
 use super::game_mode::{
     DamageSource, DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH, THROWN_OFF_TICKS,
 };
@@ -250,6 +251,10 @@ pub struct Player {
     /// The ticks to the next hit of lava while the player is in it: it is hit when they reach 0.
     #[serde(skip)]
     pub lava_damage_wait: u16,
+    /// The time left, in ms of input, during which a Drowner drags the player down
+    /// (`Player::drag`). Part of the `MovementState`. Not saved.
+    #[serde(skip)]
+    pub dragged_ms: u32,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -265,6 +270,8 @@ pub struct MovementState {
     pub is_swimming: bool,
     pub fall_distance: f32,
     pub portal_rest: Option<PortalRest>,
+    /// `Player::dragged_ms`.
+    pub dragged_ms: u32,
 }
 
 /// The upward velocity a knock back gives at least, in blocks/s: a hop of a quarter of a block.
@@ -290,6 +297,7 @@ impl Player {
             is_swimming: self.is_swimming,
             fall_distance: self.fall_distance,
             portal_rest: self.portal_rest,
+            dragged_ms: self.dragged_ms,
         }
     }
 
@@ -303,6 +311,7 @@ impl Player {
         self.is_swimming = state.is_swimming;
         self.fall_distance = state.fall_distance;
         self.portal_rest = state.portal_rest;
+        self.dragged_ms = state.dragged_ms;
     }
 
     /// What the portals know of the player going through them: its box, and the floor portal it
@@ -367,6 +376,14 @@ impl Player {
         }
     }
 
+    /// A Drowner grabs the player: in a liquid it is dragged down at `DRAG_SPEED` and cannot
+    /// swim up for `DRAG_MS` of its inputs, which the movement simulation counts down.
+    pub fn drag(&mut self) {
+        if !self.is_dead() {
+            self.dragged_ms = DRAG_MS;
+        }
+    }
+
     /// Brings a dead player back to life at `spawn`, standing still, in full health and fed.
     pub fn respawn(&mut self, spawn: Vec3) {
         self.set_movement_state(MovementState {
@@ -423,6 +440,7 @@ impl Player {
             burning_ticks: 0,
             fire_damage_wait: 0,
             lava_damage_wait: 0,
+            dragged_ms: 0,
         }
     }
 }

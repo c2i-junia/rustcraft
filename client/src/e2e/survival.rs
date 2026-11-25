@@ -74,7 +74,7 @@ impl Harness {
 
 /// Where a player stands at the bottom of water 4 blocks deep or more, in the world of the
 /// seed 42, near its spawn: the columns around are as deep, so it sinks straight down.
-fn lake_bottom() -> Vec3 {
+pub(super) fn lake_bottom() -> Vec3 {
     let generator = WorldGenerator::new(42);
     let spawn = generator.spawn_position().as_ivec3();
     let deep = |x, z| generator.terrain().column_shape(x, z).height <= SEA_LEVEL - 4;

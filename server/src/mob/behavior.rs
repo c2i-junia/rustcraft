@@ -21,8 +21,8 @@ use shared::{
         Player,
     },
     world::{
-        BlockHitbox, BlockTransparency, ChunkMap, MobAction, MobId, MobKind, MobTarget, Passage,
-        Passer, ServerMob,
+        BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobAction, MobId, MobKind, MobTarget,
+        Passage, Passer, ServerMob,
     },
     TICKS_PER_SECOND,
 };
@@ -63,7 +63,7 @@ const PUSH_CELL: f32 = 2.0;
 pub(super) fn walk_speed(kind: MobKind) -> f32 {
     match kind {
         MobKind::Gnawer => 1.4,
-        MobKind::Stumpling => 0.8,
+        MobKind::Stumpling | MobKind::Drowner => 0.8,
         MobKind::Bramble | MobKind::Roller => 0.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
@@ -76,9 +76,11 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
 /// (`hostile::own_speed`).
 fn flee_speed(kind: MobKind) -> f32 {
     match kind {
-        MobKind::Gnawer | MobKind::Bramble | MobKind::Roller | MobKind::Stumpling => {
-            super::hostile::own_speed(kind)
-        }
+        MobKind::Gnawer
+        | MobKind::Bramble
+        | MobKind::Roller
+        | MobKind::Stumpling
+        | MobKind::Drowner => super::hostile::own_speed(kind),
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
@@ -158,7 +160,11 @@ fn step_mob(
 ) {
     let start = mob.position;
     mob.portal_rest = chunks.portals().still_resting(mob.position, passer(mob));
-    if !floats(mob) {
+    if floats(mob, chunks) {
+        // Water brakes a swimmer at once, as it does a player's knock back
+        mob.velocity = Vec3::ZERO;
+        mob.on_ground = false;
+    } else {
         apply_gravity(mob, chunks, delta);
     }
     if pass_through_portal(mob, chunks, start) {
@@ -179,9 +185,17 @@ fn step_mob(
     pass_through_portal(mob, chunks, start);
 }
 
-/// Whether `mob` escapes gravity: a Stumpling sinking through the ground.
-fn floats(mob: &ServerMob) -> bool {
+/// Whether `mob` escapes gravity: a Stumpling sinking through the ground, a Drowner in water.
+fn floats(mob: &ServerMob, chunks: &ChunkMap) -> bool {
     mob.action == MobAction::Burrow
+        || mob.kind == MobKind::Drowner && is_in_water(chunks, mob.position)
+}
+
+/// Whether the cell of `position` holds water.
+pub(super) fn is_in_water(chunks: &ChunkMap, position: Vec3) -> bool {
+    chunks
+        .get_block(position.floor().as_ivec3())
+        .is_some_and(|block| block.id == BlockId::Water)
 }
 
 /// Whether `mob` goes faster than it ever goes by itself (`flee_speed`): only a portal flings

@@ -1,7 +1,7 @@
 //! Hostile mobs appear in the dark around the players and go once no player is near; a
 //! peaceful world has none. Every `SPAWN_INTERVAL_TICKS`, each player gets one attempt at a
 //! random spot of the ring around it, which costs a bounded scan of the world
-//! (`find_floor`, `ticks::sees_sky`, `hostiles::surroundings`).
+//! (`find_floor` or `find_water`, `ticks::sees_sky`, `hostiles::surroundings`).
 
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
@@ -111,8 +111,75 @@ fn find_floor(chunks: &ChunkMap, start: IVec3) -> Option<(IVec3, BlockId)> {
         .find_map(|feet| may_spawn_at(chunks, feet).map(|floor| (feet, floor)))
 }
 
+/// The deepest water an attempt measures, in cells.
+const WATER_SCAN: u32 = 16;
+
+/// The top cell of the water met first scanning down `FLOOR_SCAN` cells from `start`, and how
+/// deep it is (each at most `WATER_SCAN` cells away): none when the scan meets a block first, or
+/// nothing.
+fn find_water(chunks: &ChunkMap, start: IVec3) -> Option<(IVec3, u32)> {
+    let met = (0..FLOOR_SCAN)
+        .map(|down| start - IVec3::Y * down)
+        .find_map(|cell| chunks.get_block(cell).map(|block| (cell, block.id)))
+        .and_then(|(cell, id)| (id == BlockId::Water).then_some(cell))?;
+    let is_water = |cell: IVec3| {
+        chunks
+            .get_block(cell)
+            .is_some_and(|block| block.id == BlockId::Water)
+    };
+    // A scan that starts in the water climbs to its top
+    let above = (1..WATER_SCAN as i32)
+        .take_while(|&up| is_water(met + IVec3::Y * up))
+        .count() as i32;
+    let top = met + IVec3::Y * above;
+    let depth = (0..WATER_SCAN as i32)
+        .take_while(|&down| is_water(top - IVec3::Y * down))
+        .count() as u32;
+    Some((top, depth))
+}
+
+/// Whether a hostile at `centre` would be too close to a player: within the start of
+/// `SPAWN_RING`, horizontally.
+fn near_a_player(players: &HashMap<PlayerId, Player>, centre: Vec3) -> bool {
+    players
+        .values()
+        .any(|player| player.position.with_y(0.0).distance(centre.with_y(0.0)) < SPAWN_RING.start)
+}
+
+/// The hostile that appears in the water whose top cell is `top`, `depth` deep, if its place
+/// has a kind (a Drowner, `spawn_kind`) and it is far enough from every player: in the middle
+/// of the column. Water needs no darkness.
+fn spawn_in_water(
+    players: &HashMap<PlayerId, Player>,
+    (top, depth): (IVec3, u32),
+    night: bool,
+    rng: &mut impl Rng,
+) -> Vec<ServerMob> {
+    let centre = Vec3::new(
+        top.x as f32 + 0.5,
+        top.y as f32 + 1.0 - depth as f32 / 2.0,
+        top.z as f32 + 0.5,
+    );
+    if near_a_player(players, centre) {
+        return Vec::new();
+    }
+    let place = SpawnPlace {
+        y: top.y,
+        night,
+        covered: false,
+        floor: BlockId::Water,
+        wooded: false,
+        water_depth: depth,
+    };
+    spawn_kind(&place, rng)
+        .map(|kind| ServerMob::new(kind, centre))
+        .into_iter()
+        .collect()
+}
+
 /// The hostiles of one attempt for the player `id`: a spot at a random angle and distance in
-/// `SPAWN_RING`, at a random height near its feet, scanned down for a floor; if the spot is far
+/// `SPAWN_RING`, at a random height near its feet, scanned down for water (`spawn_in_water`)
+/// or a floor; if the spot is far
 /// enough from every player, dark, and its place has a kind (`spawn_kind`), a pack of that kind
 /// standing there, cut to the caps left.
 fn spawn_attempt(
@@ -145,6 +212,9 @@ fn spawn_attempt(
         feet_y + rng.gen_range(-SPAWN_HEIGHT..=SPAWN_HEIGHT),
         (player.position.z + angle.sin() * distance).floor() as i32,
     );
+    if let Some(water) = find_water(chunks, start) {
+        return spawn_in_water(players, water, night, rng);
+    }
     let Some((feet, floor)) = find_floor(chunks, start) else {
         return Vec::new();
     };
@@ -163,10 +233,7 @@ fn spawn_at(
     rng: &mut impl Rng,
 ) -> Vec<ServerMob> {
     let centre = feet.as_vec3() + Vec3::new(0.5, 0.0, 0.5);
-    let too_close = players
-        .values()
-        .any(|player| player.position.with_y(0.0).distance(centre.with_y(0.0)) < SPAWN_RING.start);
-    if too_close {
+    if near_a_player(players, centre) {
         return Vec::new();
     }
     let open_sky = sees_sky(chunks, feet);
@@ -183,6 +250,7 @@ fn spawn_at(
         covered: !open_sky,
         floor,
         wooded: around.leaves,
+        water_depth: 0,
     };
     let Some(kind) = spawn_kind(&place, rng) else {
         return Vec::new();
@@ -504,5 +572,54 @@ mod tests {
         }
         assert!(count(&map, MobKind::Stumpling) > 0);
         assert_eq!(count(&map, MobKind::Stumpling), map.mobs.len());
+    }
+
+    #[test]
+    fn deep_water_gets_drowners_in_it_by_day_and_shallow_water_none() {
+        let mut chunks = flat(BlockId::Stone, false);
+        // 5 deep beyond x = 20, 2 deep below x = -20
+        chunks.fill_box(
+            IVec3::new(20, 1, -80),
+            IVec3::new(79, 5, 79),
+            BlockId::Water,
+        );
+        chunks.fill_box(
+            IVec3::new(-80, 1, -80),
+            IVec3::new(-20, 2, 79),
+            BlockId::Water,
+        );
+        assert_eq!(
+            find_water(&chunks, IVec3::new(30, 12, 0)),
+            Some((IVec3::new(30, 5, 0), 5))
+        );
+        assert_eq!(
+            find_water(&chunks, IVec3::new(-30, 12, 0)),
+            Some((IVec3::new(-30, 2, 0), 2))
+        );
+        assert_eq!(find_water(&chunks, IVec3::new(0, 12, 0)), None);
+        // From inside the water
+        assert_eq!(
+            find_water(&chunks, IVec3::new(30, 2, 0)),
+            Some((IVec3::new(30, 5, 0), 5))
+        );
+        let mut map = ServerWorldMap {
+            chunks,
+            ..Default::default()
+        };
+        map.players
+            .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
+        for i in 1..=200 {
+            map = run(
+                map,
+                DAY_DURATION_IN_TICKS + NOON_IN_DAY + i * SPAWN_INTERVAL_TICKS,
+            );
+        }
+        assert!(count(&map, MobKind::Drowner) > 0);
+        assert_eq!(count(&map, MobKind::Drowner), map.mobs.len());
+        for mob in map.mobs.values() {
+            assert!(mob.position.x > 20.0, "{}", mob.position);
+            // In the middle of the water, its box under its top
+            assert!((mob.position.y - 3.5).abs() < 1e-4, "{}", mob.position);
+        }
     }
 }

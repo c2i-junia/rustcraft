@@ -92,6 +92,12 @@ impl MobKind {
                 forget: 24.0,
                 speed: 1.2,
             }),
+            // Its speed in water: it walks at 0.8 on land, only back to the water
+            MobKind::Drowner => Some(Hunt {
+                sight: 16.0,
+                forget: 24.0,
+                speed: 3.0,
+            }),
             _ => None,
         }
     }
@@ -121,6 +127,13 @@ impl MobKind {
             MobKind::Stumpling => Some(Strike {
                 damage: 3,
                 reach: 1.2,
+                cooldown: 20,
+                knock_back: 0.0,
+            }),
+            // Its grab also drags the player down (`Player::drag`)
+            MobKind::Drowner => Some(Strike {
+                damage: 2,
+                reach: 1.5,
                 cooldown: 20,
                 knock_back: 0.0,
             }),
@@ -215,7 +228,14 @@ pub struct SpawnPlace {
     pub floor: BlockId,
     /// Whether leaves are near (`Surroundings::leaves`): a forest or a jungle.
     pub wooded: bool,
+    /// How deep the water is, for a place at the top of a column of water; 0 on land.
+    pub water_depth: u32,
 }
+
+/// How deep water must be for a Drowner, in blocks.
+pub const DROWNER_DEPTH: u32 = 3;
+/// The odds of a Drowner in deep enough water by day; at night they are doubled.
+pub const DROWNER_ODDS: (u32, u32) = (1, 4);
 
 /// Above this height, the mountains: the Rollers' home.
 pub const MOUNTAIN_HEIGHT: i32 = 100;
@@ -224,9 +244,15 @@ pub const CAVE_HEIGHT: i32 = 50;
 
 /// The kind of hostile a dark `place` gets, if any: on grass at night Stumplings, or in the
 /// woods Brambles and Stumplings half each; Rollers in the mountains, Gnawers (3 in 4) or
-/// Rollers in the caves. Each later kind adds its place here.
+/// Rollers in the caves; Drowners in water `DROWNER_DEPTH` deep, at `DROWNER_ODDS` by day and
+/// twice that at night. Each later kind adds its place here.
 pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
-    if place.night && place.floor == BlockId::Grass {
+    if place.water_depth > 0 {
+        let (chances, draws) = DROWNER_ODDS;
+        let chances = if place.night { chances * 2 } else { chances };
+        let drowner = place.water_depth >= DROWNER_DEPTH && rng.gen_ratio(chances, draws);
+        drowner.then_some(MobKind::Drowner)
+    } else if place.night && place.floor == BlockId::Grass {
         Some(if place.wooded && rng.gen_bool(0.5) {
             MobKind::Bramble
         } else {
@@ -325,6 +351,10 @@ mod tests {
         let roller = MobKind::Roller.strike().unwrap();
         assert_eq!((roller.damage, roller.knock_back), (4, 8.0));
         assert_eq!(MobKind::Roller.hunt().unwrap().sight, 12.0);
+        let drowner = MobKind::Drowner.strike().unwrap();
+        assert_eq!((drowner.damage, drowner.knock_back), (2, 0.0));
+        assert_eq!(MobKind::Drowner.hunt().unwrap().speed, 3.0);
+        assert_eq!(MobKind::Drowner.health(), 18);
         let stumpling = MobKind::Stumpling.strike().unwrap();
         assert_eq!((stumpling.damage, stumpling.cooldown), (3, 20));
         assert_eq!(MobKind::Stumpling.hunt().unwrap().speed, 1.2);
@@ -430,7 +460,33 @@ mod tests {
             covered,
             floor,
             wooded,
+            water_depth: 0,
         }
+    }
+
+    /// The top of water `depth` deep.
+    fn water(depth: u32, night: bool) -> SpawnPlace {
+        SpawnPlace {
+            water_depth: depth,
+            ..place(62, night, false, BlockId::Water, false)
+        }
+    }
+
+    /// How many of 1000 draws at `place` give a Drowner.
+    fn drowners(place: SpawnPlace) -> usize {
+        let mut rng = StdRng::seed_from_u64(3);
+        (0..1000)
+            .filter(|_| spawn_kind(&place, &mut rng) == Some(MobKind::Drowner))
+            .count()
+    }
+
+    #[test]
+    fn water_three_deep_gets_drowners_at_any_time_and_twice_as_many_at_night() {
+        assert_eq!(kinds(water(3, false)), [None, Some(MobKind::Drowner)]);
+        assert_eq!(kinds(water(2, true)), [None]);
+        let (day, night) = (drowners(water(5, false)), drowners(water(5, true)));
+        assert!((200..300).contains(&day), "{day} by day");
+        assert!((450..550).contains(&night), "{night} at night");
     }
 
     /// The kinds `place` gets over many draws.

@@ -218,12 +218,63 @@ fn a_stumpling_hatched_at_night_next_to_a_survival_player_hits_it() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
-fn the_three_simple_hostiles_are_drawn_where_their_eggs_hatch_them() {
-    let kinds = [MobKind::Gnawer, MobKind::Bramble, MobKind::Roller];
+fn a_drowner_hatched_in_a_lake_grabs_a_survival_player_and_drags_it_down() {
+    let folder = GameFolder::new()
+        .with_world("Lake")
+        .with_player("Lake", "Tester", |player| {
+            player.position = super::survival::lake_bottom();
+            let item_id = ItemId::DrownerSpawnEgg;
+            let stack = shared::world::ItemStack {
+                item_id,
+                item_type: item_id.get_default_type(),
+                nb: 1,
+            };
+            player.inventory.inner.insert(0, stack);
+        });
+    let mut h = enter_world(folder, "Lake");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::DrownerSpawnEgg, 1))
+    });
+    let player = look_at_the_ground_ahead(&mut h);
+
+    right_click(&mut h);
+    h.wait_until("the hatched drowner", SERVER, |w| {
+        animals(w)
+            .iter()
+            .any(|&(kind, at)| kind == MobKind::Drowner && at.distance(player) < 5.0)
+    });
+    // The client's prediction is told of the grab: the player is dragged down
+    h.wait_until("a grab", SERVER, |w| {
+        let player = local_player(w);
+        player.health < MAX_HEALTH && player.dragged_ms > 0
+    });
+    let health = local_player(h.world()).health;
+    assert!(health.is_multiple_of(2), "health {health}");
+    let (_, drowner) = animals(h.world())
+        .into_iter()
+        .find(|&(kind, _)| kind == MobKind::Drowner)
+        .unwrap();
+    look_at(&mut h, drowner);
+    h.frames(5);
+    h.snapshot("grabbed");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
+    let kinds = [
+        MobKind::Gnawer,
+        MobKind::Bramble,
+        MobKind::Roller,
+        MobKind::Stumpling,
+        MobKind::Drowner,
+    ];
     let eggs = [
         (0, ItemId::GnawerSpawnEgg, 1),
         (1, ItemId::BrambleSpawnEgg, 1),
         (2, ItemId::RollerSpawnEgg, 1),
+        (3, ItemId::StumplingSpawnEgg, 1),
+        (4, ItemId::DrownerSpawnEgg, 1),
     ];
     let folder = GameFolder::new()
         .with_world("Zoo")
@@ -241,13 +292,17 @@ fn the_three_simple_hostiles_are_drawn_where_their_eggs_hatch_them() {
         });
     let mut h = enter_world(folder, "Zoo");
     h.wait_until("the saved inventory", SERVER, |w| {
-        slot(w, 2) == Some((ItemId::RollerSpawnEgg, 1))
+        slot(w, 4) == Some((ItemId::DrownerSpawnEgg, 1))
     });
     look_at_the_ground_ahead(&mut h);
-    for (key, kind) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3]
-        .into_iter()
-        .zip(kinds)
-    {
+    let keys = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+    ];
+    for (key, kind) in keys.into_iter().zip(kinds) {
         h.press(key);
         h.frames(2);
         right_click(&mut h);
@@ -260,10 +315,13 @@ fn the_three_simple_hostiles_are_drawn_where_their_eggs_hatch_them() {
             .query::<&mut CameraController>()
             .single_mut(world)
             .unwrap();
-        controller.angle_x += 0.6;
+        controller.angle_x += 0.45;
         h.frames(5);
     }
-    // Look at the three of them
+    // Step back, then look at them all
+    h.key_down(KeyCode::KeyS);
+    h.frames(40);
+    h.key_up(KeyCode::KeyS);
     let hatched: Vec<_> = animals(h.world())
         .into_iter()
         .filter(|(kind, _)| kind.is_hostile())
@@ -275,5 +333,5 @@ fn the_three_simple_hostiles_are_drawn_where_their_eggs_hatch_them() {
     for kind in kinds {
         assert!(drawn.contains(&kind), "{kind:?} in {drawn:?}");
     }
-    h.snapshot("three_hostiles");
+    h.snapshot("hostiles");
 }

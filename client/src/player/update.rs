@@ -399,6 +399,81 @@ mod tests {
     }
 
     #[test]
+    fn a_drag_by_the_server_carries_through_the_reconciliation_and_ends_alike() {
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(63));
+        blocks.fill_box(
+            IVec3::new(-32, 0, -32),
+            IVec3::new(32, 3, 32),
+            BlockId::Stone,
+        );
+        blocks.fill_box(
+            IVec3::new(-32, 4, -32),
+            IVec3::new(32, 30, 32),
+            BlockId::Water,
+        );
+        let mut client = Player::new(PLAYER_ID, "me".into(), Vec3::new(0.5, 20.0, 0.5), default());
+        client.on_ground = false;
+        let mut server = client.clone();
+        // The player holds jump all along, to swim up
+        let frame = |time_ms| PlayerFrameInput {
+            time_ms,
+            delta_ms: 50,
+            inputs: [NetworkAction::JumpOrFlyUp].into(),
+            ..default()
+        };
+        let mut sent: Vec<_> = (1..=60).map(|i| frame(i * 10)).collect();
+        for input in &mut sent {
+            simulate_player_movement(&mut client, &blocks, input);
+            input.predicted = client.movement_state();
+        }
+        // The server simulated the first, then a Drowner grabbed the player
+        simulate_player_movement(&mut server, &blocks, &sent[0]);
+        server.drag();
+        let grabbed_at = server.position.y;
+        let update = PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: server.movement_state(),
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: None,
+            open_chest: None,
+            open_furnace: None,
+            health: server.health,
+            air: server.air,
+            food: server.food,
+            burning_ticks: server.burning_ticks,
+            game_mode: server.game_mode,
+            death_cause: None,
+        };
+        reconcile_prediction(&mut client, &update, &mut sent, &mut [], &blocks);
+
+        // The client replayed the drag: it sinks for 40 inputs of 50 ms, then swims up, as the
+        // server does
+        let mut lowest = server.position.y;
+        for input in &sent[1..] {
+            simulate_player_movement(&mut server, &blocks, input);
+            assert_eq!(
+                input.predicted,
+                server.movement_state(),
+                "at {}",
+                input.time_ms
+            );
+            lowest = lowest.min(server.position.y);
+        }
+        assert_eq!(client.movement_state(), server.movement_state());
+        assert_eq!(client.dragged_ms, 0);
+        assert!(
+            (grabbed_at - lowest - 2.0).abs() < 0.01,
+            "sank from {grabbed_at} to {lowest}"
+        );
+        assert!(
+            client.position.y > lowest + 1.0,
+            "rose to {}",
+            client.position.y
+        );
+    }
+
+    #[test]
     fn a_hungry_player_told_by_the_server_stops_sprinting_in_the_replayed_prediction() {
         let (mut app, player) = app_with_player();
         let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(63));

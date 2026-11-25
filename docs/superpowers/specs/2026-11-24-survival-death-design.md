@@ -332,3 +332,26 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   ticks left the spawning system removes it, without loot. A Stumpling hatched by day
   burrows at once. Loot: 2–4 sticks, charcoal 3 in 10. "sp pl" in the item browser now also
   finds the Stumpling's egg.
+- **Lot 10** (same plan). Appended `MobKind` 14 `Drowner`, `ItemId` 166 `DrownerSpawnEgg`. Box
+  0.8 × 1.5 (model 1.0 × 1.56). Reach 1.5, sight 16, cooldown 20, 3 b/s in water, 0.8 on land.
+  Spawning: an attempt whose scan down meets water before any block measures the column
+  (`spawning::find_water`, climbing to its top when it starts inside, ≤ 16 cells each way); at
+  ≥ 3 deep `SpawnPlace.water_depth` makes `spawn_kind` give a Drowner 1 in 4 by day, 1 in 2 at
+  night, with no darkness test, in the middle of the column. Lot 8's ring and caps hold. A
+  Drowner whose centre is in water floats (`behavior::floats`, the gate around
+  `apply_gravity`) and its velocity is dropped each step, so blows do not fling it there, as
+  for a player. It swims straight at its prey's centre (else along the ground, else straight
+  up or down), a step taken only if its box is free and its centre stays in water: it never
+  leaves the water to chase. It grabs in reach anywhere; on land it walks to the nearest water
+  cell within 8 blocks (feet height and one below) or wanders. The drag is shared:
+  `Player.dragged_ms` (not saved) is part of `MovementState`, so the acknowledgement carries it
+  and the client's replay agrees exactly; `Player::drag` sets 2000 ms (40 ticks of input). In a
+  liquid the vertical velocity is then −1 b/s after the swim (jump, swim up and the shore exit
+  are void); on land it only runs down. A respawn clears it. No loot.
+- **For lots 11–12.** A flier gates gravity in `behavior::floats` like the Drowner and keeps
+  its own velocity out of `is_flung` (`hostile::own_speed`); moves by position steps checked by
+  `may_move_to`, as `hostile::swim` does in 3D. Strikes go through `hostile::strike_in_reach`
+  (or `strike_player`, which already carries per-kind side effects such as the drag); a
+  time-of-day rule goes in `spawning::burrow_at_dawn`'s place, the system that knows the time.
+  A per-cell search uses a sorted `LazyLock` offset list (`FEAR_OFFSETS`, `WATER_OFFSETS`). A
+  projectile kind should skip `push_mobs` and the hostile caps.

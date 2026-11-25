@@ -3,7 +3,7 @@ use crate::{
     players::{
         collision::{check_player_collision, is_player_in_liquid},
         constants::{
-            FLY_SPEED_MULTIPLIER, FLY_SPRINT_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY,
+            DRAG_SPEED, FLY_SPEED_MULTIPLIER, FLY_SPRINT_SPEED_MULTIPLIER, GRAVITY, JUMP_VELOCITY,
             LAVA_SPEED_MULTIPLIER, MAX_PITCH_DEGREES, MAX_UPWARD_VELOCITY, SNEAK_GROUND_PROBE,
             SNEAK_SPEED_MULTIPLIER, SPEED, SPRINT_SPEED_MULTIPLIER, SWIM_DOWN_VELOCITY, SWIM_SPEED,
             SWIM_UP_VELOCITY, TERMINAL_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
@@ -135,7 +135,8 @@ pub fn simulate_player_movement(
         .portals()
         .still_resting(player.position, player.passer());
 
-    let delta = action.delta_ms.min(MAX_FRAME_DELTA_MS) as f32 / 1000.0;
+    let delta_ms = action.delta_ms.min(MAX_FRAME_DELTA_MS);
+    let delta = delta_ms as f32 / 1000.0;
 
     if action.is_pressed(NetworkAction::ToggleFlyMode) {
         player.is_flying = !player.is_flying;
@@ -152,11 +153,15 @@ pub fn simulate_player_movement(
     let mut jumped = false;
     if in_liquid {
         swim(player, world_map, action, direction, delta);
+        if player.dragged_ms > 0 {
+            player.velocity.y = -DRAG_SPEED;
+        }
     } else {
         jumped = apply_vertical_velocity(player, action, delta);
         climb(player, world_map, action, direction);
     }
     let landed = move_vertically(player, world_map, delta);
+    player.dragged_ms = player.dragged_ms.saturating_sub(delta_ms as u32);
     if !in_liquid {
         finish_gravity(player, delta);
     }
@@ -555,6 +560,7 @@ fn apply_wished_direction(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::players::constants::DRAG_MS;
     use crate::{
         messages::PlayerId,
         players::{
@@ -978,6 +984,64 @@ mod tests {
             highest = highest.max(player.position.y - PLAYER_HEIGHT / 2.0);
         }
         assert!(highest < WATER_TOP + 0.5, "feet up to {highest}");
+    }
+
+    #[test]
+    fn a_dragged_player_sinks_a_block_a_second_and_cannot_swim_up_until_the_drag_ends() {
+        let mut world = flat_world();
+        world.fill_box(
+            IVec3::new(-40, 64, -40),
+            IVec3::new(40, 79, 40),
+            BlockId::Water,
+        );
+        let mut player = diver();
+        player.position.y = 75.0;
+        player.drag();
+        assert_eq!(player.dragged_ms, DRAG_MS);
+        assert_eq!(player.movement_state().dragged_ms, DRAG_MS);
+        let start = player.position.y;
+        // Swimming up as hard as it can, looking up, for the two seconds of the drag
+        let mut up = frame(&[
+            NetworkAction::JumpOrFlyUp,
+            NetworkAction::MoveForward,
+            NetworkAction::Sprint,
+        ]);
+        up.camera = Transform::default().looking_to(Vec3::new(0.0, 1.0, -0.2), Vec3::Y);
+        for _ in 0..DRAG_MS / 16 {
+            simulate_player_movement(&mut player, &world, &up);
+            assert!(
+                player.velocity.y <= -DRAG_SPEED + 1e-6,
+                "{}",
+                player.velocity.y
+            );
+        }
+        assert_eq!(player.dragged_ms, 0);
+        let sunk = start - player.position.y;
+        assert!((sunk - 2.0).abs() < 0.01, "sank {sunk}");
+        // Then it rises again
+        let low = player.position.y;
+        for _ in 0..30 {
+            simulate_player_movement(&mut player, &world, &up);
+        }
+        assert!(player.position.y > low + 0.5, "{}", player.position.y);
+        // A respawn lets go
+        player.drag();
+        player.respawn(Vec3::ZERO);
+        assert_eq!(player.dragged_ms, 0);
+    }
+
+    #[test]
+    fn a_drag_on_land_only_runs_out() {
+        let world = flat_world();
+        let mut player = standing_player();
+        player.drag();
+        let mut free = standing_player();
+        for _ in 0..10 {
+            simulate_player_movement(&mut player, &world, &frame(&[NetworkAction::JumpOrFlyUp]));
+            simulate_player_movement(&mut free, &world, &frame(&[NetworkAction::JumpOrFlyUp]));
+        }
+        assert_eq!(player.position, free.position);
+        assert_eq!(player.dragged_ms, DRAG_MS - 160);
     }
 
     #[test]
