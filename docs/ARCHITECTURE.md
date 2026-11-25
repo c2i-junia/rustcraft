@@ -8,7 +8,8 @@ files named here.
 
 | Crate | Role | Depends on |
 |-------|------|------------|
-| `shared` | What both sides must agree on: the network messages and their encoding, the block containers, the player simulation. | — |
+| `crates/protocol` | What the game and the hub share, with no Bevy: device certificates and the join signature (`identity`), the JSON types of the hub API (`api`), the status packet codec (`status`) and `DEFAULT_HUB`. | — |
+| `shared` | What both sides must agree on: the network messages and their encoding, the block containers, the player simulation. | `rustcraft-protocol` |
 | `server` | The authority on the world: it simulates the inputs of the players, generates and saves the world, and sends the changes. A library, plus the `server` binary for a dedicated server. | `shared` |
 | `client` | The game window: menus, rendering, inputs, and the prediction of the local player. In solo mode it starts the server library in a thread of its own process. | `shared`, `server` |
 
@@ -85,7 +86,7 @@ dedicated server answers (`server/src/network/status.rs`); the integrated server
 none. The status is not on the game socket because `NetcodeServerTransport` reads that socket
 itself and drops whatever is not netcode: a second reader would race it for packets.
 
-A request and a reply are both `STATUS_PACKET_LEN` = 32 bytes (`shared/src/status.rs`): the
+A request and a reply are both `STATUS_PACKET_LEN` = 32 bytes (`crates/protocol/src/status.rs`, re-exported as `shared::status`): the
 magic `RCST`, `STATUS_FORMAT`, the kind and a nonce, and in a reply the server's `PROTOCOL_ID`,
 its players and its maximum. A reply is never larger than its request, so the port cannot
 amplify a spoofed request, and the server drops anything but a well-formed request of exactly

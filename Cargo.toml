@@ -1,9 +1,11 @@
 [workspace]
 resolver = "2"
+exclude = ["hub"]
 members = [
     "shared",
     "client",
     "server",
+    "crates/protocol",
 ]
 
 # Enable a small amount of optimization in the dev profile.

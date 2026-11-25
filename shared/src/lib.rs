@@ -13,7 +13,6 @@ pub mod constants;
 pub mod messages;
 pub mod paths;
 pub mod players;
-pub mod status;
 pub mod utils;
 pub mod world;
 
@@ -21,6 +20,7 @@ pub use channels::*;
 pub use codec::*;
 pub use constants::*;
 pub use paths::*;
+pub use rustcraft_protocol::status;
 
 use players::game_mode::GameMode;
 use world::hostiles::Difficulty;
