@@ -76,8 +76,21 @@ fn button(label: &str) -> L {
 
 impl Harness {
     /// The first slot of `name` in the cards of the recipe view.
+    /// The highest one on screen, then the leftmost: a query gives them in no order, and the last
+    /// cards are out of sight below the list.
     fn first_card_slot(&mut self, name: &str) -> Entity {
-        self.find(&card_slot(name))[0]
+        let found = self.find(&card_slot(name));
+        let center = |slot: &Entity| {
+            let at = self.world().get::<UiGlobalTransform>(*slot).unwrap();
+            at.translation
+        };
+        found
+            .into_iter()
+            .min_by(|a, b| {
+                let (a, b) = (center(a), center(b));
+                (a.y, a.x).partial_cmp(&(b.y, b.x)).unwrap()
+            })
+            .unwrap_or_else(|| panic!("no slot of {name:?} in the cards"))
     }
 
     /// What the count of the browser says.
