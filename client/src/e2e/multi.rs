@@ -30,7 +30,7 @@ use crate::constants::SERVER_LIST_SAVE_NAME;
 use crate::network::address::{
     AddressResolver, ServerAddress, EMPTY_ADDRESS, INVALID_ADDRESS, INVALID_PORT,
 };
-use crate::network::status::{ServerStatus, StatusProbe};
+use crate::network::status::{query_status_at, ServerStatus, StatusProbe};
 use crate::network::TargetServer;
 use crate::state::GameState;
 use crate::ui::menus::multi::dialogs::{ServerAddressInput, ServerNameInput, ADD_SERVER_TITLE};
@@ -343,10 +343,12 @@ fn the_keyboard_alone_adds_a_server_sees_it_online_and_joins() {
     // server has no way to stop. Its folder belongs to the test, which deletes it at the end.
     // The server may then fail to save into it, and only writes an error; it cannot fail the
     // test, which has stopped listening to the server, or keep the process from exiting.
-    let server_folder = GameFolder::new();
+    // Its world is a known one: a random seed may be slow to find a spawn in.
+    let server_folder = GameFolder::new().with_world("dedicated");
     let (socket, status) = server::acquire_local_socket_pair(IpAddr::V4(Ipv4Addr::LOCALHOST))
         .expect("the sockets of the server");
     let port = socket.local_addr().unwrap().port();
+    let status_addr = status.local_addr().unwrap();
     let paths = GameFolderPaths {
         game_folder_path: server_folder.path().to_path_buf(),
         assets_folder_path: server_folder.path().join("assets"),
@@ -363,6 +365,15 @@ fn the_keyboard_alone_adds_a_server_sees_it_online_and_joins() {
             let _ = stopped.send(error);
         }
     });
+
+    // It answers once its world is loaded: a server still silent shows offline until a refresh
+    let start = Instant::now();
+    while !matches!(
+        query_status_at(status_addr, Duration::from_secs(1)),
+        ServerStatus::Online { .. }
+    ) {
+        assert!(start.elapsed() < SERVER, "the server never answered");
+    }
 
     let mut h = main_menu_with(GameFolder::new());
     h.press(KeyCode::ArrowDown);
