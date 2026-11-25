@@ -89,7 +89,8 @@ pub fn progress_system(
             let known = told
                 .get(&id)
                 .map_or(progress.achievements.len(), |told| told.achievements.len());
-            let earned = progress.achievements[known..].to_vec();
+            let earned = progress.achievements.get(known..).unwrap_or_default();
+            let earned = earned.to_vec();
             let progress = progress.clone();
             told.insert(id, progress.clone());
             server.send_game_message(id, ServerToClientMessage::Progress { progress, earned });
