@@ -133,9 +133,12 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         delta,
         &mut rand::thread_rng(),
     );
-    let births = super::breeding::breed(mobs, changed_mobs, |position| {
-        is_terrain_loaded(position, chunks)
-    });
+    let births = super::breeding::breed(
+        mobs,
+        changed_mobs,
+        |position| is_terrain_loaded(position, chunks),
+        |mob, position| !collides_at(mob, chunks, position),
+    );
     super::breeding::credit_births(births, players);
     push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
@@ -1082,6 +1085,49 @@ mod tests {
         let young: Vec<_> = map.mobs.values().filter(|mob| mob.is_young()).collect();
         assert_eq!(young.len(), 1);
         assert_eq!(young[0].kind, MobKind::Cow);
+    }
+
+    #[test]
+    fn a_young_one_by_a_wall_grows_up_out_of_it_and_waits_where_it_has_no_room() {
+        let stone = shared::world::BlockId::Stone;
+        let young_at = |x: f32| {
+            let mut young = ServerMob::young(MobKind::Cow, Vec3::ZERO);
+            young.position = Vec3::new(x, 1.0 + young.height / 2.0, 0.5);
+            young.growing = 1;
+            young
+        };
+        // Against a wall along x = 2, its box touching it
+        let mut map = ground_world(false);
+        map.chunks
+            .fill_box(IVec3::new(2, 1, -3), IVec3::new(2, 3, 3), stone);
+        let map = run_behavior_in(map, young_at(1.77));
+        let cow = &map.mobs[&0];
+        assert!(!cow.is_young());
+        assert!(!collides_at(cow, &map.chunks, cow.position), "in the wall");
+
+        // Under a roof too low for an adult, it stays young
+        let mut map = ground_world(false);
+        map.chunks
+            .fill_box(IVec3::new(-3, 2, -3), IVec3::new(3, 2, 3), stone);
+        let map = run_behavior_in(map, young_at(0.5));
+        assert!(map.mobs[&0].is_young());
+    }
+
+    #[test]
+    fn a_young_one_is_not_born_in_the_wall_between_its_parents() {
+        let stone = shared::world::BlockId::Stone;
+        let mut map = ground_world(false);
+        map.chunks
+            .fill_box(IVec3::new(0, 1, -3), IVec3::new(0, 1, 3), stone);
+        let loving = |x| ServerMob {
+            in_love: 100,
+            ..standing(MobKind::Chicken, x, 0.5)
+        };
+        // 1.5 apart, the wall between them
+        map.mobs.insert(1, loving(-0.25));
+        let map = run_behavior_in(map, loving(1.25));
+        let young = map.mobs.values().find(|mob| mob.is_young()).unwrap();
+        assert!(!collides_at(young, &map.chunks, young.position));
     }
 
     /// One step of `mob` in `map`.

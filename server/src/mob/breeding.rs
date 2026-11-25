@@ -30,6 +30,13 @@ pub const FOLLOW_STOP: f32 = 2.5;
 /// to it, in blocks: it would never catch up.
 pub const FOLLOW_TELEPORT: f32 = 24.0;
 
+/// How long a young animal with no room to grow up waits before it tries again, in ticks.
+const GROW_RETRY_TICKS: u32 = 20;
+/// How far it moves to find room at most, against what its box grows by on a side, and in how many
+/// steps along each axis.
+const GROW_REACH: f32 = 1.1;
+const GROW_STEPS: i32 = 6;
+
 /// What a player named `player` does by feeding `item` to `mob`. Returns whether the animal ate
 /// it, which takes one from the player's hand:
 /// - a wolf or a cat not tamed is tamed by `player` one time in three (`TAME_CHANCE`), and eats
@@ -63,6 +70,25 @@ pub fn feed(mob: &mut ServerMob, player: &str, item: ItemId, rng: &mut impl Rng)
     true
 }
 
+/// `young` as an adult, moved off the walls its bigger box would be in, if it finds room there: in
+/// one, it would never move again.
+fn grown_up(young: &ServerMob, free: &impl Fn(&ServerMob, Vec3) -> bool) -> Option<ServerMob> {
+    let mut adult = young.clone();
+    adult.grow_up();
+    // Its box grows by this much on each side, up to which it may have touched a wall
+    let grows = (adult.width - young.width) / 2.0;
+    let mut offsets: Vec<Vec3> = (-GROW_STEPS..=GROW_STEPS)
+        .flat_map(|x| (-GROW_STEPS..=GROW_STEPS).map(move |z| Vec3::new(x as f32, 0.0, z as f32)))
+        .collect();
+    offsets.sort_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+    let spot = offsets
+        .into_iter()
+        .map(|offset| adult.position + offset * (grows * GROW_REACH / GROW_STEPS as f32))
+        .find(|&spot| free(&adult, spot))?;
+    adult.position = spot;
+    Some(adult)
+}
+
 /// The players who had the animals breed that gave birth at `births` earn it.
 pub fn credit_births(births: Vec<Vec3>, players: &mut HashMap<PlayerId, Player>) {
     for birth in births {
@@ -92,11 +118,13 @@ fn are_mates(a: &ServerMob, b: &ServerMob) -> bool {
 /// One step of the animals' lives, after their moves: the young grow, the wish for a mate
 /// fades, and two animals that want a mate walk to each other and give birth once close
 /// (`MATE_DISTANCE`). A young one born of a tamed pair belongs to their owner. The mobs
-/// changed are added to `changed`, the young ones born to the mobs. Returns where they were born.
+/// changed are added to `changed`, the young ones born to the mobs. `free` tells whether a mob has
+/// room at a position. Returns where they were born.
 pub fn breed(
     mobs: &mut HashMap<MobId, ServerMob>,
     changed: &mut HashSet<MobId>,
     loaded: impl Fn(Vec3) -> bool,
+    free: impl Fn(&ServerMob, Vec3) -> bool,
 ) -> Vec<Vec3> {
     let mut wanting = Vec::new();
     for (id, mob) in mobs.iter_mut() {
@@ -107,8 +135,13 @@ pub fn breed(
         if mob.growing > 0 {
             mob.growing -= 1;
             if mob.growing == 0 {
-                mob.grow_up();
-                changed.insert(*id);
+                match grown_up(mob, &free) {
+                    Some(adult) => {
+                        *mob = adult;
+                        changed.insert(*id);
+                    }
+                    None => mob.growing = GROW_RETRY_TICKS,
+                }
             }
         }
         if mob.in_love > 0 {
@@ -148,6 +181,10 @@ pub fn breed(
             young.rotation = mob.rotation;
             // Standing where its parents' feet are
             young.position.y = here.y - mob.height / 2.0 + young.height / 2.0;
+            // Not in a wall or a fence between them
+            if !free(&young, young.position) {
+                young.position = here.with_y(young.position.y);
+            }
             born.push(young);
             for parent in [id, mate] {
                 let parent_mob = mobs.get_mut(&parent).expect("a mob wanting a mate");
@@ -199,7 +236,7 @@ mod tests {
     fn run(mobs: &mut HashMap<MobId, ServerMob>, ticks: u32) -> HashSet<MobId> {
         let mut changed = HashSet::new();
         for _ in 0..ticks {
-            breed(mobs, &mut changed, |_| true);
+            breed(mobs, &mut changed, |_| true, |_, _| true);
         }
         changed
     }
