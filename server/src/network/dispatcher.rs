@@ -29,7 +29,10 @@ use std::collections::HashMap;
 
 use super::extensions::SendGameMessageExtension;
 use super::handlers::{self, Access, Clients, Join};
-use super::join::{send_challenges_system, Challenges, ServerKey};
+use super::join::{
+    dismiss_late_clients_system, dismiss_revoked_players_system, send_challenges_system,
+    AuthTimeout, Challenges, ServerKey,
+};
 use super::permissions::{disconnect_dismissed_system, Dismissals, Permissions};
 
 /// bevy_renet reports connections as observer events: this buffers them as a message so that
@@ -72,6 +75,7 @@ pub fn setup_resources_and_events(app: &mut App) {
         .init_resource::<Permissions>()
         .init_resource::<Dismissals>()
         .init_resource::<Challenges>()
+        .init_resource::<AuthTimeout>()
         // a server replaces it with the one of its file (`init::run`)
         .init_resource::<ServerKey>()
         .add_observer(buffer_server_event);
@@ -174,7 +178,15 @@ pub fn register_systems(app: &mut App) {
 
     app.add_systems(FixedPostUpdate, update_server_time)
         .add_systems(Update, world::locate::answer_locates_system)
-        .add_systems(Update, disconnect_dismissed_system)
+        .add_systems(
+            Update,
+            (
+                dismiss_late_clients_system,
+                dismiss_revoked_players_system,
+                disconnect_dismissed_system,
+            )
+                .chain(),
+        )
         .add_systems(
             PreUpdate,
             (send_challenges_system, take_join_requests_system)
@@ -557,6 +569,36 @@ mod tests {
         // the next tick comes a whole tick later
         app.update();
         assert_eq!(app.world().resource::<ServerTime>().0, 1);
+        drop(app.world_mut().remove_resource::<WorldWriter>());
+    }
+
+    /// A client that connects and never asks to join is dismissed once `AuthTimeout` passed,
+    /// whatever the mode: it would hold a place, or the id of a player, for ever.
+    #[test]
+    fn a_client_that_does_not_ask_to_join_in_time_is_dismissed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let world_map = ServerWorldMap {
+            name: "w".into(),
+            ..default()
+        };
+        let mut app = server_app(tmp.path(), world_map, Duration::from_millis(100));
+        app.insert_resource(AuthTimeout(Duration::from_millis(250)));
+        app.update();
+        let _client = app
+            .world_mut()
+            .resource_mut::<RenetServer>()
+            .new_local_client(7);
+        // the app of the tests has no transport to report it
+        app.world_mut()
+            .write_message(ServerEventMessage::ClientConnected { client_id: 7 });
+        app.update();
+        assert!(app.world().resource::<Challenges>().get(7).is_some());
+        assert!(!app.world().resource::<Dismissals>().contains(7));
+
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(app.world().resource::<Dismissals>().contains(7));
         drop(app.world_mut().remove_resource::<WorldWriter>());
     }
 

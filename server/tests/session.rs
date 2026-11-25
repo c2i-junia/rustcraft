@@ -3302,6 +3302,8 @@ struct TestHub {
 }
 
 const TEST_HUB: &str = "https://hub.test";
+/// The address the players of the hub servers of the tests join them at.
+const PUBLIC_ADDRESS: &str = "play.test:8000";
 
 fn random_key() -> SigningKey {
     SigningKey::from_bytes(&rand::random())
@@ -3328,6 +3330,7 @@ impl TestHub {
         };
         let trust = HubTrust {
             url: TEST_HUB.into(),
+            addresses: vec![PUBLIC_ADDRESS.into()],
             keys: vec![(1, key.verifying_key())],
             revoked: Default::default(),
         };
@@ -3341,6 +3344,18 @@ impl TestHub {
 
     fn player_id(&self) -> u64 {
         player_id(&self.certificate.account)
+    }
+
+    /// The proof of its certificate for this challenge, at `PUBLIC_ADDRESS`.
+    fn proof(&self, nonce: &[u8; 32], server_key: &[u8; 32]) -> JoinProof {
+        proof_of(
+            &self.certificate,
+            &self.key,
+            &self.device,
+            nonce,
+            server_key,
+            PUBLIC_ADDRESS,
+        )
     }
 }
 
@@ -3368,39 +3383,61 @@ fn request_with(username: &str, proof: Option<JoinProof>) -> ClientToServerMessa
     .into()
 }
 
-/// The proof of `certificate` signed by `hub_key`, its device signing `nonce` and `server_key`.
+/// The proof of `certificate` signed by `hub_key`, its device signing `nonce`, `server_key`
+/// and `address`.
 fn proof_of(
     certificate: &Certificate,
     hub_key: &SigningKey,
     device: &SigningKey,
     nonce: &[u8; 32],
     server_key: &[u8; 32],
+    address: &str,
 ) -> JoinProof {
     let signed = sign(certificate, hub_key);
     JoinProof {
         certificate: signed.bytes,
         certificate_signature: signed.signature.to_vec(),
-        signature: sign_join(device, nonce, server_key).to_vec(),
+        address: address.into(),
+        signature: sign_join(device, nonce, server_key, address).to_vec(),
     }
 }
 
+fn accepted_name(client: &mut TestClient) -> String {
+    client.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.username.clone()),
+        _ => None,
+    })
+}
+
 #[test]
-fn an_offline_server_challenges_without_a_hub_and_takes_a_player_without_a_proof() {
+fn an_offline_server_challenges_without_a_hub_and_ignores_any_proof() {
+    let hub = TestHub::new();
     let server = TestServer::start_dedicated(WORLD_NAME);
     let mut client = TestClient::connect(server.addr, PLAYER_ID);
-    let (_, _, hub) = challenge(&mut client);
-    assert_eq!(hub, None);
+    let (_, _, announced) = challenge(&mut client);
+    assert_eq!(announced, None);
     client.send(request_with("steve", None));
-    let auth = client.wait_for("AuthRegisterResponse", |m| match m {
-        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
-        _ => None,
-    });
-    assert_eq!(auth.username, "steve");
-    assert!(server
+    assert_eq!(accepted_name(&mut client), "steve");
+
+    // a proof that proves nothing changes nothing either
+    let mut bogus = TestClient::connect(server.addr, PLAYER_ID + 1);
+    challenge(&mut bogus);
+    let proof = proof_of(
+        &hub.certificate,
+        &random_key(),
+        &hub.device,
+        &[0; 32],
+        &[0; 32],
+        "x",
+    );
+    bogus.send(request_with("bob", Some(proof)));
+    assert_eq!(accepted_name(&mut bogus), "bob");
+    // an offline server has no key file
+    assert!(!server
         .tmp
         .path()
         .join(server::join::SERVER_KEY_FILE)
-        .is_file());
+        .exists());
 }
 
 #[test]
@@ -3411,14 +3448,21 @@ fn a_hub_server_takes_a_valid_proof_and_names_the_player_after_its_certificate()
     let (nonce, server_key, announced) = challenge(&mut client);
     assert_eq!(announced.as_deref(), Some(TEST_HUB));
 
-    let proof = proof_of(&hub.certificate, &hub.key, &hub.device, &nonce, &server_key);
-    client.send(request_with("impostor", Some(proof)));
+    client.send(request_with(
+        "impostor",
+        Some(hub.proof(&nonce, &server_key)),
+    ));
     let auth = client.wait_for("AuthRegisterResponse", |m| match m {
         ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
         _ => None,
     });
     assert_eq!(auth.username, "Alex");
     assert_eq!(auth.session_token, hub.player_id());
+    assert!(server
+        .tmp
+        .path()
+        .join(server::join::SERVER_KEY_FILE)
+        .is_file());
 }
 
 /// The reason a hub server gives a client of id `client_id` that answers its challenge with
@@ -3448,45 +3492,127 @@ fn a_hub_server_dismisses_each_bad_proof_with_its_own_reason() {
     let server = TestServer::start_hub(WORLD_NAME, hub.trust.clone());
     let id = hub.player_id();
     let (cert, key, device) = (&hub.certificate, &hub.key, &hub.device);
+    let proof = |cert: &Certificate, key: &SigningKey, nonce: &[u8; 32], server_key: &[u8; 32]| {
+        proof_of(cert, key, device, nonce, server_key, PUBLIC_ADDRESS)
+    };
 
     assert_eq!(
         hub_refusal(&server, id, |_, _| None),
-        server::join::NO_PROOF
+        server::join::no_proof(TEST_HUB)
     );
 
     let mut expired = cert.clone();
     expired.issued_at -= 2 * CERTIFICATE_LIFETIME_SECS;
     expired.expires_at -= 2 * CERTIFICATE_LIFETIME_SECS;
     let reason = hub_refusal(&server, id, |nonce, server_key| {
-        Some(proof_of(&expired, key, device, nonce, server_key))
+        Some(proof(&expired, key, nonce, server_key))
     });
     assert_eq!(reason, server::join::EXPIRED);
 
     let other_hub = random_key();
     let reason = hub_refusal(&server, id, |nonce, server_key| {
-        Some(proof_of(cert, &other_hub, device, nonce, server_key))
+        Some(proof(cert, &other_hub, nonce, server_key))
     });
     assert_eq!(reason, server::join::UNKNOWN_HUB);
 
     let reason = hub_refusal(&server, id, |_, server_key| {
-        Some(proof_of(cert, key, device, &[7; 32], server_key))
+        Some(proof(cert, key, &[7; 32], server_key))
     });
     assert_eq!(reason, server::join::WRONG_SIGNATURE);
 
     let reason = hub_refusal(&server, id, |nonce, _| {
-        Some(proof_of(cert, key, device, nonce, &[7; 32]))
+        Some(proof(cert, key, nonce, &[7; 32]))
     });
     assert_eq!(reason, server::join::WRONG_SIGNATURE);
 
     // a client that announces another id than its account's
     let reason = hub_refusal(&server, id ^ 1, |nonce, server_key| {
-        Some(proof_of(cert, key, device, nonce, server_key))
+        Some(proof(cert, key, nonce, server_key))
     });
     assert_eq!(reason, server::join::WRONG_ID);
 
+    let mut unnamed = cert.clone();
+    unnamed.name = " ".into();
+    let reason = hub_refusal(&server, id, |nonce, server_key| {
+        Some(proof(&unnamed, key, nonce, server_key))
+    });
+    assert_eq!(reason, server::join::BAD_NAME);
+
     hub.trust.revoked.write().unwrap().insert(cert.id);
     let reason = hub_refusal(&server, id, |nonce, server_key| {
-        Some(proof_of(cert, key, device, nonce, server_key))
+        Some(proof(cert, key, nonce, server_key))
     });
     assert_eq!(reason, server::join::REVOKED);
+}
+
+/// A server that passes the challenge of this one to its own players, and their proofs back,
+/// gets proofs made for its own address: they do not open this one.
+#[test]
+fn a_proof_relayed_from_another_address_is_refused() {
+    let hub = TestHub::new();
+    let server = TestServer::start_hub(WORLD_NAME, hub.trust.clone());
+    let relayed = "relay.test:8000";
+    let reason = hub_refusal(&server, hub.player_id(), |nonce, server_key| {
+        Some(proof_of(
+            &hub.certificate,
+            &hub.key,
+            &hub.device,
+            nonce,
+            server_key,
+            relayed,
+        ))
+    });
+    assert_eq!(reason, server::join::wrong_address(relayed));
+}
+
+#[test]
+fn a_proof_of_one_connection_does_not_open_the_next() {
+    let hub = TestHub::new();
+    let server = TestServer::start_hub(WORLD_NAME, hub.trust.clone());
+    let mut first = TestClient::connect(server.addr, hub.player_id());
+    let (nonce, server_key, _) = challenge(&mut first);
+    let proof = hub.proof(&nonce, &server_key);
+    first.transport.disconnect();
+
+    // the id is free once the server saw the first connection go
+    let start = Instant::now();
+    let reason = loop {
+        let mut second = TestClient::connect(server.addr, hub.player_id());
+        second.pump();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !second.client.is_connected()
+            && !second.client.is_disconnected()
+            && Instant::now() < deadline
+        {
+            second.pump();
+        }
+        if second.client.is_connected() {
+            challenge(&mut second);
+            second.send(request_with("Alex", Some(proof.clone())));
+            break dismissed(&mut second);
+        }
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the second connection was never accepted"
+        );
+    };
+    assert_eq!(reason, server::join::WRONG_SIGNATURE);
+}
+
+#[test]
+fn a_player_whose_certificate_is_revoked_is_dismissed() {
+    let hub = TestHub::new();
+    let server = TestServer::start_hub(WORLD_NAME, hub.trust.clone());
+    let mut client = TestClient::connect(server.addr, hub.player_id());
+    let (nonce, server_key, _) = challenge(&mut client);
+    client.send(request_with("Alex", Some(hub.proof(&nonce, &server_key))));
+    assert_eq!(accepted_name(&mut client), "Alex");
+
+    // as the thread that reads the list of the hub does
+    hub.trust
+        .revoked
+        .write()
+        .unwrap()
+        .insert(hub.certificate.id);
+    assert_eq!(dismissed(&mut client), server::join::REVOKED);
 }

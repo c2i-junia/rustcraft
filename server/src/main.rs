@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use bevy::log::{error, tracing_subscriber::EnvFilter, warn};
 use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::Parser;
-use rustcraft_protocol::DEFAULT_HUB;
+use rustcraft_protocol::{check_hub_url, normalize_address, DEFAULT_HUB};
 use server::acquire_socket_by_port;
 use shared::players::game_mode::GameMode;
 use shared::status::status_port;
@@ -98,9 +98,19 @@ struct Args {
     #[arg(long, value_enum, default_value_t = AuthFlag::Offline)]
     auth: AuthFlag,
 
-    /// The hub whose accounts join in `--auth hub`
-    #[arg(long, default_value = DEFAULT_HUB)]
+    /// The hub whose accounts join in `--auth hub`: https://, or http:// on this computer only
+    #[arg(long, default_value = DEFAULT_HUB, value_parser = check_hub_url)]
     hub: String,
+
+    /// An address players join this server at, as they type it (`host[:port]`, port 8000 by
+    /// default): a proof of an account made for another is refused. Needed with `--auth hub`;
+    /// may be given several times
+    #[arg(long = "public-address", value_name = "HOST[:PORT]", value_parser = public_address)]
+    public_addresses: Vec<String>,
+}
+
+fn public_address(typed: &str) -> Result<String, String> {
+    normalize_address(typed).ok_or_else(|| format!("{typed} is not host[:port]"))
 }
 
 impl Args {
@@ -183,8 +193,16 @@ fn main() -> ExitCode {
     let game_folder_paths = get_game_folder_paths(args.game_folder_path, None);
     let auth = match args.auth {
         AuthFlag::Offline => ServerAuth::Offline,
+        AuthFlag::Hub if args.public_addresses.is_empty() => {
+            error!("--auth hub needs --public-address: the address players join this server at");
+            return ExitCode::FAILURE;
+        }
         AuthFlag::Hub => {
-            match server::hub::hub_trust(&args.hub, &game_folder_paths.game_folder_path) {
+            match server::hub::hub_trust(
+                &args.hub,
+                args.public_addresses.clone(),
+                &game_folder_paths.game_folder_path,
+            ) {
                 Ok(trust) => {
                     server::hub::watch_revocations(&trust);
                     ServerAuth::Hub(trust)
@@ -274,5 +292,23 @@ mod tests {
         assert!(new_world(&["--world-type", "archipelago", "--biome", "plains"]).is_err());
         assert!(new_world(&["--world-type", "nonsense"]).is_err());
         assert!(new_world(&["--max-players", "65"]).is_err());
+    }
+
+    #[test]
+    fn the_hub_and_the_public_addresses_are_checked() {
+        let parse = |args: &[&str]| {
+            Args::try_parse_from(["server"].into_iter().chain(args.iter().copied()))
+        };
+        assert!(parse(&["--hub", "http://hub.example"]).is_err());
+        assert!(parse(&["--hub", "http://127.0.0.1:8080"]).is_ok());
+        let args = parse(&[
+            "--public-address",
+            "Play.Example.com",
+            "--public-address",
+            "[::1]:9",
+        ])
+        .unwrap();
+        assert_eq!(args.public_addresses, ["play.example.com:8000", "[::1]:9"]);
+        assert!(parse(&["--public-address", "a b"]).is_err());
     }
 }

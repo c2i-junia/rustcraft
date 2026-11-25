@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::PoisonError;
+use std::time::Duration;
 
 use bevy::prelude::*;
 use bevy_renet::renet::ClientId;
@@ -16,19 +18,35 @@ use rustcraft_protocol::identity::{
     key_from_hex, key_to_hex, player_id, verify_join, Certificate, CertificateError,
     SignedCertificate,
 };
+use rustcraft_protocol::{hub_base, hub_host, normalize_address};
 use serde::{Deserialize, Serialize};
 use shared::messages::{JoinProof, ServerToClientMessage};
 use shared::{GameServerConfig, HubTrust, ServerAuth};
 
 use super::dispatcher::ServerEventMessage;
 use super::extensions::SendGameMessageExtension;
+use super::permissions::Dismissals;
+use crate::init::ServerLobby;
 
 /// The key of the server, in its game folder: the players of a hub sign it with the challenge,
 /// so that a signature made for one server is worth nothing on another.
 pub const SERVER_KEY_FILE: &str = "server_key.ron";
 
-/// The reason given to a player without a proof by a server in hub mode.
-pub const NO_PROOF: &str = "This server needs a Rustcraft account: log in from the main menu.";
+/// The reason given to a player without a proof by a server in hub mode: a player logged out,
+/// or logged in to another hub, whose game cannot tell it apart.
+pub fn no_proof(hub: &str) -> String {
+    format!(
+        "This server needs an account of the hub {}: log in to it from the main menu.",
+        hub_host(hub)
+    )
+}
+
+/// The reason given to a player whose proof was made for an address the server does not have:
+/// it dialed another server, which passed it the challenge of this one.
+pub fn wrong_address(address: &str) -> String {
+    format!("This server does not answer to {address}.")
+}
+
 pub const EXPIRED: &str = "The certificate of your account has expired: the game renews it as soon as it reaches the hub.";
 pub const NOT_YET_VALID: &str =
     "The certificate of your account is not valid yet: check the clock of your computer.";
@@ -37,7 +55,22 @@ pub const MALFORMED: &str = "The certificate of your account could not be read."
 pub const REVOKED: &str =
     "The certificate of your account was revoked: log in again from the main menu.";
 pub const WRONG_SIGNATURE: &str = "The proof of your account was not made for this connection.";
-pub const WRONG_ID: &str = "Your connection does not match your account.";
+pub const WRONG_ID: &str = "Your connection does not match your account: do not start the game with --player-name while logged in.";
+/// The reason given to a player whose name on the hub this server cannot take.
+pub const BAD_NAME: &str = "The name of your account cannot be used on this server.";
+/// The reason given to a client that did not ask to join within `AuthTimeout`.
+pub const TOO_LATE: &str = "The server did not receive your request to join in time.";
+
+/// How long a connected client has to be accepted, in every mode: one that holds a place, or
+/// the id of a player, without joining is let go after it.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct AuthTimeout(pub Duration);
+
+impl Default for AuthTimeout {
+    fn default() -> Self {
+        Self(Duration::from_secs(5))
+    }
+}
 
 /// The public half of the key of the server.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,13 +146,14 @@ fn write_private(folder: &Path, path: &Path, data: &[u8]) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
-/// The nonce given to each connected client, forgotten when it disconnects.
+/// The nonce given to each connected client, with when it connected (`Time::elapsed`),
+/// forgotten when it disconnects.
 #[derive(Resource, Default, Debug)]
-pub struct Challenges(HashMap<ClientId, [u8; 32]>);
+pub struct Challenges(HashMap<ClientId, ([u8; 32], Duration)>);
 
 impl Challenges {
     pub fn get(&self, client_id: ClientId) -> Option<&[u8; 32]> {
-        self.0.get(&client_id)
+        self.0.get(&client_id).map(|(nonce, _)| nonce)
     }
 }
 
@@ -131,13 +165,14 @@ pub(super) fn send_challenges_system(
     mut challenges: ResMut<Challenges>,
     key: Res<ServerKey>,
     config: Res<GameServerConfig>,
+    time: Res<Time>,
 ) {
     for event in events.read() {
         match event {
             ServerEventMessage::ClientConnected { client_id } => {
                 let mut nonce = [0u8; 32];
                 OsRng.fill_bytes(&mut nonce);
-                challenges.0.insert(*client_id, nonce);
+                challenges.0.insert(*client_id, (nonce, time.elapsed()));
                 let hub = match &config.auth {
                     ServerAuth::Offline => None,
                     ServerAuth::Hub(trust) => Some(trust.url.clone()),
@@ -158,9 +193,47 @@ pub(super) fn send_challenges_system(
     }
 }
 
+/// Dismisses the clients still out of the lobby `AuthTimeout` after they connected.
+pub(super) fn dismiss_late_clients_system(
+    mut server: ResMut<RenetServer>,
+    challenges: Res<Challenges>,
+    lobby: Res<ServerLobby>,
+    mut dismissals: ResMut<Dismissals>,
+    timeout: Res<AuthTimeout>,
+    time: Res<Time>,
+) {
+    for (client_id, (_, connected_at)) in &challenges.0 {
+        let late = time.elapsed().saturating_sub(*connected_at) > timeout.0;
+        if late && !lobby.players.contains_key(client_id) && !dismissals.contains(*client_id) {
+            dismissals.dismiss(&mut server, *client_id, TOO_LATE.to_string());
+        }
+    }
+}
+
+/// Dismisses the players whose certificate the hub revoked since they joined: the list is read
+/// again every hour (`hub::watch_revocations`).
+pub(super) fn dismiss_revoked_players_system(
+    mut server: ResMut<RenetServer>,
+    lobby: Res<ServerLobby>,
+    mut dismissals: ResMut<Dismissals>,
+    config: Res<GameServerConfig>,
+) {
+    let ServerAuth::Hub(trust) = &config.auth else {
+        return;
+    };
+    let revoked = trust.revoked.read().unwrap_or_else(PoisonError::into_inner);
+    for (client_id, player) in &lobby.players {
+        let is_revoked = player.certificate.is_some_and(|id| revoked.contains(&id));
+        if is_revoked && !dismissals.contains(*client_id) {
+            dismissals.dismiss(&mut server, *client_id, REVOKED.to_string());
+        }
+    }
+}
+
 /// The certificate of the proof of `client_id`, when it is one of `trust`'s hub, not revoked,
-/// its device signed the nonce of this connection for this server, and the account is the one
-/// of the client id. Otherwise the reason to give the player.
+/// made for one of the addresses of this server, its device signed the nonce of this
+/// connection for this server, and the account is the one of the client id. Otherwise the
+/// reason to give the player.
 pub fn check_proof(
     trust: &HubTrust,
     proof: Option<&JoinProof>,
@@ -168,8 +241,8 @@ pub fn check_proof(
     nonce: Option<&[u8; 32]>,
     server_key: &[u8; 32],
     now: u64,
-) -> Result<Certificate, &'static str> {
-    let proof = proof.ok_or(NO_PROOF)?;
+) -> Result<Certificate, String> {
+    let proof = proof.ok_or_else(|| no_proof(&trust.url))?;
     let signed = SignedCertificate {
         bytes: proof.certificate.clone(),
         signature: proof
@@ -184,25 +257,34 @@ pub fn check_proof(
         CertificateError::NotYetValid => NOT_YET_VALID,
         CertificateError::Expired => EXPIRED,
     })?;
+    if hub_base(&certificate.hub) != hub_base(&trust.url) {
+        return Err(UNKNOWN_HUB.into());
+    }
+    // A poisoned list is still the list: a writer that panicked never makes a revoked
+    // certificate good again
     let revoked = trust
         .revoked
         .read()
-        .is_ok_and(|revoked| revoked.contains(&certificate.id));
+        .unwrap_or_else(PoisonError::into_inner)
+        .contains(&certificate.id);
     if revoked {
-        return Err(REVOKED);
+        return Err(REVOKED.into());
     }
+    let address = normalize_address(&proof.address)
+        .filter(|address| trust.addresses.contains(address))
+        .ok_or_else(|| wrong_address(&proof.address))?;
     let signature: [u8; 64] = proof
         .signature
         .as_slice()
         .try_into()
         .map_err(|_| WRONG_SIGNATURE)?;
     let nonce = nonce.ok_or(WRONG_SIGNATURE)?;
-    if !verify_join(&certificate, nonce, server_key, &signature) {
-        return Err(WRONG_SIGNATURE);
+    if !verify_join(&certificate, nonce, server_key, &address, &signature) {
+        return Err(WRONG_SIGNATURE.into());
     }
     // The client announces its own id: one that is not the account's could take its place
     if player_id(&certificate.account) != client_id {
-        return Err(WRONG_ID);
+        return Err(WRONG_ID.into());
     }
     Ok(certificate)
 }
@@ -220,6 +302,8 @@ mod tests {
     const NOW: u64 = 2_000_000_000;
     const NONCE: [u8; 32] = [3; 32];
     const SERVER: [u8; 32] = [4; 32];
+    const HUB: &str = "https://hub.example";
+    const ADDRESS: &str = "play.example:8000";
 
     struct Fixture {
         hub: SigningKey,
@@ -234,7 +318,7 @@ mod tests {
                 hub: new_key(),
                 certificate: Certificate {
                     version: CERTIFICATE_VERSION,
-                    hub: "https://hub.example".into(),
+                    hub: HUB.into(),
                     id: Uuid::from_u128(7),
                     account: Uuid::from_u128(0x0102030405060708_090a0b0c0d0e0f10),
                     name: "Alex".into(),
@@ -249,28 +333,54 @@ mod tests {
 
         fn trust(&self) -> HubTrust {
             HubTrust {
-                url: "https://hub.example".into(),
+                url: HUB.into(),
+                addresses: vec![ADDRESS.into()],
                 keys: vec![(1, self.hub.verifying_key())],
                 revoked: Arc::new(RwLock::new(HashSet::new())),
             }
         }
 
-        fn proof(&self, nonce: &[u8; 32], server: &[u8; 32]) -> JoinProof {
-            let signed = sign(&self.certificate, &self.hub);
+        fn proof_for(
+            &self,
+            certificate: &Certificate,
+            nonce: &[u8; 32],
+            server: &[u8; 32],
+            address: &str,
+        ) -> JoinProof {
+            let signed = sign(certificate, &self.hub);
             JoinProof {
                 certificate: signed.bytes,
                 certificate_signature: signed.signature.to_vec(),
-                signature: sign_join(&self.device, nonce, server).to_vec(),
+                address: address.into(),
+                signature: sign_join(&self.device, nonce, server, address).to_vec(),
             }
+        }
+
+        fn proof(&self, nonce: &[u8; 32], server: &[u8; 32]) -> JoinProof {
+            self.proof_for(&self.certificate, nonce, server, ADDRESS)
         }
 
         fn id(&self) -> ClientId {
             player_id(&self.certificate.account)
         }
 
-        fn check(&self, trust: &HubTrust, proof: &JoinProof) -> Result<Certificate, &str> {
-            check_proof(trust, Some(proof), self.id(), Some(&NONCE), &SERVER, NOW)
+        fn check(&self, trust: &HubTrust, proof: &JoinProof) -> Result<Certificate, String> {
+            self.check_as(trust, proof, self.id(), NOW)
         }
+
+        fn check_as(
+            &self,
+            trust: &HubTrust,
+            proof: &JoinProof,
+            id: ClientId,
+            now: u64,
+        ) -> Result<Certificate, String> {
+            check_proof(trust, Some(proof), id, Some(&NONCE), &SERVER, now)
+        }
+    }
+
+    fn reason(text: &str) -> Result<Certificate, String> {
+        Err(text.to_string())
     }
 
     #[test]
@@ -281,6 +391,12 @@ mod tests {
             fixture.check(&fixture.trust(), &proof),
             Ok(fixture.certificate.clone())
         );
+        // an address is compared normalized
+        let proof = fixture.proof_for(&fixture.certificate, &NONCE, &SERVER, "PLAY.example.");
+        assert_eq!(
+            fixture.check(&fixture.trust(), &proof),
+            reason(WRONG_SIGNATURE)
+        );
     }
 
     #[test]
@@ -290,54 +406,49 @@ mod tests {
         let proof = fixture.proof(&NONCE, &SERVER);
         assert_eq!(
             check_proof(&trust, None, fixture.id(), Some(&NONCE), &SERVER, NOW),
-            Err(NO_PROOF)
+            Err(no_proof(HUB))
         );
         assert_eq!(
             check_proof(&trust, Some(&proof), fixture.id(), None, &SERVER, NOW),
-            Err(WRONG_SIGNATURE)
+            reason(WRONG_SIGNATURE)
         );
         assert_eq!(
-            check_proof(
-                &trust,
-                Some(&proof),
-                fixture.id() + 1,
-                Some(&NONCE),
-                &SERVER,
-                NOW
-            ),
-            Err(WRONG_ID)
+            fixture.check_as(&trust, &proof, fixture.id() + 1, NOW),
+            reason(WRONG_ID)
         );
         let late = NOW + CERTIFICATE_LIFETIME_SECS;
         assert_eq!(
-            check_proof(
-                &trust,
-                Some(&proof),
-                fixture.id(),
-                Some(&NONCE),
-                &SERVER,
-                late
-            ),
-            Err(EXPIRED)
+            fixture.check_as(&trust, &proof, fixture.id(), late),
+            reason(EXPIRED)
         );
         assert_eq!(
             fixture.check(&trust, &fixture.proof(&[9; 32], &SERVER)),
-            Err(WRONG_SIGNATURE)
+            reason(WRONG_SIGNATURE)
         );
         assert_eq!(
             fixture.check(&trust, &fixture.proof(&NONCE, &[9; 32])),
-            Err(WRONG_SIGNATURE)
+            reason(WRONG_SIGNATURE)
+        );
+        let relayed = fixture.proof_for(&fixture.certificate, &NONCE, &SERVER, "evil.example:8000");
+        assert_eq!(
+            fixture.check(&trust, &relayed),
+            Err(wrong_address("evil.example:8000"))
         );
         let other_hub = Fixture::new().trust();
-        assert_eq!(fixture.check(&other_hub, &proof), Err(UNKNOWN_HUB));
+        assert_eq!(fixture.check(&other_hub, &proof), reason(UNKNOWN_HUB));
+        let mut elsewhere = fixture.certificate.clone();
+        elsewhere.hub = "https://other.example".into();
+        let proof_elsewhere = fixture.proof_for(&elsewhere, &NONCE, &SERVER, ADDRESS);
+        assert_eq!(fixture.check(&trust, &proof_elsewhere), reason(UNKNOWN_HUB));
         let mut short = proof.clone();
         short.certificate_signature.pop();
-        assert_eq!(fixture.check(&trust, &short), Err(MALFORMED));
+        assert_eq!(fixture.check(&trust, &short), reason(MALFORMED));
         trust
             .revoked
             .write()
             .unwrap()
             .insert(fixture.certificate.id);
-        assert_eq!(fixture.check(&trust, &proof), Err(REVOKED));
+        assert_eq!(fixture.check(&trust, &proof), reason(REVOKED));
     }
 
     #[test]

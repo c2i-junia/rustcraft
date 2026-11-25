@@ -8,7 +8,8 @@ Date: 11.10.2026
     - The world and the connected players are saved automatically every 60 seconds.
     - A dedicated server saves the world and the players when it is stopped with Ctrl-C or SIGTERM.
     - A dedicated server takes the seed, type, game mode and difficulty of a new world on its command line (--seed, --world-type, --biome, --game-mode, --difficulty), and the most players it holds with --max-players.
-    - A dedicated server started with --auth hub only lets in the players logged in to an account of the hub (--hub), under the name of their account, checked by a certificate and without calling the hub for each join.
+    - A dedicated server started with --auth hub only lets in the players logged in to an account of the hub (--hub), under the name of their account, checked by a certificate made for the address they dialed (--public-address) and without calling the hub for each join.
+    - A client that connects to a server without joining it within 5 seconds is disconnected.
     - A Docker image of the dedicated server (rustcraft-server) is published for each release, to run a world in a container with a read-only root filesystem.
     - Block changes are now sent to the players as small updates instead of whole chunks.
     - World generation is deterministic: a seed always gives the same world.

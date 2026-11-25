@@ -428,15 +428,20 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    server ignores what it sends. A name is taken, banned or an operator's whatever its case.
    Joining starts with a challenge: as soon as a client connects, `send_challenges_system`
    (`network/join.rs`, in `PreUpdate`) sends it `AuthChallenge`, a nonce of its own, the
-   server's key (`server_key.ron`) and the hub of a server in hub mode, and the client answers
-   with its `AuthRegisterRequest`. In hub mode (`ServerAuth::Hub`, `--auth hub`) the request
-   carries a `JoinProof`: the certificate of the hub and the signature of the device over the
-   nonce and the server key. `check_proof` verifies the certificate against the hub keys read
-   at start (`hub.rs`, cached in `hub_keys.ron`), refuses those revoked (`/v1/revoked`, read
-   every hour by a thread) and the client whose announced id is not the account's
-   (`identity::player_id`), each with its reason. The player then takes the name of its
-   certificate, and only one connection per account is let in. In offline mode the proof is
-   ignored; a solo world is always offline.
+   server's key and the hub of a server in hub mode, and the client answers with its
+   `AuthRegisterRequest`. A client that has not joined 5 s after connecting (`AuthTimeout`) is
+   dismissed, in every mode. In hub mode (`ServerAuth::Hub`, `--auth hub`) the request carries
+   a `JoinProof`: the certificate of the hub, the address the player dialed (normalized,
+   `normalize_address`) and the signature of the device over the nonce, the server key
+   (`server_key.ron`, hub mode only) and that address. `check_proof` verifies the certificate
+   against the hub keys read at start (`hub.rs`, cached in `hub_keys.ron`) and its `hub`
+   against the hub's URL, refuses those revoked (`/v1/revoked`, read every hour by a thread,
+   every 5 minutes after a failure; `dismiss_revoked_players_system` dismisses the players
+   online whose certificate is revoked since), a proof made for an address not among the
+   server's `--public-address` (a server relaying the challenge of another), and the client
+   whose announced id is not the account's (`identity::player_id`), each with its reason. The
+   player then takes the name of its certificate, and only one connection per account is let
+   in. In offline mode the proof is ignored; a solo world is always offline.
 2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the reach of
    the players (`ChunkReach`, see the broadcast: their render distance, then around the twins
    of the portals they see) before the inputs, in the background (`ChunkLoader`): a tick
@@ -1380,7 +1385,12 @@ the integrated server, on wall-clock time. How to write one is in the README.
 - The transport is not authenticated (`ServerAuthentication::Unsecure`): a client announces
   its own id, which is the hash of its player name, and the save of a player is found by that
   id. This is fine among friends, not for a server open to anyone: such a server runs with
-  `--auth hub`, where the id must be the one of the account the player proves.
+  `--auth hub`, where the id must be the one of the account the player proves. Even then only
+  the handshake is checked: the packets after it are not authenticated, so someone who can
+  forge the player's UDP address can speak for it, and since a client picks its own id,
+  someone who connects in a loop with a player's id keeps the player out (each attempt is
+  dismissed after 5 s, `AuthTimeout`). Netcode's secure connect tokens, issued by the hub, are
+  the fix; they are left for later.
 - Block interactions are processed once per input, so once per rendered frame of the client:
   a client with a higher frame rate breaks blocks faster.
 - A player is not held back by the mobs it pushes; no animal is born after a chunk is

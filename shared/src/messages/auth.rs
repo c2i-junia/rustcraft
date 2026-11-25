@@ -26,7 +26,10 @@ pub struct JoinProof {
     pub certificate: Vec<u8>,
     /// The signature of the hub over `certificate`: 64 bytes.
     pub certificate_signature: Vec<u8>,
-    /// The signature of the device key over the challenge: 64 bytes.
+    /// The address the player dialed, normalized (`rustcraft_protocol::normalize_address`):
+    /// the signature covers it, and the server takes only its own addresses.
+    pub address: String,
+    /// The signature of the device key over the challenge and the address: 64 bytes.
     pub signature: Vec<u8>,
 }
 

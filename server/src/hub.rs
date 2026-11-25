@@ -4,12 +4,13 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 
 use bevy::log::{info, warn};
 use ed25519_dalek::VerifyingKey;
 use rustcraft_protocol::api::{HubKey, Revoked, WellKnown};
+use rustcraft_protocol::hub_base;
 use rustcraft_protocol::identity::key_from_hex;
 use serde::{Deserialize, Serialize};
 use shared::HubTrust;
@@ -24,6 +25,8 @@ pub const HUB_KEYS_FILE: &str = "hub_keys.ron";
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// How often the revoked certificates are read again.
 const REVOCATIONS_EVERY: Duration = Duration::from_secs(3600);
+/// How soon they are read again after a failed read.
+const REVOCATIONS_RETRY: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Serialize, Deserialize)]
 struct CachedKeys {
@@ -40,11 +43,12 @@ fn agent() -> ureq::Agent {
 }
 
 /// The keys of the hub at `url`, read from its well-known document and kept in
-/// `HUB_KEYS_FILE` of `folder`; those of the file when the hub cannot be reached. An error
-/// when neither gives any: the server cannot check a player. No certificate is revoked yet
+/// `HUB_KEYS_FILE` of `folder`; those of the file when the hub cannot be reached or sends no
+/// valid key. An error when neither gives any: the server cannot check a player. `addresses`
+/// are those the players reach the server at, normalized. No certificate is revoked yet
 /// (`watch_revocations`).
-pub fn hub_trust(url: &str, folder: &Path) -> Result<HubTrust, String> {
-    let url = url.trim_end_matches('/').to_string();
+pub fn hub_trust(url: &str, addresses: Vec<String>, folder: &Path) -> Result<HubTrust, String> {
+    let url = hub_base(url).to_string();
     let path = folder.join(HUB_KEYS_FILE);
     let keys = match fetch_keys(&url) {
         Ok(keys) => {
@@ -88,6 +92,7 @@ pub fn hub_trust(url: &str, folder: &Path) -> Result<HubTrust, String> {
     info!("Players join with their account of the hub at {url}");
     Ok(HubTrust {
         url,
+        addresses,
         keys,
         revoked: Arc::new(RwLock::new(HashSet::new())),
     })
@@ -99,7 +104,16 @@ fn fetch_keys(url: &str) -> Result<Vec<HubKey>, String> {
         .call()
         .and_then(|mut response| response.body_mut().read_json())
         .map_err(|err| err.to_string())?;
-    Ok(known.keys)
+    // Only the valid keys are kept, in the file too
+    let keys: Vec<HubKey> = known
+        .keys
+        .into_iter()
+        .filter(|key| !verifying_keys(std::slice::from_ref(key)).is_empty())
+        .collect();
+    if keys.is_empty() {
+        return Err("its well-known document has no valid key".into());
+    }
+    Ok(keys)
 }
 
 /// The keys of the hub that are 32 bytes of hex and valid points, with their ids.
@@ -118,29 +132,38 @@ fn verifying_keys(keys: &[HubKey]) -> Vec<(u8, VerifyingKey)> {
         .collect()
 }
 
-/// Reads the revoked certificates of the hub of `trust` now, then every hour in a thread of
-/// its own, for the life of the process. A failed read keeps the list of the last one.
+/// Reads the revoked certificates of the hub of `trust` now, then in a thread of its own for
+/// the life of the process: every hour, or every 5 minutes after a failed read until one
+/// succeeds. A failed read keeps the list of the last one.
 pub fn watch_revocations(trust: &HubTrust) {
     let (url, revoked) = (trust.url.clone(), trust.revoked.clone());
-    refresh_revocations(&url, &revoked);
+    let mut read = refresh_revocations(&url, &revoked);
     std::thread::spawn(move || loop {
-        std::thread::sleep(REVOCATIONS_EVERY);
-        refresh_revocations(&url, &revoked);
+        std::thread::sleep(if read {
+            REVOCATIONS_EVERY
+        } else {
+            REVOCATIONS_RETRY
+        });
+        read = refresh_revocations(&url, &revoked);
     });
 }
 
-fn refresh_revocations(url: &str, revoked: &RwLock<HashSet<Uuid>>) {
+/// Whether the list could be read.
+fn refresh_revocations(url: &str, revoked: &RwLock<HashSet<Uuid>>) -> bool {
     let answer: Result<Revoked, _> = agent()
         .get(format!("{url}/v1/revoked"))
         .call()
         .and_then(|mut response| response.body_mut().read_json());
     match answer {
         Ok(answer) => {
-            if let Ok(mut revoked) = revoked.write() {
-                *revoked = answer.ids.into_iter().collect();
-            }
+            *revoked.write().unwrap_or_else(PoisonError::into_inner) =
+                answer.ids.into_iter().collect();
+            true
         }
-        Err(err) => warn!("Could not read the revoked certificates of the hub at {url}: {err}"),
+        Err(err) => {
+            warn!("Could not read the revoked certificates of the hub at {url}: {err}");
+            false
+        }
     }
 }
 
@@ -188,7 +211,7 @@ mod tests {
     fn the_keys_of_the_hub_are_kept_for_when_it_cannot_be_reached() {
         let dir = tempfile::tempdir().unwrap();
         let url = hub(vec![well_known()]);
-        let trust = hub_trust(&format!("{url}/"), dir.path()).unwrap();
+        let trust = hub_trust(&format!("{url}/"), vec![], dir.path()).unwrap();
         assert_eq!(trust.url, url);
         assert_eq!(trust.keys, vec![(1, key())]);
         assert!(dir.path().join(HUB_KEYS_FILE).is_file());
@@ -196,14 +219,32 @@ mod tests {
         // the hub is gone: the keys come from the file
         let cache = std::fs::read_to_string(dir.path().join(HUB_KEYS_FILE)).unwrap();
         std::fs::write(dir.path().join(HUB_KEYS_FILE), cache.replace(&url, NOWHERE)).unwrap();
-        let trust = hub_trust(NOWHERE, dir.path()).unwrap();
+        let trust = hub_trust(NOWHERE, vec![], dir.path()).unwrap();
         assert_eq!(trust.keys, vec![(1, key())]);
+    }
+
+    #[test]
+    fn only_valid_keys_are_kept_and_a_hub_without_any_is_not_trusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let mixed = well_known().replace(
+            r#"}],"protocol_id""#,
+            r#"},{"id":2,"public_key":"zz"}],"protocol_id""#,
+        );
+        let trust = hub_trust(&hub(vec![mixed]), vec![], dir.path()).unwrap();
+        assert_eq!(trust.keys, vec![(1, key())]);
+        let cache = std::fs::read_to_string(dir.path().join(HUB_KEYS_FILE)).unwrap();
+        assert!(!cache.contains("zz"), "{cache}");
+
+        let empty = tempfile::tempdir().unwrap();
+        let invalid = well_known().replace(&key_to_hex(&key().to_bytes()), "zz");
+        assert!(hub_trust(&hub(vec![invalid]), vec![], empty.path()).is_err());
+        assert!(!empty.path().join(HUB_KEYS_FILE).exists());
     }
 
     #[test]
     fn a_server_without_its_hub_nor_its_keys_does_not_start() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(hub_trust(NOWHERE, dir.path()).is_err());
+        assert!(hub_trust(NOWHERE, vec![], dir.path()).is_err());
         // the keys of another hub are not trusted
         let cache = CachedKeys {
             hub: "https://other.example".into(),
@@ -214,7 +255,7 @@ mod tests {
         };
         let text = ron::ser::to_string(&cache).unwrap();
         std::fs::write(dir.path().join(HUB_KEYS_FILE), text).unwrap();
-        assert!(hub_trust(NOWHERE, dir.path()).is_err());
+        assert!(hub_trust(NOWHERE, vec![], dir.path()).is_err());
     }
 
     #[test]
@@ -222,11 +263,11 @@ mod tests {
         let id = Uuid::from_u128(9);
         let url = hub(vec![format!(r#"{{"ids":["{id}"]}}"#), "broken".into()]);
         let revoked = RwLock::new(HashSet::new());
-        refresh_revocations(&url, &revoked);
+        assert!(refresh_revocations(&url, &revoked));
         assert!(revoked.read().unwrap().contains(&id));
-        refresh_revocations(&url, &revoked);
+        assert!(!refresh_revocations(&url, &revoked));
         assert!(revoked.read().unwrap().contains(&id));
-        refresh_revocations(NOWHERE, &revoked);
+        assert!(!refresh_revocations(NOWHERE, &revoked));
         assert!(revoked.read().unwrap().contains(&id));
     }
 }

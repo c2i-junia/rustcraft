@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 
-pub use rustcraft_protocol::PROTOCOL_ID;
-/// The UDP port a server listens on when none is given, and that an address without one means.
-pub const DEFAULT_PORT: u16 = 8000;
+pub use rustcraft_protocol::{DEFAULT_PORT, PROTOCOL_ID};
 pub const TICKS_PER_SECOND: u64 = 20;
 /// Length of a day and night cycle: twenty minutes, as in Minecraft. A cycle starts at sunset,
 /// so its first half is the night (`client/src/world/celestial.rs`). Bump `PROTOCOL_ID` with

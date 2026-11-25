@@ -29,7 +29,7 @@ use shared::{
     messages::PlayerId,
     status::status_port,
     world::{Biomes, ChunkMap, WorldSeed},
-    GameFolderPaths, GameServerConfig, NewWorldSettings, TICKS_PER_SECOND,
+    GameFolderPaths, GameServerConfig, NewWorldSettings, ServerAuth, TICKS_PER_SECOND,
 };
 use std::fmt::Debug;
 use std::sync::{atomic::AtomicU32, Arc};
@@ -49,6 +49,8 @@ pub struct LobbyPlayer {
     pub name: String,
     /// The account of the player on the hub, for a server in hub mode.
     pub account: Option<uuid::Uuid>,
+    /// The id of the certificate it joined with, dismissed once the hub revokes it.
+    pub certificate: Option<uuid::Uuid>,
 }
 
 impl LobbyPlayer {
@@ -56,6 +58,7 @@ impl LobbyPlayer {
         Self {
             name,
             account: None,
+            certificate: None,
         }
     }
 }
@@ -184,6 +187,7 @@ fn run(
     let is_solo = config.is_solo;
     let max_players = config.max_players;
     let new_world = config.new_world.clone();
+    let config_auth = config.auth.clone();
 
     app.insert_resource(config);
 
@@ -191,9 +195,12 @@ fn run(
 
     setup_resources_and_events(&mut app);
 
-    app.insert_resource(ServerKey::load_or_create(
-        &game_folder_paths.game_folder_path,
-    )?);
+    // Only the players of a hub sign it: an offline server keeps the random key it starts with
+    if matches!(config_auth, ServerAuth::Hub(_)) {
+        app.insert_resource(ServerKey::load_or_create(
+            &game_folder_paths.game_folder_path,
+        )?);
+    }
 
     // A solo world keeps no lists: its player is an operator
     if !is_solo {

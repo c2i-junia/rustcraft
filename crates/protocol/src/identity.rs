@@ -112,32 +112,43 @@ impl SignedCertificate {
     }
 }
 
-/// What a device signs to join a server: the server's challenge bound to the server's key.
-pub fn join_message(nonce: &[u8; 32], server_key: &[u8; 32]) -> Vec<u8> {
-    let mut message = Vec::with_capacity(JOIN_PREFIX.len() + 64);
+/// What a device signs to join a server: the server's challenge bound to the server's key and
+/// to the address the player dialed (`crate::normalize_address`), so that a server cannot pass
+/// the challenge of another one to its players and join there as them.
+pub fn join_message(nonce: &[u8; 32], server_key: &[u8; 32], address: &str) -> Vec<u8> {
+    let mut message = Vec::with_capacity(JOIN_PREFIX.len() + 64 + address.len());
     message.extend_from_slice(JOIN_PREFIX);
     message.extend_from_slice(nonce);
     message.extend_from_slice(server_key);
+    message.extend_from_slice(address.as_bytes());
     message
 }
 
 /// The join signature of a device.
-pub fn sign_join(device: &SigningKey, nonce: &[u8; 32], server_key: &[u8; 32]) -> [u8; 64] {
-    device.sign(&join_message(nonce, server_key)).to_bytes()
+pub fn sign_join(
+    device: &SigningKey,
+    nonce: &[u8; 32],
+    server_key: &[u8; 32],
+    address: &str,
+) -> [u8; 64] {
+    device
+        .sign(&join_message(nonce, server_key, address))
+        .to_bytes()
 }
 
-/// Checks that the device key of `cert` signed this nonce for this server.
+/// Checks that the device key of `cert` signed this nonce for this server at this address.
 pub fn verify_join(
     cert: &Certificate,
     nonce: &[u8; 32],
     server_key: &[u8; 32],
+    address: &str,
     signature: &[u8; 64],
 ) -> bool {
     let Ok(key) = VerifyingKey::from_bytes(&cert.device_key) else {
         return false;
     };
     key.verify_strict(
-        &join_message(nonce, server_key),
+        &join_message(nonce, server_key, address),
         &Signature::from_bytes(signature),
     )
     .is_ok()
@@ -306,16 +317,25 @@ mod tests {
     }
 
     #[test]
-    fn a_join_signature_verifies_only_for_its_nonce_and_server_key() {
+    fn a_join_signature_verifies_only_for_its_nonce_server_key_and_address() {
         let device = key();
         let cert = certificate(&device);
-        let (nonce, server) = ([7u8; 32], [9u8; 32]);
-        let signature = sign_join(&device, &nonce, &server);
-        assert!(verify_join(&cert, &nonce, &server, &signature));
-        assert!(!verify_join(&cert, &[8u8; 32], &server, &signature));
-        assert!(!verify_join(&cert, &nonce, &[1u8; 32], &signature));
+        let (nonce, server, address) = ([7u8; 32], [9u8; 32], "play.example:8000");
+        let signature = sign_join(&device, &nonce, &server, address);
+        assert!(verify_join(&cert, &nonce, &server, address, &signature));
+        assert!(!verify_join(
+            &cert, &[8u8; 32], &server, address, &signature
+        ));
+        assert!(!verify_join(&cert, &nonce, &[1u8; 32], address, &signature));
+        assert!(!verify_join(
+            &cert,
+            &nonce,
+            &server,
+            "evil.example:8000",
+            &signature
+        ));
         let other = certificate(&key());
-        assert!(!verify_join(&other, &nonce, &server, &signature));
+        assert!(!verify_join(&other, &nonce, &server, address, &signature));
     }
 
     #[test]

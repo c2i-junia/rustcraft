@@ -24,7 +24,7 @@ use crate::network::commands::{
     command_line, list_players, parse_command, refusal, run_command, Command, Place, SERVER_AUTHOR,
 };
 use crate::network::extensions::SendGameMessageExtension;
-use crate::network::join::check_proof;
+use crate::network::join::{check_proof, BAD_NAME};
 use crate::network::permissions::{same_name, Dismissals, Permissions};
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
@@ -95,34 +95,41 @@ pub(super) fn auth_register_request(
         return ControlFlow::Continue(());
     }
     // In hub mode the player is the account of its certificate, whatever name it asks for
-    let (requested, account) = match join.auth {
-        ServerAuth::Offline => (auth_req.username.clone(), None),
+    let (username, certificate) = match join.auth {
+        ServerAuth::Offline => {
+            let Some(username) = sanitize_username(&auth_req.username) else {
+                warn!("Invalid username, disconnecting client {client_id}");
+                server.disconnect(client_id);
+                return ControlFlow::Break(());
+            };
+            (username.to_string(), None)
+        }
         ServerAuth::Hub(trust) => {
             let now = unix_time_ms() / 1000;
-            match check_proof(
+            let checked = check_proof(
                 trust,
                 auth_req.proof.as_ref(),
                 client_id,
                 join.nonce,
                 join.server_key,
                 now,
-            ) {
-                Ok(certificate) => (certificate.name, Some(certificate.account)),
+            )
+            .and_then(|certificate| match sanitize_username(&certificate.name) {
+                Some(name) => Ok((name.to_string(), certificate)),
+                None => Err(BAD_NAME.to_string()),
+            });
+            match checked {
+                Ok((name, certificate)) => (name, Some(certificate)),
                 Err(reason) => {
                     warn!("Refusing client {client_id}: {reason}");
-                    access
-                        .dismissals
-                        .dismiss(server, client_id, reason.to_string());
+                    access.dismissals.dismiss(server, client_id, reason);
                     return ControlFlow::Break(());
                 }
             }
         }
     };
-    let Some(username) = sanitize_username(&requested) else {
-        warn!("Invalid username, disconnecting client {client_id}");
-        server.disconnect(client_id);
-        return ControlFlow::Break(());
-    };
+    let username = username.as_str();
+    let account = certificate.as_ref().map(|certificate| certificate.account);
     // Whatever the case, as the operators and the bans are known; by account in hub mode
     if lobby.players.values().any(|player| match account {
         Some(account) => player.account == Some(account),
@@ -167,6 +174,7 @@ pub(super) fn auth_register_request(
         client_id,
         LobbyPlayer {
             account,
+            certificate: certificate.as_ref().map(|certificate| certificate.id),
             ..LobbyPlayer::new(username.to_string())
         },
     );

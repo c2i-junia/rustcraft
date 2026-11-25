@@ -39,7 +39,7 @@ use bevy_inspector_egui::{
 };
 use clap::Parser;
 use constants::{TEXTURE_PATH_BASE, TEXTURE_PATH_CUSTOM};
-use rustcraft_protocol::DEFAULT_HUB;
+use rustcraft_protocol::{check_hub_url, DEFAULT_HUB};
 use shared::get_game_folder_paths;
 use std::path::{Path, PathBuf};
 #[cfg(debug_assertions)]
@@ -73,7 +73,8 @@ struct Args {
     #[arg(
         long,
         default_value = DEFAULT_HUB,
-        help = "The hub that accounts are made on and logged in to"
+        value_parser = check_hub_url,
+        help = "The hub that accounts are made on and logged in to: https://, or http:// on this computer only"
     )]
     hub: String,
 }

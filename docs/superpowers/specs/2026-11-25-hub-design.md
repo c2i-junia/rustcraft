@@ -67,11 +67,24 @@ hub/                       separate cargo workspace and Cargo.lock
   only after the signature checks.
 - **Validity:** 7 days. The game renews it once half its life has passed.
 - **Join signature:** the device key signs `b"rustcraft-join-v1" ‖ nonce (32 bytes) ‖
-  server_key (32 bytes)`.
-- **Server key:** each server has an Ed25519 key in `<game folder>/server_key.ron`, created at
-  first start.
+  server_key (32 bytes) ‖ address`, where `address` is the address the player dialed,
+  normalized (`normalize_address`: host in lower case without a trailing dot, IPv6 in
+  brackets, port explicit, 8000 by default), and sent in the proof. A hub-mode server takes
+  only proofs for one of its `--public-address` values (at least one is required), so a server
+  that relays another's challenge to its players gets proofs worth nothing there.
+- **Certificate check:** besides the hub's keys, the server compares `cert.hub` with its hub's
+  URL (trailing `/` ignored).
+- **Server key:** each hub-mode server has an Ed25519 key in `<game folder>/server_key.ron`,
+  created at first start (offline servers and solo worlds use a throwaway key).
 - **Revocation:** `GET /v1/revoked` lists the ids of revoked certificates that have not expired.
-  A hub-mode server reads it at start and every hour and refuses those certificates.
+  A hub-mode server reads it at start and every hour (every 5 minutes after a failed read, until
+  one succeeds) and refuses those certificates; players online with a certificate revoked since
+  are dismissed.
+- **Pre-authentication timeout:** in every mode, a connected client that has not joined 5 s
+  after connecting is dismissed. Netcode runs `Unsecure`: a client announces its id, so someone
+  reconnecting in a loop with a player's id can still keep that player out; netcode connect
+  tokens issued by the hub are the real fix, left for later.
+- **Hub URLs:** `--hub` takes `https://` URLs, and `http://` only to a loopback host.
 
 ## Accounts
 

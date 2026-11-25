@@ -87,8 +87,11 @@ pub enum ServerAuth {
 /// revoked since, which a thread keeps up to date.
 #[derive(Clone, Debug)]
 pub struct HubTrust {
-    /// The URL of the hub, sent to the clients in the challenge.
+    /// The URL of the hub without its trailing `/`, sent to the clients in the challenge.
     pub url: String,
+    /// The addresses players reach this server at (`--public-address`), normalized: a proof
+    /// made for another address is refused.
+    pub addresses: Vec<String>,
     /// The accepted keys of the hub, with their ids.
     pub keys: Vec<(u8, ed25519_dalek::VerifyingKey)>,
     /// The ids of the revoked certificates.

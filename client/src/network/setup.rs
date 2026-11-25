@@ -32,6 +32,7 @@ use crate::world::{
     BlockChanged, ChunkLoadEvent, RenderDistance, ServerRenderDistanceLimit, WorldBiomes,
     WorldRenderRequestUpdateEvent,
 };
+use rustcraft_protocol::{hub_host, normalize_address};
 use shared::messages::{
     AuthRegisterRequest, DroppedItemsUpdate, PlayerId, PlayerSpawnEvent, PlayerUpdateEvent,
     ServerToClientMessage,
@@ -523,7 +524,7 @@ pub fn establish_authenticated_connection_to_server(
     mut client_time: ResMut<ClientTime>,
     mut world_map: ResMut<ClientWorldMap>,
     mut refusal_logged: Local<bool>,
-    account: Option<Res<Account>>,
+    (account, origin): (Option<Res<Account>>, Option<Res<SessionOrigin>>),
 ) {
     if target.session_token.is_some() {
         trace!(
@@ -555,14 +556,37 @@ pub fn establish_authenticated_connection_to_server(
                 server_key,
                 hub,
             } if target.state == TargetServerState::Initial => {
+                target.state = TargetServerState::Establishing;
+                let account = account.as_deref();
+                if let Some((hub, other)) = hub
+                    .as_deref()
+                    .and_then(|hub| Some((hub, account?.other_hub(hub)?)))
+                {
+                    // The server would only say that it needs an account
+                    let reason = format!(
+                        "This server uses the hub {}; you are logged in to {}.",
+                        hub_host(hub),
+                        hub_host(other)
+                    );
+                    commands.insert_resource(Dismissal(reason));
+                    continue;
+                }
                 let username = target
                     .username
                     .get_or_insert_with(|| current_profile.name.clone())
                     .clone();
-                // A server in hub mode without a proof says why it refuses the player
+                // The proof is bound to the address the player dialed. A server in hub mode
+                // without a proof says why it refuses the player
+                let address = match origin.as_deref() {
+                    Some(SessionOrigin::Server { ip, .. }) => normalize_address(ip),
+                    _ => None,
+                };
                 let proof = hub
-                    .zip(account.as_deref())
-                    .and_then(|(hub, account)| account.join_proof(&hub, &nonce, &server_key));
+                    .zip(account)
+                    .zip(address)
+                    .and_then(|((hub, account), address)| {
+                        account.join_proof(&hub, &nonce, &server_key, &address)
+                    });
                 let auth_msg = AuthRegisterRequest {
                     username,
                     render_distance: render_distance.distance,
@@ -575,7 +599,6 @@ pub fn establish_authenticated_connection_to_server(
                     auth_msg.proof.is_some()
                 );
                 client.send_game_message(auth_msg.into());
-                target.state = TargetServerState::Establishing;
             }
             ServerToClientMessage::AuthRegisterResponse(message) => {
                 target.username = Some(message.username);

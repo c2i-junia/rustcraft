@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use rustcraft_protocol::api::CertificateResponse;
+use rustcraft_protocol::hub_base;
 use rustcraft_protocol::identity::sign_join;
 use shared::messages::{JoinProof, PlayerId};
 use shared::GameFolderPaths;
@@ -53,19 +54,28 @@ impl Account {
         }
     }
 
-    /// What proves the account to a server of `hub` that gave this challenge: its certificate
-    /// and the signature of the device. `None` when logged out, on another hub, or without a
-    /// certificate yet.
+    /// The hub of the account, when it is logged in to another one than `hub`.
+    pub fn other_hub(&self, hub: &str) -> Option<&str> {
+        match self {
+            Account::LoggedIn(file) if hub_base(&file.hub) != hub_base(hub) => Some(&file.hub),
+            _ => None,
+        }
+    }
+
+    /// What proves the account to a server of `hub` that gave this challenge, joined at
+    /// `address` (normalized): its certificate and the signature of the device. `None` when
+    /// logged out, on another hub, or without a certificate yet.
     pub fn join_proof(
         &self,
         hub: &str,
         nonce: &[u8; 32],
         server_key: &[u8; 32],
+        address: &str,
     ) -> Option<JoinProof> {
         let Account::LoggedIn(file) = self else {
             return None;
         };
-        if file.hub.trim_end_matches('/') != hub.trim_end_matches('/') {
+        if self.other_hub(hub).is_some() {
             return None;
         }
         let signed = CertificateResponse {
@@ -78,7 +88,8 @@ impl Account {
         Some(JoinProof {
             certificate: signed.bytes,
             certificate_signature: signed.signature.to_vec(),
-            signature: sign_join(&device, nonce, server_key).to_vec(),
+            address: address.to_string(),
+            signature: sign_join(&device, nonce, server_key, address).to_vec(),
         })
     }
 
@@ -259,11 +270,11 @@ mod tests {
 
     #[test]
     fn a_join_proof_is_made_for_the_hub_of_the_account_only() {
-        let (nonce, server_key) = ([1u8; 32], [2u8; 32]);
+        let (nonce, server_key, address) = ([1u8; 32], [2u8; 32], "play.example:8000");
         let mut file = AccountFile::new("https://hub.example", &summary(), "t".into());
         let without_certificate = Account::LoggedIn(file.clone());
         assert_eq!(
-            without_certificate.join_proof("https://hub.example", &nonce, &server_key),
+            without_certificate.join_proof("https://hub.example", &nonce, &server_key, address),
             None
         );
         file.certificate = Some("AQID".into());
@@ -272,20 +283,27 @@ mod tests {
         let account = Account::LoggedIn(file);
 
         let proof = account
-            .join_proof("https://hub.example/", &nonce, &server_key)
+            .join_proof("https://hub.example/", &nonce, &server_key, address)
             .unwrap();
+        assert_eq!(proof.address, address);
         assert_eq!(proof.certificate, vec![1, 2, 3]);
         assert_eq!(proof.certificate_signature, vec![0; 64]);
         assert_eq!(
             proof.signature,
-            sign_join(&device, &nonce, &server_key).to_vec()
+            sign_join(&device, &nonce, &server_key, address).to_vec()
         );
         assert_eq!(
-            account.join_proof("https://other.example", &nonce, &server_key),
+            account.join_proof("https://other.example", &nonce, &server_key, address),
             None
         );
         assert_eq!(
-            Account::LoggedOut.join_proof("https://hub.example", &nonce, &server_key),
+            account.other_hub("https://other.example"),
+            Some("https://hub.example")
+        );
+        assert_eq!(account.other_hub("https://hub.example/"), None);
+        assert_eq!(Account::LoggedOut.other_hub("https://hub.example"), None);
+        assert_eq!(
+            Account::LoggedOut.join_proof("https://hub.example", &nonce, &server_key, address),
             None
         );
     }
