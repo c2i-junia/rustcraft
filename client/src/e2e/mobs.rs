@@ -346,7 +346,10 @@ fn a_gust_owl_hatched_next_to_a_survival_player_circles_over_it_and_dives_at_it(
     // A slow start may have cost a fall already
     let health = local_player(h.world()).health;
     h.wait_until("a dive", SERVER, |w| local_player(w).health < health);
-    assert_eq!(local_player(h.world()).health, health - 2);
+    // 2 points, less the point of health a player hurt by that fall may get back in the same
+    // update, the client drawing several ticks a frame when slow (the server tests count them)
+    let lost = health - local_player(h.world()).health;
+    assert!((1..=2).contains(&lost), "lost {lost}");
     // Knocked back
     h.frames(30);
     let after = player_position(h.world_mut());
