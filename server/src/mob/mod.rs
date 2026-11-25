@@ -2,6 +2,7 @@ pub mod behavior;
 pub mod breeding;
 pub mod cinder;
 pub mod combat;
+mod float;
 pub mod guards;
 pub mod hostile;
 pub mod spawning;

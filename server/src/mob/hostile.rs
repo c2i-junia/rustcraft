@@ -24,6 +24,7 @@ use shared::{
 };
 
 use super::behavior::{flee, is_in_water, may_move_to, rest, walk, walk_speed, wander};
+use super::float::{climb_out, is_afloat, swim_speed};
 
 /// How long a strike shows (`MobAction::Attack`), in ticks: the client plays the Attack clip
 /// once each time the action starts.
@@ -553,8 +554,13 @@ fn roll(
         }
         MobAction::Chase => {
             let direction = mob.rotation * Vec3::Z;
-            let moved = mob.position + direction * (hunt.speed * delta);
+            let afloat = is_afloat(mob, chunks);
+            let step = direction * (swim_speed(afloat, hunt.speed) * delta);
+            let moved = mob.position + step;
             if !may_move_to(mob, chunks, moved) {
+                if afloat && climb_out(mob, chunks, step) {
+                    return;
+                }
                 (mob.action, mob.action_ticks) = (MobAction::Idle, STUN_TICKS);
                 return;
             }

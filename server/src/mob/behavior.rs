@@ -1,4 +1,4 @@
-//! How mobs live, once per fixed step: gravity, then what their action asks. An animal rests
+//! How mobs live, once per fixed step: gravity, or the water they float on (`super::float`), then what their action asks. An animal rests
 //! (some graze while they do), walks to a spot nearby, and rests again; the shy ones run away
 //! from a player who comes too close. A hostile hunts instead (`hostile::act`). Then the mobs
 //! are pushed out of the players and of one another.
@@ -29,6 +29,7 @@ use shared::{
 };
 
 use super::breeding::{FOLLOW_START, FOLLOW_STOP, FOLLOW_TELEPORT};
+use super::float::{climb_out, float, is_afloat, swim_ashore, swim_speed};
 use crate::world::data::ServerWorldMap;
 
 /// A walking mob this close to its target, on the horizontal plane, has arrived.
@@ -46,7 +47,7 @@ const WANDER_DISTANCE: Range<f32> = 2.0..7.0;
 /// Spots an animal tries before it rests again, when none is somewhere it can stand.
 const WANDER_TRIES: usize = 4;
 /// A walk that has not arrived after this many ticks (10 seconds) is given up.
-const WALK_TICKS: u32 = 10 * TICKS_PER_SECOND as u32;
+pub(super) const WALK_TICKS: u32 = 10 * TICKS_PER_SECOND as u32;
 /// How far below its feet an animal looks for the ground of a spot, in blocks: it does not
 /// walk off a higher drop.
 const WANDER_DROP: i32 = 3;
@@ -171,7 +172,7 @@ fn step_mobs(
     }
 }
 
-/// Gravity, then what the mob does. A mob whose centre went into an open portal comes out of
+/// Gravity or flotation, then what the mob does. A mob whose centre went into an open portal comes out of
 /// its twin (`pass_through_portal`): after its fall, which then ends its step, and after what
 /// it does. A mob flung (`is_flung`) flies instead of doing anything, until it lands, which
 /// stops it. Returns what it threw.
@@ -189,7 +190,7 @@ fn step_mob(
         // Water brakes a swimmer at once, as it does a player's knock back
         mob.velocity = Vec3::ZERO;
         mob.on_ground = false;
-    } else {
+    } else if !float(mob, chunks, delta) {
         apply_gravity(mob, chunks, delta);
     }
     if pass_through_portal(mob, chunks, start) {
@@ -234,7 +235,7 @@ fn is_flung(mob: &ServerMob) -> bool {
 
 /// Longest move of a mob tested at once, in blocks, as for a player: of its fall, and of its
 /// flight when flung.
-const MAX_FLIGHT_STEP: f32 = 0.5;
+pub(super) const MAX_FLIGHT_STEP: f32 = 0.5;
 
 /// Moves a flung mob by its horizontal velocity, along x then z, by steps of `MAX_FLIGHT_STEP`
 /// at most: an axis a block stops loses its velocity, and a step into a portal that lets the
@@ -408,7 +409,7 @@ fn follow_owner(
     false
 }
 
-/// What a mob that rests or walks somewhere does: it rests until its time is up, walks to a
+/// What a mob that rests or walks somewhere does: afloat, it swims ashore (`swim_ashore`); it rests until its time is up, walks to a
 /// spot nearby (`start_walk`), and rests again once there or once its walk took too long.
 pub(super) fn wander(
     mob: &mut ServerMob,
@@ -417,6 +418,9 @@ pub(super) fn wander(
     delta: f32,
     rng: &mut impl Rng,
 ) {
+    if walk_speed(mob.kind) > 0.0 && is_afloat(mob, chunks) {
+        swim_ashore(mob, chunks, rng);
+    }
     match mob.action {
         MobAction::Walk => {
             mob.action_ticks = mob.action_ticks.saturating_sub(1);
@@ -424,13 +428,15 @@ pub(super) fn wander(
                 return rest(mob, rng);
             };
             let towards = (target - mob.position).with_y(0.0);
-            if towards.length() < ARRIVAL_DISTANCE || mob.action_ticks == 0 {
+            if towards.length() < ARRIVAL_DISTANCE && !is_afloat(mob, chunks)
+                || mob.action_ticks == 0
+            {
                 return rest(mob, rng);
             }
             walk(
                 mob,
                 chunks,
-                towards.normalize(),
+                towards.normalize_or_zero(),
                 walk_speed(mob.kind),
                 delta,
             );
@@ -485,7 +491,7 @@ pub(super) fn rest(mob: &mut ServerMob, rng: &mut impl Rng) {
     mob.velocity.z = 0.0;
 }
 
-/// Sends the mob to a spot nearby it can stand on, or lets it rest again when it finds none. A
+/// Sends the mob to a spot nearby it can stand on, on no way through a liquid, or lets it rest again when it finds none. A
 /// mob that does not walk (`walk_speed` 0) rests.
 fn start_walk(mob: &mut ServerMob, chunks: &ChunkMap, rng: &mut impl Rng) {
     if walk_speed(mob.kind) == 0.0 {
@@ -497,6 +503,9 @@ fn start_walk(mob: &mut ServerMob, chunks: &ChunkMap, rng: &mut impl Rng) {
             .normalize_or_zero()
             * rng.gen_range(WANDER_DISTANCE);
         let spot = mob.position + offset;
+        if goes_over_liquid(chunks, mob.position, spot, feet) {
+            continue;
+        }
         if let Some(ground) = ground_under(chunks, spot.x, spot.z, feet) {
             mob.action = MobAction::Walk;
             mob.target = MobTarget::Position(spot.with_y(ground + mob.height / 2.0));
@@ -511,7 +520,7 @@ fn start_walk(mob: &mut ServerMob, chunks: &ChunkMap, rng: &mut impl Rng) {
 /// on at `(x, z)`: the highest block with a hitbox from one block above its feet down to
 /// `WANDER_DROP` below them, with room above it. None over water or lava, a wall, or a deeper
 /// drop.
-fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
+pub(super) fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
     let (x, z) = (x.floor() as i32, z.floor() as i32);
     let solid = |y: i32| {
         chunks
@@ -532,8 +541,29 @@ fn ground_under(chunks: &ChunkMap, x: f32, z: f32, feet: i32) -> Option<f32> {
     None
 }
 
+/// Whether the straight way from `from` to `to` goes over water or lava, for an animal whose
+/// feet are in the cell at height `feet`.
+fn goes_over_liquid(chunks: &ChunkMap, from: Vec3, to: Vec3, feet: i32) -> bool {
+    let steps = (from.distance(to) * 2.0).ceil().max(1.0) as u32;
+    (1..=steps).any(|step| {
+        let cell = from.lerp(to, step as f32 / steps as f32).floor().as_ivec3();
+        for y in (feet - WANDER_DROP..=feet + 1).rev() {
+            let Some(block) = chunks.get_block(cell.with_y(y)) else {
+                continue;
+            };
+            if block.id.get_visibility() == BlockTransparency::Liquid {
+                return true;
+            }
+            if !matches!(block.id.get_hitbox(), BlockHitbox::None) {
+                return false;
+            }
+        }
+        false
+    })
+}
+
 /// What the portals know of `mob` going through them: its box, and the floor portal it rests on.
-fn passer(mob: &ServerMob) -> Passer {
+pub(super) fn passer(mob: &ServerMob) -> Passer {
     Passer::new(
         Vec3::new(mob.width, mob.height, mob.depth) / 2.0,
         mob.portal_rest,
@@ -542,7 +572,7 @@ fn passer(mob: &ServerMob) -> Passer {
 
 /// Whether `mob` would be inside a block at `position`. The wall cells of the open portals that
 /// let it in from where it is do not count (`Portals::passable_cells`), as for a player.
-fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
+pub(super) fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
     let passable = chunks.portals().passable_cells(mob.position, passer(mob));
     chunks.check_collision_box_except(
         &Aabb3d::new(position, Vec3::new(mob.width, mob.height, mob.depth) / 2.0),
@@ -601,7 +631,8 @@ fn jump(mob: &mut ServerMob) {
 
 /// One step along `direction` at `speed`, which becomes the mob's horizontal velocity. A mob
 /// blocked while it was moving jumps; one blocked from a standstill slides along the obstacle on
-/// one axis, and jumps if both are blocked.
+/// one axis, and jumps if both are blocked. One afloat goes slower, and blocked climbs out of the
+/// water (`climb_out`) or slides along the obstacle.
 pub(super) fn walk(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
@@ -609,6 +640,8 @@ pub(super) fn walk(
     speed: f32,
     delta: f32,
 ) {
+    let afloat = is_afloat(mob, chunks);
+    let speed = swim_speed(afloat, speed);
     let step = Vec3::new(direction.x, 0.0, direction.z) * (speed * delta);
     let along_x = Vec3::new(step.x, 0.0, 0.0);
     let along_z = Vec3::new(0.0, 0.0, step.z);
@@ -617,6 +650,15 @@ pub(super) fn walk(
         mob.position += step;
         mob.velocity.x = direction.x * speed;
         mob.velocity.z = direction.z * speed;
+    } else if afloat {
+        if !climb_out(mob, chunks, step) {
+            if let Some(along) = [along_x, along_z]
+                .into_iter()
+                .find(|along| may_move_to(mob, chunks, mob.position + *along))
+            {
+                mob.position += along;
+            }
+        }
     } else if mob.on_ground && mob.velocity.x != 0.0 && mob.velocity.z != 0.0 {
         jump(mob);
     } else if mob.on_ground {
@@ -635,12 +677,16 @@ pub(super) fn walk(
 }
 
 /// One step away from `threat` at `speed`, on the horizontal plane only: gravity handles the
-/// vertical axis. The mob stays in place when a block is in the way.
+/// vertical axis. The mob stays in place when a block is in the way, unless it climbs out of the
+/// water there.
 pub(super) fn flee(mob: &mut ServerMob, chunks: &ChunkMap, threat: Vec3, speed: f32, delta: f32) {
     let away = (mob.position - threat).with_y(0.0).normalize_or_zero();
-    let fled = mob.position + away * (speed * delta);
-    if may_move_to(mob, chunks, fled) {
-        mob.position = fled;
+    let afloat = is_afloat(mob, chunks);
+    let step = away * (swim_speed(afloat, speed) * delta);
+    if may_move_to(mob, chunks, mob.position + step) {
+        mob.position += step;
+    } else if afloat {
+        climb_out(mob, chunks, step);
     }
     if away != Vec3::ZERO {
         mob.rotation = Quat::from_rotation_y(atan2(away.x, away.z));

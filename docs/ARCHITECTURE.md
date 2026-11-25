@@ -665,6 +665,12 @@ Gust Owl circles 8 blocks over its prey and dives at it, a deadly fall within 3 
 it. A strike shows as `MobAction::Attack` for 10 ticks, which the client plays once
 (`HOSTILE_CLIPS`); the fliers and the Drowner in water skip gravity (`behavior::floats`).
 
+Every other mob in water floats (`mob/float.rs`): the water eases its vertical velocity toward the
+one that brings it to its waterline, 60% of its height under water, and leaves it still there. It
+goes at `WATER_SPEED_MULTIPLIER`, and a block on its way at most a block above the surface is
+leapt on (`climb_out`). Afloat with nothing else to do, it walks to the nearest shore within 16
+blocks (`swim_ashore`); an animal on land never wanders across a liquid.
+
 ### The ember
 
 An ember is a mob kind (`MobKind::Ember`, `is_projectile`) that the server moves itself
