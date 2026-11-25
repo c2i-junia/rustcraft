@@ -12,6 +12,15 @@ pub enum MobClip {
     Walk,
     Run,
     Eat,
+    /// A strike, played once.
+    Attack,
+}
+
+impl MobClip {
+    /// Whether the clip plays once rather than over and over.
+    pub fn plays_once(self) -> bool {
+        self == MobClip::Attack
+    }
 }
 
 /// The model of a kind of mob.
@@ -32,8 +41,12 @@ const HUNTER_CLIPS: &[(MobClip, usize)] =
     &[(MobClip::Idle, 0), (MobClip::Run, 1), (MobClip::Walk, 2)];
 const SHEEP_CLIPS: &[(MobClip, usize)] =
     &[(MobClip::Eat, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)];
+/// The clips of `scripts/generate_hostiles.py`.
+const HOSTILE_CLIPS: &[(MobClip, usize)] =
+    &[(MobClip::Attack, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)];
 
-/// The models are built by `scripts/generate_sheep.py` and `scripts/generate_animals.py`.
+/// The models are built by `scripts/generate_sheep.py`, `scripts/generate_animals.py` and
+/// `scripts/generate_hostiles.py`.
 pub fn model(kind: MobKind) -> MobModel {
     let (path, clips) = match kind {
         MobKind::Sheep => ("models/animated/Sheep.glb", SHEEP_CLIPS),
@@ -46,18 +59,23 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Rabbit => ("models/animated/Rabbit.glb", GRAZER_CLIPS),
         MobKind::Horse => ("models/animated/Horse.glb", GRAZER_CLIPS),
         MobKind::Goat => ("models/animated/Goat.glb", GRAZER_CLIPS),
+        MobKind::Gnawer => ("models/animated/Gnawer.glb", HOSTILE_CLIPS),
+        MobKind::Bramble => ("models/animated/Bramble.glb", HOSTILE_CLIPS),
+        MobKind::Roller => ("models/animated/Roller.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }
 
 /// The clip a mob of `kind` doing `action` plays, among those its model has: one without a run
-/// walks, one that cannot eat stands.
+/// walks, one that cannot eat or strike stands. A chase is a walk (the Roller's roll too).
 pub fn clip_for(kind: MobKind, action: MobAction) -> MobClip {
     let wanted = match action {
         MobAction::Walk => MobClip::Walk,
         MobAction::Flee => MobClip::Run,
         MobAction::Idle => MobClip::Idle,
         MobAction::Graze => MobClip::Eat,
+        MobAction::Chase => MobClip::Walk,
+        MobAction::Attack => MobClip::Attack,
     };
     let has = |clip| model(kind).clips.iter().any(|&(c, _)| c == clip);
     match wanted {
@@ -118,6 +136,8 @@ mod tests {
                 MobAction::Flee,
                 MobAction::Idle,
                 MobAction::Graze,
+                MobAction::Chase,
+                MobAction::Attack,
             ] {
                 let clip = clip_for(kind, action);
                 assert!(
@@ -130,5 +150,14 @@ mod tests {
         assert_eq!(clip_for(MobKind::Sheep, MobAction::Flee), MobClip::Walk);
         assert_eq!(clip_for(MobKind::Fox, MobAction::Flee), MobClip::Run);
         assert_eq!(clip_for(MobKind::Fox, MobAction::Graze), MobClip::Idle);
+        assert_eq!(clip_for(MobKind::Fox, MobAction::Attack), MobClip::Idle);
+        for kind in [MobKind::Gnawer, MobKind::Bramble, MobKind::Roller] {
+            assert_eq!(clip_for(kind, MobAction::Chase), MobClip::Walk);
+            assert_eq!(clip_for(kind, MobAction::Attack), MobClip::Attack);
+            assert_eq!(clip_for(kind, MobAction::Idle), MobClip::Idle);
+            assert_eq!(model(kind).clips, HOSTILE_CLIPS);
+        }
+        assert!(MobClip::Attack.plays_once());
+        assert!(!MobClip::Walk.plays_once());
     }
 }

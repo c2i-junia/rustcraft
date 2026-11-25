@@ -161,7 +161,15 @@ pub fn register_systems(app: &mut App) {
     // The mobs and the items move before the inputs of the tick are read
     app.add_systems(
         FixedUpdate,
-        (mob_behavior_system, dropped_items_physics_system).before(ServerSet::Receive),
+        (
+            (
+                mob_behavior_system,
+                crate::mob::spawning::hostile_spawning_system,
+            )
+                .chain(),
+            dropped_items_physics_system,
+        )
+            .before(ServerSet::Receive),
     );
 }
 

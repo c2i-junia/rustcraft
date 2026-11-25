@@ -283,6 +283,7 @@ fn load_world(
         home: Default::default(),
         blow_waits: Default::default(),
         portal_shots: Vec::new(),
+        difficulty: world_data.difficulty,
     };
     cleanup_all_players_from_world(&mut world_map);
 

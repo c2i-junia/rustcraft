@@ -6,6 +6,7 @@ use bevy::log::debug;
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
+use shared::world::hostiles::Difficulty;
 use shared::world::{
     Chunk, Container, DroppedItem, MobId, ServerMob, WeatherKind, WorldGenSettings, WorldSeed,
 };
@@ -55,6 +56,9 @@ pub struct WorldMeta {
     /// Missing from the worlds saved before the world types, which are of the default one.
     #[serde(default)]
     pub generation: WorldGenSettings,
+    /// Missing from the worlds saved before the hostile mobs, which are normal.
+    #[serde(default)]
+    pub difficulty: Difficulty,
 }
 
 impl WorldMeta {
@@ -68,6 +72,7 @@ impl WorldMeta {
             dropped_items: Vec::new(),
             weather: None,
             generation: WorldGenSettings::default(),
+            difficulty: Difficulty::default(),
         }
     }
 }
@@ -92,6 +97,9 @@ pub struct WorldData {
     /// The single-file formats had none: their worlds are of the default type.
     #[serde(default)]
     pub generation: WorldGenSettings,
+    /// The single-file formats had none: their worlds are normal.
+    #[serde(default)]
+    pub difficulty: Difficulty,
 }
 
 impl From<&WorldData> for WorldMeta {
@@ -100,6 +108,7 @@ impl From<&WorldData> for WorldMeta {
             dropped_items: world.dropped_items.clone(),
             weather: world.weather,
             generation: world.generation.clone(),
+            difficulty: world.difficulty,
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -121,6 +130,7 @@ impl From<WorldMeta> for WorldData {
             dropped_items: meta.dropped_items,
             weather: meta.weather,
             generation: meta.generation,
+            difficulty: meta.difficulty,
             ..Self::default()
         }
     }
@@ -363,6 +373,25 @@ mod tests {
             ron::de::from_str(r#"(format_version: 5, name: "w", seed: (1), time: 0, mobs: {})"#)
                 .unwrap();
         assert_eq!(before.weather, None);
+    }
+
+    #[test]
+    fn the_difficulty_is_saved_and_read_back_and_defaults_to_normal() {
+        let meta = WorldMeta {
+            difficulty: Difficulty::Peaceful,
+            ..WorldMeta::new("w".into(), WorldSeed(1), 0, HashMap::new())
+        };
+        let read: WorldMeta = ron::de::from_str(&ron::ser::to_string(&meta).unwrap()).unwrap();
+        assert_eq!(read.difficulty, Difficulty::Peaceful);
+        // and through the world loaded from it
+        let world = WorldData::from(read);
+        assert_eq!(world.difficulty, Difficulty::Peaceful);
+        assert_eq!(WorldMeta::from(&world).difficulty, Difficulty::Peaceful);
+
+        let before: WorldMeta =
+            ron::de::from_str(r#"(format_version: 5, name: "w", seed: (1), time: 0, mobs: {})"#)
+                .unwrap();
+        assert_eq!(before.difficulty, Difficulty::Normal);
     }
 
     #[test]

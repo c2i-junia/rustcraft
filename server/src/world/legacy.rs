@@ -108,6 +108,7 @@ impl From<LegacyWorldData> for WorldData {
             dropped_items: Vec::new(),
             weather: None,
             generation: Default::default(),
+            difficulty: Default::default(),
         }
     }
 }

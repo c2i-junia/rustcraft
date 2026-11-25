@@ -118,6 +118,7 @@ fn queue_save(
             dropped_items: world_map.dropped_items.to_saved(),
             weather: Some(weather),
             generation,
+            difficulty: world_map.difficulty,
             ..WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone())
         },
         players: std::mem::take(&mut world_map.players_to_save),
@@ -283,6 +284,7 @@ mod tests {
         fn a_save_request_writes_the_dirty_chunks_and_the_metadata() {
             let tmp = tempfile::tempdir().unwrap();
             let mut map = world_map(2);
+            map.difficulty = shared::world::hostiles::Difficulty::Peaceful;
             map.chunks.set_block(IVec3::new(1, 2, 3), stone());
             map.dirty_chunks.insert(IVec3::ZERO);
             let mut app = app(
@@ -310,6 +312,10 @@ mod tests {
             );
             let weather = meta.weather.unwrap();
             assert_eq!((weather.kind, weather.ticks_left), (WeatherKind::Rain, 777));
+            assert_eq!(
+                meta.difficulty,
+                shared::world::hostiles::Difficulty::Peaceful
+            );
         }
 
         #[test]

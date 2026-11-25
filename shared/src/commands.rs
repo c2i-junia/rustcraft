@@ -100,6 +100,10 @@ impl CommandSyntax {
 /// Every command, by name.
 pub const COMMANDS: &[CommandSyntax] = &[
     CommandSyntax {
+        name: "difficulty",
+        args: &[Arg::Word(&["peaceful", "normal"])],
+    },
+    CommandSyntax {
         name: "gamemode",
         args: &[Arg::Word(&["creative", "survival"])],
     },
@@ -279,15 +283,31 @@ mod tests {
         assert_eq!(completion.word_start, 1);
         assert_eq!(
             texts(&completion),
-            ["gamemode", "give", "locate", "time", "weather"]
+            [
+                "difficulty",
+                "gamemode",
+                "give",
+                "locate",
+                "time",
+                "weather"
+            ]
         );
-        assert_eq!(completion.suggestions[0].detail, "<creative|survival>");
-        assert_eq!(completion.suggestions[1].detail, "<item> <count>");
-        assert_eq!(completion.suggestions[2].detail, "biome <biome>");
-        assert_eq!(completion.suggestions[3].detail, "set <day|night>");
-        assert_eq!(completion.suggestions[4].detail, "<clear|rain|thunder>");
+        assert_eq!(completion.suggestions[0].detail, "<peaceful|normal>");
+        assert_eq!(completion.suggestions[1].detail, "<creative|survival>");
+        assert_eq!(completion.suggestions[2].detail, "<item> <count>");
+        assert_eq!(completion.suggestions[3].detail, "biome <biome>");
+        assert_eq!(completion.suggestions[4].detail, "set <day|night>");
+        assert_eq!(completion.suggestions[5].detail, "<clear|rain|thunder>");
         assert_eq!(completion.error, None);
         assert!(completion.usage.is_empty());
+    }
+
+    #[test]
+    fn the_difficulty_is_completed() {
+        let completion = complete("/difficulty p", &[]).unwrap();
+        assert_eq!(texts(&completion), ["peaceful"]);
+        let completion = complete("/diff", &[]).unwrap();
+        assert_eq!(texts(&completion), ["difficulty"]);
     }
 
     #[test]

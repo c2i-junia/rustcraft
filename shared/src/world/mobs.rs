@@ -19,10 +19,16 @@ pub enum MobKind {
     Horse,
     Goat,
     Cat,
+    /// A cave rat, in packs.
+    Gnawer,
+    /// A bush that bites who comes close at night.
+    Bramble,
+    /// A boulder that winds up and rolls at its prey.
+    Roller,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 10] = [
+    pub const ALL: [MobKind; 13] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -33,12 +39,24 @@ impl MobKind {
         MobKind::Horse,
         MobKind::Goat,
         MobKind::Cat,
+        MobKind::Gnawer,
+        MobKind::Bramble,
+        MobKind::Roller,
     ];
+
+    /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
+    /// dark rather than with the chunks.
+    pub fn is_hostile(self) -> bool {
+        matches!(self, MobKind::Gnawer | MobKind::Bramble | MobKind::Roller)
+    }
 
     /// The points of health of a mob of this kind.
     pub fn health(self) -> u32 {
         match self {
             MobKind::Fox | MobKind::Pig | MobKind::Goat | MobKind::Cat => 10,
+            MobKind::Gnawer => 6,
+            MobKind::Bramble => 12,
+            MobKind::Roller => 16,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
@@ -80,6 +98,9 @@ impl MobKind {
             MobKind::Horse => "Horse",
             MobKind::Goat => "Goat",
             MobKind::Cat => "Cat",
+            MobKind::Gnawer => "Gnawer",
+            MobKind::Bramble => "Bramble",
+            MobKind::Roller => "Roller",
         }
     }
 
@@ -97,6 +118,12 @@ impl MobKind {
             MobKind::Horse => Vec3::new(1.2, 1.7, 1.2),
             MobKind::Goat => Vec3::new(0.9, 1.3, 0.9),
             MobKind::Cat => Vec3::new(0.6, 0.7, 0.6),
+            // The models of `scripts/generate_hostiles.py`: the Gnawer is 0.375 wide and
+            // 0.625 tall (its ears), the spec's 0.6 wide; the Bramble 1.0 × 0.75, the Roller
+            // 0.75 × 0.75
+            MobKind::Gnawer => Vec3::new(0.6, 0.6, 0.6),
+            MobKind::Bramble => Vec3::new(1.0, 0.75, 1.0),
+            MobKind::Roller => Vec3::new(0.75, 0.75, 0.75),
         }
     }
 }
@@ -119,6 +146,10 @@ pub enum MobAction {
     Idle,
     /// Stands still and eats the grass.
     Graze,
+    /// A hostile goes at its prey (`MobTarget::Player`): walks, or rolls for the Roller.
+    Chase,
+    /// A hostile strikes its prey, or winds up to: the client plays the Attack clip once.
+    Attack,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -158,6 +189,9 @@ pub struct ServerMob {
     /// nor sent.
     #[serde(skip)]
     pub hurt_ticks: u32,
+    /// Ticks left before a hostile strikes again (`MobKind::strike`). Neither saved nor sent.
+    #[serde(skip)]
+    pub attack_wait: u32,
 }
 
 impl ServerMob {
@@ -181,6 +215,7 @@ impl ServerMob {
             passes: 0,
             portal_rest: None,
             hurt_ticks: 0,
+            attack_wait: 0,
         }
     }
 

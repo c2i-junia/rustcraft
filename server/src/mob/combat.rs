@@ -115,9 +115,13 @@ pub fn interact(
                     .unwrap_or_else(|| input.camera.forward().with_y(0.0).normalize_or_zero());
                 mob.velocity = away * KNOCK_BACK_SPEED + Vec3::Y * KNOCK_SPEED;
                 mob.on_ground = false;
-                mob.action = MobAction::Flee;
-                mob.action_ticks = FLEE_TICKS;
-                mob.target = MobTarget::Player(player.id);
+                if mob.kind.is_hostile() {
+                    super::hostile::provoke(mob, player.id);
+                } else {
+                    mob.action = MobAction::Flee;
+                    mob.action_ticks = FLEE_TICKS;
+                    mob.target = MobTarget::Player(player.id);
+                }
                 world.changed.insert(id);
                 if let Some(item) = held {
                     player
@@ -164,7 +168,17 @@ pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Feather, rng.gen_range(0..=2)),
         ],
         MobKind::Rabbit => vec![(ItemId::RawRabbit, 1)],
-        MobKind::Fox | MobKind::Wolf | MobKind::Horse | MobKind::Goat | MobKind::Cat => vec![],
+        MobKind::Bramble => vec![(ItemId::Stick, rng.gen_range(1..=3))],
+        MobKind::Roller => vec![
+            (ItemId::Cobblestone, rng.gen_range(1..=2)),
+            (ItemId::Flint, u32::from(rng.gen_ratio(1, 5))),
+        ],
+        MobKind::Fox
+        | MobKind::Wolf
+        | MobKind::Horse
+        | MobKind::Goat
+        | MobKind::Cat
+        | MobKind::Gnawer => vec![],
     };
     drops.retain(|&(_, nb)| nb > 0);
     drops
@@ -370,6 +384,18 @@ mod tests {
     }
 
     #[test]
+    fn a_hostile_hit_takes_the_player_as_its_prey_instead_of_fleeing() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Gnawer, AHEAD));
+        let mut player = fighter(3, None);
+        arena.tick(&mut player, &NetworkAction::LeftClick, true);
+        let gnawer = &arena.mobs[&7];
+        assert_eq!(gnawer.damage, 1);
+        assert_ne!(gnawer.action, MobAction::Flee);
+        assert!(matches!(gnawer.target, MobTarget::Player(3)));
+        assert!(!gnawer.on_ground, "knocked back");
+    }
+
+    #[test]
     fn a_blow_that_lands_tires_the_player() {
         let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
         let mut player = fighter(1, None);
@@ -432,9 +458,21 @@ mod tests {
             MobKind::Horse,
             MobKind::Goat,
             MobKind::Cat,
+            MobKind::Gnawer,
         ] {
             assert_eq!(drops(kind), [], "{kind:?}");
         }
+        assert_eq!(drops(MobKind::Bramble), [(Stick, (1, 3))]);
+        assert_eq!(
+            drops(MobKind::Roller),
+            [(Cobblestone, (1, 2)), (Flint, (1, 1))]
+        );
+        let flints = (0..1000)
+            .filter(|_| {
+                loot(&ServerMob::new(MobKind::Roller, AHEAD), &mut rng).contains(&(Flint, 1))
+            })
+            .count();
+        assert!((150..250).contains(&flints), "{flints} flints in 1000");
         let sheared = ServerMob {
             sheared: true,
             ..ServerMob::new(MobKind::Sheep, AHEAD)

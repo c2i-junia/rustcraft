@@ -186,9 +186,12 @@ pub(super) fn chat_message(
             _ if line.starts_with("sign ") => {
                 crate::world::home::write_sign(world_map, client_id, &line[5..])
             }
-            Ok(command) => run_command(command, time, weather, player, |key, from| {
-                locator.start(client_id, (seed.0, generation), key, from)
-            }),
+            Ok(command) => run_command(
+                command,
+                (time, weather, &mut world_map.difficulty),
+                player,
+                |key, from| locator.start(client_id, (seed.0, generation), key, from),
+            ),
             Err(error) => mods
                 .run_command(line, &current_author.name, world_map)
                 .unwrap_or(error),

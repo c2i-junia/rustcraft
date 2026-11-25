@@ -188,11 +188,14 @@ pub enum ItemId {
     /// Eaten raw, planted on tilled soil, or baked.
     Potato,
     BakedPotato,
+    GnawerSpawnEgg,
+    BrambleSpawnEgg,
+    RollerSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 162] = [
+    pub const ALL: [ItemId; 165] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -355,6 +358,9 @@ impl ItemId {
         Self::Carrot,
         Self::Potato,
         Self::BakedPotato,
+        Self::GnawerSpawnEgg,
+        Self::BrambleSpawnEgg,
+        Self::RollerSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -458,6 +464,9 @@ impl ItemId {
             Self::HorseSpawnEgg => Some(MobKind::Horse),
             Self::GoatSpawnEgg => Some(MobKind::Goat),
             Self::CatSpawnEgg => Some(MobKind::Cat),
+            Self::GnawerSpawnEgg => Some(MobKind::Gnawer),
+            Self::BrambleSpawnEgg => Some(MobKind::Bramble),
+            Self::RollerSpawnEgg => Some(MobKind::Roller),
             _ => None,
         }
     }
@@ -683,7 +692,10 @@ impl ItemId {
             | Self::WolfSpawnEgg
             | Self::HorseSpawnEgg
             | Self::GoatSpawnEgg
-            | Self::CatSpawnEgg => ItemCategory::Mobs,
+            | Self::CatSpawnEgg
+            | Self::GnawerSpawnEgg
+            | Self::BrambleSpawnEgg
+            | Self::RollerSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -788,6 +800,9 @@ impl ItemId {
             | Self::HorseSpawnEgg
             | Self::GoatSpawnEgg
             | Self::CatSpawnEgg
+            | Self::GnawerSpawnEgg
+            | Self::BrambleSpawnEgg
+            | Self::RollerSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1162,6 +1177,9 @@ mod tests {
             (ItemId::Carrot, 159),
             (ItemId::Potato, 160),
             (ItemId::BakedPotato, 161),
+            (ItemId::GnawerSpawnEgg, 162),
+            (ItemId::BrambleSpawnEgg, 163),
+            (ItemId::RollerSpawnEgg, 164),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1209,6 +1227,9 @@ mod tests {
                 | ItemId::HorseSpawnEgg
                 | ItemId::GoatSpawnEgg
                 | ItemId::CatSpawnEgg
+                | ItemId::GnawerSpawnEgg
+                | ItemId::BrambleSpawnEgg
+                | ItemId::RollerSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks

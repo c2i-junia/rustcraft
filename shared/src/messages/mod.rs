@@ -153,6 +153,7 @@ mod tests {
                 passes: 0,
                 portal_rest: None,
                 hurt_ticks: 0,
+                attack_wait: 0,
             },
         };
         let update = PlayerUpdateEvent {
@@ -308,6 +309,9 @@ mod tests {
         assert_eq!(variant_index(&MobKind::Horse), 7, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::Goat), 8, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::Cat), 9, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Gnawer), 10, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Bramble), 11, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Roller), 12, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);
@@ -315,6 +319,8 @@ mod tests {
         assert_eq!(variant_index(&MobAction::Flee), 1, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobAction::Idle), 2, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobAction::Graze), 3, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobAction::Chase), 4, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobAction::Attack), 5, "{ENCODING_WARNING}");
         for (kind, expected) in [
             (WeatherKind::Clear, 0),
             (WeatherKind::Rain, 1),

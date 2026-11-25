@@ -1,7 +1,7 @@
 //! How mobs live, once per fixed step: gravity, then what their action asks. An animal rests
 //! (some graze while they do), walks to a spot nearby, and rests again; the shy ones run away
-//! from a player who comes too close. Then the animals are pushed out of the players and of one
-//! another.
+//! from a player who comes too close. A hostile hunts instead (`hostile::act`). Then the mobs
+//! are pushed out of the players and of one another.
 
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
@@ -58,9 +58,12 @@ const PUSH_SLACK: f32 = 0.01;
 /// the width of any of them.
 const PUSH_CELL: f32 = 2.0;
 
-/// Speed of a walking mob, in blocks per second.
-fn walk_speed(kind: MobKind) -> f32 {
+/// Speed of a walking mob, in blocks per second: of a hostile that wanders, 0 for one that
+/// stays where it is.
+pub(super) fn walk_speed(kind: MobKind) -> f32 {
     match kind {
+        MobKind::Gnawer => 1.4,
+        MobKind::Bramble | MobKind::Roller => 0.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
         MobKind::Goat => 1.2,
@@ -68,9 +71,11 @@ fn walk_speed(kind: MobKind) -> f32 {
     }
 }
 
-/// Speed of a fleeing mob, in blocks per second.
+/// Speed of a fleeing mob, in blocks per second; of a hostile, how fast it goes by itself
+/// (`hostile::own_speed`).
 fn flee_speed(kind: MobKind) -> f32 {
     match kind {
+        MobKind::Gnawer | MobKind::Bramble | MobKind::Roller => super::hostile::own_speed(kind),
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
@@ -85,7 +90,7 @@ fn is_shy(kind: MobKind) -> bool {
 
 /// Whether a mob eats the grass.
 fn grazes(kind: MobKind) -> bool {
-    !matches!(kind, MobKind::Fox | MobKind::Wolf | MobKind::Cat)
+    !matches!(kind, MobKind::Fox | MobKind::Wolf | MobKind::Cat) && !kind.is_hostile()
 }
 
 pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time<Fixed>>) {
@@ -112,7 +117,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
 fn step_mobs(
     mobs: &mut HashMap<MobId, ServerMob>,
     chunks: &ChunkMap,
-    players: &HashMap<PlayerId, Player>,
+    players: &mut HashMap<PlayerId, Player>,
     changed: &mut HashSet<MobId>,
     delta: f32,
     rng: &mut impl Rng,
@@ -128,6 +133,7 @@ fn step_mobs(
         if !is_terrain_loaded(mob.position, chunks) {
             continue;
         }
+        mob.attack_wait = mob.attack_wait.saturating_sub(1);
         let before = (mob.position, mob.rotation, mob.action);
         step_mob(mob, chunks, players, delta, rng);
         if before != (mob.position, mob.rotation, mob.action) {
@@ -143,7 +149,7 @@ fn step_mobs(
 fn step_mob(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
-    players: &HashMap<PlayerId, Player>,
+    players: &mut HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
 ) {
@@ -241,14 +247,17 @@ fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bo
     true
 }
 
-/// What the mob's action asks of it this step.
+/// What the mob's action asks of it this step: a hostile hunts (`hostile::act`).
 fn act(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
-    players: &HashMap<PlayerId, Player>,
+    players: &mut HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
 ) {
+    if mob.kind.is_hostile() {
+        return super::hostile::act(mob, chunks, players, delta, rng);
+    }
     if is_shy(mob.kind) && mob.action != MobAction::Flee {
         if let Some(id) = nearest_player(players, mob.position, FEAR_DISTANCE) {
             mob.action = MobAction::Flee;
@@ -258,32 +267,8 @@ fn act(
         }
     }
     match mob.action {
-        MobAction::Idle | MobAction::Graze => {
-            mob.action_ticks = mob.action_ticks.saturating_sub(1);
-            if mob.action_ticks == 0 {
-                // What it grazed grows its wool back
-                if mob.action == MobAction::Graze {
-                    mob.sheared = false;
-                }
-                start_walk(mob, chunks, rng);
-            }
-        }
-        MobAction::Walk => {
-            mob.action_ticks = mob.action_ticks.saturating_sub(1);
-            let Some(target) = target_position(mob.target, players) else {
-                return rest(mob, rng);
-            };
-            let towards = (target - mob.position).with_y(0.0);
-            if towards.length() < ARRIVAL_DISTANCE || mob.action_ticks == 0 {
-                return rest(mob, rng);
-            }
-            walk(
-                mob,
-                chunks,
-                towards.normalize(),
-                walk_speed(mob.kind),
-                delta,
-            );
+        MobAction::Idle | MobAction::Graze | MobAction::Walk => {
+            wander(mob, chunks, players, delta, rng);
         }
         MobAction::Flee => {
             let Some(threat) = target_position(mob.target, players) else {
@@ -301,6 +286,48 @@ fn act(
                 return rest(mob, rng);
             }
             flee(mob, chunks, threat, flee_speed(mob.kind), delta);
+        }
+        // An animal never hunts
+        MobAction::Chase | MobAction::Attack => rest(mob, rng),
+    }
+}
+
+/// What a mob that rests or walks somewhere does: it rests until its time is up, walks to a
+/// spot nearby (`start_walk`), and rests again once there or once its walk took too long.
+pub(super) fn wander(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    delta: f32,
+    rng: &mut impl Rng,
+) {
+    match mob.action {
+        MobAction::Walk => {
+            mob.action_ticks = mob.action_ticks.saturating_sub(1);
+            let Some(target) = target_position(mob.target, players) else {
+                return rest(mob, rng);
+            };
+            let towards = (target - mob.position).with_y(0.0);
+            if towards.length() < ARRIVAL_DISTANCE || mob.action_ticks == 0 {
+                return rest(mob, rng);
+            }
+            walk(
+                mob,
+                chunks,
+                towards.normalize(),
+                walk_speed(mob.kind),
+                delta,
+            );
+        }
+        _ => {
+            mob.action_ticks = mob.action_ticks.saturating_sub(1);
+            if mob.action_ticks == 0 {
+                // What it grazed grows its wool back
+                if mob.action == MobAction::Graze {
+                    mob.sheared = false;
+                }
+                start_walk(mob, chunks, rng);
+            }
         }
     }
 }
@@ -330,7 +357,7 @@ fn nearest_player(
 }
 
 /// Stops the mob for a while: some kinds graze some of the time.
-fn rest(mob: &mut ServerMob, rng: &mut impl Rng) {
+pub(super) fn rest(mob: &mut ServerMob, rng: &mut impl Rng) {
     mob.action = if grazes(mob.kind) && rng.gen_bool(GRAZE_CHANCE) {
         MobAction::Graze
     } else {
@@ -342,8 +369,12 @@ fn rest(mob: &mut ServerMob, rng: &mut impl Rng) {
     mob.velocity.z = 0.0;
 }
 
-/// Sends the mob to a spot nearby it can stand on, or lets it rest again when it finds none.
+/// Sends the mob to a spot nearby it can stand on, or lets it rest again when it finds none. A
+/// mob that does not walk (`walk_speed` 0) rests.
 fn start_walk(mob: &mut ServerMob, chunks: &ChunkMap, rng: &mut impl Rng) {
+    if walk_speed(mob.kind) == 0.0 {
+        return rest(mob, rng);
+    }
     let feet = (mob.position.y - mob.height / 2.0).floor() as i32;
     for _ in 0..WANDER_TRIES {
         let offset = Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0))
@@ -405,7 +436,7 @@ fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
 
 /// Whether `mob` may move to `position`: nothing is in the way, or the move takes its centre
 /// into a portal that lets it through, whatever lies behind the wall (`Portals::goes_into`).
-fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
+pub(super) fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
     chunks
         .portals()
         .goes_into(mob.position, position, passer(mob))
@@ -455,7 +486,13 @@ fn jump(mob: &mut ServerMob) {
 /// One step along `direction` at `speed`, which becomes the mob's horizontal velocity. A mob
 /// blocked while it was moving jumps; one blocked from a standstill slides along the obstacle on
 /// one axis, and jumps if both are blocked.
-fn walk(mob: &mut ServerMob, chunks: &ChunkMap, direction: Vec3, speed: f32, delta: f32) {
+pub(super) fn walk(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    direction: Vec3,
+    speed: f32,
+    delta: f32,
+) {
     let step = Vec3::new(direction.x, 0.0, direction.z) * (speed * delta);
     let along_x = Vec3::new(step.x, 0.0, 0.0);
     let along_z = Vec3::new(0.0, 0.0, step.z);
@@ -809,7 +846,7 @@ mod tests {
             step_mobs(
                 &mut map.mobs,
                 &map.chunks,
-                &map.players,
+                &mut map.players,
                 changed,
                 delta,
                 &mut rng,
@@ -855,7 +892,7 @@ mod tests {
         step_mobs(
             &mut map.mobs,
             &map.chunks,
-            &map.players,
+            &mut map.players,
             &mut changed,
             delta,
             &mut rng,
@@ -892,7 +929,7 @@ mod tests {
             step_mobs(
                 &mut map.mobs,
                 &map.chunks,
-                &map.players,
+                &mut map.players,
                 &mut HashSet::new(),
                 tick().as_secs_f32(),
                 &mut rng,
@@ -1041,7 +1078,7 @@ mod tests {
             step_mobs(
                 &mut map.mobs,
                 &map.chunks,
-                &map.players,
+                &mut map.players,
                 &mut HashSet::new(),
                 delta,
                 &mut rng,
@@ -1099,7 +1136,7 @@ mod tests {
             step_mobs(
                 &mut map.mobs,
                 &map.chunks,
-                &map.players,
+                &mut map.players,
                 &mut changed,
                 tick().as_secs_f32(),
                 &mut StdRng::seed_from_u64(2),

@@ -193,7 +193,10 @@ pub fn setup_mob_animators(
         let mut transitions = AnimationTransitions::new();
         // The clips start through the transitions, which would be confused by a clip started
         // on the player directly
-        transitions.play(&mut player, node, Duration::ZERO).repeat();
+        let active = transitions.play(&mut player, node, Duration::ZERO);
+        if !clip.plays_once() {
+            active.repeat();
+        }
         commands.entity(entity).insert((
             AnimationGraphHandle(graph),
             transitions,
@@ -226,9 +229,10 @@ pub fn play_mob_clips(
         let Some(kind_animations) = animations.get(mob.kind) else {
             continue;
         };
-        transitions
-            .play(&mut player, kind_animations.nodes[&clip], CLIP_TRANSITION)
-            .repeat();
+        let active = transitions.play(&mut player, kind_animations.nodes[&clip], CLIP_TRANSITION);
+        if !clip.plays_once() {
+            active.repeat();
+        }
         animator.playing = clip;
     }
 }

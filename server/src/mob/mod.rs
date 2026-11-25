@@ -1,5 +1,7 @@
 pub mod behavior;
 pub mod combat;
+pub mod hostile;
+pub mod spawning;
 
 use std::collections::{HashMap, HashSet};
 

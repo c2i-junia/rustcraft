@@ -4,6 +4,7 @@
 use bevy::math::Vec3;
 use shared::players::game_mode::GameMode;
 use shared::players::Player;
+use shared::world::hostiles::Difficulty;
 use shared::world::{ItemId, ItemStack, WeatherKind};
 use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
 
@@ -18,6 +19,7 @@ const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
 const LOCATE_USAGE: &str = "Usage: /locate biome <biome>";
+const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|normal>";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeOfDay {
@@ -39,6 +41,8 @@ pub enum Command {
     SetWeather(WeatherKind),
     /// `/locate biome <biome>`: the nearest column of the biome to the author of the command.
     LocateBiome(String),
+    /// `/difficulty <peaceful|normal>`: of the world.
+    SetDifficulty(Difficulty),
 }
 
 /// The command in `message`, without its `/`, or `None` when it is an ordinary message.
@@ -75,17 +79,21 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         ["weather", ..] => Err(WEATHER_USAGE.to_string()),
         ["locate", "biome", biome] => Ok(Command::LocateBiome(biome.to_string())),
         ["locate", ..] => Err(LOCATE_USAGE.to_string()),
+        ["difficulty", difficulty] => Difficulty::from_name(difficulty)
+            .map(Command::SetDifficulty)
+            .ok_or_else(|| DIFFICULTY_USAGE.to_string()),
+        ["difficulty", ..] => Err(DIFFICULTY_USAGE.to_string()),
         _ => Err(format!("Unknown command: /{line}")),
     }
 }
 
 /// Runs `command` for `player`, its author, and returns the answer. `locate` starts the search
 /// of a biome by its key from the position of the player, and returns the answer to give at once
-/// (`Locator::start`).
+/// (`Locator::start`). A world made peaceful loses its hostiles on the next tick
+/// (`mob::spawning`).
 pub fn run_command(
     command: Command,
-    time: &mut ServerTime,
-    weather: &mut ServerWeather,
+    (time, weather, difficulty): (&mut ServerTime, &mut ServerWeather, &mut Difficulty),
     player: &mut Player,
     locate: impl FnOnce(&str, Vec3) -> String,
 ) -> String {
@@ -121,6 +129,10 @@ pub fn run_command(
             format!("Weather set to {}", kind.name())
         }
         Command::LocateBiome(key) => locate(&key, player.position),
+        Command::SetDifficulty(new) => {
+            *difficulty = new;
+            format!("Difficulty set to {}", new.name())
+        }
     }
 }
 
@@ -222,7 +234,8 @@ mod tests {
                 .unwrap();
             format!("Usage: {}", command.usage())
         };
-        assert_eq!(shared::commands::COMMANDS.len(), 5);
+        assert_eq!(shared::commands::COMMANDS.len(), 6);
+        assert_eq!(DIFFICULTY_USAGE, usage("difficulty"));
         assert_eq!(LOCATE_USAGE, usage("locate"));
         assert_eq!(TIME_USAGE, usage("time"));
         assert_eq!(WEATHER_USAGE, usage("weather"));
@@ -254,13 +267,44 @@ mod tests {
         let mut player = Player::default();
         let answer = run_command(
             Command::SetGameMode(GameMode::Creative),
-            &mut ServerTime(0),
-            &mut ServerWeather::new(&mut rand::thread_rng()),
+            (
+                &mut ServerTime(0),
+                &mut ServerWeather::new(&mut rand::thread_rng()),
+                &mut Difficulty::Normal,
+            ),
             &mut player,
             |_, _| unreachable!(),
         );
         assert_eq!(player.game_mode, GameMode::Creative);
         assert_eq!(answer, "Game mode set to creative");
+    }
+
+    #[test]
+    fn difficulty_takes_peaceful_or_normal_and_sets_that_of_the_world() {
+        assert_eq!(
+            parse_command("difficulty peaceful"),
+            Ok(Command::SetDifficulty(Difficulty::Peaceful))
+        );
+        for wrong in ["difficulty", "difficulty hard", "difficulty normal now"] {
+            assert_eq!(
+                parse_command(wrong),
+                Err(DIFFICULTY_USAGE.to_string()),
+                "{wrong}"
+            );
+        }
+        let mut difficulty = Difficulty::Normal;
+        let answer = run_command(
+            Command::SetDifficulty(Difficulty::Peaceful),
+            (
+                &mut ServerTime(0),
+                &mut ServerWeather::new(&mut rand::thread_rng()),
+                &mut difficulty,
+            ),
+            &mut Player::default(),
+            |_, _| unreachable!(),
+        );
+        assert_eq!(difficulty, Difficulty::Peaceful);
+        assert_eq!(answer, "Difficulty set to peaceful");
     }
 
     #[test]
@@ -287,8 +331,7 @@ mod tests {
         let mut weather = ServerWeather::new(&mut rand::thread_rng());
         let answer = run_command(
             Command::SetWeather(WeatherKind::Rain),
-            &mut ServerTime(0),
-            &mut weather,
+            (&mut ServerTime(0), &mut weather, &mut Difficulty::Normal),
             &mut Player::default(),
             |_, _| unreachable!(),
         );
@@ -321,8 +364,11 @@ mod tests {
         };
         let answer = run_command(
             Command::LocateBiome("mymod:mangrove".into()),
-            &mut ServerTime(0),
-            &mut ServerWeather::new(&mut rand::thread_rng()),
+            (
+                &mut ServerTime(0),
+                &mut ServerWeather::new(&mut rand::thread_rng()),
+                &mut Difficulty::Normal,
+            ),
             &mut player.clone(),
             |key, from| format!("{key} from {from}"),
         );

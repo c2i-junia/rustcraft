@@ -1,4 +1,4 @@
-"""Draws the 16x16 icons of the spawn eggs of the animals:
+"""Draws the 16x16 icons of the spawn eggs of the mobs:
 a plain egg in the colour of the coat, with a band of patches in a second colour.
 
 Usage: python3 scripts/generate_spawn_eggs.py
@@ -21,6 +21,9 @@ EGGS = {
     "Horse": ("#8b4d2b", "#2a211f"),
     "Goat": ("#b9ab96", "#6b5848"),
     "Cat": ("#8f8376", "#574c43"),
+    "Gnawer": ("#5b5049", "#c98b8b"),
+    "Bramble": ("#3f6b2c", "#7a2e3a"),
+    "Roller": ("#8a8a86", "#4f4f4b"),
 }
 CENTRE_X, CENTRE_Y = 7.5, 8.5
 
