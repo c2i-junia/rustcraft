@@ -2,7 +2,11 @@
 //! the model wearing the chosen skin over the Skin button, the player's name, and a confirmation before quitting.
 
 use bevy::{
-    input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus, InputFocusVisible},
+    input::keyboard::KeyboardInput,
+    input_focus::{
+        tab_navigation::TabGroup, AutoFocus, FocusCause, FocusedInput, InputFocus,
+        InputFocusVisible,
+    },
     prelude::*,
     ui_widgets::{observe, Activate},
 };
@@ -22,13 +26,14 @@ use crate::network::leave::QuitRequested;
 use crate::network::CurrentPlayerProfile;
 use crate::state::GameState;
 use crate::ui::assets::{load_font, load_title_image, MONO_FONT_PATH};
+use crate::ui::credits::{spawn_credits, Credits};
 use crate::ui::theme::{
     BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, FONT_L, FONT_S, MUTED, PANEL, SPACE_L, SPACE_M, SPACE_S,
     SPACE_XL, SPACE_XS, SPACE_XXL, TEXT,
 };
 use crate::ui::widgets::button::{button, ButtonVariant};
 use crate::ui::widgets::dialog::{spawn_dialog, Dialog, DialogClosed};
-use crate::ui::widgets::focus::ArrowNav;
+use crate::ui::widgets::focus::{keep_focus_inside, ArrowNav};
 use crate::ui::widgets::hints::{hint_bar, Hint};
 
 /// The buttons of the main menu.
@@ -38,6 +43,7 @@ pub enum MainMenuButton {
     Multiplayer,
     Skin,
     Settings,
+    Credits,
     Quit,
 }
 
@@ -50,6 +56,8 @@ pub struct ContinueCard {
 
 /// The title of the confirmation asked before quitting.
 pub const QUIT_TITLE: &str = "Quit Rustcraft?";
+/// The button of the credits.
+pub const CREDITS_LABEL: &str = "Credits";
 
 const TAB_HINT: Hint = Hint {
     keys: "Tab",
@@ -168,12 +176,17 @@ pub fn home_setup(
     }
     commands
         .spawn((
-            button("Quit game", ButtonVariant::Ghost, font.clone()),
-            MainMenuButton::Quit,
+            button(CREDITS_LABEL, ButtonVariant::Ghost, font.clone()),
+            MainMenuButton::Credits,
             ChildOf(column),
         ))
         .entry::<Node>()
         .and_modify(|mut node| node.margin = UiRect::top(px(SPACE_XL)));
+    commands.spawn((
+        button("Quit game", ButtonVariant::Ghost, font.clone()),
+        MainMenuButton::Quit,
+        ChildOf(column),
+    ));
     let last_world = last_played_world(&paths.game_folder_path.join(SAVE_PATH));
     let hints: &[Hint] = match &last_world {
         Some(world) => {
@@ -345,7 +358,7 @@ pub fn activate_main_menu_button(
     keys: Res<ButtonInput<KeyCode>>,
     mut menu_state: ResMut<NextState<MenuState>>,
     asset_server: Res<AssetServer>,
-    focus: Res<InputFocus>,
+    mut focus: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
     let Ok(action) = buttons.get(event.entity) else {
@@ -359,8 +372,37 @@ pub fn activate_main_menu_button(
         MainMenuButton::Multiplayer => menu_state.set(MenuState::Multi),
         MainMenuButton::Skin => menu_state.set(MenuState::Skins),
         MainMenuButton::Settings => menu_state.set(MenuState::Settings),
+        MainMenuButton::Credits => {
+            open_credits(&mut commands, &asset_server, &mut focus, event.entity);
+        }
         MainMenuButton::Quit => open_quit_dialog(&mut commands, &asset_server, &focus),
     }
+}
+
+/// Opens the credits over the main menu. They hold the focus, so that no key reaches the buttons
+/// under them, and give it back to `button` once they are gone.
+fn open_credits(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    focus: &mut InputFocus,
+    button: Entity,
+) {
+    let root = spawn_credits(commands, asset_server);
+    commands
+        .entity(root)
+        .insert(DespawnOnExit(MenuState::Main))
+        .observe(|mut event: On<FocusedInput<KeyboardInput>>| event.propagate(false))
+        .observe(
+            move |_: On<Remove, Credits>,
+                  buttons: Query<(), With<MainMenuButton>>,
+                  mut focus: ResMut<InputFocus>| {
+                if buttons.contains(button) {
+                    focus.set(button, FocusCause::Navigated);
+                }
+            },
+        );
+    keep_focus_inside(commands, root, Some(root));
+    focus.set(root, FocusCause::Navigated);
 }
 
 /// The Play button of the Continue card plays the last world.

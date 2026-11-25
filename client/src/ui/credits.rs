@@ -1,6 +1,6 @@
 //! The credits (`data/credits.txt`), which scroll up over the whole window until their end, or
-//! until the player skips them. They show over the game once the Ember Mother is beaten; any
-//! other screen may spawn them (`spawn_credits`).
+//! until the player skips them. They show over the game once the Ember Mother is beaten, and
+//! over the main menu from its Credits button (`spawn_credits`).
 
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
@@ -44,7 +44,7 @@ pub struct Credits {
 }
 
 #[derive(Component)]
-struct CreditsRoll;
+pub struct CreditsRoll;
 
 /// The boss was beaten, and the credits have to show.
 #[derive(Resource, Debug, Default)]
@@ -163,7 +163,7 @@ pub fn spawn_credits(commands: &mut Commands, assets: &AssetServer) -> Entity {
 
 /// Scrolls the credits up, until their last line is in the middle of the window; they go a moment
 /// later, or at Escape.
-fn scroll_credits(
+pub fn scroll_credits(
     mut commands: Commands,
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,

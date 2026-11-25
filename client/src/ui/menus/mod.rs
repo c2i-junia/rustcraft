@@ -24,6 +24,7 @@ use crate::network::leave::Quitting;
 use crate::network::session::SessionEnd;
 use crate::state::{GameState, MenuCamera};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
+use crate::ui::credits::{scroll_credits, Credits};
 use crate::ui::widgets::dialog::{CloseRequest, DialogRoot};
 use crate::ui::widgets::hints::{hint_bar, Hint};
 use crate::ui::widgets::list::ListCard;
@@ -60,6 +61,8 @@ pub fn menu_plugin(app: &mut App) {
         .add_systems(
             Update,
             open_quit_dialog_on_escape
+                // the Escape that skips the credits does not ask to quit
+                .before(scroll_credits)
                 .run_if(in_state(MenuState::Main))
                 .run_if(not(modal_open))
                 .run_if(not(text_field_focused)),
@@ -88,7 +91,10 @@ pub fn menu_plugin(app: &mut App) {
 
 /// Whether a dialog is open, or the card of the quit shows (`Quitting`): the key handlers of the
 /// screens behind them stand down.
-pub fn modal_open(dialogs: Query<(), With<DialogRoot>>, quitting: Option<Res<Quitting>>) -> bool {
+pub fn modal_open(
+    dialogs: Query<(), Or<(With<DialogRoot>, With<Credits>)>>,
+    quitting: Option<Res<Quitting>>,
+) -> bool {
     !dialogs.is_empty() || quitting.is_some()
 }
 

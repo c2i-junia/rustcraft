@@ -25,9 +25,16 @@ and the voices of the creatures are original,
 synthesised by our own scripts
 
 # Textures
-Pixel Perfection, by XSSheep and Nova_Wostra
+Pixel Perfection, by XSSheep (CC BY-SA 4.0),
+kept up by Nova_Wostra,
+some of them changed here
 Many more, the models and the Ember Mother,
 drawn for Rustcraft
+
+# Fonts
+Minecraft Font, by JDGraphics
+Fira Mono, by Carrois and Edenspiekermann
+for Mozilla, under the SIL Open Font License
 
 # Built upon
 Bevy

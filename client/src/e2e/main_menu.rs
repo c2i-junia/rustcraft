@@ -16,6 +16,7 @@ use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
 use crate::player::skin::built_in_skin_path;
 use crate::state::GameState;
 use crate::ui::assets::TITLE_IMAGE_PATH;
+use crate::ui::credits::Credits;
 use crate::ui::menus::multi::SERVERS_TITLE;
 use crate::ui::menus::player_name::{
     PlayerNameInput, CHOOSE_NAME_TITLE, DEFAULT_PLAYER_NAME, PLAYER_NAME_TITLE,
@@ -23,7 +24,7 @@ use crate::ui::menus::player_name::{
 use crate::ui::menus::skins::{SkinPreview, IMPORT_NOTE, SKINS_TITLE};
 use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
 use crate::ui::menus::MenuState;
-use crate::ui::menus::{ContinueCard, QUIT_TITLE};
+use crate::ui::menus::{ContinueCard, CREDITS_LABEL, QUIT_TITLE};
 use crate::ui::quit::QuittingCard;
 use crate::ui::theme::{ACCENT, RAISE_HOVER};
 use crate::ui::widgets::hints::HintBar;
@@ -196,6 +197,37 @@ fn escape_asks_before_quitting_with_cancel_focused() {
     h.press(KeyCode::Enter);
     h.frames(2);
     assert!(h.has_exited());
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_credits_open_from_the_main_menu_and_escape_leaves_them() {
+    for (width, height) in [(1280, 720), (800, 600)] {
+        let mut h = main_menu();
+        h.resize(width, height);
+        h.snapshot("menu");
+        h.click_when_ready(&L::role(Role::Button, CREDITS_LABEL));
+        h.wait_for(&L::marker::<Credits>(), SCREEN);
+        // no key reaches the menu under them
+        for key in [KeyCode::Tab, KeyCode::ArrowDown, KeyCode::Enter] {
+            h.press(key);
+        }
+        h.frames(2);
+        assert_eq!(h.menu_state(), MenuState::Main);
+        assert!(!h.is_visible(&L::text(QUIT_TITLE)));
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            h.frames(5);
+        }
+        h.snapshot("credits");
+
+        h.press(KeyCode::Escape);
+        h.frames(2);
+        assert!(h.find(&L::marker::<Credits>()).is_empty());
+        assert!(!h.is_visible(&L::text(QUIT_TITLE)), "Escape asked to quit");
+        assert_eq!(h.focus_label().as_deref(), Some(CREDITS_LABEL));
+        assert_eq!(h.menu_state(), MenuState::Main);
+    }
 }
 
 #[test]
