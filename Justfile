@@ -37,6 +37,7 @@ generate-release-folder:
     # add other files 
     cp CHANGELOG.txt release/
     cp LICENSE.txt release/
+    cp docs/ASSETS.md release/
 
     # copy paste binaries 
     cp target/release/client release/bin/rustcraft

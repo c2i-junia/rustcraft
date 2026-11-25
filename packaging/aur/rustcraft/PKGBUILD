@@ -1,0 +1,39 @@
+# The AUR package built from source, for its maintainer. Update the checksum with
+# `updpkgsums` once the tag is published.
+pkgname=rustcraft
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Voxel survival game written in Rust with Bevy'
+arch=('x86_64')
+url="https://github.com/c2i-junia/$pkgname"
+license=('MIT' 'CC-BY-SA-4.0' 'OFL-1.1')
+depends=('gcc-libs' 'glibc' 'vulkan-driver' 'vulkan-icd-loader' 'alsa-lib' 'systemd-libs')
+makedepends=('rustup' 'mold' 'clang' 'pkgconf' 'wayland' 'libxkbcommon')
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP') # to be filled in: the tag does not exist yet
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    # rust-toolchain.toml selects the toolchain
+    rustup toolchain install
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    export CARGO_TARGET_DIR=target
+    # without the default features, which link Bevy dynamically
+    cargo build --frozen --release --no-default-features
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    install -d "$pkgdir/opt/$pkgname" "$pkgdir/usr/bin"
+    cp -r --no-preserve=ownership data "$pkgdir/opt/$pkgname/data"
+    install -Dm755 target/release/client "$pkgdir/opt/$pkgname/bin/$pkgname"
+    install -Dm755 target/release/server "$pkgdir/opt/$pkgname/bin/$pkgname-server"
+    ln -s "/opt/$pkgname/bin/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    ln -s "/opt/$pkgname/bin/$pkgname-server" "$pkgdir/usr/bin/$pkgname-server"
+    install -Dm644 LICENSE.txt docs/ASSETS.md -t "$pkgdir/usr/share/licenses/$pkgname"
+}

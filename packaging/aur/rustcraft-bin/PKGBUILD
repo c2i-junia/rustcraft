@@ -1,0 +1,25 @@
+# The AUR package of the released archive, for its maintainer. Update the checksum with
+# `updpkgsums` once the release is published.
+_pkgname=rustcraft
+pkgname="$_pkgname-bin"
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Voxel survival game written in Rust with Bevy'
+arch=('x86_64')
+url="https://github.com/c2i-junia/$_pkgname"
+license=('MIT' 'CC-BY-SA-4.0' 'OFL-1.1')
+depends=('gcc-libs' 'glibc' 'vulkan-driver' 'vulkan-icd-loader' 'alsa-lib' 'systemd-libs')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname")
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$_pkgname-v$pkgver-linux-x86_64.tar.gz")
+sha256sums=('SKIP') # to be filled in: the release does not exist yet
+
+package() {
+    cd "$srcdir"
+    install -d "$pkgdir/opt/$_pkgname" "$pkgdir/usr/bin"
+    cp -r --no-preserve=ownership data "$pkgdir/opt/$_pkgname/data"
+    install -Dm755 "bin/$_pkgname" "bin/$_pkgname-server" -t "$pkgdir/opt/$_pkgname/bin"
+    ln -s "/opt/$_pkgname/bin/$_pkgname" "$pkgdir/usr/bin/$_pkgname"
+    ln -s "/opt/$_pkgname/bin/$_pkgname-server" "$pkgdir/usr/bin/$_pkgname-server"
+    install -Dm644 LICENSE.txt ASSETS.md -t "$pkgdir/usr/share/licenses/$pkgname"
+}

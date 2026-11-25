@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  # release.yml builds the archives of a release with it
+  workflow_call:
+    inputs:
+      version:
+        description: The version of the release, as its tag
+        required: true
+        type: string
 
 jobs:
   build-linux:
@@ -56,11 +63,25 @@ jobs:
       run: echo "SHORT_SHA=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
 
     - name: Generate release
+      if: ${{ !inputs.version }}
       run: python3 ./scripts/generate_release.py dev-${{ env.SHORT_SHA }} --no-compression
       env:
         PYTHONPATH: ${{ runner.workspace }}
 
+    - name: Generate the archive of a release
+      if: ${{ inputs.version }}
+      run: python3 scripts/generate_release.py ${{ inputs.version }}
+
+    - name: Upload the archive of a release
+      if: ${{ inputs.version }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-linux
+        path: rustcraft-${{ inputs.version }}-linux-x86_64.tar.gz
+        if-no-files-found: error
+
     - name: Upload artifact
+      if: ${{ !inputs.version }}
       uses: actions/upload-artifact@v4
       with:
         name: rustcraft-linux-dev-${{ env.SHORT_SHA }}-x86_64
@@ -103,11 +124,25 @@ jobs:
         Write-Output "SHORT_SHA=$shortSha" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8
 
     - name: Generate release
+      if: ${{ !inputs.version }}
       run: python scripts/generate_release.py dev-${{ env.SHORT_SHA }} --no-compression
       env:
         PYTHONPATH: ${{ runner.workspace }}
 
+    - name: Generate the archive of a release
+      if: ${{ inputs.version }}
+      run: python scripts/generate_release.py ${{ inputs.version }}
+
+    - name: Upload the archive of a release
+      if: ${{ inputs.version }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-windows
+        path: rustcraft-${{ inputs.version }}-windows-x86_64.zip
+        if-no-files-found: error
+
     - name: Upload artifact
+      if: ${{ !inputs.version }}
       uses: actions/upload-artifact@v4
       with:
         name: rustcraft-windows-dev-${{ env.SHORT_SHA }}-x86_64

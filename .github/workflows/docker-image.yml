@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+  # release.yml publishes the server image of a release with it
+  workflow_call:
+    inputs:
+      version:
+        description: The version of the release, as its tag
+        required: true
+        type: string
 
 jobs:
   build-and-publish:
@@ -32,8 +39,8 @@ jobs:
       run: |
         docker build \
           --file Dockerfile \
-          --tag ghcr.io/${{ github.repository }}/rustcraft-server:dev-${{ env.hash }} .
+          --tag ghcr.io/${{ github.repository }}/rustcraft-server:${{ inputs.version || format('dev-{0}', env.hash) }} .
 
     - name: Push Docker image
       run: |
-        docker push ghcr.io/${{ github.repository }}/rustcraft-server:dev-${{ env.hash }}
+        docker push ghcr.io/${{ github.repository }}/rustcraft-server:${{ inputs.version || format('dev-{0}', env.hash) }}

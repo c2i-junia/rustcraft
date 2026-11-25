@@ -1,0 +1,96 @@
+name: Release
+
+# A pushed tag v* builds the archives and the server image, and drafts a release: nobody sees the
+# draft until it is published by hand. The server image, though, is pushed under the tag's name.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check that the tag is the version of the crates and of the changelog
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        for crate in client server shared; do
+          grep -qx "version = \"$version\"" "$crate/Cargo.toml" || {
+            echo "::error::$crate/Cargo.toml is not at version $version"
+            exit 1
+          }
+        done
+        grep -qxE "Version: ${version%.0} *|Version: $version *" CHANGELOG.txt || {
+          echo "::error::CHANGELOG.txt has no version $version"
+          exit 1
+        }
+
+  archives:
+    needs: check-version
+    uses: ./.github/workflows/dev-build.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  server-image:
+    needs: check-version
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-image.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  draft-release:
+    needs: [archives, server-image]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download the archives
+      uses: actions/download-artifact@v4
+      with:
+        pattern: release-*
+        path: dist
+        merge-multiple: true
+
+    - name: Check the content of the archives
+      run: |
+        tar -tzf "dist/rustcraft-$GITHUB_REF_NAME-linux-x86_64.tar.gz" > linux.txt
+        unzip -Z1 "dist/rustcraft-$GITHUB_REF_NAME-windows-x86_64.zip" > windows.txt
+        for name in LICENSE.txt CHANGELOG.txt ASSETS.md data/credits.txt bin/rustcraft bin/rustcraft-server; do
+          grep -qxE "(\./)?$name" linux.txt || { echo "::error::$name is not in the Linux archive"; exit 1; }
+        done
+        for name in LICENSE.txt CHANGELOG.txt ASSETS.md data/credits.txt bin/rustcraft.exe bin/rustcraft-server.exe; do
+          grep -qxE "(\./)?$name" windows.txt || { echo "::error::$name is not in the Windows archive"; exit 1; }
+        done
+
+    - name: Write the notes
+      run: |
+        # what the changelog says of the version for the players: between Summary and Changes
+        awk '/^  Summary:/ { on = 1; next } /^  Changes:/ { exit } on { sub(/^    /, ""); print }' CHANGELOG.txt > notes.md
+        test -s notes.md
+        {
+          echo
+          echo "Server image: \`ghcr.io/$GITHUB_REPOSITORY/rustcraft-server:$GITHUB_REF_NAME\`"
+        } >> notes.md
+
+    - name: Draft the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        (cd dist && sha256sum rustcraft-* > SHA256SUMS.txt)
+        gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+          --title "$GITHUB_REF_NAME" --notes-file notes.md \
+          dist/* LICENSE.txt docs/ASSETS.md CHANGELOG.txt
