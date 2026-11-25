@@ -703,7 +703,7 @@ mod tests {
         assert_eq!(meta.format_version, FORMAT_VERSION);
         assert_eq!(meta.name, "Nouveau");
         assert_eq!(meta.seed.0, 7);
-        assert_eq!(meta.time, 0);
+        assert_eq!(meta.time, NEW_WORLD_TIME);
         assert!(meta.mobs.is_empty());
         let worlds = list_worlds(&saves);
         assert_eq!(worlds.len(), 1);

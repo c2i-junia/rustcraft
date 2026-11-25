@@ -597,7 +597,7 @@ fn ctrl_n_then_enter_creates_one_world_on_disk() {
     );
     let meta = world_meta(&h, "Entered");
     assert_eq!(meta.name, "Entered");
-    assert_eq!(meta.time, 0);
+    assert_eq!(meta.time, shared::NEW_WORLD_TIME);
 }
 
 #[test]
