@@ -19,6 +19,7 @@ use bevy::{
 use super::background::menu_background;
 use super::MenuState;
 use crate::audio::settings::AudioSettings;
+use crate::camera::ViewSettings;
 use crate::state::{GameState, KeyMap};
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::hud::UiDialog;
@@ -318,6 +319,7 @@ fn show_tab(
         Res<CloudStyle>,
         Res<BiomeBlend>,
         Res<GraphicsSettings>,
+        Res<ViewSettings>,
     ),
     assets: Res<AssetServer>,
     mut commands: Commands,
@@ -349,16 +351,16 @@ fn show_tab(
         SettingsTab::Controls => spawn_controls_tab(
             &mut commands,
             (panel, *footer),
-            (&key_map, &interface),
+            (&key_map, &interface, &video.4),
             &search,
             (font, glyph_font),
         ),
         SettingsTab::Video => {
-            let (render_distance, clouds, biome_blend, graphics) = &video;
+            let (render_distance, clouds, biome_blend, graphics, view) = &video;
             spawn_video_tab(
                 &mut commands,
                 panel,
-                (render_distance, **clouds, biome_blend, graphics),
+                (render_distance, **clouds, biome_blend, graphics, view),
                 font,
             )
         }

@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use shared::GameFolderPaths;
 
 use crate::audio::{self, settings::load_audio_settings};
+use crate::camera::load_view_settings;
 use crate::game;
 use crate::input::keyboard::get_bindings;
 use crate::network;
@@ -61,6 +62,7 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))
         .insert_resource(load_interface_settings(&game_folder_paths))
+        .insert_resource(load_view_settings(&game_folder_paths))
         .insert_resource(ChosenSkin::load(&game_folder_paths))
         .insert_resource(render_distance)
         .insert_resource(clouds)

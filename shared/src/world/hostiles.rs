@@ -22,16 +22,28 @@ pub enum Difficulty {
     /// Hostile mobs appear in the dark.
     #[default]
     Normal,
+    /// Hostile mobs strike about half as hard.
+    Easy,
+    /// Hostile mobs strike half as hard again.
+    Hard,
 }
 
 impl Difficulty {
-    pub const ALL: [Difficulty; 2] = [Difficulty::Peaceful, Difficulty::Normal];
+    /// Every difficulty, from the least hard to the hardest.
+    pub const ALL: [Difficulty; 4] = [
+        Difficulty::Peaceful,
+        Difficulty::Easy,
+        Difficulty::Normal,
+        Difficulty::Hard,
+    ];
 
     /// The name the `/difficulty` command takes.
     pub fn name(self) -> &'static str {
         match self {
             Difficulty::Peaceful => "peaceful",
+            Difficulty::Easy => "easy",
             Difficulty::Normal => "normal",
+            Difficulty::Hard => "hard",
         }
     }
 
@@ -44,6 +56,16 @@ impl Difficulty {
     /// Whether hostile mobs live in a world this hard.
     pub fn has_hostiles(self) -> bool {
         self != Difficulty::Peaceful
+    }
+
+    /// The points of health a hostile takes in a world this hard, for the `damage` of its kind:
+    /// Minecraft's, in whole points, and never none.
+    pub fn strike_damage(self, damage: u32) -> u32 {
+        match self {
+            Difficulty::Peaceful | Difficulty::Normal => damage,
+            Difficulty::Easy => damage.min(damage / 2 + 1),
+            Difficulty::Hard => damage * 3 / 2,
+        }
     }
 }
 
@@ -363,9 +385,20 @@ mod tests {
             Some(Difficulty::Peaceful)
         );
         assert_eq!(Difficulty::from_name("Normal"), Some(Difficulty::Normal));
-        assert_eq!(Difficulty::from_name("hard"), None);
+        for difficulty in Difficulty::ALL {
+            assert_eq!(Difficulty::from_name(difficulty.name()), Some(difficulty));
+        }
+        assert_eq!(Difficulty::from_name("extreme"), None);
         assert!(!Difficulty::Peaceful.has_hostiles());
         assert!(Difficulty::Normal.has_hostiles());
+    }
+
+    #[test]
+    fn a_harder_world_strikes_harder() {
+        let of = |difficulty: Difficulty| [1, 2, 3, 4].map(|d| difficulty.strike_damage(d));
+        assert_eq!(of(Difficulty::Easy), [1, 2, 2, 3]);
+        assert_eq!(of(Difficulty::Normal), [1, 2, 3, 4]);
+        assert_eq!(of(Difficulty::Hard), [1, 3, 4, 6]);
     }
 
     #[test]

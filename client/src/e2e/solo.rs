@@ -14,11 +14,13 @@ use bevy::ui::{InteractionDisabled, Selected};
 use bevy::ui_widgets::Scrollbar;
 use server::{WorldMeta, WORLD_FILE};
 
+use super::game::enter_world;
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::helpers::{ctrl_n, main_menu_with};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::constants::SAVE_PATH;
+use crate::player::CurrentPlayerMarker;
 use crate::state::GameState;
 use crate::ui::menus::solo::dialogs::DELETE_PERMISSION;
 use crate::ui::menus::solo::dialogs::{WorldNameInput, WorldSeedInput, NEW_WORLD_TITLE};
@@ -29,8 +31,11 @@ use crate::ui::menus::worlds::{
 use crate::ui::menus::ContinueCard;
 use crate::ui::menus::MenuState;
 use crate::ui::theme::RAISE_HOVER;
-use crate::ui::widgets::hints::HintBar;
+use crate::ui::widgets::hints::{HintBar, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::cards_of;
+use shared::players::game_mode::GameMode;
+use shared::players::Player;
+use shared::world::hostiles::Difficulty;
 use shared::DAY_DURATION_IN_TICKS;
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
@@ -640,6 +645,65 @@ fn a_typed_seed_is_kept() {
     h.press(KeyCode::Enter);
     h.wait_for(&card("Seeded"), SCREEN);
     assert_eq!(world_meta(&h, "Seeded").seed.0, 1234);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_game_mode_and_the_difficulty_are_chosen_with_the_world() {
+    let folder = GameFolder::new().with_world("Survie");
+    let mut h = open_world_list(folder.clone());
+    h.wait_for(&card("Survie"), SCREEN);
+    ctrl_n(&mut h);
+    h.type_text("Plain");
+    h.press(KeyCode::Enter);
+    h.wait_for(&card("Plain"), SCREEN);
+    let plain = world_meta(&h, "Plain");
+    assert_eq!(plain.game_mode, GameMode::Survival);
+    assert_eq!(plain.difficulty, Difficulty::Normal);
+
+    ctrl_n(&mut h);
+    h.type_text("Made");
+    h.click(&L::role(Role::RadioButton, "Creative"));
+    h.click(&L::role(Role::RadioButton, "Hard"));
+    h.frames(3);
+    h.snapshot("new_world_choices");
+    h.click(&create_button());
+    h.wait_for(&card("Made"), SCREEN);
+    let made = world_meta(&h, "Made");
+    assert_eq!(made.game_mode, GameMode::Creative);
+    assert_eq!(made.difficulty, Difficulty::Hard);
+    drop(h);
+
+    // its player starts in the mode of the world
+    let mut h = enter_world(folder, "Made");
+    h.wait_until("a creative player", SERVER, |w| {
+        w.try_query_filtered::<&Player, With<CurrentPlayerMarker>>()
+            .and_then(|mut players| players.single(w).ok())
+            .is_some_and(|player| player.game_mode == GameMode::Creative)
+    });
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_new_world_dialog_fits_the_smallest_window() {
+    let options = Options {
+        width: 800,
+        height: 600,
+        ..Options::default()
+    };
+    let mut h = Harness::start(GameFolder::new(), options);
+    h.wait_for(&L::text("Singleplayer"), STARTUP);
+    h.click(&L::text("Singleplayer"));
+    h.wait_for(&new_world_button(), SCREEN);
+    ctrl_n(&mut h);
+    h.frames(3);
+    h.snapshot("new_world_smallest");
+    let create = h.center_of(&create_button()).y;
+    let hints = 600. - HINT_BAR_HEIGHT;
+    assert!(
+        create + 20. < hints,
+        "Create at {create}, the hints at {hints}"
+    );
 }
 
 #[test]

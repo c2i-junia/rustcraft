@@ -20,7 +20,7 @@ const GIVE_USAGE: &str = "Usage: /give <item> <count>";
 const GAMEMODE_USAGE: &str = "Usage: /gamemode <creative|survival>";
 const WEATHER_USAGE: &str = "Usage: /weather <clear|rain|thunder>";
 const LOCATE_USAGE: &str = "Usage: /locate <biome|village> <biome>";
-const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|normal>";
+const DIFFICULTY_USAGE: &str = "Usage: /difficulty <peaceful|easy|normal|hard>";
 const OP_USAGE: &str = "Usage: /op <player>";
 const DEOP_USAGE: &str = "Usage: /deop <player>";
 const KICK_USAGE: &str = "Usage: /kick <player> [reason]";
@@ -54,7 +54,7 @@ pub enum Command {
     /// `/locate biome <biome>` or `/locate village`: the nearest column of the biome, or the
     /// nearest village, to the author of the command.
     Locate(Place),
-    /// `/difficulty <peaceful|normal>`: of the world.
+    /// `/difficulty <peaceful|easy|normal|hard>`: of the world.
     SetDifficulty(Difficulty),
     /// `/list`: the players online.
     List,
@@ -413,12 +413,12 @@ mod tests {
     }
 
     #[test]
-    fn difficulty_takes_peaceful_or_normal_and_sets_that_of_the_world() {
+    fn difficulty_takes_a_name_and_sets_that_of_the_world() {
         assert_eq!(
             parse_command("difficulty peaceful"),
             Ok(Command::SetDifficulty(Difficulty::Peaceful))
         );
-        for wrong in ["difficulty", "difficulty hard", "difficulty normal now"] {
+        for wrong in ["difficulty", "difficulty extreme", "difficulty normal now"] {
             assert_eq!(
                 parse_command(wrong),
                 Err(DIFFICULTY_USAGE.to_string()),

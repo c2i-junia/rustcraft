@@ -118,7 +118,7 @@ pub const COMMANDS: &[CommandSyntax] = &[
     },
     CommandSyntax {
         name: "difficulty",
-        args: &[Arg::Word(&["peaceful", "normal"])],
+        args: &[Arg::Word(&["peaceful", "easy", "normal", "hard"])],
     },
     CommandSyntax {
         name: "gamemode",
@@ -356,7 +356,7 @@ mod tests {
         };
         assert_eq!(detail("ban"), "<player> [reason]");
         assert_eq!(detail("deop"), "<player>");
-        assert_eq!(detail("difficulty"), "<peaceful|normal>");
+        assert_eq!(detail("difficulty"), "<peaceful|easy|normal|hard>");
         assert_eq!(detail("gamemode"), "<creative|survival>");
         assert_eq!(detail("give"), "<item> <count>");
         assert_eq!(detail("list"), "");

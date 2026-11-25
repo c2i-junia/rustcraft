@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use shared::players::Player;
 
-use crate::camera::{CameraController, Zoom, FOV_DEGREES};
+use crate::camera::{CameraController, ViewSettings, Zoom};
 
 use super::CurrentPlayerMarker;
 
@@ -15,7 +15,7 @@ pub struct PlayerBody;
 
 pub use shared::players::constants::SNEAK_BODY_SCALE;
 
-/// Field of view of a sprinting player, relative to `FOV_DEGREES`.
+/// Field of view of a sprinting player, relative to the one the player set.
 const SPRINT_FOV_SCALE: f32 = 1.1;
 
 /// How fast the body and the field of view follow the stance: the share of the way left that
@@ -62,10 +62,10 @@ pub fn crouch_bodies_system(
 }
 
 /// Widens the field of view of the camera while the local player sprints, and narrows it while
-/// they zoom.
+/// they zoom, from the one the player set (`ViewSettings::fov`).
 pub fn fov_system(
     time: Res<Time>,
-    zoom: Res<Zoom>,
+    (zoom, settings): (Res<Zoom>, Res<ViewSettings>),
     player: Query<&Player, With<CurrentPlayerMarker>>,
     mut projections: Query<&mut Projection, With<CameraController>>,
 ) {
@@ -77,7 +77,7 @@ pub fn fov_system(
     } else {
         1.0
     };
-    let target = FOV_DEGREES.to_radians() * scale * zoom.scale();
+    let target = settings.fov_radians() * scale * zoom.scale();
     let t = easing(time.delta_secs());
     for mut projection in &mut projections {
         // Reached through `bypass_change_detection` first: a camera at its field of view must

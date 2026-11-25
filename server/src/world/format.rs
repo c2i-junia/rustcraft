@@ -6,6 +6,7 @@ use bevy::log::debug;
 use bevy::math::IVec3;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
+use shared::players::game_mode::GameMode;
 use shared::world::hostiles::Difficulty;
 use shared::world::{
     Chunk, Container, DroppedItem, MobId, ServerMob, WeatherKind, WorldGenSettings, WorldSeed,
@@ -60,6 +61,10 @@ pub struct WorldMeta {
     /// Missing from the worlds saved before the hostile mobs, which are normal.
     #[serde(default)]
     pub difficulty: Difficulty,
+    /// The game mode a new player starts in. Missing from the worlds saved before it could be
+    /// chosen, which are in survival.
+    #[serde(default)]
+    pub game_mode: GameMode,
 }
 
 impl WorldMeta {
@@ -74,6 +79,7 @@ impl WorldMeta {
             weather: None,
             generation: WorldGenSettings::default(),
             difficulty: Difficulty::default(),
+            game_mode: GameMode::default(),
         }
     }
 }
@@ -101,6 +107,9 @@ pub struct WorldData {
     /// The single-file formats had none: their worlds are normal.
     #[serde(default)]
     pub difficulty: Difficulty,
+    /// The single-file formats had none: their worlds are in survival.
+    #[serde(default)]
+    pub game_mode: GameMode,
 }
 
 impl From<&WorldData> for WorldMeta {
@@ -110,6 +119,7 @@ impl From<&WorldData> for WorldMeta {
             weather: world.weather,
             generation: world.generation.clone(),
             difficulty: world.difficulty,
+            game_mode: world.game_mode,
             ..Self::new(
                 world.name.clone(),
                 world.seed,
@@ -132,6 +142,7 @@ impl From<WorldMeta> for WorldData {
             weather: meta.weather,
             generation: meta.generation,
             difficulty: meta.difficulty,
+            game_mode: meta.game_mode,
             ..Self::default()
         }
     }
@@ -380,19 +391,23 @@ mod tests {
     fn the_difficulty_is_saved_and_read_back_and_defaults_to_normal() {
         let meta = WorldMeta {
             difficulty: Difficulty::Peaceful,
+            game_mode: GameMode::Creative,
             ..WorldMeta::new("w".into(), WorldSeed(1), 0, HashMap::new())
         };
         let read: WorldMeta = ron::de::from_str(&ron::ser::to_string(&meta).unwrap()).unwrap();
         assert_eq!(read.difficulty, Difficulty::Peaceful);
+        assert_eq!(read.game_mode, GameMode::Creative);
         // and through the world loaded from it
         let world = WorldData::from(read);
         assert_eq!(world.difficulty, Difficulty::Peaceful);
         assert_eq!(WorldMeta::from(&world).difficulty, Difficulty::Peaceful);
+        assert_eq!(WorldMeta::from(&world).game_mode, GameMode::Creative);
 
         let before: WorldMeta =
             ron::de::from_str(r#"(format_version: 5, name: "w", seed: (1), time: 0, mobs: {})"#)
                 .unwrap();
         assert_eq!(before.difficulty, Difficulty::Normal);
+        assert_eq!(before.game_mode, GameMode::Survival);
     }
 
     #[test]

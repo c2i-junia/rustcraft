@@ -13,6 +13,7 @@ use bevy::{
 };
 use bevy_ecs::system::{Res, ResMut};
 use rand::Rng;
+use shared::world::hostiles::Difficulty;
 use shared::{
     messages::PlayerId,
     players::{
@@ -113,6 +114,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         chunks,
         players,
         changed_mobs,
+        difficulty,
         ..
     } = world_map.as_mut();
     step_mobs(
@@ -120,6 +122,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
         chunks,
         players,
         changed_mobs,
+        *difficulty,
         delta,
         &mut rand::thread_rng(),
     );
@@ -137,6 +140,7 @@ fn step_mobs(
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
     changed: &mut HashSet<MobId>,
+    difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
 ) {
@@ -157,7 +161,7 @@ fn step_mobs(
         }
         mob.attack_wait = mob.attack_wait.saturating_sub(1);
         let before = (mob.position, mob.rotation, mob.action);
-        thrown.extend(step_mob(mob, chunks, players, delta, rng));
+        thrown.extend(step_mob(mob, chunks, players, difficulty, delta, rng));
         if before != (mob.position, mob.rotation, mob.action) {
             changed.insert(*id);
         }
@@ -175,6 +179,7 @@ fn step_mob(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
+    difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
 ) -> Option<ServerMob> {
@@ -201,7 +206,7 @@ fn step_mob(
             return None;
         }
     }
-    let thrown = act(mob, chunks, players, delta, rng);
+    let thrown = act(mob, chunks, players, difficulty, delta, rng);
     pass_through_portal(mob, chunks, start);
     thrown
 }
@@ -300,11 +305,12 @@ fn act(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
+    difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
 ) -> Option<ServerMob> {
     if mob.kind.is_hostile() {
-        return super::hostile::act(mob, chunks, players, delta, rng);
+        return super::hostile::act(mob, chunks, players, difficulty, delta, rng);
     }
     wander_or_flee(mob, chunks, players, delta, rng);
     None
@@ -1036,6 +1042,7 @@ mod tests {
                 &map.chunks,
                 &mut map.players,
                 changed,
+                Difficulty::Normal,
                 delta,
                 &mut rng,
             );
@@ -1082,6 +1089,7 @@ mod tests {
             &map.chunks,
             &mut map.players,
             &mut changed,
+            Difficulty::Normal,
             delta,
             &mut rng,
         );
@@ -1119,6 +1127,7 @@ mod tests {
                 &map.chunks,
                 &mut map.players,
                 &mut HashSet::new(),
+                Difficulty::Normal,
                 tick().as_secs_f32(),
                 &mut rng,
             );
@@ -1268,6 +1277,7 @@ mod tests {
                 &map.chunks,
                 &mut map.players,
                 &mut HashSet::new(),
+                Difficulty::Normal,
                 delta,
                 &mut rng,
             );
@@ -1326,6 +1336,7 @@ mod tests {
                 &map.chunks,
                 &mut map.players,
                 &mut changed,
+                Difficulty::Normal,
                 tick().as_secs_f32(),
                 &mut StdRng::seed_from_u64(2),
             );

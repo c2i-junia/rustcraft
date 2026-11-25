@@ -120,6 +120,7 @@ fn queue_save(
             weather: Some(weather),
             generation,
             difficulty: world_map.difficulty,
+            game_mode: world_map.game_mode,
             ..WorldMeta::new(
                 world_map.name.clone(),
                 seed,
@@ -299,6 +300,7 @@ mod tests {
         fn a_save_request_writes_the_dirty_chunks_and_the_metadata() {
             let tmp = tempfile::tempdir().unwrap();
             let mut map = world_map(2);
+            map.game_mode = shared::players::game_mode::GameMode::Creative;
             map.difficulty = shared::world::hostiles::Difficulty::Peaceful;
             map.chunks.set_block(IVec3::new(1, 2, 3), stone());
             // A Cinderling is saved, the ember it threw is not
@@ -336,6 +338,10 @@ mod tests {
             assert_eq!(
                 meta.difficulty,
                 shared::world::hostiles::Difficulty::Peaceful
+            );
+            assert_eq!(
+                meta.game_mode,
+                shared::players::game_mode::GameMode::Creative
             );
             assert_eq!(meta.mobs.keys().copied().collect::<Vec<_>>(), [1]);
         }

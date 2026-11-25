@@ -1,4 +1,4 @@
-use crate::camera::{CameraController, Zoom};
+use crate::camera::{CameraController, ViewSettings, Zoom};
 use crate::player::*;
 use crate::ui::hud::UIMode;
 use crate::world::ClientWorldMap;
@@ -73,7 +73,7 @@ pub fn camera_control_system(
     >,
     view_mode: Res<ViewMode>,
     ui_mode: Res<UIMode>,
-    zoom: Res<Zoom>,
+    (zoom, settings): (Res<Zoom>, Res<ViewSettings>),
     world_map: Res<ClientWorldMap>,
 ) {
     // The window can be missing while the app is closing, the player while it is spawning
@@ -98,7 +98,7 @@ pub fn camera_control_system(
     let max_pitch = MAX_PITCH_DEGREES.to_radians();
 
     for (mut camera_transform, mut controller) in camera_query.iter_mut() {
-        let sensitivity = controller.mouse_sensitivity * zoom.scale();
+        let sensitivity = settings.radians_per_pixel() * zoom.scale();
         controller.angle_x -= delta.x * sensitivity;
         controller.angle_y =
             (controller.angle_y + delta.y * sensitivity).clamp(-max_pitch, max_pitch);

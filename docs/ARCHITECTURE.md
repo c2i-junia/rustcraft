@@ -608,7 +608,8 @@ The rules are shared (`shared/src/world/hostiles.rs`): `MobKind::hunt` (sight, f
 speed) and `strike` (damage, reach, cooldown, knock back), `is_prey` (a living survival player),
 `line_of_sight`, `is_dark`, `spawn_kind` and `pack_size`. `hostile_spawning_system`
 (`mob/spawning.rs`) removes every hostile and ember of a peaceful world (`/difficulty`, saved in
-`world.ron`); otherwise, every 40 ticks, it despawns the hostiles 96 blocks from every player
+`world.ron`; `Difficulty::strike_damage` scales the blows and the embers in an easy or a hard
+one); otherwise, every 40 ticks, it despawns the hostiles 96 blocks from every player
 and gives each player one attempt: a spot 24 to 64 blocks away horizontally, at a random height
 within 24 of its feet, scanned down for water or a floor with two free cells; if it is far
 enough from every player, dark ((night and open sky) or covered, and no light emitter in the
@@ -1063,6 +1064,11 @@ of the player, turned by the camera, the dots of the other players and of the mo
 coordinates are UI nodes over it. Like the hotbar, it hides under the pause menu and the
 settings; the Interface tab shows or hides it (`InterfaceSettings::minimap`).
 
+`ViewSettings` (`camera/settings.rs`, saved in `view.ron`) holds the mouse sensitivity, set on the
+Controls tab, the field of view and the fullscreen, set on the Video tab. `fov_system`
+(`player/stance.rs`) eases the camera to that field of view, which the sprint and the zoom
+scale.
+
 `M` opens the world map (`ui/hud/minimap/world_map.rs`), a dialog over the whole window: the
 same surface, all of it, drawn by `compose_world` tile by tile into one image at a block a pixel,
 again at most every 250 ms while the surface changes. The UI scales that image (1 to 8 px a
@@ -1091,7 +1097,7 @@ A world is a folder under `saves/`:
 
 | Path | Content | Written by |
 |------|---------|------------|
-| `world.ron` | Name, seed, world type (`generation`), time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
+| `world.ron` | Name, seed, world type (`generation`), difficulty, the game mode new players start in, time, mobs, the items lying on the ground, the weather and the ticks it has left, and the format version | the writer thread |
 | `chunks/<x>_<y>_<z>.region` | The chunks of a region of 8×8×8 chunks, each encoded like a network message, after an index of where each starts | the writer thread |
 | `chunks/<x>_<y>_<z>.bin` | One chunk, encoded the same way, as worlds saved before version 5 hold them: read when its region does not hold it | worlds saved before |
 | `containers/<x>_<y>_<z>.bin` | The contents of the chests of one chunk, encoded the same way; only a chunk holding a chest has one | the writer thread |
@@ -1113,9 +1119,8 @@ empty furnaces. Format version 2 differs from 3 only by having no `containers/`,
 as they are.
 
 The Singleplayer screen manages the folders (`client/src/ui/menus/worlds.rs`): it writes
-`world.ron` when a world is created, with the world type chosen, so that the world is listed
-at once; a rename renames the
-folder and the name in `world.ron`, keeping its format version and its date; a delete removes
+`world.ron` when a world is created, with the world type, the game mode and the difficulty
+chosen (`NewWorldOptions`), so that the world is listed at once; a rename renames the folder and the name in `world.ron`, keeping its format version and its date; a delete removes
 the folder, after a confirmation.
 
 ## End-to-end tests

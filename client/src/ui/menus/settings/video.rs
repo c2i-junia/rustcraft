@@ -1,4 +1,4 @@
-//! The Video tab of the settings: the render distance, applied and saved as soon as it is set,
+//! The Video tab of the settings: the field of view and the fullscreen, then the render distance, applied and saved as soon as it is set,
 //! and a note under it, which says when the server of the game grants less; then the clouds,
 //! with a note saying what each style draws, the biome blend, the shaders, with a note saying
 //! what each quality draws, and the lighting, the brightness, the shadows and the effects.
@@ -8,6 +8,7 @@ use shared::{GameFolderPaths, MIN_RENDER_DISTANCE};
 
 use super::interface::spawn_row;
 use super::{SettingsContext, SettingsRoot};
+use crate::camera::{write_view_settings, ViewSettings, MAX_FOV_DEGREES, MIN_FOV_DEGREES};
 use crate::constants::MAX_CHUNK_RENDER_DISTANCE_RADIUS;
 use crate::ui::theme::{FONT_S, MUTED, SPACE_M, SPACE_XL, SPACE_XS};
 use crate::ui::widgets::list::spawn_scroll_page;
@@ -111,6 +112,20 @@ fn brightness_label(value: f32) -> String {
     }
 }
 
+/// A degree a step.
+const FOV_SCALE: SliderScale = SliderScale {
+    min: MIN_FOV_DEGREES,
+    max: MAX_FOV_DEGREES,
+    step: 1.,
+    whole: true,
+    readout: fov_label,
+};
+
+/// The vertical field of view in degrees: "60".
+fn fov_label(value: f32) -> String {
+    format!("{}", value.round())
+}
+
 /// A chunk a step, from the least render distance to the largest the player may choose.
 const RENDER_DISTANCE_SCALE: SliderScale = SliderScale {
     min: MIN_RENDER_DISTANCE as f32,
@@ -144,23 +159,53 @@ fn blend_label(value: f32) -> String {
     format!("{side}x{side}")
 }
 
-/// Spawns the render distance slider and the clouds control, each with its note, the biome
+/// Spawns the field of view slider and the fullscreen control, the render distance slider and the clouds control, each with its note, the biome
 /// blend slider, then the lighting control, the brightness slider and the shadows and effects
 /// controls, under `panel`.
 pub fn spawn_video_tab(
     commands: &mut Commands,
     panel_of_tab: Entity,
-    (render_distance, clouds, biome_blend, graphics): (
+    (render_distance, clouds, biome_blend, graphics, view): (
         &RenderDistance,
         CloudStyle,
         &BiomeBlend,
         &GraphicsSettings,
+        &ViewSettings,
     ),
     font: Handle<Font>,
 ) {
     // the controls scroll when they are taller than the panel
     let (frame, panel) = spawn_scroll_page(commands, SPACE_XL);
     commands.entity(frame).insert(ChildOf(panel_of_tab));
+    // The window, closer together
+    let column = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_M),
+                ..default()
+            },
+            ChildOf(panel),
+        ))
+        .id();
+    let field = SliderField {
+        label: "Field of view",
+        value: view.fov,
+        scale: FOV_SCALE,
+    };
+    let parts = spawn_slider(commands, &field, font.clone());
+    commands.entity(parts.root).insert(ChildOf(column));
+    commands
+        .entity(parts.slider)
+        .observe(set_fov)
+        .observe(save_view_on_release);
+    spawn_choice(
+        commands,
+        (column, &font),
+        ("Fullscreen", &ON_OFF, !view.fullscreen),
+    )
+    .observe(choose_fullscreen);
+
     // the slider, and its note under it
     let column = commands
         .spawn((
@@ -342,6 +387,38 @@ fn spawn_choice<'a>(
     let mut control = commands.entity(group);
     control.insert(ChildOf(row));
     control
+}
+
+/// Applies the field of view of the slider, and saves it once the player is done with it. In
+/// game, the camera follows at once (`fov_system`).
+fn set_fov(
+    change: On<ValueChange<f32>>,
+    mut settings: ResMut<ViewSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    settings.set_fov(change.value.round());
+    if change.is_final {
+        write_view_settings(&settings, &paths);
+    }
+}
+
+/// Applies and saves whether the game fills the screen.
+fn choose_fullscreen(
+    change: On<SegmentChange>,
+    mut settings: ResMut<ViewSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    settings.fullscreen = change.index == 0;
+    write_view_settings(&settings, &paths);
+}
+
+/// Saves the view settings when the button is released on a slider, as `save_on_release`.
+pub(super) fn save_view_on_release(
+    _: On<Pointer<Release>>,
+    settings: Res<ViewSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    write_view_settings(&settings, &paths);
 }
 
 /// Applies and saves the chosen lighting: the chunks are meshed again.

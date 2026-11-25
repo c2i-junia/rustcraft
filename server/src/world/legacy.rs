@@ -109,6 +109,7 @@ impl From<LegacyWorldData> for WorldData {
             weather: None,
             generation: Default::default(),
             difficulty: Default::default(),
+            game_mode: Default::default(),
         }
     }
 }

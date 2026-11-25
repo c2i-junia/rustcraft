@@ -9,15 +9,17 @@ use bevy::input::keyboard::{KeyCode, KeyboardFocusLost};
 use bevy::prelude::*;
 use bevy::ui::{Checked, UiGlobalTransform};
 use bevy::ui_widgets::{ScrollArea, ScrollIntoView, Scrollbar, ScrollbarThumb};
+use bevy::window::{PrimaryWindow, WindowMode};
 
 use super::game::{enter_world, slot};
 use super::harness::{Harness, Options, SCREEN, SERVER, STARTUP};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::audio::settings::AudioSettings;
+use crate::camera::{ViewSettings, FOV_DEGREES, MAX_FOV_DEGREES, ZOOM_SCALE};
 use crate::constants::{
     AUDIO_SETTINGS_PATH, BINDS_PATH, DEFAULT_CHUNK_RENDER_DISTANCE_RADIUS, INTERFACE_SETTINGS_PATH,
-    MAX_CHUNK_RENDER_DISTANCE_RADIUS, VIDEO_SETTINGS_PATH,
+    MAX_CHUNK_RENDER_DISTANCE_RADIUS, VIDEO_SETTINGS_PATH, VIEW_SETTINGS_PATH,
 };
 use crate::input::data::GameAction;
 use crate::input::keyboard::default_bindings;
@@ -216,6 +218,9 @@ fn the_keyboard_alone_walks_the_tabs() {
     h.press(KeyCode::ArrowRight);
     h.wait_for(&render_distance(), SCREEN);
     h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some("Field of view"));
+    h.press(KeyCode::Tab);
+    h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Render distance"));
     h.press(KeyCode::ArrowLeft);
     h.wait_for(
@@ -338,6 +343,89 @@ fn the_render_distance_moves_by_whole_chunks_within_its_bounds_and_is_kept() {
         h.world().resource::<RenderDistance>().distance,
         MAX_CHUNK_RENDER_DISTANCE_RADIUS
     );
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_mouse_sensitivity_is_set_on_the_controls_tab_and_kept() {
+    let slider = L::role(Role::Slider, "Mouse sensitivity");
+    let readout = |text: &str| L::text(text).within(L::row("Mouse sensitivity"));
+    let folder = GameFolder::new();
+    let mut h = settings_with(folder.clone(), Options::default());
+    h.wait_for(&readout("100%"), SCREEN);
+    h.click(&slider);
+    for _ in 0..40 {
+        h.press(KeyCode::ArrowLeft);
+    }
+    h.wait_for(&readout("10%"), SCREEN);
+    h.press(KeyCode::ArrowRight);
+    h.wait_for(&readout("15%"), SCREEN);
+    h.snapshot("mouse_sensitivity");
+    let saved: ViewSettings = h.saved(VIEW_SETTINGS_PATH);
+    assert_eq!(saved.mouse_sensitivity, 0.15);
+    drop(h);
+
+    let mut h = settings_with(folder, Options::default());
+    h.wait_for(&readout("15%"), SCREEN);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_field_of_view_and_the_fullscreen_apply_in_game_and_are_kept() {
+    let slider = L::role(Role::Slider, "Field of view");
+    let folder = GameFolder::new().with_world("View");
+    let mut h = enter_world(folder.clone(), "View");
+    let fov = |w: &World| {
+        let mut projections = w
+            .try_query_filtered::<&Projection, With<Camera3d>>()
+            .unwrap();
+        match projections.single(w).unwrap() {
+            Projection::Perspective(perspective) => perspective.fov.to_degrees(),
+            _ => unreachable!(),
+        }
+    };
+    let is = |degrees: f32| move |w: &World| (fov(w) - degrees).abs() < 0.01;
+    assert!(is(FOV_DEGREES)(h.world()));
+
+    h.press(KeyCode::Escape);
+    h.click(&L::role(Role::Button, "Settings"));
+    h.wait_for(&L::role(Role::Tab, "Controls"), SCREEN);
+    h.open_tab_showing("Video", &slider);
+    h.click(&slider);
+    for _ in 0..MAX_FOV_DEGREES as u32 {
+        h.press(KeyCode::ArrowRight);
+    }
+    h.wait_for(&L::text("110").within(L::row("Field of view")), SCREEN);
+    h.wait_until("the camera at 110 degrees", SCREEN, is(MAX_FOV_DEGREES));
+    let windowed = |w: &World| {
+        let mut windows = w
+            .try_query_filtered::<&Window, With<PrimaryWindow>>()
+            .unwrap();
+        windows.single(w).unwrap().mode == WindowMode::Windowed
+    };
+    assert!(windowed(h.world()));
+    let group = || L::role(Role::RadioGroup, "Fullscreen");
+    h.click(&L::role(Role::RadioButton, "On").within(group()));
+    h.wait_until("fullscreen", SCREEN, |w| !windowed(w));
+    h.snapshot("video_in_game");
+    let saved: ViewSettings = h.saved(VIEW_SETTINGS_PATH);
+    assert_eq!(saved.fov, MAX_FOV_DEGREES);
+    assert!(saved.fullscreen);
+
+    // the zoom starts from the one the player set
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    h.press(KeyCode::Escape);
+    h.frames(2);
+    h.key_down(KeyCode::KeyC);
+    h.wait_until("the zoom", SCREEN, is(MAX_FOV_DEGREES * ZOOM_SCALE));
+    h.key_up(KeyCode::KeyC);
+    drop(h);
+
+    // kept for the next start, where the camera starts at it
+    let mut h = enter_world(folder, "View");
+    assert!(is(MAX_FOV_DEGREES)(h.world()));
+    h.wait_until("fullscreen", SCREEN, |w| !windowed(w));
 }
 
 #[test]

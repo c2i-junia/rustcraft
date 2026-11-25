@@ -113,6 +113,7 @@ pub(super) fn auth_register_request(
             &client_id,
             username,
             spawn,
+            world_map.game_mode,
             game_folder_paths,
         ) {
             Ok(player) => world_map.players.insert(client_id, player),

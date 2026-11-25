@@ -14,8 +14,11 @@ use shared::{
     messages::PlayerId,
     players::{game_mode::DamageSource, movement::is_terrain_loaded, Player},
     world::{
-        fire::flammability, hostiles::is_prey, ticks::sees_sky, BlockData, BlockDirection,
-        BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobId, MobKind, ServerMob, WeatherKind,
+        fire::flammability,
+        hostiles::{is_prey, Difficulty},
+        ticks::sees_sky,
+        BlockData, BlockDirection, BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobId,
+        MobKind, ServerMob, WeatherKind,
     },
 };
 
@@ -60,9 +63,11 @@ pub fn cinder_system(
         chunks,
         players,
         changed_mobs,
+        difficulty,
         ..
     } = world_map.as_mut();
-    fly_embers(mobs, chunks, players, changed_mobs, time.delta_secs());
+    let delta = time.delta_secs();
+    fly_embers(mobs, chunks, players, changed_mobs, *difficulty, delta);
     quench(mobs, chunks, weather.kind != WeatherKind::Clear);
 }
 
@@ -72,6 +77,7 @@ fn fly_embers(
     chunks: &mut ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
     changed: &mut HashSet<MobId>,
+    difficulty: Difficulty,
     delta: f32,
 ) {
     let mut gone = Vec::new();
@@ -79,7 +85,7 @@ fn fly_embers(
         if !ember.kind.is_projectile() {
             continue;
         }
-        if fly(ember, chunks, players, delta) {
+        if fly(ember, chunks, players, difficulty, delta) {
             changed.insert(*id);
         } else {
             gone.push(*id);
@@ -100,6 +106,7 @@ fn fly(
     ember: &mut ServerMob,
     chunks: &mut ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
+    difficulty: Difficulty,
     delta: f32,
 ) -> bool {
     if ember.action_ticks == 0
@@ -124,7 +131,7 @@ fn fly(
             is_prey(player) && body.intersects(&Aabb3d::new(player.position, half))
         });
         if let Some(player) = struck {
-            hit(player);
+            hit(player, difficulty);
             return false;
         }
         if let Some(block) = chunks.get_block(at.floor().as_ivec3()).copied() {
@@ -146,10 +153,11 @@ fn fly(
 
 /// An ember hits `player`: the Cinderling's damage, and burning for `EMBER_BURNING_TICKS` at
 /// least.
-fn hit(player: &mut Player) {
+fn hit(player: &mut Player, difficulty: Difficulty) {
     let damage = MobKind::Cinderling
         .strike()
         .map_or(1, |strike| strike.damage);
+    let damage = difficulty.strike_damage(damage);
     player.hurt(damage, DamageSource::Mob(MobKind::Cinderling));
     player.burning_ticks = player.burning_ticks.max(EMBER_BURNING_TICKS);
 }

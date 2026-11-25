@@ -10,6 +10,8 @@ use std::time::{Duration, SystemTime};
 
 use bevy::prelude::*;
 use server::{write_meta, WorldMeta, FORMAT_VERSION, WORLD_FILE};
+use shared::players::game_mode::GameMode;
+use shared::world::hostiles::Difficulty;
 use shared::world::{WorldGenSettings, WorldSeed};
 
 use super::solo::SelectedWorld;
@@ -224,14 +226,23 @@ fn io_error(err: Box<dyn std::error::Error>) -> io::Error {
     }
 }
 
-/// Creates the world `name` in `saves` with this `seed` and these `generation` settings: its
+/// What a new world is made with besides its name and its seed.
+#[derive(Debug, Clone, Default)]
+pub struct NewWorldOptions {
+    pub generation: WorldGenSettings,
+    /// The mode its players start in.
+    pub game_mode: GameMode,
+    pub difficulty: Difficulty,
+}
+
+/// Creates the world `name` in `saves` with this `seed` and these `options`: its
 /// folder, never an existing one, and its `world.ron`, so that it is listed at once. On a failed
 /// write the folder is removed.
 pub fn create_world(
     saves: &Path,
     name: &str,
     seed: u32,
-    generation: WorldGenSettings,
+    options: NewWorldOptions,
 ) -> io::Result<()> {
     if !is_single_path_component(name) {
         return Err(invalid_name(name));
@@ -240,7 +251,9 @@ pub fn create_world(
     let folder = saves.join(name);
     fs::create_dir(&folder)?;
     let meta = WorldMeta {
-        generation,
+        generation: options.generation,
+        game_mode: options.game_mode,
+        difficulty: options.difficulty,
         ..WorldMeta::new(name.to_string(), WorldSeed(seed), 0, HashMap::new())
     };
     write_meta(&folder, &meta).map_err(|err| {

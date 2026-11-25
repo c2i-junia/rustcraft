@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use ron::de::from_str;
 use serde::Deserialize;
 use shared::messages::PlayerId;
-use shared::players::Player;
+use shared::players::{game_mode::GameMode, Player};
 use shared::world::data::WorldSeed;
 use shared::GameFolderPaths;
 use std::fs;
@@ -278,6 +278,7 @@ pub fn load_player_data(
     player_id: &PlayerId,
     player_name: &str,
     spawn: Vec3,
+    game_mode: GameMode,
     game_folder_paths: &GameFolderPaths,
 ) -> Result<Player, String> {
     let file_path: PathBuf = game_folder_paths
@@ -292,6 +293,7 @@ pub fn load_player_data(
         spawn,
         Transform::default(),
     );
+    player.game_mode = game_mode;
 
     if !path.exists() {
         info!(
@@ -395,7 +397,15 @@ mod tests {
         saved.inventory.inner.insert(5, dirt(3));
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "new name", Vec3::ZERO, &paths).unwrap();
+        let loaded = load_player_data(
+            WORLD,
+            &7,
+            "new name",
+            Vec3::ZERO,
+            GameMode::Survival,
+            &paths,
+        )
+        .unwrap();
 
         assert_eq!(loaded.id, 7);
         assert_eq!(loaded.name, "new name");
@@ -420,7 +430,8 @@ mod tests {
         saved.exhaustion = 2.25;
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "builder", SPAWN, &paths).unwrap();
+        let loaded =
+            load_player_data(WORLD, &7, "builder", SPAWN, GameMode::Survival, &paths).unwrap();
         assert_eq!(loaded.game_mode, GameMode::Creative);
         assert!(loaded.is_dead());
         assert_eq!(loaded.death_cause, Some(DeathCause::Fall));
@@ -432,7 +443,7 @@ mod tests {
         // A save from before the game modes is a survival player in full health
         let old = "(id: 7, name: \"old\", position: (1.0, 2.0, 3.0), camera_transform: (translation: (0.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0)), velocity: (0.0, 0.0, 0.0), on_ground: true, is_flying: true, inventory: (inner: {}), height: 1.8, width: 0.8, last_input_processed: 0)";
         fs::write(player_file(&tmp, 7), old).unwrap();
-        let loaded = load_player_data(WORLD, &7, "old", SPAWN, &paths).unwrap();
+        let loaded = load_player_data(WORLD, &7, "old", SPAWN, GameMode::Survival, &paths).unwrap();
         assert_eq!(loaded.position, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(loaded.game_mode, GameMode::Survival);
         assert_eq!(loaded.health, MAX_HEALTH);
@@ -448,7 +459,8 @@ mod tests {
         saved.inventory.open_furnace = Some(bevy::math::IVec3::new(4, 5, 6));
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "crafter", Vec3::ZERO, &paths).unwrap();
+        let loaded =
+            load_player_data(WORLD, &7, "crafter", Vec3::ZERO, GameMode::Survival, &paths).unwrap();
 
         assert_eq!(loaded.inventory.open_table, None);
         assert_eq!(loaded.inventory.open_furnace, None);
@@ -457,8 +469,10 @@ mod tests {
     #[test]
     fn missing_file_spawns_a_new_player() {
         let tmp = tempfile::tempdir().unwrap();
-        let loaded = load_player_data(WORLD, &7, "fresh", SPAWN, &paths(&tmp)).unwrap();
+        let loaded =
+            load_player_data(WORLD, &7, "fresh", SPAWN, GameMode::Creative, &paths(&tmp)).unwrap();
 
+        assert_eq!(loaded.game_mode, GameMode::Creative);
         assert_eq!(loaded.position, SPAWN);
         assert!(!loaded.is_flying);
         assert!(loaded.inventory.inner.is_empty());
@@ -471,7 +485,8 @@ mod tests {
         let file = player_file(&tmp, 7);
         fs::write(&file, "this is not ron").unwrap();
 
-        let loaded = load_player_data(WORLD, &7, "fresh", SPAWN, &paths).unwrap();
+        let loaded =
+            load_player_data(WORLD, &7, "fresh", SPAWN, GameMode::Survival, &paths).unwrap();
 
         assert_eq!(loaded.position, SPAWN);
         assert!(!file.exists());
@@ -490,7 +505,7 @@ mod tests {
         fs::create_dir(&squatter).unwrap();
         fs::write(squatter.join("keep"), "x").unwrap();
 
-        let result = load_player_data(WORLD, &7, "fresh", SPAWN, &paths);
+        let result = load_player_data(WORLD, &7, "fresh", SPAWN, GameMode::Survival, &paths);
 
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(file).unwrap(), "this is not ron");

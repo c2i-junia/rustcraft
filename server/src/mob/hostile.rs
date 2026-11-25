@@ -17,7 +17,7 @@ use shared::{
     messages::PlayerId,
     players::{game_mode::DamageSource, Player},
     world::{
-        hostiles::{distance_to_box, is_prey, line_of_sight, Hunt, Strike},
+        hostiles::{distance_to_box, is_prey, line_of_sight, Difficulty, Hunt, Strike},
         BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobAction, MobKind, MobTarget,
         ServerMob,
     },
@@ -75,7 +75,7 @@ pub fn provoke(mob: &mut ServerMob, player: PlayerId) {
     mob.target = MobTarget::Player(player);
 }
 
-/// One step of the hunt of a hostile: the prey, then what its kind does. Returns what it threw,
+/// One step of the hunt of a hostile in a world this hard: the prey, then what its kind does. Returns what it threw,
 /// if anything: a Cinderling's ember, which the caller adds to the mobs.
 ///
 /// The arm of each kind is where the later hostiles plug in their own way of going at a prey.
@@ -83,12 +83,14 @@ pub fn act(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
+    difficulty: Difficulty,
     delta: f32,
     rng: &mut impl Rng,
 ) -> Option<ServerMob> {
-    let (Some(hunt), Some(strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
+    let (Some(hunt), Some(mut strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
         return None;
     };
+    strike.damage = difficulty.strike_damage(strike.damage);
     if mob.action == MobAction::Burrow {
         burrow(mob);
         return None;

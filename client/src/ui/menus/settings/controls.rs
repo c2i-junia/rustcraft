@@ -8,7 +8,7 @@
 //! or keys hold every word typed. Down or Enter goes to the first of them, Escape clears the
 //! field, or leaves the settings once it is empty.
 //!
-//! Under the list, the switch of the inventory tweaks, the Mouse Tweaks gestures of the open
+//! Under the list, the slider of the mouse sensitivity, saved with the view settings, and the switch of the inventory tweaks, the Mouse Tweaks gestures of the open
 //! inventory, saved with the interface settings as soon as it is chosen.
 
 use std::ops::Range;
@@ -28,11 +28,12 @@ use bevy::{
     prelude::*,
     text::EditableText,
     ui::Pressed,
-    ui_widgets::{observe, Activate, ScrollArea, ScrollIntoView, Scrollbar},
+    ui_widgets::{observe, Activate, ScrollArea, ScrollIntoView, Scrollbar, ValueChange},
     window::WindowFocused,
 };
 use shared::GameFolderPaths;
 
+use crate::camera::{write_view_settings, ViewSettings, MAX_SENSITIVITY, MIN_SENSITIVITY};
 use crate::input::data::{ActionCategory, GameAction};
 use crate::input::keyboard::{
     clear_key, conflicts, default_bindings, set_key, write_keybindings, KeyUse, MAX_KEYS_PER_ACTION,
@@ -52,6 +53,9 @@ use crate::ui::widgets::list::{
     spawn_scroll_list, ScrollListParts, WheelStep, RING_ROOM, SCROLLBAR_WIDTH,
 };
 use crate::ui::widgets::segmented::{spawn_segmented, SegmentChange, Segmented};
+use crate::ui::widgets::slider::{
+    percent_label, spawn_slider, SliderField, SliderScale, SLIDER_STEP,
+};
 use crate::ui::widgets::text_field::{
     set_text, spawn_text_field, Cancel as FieldCancel, Submit, TextField,
 };
@@ -464,15 +468,15 @@ fn line() -> Node {
 /// What the switch of the inventory tweaks does, beside it.
 pub const TWEAKS_NOTE: &str = "Shift+drag: stacks  Wheel: one item";
 
-/// Spawns the search field, the headers of the key columns, the scrolling list of the actions and
-/// the switch of the inventory tweaks under `panel`, and the count of the actions found and the
+/// Spawns the search field, the headers of the key columns, the scrolling list of the actions, the
+/// slider of the mouse sensitivity and the switch of the inventory tweaks under `panel`, and the count of the actions found and the
 /// reset button under `footer`, the right end of the footer of the settings. The field holds
-/// `search`, the switch the choice of `interface`. `fonts` are the font of the texts and the one
+/// `search`, the slider shows `view` and the switch the choice of `interface`. `fonts` are the font of the texts and the one
 /// that draws the arrows of the key caps.
 pub fn spawn_controls_tab(
     commands: &mut Commands,
     (panel, footer): (Entity, Entity),
-    (key_map, interface): (&KeyMap, &InterfaceSettings),
+    (key_map, interface, view): (&KeyMap, &InterfaceSettings, &ViewSettings),
     search: &KeySearch,
     fonts: (Handle<Font>, Handle<Font>),
 ) {
@@ -633,6 +637,7 @@ pub fn spawn_controls_tab(
         },
         ChildOf(list),
     ));
+    spawn_sensitivity(commands, content, view, &font);
     spawn_tweaks_switch(commands, content, interface, &font);
     commands.spawn((MatchCount, label("", &font, FONT_S, MUTED), ChildOf(footer)));
     commands.spawn((
@@ -641,6 +646,53 @@ pub fn spawn_controls_tab(
         observe(ask_reset),
         ChildOf(footer),
     ));
+}
+
+/// The mouse sensitivity, a percentage of the one before the player sets one.
+const SENSITIVITY_SCALE: SliderScale = SliderScale {
+    min: MIN_SENSITIVITY,
+    max: MAX_SENSITIVITY,
+    step: SLIDER_STEP,
+    whole: false,
+    readout: percent_label,
+};
+
+/// Spawns under `content` the slider of the mouse sensitivity of `view`.
+fn spawn_sensitivity(
+    commands: &mut Commands,
+    content: Entity,
+    view: &ViewSettings,
+    font: &Handle<Font>,
+) {
+    let field = SliderField {
+        label: "Mouse sensitivity",
+        value: view.mouse_sensitivity,
+        scale: SENSITIVITY_SCALE,
+    };
+    let parts = spawn_slider(commands, &field, font.clone());
+    // clear of the list above
+    commands
+        .entity(parts.root)
+        .insert(ChildOf(content))
+        .entry::<Node>()
+        .and_modify(|mut node| node.margin.top = px(SPACE_S));
+    commands
+        .entity(parts.slider)
+        .observe(set_sensitivity)
+        .observe(super::video::save_view_on_release);
+}
+
+/// Applies the mouse sensitivity of the slider, and saves it once the player is done with it.
+fn set_sensitivity(
+    change: On<ValueChange<f32>>,
+    mut settings: ResMut<ViewSettings>,
+    paths: Res<GameFolderPaths>,
+) {
+    // whole percents: the arrows add up rounding errors
+    settings.set_mouse_sensitivity((change.value * 100.).round() / 100.);
+    if change.is_final {
+        write_view_settings(&settings, &paths);
+    }
 }
 
 /// Spawns under `content` the row of the switch of the inventory tweaks, showing the choice of

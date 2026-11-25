@@ -10,19 +10,20 @@ use bevy::{
     ui::InteractionDisabled,
     ui_widgets::SelectAllOnFocus,
 };
-use shared::world::{WorldGenSettings, WorldPreset};
+use shared::players::game_mode::GameMode;
+use shared::world::{hostiles::Difficulty, WorldPreset};
 use shared::GameFolderPaths;
 
 use super::super::worlds::{
     check_world_name, create_world, delete_world, format_size, free_world_name, parse_seed,
-    rename_world, WorldSummary, MAX_WORLD_NAME_LENGTH,
+    rename_world, NewWorldOptions, WorldSummary, MAX_WORLD_NAME_LENGTH,
 };
 use super::super::MenuState;
 use super::WorldCard;
 use crate::constants::SAVE_PATH;
 use crate::ui::assets::FONT_PATH;
 use crate::ui::menus::modal_open;
-use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_XS};
+use crate::ui::theme::{FONT_M, FONT_S, MUTED, SPACE_M};
 use crate::ui::widgets::button::ButtonVariant;
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, spawn_dialog, spawn_form_dialog, CloseRequest, Dialog,
@@ -91,9 +92,76 @@ const WORLD_TYPES: [(&str, WorldPreset); 3] = [
     ("Archipelago", WorldPreset::Archipelago),
 ];
 
-/// The index in `WORLD_TYPES` of the world type checked in the New world dialog, on its root.
+/// The game modes the New world dialog offers, by their caption.
+const GAME_MODES: [(&str, GameMode); 2] = [
+    ("Survival", GameMode::Survival),
+    ("Creative", GameMode::Creative),
+];
+
+/// The difficulties the New world dialog offers, by their caption.
+const DIFFICULTIES: [(&str, Difficulty); 4] = [
+    ("Peaceful", Difficulty::Peaceful),
+    ("Easy", Difficulty::Easy),
+    ("Normal", Difficulty::Normal),
+    ("Hard", Difficulty::Hard),
+];
+
+/// What is checked in the controls of the New world dialog, on its root.
 #[derive(Component, Default)]
-struct WorldTypeChoice(usize);
+struct NewWorldChoices(NewWorldOptions);
+
+/// The width of the labels of the choices, beside their controls: above them, the dialog would be
+/// taller than the smallest window (`MIN_LOGICAL_HEIGHT`).
+const CHOICE_LABEL_WIDTH: f32 = 96.0;
+
+/// Spawns under `form` the segmented control `label`, the option `selected` checked. `choose`
+/// sets the chosen option in the `NewWorldChoices` of the dialog `root`.
+fn spawn_world_choice(
+    commands: &mut Commands,
+    (root, form): (Entity, Entity),
+    (label, options, selected): (&str, &[&str], usize),
+    font: &Handle<Font>,
+    choose: impl Fn(&mut NewWorldOptions, usize) + Send + Sync + 'static,
+) {
+    let row = commands
+        .spawn((
+            Node {
+                align_items: AlignItems::Center,
+                column_gap: px(SPACE_M),
+                ..default()
+            },
+            ChildOf(form),
+        ))
+        .id();
+    commands.spawn((
+        Text::new(label),
+        TextFont {
+            font: font.clone().into(),
+            font_size: px(FONT_S).into(),
+            ..default()
+        },
+        TextColor(MUTED),
+        TextLayout::no_wrap(),
+        Node {
+            width: px(CHOICE_LABEL_WIDTH),
+            ..default()
+        },
+        ChildOf(row),
+    ));
+    let segmented = Segmented {
+        label,
+        options,
+        selected,
+    };
+    let group = spawn_segmented(commands, &segmented, font.clone());
+    commands.entity(group).insert(ChildOf(row)).observe(
+        move |change: On<SegmentChange>, mut choices: Query<&mut NewWorldChoices>| {
+            if let Ok(mut choices) = choices.get_mut(root) {
+                choose(&mut choices.0, change.index);
+            }
+        },
+    );
+}
 
 /// The fields of an open world dialog and what they are checked against, on its root.
 #[derive(Component)]
@@ -198,46 +266,41 @@ pub fn open_new_world_dialog(
     );
     let root = parts.root;
     if let Some(form) = parts.form {
-        let column = commands
-            .spawn((
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(SPACE_XS),
-                    ..default()
-                },
-                ChildOf(form),
-            ))
-            .id();
-        commands.spawn((
-            Text::new("World type"),
-            TextFont {
-                font: font.clone().into(),
-                font_size: px(FONT_S).into(),
-                ..default()
-            },
-            TextColor(MUTED),
-            ChildOf(column),
-        ));
-        let types = WORLD_TYPES.map(|(caption, _)| caption);
-        let segmented = Segmented {
-            label: "World type",
-            options: &types,
-            selected: 0,
-        };
-        let group = spawn_segmented(commands, &segmented, font);
-        commands.entity(group).insert(ChildOf(column)).observe(
-            move |change: On<SegmentChange>, mut choices: Query<&mut WorldTypeChoice>| {
-                if let Ok(mut choice) = choices.get_mut(root) {
-                    choice.0 = change.index;
-                }
-            },
+        spawn_world_choice(
+            commands,
+            (root, form),
+            ("Game mode", &GAME_MODES.map(|(caption, _)| caption), 0),
+            &font,
+            |options, index| options.game_mode = GAME_MODES[index].1,
+        );
+        let normal = DIFFICULTIES
+            .iter()
+            .position(|&(_, difficulty)| difficulty == Difficulty::default())
+            .unwrap_or_default();
+        spawn_world_choice(
+            commands,
+            (root, form),
+            (
+                "Difficulty",
+                &DIFFICULTIES.map(|(caption, _)| caption),
+                normal,
+            ),
+            &font,
+            |options, index| options.difficulty = DIFFICULTIES[index].1,
+        );
+        spawn_world_choice(
+            commands,
+            (root, form),
+            ("World type", &WORLD_TYPES.map(|(caption, _)| caption), 0),
+            &font,
+            |options, index| options.generation.preset = WORLD_TYPES[index].1.clone(),
         );
     }
     commands
         .entity(root)
         .insert((
             WorldForm::new(name.input, Some(seed.input), others, None),
-            WorldTypeChoice::default(),
+            NewWorldChoices::default(),
         ))
         .observe(check_world_form)
         .observe(create_world_on_submit);
@@ -393,13 +456,13 @@ fn delete_failure(error: &io::Error) -> &'static str {
 /// says why under the name. A dialog already closing was submitted before in this update.
 fn create_world_on_submit(
     submit: On<DialogSubmit>,
-    forms: Query<(&WorldForm, Option<&WorldTypeChoice>), Without<CloseRequest>>,
+    forms: Query<(&WorldForm, Option<&NewWorldChoices>), Without<CloseRequest>>,
     texts: Query<&EditableText>,
     paths: Res<GameFolderPaths>,
     mut commands: Commands,
 ) {
     let root = submit.entity;
-    let Ok((form, choice)) = forms.get(root) else {
+    let Ok((form, choices)) = forms.get(root) else {
         return;
     };
     let Ok(name) = check_world_name(&value_of(&texts, form.name), &form.others) else {
@@ -413,12 +476,8 @@ fn create_world_on_submit(
         return;
     };
     let saves = paths.game_folder_path.join(SAVE_PATH);
-    let preset = WORLD_TYPES[choice.map_or(0, |choice| choice.0)].1.clone();
-    let generation = WorldGenSettings {
-        preset,
-        ..WorldGenSettings::default()
-    };
-    match create_world(&saves, &name, seed.unwrap_or_else(rand::random), generation) {
+    let options = choices.map_or_else(NewWorldOptions::default, |choices| choices.0.clone());
+    match create_world(&saves, &name, seed.unwrap_or_else(rand::random), options) {
         Ok(()) => {
             info!("Created the world {name:?}");
             // closing first: the card of the new world takes the focus
@@ -539,6 +598,7 @@ pub fn open_delete_world_dialog(
 #[cfg(test)]
 mod tests {
     use bevy::text::TextEdit;
+    use shared::world::WorldGenSettings;
     use tempfile::TempDir;
 
     use super::*;
@@ -661,7 +721,13 @@ mod tests {
         // the third type, as the segmented control leaves it
         world
             .entity_mut(root)
-            .insert(WorldTypeChoice(2))
+            .insert(NewWorldChoices(NewWorldOptions {
+                generation: WorldGenSettings {
+                    preset: WorldPreset::Archipelago,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }))
             .observe(create_world_on_submit);
         world.commands().trigger(DialogSubmit { entity: root });
         world.flush();

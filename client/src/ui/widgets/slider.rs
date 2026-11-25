@@ -212,7 +212,7 @@ pub(super) fn plugin(app: &mut App) {
 }
 
 /// The value as a rounded percentage: "55%".
-fn percent_label(value: f32) -> String {
+pub fn percent_label(value: f32) -> String {
     format!("{}%", (value * 100.0).round())
 }
 

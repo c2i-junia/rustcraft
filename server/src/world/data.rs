@@ -10,6 +10,7 @@ use super::home::{HomeEvents, Places};
 use crate::mob::combat::BlowWaits;
 use shared::{
     messages::PlayerId,
+    players::game_mode::GameMode,
     players::{blocks::PortalShot, Player},
     world::{hostiles::Difficulty, ChunkMap, ChunkReach, DroppedItemId, MobId, ServerMob},
     GameFolderPaths, MIN_RENDER_DISTANCE,
@@ -52,6 +53,8 @@ pub struct ServerWorldMap {
     pub portal_shots: Vec<(PlayerId, PortalShot)>,
     /// How hard the world is: whether hostile mobs live in it. Saved in `world.ron`.
     pub difficulty: Difficulty,
+    /// The game mode a new player starts in, chosen with the world. Saved in `world.ron`.
+    pub game_mode: GameMode,
 }
 
 /// What one client has received of the world.

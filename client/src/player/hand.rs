@@ -755,7 +755,7 @@ mod tests {
         };
         let usual = on_screen(FOV_DEGREES.to_radians());
         assert_eq!(frame_scale(FOV_DEGREES.to_radians()), Vec3::ONE);
-        for fov in [0.25, 1.15] {
+        for fov in [0.25, 0.5, 1.15, 110.0 / 60.0 * 1.1] {
             let there = on_screen(FOV_DEGREES.to_radians() * fov);
             assert!((there - usual).length() < 1e-5, "{there} {usual}");
         }
