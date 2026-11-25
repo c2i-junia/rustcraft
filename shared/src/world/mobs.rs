@@ -154,6 +154,10 @@ pub struct ServerMob {
     /// (`Portals::pass`). Not saved, as the portals.
     #[serde(skip)]
     pub portal_rest: Option<PortalRest>,
+    /// Ticks left before a blow hurts the mob again, after the last one that did. Neither saved
+    /// nor sent.
+    #[serde(skip)]
+    pub hurt_ticks: u32,
 }
 
 impl ServerMob {
@@ -176,6 +180,7 @@ impl ServerMob {
             sheared: false,
             passes: 0,
             portal_rest: None,
+            hurt_ticks: 0,
         }
     }
 

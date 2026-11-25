@@ -152,6 +152,7 @@ mod tests {
                 sheared: false,
                 passes: 0,
                 portal_rest: None,
+                hurt_ticks: 0,
             },
         };
         let update = PlayerUpdateEvent {

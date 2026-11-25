@@ -27,6 +27,13 @@ const SPEAR_REACH: f32 = 5.0;
 const BLOW_MS: u64 = 500;
 /// Upward speed of a mob that takes a blow.
 const KNOCK_SPEED: f32 = 4.0;
+/// Horizontal speed of a mob that takes a blow, away from the player, in blocks per second:
+/// above how fast it runs, so that it flies until it lands (`behavior::is_flung`).
+const KNOCK_BACK_SPEED: f32 = 6.0;
+/// Ticks after a blow during which the mob takes no other.
+pub const MOB_INVULNERABILITY_TICKS: u32 = 10;
+/// Ticks a mob hit flees from the player: 5 seconds.
+pub const FLEE_TICKS: u32 = 5 * shared::TICKS_PER_SECOND as u32;
 
 /// Time left before the next blow of each player, while it holds the button.
 pub type BlowWaits = HashMap<shared::messages::PlayerId, u64>;
@@ -94,27 +101,33 @@ pub fn interact(
     let position = mob.position;
     if left {
         rest.inputs.remove(&NetworkAction::LeftClick);
+        // A blow on a mob still invulnerable swings for nothing
         if *wait == 0 {
             *wait = BLOW_MS;
-            mob.damage += held.map_or(1, |item| item.attack_damage());
-            mob.velocity.y = KNOCK_SPEED;
-            mob.on_ground = false;
-            mob.action = MobAction::Flee;
-            mob.target = MobTarget::Player(player.id);
-            world.changed.insert(id);
-            if held.is_some_and(|item| item.tool().is_some()) {
-                player.inventory.wear_tool(input.hotbar_slot, 1);
-            }
-            if mob.damage >= mob.kind.health() {
-                if mob.kind == MobKind::Sheep {
-                    drops.push((ItemId::RawMutton, rng.gen_range(1..=2)));
-                    if !mob.sheared {
-                        drops.push((ItemId::Wool, 1));
-                    }
+            if mob.hurt_ticks == 0 {
+                mob.damage += mob.kind.blow_damage(held);
+                mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
+                let away = (mob.position - player.position)
+                    .with_y(0.0)
+                    .try_normalize()
+                    .unwrap_or_else(|| input.camera.forward().with_y(0.0).normalize_or_zero());
+                mob.velocity = away * KNOCK_BACK_SPEED + Vec3::Y * KNOCK_SPEED;
+                mob.on_ground = false;
+                mob.action = MobAction::Flee;
+                mob.action_ticks = FLEE_TICKS;
+                mob.target = MobTarget::Player(player.id);
+                world.changed.insert(id);
+                if let Some(item) = held {
+                    player
+                        .inventory
+                        .wear_tool(input.hotbar_slot, item.blow_wear());
                 }
-                // The clients are told by the next broadcast, which no longer finds it
-                world.mobs.remove(&id);
-                world.changed.remove(&id);
+                if mob.damage >= mob.kind.health() {
+                    drops.extend(loot(mob, rng));
+                    // The clients are told by the next broadcast, which no longer finds it
+                    world.mobs.remove(&id);
+                    world.changed.remove(&id);
+                }
             }
         }
     }
@@ -129,6 +142,30 @@ pub fn interact(
             .spawn(DroppedItem::new(stack, position, Vec3::Y * KNOCK_SPEED));
     }
     Some(rest)
+}
+
+/// What `mob` drops when it dies: its meat, and its wool, leather or feathers. Counts of zero
+/// are left out.
+pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
+    let mut drops = match mob.kind {
+        MobKind::Sheep => vec![
+            (ItemId::RawMutton, rng.gen_range(1..=2)),
+            (ItemId::Wool, u32::from(!mob.sheared)),
+        ],
+        MobKind::Pig => vec![(ItemId::RawPork, rng.gen_range(1..=3))],
+        MobKind::Cow => vec![
+            (ItemId::RawBeef, rng.gen_range(1..=3)),
+            (ItemId::Leather, rng.gen_range(0..=2)),
+        ],
+        MobKind::Chicken => vec![
+            (ItemId::RawChicken, 1),
+            (ItemId::Feather, rng.gen_range(0..=2)),
+        ],
+        MobKind::Rabbit => vec![(ItemId::RawRabbit, 1)],
+        MobKind::Fox | MobKind::Wolf | MobKind::Horse | MobKind::Goat | MobKind::Cat => vec![],
+    };
+    drops.retain(|&(_, nb)| nb > 0);
+    drops
 }
 
 /// The nearest mob the player aims at, within its reach and before any block.
@@ -180,35 +217,95 @@ fn aimed_mob(
 mod tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
+    use shared::world::ItemType;
 
-    /// What `clicks` clicks of `action`, each released, do to a sheep two blocks ahead.
-    fn click(action: NetworkAction, clicks: u32) -> (HashMap<MobId, ServerMob>, Vec<ItemId>) {
+    const AHEAD: Vec3 = Vec3::new(0.5, 0.5, -2.0);
+
+    /// A player at the origin looking north, at a mob two blocks ahead, `held` in its first slot.
+    fn fighter(id: u64, held: Option<ItemId>) -> Player {
         let camera = Transform::from_translation(Vec3::splat(0.5));
-        let mut player = Player::new(1, "tester".into(), Vec3::splat(0.5), camera);
-        let sheep = ServerMob::new(MobKind::Sheep, Vec3::new(0.5, 0.5, -2.0));
-        let mut mobs = HashMap::from([(7, sheep)]);
-        let mut items = DroppedItems::default();
-        let mut chunks = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
-        let (mut changed, mut waits) = (HashSet::new(), BlowWaits::new());
-        let mut rng = StdRng::seed_from_u64(1);
-        for pressed in (0..clicks).flat_map(|_| [true, false]) {
+        let mut player = Player::new(id, "tester".into(), Vec3::splat(0.5), camera);
+        if let Some(item_id) = held {
+            let stack = ItemStack {
+                item_id,
+                item_type: item_id.get_default_type(),
+                nb: 1,
+            };
+            player.inventory.inner.insert(0, stack);
+        }
+        player
+    }
+
+    /// The mobs, what they dropped, and what changes them.
+    struct Arena {
+        mobs: HashMap<MobId, ServerMob>,
+        items: DroppedItems,
+        chunks: ChunkMap,
+        changed: HashSet<MobId>,
+        waits: BlowWaits,
+        rng: StdRng,
+    }
+
+    impl Arena {
+        fn with(mob: ServerMob) -> Self {
+            Self {
+                mobs: HashMap::from([(7, mob)]),
+                items: DroppedItems::default(),
+                chunks: ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15)),
+                changed: HashSet::new(),
+                waits: BlowWaits::new(),
+                rng: StdRng::seed_from_u64(1),
+            }
+        }
+
+        /// One tick of `player`, `action` pressed or not; the mobs' invulnerability counts down
+        /// as `step_mobs` does.
+        fn tick(&mut self, player: &mut Player, action: &NetworkAction, pressed: bool) {
             let input = PlayerFrameInput {
                 delta_ms: 50,
                 inputs: pressed.then(|| action.clone()).into_iter().collect(),
-                camera,
+                camera: player.camera_transform,
                 ..Default::default()
             };
             let world = MobWorld {
-                mobs: &mut mobs,
-                changed: &mut changed,
-                items: &mut items,
-                chunks: &mut chunks,
-                waits: &mut waits,
+                mobs: &mut self.mobs,
+                changed: &mut self.changed,
+                items: &mut self.items,
+                chunks: &mut self.chunks,
+                waits: &mut self.waits,
             };
-            interact(&mut player, &input, world, &mut rng);
+            interact(player, &input, world, &mut self.rng);
+            for mob in self.mobs.values_mut() {
+                mob.hurt_ticks = mob.hurt_ticks.saturating_sub(1);
+            }
         }
-        let dropped = items.to_saved();
-        (mobs, dropped.iter().map(|i| i.stack.item_id).collect())
+
+        /// `clicks` clicks of `action` by `player`, each held a tick then released long enough
+        /// for the mob's invulnerability to end.
+        fn click(&mut self, player: &mut Player, action: NetworkAction, clicks: u32) {
+            for _ in 0..clicks {
+                self.tick(player, &action, true);
+                for _ in 0..MOB_INVULNERABILITY_TICKS {
+                    self.tick(player, &action, false);
+                }
+            }
+        }
+
+        fn dropped(&self) -> Vec<ItemId> {
+            self.items
+                .to_saved()
+                .iter()
+                .map(|i| i.stack.item_id)
+                .collect()
+        }
+    }
+
+    /// What `clicks` clicks of `action` do to a sheep two blocks ahead.
+    fn click(action: NetworkAction, clicks: u32) -> (HashMap<MobId, ServerMob>, Vec<ItemId>) {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Sheep, AHEAD));
+        arena.click(&mut fighter(1, None), action, clicks);
+        let dropped = arena.dropped();
+        (arena.mobs, dropped)
     }
 
     #[test]
@@ -226,5 +323,109 @@ mod tests {
         let (mobs, items) = click(NetworkAction::RightClick, 3);
         assert!(mobs[&7].sheared);
         assert_eq!(items, [ItemId::Wool]);
+    }
+
+    #[test]
+    fn a_mob_hit_ignores_blows_for_ten_ticks() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        let (mut first, mut second) = (fighter(1, None), fighter(2, None));
+        let left = NetworkAction::LeftClick;
+        arena.tick(&mut first, &left, true);
+        assert_eq!(arena.mobs[&7].damage, 1);
+        // Another player's blow, the very next tick and in the ninth, lands nothing
+        arena.tick(&mut second, &left, true);
+        for _ in 0..MOB_INVULNERABILITY_TICKS - 3 {
+            arena.tick(&mut second, &left, false);
+        }
+        arena.tick(&mut second, &left, true);
+        assert_eq!(arena.mobs[&7].damage, 1);
+        // Ten ticks after the first, a third player's lands
+        arena.tick(&mut fighter(3, None), &left, true);
+        assert_eq!(arena.mobs[&7].damage, 2);
+    }
+
+    #[test]
+    fn a_blow_knocks_the_mob_back_away_from_the_player_and_it_flees_for_five_seconds() {
+        // The mob is ahead and to the right of the player, who looks at it
+        let at = Vec3::new(2.5, 0.5, -2.0);
+        let mut arena = Arena::with(ServerMob::new(MobKind::Pig, at));
+        let mut player = fighter(3, None);
+        player.camera_transform.look_at(at, Vec3::Y);
+        arena.tick(&mut player, &NetworkAction::LeftClick, true);
+        let pig = &arena.mobs[&7];
+        let away = (at - player.position).with_y(0.0).normalize();
+        let push = pig.velocity.with_y(0.0);
+        assert!(
+            (push - away * KNOCK_BACK_SPEED).length() < 1e-4,
+            "{push} not {away} x {KNOCK_BACK_SPEED}"
+        );
+        assert_eq!(pig.velocity.y, KNOCK_SPEED);
+        assert!(!pig.on_ground);
+        assert_eq!(pig.action, MobAction::Flee);
+        assert!(matches!(pig.target, MobTarget::Player(3)));
+        assert_eq!(pig.action_ticks, FLEE_TICKS);
+        assert_eq!(FLEE_TICKS, 5 * 20);
+    }
+
+    #[test]
+    fn a_blow_wears_a_sword_by_one_and_a_pickaxe_by_two() {
+        for (item, wear) in [(ItemId::IronSword, 1), (ItemId::IronPickaxe, 2)] {
+            let mut arena = Arena::with(ServerMob::new(MobKind::Horse, AHEAD));
+            let mut player = fighter(1, Some(item));
+            arena.click(&mut player, NetworkAction::LeftClick, 2);
+            assert_eq!(
+                player.inventory.inner[&0].item_type,
+                ItemType::Tool { wear: 2 * wear },
+                "{item:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_animal_drops_its_loot() {
+        let mut rng = StdRng::seed_from_u64(5);
+        // What a kind dropped over many deaths: each item, the fewest and the most at once
+        let mut drops = |kind| {
+            let mut seen: HashMap<ItemId, (u32, u32)> = HashMap::new();
+            let mut deaths = 0;
+            for _ in 0..200 {
+                let dropped = loot(&ServerMob::new(kind, AHEAD), &mut rng);
+                deaths += 1;
+                for (item, nb) in dropped {
+                    assert!(nb > 0, "{kind:?} dropped no {item:?}");
+                    let (low, high) = seen.entry(item).or_insert((nb, nb));
+                    (*low, *high) = ((*low).min(nb), (*high).max(nb));
+                }
+            }
+            assert_eq!(deaths, 200);
+            let mut seen: Vec<_> = seen.into_iter().collect();
+            seen.sort();
+            seen
+        };
+        use ItemId::*;
+        assert_eq!(drops(MobKind::Pig), [(RawPork, (1, 3))]);
+        assert_eq!(drops(MobKind::Cow), [(RawBeef, (1, 3)), (Leather, (1, 2))]);
+        assert_eq!(
+            drops(MobKind::Chicken),
+            [(RawChicken, (1, 1)), (Feather, (1, 2))]
+        );
+        assert_eq!(drops(MobKind::Rabbit), [(RawRabbit, (1, 1))]);
+        assert_eq!(drops(MobKind::Sheep), [(Wool, (1, 1)), (RawMutton, (1, 2))]);
+        for kind in [
+            MobKind::Fox,
+            MobKind::Wolf,
+            MobKind::Horse,
+            MobKind::Goat,
+            MobKind::Cat,
+        ] {
+            assert_eq!(drops(kind), [], "{kind:?}");
+        }
+        let sheared = ServerMob {
+            sheared: true,
+            ..ServerMob::new(MobKind::Sheep, AHEAD)
+        };
+        assert!(loot(&sheared, &mut rng)
+            .iter()
+            .all(|&(item, _)| item == RawMutton));
     }
 }

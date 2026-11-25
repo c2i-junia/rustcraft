@@ -118,6 +118,7 @@ fn step_mobs(
     rng: &mut impl Rng,
 ) {
     for (id, mob) in mobs.iter_mut() {
+        mob.hurt_ticks = mob.hurt_ticks.saturating_sub(1);
         // A mob whose position is not a number cannot be simulated: it stays as it is
         if !mob.position.is_finite() || !mob.velocity.is_finite() {
             continue;
@@ -252,6 +253,8 @@ fn act(
         if let Some(id) = nearest_player(players, mob.position, FEAR_DISTANCE) {
             mob.action = MobAction::Flee;
             mob.target = MobTarget::Player(id);
+            // Until it is safe
+            mob.action_ticks = 0;
         }
     }
     match mob.action {
@@ -286,6 +289,14 @@ fn act(
             let Some(threat) = target_position(mob.target, players) else {
                 return rest(mob, rng);
             };
+            // A mob hit flees for a while (`combat::FLEE_TICKS`), one that is shy until it is
+            // safe
+            if mob.action_ticks > 0 {
+                mob.action_ticks -= 1;
+                if mob.action_ticks == 0 {
+                    return rest(mob, rng);
+                }
+            }
             if mob.position.distance(threat) > SAFE_DISTANCE {
                 return rest(mob, rng);
             }
@@ -887,6 +898,49 @@ mod tests {
                 &mut rng,
             );
         }
+    }
+
+    #[test]
+    fn a_mob_hit_flees_until_its_flee_ticks_run_out_then_rests() {
+        let mut map = ground_world(false);
+        let threat = Vec3::new(3.5, 1.5, 0.5);
+        map.mobs.insert(
+            0,
+            ServerMob {
+                action_ticks: 5,
+                hurt_ticks: 10,
+                ..fleeing_fox_at_origin(threat)
+            },
+        );
+        run_ticks(&mut map, 4);
+        let fox = &map.mobs[&0];
+        assert_eq!((fox.action, fox.action_ticks), (MobAction::Flee, 1));
+        assert_eq!(fox.hurt_ticks, 6);
+        run_ticks(&mut map, 1);
+        assert_ne!(map.mobs[&0].action, MobAction::Flee);
+        run_ticks(&mut map, 10);
+        assert_eq!(map.mobs[&0].hurt_ticks, 0);
+    }
+
+    #[test]
+    fn a_knocked_back_mob_flies_away_and_stops_where_it_lands() {
+        let mut map = ground_world(false);
+        let mut pig = ServerMob {
+            action_ticks: 1000,
+            ..standing(MobKind::Pig, 0.5, 0.5)
+        };
+        let start = pig.position;
+        pig.velocity = Vec3::new(6.0, 4.0, 0.0);
+        pig.on_ground = false;
+        map.mobs.insert(0, pig);
+        run_ticks(&mut map, 40);
+        let pig = &map.mobs[&0];
+        assert!(pig.on_ground);
+        assert_eq!(pig.velocity.with_y(0.0), Vec3::ZERO);
+        let moved = pig.position - start;
+        // A quarter of a second in the air at 6 blocks/s
+        assert!(moved.x > 1.2 && moved.x < 2.2, "{moved}");
+        assert!(moved.y.abs() < 0.1, "{moved}");
     }
 
     #[test]

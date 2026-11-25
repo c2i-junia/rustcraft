@@ -65,16 +65,16 @@ furnace or on a campfire and eaten. To see: hit a pig with a sword, roast the po
 ## Tasks
 
 ### Task 1: Items, food, cooking (shared)
-- [ ] Tests: pinned indices of the 10 items; their category, food and smelting; the campfire
+- [x] Tests: pinned indices of the 10 items; their category, food and smelting; the campfire
   roasts a raw porkchop; `blow_wear` and `blow_damage`.
-- [ ] Items, textures, credits; `food_health`, `smelting_result`, campfire; `blow_wear`,
+- [x] Items, textures, credits; `food_health`, `smelting_result`, campfire; `blow_wear`,
   `blow_damage`, `weak_to_axes`.
 
 ### Task 2: Blows (server)
-- [ ] Tests (combat.rs): a second blow within 10 ticks, from another player, is ignored; after
+- [x] Tests (combat.rs): a second blow within 10 ticks, from another player, is ignored; after
   them it lands; the mob is knocked back horizontally away from the player; it flees the
   player for 5 s, then rests; a sword loses 1, a pickaxe 2; each animal's loot, seeded.
-- [ ] `hurt_ticks`, knock back, flee ticks, wear, `loot`.
+- [x] `hurt_ticks`, knock back, flee ticks, wear, `loot`.
 
 ### Task 3: Hurt flash and sound (client)
 - [ ] Tests: an update that raises the damage starts the flash and writes `MobHurt`, one that
