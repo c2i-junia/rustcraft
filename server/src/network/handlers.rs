@@ -368,6 +368,10 @@ pub(super) fn respawn(client_id: ClientId, world_map: &mut ServerWorldMap) {
         return;
     }
     info!("Player {} respawns at {spawn}", player.name);
+    // A death of this very tick, before the messages are read, left nothing behind yet
+    world_map
+        .dropped_items
+        .drop_on_death(player, &mut rand::thread_rng());
     player.respawn(spawn);
 }
 
@@ -392,6 +396,25 @@ mod tests {
     use shared::players::game_mode::{DamageSource, MAX_HEALTH};
     use shared::players::{air::MAX_AIR, hunger::MAX_FOOD};
     use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
+
+    #[test]
+    fn a_respawn_in_the_tick_of_the_death_keeps_nothing() {
+        use shared::world::{ItemId, ItemStack};
+        let mut world_map = world_with_a_bedroll();
+        let player = world_map.players.get_mut(&1).unwrap();
+        player.experience.gain(100);
+        let stack = ItemStack {
+            item_id: ItemId::Diamond,
+            item_type: ItemId::Diamond.get_default_type(),
+            nb: 3,
+        };
+        player.inventory.inner.insert(0, stack);
+        respawn(1, &mut world_map);
+        let player = &world_map.players[&1];
+        assert!(!player.is_dead() && player.inventory.inner.is_empty());
+        assert_eq!(player.experience.total(), 0);
+        assert_eq!(world_map.dropped_items.to_saved().len(), 2);
+    }
 
     /// A world whose spawn is at (0, 10, 0), with a bedroll at (20, 1, 0) for the player
     /// "sleeper", who died there starving, out of air and burning.
