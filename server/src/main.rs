@@ -2,7 +2,8 @@ use std::net::Ipv4Addr;
 use std::process::ExitCode;
 
 use bevy::log::{error, tracing_subscriber::EnvFilter, warn};
-use clap::{Parser, ValueEnum};
+use clap::builder::{PossibleValuesParser, TypedValueParser};
+use clap::Parser;
 use server::acquire_socket_by_port;
 use shared::players::game_mode::GameMode;
 use shared::status::status_port;
@@ -16,27 +17,22 @@ use shared::{
 /// The exit code of a process interrupted twice: 128 + SIGINT.
 const INTERRUPTED_EXIT_CODE: i32 = 130;
 
-/// The kinds of worlds, named like the ones of the New world dialog.
-#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
-enum WorldType {
-    Default,
-    LargeBiomes,
-    Archipelago,
-    SingleBiome,
+/// The world types a flag takes: the names of the game, in kebab-case.
+fn world_types() -> PossibleValuesParser {
+    // Leaked once, as the parser keeps its names for the life of the process
+    PossibleValuesParser::new(
+        WorldPreset::NAMES.map(|name| &*Box::leak(name.replace('_', "-").into_boxed_str())),
+    )
 }
 
-#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
-enum GameModeArg {
-    Survival,
-    Creative,
+fn game_modes() -> impl clap::builder::TypedValueParser<Value = GameMode> {
+    PossibleValuesParser::new(GameMode::ALL.map(GameMode::name))
+        .map(|name| GameMode::from_name(&name).expect("a name of the game"))
 }
 
-#[derive(ValueEnum, Clone, Copy, Debug, PartialEq)]
-enum DifficultyArg {
-    Peaceful,
-    Easy,
-    Normal,
-    Hard,
+fn difficulties() -> impl clap::builder::TypedValueParser<Value = Difficulty> {
+    PossibleValuesParser::new(Difficulty::ALL.map(Difficulty::name))
+        .map(|name| Difficulty::from_name(&name).expect("a name of the game"))
 }
 
 #[derive(Parser, Debug)]
@@ -73,37 +69,38 @@ struct Args {
     seed: Option<u32>,
 
     /// The type of the world, when it is created
-    #[arg(long, value_enum, requires_if("single-biome", "biome"))]
-    world_type: Option<WorldType>,
+    #[arg(long, value_parser = world_types())]
+    world_type: Option<String>,
 
     /// The biome of a `single-biome` world, by its key, such as `plains`
-    #[arg(long, requires = "world_type")]
+    #[arg(long)]
     biome: Option<String>,
 
     /// The game mode of the players of the world, when it is created: survival by default
-    #[arg(long, value_enum)]
-    game_mode: Option<GameModeArg>,
+    #[arg(long, value_parser = game_modes())]
+    game_mode: Option<GameMode>,
 
     /// The difficulty of the world, when it is created: normal by default
-    #[arg(long, value_enum)]
-    difficulty: Option<DifficultyArg>,
+    #[arg(long, value_parser = difficulties())]
+    difficulty: Option<Difficulty>,
 }
 
 impl Args {
     /// What the options say of a new world, or why they contradict each other.
     fn new_world(&self) -> Result<NewWorldSettings, String> {
-        let preset = match (self.world_type, &self.biome) {
-            (Some(WorldType::SingleBiome), Some(biome)) => {
-                Some(WorldPreset::SingleBiome(biome.clone()))
+        let preset = match (self.world_type.as_deref(), &self.biome) {
+            (Some("single-biome"), Some(biome)) => {
+                WorldPreset::from_name(&format!("single_biome:{biome}"))
+                    .ok_or("--biome is empty")?
+                    .into()
             }
-            (Some(WorldType::SingleBiome), None) => {
+            (Some("single-biome"), None) => {
                 return Err("--world-type single-biome needs --biome".into())
             }
-            (Some(_), Some(_)) => return Err("--biome goes with --world-type single-biome".into()),
-            (Some(WorldType::Default), None) => Some(WorldPreset::Default),
-            (Some(WorldType::LargeBiomes), None) => Some(WorldPreset::LargeBiomes),
-            (Some(WorldType::Archipelago), None) => Some(WorldPreset::Archipelago),
-            (None, Some(_)) => return Err("--biome needs --world-type single-biome".into()),
+            (Some(_), Some(_)) | (None, Some(_)) => {
+                return Err("--biome goes with --world-type single-biome".into())
+            }
+            (Some(name), None) => WorldPreset::from_name(&name.replace('-', "_")),
             (None, None) => None,
         };
         Ok(NewWorldSettings {
@@ -112,16 +109,8 @@ impl Args {
                 preset,
                 ..Default::default()
             }),
-            game_mode: self.game_mode.map(|mode| match mode {
-                GameModeArg::Survival => GameMode::Survival,
-                GameModeArg::Creative => GameMode::Creative,
-            }),
-            difficulty: self.difficulty.map(|difficulty| match difficulty {
-                DifficultyArg::Peaceful => Difficulty::Peaceful,
-                DifficultyArg::Easy => Difficulty::Easy,
-                DifficultyArg::Normal => Difficulty::Normal,
-                DifficultyArg::Hard => Difficulty::Hard,
-            }),
+            game_mode: self.game_mode,
+            difficulty: self.difficulty,
         })
     }
 }
@@ -199,5 +188,57 @@ fn main() -> ExitCode {
             error!("{err}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn new_world(args: &[&str]) -> Result<NewWorldSettings, String> {
+        Args::try_parse_from(["server"].into_iter().chain(args.iter().copied()))
+            .map_err(|err| err.to_string())?
+            .new_world()
+    }
+
+    #[test]
+    fn every_world_type_of_the_game_is_taken_in_kebab_case() {
+        for name in WorldPreset::NAMES {
+            let kebab = name.replace('_', "-");
+            let mut args = vec!["--world-type", &kebab];
+            if name == "single_biome" {
+                args.extend(["--biome", "plains"]);
+            }
+            let generation = new_world(&args).unwrap().generation;
+            assert_eq!(
+                generation.map(|g| g.preset.name()).as_deref().map(|n| n
+                    .split(':')
+                    .next()
+                    .unwrap()
+                    .to_string()),
+                Some(name.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn every_game_mode_and_difficulty_of_the_game_is_taken() {
+        for mode in GameMode::ALL {
+            let settings = new_world(&["--game-mode", mode.name()]).unwrap();
+            assert_eq!(settings.game_mode, Some(mode));
+        }
+        for difficulty in Difficulty::ALL {
+            let settings = new_world(&["--difficulty", difficulty.name()]).unwrap();
+            assert_eq!(settings.difficulty, Some(difficulty));
+        }
+    }
+
+    #[test]
+    fn a_biome_goes_with_the_single_biome_type_only() {
+        assert!(new_world(&["--world-type", "single-biome"]).is_err());
+        assert!(new_world(&["--biome", "plains"]).is_err());
+        assert!(new_world(&["--world-type", "archipelago", "--biome", "plains"]).is_err());
+        assert!(new_world(&["--world-type", "nonsense"]).is_err());
+        assert!(new_world(&["--max-players", "65"]).is_err());
     }
 }
