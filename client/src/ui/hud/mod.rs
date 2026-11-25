@@ -239,6 +239,16 @@ pub fn hud_plugin(app: &mut App) {
             (boss::show_boss_bar, boss::boss_music).run_if(in_state(GameState::Game)),
         )
         .add_systems(OnExit(GameState::Game), boss::forget_boss);
+    // Told while a world loads, these outlive a loading that is cancelled
+    app.add_systems(
+        OnEnter(GameState::PreGameLoading),
+        (
+            boss::forget_boss,
+            depths::forget_depth,
+            progress::forget_progress,
+            crate::ui::credits::forget_credits,
+        ),
+    );
     crate::ui::credits::credits_plugin(app);
     progress::progress_plugin(app);
     first_steps::first_steps_plugin(app);

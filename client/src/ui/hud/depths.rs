@@ -29,6 +29,11 @@ fn opacity(age: f32) -> f32 {
         .clamp(0.0, 1.0)
 }
 
+/// Forgets the tier of an earlier session.
+pub fn forget_depth(mut reached: ResMut<DepthReached>) {
+    reached.0 = None;
+}
+
 /// Shows the tier just reached, in the place of the one shown before.
 pub fn announce_depth(
     mut commands: Commands,

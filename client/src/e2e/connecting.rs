@@ -615,3 +615,28 @@ fn a_player_off_the_whitelist_or_kicked_is_told_why_on_the_error_card() {
     assert_eq!(h.game_state(), GameState::Menu);
     admin.leave();
 }
+
+/// The server tells the boss near a player while its world loads: a loading cancelled then must
+/// not leave its bar to the next world.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_session_forgets_what_the_last_was_told_while_it_loaded() {
+    use crate::ui::credits::CreditsDue;
+    use crate::ui::hud::boss::NearBoss;
+    use shared::messages::BossBar;
+    use shared::world::MobKind;
+
+    let mut h = Harness::start(nowhere(), Options::default());
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.world_mut().resource_mut::<NearBoss>().0 = Some(BossBar {
+        kind: MobKind::EmberMother,
+        health: 100,
+        max_health: 200,
+    });
+    h.world_mut().resource_mut::<CreditsDue>().0 = true;
+    h.click(&L::text("Multiplayer"));
+    h.join_server_card("Nowhere");
+    h.wait_for_game_state(GameState::PreGameLoading, SCREEN);
+    assert_eq!(*h.world().resource::<NearBoss>(), NearBoss(None));
+    assert!(!h.world().resource::<CreditsDue>().0);
+}

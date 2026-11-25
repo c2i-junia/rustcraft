@@ -17,7 +17,7 @@ pub struct PlayerProgress(pub Option<Progress>);
 
 /// What was earned and not shown yet: it may come while the world loads.
 #[derive(Resource, Debug, Default)]
-struct JustEarned(Vec<Achievement>);
+pub struct JustEarned(Vec<Achievement>);
 
 /// The server told the progress of the local player, with what it has just earned.
 pub struct Earn {
@@ -38,13 +38,13 @@ pub fn progress_plugin(app: &mut App) {
     app.init_resource::<PlayerProgress>()
         .init_resource::<JustEarned>()
         .add_systems(Update, show_earned.run_if(in_state(GameState::Game)))
-        .add_systems(
-            OnExit(GameState::Game),
-            |mut progress: ResMut<PlayerProgress>, mut earned: ResMut<JustEarned>| {
-                progress.0 = None;
-                earned.0.clear();
-            },
-        );
+        .add_systems(OnExit(GameState::Game), forget_progress);
+}
+
+/// Forgets the progress of a session that ends.
+pub fn forget_progress(mut progress: ResMut<PlayerProgress>, mut earned: ResMut<JustEarned>) {
+    progress.0 = None;
+    earned.0.clear();
 }
 
 /// What the toasts of `earned` say.

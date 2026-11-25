@@ -83,9 +83,12 @@ pub fn credits_plugin(app: &mut App) {
                 .chain()
                 .after(crate::state::GameSet::UiMode),
         )
-        .add_systems(OnExit(GameState::Game), |mut due: ResMut<CreditsDue>| {
-            due.0 = false;
-        });
+        .add_systems(OnExit(GameState::Game), forget_credits);
+}
+
+/// Forgets the credits due in a session that ends.
+pub fn forget_credits(mut due: ResMut<CreditsDue>) {
+    due.0 = false;
 }
 
 fn show_credits_due(
