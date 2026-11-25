@@ -595,7 +595,7 @@ mod tests {
     #[test]
     fn debug_output_hides_passwords_sessions_and_recovery_codes() {
         let shown = format!(
-            "{:?} {:?} {:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
             SignUpRequest {
                 username: "Alex".into(),
                 password: "hunter2-secret".into(),
@@ -619,6 +619,13 @@ mod tests {
             ChangePasswordRequest {
                 current_password: "hunter2-secret".into(),
                 new_password: "hunter3-secret".into(),
+            },
+            SessionResponse {
+                account: account(),
+                session: "session-secret".into(),
+            },
+            DeleteAccountRequest {
+                password: "hunter2-secret".into(),
             },
         );
         assert!(shown.contains("Alex"));

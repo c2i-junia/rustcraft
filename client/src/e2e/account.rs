@@ -1,11 +1,13 @@
 //! The Account dialog of the main menu, against a stand-in for the hub.
 
 use accesskit::Role;
+use bevy::clipboard::Clipboard;
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 
 use super::harness::{Harness, Options, SCREEN, STARTUP};
+use super::helpers::ctrl;
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::account::file::AccountFile;
@@ -171,6 +173,36 @@ fn logging_in_makes_the_account_the_player_and_asks_for_a_certificate() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn copying_or_cutting_a_password_leaves_the_clipboard_alone() {
+    let mut h = client(logged_out_folder(), "http://127.0.0.1:1");
+    open_account(&mut h, "Alex");
+    let sentinel = "not the password";
+    let has_clipboard = h
+        .world_mut()
+        .get_resource_mut::<Clipboard>()
+        .is_some_and(|mut clipboard| clipboard.set_text(sentinel).is_ok());
+    fill_in(&mut h, "Steve", PASSWORD);
+    for key in [KeyCode::KeyA, KeyCode::KeyC, KeyCode::KeyX] {
+        ctrl(&mut h, key);
+        h.frames(2);
+    }
+    // nothing was cut, and the clipboard was not written
+    assert_eq!(value_of_field(&mut h, "Password"), PASSWORD);
+    if has_clipboard {
+        let mut read = h.world_mut().resource_mut::<Clipboard>().fetch_text();
+        h.frames(2);
+        if let Some(Ok(text)) = read.poll_result() {
+            assert_eq!(text, sentinel);
+        }
+    }
+    // typing still works
+    h.press(KeyCode::End);
+    h.type_text("!");
+    assert_eq!(value_of_field(&mut h, "Password"), format!("{PASSWORD}!"));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn a_wrong_password_is_said_under_the_field_and_the_dialog_stays() {
     let hub = TestHub::start(vec![Canned::error(
         401,
@@ -301,6 +333,9 @@ fn a_logged_in_account_shows_its_hub_and_logs_out() {
     let mut h = client(logged_in_folder(&hub.url), &hub.url);
     assert!(h.is_visible(&L::role(Role::Button, "Steve")));
     open_account(&mut h, "Steve");
+    // the check of the session is the first request: the log-out is the second
+    wait_for_requests(&mut h, &hub, 1);
+    assert_eq!(hub.requests()[0].path, "/v1/me");
     h.wait_for(
         &L::text("Certificate valid until 2100-01-01 00:00 UTC"),
         SCREEN,

@@ -12,7 +12,7 @@ use bevy::{
     clipboard::Clipboard,
     input_focus::{tab_navigation::TabIndex, InputFocus},
     prelude::*,
-    text::{EditableText, EditableTextSystems, TextCursorStyle},
+    text::{EditableText, EditableTextSystems, TextCursorStyle, TextEdit},
     ui::{InteractionDisabled, UiSystems},
     ui_widgets::Activate,
 };
@@ -28,7 +28,9 @@ use crate::network::status::InFlight;
 use crate::network::CurrentPlayerProfile;
 use crate::ui::assets::{FONT_PATH, MONO_FONT_PATH};
 use crate::ui::menus::player_name::{open_player_name_dialog, PlayerNameButton};
-use crate::ui::theme::{ACCENT, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, SPACE_S, TEXT};
+use crate::ui::theme::{
+    ACCENT, BEVEL_WIDTH, FONT_L, FONT_M, FONT_S, FONT_XL, MUTED, SPACE_L, SPACE_S, TEXT,
+};
 use crate::ui::widgets::button::{button, set_label, ButtonVariant};
 use crate::ui::widgets::dialog::{
     apply_form_check, close_dialog, set_dialog_width, spawn_dialog, spawn_form_dialog,
@@ -183,6 +185,12 @@ pub fn account_screen_plugin(app: &mut App) {
                 show_name_on_button.run_if(resource_changed::<CurrentPlayerProfile>),
             )
                 .chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            keep_passwords_out_of_the_clipboard
+                .before(EditableTextSystems)
+                .before(UiSystems::Layout),
         )
         .add_systems(
             PostUpdate,
@@ -419,7 +427,11 @@ fn open_form(commands: &mut Commands, kind: FormKind, font: Handle<Font>, focus:
         commands
             .entity(link)
             .entry::<Node>()
-            .and_modify(|mut node| node.align_self = AlignSelf::FlexStart);
+            .and_modify(|mut node| {
+                node.align_self = AlignSelf::FlexStart;
+                // the padding and bevel of the button do not push its text off the fields
+                node.margin = UiRect::left(px(-SPACE_L - BEVEL_WIDTH));
+            });
         forgot = Some(link);
     }
     commands
@@ -954,6 +966,25 @@ fn show_name_on_button(
     }
 }
 
+/// Drops the Copy and Cut edits queued by Ctrl+C, Ctrl+X and their other keys: they would put
+/// the real password, which the field holds under its bullets, on the clipboard.
+fn without_copy_and_cut(edits: &mut Vec<TextEdit>) {
+    edits.retain(|edit| !matches!(edit, TextEdit::Copy | TextEdit::Cut));
+}
+
+/// Keeps the passwords of the masked fields out of the clipboard. Typing and pasting go on.
+fn keep_passwords_out_of_the_clipboard(mut fields: Query<&mut EditableText, With<Masked>>) {
+    for mut field in &mut fields {
+        if field
+            .pending_edits
+            .iter()
+            .any(|edit| matches!(edit, TextEdit::Copy | TextEdit::Cut))
+        {
+            without_copy_and_cut(&mut field.pending_edits);
+        }
+    }
+}
+
 /// One bullet per character of the password, over its transparent field.
 fn show_bullets(
     fields: Query<(&EditableText, &Masked), Changed<EditableText>>,
@@ -1020,6 +1051,18 @@ mod tests {
 
     fn values(a: &str, b: &str, c: &str) -> Vec<String> {
         [a, b, c].map(str::to_string).to_vec()
+    }
+
+    #[test]
+    fn copy_and_cut_are_dropped_from_the_edits_of_a_password() {
+        let mut edits = vec![
+            TextEdit::Copy,
+            TextEdit::Insert("a".into()),
+            TextEdit::Cut,
+            TextEdit::SelectAll,
+        ];
+        without_copy_and_cut(&mut edits);
+        assert_eq!(edits, [TextEdit::Insert("a".into()), TextEdit::SelectAll]);
     }
 
     #[test]
