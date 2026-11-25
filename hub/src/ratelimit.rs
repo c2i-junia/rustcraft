@@ -13,22 +13,23 @@ use axum::{
     http::{request::Parts, HeaderMap},
 };
 use hmac::{Hmac, Mac};
+use ipnet::IpNet;
 use rustcraft_protocol::api::ErrorCode;
 use sha2::Sha256;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::{error::AppError, AppState};
 
 /// The address of the client: the TCP peer, or the last address of `X-Forwarded-For` when the
-/// peer is the local reverse proxy.
+/// peer is one of the trusted proxies.
 pub struct ClientIp(pub IpAddr);
 
-impl<S: Sync> FromRequestParts<S> for ClientIp {
+impl FromRequestParts<AppState> for ClientIp {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, AppError> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
         let Some(ConnectInfo(peer)) = parts.extensions.get::<ConnectInfo<SocketAddr>>() else {
             tracing::error!("the router is served without its connection info");
             return Err(AppError::new(
@@ -36,13 +37,17 @@ impl<S: Sync> FromRequestParts<S> for ClientIp {
                 "Something went wrong on the hub.",
             ));
         };
-        Ok(Self(client_ip(peer.ip(), &parts.headers)))
+        Ok(Self(client_ip(
+            peer.ip(),
+            &parts.headers,
+            &state.trusted_proxies,
+        )))
     }
 }
 
-pub fn client_ip(peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+pub fn client_ip(peer: IpAddr, headers: &HeaderMap, trusted_proxies: &[IpNet]) -> IpAddr {
     let peer = peer.to_canonical();
-    if !peer.is_loopback() {
+    if !trusted_proxies.iter().any(|range| range.contains(&peer)) {
         return peer;
     }
     headers
@@ -401,22 +406,57 @@ mod tests {
     }
 
     #[test]
-    fn x_forwarded_for_counts_only_from_the_local_proxy() {
+    fn x_forwarded_for_counts_only_from_a_trusted_proxy() {
+        let loopback: Vec<IpNet> =
+            vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()];
         let headers = forwarded(&["10.0.0.1, 203.0.113.7"]);
-        assert_eq!(client_ip(ip("127.0.0.1"), &headers), ip("203.0.113.7"));
-        assert_eq!(client_ip(ip("::1"), &headers), ip("203.0.113.7"));
-        assert_eq!(client_ip(ip("198.51.100.2"), &headers), ip("198.51.100.2"));
         assert_eq!(
-            client_ip(ip("127.0.0.1"), &forwarded(&["10.0.0.1", "2001:db8::5"])),
+            client_ip(ip("127.0.0.1"), &headers, &loopback),
+            ip("203.0.113.7")
+        );
+        assert_eq!(client_ip(ip("::1"), &headers, &loopback), ip("203.0.113.7"));
+        assert_eq!(
+            client_ip(ip("198.51.100.2"), &headers, &loopback),
+            ip("198.51.100.2")
+        );
+        assert_eq!(
+            client_ip(
+                ip("127.0.0.1"),
+                &forwarded(&["10.0.0.1", "2001:db8::5"]),
+                &loopback
+            ),
             ip("2001:db8::5")
         );
         assert_eq!(
-            client_ip(ip("127.0.0.1"), &HeaderMap::new()),
+            client_ip(ip("127.0.0.1"), &HeaderMap::new(), &loopback),
             ip("127.0.0.1")
         );
         assert_eq!(
-            client_ip(ip("::ffff:198.51.100.2"), &headers),
+            client_ip(ip("::ffff:198.51.100.2"), &headers, &loopback),
             ip("198.51.100.2")
+        );
+    }
+
+    #[test]
+    fn a_proxy_outside_the_loopback_is_trusted_when_listed() {
+        let proxies: Vec<IpNet> = vec!["172.30.80.1/32".parse().unwrap()];
+        let headers = forwarded(&["203.0.113.7"]);
+        assert_eq!(
+            client_ip(ip("172.30.80.1"), &headers, &proxies),
+            ip("203.0.113.7")
+        );
+        // Another address of the network, and the loopback, are not the proxy.
+        assert_eq!(
+            client_ip(ip("172.30.80.2"), &headers, &proxies),
+            ip("172.30.80.2")
+        );
+        assert_eq!(
+            client_ip(ip("127.0.0.1"), &headers, &proxies),
+            ip("127.0.0.1")
+        );
+        assert_eq!(
+            client_ip(ip("172.30.80.1"), &headers, &[]),
+            ip("172.30.80.1")
         );
     }
 

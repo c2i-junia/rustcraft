@@ -10,3 +10,8 @@ hub/target/
 
 Dockerfile
 .dockerignore
+
+# Secrets of the hub, which must not enter any build context
+hub/secrets/
+hub/*.key
+hub/ip-secret

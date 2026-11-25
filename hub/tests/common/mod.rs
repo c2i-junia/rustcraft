@@ -67,6 +67,10 @@ impl TestHub {
             signing_key: Arc::new(SigningKey::generate(&mut OsRng)),
             ip_secret: Arc::from(vec![7u8; 32]),
             trusted_ranges: Arc::from([]),
+            trusted_proxies: Arc::from([
+                "127.0.0.1/32".parse().unwrap(),
+                "::1/128".parse().unwrap(),
+            ]),
             hasher: Default::default(),
             logins: Default::default(),
             signups: Default::default(),

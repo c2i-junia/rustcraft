@@ -26,7 +26,8 @@ The design, with the routes and their limits, is in
   range, 200 an hour on the whole hub. Failed logins are counted in memory: 5 per name and
   address and 30 per address in 15 minutes.
 - The client's address is the TCP peer, or the last address of `X-Forwarded-For` when the peer
-  is the loopback (Caddy on the same machine). Do not publish the hub's port anywhere else.
+  is in `--trusted-proxies` (`HUB_TRUSTED_PROXIES`, comma-separated CIDRs, default
+  `127.0.0.1/32,::1/128`: Caddy on the same machine). Do not publish the hub's port anywhere else.
 - Every hour the hub forgets sign-ups older than 30 days and expired sessions; every day it
   frees the names of accounts deleted 30 days before (they become `deleted-<id>`).
 - `audit_log` records sign-ups, logins and failed ones, password changes, recoveries and
@@ -80,6 +81,7 @@ Migrations (`migrations/`) are applied at start. Every option has an environment
 | `--signing-key-file` | `HUB_SIGNING_KEY_FILE` | |
 | `--ip-secret-file` | `HUB_IP_SECRET_FILE` | |
 | `--name` | `HUB_NAME` | `Rustcraft` |
+| `--trusted-proxies` | `HUB_TRUSTED_PROXIES` | `127.0.0.1/32,::1/128` (peers whose `X-Forwarded-For` is believed) |
 | `--trusted-ranges` | `HUB_TRUSTED_RANGES` | (none; comma-separated CIDRs allowed 60 sign-ups an hour per address) |
 
 ## Deploying
@@ -114,6 +116,13 @@ Then start it:
 docker compose up -d
 curl http://127.0.0.1:8080/.well-known/rustcraft-hub
 ```
+
+Behind Docker's port publishing the hub does not see Caddy as `127.0.0.1`: every connection
+comes from the gateway of the Compose network the port is published on. `compose.yaml` therefore
+pins that network to `172.30.80.0/24` and sets `HUB_TRUSTED_PROXIES: 172.30.80.1/32`; change both
+together if the subnet clashes with yours. Without this every player would share one sign-up
+limit. To check, post two sign-ups with different `X-Forwarded-For` headers and look at
+`select encode(ip_key, 'hex') from signups` in the database: the keys must differ.
 
 `HUB_PUBLIC_URL`, `HUB_NAME` and `HUB_TRUSTED_RANGES` are set in the `environment` of `hub` in
 `compose.yaml`. To update, `git pull` and `docker compose up -d --build`; migrations are applied

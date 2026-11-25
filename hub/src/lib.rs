@@ -36,6 +36,8 @@ pub struct AppState {
     pub ip_secret: Arc<[u8]>,
     /// Sign-ups from these ranges have a higher limit.
     pub trusted_ranges: Arc<[IpNet]>,
+    /// Peers whose `X-Forwarded-For` is believed: the reverse proxy.
+    pub trusted_proxies: Arc<[IpNet]>,
     pub hasher: Hasher,
     pub logins: Arc<LoginLimiter>,
     pub signups: Arc<SignupGate>,

@@ -118,6 +118,14 @@ pub struct ServeArgs {
     /// Address ranges (comma-separated CIDRs) allowed more sign-ups, such as a school network.
     #[arg(long, env = "HUB_TRUSTED_RANGES", value_delimiter = ',')]
     pub trusted_ranges: Vec<IpNet>,
+    /// Reverse proxies (comma-separated CIDRs) whose `X-Forwarded-For` gives the client's address.
+    #[arg(
+        long,
+        env = "HUB_TRUSTED_PROXIES",
+        value_delimiter = ',',
+        default_value = "127.0.0.1/32,::1/128"
+    )]
+    pub trusted_proxies: Vec<IpNet>,
 }
 
 /// Reads a one-line secret file, without the trailing whitespace.

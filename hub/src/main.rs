@@ -39,6 +39,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         signing_key: Arc::new(signing_key),
         ip_secret: ip_secret.into(),
         trusted_ranges: args.trusted_ranges.into(),
+        trusted_proxies: args.trusted_proxies.into(),
         hasher: Default::default(),
         logins: Default::default(),
         signups: Default::default(),

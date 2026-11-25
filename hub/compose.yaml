@@ -39,11 +39,13 @@ services:
       HUB_DATABASE_URL_FILE: /run/secrets/database_url
       HUB_SIGNING_KEY_FILE: /run/secrets/signing_key
       HUB_IP_SECRET_FILE: /run/secrets/ip_secret
+      HUB_TRUSTED_PROXIES: 172.30.80.1/32
     secrets:
       - database_url
       - signing_key
       - ip_secret
-    # Only Caddy, on this machine, reaches the hub.
+    # Only Caddy, on this machine, reaches the hub. Docker's proxy makes every connection come
+    # from the gateway of the `default` network (below), which is therefore the trusted proxy.
     ports:
       - "127.0.0.1:${HUB_PORT:-8080}:8080"
     networks:
@@ -55,6 +57,11 @@ services:
       - no-new-privileges:true
 
 networks:
+  # A fixed subnet, so that the address of its gateway is known to HUB_TRUSTED_PROXIES.
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.80.0/24
   # The database has no way out, and nothing but the hub reaches it.
   backend:
     internal: true
