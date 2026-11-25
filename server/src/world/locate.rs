@@ -1,6 +1,6 @@
-//! `/locate biome <biome>`: the nearest column of a biome to a player. The search runs on the
-//! generation pool, since a biome far away takes longer than a tick to find, and its answer is
-//! sent once it is done.
+//! `/locate biome <biome>` and `/locate village`: the nearest column of a biome, or the nearest
+//! village, to a player. The search runs on the generation pool, since a biome far away takes
+//! longer than a tick to find, and its answer is sent once it is done.
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
@@ -12,7 +12,7 @@ use shared::messages::{FullChatMessage, ServerToClientMessage};
 use shared::utils::unix_time_ms;
 use shared::world::{BiomeId, TerrainNoises};
 
-use super::generation::WorldGeneration;
+use super::generation::{village, WorldGeneration};
 use super::pool::generation_pool;
 use crate::init::ServerLobby;
 use crate::network::commands::SERVER_AUTHOR;
@@ -81,6 +81,40 @@ impl Locator {
         String::new()
     }
 
+    /// Searches the nearest village to `from`, in the world of `seed` made by `generation`, for
+    /// the player `client`, as [`Locator::start`] does.
+    pub fn start_village(
+        &self,
+        client: ClientId,
+        (seed, generation): (u32, &WorldGeneration),
+        from: Vec3,
+    ) -> String {
+        if !generation.settings.villages {
+            return "This world has no villages".to_string();
+        }
+        let sender = self.sender.clone();
+        let generation = generation.clone();
+        let from = from.floor().as_ivec3().xz();
+        generation_pool()
+            .spawn(async move {
+                let terrain =
+                    TerrainNoises::with(seed, &generation.settings, generation.biomes.clone());
+                let answer = match nearest_village(seed, &terrain, from, LOCATE_RADIUS) {
+                    Some(at) => {
+                        let distance = (at - from).as_vec2().length().round();
+                        format!(
+                            "The nearest village is at {} {}, {distance} blocks away",
+                            at.x, at.y
+                        )
+                    }
+                    None => format!("No village within {LOCATE_RADIUS} blocks"),
+                };
+                let _ = sender.send((client, answer));
+            })
+            .detach();
+        String::new()
+    }
+
     /// The answers of the searches done since the last call.
     fn finished(&self) -> Vec<(ClientId, String)> {
         let receiver = self.receiver.lock().unwrap_or_else(|err| err.into_inner());
@@ -116,6 +150,37 @@ pub fn nearest_biome(
             let distance = offset.length_squared();
             if nearest.is_none_or(|(best, _)| distance < best) {
                 nearest = Some((distance, at));
+            }
+        }
+    }
+    nearest.map(|(_, at)| at)
+}
+
+/// The centre of the village nearest to `from`, among those of the regions within about
+/// `radius` blocks of it along each axis.
+pub fn nearest_village(
+    seed: u32,
+    terrain: &TerrainNoises,
+    from: IVec2,
+    radius: i32,
+) -> Option<IVec2> {
+    let centre = village::region_of(from.x, from.y);
+    let mut nearest: Option<(i64, IVec2)> = None;
+    for ring in 0..=radius / village::REGION + 1 {
+        // the nearest a village of this square of regions may be to `from`
+        let reach = i64::from((ring - 1).max(0) * village::REGION);
+        if nearest.is_some_and(|(distance, _)| reach * reach > distance) {
+            break;
+        }
+        for (dx, dz) in square(ring) {
+            let Some(site) = village::site(seed, terrain, centre + IVec2::new(dx, dz)) else {
+                continue;
+            };
+            let offset = (site.centre - from).as_i64vec2();
+            let distance = offset.length_squared();
+            let within = (site.centre - from).abs().max_element() <= radius;
+            if within && nearest.is_none_or(|(best, _)| distance < best) {
+                nearest = Some((distance, site.centre));
             }
         }
     }
@@ -207,6 +272,7 @@ mod tests {
     fn a_biome_beyond_the_radius_is_not_found() {
         let settings = shared::world::WorldGenSettings {
             preset: shared::world::WorldPreset::SingleBiome("desert".into()),
+            ..Default::default()
         };
         let terrain = TerrainNoises::with(42, &settings, shared::world::Biomes::vanilla());
         assert_eq!(

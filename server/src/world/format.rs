@@ -53,8 +53,9 @@ pub struct WorldMeta {
     /// Missing from the worlds saved before the weather, which start clear.
     #[serde(default)]
     pub weather: Option<SavedWeather>,
-    /// Missing from the worlds saved before the world types, which are of the default one.
-    #[serde(default)]
+    /// Missing from the worlds saved before the world types, which are of the default one,
+    /// without villages.
+    #[serde(default = "WorldGenSettings::legacy")]
     pub generation: WorldGenSettings,
     /// Missing from the worlds saved before the hostile mobs, which are normal.
     #[serde(default)]

@@ -147,9 +147,34 @@ const SALT_DITHER: u64 = 30;
 
 /// How the world of a seed is shaped beyond its seed: chosen when it is created, saved with it,
 /// and sent to the clients that join it.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorldGenSettings {
     pub preset: WorldPreset,
+    /// Whether villages are built in the world. A new world has them; a world saved before
+    /// they were has not, so that none is cut by the chunks it already holds.
+    #[serde(default)]
+    pub villages: bool,
+}
+
+impl Default for WorldGenSettings {
+    /// The settings of a new world of the default type.
+    fn default() -> Self {
+        Self {
+            preset: WorldPreset::default(),
+            villages: true,
+        }
+    }
+}
+
+impl WorldGenSettings {
+    /// The settings of a world saved before its generation settings were: the default type,
+    /// without villages.
+    pub fn legacy() -> Self {
+        Self {
+            villages: false,
+            ..Self::default()
+        }
+    }
 }
 
 /// The kinds of worlds.
@@ -855,6 +880,7 @@ mod tests {
     fn the_large_biomes_are_larger() {
         let settings = WorldGenSettings {
             preset: WorldPreset::LargeBiomes,
+            ..Default::default()
         };
         let large = TerrainNoises::with(42, &settings, Biomes::vanilla());
         let (large, default) = (
@@ -1085,6 +1111,7 @@ mod tests {
     fn a_single_biome_world_has_that_biome_everywhere() {
         let settings = WorldGenSettings {
             preset: WorldPreset::SingleBiome("desert".into()),
+            ..Default::default()
         };
         let terrain = TerrainNoises::with(42, &settings, Biomes::vanilla());
         for (x, z) in [(0, 0), (500, -300), (-4000, 2500)] {
@@ -1101,6 +1128,7 @@ mod tests {
     fn the_archipelago_has_more_sea() {
         let settings = WorldGenSettings {
             preset: WorldPreset::Archipelago,
+            ..Default::default()
         };
         let terrain = TerrainNoises::with(42, &settings, Biomes::vanilla());
         let default = TerrainNoises::new(42);

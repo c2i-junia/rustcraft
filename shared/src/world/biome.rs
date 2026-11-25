@@ -283,6 +283,19 @@ pub struct BorderRule {
     pub width: f64,
 }
 
+/// How the villages of a biome are built: the same buildings, of the materials of the biome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum VillageStyle {
+    /// Oak planks and logs under thatch.
+    Plains,
+    /// Rammed earth and acacia.
+    Savanna,
+    /// Rammed earth and brick, under flat roofs.
+    Desert,
+    /// Spruce planks and logs.
+    Snowy,
+}
+
 /// Everything about one biome.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BiomeDef {
@@ -313,6 +326,8 @@ pub struct BiomeDef {
     pub flora: Flora,
     pub herds: Vec<Herd>,
     pub look: BiomeLook,
+    /// The style of the villages built deep inside it; none are where it has none.
+    pub village: Option<VillageStyle>,
 }
 
 impl BiomeDef {
@@ -334,6 +349,7 @@ impl BiomeDef {
             flora: Flora::default(),
             herds: Vec::new(),
             look: BiomeLook::default(),
+            village: None,
         }
     }
 

@@ -3,7 +3,7 @@
 
 use super::{
     tags, BiomeDef, BiomeId, BiomeLook, BiomeRegistry, BorderRule, Chance, ClimateBox, Flora,
-    Ground, Herd, Precipitation, Span, Tree,
+    Ground, Herd, Precipitation, Span, Tree, VillageStyle,
 };
 use crate::world::{BlockId, MobKind};
 
@@ -155,6 +155,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 rabbit(0.02, 1, 3),
             ],
             look: BiomeLook::new([0.8, 0.4], [140, 190, 90]),
+            village: Some(VillageStyle::Plains),
             ..land_biome(PLAINS, "Plains")
         },
         BiomeDef {
@@ -184,6 +185,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 cat(0.015, 1, 2),
             ],
             look: BiomeLook::new([0.7, 0.8], [40, 120, 50]),
+            village: Some(VillageStyle::Plains),
             ..land_biome(FOREST, "Forest")
         },
         BiomeDef {
@@ -217,6 +219,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 precipitation: Precipitation::None,
                 ..BiomeLook::new([1.0, 0.0], [230, 210, 140])
             },
+            village: Some(VillageStyle::Desert),
             ..land_biome(DESERT, "Desert")
         },
         BiomeDef {
@@ -232,6 +235,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 precipitation: Precipitation::Snow,
                 ..BiomeLook::new([0.0, 0.5], [200, 230, 250])
             },
+            village: Some(VillageStyle::Snowy),
             ..land_biome(ICE_PLAIN, "IcePlain")
         },
         BiomeDef {
@@ -251,6 +255,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 rabbit(0.03, 1, 3),
             ],
             look: BiomeLook::new([0.7, 0.8], [200, 180, 90]),
+            village: Some(VillageStyle::Plains),
             ..land_biome(FLOWER_PLAINS, "FlowerPlains")
         },
         sea(
@@ -282,6 +287,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 precipitation: Precipitation::None,
                 ..BiomeLook::new([1.0, 0.0], [210, 140, 60])
             },
+            village: Some(VillageStyle::Savanna),
             ..land_biome(SAVANNA, "Savanna")
         },
         BiomeDef {
@@ -346,6 +352,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 rabbit(0.03, 1, 3),
             ],
             look: BiomeLook::new([0.7, 0.8], [230, 110, 170]),
+            village: Some(VillageStyle::Plains),
             ..land_biome(FLOWER_FOREST, "FlowerForest")
         },
         BiomeDef {
@@ -362,6 +369,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 cat(0.02, 1, 2),
             ],
             look: BiomeLook::new([0.7, 0.8], [110, 170, 80]),
+            village: Some(VillageStyle::Plains),
             ..land_biome(FOREST_CLEARING, "ForestClearing")
         },
         BiomeDef {
@@ -381,6 +389,7 @@ pub fn definitions() -> Vec<BiomeDef> {
                 cat(0.02, 1, 2),
             ],
             look: BiomeLook::new([0.75, 0.7], [70, 140, 60]),
+            village: Some(VillageStyle::Plains),
             ..land_biome(GROVE, "Grove")
         },
         BiomeDef {

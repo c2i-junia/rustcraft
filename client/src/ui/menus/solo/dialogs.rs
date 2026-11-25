@@ -414,7 +414,10 @@ fn create_world_on_submit(
     };
     let saves = paths.game_folder_path.join(SAVE_PATH);
     let preset = WORLD_TYPES[choice.map_or(0, |choice| choice.0)].1.clone();
-    let generation = WorldGenSettings { preset };
+    let generation = WorldGenSettings {
+        preset,
+        ..WorldGenSettings::default()
+    };
     match create_world(&saves, &name, seed.unwrap_or_else(rand::random), generation) {
         Ok(()) => {
             info!("Created the world {name:?}");

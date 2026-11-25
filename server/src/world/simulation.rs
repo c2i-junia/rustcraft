@@ -12,7 +12,8 @@ use shared::{
         Player,
     },
     world::{
-        liquid::eye_in_liquid, Chunk, ChunkMap, ChunkReach, ServerMob, WeatherKind, WorldSeed,
+        liquid::eye_in_liquid, BlockId, Chunk, ChunkMap, ChunkReach, ServerMob, WeatherKind,
+        WorldSeed,
     },
 };
 use std::collections::HashSet;
@@ -50,10 +51,11 @@ const CHUNKS_IN_FLIGHT: usize = 8192;
 /// Chunks made on one task of the pool.
 const CHUNKS_PER_TASK: usize = 16;
 
-/// A chunk that was not loaded, read from its file or generated with the animals born in it.
+/// A chunk that was not loaded, read from its file or generated with the animals born in it
+/// and what its chests hold.
 enum Made {
     Read(Chunk, ChunkContents),
-    Generated(Chunk, Vec<ServerMob>),
+    Generated(Chunk, Vec<ServerMob>, ChunkContents),
 }
 
 /// The chunk at `chunk_pos`: from its file in the folder of the world `saved`, else generated.
@@ -66,6 +68,10 @@ fn make_chunk(chunk_pos: IVec3, saved: Option<&Path>, generator: &WorldGenerator
     Made::Generated(
         generator.generate_chunk(chunk_pos),
         generator.chunk_animals(chunk_pos),
+        ChunkContents {
+            chests: generator.chunk_containers(chunk_pos),
+            ..ChunkContents::default()
+        },
     )
 }
 
@@ -82,11 +88,19 @@ fn insert_made(
 ) {
     match made {
         Made::Read(chunk, contents) => insert_with_contents(chunks, chunk_pos, chunk, contents),
-        Made::Generated(chunk, animals) => {
+        Made::Generated(chunk, animals, contents) => {
             if chunk.uniform().is_none() {
                 dirty_chunks.insert(chunk_pos);
             }
-            chunks.insert_chunk(chunk_pos, chunk);
+            // only the chunks of the villages hold chests and furnaces when generated
+            let holds = chunk.may_hold(|block| {
+                block.is_some_and(|block| block.id.is_container() || block.id == BlockId::Furnace)
+            });
+            if holds {
+                insert_with_contents(chunks, chunk_pos, chunk, contents);
+            } else {
+                chunks.insert_chunk(chunk_pos, chunk);
+            }
             born.extend(animals);
         }
     }
