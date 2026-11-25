@@ -51,6 +51,7 @@ pub fn handle_block_interactions(
                 pressed_in_ui.push(*button);
             }
         }
+        frame_inputs.0.inputs.insert(NetworkAction::LowerBow);
         return;
     }
     pressed_in_ui.retain(|button| mouse_input.pressed(*button));

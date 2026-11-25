@@ -24,6 +24,8 @@ pub enum NetworkAction {
     /// Sent while the player sprints. It starts a sprint while moving forward, which the
     /// simulation keeps as long as the player moves forward and does not sneak.
     Sprint,
+    /// Sent while a UI is open: a bow being drawn is let down without shooting.
+    LowerBow,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Debug, Clone)]

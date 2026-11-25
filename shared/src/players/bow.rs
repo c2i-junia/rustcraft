@@ -77,6 +77,7 @@ fn arrow_slot(player: &Player) -> Option<u32> {
 pub fn draw_bow(player: &mut Player, action: &PlayerFrameInput) {
     let drawn_ms = player.bow_draw_ms;
     let draws = action.is_pressed(NetworkAction::RightClick)
+        && !action.is_pressed(NetworkAction::LowerBow)
         && held_item(player, action) == Some(ItemId::Bow)
         && (drawn_ms > 0 || player.place_wait_ms == 0)
         && (player.game_mode.is_creative() || arrow_slot(player).is_some());
@@ -89,9 +90,13 @@ pub fn draw_bow(player: &mut Player, action: &PlayerFrameInput) {
 }
 
 /// Shoots with the bow in the selected slot when the right button was just released, before
-/// `draw_bow` lets it down: the bow wears and an arrow is gone, but in creative.
+/// `draw_bow` lets it down: the bow wears and an arrow is gone, but in creative. A UI opened over
+/// the draw (`NetworkAction::LowerBow`) releases nothing.
 pub fn shoot_bow(player: &mut Player, action: &PlayerFrameInput) -> Option<BowShot> {
-    if player.bow_draw_ms < MIN_DRAW_MS || action.is_pressed(NetworkAction::RightClick) {
+    if player.bow_draw_ms < MIN_DRAW_MS
+        || action.is_pressed(NetworkAction::RightClick)
+        || action.is_pressed(NetworkAction::LowerBow)
+    {
         return None;
     }
     let bow = *player.inventory.inner.get(&action.hotbar_slot)?;
@@ -169,5 +174,28 @@ mod tests {
             player.inventory.inner[&0].item_type,
             ItemType::Tool { wear: 2 }
         );
+    }
+
+    #[test]
+    fn a_ui_opened_over_the_draw_lets_the_bow_down_without_shooting() {
+        let mut player = archer(1);
+        let mut input = PlayerFrameInput {
+            delta_ms: 50,
+            ..Default::default()
+        };
+        input.inputs.insert(NetworkAction::RightClick);
+        for _ in 0..20 {
+            draw_bow(&mut player, &input);
+        }
+        assert_eq!(player.bow_draw_ms, FULL_DRAW_MS);
+        input.inputs = [NetworkAction::LowerBow].into();
+        for _ in 0..2 {
+            assert_eq!(shoot_bow(&mut player, &input), None);
+            draw_bow(&mut player, &input);
+            assert_eq!(player.bow_draw_ms, 0);
+            // The UI closes
+            input.inputs.clear();
+        }
+        assert!(arrow_slot(&player).is_some());
     }
 }

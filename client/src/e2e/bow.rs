@@ -112,6 +112,17 @@ fn a_bow_is_drawn_seen_drawn_and_its_arrow_flies_sticks_and_is_picked_up() {
     h.snapshot("in_flight");
     h.wait_until("the arrow spent", SERVER, |w| quiver(w) == 4);
 
+    // The inventory opened over a draw lets the bow down, and its arrow stays
+    draw(&mut h);
+    h.press(KeyCode::KeyE);
+    h.wait_until("the bow let down", SERVER, |w| player(w).bow_draw_ms == 0);
+    h.frames(5);
+    right_button(&mut h, ButtonState::Released);
+    h.press(KeyCode::KeyE);
+    h.frames(30);
+    assert_eq!(quiver(h.world()), 4, "the arrow was shot");
+    assert_eq!(player(h.world()).bow_draw_ms, 0);
+
     // At the ground ahead, then picked up on the way
     aim(&mut h, 0.45);
     draw(&mut h);
