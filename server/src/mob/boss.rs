@@ -173,6 +173,8 @@ fn fall_asleep(map: &mut ServerWorldMap, centre: IVec3, id: MobId) {
         // At her bed at once, as through a portal
         *mother = ServerMob {
             passes: mother.passes.wrapping_add(1),
+            // The blows of the next tick land before its `fight`
+            hurt_ticks: super::combat::MOB_INVULNERABILITY_TICKS,
             ..ServerMob::new(MobKind::EmberMother, bed(centre))
         };
         map.changed_mobs.insert(id);
@@ -621,6 +623,7 @@ mod tests {
         run(&mut map, EMPTY_TICKS + 1);
         assert!(!map.boss.awake && map.boss.fires.is_empty());
         assert_eq!(mother(&mut map).damage, 0);
+        assert!(mother(&mut map).hurt_ticks > 0, "nothing hurts her asleep");
         assert_eq!(mother(&mut map).position, bed(CENTRE));
         assert_eq!(count(&map, MobKind::Cinderling), 0);
         // asleep, the clients are shown no bar
