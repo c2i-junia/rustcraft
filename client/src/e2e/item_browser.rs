@@ -525,7 +525,15 @@ fn recipes_and_uses_open_from_the_browser_and_the_history_walks_back() {
     h.hover_entity(first);
     h.scroll(-5.);
     h.frames(2);
-    assert!(cards_scrolled(h.world_mut()) > 0.0);
+    let over = h.rect_of(&L::marker::<RecipePanel>());
+    let at = h
+        .world()
+        .get::<UiGlobalTransform>(first)
+        .map(|t| t.translation);
+    assert!(
+        cards_scrolled(h.world_mut()) > 0.0,
+        "not scrolled, the cursor at {at:?} in {over:?}"
+    );
 
     // Escape and the back button walk the history back
     h.press(KeyCode::Escape);
