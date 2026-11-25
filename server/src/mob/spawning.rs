@@ -3,7 +3,7 @@
 //! random spot of the ring around it, which costs a bounded scan of the world
 //! (`find_floor`, `ticks::sees_sky`, `hostiles::surroundings`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 use std::ops::Range;
 
@@ -18,9 +18,11 @@ use shared::{
             is_dark, is_night, may_spawn_at, pack_size, spawn_kind, surroundings, SpawnPlace,
         },
         ticks::sees_sky,
-        BlockId, ChunkMap, MobId, MobKind, ServerMob,
+        BlockId, ChunkMap, MobAction, MobId, MobKind, MobTarget, ServerMob,
     },
 };
+
+use super::hostile::BURROW_TICKS;
 
 use crate::init::ServerTime;
 use crate::world::data::ServerWorldMap;
@@ -42,9 +44,9 @@ pub const WORLD_CAP: usize = 40;
 /// A hostile this far from every player goes, in blocks.
 pub const DESPAWN_DISTANCE: f32 = 96.0;
 
-/// Removes every hostile of a peaceful world, at once; otherwise, every
-/// `SPAWN_INTERVAL_TICKS`, despawns the hostiles far from every player and gives each player
-/// a spawn attempt.
+/// Removes every hostile of a peaceful world, at once; otherwise sends the Stumplings into the
+/// ground by day (`burrow_at_dawn`) and, every `SPAWN_INTERVAL_TICKS`, despawns the hostiles
+/// far from every player and gives each player a spawn attempt.
 pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
     let ServerWorldMap {
         mobs,
@@ -58,6 +60,7 @@ pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<
         mobs.retain(|_, mob| !mob.kind.is_hostile());
         return;
     }
+    burrow_at_dawn(mobs, changed_mobs, is_night(time.0));
     if !time.0.is_multiple_of(SPAWN_INTERVAL_TICKS) {
         return;
     }
@@ -68,6 +71,23 @@ pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<
     for id in ids {
         for mob in spawn_attempt(chunks, players, mobs, id, night, &mut rng) {
             super::add_mob(mobs, changed_mobs, mob);
+        }
+    }
+}
+
+/// Removes the Stumplings that burrowed all the way (`MobAction::Burrow` with no ticks left),
+/// and, by day, starts the others burrowing (`hostile::BURROW_TICKS`).
+fn burrow_at_dawn(mobs: &mut HashMap<MobId, ServerMob>, changed: &mut HashSet<MobId>, night: bool) {
+    mobs.retain(|_, mob| !(mob.action == MobAction::Burrow && mob.action_ticks == 0));
+    if night {
+        return;
+    }
+    for (id, mob) in mobs.iter_mut() {
+        if mob.kind == MobKind::Stumpling && mob.action != MobAction::Burrow {
+            mob.action = MobAction::Burrow;
+            mob.action_ticks = BURROW_TICKS;
+            mob.target = MobTarget::None;
+            changed.insert(*id);
         }
     }
 }
@@ -187,7 +207,6 @@ mod tests {
     use shared::world::hostiles::Difficulty;
     use shared::world::{BlockData, BlockDirection};
     use shared::{DAY_DURATION_IN_TICKS, MIDNIGHT_IN_DAY, NOON_IN_DAY};
-    use std::collections::HashSet;
 
     fn player_at(id: PlayerId, position: Vec3) -> Player {
         Player::new(id, format!("p{id}"), position, Transform::default())
@@ -273,7 +292,7 @@ mod tests {
             spawn_at(&woods, &players, feet, BlockId::Grass, true, 10, &mut rng())[0].kind,
             MobKind::Bramble
         );
-        // Open stone at night has no kind yet
+        // Open stone at night has no kind
         assert!(spawn_at(&open, &players, feet, BlockId::Stone, true, 10, &mut rng()).is_empty());
         // Within 24 blocks of a player, this one or another
         let cave = flat(BlockId::Stone, true);
@@ -435,5 +454,55 @@ mod tests {
             );
         }
         assert!(map.mobs.is_empty());
+    }
+
+    #[test]
+    fn at_dawn_the_stumplings_burrow_and_go_once_under_the_ground() {
+        let mut map = ServerWorldMap {
+            chunks: flat(BlockId::Grass, false),
+            ..Default::default()
+        };
+        map.players
+            .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
+        map.mobs
+            .insert(1, hostile(MobKind::Stumpling, Vec3::new(3.0, 2.0, 0.0)));
+        map.mobs
+            .insert(2, hostile(MobKind::Gnawer, Vec3::new(3.0, 2.0, 0.0)));
+        // At night it stays as it is
+        let map = run(map, MIDNIGHT_IN_DAY + 1);
+        assert_eq!(map.mobs[&1].action, MobAction::Idle);
+        // On the first tick of the day it starts to burrow, the Gnawer does not
+        let mut map = run(map, DAY_DURATION_IN_TICKS / 2 + 1);
+        assert_eq!(map.mobs[&1].action, MobAction::Burrow);
+        assert_eq!(
+            map.mobs[&1].action_ticks,
+            super::super::hostile::BURROW_TICKS
+        );
+        assert!(map.changed_mobs.contains(&1));
+        assert_eq!(map.mobs[&2].action, MobAction::Idle);
+        // and keeps burrowing
+        map.mobs.get_mut(&1).unwrap().action_ticks = 1;
+        let mut map = run(map, DAY_DURATION_IN_TICKS / 2 + 2);
+        assert_eq!(map.mobs[&1].action_ticks, 1);
+        // Down, it goes, leaving nothing
+        map.mobs.get_mut(&1).unwrap().action_ticks = 0;
+        let map = run(map, DAY_DURATION_IN_TICKS / 2 + 3);
+        assert!(!map.mobs.contains_key(&1));
+        assert!(map.mobs.contains_key(&2));
+    }
+
+    #[test]
+    fn an_open_plain_at_night_gets_stumplings() {
+        let mut map = ServerWorldMap {
+            chunks: flat(BlockId::Grass, false),
+            ..Default::default()
+        };
+        map.players
+            .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
+        for i in 1..=200 {
+            map = run(map, i * SPAWN_INTERVAL_TICKS);
+        }
+        assert!(count(&map, MobKind::Stumpling) > 0);
+        assert_eq!(count(&map, MobKind::Stumpling), map.mobs.len());
     }
 }

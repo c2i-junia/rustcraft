@@ -62,6 +62,7 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Gnawer => ("models/animated/Gnawer.glb", HOSTILE_CLIPS),
         MobKind::Bramble => ("models/animated/Bramble.glb", HOSTILE_CLIPS),
         MobKind::Roller => ("models/animated/Roller.glb", HOSTILE_CLIPS),
+        MobKind::Stumpling => ("models/animated/Stumpling.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }
@@ -76,6 +77,8 @@ pub fn clip_for(kind: MobKind, action: MobAction) -> MobClip {
         MobAction::Graze => MobClip::Eat,
         MobAction::Chase => MobClip::Walk,
         MobAction::Attack => MobClip::Attack,
+        // It sinks standing, the ground hiding it
+        MobAction::Burrow => MobClip::Idle,
     };
     let has = |clip| model(kind).clips.iter().any(|&(c, _)| c == clip);
     match wanted {
@@ -138,6 +141,7 @@ mod tests {
                 MobAction::Graze,
                 MobAction::Chase,
                 MobAction::Attack,
+                MobAction::Burrow,
             ] {
                 let clip = clip_for(kind, action);
                 assert!(
@@ -151,12 +155,21 @@ mod tests {
         assert_eq!(clip_for(MobKind::Fox, MobAction::Flee), MobClip::Run);
         assert_eq!(clip_for(MobKind::Fox, MobAction::Graze), MobClip::Idle);
         assert_eq!(clip_for(MobKind::Fox, MobAction::Attack), MobClip::Idle);
-        for kind in [MobKind::Gnawer, MobKind::Bramble, MobKind::Roller] {
+        for kind in [
+            MobKind::Gnawer,
+            MobKind::Bramble,
+            MobKind::Roller,
+            MobKind::Stumpling,
+        ] {
             assert_eq!(clip_for(kind, MobAction::Chase), MobClip::Walk);
             assert_eq!(clip_for(kind, MobAction::Attack), MobClip::Attack);
             assert_eq!(clip_for(kind, MobAction::Idle), MobClip::Idle);
             assert_eq!(model(kind).clips, HOSTILE_CLIPS);
         }
+        assert_eq!(
+            clip_for(MobKind::Stumpling, MobAction::Burrow),
+            MobClip::Idle
+        );
         assert!(MobClip::Attack.plays_once());
         assert!(!MobClip::Walk.plays_once());
     }

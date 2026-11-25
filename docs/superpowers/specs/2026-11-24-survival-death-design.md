@@ -319,3 +319,16 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   `hostile::act` (after the generic prey kept / forgotten / found), a row in `spawn_kind`, and
   the kind's `hunt`, `strike`, `health`, `size`, `display_name`, `is_hostile`, `loot`, model
   with `HOSTILE_CLIPS`; a flier or swimmer also gates `behavior::apply_gravity`.
+- **Lot 9** (plan `2026-11-24-survival-lot-9-10-stumpling-drowner.md`). Appended `MobKind` 13
+  `Stumpling`, `MobAction` 6 `Burrow`, `ItemId` 165 `StumplingSpawnEgg`. Box 0.9 × 1.95 (the
+  model is 1.125 wide with its arms and 2.06 tall; the box fits the two free cells of a spawn).
+  Reach 1.2, sight 16, wanders at 0.8. Night grass picks the kind: open grass a Stumpling, the
+  woods (lot 8's leaves) a Bramble or a Stumpling, half each. It flees the nearest `Fire` or
+  `Lava` within 6 blocks (a sphere of offsets sorted by distance, ≤ 925 lookups a tick) at its
+  own speed as `Flee`, keeping its prey and striking nothing. Dawn is the spawning system's
+  (it has the time): each tick of the day, a Stumpling not burrowing gets `Burrow` for 40
+  ticks; a burrowing one skips gravity and its hunt and goes down by its height through the
+  ground over them, which the client draws by itself (the ground hides it; clip Idle); with 0
+  ticks left the spawning system removes it, without loot. A Stumpling hatched by day
+  burrows at once. Loot: 2–4 sticks, charcoal 3 in 10. "sp pl" in the item browser now also
+  finds the Stumpling's egg.

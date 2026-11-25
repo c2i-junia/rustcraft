@@ -87,6 +87,11 @@ impl MobKind {
                 forget: 24.0,
                 speed: 7.0,
             }),
+            MobKind::Stumpling => Some(Hunt {
+                sight: 16.0,
+                forget: 24.0,
+                speed: 1.2,
+            }),
             _ => None,
         }
     }
@@ -112,6 +117,12 @@ impl MobKind {
                 reach: 0.0,
                 cooldown: 0,
                 knock_back: 8.0,
+            }),
+            MobKind::Stumpling => Some(Strike {
+                damage: 3,
+                reach: 1.2,
+                cooldown: 20,
+                knock_back: 0.0,
             }),
             _ => None,
         }
@@ -211,12 +222,16 @@ pub const MOUNTAIN_HEIGHT: i32 = 100;
 /// Below this height and under a block, the caves.
 pub const CAVE_HEIGHT: i32 = 50;
 
-/// The kind of hostile a dark `place` gets, if any: Brambles in the woods at night on grass,
-/// Rollers in the mountains, Gnawers (3 in 4) or Rollers in the caves. Each later kind adds its
-/// place here.
+/// The kind of hostile a dark `place` gets, if any: on grass at night Stumplings, or in the
+/// woods Brambles and Stumplings half each; Rollers in the mountains, Gnawers (3 in 4) or
+/// Rollers in the caves. Each later kind adds its place here.
 pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
-    if place.night && place.floor == BlockId::Grass && place.wooded {
-        Some(MobKind::Bramble)
+    if place.night && place.floor == BlockId::Grass {
+        Some(if place.wooded && rng.gen_bool(0.5) {
+            MobKind::Bramble
+        } else {
+            MobKind::Stumpling
+        })
     } else if place.y > MOUNTAIN_HEIGHT {
         Some(MobKind::Roller)
     } else if place.covered && place.y < CAVE_HEIGHT {
@@ -310,9 +325,18 @@ mod tests {
         let roller = MobKind::Roller.strike().unwrap();
         assert_eq!((roller.damage, roller.knock_back), (4, 8.0));
         assert_eq!(MobKind::Roller.hunt().unwrap().sight, 12.0);
+        let stumpling = MobKind::Stumpling.strike().unwrap();
+        assert_eq!((stumpling.damage, stumpling.cooldown), (3, 20));
+        assert_eq!(MobKind::Stumpling.hunt().unwrap().speed, 1.2);
         assert_eq!(
-            [MobKind::Gnawer, MobKind::Bramble, MobKind::Roller].map(MobKind::health),
-            [6, 12, 16]
+            [
+                MobKind::Gnawer,
+                MobKind::Bramble,
+                MobKind::Roller,
+                MobKind::Stumpling
+            ]
+            .map(MobKind::health),
+            [6, 12, 16, 24]
         );
     }
 
@@ -426,14 +450,14 @@ mod tests {
             kinds(place(30, false, true, BlockId::Stone, false)),
             [Some(Gnawer), Some(Roller)]
         );
-        // The woods at night, on grass, even under the leaves
+        // The woods at night, on grass, even under the leaves: Brambles and Stumplings
         assert_eq!(
             kinds(place(70, true, false, BlockId::Grass, true)),
-            [Some(Bramble)]
+            [Some(Bramble), Some(Stumpling)]
         );
         assert_eq!(
             kinds(place(70, true, true, BlockId::Grass, true)),
-            [Some(Bramble)]
+            [Some(Bramble), Some(Stumpling)]
         );
         // Mountains
         assert_eq!(
@@ -444,9 +468,14 @@ mod tests {
             kinds(place(120, false, true, BlockId::Stone, false)),
             [Some(Roller)]
         );
-        // Open plains at night, under the trees at day, a cave too high: none yet
-        assert_eq!(kinds(place(70, true, false, BlockId::Grass, false)), [None]);
+        // Open plains at night: Stumplings
+        assert_eq!(
+            kinds(place(70, true, false, BlockId::Grass, false)),
+            [Some(Stumpling)]
+        );
+        // Under the trees at day, open stone at night, a cave too high: none
         assert_eq!(kinds(place(70, false, true, BlockId::Grass, true)), [None]);
+        assert_eq!(kinds(place(70, true, false, BlockId::Stone, false)), [None]);
         assert_eq!(kinds(place(60, false, true, BlockId::Stone, false)), [None]);
     }
 
@@ -461,6 +490,7 @@ mod tests {
         assert_eq!(sizes, [2, 3, 4]);
         assert_eq!(pack_size(MobKind::Bramble, &mut rng), 1);
         assert_eq!(pack_size(MobKind::Roller, &mut rng), 1);
+        assert_eq!(pack_size(MobKind::Stumpling, &mut rng), 1);
     }
 
     #[test]

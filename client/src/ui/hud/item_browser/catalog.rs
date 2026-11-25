@@ -106,7 +106,7 @@ mod tests {
         };
         assert!(items.is_sorted_by_key(rank));
         assert_eq!(items.first(), Some(&ItemId::Dirt));
-        assert_eq!(items.last(), Some(&ItemId::RollerSpawnEgg));
+        assert_eq!(items.last(), Some(&ItemId::StumplingSpawnEgg));
         assert_eq!(
             found("", Some(Wood)),
             [
@@ -128,7 +128,11 @@ mod tests {
     fn each_word_of_the_search_must_match_the_name() {
         assert_eq!(
             found("sp pl", None),
-            [ItemId::SprucePlanks, ItemId::SpruceSapling]
+            [
+                ItemId::SprucePlanks,
+                ItemId::SpruceSapling,
+                ItemId::StumplingSpawnEgg
+            ]
         );
         assert_eq!(
             found("oak", None),

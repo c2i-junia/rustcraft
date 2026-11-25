@@ -24,6 +24,7 @@ EGGS = {
     "Gnawer": ("#5b5049", "#c98b8b"),
     "Bramble": ("#3f6b2c", "#7a2e3a"),
     "Roller": ("#8a8a86", "#4f4f4b"),
+    "Stumpling": ("#6b4a2e", "#4f7a32"),
 }
 CENTRE_X, CENTRE_Y = 7.5, 8.5
 

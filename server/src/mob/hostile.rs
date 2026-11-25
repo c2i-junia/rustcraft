@@ -1,22 +1,24 @@
 //! How the hostile mobs hunt, once per fixed step after their fall (`behavior::step_mob`): the
 //! generic part keeps or forgets the prey and looks for one (`prey`), then one arm per kind
 //! (`act`) goes at it and strikes. The Gnawer and the Bramble strike in reach (`melee`); the
-//! Roller winds up and rolls (`roll`).
+//! Roller winds up and rolls (`roll`). The Stumpling strikes in reach too, but flees fire
+//! first (`stumpling`), and sinks into the ground at dawn (`burrow`).
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
-use bevy::math::{bounding::Aabb3d, bounding::IntersectsVolume, ops::atan2, Quat, Vec3};
+use bevy::math::{bounding::Aabb3d, bounding::IntersectsVolume, ops::atan2, IVec3, Quat, Vec3};
 use rand::Rng;
 use shared::{
     messages::PlayerId,
     players::{game_mode::DamageSource, Player},
     world::{
         hostiles::{distance_to_box, is_prey, line_of_sight, Hunt, Strike},
-        ChunkMap, MobAction, MobKind, MobTarget, ServerMob,
+        BlockId, ChunkMap, MobAction, MobKind, MobTarget, ServerMob,
     },
 };
 
-use super::behavior::{may_move_to, rest, walk, wander};
+use super::behavior::{flee, may_move_to, rest, walk, wander};
 
 /// How long a strike shows (`MobAction::Attack`), in ticks: the client plays the Attack clip
 /// once each time the action starts.
@@ -29,6 +31,10 @@ pub const ROLL_TICKS: u32 = 60;
 pub const STUN_TICKS: u32 = 40;
 /// How long a Roller rests after it rolled into a player, or as far as it rolls, in ticks.
 pub const ROLL_REST_TICKS: u32 = 20;
+/// How long a Stumpling takes to sink into the ground at dawn, in ticks: 2 seconds.
+pub const BURROW_TICKS: u32 = 40;
+/// How near a fire or lava frightens a Stumpling, in blocks.
+pub const FIRE_FEAR_DISTANCE: i32 = 6;
 
 /// How fast a hostile of `kind` moves by its own velocity at most, in blocks per second: a
 /// faster one was thrown (`behavior::is_flung`). The Roller's roll moves it without a
@@ -59,11 +65,75 @@ pub fn act(
     let (Some(hunt), Some(strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
         return;
     };
+    if mob.action == MobAction::Burrow {
+        return burrow(mob);
+    }
     let prey = prey(mob, chunks, players, &hunt);
     match mob.kind {
         MobKind::Roller => roll(mob, chunks, players, prey, (hunt, strike), delta),
+        MobKind::Stumpling => stumpling(mob, chunks, players, prey, (hunt, strike), delta, rng),
         _ => melee(mob, chunks, players, prey, (hunt, strike), delta, rng),
     }
+}
+
+/// A Stumpling that burrows (`MobAction::Burrow`, which the spawning system starts at dawn)
+/// goes down through the ground by its height over `BURROW_TICKS`, its ticks counting down to
+/// 0, when the spawning system removes it.
+fn burrow(mob: &mut ServerMob) {
+    if mob.action_ticks > 0 {
+        mob.position.y -= mob.height / BURROW_TICKS as f32;
+        mob.action_ticks -= 1;
+    }
+    mob.velocity = Vec3::ZERO;
+}
+
+/// The cells within `FIRE_FEAR_DISTANCE` of a cell, nearest first.
+static FEAR_OFFSETS: LazyLock<Vec<IVec3>> = LazyLock::new(|| {
+    let r = FIRE_FEAR_DISTANCE;
+    let mut offsets: Vec<IVec3> = (-r..=r)
+        .flat_map(|x| (-r..=r).flat_map(move |y| (-r..=r).map(move |z| IVec3::new(x, y, z))))
+        .filter(|offset| offset.length_squared() <= r * r)
+        .collect();
+    offsets.sort_by_key(|offset| offset.length_squared());
+    offsets
+});
+
+/// The centre of the nearest fire or lava block within `FIRE_FEAR_DISTANCE` of the cell of
+/// `position`, if any: at most the 925 cells of `FEAR_OFFSETS`.
+fn nearest_fire(chunks: &ChunkMap, position: Vec3) -> Option<Vec3> {
+    let cell = position.floor().as_ivec3();
+    FEAR_OFFSETS
+        .iter()
+        .map(|offset| cell + *offset)
+        .find(|pos| {
+            chunks
+                .get_block(*pos)
+                .is_some_and(|block| matches!(block.id, BlockId::Fire | BlockId::Lava))
+        })
+        .map(|pos| pos.as_vec3() + Vec3::splat(0.5))
+}
+
+/// The Stumpling: it flees the nearest fire or lava within `FIRE_FEAR_DISTANCE`
+/// (`MobAction::Flee`, at its hunting speed), keeping its prey but striking nothing; otherwise
+/// it hunts in reach like the Gnawer (`melee`).
+fn stumpling(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &mut HashMap<PlayerId, Player>,
+    prey: Option<PlayerId>,
+    (hunt, strike): (Hunt, Strike),
+    delta: f32,
+    rng: &mut impl Rng,
+) {
+    if let Some(fire) = nearest_fire(chunks, mob.position) {
+        mob.action = MobAction::Flee;
+        mob.action_ticks = 0;
+        return flee(mob, chunks, fire, hunt.speed, delta);
+    }
+    if mob.action == MobAction::Flee {
+        (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
+    }
+    melee(mob, chunks, players, prey, (hunt, strike), delta, rng)
 }
 
 /// Half the size of the box of `player`.
@@ -565,5 +635,81 @@ mod tests {
         run(&mut w, 80);
         assert_eq!(player(&w, 1).health, MAX_HEALTH);
         assert_eq!(player(&w, 1).velocity, Vec3::ZERO);
+    }
+
+    #[test]
+    fn a_stumpling_plods_at_its_prey_and_hits_for_three_every_twenty_ticks() {
+        let mut w = with(
+            mob_at(MobKind::Stumpling, 0.5, 0.5),
+            vec![player_at(1, 10.5, 0.5)],
+        );
+        run(&mut w, 20);
+        assert_eq!(mob(&w).action, MobAction::Chase);
+        // 1.2 blocks a second
+        let walked = mob(&w).position.x - 0.5;
+        assert!((1.1..=1.3).contains(&walked), "{walked}");
+        w.resource_mut::<ServerWorldMap>()
+            .players
+            .get_mut(&1)
+            .unwrap()
+            .position
+            .x = mob(&w).position.x + 1.2 + 0.4;
+        run(&mut w, 1);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 3);
+        run(&mut w, 19);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 3);
+        run(&mut w, 1);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 6);
+    }
+
+    #[test]
+    fn a_stumpling_flees_a_fire_or_lava_within_six_blocks_and_strikes_nothing_meanwhile() {
+        for (danger, at) in [(BlockId::Fire, 5), (BlockId::Lava, -4), (BlockId::Fire, 7)] {
+            let mut w = with(
+                mob_at(MobKind::Stumpling, 0.5, 0.5),
+                vec![player_at(1, 1.9, 0.5)],
+            );
+            w.resource_mut::<ServerWorldMap>().chunks.fill_box(
+                IVec3::new(0, 1, at),
+                IVec3::new(0, 1, at),
+                danger,
+            );
+            run(&mut w, 20);
+            let moved = mob(&w).position.z - 0.5;
+            if at.abs() > 6 {
+                // Too far to be feared: it strikes its prey
+                assert_eq!(player(&w, 1).health, MAX_HEALTH - 3, "{danger:?} {at}");
+                assert!(moved.abs() < 0.1, "{moved}");
+                continue;
+            }
+            assert_eq!(player(&w, 1).health, MAX_HEALTH, "{danger:?} {at}");
+            assert_eq!(mob(&w).action, MobAction::Flee);
+            assert!(
+                moved * (at as f32) < -0.5,
+                "{danger:?} at {at}: moved {moved}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_burrowing_stumpling_sinks_by_its_height_in_forty_ticks_and_strikes_nothing() {
+        let mut stumpling = mob_at(MobKind::Stumpling, 0.5, 0.5);
+        stumpling.action = MobAction::Burrow;
+        stumpling.action_ticks = BURROW_TICKS;
+        let start = stumpling.position;
+        let mut w = with(stumpling, vec![player_at(1, 1.6, 0.5)]);
+        run(&mut w, BURROW_TICKS / 2);
+        let sunk = start.y - mob(&w).position.y;
+        assert!((sunk - 1.95 / 2.0).abs() < 1e-3, "{sunk}");
+        run(&mut w, BURROW_TICKS / 2);
+        let sunk = start.y - mob(&w).position.y;
+        assert!((sunk - 1.95).abs() < 1e-3, "{sunk}");
+        assert_eq!(mob(&w).action, MobAction::Burrow);
+        assert_eq!(mob(&w).action_ticks, 0);
+        // It stays where it went down
+        run(&mut w, 5);
+        assert!((start.y - mob(&w).position.y - 1.95).abs() < 1e-3);
+        assert_eq!(mob(&w).position.x, start.x);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH);
     }
 }

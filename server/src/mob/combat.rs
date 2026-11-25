@@ -169,6 +169,10 @@ pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
         ],
         MobKind::Rabbit => vec![(ItemId::RawRabbit, 1)],
         MobKind::Bramble => vec![(ItemId::Stick, rng.gen_range(1..=3))],
+        MobKind::Stumpling => vec![
+            (ItemId::Stick, rng.gen_range(2..=4)),
+            (ItemId::Charcoal, u32::from(rng.gen_bool(0.3))),
+        ],
         MobKind::Roller => vec![
             (ItemId::Cobblestone, rng.gen_range(1..=2)),
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 5))),
@@ -464,6 +468,10 @@ mod tests {
         }
         assert_eq!(drops(MobKind::Bramble), [(Stick, (1, 3))]);
         assert_eq!(
+            drops(MobKind::Stumpling),
+            [(Stick, (2, 4)), (Charcoal, (1, 1))]
+        );
+        assert_eq!(
             drops(MobKind::Roller),
             [(Cobblestone, (1, 2)), (Flint, (1, 1))]
         );
@@ -473,6 +481,15 @@ mod tests {
             })
             .count();
         assert!((150..250).contains(&flints), "{flints} flints in 1000");
+        let charcoals = (0..1000)
+            .filter(|_| {
+                loot(&ServerMob::new(MobKind::Stumpling, AHEAD), &mut rng).contains(&(Charcoal, 1))
+            })
+            .count();
+        assert!(
+            (250..350).contains(&charcoals),
+            "{charcoals} charcoals in 1000"
+        );
         let sheared = ServerMob {
             sheared: true,
             ..ServerMob::new(MobKind::Sheep, AHEAD)

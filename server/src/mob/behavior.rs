@@ -63,6 +63,7 @@ const PUSH_CELL: f32 = 2.0;
 pub(super) fn walk_speed(kind: MobKind) -> f32 {
     match kind {
         MobKind::Gnawer => 1.4,
+        MobKind::Stumpling => 0.8,
         MobKind::Bramble | MobKind::Roller => 0.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
@@ -75,7 +76,9 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
 /// (`hostile::own_speed`).
 fn flee_speed(kind: MobKind) -> f32 {
     match kind {
-        MobKind::Gnawer | MobKind::Bramble | MobKind::Roller => super::hostile::own_speed(kind),
+        MobKind::Gnawer | MobKind::Bramble | MobKind::Roller | MobKind::Stumpling => {
+            super::hostile::own_speed(kind)
+        }
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
@@ -155,7 +158,9 @@ fn step_mob(
 ) {
     let start = mob.position;
     mob.portal_rest = chunks.portals().still_resting(mob.position, passer(mob));
-    apply_gravity(mob, chunks, delta);
+    if !floats(mob) {
+        apply_gravity(mob, chunks, delta);
+    }
     if pass_through_portal(mob, chunks, start) {
         return;
     }
@@ -172,6 +177,11 @@ fn step_mob(
     }
     act(mob, chunks, players, delta, rng);
     pass_through_portal(mob, chunks, start);
+}
+
+/// Whether `mob` escapes gravity: a Stumpling sinking through the ground.
+fn floats(mob: &ServerMob) -> bool {
+    mob.action == MobAction::Burrow
 }
 
 /// Whether `mob` goes faster than it ever goes by itself (`flee_speed`): only a portal flings
@@ -287,8 +297,8 @@ fn act(
             }
             flee(mob, chunks, threat, flee_speed(mob.kind), delta);
         }
-        // An animal never hunts
-        MobAction::Chase | MobAction::Attack => rest(mob, rng),
+        // An animal never hunts nor burrows
+        MobAction::Chase | MobAction::Attack | MobAction::Burrow => rest(mob, rng),
     }
 }
 
@@ -520,7 +530,7 @@ pub(super) fn walk(
 
 /// One step away from `threat` at `speed`, on the horizontal plane only: gravity handles the
 /// vertical axis. The mob stays in place when a block is in the way.
-fn flee(mob: &mut ServerMob, chunks: &ChunkMap, threat: Vec3, speed: f32, delta: f32) {
+pub(super) fn flee(mob: &mut ServerMob, chunks: &ChunkMap, threat: Vec3, speed: f32, delta: f32) {
     let away = (mob.position - threat).with_y(0.0).normalize_or_zero();
     let fled = mob.position + away * (speed * delta);
     if may_move_to(mob, chunks, fled) {

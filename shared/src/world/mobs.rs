@@ -25,10 +25,12 @@ pub enum MobKind {
     Bramble,
     /// A boulder that winds up and rolls at its prey.
     Roller,
+    /// A walking stump, out of the grass at night, back into the ground at dawn.
+    Stumpling,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 13] = [
+    pub const ALL: [MobKind; 14] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -42,12 +44,16 @@ impl MobKind {
         MobKind::Gnawer,
         MobKind::Bramble,
         MobKind::Roller,
+        MobKind::Stumpling,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
     /// dark rather than with the chunks.
     pub fn is_hostile(self) -> bool {
-        matches!(self, MobKind::Gnawer | MobKind::Bramble | MobKind::Roller)
+        matches!(
+            self,
+            MobKind::Gnawer | MobKind::Bramble | MobKind::Roller | MobKind::Stumpling
+        )
     }
 
     /// The points of health of a mob of this kind.
@@ -57,6 +63,7 @@ impl MobKind {
             MobKind::Gnawer => 6,
             MobKind::Bramble => 12,
             MobKind::Roller => 16,
+            MobKind::Stumpling => 24,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
@@ -64,10 +71,10 @@ impl MobKind {
         }
     }
 
-    /// Whether an axe deals this kind half again its damage (`blow_damage`). None does yet: the
-    /// Stumpling, a walking stump, will.
+    /// Whether an axe deals this kind half again its damage (`blow_damage`): the Stumpling, a
+    /// walking stump.
     pub fn weak_to_axes(self) -> bool {
-        false
+        self == MobKind::Stumpling
     }
 
     /// The points of health a blow with `held` in hand takes from a mob of this kind: the
@@ -101,6 +108,7 @@ impl MobKind {
             MobKind::Gnawer => "Gnawer",
             MobKind::Bramble => "Bramble",
             MobKind::Roller => "Roller",
+            MobKind::Stumpling => "Stumpling",
         }
     }
 
@@ -124,6 +132,8 @@ impl MobKind {
             MobKind::Gnawer => Vec3::new(0.6, 0.6, 0.6),
             MobKind::Bramble => Vec3::new(1.0, 0.75, 1.0),
             MobKind::Roller => Vec3::new(0.75, 0.75, 0.75),
+            // 1.125 wide with its arms, 2.06 tall: its box fits the two free cells of a spawn
+            MobKind::Stumpling => Vec3::new(0.9, 1.95, 0.9),
         }
     }
 }
@@ -150,6 +160,8 @@ pub enum MobAction {
     Chase,
     /// A hostile strikes its prey, or winds up to: the client plays the Attack clip once.
     Attack,
+    /// A Stumpling sinks into the ground at dawn, `action_ticks` left before it is gone.
+    Burrow,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -233,11 +245,25 @@ mod tests {
     #[test]
     fn a_blow_takes_the_damage_of_the_weapon_and_one_bare_handed() {
         for kind in MobKind::ALL {
-            assert!(!kind.weak_to_axes(), "{kind:?}");
+            assert_eq!(kind.weak_to_axes(), kind == MobKind::Stumpling, "{kind:?}");
             assert_eq!(kind.blow_damage(None), 1);
-            for item in [ItemId::IronSword, ItemId::DiamondAxe, ItemId::Spear] {
+            for item in [ItemId::IronSword, ItemId::Spear] {
                 assert_eq!(kind.blow_damage(Some(item)), item.attack_damage());
             }
         }
+    }
+
+    #[test]
+    fn an_axe_deals_a_stumpling_half_again_its_damage() {
+        let axe = ItemId::DiamondAxe;
+        assert_eq!(MobKind::Cow.blow_damage(Some(axe)), axe.attack_damage());
+        assert_eq!(
+            MobKind::Stumpling.blow_damage(Some(axe)),
+            axe.attack_damage() * 3 / 2
+        );
+        assert_eq!(
+            MobKind::Stumpling.blow_damage(Some(ItemId::IronSword)),
+            ItemId::IronSword.attack_damage()
+        );
     }
 }

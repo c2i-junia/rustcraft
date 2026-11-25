@@ -191,11 +191,12 @@ pub enum ItemId {
     GnawerSpawnEgg,
     BrambleSpawnEgg,
     RollerSpawnEgg,
+    StumplingSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 165] = [
+    pub const ALL: [ItemId; 166] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -361,6 +362,7 @@ impl ItemId {
         Self::GnawerSpawnEgg,
         Self::BrambleSpawnEgg,
         Self::RollerSpawnEgg,
+        Self::StumplingSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -467,6 +469,7 @@ impl ItemId {
             Self::GnawerSpawnEgg => Some(MobKind::Gnawer),
             Self::BrambleSpawnEgg => Some(MobKind::Bramble),
             Self::RollerSpawnEgg => Some(MobKind::Roller),
+            Self::StumplingSpawnEgg => Some(MobKind::Stumpling),
             _ => None,
         }
     }
@@ -695,7 +698,8 @@ impl ItemId {
             | Self::CatSpawnEgg
             | Self::GnawerSpawnEgg
             | Self::BrambleSpawnEgg
-            | Self::RollerSpawnEgg => ItemCategory::Mobs,
+            | Self::RollerSpawnEgg
+            | Self::StumplingSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -803,6 +807,7 @@ impl ItemId {
             | Self::GnawerSpawnEgg
             | Self::BrambleSpawnEgg
             | Self::RollerSpawnEgg
+            | Self::StumplingSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1180,6 +1185,7 @@ mod tests {
             (ItemId::GnawerSpawnEgg, 162),
             (ItemId::BrambleSpawnEgg, 163),
             (ItemId::RollerSpawnEgg, 164),
+            (ItemId::StumplingSpawnEgg, 165),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1230,6 +1236,7 @@ mod tests {
                 | ItemId::GnawerSpawnEgg
                 | ItemId::BrambleSpawnEgg
                 | ItemId::RollerSpawnEgg
+                | ItemId::StumplingSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks

@@ -182,6 +182,42 @@ fn a_gnawer_hatched_next_to_a_survival_player_bites_it() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_stumpling_hatched_at_night_next_to_a_survival_player_hits_it() {
+    // A world at its time 0 is at the start of the night: the Stumpling stays out
+    let folder = GameFolder::new().with_world("Stumps").with_items(
+        "Stumps",
+        "Tester",
+        &[(0, ItemId::StumplingSpawnEgg, 1)],
+    );
+    let mut h = enter_world(folder, "Stumps");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::StumplingSpawnEgg, 1))
+    });
+    assert_eq!(local_player(h.world()).game_mode, GameMode::Survival);
+    let player = look_at_the_ground_ahead(&mut h);
+
+    right_click(&mut h);
+    h.wait_until("the hatched stumpling", SERVER, |w| {
+        animals(w)
+            .iter()
+            .any(|&(kind, at)| kind == MobKind::Stumpling && at.distance(player) < 5.0)
+    });
+    let (_, stumpling) = animals(h.world())
+        .into_iter()
+        .find(|&(kind, _)| kind == MobKind::Stumpling)
+        .unwrap();
+    look_at(&mut h, stumpling);
+    h.wait_until("a blow", SERVER, |w| local_player(w).health < MAX_HEALTH);
+    let health = local_player(h.world()).health;
+    assert!(
+        health > 0 && (MAX_HEALTH - health).is_multiple_of(3),
+        "health {health}"
+    );
+    h.snapshot("stumpling");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_three_simple_hostiles_are_drawn_where_their_eggs_hatch_them() {
     let kinds = [MobKind::Gnawer, MobKind::Bramble, MobKind::Roller];
     let eggs = [
