@@ -1,0 +1,40 @@
+use std::sync::Arc;
+
+use clap::Parser;
+use rustcraft_hub::{
+    config::{self, Cli, Command, ServeArgs},
+    connect, router, AppState,
+};
+use tracing_subscriber::EnvFilter;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .init();
+    match Cli::parse().command {
+        Command::Serve(args) => serve(args).await,
+        Command::GenerateKey { path } => {
+            config::generate_key(&path)?;
+            println!("Wrote a new signing key to {}", path.display());
+            Ok(())
+        }
+    }
+}
+
+async fn serve(args: ServeArgs) -> anyhow::Result<()> {
+    let signing_key = config::read_signing_key(&args.signing_key_file)?;
+    let ip_secret = config::read_ip_secret(&args.ip_secret_file)?;
+    let db = connect(&args.database_url()?).await?;
+    let state = AppState {
+        db,
+        name: args.name.as_str().into(),
+        public_url: args.public_url.trim_end_matches('/').into(),
+        signing_key: Arc::new(signing_key),
+        ip_secret: ip_secret.into(),
+    };
+    let listener = tokio::net::TcpListener::bind(args.listen).await?;
+    tracing::info!(listen = %args.listen, "the hub is up");
+    axum::serve(listener, router(state)).await?;
+    Ok(())
+}

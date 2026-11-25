@@ -9,6 +9,7 @@ files named here.
 | Crate | Role | Depends on |
 |-------|------|------------|
 | `crates/protocol` | What the game and the hub share, with no Bevy: device certificates and the join signature (`identity`), the JSON types of the hub API (`api`), the status packet codec (`status`) and `DEFAULT_HUB`. | — |
+| `hub` (a separate Cargo project, not a member of the workspace) | The hub: accounts, device certificates and hosted worlds, served by `rustcraft-hub serve` over axum and Postgres; see `hub/README.md`. | `rustcraft-protocol` |
 | `shared` | What both sides must agree on: the network messages and their encoding, the block containers, the player simulation. | `rustcraft-protocol` |
 | `server` | The authority on the world: it simulates the inputs of the players, generates and saves the world, and sends the changes. A library, plus the `server` binary for a dedicated server. | `shared` |
 | `client` | The game window: menus, rendering, inputs, and the prediction of the local player. In solo mode it starts the server library in a thread of its own process. | `shared`, `server` |
