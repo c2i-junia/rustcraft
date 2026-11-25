@@ -8,6 +8,7 @@ use crate::audio::{self, settings::load_audio_settings};
 use crate::game;
 use crate::input::keyboard::get_bindings;
 use crate::network;
+use crate::player::skin::ChosenSkin;
 use crate::state::{GameState, PlayerNameSupplied, TexturePath};
 use crate::ui::menus::player_name::{load_player_name, AskPlayerName, DEFAULT_PLAYER_NAME};
 use crate::ui::menus::{self, solo::SelectedWorld};
@@ -60,6 +61,7 @@ pub fn add_client(app: &mut App, settings: ClientSettings) {
     app.insert_resource(get_bindings(&game_folder_paths))
         .insert_resource(load_audio_settings(&game_folder_paths))
         .insert_resource(load_interface_settings(&game_folder_paths))
+        .insert_resource(ChosenSkin::load(&game_folder_paths))
         .insert_resource(render_distance)
         .insert_resource(clouds)
         .insert_resource(biome_blend)

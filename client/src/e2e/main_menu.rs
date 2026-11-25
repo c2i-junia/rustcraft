@@ -19,6 +19,7 @@ use crate::ui::menus::multi::SERVERS_TITLE;
 use crate::ui::menus::player_name::{
     PlayerNameInput, CHOOSE_NAME_TITLE, DEFAULT_PLAYER_NAME, PLAYER_NAME_TITLE,
 };
+use crate::ui::menus::skins::{IMPORT_NOTE, SKINS_TITLE};
 use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
 use crate::ui::menus::MenuState;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
@@ -43,6 +44,18 @@ fn multiplayer_opens_the_server_list() {
     h.click(&L::text("Multiplayer"));
     h.wait_for(&L::text(SERVERS_TITLE), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Multi);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn skin_opens_the_skin_screen() {
+    let mut h = main_menu();
+    h.click(&L::text(SKINS_TITLE));
+    h.wait_for(&L::text(IMPORT_NOTE), SCREEN);
+    assert_eq!(h.menu_state(), MenuState::Skins);
+    h.click(&L::role(Role::Button, "Back"));
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    assert_eq!(h.menu_state(), MenuState::Main);
 }
 
 #[test]
@@ -134,6 +147,8 @@ fn the_keyboard_alone_opens_a_screen() {
 
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Multiplayer"));
+    h.press(KeyCode::Tab);
+    assert_eq!(h.focus_label().as_deref(), Some(SKINS_TITLE));
     h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
     assert_eq!(ring(&mut h, "Settings"), ACCENT);

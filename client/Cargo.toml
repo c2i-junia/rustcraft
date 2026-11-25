@@ -27,6 +27,9 @@ bevy_egui = { version = "0.40", default-features = false, features = ["bevy_ui",
 egui = "0.34"
 # The local time of the chat messages: std has no time zone
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# The version Bevy uses: the skins the player imports are read with it, and the tests write the
+# golden screenshots of the UI with it
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
 default = ["dev"]
@@ -38,8 +41,6 @@ workspace = true
 
 [dev-dependencies]
 shared = { path = "../shared", features = ["test-helpers"] }
-# The version Bevy uses, to read and write the golden screenshots of the UI
-image = { version = "0.25", default-features = false, features = ["png"] }
 tempfile = "3"
 serde_json = "1"
 # The version Bevy uses, to time whole frames on the GPU in the benchmark of the shaders

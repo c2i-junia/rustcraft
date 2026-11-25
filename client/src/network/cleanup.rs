@@ -426,6 +426,7 @@ mod tests {
                     AuthRegisterRequest {
                         username,
                         render_distance: shared::MIN_RENDER_DISTANCE,
+                        skin: Default::default(),
                     }
                     .into(),
                 );
@@ -587,6 +588,7 @@ mod tests {
             .insert_resource(ClientTime(0))
             .init_resource::<ClientWorldMap>()
             .init_resource::<crate::world::RenderDistance>()
+            .init_resource::<crate::player::skin::ChosenSkin>()
             .init_resource::<StatusProbe>()
             .insert_resource(SessionOrigin::World {
                 name: "slow-test".to_string(),

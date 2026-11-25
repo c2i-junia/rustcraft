@@ -972,7 +972,16 @@ in `PostUpdate`; the handlers that read `ButtonInput<KeyCode>` in `Update` (the 
 main menu, of the world and server lists, of the settings and of the pause menu, and the New
 world opener, Ctrl+N) skip while a modal is open (`modal_open`: a dialog, or the quitting card),
 a text field has the focus, a key is being captured or, for the pause menu, the settings are
-open. The connecting card reads Escape the same way: no dialog or field exists there. The
+open. The Skin screen (`ui/menus/skins.rs`) lists the skins of the game
+(`shared::players::skin::BUILT_IN_SKINS`, drawn by `scripts/generate_skins.py`) and the PNGs of
+the `skins/` folder of the game folder, where a file dropped on the window is copied
+(`FileDragAndDrop`); a 64x32 skin is widened to 64x64 by mirroring its right arm and leg
+(`player/skin.rs`). Its preview is the player's model (`spawn_player_model`) on a layer of its own
+(`PREVIEW_LAYER`), drawn by a `Camera3d` into an image the screen shows. The choice is saved in
+`skin.ron`; `ChosenSkin` holds it with the `PlayerSkin` sent in `AuthRegisterRequest`: a name, or
+the 16 KiB of RGBA of an imported skin. The server keeps the validated skin on the `Player` (not
+saved) and every `PlayerSpawnEvent` carries it, so a client builds the model of each player from
+the asset of a skin of the game or from an image of the pixels. The connecting card reads Escape the same way: no dialog or field exists there. The
 settings are one screen (`ui/menus/settings/`): a `MenuState` in the menus, an overlay above the
 game from the pause menu. `progress.rs` is a progress bar: a sunken track whose `OK` fill
 follows the value its screen sets on `ProgressBar`, told as a percentage to accessibility. The

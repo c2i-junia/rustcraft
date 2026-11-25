@@ -6,13 +6,15 @@ use crate::{
         TargetServerState, UnacknowledgedInputs,
     },
     player::{
-        model::{skin_material, spawn_player_model, PlayerAnimation, DEFAULT_SKIN},
+        model::{skin_material, spawn_player_model, PlayerAnimation},
+        skin::skin_texture,
         PlayerLabel,
     },
     state::GameState,
     ui::assets::MONO_FONT_PATH,
     world::ClientWorldMap,
 };
+use bevy::camera::visibility::RenderLayers;
 use bevy::color::palettes::css::ORANGE;
 use bevy::prelude::*;
 use shared::{
@@ -38,6 +40,7 @@ pub fn spawn_players_system(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     player_profile: Res<CurrentPlayerProfile>,
     mut ev_spawn: MessageReader<PlayerSpawnEvent>,
     mut target_server: ResMut<TargetServer>,
@@ -67,10 +70,12 @@ pub fn spawn_players_system(
             position: event.data.position,
             camera_transform: event.data.camera_transform,
             is_flying: event.data.is_flying,
+            skin: event.skin.clone(),
             ..default()
         };
 
-        let material = materials.add(skin_material(assets.load(DEFAULT_SKIN)));
+        let texture = skin_texture(&event.skin, &assets, &mut images);
+        let material = materials.add(skin_material(texture));
         let height = player.height;
         let body = (
             PlayerBody,
@@ -87,7 +92,7 @@ pub fn spawn_players_system(
         ));
         entity.with_children(|parent| {
             parent.spawn(body).with_children(|body| {
-                spawn_player_model(body, &mut meshes, material, height);
+                spawn_player_model(body, &mut meshes, material, height, RenderLayers::layer(0));
             });
         });
 

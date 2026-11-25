@@ -12,6 +12,7 @@ use shared::messages::{
 };
 use shared::players::blocks::HIT_MS;
 use shared::players::inventory::InventoryAction;
+use shared::players::skin::{PlayerSkin, SKIN_BYTES};
 use shared::players::{Inventory, Player};
 use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
@@ -317,6 +318,7 @@ fn solo_session_from_auth_to_exit() {
         AuthRegisterRequest {
             username: "tester".to_string(),
             render_distance: 2,
+            skin: Default::default(),
         }
         .into(),
     );
@@ -386,6 +388,7 @@ fn auth_request(username: &str) -> ClientToServerMessage {
     AuthRegisterRequest {
         username: username.to_string(),
         render_distance: 2,
+        skin: Default::default(),
     }
     .into()
 }
@@ -795,6 +798,7 @@ fn the_chunks_follow_the_render_distance_the_player_asks_for() {
         AuthRegisterRequest {
             username: "viewer".to_string(),
             render_distance: 1,
+            skin: Default::default(),
         }
         .into(),
     );
@@ -937,6 +941,79 @@ fn chat_message_reaches_every_client_and_empty_ones_are_dropped() {
 
     alice.send(ClientToServerMessage::Exit);
     alice.send_packets();
+    server.join_after_exit();
+}
+
+#[test]
+fn a_joining_player_receives_the_skins_of_the_others_and_they_receive_its_own() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let pixels: Vec<u8> = (0..SKIN_BYTES).map(|i| (i % 251) as u8).collect();
+    let mut painter = TestClient::connect(server.addr, PLAYER_ID);
+    painter.wait_connected();
+    painter.send(
+        AuthRegisterRequest {
+            username: "painter".to_string(),
+            render_distance: 2,
+            skin: PlayerSkin::Custom(pixels.clone()),
+        }
+        .into(),
+    );
+    painter.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
+        _ => None,
+    });
+    // A skin of the wrong size is replaced by the default one
+    let mut sloppy = TestClient::connect(server.addr, PLAYER_ID + 1);
+    sloppy.wait_connected();
+    sloppy.send(
+        AuthRegisterRequest {
+            username: "sloppy".to_string(),
+            render_distance: 2,
+            skin: PlayerSkin::Custom(vec![1; 64 * 32 * 4]),
+        }
+        .into(),
+    );
+    sloppy.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(_) => Some(()),
+        _ => None,
+    });
+
+    let mut miner = TestClient::connect(server.addr, PLAYER_ID + 2);
+    miner.wait_connected();
+    miner.send(
+        AuthRegisterRequest {
+            username: "miner".to_string(),
+            render_distance: 2,
+            skin: PlayerSkin::BuiltIn("Miner".to_string()),
+        }
+        .into(),
+    );
+    let auth = miner.wait_for("AuthRegisterResponse", |m| match m {
+        ServerToClientMessage::AuthRegisterResponse(r) => Some(r.clone()),
+        _ => None,
+    });
+    let skin_of = |name: &str| {
+        auth.players
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.skin.clone())
+    };
+    assert_eq!(skin_of("painter"), Some(PlayerSkin::Custom(pixels)));
+    assert_eq!(skin_of("sloppy"), Some(PlayerSkin::default()));
+    assert_eq!(
+        skin_of("miner"),
+        Some(PlayerSkin::BuiltIn("Miner".to_string()))
+    );
+
+    // The players already there are told of the newcomer with its skin
+    let spawn = painter.wait_for("PlayerSpawn of the miner", |m| match m {
+        ServerToClientMessage::PlayerSpawn(s) if s.name == "miner" => Some(s.clone()),
+        _ => None,
+    });
+    assert_eq!(spawn.skin, PlayerSkin::BuiltIn("Miner".to_string()));
+
+    painter.send(ClientToServerMessage::Exit);
+    painter.send_packets();
     server.join_after_exit();
 }
 

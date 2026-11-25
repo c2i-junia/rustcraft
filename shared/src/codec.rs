@@ -35,7 +35,8 @@ pub const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 /// The largest legitimate one is a batch of inputs: at most about 75 bytes each (two varint
 /// times, a transform of 40 bytes, a handful of actions), and a client sends one per rendered
 /// frame, so around 2000 after a two second stall at 1000 frames per second, that is about
-/// 150 KiB. 1 MiB leaves a margin of about seven. Chat and authentication messages are far smaller.
+/// 150 KiB. 1 MiB leaves a margin of about seven. Chat and authentication messages are far smaller,
+/// the latter about 16 KiB with the pixels of an imported skin.
 pub const MAX_CLIENT_MESSAGE_SIZE: usize = 1024 * 1024;
 
 pub fn payload_to_game_message<T: serde::de::DeserializeOwned>(

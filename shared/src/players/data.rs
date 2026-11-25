@@ -15,6 +15,7 @@ use super::game_mode::{
 use super::hunger::{
     full_food, respawn_saturation, DAMAGE_EXHAUSTION, MAX_FOOD, RESPAWN_SATURATION,
 };
+use super::skin::PlayerSkin;
 use crate::{
     messages::PlayerId,
     world::{ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
@@ -259,6 +260,10 @@ pub struct Player {
     /// block or at the air. Sent to the others with each update, not saved.
     #[serde(skip)]
     pub is_swinging: bool,
+    /// The skin the player asked for when it joined (`AuthRegisterRequest::skin`), which the
+    /// others are given with it. Not saved: it is the client's choice, sent at each join.
+    #[serde(skip)]
+    pub skin: PlayerSkin,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -451,6 +456,7 @@ impl Player {
             lava_damage_wait: 0,
             dragged_ms: 0,
             is_swinging: false,
+            skin: PlayerSkin::default(),
         }
     }
 }

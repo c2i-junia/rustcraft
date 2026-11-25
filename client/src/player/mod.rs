@@ -9,6 +9,7 @@ mod hurt;
 mod interactions;
 mod labels;
 pub mod model;
+pub mod skin;
 mod stance;
 mod update;
 

@@ -11,6 +11,7 @@ use shared::GameFolderPaths;
 
 use super::background::menu_background;
 use super::player_name::{change_name_on_activate, PlayerNameButton};
+use super::skins::SKINS_TITLE;
 use super::solo::SelectedWorld;
 use super::worlds::{
     elapsed_since, last_played_world, played_ago, start_world, thumbnail_color, WorldSummary,
@@ -35,6 +36,7 @@ use crate::ui::widgets::hints::{hint_bar, Hint};
 pub enum MainMenuButton {
     Singleplayer,
     Multiplayer,
+    Skin,
     Settings,
     Quit,
 }
@@ -150,6 +152,7 @@ pub fn home_setup(
     let buttons = [
         (MainMenuButton::Singleplayer, "Singleplayer"),
         (MainMenuButton::Multiplayer, "Multiplayer"),
+        (MainMenuButton::Skin, SKINS_TITLE),
         (MainMenuButton::Settings, "Settings"),
     ];
     for (index, (action, label)) in buttons.into_iter().enumerate() {
@@ -330,6 +333,7 @@ pub fn activate_main_menu_button(
     match action {
         MainMenuButton::Singleplayer => menu_state.set(MenuState::Solo),
         MainMenuButton::Multiplayer => menu_state.set(MenuState::Multi),
+        MainMenuButton::Skin => menu_state.set(MenuState::Skins),
         MainMenuButton::Settings => menu_state.set(MenuState::Settings),
         MainMenuButton::Quit => open_quit_dialog(&mut commands, &asset_server, &focus),
     }

@@ -118,6 +118,7 @@ fn pump(
                 let request = AuthRegisterRequest {
                     username,
                     render_distance: shared::MIN_RENDER_DISTANCE,
+                    skin: Default::default(),
                 };
                 client.send_game_message(request.into());
             }

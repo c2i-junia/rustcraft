@@ -8,6 +8,7 @@ pub mod pause;
 pub mod player_name;
 pub mod servers;
 pub mod settings;
+pub mod skins;
 pub mod solo;
 pub mod worlds;
 
@@ -37,6 +38,8 @@ pub enum MenuState {
     Settings,
     /// The error card of a session that failed.
     ConnectError,
+    /// The skins, and the preview of the chosen one.
+    Skins,
     #[default]
     Disabled,
 }
@@ -80,6 +83,7 @@ pub fn menu_plugin(app: &mut App) {
     settings::settings_plugin(app);
     solo::solo_plugin(app);
     multi::multi_plugin(app);
+    skins::skins_plugin(app);
 }
 
 /// Whether a dialog is open, or the card of the quit shows (`Quitting`): the key handlers of the
@@ -137,7 +141,9 @@ fn escape_button(
     }
     if keys.just_pressed(KeyCode::Escape) {
         match menu_state.get() {
-            MenuState::Solo | MenuState::Multi => next_menu_state.set(MenuState::Main),
+            MenuState::Solo | MenuState::Multi | MenuState::Skins => {
+                next_menu_state.set(MenuState::Main)
+            }
             // The settings close themselves
             _ => (),
         }

@@ -33,6 +33,7 @@ mod review;
 mod seed;
 mod settings;
 mod shaders;
+mod skins;
 mod solo;
 mod survival;
 mod vines;

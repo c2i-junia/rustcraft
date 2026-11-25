@@ -465,6 +465,7 @@ mod tests {
                 shared::messages::AuthRegisterRequest {
                     username: "p".into(),
                     render_distance: 1,
+                    skin: Default::default(),
                 },
             )),
         );

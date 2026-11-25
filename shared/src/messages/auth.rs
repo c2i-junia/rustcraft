@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{ClientToServerMessage, PlayerSpawnEvent, ServerToClientMessage};
+use crate::players::skin::PlayerSkin;
 use crate::world::{BiomeDef, WeatherKind, WorldGenSettings};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -8,6 +9,9 @@ pub struct AuthRegisterRequest {
     pub username: String,
     /// The render distance the player asks for, in chunks.
     pub render_distance: u32,
+    /// The skin the player chose, which the server checks (`PlayerSkin::validated`) and hands
+    /// to the others with it.
+    pub skin: PlayerSkin,
 }
 
 impl From<AuthRegisterRequest> for ClientToServerMessage {

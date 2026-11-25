@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::PlayerId;
 use crate::players::game_mode::{DeathCause, GameMode};
+use crate::players::skin::PlayerSkin;
 use crate::players::{inventory::InventoryAction, Inventory, MovementState, ViewMode};
 use crate::world::{Container, Furnace};
 
@@ -35,6 +36,8 @@ pub struct PlayerSpawnEvent {
     pub id: PlayerId,
     pub name: String,
     pub data: PlayerSave,
+    /// The skin the player wears, which the clients cut its model from.
+    pub skin: PlayerSkin,
 }
 
 #[derive(Message, Serialize, Deserialize, PartialEq, Debug, Clone)]

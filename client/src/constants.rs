@@ -20,6 +20,10 @@ pub const INTERFACE_SETTINGS_PATH: &str = "interface.ron";
 pub const VIDEO_SETTINGS_PATH: &str = "video.ron";
 pub const ITEM_BROWSER_PATH: &str = "item_browser.ron";
 pub const PLAYER_NAME_PATH: &str = "player.ron";
+/// The skin the player chose (`player::skin`).
+pub const SKIN_SETTINGS_PATH: &str = "skin.ron";
+/// The folder of the skins the player imported, in the game folder.
+pub const CUSTOM_SKINS_PATH: &str = "skins/";
 
 pub const GRASS_COLOR: [f32; 4] = [0.1, 1.0, 0.3, 1.0];
 /// The tint of the grey texture of the water: Minecraft's default water colour, #3F76E4, in

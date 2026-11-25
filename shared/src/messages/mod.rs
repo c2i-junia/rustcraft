@@ -92,6 +92,7 @@ mod tests {
         let request = AuthRegisterRequest {
             username: String::new(),
             render_distance: 0,
+            skin: Default::default(),
         };
         let chat = ChatMessageRequest {
             content: String::new(),
@@ -133,6 +134,7 @@ mod tests {
             id: 0,
             name: String::new(),
             data: PlayerSave::default(),
+            skin: Default::default(),
         };
         let mob = MobUpdateEvent {
             id: 0,

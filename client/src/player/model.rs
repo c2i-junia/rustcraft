@@ -12,6 +12,7 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use bevy::{
     asset::RenderAssetUsages,
+    camera::visibility::RenderLayers,
     mesh::{Indices, PrimitiveTopology},
     prelude::*,
 };
@@ -21,9 +22,6 @@ use crate::camera::{CameraController, EyeThroughPortal};
 use crate::ui::hud::UIMode;
 
 use super::CurrentPlayerMarker;
-
-/// The skin of a player who has not chosen one.
-pub const DEFAULT_SKIN: &str = "graphics/skins/Wanderer.png";
 
 /// Size of a skin, in pixels.
 pub const SKIN_SIZE: u32 = 64;
@@ -442,22 +440,24 @@ impl PlayerAnimation {
     }
 }
 
-/// Spawns the model of a player with `skin`, under its `PlayerBody`, for a player `height`
-/// metres high.
+/// Spawns the model of a player with the skin of `material`, under its `PlayerBody`, for a player
+/// `height` metres high, every part on `layers`: the game's, or the preview's of the skin screen.
 pub fn spawn_player_model(
     body: &mut ChildSpawnerCommands,
     meshes: &mut Assets<Mesh>,
     material: Handle<StandardMaterial>,
     height: f32,
+    layers: RenderLayers,
 ) {
     let scale = height / MODEL_PIXELS;
     body.spawn((
         PlayerModelRoot,
         Transform::from_translation(Vec3::Y * -height / 2.0),
         Visibility::default(),
+        layers.clone(),
     ))
     .with_children(|root| {
-        let mut part = |part| part_bundle(part, meshes, &material, scale);
+        let mut part = |part| part_bundle(part, meshes, &material, scale, &layers);
         for leg in [BodyPart::RightLeg, BodyPart::LeftLeg] {
             root.spawn(part(leg));
         }
@@ -475,6 +475,7 @@ fn part_bundle(
     meshes: &mut Assets<Mesh>,
     material: &Handle<StandardMaterial>,
     scale: f32,
+    layers: &RenderLayers,
 ) -> impl Bundle {
     let (first, second) = part.skin_origins();
     let inflate = if part == BodyPart::Head {
@@ -487,16 +488,19 @@ fn part_bundle(
         part,
         Transform::from_translation(part.joint() * scale),
         Visibility::default(),
+        layers.clone(),
         children![
             (
                 Mesh3d(meshes.add(box_mesh(first, part.size(), 0.0, scale))),
                 MeshMaterial3d(material.clone()),
                 center,
+                layers.clone(),
             ),
             (
                 Mesh3d(meshes.add(box_mesh(second, part.size(), inflate, scale))),
                 MeshMaterial3d(material.clone()),
                 center,
+                layers.clone(),
             )
         ],
     )

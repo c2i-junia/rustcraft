@@ -14,6 +14,7 @@ use crate::mob::ClientMobs;
 use crate::network::session::{end_session, ConnectError, SessionOrigin};
 use crate::network::world::{update_world_from_network, DecodingChunkMessages};
 use crate::network::CachedChatConversation;
+use crate::player::skin::ChosenSkin;
 use crate::portal::shot::ShotFired;
 use crate::state::{GameState, PlayerNameSupplied};
 use crate::ui::assets::load_font;
@@ -473,6 +474,7 @@ pub fn establish_authenticated_connection_to_server(
     mut target: ResMut<TargetServer>,
     current_profile: Res<CurrentPlayerProfile>,
     render_distance: Res<RenderDistance>,
+    chosen_skin: Res<ChosenSkin>,
     mut commands: Commands,
     mut ev_spawn: MessageWriter<PlayerSpawnEvent>,
     mut client_time: ResMut<ClientTime>,
@@ -497,6 +499,7 @@ pub fn establish_authenticated_connection_to_server(
         let auth_msg = AuthRegisterRequest {
             username,
             render_distance: render_distance.distance,
+            skin: chosen_skin.skin.clone(),
         };
         info!("Sending auth request: {:?}", auth_msg);
         client.send_game_message(auth_msg.into());

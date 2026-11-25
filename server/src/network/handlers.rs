@@ -101,6 +101,9 @@ pub(super) fn auth_register_request(
             }
         };
     }
+    if let Some(player) = world_map.players.get_mut(&client_id) {
+        player.skin = auth_req.skin.validated();
+    }
     world_map
         .render_distances
         .set(client_id, auth_req.render_distance, max_render_distance);
@@ -156,6 +159,7 @@ fn spawn_event(id: ClientId, player: &Player) -> PlayerSpawnEvent {
             camera_transform: player.camera_transform,
             is_flying: player.is_flying,
         },
+        skin: player.skin.clone(),
     }
 }
 
