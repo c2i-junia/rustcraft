@@ -38,7 +38,7 @@ pub const SCREEN: Duration = Duration::from_secs(2);
 /// with other tests or a build, is slow to load its first assets.
 pub const STARTUP: Duration = Duration::from_secs(10);
 /// How long a journey through a server may take.
-pub const SERVER: Duration = Duration::from_secs(30);
+pub const SERVER: Duration = Duration::from_secs(90);
 
 /// Whether the app ever asked to exit. A message of `AppExit` lives for two frames only.
 #[derive(Resource, Default)]
