@@ -17,6 +17,7 @@ use rustcraft_protocol::api::ErrorCode;
 use sha2::Sha256;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::error::AppError;
 
@@ -220,6 +221,41 @@ impl<K: Hash + Eq> SlidingWindow<K> {
             hits.back()
                 .is_some_and(|&t| now.saturating_duration_since(t) < window)
         });
+    }
+}
+
+/// Certificates issued per account: 30 an hour, in memory.
+pub struct CertificateLimiter {
+    issued: Mutex<SlidingWindow<Uuid>>,
+}
+
+impl Default for CertificateLimiter {
+    fn default() -> Self {
+        Self {
+            issued: Mutex::new(SlidingWindow::new(30, Duration::from_secs(60 * 60))),
+        }
+    }
+}
+
+impl CertificateLimiter {
+    /// Counts a certificate of `account` at `now`, or refuses it once 30 were issued in the
+    /// last hour.
+    pub fn issue(&self, account: Uuid, now: Instant) -> Result<(), AppError> {
+        let mut issued = self.issued.lock().unwrap();
+        if let Some(wait) = issued.retry_after(&account, now) {
+            return Err(AppError::new(
+                ErrorCode::RateLimited,
+                "Too many certificates were issued for this account. Try again later.",
+            )
+            .retry_after(wait.as_secs_f64().ceil().max(1.0) as u64));
+        }
+        issued.record(account, now);
+        Ok(())
+    }
+
+    /// Forgets the accounts with no certificate in the last hour.
+    pub fn prune(&self, now: Instant) {
+        self.issued.lock().unwrap().prune(now);
     }
 }
 

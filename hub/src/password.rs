@@ -188,6 +188,14 @@ pub fn new_recovery_code() -> RecoveryCode {
     }
 }
 
+/// A temporary password for an admin to hand over: 16 characters of the recovery alphabet.
+pub fn new_temporary_password() -> String {
+    let mut rng = OsRng;
+    (0..16)
+        .map(|_| CROCKFORD[rng.gen_range(0..CROCKFORD.len())] as char)
+        .collect()
+}
+
 /// The 15 characters of a recovery code as a player typed it: any case, with or without `RCV`,
 /// spaces and dashes. `None` when it cannot be one.
 pub fn normalize_recovery_code(input: &str) -> Option<String> {

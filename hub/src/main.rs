@@ -2,6 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use clap::Parser;
 use rustcraft_hub::{
+    admin,
     config::{self, Cli, Command, ServeArgs},
     connect, maintenance, router, AppState,
 };
@@ -14,6 +15,11 @@ async fn main() -> anyhow::Result<()> {
         .init();
     match Cli::parse().command {
         Command::Serve(args) => serve(args).await,
+        Command::Admin { database, command } => {
+            let db = connect(&database.database_url()?).await?;
+            println!("{}", admin::run(&db, command).await?);
+            Ok(())
+        }
         Command::GenerateKey { path } => {
             config::generate_key(&path)?;
             println!("Wrote a new signing key to {}", path.display());
@@ -25,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
 async fn serve(args: ServeArgs) -> anyhow::Result<()> {
     let signing_key = config::read_signing_key(&args.signing_key_file)?;
     let ip_secret = config::read_ip_secret(&args.ip_secret_file)?;
-    let db = connect(&args.database_url()?).await?;
+    let db = connect(&args.database.database_url()?).await?;
     let state = AppState {
         db,
         name: args.name.as_str().into(),
@@ -36,6 +42,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         hasher: Default::default(),
         logins: Default::default(),
         signups: Default::default(),
+        certificates: Default::default(),
     };
     maintenance::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(args.listen).await?;

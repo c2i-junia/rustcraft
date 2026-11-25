@@ -70,18 +70,21 @@ fn device_name(name: Option<String>) -> Result<Option<String>, AppError> {
     Ok(name)
 }
 
-/// An active account and its hashes.
+/// An active or suspended account and its hashes.
 #[derive(sqlx::FromRow)]
 struct Credentials {
     id: Uuid,
     username: String,
+    suspended: bool,
+    status_reason: Option<String>,
     password_hash: String,
     recovery_hash: String,
 }
 
-const CREDENTIALS: &str = "SELECT a.id, a.username::text AS username, p.password_hash, \
-     p.recovery_hash FROM accounts a JOIN password_credentials p ON p.account_id = a.id \
-     WHERE a.status = 'active'";
+const CREDENTIALS: &str = "SELECT a.id, a.username::text AS username, \
+     a.status = 'suspended' AS suspended, a.status_reason, p.password_hash, p.recovery_hash \
+     FROM accounts a JOIN password_credentials p ON p.account_id = a.id \
+     WHERE a.status IN ('active', 'suspended')";
 
 async fn credentials_by_name(
     db: &PgPool,
@@ -126,6 +129,10 @@ async fn authenticate(
     let account = match (state.hasher.verify(given, hash).await?, account) {
         (true, Some(account)) => {
             state.logins.forgive(attempt);
+            // Only someone who knows the secret is told.
+            if account.suspended {
+                return Err(sessions::suspended_error(account.status_reason.as_deref()));
+            }
             return Ok(account);
         }
         (_, account) => account,

@@ -1,7 +1,9 @@
 //! The Rustcraft hub: accounts, device certificates and hosted worlds.
 
 pub mod accounts;
+pub mod admin;
 pub mod audit;
+pub mod certificates;
 pub mod config;
 pub mod error;
 pub mod maintenance;
@@ -17,7 +19,7 @@ use ipnet::IpNet;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use password::Hasher;
-use ratelimit::{LoginLimiter, SignupGate};
+use ratelimit::{CertificateLimiter, LoginLimiter, SignupGate};
 pub use routes::router;
 
 /// The id of the signing key in certificates; there is one key for now.
@@ -37,6 +39,7 @@ pub struct AppState {
     pub hasher: Hasher,
     pub logins: Arc<LoginLimiter>,
     pub signups: Arc<SignupGate>,
+    pub certificates: Arc<CertificateLimiter>,
 }
 
 /// Connects to the database and applies the migrations.

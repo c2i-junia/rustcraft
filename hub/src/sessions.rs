@@ -37,7 +37,7 @@ impl FromRequestParts<AppState> for Session {
             .and_then(|token| URL_SAFE_NO_PAD.decode(token.trim()).ok())
             .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
             .ok_or_else(unauthorized)?;
-        sqlx::query_as(
+        let session = sqlx::query_as(
             "UPDATE sessions s SET last_used_at = now(), \
                  expires_at = now() + make_interval(days => $2) \
              FROM accounts a \
@@ -48,9 +48,34 @@ impl FromRequestParts<AppState> for Session {
         .bind(&token_hash(&token)[..])
         .bind(SESSION_DAYS)
         .fetch_optional(&state.db)
-        .await?
-        .ok_or_else(unauthorized)
+        .await?;
+        if let Some(session) = session {
+            return Ok(session);
+        }
+        // Not extended, but a suspended account is told why instead of "log in first".
+        let suspended: Option<Option<String>> = sqlx::query_scalar(
+            "SELECT a.status_reason FROM sessions s JOIN accounts a ON a.id = s.account_id \
+             WHERE s.token_hash = $1 AND s.expires_at > now() AND a.status = 'suspended'",
+        )
+        .bind(&token_hash(&token)[..])
+        .fetch_optional(&state.db)
+        .await?;
+        Err(match suspended {
+            Some(reason) => suspended_error(reason.as_deref()),
+            None => unauthorized(),
+        })
     }
+}
+
+/// The refusal of a suspended account, with the reason the admin gave.
+pub fn suspended_error(reason: Option<&str>) -> AppError {
+    AppError::new(
+        ErrorCode::Forbidden,
+        match reason {
+            Some(reason) => format!("This account is suspended: {reason}"),
+            None => "This account is suspended.".to_owned(),
+        },
+    )
 }
 
 fn token_hash(token: &[u8; 32]) -> [u8; 32] {

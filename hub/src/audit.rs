@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 /// The actor of what an account does itself.
 pub const SELF: &str = "self";
+/// The actor of the `rustcraft-hub admin` commands.
+pub const ADMIN_CLI: &str = "admin-cli";
 /// The actor of a request with no account behind it, such as a failed login.
 pub const ANONYMOUS: &str = "anonymous";
 

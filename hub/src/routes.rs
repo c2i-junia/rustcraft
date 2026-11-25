@@ -12,13 +12,14 @@ use rustcraft_protocol::{
 };
 use serde::de::DeserializeOwned;
 
-use crate::{accounts, error::AppError, AppState, SIGNING_KEY_ID};
+use crate::{accounts, certificates, error::AppError, AppState, SIGNING_KEY_ID};
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/.well-known/rustcraft-hub", get(well_known))
         .route("/healthz", get(healthz))
         .merge(accounts::routes())
+        .merge(certificates::routes())
         .with_state(state)
 }
 

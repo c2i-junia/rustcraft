@@ -7,8 +7,9 @@ hosted worlds. It is a separate Cargo project: its own workspace and `Cargo.lock
 from the game's workspace, but it builds with the repository's nightly toolchain and
 `.cargo/config.toml`, and it uses the `crates/protocol` crate shared with the game.
 
-So far it serves the `/.well-known/rustcraft-hub` document, `/healthz` and the accounts:
-sign-up, login and logout, recovery codes, `GET /v1/me`, password change and account deletion.
+So far it serves the `/.well-known/rustcraft-hub` document, `/healthz`, the accounts (sign-up,
+login and logout, recovery codes, `GET /v1/me`, password change and account deletion), device
+certificates, the list of revoked ones and public profiles.
 The design, with the routes and their limits, is in
 `docs/superpowers/specs/2026-11-25-hub-design.md`.
 
@@ -30,6 +31,26 @@ The design, with the routes and their limits, is in
   frees the names of accounts deleted 30 days before (they become `deleted-<id>`).
 - `audit_log` records sign-ups, logins and failed ones, password changes, recoveries and
   deletions.
+
+## Certificates and administration
+
+- `POST /v1/certificates` signs a certificate of 7 days for a device key (hex), 30 an hour per
+  account (429 beyond). `GET /v1/revoked` lists the ids of revoked certificates that have not
+  expired; `GET /v1/profiles?name=` gives `{id, username}` of an active account.
+- A suspended account gets 403 `forbidden` with the reason, at login (once the password is right)
+  and on any route; suspending, like a password change, ends its sessions and revokes its
+  certificates.
+- Admin commands take the database options of `serve` and write `audit_log` rows as `admin-cli`:
+
+```sh
+rustcraft-hub admin users
+rustcraft-hub admin grant <user> host [--realms N]   # 1 world by default
+rustcraft-hub admin grant <user> admin
+rustcraft-hub admin revoke <user> <host|admin>       # a host's quota is kept
+rustcraft-hub admin suspend <user> --reason "<text>"
+rustcraft-hub admin unsuspend <user>
+rustcraft-hub admin reset-password <user>            # prints a 16-character password
+```
 
 ## Running it locally
 

@@ -70,6 +70,7 @@ impl TestHub {
             hasher: Default::default(),
             logins: Default::default(),
             signups: Default::default(),
+            certificates: Default::default(),
         };
         Self {
             app: router(state.clone()),

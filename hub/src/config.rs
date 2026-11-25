@@ -30,6 +30,70 @@ pub enum Command {
         /// The file to create; it must not exist.
         path: PathBuf,
     },
+    /// Administers accounts, on the database of the hub.
+    Admin {
+        #[command(flatten)]
+        database: DatabaseArgs,
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+}
+
+/// The accounts' admin commands.
+#[derive(Subcommand)]
+pub enum AdminCommand {
+    /// Lists the accounts.
+    Users,
+    /// Gives a role: `host` with a quota of worlds, or `admin`.
+    Grant {
+        user: String,
+        role: RoleArg,
+        /// The number of worlds a host may own (only with `host`).
+        #[arg(long)]
+        realms: Option<i32>,
+    },
+    /// Takes a role away.
+    Revoke { user: String, role: RoleArg },
+    /// Locks an account out: its sessions and certificates are revoked.
+    Suspend {
+        user: String,
+        /// Why; the player is told at login.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Lets a suspended account log in again.
+    Unsuspend { user: String },
+    /// Sets a generated password, prints it once, and ends the sessions.
+    ResetPassword { user: String },
+}
+
+/// A role of the `account_roles` table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum RoleArg {
+    Admin,
+    Host,
+}
+
+/// Where the database is.
+#[derive(Args)]
+pub struct DatabaseArgs {
+    /// The Postgres connection URL.
+    #[arg(long, env = "HUB_DATABASE_URL", conflicts_with = "database_url_file")]
+    pub database_url: Option<String>,
+    /// A file holding the Postgres connection URL.
+    #[arg(long, env = "HUB_DATABASE_URL_FILE")]
+    pub database_url_file: Option<PathBuf>,
+}
+
+impl DatabaseArgs {
+    /// The database URL, from the flag or from its file.
+    pub fn database_url(&self) -> anyhow::Result<String> {
+        match (&self.database_url, &self.database_url_file) {
+            (Some(url), _) => Ok(url.clone()),
+            (None, Some(path)) => read_secret(path),
+            (None, None) => bail!("give --database-url or --database-url-file"),
+        }
+    }
 }
 
 #[derive(Args)]
@@ -37,12 +101,8 @@ pub struct ServeArgs {
     /// The address to listen on.
     #[arg(long, env = "HUB_LISTEN", default_value = "127.0.0.1:8080")]
     pub listen: SocketAddr,
-    /// The Postgres connection URL.
-    #[arg(long, env = "HUB_DATABASE_URL", conflicts_with = "database_url_file")]
-    pub database_url: Option<String>,
-    /// A file holding the Postgres connection URL.
-    #[arg(long, env = "HUB_DATABASE_URL_FILE")]
-    pub database_url_file: Option<PathBuf>,
+    #[command(flatten)]
+    pub database: DatabaseArgs,
     /// The public URL of the hub, written in certificates.
     #[arg(long, env = "HUB_PUBLIC_URL")]
     pub public_url: String,
@@ -58,17 +118,6 @@ pub struct ServeArgs {
     /// Address ranges (comma-separated CIDRs) allowed more sign-ups, such as a school network.
     #[arg(long, env = "HUB_TRUSTED_RANGES", value_delimiter = ',')]
     pub trusted_ranges: Vec<IpNet>,
-}
-
-impl ServeArgs {
-    /// The database URL, from the flag or from its file.
-    pub fn database_url(&self) -> anyhow::Result<String> {
-        match (&self.database_url, &self.database_url_file) {
-            (Some(url), _) => Ok(url.clone()),
-            (None, Some(path)) => read_secret(path),
-            (None, None) => bail!("give --database-url or --database-url-file"),
-        }
-    }
 }
 
 /// Reads a one-line secret file, without the trailing whitespace.
@@ -151,15 +200,9 @@ mod tests {
         let dir = dir();
         let path = dir.join("url");
         fs::write(&path, "postgres://db/hub\n").unwrap();
-        let args = |url: Option<&str>, file: Option<&Path>| ServeArgs {
-            listen: "127.0.0.1:8080".parse().unwrap(),
+        let args = |url: Option<&str>, file: Option<&Path>| DatabaseArgs {
             database_url: url.map(str::to_owned),
             database_url_file: file.map(Path::to_owned),
-            public_url: String::new(),
-            signing_key_file: PathBuf::new(),
-            ip_secret_file: PathBuf::new(),
-            name: String::new(),
-            trusted_ranges: Vec::new(),
         };
         assert_eq!(
             args(None, Some(&path)).database_url().unwrap(),
