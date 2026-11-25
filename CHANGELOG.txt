@@ -134,6 +134,7 @@ Date: Unreleased
     - The main menu opens the credits, which also name where the textures, fonts and sounds come from.
     - Added 21 achievements, from the first tool to the Ember Mother, kept per player in each world: a toast tells each one, and Progress in the pause menu lists them all. None are earned in creative.
     - Added statistics of each player in a world, on the Progress screen and in the end credits: play time, greatest depth, blocks mined, creatures beaten and deaths.
+    - Added hints for the first minutes of a new player in a survival world, from walking to placing torches, with the keys bound. Each shows once. Settings > Interface turns them off.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

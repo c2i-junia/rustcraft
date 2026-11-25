@@ -103,6 +103,25 @@ impl MinimapChoice {
     }
 }
 
+/// Whether the hints of the first minutes show (`hud::first_steps`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HintsChoice {
+    Off,
+    #[default]
+    On,
+}
+
+impl HintsChoice {
+    pub const ALL: [HintsChoice; 2] = [HintsChoice::Off, HintsChoice::On];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            HintsChoice::Off => "Off",
+            HintsChoice::On => "On",
+        }
+    }
+}
+
 /// Whether the Mouse Tweaks gestures work in the inventory: Shift+drag quick-moves every cell
 /// the pointer enters, and a notch of the wheel over a stack moves one item of it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +150,7 @@ pub struct InterfaceSettings {
     pub ui_scale: UiScaleChoice,
     pub fps_counter: FpsCounterChoice,
     pub minimap: MinimapChoice,
+    pub hints: HintsChoice,
     /// Chosen on the Controls tab.
     pub inventory_tweaks: InventoryTweaksChoice,
 }
@@ -180,6 +200,7 @@ mod tests {
             ui_scale: UiScaleChoice::X1_5,
             fps_counter: FpsCounterChoice::Graph,
             minimap: MinimapChoice::Off,
+            hints: HintsChoice::Off,
             inventory_tweaks: InventoryTweaksChoice::Off,
         };
         write_interface_settings(&settings, &paths);

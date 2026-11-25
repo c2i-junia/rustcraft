@@ -31,6 +31,8 @@ pub struct ActionsOutcome {
     /// The signs the player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
     pub bedrolls: Vec<IVec3>,
+    /// What the player placed, from its hand.
+    pub placed: Vec<ItemId>,
     /// How many blocks the player fell, when it landed.
     pub fallen: Option<f32>,
     /// The shots of the portal gun.
@@ -66,6 +68,7 @@ pub fn simulate_player_actions(
         dropped: interactions.dropped,
         signs: interactions.signs,
         bedrolls: interactions.bedrolls,
+        placed: interactions.placed,
         thrown: inventory
             .iter()
             .filter_map(|outcome| outcome.thrown)

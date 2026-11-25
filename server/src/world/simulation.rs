@@ -383,6 +383,7 @@ pub fn handle_player_inputs_system(
         if !outcome.bedrolls.is_empty() {
             player.earn(Achievement::Bed);
         }
+        player.learn_blocks(outcome.broken.iter().map(|b| b.block), &outcome.placed);
         player.mined(outcome.broken.len());
         for block in &outcome.broken {
             dropped_items.drop_block_items(block, &mut rng);

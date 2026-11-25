@@ -243,7 +243,7 @@ pub struct Player {
     pub depths_reached: Vec<DepthTier>,
     /// What the player achieved. The server's only, which tells the client of it. Saves from
     /// before it have none.
-    #[serde(default)]
+    #[serde(default = "Progress::of_an_old_save")]
     pub progress: Progress,
     pub inventory: Inventory,
     pub height: f32,

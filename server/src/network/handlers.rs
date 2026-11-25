@@ -258,6 +258,10 @@ pub(super) fn chat_message(
             Err(error) => mods.run_command(line, &author, world_map).unwrap_or(error),
         };
         if time.0 != clock {
+            // A night cut short is not lived through
+            for player in world_map.players.values_mut() {
+                player.progress.night = None;
+            }
             for &id in lobby.players.keys() {
                 server.send_game_message(id, ServerToClientMessage::TimeSet(time.0));
             }

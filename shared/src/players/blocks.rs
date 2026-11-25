@@ -145,6 +145,8 @@ pub struct BlockInteractions {
     /// The signs a player reads, and the bedrolls it lies on.
     pub signs: Vec<IVec3>,
     pub bedrolls: Vec<IVec3>,
+    /// What the player placed, from its hand.
+    pub placed: Vec<ItemId>,
     /// The shots of the portal gun, which the server tells the other players of.
     pub shots: Vec<PortalShot>,
 }
@@ -186,6 +188,7 @@ pub fn simulate_player_block_interactions(
     let mut broken = Vec::new();
     let mut spawned = Vec::new();
     let mut dropped = Vec::new();
+    let mut placed = Vec::new();
     let (mut signs, mut bedrolls) = (Vec::new(), Vec::new());
     // Both count the time the button is held, so that a block takes as long to break, and
     // blocks are placed as often, at any frame rate.
@@ -243,9 +246,10 @@ pub fn simulate_player_block_interactions(
                     light_fire(player, world_map, action)
                         .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
-                _ => (
+                held => (
                     "place a block",
                     place_block(player, world_map, action).map(|mob| {
+                        placed.extend(held);
                         spawned.extend(mob);
                         player.place_wait_ms = PLACE_REPEAT_MS
                     }),
@@ -274,6 +278,7 @@ pub fn simulate_player_block_interactions(
         dropped,
         signs,
         bedrolls,
+        placed,
         shots: Vec::new(),
     }
 }

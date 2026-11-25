@@ -5,14 +5,18 @@ use std::time::Instant;
 
 use accesskit::Role;
 use bevy::prelude::*;
-use shared::players::progress::Achievement;
+use bevy_renet::RenetClient;
+use shared::messages::ClientToServerMessage;
+use shared::players::progress::{Achievement, FirstStep};
 use shared::world::{ItemId, ItemStack};
 
 use super::game::enter_world_with;
 use super::harness::{Options, SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
+use crate::network::SendGameMessageExtension;
 use crate::ui::credits::CreditsDue;
+use crate::ui::hud::first_steps::FirstStepHint;
 use crate::ui::hud::progress::PlayerProgress;
 use crate::ui::menus::pause::PauseMenu;
 use crate::ui::menus::progress::ProgressRoot;
@@ -81,4 +85,43 @@ fn an_achievement_earned_is_told_then_listed_with_the_others() {
         h.frames(5);
     }
     h.snapshot("credits");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_new_player_is_shown_the_first_steps_one_after_the_other() {
+    let folder = GameFolder::new()
+        .with_file("interface.ron", "()")
+        .with_world("Steps");
+    let mut h = enter_world_with(folder, "Steps", Options::default());
+    h.set_time("day");
+    h.wait_for(&L::text("W").within(L::marker::<FirstStepHint>()), SERVER);
+    let start = Instant::now();
+    while start.elapsed().as_secs_f32() < 1.5 {
+        h.frames(1);
+    }
+    for (width, height) in SIZES {
+        h.resize(width, height);
+        h.snapshot("move");
+    }
+    for step in [FirstStep::Move, FirstStep::Wood, FirstStep::Inventory] {
+        h.world_mut()
+            .resource_mut::<RenetClient>()
+            .send_game_message(ClientToServerMessage::FirstStep(step));
+    }
+    let text = L::text("Make planks of the wood, then a crafting table of four planks");
+    h.wait_for(&text, SERVER);
+    let start = Instant::now();
+    while start.elapsed().as_secs_f32() < 1.5 {
+        h.frames(1);
+    }
+    for (width, height) in SIZES {
+        h.resize(width, height);
+        h.snapshot("crafting_table");
+    }
+    let steps = vec![FirstStep::Move, FirstStep::Wood, FirstStep::Inventory];
+    h.wait_until("the steps kept", SERVER, |w| {
+        let progress = w.resource::<PlayerProgress>().0.as_ref();
+        progress.is_some_and(|progress| progress.steps == steps)
+    });
 }

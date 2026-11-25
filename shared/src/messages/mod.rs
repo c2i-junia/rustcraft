@@ -4,7 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::players::progress::{Achievement, Progress};
+use crate::players::progress::{Achievement, FirstStep, Progress};
 use crate::world::{
     depths::DepthTier, MobId, MobKind, Portal, PortalColor, TradeView, WeatherKind,
 };
@@ -38,6 +38,8 @@ pub enum ClientToServerMessage {
     },
     /// The player closed the trade screen.
     EndTrade,
+    /// The player did this first step, or left it: its hint never shows again.
+    FirstStep(FirstStep),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -143,6 +145,7 @@ mod tests {
             (ClientToServerMessage::Respawn, 6),
             (ClientToServerMessage::Trade { mob: 0, offer: 0 }, 7),
             (ClientToServerMessage::EndTrade, 8),
+            (ClientToServerMessage::FirstStep(FirstStep::Move), 9),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

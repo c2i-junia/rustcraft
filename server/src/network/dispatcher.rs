@@ -390,6 +390,11 @@ fn handle_client_messages_system(
                 ClientToServerMessage::Trade { mob, offer } => {
                     world_map.trades.ask(client_id, mob, offer);
                 }
+                ClientToServerMessage::FirstStep(step) => {
+                    if let Some(player) = world_map.players.get_mut(&client_id) {
+                        player.learn(step);
+                    }
+                }
                 ClientToServerMessage::EndTrade => {
                     world_map.trades.end(client_id);
                 }
@@ -432,6 +437,7 @@ fn message_kind(message: &ClientToServerMessage) -> &'static str {
         ClientToServerMessage::Respawn => "Respawn",
         ClientToServerMessage::Trade { .. } => "Trade",
         ClientToServerMessage::EndTrade => "EndTrade",
+        ClientToServerMessage::FirstStep(_) => "FirstStep",
     }
 }
 

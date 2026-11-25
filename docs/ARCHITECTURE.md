@@ -798,6 +798,12 @@ pause menu (`ui/menus/progress.rs`). `Progress::stats` counts the play time, the
 blocks mined, the creatures beaten and the deaths, all but the time in survival only; it is sent
 once a second at most, and shown on the same screen and in the credits.
 
+`Progress::steps` holds the `FirstStep`s whose hint is over: `ui/hud/first_steps.rs` shows that of
+the first one left, top left, with the keys bound, in survival and unless the Interface settings
+turn the hints off. The server sees the wood cut and the torch placed; the client tells
+(`ClientToServerMessage::FirstStep`) the others, and those left after a while. The last points to
+the achievements. A player saved before they were has them all done.
+
 ## One client frame
 
 `GameSet` (`client/src/state.rs`) orders the in-game systems of `Update`; `game_plugin`

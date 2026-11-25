@@ -32,6 +32,7 @@ pub mod corner;
 pub mod debug;
 pub mod depths;
 pub mod experience;
+pub mod first_steps;
 pub mod food;
 pub mod fps_counter;
 pub mod health;
@@ -240,6 +241,7 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(OnExit(GameState::Game), boss::forget_boss);
     crate::ui::credits::credits_plugin(app);
     progress::progress_plugin(app);
+    first_steps::first_steps_plugin(app);
     pause_plugin(app);
     crate::ui::menus::progress::progress_screen_plugin(app);
     death_plugin(app);

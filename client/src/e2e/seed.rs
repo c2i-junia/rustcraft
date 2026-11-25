@@ -8,12 +8,12 @@ use std::time::{Duration, SystemTime};
 
 use bevy::prelude::{Transform, Vec3};
 use server::WorldGenerator;
-use shared::players::progress::Achievement;
+use shared::players::progress::{Achievement, FirstStep};
 use shared::players::Player;
 use shared::world::{ItemId, ItemStack};
 use tempfile::TempDir;
 
-use crate::constants::{SAVE_PATH, SERVER_LIST_SAVE_NAME};
+use crate::constants::{INTERFACE_SETTINGS_PATH, SAVE_PATH, SERVER_LIST_SAVE_NAME};
 use crate::network::hash_string_to_u64;
 use crate::network::status::ServerStatus;
 use crate::ui::menus::servers::ServerItem;
@@ -51,10 +51,12 @@ pub struct GameFolder {
 }
 
 impl GameFolder {
+    /// Without the hints of the first minutes, unless `with_file` writes other settings.
     pub fn new() -> Self {
-        Self {
+        let folder = Self {
             dir: Arc::new(TempDir::new().expect("a temporary game folder")),
-        }
+        };
+        folder.with_file(INTERFACE_SETTINGS_PATH, "(hints: Off)")
     }
 
     /// A temporary game folder in `parent`, such as a folder on the disk the game saves to.
@@ -156,6 +158,7 @@ impl GameFolder {
             Transform::default(),
         );
         saved.progress.achievements = Achievement::ALL.to_vec();
+        saved.progress.steps = FirstStep::ALL.to_vec();
         edit(&mut saved);
         let players = self.path().join(SAVE_PATH).join(world).join("players");
         fs::create_dir_all(&players).expect("a players folder");

@@ -420,6 +420,7 @@ mod tests {
     #[test]
     fn a_saved_player_keeps_its_game_mode_health_and_hunger_even_dead() {
         use shared::players::game_mode::{DeathCause, GameMode, MAX_HEALTH};
+        use shared::players::progress::FirstStep;
 
         let tmp = tempfile::tempdir().unwrap();
         let paths = paths(&tmp);
@@ -456,6 +457,9 @@ mod tests {
         assert_eq!(loaded.game_mode, GameMode::Survival);
         assert_eq!(loaded.health, MAX_HEALTH);
         assert_eq!(loaded.food, shared::players::hunger::MAX_FOOD);
+        // Nor is it a new one to be taught
+        assert!(loaded.progress.achievements.is_empty());
+        assert_eq!(loaded.progress.steps, FirstStep::ALL);
     }
 
     #[test]

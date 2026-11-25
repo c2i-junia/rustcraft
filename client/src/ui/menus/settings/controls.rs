@@ -267,7 +267,7 @@ pub(super) fn plugin(app: &mut App) {
 
 /// How a key is written on the screen: `KeyW` is `W`, `ShiftLeft` is `Left Shift`,
 /// `NumpadSubtract` is `Num -`, the arrow keys are arrows.
-fn key_label(key: KeyCode) -> String {
+pub(crate) fn key_label(key: KeyCode) -> String {
     let named = match key {
         KeyCode::Space => "Space",
         KeyCode::Enter => "Enter",

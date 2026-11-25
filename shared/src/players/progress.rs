@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::Player;
-use crate::world::{depths::DepthTier, hostiles::is_night, ItemId, MobKind};
+use crate::world::{depths::DepthTier, hostiles::is_night, BlockId, ItemId, MobKind};
 use crate::{DAY_DURATION_IN_TICKS, TICKS_PER_SECOND};
 
 /// A night counts for a player there this long after it fell, at most.
@@ -150,6 +150,28 @@ impl Achievement {
     }
 }
 
+/// What the hints of the first minutes teach, in this order. Append only, as `Achievement`.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirstStep {
+    Move,
+    Wood,
+    Inventory,
+    CraftingTable,
+    Torch,
+    Achievements,
+}
+
+impl FirstStep {
+    pub const ALL: [FirstStep; 6] = [
+        Self::Move,
+        Self::Wood,
+        Self::Inventory,
+        Self::CraftingTable,
+        Self::Torch,
+        Self::Achievements,
+    ];
+}
+
 /// What a player did in a world. All but the play time counts survival only.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[serde(default)]
@@ -202,9 +224,19 @@ pub struct Progress {
     /// The night the player has been alive in since it fell, the first of the world being 0.
     pub night: Option<u64>,
     pub stats: Stats,
+    /// The first steps done, or left: their hints never show again.
+    pub steps: Vec<FirstStep>,
 }
 
 impl Progress {
+    /// The progress of a player saved before it was kept, who is no new player.
+    pub fn of_an_old_save() -> Self {
+        Self {
+            steps: FirstStep::ALL.to_vec(),
+            ..Self::default()
+        }
+    }
+
     pub fn has(&self, achievement: Achievement) -> bool {
         self.achievements.contains(&achievement)
     }
@@ -215,6 +247,27 @@ impl Player {
     pub fn earn(&mut self, achievement: Achievement) {
         if self.game_mode.takes_damage() && !self.progress.has(achievement) {
             self.progress.achievements.push(achievement);
+        }
+    }
+
+    /// The player did `step`, or left it.
+    pub fn learn(&mut self, step: FirstStep) {
+        if !self.progress.steps.contains(&step) {
+            self.progress.steps.push(step);
+        }
+    }
+
+    /// The player broke `broken` and placed `placed`, in survival: steps are done by it.
+    pub fn learn_blocks(&mut self, mut broken: impl Iterator<Item = BlockId>, placed: &[ItemId]) {
+        use BlockId::*;
+        if !self.game_mode.takes_damage() {
+            return;
+        }
+        if broken.any(|b| matches!(b, OakLog | SpruceLog | JungleLog | WillowLog | AcaciaLog)) {
+            self.learn(FirstStep::Wood);
+        }
+        if placed.contains(&ItemId::Torch) {
+            self.learn(FirstStep::Torch);
         }
     }
 
