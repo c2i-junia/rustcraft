@@ -73,6 +73,7 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         | MobKind::GustOwl
         | MobKind::Ember
         | MobKind::Arrow => 0.0,
+        MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 1.5,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
         MobKind::Goat => 1.2,
@@ -92,6 +93,8 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Cinderling
         | MobKind::GustOwl => super::hostile::own_speed(kind),
         MobKind::Ember | MobKind::Arrow => 0.0,
+        // Never struck
+        MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 3.0,
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
@@ -106,7 +109,7 @@ fn is_shy(kind: MobKind) -> bool {
 
 /// Whether a mob eats the grass.
 fn grazes(kind: MobKind) -> bool {
-    !matches!(kind, MobKind::Fox | MobKind::Wolf | MobKind::Cat) && !kind.is_hostile()
+    !matches!(kind, MobKind::Fox | MobKind::Wolf | MobKind::Cat) && kind.is_animal()
 }
 
 pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time<Fixed>>) {
@@ -302,7 +305,7 @@ fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bo
 }
 
 /// What the mob's action asks of it this step: a hostile hunts (`hostile::act`), and returns
-/// what it threw.
+/// what it threw; a villager goes about its day (`villager::act`).
 fn act(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
@@ -313,6 +316,10 @@ fn act(
 ) -> Option<ServerMob> {
     if mob.kind.is_hostile() {
         return super::hostile::act(mob, chunks, players, difficulty, delta, rng);
+    }
+    if mob.kind.is_villager() {
+        super::villager::act(mob, chunks, players, delta, rng);
+        return None;
     }
     wander_or_flee(mob, chunks, players, delta, rng);
     None
@@ -572,12 +579,19 @@ pub(super) fn passer(mob: &ServerMob) -> Passer {
 }
 
 /// Whether `mob` would be inside a block at `position`. The wall cells of the open portals that
-/// let it in from where it is do not count (`Portals::passable_cells`), as for a player.
+/// let it in from where it is do not count (`Portals::passable_cells`), as for a player; nor do
+/// the doors for a villager, who walks through them.
 pub(super) fn collides_at(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) -> bool {
     let passable = chunks.portals().passable_cells(mob.position, passer(mob));
     chunks.check_collision_box_except(
         &Aabb3d::new(position, Vec3::new(mob.width, mob.height, mob.depth) / 2.0),
-        |cell| passable.contains(&cell),
+        |cell| {
+            passable.contains(&cell)
+                || mob.kind.is_villager()
+                    && chunks
+                        .get_block(cell)
+                        .is_some_and(|block| super::villager::is_door(block.id))
+        },
     )
 }
 
@@ -597,7 +611,7 @@ pub(super) fn may_move_to(mob: &ServerMob, chunks: &ChunkMap, position: Vec3) ->
 /// player's, so that a fast fall crosses no block: it stops after the last step a block lets it
 /// make, and a step into a portal that lets it through is made, and ends the move
 /// (`Portals::goes_into`).
-fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
+pub(super) fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     if !mob.on_ground {
         mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
     }
@@ -623,7 +637,7 @@ fn apply_gravity(mob: &mut ServerMob, chunks: &ChunkMap, delta: f32) {
     mob.velocity.y = (mob.velocity.y + GRAVITY * delta / 2.0).max(-TERMINAL_VELOCITY);
 }
 
-fn jump(mob: &mut ServerMob) {
+pub(super) fn jump(mob: &mut ServerMob) {
     mob.velocity.y += JUMP_VELOCITY;
     mob.on_ground = false;
     mob.velocity.x = 0.0;

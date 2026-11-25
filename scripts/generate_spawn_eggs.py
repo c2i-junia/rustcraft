@@ -28,6 +28,9 @@ EGGS = {
     "Drowner": ("#3d6b6a", "#9bb7a4"),
     "Cinderling": ("#2b2523", "#ff8c1a"),
     "GustOwl": ("#2b2d5c", "#e9e4d8"),
+    "Farmer": ("#d9b65a", "#4f7a3a"),
+    "Smith": ("#5a3a28", "#c8542a"),
+    "Cartographer": ("#2f4f86", "#e8d9ae"),
 }
 CENTRE_X, CENTRE_Y = 7.5, 8.5
 

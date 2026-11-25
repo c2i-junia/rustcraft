@@ -1,5 +1,5 @@
 //! What the players do to the mobs they aim at: blows, taking the wool of a sheep, and feeding
-//! an animal its food (`breeding::feed`).
+//! an animal its food (`breeding::feed`), and opening a trade with a villager.
 
 use bevy::prelude::*;
 use rand::Rng;
@@ -20,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::math::bounding::Aabb3d;
 use shared::world::ChunkMap;
 
+use super::villager::Trades;
 use crate::world::dropped_items::DroppedItems;
 
 /// How far from its eyes a player reaches a mob, in blocks, and with a spear.
@@ -51,6 +52,7 @@ pub struct MobWorld<'a> {
     pub waits: &'a mut BlowWaits,
     /// Time left before each player holding the right button feeds an animal again.
     pub feed_waits: &'a mut BlowWaits,
+    pub trades: &'a mut Trades,
 }
 
 /// Runs the clicks of `input` on the mob the player aims at, if any, and takes them out of the
@@ -75,6 +77,8 @@ pub fn interact(
     } else {
         0
     };
+    // A trade opens on a press, not while the button stays held after another click
+    let pressed = world.trades.press(player.id, right);
     if player.is_dead() || !(left || right) {
         return None;
     }
@@ -90,7 +94,10 @@ pub fn interact(
         // It is drawn
         && held != Some(ItemId::Bow)
         && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_value().is_some());
-    if !left && !shears && !feeds {
+    // Nothing hurts a villager
+    let villager = mob.kind.is_villager();
+    let trades = right && villager;
+    if !left && !shears && !feeds && !trades {
         return None;
     }
     let target = aim(
@@ -128,11 +135,17 @@ pub fn interact(
             }
         }
     }
+    if trades {
+        rest.inputs.remove(&NetworkAction::RightClick);
+        if pressed {
+            world.trades.open.insert(player.id, id);
+        }
+    }
     let position = mob.position;
     if left {
         rest.inputs.remove(&NetworkAction::LeftClick);
         // A blow on a mob still invulnerable swings for nothing
-        if *wait == 0 {
+        if *wait == 0 && !villager {
             *wait = BLOW_MS;
             if mob.hurt_ticks == 0 {
                 player.exhaust(BLOW_EXHAUSTION);
@@ -274,7 +287,10 @@ fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
         | MobKind::Gnawer
         | MobKind::Drowner
         | MobKind::Ember
-        | MobKind::Arrow => vec![],
+        | MobKind::Arrow
+        | MobKind::Farmer
+        | MobKind::Smith
+        | MobKind::Cartographer => vec![],
     };
     drops.retain(|&(_, nb)| nb > 0);
     drops
@@ -357,6 +373,7 @@ mod tests {
         changed: HashSet<MobId>,
         waits: BlowWaits,
         feed_waits: BlowWaits,
+        trades: Trades,
         rng: StdRng,
     }
 
@@ -369,6 +386,7 @@ mod tests {
                 changed: HashSet::new(),
                 waits: BlowWaits::new(),
                 feed_waits: BlowWaits::new(),
+                trades: Trades::default(),
                 rng: StdRng::seed_from_u64(1),
             }
         }
@@ -389,6 +407,7 @@ mod tests {
                 chunks: &mut self.chunks,
                 waits: &mut self.waits,
                 feed_waits: &mut self.feed_waits,
+                trades: &mut self.trades,
             };
             interact(player, &input, world, &mut self.rng);
             for mob in self.mobs.values_mut() {

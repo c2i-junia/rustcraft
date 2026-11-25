@@ -25,9 +25,10 @@ const APPROACH_DELAY: Range<f32> = 4.0..8.0;
 pub const HEARING_DISTANCE: f32 = 32.0;
 
 /// What a creature says now and then while it does `action`: a hostile that hunts approaches,
-/// one that strikes or burrows and an ember in flight say nothing more, the others cry.
+/// one that strikes or burrows and an ember in flight say nothing more, nor does a
+/// villager, the others cry.
 pub fn periodic_call(kind: MobKind, action: MobAction) -> Option<CreatureCall> {
-    if kind.is_projectile() {
+    if kind.is_projectile() || kind.is_villager() {
         return None;
     }
     match action {

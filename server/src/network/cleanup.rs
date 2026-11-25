@@ -32,6 +32,7 @@ pub fn cleanup_player_from_world(
     world_map.sent_items.remove(player_id);
     world_map.sent_mobs.remove(player_id);
     world_map.render_distances.remove(*player_id);
+    world_map.trades.end(*player_id);
     // The portals of a player go with it
     for color in [PortalColor::Blue, PortalColor::Orange] {
         world_map.chunks.portals_mut().remove(*player_id, color);

@@ -582,13 +582,13 @@ never moves a player, so the prediction of the clients is left alone.
 
 ### The systems of a tick, in order
 
-Before **Receive**: `mob_behavior_system` (the animals wander, flee, follow their owner and
+Before **Receive**: `villager_day_system` (night sends the villagers home), `mob_behavior_system` (the animals wander, flee, follow their owner and
 breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `arrow_system` (the arrows fly), `hostile_spawning_system`, `dungeon_guards_system`, and
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava
 first, then fire), `tick_furnaces_system`, `metabolism_system` (every 80 ticks: regeneration or
-starvation), `drop_on_death_system`, `pickup_dropped_items_system`, `announce_depths_system`, `home_system` (bedrolls and
+starvation), `trade_system`, `drop_on_death_system`, `pickup_dropped_items_system`, `announce_depths_system`, `home_system` (bedrolls and
 signs), `block_ticks_system` (the one random tick, above), `liquid_flow_system`,
 `weather_system`, `remove_unfit_portals_system`. Every source of damage of a tick, the mobs'
 included, comes before `drop_on_death_system`, and the pickups after it.
@@ -670,6 +670,27 @@ one that brings it to its waterline, 60% of its height under water, and leaves i
 goes at `WATER_SPEED_MULTIPLIER`, and a block on its way at most a block above the surface is
 leapt on (`climb_out`). Afloat with nothing else to do, it walks to the nearest shore within 16
 blocks (`swim_ashore`); an animal on land never wanders across a liquid.
+
+### Villagers and trade
+
+`MobKind::{Farmer, Smith, Cartographer}` (`is_villager`) are born with the chunks of a village,
+one per house (`Piece::home`): the villages of a world already generated get none. They are
+saved with the mobs, with what they remember (`ServerMob::villager`: their home and what they
+sold), never despawn, are never hurt, and the hostiles ignore them. By day they walk about their
+home, at night they go into it, along routes of cells (`server/src/mob/villager.rs`,
+`find_route`, A* over a bounded number of cells); no door stops them (`collides_at`). One from a
+spawn egg lives where it first stood. They make no sound.
+
+The offers are a table both sides know (`shared/src/world/trade.rs`), against `Coin`s, which
+players earn by selling; the stock of each offer is renewed at sunrise (`market_day`). A press
+of the right button on a villager opens a trade (`combat::interact` into `Trades`). `trade_system`
+checks and makes the trades asked (`Trade`), sends `TradeUpdate` with what is left when it
+changes, holds the villagers trading, and ends the trade of a player farther than
+`TRADE_DISTANCE`, dead or gone. The client predicts no trade: the inventory of the next
+`PlayerUpdate` shows it. It draws the offers in the inventory panel
+(`client/src/ui/hud/inventory/trade.rs`), and sends `EndTrade` when the panel closes. The
+directions a cartographer sells are searched on the generation pool
+(`Locator::start_directions`) and come in the chat; a world without dungeons sells none.
 
 ### The ember
 

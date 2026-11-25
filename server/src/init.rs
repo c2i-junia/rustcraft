@@ -291,6 +291,7 @@ fn load_world(
         home: Default::default(),
         blow_waits: Default::default(),
         feed_waits: Default::default(),
+        trades: Default::default(),
         portal_shots: Vec::new(),
         difficulty: world_data.difficulty,
         game_mode: world_data.game_mode,

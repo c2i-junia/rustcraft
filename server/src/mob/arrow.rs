@@ -204,8 +204,8 @@ fn fly(
         }
         if let Some((id, _)) = near.iter().find(|(_, target)| body.intersects(target)) {
             if let Some(mob) = map.mobs.get_mut(id) {
-                // One still invulnerable is hit for nothing, as by a blow
-                if mob.hurt_ticks == 0 {
+                // One still invulnerable is hit for nothing, as by a blow; a villager always
+                if mob.hurt_ticks == 0 && !mob.kind.is_villager() {
                     map.changed_mobs.insert(*id);
                     if wound(mob, flight.shooter, flight.shot.damage, push) {
                         let (drops, position) = (loot(mob, rng), mob.position);

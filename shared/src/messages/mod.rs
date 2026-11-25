@@ -4,7 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::world::{depths::DepthTier, MobId, Portal, PortalColor, WeatherKind};
+use crate::world::{depths::DepthTier, MobId, Portal, PortalColor, TradeView, WeatherKind};
 pub use auth::*;
 use bevy::math::{IVec3, Vec3};
 pub use chat::*;
@@ -28,6 +28,13 @@ pub enum ClientToServerMessage {
     SetRenderDistance(u32),
     /// The player, dead, asks to come back at the spawn.
     Respawn,
+    /// The player takes the offer of this index of the villager it trades with.
+    Trade {
+        mob: MobId,
+        offer: u8,
+    },
+    /// The player closed the trade screen.
+    EndTrade,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -73,6 +80,8 @@ pub enum ServerToClientMessage {
     Dismissed(String),
     /// The player of this client reached this depth tier for the first time.
     DepthReached(DepthTier),
+    /// The trade of the player: what its villager has left, or none once it ended.
+    TradeUpdate(Option<TradeView>),
 }
 
 #[cfg(test)]
@@ -111,6 +120,8 @@ mod tests {
             (ClientToServerMessage::SaveWorldRequest, 4),
             (ClientToServerMessage::SetRenderDistance(0), 5),
             (ClientToServerMessage::Respawn, 6),
+            (ClientToServerMessage::Trade { mob: 0, offer: 0 }, 7),
+            (ClientToServerMessage::EndTrade, 8),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -168,6 +179,7 @@ mod tests {
                 hurt_ticks: 0,
                 attack_wait: 0,
                 arrow: None,
+                villager: None,
             },
         };
         let update = PlayerUpdateEvent {
@@ -228,6 +240,7 @@ mod tests {
             ),
             (ServerToClientMessage::Dismissed(String::new()), 15),
             (ServerToClientMessage::DepthReached(DepthTier::Caves), 16),
+            (ServerToClientMessage::TradeUpdate(None), 17),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }
@@ -342,6 +355,13 @@ mod tests {
         assert_eq!(variant_index(&MobKind::Ember), 16, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::GustOwl), 17, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::Arrow), 18, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Farmer), 19, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Smith), 20, "{ENCODING_WARNING}");
+        assert_eq!(
+            variant_index(&MobKind::Cartographer),
+            21,
+            "{ENCODING_WARNING}"
+        );
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);

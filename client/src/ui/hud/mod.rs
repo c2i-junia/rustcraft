@@ -65,6 +65,9 @@ pub fn hud_plugin(app: &mut App) {
         .init_resource::<FrameTimes>()
         .init_resource::<CellGestures>()
         .init_resource::<GridGhost>()
+        .init_resource::<OpenTrade>()
+        .add_message::<TradeUpdated>()
+        .add_systems(OnEnter(GameState::Game), reset_trade)
         .add_systems(
             OnEnter(GameState::Game),
             (spawn_reticle, setup_hud, setup_chat).chain(),
@@ -108,6 +111,7 @@ pub fn hud_plugin(app: &mut App) {
                 // Before the simulation, which predicts the clicks of the frame
                 (
                     toggle_inventory_system,
+                    follow_trade,
                     close_inventory_system,
                     sync_inventory_focus,
                     // Before a press on a cell cancels a drag, and before the drawer closes
@@ -134,6 +138,10 @@ pub fn hud_plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             (
+                // Idle but for the frame a trade closes
+                display_trade
+                    .before(UiSystems::Content)
+                    .run_if(|trade: Res<OpenTrade>| trade.0.is_some() || trade.is_changed()),
                 // before Bevy reads the font of the field and applies its edits
                 match_the_field_font.before(UiSystems::Content),
                 fit_chat_width.before(UiSystems::Layout),

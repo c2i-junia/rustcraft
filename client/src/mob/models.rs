@@ -45,8 +45,11 @@ const SHEEP_CLIPS: &[(MobClip, usize)] =
 const HOSTILE_CLIPS: &[(MobClip, usize)] =
     &[(MobClip::Attack, 0), (MobClip::Idle, 1), (MobClip::Walk, 2)];
 
-/// The models are built by `scripts/generate_sheep.py`, `scripts/generate_animals.py` and
-/// `scripts/generate_hostiles.py`.
+/// The clips of `scripts/generate_villagers.py`.
+const VILLAGER_CLIPS: &[(MobClip, usize)] = &[(MobClip::Idle, 0), (MobClip::Walk, 1)];
+
+/// The models are built by `scripts/generate_sheep.py`, `scripts/generate_animals.py`,
+/// `scripts/generate_hostiles.py` and `scripts/generate_villagers.py`.
 pub fn model(kind: MobKind) -> MobModel {
     let (path, clips) = match kind {
         MobKind::Sheep => ("models/animated/Sheep.glb", SHEEP_CLIPS),
@@ -70,6 +73,9 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::GustOwl => ("models/animated/GustOwl.glb", HOSTILE_CLIPS),
         // Its three clips stand still
         MobKind::Arrow => ("models/animated/Arrow.glb", HOSTILE_CLIPS),
+        MobKind::Farmer => ("models/animated/Farmer.glb", VILLAGER_CLIPS),
+        MobKind::Smith => ("models/animated/Smith.glb", VILLAGER_CLIPS),
+        MobKind::Cartographer => ("models/animated/Cartographer.glb", VILLAGER_CLIPS),
     };
     MobModel { path, clips }
 }

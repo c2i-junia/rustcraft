@@ -1,6 +1,7 @@
 use super::armour::spawn_armour_slots;
 use super::furnace::spawn_furnace_row;
 use super::ghost::{ghost_icon, ghost_tint};
+use super::trade::spawn_trade_grid;
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::state::GameState;
 use crate::ui::assets::load_font;
@@ -129,6 +130,7 @@ pub fn setup_inventory(
                             spawn_crafting_row(inventory, atlas, &font, &asset_server);
                             spawn_chest_grid(inventory, atlas, &font);
                             spawn_furnace_row(inventory, atlas, &font, &asset_server);
+                            spawn_trade_grid(inventory, atlas, &font, &asset_server);
                             spawn_backpack(inventory, atlas, &font);
                         });
                     spawn_hotbar(panel, atlas, &font);

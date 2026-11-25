@@ -128,6 +128,7 @@ pub fn register_systems(app: &mut App) {
             burn_system,
             world::furnaces::tick_furnaces_system,
             metabolism_system,
+            crate::mob::villager::trade_system,
             // After every source of damage of the tick, the mobs' included
             drop_on_death_system,
             pickup_dropped_items_system,
@@ -173,6 +174,7 @@ pub fn register_systems(app: &mut App) {
         FixedUpdate,
         (
             (
+                crate::mob::villager::villager_day_system,
                 mob_behavior_system,
                 crate::mob::cinder::cinder_system,
                 crate::mob::arrow::arrow_system,
@@ -382,6 +384,12 @@ fn handle_client_messages_system(
                 ClientToServerMessage::Respawn => {
                     handlers::respawn(client_id, &mut world_map);
                 }
+                ClientToServerMessage::Trade { mob, offer } => {
+                    world_map.trades.ask(client_id, mob, offer);
+                }
+                ClientToServerMessage::EndTrade => {
+                    world_map.trades.end(client_id);
+                }
             }
         }
         if dropped_inputs > 0 {
@@ -419,6 +427,8 @@ fn message_kind(message: &ClientToServerMessage) -> &'static str {
         ClientToServerMessage::SaveWorldRequest => "SaveWorldRequest",
         ClientToServerMessage::SetRenderDistance(_) => "SetRenderDistance",
         ClientToServerMessage::Respawn => "Respawn",
+        ClientToServerMessage::Trade { .. } => "Trade",
+        ClientToServerMessage::EndTrade => "EndTrade",
     }
 }
 

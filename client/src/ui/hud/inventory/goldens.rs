@@ -3,11 +3,13 @@
 
 use bevy::prelude::*;
 use shared::players::Inventory;
-use shared::world::{grid_slot, Furnace, ItemId, ItemStack};
+use shared::world::{grid_slot, Furnace, ItemId, ItemStack, MobKind, TradeView};
 
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::ui::golden::UiGolden;
+use crate::ui::hud::inventory::OpenTrade;
 use crate::ui::hud::item_browser::goldens::show_open_inventory;
+use crate::ui::widgets::button::style_buttons;
 use crate::world::ClientWorldMap;
 
 fn stack(item_id: ItemId, nb: u32) -> ItemStack {
@@ -165,4 +167,31 @@ fn a_lit_furnace_shows_its_fire_and_how_far_it_cooked() {
             cook: 100,
         },
     );
+}
+
+/// The offers of a cartographer, one sold out, one taken and the dearest out of reach.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_open_trade_shows_the_offers_above_the_backpack() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(0, stack(ItemId::Coin, 4));
+    inventory
+        .inner
+        .insert(MAX_HOTBAR_SLOTS, stack(ItemId::Feather, 9));
+    let mut golden = UiGolden::new();
+    golden.world_mut().insert_resource(inventory);
+    golden
+        .world_mut()
+        .insert_resource(ClientWorldMap::default());
+    golden
+        .world_mut()
+        .insert_resource(OpenTrade(Some(TradeView {
+            mob: 1,
+            kind: MobKind::Cartographer,
+            left: vec![6, 5, 6, 6, 0, 2],
+            opening: true,
+        })));
+    show_open_inventory(&mut golden, true);
+    golden.run_system(style_buttons);
+    golden.assert_matches("trade");
 }

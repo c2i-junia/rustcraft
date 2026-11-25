@@ -8,6 +8,7 @@ use bevy_ecs::resource::Resource;
 use super::dropped_items::DroppedItems;
 use super::home::{HomeEvents, Places};
 use crate::mob::combat::BlowWaits;
+use crate::mob::villager::Trades;
 use shared::{
     messages::PlayerId,
     players::game_mode::GameMode,
@@ -49,6 +50,8 @@ pub struct ServerWorldMap {
     pub blow_waits: BlowWaits,
     /// Time left before each player feeds an animal again (`mob::combat::interact`).
     pub feed_waits: BlowWaits,
+    /// The trades of the players with the villagers.
+    pub trades: Trades,
     /// The shots of the portal gun of this tick, by shooter, until they are sent.
     pub portal_shots: Vec<(PlayerId, PortalShot)>,
     /// How hard the world is: whether hostile mobs live in it. Saved in `world.ron`.

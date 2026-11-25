@@ -184,7 +184,7 @@ fn apply_style(button: Entity, buttons: &mut Buttons, texts: &mut Query<&mut Tex
     }
 }
 
-fn style_buttons(
+pub(crate) fn style_buttons(
     changed: Query<Entity, (With<ThemedButton>, StateChanged)>,
     mut buttons: Buttons,
     mut texts: Query<&mut TextColor>,

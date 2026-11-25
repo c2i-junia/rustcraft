@@ -187,10 +187,13 @@ impl CreatureCall {
     }
 
     /// What creatures of `kind` say: every one cries and is hurt, a hostile approaches and
-    /// attacks too, and a projectile, never struck, only flies.
+    /// attacks too, and a projectile, never struck, only flies, and a
+    /// villager says nothing.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
         if kind == MobKind::Arrow {
             // `creatures::creature_calls` gives it other sounds
+            &[]
+        } else if kind.is_villager() {
             &[]
         } else if kind.is_projectile() {
             &[CreatureCall::Cry]
@@ -229,6 +232,9 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Ember => "ember",
         MobKind::GustOwl => "gust_owl",
         MobKind::Arrow => "arrow",
+        MobKind::Farmer => "farmer",
+        MobKind::Smith => "smith",
+        MobKind::Cartographer => "cartographer",
     }
 }
 
@@ -499,7 +505,7 @@ mod tests {
 
     #[test]
     fn every_creature_has_a_cry_and_every_hostile_its_approach_and_attack() {
-        for kind in MobKind::ALL {
+        for kind in MobKind::ALL.into_iter().filter(|kind| !kind.is_villager()) {
             let calls = CreatureCall::of(kind);
             assert!(
                 calls.contains(&CreatureCall::Cry) || kind == MobKind::Arrow,

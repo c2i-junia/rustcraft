@@ -22,6 +22,7 @@ pub mod terrain;
 #[cfg(any(test, feature = "test-helpers"))]
 mod test_helpers;
 pub mod ticks;
+pub mod trade;
 mod utils;
 pub mod weather;
 
@@ -40,5 +41,6 @@ pub use portal::*;
 pub use raycast::*;
 pub use reach::*;
 pub use terrain::*;
+pub use trade::{TradeView, Villager};
 pub use utils::*;
 pub use weather::*;

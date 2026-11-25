@@ -9,7 +9,7 @@ use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::{
     ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, FurnaceRow,
-    InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, UIMode,
+    InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, OpenTrade, TradeGrid, UIMode,
 };
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, PANEL, TEXT};
 use crate::ui::widgets::slot::{
@@ -62,6 +62,7 @@ type DurabilityBars<'w, 's> = Query<
         Without<ChestGrid>,
         Without<CraftingRow>,
         Without<FurnaceRow>,
+        Without<TradeGrid>,
     ),
 >;
 
@@ -484,16 +485,22 @@ pub fn style_inventory_panel(
 /// Shows the cells of the crafting grid in use and, in the result cell, what the grid makes.
 /// The grid is 3x3 and the dialog named after the table while a crafting table is open. While a
 /// chest or a furnace is open, its slots take the place of the crafting grid, and the dialog its
-/// name.
+/// name; while a trade is, its offers and the profession of the villager.
 pub fn display_crafting_system(
     inventory: Res<Inventory>,
+    trade: Option<Res<OpenTrade>>,
     materials: Res<MaterialResource>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
     mut rows: Query<
-        (&mut Node, Has<ChestGrid>, Has<FurnaceRow>),
+        (&mut Node, Has<ChestGrid>, Has<FurnaceRow>, Has<TradeGrid>),
         (
-            Or<(With<ChestGrid>, With<CraftingRow>, With<FurnaceRow>)>,
+            Or<(
+                With<ChestGrid>,
+                With<CraftingRow>,
+                With<FurnaceRow>,
+                With<TradeGrid>,
+            )>,
             Without<CraftingGridCell>,
         ),
     >,
@@ -516,6 +523,9 @@ pub fn display_crafting_system(
         (None, None, Some(_)) => CRAFTING_TABLE_TITLE,
         (None, None, None) => INVENTORY_TITLE,
     };
+    let customer_of = trade.as_ref().and_then(|trade| trade.0.as_ref());
+    let trade_open = customer_of.is_some();
+    let name = customer_of.map_or(name, |trade| trade.kind.display_name());
     if let Ok(mut title) = title.single_mut() {
         if title.0 != name {
             title.0 = name.to_string();
@@ -523,15 +533,17 @@ pub fn display_crafting_system(
     }
     let chest_open = inventory.open_chest.is_some();
     let furnace_open = inventory.open_furnace.is_some();
-    for (mut node, is_chest, is_furnace) in &mut rows {
-        let shown = if is_chest {
-            chest_open
+    for (mut node, is_chest, is_furnace, is_trade) in &mut rows {
+        let shown = if is_trade {
+            trade_open
+        } else if is_chest {
+            chest_open && !trade_open
         } else if is_furnace {
-            furnace_open
+            furnace_open && !trade_open
         } else {
-            !chest_open && !furnace_open
+            !chest_open && !furnace_open && !trade_open
         };
-        let display = match (shown, is_chest) {
+        let display = match (shown, is_chest || is_trade) {
             (true, true) => Display::Grid,
             (true, false) => Display::Flex,
             (false, _) => Display::None,

@@ -19,9 +19,9 @@ use super::{
 use crate::player::CurrentPlayerMarker;
 use crate::ui::golden::UiGolden;
 use crate::ui::hud::{
-    display_crafting_system, display_furnace_system, display_inventory_system, ghost_of,
-    setup_inventory, show_armour_outlines, show_grid_ghost, style_inventory_panel, GridGhost,
-    InventoryRoot,
+    display_crafting_system, display_furnace_system, display_inventory_system, display_trade,
+    ghost_of, setup_inventory, show_armour_outlines, show_grid_ghost, style_inventory_panel,
+    GridGhost, InventoryRoot, OpenTrade,
 };
 use crate::ui::widgets::list::hide_idle_scrollbars;
 use crate::ui::widgets::slot::style_slots;
@@ -36,6 +36,7 @@ pub(crate) fn show_open_inventory(golden: &mut UiGolden, open: bool) {
     golden.world_mut().init_resource::<Bookmarks>();
     golden.world_mut().init_resource::<RecentCrafts>();
     golden.world_mut().init_resource::<GridGhost>();
+    golden.world_mut().init_resource::<OpenTrade>();
     golden
         .world_mut()
         .init_resource::<crate::ui::hud::CellGestures>();
@@ -63,6 +64,7 @@ fn show_frames(golden: &mut UiGolden) {
         golden.run_system(show_armour_outlines);
         golden.run_system(show_grid_ghost);
         golden.run_system(display_furnace_system);
+        golden.run_system(display_trade);
         golden.run_system(style_inventory_panel);
         golden.run_system(layout_item_browser);
         golden.run_system(show_item_icons);

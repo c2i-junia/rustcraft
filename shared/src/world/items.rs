@@ -215,11 +215,16 @@ pub enum ItemId {
     /// Shoots arrows, drawn by holding the right button (`players::bow`).
     Bow,
     Arrow,
+    /// What the villagers trade in: see `trade`.
+    Coin,
+    FarmerSpawnEgg,
+    SmithSpawnEgg,
+    CartographerSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 187] = [
+    pub const ALL: [ItemId; 191] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -407,6 +412,10 @@ impl ItemId {
         Self::DiamondBoots,
         Self::Bow,
         Self::Arrow,
+        Self::Coin,
+        Self::FarmerSpawnEgg,
+        Self::SmithSpawnEgg,
+        Self::CartographerSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -517,6 +526,9 @@ impl ItemId {
             Self::DrownerSpawnEgg => Some(MobKind::Drowner),
             Self::CinderlingSpawnEgg => Some(MobKind::Cinderling),
             Self::GustOwlSpawnEgg => Some(MobKind::GustOwl),
+            Self::FarmerSpawnEgg => Some(MobKind::Farmer),
+            Self::SmithSpawnEgg => Some(MobKind::Smith),
+            Self::CartographerSpawnEgg => Some(MobKind::Cartographer),
             _ => None,
         }
     }
@@ -692,6 +704,7 @@ impl ItemId {
             | Self::RoastRabbit
             | Self::Leather
             | Self::Feather
+            | Self::Coin
             | Self::Carrot
             | Self::Potato
             | Self::BakedPotato => ItemCategory::Materials,
@@ -772,7 +785,10 @@ impl ItemId {
             | Self::StumplingSpawnEgg
             | Self::DrownerSpawnEgg
             | Self::CinderlingSpawnEgg
-            | Self::GustOwlSpawnEgg => ItemCategory::Mobs,
+            | Self::GustOwlSpawnEgg
+            | Self::FarmerSpawnEgg
+            | Self::SmithSpawnEgg
+            | Self::CartographerSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -884,6 +900,10 @@ impl ItemId {
             | Self::DrownerSpawnEgg
             | Self::CinderlingSpawnEgg
             | Self::GustOwlSpawnEgg
+            | Self::Coin
+            | Self::FarmerSpawnEgg
+            | Self::SmithSpawnEgg
+            | Self::CartographerSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1301,6 +1321,10 @@ mod tests {
             (ItemId::DiamondBoots, 184),
             (ItemId::Bow, 185),
             (ItemId::Arrow, 186),
+            (ItemId::Coin, 187),
+            (ItemId::FarmerSpawnEgg, 188),
+            (ItemId::SmithSpawnEgg, 189),
+            (ItemId::CartographerSpawnEgg, 190),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1371,6 +1395,10 @@ mod tests {
                 | ItemId::DiamondChestplate
                 | ItemId::DiamondLeggings
                 | ItemId::DiamondBoots
+                | ItemId::Coin
+                | ItemId::FarmerSpawnEgg
+                | ItemId::SmithSpawnEgg
+                | ItemId::CartographerSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks

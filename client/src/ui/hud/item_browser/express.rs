@@ -12,7 +12,7 @@ use super::recipes::{fill_button, FillButton};
 use super::{BrowserRequests, CatalogSlot};
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::ui::hud::inventory::{ghost_of, grid_in_use, GridGhost};
-use crate::ui::hud::InventoryRoot;
+use crate::ui::hud::{InventoryRoot, OpenTrade};
 use crate::ui::widgets::slot::ActionRefused;
 
 /// Whether `inventory` fills the grid of `grid_size` with `recipe` now: one round of it is there
@@ -43,6 +43,7 @@ pub fn express_fill(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     inventory: Res<Inventory>,
+    trade: Option<Res<OpenTrade>>,
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     catalog: Query<(Entity, &Hovered, &CatalogSlot)>,
     mut requests: ResMut<BrowserRequests>,
@@ -50,6 +51,11 @@ pub fn express_fill(
     mut frame_inputs: ResMut<CurrentFrameInputs>,
     mut refusals: MessageWriter<ActionRefused>,
 ) {
+    // The offers take the place of the grid in the panel
+    if trade.is_some_and(|trade| trade.0.is_some()) {
+        requests.fill = None;
+        return;
+    }
     let grid_size = grid_in_use(&inventory);
     let times = |shift: bool| if shift { u32::MAX } else { 1 };
     let actions = &mut frame_inputs.0.inventory_actions;

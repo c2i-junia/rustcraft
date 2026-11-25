@@ -11,6 +11,7 @@ use shared::messages::{
 use crate::mob::ClientMobs;
 use crate::portal::shot::ShotFired;
 use crate::ui::hud::depths::DepthReached;
+use crate::ui::hud::TradeUpdated;
 use shared::players::blocks::PortalShot;
 use shared::world::SIX_OFFSETS;
 use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
@@ -183,6 +184,9 @@ pub fn update_world_from_network(
             }
             ServerToClientMessage::TimeSet(tick) => {
                 client_time.0 = tick;
+            }
+            ServerToClientMessage::TradeUpdate(update) => {
+                commands.write_message(TradeUpdated(update));
             }
             // The levels ease towards it
             ServerToClientMessage::WeatherSet(kind) => {

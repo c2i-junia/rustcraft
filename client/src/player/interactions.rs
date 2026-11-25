@@ -1,12 +1,14 @@
 use crate::camera::CameraController;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_pressed;
+use crate::mob::Mob;
 use crate::network::buffered_client::CurrentFrameInputs;
 use crate::portal::shot::ShotFired;
 use crate::state::KeyMap;
 use crate::ui::hud::{InventoryRoot, UIMode};
 use crate::world::{BlockChanged, ClientWorldMap};
 use bevy::color::palettes::css::WHITE;
+use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use shared::messages::NetworkAction;
 use shared::players::blocks::{
@@ -16,7 +18,7 @@ use shared::players::inventory::{
     simulate_inventory_actions, InventoryAction, InventoryActionOutcome,
 };
 use shared::players::{Inventory, Player, ViewMode};
-use shared::world::{BlockId, FaceDirection, FaceDirectionExt, ItemId, Portals};
+use shared::world::{aabb_ray_hit, BlockId, FaceDirection, FaceDirectionExt, ItemId, Portals};
 
 use super::CurrentPlayerMarker;
 
@@ -32,6 +34,7 @@ pub fn handle_block_interactions(
     mouse_input: Res<ButtonInput<MouseButton>>,
     mut pressed_in_ui: Local<Vec<MouseButton>>,
     (keyboard_input, key_map): (Res<ButtonInput<KeyCode>>, Res<KeyMap>),
+    mobs: Query<(&Mob, &Transform), (Without<CameraController>, Without<CurrentPlayerMarker>)>,
     mut inventory_root: Query<&mut Visibility, With<InventoryRoot>>,
     ui_mode: Res<UIMode>,
     view_mode: Res<ViewMode>,
@@ -122,7 +125,19 @@ pub fn handle_block_interactions(
         .get_block(target.position)
         .map(|block| block.id);
     let opens = opened(block, target.position, holding)
-        .filter(|_| !sneaking && mouse_input.just_pressed(MouseButton::Right));
+        .filter(|_| !sneaking && mouse_input.just_pressed(MouseButton::Right))
+        // The click is for the villager in front of it, whom the server has trade
+        .filter(|_| {
+            let eye = match *view_mode {
+                ViewMode::FirstPerson => camera_transform.translation,
+                ViewMode::ThirdPerson => player_transform.translation,
+            };
+            let ray = Ray3d::new(eye, camera_transform.forward());
+            !mobs
+                .iter()
+                .filter(|(mob, _)| mob.kind.is_villager())
+                .any(|(mob, at)| is_before(ray, at.translation, mob.kind.size(), target.bbox))
+        });
     if let Some(open) = opens {
         frame_inputs.0.inventory_actions.push(open);
         if let Ok(mut visibility) = inventory_root.single_mut() {
@@ -161,6 +176,17 @@ pub fn handle_block_interactions(
             });
         }
     }
+}
+
+/// Whether `ray` meets the box of `size` centred on `centre` before `block`.
+fn is_before(ray: Ray3d, centre: Vec3, size: Vec3, block: Aabb3d) -> bool {
+    let direction = ray.direction.as_vec3();
+    let distance = |hitbox: &Aabb3d| {
+        aabb_ray_hit(hitbox, &ray.origin, &direction, &direction.recip())
+            .map(|(hit, _)| hit.distance(ray.origin))
+    };
+    distance(&Aabb3d::new(centre, size / 2.0))
+        .is_some_and(|mob| distance(&block).is_none_or(|block| mob < block))
 }
 
 /// What a right click on `block`, at `position`, opens, the player holding `held`: a crafting

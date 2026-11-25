@@ -367,6 +367,7 @@ pub fn handle_player_inputs_system(
             chunks,
             waits: &mut world_map.blow_waits,
             feed_waits: &mut world_map.feed_waits,
+            trades: &mut world_map.trades,
         };
         let rest = combat::interact(player, &ev.input, mob_world, &mut rng);
         let input = rest.as_ref().unwrap_or(&ev.input);

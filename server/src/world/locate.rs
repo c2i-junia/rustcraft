@@ -3,7 +3,7 @@
 //! longer than a tick to find, and its answer is sent once it is done.
 
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use bevy_renet::renet::ClientId;
@@ -13,7 +13,7 @@ use shared::utils::unix_time_ms;
 use shared::world::{BiomeId, TerrainNoises};
 
 use super::generation::dungeon::{self, DungeonKind};
-use super::generation::{village, WorldGeneration};
+use super::generation::{village, WorldGeneration, WorldGenerator};
 use super::pool::generation_pool;
 use crate::init::ServerLobby;
 use crate::network::commands::SERVER_AUTHOR;
@@ -157,6 +157,39 @@ impl Locator {
         String::new()
     }
 
+    /// Searches the nearest dungeon of any kind to `from` in the world of `generator`, and tells
+    /// the player `client` its direction and its distance, as a cartographer sells them.
+    pub fn start_directions(&self, client: ClientId, generator: Arc<WorldGenerator>, from: Vec3) {
+        let sender = self.sender.clone();
+        let from = from.floor().as_ivec3();
+        generation_pool()
+            .spawn(async move {
+                let region = dungeon::region_of(from.x, from.z);
+                let mut nearest: Option<(DungeonKind, IVec3)> = None;
+                let mut radius = DUNGEON_RADIUS;
+                for kind in DungeonKind::ALL {
+                    let door_of =
+                        |region| generator.dungeon_site(kind, region).map(|site| site.door);
+                    let found = nearest_of(region, dungeon::REGION, from.xz(), radius, door_of);
+                    let Some(at) = found else {
+                        continue;
+                    };
+                    let distance = |at: IVec3| (at.xz() - from.xz()).as_i64vec2().length_squared();
+                    if nearest.is_none_or(|(_, best)| distance(at) < distance(best)) {
+                        nearest = Some((kind, at));
+                        // The next kinds are not searched farther
+                        radius = (at.xz() - from.xz()).as_vec2().length().ceil() as i32;
+                    }
+                }
+                let answer = match nearest {
+                    Some((kind, at)) => directions(kind, at - from),
+                    None => "The cartographer knows of no dungeon around here".to_string(),
+                };
+                let _ = sender.send((client, answer));
+            })
+            .detach();
+    }
+
     /// The answers of the searches done since the last call.
     fn finished(&self) -> Vec<(ClientId, String)> {
         let receiver = self.receiver.lock().unwrap_or_else(|err| err.into_inner());
@@ -243,6 +276,33 @@ fn nearest_of(
     nearest.map(|(_, at)| at)
 }
 
+/// What a cartographer says of a dungeon of `kind` at `offset` from the player. North is -Z.
+fn directions(kind: DungeonKind, offset: IVec3) -> String {
+    const POINTS: [&str; 8] = [
+        "north",
+        "north-east",
+        "east",
+        "south-east",
+        "south",
+        "south-west",
+        "west",
+        "north-west",
+    ];
+    let flat = offset.xz().as_vec2();
+    let eighths = flat.x.atan2(-flat.y) / std::f32::consts::FRAC_PI_4;
+    let point = POINTS[(eighths.round() as i32).rem_euclid(8) as usize];
+    let depth = match kind {
+        DungeonKind::Ruin => String::new(),
+        _ if offset.y < 0 => format!(", {} blocks down", -offset.y),
+        _ => format!(", {} blocks up", offset.y),
+    };
+    format!(
+        "The nearest dungeon is a {}, {} blocks to the {point}{depth}",
+        kind.name(),
+        flat.length().round()
+    )
+}
+
 /// The cells of the square `ring` cells away from its centre, each once.
 fn square(ring: i32) -> Vec<(i32, i32)> {
     if ring == 0 {
@@ -277,6 +337,18 @@ mod tests {
     use super::*;
     use shared::world::vanilla;
     use std::collections::HashSet;
+
+    #[test]
+    fn a_cartographer_tells_the_point_of_the_compass() {
+        let told = |x, y, z| directions(DungeonKind::Crypt, IVec3::new(x, y, z));
+        assert_eq!(
+            told(0, -40, -100),
+            "The nearest dungeon is a crypt, 100 blocks to the north, 40 blocks down"
+        );
+        assert!(told(100, 0, -100).contains("141 blocks to the north-east"));
+        assert!(told(100, 0, 3).contains(" east"));
+        assert!(told(-100, 0, 100).contains("south-west"));
+    }
 
     #[test]
     fn each_square_holds_its_cells_once() {

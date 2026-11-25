@@ -1,5 +1,5 @@
-//! The animals: those that live in a new world, and those a spawn egg hatches. And the
-//! hostiles: drawn, and biting a survival player.
+//! The animals: those that live in a new world, and those a spawn egg hatches. The
+//! villagers, who trade. And the hostiles: drawn, and biting a survival player.
 
 use std::time::Duration;
 
@@ -18,7 +18,10 @@ use crate::camera::CameraController;
 use crate::mob::Mob;
 use crate::player::CurrentPlayerMarker;
 use crate::ui::hud::hotbar::Hotbar;
+use crate::ui::hud::{InventoryRoot, OpenTrade};
 use crate::ui::menus::death::DEATH_TITLE;
+use crate::world::time::ClientTime;
+use accesskit::Role;
 
 /// The animals drawn, with where they are.
 fn animals(w: &World) -> Vec<(MobKind, Vec3)> {
@@ -494,4 +497,91 @@ fn a_cow_held_rye_eats_one_and_hearts_rise_over_it() {
         in_love && hearts
     });
     h.snapshot("cow_in_love");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_villager_buys_what_a_player_sells() {
+    let eggs = [
+        (0, ItemId::FarmerSpawnEgg, 1),
+        (1, ItemId::SmithSpawnEgg, 1),
+        (2, ItemId::CartographerSpawnEgg, 1),
+        (3, ItemId::Rye, 30),
+    ];
+    let folder = GameFolder::new()
+        .with_world("Market")
+        .with_player("Market", "Tester", |player| {
+            for (slot, item_id, nb) in eggs {
+                let stack = shared::world::ItemStack {
+                    item_id,
+                    item_type: item_id.get_default_type(),
+                    nb,
+                };
+                player.inventory.inner.insert(slot, stack);
+            }
+        });
+    let mut h = enter_world(folder, "Market");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 3) == Some((ItemId::Rye, 30))
+    });
+    look_at_the_ground_ahead(&mut h);
+    let kinds = [MobKind::Cartographer, MobKind::Smith, MobKind::Farmer];
+    let keys = [KeyCode::Digit3, KeyCode::Digit2, KeyCode::Digit1];
+    for (key, kind) in keys.into_iter().zip(kinds) {
+        h.press(key);
+        h.frames(2);
+        right_click(&mut h);
+        h.wait_until("the hatched villager", SERVER, |w| {
+            animals(w).iter().any(|&(k, _)| k == kind)
+        });
+        let world = h.world_mut();
+        let mut controller = world
+            .query::<&mut CameraController>()
+            .single_mut(world)
+            .unwrap();
+        controller.angle_x += 0.9;
+        h.frames(5);
+    }
+    let at = |w: &World, kind| animals(w).into_iter().find(|&(k, _)| k == kind).unwrap().1;
+    // The farmer, with rye in hand
+    h.press(KeyCode::Digit4);
+    let shown = |w: &World| w.resource::<OpenTrade>().0.is_some();
+    for _ in 0..10 {
+        let farmer = at(h.world(), MobKind::Farmer);
+        if shown(h.world()) {
+            break;
+        }
+        look_at(&mut h, farmer);
+        h.frames(2);
+        right_click(&mut h);
+        h.frames(10);
+    }
+    h.wait_until("the trade screen", SERVER, shown);
+    h.wait_for(&L::text("Farmer"), SERVER);
+    let sell = L::role(Role::Button, "1 Coin for 12 Rye");
+    h.click(&sell);
+    h.wait_until("twelve rye sold for a coin", SERVER, |w| {
+        slot(w, 3) == Some((ItemId::Rye, 18)) && slot(w, 0) == Some((ItemId::Coin, 1))
+    });
+    h.wait_for(&L::text("7 left"), SERVER);
+    h.frames(10);
+    h.snapshot("trade_screen");
+
+    h.press(KeyCode::KeyE);
+    h.wait_until("the closed screen", SERVER, |w| !shown(w));
+    assert!(!h.is_visible(&L::marker::<InventoryRoot>()));
+
+    // Step back, then look at them all
+    let start = local_player(h.world()).position;
+    h.key_down(KeyCode::KeyS);
+    h.wait_until("three blocks back", SERVER, |w| {
+        (local_player(w).position - start).xz().length() > 3.0
+    });
+    h.key_up(KeyCode::KeyS);
+    let smith = at(h.world(), MobKind::Smith);
+    look_at(&mut h, smith);
+    // Only the sky of the client: the villagers stay
+    h.world_mut().resource_mut::<ClientTime>().0 = shared::NOON_IN_DAY;
+    h.frames(60);
+    h.snapshot("villagers");
 }

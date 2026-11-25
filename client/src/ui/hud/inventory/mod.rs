@@ -13,6 +13,7 @@ mod ghost;
 #[cfg(test)]
 mod goldens;
 mod setup;
+mod trade;
 
 pub use armour::*;
 pub use display::*;
@@ -22,6 +23,7 @@ pub use furnace::*;
 pub use gestures::*;
 pub use ghost::*;
 pub use setup::*;
+pub use trade::*;
 
 /// The name of an item as a player reads it: its identifier split into words.
 pub fn item_name(item: ItemId) -> String {
@@ -65,9 +67,13 @@ pub struct CraftingGridCell {
     pub col: u32,
 }
 
-/// The crafting grid, its arrow and its result: hidden while a chest or a furnace is open.
+/// The crafting grid, its arrow and its result: hidden while a chest, a furnace or a trade is open.
 #[derive(Component)]
 pub struct CraftingRow;
+
+/// The offers of the open trade: shown while one is open.
+#[derive(Component)]
+pub struct TradeGrid;
 
 /// The 3x9 slots of the open chest, above the backpack: shown while a chest is open.
 #[derive(Component)]

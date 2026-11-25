@@ -7,6 +7,7 @@ mod float;
 pub mod guards;
 pub mod hostile;
 pub mod spawning;
+pub mod villager;
 
 use std::collections::{HashMap, HashSet};
 

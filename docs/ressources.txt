@@ -50,6 +50,8 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
    faces are cut following its model, and the icon of the cocoa beans (items/CocoaBeans.png).
 -> The spawn eggs (items/*SpawnEgg.png) are our own,
    drawn by scripts/generate_spawn_eggs.py.
+-> The coin (items/Coin.png) and the directions (hud/directions.png) are our own,
+   drawn by scripts/generate_trade_icons.py; the villagers, by scripts/generate_villagers.py.
 -> The animated texture of the water (blocks/Water.png, 16 frames), the pack's
    block/water_still.png, and its animation (blocks/Water.anim.ron) from its .mcmeta.
 -> The colour maps of the grass and of the leaves by climate

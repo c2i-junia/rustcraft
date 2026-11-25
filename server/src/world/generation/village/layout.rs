@@ -8,7 +8,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy::prelude::*;
 use shared::world::{
-    BlockData, BlockDirection, ColumnShape, Container, ServerMob, TerrainNoises, VillageStyle,
+    BlockData, BlockDirection, ColumnShape, Container, MobKind, ServerMob, TerrainNoises,
+    VillageStyle, Villager,
 };
 
 #[cfg(test)]
@@ -416,7 +417,7 @@ impl Builder<'_> {
 
     /// Builds `piece`, turned `turns` times, its door column at `anchor` and its floor at
     /// `floor`: a foundation down to the ground under it, the air cleared above, then its cells,
-    /// what its containers hold, and the animals of a pen.
+    /// what its containers hold, and the animals of a pen or the villager of a house.
     fn build(&mut self, piece: &Piece, anchor: IVec2, turns: usize, floor: i32) {
         let style = self.site.style;
         let (width, depth, height) = piece.size();
@@ -454,6 +455,7 @@ impl Builder<'_> {
             }
         }
         self.pen_animals(piece, anchor, turns, floor, style);
+        self.villager(piece, anchor, turns, floor);
         let min = columns.iter().copied().reduce(IVec2::min).unwrap();
         let max = columns.iter().copied().reduce(IVec2::max).unwrap();
         debug_assert_eq!(
@@ -512,6 +514,25 @@ impl Builder<'_> {
                 ..ServerMob::new(kind, position)
             });
         }
+    }
+
+    /// The villager of a house, born in it: each profession in turn, in the order the houses
+    /// were built.
+    fn villager(&mut self, piece: &Piece, anchor: IVec2, turns: usize, floor: i32) {
+        let Some(cell) = piece.home else {
+            return;
+        };
+        let professions = [MobKind::Farmer, MobKind::Smith, MobKind::Cartographer];
+        let living = self.animals.iter().filter(|mob| mob.kind.is_villager());
+        let kind = professions[living.count() % professions.len()];
+        let column = anchor + rotate(cell - IVec2::new(piece.door, 0), turns);
+        let home = IVec3::new(column.x, floor + 1, column.y);
+        let feet = home.as_vec3() + Vec3::new(0.5, 0.0, 0.5);
+        self.animals.push(ServerMob {
+            action_ticks: 1,
+            villager: Some(Villager::living_at(home)),
+            ..ServerMob::new(kind, ServerMob::standing_at(kind, feet.x, feet.y, feet.z))
+        });
     }
 
     fn finish(self) -> VillagePlan {

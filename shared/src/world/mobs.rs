@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::messages::PlayerId;
 use crate::players::bow::BowShot;
 use crate::world::depths::{strengthened, DepthTier};
-use crate::world::{ItemId, PortalRest, ToolKind};
+use crate::world::{ItemId, PortalRest, ToolKind, Villager};
 use crate::TICKS_PER_SECOND;
 
 pub type MobId = u128;
@@ -40,10 +40,14 @@ pub enum MobKind {
     GustOwl,
     /// An arrow in flight or stuck in a block: a projectile (`ArrowFlight`).
     Arrow,
+    /// The villagers (`is_villager`): see `trade`.
+    Farmer,
+    Smith,
+    Cartographer,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 19] = [
+    pub const ALL: [MobKind; 22] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -63,6 +67,9 @@ impl MobKind {
         MobKind::Ember,
         MobKind::GustOwl,
         MobKind::Arrow,
+        MobKind::Farmer,
+        MobKind::Smith,
+        MobKind::Cartographer,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -87,6 +94,15 @@ impl MobKind {
         matches!(self, MobKind::Ember | MobKind::Arrow)
     }
 
+    /// Whether mobs of this kind are villagers: they trade (`trade::offers`), live in a house,
+    /// and nothing hurts them.
+    pub fn is_villager(self) -> bool {
+        matches!(
+            self,
+            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer
+        )
+    }
+
     /// The points of health of a mob of this kind.
     pub fn health(self) -> u32 {
         match self {
@@ -100,6 +116,7 @@ impl MobKind {
             MobKind::GustOwl => 14,
             // Never struck
             MobKind::Ember | MobKind::Arrow => 1,
+            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => 20,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
@@ -128,9 +145,9 @@ impl MobKind {
         }
     }
 
-    /// Whether mobs of this kind are animals: neither hostile nor projectiles.
+    /// Whether mobs of this kind are animals: neither hostile, nor projectiles, nor villagers.
     pub fn is_animal(self) -> bool {
-        !self.is_hostile() && !self.is_projectile()
+        !self.is_hostile() && !self.is_projectile() && !self.is_villager()
     }
 
     /// Whether a player tames mobs of this kind by feeding them (`MobKind::eats`): the wolf
@@ -190,6 +207,9 @@ impl MobKind {
             MobKind::Ember => "Ember",
             MobKind::GustOwl => "Gust Owl",
             MobKind::Arrow => "Arrow",
+            MobKind::Farmer => "Farmer",
+            MobKind::Smith => "Smith",
+            MobKind::Cartographer => "Cartographer",
         }
     }
 
@@ -226,6 +246,9 @@ impl MobKind {
             // 2.5 wide with its wings spread; from its talons, 0.4375 above the origin of its
             // model (`client::mob::models::model_lift`), to the top of its head, 1.875
             MobKind::GustOwl => Vec3::new(0.7, 1.45, 0.7),
+            // The models of `scripts/generate_villagers.py`, 1.0 wide with their
+            // hands, 1.56 tall without a hat
+            MobKind::Farmer | MobKind::Smith | MobKind::Cartographer => Vec3::new(0.7, 1.6, 0.7),
         }
     }
 }
@@ -339,6 +362,9 @@ pub struct ServerMob {
     /// The flight of an arrow. Neither saved nor sent.
     #[serde(skip)]
     pub arrow: Option<ArrowFlight>,
+    /// What a villager remembers; none for the other mobs. Saves from before it read none.
+    #[serde(default)]
+    pub villager: Option<Villager>,
 }
 
 impl ServerMob {
@@ -369,6 +395,7 @@ impl ServerMob {
             hurt_ticks: 0,
             attack_wait: 0,
             arrow: None,
+            villager: kind.is_villager().then(Villager::default),
         }
     }
 

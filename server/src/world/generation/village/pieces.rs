@@ -6,6 +6,7 @@
 //! The layers go up from the floor (`y = 0`), which takes the place of the surface. Above the
 //! floor, every cell of the box of a piece is cleared before it is built, so that `.` is air.
 
+use bevy::math::IVec2;
 use shared::world::{BlockDirection, BlockId, MobKind, VillageStyle};
 
 /// The kinds of pieces.
@@ -130,6 +131,8 @@ pub struct Piece {
     pub layers: &'static [&'static [&'static str]],
     /// The column of the front row the street leads to: the door.
     pub door: i32,
+    /// The cell of the floor, across and from the front, where the villager of a house lives.
+    pub home: Option<IVec2>,
     /// The chance of the piece among those along the streets, and how many a village holds at
     /// most.
     pub weight: u32,
@@ -183,6 +186,7 @@ pub const WELL: Piece = Piece {
         &["fffff", "fffff", "fffff", "fffff", "fffff"],
     ],
     door: 2,
+    home: None,
     weight: 0,
     most: 1,
 };
@@ -192,6 +196,7 @@ pub const LAMP: Piece = Piece {
     kind: PieceKind::Lamp,
     layers: &[&["N"], &["E"], &["E"], &["L"]],
     door: 0,
+    home: None,
     weight: 0,
     most: usize::MAX,
 };
@@ -210,6 +215,7 @@ pub const PIECES: [Piece; 6] = [
             &[".....", ".....", "..R..", ".....", "....."],
         ],
         door: 2,
+        home: Some(IVec2::new(2, 2)),
         weight: 40,
         most: usize::MAX,
     },
@@ -262,6 +268,7 @@ pub const PIECES: [Piece; 6] = [
             ],
         ],
         door: 3,
+        home: Some(IVec2::new(3, 2)),
         weight: 14,
         most: usize::MAX,
     },
@@ -288,6 +295,7 @@ pub const PIECES: [Piece; 6] = [
             ],
         ],
         door: 3,
+        home: None,
         weight: 7,
         most: 1,
     },
@@ -317,6 +325,7 @@ pub const PIECES: [Piece; 6] = [
             ],
         ],
         door: 2,
+        home: None,
         weight: 10,
         most: 2,
     },
@@ -343,6 +352,7 @@ pub const PIECES: [Piece; 6] = [
             ],
         ],
         door: 4,
+        home: None,
         weight: 15,
         most: 4,
     },
@@ -360,6 +370,7 @@ pub const PIECES: [Piece; 6] = [
             ],
         ],
         door: 3,
+        home: None,
         weight: 9,
         most: 2,
     },

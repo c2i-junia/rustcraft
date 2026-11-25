@@ -38,7 +38,7 @@ pub struct VillagePlan {
     blocks: StructureBlocks,
     /// The columns where nothing grows: the streets, the buildings, and around them.
     footprint: HashSet<IVec2>,
-    /// The animals of its pens: where each stands.
+    /// The animals of its pens and the villagers of its houses: where each stands.
     animals: Vec<ServerMob>,
     /// Its buildings: their kind, their corners and the height of their floor.
     pub pieces: Vec<PlacedPiece>,
@@ -75,7 +75,7 @@ impl VillagePlan {
         self.blocks.place(chunk, chunk_pos);
     }
 
-    /// The animals of the village born with the chunk at `chunk_pos`: those standing in it.
+    /// The animals and the villagers of the village born with the chunk at `chunk_pos`: those standing in it.
     pub fn chunk_animals(&self, chunk_pos: IVec3) -> impl Iterator<Item = ServerMob> + '_ {
         self.animals
             .iter()
@@ -95,7 +95,7 @@ impl VillagePlan {
         self.blocks.chunk_containers(chunk_pos)
     }
 
-    /// The kinds of the animals of the village.
+    /// The kinds of the animals and the villagers of the village.
     #[cfg(test)]
     pub fn animal_kinds(&self) -> Vec<shared::world::MobKind> {
         self.animals.iter().map(|animal| animal.kind).collect()

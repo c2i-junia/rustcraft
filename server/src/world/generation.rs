@@ -905,6 +905,10 @@ impl WorldGenerator {
     }
 
     /// Where the dungeon of `kind` in `region` stands, without laying it out.
+    pub fn has_dungeons(&self) -> bool {
+        self.dungeons
+    }
+
     pub fn dungeon_site(&self, kind: DungeonKind, region: IVec2) -> Option<dungeon::Site> {
         dungeon::site(&self.dungeon_world(), kind, region)
     }
