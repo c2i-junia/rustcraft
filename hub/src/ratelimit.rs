@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, VecDeque},
     hash::Hash,
     net::{IpAddr, Ipv6Addr, SocketAddr},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -80,35 +80,47 @@ const SIGNUPS_PER_TRUSTED_ADDRESS: [(time::Duration, i64); 1] = [(time::Duration
 /// Sign-ups on the whole hub.
 const SIGNUPS_PER_HUB: (time::Duration, i64) = (time::Duration::HOUR, 200);
 
-/// Refuses a sign-up at `now` beyond the limits, with the seconds to wait.
+/// Refuses a sign-up at `now` beyond the limits, with the seconds to wait. Otherwise answers how
+/// many more sign-ups the address may make.
 pub async fn check_signup(
     conn: &mut PgConnection,
     ip_key: &[u8; 32],
     trusted: bool,
     now: OffsetDateTime,
-) -> Result<(), AppError> {
+) -> Result<i64, AppError> {
     let limits: &[_] = if trusted {
         &SIGNUPS_PER_TRUSTED_ADDRESS
     } else {
         &SIGNUPS_PER_ADDRESS
     };
+    let mut room = i64::MAX;
     for &(window, limit) in limits {
-        let nth: Option<OffsetDateTime> = sqlx::query_scalar(
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM signups WHERE ip_key = $1 AND created_at > $2",
+        )
+        .bind(&ip_key[..])
+        .bind(now - window)
+        .fetch_one(&mut *conn)
+        .await?;
+        room = room.min(limit - count);
+        if count < limit {
+            continue;
+        }
+        // The window reopens when the limit-th newest sign-up leaves it.
+        let nth: OffsetDateTime = sqlx::query_scalar(
             "SELECT created_at FROM signups WHERE ip_key = $1 AND created_at > $2 \
              ORDER BY created_at DESC OFFSET $3 LIMIT 1",
         )
         .bind(&ip_key[..])
         .bind(now - window)
         .bind(limit - 1)
-        .fetch_optional(&mut *conn)
+        .fetch_one(&mut *conn)
         .await?;
-        if let Some(nth) = nth {
-            return Err(AppError::new(
-                ErrorCode::RateLimited,
-                "Too many accounts were created from your address. Try again later.",
-            )
-            .retry_after(seconds(nth + window - now)));
-        }
+        return Err(AppError::new(
+            ErrorCode::RateLimited,
+            "Too many accounts were created from your address. Try again later.",
+        )
+        .retry_after(seconds(nth + window - now)));
     }
     let (window, limit) = SIGNUPS_PER_HUB;
     let nth: Option<OffsetDateTime> = sqlx::query_scalar(
@@ -126,7 +138,7 @@ pub async fn check_signup(
         )
         .retry_after(seconds(nth + window - now)));
     }
-    Ok(())
+    Ok(room)
 }
 
 pub async fn record_signup(
@@ -192,6 +204,15 @@ impl<K: Hash + Eq> SlidingWindow<K> {
         self.hits.entry(key).or_default().push_back(now);
     }
 
+    /// Takes back the event of `key` recorded at `at`.
+    fn forget(&mut self, key: &K, at: Instant) {
+        if let Some(hits) = self.hits.get_mut(key) {
+            if let Some(position) = hits.iter().position(|&t| t == at) {
+                hits.remove(position);
+            }
+        }
+    }
+
     /// Drops the keys with no event left in the window.
     fn prune(&mut self, now: Instant) {
         let window = self.window;
@@ -202,55 +223,127 @@ impl<K: Hash + Eq> SlidingWindow<K> {
     }
 }
 
+struct Failures {
+    per_name: SlidingWindow<(String, IpAddr)>,
+    per_address: SlidingWindow<IpAddr>,
+}
+
 /// Failed logins, in memory: 5 per (username, address) and 30 per address, over 15 minutes.
+/// An attempt counts as failed from the start, so that parallel guesses cannot all pass before
+/// the first one fails; a success takes it back.
 pub struct LoginLimiter {
-    per_name: Mutex<SlidingWindow<(String, IpAddr)>>,
-    per_address: Mutex<SlidingWindow<IpAddr>>,
+    failures: Mutex<Failures>,
+}
+
+/// An attempt counted as failed until [`LoginLimiter::forgive`] takes it back.
+pub struct LoginAttempt {
+    name: String,
+    ip: IpAddr,
+    at: Instant,
 }
 
 impl Default for LoginLimiter {
     fn default() -> Self {
         let window = Duration::from_secs(15 * 60);
         Self {
-            per_name: Mutex::new(SlidingWindow::new(5, window)),
-            per_address: Mutex::new(SlidingWindow::new(30, window)),
+            failures: Mutex::new(Failures {
+                per_name: SlidingWindow::new(5, window),
+                per_address: SlidingWindow::new(30, window),
+            }),
         }
     }
 }
 
 impl LoginLimiter {
-    /// Refuses a login attempt at `now` once either limit is reached.
-    pub fn check(&self, username: &str, ip: IpAddr, now: Instant) -> Result<(), AppError> {
+    /// Counts an attempt at `now` as failed, or refuses it once either limit is reached.
+    pub fn attempt(
+        &self,
+        username: &str,
+        ip: IpAddr,
+        now: Instant,
+    ) -> Result<LoginAttempt, AppError> {
         let ip = subnet(ip);
-        let wait = self
+        let name = username.to_lowercase();
+        let mut failures = self.failures.lock().unwrap();
+        let wait = failures
             .per_name
-            .lock()
-            .unwrap()
-            .retry_after(&(username.to_lowercase(), ip), now)
-            .max(self.per_address.lock().unwrap().retry_after(&ip, now));
-        match wait {
-            Some(wait) => Err(AppError::new(
+            .retry_after(&(name.clone(), ip), now)
+            .max(failures.per_address.retry_after(&ip, now));
+        if let Some(wait) = wait {
+            return Err(AppError::new(
                 ErrorCode::RateLimited,
                 "Too many failed logins. Try again later.",
             )
-            .retry_after(wait.as_secs_f64().ceil().max(1.0) as u64)),
-            None => Ok(()),
+            .retry_after(wait.as_secs_f64().ceil().max(1.0) as u64));
         }
+        failures.per_name.record((name.clone(), ip), now);
+        failures.per_address.record(ip, now);
+        Ok(LoginAttempt { name, ip, at: now })
     }
 
-    pub fn record_failure(&self, username: &str, ip: IpAddr, now: Instant) {
-        let ip = subnet(ip);
-        self.per_name
-            .lock()
-            .unwrap()
-            .record((username.to_lowercase(), ip), now);
-        self.per_address.lock().unwrap().record(ip, now);
+    /// Takes back a successful attempt.
+    pub fn forgive(&self, attempt: LoginAttempt) {
+        let mut failures = self.failures.lock().unwrap();
+        failures
+            .per_name
+            .forget(&(attempt.name, attempt.ip), attempt.at);
+        failures.per_address.forget(&attempt.ip, attempt.at);
     }
 
     /// Forgets the keys with no recent failure, so that the maps do not grow forever.
     pub fn prune(&self, now: Instant) {
-        self.per_name.lock().unwrap().prune(now);
-        self.per_address.lock().unwrap().prune(now);
+        let mut failures = self.failures.lock().unwrap();
+        failures.per_name.prune(now);
+        failures.per_address.prune(now);
+    }
+}
+
+/// The sign-ups in progress per address. Each takes a slot before its costly hashes, and there
+/// are no more slots than sign-ups left to the address, so parallel requests cannot all hash
+/// before the limit, checked again under a lock, refuses them.
+#[derive(Default)]
+pub struct SignupGate {
+    in_flight: Mutex<HashMap<[u8; 32], i64>>,
+}
+
+/// A sign-up in progress; dropping it frees the slot.
+pub struct SignupSlot {
+    gate: Arc<SignupGate>,
+    ip_key: [u8; 32],
+}
+
+impl SignupGate {
+    /// Takes a slot for `ip_key`, which has `room` sign-ups left.
+    pub fn enter(self: &Arc<Self>, ip_key: [u8; 32], room: i64) -> Result<SignupSlot, AppError> {
+        let mut in_flight = self.in_flight.lock().unwrap();
+        let count = in_flight.entry(ip_key).or_default();
+        if *count >= room {
+            if *count == 0 {
+                in_flight.remove(&ip_key);
+            }
+            return Err(AppError::new(
+                ErrorCode::RateLimited,
+                "Too many accounts are being created from your address. Try again later.",
+            )
+            .retry_after(1));
+        }
+        *count += 1;
+        Ok(SignupSlot {
+            gate: self.clone(),
+            ip_key,
+        })
+    }
+}
+
+impl Drop for SignupSlot {
+    fn drop(&mut self) {
+        let mut in_flight = self.gate.in_flight.lock().unwrap();
+        if let Some(count) = in_flight.get_mut(&self.ip_key) {
+            *count -= 1;
+            if *count <= 0 {
+                in_flight.remove(&self.ip_key);
+            }
+        }
     }
 }
 
@@ -326,21 +419,40 @@ mod tests {
     fn failed_logins_are_limited_per_name_and_per_address() {
         let limiter = LoginLimiter::default();
         let now = Instant::now();
-        for _ in 0..5 {
-            limiter.check("Alex", ip("203.0.113.1"), now).unwrap();
-            limiter.record_failure("Alex", ip("203.0.113.1"), now);
+        let here = ip("203.0.113.1");
+        for _ in 0..10 {
+            limiter.forgive(limiter.attempt("Alex", here, now).unwrap());
         }
-        let error = limiter.check("alex", ip("203.0.113.1"), now).unwrap_err();
+        // Attempts count from the start: these five are in progress, or failed.
+        for _ in 0..5 {
+            limiter.attempt("Alex", here, now).unwrap();
+        }
+        let error = limiter.attempt("alex", here, now).err().unwrap();
         assert_eq!(error.code, ErrorCode::RateLimited);
         assert_eq!(error.retry_after, Some(900));
-        limiter.check("Alex", ip("203.0.113.2"), now).unwrap();
-        limiter.check("Sam", ip("203.0.113.1"), now).unwrap();
+        limiter.forgive(limiter.attempt("Alex", ip("203.0.113.2"), now).unwrap());
         for i in 0..25 {
-            limiter.record_failure(&format!("name{i}"), ip("203.0.113.1"), now);
+            limiter.attempt(&format!("name{i}"), here, now).unwrap();
         }
-        assert!(limiter.check("Sam", ip("203.0.113.1"), now).is_err());
+        assert!(limiter.attempt("Sam", here, now).is_err());
         assert!(limiter
-            .check("Sam", ip("203.0.113.1"), now + Duration::from_secs(900))
+            .attempt("Sam", here, now + Duration::from_secs(900))
             .is_ok());
+    }
+
+    #[test]
+    fn an_address_has_no_more_sign_ups_in_progress_than_it_has_left() {
+        let gate = Arc::new(SignupGate::default());
+        let first = gate.enter([1; 32], 2).unwrap();
+        let second = gate.enter([1; 32], 2).unwrap();
+        let error = gate.enter([1; 32], 2).err().unwrap();
+        assert_eq!(error.code, ErrorCode::RateLimited);
+        assert!(gate.enter([2; 32], 2).is_ok());
+        assert!(gate.enter([3; 32], 0).is_err());
+        drop(first);
+        let third = gate.enter([1; 32], 2).unwrap();
+        drop(third);
+        drop(second);
+        assert!(gate.in_flight.lock().unwrap().is_empty());
     }
 }

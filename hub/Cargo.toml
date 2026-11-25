@@ -33,6 +33,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 zxcvbn = { version = "3", default-features = false }
 
 [dev-dependencies]
+futures = "0.3"
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 

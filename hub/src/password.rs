@@ -1,6 +1,6 @@
 //! The rules of usernames and passwords, their Argon2id hashes and the recovery codes.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -85,13 +85,6 @@ fn argon2() -> Argon2<'static> {
     Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 }
 
-/// A hash compared against when there is no account, so that a missing name takes as long as a
-/// wrong password.
-fn dummy_hash() -> &'static str {
-    static HASH: OnceLock<String> = OnceLock::new();
-    HASH.get_or_init(|| hash_now(&new_recovery_code().body))
-}
-
 fn hash_now(secret: &str) -> String {
     argon2()
         .hash_password(secret.as_bytes(), &SaltString::generate(&mut OsRng))
@@ -100,8 +93,13 @@ fn hash_now(secret: &str) -> String {
 }
 
 fn verify_now(secret: &str, hash: &str) -> bool {
-    PasswordHash::new(hash)
-        .is_ok_and(|hash| argon2().verify_password(secret.as_bytes(), &hash).is_ok())
+    match PasswordHash::new(hash) {
+        Ok(hash) => argon2().verify_password(secret.as_bytes(), &hash).is_ok(),
+        Err(error) => {
+            tracing::error!(%error, "a stored password hash does not parse");
+            false
+        }
+    }
 }
 
 /// Hashes and verifies off the async threads, a few at a time: each run takes 19 MiB and a
@@ -109,6 +107,9 @@ fn verify_now(secret: &str, hash: &str) -> bool {
 #[derive(Clone)]
 pub struct Hasher {
     permits: Arc<Semaphore>,
+    /// Compared against when there is no account, so that a missing name takes as long as a
+    /// wrong password. Made at start, so that the first unknown name takes no longer.
+    dummy_hash: Arc<str>,
 }
 
 impl Default for Hasher {
@@ -123,6 +124,7 @@ impl Hasher {
     pub fn new(permits: usize) -> Self {
         Self {
             permits: Arc::new(Semaphore::new(permits)),
+            dummy_hash: hash_now(&new_recovery_code().body).into(),
         }
     }
 
@@ -155,10 +157,11 @@ impl Hasher {
     /// Whether `secret` matches `hash`. Without a hash it compares against a dummy one, which
     /// takes the same time, and answers `false`.
     pub async fn verify(&self, secret: String, hash: Option<String>) -> Result<bool, AppError> {
+        let dummy_hash = self.dummy_hash.clone();
         self.run(move || match hash {
             Some(hash) => verify_now(&secret, &hash),
             None => {
-                verify_now(&secret, dummy_hash());
+                verify_now(&secret, &dummy_hash);
                 false
             }
         })

@@ -1,9 +1,17 @@
-//! A router over a fresh database, dropped with the `TestHub`, even when the test fails.
+//! A router over a fresh database, dropped with the `TestHub` when the test passes. A failing
+//! test leaves it behind (the Cranelift dev build runs no cleanup on a panic), and the next run
+//! drops it.
 
 // Each test file uses some of the helpers only.
 #![allow(dead_code)]
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use axum::{
     body::Body,
@@ -29,13 +37,19 @@ pub struct TestHub {
 
 impl TestHub {
     /// Creates a uniquely named database from `HUB_TEST_DATABASE_URL`, migrates it and builds
-    /// the router. The database is dropped when the `TestHub` is.
+    /// the router. The database is dropped when the `TestHub` is. The first one of a process
+    /// also drops the databases that earlier, failed runs left.
     pub async fn start() -> Self {
         let url = std::env::var("HUB_TEST_DATABASE_URL")
             .expect("HUB_TEST_DATABASE_URL is not set: run hub/scripts/test-db.sh start");
         let admin_options: PgConnectOptions = url.parse().unwrap();
-        let database = format!("hub_test_{}", uuid::Uuid::new_v4().simple());
+        let process = format!("hub_test_{}_", std::process::id());
+        let database = format!("{process}{}", uuid::Uuid::new_v4().simple());
         let mut admin = PgConnection::connect_with(&admin_options).await.unwrap();
+        static CLEANED: AtomicBool = AtomicBool::new(false);
+        if !CLEANED.swap(true, Ordering::SeqCst) {
+            drop_stale_databases(&mut admin, &process).await;
+        }
         sqlx::query(&format!("CREATE DATABASE {database}"))
             .execute(&mut admin)
             .await
@@ -55,6 +69,7 @@ impl TestHub {
             trusted_ranges: Arc::from([]),
             hasher: Default::default(),
             logins: Default::default(),
+            signups: Default::default(),
         };
         Self {
             app: router(state.clone()),
@@ -94,6 +109,25 @@ impl TestHub {
             .extensions_mut()
             .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
         self.app.clone().oneshot(request).await.unwrap()
+    }
+}
+
+/// Drops the test databases of other processes that nobody is connected to.
+async fn drop_stale_databases(admin: &mut PgConnection, ours: &str) {
+    let stale: Vec<String> = sqlx::query_scalar(
+        "SELECT datname::text FROM pg_database d \
+         WHERE starts_with(datname, 'hub_test_') AND NOT starts_with(datname, $1) \
+         AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname)",
+    )
+    .bind(ours)
+    .fetch_all(&mut *admin)
+    .await
+    .unwrap();
+    for database in stale {
+        // Another run may have connected to it since: then it stays.
+        let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS \"{database}\""))
+            .execute(&mut *admin)
+            .await;
     }
 }
 

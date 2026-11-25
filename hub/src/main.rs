@@ -35,6 +35,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         trusted_ranges: args.trusted_ranges.into(),
         hasher: Default::default(),
         logins: Default::default(),
+        signups: Default::default(),
     };
     maintenance::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(args.listen).await?;

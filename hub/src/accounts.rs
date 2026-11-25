@@ -108,8 +108,8 @@ enum Secret {
     RecoveryCode,
 }
 
-/// Checks `given` against the account's secret, within the limits on failed logins. A failure
-/// counts towards them and is written in the audit log.
+/// Checks `given` against the account's secret, within the limits on failed logins. The attempt
+/// counts towards them until it succeeds; a failure is written in the audit log.
 async fn authenticate(
     state: &AppState,
     ip: IpAddr,
@@ -118,16 +118,18 @@ async fn authenticate(
     account: Option<Credentials>,
     secret: Secret,
 ) -> Result<Credentials, AppError> {
-    state.logins.check(username, ip, Instant::now())?;
+    let attempt = state.logins.attempt(username, ip, Instant::now())?;
     let hash = account.as_ref().map(|account| match secret {
         Secret::Password => account.password_hash.clone(),
         Secret::RecoveryCode => account.recovery_hash.clone(),
     });
     let account = match (state.hasher.verify(given, hash).await?, account) {
-        (true, Some(account)) => return Ok(account),
+        (true, Some(account)) => {
+            state.logins.forgive(attempt);
+            return Ok(account);
+        }
         (_, account) => account,
     };
-    state.logins.record_failure(username, ip, Instant::now());
     let method = match secret {
         Secret::Password => "password",
         Secret::RecoveryCode => "recovery_code",
@@ -154,13 +156,14 @@ async fn sign_up(
     let ip_key = ip_key(&state.ip_secret, ip);
     let trusted = state.trusted_ranges.iter().any(|range| range.contains(&ip));
     // Refused early, before the costly hashes, then checked again under the lock.
-    check_signup(
+    let room = check_signup(
         &mut *state.db.acquire().await?,
         &ip_key,
         trusted,
         OffsetDateTime::now_utc(),
     )
     .await?;
+    let _slot = state.signups.enter(ip_key, room)?;
     let taken: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM accounts WHERE username = $1::citext)")
             .bind(&request.username)
@@ -393,14 +396,19 @@ async fn change_password(
     .await?;
     let password_hash = state.hasher.hash(request.new_password).await?;
     let mut tx = state.db.begin().await?;
-    sqlx::query(
+    // Only if the password is still the one checked.
+    let replaced = sqlx::query(
         "UPDATE password_credentials SET password_hash = $2, updated_at = now() \
-         WHERE account_id = $1",
+         WHERE account_id = $1 AND password_hash = $3",
     )
     .bind(account.id)
     .bind(password_hash)
+    .bind(&account.password_hash)
     .execute(&mut *tx)
     .await?;
+    if replaced.rows_affected() == 0 {
+        return Err(bad_credentials());
+    }
     revoke_access(&mut tx, account.id, Some(session.id)).await?;
     audit::record(
         &mut tx,

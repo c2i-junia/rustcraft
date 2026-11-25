@@ -2,6 +2,7 @@ mod common;
 
 use axum::{body::Body, http::Response};
 use common::TestHub;
+use futures::future::join_all;
 use http_body_util::BodyExt;
 use rustcraft_hub::{
     maintenance::purge_deleted_accounts,
@@ -321,6 +322,36 @@ async fn the_sixth_failed_login_for_a_name_is_refused() {
     assert_eq!(refusal(response).await, (429, "rate_limited".to_owned()));
     let elsewhere = log_in(&hub, "Alex", PASSWORD, "198.51.100.9:4000").await;
     assert_eq!(elsewhere.status(), 200);
+}
+
+/// The statuses of the answers, sorted.
+fn statuses(responses: &[Response<Body>]) -> Vec<u16> {
+    let mut statuses: Vec<u16> = responses.iter().map(|r| r.status().as_u16()).collect();
+    statuses.sort();
+    statuses
+}
+
+#[tokio::test]
+async fn parallel_wrong_logins_count_before_they_fail() {
+    let hub = TestHub::start().await;
+    new_account(&hub, "Alex").await;
+    let responses =
+        join_all((0..12).map(|_| log_in(&hub, "Alex", "not the right password", PEER))).await;
+    assert_eq!(
+        statuses(&responses),
+        [[401; 5].as_slice(), &[429; 7]].concat()
+    );
+}
+
+#[tokio::test]
+async fn parallel_sign_ups_from_one_address_stop_at_its_limit() {
+    let hub = TestHub::start().await;
+    let names: Vec<String> = (0..15).map(|i| format!("player{i}")).collect();
+    let responses = join_all(names.iter().map(|name| sign_up(&hub, name, PEER))).await;
+    assert_eq!(
+        statuses(&responses),
+        [[201; 10].as_slice(), &[429; 5]].concat()
+    );
 }
 
 #[tokio::test]

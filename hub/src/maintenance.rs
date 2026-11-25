@@ -11,14 +11,16 @@ use crate::{ratelimit::purge_signups, sessions, AppState};
 /// How long a deleted account keeps its name.
 pub const DELETED_NAME_HOLD: time::Duration = time::Duration::days(30);
 
-/// Renames the accounts deleted [`DELETED_NAME_HOLD`] before `now` to `deleted-<id>`, which
-/// frees their names (`-` is not allowed in a username, so no one can take that one).
+/// Renames the accounts deleted [`DELETED_NAME_HOLD`] before `now` to `deleted-<id>`, username
+/// and display name, which frees their names (`-` is not allowed in a username, so no one can
+/// take that one).
 pub async fn purge_deleted_accounts(
     conn: &mut PgConnection,
     now: OffsetDateTime,
 ) -> Result<u64, sqlx::Error> {
     let done = sqlx::query(
-        "UPDATE accounts SET username = 'deleted-' || id::text \
+        "UPDATE accounts SET username = 'deleted-' || id::text, \
+             display_name = 'deleted-' || id::text \
          WHERE status = 'deleted' AND deleted_at <= $1 AND username NOT LIKE 'deleted-%'",
     )
     .bind(now - DELETED_NAME_HOLD)

@@ -17,7 +17,7 @@ use ipnet::IpNet;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use password::Hasher;
-use ratelimit::LoginLimiter;
+use ratelimit::{LoginLimiter, SignupGate};
 pub use routes::router;
 
 /// The id of the signing key in certificates; there is one key for now.
@@ -36,6 +36,7 @@ pub struct AppState {
     pub trusted_ranges: Arc<[IpNet]>,
     pub hasher: Hasher,
     pub logins: Arc<LoginLimiter>,
+    pub signups: Arc<SignupGate>,
 }
 
 /// Connects to the database and applies the migrations.
