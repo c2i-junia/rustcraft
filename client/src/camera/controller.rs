@@ -141,6 +141,13 @@ pub fn camera_control_system(
 #[derive(Resource, Default)]
 pub struct EyeThroughPortal(Option<Transform>);
 
+impl EyeThroughPortal {
+    /// Whether the camera is drawn this frame from the other side of a portal.
+    pub fn is_through(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
 /// Draws the player's camera from where its eye is seen when it went through a portal ahead of
 /// the centre of the player (`Portals::eye_through`): rising into a ceiling portal or falling
 /// out of a ceiling twin, the eye, 0.8 above the centre, is in the portal's wall, and is drawn

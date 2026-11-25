@@ -157,9 +157,6 @@ pub fn player_movement_system(
     player_transform.translation = player.position;
 }
 
-/// Colour of the local player's body.
-pub const LOCAL_PLAYER_COLOR: Color = Color::srgba(1.0, 0.0, 0.0, 1.0);
-
 /// Switches between first and third person with the view mode key. In first person the body of
 /// the local player is drawn by the portal cameras only (`BODY_LAYER`): the player sees itself
 /// through a portal, but its camera, inside the body, does not draw it. In third person the
@@ -167,7 +164,9 @@ pub const LOCAL_PLAYER_COLOR: Color = Color::srgba(1.0, 0.0, 0.0, 1.0);
 pub fn first_and_third_person_view_system(
     mut view_mode: ResMut<ViewMode>,
     players: Query<&Children, With<CurrentPlayerMarker>>,
-    mut bodies: Query<(Entity, Option<&RenderLayers>), With<PlayerBody>>,
+    bodies: Query<Entity, With<PlayerBody>>,
+    descendants: Query<&Children>,
+    current_layers: Query<Option<&RenderLayers>>,
     key_map: Res<KeyMap>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     ui_mode: Res<UIMode>,
@@ -184,10 +183,12 @@ pub fn first_and_third_person_view_system(
         ViewMode::ThirdPerson => RenderLayers::layer(0),
     };
     for children in &players {
-        let mut bodies = bodies.iter_many_mut(children);
-        while let Some((body, current)) = bodies.fetch_next() {
-            if current != Some(&layers) {
-                commands.entity(body).insert(layers.clone());
+        // The body and every part of its model, which each draw a mesh
+        for body in bodies.iter_many(children) {
+            for entity in std::iter::once(body).chain(descendants.iter_descendants(body)) {
+                if current_layers.get(entity).ok().flatten() != Some(&layers) {
+                    commands.entity(entity).insert(layers.clone());
+                }
             }
         }
     }
@@ -204,25 +205,23 @@ mod tests {
         }
     }
 
-    /// The layers and the colour of the local player's body, after a frame in `view`, with the
-    /// view mode key pressed if `toggle`.
-    fn body_in(view: ViewMode, toggle: bool) -> (Option<RenderLayers>, Color) {
+    /// The layers of the local player's body and of a part of its model, after a frame in
+    /// `view`, with the view mode key pressed if `toggle`.
+    fn body_in(view: ViewMode, toggle: bool) -> (Option<RenderLayers>, Option<RenderLayers>) {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
-            .init_asset::<StandardMaterial>()
+        app.add_plugins(MinimalPlugins)
             .insert_resource(view)
             .insert_resource(UIMode::Closed)
             .insert_resource(crate::input::keyboard::default_bindings())
             .init_resource::<ButtonInput<KeyCode>>()
             .add_systems(Update, first_and_third_person_view_system);
-        let material = app
+        let part = app.world_mut().spawn(Transform::default()).id();
+        let root = app
             .world_mut()
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(LOCAL_PLAYER_COLOR);
-        let body = app
-            .world_mut()
-            .spawn((PlayerBody, MeshMaterial3d(material.clone())))
+            .spawn(Transform::default())
+            .add_child(part)
             .id();
+        let body = app.world_mut().spawn(PlayerBody).add_child(root).id();
         app.world_mut()
             .spawn(CurrentPlayerMarker {})
             .add_child(body);
@@ -232,21 +231,18 @@ mod tests {
                 .press(KeyCode::F5);
         }
         app.update();
-        let layers = app.world().get::<RenderLayers>(body).cloned();
-        let color = app
-            .world()
-            .resource::<Assets<StandardMaterial>>()
-            .get(&material)
-            .unwrap()
-            .base_color;
-        (layers, color)
+        let layers = |entity| app.world().get::<RenderLayers>(entity).cloned();
+        (layers(body), layers(part))
     }
 
     #[test]
     fn in_first_person_the_body_is_seen_through_the_portals_only() {
-        let (layers, color) = body_in(ViewMode::FirstPerson, false);
+        let (layers, part) = body_in(ViewMode::FirstPerson, false);
         assert_eq!(layers, Some(RenderLayers::layer(BODY_LAYER)));
-        assert_eq!(color, LOCAL_PLAYER_COLOR);
+        assert_eq!(
+            part, layers,
+            "every part of the model is on the body's layer"
+        );
         // The player's camera does not draw that layer
         assert!(
             !RenderLayers::from_layers(&[0, crate::portal::SURFACE_LAYER])
@@ -256,9 +252,9 @@ mod tests {
 
     #[test]
     fn in_third_person_the_body_is_seen_by_the_players_camera() {
-        let (layers, color) = body_in(ViewMode::ThirdPerson, false);
+        let (layers, part) = body_in(ViewMode::ThirdPerson, false);
         assert_eq!(layers, Some(RenderLayers::layer(0)));
-        assert_eq!(color, LOCAL_PLAYER_COLOR);
+        assert_eq!(part, layers);
         // Back to first person with the key
         let (layers, _) = body_in(ViewMode::ThirdPerson, true);
         assert_eq!(layers, Some(RenderLayers::layer(BODY_LAYER)));

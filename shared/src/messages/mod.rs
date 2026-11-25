@@ -170,6 +170,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         };
         for (message, expected) in [
             (ServerToClientMessage::AuthRegisterResponse(response), 0),

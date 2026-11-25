@@ -64,6 +64,8 @@ pub struct PlayerUpdateEvent {
     pub game_mode: GameMode,
     /// What killed the player, while it is dead.
     pub death_cause: Option<DeathCause>,
+    /// Whether the player swings its arm (`Player::is_swinging`): the others see it strike.
+    pub swinging: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

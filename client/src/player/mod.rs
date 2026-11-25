@@ -8,6 +8,7 @@ mod controller;
 mod hurt;
 mod interactions;
 mod labels;
+pub mod model;
 mod stance;
 mod update;
 
@@ -79,9 +80,19 @@ pub fn player_plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (crouch_bodies_system, fov_system)
+            (
+                crouch_bodies_system,
+                fov_system,
+                model::animate_players_system,
+            )
                 .after(GameSet::Reconciliation)
                 .before(GameSet::Camera)
+                .run_if(in_state(GameState::Game)),
+        )
+        .add_systems(
+            Update,
+            model::hide_the_body_from_an_eye_through_a_portal
+                .after(GameSet::Camera)
                 .run_if(in_state(GameState::Game)),
         )
         .add_systems(

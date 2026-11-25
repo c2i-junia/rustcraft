@@ -5,7 +5,10 @@ use crate::{
         buffered_client::PlayerTickInputsBuffer, CurrentPlayerProfile, TargetServer,
         TargetServerState, UnacknowledgedInputs,
     },
-    player::{PlayerLabel, LOCAL_PLAYER_COLOR},
+    player::{
+        model::{skin_material, spawn_player_model, PlayerAnimation, DEFAULT_SKIN},
+        PlayerLabel,
+    },
     state::GameState,
     ui::assets::MONO_FONT_PATH,
     world::ClientWorldMap,
@@ -26,8 +29,6 @@ pub struct CurrentPlayerMarker {}
 
 pub const PLAYER_LABEL_FONT_SIZE: f32 = 24.0;
 
-/// Colour of the body of the other players.
-const OTHER_PLAYER_COLOR: Color = Color::srgba(0.0, 0.0, 1.0, 1.0);
 /// Where a name label waits, above the origin, until `player_labels_system` places it.
 const LABEL_START_POSITION: Vec3 = Vec3::new(0.0, 5.0, 0.0);
 
@@ -69,17 +70,12 @@ pub fn spawn_players_system(
             ..default()
         };
 
-        let material = materials.add(if is_current_player {
-            LOCAL_PLAYER_COLOR
-        } else {
-            OTHER_PLAYER_COLOR
-        });
-        let body = Cuboid::new(player.width, player.height, player.width);
+        let material = materials.add(skin_material(assets.load(DEFAULT_SKIN)));
+        let height = player.height;
         let body = (
             PlayerBody,
-            Mesh3d(meshes.add(Mesh::from(body))),
-            MeshMaterial3d(material),
             body_transform(player.height, 1.0),
+            Visibility::default(),
         );
         let mut entity = commands.spawn((
             DespawnOnExit(GameState::Game),
@@ -87,8 +83,13 @@ pub fn spawn_players_system(
             Visibility::default(),
             player,
             Name::new(event.name.clone()),
-            children![body],
+            PlayerAnimation::default(),
         ));
+        entity.with_children(|parent| {
+            parent.spawn(body).with_children(|body| {
+                spawn_player_model(body, &mut meshes, material, height);
+            });
+        });
 
         if is_current_player {
             target_server.state = TargetServerState::FullyReady;
@@ -165,6 +166,8 @@ pub fn update_players_system(
         player.death_cause = event.death_cause;
         if event.id != my_id {
             player.set_movement_state(event.movement);
+            player.camera_transform.rotation = event.orientation;
+            player.is_swinging = event.swinging;
             transform.translation = event.movement.position;
             continue;
         }
@@ -358,6 +361,7 @@ mod tests {
             burning_ticks: server.burning_ticks,
             game_mode: server.game_mode,
             death_cause: None,
+            swinging: false,
         };
         reconcile_prediction(
             &mut client,
@@ -444,6 +448,7 @@ mod tests {
             burning_ticks: server.burning_ticks,
             game_mode: server.game_mode,
             death_cause: None,
+            swinging: false,
         };
         reconcile_prediction(&mut client, &update, &mut sent, &mut [], &blocks);
 
@@ -510,6 +515,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: GameMode::Survival,
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -540,6 +546,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -581,6 +588,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -618,6 +626,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -665,6 +674,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -723,6 +733,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -1016,6 +1027,7 @@ mod tests {
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
+            swinging: false,
         });
         app.update();
 
@@ -1166,6 +1178,7 @@ mod tests {
                 burning_ticks: self.server_player.burning_ticks,
                 game_mode: self.server_player.game_mode,
                 death_cause: self.server_player.death_cause,
+                swinging: false,
             };
             for _ in 0..=u32::from(self.repeats_updates) {
                 self.to_client

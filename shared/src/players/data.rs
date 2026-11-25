@@ -255,6 +255,10 @@ pub struct Player {
     /// (`Player::drag`). Part of the `MovementState`. Not saved.
     #[serde(skip)]
     pub dragged_ms: u32,
+    /// Whether the left button was down in the last input: the player swings its arm, at a
+    /// block or at the air. Sent to the others with each update, not saved.
+    #[serde(skip)]
+    pub is_swinging: bool,
 }
 
 /// What the movement simulation carries over from one input to the next. The server sends it
@@ -446,6 +450,7 @@ impl Player {
             fire_damage_wait: 0,
             lava_damage_wait: 0,
             dragged_ms: 0,
+            is_swinging: false,
         }
     }
 }

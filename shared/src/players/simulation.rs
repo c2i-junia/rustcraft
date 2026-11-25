@@ -1,7 +1,7 @@
 use bevy::math::IVec3;
 
 use crate::{
-    messages::PlayerFrameInput,
+    messages::{NetworkAction, PlayerFrameInput},
     players::{
         blocks::{
             simulate_player_block_interactions, BrokenBlock, CallerType, PortalShot, SpawnedMob,
@@ -44,6 +44,7 @@ pub fn simulate_player_actions(
     action: &PlayerFrameInput,
     caller_type: CallerType,
 ) -> ActionsOutcome {
+    player.is_swinging = !player.is_dead() && action.is_pressed(NetworkAction::LeftClick);
     if player.is_dead() {
         return ActionsOutcome::default();
     }

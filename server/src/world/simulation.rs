@@ -497,6 +497,7 @@ pub fn broadcast_player_updates_system(
                 burning_ticks: player.burning_ticks,
                 game_mode: player.game_mode,
                 death_cause: player.death_cause,
+                swinging: player.is_swinging,
             })
         };
         let open_chest = player
