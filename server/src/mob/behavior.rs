@@ -392,8 +392,11 @@ fn follow_owner(
     }
     let distance = mob.position.distance(owner.position);
     if distance > FOLLOW_TELEPORT && owner.on_ground {
-        mob.position = owner.position + Vec3::Y * (mob.height / 2.0);
+        let feet = owner.position - Vec3::Y * (owner.height / 2.0);
+        mob.position = feet + Vec3::Y * (mob.height / 2.0);
         mob.velocity = Vec3::ZERO;
+        // The clients show it there at once, as through a portal
+        mob.passes = mob.passes.wrapping_add(1);
         rest(mob, rng);
         return true;
     }
@@ -1051,6 +1054,13 @@ mod tests {
             let map = run_behavior_in(map, wolf);
             let wolf = &map.mobs[&0];
             assert_eq!(wolf.position.y > 30.0, expected, "{owner:?}");
+            assert_eq!(wolf.passes > 0, expected, "put there at once");
+            // At the feet of its owner, whose middle is at `feet` here
+            let bottom = wolf.position.y - wolf.height / 2.0;
+            assert!(
+                !expected || (bottom - (feet.y - 0.9)).abs() < 0.1,
+                "{bottom}"
+            );
         }
     }
 
