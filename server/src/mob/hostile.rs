@@ -4,9 +4,11 @@
 //! Roller winds up and rolls (`roll`). The Stumpling strikes in reach too, but flees fire
 //! first (`stumpling`), and sinks into the ground at dawn (`burrow`). The Drowner swims at its
 //! prey in water and drags it down, and walks back to the water from land (`swim`). The
-//! Cinderling hovers at a distance and throws embers (`hover_and_throw`, `cinder::ember`).
+//! Cinderling hovers at a distance and throws embers (`hover_and_throw`, `cinder::ember`). The
+//! Gust Owl circles high over its prey and dives at it (`circle_and_dive`).
 
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 use std::sync::LazyLock;
 
 use bevy::math::{bounding::Aabb3d, bounding::IntersectsVolume, ops::atan2, IVec3, Quat, Vec3};
@@ -48,6 +50,14 @@ const HOVER_SCAN: i32 = 8;
 /// `KEEP_SLACK`.
 pub const KEEP_DISTANCE: f32 = 6.0;
 const KEEP_SLACK: f32 = 0.5;
+/// The ring a Gust Owl circles on: its radius, and its height above the prey's feet, in blocks.
+pub const CIRCLE_RADIUS: f32 = 4.0;
+pub const CIRCLE_HEIGHT: f32 = 8.0;
+/// How high above its prey's feet a Gust Owl may start a dive, in blocks.
+pub const DIVE_BAND: RangeInclusive<f32> = 6.0..=10.0;
+/// How fast a Gust Owl dives, in blocks/s, and for how long at most, in ticks.
+pub const DIVE_SPEED: f32 = 10.0;
+pub const DIVE_TICKS: u32 = 40;
 
 /// How fast a hostile of `kind` moves by its own velocity at most, in blocks per second: a
 /// faster one was thrown (`behavior::is_flung`). The Roller's roll moves it without a
@@ -91,6 +101,7 @@ pub fn act(
         MobKind::Roller => roll(mob, chunks, players, prey, (hunt, strike), delta),
         MobKind::Stumpling => stumpling(mob, chunks, players, prey, (hunt, strike), delta, rng),
         MobKind::Drowner => swim(mob, chunks, players, prey, (hunt, strike), delta, rng),
+        MobKind::GustOwl => circle_and_dive(mob, chunks, players, prey, (hunt, strike), delta),
         _ => melee(mob, chunks, players, prey, (hunt, strike), delta, rng),
     }
     None
@@ -124,6 +135,62 @@ fn fly_to(mob: &mut ServerMob, chunks: &ChunkMap, target: Vec3, speed: f32, delt
             return;
         }
     }
+}
+
+/// The Gust Owl: it floats (`behavior::floats`). With a prey it circles (`Chase`) round the
+/// ring `CIRCLE_RADIUS` wide, `CIRCLE_HEIGHT` above the prey's feet, aiming at the point of the
+/// ring its speed takes it to; once its cooldown is over, within `DIVE_BAND` above the prey's
+/// feet and in sight, it dives (`Attack`) straight at the prey's centre at `DIVE_SPEED` for
+/// `DIVE_TICKS` at most. A dive that reaches the prey strikes it, knocking it on along the dive;
+/// a dive done, stopped by a block or run out goes back to circling, its cooldown restarted.
+/// Without a prey it hovers where it is.
+fn circle_and_dive(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &mut HashMap<PlayerId, Player>,
+    prey: Option<PlayerId>,
+    (hunt, strike): (Hunt, Strike),
+    delta: f32,
+) {
+    let Some(player) = prey.and_then(|id| players.get_mut(&id)) else {
+        if mob.action != MobAction::Idle {
+            (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
+        }
+        return;
+    };
+    face(mob, player.position);
+    let feet = player.position.y - player.height / 2.0;
+    if mob.action == MobAction::Attack {
+        let along = (player.position - mob.position).normalize_or_zero();
+        let moved = mob.position + along * (DIVE_SPEED * delta);
+        mob.action_ticks = mob.action_ticks.saturating_sub(1);
+        let blocked = !may_move_to(mob, chunks, moved);
+        if !blocked {
+            mob.position = moved;
+        }
+        let reached = distance(mob, player) <= strike.reach;
+        if reached {
+            strike_player(mob, player, &strike, along);
+        }
+        if reached || blocked || mob.action_ticks == 0 {
+            mob.attack_wait = strike.cooldown;
+            (mob.action, mob.action_ticks) = (MobAction::Chase, 0);
+        }
+        return;
+    }
+    let dives = mob.attack_wait == 0
+        && DIVE_BAND.contains(&(mob.position.y - feet))
+        && line_of_sight(chunks, eyes(mob), player.eye_position());
+    if dives {
+        (mob.action, mob.action_ticks) = (MobAction::Attack, DIVE_TICKS);
+        return;
+    }
+    mob.action = MobAction::Chase;
+    let apart = (mob.position - player.position).with_y(0.0);
+    let angle = atan2(apart.z, apart.x) + hunt.speed * delta / CIRCLE_RADIUS;
+    let ring = player.position.with_y(feet + CIRCLE_HEIGHT)
+        + Vec3::new(angle.cos(), 0.0, angle.sin()) * CIRCLE_RADIUS;
+    fly_to(mob, chunks, ring, hunt.speed, delta);
 }
 
 /// The Cinderling: it floats (`behavior::floats`), its box `HOVER_HEIGHT` above the ground
@@ -1126,5 +1193,98 @@ mod tests {
         );
         run(&mut w, 80);
         assert_eq!(embers(&w).len(), 1);
+    }
+
+    /// A Gust Owl at `at`, its dive ready or not.
+    fn owl_at(at: Vec3, ready: bool) -> ServerMob {
+        ServerMob {
+            attack_wait: if ready { 0 } else { 10_000 },
+            ..ServerMob::new(MobKind::GustOwl, at)
+        }
+    }
+
+    #[test]
+    fn a_gust_owl_climbs_over_its_prey_and_circles_six_to_ten_blocks_above_it() {
+        let mut w = with(
+            owl_at(Vec3::new(0.5, 1.8, 0.5), false),
+            vec![player_at(1, 4.5, 0.5)],
+        );
+        run(&mut w, 100);
+        let feet = player(&w, 1).position.y - player(&w, 1).height / 2.0;
+        let above = |w: &World| mob(w).position.y - feet;
+        let around = |w: &World| (mob(w).position - player(w, 1).position).with_y(0.0);
+        assert!((6.0..=10.0).contains(&above(&w)), "{}", above(&w));
+        assert!((3.0..=5.0).contains(&around(&w).length()), "{}", around(&w));
+        assert_eq!(mob(&w).action, MobAction::Chase);
+        let before = around(&w);
+        run(&mut w, 20);
+        assert!((3.0..=5.0).contains(&around(&w).length()), "{}", around(&w));
+        assert!(before.angle_between(around(&w)) > 0.5, "it circles");
+        assert!((6.0..=10.0).contains(&above(&w)));
+        // Without a prey it hovers where it is
+        let mut w = with(owl_at(Vec3::new(0.5, 9.0, 0.5), false), vec![]);
+        run(&mut w, 20);
+        assert_eq!(mob(&w).position, Vec3::new(0.5, 9.0, 0.5));
+        assert_eq!(mob(&w).action, MobAction::Idle);
+    }
+
+    #[test]
+    fn a_gust_owl_dives_at_its_prey_for_two_and_knocks_it_back_at_eight() {
+        let mut w = with(
+            owl_at(Vec3::new(4.5, 10.0, 0.5), true),
+            vec![player_at(1, 0.5, 0.5)],
+        );
+        run(&mut w, 1);
+        assert_eq!(mob(&w).action, MobAction::Attack);
+        let mut ticks = 1;
+        while player(&w, 1).health == MAX_HEALTH && ticks < 40 {
+            run(&mut w, 1);
+            ticks += 1;
+        }
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 2, "after {ticks} ticks");
+        assert!(ticks < 25, "{ticks} ticks at 10 blocks a second");
+        let push = player(&w, 1).velocity.with_y(0.0);
+        assert!((push.length() - 8.0).abs() < 1e-4, "{push}");
+        assert!(push.x < 0.0, "away from the owl: {push}");
+        // It climbs back to circle, and dives again only after its cooldown
+        assert_eq!(mob(&w).action, MobAction::Chase);
+        let low = mob(&w).position.y;
+        run(&mut w, 20);
+        assert!(mob(&w).position.y > low + 2.0);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH - 2);
+        // A fall soon after is the owl's doing
+        w.resource_mut::<ServerWorldMap>()
+            .players
+            .get_mut(&1)
+            .unwrap()
+            .hurt(MAX_HEALTH, DamageSource::Fall);
+        assert_eq!(
+            player(&w, 1).death_cause,
+            Some(DeathCause::ThrownOff(MobKind::GustOwl))
+        );
+        assert_eq!(
+            DeathCause::ThrownOff(MobKind::GustOwl).message(),
+            "A Gust Owl threw you off a ledge"
+        );
+    }
+
+    #[test]
+    fn a_dive_a_block_stops_climbs_back_without_a_strike() {
+        let mut w = with(
+            owl_at(Vec3::new(4.5, 10.0, 0.5), true),
+            vec![player_at(1, 0.5, 0.5)],
+        );
+        run(&mut w, 1);
+        assert_eq!(mob(&w).action, MobAction::Attack);
+        // A roof rises over the player
+        w.resource_mut::<ServerWorldMap>().chunks.fill_box(
+            IVec3::new(-3, 5, -3),
+            IVec3::new(3, 5, 3),
+            BlockId::Glass,
+        );
+        run(&mut w, 59);
+        assert_eq!(player(&w, 1).health, MAX_HEALTH);
+        assert_ne!(mob(&w).action, MobAction::Attack);
+        assert!(mob(&w).position.y > 6.0, "{}", mob(&w).position);
     }
 }

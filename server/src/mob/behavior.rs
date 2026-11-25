@@ -64,7 +64,11 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
     match kind {
         MobKind::Gnawer => 1.4,
         MobKind::Stumpling | MobKind::Drowner => 0.8,
-        MobKind::Bramble | MobKind::Roller | MobKind::Cinderling | MobKind::Ember => 0.0,
+        MobKind::Bramble
+        | MobKind::Roller
+        | MobKind::Cinderling
+        | MobKind::GustOwl
+        | MobKind::Ember => 0.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
         MobKind::Goat => 1.2,
@@ -81,7 +85,8 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Roller
         | MobKind::Stumpling
         | MobKind::Drowner
-        | MobKind::Cinderling => super::hostile::own_speed(kind),
+        | MobKind::Cinderling
+        | MobKind::GustOwl => super::hostile::own_speed(kind),
         MobKind::Ember => 0.0,
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
@@ -198,10 +203,10 @@ fn step_mob(
 }
 
 /// Whether `mob` escapes gravity: a Stumpling sinking through the ground, a Drowner in water, a
-/// Cinderling always.
+/// Cinderling or a Gust Owl always.
 fn floats(mob: &ServerMob, chunks: &ChunkMap) -> bool {
     mob.action == MobAction::Burrow
-        || mob.kind == MobKind::Cinderling
+        || matches!(mob.kind, MobKind::Cinderling | MobKind::GustOwl)
         || mob.kind == MobKind::Drowner && is_in_water(chunks, mob.position)
 }
 

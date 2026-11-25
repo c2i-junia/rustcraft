@@ -377,3 +377,17 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   sky while it rains or storms, removes it without loot (it was not killed); killed, 1–2 coal
   and flint 1 in 10. The Ember model (2×2×2 glowing voxels, three identical spinning clips) is
   in `generate_hostiles.py`.
+- **Lot 12** (same plan). Appended `MobKind` 17 `GustOwl`, `ItemId` 168 `GustOwlSpawnEgg`.
+  Box 0.7 × 1.45 (model 2.5 wide with its wings, its talons 0.4375 above its origin and its top
+  at 1.875): the client lowers its model by that much more (`models::model_lift`). Night, open
+  sky, above y = 110 (`OWL_HEIGHT`) gives a Gust Owl 1 in 2, else lot 8's rules. 14 health,
+  sight 24, forget 32, 4 b/s; strike 2, reach 0.5, cooldown 60 (the circling between dives),
+  knock back 8. It always floats; with a prey it circles (`Chase`) a ring 4 wide, 8 above the
+  prey's feet, aiming at the point its speed takes it to on the ring (`may_move_to` steps);
+  once its cooldown is over, 6–10 above the feet and in sight, it dives (`Attack`) straight at
+  the prey's centre at 10 b/s for 40 ticks at most; a dive that reaches strikes and knocks on
+  along it, then (as a blocked or spent one) climbs back with its cooldown restarted. Without a
+  prey it hovers in place. Lot 1's `last_mob_hit` already makes a fall within 60 ticks
+  `ThrownOff(GustOwl)`, "A Gust Owl threw you off a ledge" (tested). `Player::knock_back`
+  halves the push of a sneaking player (any source; shared, so the prediction agrees); the hop
+  is kept. Loot 1–3 feathers. The hostiles' e2e line-up hatches all seven.

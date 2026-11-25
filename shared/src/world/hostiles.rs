@@ -98,6 +98,12 @@ impl MobKind {
                 forget: 24.0,
                 speed: 2.0,
             }),
+            // Its speed as it circles 8 blocks over its prey (`hostile::circle_and_dive`)
+            MobKind::GustOwl => Some(Hunt {
+                sight: 24.0,
+                forget: 32.0,
+                speed: 4.0,
+            }),
             // Its speed in water: it walks at 0.8 on land, only back to the water
             MobKind::Drowner => Some(Hunt {
                 sight: 16.0,
@@ -142,6 +148,13 @@ impl MobKind {
                 reach: 16.0,
                 cooldown: 60,
                 knock_back: 0.0,
+            }),
+            // Its dive: the cooldown is the circling between two dives
+            MobKind::GustOwl => Some(Strike {
+                damage: 2,
+                reach: 0.5,
+                cooldown: 60,
+                knock_back: 8.0,
             }),
             // Its grab also drags the player down (`Player::drag`)
             MobKind::Drowner => Some(Strike {
@@ -250,6 +263,8 @@ pub const DROWNER_DEPTH: u32 = 3;
 /// The odds of a Drowner in deep enough water by day; at night they are doubled.
 pub const DROWNER_ODDS: (u32, u32) = (1, 4);
 
+/// Above this height, at night under the sky, the peaks: the Gust Owls' home.
+pub const OWL_HEIGHT: i32 = 110;
 /// Above this height, the mountains: the Rollers' home.
 pub const MOUNTAIN_HEIGHT: i32 = 100;
 /// Below this height and under a block, the deep caves: the Cinderlings' home.
@@ -257,7 +272,8 @@ pub const CINDER_HEIGHT: i32 = 20;
 /// Below this height and under a block, the caves.
 pub const CAVE_HEIGHT: i32 = 50;
 
-/// The kind of hostile a dark `place` gets, if any: on grass at night Stumplings, or in the
+/// The kind of hostile a dark `place` gets, if any: on the peaks at night under the sky Gust
+/// Owls (1 in 2); on grass at night Stumplings, or in the
 /// woods Brambles and Stumplings half each; Rollers in the mountains, Gnawers (3 in 4) or
 /// Rollers in the caves, and in the deep caves Cinderlings (1 in 3); Drowners in water `DROWNER_DEPTH` deep, at `DROWNER_ODDS` by day and
 /// twice that at night. Each later kind adds its place here.
@@ -267,6 +283,8 @@ pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
         let chances = if place.night { chances * 2 } else { chances };
         let drowner = place.water_depth >= DROWNER_DEPTH && rng.gen_ratio(chances, draws);
         drowner.then_some(MobKind::Drowner)
+    } else if place.night && !place.covered && place.y > OWL_HEIGHT && rng.gen_bool(0.5) {
+        Some(MobKind::GustOwl)
     } else if place.night && place.floor == BlockId::Grass {
         Some(if place.wooded && rng.gen_bool(0.5) {
             MobKind::Bramble
@@ -374,6 +392,9 @@ mod tests {
         assert_eq!(MobKind::Drowner.health(), 18);
         let stumpling = MobKind::Stumpling.strike().unwrap();
         assert_eq!((stumpling.damage, stumpling.cooldown), (3, 20));
+        let owl = MobKind::GustOwl.strike().unwrap();
+        assert_eq!((owl.damage, owl.knock_back), (2, 8.0));
+        assert_eq!(MobKind::GustOwl.health(), 14);
         // The Cinderling's strike is its ember, thrown every 60 ticks
         let cinderling = MobKind::Cinderling.strike().unwrap();
         assert_eq!((cinderling.damage, cinderling.cooldown), (1, 60));
@@ -536,9 +557,17 @@ mod tests {
             kinds(place(70, true, true, BlockId::Grass, true)),
             [Some(Bramble), Some(Stumpling)]
         );
-        // Mountains
+        // Mountains: Gust Owls too above 110 at night under the sky
         assert_eq!(
             kinds(place(120, true, false, BlockId::Stone, false)),
+            [Some(GustOwl), Some(Roller)]
+        );
+        assert_eq!(
+            kinds(place(OWL_HEIGHT, true, false, BlockId::Stone, false)),
+            [Some(Roller)]
+        );
+        assert_eq!(
+            kinds(place(120, true, true, BlockId::Stone, false)),
             [Some(Roller)]
         );
         assert_eq!(

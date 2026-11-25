@@ -649,6 +649,24 @@ mod tests {
     }
 
     #[test]
+    fn a_sneaking_player_is_knocked_back_half_as_hard() {
+        let world = flat_world();
+        let mut standing = standing_player();
+        let mut sneaking = standing_player();
+        sneaking.is_sneaking = true;
+        standing.knock_back(Vec3::X, 8.0);
+        sneaking.knock_back(Vec3::X, 8.0);
+        assert_eq!(standing.velocity.x, 8.0);
+        assert_eq!(sneaking.velocity.x, 4.0);
+        assert_eq!(sneaking.velocity.y, standing.velocity.y, "the same hop");
+        let start = standing.position.x;
+        simulate(&mut standing, &world, &[], 120);
+        simulate(&mut sneaking, &world, &[NetworkAction::SneakOrFlyDown], 120);
+        let (far, near) = (standing.position.x - start, sneaking.position.x - start);
+        assert!(near > 0.0 && near < far * 0.75, "{near} against {far}");
+    }
+
+    #[test]
     fn a_wall_stops_a_knock_back() {
         let mut world = flat_world();
         world.fill_box(IVec3::new(2, 64, -5), IVec3::new(2, 70, 5), BlockId::Stone);

@@ -33,10 +33,12 @@ pub enum MobKind {
     Cinderling,
     /// A Cinderling's ember in flight: a projectile, neither hostile nor an animal.
     Ember,
+    /// An owl of the peaks that circles over its prey at night and dives at it.
+    GustOwl,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 17] = [
+    pub const ALL: [MobKind; 18] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -54,6 +56,7 @@ impl MobKind {
         MobKind::Drowner,
         MobKind::Cinderling,
         MobKind::Ember,
+        MobKind::GustOwl,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -67,6 +70,7 @@ impl MobKind {
                 | MobKind::Stumpling
                 | MobKind::Drowner
                 | MobKind::Cinderling
+                | MobKind::GustOwl
         )
     }
 
@@ -87,6 +91,7 @@ impl MobKind {
             MobKind::Stumpling => 24,
             MobKind::Drowner => 18,
             MobKind::Cinderling => 10,
+            MobKind::GustOwl => 14,
             // Never struck
             MobKind::Ember => 1,
             MobKind::Cow => 12,
@@ -137,6 +142,7 @@ impl MobKind {
             MobKind::Drowner => "Drowner",
             MobKind::Cinderling => "Cinderling",
             MobKind::Ember => "Ember",
+            MobKind::GustOwl => "Gust Owl",
         }
     }
 
@@ -168,6 +174,9 @@ impl MobKind {
             MobKind::Cinderling => Vec3::new(0.7, 1.6, 0.7),
             // 2 voxels, 0.125
             MobKind::Ember => Vec3::new(0.25, 0.25, 0.25),
+            // 2.5 wide with its wings spread; from its talons, 0.4375 above the origin of its
+            // model (`client::mob::models::model_lift`), to the top of its head, 1.875
+            MobKind::GustOwl => Vec3::new(0.7, 1.45, 0.7),
         }
     }
 }

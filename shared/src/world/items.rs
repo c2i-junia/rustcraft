@@ -194,11 +194,12 @@ pub enum ItemId {
     StumplingSpawnEgg,
     DrownerSpawnEgg,
     CinderlingSpawnEgg,
+    GustOwlSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 168] = [
+    pub const ALL: [ItemId; 169] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -367,6 +368,7 @@ impl ItemId {
         Self::StumplingSpawnEgg,
         Self::DrownerSpawnEgg,
         Self::CinderlingSpawnEgg,
+        Self::GustOwlSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -476,6 +478,7 @@ impl ItemId {
             Self::StumplingSpawnEgg => Some(MobKind::Stumpling),
             Self::DrownerSpawnEgg => Some(MobKind::Drowner),
             Self::CinderlingSpawnEgg => Some(MobKind::Cinderling),
+            Self::GustOwlSpawnEgg => Some(MobKind::GustOwl),
             _ => None,
         }
     }
@@ -707,7 +710,8 @@ impl ItemId {
             | Self::RollerSpawnEgg
             | Self::StumplingSpawnEgg
             | Self::DrownerSpawnEgg
-            | Self::CinderlingSpawnEgg => ItemCategory::Mobs,
+            | Self::CinderlingSpawnEgg
+            | Self::GustOwlSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -818,6 +822,7 @@ impl ItemId {
             | Self::StumplingSpawnEgg
             | Self::DrownerSpawnEgg
             | Self::CinderlingSpawnEgg
+            | Self::GustOwlSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1198,6 +1203,7 @@ mod tests {
             (ItemId::StumplingSpawnEgg, 165),
             (ItemId::DrownerSpawnEgg, 166),
             (ItemId::CinderlingSpawnEgg, 167),
+            (ItemId::GustOwlSpawnEgg, 168),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1251,6 +1257,7 @@ mod tests {
                 | ItemId::StumplingSpawnEgg
                 | ItemId::DrownerSpawnEgg
                 | ItemId::CinderlingSpawnEgg
+                | ItemId::GustOwlSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks

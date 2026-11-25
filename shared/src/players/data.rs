@@ -362,12 +362,17 @@ impl Player {
     }
 
     /// Pushes the player away along the horizontal part of `direction` at `strength` blocks/s,
-    /// and lifts it in a small hop. The movement simulation carries the push on through the air,
+    /// half that while it sneaks, and lifts it in a small hop. The movement simulation carries the push on through the air,
     /// as it does a portal's, and drops it on landing, in a liquid or in flight; as the velocity is part of the `MovementState`, the client resumes from the push.
     pub fn knock_back(&mut self, direction: Vec3, strength: f32) {
         if self.is_dead() {
             return;
         }
+        let strength = if self.is_sneaking {
+            strength / 2.0
+        } else {
+            strength
+        };
         let push = direction.with_y(0.0).normalize_or_zero() * strength;
         self.velocity.x = push.x;
         self.velocity.z = push.z;

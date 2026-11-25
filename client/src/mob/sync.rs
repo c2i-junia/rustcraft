@@ -9,7 +9,7 @@ use shared::world::{MobAction, MobId, MobKind, ServerMob};
 
 use super::{
     hurt::MobHurt,
-    models::{clip_for, model, MobAnimations, MobClip},
+    models::{clip_for, model, model_lift, MobAnimations, MobClip},
     MobRoot,
 };
 use crate::state::GameState;
@@ -148,7 +148,11 @@ fn spawn_mob(commands: &mut Commands, server: &ServerMob, asset_server: &AssetSe
             DespawnOnExit(GameState::Game),
             children![(
                 WorldAssetRoot(scene),
-                Transform::from_xyz(0.0, -server.kind.size().y / 2.0, 0.0),
+                Transform::from_xyz(
+                    0.0,
+                    -server.kind.size().y / 2.0 - model_lift(server.kind),
+                    0.0
+                ),
             )],
         ))
         .id()

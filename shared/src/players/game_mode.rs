@@ -234,5 +234,9 @@ mod tests {
             DeathCause::ThrownOff(MobKind::Goat).message(),
             "A Goat threw you off a ledge"
         );
+        assert_eq!(
+            DeathCause::ThrownOff(MobKind::GustOwl).message(),
+            "A Gust Owl threw you off a ledge"
+        );
     }
 }

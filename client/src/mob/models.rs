@@ -67,8 +67,18 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Cinderling => ("models/animated/Cinderling.glb", HOSTILE_CLIPS),
         // Its three clips are one spin
         MobKind::Ember => ("models/animated/Ember.glb", HOSTILE_CLIPS),
+        MobKind::GustOwl => ("models/animated/GustOwl.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
+}
+
+/// How far above the origin of the model of `kind` the bottom of its box is, in metres: the
+/// model is drawn that much lower than its box. The Gust Owl's talons are 7 voxels up.
+pub fn model_lift(kind: MobKind) -> f32 {
+    match kind {
+        MobKind::GustOwl => 7.0 / 16.0,
+        _ => 0.0,
+    }
 }
 
 /// The clip a mob of `kind` doing `action` plays, among those its model has: one without a run
@@ -167,6 +177,7 @@ mod tests {
             MobKind::Drowner,
             MobKind::Cinderling,
             MobKind::Ember,
+            MobKind::GustOwl,
         ] {
             assert_eq!(clip_for(kind, MobAction::Chase), MobClip::Walk);
             assert_eq!(clip_for(kind, MobAction::Attack), MobClip::Attack);
@@ -178,6 +189,14 @@ mod tests {
             MobClip::Idle
         );
         assert!(MobClip::Attack.plays_once());
+    }
+
+    #[test]
+    fn the_gust_owl_is_drawn_with_its_talons_at_the_bottom_of_its_box() {
+        assert_eq!(model_lift(MobKind::GustOwl), 0.4375);
+        for kind in MobKind::ALL.into_iter().filter(|&k| k != MobKind::GustOwl) {
+            assert_eq!(model_lift(kind), 0.0, "{kind:?}");
+        }
         assert!(!MobClip::Walk.plays_once());
     }
 }

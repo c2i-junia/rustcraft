@@ -27,6 +27,7 @@ EGGS = {
     "Stumpling": ("#6b4a2e", "#4f7a32"),
     "Drowner": ("#3d6b6a", "#9bb7a4"),
     "Cinderling": ("#2b2523", "#ff8c1a"),
+    "GustOwl": ("#2b2d5c", "#e9e4d8"),
 }
 CENTRE_X, CENTRE_Y = 7.5, 8.5
 

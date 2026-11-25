@@ -311,6 +311,47 @@ fn a_cinderling_hatched_next_to_a_survival_player_sets_it_burning_with_its_ember
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_gust_owl_hatched_next_to_a_survival_player_circles_over_it_and_dives_at_it() {
+    let folder = GameFolder::new().with_world("Owls").with_items(
+        "Owls",
+        "Tester",
+        &[(0, ItemId::GustOwlSpawnEgg, 1)],
+    );
+    let mut h = enter_world(folder, "Owls");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::GustOwlSpawnEgg, 1))
+    });
+    assert_eq!(local_player(h.world()).game_mode, GameMode::Survival);
+    let player = look_at_the_ground_ahead(&mut h);
+
+    right_click(&mut h);
+    h.wait_until("the gust owl high over the player", SERVER, |w| {
+        animals(w)
+            .iter()
+            .any(|&(kind, at)| kind == MobKind::GustOwl && at.y > player.y + 5.0)
+    });
+    let (_, owl) = animals(h.world())
+        .into_iter()
+        .find(|&(kind, _)| kind == MobKind::GustOwl)
+        .unwrap();
+    look_at(&mut h, owl);
+    h.frames(3);
+    h.snapshot("circling");
+    let before = player_position(h.world_mut());
+    // A slow start may have cost a fall already
+    let health = local_player(h.world()).health;
+    h.wait_until("a dive", SERVER, |w| local_player(w).health < health);
+    assert_eq!(local_player(h.world()).health, health - 2);
+    // Knocked back
+    h.frames(30);
+    let after = player_position(h.world_mut());
+    let pushed = (after - before).xz().length();
+    assert!(pushed > 1.0, "pushed {pushed} blocks");
+    h.snapshot("dived");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
     let kinds = [
         MobKind::Gnawer,
@@ -319,6 +360,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         MobKind::Stumpling,
         MobKind::Drowner,
         MobKind::Cinderling,
+        MobKind::GustOwl,
     ];
     let eggs = [
         (0, ItemId::GnawerSpawnEgg, 1),
@@ -327,6 +369,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         (3, ItemId::StumplingSpawnEgg, 1),
         (4, ItemId::DrownerSpawnEgg, 1),
         (5, ItemId::CinderlingSpawnEgg, 1),
+        (6, ItemId::GustOwlSpawnEgg, 1),
     ];
     let folder = GameFolder::new()
         .with_world("Zoo")
@@ -344,7 +387,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         });
     let mut h = enter_world(folder, "Zoo");
     h.wait_until("the saved inventory", SERVER, |w| {
-        slot(w, 5) == Some((ItemId::CinderlingSpawnEgg, 1))
+        slot(w, 6) == Some((ItemId::GustOwlSpawnEgg, 1))
     });
     look_at_the_ground_ahead(&mut h);
     let keys = [
@@ -354,6 +397,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         KeyCode::Digit4,
         KeyCode::Digit5,
         KeyCode::Digit6,
+        KeyCode::Digit7,
     ];
     for (key, kind) in keys.into_iter().zip(kinds) {
         h.press(key);
@@ -368,17 +412,21 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
             .query::<&mut CameraController>()
             .single_mut(world)
             .unwrap();
-        controller.angle_x += 0.38;
+        controller.angle_x += 0.33;
         h.frames(5);
     }
     // Step back, then look at them all
+    let start = local_player(h.world()).position;
     h.key_down(KeyCode::KeyS);
-    h.frames(40);
+    h.wait_until("six blocks back", SERVER, |w| {
+        (local_player(w).position - start).xz().length() > 6.0
+    });
     h.key_up(KeyCode::KeyS);
     let hatched: Vec<_> = animals(h.world())
         .into_iter()
         .filter(|(kind, _)| kind.is_hostile())
         .collect();
+    assert!(!hatched.is_empty(), "{:?}", animals(h.world()));
     let centre = hatched.iter().map(|&(_, at)| at).sum::<Vec3>() / hatched.len() as f32;
     look_at(&mut h, centre);
     h.frames(60);

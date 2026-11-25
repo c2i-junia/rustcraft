@@ -177,6 +177,7 @@ pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Cobblestone, rng.gen_range(1..=2)),
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 5))),
         ],
+        MobKind::GustOwl => vec![(ItemId::Feather, rng.gen_range(1..=3))],
         MobKind::Cinderling => vec![
             (ItemId::Coal, rng.gen_range(1..=2)),
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 10))),
@@ -492,6 +493,7 @@ mod tests {
             drops(MobKind::Roller),
             [(Cobblestone, (1, 2)), (Flint, (1, 1))]
         );
+        assert_eq!(drops(MobKind::GustOwl), [(Feather, (1, 3))]);
         assert_eq!(
             drops(MobKind::Cinderling),
             [(Coal, (1, 2)), (Flint, (1, 1))]
