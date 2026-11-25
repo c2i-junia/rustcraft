@@ -286,7 +286,7 @@ fn throw_velocity(player: &Player, speed: f32) -> Vec3 {
 
 /// Whether the box of an item at `position` touches the box of `player` grown by
 /// `PICKUP_REACH`.
-fn within_reach(player: &Player, position: Vec3) -> bool {
+pub fn within_reach(player: &Player, position: Vec3) -> bool {
     let player_half = Vec3::new(player.width, player.height, player.width) / 2.0;
     let reach = player_half + PICKUP_REACH + Vec3::splat(DROPPED_ITEM_SIZE / 2.0);
     let distance = (position - player.position).abs();

@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 use shared::{
-    messages::{NetworkAction, PlayerFrameInput},
+    messages::{NetworkAction, PlayerFrameInput, PlayerId},
     players::{
         blocks::{aim, held_item},
         hunger::BLOW_EXHAUSTION,
@@ -40,7 +40,7 @@ pub const MOB_INVULNERABILITY_TICKS: u32 = 10;
 pub const FLEE_TICKS: u32 = 5 * shared::TICKS_PER_SECOND as u32;
 
 /// Time left before the next blow of each player, while it holds the button.
-pub type BlowWaits = HashMap<shared::messages::PlayerId, u64>;
+pub type BlowWaits = HashMap<PlayerId, u64>;
 
 /// The mobs, and what their changes touch.
 pub struct MobWorld<'a> {
@@ -87,6 +87,8 @@ pub fn interact(
         && !feeds
         && mob.kind == MobKind::Sheep
         && !mob.is_young()
+        // It is drawn
+        && held != Some(ItemId::Bow)
         && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_value().is_some());
     if !left && !shears && !feeds {
         return None;
@@ -133,29 +135,20 @@ pub fn interact(
         if *wait == 0 {
             *wait = BLOW_MS;
             if mob.hurt_ticks == 0 {
-                mob.damage += mob.kind.blow_damage(held);
-                mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
                 player.exhaust(BLOW_EXHAUSTION);
                 let away = (mob.position - player.position)
                     .with_y(0.0)
                     .try_normalize()
                     .unwrap_or_else(|| input.camera.forward().with_y(0.0).normalize_or_zero());
-                mob.velocity = away * KNOCK_BACK_SPEED + Vec3::Y * KNOCK_SPEED;
-                mob.on_ground = false;
-                if mob.kind.is_hostile() {
-                    super::hostile::provoke(mob, player.id);
-                } else {
-                    mob.action = MobAction::Flee;
-                    mob.action_ticks = FLEE_TICKS;
-                    mob.target = MobTarget::Player(player.id);
-                }
+                let damage = mob.kind.blow_damage(held);
+                let dies = wound(mob, player.id, damage, away * KNOCK_BACK_SPEED);
                 world.changed.insert(id);
                 if let Some(item) = held {
                     player
                         .inventory
                         .wear_tool(input.hotbar_slot, item.blow_wear());
                 }
-                if mob.damage >= mob.kind.health() {
+                if dies {
                     drops.extend(loot(mob, rng));
                     // The clients are told by the next broadcast, which no longer finds it
                     world.mobs.remove(&id);
@@ -164,17 +157,38 @@ pub fn interact(
             }
         }
     }
+    drop_loot(world.items, drops, position);
+    Some(rest)
+}
+
+/// The player `striker` takes `damage` points of health from `mob`, which may be hurt
+/// (`ServerMob::hurt_ticks`), and throws it back at the horizontal velocity `push`: a hostile
+/// turns on the striker, an animal flees from it. Returns whether the mob dies.
+pub fn wound(mob: &mut ServerMob, striker: PlayerId, damage: u32, push: Vec3) -> bool {
+    mob.damage += damage;
+    mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
+    mob.velocity = push + Vec3::Y * KNOCK_SPEED;
+    mob.on_ground = false;
+    if mob.kind.is_hostile() {
+        super::hostile::provoke(mob, striker);
+    } else {
+        mob.action = MobAction::Flee;
+        mob.action_ticks = FLEE_TICKS;
+        mob.target = MobTarget::Player(striker);
+    }
+    mob.damage >= mob.kind.health()
+}
+
+/// Drops `drops` where a mob was.
+pub fn drop_loot(items: &mut DroppedItems, drops: Vec<(ItemId, u32)>, position: Vec3) {
     for (item_id, nb) in drops {
         let stack = ItemStack {
             item_id,
             item_type: item_id.get_default_type(),
             nb,
         };
-        world
-            .items
-            .spawn(DroppedItem::new(stack, position, Vec3::Y * KNOCK_SPEED));
+        items.spawn(DroppedItem::new(stack, position, Vec3::Y * KNOCK_SPEED));
     }
-    Some(rest)
 }
 
 /// What `mob` drops when it dies: its meat, and its wool, leather or feathers. Counts of zero
@@ -220,7 +234,8 @@ pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
         | MobKind::Cat
         | MobKind::Gnawer
         | MobKind::Drowner
-        | MobKind::Ember => vec![],
+        | MobKind::Ember
+        | MobKind::Arrow => vec![],
     };
     drops.retain(|&(_, nb)| nb > 0);
     drops

@@ -1,6 +1,7 @@
 pub mod air;
 pub mod armour;
 pub mod blocks;
+pub mod bow;
 pub mod collision;
 pub mod constants;
 mod data;

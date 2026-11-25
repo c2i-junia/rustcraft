@@ -269,6 +269,10 @@ pub struct Player {
     /// (`Player::drag`). Part of the `MovementState`. Not saved.
     #[serde(skip)]
     pub dragged_ms: u32,
+    /// How long the player has drawn its bow, in ms (`bow::draw_bow`). Part of the
+    /// `MovementState`, as it slows the player. Not saved.
+    #[serde(skip)]
+    pub bow_draw_ms: u32,
     /// Whether the left button was down in the last input: the player swings its arm, at a
     /// block or at the air. Sent to the others with each update, not saved.
     #[serde(skip)]
@@ -298,6 +302,8 @@ pub struct MovementState {
     pub portal_rest: Option<PortalRest>,
     /// `Player::dragged_ms`.
     pub dragged_ms: u32,
+    /// `Player::bow_draw_ms`: the others see the bow drawn.
+    pub bow_draw_ms: u32,
 }
 
 /// The upward velocity a knock back gives at least, in blocks/s: a hop of a quarter of a block.
@@ -324,6 +330,7 @@ impl Player {
             fall_distance: self.fall_distance,
             portal_rest: self.portal_rest,
             dragged_ms: self.dragged_ms,
+            bow_draw_ms: self.bow_draw_ms,
         }
     }
 
@@ -338,6 +345,7 @@ impl Player {
         self.fall_distance = state.fall_distance;
         self.portal_rest = state.portal_rest;
         self.dragged_ms = state.dragged_ms;
+        self.bow_draw_ms = state.bow_draw_ms;
     }
 
     /// What the portals know of the player going through them: its box, and the floor portal it
@@ -476,6 +484,7 @@ impl Player {
             fire_damage_wait: 0,
             lava_damage_wait: 0,
             dragged_ms: 0,
+            bow_draw_ms: 0,
             is_swinging: false,
             hotbar_slot: 0,
             skin: PlayerSkin::default(),

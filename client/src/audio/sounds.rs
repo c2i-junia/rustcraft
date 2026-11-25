@@ -166,7 +166,7 @@ impl SoundMaterial {
 /// What a creature says (`audio::creatures`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CreatureCall {
-    /// Heard now and then, from an animal or a hostile not hunting; from an ember as it flies.
+    /// Heard now and then, from an animal or a hostile not hunting; from a projectile as it is sent.
     Cry,
     /// A hostile hunts a player.
     Approach,
@@ -187,9 +187,12 @@ impl CreatureCall {
     }
 
     /// What creatures of `kind` say: every one cries and is hurt, a hostile approaches and
-    /// attacks too, and an ember, never struck, only flies.
+    /// attacks too, and a projectile, never struck, only flies.
     pub fn of(kind: MobKind) -> &'static [CreatureCall] {
-        if kind.is_projectile() {
+        if kind == MobKind::Arrow {
+            // `creatures::creature_calls` gives it other sounds
+            &[]
+        } else if kind.is_projectile() {
             &[CreatureCall::Cry]
         } else if kind.is_hostile() {
             &[
@@ -225,6 +228,7 @@ fn creature_folder(kind: MobKind) -> &'static str {
         MobKind::Cinderling => "cinderling",
         MobKind::Ember => "ember",
         MobKind::GustOwl => "gust_owl",
+        MobKind::Arrow => "arrow",
     }
 }
 
@@ -265,6 +269,8 @@ pub enum Sound {
     Wind,
     /// A portal opens: its twin was placed, or it was placed with its twin there.
     PortalOpen,
+    /// An arrow let fly.
+    BowLoose,
     /// The local player goes through a portal.
     PortalPass,
     /// A creature of a kind says something: each kind has a voice of its own.
@@ -294,6 +300,7 @@ impl Sound {
                 Sound::Craft,
                 Sound::Refused,
                 Sound::PortalOpen,
+                Sound::BowLoose,
                 Sound::PortalPass,
             ])
             .chain(Self::WEATHER)
@@ -362,11 +369,13 @@ impl Sound {
             Sound::Wind => vec!["sounds/ambient/wind.ogg".to_string()],
             // No sound of their own: a knock and a glassy ring, and a short rising pop
             Sound::PortalOpen => vec!["sounds/place/glass.ogg".to_string()],
+            // No sound of its own: a soft tick rising over a puff
+            Sound::BowLoose => vec!["sounds/ui/item_pick.ogg".to_string()],
             Sound::PortalPass => vec!["sounds/player/pickup.ogg".to_string()],
             Sound::Creature(kind, call) => {
                 let folder = creature_folder(kind);
                 let name = call.file_name();
-                // Two cries, so a flock does not repeat itself; an ember has one
+                // Two cries, so a flock does not repeat itself; a projectile has one
                 let variants = match call {
                     CreatureCall::Cry if !kind.is_projectile() => 2,
                     _ => 1,
@@ -492,7 +501,10 @@ mod tests {
     fn every_creature_has_a_cry_and_every_hostile_its_approach_and_attack() {
         for kind in MobKind::ALL {
             let calls = CreatureCall::of(kind);
-            assert!(calls.contains(&CreatureCall::Cry), "{kind:?}");
+            assert!(
+                calls.contains(&CreatureCall::Cry) || kind == MobKind::Arrow,
+                "{kind:?}"
+            );
             assert_eq!(
                 calls.contains(&CreatureCall::Approach),
                 kind.is_hostile(),

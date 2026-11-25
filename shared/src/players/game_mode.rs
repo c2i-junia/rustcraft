@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::world::MobKind;
+use crate::{messages::PlayerId, world::MobKind};
 
 /// What a player may do. Append only: it travels in `PlayerUpdateEvent`.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -84,6 +84,8 @@ pub enum DamageSource {
     Starvation,
     /// A mob of this kind hit it.
     Mob(MobKind),
+    /// An arrow of this player hit it.
+    Arrow(PlayerId),
 }
 
 impl DamageSource {
@@ -92,13 +94,13 @@ impl DamageSource {
         matches!(self, DamageSource::Void | DamageSource::Starvation)
     }
 
-    /// Whether armour absorbs a share of it: the blows and the throws of the mobs, fire and
-    /// lava. Not what comes from within or leaves nothing to stop, drowning, hunger and the
+    /// Whether armour absorbs a share of it: the blows and the throws of the mobs, the
+    /// arrows, fire and lava. Not what comes from within or leaves nothing to stop, drowning, hunger and the
     /// void, nor a fall: metal does not soften a landing.
     pub fn is_absorbed_by_armour(self) -> bool {
         matches!(
             self,
-            DamageSource::Mob(_) | DamageSource::Fire | DamageSource::Lava
+            DamageSource::Mob(_) | DamageSource::Arrow(_) | DamageSource::Fire | DamageSource::Lava
         )
     }
 }
@@ -117,6 +119,8 @@ pub enum DeathCause {
     Mob(MobKind),
     /// It fell to its death within `THROWN_OFF_TICKS` of a hit by a mob of this kind.
     ThrownOff(MobKind),
+    /// An arrow of this player hit it last.
+    Shot(PlayerId),
 }
 
 impl DeathCause {
@@ -132,6 +136,15 @@ impl DeathCause {
             (DamageSource::Lava, _) => DeathCause::Lava,
             (DamageSource::Starvation, _) => DeathCause::Starvation,
             (DamageSource::Mob(kind), _) => DeathCause::Mob(kind),
+            (DamageSource::Arrow(shooter), _) => DeathCause::Shot(shooter),
+        }
+    }
+
+    /// The line of the death screen, for a shot by the player called `shooter`, if it is known.
+    pub fn message_naming(self, shooter: Option<&str>) -> String {
+        match (self, shooter) {
+            (DeathCause::Shot(_), Some(name)) => format!("{name} shot you"),
+            _ => self.message(),
         }
     }
 
@@ -144,6 +157,7 @@ impl DeathCause {
             DeathCause::Fire => "You went up in flames".into(),
             DeathCause::Lava => "You tried to swim in lava".into(),
             DeathCause::Starvation => "You starved to death".into(),
+            DeathCause::Shot(_) => "An arrow got you".into(),
             DeathCause::Mob(kind) => format!("A {} got you", kind.display_name()),
             DeathCause::ThrownOff(kind) => {
                 format!("A {} threw you off a ledge", kind.display_name())

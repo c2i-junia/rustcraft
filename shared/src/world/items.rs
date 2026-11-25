@@ -212,11 +212,14 @@ pub enum ItemId {
     DiamondChestplate,
     DiamondLeggings,
     DiamondBoots,
+    /// Shoots arrows, drawn by holding the right button (`players::bow`).
+    Bow,
+    Arrow,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 185] = [
+    pub const ALL: [ItemId; 187] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -402,6 +405,8 @@ impl ItemId {
         Self::DiamondChestplate,
         Self::DiamondLeggings,
         Self::DiamondBoots,
+        Self::Bow,
+        Self::Arrow,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -564,11 +569,12 @@ impl ItemId {
     }
 
     /// The wear at which the item breaks, for the items that wear out: the tools, the
-    /// armour, which wears by the hits it absorbs, and the flint and steel, which wears by the
-    /// fires it lights.
+    /// armour, which wears by the hits it absorbs, the flint and steel, which wears by the fires
+    /// it lights, and the bow, by its shots.
     pub fn durability(&self) -> Option<u32> {
         match *self {
             Self::FlintAndSteel => Some(64),
+            Self::Bow => Some(320),
             _ => match self.armour() {
                 Some(armour) => Some(armour.durability()),
                 None => self.tool().map(|tool| tool.durability),
@@ -747,7 +753,9 @@ impl ItemId {
             | Self::DiamondHelmet
             | Self::DiamondChestplate
             | Self::DiamondLeggings
-            | Self::DiamondBoots => ItemCategory::Tools,
+            | Self::DiamondBoots
+            | Self::Bow
+            | Self::Arrow => ItemCategory::Tools,
             Self::FoxSpawnEgg
             | Self::SheepSpawnEgg
             | Self::CowSpawnEgg
@@ -896,6 +904,7 @@ impl ItemId {
             | Self::RoastMutton
             | Self::Berries
             | Self::Spear
+            | Self::Arrow
             | Self::PortalGun
             | Self::LavaBucket
             | Self::RawPork
@@ -956,7 +965,8 @@ impl ItemId {
             | Self::DiamondHelmet
             | Self::DiamondChestplate
             | Self::DiamondLeggings
-            | Self::DiamondBoots => ItemType::Tool { wear: 0 },
+            | Self::DiamondBoots
+            | Self::Bow => ItemType::Tool { wear: 0 },
         }
     }
 }
@@ -1289,6 +1299,8 @@ mod tests {
             (ItemId::DiamondChestplate, 182),
             (ItemId::DiamondLeggings, 183),
             (ItemId::DiamondBoots, 184),
+            (ItemId::Bow, 185),
+            (ItemId::Arrow, 186),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1477,7 +1489,9 @@ mod tests {
                 | ItemId::Feather
                 | ItemId::Carrot
                 | ItemId::Potato
-                | ItemId::BakedPotato => {}
+                | ItemId::BakedPotato
+                | ItemId::Bow
+                | ItemId::Arrow => {}
             }
         }
         for (id, expected) in table {
@@ -1687,6 +1701,7 @@ mod tests {
             ItemId::LavaBucket,
             ItemId::Spear,
             ItemId::FlintAndSteel,
+            ItemId::Bow,
         ];
         let others = ItemId::ALL
             .iter()
@@ -1860,6 +1875,8 @@ mod tests {
                     | ItemId::LavaBucket
                     | ItemId::Spear
                     | ItemId::FlintAndSteel
+                    | ItemId::Bow
+                    | ItemId::Arrow
             );
             assert_eq!(
                 item.category() == ItemCategory::Tools,

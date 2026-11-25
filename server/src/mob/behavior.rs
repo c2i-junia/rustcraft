@@ -71,7 +71,8 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
         | MobKind::Roller
         | MobKind::Cinderling
         | MobKind::GustOwl
-        | MobKind::Ember => 0.0,
+        | MobKind::Ember
+        | MobKind::Arrow => 0.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
         MobKind::Goat => 1.2,
@@ -90,7 +91,7 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Drowner
         | MobKind::Cinderling
         | MobKind::GustOwl => super::hostile::own_speed(kind),
-        MobKind::Ember => 0.0,
+        MobKind::Ember | MobKind::Arrow => 0.0,
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
@@ -133,7 +134,7 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
     push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
 
-/// One step of every mob but the projectiles, which `cinder::cinder_system` flies. Those that
+/// One step of every mob but the projectiles, which `cinder::cinder_system` and `arrow::arrow_system` fly. Those that
 /// moved or changed what they do are added to `changed`; what the hostiles threw is added to
 /// the mobs after them.
 fn step_mobs(

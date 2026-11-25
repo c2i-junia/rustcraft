@@ -6,6 +6,7 @@ use crate::{
         blocks::{
             simulate_player_block_interactions, BrokenBlock, CallerType, PortalShot, SpawnedMob,
         },
+        bow::{shoot_bow, BowShot},
         hunger::BREAK_EXHAUSTION,
         inventory::simulate_inventory_actions,
         movement::simulate_player_movement,
@@ -32,6 +33,8 @@ pub struct ActionsOutcome {
     pub fallen: Option<f32>,
     /// The shots of the portal gun.
     pub shots: Vec<PortalShot>,
+    /// The arrow the player let fly.
+    pub arrow: Option<BowShot>,
     /// How much the move and the broken blocks tired the player, for the server to apply
     /// (`Player::exhaust`).
     pub exhaustion: f32,
@@ -47,9 +50,11 @@ pub fn simulate_player_actions(
     player.is_swinging = !player.is_dead() && action.is_pressed(NetworkAction::LeftClick);
     player.hotbar_slot = action.hotbar_slot;
     if player.is_dead() {
+        player.bow_draw_ms = 0;
         return ActionsOutcome::default();
     }
     let interactions = simulate_player_block_interactions(player, world_map, action, caller_type);
+    let arrow = shoot_bow(player, action);
     let inventory = simulate_inventory_actions(player, world_map, action, caller_type);
     let movement = simulate_player_movement(player, world_map, action);
     let exhaustion = movement.exhaustion + interactions.broken.len() as f32 * BREAK_EXHAUSTION;
@@ -65,6 +70,7 @@ pub fn simulate_player_actions(
             .collect(),
         fallen: movement.fallen,
         shots: interactions.shots,
+        arrow,
         exhaustion,
     }
 }

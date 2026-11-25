@@ -275,6 +275,8 @@ const RECIPES: &[Recipe] = &[
     Recipe { width: 3, cells: &chestplate(DIAMOND), output: ItemId::DiamondChestplate, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &leggings(DIAMOND), output: ItemId::DiamondLeggings, nb: 1, shapeless: false },
     Recipe { width: 3, cells: &boots(DIAMOND), output: ItemId::DiamondBoots, nb: 1, shapeless: false },
+    Recipe { width: 3, cells: &[STICK, STICK, None, item(ItemId::Rope), None, STICK, STICK, STICK, None], output: ItemId::Bow, nb: 1, shapeless: false },
+    Recipe { width: 1, cells: &[FLINT, STICK, item(ItemId::Feather)], output: ItemId::Arrow, nb: 4, shapeless: false },
 ];
 
 /// What the grid makes, if it matches a recipe.
@@ -930,7 +932,7 @@ mod tests {
     #[test]
     fn every_recipe_is_listed_with_its_index_and_size() {
         let all: Vec<RecipeView> = recipes().collect();
-        assert_eq!(all.len(), 102);
+        assert_eq!(all.len(), 104);
         for (position, recipe) in all.iter().enumerate() {
             assert_eq!(recipe.index as usize, position);
             assert_eq!(recipe.cells.len(), recipe.width * recipe.height);
@@ -949,7 +951,7 @@ mod tests {
     fn recipes_for_and_uses_of_find_the_recipes_of_an_item() {
         let counts = |item| (recipes_for(item).count(), uses_of(item).count());
         assert_eq!(counts(ItemId::WoodenPickaxe), (1, 0));
-        assert_eq!(counts(ItemId::Stick), (1, 42));
+        assert_eq!(counts(ItemId::Stick), (1, 44));
         assert_eq!(counts(ItemId::OakPlanks), (1, 14));
         assert_eq!(counts(ItemId::SprucePlanks), (1, 14));
         assert_eq!(counts(ItemId::JunglePlanks), (1, 14));

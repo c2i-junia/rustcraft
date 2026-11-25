@@ -1,3 +1,4 @@
+pub mod arrow;
 pub mod behavior;
 pub mod breeding;
 pub mod cinder;

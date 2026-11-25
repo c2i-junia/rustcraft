@@ -199,6 +199,8 @@ pub fn simulate_player_block_interactions(
                 break_block(player, world_map, action, hits).map(|block| broken.extend(block)),
             ),
             NetworkAction::RightClick if !may_place => continue,
+            // A bow being drawn uses nothing it is swept over
+            NetworkAction::RightClick if player.bow_draw_ms > 0 => continue,
             NetworkAction::RightClick
                 if use_block(
                     player,
@@ -234,6 +236,8 @@ pub fn simulate_player_block_interactions(
                     "eat",
                     eat(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
+                // `bow::draw_bow` draws it
+                Some(ItemId::Bow) => continue,
                 Some(ItemId::FlintAndSteel) => (
                     "light a fire",
                     light_fire(player, world_map, action)

@@ -68,6 +68,8 @@ pub fn model(kind: MobKind) -> MobModel {
         // Its three clips are one spin
         MobKind::Ember => ("models/animated/Ember.glb", HOSTILE_CLIPS),
         MobKind::GustOwl => ("models/animated/GustOwl.glb", HOSTILE_CLIPS),
+        // Its three clips stand still
+        MobKind::Arrow => ("models/animated/Arrow.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }
@@ -178,6 +180,7 @@ mod tests {
             MobKind::Cinderling,
             MobKind::Ember,
             MobKind::GustOwl,
+            MobKind::Arrow,
         ] {
             assert_eq!(clip_for(kind, MobAction::Chase), MobClip::Walk);
             assert_eq!(clip_for(kind, MobAction::Attack), MobClip::Attack);

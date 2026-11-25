@@ -1,3 +1,4 @@
+use super::bow::{draw_bow, DRAW_SPEED_MULTIPLIER};
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{
@@ -122,6 +123,7 @@ pub fn simulate_player_movement(
     if player.is_dead() {
         return MovementOutcome::default();
     }
+    draw_bow(player, action);
     // Hold the player still until its terrain has arrived
     if !is_terrain_loaded(player.position, world_map) {
         log::debug!(
@@ -250,6 +252,7 @@ fn update_stance(player: &mut Player, action: &PlayerFrameInput, in_liquid: bool
         action.is_pressed(NetworkAction::SneakOrFlyDown) && !player.is_flying && !in_liquid;
     player.is_sprinting = forward
         && !player.is_sneaking
+        && player.bow_draw_ms == 0
         && player.may_sprint()
         && (player.is_sprinting || action.is_pressed(NetworkAction::Sprint));
     player.is_swimming = in_liquid && player.is_sprinting;
@@ -472,9 +475,14 @@ pub fn top_speed(player: &Player) -> f32 {
     speed(player, false, false)
 }
 
-/// The horizontal speed of the player, in blocks/s.
+/// The horizontal speed of the player, in blocks/s: less while it draws a bow.
 fn speed(player: &Player, in_liquid: bool, in_lava: bool) -> f32 {
-    if player.is_flying {
+    let drawing = if player.bow_draw_ms > 0 {
+        DRAW_SPEED_MULTIPLIER
+    } else {
+        1.0
+    };
+    let speed = if player.is_flying {
         let sprint = if player.is_sprinting {
             FLY_SPRINT_SPEED_MULTIPLIER
         } else {
@@ -493,7 +501,8 @@ fn speed(player: &Player, in_liquid: bool, in_lava: bool) -> f32 {
         SPEED * SPRINT_SPEED_MULTIPLIER
     } else {
         SPEED
-    }
+    };
+    speed * drawing
 }
 
 /// Moves the player along `direction`, and by its horizontal velocity, along x then along z,

@@ -583,7 +583,7 @@ never moves a player, so the prediction of the clients is left alone.
 ### The systems of a tick, in order
 
 Before **Receive**: `mob_behavior_system` (the animals wander, flee, follow their owner and
-breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `hostile_spawning_system`, `dungeon_guards_system`, and
+breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers fly), `arrow_system` (the arrows fly), `hostile_spawning_system`, `dungeon_guards_system`, and
 `dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava
@@ -615,7 +615,7 @@ quick move puts one on when nothing is open. `Player::hurt` gives the hit to `Pl
 point of armour absorbs 4 % (a suit is 7 points in leather, 11 in bronze, 15 in iron, 19 in diamond,
 20 at most count) and each piece worn wears by one, then breaks. Health going by whole points, what
 is left is counted in hundredths and the rest carried to the next hit (`armour_carry`).
-`DamageSource::is_absorbed_by_armour` says which hits it stops: the mobs', embers included, fire and
+`DamageSource::is_absorbed_by_armour` says which hits it stops: the mobs', embers included, the arrows, fire and
 lava; not drowning, hunger, the void nor falls (armour does not soften a landing). An enchantment
 would add to `absorb` or to the wear there. `PlayerUpdateEvent::worn` (`Inventory::worn`) tells the
 others what a player wears, and the client's `player/armour.rs` puts it on the model: boxes around
@@ -680,6 +680,22 @@ burns for at least 60 ticks; the first cell with a hitbox or a liquid ends it, a
 cell it came from when that block is flammable. Embers are neither pushed, struck, counted in
 the caps nor saved. A Cinderling that touches water, or sees the sky in the rain, goes out
 without loot.
+
+### The bow
+
+`players/bow.rs` (shared) draws the bow while the right button is down: `draw_bow`, part of
+`simulate_player_movement` so that a client replays it, counts `MovementState::bow_draw_ms`,
+which slows the player, stops its sprint and, being sent, shows the others the draw. `shoot_bow`,
+at the release, spends an arrow of the 36 slots and wears the bow (not in creative), and returns
+a `BowShot`: its power, its damage (`bonus_damage` is the hook of an enchantment) and whether the
+arrow may be picked up. Only the server turns it into a mob, `MobKind::Arrow`, a projectile as the
+ember, with its `ArrowFlight` (neither sent nor saved). `arrow_system` (`mob/arrow.rs`) flies it
+in a curve, tested every tenth of a block: it hits the players in survival
+(`DamageSource::Arrow`, absorbed by armour; the death names the shooter, `DeathCause::Shot`) and
+the mobs (`combat::wound`, shared with the blows), but its shooter for its first 5 ticks. In a
+block it sticks, `MobAction::Idle`, falls again if the block goes, and goes as a dropped item to
+a player with room who touches it, or after 3 minutes. The pictures of the drawn bow,
+`Bow_Draw1` to `Bow_Draw3`, are told by `bow::draw_stage` (`ItemHolder::draw`).
 
 ## One client frame
 

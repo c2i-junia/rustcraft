@@ -12,7 +12,7 @@ use bevy::{
 };
 use bevy_renet::RenetClient;
 use shared::messages::ClientToServerMessage;
-use shared::players::Player;
+use shared::players::{game_mode::DeathCause, Player};
 
 use crate::network::session::SessionOrigin;
 use crate::network::SendGameMessageExtension;
@@ -53,6 +53,7 @@ pub fn death_plugin(app: &mut App) {
 /// Opens the death screen when the local player dies, and closes it once it is alive again.
 fn show_death_screen(
     player: Query<&Player, With<CurrentPlayerMarker>>,
+    everyone: Query<&Player>,
     screens: Query<Entity, With<DeathScreen>>,
     mut inventory: Query<&mut Visibility, With<InventoryRoot>>,
     origin: Option<Res<SessionOrigin>>,
@@ -68,7 +69,12 @@ fn show_death_screen(
             if let Ok(mut inventory) = inventory.single_mut() {
                 *inventory = Visibility::Hidden;
             }
-            let cause = player.death_cause.map(|cause| cause.message());
+            let cause = player.death_cause.map(|cause| {
+                let shooter = everyone
+                    .iter()
+                    .find(|other| cause == DeathCause::Shot(other.id) && other.id != player.id);
+                cause.message_naming(shooter.map(|shooter| shooter.name.as_str()))
+            });
             spawn_death_screen(&mut commands, &assets, cause.as_deref(), origin.as_deref());
         }
         (false, Ok(screen)) => {

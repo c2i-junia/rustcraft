@@ -18,6 +18,7 @@ use bevy::{
     light::{NotShadowCaster, NotShadowReceiver},
     prelude::*,
 };
+use shared::players::bow::{draw_stage, power};
 use shared::players::{Inventory, Player, ViewMode};
 use shared::world::{ItemId, ItemStack};
 
@@ -84,17 +85,23 @@ pub struct ItemHolder {
     pub grip: Grip,
     /// The item to draw, if any: `draw_held_items` follows it.
     pub wanted: Option<ItemId>,
+    /// How far the bow in it is drawn, if it is (`bow::draw_stage`).
+    pub draw: Option<u8>,
 }
 
 impl ItemHolder {
     pub fn new(grip: Grip) -> Self {
-        Self { grip, wanted: None }
+        Self {
+            grip,
+            wanted: None,
+            draw: None,
+        }
     }
 }
 
-/// The mesh of the item drawn by an `ItemHolder`.
+/// The mesh of the item drawn by an `ItemHolder`, and how far drawn a bow it shows.
 #[derive(Component, Debug)]
-pub struct HeldItemMesh(pub ItemId);
+pub struct HeldItemMesh(pub ItemId, pub Option<u8>);
 
 /// The frame the view model hangs from, the child of the player's camera: it stretches with the
 /// field of view (`frame_scale`), so that the hand stays the same on screen while the player
@@ -220,6 +227,21 @@ pub fn lowering(lowered: f32) -> HandOffset {
     }
 }
 
+/// Where the hand goes as a bow is drawn to `power` of the way: the bow is raised ahead of the eye,
+/// and trembles once it is fully drawn.
+pub fn draw_bow(power: f32, time: f32) -> HandOffset {
+    let raised = (power * 4.0).min(1.0);
+    let tremble = if power >= 1.0 {
+        (time * 45.0).sin() * 0.008
+    } else {
+        0.0
+    };
+    HandOffset {
+        translation: Vec3::new(-0.5, 0.45, 0.15) * raised + Vec3::Y * tremble,
+        rotation: Quat::from_rotation_z(0.12 * raised),
+    }
+}
+
 /// The whole move of the hand: lowered, bobbing, striking (`swing`) and pushing as `motion`
 /// and the walk say.
 pub fn hand_offset(
@@ -309,7 +331,7 @@ fn arm_transform() -> Transform {
 /// How an item is placed in a hand held by `grip`, from the hand, as `look` draws it: a block
 /// as a small cube, anything else as its picture, held by the bottom left of it, where the
 /// pictures of the tools have their handle.
-fn grip_transform(grip: Grip, look: &ItemLook) -> Transform {
+fn grip_transform(grip: Grip, item: ItemId, look: &ItemLook) -> Transform {
     // The point of a picture one wide where the hand holds it
     const HANDLE: Vec3 = Vec3::new(-0.3, -0.3, 0.0);
     let held_by_the_handle = |rotation: Quat, size: f32, hand: Vec3| {
@@ -317,6 +339,22 @@ fn grip_transform(grip: Grip, look: &ItemLook) -> Transform {
             .with_rotation(rotation)
             .with_scale(Vec3::splat(size))
     };
+    if item == ItemId::Bow {
+        // Held by the middle of its stave, which its picture has ahead, to the right
+        let stave = Vec3::new(0.2, 0.0, 0.0);
+        let (rotation, size) = match grip {
+            // Upright, its string toward the eye, turned a little to be seen
+            Grip::FirstPerson => (Quat::from_rotation_y(2.0), 1.0),
+            // Its stave at the end of the arm, upright when the arm is raised ahead
+            Grip::ThirdPerson => (
+                Quat::from_mat3(&Mat3::from_cols(Vec3::NEG_Y, Vec3::NEG_Z, Vec3::X)),
+                0.8,
+            ),
+        };
+        return Transform::from_translation(-(rotation * (stave * size)))
+            .with_rotation(rotation)
+            .with_scale(Vec3::splat(size));
+    }
     match (grip, look) {
         (Grip::FirstPerson, ItemLook::Cube(..)) => {
             Transform::from_translation(Vec3::new(-0.05, 0.12, -0.12))
@@ -356,18 +394,26 @@ pub fn track_the_local_held_item(
     }
 }
 
+/// How far `player` draws the bow it holds in `held`, if it does (`bow::draw_stage`).
+fn draw_stage_of(player: &Player, held: Option<ItemId>) -> Option<u8> {
+    draw_stage(player.bow_draw_ms).filter(|_| held == Some(ItemId::Bow))
+}
+
 /// Puts the item each player holds in the right hand of its model.
 pub fn hold_items_in_hands(
-    players: Query<(&HeldItem, &Children)>,
+    players: Query<(&Player, &HeldItem, &Children)>,
     children: Query<&Children>,
     mut holders: Query<&mut ItemHolder>,
 ) {
-    for (held, player_children) in &players {
+    for (player, held, player_children) in &players {
+        let draw = draw_stage_of(player, held.0);
         for child in player_children {
             for descendant in children.iter_descendants(*child) {
                 if let Ok(mut holder) = holders.get_mut(descendant) {
-                    if holder.grip == Grip::ThirdPerson && holder.wanted != held.0 {
-                        holder.wanted = held.0;
+                    if holder.grip == Grip::ThirdPerson
+                        && (holder.wanted, holder.draw) != (held.0, draw)
+                    {
+                        (holder.wanted, holder.draw) = (held.0, draw);
                     }
                 }
             }
@@ -494,11 +540,16 @@ pub fn move_the_hand(
             animation.walk_phase,
             animation.walk_amount,
         );
+        let draw = draw_stage_of(player, motion.shown);
+        let offset = match draw {
+            Some(_) => offset.then(draw_bow(power(player.bow_draw_ms), time.elapsed_secs())),
+            None => offset,
+        };
         *transform = view_model_transform(offset);
         let mut holders = holders.iter_many_mut(children);
         while let Some(mut holder) = holders.fetch_next() {
-            if holder.wanted != motion.shown {
-                holder.wanted = motion.shown;
+            if (holder.wanted, holder.draw) != (motion.shown, draw) {
+                (holder.wanted, holder.draw) = (motion.shown, draw);
             }
         }
     }
@@ -577,8 +628,9 @@ pub fn draw_held_items(
             .into_iter()
             .flatten()
             .find_map(|child| drawn.get(*child).ok())
-            .map(|mesh| mesh.0);
-        if shown == holder.wanted {
+            .map(|mesh| (mesh.0, mesh.1));
+        let wanted = holder.wanted.map(|item| (item, holder.draw));
+        if shown == wanted {
             continue;
         }
         for child in children.into_iter().flatten() {
@@ -587,14 +639,14 @@ pub fn draw_held_items(
             }
         }
         // A look that is not there yet is tried again on the next frame
-        let Some((item, look)) = holder
-            .wanted
-            .and_then(|item| Some((item, looks.get(item, &materials, &mut meshes, &images)?)))
-        else {
+        let Some((shown, look)) = wanted.and_then(|shown| {
+            let look = looks.get_drawn(shown, &materials, &mut meshes, &images)?;
+            Some((shown, look))
+        }) else {
             continue;
         };
         let layers = layers.cloned().unwrap_or_default();
-        let transform = grip_transform(holder.grip, &look);
+        let transform = grip_transform(holder.grip, shown.0, &look);
         let mut mesh = match look {
             ItemLook::Cube(mesh, material) => {
                 commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), transform, layers))
@@ -607,7 +659,7 @@ pub fn draw_held_items(
                 commands.spawn((Mesh3d(mesh), MeshMaterial3d(material), transform, layers))
             }
         };
-        mesh.insert((HeldItemMesh(item), Name::new("Held item")));
+        mesh.insert((HeldItemMesh(shown.0, shown.1), Name::new("Held item")));
         if holder.grip == Grip::FirstPerson {
             mesh.insert((NotShadowCaster, NotShadowReceiver));
         }
@@ -841,7 +893,7 @@ mod tests {
     fn a_tool_is_held_by_its_handle_and_a_block_as_a_small_cube() {
         let sprite = ItemLook::Sprite(Handle::default(), Handle::default());
         for grip in [Grip::FirstPerson, Grip::ThirdPerson] {
-            let transform = grip_transform(grip, &sprite);
+            let transform = grip_transform(grip, ItemId::Stick, &sprite);
             let handle = transform.transform_point(Vec3::new(-0.3, -0.3, 0.0));
             let hand = match grip {
                 Grip::FirstPerson => Vec3::new(0.0, 0.05, -0.05),
@@ -850,11 +902,16 @@ mod tests {
             assert!((handle - hand).length() < 1e-5, "{grip:?}: {handle}");
         }
         // In the hand of a model, a tool points forward
-        let transform = grip_transform(Grip::ThirdPerson, &sprite);
+        let transform = grip_transform(Grip::ThirdPerson, ItemId::Stick, &sprite);
         let head = transform.transform_point(Vec3::new(0.4, 0.4, 0.0));
         assert!(head.z < -0.3 && head.y.abs() < 0.05, "{head}");
 
         let cube = ItemLook::Cube(Handle::default(), Handle::default());
-        assert!(grip_transform(Grip::ThirdPerson, &cube).scale.x < 0.3);
+        assert!(
+            grip_transform(Grip::ThirdPerson, ItemId::Stick, &cube)
+                .scale
+                .x
+                < 0.3
+        );
     }
 }

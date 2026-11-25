@@ -1,7 +1,8 @@
-use bevy::math::{Quat, Vec3};
+use bevy::math::{IVec3, Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
+use crate::players::bow::BowShot;
 use crate::world::{ItemId, PortalRest, ToolKind};
 use crate::TICKS_PER_SECOND;
 
@@ -36,10 +37,12 @@ pub enum MobKind {
     Ember,
     /// An owl of the peaks that circles over its prey at night and dives at it.
     GustOwl,
+    /// An arrow in flight or stuck in a block: a projectile (`ArrowFlight`).
+    Arrow,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 18] = [
+    pub const ALL: [MobKind; 19] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -58,6 +61,7 @@ impl MobKind {
         MobKind::Cinderling,
         MobKind::Ember,
         MobKind::GustOwl,
+        MobKind::Arrow,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -75,11 +79,11 @@ impl MobKind {
         )
     }
 
-    /// Whether mobs of this kind are projectiles the server flies (`MobKind::Ember`): they do
+    /// Whether mobs of this kind are projectiles the server flies (`MobKind::Ember`, `MobKind::Arrow`): they do
     /// not walk, are not pushed nor struck, are not counted with the hostiles, and are not
     /// saved.
     pub fn is_projectile(self) -> bool {
-        self == MobKind::Ember
+        matches!(self, MobKind::Ember | MobKind::Arrow)
     }
 
     /// The points of health of a mob of this kind.
@@ -94,7 +98,7 @@ impl MobKind {
             MobKind::Cinderling => 10,
             MobKind::GustOwl => 14,
             // Never struck
-            MobKind::Ember => 1,
+            MobKind::Ember | MobKind::Arrow => 1,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
@@ -184,6 +188,7 @@ impl MobKind {
             MobKind::Cinderling => "Cinderling",
             MobKind::Ember => "Ember",
             MobKind::GustOwl => "Gust Owl",
+            MobKind::Arrow => "Arrow",
         }
     }
 
@@ -215,6 +220,8 @@ impl MobKind {
             MobKind::Cinderling => Vec3::new(0.7, 1.6, 0.7),
             // 2 voxels, 0.125
             MobKind::Ember => Vec3::new(0.25, 0.25, 0.25),
+            // Its shaft is 14 voxels long, 1 thick: it is hit as a point grown a little
+            MobKind::Arrow => Vec3::new(0.25, 0.25, 0.25),
             // 2.5 wide with its wings spread; from its talons, 0.4375 above the origin of its
             // model (`client::mob::models::model_lift`), to the top of its head, 1.875
             MobKind::GustOwl => Vec3::new(0.7, 1.45, 0.7),
@@ -259,6 +266,15 @@ pub enum MobAction {
     Attack,
     /// A Stumpling sinks into the ground at dawn, `action_ticks` left before it is gone.
     Burrow,
+}
+
+/// What the server knows of an arrow, beside its place and its velocity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArrowFlight {
+    pub shooter: PlayerId,
+    pub shot: BowShot,
+    /// The cell of the block it is stuck in, if it is.
+    pub stuck_in: Option<IVec3>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -315,6 +331,9 @@ pub struct ServerMob {
     /// Ticks left before a hostile strikes again (`MobKind::strike`). Neither saved nor sent.
     #[serde(skip)]
     pub attack_wait: u32,
+    /// The flight of an arrow. Neither saved nor sent.
+    #[serde(skip)]
+    pub arrow: Option<ArrowFlight>,
 }
 
 impl ServerMob {
@@ -343,6 +362,7 @@ impl ServerMob {
             portal_rest: None,
             hurt_ticks: 0,
             attack_wait: 0,
+            arrow: None,
         }
     }
 
@@ -396,9 +416,10 @@ mod tests {
     }
 
     #[test]
-    fn an_ember_is_a_projectile_neither_hostile_nor_an_animal() {
+    fn the_embers_and_the_arrows_are_the_projectiles_neither_hostile_nor_animals() {
         for kind in MobKind::ALL {
-            assert_eq!(kind.is_projectile(), kind == MobKind::Ember, "{kind:?}");
+            let expected = matches!(kind, MobKind::Ember | MobKind::Arrow);
+            assert_eq!(kind.is_projectile(), expected, "{kind:?}");
         }
         assert!(!MobKind::Ember.is_hostile());
         assert!(MobKind::Cinderling.is_hostile());

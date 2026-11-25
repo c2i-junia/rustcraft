@@ -164,6 +164,7 @@ mod tests {
                 portal_rest: None,
                 hurt_ticks: 0,
                 attack_wait: 0,
+                arrow: None,
             },
         };
         let update = PlayerUpdateEvent {
@@ -335,6 +336,7 @@ mod tests {
         );
         assert_eq!(variant_index(&MobKind::Ember), 16, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::GustOwl), 17, "{ENCODING_WARNING}");
+        assert_eq!(variant_index(&MobKind::Arrow), 18, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);

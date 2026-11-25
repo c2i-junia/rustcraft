@@ -2,7 +2,8 @@
 
 Seven mobs on the 1/16 m grid of the sheep: Stumpling, Drowner, Cinderling and GustOwl, the
 mobs that lead to a death of their own (blows, drowning, fire, falls), and Gnawer, Bramble and
-Roller, simpler ones; and the Ember a Cinderling throws, whose three clips are one spin. Each part is a rigid object whose voxels take their colour from a 16x16
+Roller, simpler ones; and the Ember a Cinderling throws, whose three clips are one spin, and
+the Arrow of the players' bow, which stands still. Each part is a rigid object whose voxels take their colour from a 16x16
 palette drawn with nearest filtering; colours marked `*` glow. The clips move whole parts and
 are Attack, Idle and Walk, which the exporter sorts by name into glTF animations 0, 1 and 2,
 at 24 fps. The models are in metres with their feet on the origin and face -Y in Blender,
@@ -340,6 +341,32 @@ def braise():
     return {"ember": ember}, {"ember": (0, 0, 2)}, {}
 
 
+# ------------------------------------------------------------------ Arrow (the players' bow)
+
+def fleche():
+    """An arrow 14 voxels long, centred 2 voxels above the origin: a flint point, a shaft and
+    four feathers."""
+    rng = random.Random(19)
+    SHAFT = ["#a9794a", "#946739", "#8a5f34"]
+    FEATHER, SHADE = "#e6e1d6", "#a8a197"
+    FLINT, EDGE = "#4a5058", "#79828c"
+    arrow = {}
+    for j in range(-6, 8):
+        arrow[(0, j, 2)] = rng.choice(SHAFT)
+    arrow[(0, -7, 2)] = EDGE
+    arrow[(0, -6, 2)] = FLINT
+    for i, k in ((-1, 2), (1, 2), (0, 1), (0, 3)):
+        arrow[(i, -5, k)] = FLINT
+        for j in (4, 5, 6):
+            arrow[(i, j, k)] = SHADE if j == 5 else FEATHER
+    return {"arrow": arrow}, {"arrow": (0, 0, 2)}, {}
+
+
+def clips_fleche():
+    still = {"arrow": [(0, None, None), (24, None, None)]}
+    return {"Attack": still, "Idle": still, "Walk": still}
+
+
 # ------------------------------------------------------------------ Grignoteur (cave rat, packs)
 
 def grignoteur():
@@ -603,6 +630,7 @@ MOBS = {
     "Bramble": ("Ronceux", ronceux, clips_ronceux),
     "Roller": ("Rouleur", rouleur, clips_rouleur),
     "Ember": ("Braise", braise, clips_braise),
+    "Arrow": ("Fleche", fleche, clips_fleche),
 }
 LINEAR = {"Cinderling", "Roller", "Ember"}
 
@@ -816,7 +844,8 @@ def render(scene, path, w, h):
 
 # height of the centre of the frame, and lift off the ground, of each preview
 FRAMING = {"Stumpling": (1.0, 0), "Drowner": (0.75, 0), "Cinderling": (0.95, 0), "GustOwl": (1.05, 0.55),
-           "Gnawer": (0.3, 0), "Bramble": (0.4, 0), "Roller": (0.4, 0), "Ember": (0.3, 0.2)}
+           "Gnawer": (0.3, 0), "Bramble": (0.4, 0), "Roller": (0.4, 0), "Ember": (0.3, 0.2),
+           "Arrow": (0.3, 0.2)}
 
 
 def previews(out, names):

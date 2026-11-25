@@ -293,6 +293,8 @@ pub struct Motion {
     pub is_swimming: bool,
     pub is_flying: bool,
     pub is_swinging: bool,
+    /// Whether the player draws a bow.
+    pub is_drawing: bool,
 }
 
 /// The angles of each joint, in radians, as Euler angles (X, Y, Z), and the lean of the whole
@@ -428,6 +430,13 @@ impl PlayerAnimation {
             let stroke = self.walk_phase;
             pose.right_arm.x = pose.right_arm.x.lerp(-PI + stroke.sin() * 0.6, self.swim);
             pose.left_arm.x = pose.left_arm.x.lerp(-PI - stroke.sin() * 0.6, self.swim);
+        }
+
+        if motion.is_drawing {
+            // The right arm holds the bow out where the player looks, the left one the string
+            let aim = FRAC_PI_2 - motion.look.pitch - pose.torso.x;
+            pose.right_arm = Vec3::new(aim, pose.head.y, 0.0);
+            pose.left_arm = Vec3::new(aim, pose.head.y - 0.7, 0.0);
         }
 
         if let Some(t) = self.swing {
@@ -570,6 +579,7 @@ pub fn animate_players_system(
             is_swimming: player.is_swimming,
             is_flying: player.is_flying,
             is_swinging,
+            is_drawing: player.bow_draw_ms > 0 && !player.is_dead(),
         };
         let pose = animation.advance(motion, delta, time.elapsed_secs());
 

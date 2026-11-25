@@ -10,7 +10,7 @@ use rand::Rng;
 use shared::world::{MobAction, MobKind};
 
 use super::playback::PlaySound;
-use super::sounds::{CreatureCall, Sound};
+use super::sounds::{CreatureCall, Sound, SoundMaterial};
 use crate::mob::Mob;
 use crate::portal::PortalCamera;
 
@@ -80,7 +80,7 @@ impl CreatureVoice {
         rng: &mut impl Rng,
     ) -> (Self, Option<CreatureCall>) {
         let next_call = call_delay(kind, action).map(|delay| rng.gen_range(0.0..delay.end));
-        let first = kind.is_projectile().then_some(CreatureCall::Cry);
+        let first = (kind == MobKind::Ember).then_some(CreatureCall::Cry);
         (Self { action, next_call }, first)
     }
 
@@ -122,6 +122,20 @@ pub fn creature_calls(
     let ears = cameras.iter().next().map(GlobalTransform::translation);
     let mut rng = rand::thread_rng();
     for (entity, mob, transform, voice) in &mut mobs {
+        // An arrow is heard as it is let fly and as it sticks in a block
+        if mob.kind == MobKind::Arrow {
+            let sound = match &voice {
+                None if mob.action != MobAction::Idle => Some(Sound::BowLoose),
+                Some(voice) if mob.action == MobAction::Idle && voice.action != mob.action => {
+                    Some(Sound::Dig(SoundMaterial::Wood))
+                }
+                _ => None,
+            };
+            let at = transform.translation;
+            if ears.is_some_and(|ears| ears.distance(at) <= HEARING_DISTANCE) {
+                sounds.write_batch(sound.map(|sound| PlaySound::at(sound, at)));
+            }
+        }
         let call = match voice {
             Some(mut voice) => voice.hear(mob.kind, mob.action, time.delta_secs(), &mut rng),
             None => {

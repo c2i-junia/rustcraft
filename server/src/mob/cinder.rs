@@ -82,7 +82,7 @@ fn fly_embers(
 ) {
     let mut gone = Vec::new();
     for (id, ember) in mobs.iter_mut() {
-        if !ember.kind.is_projectile() {
+        if ember.kind != MobKind::Ember {
             continue;
         }
         if fly(ember, chunks, players, difficulty, delta) {

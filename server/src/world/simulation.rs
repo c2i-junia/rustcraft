@@ -23,7 +23,10 @@ use std::sync::Arc;
 
 use crate::{
     init::ServerTime,
-    mob::combat::{self, MobWorld},
+    mob::{
+        arrow::arrow,
+        combat::{self, MobWorld},
+    },
     network::extensions::SendGameMessageExtension,
     world::{
         chunk_files::{read_chunk, CHUNKS_DIR},
@@ -395,6 +398,14 @@ pub fn handle_player_inputs_system(
                 .filter(|shot| is_believable(shot, eyes))
                 .map(|shot| (player.id, *shot)),
         );
+        if let Some(shot) = outcome.arrow {
+            born.push(arrow(
+                player.id,
+                eyes,
+                input.camera.forward().as_vec3(),
+                shot,
+            ));
+        }
         player.exhaust(outcome.exhaustion);
         if let Some(fallen) = outcome.fallen {
             player.hurt(fall_damage(fallen), DamageSource::Fall);

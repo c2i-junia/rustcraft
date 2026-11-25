@@ -32,7 +32,7 @@ impl ItemLook {
 
 /// The look of each item drawn so far, made the first time an item of its kind is shown.
 #[derive(Resource, Default, Debug)]
-pub(crate) struct ItemLooks(HashMap<ItemId, ItemLook>);
+pub(crate) struct ItemLooks(HashMap<(ItemId, Option<u8>), ItemLook>);
 
 impl ItemLooks {
     /// The look of `item`, `None` while the atlases are not built or when they have no
@@ -44,12 +44,28 @@ impl ItemLooks {
         meshes: &mut Assets<Mesh>,
         images: &Assets<Image>,
     ) -> Option<ItemLook> {
-        if let Some(look) = self.0.get(&item) {
+        self.get_drawn((item, None), materials, meshes, images)
+    }
+
+    /// The look of `item`, a bow drawn to a stage (`bow::draw_stage`): the picture
+    /// `Bow_Draw<stage>`.
+    pub(crate) fn get_drawn(
+        &mut self,
+        (item, stage): (ItemId, Option<u8>),
+        materials: &MaterialResource,
+        meshes: &mut Assets<Mesh>,
+        images: &Assets<Image>,
+    ) -> Option<ItemLook> {
+        if let Some(look) = self.0.get(&(item, stage)) {
             return Some(look.clone());
         }
+        let name = match stage {
+            Some(stage) => format!("{item:?}_Draw{stage}"),
+            None => format!("{item:?}"),
+        };
         let look = cube_look(item, materials, meshes)
-            .or_else(|| sprite_look(item, materials, meshes, images))?;
-        self.0.insert(item, look.clone());
+            .or_else(|| sprite_look(&name, materials, meshes, images))?;
+        self.0.insert((item, stage), look.clone());
         Some(look)
     }
 }
@@ -68,15 +84,14 @@ fn cube_look(
 }
 
 fn sprite_look(
-    item: ItemId,
+    name: &str,
     materials: &MaterialResource,
     meshes: &mut Assets<Mesh>,
     images: &Assets<Image>,
 ) -> Option<ItemLook> {
     let atlas = materials.items.as_ref()?;
-    let name = format!("{item:?}");
-    let name = if atlas.tiles.contains_key(&name) {
-        name.as_str()
+    let name = if atlas.tiles.contains_key(name) {
+        name
     } else {
         "_Default"
     };

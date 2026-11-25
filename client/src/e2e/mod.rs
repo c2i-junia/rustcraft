@@ -2,6 +2,7 @@
 
 mod armour;
 mod bench;
+mod bow;
 mod bucket;
 mod capture;
 mod chat;

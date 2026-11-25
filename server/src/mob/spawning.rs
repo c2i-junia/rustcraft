@@ -62,7 +62,7 @@ fn spawning_tick(world_map: &mut ServerWorldMap, tick: u64, rng: &mut impl Rng) 
         ..
     } = world_map;
     if !difficulty.has_hostiles() {
-        mobs.retain(|_, mob| !mob.kind.is_hostile() && !mob.kind.is_projectile());
+        mobs.retain(|_, mob| !mob.kind.is_hostile() && mob.kind != MobKind::Ember);
         return;
     }
     burrow_at_dawn(mobs, changed_mobs, is_night(tick));
