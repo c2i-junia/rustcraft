@@ -86,6 +86,7 @@ Date: 11.10.2026
     - Every creature has a voice of its own: animals cry now and then, hostiles are heard approaching and striking, and each kind has its own hurt. Original music plays now and then, different by day, by night, underground and in the menus, with a Music volume in Settings > Audio.
     - Animals breed: feed two of a kind their food (rye for cows, sheep, goats and chickens, carrots for pigs, rabbits and horses, potatoes for pigs too, berries for foxes) and they meet and have a young one, which grows up in 10 minutes, sooner when fed. Wolves and cats are tamed with meat, follow their owner, and breed once tamed. Hearts rise over an animal that wants a mate.
     - The player now sees its arm and the item it holds in the lower right of the screen: it bobs while walking, swings when mining or hitting, pushes forward when a block is placed, and changes when another hotbar slot is selected. The other players, and the player itself in third person, hold their item in the hand of their model.
+    - Servers have operators, who alone run the commands that change the game (/gamemode, /give, /time, /weather, /difficulty, /locate), and /op, /deop, /kick, /ban, /pardon and an optional /whitelist; /list names the players online. A kicked, banned or refused player sees why. In singleplayer you are always an operator.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

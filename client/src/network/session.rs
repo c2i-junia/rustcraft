@@ -7,10 +7,12 @@ use std::time::{Duration, Instant};
 use bevy::prelude::*;
 use bevy_renet::netcode::{NetcodeClientTransport, NetcodeDisconnectReason};
 use bevy_renet::RenetClient;
-use shared::messages::sanitize_username;
+use shared::messages::{sanitize_username, ServerToClientMessage};
 use shared::world::{world_position_to_chunk_position, ChunkMap};
 use shared::SPAWN_CHUNK_RADIUS;
+use shared::STC_AUTH_CHANNEL;
 
+use super::extensions::SendGameMessageExtension;
 use super::leave::Leaving;
 use super::status::{InFlight, ServerStatus, StatusProbe};
 use super::{
@@ -99,7 +101,20 @@ pub enum ConnectError {
     ServerStopped,
     /// The connection dropped in game.
     ConnectionLost,
+    /// The server dismissed the player, for this reason: kicked or banned by an operator, or
+    /// refused when it asked to join (banned, not on the whitelist).
+    Dismissed(String),
 }
+
+/// The reason the server gave for dismissing the player, received before the authentication
+/// (`establish_authenticated_connection_to_server`): `end_dismissed_session` ends the session
+/// with it.
+#[derive(Resource, Clone, Debug, PartialEq, Eq)]
+pub struct Dismissal(pub String);
+
+/// The longest reason of a dismissal the error card shows, in characters: the text comes from
+/// the server.
+pub const MAX_DISMISSAL_REASON: usize = 300;
 
 /// The session being opened: its step and when it last changed. Exists in `PreGameLoading` only.
 #[derive(Resource)]
@@ -137,6 +152,15 @@ pub fn session_plugin(app: &mut App) {
     app.init_resource::<ConnectTimeout>()
         .add_systems(OnEnter(GameState::PreGameLoading), start_watching)
         .add_systems(OnExit(GameState::PreGameLoading), stop_watching)
+        .add_systems(
+            Update,
+            // before the connection the server closes a moment later is seen dropped
+            end_dismissed_session
+                .after(establish_authenticated_connection_to_server)
+                .before(watch_connection)
+                .before(watch_session)
+                .run_if(in_state(GameState::PreGameLoading).or_else(in_state(GameState::Game))),
+        )
         // a session in the game has not ended: no menu may read an end left from before
         .add_systems(OnEnter(GameState::Game), |mut commands: Commands| {
             commands.remove_resource::<SessionEnd>();
@@ -178,6 +202,8 @@ pub fn end_session(
 
 /// Starts watching the session at its first step.
 fn start_watching(origin: Option<Res<SessionOrigin>>, mut commands: Commands) {
+    // the dismissal of an earlier session is not this one's
+    commands.remove_resource::<Dismissal>();
     let Some(origin) = origin else {
         return;
     };
@@ -324,6 +350,44 @@ fn watch_connection(
         return;
     }
     end_session(&mut commands, &mut game, &origin, Some(error));
+}
+
+/// Ends the session the server dismissed, with the reason it gave (`ConnectError::Dismissed`):
+/// the reason came before the authentication (`Dismissal`), or after it on the authentication
+/// channel, which nothing else reads then. Stands down while the game is being left.
+#[allow(clippy::too_many_arguments)]
+fn end_dismissed_session(
+    client: Option<ResMut<RenetClient>>,
+    target: Res<TargetServer>,
+    dismissal: Option<Res<Dismissal>>,
+    origin: Option<Res<SessionOrigin>>,
+    leaving: Option<Res<Leaving>>,
+    mut game: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+) {
+    let mut reason = dismissal.map(|dismissal| dismissal.0.clone());
+    if let Some(mut client) = client.filter(|_| authenticated(target)) {
+        while let Some(Ok(message)) = client.receive_game_message_by_channel(STC_AUTH_CHANNEL) {
+            if let ServerToClientMessage::Dismissed(dismissed) = message {
+                reason = Some(dismissed);
+            }
+        }
+    }
+    let (Some(reason), Some(origin)) = (reason, origin) else {
+        return;
+    };
+    commands.remove_resource::<Dismissal>();
+    if leaving.is_some() {
+        return;
+    }
+    let reason: String = reason.chars().take(MAX_DISMISSAL_REASON).collect();
+    warn!("The server dismissed the player: {reason}");
+    end_session(
+        &mut commands,
+        &mut game,
+        &origin,
+        Some(ConnectError::Dismissed(reason)),
+    );
 }
 
 /// Ends a session whose connection dropped in the game (`failure_of`): the server stopped or the

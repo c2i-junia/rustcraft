@@ -409,7 +409,18 @@ has come. A request to join brings the next tick forward to the turn it arrives 
    message (`network/handlers.rs`). A client that is not authenticated may only ask to be.
    A chat message that starts with `/` is a command (`network/commands.rs`): the server runs
    it and answers its author alone. Their syntax is in `shared/src/commands.rs`, which the
-   client completes them from.
+   client completes them from. On a dedicated server every command but `/list` is an
+   operator's (`commands::refusal`), the mods' included; a solo player is always an operator.
+   `Permissions` (`network/permissions.rs`) holds the operators, the bans and the whitelist,
+   read from `ops.ron`, `banned.ron` and `whitelist.ron` of the game folder when the server
+   starts (a list it cannot read stops it, rather than forget its bans) and written atomically
+   at each change; a solo world keeps them in memory only. `/op`, `/deop`, `/kick`, `/ban`,
+   `/pardon` and `/whitelist` are run by `Permissions::apply`. The authentication refuses a
+   banned player, and one off the whitelist while it is on (not an operator). A refused,
+   kicked or banned client is sent `Dismissed` with its reason, on the authentication channel,
+   and disconnected `DISMISS_DELAY` (500 ms) later (`Dismissals`), so that the message arrives
+   first: the client ends its session on it, with the reason on the error card. Until then the
+   server ignores what it sends. A name is taken, banned or an operator's whatever its case.
 2. **Simulate**: the inputs are applied to the world. Chunks are loaded within the reach of
    the players (`ChunkReach`, see the broadcast: their render distance, then around the twins
    of the portals they see) before the inputs, in the background (`ChunkLoader`): a tick
@@ -1133,7 +1144,8 @@ the integrated server, on wall-clock time. How to write one is in the README.
 - The hostiles walk straight at their prey and find no way round a wall or down a ledge; the
   spawning ignores the game mode, so hostiles still spawn around a creative player, though
   they leave it alone.
-- Any player may change its own game mode with `/gamemode`: there are no operators yet.
+- Nothing proves who a player is: a server knows its operators, bans and whitelist by name
+  only, and a player may join under the name of an operator.
 - A world still loading 10 s after the quit is stopped with the process: its server cannot be
   told to stop before it accepts the player. Its files are written atomically, so the save stays
   readable.

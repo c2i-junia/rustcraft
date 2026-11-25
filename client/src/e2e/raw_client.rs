@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use bevy_renet::netcode::NetcodeClientTransport;
 use bevy_renet::RenetClient;
 use shared::get_customized_server_to_client_channels;
-use shared::messages::{AuthRegisterRequest, ClientToServerMessage, ServerToClientMessage};
+use shared::messages::{
+    AuthRegisterRequest, ChatMessageRequest, ClientToServerMessage, ServerToClientMessage,
+};
 
 use crate::network::{open_connection, SendGameMessageExtension};
 
@@ -24,12 +26,16 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 struct Progress {
     connected: bool,
     authenticated: bool,
+    /// The answers of the server to the commands of this client, in order.
+    answers: Vec<String>,
 }
 
 /// What the test asks of the thread.
 enum Order {
     Exit,
     Leave,
+    /// Sends this chat message.
+    Say(String),
 }
 
 /// Another player's game: a bare netcode client on its own thread, pumped every 16 ms.
@@ -74,6 +80,23 @@ impl RawClient {
             !waited.timed_out(),
             "the raw client is not ready after {timeout:?}: {progress:?}"
         );
+    }
+
+    /// Runs the command `line` and returns the answer of the server. Panics after `timeout`.
+    #[track_caller]
+    pub fn run_command(&self, line: &str, timeout: Duration) -> String {
+        let (progress, changed) = &*self.progress;
+        let before = progress.lock().unwrap().answers.len();
+        self.orders
+            .send(Order::Say(line.to_string()))
+            .expect("the raw client is running");
+        let (progress, waited) = changed
+            .wait_timeout_while(progress.lock().unwrap(), timeout, |progress| {
+                progress.answers.len() == before
+            })
+            .unwrap();
+        assert!(!waited.timed_out(), "no answer to {line} after {timeout:?}");
+        progress.answers[before].clone()
     }
 
     /// Sends `Exit` — which stops a solo server — then disconnects.
@@ -125,10 +148,18 @@ fn pump(
             asked = true;
         }
         let mut authenticated = false;
+        let mut answers = Vec::new();
         for channel in get_customized_server_to_client_channels() {
             while let Some(message) = client.receive_game_message_by_channel(channel.channel_id) {
-                authenticated |=
-                    matches!(message, Ok(ServerToClientMessage::AuthRegisterResponse(_)));
+                match message {
+                    Ok(ServerToClientMessage::AuthRegisterResponse(_)) => authenticated = true,
+                    Ok(ServerToClientMessage::ChatMessage(message))
+                        if message.author == "Server" =>
+                    {
+                        answers.push(message.content);
+                    }
+                    _ => (),
+                }
             }
         }
         {
@@ -136,6 +167,7 @@ fn pump(
             let mut state = state.lock().unwrap();
             state.connected = client.is_connected();
             state.authenticated |= authenticated;
+            state.answers.append(&mut answers);
             changed.notify_all();
         }
 
@@ -143,6 +175,10 @@ fn pump(
             // asked to leave, or the test is gone
             Ok(Order::Leave) | Err(TryRecvError::Disconnected) => break,
             Ok(Order::Exit) => exit_deadline = Some(Instant::now() + EXIT_TIMEOUT),
+            Ok(Order::Say(content)) => {
+                let message = ClientToServerMessage::ChatMessage(ChatMessageRequest { content });
+                client.send_game_message(message);
+            }
             Err(TryRecvError::Empty) => (),
         }
         if let Some(deadline) = exit_deadline {

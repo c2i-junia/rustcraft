@@ -65,6 +65,34 @@ pub(super) fn spawn_test_server(world: &str) -> (SocketAddr, JoinHandle<Result<(
     (addr, server)
 }
 
+/// A dedicated server of the world `world` on this computer, on its own thread, in a folder of
+/// its own where `lists` gives the content of files written first (its operators, bans and
+/// whitelist). It stops only with the process.
+pub(super) fn spawn_dedicated_server(world: &str, lists: &[(&str, &str)]) -> SocketAddr {
+    let folder = GameFolder::new();
+    for (file, content) in lists {
+        fs::write(folder.path().join(file), content).expect("a list of the server");
+    }
+    let (socket, status) = server::acquire_local_socket_pair(IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .expect("the sockets of the server");
+    let addr = socket.local_addr().unwrap();
+    let paths = GameFolderPaths {
+        game_folder_path: folder.path().to_path_buf(),
+        assets_folder_path: folder.path().join("assets"),
+    };
+    let config = GameServerConfig {
+        world_name: world.to_string(),
+        is_solo: false,
+        saves: None,
+        max_render_distance: shared::DEFAULT_MAX_RENDER_DISTANCE,
+    };
+    std::thread::spawn(move || {
+        let _folder = folder;
+        server::init_with_status(socket, status, config, paths)
+    });
+    addr
+}
+
 /// A game folder with the server `Nowhere`, on the discard port, where nothing answers.
 fn nowhere() -> GameFolder {
     GameFolder::new().with_servers(&[("Nowhere", "127.0.0.1:9")])
@@ -537,4 +565,53 @@ fn a_refused_join_says_why_and_a_stopped_server_sends_the_player_back_to_its_car
     h.click(&L::text("Singleplayer"));
     h.play_world("Survie");
     h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_player_off_the_whitelist_or_kicked_is_told_why_on_the_error_card() {
+    let addr = spawn_dedicated_server(
+        "dedicated",
+        &[
+            (server::OPS_FILE, r#"["Admin"]"#),
+            (server::WHITELIST_FILE, "(enabled: true, players: [])"),
+        ],
+    );
+    // an operator joins whatever the whitelist says
+    let admin = RawClient::join(addr, 77, Some("admin"));
+    admin.wait_ready(SERVER);
+    let ip = format!("127.0.0.1:{}", addr.port());
+    let folder = GameFolder::new().with_servers(&[("Local test", &ip)]);
+    let mut h = Harness::start(folder, Options::default());
+    h.wait_for(&L::text("Multiplayer"), STARTUP);
+    h.click(&L::text("Multiplayer"));
+    h.join_server_card("Local test");
+
+    let dismissed = "Disconnected from \"Local test\"";
+    h.wait_for(&error_card(dismissed), SERVER);
+    assert!(h.is_visible(
+        &L::text_containing("You are not on the whitelist of this server.")
+            .within(error_card(dismissed))
+    ));
+    assert_eq!(h.game_state(), GameState::Menu);
+    assert_eq!(h.focus_label().as_deref(), Some(TRY_AGAIN));
+
+    assert_eq!(
+        admin.run_command("/whitelist add Tester", SERVER),
+        "Added Tester to the whitelist"
+    );
+    h.press(KeyCode::Enter);
+    h.wait_until("the game", SERVER, |w| is_in(w, GameState::Game));
+
+    assert_eq!(
+        admin.run_command("/kick tester see you", SERVER),
+        "Kicked tester"
+    );
+    h.wait_for(&error_card(dismissed), SERVER);
+    assert!(h.is_visible(
+        &L::text_containing("You were kicked from the server: see you")
+            .within(error_card(dismissed))
+    ));
+    assert_eq!(h.game_state(), GameState::Menu);
+    admin.leave();
 }

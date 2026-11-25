@@ -18,6 +18,11 @@ pub enum Arg {
     /// The key of a biome, such as `jungle` or `rustcraft:jungle`. The biomes of the base game
     /// are suggested; those the mods of the server add are only known to it.
     Biome,
+    /// The name of a player, who may be offline: any word.
+    Player,
+    /// The rest of the line, which may be left out: the reason of a `/kick` or a `/ban`. It is
+    /// the last argument of its command.
+    Reason,
 }
 
 impl Arg {
@@ -30,15 +35,17 @@ impl Arg {
             Arg::Item => "<item>".into(),
             Arg::Count => "<count>".into(),
             Arg::Biome => "<biome>".into(),
+            Arg::Player => "<player>".into(),
+            Arg::Reason => "[reason]".into(),
         }
     }
 
-    /// The values to suggest, lowercase: none for a count.
+    /// The values to suggest, lowercase: none for a count, a player or a reason.
     fn values(&self) -> Vec<String> {
         match self {
             Arg::Word(words) => words.iter().map(|word| word.to_string()).collect(),
             Arg::Item => ItemId::ALL.iter().map(ItemId::name).collect(),
-            Arg::Count => Vec::new(),
+            Arg::Count | Arg::Player | Arg::Reason => Vec::new(),
             Arg::Biome => Biomes::vanilla()
                 .defs()
                 .iter()
@@ -59,7 +66,7 @@ impl Arg {
             Arg::Item => ItemId::from_name(word).is_some(),
             Arg::Count => word.parse::<u32>().is_ok_and(|count| count > 0),
             // a biome of a mod is checked by the server
-            Arg::Biome => true,
+            Arg::Biome | Arg::Player | Arg::Reason => true,
         }
     }
 }
@@ -93,12 +100,22 @@ impl CommandSyntax {
             Arg::Item => format!("Unknown item: {word}"),
             Arg::Count => format!("Invalid count: {word}"),
             Arg::Biome => format!("Unknown biome: {word}"),
+            Arg::Player | Arg::Reason => format!("Usage: {}", self.usage()),
         }
     }
 }
 
-/// Every command, by name.
+/// Every command, by name. On a dedicated server, every one but `/list` is an operator's
+/// (`server::network::commands::refusal`).
 pub const COMMANDS: &[CommandSyntax] = &[
+    CommandSyntax {
+        name: "ban",
+        args: &[Arg::Player, Arg::Reason],
+    },
+    CommandSyntax {
+        name: "deop",
+        args: &[Arg::Player],
+    },
     CommandSyntax {
         name: "difficulty",
         args: &[Arg::Word(&["peaceful", "normal"])],
@@ -112,9 +129,25 @@ pub const COMMANDS: &[CommandSyntax] = &[
         args: &[Arg::Item, Arg::Count],
     },
     CommandSyntax {
+        name: "kick",
+        args: &[Arg::Player, Arg::Reason],
+    },
+    CommandSyntax {
+        name: "list",
+        args: &[],
+    },
+    CommandSyntax {
         name: "locate",
         // `/locate village` stops after its first word
         args: &[Arg::Word(&["biome", "village"]), Arg::Biome],
+    },
+    CommandSyntax {
+        name: "op",
+        args: &[Arg::Player],
+    },
+    CommandSyntax {
+        name: "pardon",
+        args: &[Arg::Player],
     },
     CommandSyntax {
         name: "time",
@@ -123,6 +156,14 @@ pub const COMMANDS: &[CommandSyntax] = &[
     CommandSyntax {
         name: "weather",
         args: &[Arg::Word(&["clear", "rain", "thunder"])],
+    },
+    CommandSyntax {
+        name: "whitelist",
+        // `/whitelist on`, `off` and `list` stop after their first word
+        args: &[
+            Arg::Word(&["on", "off", "add", "remove", "list"]),
+            Arg::Player,
+        ],
     },
 ];
 
@@ -207,20 +248,29 @@ pub fn complete(line: &str, mod_commands: &[String]) -> Option<Completion> {
         return Some(completion);
     };
     completion.usage = command.usage_words();
+    // a name between quotes may hold spaces: its words are not arguments
+    if command.args.contains(&Arg::Player) && typed.contains('"') {
+        return Some(completion);
+    }
     for (arg, typed) in command.args.iter().zip(typed_args) {
         if !arg.accepts(typed) {
             completion.error = Some(command.error(arg, typed));
             return Some(completion);
         }
     }
-    let Some(arg) = command.args.get(typed_args.len()) else {
+    // a reason takes every word left
+    let index = match command.args.last() {
+        Some(Arg::Reason) => typed_args.len().min(command.args.len() - 1),
+        _ => typed_args.len(),
+    };
+    let Some(arg) = command.args.get(index) else {
         if !word.is_empty() {
             completion.error = Some(format!("Usage: {}", command.usage()));
         }
         return Some(completion);
     };
-    completion.current = Some(typed_args.len() + 1);
-    completion.more = typed_args.len() + 1 < command.args.len();
+    completion.current = Some(index + 1);
+    completion.more = index + 1 < command.args.len();
     completion.suggestions = suggest(word, arg.values().into_iter().map(|v| (v, String::new())));
     if completion.suggestions.is_empty() && !word.is_empty() && !arg.accepts(word) {
         completion.error = Some(command.error(arg, word));
@@ -285,20 +335,35 @@ mod tests {
         assert_eq!(
             texts(&completion),
             [
+                "ban",
+                "deop",
                 "difficulty",
                 "gamemode",
                 "give",
+                "kick",
+                "list",
                 "locate",
+                "op",
+                "pardon",
                 "time",
-                "weather"
+                "weather",
+                "whitelist"
             ]
         );
-        assert_eq!(completion.suggestions[0].detail, "<peaceful|normal>");
-        assert_eq!(completion.suggestions[1].detail, "<creative|survival>");
-        assert_eq!(completion.suggestions[2].detail, "<item> <count>");
-        assert_eq!(completion.suggestions[3].detail, "<biome|village> <biome>");
-        assert_eq!(completion.suggestions[4].detail, "set <day|night>");
-        assert_eq!(completion.suggestions[5].detail, "<clear|rain|thunder>");
+        let detail = |name| {
+            let suggestion = completion.suggestions.iter().find(|s| s.text == name);
+            suggestion.unwrap().detail.as_str()
+        };
+        assert_eq!(detail("ban"), "<player> [reason]");
+        assert_eq!(detail("deop"), "<player>");
+        assert_eq!(detail("difficulty"), "<peaceful|normal>");
+        assert_eq!(detail("gamemode"), "<creative|survival>");
+        assert_eq!(detail("give"), "<item> <count>");
+        assert_eq!(detail("list"), "");
+        assert_eq!(detail("locate"), "<biome|village> <biome>");
+        assert_eq!(detail("time"), "set <day|night>");
+        assert_eq!(detail("weather"), "<clear|rain|thunder>");
+        assert_eq!(detail("whitelist"), "<on|off|add|remove|list> <player>");
         assert_eq!(completion.error, None);
         assert!(completion.usage.is_empty());
     }
@@ -468,5 +533,33 @@ mod tests {
             complete("/weather snow", &[]).unwrap().error.as_deref(),
             Some("Usage: /weather <clear|rain|thunder>")
         );
+    }
+
+    #[test]
+    fn a_reason_takes_every_word_left_and_may_be_left_out() {
+        let completion = complete("/kick ", &[]).unwrap();
+        assert_eq!(completion.usage, ["/kick", "<player>", "[reason]"]);
+        assert_eq!(completion.current, Some(1));
+        assert!(completion.suggestions.is_empty());
+        assert!(completion.more);
+        let completion = complete("/ban steve griefed my house", &[]).unwrap();
+        assert_eq!(completion.error, None);
+        assert_eq!(completion.current, Some(2));
+        assert!(!completion.more);
+        assert_eq!(complete("/pardon steve", &[]).unwrap().error, None);
+        assert_eq!(
+            complete("/pardon steve now", &[]).unwrap().error.as_deref(),
+            Some("Usage: /pardon <player>")
+        );
+    }
+
+    #[test]
+    fn the_whitelist_actions_are_completed() {
+        let completion = complete("/whitelist r", &[]).unwrap();
+        assert_eq!(texts(&completion), ["remove"]);
+        assert!(completion.more);
+        let completion = complete("/whitelist add ", &[]).unwrap();
+        assert_eq!(completion.current, Some(2));
+        assert_eq!(complete("/whitelist add alex", &[]).unwrap().error, None);
     }
 }

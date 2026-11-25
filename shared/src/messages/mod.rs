@@ -67,6 +67,10 @@ pub enum ServerToClientMessage {
         color: PortalColor,
         placed: bool,
     },
+    /// The server dismisses this client, for this reason shown to the player: kicked or banned
+    /// by an operator, or refused when it asked to join (banned, not on the whitelist). The
+    /// server disconnects it a moment later.
+    Dismissed(String),
 }
 
 #[cfg(test)]
@@ -216,6 +220,7 @@ mod tests {
                 },
                 14,
             ),
+            (ServerToClientMessage::Dismissed(String::new()), 15),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

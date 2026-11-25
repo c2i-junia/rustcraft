@@ -62,6 +62,13 @@ impl TestServer {
         Self::start_with(tempfile::tempdir().unwrap(), world_name, false)
     }
 
+    /// A dedicated server whose game folder holds `ops`, the RON list of its operators.
+    fn start_dedicated_with_ops(world_name: &str, ops: &str) -> Self {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join(server::OPS_FILE), ops).unwrap();
+        Self::start_with(tmp, world_name, false)
+    }
+
     /// Same, and it answers status requests on the port next to its game port.
     fn start_dedicated_with_status(world_name: &str) -> Self {
         let (socket, status) =
@@ -1388,7 +1395,8 @@ fn spawns_received(client: &TestClient) -> Vec<u64> {
 
 #[test]
 fn a_joining_player_is_announced_once_with_its_own_position() {
-    let server = TestServer::start_dedicated(WORLD_NAME);
+    // the first player flies away with /gamemode, an operator's command
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["first"]"#);
     let mut first = TestClient::connect(server.addr, PLAYER_ID);
     join(&mut first, "first");
     // Away from the spawn point, where the second player will appear
@@ -2290,6 +2298,8 @@ fn a_portal_reaches_every_player_and_goes_with_its_owner() {
     let wall_mod = tmp.path().join("mods").join("wall");
     std::fs::create_dir_all(&wall_mod).unwrap();
     std::fs::write(wall_mod.join("init.luau"), WALL_MOD).unwrap();
+    // alice runs /wall and /give, an operator's commands
+    std::fs::write(tmp.path().join(server::OPS_FILE), r#"["alice"]"#).unwrap();
     let server = TestServer::start_with(tmp, WORLD_NAME, false);
 
     // A joining player is told the portals of the world: none yet
@@ -2342,6 +2352,8 @@ fn a_shot_reaches_every_other_player_before_its_portal() {
     let wall_mod = tmp.path().join("mods").join("wall");
     std::fs::create_dir_all(&wall_mod).unwrap();
     std::fs::write(wall_mod.join("init.luau"), WALL_MOD).unwrap();
+    // alice runs /wall and /give, an operator's commands
+    std::fs::write(tmp.path().join(server::OPS_FILE), r#"["alice"]"#).unwrap();
     let server = TestServer::start_with(tmp, WORLD_NAME, false);
     let mut alice = TestClient::connect(server.addr, PLAYER_ID);
     join(&mut alice, "alice");
@@ -2435,4 +2447,193 @@ fn a_shot_reaches_every_other_player_before_its_portal() {
         _ => None,
     });
     assert_eq!(told, (eye, PortalColor::Blue));
+}
+
+/// Pumps until the server tells the client why it is dismissed, then until it disconnects it.
+fn dismissed(client: &mut TestClient) -> String {
+    let reason = client.wait_for("Dismissed", |m| match m {
+        ServerToClientMessage::Dismissed(reason) => Some(reason.clone()),
+        _ => None,
+    });
+    let start = Instant::now();
+    while !client.client.is_disconnected() {
+        assert!(
+            start.elapsed() < WAIT_TIMEOUT,
+            "the dismissed client was not disconnected within {WAIT_TIMEOUT:?}"
+        );
+        client.pump();
+    }
+    reason
+}
+
+/// Connects a client that asks to join as `username`, and returns why it was refused.
+fn refused(server: &TestServer, client_id: u64, username: &str) -> String {
+    let mut client = TestClient::connect(server.addr, client_id);
+    client.wait_connected();
+    client.send(auth_request(username));
+    let reason = dismissed(&mut client);
+    assert!(
+        !client
+            .inbox
+            .iter()
+            .any(|m| matches!(m, ServerToClientMessage::AuthRegisterResponse(_))),
+        "{username} was let in"
+    );
+    reason
+}
+
+#[test]
+fn on_a_dedicated_server_only_an_operator_may_give_and_make_operators() {
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["Alice"]"#);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut bob, "bob");
+
+    bob.send(chat_message("/give dirt 1"));
+    command_answer(&mut bob, "You must be an operator to use /give");
+    bob.send(chat_message("/gamemode creative"));
+    command_answer(&mut bob, "You must be an operator to use /gamemode");
+    bob.send(chat_message("/op bob"));
+    command_answer(&mut bob, "You must be an operator to use /op");
+    // an unknown command is still unknown, and /list is everyone's
+    bob.send(chat_message("/fly"));
+    command_answer(&mut bob, "Unknown command: /fly");
+    bob.send(chat_message("/list"));
+    command_answer(&mut bob, "2 players online: alice, bob");
+
+    alice.send(chat_message("/give dirt 1"));
+    command_answer(&mut alice, "Gave 1 Dirt");
+    alice.send(chat_message("/op bob"));
+    command_answer(&mut alice, "Made bob an operator");
+    bob.send(chat_message("/give dirt 2"));
+    command_answer(&mut bob, "Gave 2 Dirt");
+    let ops = std::fs::read_to_string(server.tmp.path().join(server::OPS_FILE)).unwrap();
+    assert!(ops.contains("\"bob\""), "{ops}");
+
+    alice.send(chat_message("/deop bob"));
+    command_answer(&mut alice, "bob is no longer an operator");
+    bob.send(chat_message("/time set day"));
+    command_answer(&mut bob, "You must be an operator to use /time");
+}
+
+#[test]
+fn a_kicked_player_is_told_why_and_disconnected() {
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["alice"]"#);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut bob, "Bob");
+
+    alice.send(chat_message("/kick carol"));
+    command_answer(&mut alice, "No player named carol is online");
+    alice.send(chat_message("/kick bob  too   loud"));
+    command_answer(&mut alice, "Kicked bob");
+    assert_eq!(
+        dismissed(&mut bob),
+        "You were kicked from the server: too   loud"
+    );
+
+    // a kick is no ban
+    let mut back = TestClient::connect(server.addr, PLAYER_ID + 2);
+    join(&mut back, "Bob");
+}
+
+#[test]
+fn a_dismissed_operator_is_no_longer_listened_to_and_its_name_may_hold_spaces() {
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["alice", "bad guy"]"#);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    let mut bad = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut bad, "Bad Guy");
+
+    alice.send(chat_message(r#"/ban "bad guy" griefing"#));
+    command_answer(&mut alice, "Banned bad guy");
+    bad.send(chat_message(r#"/pardon "bad guy""#));
+    dismissed(&mut bad);
+    assert_eq!(
+        refused(&server, PLAYER_ID + 2, "bad guy"),
+        "You are banned from this server: griefing"
+    );
+}
+
+#[test]
+fn a_name_in_use_is_refused_whatever_its_case() {
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["alice"]"#);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    let mut other = TestClient::connect(server.addr, PLAYER_ID + 1);
+    other.wait_connected();
+    other.send(auth_request("ALICE"));
+    let start = Instant::now();
+    while !other.client.is_disconnected() {
+        assert!(start.elapsed() < WAIT_TIMEOUT, "ALICE was not refused");
+        other.pump();
+    }
+    assert!(!other
+        .inbox
+        .iter()
+        .any(|m| matches!(m, ServerToClientMessage::AuthRegisterResponse(_))));
+}
+
+#[test]
+fn a_banned_player_is_refused_with_the_reason_until_pardoned() {
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["alice"]"#);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+    let mut bob = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut bob, "bob");
+
+    alice.send(chat_message("/ban bob griefing"));
+    command_answer(&mut alice, "Banned bob");
+    assert_eq!(
+        dismissed(&mut bob),
+        "You are banned from this server: griefing"
+    );
+    assert_eq!(
+        refused(&server, PLAYER_ID + 2, "BOB"),
+        "You are banned from this server: griefing"
+    );
+    let banned = std::fs::read_to_string(server.tmp.path().join(server::BANNED_FILE)).unwrap();
+    assert!(banned.contains("griefing"), "{banned}");
+
+    alice.send(chat_message("/pardon bob"));
+    command_answer(&mut alice, "Pardoned bob");
+    let mut back = TestClient::connect(server.addr, PLAYER_ID + 3);
+    join(&mut back, "bob");
+}
+
+#[test]
+fn with_the_whitelist_on_only_the_players_on_it_and_the_operators_join() {
+    let server = TestServer::start_dedicated_with_ops(WORLD_NAME, r#"["alice"]"#);
+    let mut alice = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut alice, "alice");
+
+    alice.send(chat_message("/whitelist on"));
+    command_answer(&mut alice, "The whitelist is on");
+    assert_eq!(
+        refused(&server, PLAYER_ID + 1, "carol"),
+        "You are not on the whitelist of this server."
+    );
+
+    alice.send(chat_message("/whitelist add carol"));
+    command_answer(&mut alice, "Added carol to the whitelist");
+    let mut carol = TestClient::connect(server.addr, PLAYER_ID + 2);
+    join(&mut carol, "carol");
+    let whitelist =
+        std::fs::read_to_string(server.tmp.path().join(server::WHITELIST_FILE)).unwrap();
+    assert!(whitelist.contains("carol"), "{whitelist}");
+}
+
+#[test]
+fn a_solo_player_is_an_operator_without_any_list() {
+    let mut server = TestServer::start(WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut client, "solo");
+    client.send(chat_message("/give dirt 1"));
+    command_answer(&mut client, "Gave 1 Dirt");
+    assert!(!server.tmp.path().join(server::OPS_FILE).exists());
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
 }

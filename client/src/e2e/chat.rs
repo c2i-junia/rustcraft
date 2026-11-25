@@ -517,8 +517,10 @@ fn commands_are_completed_as_they_are_typed() {
     // a slash lists the commands with their arguments
     h.type_text("/");
     assert!(h.is_visible(&L::marker::<SuggestionPanel>()));
+    assert!(h.suggests("ban <player> [reason]"));
     assert!(h.suggests("give <item> <count>"));
-    assert!(h.suggests("time set <day|night>"));
+    // the first eight only: the rest show as the word narrows them
+    assert!(!h.suggests("time set <day|night>"));
     h.frames(10);
     h.snapshot("slash");
 

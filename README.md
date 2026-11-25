@@ -18,6 +18,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
     - [Manual](#manual)
 - [Controls](#controls)
 - [Multiplayer](#multiplayer)
+    - [Operators, bans and the whitelist](#operators-bans-and-the-whitelist)
 - [Saves](#saves)
 - [Command-line options](#command-line-options)
     - [Client](#client)
@@ -48,7 +49,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - Weather: clear spells, rain and thunderstorms follow each other on their own, the same for every player and kept in the save. Rain rolls in under thicker, darker clouds and a grey sky that dims the light and closes the fog in; drops slanted by the wind splash on the ground and ring the water, but not under a roof or the leaves; snow falls in the cold, nothing in the deserts. In the High and Ultra shaders the ground open to the rain darkens, glistens and gathers puddles that mirror the sky, and dries after. Thunderstorms strike lightning that lights the world and the clouds, its thunder heard after the flash. The rain hisses in the open and drums on a roof, at its own Weather volume in Settings > Audio.
 - Sprinting, sneaking and swimming.
 - Portals: with the portal gun (`/give portal_gun 1`), a left click shoots your blue portal at a wall, a floor or a ceiling and a right click your orange one: a glowing bolt flies there, every player sees it, and the portal opens where it lands. Through each, you see what lies in front of the other, yourself included, and two facing portals show each other three times over; walk or fall in and you come out of the other, keeping your speed.
-- In-game chat, with commands open to every player: `/time set <day|night>`, `/give <item> <count>` (e.g. `/give oak_log 64`), `/gamemode <creative|survival>`, `/weather <clear|rain|thunder>` and `/difficulty <peaceful|normal>`, completed as they are typed (Tab, ↑↓).
+- In-game chat, with commands completed as they are typed (Tab, ↑↓): `/time set <day|night>`, `/give <item> <count>` (e.g. `/give oak_log 64`), `/gamemode <creative|survival>`, `/weather <clear|rain|thunder>`, `/difficulty <peaceful|normal>` and `/locate <biome|village>`; on a server they are its operators' (see [Operators, bans and the whitelist](#operators-bans-and-the-whitelist)), and `/list` names the players online. In Singleplayer you are always an operator.
 - Customizable keybindings, and a render distance set in Settings > Video or with O and P.
 
 <br>
@@ -205,6 +206,29 @@ Escape. When it fails, a card says why, with the way back to the list and, when 
 - **Cannot open "…"** (a world): the world could not be loaded, and the card gives the reason,
   often its `world.ron`; or the last world played is still closing, and this one opens in a
   moment.
+- **Disconnected from "…"**: the server dismissed you, and the card gives its reason: an
+  operator kicked or banned you, or the server keeps a whitelist you are not on.
+
+## Operators, bans and the whitelist
+
+On a dedicated server, the commands are its operators': `/gamemode`, `/give`, `/time`,
+`/weather`, `/difficulty`, `/locate`, the commands of the mods and those below. Any other
+player is answered "You must be an operator to use /…"; `/list`, the players online, is
+everyone's. In Singleplayer you are always an operator.
+
+| **Command** | **What it does** |
+|-------------|------------------|
+| `/op <player>`, `/deop <player>` | Makes a player an operator, or no longer one. |
+| `/kick <player> [reason]` | Disconnects a player, who sees the reason. |
+| `/ban <player> [reason]`, `/pardon <player>` | Bans a player, disconnected if online and refused when joining with the reason, until pardoned. |
+| `/whitelist on\|off\|list`, `/whitelist add\|remove <player>` | When the whitelist is on, only the players on it, and the operators, may join. |
+
+Names are compared without their case, and one that holds spaces is typed between quotes
+(`/kick "Bad Guy"`). The lists are kept in the game folder of the server,
+next to `saves/`: `ops.ron`, `banned.ron` and `whitelist.ron`, read when it starts and written
+at each change; a server whose list cannot be read does not start. The first operator is made
+with `rustcraft-server --op <name>`, or by writing `ops.ron` (`["name"]`) while the server is
+stopped.
 
 <br>
 
@@ -245,6 +269,7 @@ The game folder holds the saves and the settings. By default it is `$XDG_DATA_HO
 | `-w`, `--world <name>` | `default` | The world to load from `saves/<name>` in the game folder, created when it does not exist yet. |
 | `-g`, `--game-folder-path <path>` | see above | The game folder to use instead of the default one. |
 | `--max-render-distance <chunks>` | `64` | The largest render distance a player may ask for, in chunks. |
+| `--op <name>` | | Makes this player an operator, in `ops.ron` of the game folder, before the server starts: how a server gets its first operator. May be given several times. |
 
 Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
 

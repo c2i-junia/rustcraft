@@ -12,6 +12,7 @@ use mlua::{AppDataRefMut, Function, Lua, Table};
 use shared::commands::COMMANDS;
 use shared::world::{BlockData, BlockDirection, BlockId, ItemId, ItemType};
 
+use crate::network::commands::OPEN_COMMANDS;
 use crate::world::data::ServerWorldMap;
 
 /// What a mod asks the server to do.
@@ -154,7 +155,8 @@ fn apply(actions: Vec<ModAction>, world_map: &mut ServerWorldMap) {
 /// `ctx.player`, the name of its author, and the words after the name. The string it returns
 /// is the answer to the author.
 fn register_command(lua: &Lua, (name, function): (String, Function)) -> mlua::Result<()> {
-    if COMMANDS.iter().any(|command| command.name == name) {
+    if COMMANDS.iter().any(|command| command.name == name) || OPEN_COMMANDS.contains(&name.as_str())
+    {
         return Err(mlua::Error::runtime(format!(
             "/{name} is a command of the game"
         )));
@@ -279,8 +281,11 @@ mod tests {
     #[test]
     fn a_mod_cannot_take_a_command_of_the_game() {
         let mods = Mods::new().unwrap();
-        let script = r#"rustcraft.register_command("give", function() end)"#;
-        assert!(mods.load("thief", script).is_err());
+        // `sign` is the client's, and open to every player
+        for name in ["give", "list", "sign"] {
+            let script = format!(r#"rustcraft.register_command("{name}", function() end)"#);
+            assert!(mods.load("thief", &script).is_err(), "{name}");
+        }
     }
 
     #[test]

@@ -20,8 +20,11 @@ use crate::init::{LobbyPlayer, ServerLobby, ServerTime};
 use crate::mods::Mods;
 use crate::network::broadcast_chat::record_chat_message;
 use crate::network::cleanup::cleanup_player_from_world;
-use crate::network::commands::{command_line, parse_command, run_command, Place, SERVER_AUTHOR};
+use crate::network::commands::{
+    command_line, list_players, parse_command, refusal, run_command, Command, Place, SERVER_AUTHOR,
+};
 use crate::network::extensions::SendGameMessageExtension;
+use crate::network::permissions::{same_name, Dismissals, Permissions};
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::WorldGeneration;
 use crate::world::load_from_file::load_player_data;
@@ -35,6 +38,13 @@ use crate::world::weather::{send_to_players, ServerWeather};
 pub(super) struct Clients<'a> {
     pub server: &'a mut RenetServer,
     pub lobby: &'a mut ServerLobby,
+}
+
+/// Who may do what, and the clients being dismissed.
+pub(super) struct Access<'a> {
+    pub permissions: &'a mut Permissions,
+    pub dismissals: &'a mut Dismissals,
+    pub is_solo: bool,
 }
 
 pub(super) fn client_connected(client_id: ClientId) {
@@ -66,6 +76,7 @@ pub(super) fn auth_register_request(
     max_render_distance: u32,
     mods: &Mods,
     weather: &ServerWeather,
+    access: Access,
 ) -> ControlFlow<()> {
     let Clients { server, lobby } = clients;
 
@@ -78,9 +89,20 @@ pub(super) fn auth_register_request(
         server.disconnect(client_id);
         return ControlFlow::Break(());
     };
-    if lobby.players.values().any(|player| player.name == username) {
+    // Whatever the case, as the operators and the bans are known
+    if lobby
+        .players
+        .values()
+        .any(|player| same_name(&player.name, username))
+    {
         warn!("Username already in use: {username}, disconnecting client {client_id}");
         server.disconnect(client_id);
+        return ControlFlow::Break(());
+    }
+    // A banned player, or one off the whitelist, is told why before it is disconnected
+    if let Err(message) = access.permissions.admission(username) {
+        warn!("Refusing {username}, client {client_id}: {message}");
+        access.dismissals.dismiss(server, client_id, message);
         return ControlFlow::Break(());
     }
 
@@ -173,11 +195,13 @@ pub(super) fn chat_message(
     weather: &mut ServerWeather,
     mods: &Mods,
     (seed, generation, locator): (WorldSeed, &WorldGeneration, &Locator),
+    access: Access,
 ) {
     let Clients { server, lobby } = clients;
     let Some(current_author) = lobby.players.get(&client_id) else {
         return;
     };
+    let author = current_author.name.clone();
 
     if let Some(line) = command_line(&chat_msg.content) {
         // An authenticated client always has its player in the world
@@ -186,9 +210,37 @@ pub(super) fn chat_message(
         };
         let clock = time.0;
         let sky = weather.kind;
+        let name = line.split_whitespace().next().unwrap_or_default();
+        let known = shared::commands::COMMANDS
+            .iter()
+            .any(|command| command.name == name)
+            || mods.command_names().iter().any(|command| command == name);
+        let is_operator = access.permissions.may_run(&author, access.is_solo);
+        let refused = refusal(name, known, is_operator);
         let answer = match parse_command(line) {
             _ if line.starts_with("sign ") => {
                 crate::world::home::write_sign(world_map, client_id, &line[5..])
+            }
+            _ if refused.is_some() => refused.unwrap_or_default(),
+            Ok(Command::List) => {
+                list_players(lobby.players.values().map(|p| p.name.as_str()).collect())
+            }
+            Ok(Command::Admin(admin)) => {
+                let outcome = access.permissions.apply(admin, |name| {
+                    lobby.players.values().any(|p| same_name(&p.name, name))
+                });
+                if let Some((name, message)) = outcome.dismiss {
+                    let dismissed = lobby
+                        .players
+                        .iter()
+                        .filter(|(_, p)| same_name(&p.name, &name))
+                        .map(|(id, _)| *id)
+                        .collect::<Vec<_>>();
+                    for id in dismissed {
+                        access.dismissals.dismiss(server, id, message.clone());
+                    }
+                }
+                outcome.answer
             }
             Ok(command) => run_command(
                 command,
@@ -199,9 +251,7 @@ pub(super) fn chat_message(
                     Place::Village => locator.start_village(client_id, (seed.0, generation), from),
                 },
             ),
-            Err(error) => mods
-                .run_command(line, &current_author.name, world_map)
-                .unwrap_or(error),
+            Err(error) => mods.run_command(line, &author, world_map).unwrap_or(error),
         };
         if time.0 != clock {
             for &id in lobby.players.keys() {
@@ -227,12 +277,9 @@ pub(super) fn chat_message(
         return;
     }
 
-    let Some(message) = record_chat_message(
-        chat_conversation,
-        &current_author.name,
-        chat_msg.content,
-        unix_time_ms(),
-    ) else {
+    let Some(message) =
+        record_chat_message(chat_conversation, &author, chat_msg.content, unix_time_ms())
+    else {
         warn!("Rejected chat message from client {}", client_id);
         return;
     };

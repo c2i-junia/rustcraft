@@ -3,6 +3,7 @@ use crate::{
     network::{
         cleanup::cleanup_all_players_from_world,
         dispatcher::{self, setup_resources_and_events},
+        permissions::Permissions,
         status::{publish_player_count, spawn_status_responder, StatusCounter},
     },
     world::{
@@ -177,12 +178,19 @@ fn run(
     // Every path of the world is built from this name: refuse one that is not a plain folder name
     let world_dir = world_dir(&game_folder_paths, &world_name)?;
     let saves = config.saves.clone();
+    let is_solo = config.is_solo;
 
     app.insert_resource(config);
 
     add_netcode_network(&mut app, socket)?;
 
     setup_resources_and_events(&mut app);
+
+    // A solo world keeps no lists: its player is an operator
+    if !is_solo {
+        let permissions = Permissions::load(&game_folder_paths.game_folder_path)?;
+        app.insert_resource(permissions);
+    }
 
     let (world_map, seed, generation, time, weather) = load_world(&world_name, &game_folder_paths)?;
     app.insert_resource(world_map);

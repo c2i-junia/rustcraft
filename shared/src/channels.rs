@@ -90,7 +90,9 @@ impl ChannelResolvableExt for ServerToClientMessage {
             ServerToClientMessage::WorldUpdate(_)
             | ServerToClientMessage::BlockUpdates(_)
             | ServerToClientMessage::ChunkUnloads(_) => STC_CHUNK_DATA_CHANNEL,
-            ServerToClientMessage::AuthRegisterResponse(_) => STC_AUTH_CHANNEL,
+            // read before the authentication too, when a player is refused
+            ServerToClientMessage::AuthRegisterResponse(_)
+            | ServerToClientMessage::Dismissed(_) => STC_AUTH_CHANNEL,
             _ => STC_STANDARD_CHANNEL,
         }
     }
