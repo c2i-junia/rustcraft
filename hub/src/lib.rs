@@ -4,17 +4,12 @@ pub mod config;
 pub mod error;
 pub mod routes;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use ed25519_dalek::SigningKey;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 pub use routes::router;
-
-/// The network protocol the game speaks, announced in the well-known document so that a client
-/// can tell a hub from another build. It mirrors `PROTOCOL_ID` of the game's `shared` crate,
-/// which the hub cannot depend on (it pulls in Bevy): bump both together.
-pub const PROTOCOL_ID: u64 = 44;
 
 /// The id of the signing key in certificates; there is one key for now.
 pub const SIGNING_KEY_ID: u8 = 1;
@@ -34,6 +29,7 @@ pub struct AppState {
 pub async fn connect(database_url: &str) -> anyhow::Result<PgPool> {
     let db = PgPoolOptions::new()
         .max_connections(10)
+        .acquire_timeout(Duration::from_secs(5))
         .connect(database_url)
         .await?;
     migrate(&db).await?;

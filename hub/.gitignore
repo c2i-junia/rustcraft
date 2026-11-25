@@ -1,0 +1,4 @@
+# Secrets of a local run (see README.md).
+*.key
+ip-secret
+secrets/

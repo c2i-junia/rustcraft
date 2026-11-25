@@ -26,6 +26,8 @@ cargo run -- serve --public-url http://127.0.0.1:8080 \
 curl http://127.0.0.1:8080/.well-known/rustcraft-hub
 ```
 
+`*.key`, `ip-secret` and `secrets/` in `hub/` are git-ignored: keep secrets there and nowhere else.
+
 Migrations (`migrations/`) are applied at start. Every option has an environment variable:
 
 | Flag | Variable | Default |

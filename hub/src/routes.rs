@@ -4,9 +4,10 @@ use axum::{extract::State, routing::get, Json, Router};
 use rustcraft_protocol::{
     api::{HubKey, WellKnown, API_VERSION},
     identity::key_to_hex,
+    PROTOCOL_ID,
 };
 
-use crate::{error::AppError, AppState, PROTOCOL_ID, SIGNING_KEY_ID};
+use crate::{error::AppError, AppState, SIGNING_KEY_ID};
 
 pub fn router(state: AppState) -> Router {
     Router::new()

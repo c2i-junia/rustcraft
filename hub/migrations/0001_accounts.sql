@@ -23,7 +23,8 @@ CREATE TABLE account_identities (
     provider   text NOT NULL,
     subject    text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (provider, subject)
+    PRIMARY KEY (provider, subject),
+    UNIQUE (account_id, provider)
 );
 CREATE INDEX account_identities_account_idx ON account_identities (account_id);
 
@@ -37,7 +38,7 @@ CREATE TABLE password_credentials (
 CREATE TABLE sessions (
     id           uuid PRIMARY KEY,
     account_id   uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    token_hash   bytea NOT NULL UNIQUE,
+    token_hash   bytea NOT NULL UNIQUE CHECK (length(token_hash) = 32),
     device_name  text,
     created_at   timestamptz NOT NULL DEFAULT now(),
     last_used_at timestamptz NOT NULL DEFAULT now(),
@@ -48,16 +49,17 @@ CREATE INDEX sessions_account_idx ON sessions (account_id);
 CREATE TABLE certificates (
     id         uuid PRIMARY KEY,
     account_id uuid NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
-    device_key bytea NOT NULL,
+    device_key bytea NOT NULL CHECK (length(device_key) = 32),
     issued_at  timestamptz NOT NULL,
     expires_at timestamptz NOT NULL,
     revoked_at timestamptz
 );
 CREATE INDEX certificates_account_idx ON certificates (account_id, issued_at);
+CREATE INDEX certificates_revoked_idx ON certificates (expires_at) WHERE revoked_at IS NOT NULL;
 
 CREATE TABLE signups (
     id         bigserial PRIMARY KEY,
-    ip_key     bytea NOT NULL,
+    ip_key     bytea NOT NULL CHECK (length(ip_key) = 32),
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX signups_ip_idx ON signups (ip_key, created_at);

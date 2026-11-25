@@ -22,21 +22,19 @@ async fn the_well_known_document_lists_the_key_and_the_protocol_id() {
     assert_eq!(document.name, "Test hub");
     assert_eq!(document.url, "https://hub.example");
     assert_eq!(document.api_version, API_VERSION);
-    assert_eq!(document.protocol_id, rustcraft_hub::PROTOCOL_ID);
+    assert_eq!(document.protocol_id, rustcraft_protocol::PROTOCOL_ID);
     assert_eq!(document.keys.len(), 1);
     assert_eq!(document.keys[0].id, 1);
     assert_eq!(
         document.keys[0].public_key,
         key_to_hex(&hub.state.signing_key.verifying_key().to_bytes())
     );
-    hub.finish().await;
 }
 
 #[tokio::test]
 async fn healthz_answers_while_the_database_does() {
     let hub = TestHub::start().await;
     assert_eq!(hub.get("/healthz").await.status(), 200);
-    hub.finish().await;
 }
 
 #[tokio::test]
@@ -62,5 +60,36 @@ async fn the_migration_creates_the_account_tables() {
             "signups"
         ]
     );
-    hub.finish().await;
+}
+
+#[tokio::test]
+async fn usernames_are_unique_whatever_their_case() {
+    let hub = TestHub::start().await;
+    let insert = |name: &'static str| {
+        sqlx::query("INSERT INTO accounts (id, username, display_name) VALUES ($1, $2, $2)")
+            .bind(uuid::Uuid::new_v4())
+            .bind(name)
+            .execute(&hub.state.db)
+    };
+    insert("Bob").await.unwrap();
+    let error = insert("bob").await.unwrap_err();
+    assert!(error
+        .as_database_error()
+        .is_some_and(|e| e.is_unique_violation()));
+}
+
+#[tokio::test]
+async fn keys_and_hashes_must_be_32_bytes() {
+    let hub = TestHub::start().await;
+    let insert = sqlx::query("INSERT INTO signups (ip_key) VALUES ($1)");
+    insert
+        .bind(vec![0u8; 31])
+        .execute(&hub.state.db)
+        .await
+        .unwrap_err();
+    sqlx::query("INSERT INTO signups (ip_key) VALUES ($1)")
+        .bind(vec![0u8; 32])
+        .execute(&hub.state.db)
+        .await
+        .unwrap();
 }
