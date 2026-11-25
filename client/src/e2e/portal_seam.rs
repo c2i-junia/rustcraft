@@ -11,10 +11,10 @@
 //! (`the_sky_follows_*`). The diagnoses (`seam_*` but `*_is_seamless`) measure, with some
 //! suspects of the seam turned off one by one, and check little. Run them all, two at most at
 //! once (with three, a server timed out), in under three hours (167 minutes in the last run,
-//! 63 tests), with `E2E_LIFETIME_SECS=3000 cargo test -p client e2e::portal_seam -- --ignored
+//! 63 tests), with `cargo test -p client e2e::portal_seam -- --ignored
 //! --test-threads=2`, or, before a merge, a gate of each kind and those of the approach, 12
 //! tests in about 18 minutes (1053 s in the last run), with
-//! `E2E_LIFETIME_SECS=3000 cargo test -p client -- --ignored --test-threads=2 --exact
+//! `cargo test -p client -- --ignored --test-threads=2 --exact
 //! e2e::portal_seam::seam_close_off_noon_is_seamless
 //! e2e::portal_seam::seam_close_high_dusk_is_seamless
 //! e2e::portal_seam::seam_mid_off_noon_is_seamless

@@ -1,7 +1,9 @@
 //! The client running headless: the real app, on a window with no surface, drawn by lavapipe
 //! (see `ui/golden.rs`). The tests own the update loop.
 
+use std::io::Write;
 use std::path::Path;
+use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use bevy::{
@@ -84,22 +86,37 @@ pub struct Harness {
     _watchdog: Watchdog,
 }
 
-/// How long a harness may live before the watchdog aborts the process: `E2E_LIFETIME_SECS`, for
-/// the long diagnoses run by hand (`portal_seam`), or 300 seconds.
-fn lifetime() -> Duration {
-    std::env::var("E2E_LIFETIME_SECS")
+/// How long a frame of a harness may take before the watchdog aborts the process:
+/// `E2E_FRAME_SECS`, or 300 seconds.
+fn longest_frame() -> Duration {
+    std::env::var("E2E_FRAME_SECS")
         .ok()
         .and_then(|secs| secs.parse().ok())
         .map_or(Duration::from_secs(300), Duration::from_secs)
 }
 
-/// Aborts the process, saying which test it was, if its harness lives longer than [`lifetime`].
-/// A frame stuck in the renderer cannot be timed out from the test thread, and would otherwise
-/// block the whole run.
+/// Aborts the process, saying which test it was, if its harness starts no frame for
+/// [`longest_frame`]. A frame stuck in the renderer cannot be timed out from the test thread, and
+/// would otherwise block the whole run. A test that is only slow, on the few cores of a CI
+/// machine, is left to its own timeouts.
 struct Watchdog(
     // Only held for its drop
     #[allow(dead_code)] Stop,
 );
+
+/// What a watchdog is told.
+enum Sign {
+    Frame,
+    Stop,
+}
+
+/// Tells the watchdog of the client that a frame starts.
+#[derive(Resource)]
+struct Frames(Sender<Sign>);
+
+fn sign_frame(frames: Res<Frames>) {
+    let _ = frames.0.send(Sign::Frame);
+}
 
 thread_local! {
     /// The watchdogs started by the test of this thread. They stop when the thread ends, even
@@ -109,12 +126,12 @@ thread_local! {
 }
 
 /// Stops a watchdog when dropped.
-struct Stop(std::sync::mpsc::Sender<()>);
+struct Stop(Sender<Sign>);
 
 impl Drop for Stop {
     fn drop(&mut self) {
         // The watchdog may be gone already
-        let _ = self.0.send(());
+        let _ = self.0.send(Sign::Stop);
     }
 }
 
@@ -124,19 +141,29 @@ impl Watchdog {
             .name()
             .unwrap_or("unnamed")
             .to_string();
-        let (done, wait) = std::sync::mpsc::channel();
-        WATCHDOGS.with(|watchdogs| watchdogs.borrow_mut().push(Stop(done.clone())));
-        std::thread::spawn(move || {
-            if wait.recv_timeout(lifetime()) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-                eprintln!(
-                    "the harness of {test} is stuck after {:?}: aborting",
-                    lifetime()
-                );
-                std::process::abort();
+        let (signs, wait) = std::sync::mpsc::channel();
+        WATCHDOGS.with(|watchdogs| watchdogs.borrow_mut().push(Stop(signs.clone())));
+        std::thread::spawn(move || loop {
+            match wait.recv_timeout(longest_frame()) {
+                Ok(Sign::Frame) => continue,
+                Ok(Sign::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) => {
+                    // Not `eprintln`, which the test captures: the abort would lose it
+                    let _ = writeln!(
+                        std::io::stderr(),
+                        "the harness of {test} is stuck after {:?} in a frame: aborting",
+                        longest_frame()
+                    );
+                    std::process::abort();
+                }
             }
         });
         // Dropped with the harness, it stops the watchdog before the thread ends
-        Self(Stop(done))
+        Self(Stop(signs))
+    }
+
+    fn frames(&self) -> Frames {
+        Frames(self.0 .0.clone())
     }
 }
 
@@ -298,6 +325,8 @@ impl Harness {
         );
         app.init_resource::<ExitLatch>();
         app.add_systems(Last, latch_exit);
+        app.insert_resource(watchdog.frames());
+        app.add_systems(First, sign_frame);
         add_client(
             &mut app,
             ClientSettings {

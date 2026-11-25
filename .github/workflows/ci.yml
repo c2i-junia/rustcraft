@@ -54,8 +54,23 @@ jobs:
     - name: Run clippy
       run: cargo clippy --workspace --all-targets -- -D warnings
 
-    - name: Run tests
-      run: cargo test --workspace
+    # Every crate, whatever fails in another: the failures of one hid those of the next
+    - name: Run the tests of shared
+      run: cargo test -p shared --no-fail-fast
+      env:
+        RUST_BACKTRACE: 1
+
+    - name: Run the tests of the server
+      if: success() || failure()
+      run: cargo test -p server --no-fail-fast
+      env:
+        RUST_BACKTRACE: 1
+
+    - name: Run the tests of the client
+      if: success() || failure()
+      run: cargo test -p client --no-fail-fast
+      env:
+        RUST_BACKTRACE: 1
 
     - name: Upload the UI screenshots that differ from their golden
       if: failure()
