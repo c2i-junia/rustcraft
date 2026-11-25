@@ -261,6 +261,56 @@ fn a_drowner_hatched_in_a_lake_grabs_a_survival_player_and_drags_it_down() {
 
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_cinderling_hatched_next_to_a_survival_player_sets_it_burning_with_its_embers() {
+    let folder = GameFolder::new().with_world("Embers").with_items(
+        "Embers",
+        "Tester",
+        &[(0, ItemId::CinderlingSpawnEgg, 1)],
+    );
+    let mut h = enter_world(folder, "Embers");
+    h.wait_until("the saved inventory", SERVER, |w| {
+        slot(w, 0) == Some((ItemId::CinderlingSpawnEgg, 1))
+    });
+    assert_eq!(local_player(h.world()).game_mode, GameMode::Survival);
+    let player = look_at_the_ground_ahead(&mut h);
+
+    right_click(&mut h);
+    h.wait_until("the hatched cinderling", SERVER, |w| {
+        animals(w)
+            .iter()
+            .any(|&(kind, at)| kind == MobKind::Cinderling && at.distance(player) < 5.0)
+    });
+    // An ember in flight, once the Cinderling keeps its distance
+    h.wait_until("an ember from afar", SERVER, |w| {
+        let drawn = animals(w);
+        let far = drawn
+            .iter()
+            .any(|&(kind, at)| kind == MobKind::Cinderling && at.distance(player) > 4.5);
+        far && drawn.iter().any(|&(kind, _)| kind == MobKind::Ember)
+    });
+    h.frames(3);
+    let (_, ember) = animals(h.world())
+        .into_iter()
+        .find(|&(kind, _)| kind == MobKind::Ember)
+        .unwrap();
+    look_at(&mut h, ember);
+    h.frames(1);
+    h.snapshot("ember");
+    h.wait_until("the player hit and burning", SERVER, |w| {
+        let player = local_player(w);
+        player.health < MAX_HEALTH && player.is_burning()
+    });
+    let (_, cinderling) = animals(h.world())
+        .into_iter()
+        .find(|&(kind, _)| kind == MobKind::Cinderling)
+        .unwrap();
+    look_at(&mut h, cinderling);
+    h.frames(5);
+    h.snapshot("cinderling");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
 fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
     let kinds = [
         MobKind::Gnawer,
@@ -268,6 +318,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         MobKind::Roller,
         MobKind::Stumpling,
         MobKind::Drowner,
+        MobKind::Cinderling,
     ];
     let eggs = [
         (0, ItemId::GnawerSpawnEgg, 1),
@@ -275,6 +326,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         (2, ItemId::RollerSpawnEgg, 1),
         (3, ItemId::StumplingSpawnEgg, 1),
         (4, ItemId::DrownerSpawnEgg, 1),
+        (5, ItemId::CinderlingSpawnEgg, 1),
     ];
     let folder = GameFolder::new()
         .with_world("Zoo")
@@ -292,7 +344,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         });
     let mut h = enter_world(folder, "Zoo");
     h.wait_until("the saved inventory", SERVER, |w| {
-        slot(w, 4) == Some((ItemId::DrownerSpawnEgg, 1))
+        slot(w, 5) == Some((ItemId::CinderlingSpawnEgg, 1))
     });
     look_at_the_ground_ahead(&mut h);
     let keys = [
@@ -301,6 +353,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
         KeyCode::Digit3,
         KeyCode::Digit4,
         KeyCode::Digit5,
+        KeyCode::Digit6,
     ];
     for (key, kind) in keys.into_iter().zip(kinds) {
         h.press(key);
@@ -315,7 +368,7 @@ fn the_hostiles_are_drawn_where_their_eggs_hatch_them() {
             .query::<&mut CameraController>()
             .single_mut(world)
             .unwrap();
-        controller.angle_x += 0.45;
+        controller.angle_x += 0.38;
         h.frames(5);
     }
     // Step back, then look at them all

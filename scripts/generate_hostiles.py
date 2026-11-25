@@ -2,7 +2,7 @@
 
 Seven mobs on the 1/16 m grid of the sheep: Stumpling, Drowner, Cinderling and GustOwl, the
 mobs that lead to a death of their own (blows, drowning, fire, falls), and Gnawer, Bramble and
-Roller, simpler ones. Each part is a rigid object whose voxels take their colour from a 16x16
+Roller, simpler ones; and the Ember a Cinderling throws, whose three clips are one spin. Each part is a rigid object whose voxels take their colour from a 16x16
 palette drawn with nearest filtering; colours marked `*` glow. The clips move whole parts and
 are Attack, Idle and Walk, which the exporter sorts by name into glTF animations 0, 1 and 2,
 at 24 fps. The models are in metres with their feet on the origin and face -Y in Blender,
@@ -329,6 +329,17 @@ def rafaleur():
 
 
 
+# ------------------------------------------------------------------ Ember (the Cinderling's throw)
+
+def braise():
+    """A glowing 2x2x2 ember, centred 2 voxels above the origin."""
+    rng = random.Random(17)
+    GLOW = ["*#ffd24a", "*#ff8c1a", "*#ff6a00"]
+    ember = {}
+    box(ember, range(-1, 1), range(-1, 1), range(1, 3), lambda *_: rng.choice(GLOW))
+    return {"ember": ember}, {"ember": (0, 0, 2)}, {}
+
+
 # ------------------------------------------------------------------ Grignoteur (cave rat, packs)
 
 def grignoteur():
@@ -545,6 +556,11 @@ def clips_rafaleur():
     return {"Attack": attack, "Idle": idle, "Walk": walk}
 
 
+def clips_braise():
+    spin = {"ember": [(f, None, (360 * f / 12, 0, 360 * f / 24)) for f in range(0, 25, 3)]}
+    return {"Attack": spin, "Idle": spin, "Walk": spin}
+
+
 def clips_grignoteur():
     walk = {"leg_FL": swing(35, period=8), "leg_BR": swing(35, period=8), "leg_FR": swing(35, period=8, phase=PI),
             "leg_BL": swing(35, period=8, phase=PI), "tail": swing(20, period=8, axis=2),
@@ -586,8 +602,9 @@ MOBS = {
     "Gnawer": ("Grignoteur", grignoteur, clips_grignoteur),
     "Bramble": ("Ronceux", ronceux, clips_ronceux),
     "Roller": ("Rouleur", rouleur, clips_rouleur),
+    "Ember": ("Braise", braise, clips_braise),
 }
-LINEAR = {"Cinderling", "Roller"}
+LINEAR = {"Cinderling", "Roller", "Ember"}
 
 
 # ------------------------------------------------------------------ the objects
@@ -799,7 +816,7 @@ def render(scene, path, w, h):
 
 # height of the centre of the frame, and lift off the ground, of each preview
 FRAMING = {"Stumpling": (1.0, 0), "Drowner": (0.75, 0), "Cinderling": (0.95, 0), "GustOwl": (1.05, 0.55),
-           "Gnawer": (0.3, 0), "Bramble": (0.4, 0), "Roller": (0.4, 0)}
+           "Gnawer": (0.3, 0), "Bramble": (0.4, 0), "Roller": (0.4, 0), "Ember": (0.3, 0.2)}
 
 
 def previews(out, names):

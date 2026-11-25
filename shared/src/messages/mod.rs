@@ -314,6 +314,12 @@ mod tests {
         assert_eq!(variant_index(&MobKind::Roller), 12, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::Stumpling), 13, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobKind::Drowner), 14, "{ENCODING_WARNING}");
+        assert_eq!(
+            variant_index(&MobKind::Cinderling),
+            15,
+            "{ENCODING_WARNING}"
+        );
+        assert_eq!(variant_index(&MobKind::Ember), 16, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::None), 0, "{ENCODING_WARNING}");
         assert_eq!(variant_index(&MobTarget::Position(Vec3::ZERO)), 1);
         assert_eq!(variant_index(&MobTarget::Player(0)), 2);

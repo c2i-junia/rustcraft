@@ -92,6 +92,12 @@ impl MobKind {
                 forget: 24.0,
                 speed: 1.2,
             }),
+            // It hovers and keeps its distance (`hostile::hover_and_throw`)
+            MobKind::Cinderling => Some(Hunt {
+                sight: 16.0,
+                forget: 24.0,
+                speed: 2.0,
+            }),
             // Its speed in water: it walks at 0.8 on land, only back to the water
             MobKind::Drowner => Some(Hunt {
                 sight: 16.0,
@@ -128,6 +134,13 @@ impl MobKind {
                 damage: 3,
                 reach: 1.2,
                 cooldown: 20,
+                knock_back: 0.0,
+            }),
+            // Its ember, thrown as far as it reaches, sets the player burning too
+            MobKind::Cinderling => Some(Strike {
+                damage: 1,
+                reach: 16.0,
+                cooldown: 60,
                 knock_back: 0.0,
             }),
             // Its grab also drags the player down (`Player::drag`)
@@ -239,12 +252,14 @@ pub const DROWNER_ODDS: (u32, u32) = (1, 4);
 
 /// Above this height, the mountains: the Rollers' home.
 pub const MOUNTAIN_HEIGHT: i32 = 100;
+/// Below this height and under a block, the deep caves: the Cinderlings' home.
+pub const CINDER_HEIGHT: i32 = 20;
 /// Below this height and under a block, the caves.
 pub const CAVE_HEIGHT: i32 = 50;
 
 /// The kind of hostile a dark `place` gets, if any: on grass at night Stumplings, or in the
 /// woods Brambles and Stumplings half each; Rollers in the mountains, Gnawers (3 in 4) or
-/// Rollers in the caves; Drowners in water `DROWNER_DEPTH` deep, at `DROWNER_ODDS` by day and
+/// Rollers in the caves, and in the deep caves Cinderlings (1 in 3); Drowners in water `DROWNER_DEPTH` deep, at `DROWNER_ODDS` by day and
 /// twice that at night. Each later kind adds its place here.
 pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
     if place.water_depth > 0 {
@@ -260,6 +275,8 @@ pub fn spawn_kind(place: &SpawnPlace, rng: &mut impl Rng) -> Option<MobKind> {
         })
     } else if place.y > MOUNTAIN_HEIGHT {
         Some(MobKind::Roller)
+    } else if place.covered && place.y < CINDER_HEIGHT && rng.gen_ratio(1, 3) {
+        Some(MobKind::Cinderling)
     } else if place.covered && place.y < CAVE_HEIGHT {
         Some(if rng.gen_ratio(3, 4) {
             MobKind::Gnawer
@@ -357,6 +374,10 @@ mod tests {
         assert_eq!(MobKind::Drowner.health(), 18);
         let stumpling = MobKind::Stumpling.strike().unwrap();
         assert_eq!((stumpling.damage, stumpling.cooldown), (3, 20));
+        // The Cinderling's strike is its ember, thrown every 60 ticks
+        let cinderling = MobKind::Cinderling.strike().unwrap();
+        assert_eq!((cinderling.damage, cinderling.cooldown), (1, 60));
+        assert_eq!(MobKind::Cinderling.health(), 10);
         assert_eq!(MobKind::Stumpling.hunt().unwrap().speed, 1.2);
         assert_eq!(
             [
@@ -528,6 +549,15 @@ mod tests {
         assert_eq!(
             kinds(place(70, true, false, BlockId::Grass, false)),
             [Some(Stumpling)]
+        );
+        // Deep caves: Cinderlings too
+        assert_eq!(
+            kinds(place(10, false, true, BlockId::Stone, false)),
+            [Some(Cinderling), Some(Gnawer), Some(Roller)]
+        );
+        assert_eq!(
+            kinds(place(CINDER_HEIGHT, false, true, BlockId::Stone, false)),
+            [Some(Gnawer), Some(Roller)]
         );
         // Under the trees at day, open stone at night, a cave too high: none
         assert_eq!(kinds(place(70, false, true, BlockId::Grass, true)), [None]);

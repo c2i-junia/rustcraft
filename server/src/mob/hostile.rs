@@ -3,7 +3,8 @@
 //! (`act`) goes at it and strikes. The Gnawer and the Bramble strike in reach (`melee`); the
 //! Roller winds up and rolls (`roll`). The Stumpling strikes in reach too, but flees fire
 //! first (`stumpling`), and sinks into the ground at dawn (`burrow`). The Drowner swims at its
-//! prey in water and drags it down, and walks back to the water from land (`swim`).
+//! prey in water and drags it down, and walks back to the water from land (`swim`). The
+//! Cinderling hovers at a distance and throws embers (`hover_and_throw`, `cinder::ember`).
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -15,7 +16,8 @@ use shared::{
     players::{game_mode::DamageSource, Player},
     world::{
         hostiles::{distance_to_box, is_prey, line_of_sight, Hunt, Strike},
-        BlockId, ChunkMap, MobAction, MobKind, MobTarget, ServerMob,
+        BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobAction, MobKind, MobTarget,
+        ServerMob,
     },
 };
 
@@ -38,6 +40,14 @@ pub const BURROW_TICKS: u32 = 40;
 pub const FIRE_FEAR_DISTANCE: i32 = 6;
 /// How far, horizontally, a Drowner on land looks for water to go back to, in blocks.
 pub const WATER_SEARCH_DISTANCE: i32 = 8;
+/// How high a Cinderling hovers, from the ground to the bottom of its box, in blocks.
+pub const HOVER_HEIGHT: f32 = 2.0;
+/// How many cells below itself a Cinderling looks for the ground it hovers over.
+const HOVER_SCAN: i32 = 8;
+/// How far a Cinderling keeps from its prey, horizontally, in blocks, give or take
+/// `KEEP_SLACK`.
+pub const KEEP_DISTANCE: f32 = 6.0;
+const KEEP_SLACK: f32 = 0.5;
 
 /// How fast a hostile of `kind` moves by its own velocity at most, in blocks per second: a
 /// faster one was thrown (`behavior::is_flung`). The Roller's roll moves it without a
@@ -55,7 +65,8 @@ pub fn provoke(mob: &mut ServerMob, player: PlayerId) {
     mob.target = MobTarget::Player(player);
 }
 
-/// One step of the hunt of a hostile: the prey, then what its kind does.
+/// One step of the hunt of a hostile: the prey, then what its kind does. Returns what it threw,
+/// if anything: a Cinderling's ember, which the caller adds to the mobs.
 ///
 /// The arm of each kind is where the later hostiles plug in their own way of going at a prey.
 pub fn act(
@@ -64,20 +75,102 @@ pub fn act(
     players: &mut HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
-) {
+) -> Option<ServerMob> {
     let (Some(hunt), Some(strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
-        return;
+        return None;
     };
     if mob.action == MobAction::Burrow {
-        return burrow(mob);
+        burrow(mob);
+        return None;
     }
     let prey = prey(mob, chunks, players, &hunt);
+    if mob.kind == MobKind::Cinderling {
+        return hover_and_throw(mob, chunks, players, prey, (hunt, strike), delta);
+    }
     match mob.kind {
         MobKind::Roller => roll(mob, chunks, players, prey, (hunt, strike), delta),
         MobKind::Stumpling => stumpling(mob, chunks, players, prey, (hunt, strike), delta, rng),
         MobKind::Drowner => swim(mob, chunks, players, prey, (hunt, strike), delta, rng),
         _ => melee(mob, chunks, players, prey, (hunt, strike), delta, rng),
     }
+    None
+}
+
+/// The height of the top of the ground under `mob`: the first cell with a hitbox or a liquid
+/// at most `HOVER_SCAN` cells below the bottom of its box.
+fn ground_below(chunks: &ChunkMap, mob: &ServerMob) -> Option<f32> {
+    let bottom = (mob.position - Vec3::Y * (mob.height / 2.0))
+        .floor()
+        .as_ivec3();
+    (0..=HOVER_SCAN)
+        .map(|down| bottom - IVec3::Y * down)
+        .find(|cell| {
+            chunks.get_block(*cell).is_some_and(|block| {
+                !matches!(block.get_hitbox(), BlockHitbox::None)
+                    || block.id.get_visibility() == BlockTransparency::Liquid
+            })
+        })
+        .map(|cell| cell.y as f32 + 1.0)
+}
+
+/// One step of a floating `mob` toward `target` at `speed`: straight, else only up or down,
+/// else only horizontally, each step taken only if `may_move_to` lets it.
+fn fly_to(mob: &mut ServerMob, chunks: &ChunkMap, target: Vec3, speed: f32, delta: f32) {
+    let step = (target - mob.position).clamp_length_max(speed * delta);
+    for step in [step, Vec3::Y * step.y, step.with_y(0.0)] {
+        let moved = mob.position + step;
+        if step != Vec3::ZERO && may_move_to(mob, chunks, moved) {
+            mob.position = moved;
+            return;
+        }
+    }
+}
+
+/// The Cinderling: it floats (`behavior::floats`), its box `HOVER_HEIGHT` above the ground
+/// (`ground_below`; its height kept over a deeper void). With a prey it goes to `KEEP_DISTANCE`
+/// from it horizontally, and once its cooldown is over throws an ember at it
+/// (`cinder::ember`) if it is within reach and in sight, which shows for `ATTACK_SHOW_TICKS`.
+/// Without a prey it hovers where it is.
+fn hover_and_throw(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    prey: Option<PlayerId>,
+    (hunt, strike): (Hunt, Strike),
+    delta: f32,
+) -> Option<ServerMob> {
+    let height = ground_below(chunks, mob).map_or(mob.position.y, |ground| {
+        ground + HOVER_HEIGHT + mob.height / 2.0
+    });
+    let Some(player) = prey.and_then(|id| players.get(&id)) else {
+        if mob.action != MobAction::Idle {
+            (mob.action, mob.action_ticks) = (MobAction::Idle, 0);
+        }
+        fly_to(mob, chunks, mob.position.with_y(height), hunt.speed, delta);
+        return None;
+    };
+    face(mob, player.position);
+    let apart = (mob.position - player.position).with_y(0.0);
+    let spot = if (apart.length() - KEEP_DISTANCE).abs() > KEEP_SLACK {
+        player.position + apart.normalize_or(Vec3::X) * KEEP_DISTANCE
+    } else {
+        mob.position
+    };
+    fly_to(mob, chunks, spot.with_y(height), hunt.speed, delta);
+    let throws = mob.attack_wait == 0
+        && distance(mob, player) <= strike.reach
+        && line_of_sight(chunks, eyes(mob), player.eye_position());
+    if throws {
+        mob.attack_wait = strike.cooldown;
+        (mob.action, mob.action_ticks) = (MobAction::Attack, ATTACK_SHOW_TICKS);
+        return Some(super::cinder::ember(mob.position, player.position));
+    }
+    if mob.action == MobAction::Attack && mob.action_ticks > 1 {
+        mob.action_ticks -= 1;
+    } else {
+        (mob.action, mob.action_ticks) = (MobAction::Chase, 0);
+    }
+    None
 }
 
 /// A Stumpling that burrows (`MobAction::Burrow`, which the spawning system starts at dawn)
@@ -935,5 +1028,103 @@ mod tests {
         let walked = start.x - mob(&w).position.x;
         assert!((0.7..=0.9).contains(&walked), "{walked}");
         assert_eq!(player(&w, 1).health, MAX_HEALTH);
+    }
+
+    /// The embers in `w`.
+    fn embers(w: &World) -> Vec<ServerMob> {
+        w.resource::<ServerWorldMap>()
+            .mobs
+            .values()
+            .filter(|mob| mob.kind == MobKind::Ember)
+            .cloned()
+            .collect()
+    }
+
+    /// How high the bottom of the box of `mob` is above the ground of `ground` (y = 1).
+    fn hover(mob: &ServerMob) -> f32 {
+        mob.position.y - mob.height / 2.0 - 1.0
+    }
+
+    #[test]
+    fn a_cinderling_hovers_two_blocks_above_the_ground_and_keeps_six_blocks_from_its_prey() {
+        // Too close: it backs away and rises
+        let mut w = with(
+            mob_at(MobKind::Cinderling, 0.5, 0.5),
+            vec![player_at(1, 3.5, 0.5)],
+        );
+        run(&mut w, 100);
+        assert!(
+            (hover(mob(&w)) - HOVER_HEIGHT).abs() < 0.05,
+            "{}",
+            hover(mob(&w))
+        );
+        let apart = (mob(&w).position - player(&w, 1).position)
+            .with_y(0.0)
+            .length();
+        assert!((5.4..=6.6).contains(&apart), "{apart}");
+        // Too far: it comes closer, at 2 blocks a second
+        let mut w = with(
+            mob_at(MobKind::Cinderling, 0.5, 0.5),
+            vec![player_at(1, 14.5, 0.5)],
+        );
+        run(&mut w, 20);
+        assert!(mob(&w).position.x > 1.5, "{}", mob(&w).position);
+        assert!(mob(&w).position.x < 2.6, "{}", mob(&w).position);
+        run(&mut w, 100);
+        let apart = (mob(&w).position - player(&w, 1).position)
+            .with_y(0.0)
+            .length();
+        assert!((5.4..=6.6).contains(&apart), "{apart}");
+        // Without a prey, it hovers where it is
+        let mut w = with(mob_at(MobKind::Cinderling, 0.5, 0.5), vec![]);
+        run(&mut w, 60);
+        assert!((hover(mob(&w)) - HOVER_HEIGHT).abs() < 0.05);
+        assert_eq!(mob(&w).position.x, 0.5);
+        assert_eq!(mob(&w).action, MobAction::Idle);
+    }
+
+    #[test]
+    fn a_cinderling_throws_an_ember_at_its_prey_every_sixty_ticks_and_shows_it() {
+        let mut w = with(
+            mob_at(MobKind::Cinderling, 0.5, 0.5),
+            vec![player_at(1, 6.5, 0.5)],
+        );
+        run(&mut w, 1);
+        assert_eq!(embers(&w).len(), 1);
+        assert_eq!(mob(&w).action, MobAction::Attack);
+        let ember = &embers(&w)[0];
+        assert!(
+            ember.velocity.x > 0.0,
+            "toward its prey: {}",
+            ember.velocity
+        );
+        assert!(ember.velocity.y > 0.0, "in an arc: {}", ember.velocity);
+        run(&mut w, 59);
+        assert_eq!(embers(&w).len(), 1);
+        run(&mut w, 1);
+        assert_eq!(embers(&w).len(), 2);
+        // Not at a creative player
+        let mut creative = player_at(1, 6.5, 0.5);
+        creative.game_mode = GameMode::Creative;
+        let mut w = with(mob_at(MobKind::Cinderling, 0.5, 0.5), vec![creative]);
+        run(&mut w, 30);
+        assert!(embers(&w).is_empty());
+    }
+
+    #[test]
+    fn a_cinderling_throws_nothing_through_a_wall() {
+        let mut w = with(
+            mob_at(MobKind::Cinderling, 0.5, 0.5),
+            vec![player_at(1, 6.5, 0.5)],
+        );
+        // Its prey seen first, then a wall rises between them
+        run(&mut w, 1);
+        w.resource_mut::<ServerWorldMap>().chunks.fill_box(
+            IVec3::new(3, 1, -5),
+            IVec3::new(3, 8, 5),
+            BlockId::Stone,
+        );
+        run(&mut w, 80);
+        assert_eq!(embers(&w).len(), 1);
     }
 }

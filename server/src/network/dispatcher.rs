@@ -164,6 +164,7 @@ pub fn register_systems(app: &mut App) {
         (
             (
                 mob_behavior_system,
+                crate::mob::cinder::cinder_system,
                 crate::mob::spawning::hostile_spawning_system,
             )
                 .chain(),

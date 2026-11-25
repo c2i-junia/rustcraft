@@ -177,13 +177,18 @@ pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
             (ItemId::Cobblestone, rng.gen_range(1..=2)),
             (ItemId::Flint, u32::from(rng.gen_ratio(1, 5))),
         ],
+        MobKind::Cinderling => vec![
+            (ItemId::Coal, rng.gen_range(1..=2)),
+            (ItemId::Flint, u32::from(rng.gen_ratio(1, 10))),
+        ],
         MobKind::Fox
         | MobKind::Wolf
         | MobKind::Horse
         | MobKind::Goat
         | MobKind::Cat
         | MobKind::Gnawer
-        | MobKind::Drowner => vec![],
+        | MobKind::Drowner
+        | MobKind::Ember => vec![],
     };
     drops.retain(|&(_, nb)| nb > 0);
     drops
@@ -225,6 +230,7 @@ fn aimed_mob(
     .and_then(|target| distance(&target.bbox))
     .unwrap_or(f32::INFINITY);
     mobs.iter()
+        .filter(|(_, mob)| !mob.kind.is_projectile())
         .filter_map(|(id, mob)| {
             let half = Vec3::new(mob.width, mob.height, mob.depth) / 2.0;
             Some((*id, distance(&Aabb3d::new(mob.position, half))?))
@@ -319,6 +325,14 @@ mod tests {
                 .map(|i| i.stack.item_id)
                 .collect()
         }
+    }
+
+    #[test]
+    fn an_ember_in_flight_is_not_struck() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Ember, AHEAD));
+        arena.click(&mut fighter(1, None), NetworkAction::LeftClick, 3);
+        assert_eq!(arena.mobs[&7].damage, 0);
+        assert_eq!(arena.mobs[&7].velocity, Vec3::ZERO);
     }
 
     /// What `clicks` clicks of `action` do to a sheep two blocks ahead.
@@ -465,6 +479,7 @@ mod tests {
             MobKind::Cat,
             MobKind::Gnawer,
             MobKind::Drowner,
+            MobKind::Ember,
         ] {
             assert_eq!(drops(kind), [], "{kind:?}");
         }
@@ -477,12 +492,25 @@ mod tests {
             drops(MobKind::Roller),
             [(Cobblestone, (1, 2)), (Flint, (1, 1))]
         );
+        assert_eq!(
+            drops(MobKind::Cinderling),
+            [(Coal, (1, 2)), (Flint, (1, 1))]
+        );
         let flints = (0..1000)
             .filter(|_| {
                 loot(&ServerMob::new(MobKind::Roller, AHEAD), &mut rng).contains(&(Flint, 1))
             })
             .count();
         assert!((150..250).contains(&flints), "{flints} flints in 1000");
+        let cinder_flints = (0..1000)
+            .filter(|_| {
+                loot(&ServerMob::new(MobKind::Cinderling, AHEAD), &mut rng).contains(&(Flint, 1))
+            })
+            .count();
+        assert!(
+            (60..140).contains(&cinder_flints),
+            "{cinder_flints} flints in 1000"
+        );
         let charcoals = (0..1000)
             .filter(|_| {
                 loot(&ServerMob::new(MobKind::Stumpling, AHEAD), &mut rng).contains(&(Charcoal, 1))

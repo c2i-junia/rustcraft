@@ -355,3 +355,25 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   time-of-day rule goes in `spawning::burrow_at_dawn`'s place, the system that knows the time.
   A per-cell search uses a sorted `LazyLock` offset list (`FEAR_OFFSETS`, `WATER_OFFSETS`). A
   projectile kind should skip `push_mobs` and the hostile caps.
+- **Lot 11** (plan `2026-11-24-survival-lot-11-12-fliers.md`). Appended `MobKind` 15
+  `Cinderling`, 16 `Ember`, `ItemId` 167 `CinderlingSpawnEgg` (no egg for the ember). The
+  projectile is a mob kind, as suggested: main's portal-gun bolt is drawn by the client alone
+  (its hit is instant) and a dropped item is an item. `MobKind::is_projectile` (the Ember only)
+  is neither hostile nor an animal: `behavior::step_mobs` and `push_mobs` skip it, blows do not
+  aim at it, the caps do not count it, peaceful removes it, and the save leaves it out
+  (`save::saved_mobs`), so a load never meets one. `server/src/mob/cinder.rs`
+  (`cinder_system`, chained between `mob_behavior_system` and the spawning) flies the embers:
+  exact ballistics under −16 b/s², steps ≤ 0.25 block, life 100 ticks (`action_ticks`); the
+  first prey box touched takes 1 (`Mob(Cinderling)`) and burns ≥ 60 ticks; the first cell with
+  a hitbox or liquid ends it, lighting the air cell it came from when the block is flammable
+  (the fire ticks schedule it as a lit fire). `hostile::act` now returns what a hostile threw,
+  which `step_mobs` adds after its loop. The Cinderling (box 0.7 × 1.6; model 1.125 wide with
+  its orbiting embers, 1.75 tall) floats always; its box hovers 2 above the first block or
+  liquid within 8 cells below (its height kept over a deeper void), and holds 6 ± 0.5 blocks
+  from its prey horizontally, by `may_move_to` steps at 2 b/s (straight, else vertical, else
+  horizontal). Its `Strike` is the throw: 1 damage, reach 16, cooldown 60, in sight; the ember
+  aims at the prey's centre, flying the horizontal distance / 8 b/s (0.25–2 s). Covered spots
+  below y = 20 give a Cinderling 1 in 3, else lot 8's cave rule. Touching water, or seeing the
+  sky while it rains or storms, removes it without loot (it was not killed); killed, 1–2 coal
+  and flint 1 in 10. The Ember model (2×2×2 glowing voxels, three identical spinning clips) is
+  in `generate_hostiles.py`.

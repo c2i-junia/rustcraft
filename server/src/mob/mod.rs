@@ -1,4 +1,5 @@
 pub mod behavior;
+pub mod cinder;
 pub mod combat;
 pub mod hostile;
 pub mod spawning;

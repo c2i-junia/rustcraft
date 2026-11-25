@@ -64,6 +64,9 @@ pub fn model(kind: MobKind) -> MobModel {
         MobKind::Roller => ("models/animated/Roller.glb", HOSTILE_CLIPS),
         MobKind::Stumpling => ("models/animated/Stumpling.glb", HOSTILE_CLIPS),
         MobKind::Drowner => ("models/animated/Drowner.glb", HOSTILE_CLIPS),
+        MobKind::Cinderling => ("models/animated/Cinderling.glb", HOSTILE_CLIPS),
+        // Its three clips are one spin
+        MobKind::Ember => ("models/animated/Ember.glb", HOSTILE_CLIPS),
     };
     MobModel { path, clips }
 }
@@ -162,6 +165,8 @@ mod tests {
             MobKind::Roller,
             MobKind::Stumpling,
             MobKind::Drowner,
+            MobKind::Cinderling,
+            MobKind::Ember,
         ] {
             assert_eq!(clip_for(kind, MobAction::Chase), MobClip::Walk);
             assert_eq!(clip_for(kind, MobAction::Attack), MobClip::Attack);

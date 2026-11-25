@@ -193,11 +193,12 @@ pub enum ItemId {
     RollerSpawnEgg,
     StumplingSpawnEgg,
     DrownerSpawnEgg,
+    CinderlingSpawnEgg,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 167] = [
+    pub const ALL: [ItemId; 168] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -365,6 +366,7 @@ impl ItemId {
         Self::RollerSpawnEgg,
         Self::StumplingSpawnEgg,
         Self::DrownerSpawnEgg,
+        Self::CinderlingSpawnEgg,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -473,6 +475,7 @@ impl ItemId {
             Self::RollerSpawnEgg => Some(MobKind::Roller),
             Self::StumplingSpawnEgg => Some(MobKind::Stumpling),
             Self::DrownerSpawnEgg => Some(MobKind::Drowner),
+            Self::CinderlingSpawnEgg => Some(MobKind::Cinderling),
             _ => None,
         }
     }
@@ -703,7 +706,8 @@ impl ItemId {
             | Self::BrambleSpawnEgg
             | Self::RollerSpawnEgg
             | Self::StumplingSpawnEgg
-            | Self::DrownerSpawnEgg => ItemCategory::Mobs,
+            | Self::DrownerSpawnEgg
+            | Self::CinderlingSpawnEgg => ItemCategory::Mobs,
         }
     }
 
@@ -813,6 +817,7 @@ impl ItemId {
             | Self::RollerSpawnEgg
             | Self::StumplingSpawnEgg
             | Self::DrownerSpawnEgg
+            | Self::CinderlingSpawnEgg
             | Self::CocoaBeans
             | Self::IronIngot
             | Self::GoldIngot
@@ -1192,6 +1197,7 @@ mod tests {
             (ItemId::RollerSpawnEgg, 164),
             (ItemId::StumplingSpawnEgg, 165),
             (ItemId::DrownerSpawnEgg, 166),
+            (ItemId::CinderlingSpawnEgg, 167),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1244,6 +1250,7 @@ mod tests {
                 | ItemId::RollerSpawnEgg
                 | ItemId::StumplingSpawnEgg
                 | ItemId::DrownerSpawnEgg
+                | ItemId::CinderlingSpawnEgg
                 | ItemId::Torch
                 | ItemId::JungleLog
                 | ItemId::JunglePlanks
@@ -1430,12 +1437,13 @@ mod tests {
             ItemId::from_name("sheep_spawn_egg"),
             Some(ItemId::SheepSpawnEgg)
         );
-        // every mob has its egg
+        // every mob has its egg, but a projectile
         for kind in MobKind::ALL {
             let eggs = ItemId::ALL
                 .iter()
                 .filter(|item| item.spawned_mob() == Some(kind));
-            assert_eq!(eggs.count(), 1, "{kind:?}");
+            let expected = usize::from(!kind.is_projectile());
+            assert_eq!(eggs.count(), expected, "{kind:?}");
         }
         assert_eq!(ItemId::Stone.spawned_mob(), None);
     }

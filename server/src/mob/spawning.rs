@@ -44,7 +44,7 @@ pub const WORLD_CAP: usize = 40;
 /// A hostile this far from every player goes, in blocks.
 pub const DESPAWN_DISTANCE: f32 = 96.0;
 
-/// Removes every hostile of a peaceful world, at once; otherwise sends the Stumplings into the
+/// Removes every hostile of a peaceful world, and the embers they threw, at once; otherwise sends the Stumplings into the
 /// ground by day (`burrow_at_dawn`) and, every `SPAWN_INTERVAL_TICKS`, despawns the hostiles
 /// far from every player and gives each player a spawn attempt.
 pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
@@ -57,7 +57,7 @@ pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<
         ..
     } = world_map.as_mut();
     if !difficulty.has_hostiles() {
-        mobs.retain(|_, mob| !mob.kind.is_hostile());
+        mobs.retain(|_, mob| !mob.kind.is_hostile() && !mob.kind.is_projectile());
         return;
     }
     burrow_at_dawn(mobs, changed_mobs, is_night(time.0));
@@ -304,7 +304,7 @@ mod tests {
     fn a_dark_cave_floor_far_from_the_players_gets_a_pack_of_its_kind() {
         let chunks = flat(BlockId::Stone, true);
         let players = HashMap::from([(1, player_at(1, Vec3::new(0.5, 2.0, 0.5)))]);
-        // y = 1 < 50, under a block: Gnawers or a Roller, at day as at night
+        // y = 1 < 20, under a block: Gnawers, a Roller or a Cinderling, at day as at night
         let feet = IVec3::new(30, 1, 0);
         let mut kinds = HashSet::new();
         let mut rng = rng();
@@ -315,7 +315,7 @@ mod tests {
             assert!(pack.iter().all(|mob| mob.kind == kind));
             match kind {
                 MobKind::Gnawer => assert!((2..=4).contains(&pack.len())),
-                MobKind::Roller => assert_eq!(pack.len(), 1),
+                MobKind::Roller | MobKind::Cinderling => assert_eq!(pack.len(), 1),
                 other => panic!("{other:?}"),
             }
             // standing on the floor
@@ -324,7 +324,7 @@ mod tests {
             }
             kinds.insert(kind);
         }
-        assert_eq!(kinds.len(), 2);
+        assert_eq!(kinds.len(), 3);
     }
 
     #[test]
@@ -449,6 +449,8 @@ mod tests {
             .insert(1, hostile(MobKind::Roller, Vec3::new(3.0, 2.0, 0.0)));
         map.mobs
             .insert(2, hostile(MobKind::Pig, Vec3::new(3.0, 2.0, 0.0)));
+        map.mobs
+            .insert(3, hostile(MobKind::Ember, Vec3::new(3.0, 2.0, 0.0)));
         let mut map = run(map, 7);
         assert_eq!(map.mobs.keys().copied().collect::<Vec<_>>(), [2]);
         for i in 1..=50 {
@@ -465,6 +467,13 @@ mod tests {
         };
         map.players
             .insert(1, player_at(1, Vec3::new(0.5, 1.9, 0.5)));
+        // Embers in flight do not count
+        for i in 0..PLAYER_CAP {
+            map.mobs.insert(
+                1000 + i as u128,
+                hostile(MobKind::Ember, Vec3::new(30.0, 2.0, 0.0)),
+            );
+        }
         for i in 1..=400 {
             map = run(map, MIDNIGHT_IN_DAY + i * SPAWN_INTERVAL_TICKS);
         }

@@ -8,8 +8,9 @@ use bevy::prelude::*;
 use ron::ser::PrettyConfig;
 use shared::messages::PlayerId;
 use shared::players::Player;
-use shared::world::{to_local_pos, WorldGenSettings, WorldSeed};
+use shared::world::{to_local_pos, MobId, ServerMob, WorldGenSettings, WorldSeed};
 use shared::TICKS_PER_SECOND;
+use std::collections::HashMap;
 #[cfg(test)]
 use std::path::Path;
 
@@ -119,7 +120,12 @@ fn queue_save(
             weather: Some(weather),
             generation,
             difficulty: world_map.difficulty,
-            ..WorldMeta::new(world_map.name.clone(), seed, tick, world_map.mobs.clone())
+            ..WorldMeta::new(
+                world_map.name.clone(),
+                seed,
+                tick,
+                saved_mobs(&world_map.mobs),
+            )
         },
         players: std::mem::take(&mut world_map.players_to_save),
         chunks,
@@ -134,6 +140,15 @@ fn queue_save(
             .dirty_chunks
             .extend(job.chunks.into_iter().map(|(pos, ..)| pos));
     }
+}
+
+/// The mobs a save keeps: all but the projectiles in flight (`MobKind::is_projectile`), so
+/// that a load never finds one.
+fn saved_mobs(mobs: &HashMap<MobId, ServerMob>) -> HashMap<MobId, ServerMob> {
+    mobs.iter()
+        .filter(|(_, mob)| !mob.kind.is_projectile())
+        .map(|(id, mob)| (*id, mob.clone()))
+        .collect()
 }
 
 /// What the blocks of one kind of a chunk hold, given by global position, by local position
@@ -286,6 +301,12 @@ mod tests {
             let mut map = world_map(2);
             map.difficulty = shared::world::hostiles::Difficulty::Peaceful;
             map.chunks.set_block(IVec3::new(1, 2, 3), stone());
+            // A Cinderling is saved, the ember it threw is not
+            use shared::world::{MobKind, ServerMob};
+            map.mobs
+                .insert(1, ServerMob::new(MobKind::Cinderling, Vec3::splat(4.0)));
+            map.mobs
+                .insert(2, ServerMob::new(MobKind::Ember, Vec3::splat(5.0)));
             map.dirty_chunks.insert(IVec3::ZERO);
             let mut app = app(
                 map,
@@ -316,6 +337,7 @@ mod tests {
                 meta.difficulty,
                 shared::world::hostiles::Difficulty::Peaceful
             );
+            assert_eq!(meta.mobs.keys().copied().collect::<Vec<_>>(), [1]);
         }
 
         #[test]

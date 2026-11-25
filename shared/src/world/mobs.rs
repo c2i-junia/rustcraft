@@ -29,10 +29,14 @@ pub enum MobKind {
     Stumpling,
     /// A drowned thing that swims at its prey in deep water and drags it down.
     Drowner,
+    /// A burning rock that hovers in the deep caves and throws embers.
+    Cinderling,
+    /// A Cinderling's ember in flight: a projectile, neither hostile nor an animal.
+    Ember,
 }
 
 impl MobKind {
-    pub const ALL: [MobKind; 15] = [
+    pub const ALL: [MobKind; 17] = [
         MobKind::Fox,
         MobKind::Sheep,
         MobKind::Cow,
@@ -48,6 +52,8 @@ impl MobKind {
         MobKind::Roller,
         MobKind::Stumpling,
         MobKind::Drowner,
+        MobKind::Cinderling,
+        MobKind::Ember,
     ];
 
     /// Whether mobs of this kind hunt the players (`crate::world::hostiles`), and appear in the
@@ -60,7 +66,15 @@ impl MobKind {
                 | MobKind::Roller
                 | MobKind::Stumpling
                 | MobKind::Drowner
+                | MobKind::Cinderling
         )
+    }
+
+    /// Whether mobs of this kind are projectiles the server flies (`MobKind::Ember`): they do
+    /// not walk, are not pushed nor struck, are not counted with the hostiles, and are not
+    /// saved.
+    pub fn is_projectile(self) -> bool {
+        self == MobKind::Ember
     }
 
     /// The points of health of a mob of this kind.
@@ -72,6 +86,9 @@ impl MobKind {
             MobKind::Roller => 16,
             MobKind::Stumpling => 24,
             MobKind::Drowner => 18,
+            MobKind::Cinderling => 10,
+            // Never struck
+            MobKind::Ember => 1,
             MobKind::Cow => 12,
             MobKind::Wolf | MobKind::Horse => 16,
             MobKind::Chicken | MobKind::Rabbit => 4,
@@ -118,6 +135,8 @@ impl MobKind {
             MobKind::Roller => "Roller",
             MobKind::Stumpling => "Stumpling",
             MobKind::Drowner => "Drowner",
+            MobKind::Cinderling => "Cinderling",
+            MobKind::Ember => "Ember",
         }
     }
 
@@ -145,6 +164,10 @@ impl MobKind {
             MobKind::Stumpling => Vec3::new(0.9, 1.95, 0.9),
             // 1.0 wide with its arms, 1.56 tall
             MobKind::Drowner => Vec3::new(0.8, 1.5, 0.8),
+            // Its body 0.625 wide (1.125 with its orbiting embers), 1.75 tall with its flame
+            MobKind::Cinderling => Vec3::new(0.7, 1.6, 0.7),
+            // 2 voxels, 0.125
+            MobKind::Ember => Vec3::new(0.25, 0.25, 0.25),
         }
     }
 }
@@ -262,6 +285,15 @@ mod tests {
                 assert_eq!(kind.blow_damage(Some(item)), item.attack_damage());
             }
         }
+    }
+
+    #[test]
+    fn an_ember_is_a_projectile_neither_hostile_nor_an_animal() {
+        for kind in MobKind::ALL {
+            assert_eq!(kind.is_projectile(), kind == MobKind::Ember, "{kind:?}");
+        }
+        assert!(!MobKind::Ember.is_hostile());
+        assert!(MobKind::Cinderling.is_hostile());
     }
 
     #[test]

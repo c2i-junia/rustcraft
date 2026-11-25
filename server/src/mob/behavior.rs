@@ -64,7 +64,7 @@ pub(super) fn walk_speed(kind: MobKind) -> f32 {
     match kind {
         MobKind::Gnawer => 1.4,
         MobKind::Stumpling | MobKind::Drowner => 0.8,
-        MobKind::Bramble | MobKind::Roller => 0.0,
+        MobKind::Bramble | MobKind::Roller | MobKind::Cinderling | MobKind::Ember => 0.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 1.6,
         MobKind::Horse => 1.5,
         MobKind::Goat => 1.2,
@@ -80,7 +80,9 @@ fn flee_speed(kind: MobKind) -> f32 {
         | MobKind::Bramble
         | MobKind::Roller
         | MobKind::Stumpling
-        | MobKind::Drowner => super::hostile::own_speed(kind),
+        | MobKind::Drowner
+        | MobKind::Cinderling => super::hostile::own_speed(kind),
+        MobKind::Ember => 0.0,
         MobKind::Horse => 6.0,
         MobKind::Fox | MobKind::Wolf | MobKind::Cat | MobKind::Rabbit => 4.0,
         MobKind::Goat => 3.0,
@@ -118,7 +120,9 @@ pub fn mob_behavior_system(mut world_map: ResMut<ServerWorldMap>, time: Res<Time
     push_mobs(mobs, chunks, players, changed_mobs, delta);
 }
 
-/// One step of every mob. Those that moved or changed what they do are added to `changed`.
+/// One step of every mob but the projectiles, which `cinder::cinder_system` flies. Those that
+/// moved or changed what they do are added to `changed`; what the hostiles threw is added to
+/// the mobs after them.
 fn step_mobs(
     mobs: &mut HashMap<MobId, ServerMob>,
     chunks: &ChunkMap,
@@ -127,7 +131,11 @@ fn step_mobs(
     delta: f32,
     rng: &mut impl Rng,
 ) {
+    let mut thrown = Vec::new();
     for (id, mob) in mobs.iter_mut() {
+        if mob.kind.is_projectile() {
+            continue;
+        }
         mob.hurt_ticks = mob.hurt_ticks.saturating_sub(1);
         // A mob whose position is not a number cannot be simulated: it stays as it is
         if !mob.position.is_finite() || !mob.velocity.is_finite() {
@@ -140,24 +148,27 @@ fn step_mobs(
         }
         mob.attack_wait = mob.attack_wait.saturating_sub(1);
         let before = (mob.position, mob.rotation, mob.action);
-        step_mob(mob, chunks, players, delta, rng);
+        thrown.extend(step_mob(mob, chunks, players, delta, rng));
         if before != (mob.position, mob.rotation, mob.action) {
             changed.insert(*id);
         }
+    }
+    for mob in thrown {
+        super::add_mob(mobs, changed, mob);
     }
 }
 
 /// Gravity, then what the mob does. A mob whose centre went into an open portal comes out of
 /// its twin (`pass_through_portal`): after its fall, which then ends its step, and after what
 /// it does. A mob flung (`is_flung`) flies instead of doing anything, until it lands, which
-/// stops it.
+/// stops it. Returns what it threw.
 fn step_mob(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
-) {
+) -> Option<ServerMob> {
     let start = mob.position;
     mob.portal_rest = chunks.portals().still_resting(mob.position, passer(mob));
     if floats(mob, chunks) {
@@ -168,7 +179,7 @@ fn step_mob(
         apply_gravity(mob, chunks, delta);
     }
     if pass_through_portal(mob, chunks, start) {
-        return;
+        return None;
     }
     let start = mob.position;
     if is_flung(mob) {
@@ -178,16 +189,19 @@ fn step_mob(
         } else {
             fly(mob, chunks, delta);
             pass_through_portal(mob, chunks, start);
-            return;
+            return None;
         }
     }
-    act(mob, chunks, players, delta, rng);
+    let thrown = act(mob, chunks, players, delta, rng);
     pass_through_portal(mob, chunks, start);
+    thrown
 }
 
-/// Whether `mob` escapes gravity: a Stumpling sinking through the ground, a Drowner in water.
+/// Whether `mob` escapes gravity: a Stumpling sinking through the ground, a Drowner in water, a
+/// Cinderling always.
 fn floats(mob: &ServerMob, chunks: &ChunkMap) -> bool {
     mob.action == MobAction::Burrow
+        || mob.kind == MobKind::Cinderling
         || mob.kind == MobKind::Drowner && is_in_water(chunks, mob.position)
 }
 
@@ -271,17 +285,30 @@ fn pass_through_portal(mob: &mut ServerMob, chunks: &ChunkMap, from: Vec3) -> bo
     true
 }
 
-/// What the mob's action asks of it this step: a hostile hunts (`hostile::act`).
+/// What the mob's action asks of it this step: a hostile hunts (`hostile::act`), and returns
+/// what it threw.
 fn act(
     mob: &mut ServerMob,
     chunks: &ChunkMap,
     players: &mut HashMap<PlayerId, Player>,
     delta: f32,
     rng: &mut impl Rng,
-) {
+) -> Option<ServerMob> {
     if mob.kind.is_hostile() {
         return super::hostile::act(mob, chunks, players, delta, rng);
     }
+    wander_or_flee(mob, chunks, players, delta, rng);
+    None
+}
+
+/// What an animal does: it wanders, or flees.
+fn wander_or_flee(
+    mob: &mut ServerMob,
+    chunks: &ChunkMap,
+    players: &HashMap<PlayerId, Player>,
+    delta: f32,
+    rng: &mut impl Rng,
+) {
     if is_shy(mob.kind) && mob.action != MobAction::Flee {
         if let Some(id) = nearest_player(players, mob.position, FEAR_DISTANCE) {
             mob.action = MobAction::Flee;
@@ -598,6 +625,10 @@ fn push_mobs(
 ) {
     let mut grid: HashMap<IVec2, Vec<(Option<MobId>, Pusher)>> = HashMap::new();
     for (&id, mob) in mobs.iter() {
+        // A projectile goes through what it does not hit
+        if mob.kind.is_projectile() {
+            continue;
+        }
         if mob.position.is_finite() && is_terrain_loaded(mob.position, chunks) {
             let pusher = mob_pusher(mob);
             let cell = grid.entry(push_cell(mob.position)).or_default();

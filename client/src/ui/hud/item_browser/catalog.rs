@@ -106,7 +106,7 @@ mod tests {
         };
         assert!(items.is_sorted_by_key(rank));
         assert_eq!(items.first(), Some(&ItemId::Dirt));
-        assert_eq!(items.last(), Some(&ItemId::DrownerSpawnEgg));
+        assert_eq!(items.last(), Some(&ItemId::CinderlingSpawnEgg));
         assert_eq!(
             found("", Some(Wood)),
             [
