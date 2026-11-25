@@ -6,6 +6,7 @@ use crate::{
         blocks::{
             simulate_player_block_interactions, BrokenBlock, CallerType, PortalShot, SpawnedMob,
         },
+        hunger::BREAK_EXHAUSTION,
         inventory::simulate_inventory_actions,
         movement::simulate_player_movement,
         Player,
@@ -31,6 +32,9 @@ pub struct ActionsOutcome {
     pub fallen: Option<f32>,
     /// The shots of the portal gun.
     pub shots: Vec<PortalShot>,
+    /// How much the move and the broken blocks tired the player, for the server to apply
+    /// (`Player::exhaust`).
+    pub exhaustion: f32,
 }
 
 /// Applies one input of `player`. A dead player does nothing.
@@ -45,7 +49,8 @@ pub fn simulate_player_actions(
     }
     let interactions = simulate_player_block_interactions(player, world_map, action, caller_type);
     let inventory = simulate_inventory_actions(player, world_map, action, caller_type);
-    let fallen = simulate_player_movement(player, world_map, action).fallen;
+    let movement = simulate_player_movement(player, world_map, action);
+    let exhaustion = movement.exhaustion + interactions.broken.len() as f32 * BREAK_EXHAUSTION;
     ActionsOutcome {
         broken: interactions.broken,
         spawned: interactions.spawned,
@@ -56,8 +61,9 @@ pub fn simulate_player_actions(
             .iter()
             .filter_map(|outcome| outcome.thrown)
             .collect(),
-        fallen,
+        fallen: movement.fallen,
         shots: interactions.shots,
+        exhaustion,
     }
 }
 
@@ -98,5 +104,28 @@ mod tests {
         assert_eq!(outcome.thrown, [dirt(1), dirt(4)]);
         assert!(outcome.dropped.is_empty());
         assert!(player.inventory.inner.is_empty());
+    }
+
+    #[test]
+    fn a_broken_block_tires_the_player() {
+        use crate::messages::NetworkAction;
+        use crate::world::BlockId;
+        let target = IVec3::new(0, 0, -3);
+        let camera = Transform::from_translation(Vec3::splat(0.5));
+        let mut player = Player::new(1, "miner".into(), Vec3::splat(0.5), camera);
+        let mut world = ChunkMap::with_loaded_region(IVec3::splat(-16), IVec3::splat(15));
+        world.fill_box(target, target, BlockId::Dandelion);
+        let input = PlayerFrameInput {
+            delta_ms: crate::players::blocks::HIT_MS,
+            inputs: [NetworkAction::LeftClick].into(),
+            camera,
+            ..Default::default()
+        };
+        let mut tired = 0.0;
+        while world.get_block(target).is_some() {
+            tired += simulate_player_actions(&mut player, &mut world, &input, CallerType::Server)
+                .exhaustion;
+        }
+        assert_eq!(tired, BREAK_EXHAUSTION);
     }
 }

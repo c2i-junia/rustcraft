@@ -56,6 +56,9 @@ pub struct PlayerUpdateEvent {
     pub health: u32,
     /// The ticks of air the player has left (`Player::air`).
     pub air: u16,
+    /// The food of the player (`Player::food`): the client's prediction refuses the sprint
+    /// with it as the server does.
+    pub food: u8,
     /// The ticks the player has left to burn (`Player::burning_ticks`).
     pub burning_ticks: u16,
     pub game_mode: GameMode,

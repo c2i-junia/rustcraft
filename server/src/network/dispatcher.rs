@@ -11,7 +11,7 @@ use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
 use crate::world::simulation::{
     breathe_system, broadcast_player_updates_system, burn_system, handle_player_inputs_system,
-    regenerate_health_system, tick_damage_timers_system, PlayerInputsEvent,
+    metabolism_system, tick_damage_timers_system, PlayerInputsEvent,
 };
 use crate::world::weather::ServerWeather;
 use bevy::prelude::*;
@@ -121,7 +121,7 @@ pub fn register_systems(app: &mut App) {
             breathe_system,
             burn_system,
             world::furnaces::tick_furnaces_system,
-            regenerate_health_system,
+            metabolism_system,
             pickup_dropped_items_system,
             world::home::home_system,
             world::growth::growth_system,
@@ -534,5 +534,49 @@ mod tests {
             .get(&IVec3::ZERO)
             .expect("the chunk of the change was not saved");
         assert!(chunk.get(target).is_none(), "the block is back in the save");
+    }
+
+    /// The server measures how much the inputs of a sprint tire the player, as the client's
+    /// prediction only moves it.
+    #[test]
+    fn a_sprint_simulated_by_the_server_tires_the_player() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut chunks = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(31));
+        chunks.fill_box(IVec3::splat(-32), IVec3::new(31, -1, 31), BlockId::Stone);
+        let start = Vec3::new(0.5, 0.9, 0.5);
+        let mut world_map = ServerWorldMap {
+            name: "w".into(),
+            chunks,
+            ..default()
+        };
+        world_map
+            .players
+            .insert(1, Player::new(1, "p".into(), start, Transform::default()));
+        let mut app = server_app(tmp.path(), world_map, TICK);
+        for time_ms in 1..=20 {
+            app.world_mut().write_message(PlayerInputsEvent {
+                client_id: 1,
+                input: PlayerFrameInput {
+                    time_ms,
+                    delta_ms: 50,
+                    inputs: [NetworkAction::MoveForward, NetworkAction::Sprint].into(),
+                    ..default()
+                },
+            });
+        }
+        app.update();
+        app.update();
+        drop(app.world_mut().remove_resource::<WorldWriter>());
+
+        let player = &app.world().resource::<ServerWorldMap>().players[&1];
+        assert!(player.is_sprinting);
+        let run = start.xz().distance(player.position.xz());
+        assert!(run > 5.0, "ran {run} blocks");
+        let expected = run * shared::players::hunger::SPRINT_EXHAUSTION;
+        assert!(
+            (player.exhaustion - expected).abs() < 1e-3,
+            "{} not {expected}",
+            player.exhaustion
+        );
     }
 }

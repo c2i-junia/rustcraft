@@ -2,7 +2,7 @@
 
 use crate::{
     messages::{NetworkAction, PlayerFrameInput},
-    players::{game_mode::MAX_HEALTH, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
+    players::{hunger::MAX_FOOD, movement::MAX_FRAME_DELTA_MS, Player, ViewMode},
     world::{
         fire::fire_can_stay,
         fit_portal,
@@ -71,8 +71,8 @@ enum Refusal {
     UsesBlock(BlockId),
     /// A vine hangs on the side of a block, never on its top or bottom.
     NotASide,
-    /// The player has all its health, and eats nothing.
-    NotHurt,
+    /// The player has all its food, and eats nothing.
+    NotHungry,
     /// The block only stands on a soil that is not there.
     NoSoil(BlockId),
     /// An empty bucket fills only from the source of a liquid.
@@ -230,7 +230,7 @@ pub fn simulate_player_block_interactions(
                     pour_liquid(player, world_map, action, LAVA)
                         .map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
-                Some(food) if food.food_health().is_some() => (
+                Some(food) if food.food_value().is_some() => (
                     "eat",
                     eat(player, action).map(|()| player.place_wait_ms = UNTIL_RELEASED_MS),
                 ),
@@ -728,22 +728,22 @@ fn place_block(
     Ok(None)
 }
 
-/// Eats one of the food held in the selected hotbar slot, which gives health back. It is refused
-/// to a player who has all its health, so that no food is lost.
+/// Eats one of the food held in the selected hotbar slot, which gives food and saturation. It is
+/// refused to a player who has all its food, so that no food is lost.
 fn eat(player: &mut Player, action: &PlayerFrameInput) -> Result<(), Refused> {
     let slot = action.hotbar_slot;
     let refused = |reason| Refused {
         reason,
         predicted_at: None,
     };
-    let health = held_item(player, action)
-        .and_then(|item| item.food_health())
+    let (food, saturation) = held_item(player, action)
+        .and_then(|item| item.food_value())
         .ok_or(refused(Refusal::EmptySlot(slot)))?;
-    if player.health >= MAX_HEALTH {
-        return Err(refused(Refusal::NotHurt));
+    if player.food >= MAX_FOOD {
+        return Err(refused(Refusal::NotHungry));
     }
     player.inventory.remove_item_from_stack(slot, 1);
-    player.health = (player.health + health).min(MAX_HEALTH);
+    player.eat(food, saturation);
     Ok(())
 }
 
@@ -2364,16 +2364,19 @@ mod food_tests {
     use super::*;
 
     #[test]
-    fn food_heals_a_hurt_player_and_is_kept_by_a_healthy_one() {
+    fn food_feeds_a_hungry_player_and_is_kept_by_a_fed_one() {
         let item = ItemId::RoastMushroom;
         for (before, after, left) in [
-            (MAX_HEALTH, MAX_HEALTH, 2),
-            (MAX_HEALTH - 1, MAX_HEALTH, 1),
-            (3, 5, 1),
+            (MAX_FOOD, MAX_FOOD, 2),
+            (MAX_FOOD - 1, MAX_FOOD, 1),
+            (3, 7, 1),
         ] {
             let camera = Transform::from_translation(Vec3::splat(0.5));
             let mut player = Player::new(1, "tester".into(), Vec3::splat(0.5), camera);
-            player.health = before;
+            player.food = before;
+            player.saturation = 0.0;
+            // The health has nothing to do with it
+            player.health = 3;
             let stack = ItemStack {
                 item_id: item,
                 item_type: item.get_default_type(),
@@ -2397,8 +2400,16 @@ mod food_tests {
                     CallerType::Server,
                 );
             }
-            assert_eq!(player.health, after);
+            assert_eq!(player.food, after);
+            assert_eq!(player.health, 3);
             assert_eq!(player.inventory.inner[&0].nb, left);
+            // The saturation of a mushroom, but no more than the food
+            let saturation = if left == 1 {
+                4.8f32.min(after as f32)
+            } else {
+                0.0
+            };
+            assert_eq!(player.saturation, saturation);
         }
     }
 }

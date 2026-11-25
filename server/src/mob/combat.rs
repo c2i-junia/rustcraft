@@ -6,6 +6,7 @@ use shared::{
     messages::{NetworkAction, PlayerFrameInput},
     players::{
         blocks::{aim, held_item},
+        hunger::BLOW_EXHAUSTION,
         Player, ViewMode,
     },
     world::{
@@ -71,7 +72,7 @@ pub fn interact(
     let mob = world.mobs.get_mut(&id)?;
     let shears = right
         && mob.kind == MobKind::Sheep
-        && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_health().is_some());
+        && !held.is_some_and(|i| i.spawned_mob().is_some() || i.food_value().is_some());
     if !left && !shears {
         return None;
     }
@@ -107,6 +108,7 @@ pub fn interact(
             if mob.hurt_ticks == 0 {
                 mob.damage += mob.kind.blow_damage(held);
                 mob.hurt_ticks = MOB_INVULNERABILITY_TICKS;
+                player.exhaust(BLOW_EXHAUSTION);
                 let away = (mob.position - player.position)
                     .with_y(0.0)
                     .try_normalize()
@@ -365,6 +367,19 @@ mod tests {
         assert!(matches!(pig.target, MobTarget::Player(3)));
         assert_eq!(pig.action_ticks, FLEE_TICKS);
         assert_eq!(FLEE_TICKS, 5 * 20);
+    }
+
+    #[test]
+    fn a_blow_that_lands_tires_the_player() {
+        let mut arena = Arena::with(ServerMob::new(MobKind::Cow, AHEAD));
+        let mut player = fighter(1, None);
+        let left = NetworkAction::LeftClick;
+        arena.tick(&mut player, &left, true);
+        assert_eq!(player.exhaustion, BLOW_EXHAUSTION);
+        // A blow on the invulnerable cow lands nothing, and does not tire
+        arena.tick(&mut player, &left, false);
+        arena.tick(&mut player, &left, true);
+        assert_eq!(player.exhaustion, BLOW_EXHAUSTION);
     }
 
     #[test]

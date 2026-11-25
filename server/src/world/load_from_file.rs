@@ -313,6 +313,9 @@ pub fn load_player_data(
             player.game_mode = saved.game_mode;
             player.health = saved.health;
             player.death_cause = saved.death_cause;
+            player.food = saved.food;
+            player.saturation = saved.saturation;
+            player.exhaustion = saved.exhaustion;
             player.inventory = saved.inventory;
             // A table, a chest or a furnace is used only while the player is there
             player.inventory.open_table = None;
@@ -403,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_player_keeps_its_game_mode_and_health_even_dead() {
+    fn a_saved_player_keeps_its_game_mode_health_and_hunger_even_dead() {
         use shared::players::game_mode::{DeathCause, GameMode, MAX_HEALTH};
 
         let tmp = tempfile::tempdir().unwrap();
@@ -412,12 +415,19 @@ mod tests {
         saved.game_mode = GameMode::Creative;
         saved.health = 0;
         saved.death_cause = Some(DeathCause::Fall);
+        saved.food = 3;
+        saved.saturation = 1.5;
+        saved.exhaustion = 2.25;
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
         let loaded = load_player_data(WORLD, &7, "builder", SPAWN, &paths).unwrap();
         assert_eq!(loaded.game_mode, GameMode::Creative);
         assert!(loaded.is_dead());
         assert_eq!(loaded.death_cause, Some(DeathCause::Fall));
+        assert_eq!(
+            (loaded.food, loaded.saturation, loaded.exhaustion),
+            (3, 1.5, 2.25)
+        );
 
         // A save from before the game modes is a survival player in full health
         let old = "(id: 7, name: \"old\", position: (1.0, 2.0, 3.0), camera_transform: (translation: (0.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0)), velocity: (0.0, 0.0, 0.0), on_ground: true, is_flying: true, inventory: (inner: {}), height: 1.8, width: 0.8, last_input_processed: 0)";
@@ -426,6 +436,7 @@ mod tests {
         assert_eq!(loaded.position, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(loaded.game_mode, GameMode::Survival);
         assert_eq!(loaded.health, MAX_HEALTH);
+        assert_eq!(loaded.food, shared::players::hunger::MAX_FOOD);
     }
 
     #[test]

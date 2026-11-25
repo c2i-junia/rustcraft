@@ -5,6 +5,7 @@ pub mod constants;
 mod data;
 pub mod fire;
 pub mod game_mode;
+pub mod hunger;
 pub mod inventory;
 pub mod movement;
 pub mod simulation;

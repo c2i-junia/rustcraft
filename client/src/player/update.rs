@@ -159,6 +159,7 @@ pub fn update_players_system(
 
         player.health = event.health;
         player.air = event.air;
+        player.food = event.food;
         player.burning_ticks = event.burning_ticks;
         player.game_mode = event.game_mode;
         player.death_cause = event.death_cause;
@@ -278,6 +279,7 @@ mod tests {
     use crate::ui::hud::UIMode;
     use bevy_renet::RenetClient;
     use shared::messages::{NetworkAction, PlayerFrameInput};
+    use shared::players::game_mode::GameMode;
     use shared::players::{blocks::CallerType, simulation::simulate_player_actions, MovementState};
     use shared::world::{BlockId, ChunkMap};
     use std::collections::{BTreeMap, VecDeque};
@@ -352,6 +354,7 @@ mod tests {
             open_furnace: None,
             health: server.health,
             air: server.air,
+            food: server.food,
             burning_ticks: server.burning_ticks,
             game_mode: server.game_mode,
             death_cause: None,
@@ -396,6 +399,51 @@ mod tests {
     }
 
     #[test]
+    fn a_hungry_player_told_by_the_server_stops_sprinting_in_the_replayed_prediction() {
+        let (mut app, player) = app_with_player();
+        let mut blocks = ChunkMap::with_loaded_region(IVec3::splat(-32), IVec3::splat(63));
+        blocks.fill_box(
+            IVec3::new(-32, 0, -32),
+            IVec3::new(32, 3, 32),
+            BlockId::Stone,
+        );
+        let mut server = Player::new(PLAYER_ID, "me".into(), Vec3::new(0.5, 4.9, 0.5), default());
+        server.on_ground = true;
+        let sprint = |time_ms| PlayerFrameInput {
+            time_ms,
+            delta_ms: 50,
+            inputs: [NetworkAction::MoveForward, NetworkAction::Sprint].into(),
+            ..default()
+        };
+        // The server ran the first sprint, then the player got hungry
+        simulate_player_movement(&mut server, &blocks, &sprint(10));
+        assert!(server.is_sprinting);
+        app.world_mut().resource_mut::<ClientWorldMap>().blocks = blocks;
+        app.world_mut().resource_mut::<UnacknowledgedInputs>().0 =
+            vec![sprint(10), sprint(20), sprint(30)];
+        app.world_mut().write_message(PlayerUpdateEvent {
+            id: PLAYER_ID,
+            movement: server.movement_state(),
+            orientation: Quat::IDENTITY,
+            last_ack_time: 10,
+            inventory: None,
+            open_chest: None,
+            open_furnace: None,
+            health: server.health,
+            air: server.air,
+            food: 6,
+            burning_ticks: 0,
+            game_mode: GameMode::Survival,
+            death_cause: None,
+        });
+        app.update();
+
+        let client = app.world().get::<Player>(player).unwrap();
+        assert_eq!(client.food, 6);
+        assert!(!client.is_sprinting, "the replay sprinted on");
+    }
+
+    #[test]
     fn an_ack_matching_no_pending_input_resyncs_on_the_server_position() {
         let (mut app, player) = app_with_player();
         let server_position = Vec3::new(1.0, 2.0, 3.0);
@@ -413,6 +461,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            food: shared::players::hunger::MAX_FOOD,
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -453,6 +502,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            food: shared::players::hunger::MAX_FOOD,
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -489,6 +539,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            food: shared::players::hunger::MAX_FOOD,
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -535,6 +586,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            food: shared::players::hunger::MAX_FOOD,
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -592,6 +644,7 @@ mod tests {
             open_furnace: Some(server_furnace),
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            food: shared::players::hunger::MAX_FOOD,
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -884,6 +937,7 @@ mod tests {
             open_furnace: None,
             health: shared::players::game_mode::MAX_HEALTH,
             air: shared::players::air::MAX_AIR,
+            food: shared::players::hunger::MAX_FOOD,
             burning_ticks: 0,
             game_mode: Default::default(),
             death_cause: None,
@@ -1033,6 +1087,7 @@ mod tests {
                 open_furnace: None,
                 health: self.server_player.health,
                 air: self.server_player.air,
+                food: self.server_player.food,
                 burning_ticks: self.server_player.burning_ticks,
                 game_mode: self.server_player.game_mode,
                 death_cause: self.server_player.death_cause,

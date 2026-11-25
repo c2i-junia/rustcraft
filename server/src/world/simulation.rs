@@ -6,7 +6,7 @@ use shared::{
         blocks::CallerType,
         constants::EYE_HEIGHT,
         fire::{body_in_fire, body_in_lava, is_doused},
-        game_mode::{fall_damage, DamageSource, MAX_HEALTH, REGENERATION_TICKS},
+        game_mode::{fall_damage, DamageSource, REGENERATION_TICKS},
         movement::FALL_LIMIT,
         simulation::simulate_player_actions,
         Player,
@@ -373,6 +373,7 @@ pub fn handle_player_inputs_system(
                 .filter(|shot| is_believable(shot, eyes))
                 .map(|shot| (player.id, *shot)),
         );
+        player.exhaust(outcome.exhaustion);
         if let Some(fallen) = outcome.fallen {
             player.hurt(fall_damage(fallen), DamageSource::Fall);
         }
@@ -448,15 +449,14 @@ pub fn burn_system(mut world_map: ResMut<ServerWorldMap>, weather: Res<ServerWea
     }
 }
 
-/// Every `REGENERATION_TICKS`, each living player gets a point of health back.
-pub fn regenerate_health_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
+/// Every `REGENERATION_TICKS`, each player's metabolism (`Player::metabolise`): a fed player
+/// gets a point of health back, a starving one loses one.
+pub fn metabolism_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
     if !time.0.is_multiple_of(REGENERATION_TICKS) {
         return;
     }
     for player in world_map.players.values_mut() {
-        if !player.is_dead() && player.health < MAX_HEALTH {
-            player.health += 1;
-        }
+        player.metabolise();
     }
 }
 
@@ -479,6 +479,7 @@ pub fn broadcast_player_updates_system(
                 open_furnace,
                 health: player.health,
                 air: player.air,
+                food: player.food,
                 burning_ticks: player.burning_ticks,
                 game_mode: player.game_mode,
                 death_cause: player.death_cause,
@@ -504,7 +505,7 @@ pub fn broadcast_player_updates_system(
 mod tests {
     use super::*;
     use crate::world::broadcast_world::get_all_active_chunks;
-    use shared::players::game_mode::{DeathCause, GameMode, INVULNERABILITY_TICKS};
+    use shared::players::game_mode::{DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH};
     use shared::players::{air::MAX_AIR, PLAYER_HEIGHT};
     use shared::world::BlockId;
     use shared::world::MobKind;
@@ -654,18 +655,25 @@ mod tests {
     }
 
     #[test]
-    fn living_players_get_their_health_back_point_by_point() {
+    fn fed_players_get_their_health_back_point_by_point_and_starving_ones_lose_it() {
         let mut app = App::new();
         let mut world_map = ServerWorldMap::default();
         let mut hurt = Player::new(1, "hurt".into(), Vec3::ZERO, Transform::default());
         hurt.health = MAX_HEALTH - 2;
         let mut dead = Player::new(2, "dead".into(), Vec3::ZERO, Transform::default());
         dead.health = 0;
+        let mut starving = Player::new(3, "starving".into(), Vec3::ZERO, Transform::default());
+        starving.food = 0;
+        let mut hungry = Player::new(4, "hungry".into(), Vec3::ZERO, Transform::default());
+        hungry.food = 17;
+        hungry.health = MAX_HEALTH - 2;
         world_map.players.insert(1, hurt);
         world_map.players.insert(2, dead);
+        world_map.players.insert(3, starving);
+        world_map.players.insert(4, hungry);
         app.insert_resource(world_map)
             .insert_resource(ServerTime(1))
-            .add_systems(Update, regenerate_health_system);
+            .add_systems(Update, metabolism_system);
         let health = |app: &App, id| app.world().resource::<ServerWorldMap>().players[&id].health;
 
         app.update();
@@ -680,6 +688,8 @@ mod tests {
         }
         assert_eq!(health(&app, 1), MAX_HEALTH);
         assert_eq!(health(&app, 2), 0);
+        assert_eq!(health(&app, 3), MAX_HEALTH - 3);
+        assert_eq!(health(&app, 4), MAX_HEALTH - 2);
     }
 
     #[test]

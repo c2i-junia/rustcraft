@@ -417,19 +417,19 @@ impl ItemId {
         }
     }
 
-    /// The points of health eating the item gives back, two to a heart, if it is eaten.
-    pub fn food_health(&self) -> Option<u32> {
+    /// The food points and the saturation eating the item gives, if it is eaten: Minecraft's
+    /// where Minecraft has the food, the saturation twice the food by its modifier.
+    pub fn food_value(&self) -> Option<(u8, f32)> {
         match *self {
-            Self::Berries => Some(1),
-            Self::RoastMushroom => Some(2),
-            Self::RyeBread => Some(4),
-            Self::RoastMutton => Some(6),
-            // Minecraft's food points, until hunger
-            Self::RawMutton | Self::RawChicken => Some(2),
-            Self::RawPork | Self::RawBeef | Self::RawRabbit => Some(3),
-            Self::RoastPork | Self::RoastBeef => Some(8),
-            Self::RoastChicken => Some(6),
-            Self::RoastRabbit => Some(5),
+            Self::Berries => Some((2, 0.4)),
+            Self::RoastMushroom => Some((4, 4.8)),
+            Self::RyeBread => Some((5, 6.0)),
+            Self::RawMutton | Self::RawChicken => Some((2, 1.2)),
+            Self::RawPork | Self::RawBeef | Self::RawRabbit => Some((3, 1.8)),
+            Self::RoastMutton => Some((6, 9.6)),
+            Self::RoastChicken => Some((6, 7.2)),
+            Self::RoastRabbit => Some((5, 6.0)),
+            Self::RoastPork | Self::RoastBeef => Some((8, 12.8)),
             _ => None,
         }
     }
@@ -1579,7 +1579,7 @@ mod tests {
 
     #[test]
     fn the_meats_are_eaten_raw_or_roasted_and_leather_and_feathers_are_materials() {
-        for (item, health) in [
+        for (item, food) in [
             (ItemId::RawMutton, Some(2)),
             (ItemId::RoastMutton, Some(6)),
             (ItemId::RawPork, Some(3)),
@@ -1593,12 +1593,39 @@ mod tests {
             (ItemId::Leather, None),
             (ItemId::Feather, None),
         ] {
-            assert_eq!(item.food_health(), health, "{item:?}");
+            assert_eq!(item.food_value().map(|(f, _)| f), food, "{item:?}");
             assert_eq!(item.category(), ItemCategory::Materials, "{item:?}");
             assert_eq!(item.get_default_type(), ItemType::Generic, "{item:?}");
             assert_eq!(item.get_max_stack(), 64, "{item:?}");
         }
         assert_eq!(ItemId::RawPork.name(), "raw_pork");
+    }
+
+    #[test]
+    fn every_food_gives_food_and_a_saturation_no_greater_than_twice_its_food() {
+        for (item, value) in [
+            (ItemId::Berries, (2, 0.4)),
+            (ItemId::RoastMushroom, (4, 4.8)),
+            (ItemId::RyeBread, (5, 6.0)),
+            (ItemId::RawMutton, (2, 1.2)),
+            (ItemId::RoastMutton, (6, 9.6)),
+            (ItemId::RawPork, (3, 1.8)),
+            (ItemId::RoastPork, (8, 12.8)),
+            (ItemId::RawBeef, (3, 1.8)),
+            (ItemId::RoastBeef, (8, 12.8)),
+            (ItemId::RawChicken, (2, 1.2)),
+            (ItemId::RoastChicken, (6, 7.2)),
+            (ItemId::RawRabbit, (3, 1.8)),
+            (ItemId::RoastRabbit, (5, 6.0)),
+        ] {
+            assert_eq!(item.food_value(), Some(value), "{item:?}");
+        }
+        for item in ItemId::ALL {
+            if let Some((food, saturation)) = item.food_value() {
+                assert!(food > 0 && saturation <= 2.0 * food as f32, "{item:?}");
+            }
+        }
+        assert_eq!(ItemId::Stick.food_value(), None);
     }
 
     #[test]

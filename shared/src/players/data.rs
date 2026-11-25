@@ -11,6 +11,9 @@ use super::air::{full_air, MAX_AIR};
 use super::game_mode::{
     DamageSource, DeathCause, GameMode, INVULNERABILITY_TICKS, MAX_HEALTH, THROWN_OFF_TICKS,
 };
+use super::hunger::{
+    full_food, respawn_saturation, DAMAGE_EXHAUSTION, MAX_FOOD, RESPAWN_SATURATION,
+};
 use crate::{
     messages::PlayerId,
     world::{ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
@@ -194,6 +197,17 @@ pub struct Player {
     /// What killed the player, while it is dead.
     #[serde(default)]
     pub death_cause: Option<DeathCause>,
+    /// From 0, starving, to `MAX_FOOD`. Only the server changes it, but the client predicts
+    /// what it eats.
+    #[serde(default = "full_food")]
+    pub food: u8,
+    /// What the efforts take before the food, never above it. The server's only.
+    #[serde(default = "respawn_saturation")]
+    pub saturation: f32,
+    /// The efforts since the last point of saturation or food taken, below `EXHAUSTION_WRAP`.
+    /// The server's only.
+    #[serde(default)]
+    pub exhaustion: f32,
     pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
@@ -321,6 +335,7 @@ impl Player {
         }
         self.invulnerable_ticks = INVULNERABILITY_TICKS;
         self.health = self.health.saturating_sub(amount);
+        self.exhaust(DAMAGE_EXHAUSTION);
         if self.is_dead() {
             let thrown_by = self.last_mob_hit.map(|(kind, _)| kind);
             self.death_cause = Some(DeathCause::of(source, thrown_by));
@@ -352,7 +367,7 @@ impl Player {
         }
     }
 
-    /// Brings a dead player back to life at `spawn`, standing still and in full health.
+    /// Brings a dead player back to life at `spawn`, standing still, in full health and fed.
     pub fn respawn(&mut self, spawn: Vec3) {
         self.set_movement_state(MovementState {
             position: spawn,
@@ -369,6 +384,9 @@ impl Player {
         self.burning_ticks = 0;
         self.fire_damage_wait = 0;
         self.lava_damage_wait = 0;
+        self.food = MAX_FOOD;
+        self.saturation = RESPAWN_SATURATION;
+        self.exhaustion = 0.0;
     }
 
     pub fn new(id: PlayerId, name: String, position: Vec3, camera_transform: Transform) -> Self {
@@ -387,6 +405,9 @@ impl Player {
             game_mode: GameMode::default(),
             health: MAX_HEALTH,
             death_cause: None,
+            food: MAX_FOOD,
+            saturation: RESPAWN_SATURATION,
+            exhaustion: 0.0,
             inventory: Inventory::new(),
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,

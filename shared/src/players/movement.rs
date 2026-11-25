@@ -9,6 +9,7 @@ use crate::{
             SWIM_UP_VELOCITY, TERMINAL_VELOCITY, WATER_DRAG, WATER_EXIT_VELOCITY, WATER_GRAVITY,
             WATER_SPEED_MULTIPLIER,
         },
+        hunger::{JUMP_EXHAUSTION, SPRINT_EXHAUSTION, SPRINT_JUMP_EXHAUSTION, SWIM_EXHAUSTION},
     },
     world::{world_position_to_chunk_position, BlockId, ChunkMap, Passage},
 };
@@ -52,6 +53,9 @@ pub struct MovementOutcome {
     /// Where the camera looks after going through a portal in this input, set upright: for the
     /// client to turn its camera to, which the next inputs bring.
     pub turned: Option<Look>,
+    /// How much the move tired the player (`Player::exhaust`): for the server to apply, the
+    /// client's prediction drops it.
+    pub exhaustion: f32,
 }
 
 /// Where a camera looks, as the client's camera controller keeps it: the yaw, in radians about
@@ -145,10 +149,11 @@ pub fn simulate_player_movement(
     }
     update_stance(player, action, in_liquid);
     let direction = wished_direction(player, action);
+    let mut jumped = false;
     if in_liquid {
         swim(player, world_map, action, direction, delta);
     } else {
-        apply_vertical_velocity(player, action, delta);
+        jumped = apply_vertical_velocity(player, action, delta);
         climb(player, world_map, action, direction);
     }
     let landed = move_vertically(player, world_map, delta);
@@ -170,10 +175,33 @@ pub fn simulate_player_movement(
         let in_lava = in_liquid && world_map.touches_block(&player.body(), BlockId::Lava);
         apply_wished_direction(player, world_map, direction, in_liquid, in_lava, delta);
     }
+    let exhaustion = exhaustion(player, player.position - start, in_liquid, jumped);
     MovementOutcome {
         fallen: landed,
         turned: pass_through_portal(player, world_map, start),
+        exhaustion,
     }
+}
+
+/// How much a move by `moved` tires the player: a sprint on foot by the blocks run, a move in
+/// a liquid by the blocks swum, a jump, more while sprinting. Flying does not tire.
+fn exhaustion(player: &Player, moved: Vec3, in_liquid: bool, jumped: bool) -> f32 {
+    if player.is_flying {
+        return 0.0;
+    }
+    let distance = if in_liquid {
+        moved.length() * SWIM_EXHAUSTION
+    } else if player.is_sprinting {
+        moved.xz().length() * SPRINT_EXHAUSTION
+    } else {
+        0.0
+    };
+    let jump = match (jumped, player.is_sprinting) {
+        (false, _) => 0.0,
+        (true, false) => JUMP_EXHAUSTION,
+        (true, true) => SPRINT_JUMP_EXHAUSTION,
+    };
+    distance + jump
 }
 
 /// Takes the player through the open portal its centre went into on its way from `from`
@@ -208,7 +236,7 @@ fn pass_through_portal(player: &mut Player, world_map: &ChunkMap, from: Vec3) ->
 
 /// Whether the player sneaks, sprints and swims in this input. Sprinting starts with the sprint
 /// key while moving forward, and lasts as long as the player moves forward, the key released,
-/// until it sneaks. A sprint in a liquid is a swim. Sneak is the fly down key in flight and the
+/// until it sneaks or gets too hungry (`Player::may_sprint`). A sprint in a liquid is a swim. Sneak is the fly down key in flight and the
 /// swim down key in a liquid: the player only sneaks on foot.
 fn update_stance(player: &mut Player, action: &PlayerFrameInput, in_liquid: bool) {
     let forward = action.is_pressed(NetworkAction::MoveForward)
@@ -217,6 +245,7 @@ fn update_stance(player: &mut Player, action: &PlayerFrameInput, in_liquid: bool
         action.is_pressed(NetworkAction::SneakOrFlyDown) && !player.is_flying && !in_liquid;
     player.is_sprinting = forward
         && !player.is_sneaking
+        && player.may_sprint()
         && (player.is_sprinting || action.is_pressed(NetworkAction::Sprint));
     player.is_swimming = in_liquid && player.is_sprinting;
 }
@@ -268,15 +297,18 @@ fn wished_direction(player: &Player, action: &PlayerFrameInput) -> Vec3 {
 ///
 /// The gravity is added half before the move and half after it, so that the move goes at the
 /// mean velocity of the frame: the height of a jump then does not depend on the frame time.
-fn apply_vertical_velocity(player: &mut Player, action: &PlayerFrameInput, delta: f32) {
+/// Returns whether the player jumped.
+fn apply_vertical_velocity(player: &mut Player, action: &PlayerFrameInput, delta: f32) -> bool {
     if player.is_flying {
-        return;
+        return false;
     }
-    if player.on_ground && action.is_pressed(NetworkAction::JumpOrFlyUp) {
+    let jumps = player.on_ground && action.is_pressed(NetworkAction::JumpOrFlyUp);
+    if jumps {
         player.velocity.y = JUMP_VELOCITY;
         player.on_ground = false;
     }
     player.velocity.y += GRAVITY * delta / 2.0;
+    jumps
 }
 
 /// On a ladder, a player falls slowly, climbs by jumping or by walking against a block, and
@@ -1200,6 +1232,112 @@ mod tests {
         ];
         simulate(&mut player, &world, &actions, 10);
         assert!(!player.is_sprinting && player.is_sneaking);
+    }
+
+    #[test]
+    fn a_hungry_survival_player_cannot_sprint() {
+        let world = flat_world();
+        let sprint = [NetworkAction::MoveForward, NetworkAction::Sprint];
+        let sprints = |food, game_mode| {
+            let mut player = Player {
+                food,
+                game_mode,
+                ..standing_player()
+            };
+            simulate(&mut player, &world, &sprint, 10);
+            player.is_sprinting
+        };
+        assert!(!sprints(6, GameMode::Survival));
+        assert!(sprints(7, GameMode::Survival));
+        assert!(sprints(0, GameMode::Creative));
+
+        // A sprint stops once the food drops to 6
+        let mut player = standing_player();
+        simulate(&mut player, &world, &sprint, 10);
+        player.food = 6;
+        simulate(&mut player, &world, &[NetworkAction::MoveForward], 1);
+        assert!(!player.is_sprinting);
+    }
+
+    /// The exhaustion `frames` of `actions` measure, summed.
+    fn exhaustion(
+        player: &mut Player,
+        world: &ChunkMap,
+        actions: &[NetworkAction],
+        frames: u32,
+    ) -> f32 {
+        let input = frame(actions);
+        (0..frames)
+            .map(|_| simulate_player_movement(player, world, &input).exhaustion)
+            .sum()
+    }
+
+    #[test]
+    fn sprinting_tires_a_tenth_a_block_and_walking_not_at_all() {
+        let world = flat_world();
+        let mut player = standing_player();
+        let walk = exhaustion(&mut player, &world, &[NetworkAction::MoveForward], 50);
+        assert_eq!(walk, 0.0);
+
+        let mut player = standing_player();
+        let start = player.position;
+        let sprint = [NetworkAction::MoveForward, NetworkAction::Sprint];
+        let tired = exhaustion(&mut player, &world, &sprint, 50);
+        let expected = walked(&player, start) * SPRINT_EXHAUSTION;
+        assert!(
+            (tired - expected).abs() < 1e-4,
+            "{tired}, {expected} expected"
+        );
+    }
+
+    #[test]
+    fn a_jump_tires_and_more_while_sprinting() {
+        let world = flat_world();
+        let mut player = standing_player();
+        let jump = exhaustion(&mut player, &world, &[NetworkAction::JumpOrFlyUp], 1);
+        assert_eq!(jump, JUMP_EXHAUSTION);
+        // Up in the air, holding jump does not jump again
+        let held = exhaustion(&mut player, &world, &[NetworkAction::JumpOrFlyUp], 5);
+        assert_eq!(held, 0.0);
+
+        let mut player = standing_player();
+        simulate(
+            &mut player,
+            &world,
+            &[NetworkAction::MoveForward, NetworkAction::Sprint],
+            5,
+        );
+        let start = player.position;
+        let actions = [NetworkAction::MoveForward, NetworkAction::JumpOrFlyUp];
+        let tired = exhaustion(&mut player, &world, &actions, 1);
+        let run = walked(&player, start) * SPRINT_EXHAUSTION;
+        assert!(
+            (tired - SPRINT_JUMP_EXHAUSTION - run).abs() < 1e-5,
+            "{tired}"
+        );
+    }
+
+    #[test]
+    fn swimming_tires_a_hundredth_a_block_and_flying_not_at_all() {
+        let world = pool();
+        let mut player = diver();
+        let input = frame(&[NetworkAction::MoveForward]);
+        let (mut tired, mut expected) = (0.0, 0.0);
+        for _ in 0..30 {
+            let start = player.position;
+            tired += simulate_player_movement(&mut player, &world, &input).exhaustion;
+            expected += start.distance(player.position) * SWIM_EXHAUSTION;
+        }
+        assert!(tired > 0.0);
+        assert!(
+            (tired - expected).abs() < 1e-4,
+            "{tired}, {expected} expected"
+        );
+
+        let world = open_air();
+        let mut player = flyer();
+        let sprint = [NetworkAction::MoveForward, NetworkAction::Sprint];
+        assert_eq!(exhaustion(&mut player, &world, &sprint, 30), 0.0);
     }
 
     #[test]
