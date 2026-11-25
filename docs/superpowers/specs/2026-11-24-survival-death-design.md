@@ -391,3 +391,32 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   `ThrownOff(GustOwl)`, "A Gust Owl threw you off a ledge" (tested). `Player::knock_back`
   halves the push of a sneaking player (any source; shared, so the prediction agrees); the hop
   is kept. Loot 1–3 feathers. The hostiles' e2e line-up hatches all seven.
+- **Lot 13** (no plan of its own: this entry). **Death drops**: `drop_on_death_system`
+  (`world/dropped_items.rs`, `DroppedItems::drop_on_death`) runs in Simulate after every source
+  of damage of the tick (the mobs move before Receive, the inputs, `breathe_system`,
+  `burn_system`, `metabolism_system`) and before `pickup_dropped_items_system`. A dead player
+  in survival (`GameMode::takes_damage`) loses its slots, its crafting grid (they are all in
+  `Inventory::inner`) and its cursor stack, in slot order, each stack popping from its centre
+  as from a broken block (random horizontal speed ≤ 2, up 4); its table, chest or furnace is
+  closed (a chest's and a furnace's slots are the block's, not the player's). There is no
+  armour. A dead player picks nothing up (`DroppedItems::pick_up`), else it took its items
+  back while on the death screen. Creative never drops. `LIFETIME_TICKS` was already 6000
+  (5 min) for every dropped item: unchanged. **Respawn**: `handlers::respawn` already takes
+  main's bedroll (`home::respawn_position`), and `Player::respawn` resets health, food,
+  saturation, air, burning and drag; two server tests pin it, bedroll kept and gone.
+  **Balancing**: the spawn ring reached 64 blocks, the per-player cap's distance (3D) too, so
+  a pack at the ring's edge or 20 blocks below a player spawned uncounted and a player got
+  more than 10; an attempt now drops the members beyond `PLAYER_CAP_DISTANCE`. The rest holds
+  together and is kept: lava 4 per 10 ticks (Minecraft's), fire 1 per 20, drowning 2 per 20,
+  starvation 1 per 80 down to death (as the spec asks), regeneration 1 per 80 from 18 food;
+  the hostiles' damage per second is bounded by the player's 10 ticks of invulnerability (a
+  pack of Gnawers deals at most 4 a second); caps 10 / 40 within the 96 of the despawn; the
+  food values are Minecraft's. **Flaky tests**: the spawning tests draw from a seeded rng
+  (`spawning::spawning_tick`, players in id order); the world cap test keeps its 37 hostiles
+  within the despawn distance of four players. An e2e player that may die before its hotbar
+  shows enters with `game::enter_game` (no wait for the hotbar); the lava test waits for the
+  fog, then the death screen ("You tried to swim in lava"), the flames being the fire test's.
+  The broken-block e2e turns its player toward the item each frame, as it pops in a random
+  direction. **Deaths staged by the e2e tests**: the fall (`survival`), lava (`survival`), the
+  Gnawer's bites (`mobs`), starvation with the inventory left where the player died, drowning
+  and fire (`e2e/death.rs`, players saved with 1 health).

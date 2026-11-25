@@ -528,6 +528,82 @@ The mobs and the dropped items move first, before the inputs of the tick are rea
 then pushed out of the players and of one another (`push_mobs`): only the server does it, and it
 never moves a player, so the prediction of the clients is left alone.
 
+### The systems of a tick, in order
+
+Before **Receive**: `mob_behavior_system` (the animals wander and flee, the hostiles hunt and
+strike, `push_mobs`), `cinder_system` (the embers fly), `hostile_spawning_system`, and
+`dropped_items_physics_system`. In **Simulate**, chained: `tick_damage_timers_system` (the
+invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
+(movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava
+first, then fire), `tick_furnaces_system`, `metabolism_system` (every 80 ticks: regeneration or
+starvation), `drop_on_death_system`, `pickup_dropped_items_system`, `home_system` (bedrolls and
+signs), `block_ticks_system` (the one random tick, above), `liquid_flow_system`,
+`weather_system`, `remove_unfit_portals_system`. Every source of damage of a tick, the mobs'
+included, comes before `drop_on_death_system`, and the pickups after it.
+
+### Damage, death and respawn
+
+Every hurt goes through `Player::hurt` (above), which only survival takes. A dead player is one
+with no health. `drop_on_death_system` (`world/dropped_items.rs`, `DroppedItems::drop_on_death`)
+empties the inventory of a dead survival player where it died, its slots, crafting grid and
+cursor stack, each stack popping in a random direction as from a broken block, and closes its
+table, chest or furnace; creative keeps everything. A dead player picks nothing up, so its
+items lie there for the usual 5 minutes (`LIFETIME_TICKS`). `Respawn` (`handlers::respawn`)
+brings it back at its bedroll while the bedroll stands (`home::respawn_position`), else at the
+spawn, in full health and fed (food 20, saturation 5), breathing, put out and no longer
+dragged (`Player::respawn`).
+
+### Combat
+
+A left click on a mob within reach (3 blocks, 5 with the spear) is a blow
+(`server/src/mob/combat.rs`, `interact`): `MobKind::blow_damage(held)` (the weapon's
+`attack_damage`, 1 by hand, half again with an axe on a Stumpling), 10 ticks of invulnerability
+(`ServerMob.hurt_ticks`), a knock back of 6 blocks/s away from the player, and the wear of the
+weapon (1 for a sword, 2 for another tool). A hit animal flees for 5 s; a hit hostile takes the
+player as its prey (`hostile::provoke`). A killed mob is removed and drops its loot
+(`combat::loot`) as dropped items. The client tints a hurt mob red and plays its hurt sound when
+`ServerMob::damage` rises in a `MobUpdate`.
+
+### Hostile mobs
+
+The rules are shared (`shared/src/world/hostiles.rs`): `MobKind::hunt` (sight, forget distance,
+speed) and `strike` (damage, reach, cooldown, knock back), `is_prey` (a living survival player),
+`line_of_sight`, `is_dark`, `spawn_kind` and `pack_size`. `hostile_spawning_system`
+(`mob/spawning.rs`) removes every hostile and ember of a peaceful world (`/difficulty`, saved in
+`world.ron`); otherwise, every 40 ticks, it despawns the hostiles 96 blocks from every player
+and gives each player one attempt: a spot 24 to 64 blocks away horizontally, at a random height
+within 24 of its feet, scanned down for water or a floor with two free cells; if it is far
+enough from every player, dark ((night and open sky) or covered, and no light emitter in the
+17³ cube around it), its place picks the kind: Gnawers (packs of 2 to 4, 3 in 4) or a Roller in
+the caves below y = 50, a Cinderling 1 in 3 below y = 20, Rollers above y = 100, a Gust Owl 1 in 2
+at night under the sky above y = 110, Stumplings on night grass and Brambles or Stumplings in
+the woods, a Drowner in water 3 deep or more (1 in 4 by day, 1 in 2 at night, no darkness
+needed). Caps: 10 hostiles per player within 64 blocks (a spawned hostile is always within
+them), 40 in the world; the embers do not count. At dawn the Stumplings burrow into the ground
+and go.
+
+A hostile (`mob/hostile.rs`, `act`) keeps its prey until it is out of the forget distance,
+dead or in creative, else finds the nearest prey within its sight and in sight, then acts by
+kind: the Gnawer and the Stumpling walk straight at it and strike in reach (the Stumpling flees
+fire and lava within 6 blocks); the Bramble never moves and bites who comes within 2.5 blocks;
+the Roller winds up 20 ticks, then rolls at 7 blocks/s until it hits the player (4 damage, a
+knock back of 8) or a block (stunned 40 ticks); the Drowner swims in 3D, never leaves the water
+to chase, and its grab drags the player down (`Player::drag`, part of the `MovementState`); the
+Cinderling hovers 2 blocks above the ground at 6 blocks from its prey and throws embers; the
+Gust Owl circles 8 blocks over its prey and dives at it, a deadly fall within 3 s being put on
+it. A strike shows as `MobAction::Attack` for 10 ticks, which the client plays once
+(`HOSTILE_CLIPS`); the fliers and the Drowner in water skip gravity (`behavior::floats`).
+
+### The ember
+
+An ember is a mob kind (`MobKind::Ember`, `is_projectile`) that the server moves itself
+(`mob/cinder.rs`, `cinder_system`): exact ballistics under −16 blocks/s², stepped by at most a
+quarter of a block, for at most 100 ticks. The first player box it touches takes 1 damage and
+burns for at least 60 ticks; the first cell with a hitbox or a liquid ends it, and lights the air
+cell it came from when that block is flammable. Embers are neither pushed, struck, counted in
+the caps nor saved. A Cinderling that touches water, or sees the sky in the rain, goes out
+without loot.
+
 ## One client frame
 
 `GameSet` (`client/src/state.rs`) orders the in-game systems of `Update`; `game_plugin`
@@ -993,11 +1069,15 @@ the integrated server, on wall-clock time. How to write one is in the README.
   id. This is fine among friends, not for a server open to anyone.
 - Block interactions are processed once per input, so once per rendered frame of the client:
   a client with a higher frame rate breaks blocks faster.
-- Mobs cannot be hurt, and a player is not held back by those it pushes; no animal is born after a chunk
-  is generated: a herd led away is gone for good.
+- A player is not held back by the mobs it pushes; no animal is born after a chunk is
+  generated: a herd led away is gone for good.
 - An item that does not fit in a full inventory is lost, but for the water bucket of a bucket
   filled from a stack, which is dropped.
-- A player who dies keeps its inventory, and nothing hurts it but falls and drowning.
+- There is no armour, and a player who dies loses its inventory for good unless it comes back
+  for it within the 5 minutes its items lie there, which count on even where no player is.
+- The hostiles walk straight at their prey and find no way round a wall or down a ledge; the
+  spawning ignores the game mode, so hostiles still spawn around a creative player, though
+  they leave it alone.
 - Any player may change its own game mode with `/gamemode`: there are no operators yet.
 - A world still loading 10 s after the quit is stopped with the process: its server cannot be
   told to stop before it accepts the player. Its files are written atomically, so the save stays
