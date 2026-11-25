@@ -437,7 +437,9 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
     use shared::{
         players::{
+            armour::ArmourPiece,
             game_mode::{DamageSource, GameMode},
+            inventory::ENGRAVING_SLOT,
             PLAYER_HEIGHT,
         },
         world::{
@@ -935,7 +937,7 @@ mod tests {
     }
 
     /// A survival player at `ON_FLOOR` holding a hotbar stack, a main stack, a cell of the
-    /// crafting grid and a cursor stack, with a crafting table open.
+    /// crafting grid, the slot of the engraving table, boots and a cursor stack, with tables open.
     fn laden(game_mode: GameMode) -> Player {
         let mut player = Player::new(1, "p".into(), ON_FLOOR + Vec3::Y, Transform::default());
         player.game_mode = game_mode;
@@ -945,7 +947,14 @@ mod tests {
         inventory
             .inner
             .insert(CRAFTING_GRID_START, stack(ItemId::Stick, 2));
+        inventory
+            .inner
+            .insert(ENGRAVING_SLOT, stack(ItemId::IronPickaxe, 1));
+        inventory
+            .inner
+            .insert(ArmourPiece::Boots.slot(), stack(ItemId::LeatherBoots, 1));
         inventory.floating = Some(stack(ItemId::Cobblestone, 5));
+        inventory.open_engraver = Some(IVec3::new(4, 64, 0));
         inventory.open_table = Some(IVec3::new(3, 64, 0));
         player
     }
@@ -959,11 +968,12 @@ mod tests {
         assert_eq!(items.drop_on_death(&mut player, &mut rng), 0);
         assert!(player.hurt(100, DamageSource::Fall));
 
-        assert_eq!(items.drop_on_death(&mut player, &mut rng), 4);
+        assert_eq!(items.drop_on_death(&mut player, &mut rng), 6);
 
         assert!(player.inventory.inner.is_empty());
         assert_eq!(player.inventory.floating, None);
         assert_eq!(player.inventory.open_table, None);
+        assert_eq!(player.inventory.open_engraver, None);
         let mut dropped: Vec<_> = items.items.values().map(|item| item.stack).collect();
         dropped.sort_by_key(|stack| stack.item_id as u32);
         let mut held = vec![
@@ -971,6 +981,8 @@ mod tests {
             stack(ItemId::Dirt, 40),
             stack(ItemId::Stick, 2),
             stack(ItemId::Cobblestone, 5),
+            stack(ItemId::IronPickaxe, 1),
+            stack(ItemId::LeatherBoots, 1),
         ];
         held.sort_by_key(|stack| stack.item_id as u32);
         assert_eq!(dropped, held);
@@ -983,7 +995,7 @@ mod tests {
             .values()
             .map(|item| (item.velocity.x.to_bits(), item.velocity.z.to_bits()))
             .collect();
-        assert_eq!(directions.len(), 4, "scattered");
+        assert_eq!(directions.len(), 6, "scattered");
         // Nothing is left to drop twice
         assert_eq!(items.drop_on_death(&mut player, &mut rng), 0);
         assert_eq!(items.len(), 4);

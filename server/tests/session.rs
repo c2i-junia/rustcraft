@@ -21,8 +21,8 @@ use shared::status::{StatusReply, StatusRequest};
 use shared::world::{
     chunk_distance, global_block_to_chunk_pos, grid_slot, lair, raycast, to_local_pos,
     world_position_to_chunk_position, BlockData, BlockDirection, BlockId, ChunkMap, Enchantment,
-    FaceDirection, FaceDirectionExt, ItemId, ItemStack, MobId, MobKind, Portal, PortalColor,
-    ServerMob, TerrainNoises, WeatherKind,
+    FaceDirection, FaceDirectionExt, ItemId, ItemStack, ItemType, MobId, MobKind, Portal,
+    PortalColor, ServerMob, TerrainNoises, WeatherKind,
 };
 use shared::{
     game_message_to_payload, get_shared_renet_config, payload_to_game_message,
@@ -1645,6 +1645,209 @@ fn a_piece_of_armour_is_put_on_saved_and_seen_by_the_others() {
         }
         _ => None,
     });
+}
+
+#[test]
+fn a_player_who_joins_later_sees_the_armour_and_the_held_item_of_those_there() {
+    let mut inventory = Inventory::new();
+    inventory.inner.insert(2, stack(ItemId::IronSword, 1));
+    inventory
+        .inner
+        .insert(ArmourPiece::Helmet.slot(), stack(ItemId::IronHelmet, 1));
+    let server = start_with_inventory(inventory);
+    let mut first = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut first, "crafter");
+    let mut second = TestClient::connect(server.addr, PLAYER_ID + 1);
+    join(&mut second, "watcher");
+
+    // Both ways: the first in its armour, its sword in hand, and the second with neither
+    for (sees, seen, slot, held, helmet) in [
+        (0, 1, 2, Some(ItemId::IronSword), Some(ItemId::IronHelmet)),
+        (1, 0, 0, None, None),
+    ] {
+        let clients = [&mut second, &mut first];
+        let id = clients[seen].id;
+        clients[seen].send(ClientToServerMessage::PlayerInputs(vec![
+            PlayerFrameInput {
+                time_ms: 1,
+                delta_ms: 16,
+                hotbar_slot: slot,
+                ..Default::default()
+            },
+        ]));
+        clients[seen].send_packets();
+        clients[sees].wait_for("the other player as it is", |m| match m {
+            ServerToClientMessage::PlayerUpdate(u)
+                if u.id == id && u.last_ack_time == 1 && u.held == held =>
+            {
+                assert_eq!(u.worn, WornArmour([helmet, None, None, None]));
+                Some(())
+            }
+            _ => None,
+        });
+    }
+}
+
+#[test]
+fn a_player_killed_drops_its_armour_and_what_its_engraving_table_holds() {
+    use shared::players::inventory::ENGRAVING_SLOT;
+    let carried = [
+        (0, ItemId::Dirt),
+        (ArmourPiece::Helmet.slot(), ItemId::IronHelmet),
+        (ArmourPiece::Boots.slot(), ItemId::LeatherBoots),
+        (ENGRAVING_SLOT, ItemId::IronSword),
+    ];
+    let mut inventory = Inventory::new();
+    for (slot, item) in carried {
+        inventory.inner.insert(slot, stack(item, 1));
+    }
+    let server = start_with_inventory(inventory);
+    let mut victim = TestClient::connect(server.addr, PLAYER_ID);
+    join(&mut victim, "crafter");
+    let mut time_ms = 1;
+    let mut update = play(&mut victim, time_ms, &[&[]]);
+    // It falls from 30 blocks above where it stands
+    for mode in ["creative", "survival"] {
+        set_game_mode(&mut victim, mode);
+        let mut frames: Vec<&[NetworkAction]> = vec![&[]; 40];
+        if mode == "creative" {
+            frames = vec![&[NetworkAction::ToggleFlyMode]];
+            frames.extend([&[NetworkAction::JumpOrFlyUp][..]; 15]);
+        }
+        time_ms += 100;
+        update = play(&mut victim, time_ms, &frames);
+    }
+    assert_eq!(update.health, 0);
+
+    let mut missing: Vec<ItemId> = carried.map(|(_, item)| item).to_vec();
+    while !missing.is_empty() {
+        let items: Vec<ItemId> = victim.wait_for("the items it dropped", |m| match m {
+            ServerToClientMessage::DroppedItems(items) if !items.upserts.is_empty() => {
+                let items = items.upserts.iter();
+                Some(items.map(|(_, item)| item.stack.item_id).collect())
+            }
+            _ => None,
+        });
+        missing.retain(|item| !items.contains(item));
+    }
+    victim.send(ClientToServerMessage::Respawn);
+    let id = victim.id;
+    victim.wait_for("the respawned player, with nothing on it", |m| match m {
+        ServerToClientMessage::PlayerUpdate(u) if u.id == id && u.health > 0 => {
+            (u.worn == WornArmour::default()).then_some(())
+        }
+        _ => None,
+    });
+}
+
+/// `world.ron` and the file of a player as commit c0e3a7c7 wrote them: without the game mode, the
+/// boss and the dungeons of the world, nor the growth, the owner and the tier of its mobs, nor the
+/// experience, the armour and the progress of the player.
+const FORMER_WORLD: &str = r#"(
+    format_version: 5,
+    name: "session-test",
+    seed: (147),
+    time: 1200,
+    mobs: {
+        7: (
+            kind: Sheep,
+            target: None,
+            action: Idle,
+            position: (4.5, 80.0, 4.5),
+            rotation: (0.0, 0.0, 0.0, 1.0),
+            height: 1.3,
+            width: 0.9,
+            on_ground: true,
+            velocity: (0.0, 0.0, 0.0),
+            depth: 0.9,
+            action_ticks: 0,
+            damage: 2,
+            sheared: true,
+            passes: 0,
+        ),
+    },
+    dropped_items: [],
+    weather: Some((kind: Rain, ticks_left: 5000)),
+    generation: (preset: Default, villages: true),
+    difficulty: Peaceful,
+)"#;
+const FORMER_PLAYER: &str = r#"(
+    id: 42,
+    name: "crafter",
+    position: (0.5, 90.0, 0.5),
+    camera_transform: (
+        translation: (0.5, 90.6, 0.5),
+        rotation: (0.0, 0.0, 0.0, 1.0),
+        scale: (1.0, 1.0, 1.0),
+    ),
+    velocity: (0.0, 0.0, 0.0),
+    on_ground: false,
+    is_flying: true,
+    is_sprinting: false,
+    is_sneaking: false,
+    is_swimming: false,
+    fall_distance: 0.0,
+    game_mode: Creative,
+    health: 13,
+    death_cause: None,
+    food: 11,
+    saturation: 2.5,
+    exhaustion: 0.5,
+    inventory: (
+        inner: {
+            0: (item_id: IronPickaxe, item_type: Tool(wear: 12), nb: 1),
+            9: (item_id: Cobblestone, item_type: Block(Cobblestone), nb: 33),
+            30: (item_id: Stick, item_type: Generic, nb: 4),
+        },
+        floating: None,
+        open_table: None,
+        open_chest: None,
+        open_furnace: None,
+    ),
+    height: 1.8,
+    width: 0.8,
+    last_input_processed: 987654,
+)"#;
+
+#[test]
+fn a_world_and_a_player_saved_before_the_progression_still_load() {
+    let tmp = tempfile::tempdir().unwrap();
+    let world_dir = tmp.path().join("saves").join(WORLD_NAME);
+    std::fs::create_dir_all(world_dir.join("players")).unwrap();
+    std::fs::write(world_dir.join("world.ron"), FORMER_WORLD).unwrap();
+    let player_file = world_dir.join("players").join(format!("{PLAYER_ID}.ron"));
+    std::fs::write(&player_file, FORMER_PLAYER).unwrap();
+
+    let mut server = TestServer::start_in(tmp, WORLD_NAME);
+    let mut client = TestClient::connect(server.addr, PLAYER_ID);
+    let position = join(&mut client, "crafter");
+    assert_eq!(position, Vec3::new(0.5, 90.0, 0.5));
+    let update = play(&mut client, 1, &[&[]]);
+    assert_eq!(update.game_mode, GameMode::Creative);
+    // A peaceful world gives health and food back meanwhile
+    assert!((13..20).contains(&update.health), "{}", update.health);
+    assert_eq!(update.worn, WornArmour::default());
+    client.send(ClientToServerMessage::Exit);
+    client.send_packets();
+    server.join_after_exit();
+
+    // Saved again by this version, with all it held
+    let saved = std::fs::read_to_string(player_file).unwrap();
+    let saved: Player = ron::de::from_str(&saved).unwrap();
+    assert!((11..20).contains(&saved.food), "{}", saved.food);
+    let pickaxe = saved.inventory.inner[&0];
+    assert_eq!(pickaxe.item_id, ItemId::IronPickaxe);
+    assert_eq!(pickaxe.item_type, ItemType::Tool { wear: 12 });
+    assert_eq!(saved.inventory.inner[&9], stack(ItemId::Cobblestone, 33));
+    assert_eq!(saved.inventory.inner[&30], stack(ItemId::Stick, 4));
+    let world = std::fs::read_to_string(server.world_dir().join("world.ron")).unwrap();
+    for kept in ["Peaceful", "Sheep", "sheared: true"] {
+        assert!(world.contains(kept), "{kept} is gone: {world}");
+    }
+    assert!(
+        !world.contains("dungeons: true"),
+        "dungeons in an old world"
+    );
 }
 
 #[test]
