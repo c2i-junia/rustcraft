@@ -31,16 +31,21 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Generate commit hash
-      id: commit_hash
-      run: echo "hash=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+    - name: Name the image tags
+      run: |
+        image=ghcr.io/${{ github.repository }}/rustcraft-server
+        if [ -n "${{ inputs.version }}" ]; then
+          echo "image_tags=${image}:${{ inputs.version }} ${image}:latest" >> $GITHUB_ENV
+        else
+          echo "image_tags=${image}:dev-$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_ENV
+        fi
 
     - name: Build Docker image
       run: |
-        docker build \
-          --file Dockerfile \
-          --tag ghcr.io/${{ github.repository }}/rustcraft-server:${{ inputs.version || format('dev-{0}', env.hash) }} .
+        docker build --file Dockerfile $(for tag in ${{ env.image_tags }}; do echo "--tag $tag"; done) .
 
     - name: Push Docker image
       run: |
-        docker push ghcr.io/${{ github.repository }}/rustcraft-server:${{ inputs.version || format('dev-{0}', env.hash) }}
+        for tag in ${{ env.image_tags }}; do
+          docker push "$tag"
+        done

@@ -23,6 +23,7 @@ Minecraft game clone written in Rust, using the Bevy game engine.
 - [Command-line options](#command-line-options)
     - [Client](#client)
     - [Server](#server)
+    - [Running a server with Docker](#running-a-server-with-docker)
 - [How to Build](#how-to-build)
     - [Prerequisites](#prerequisites)
     - [Running the Project](#running-the-project)
@@ -301,6 +302,27 @@ The game folder holds the saves and the settings. By default it is `$XDG_DATA_HO
 The options about the seed, type, game mode and difficulty apply only to a world that is created: a world that already exists keeps its own, and the server logs a warning.
 
 Both executables also read the `RUST_LOG` environment variable to choose what they log, e.g. `RUST_LOG=server=debug,warn rustcraft-server`.
+
+<br>
+
+## Running a server with Docker
+
+The image `ghcr.io/<owner>/rustcraft/rustcraft-server` (built from the `Dockerfile`; `:latest` and
+`:<version>` for a release, `:dev-<commit>` for `main`) runs the dedicated server as the user
+`rustcraft` (uid 10001). Everything it writes goes to the volume `/data`, so the container can
+run with a read-only root filesystem:
+
+```sh
+docker run -d --name rustcraft --read-only \
+    -v rustcraft-data:/data -p 8000:8000/udp -p 8001:8001/udp \
+    ghcr.io/<owner>/rustcraft/rustcraft-server
+```
+
+Publish the game port and the status port next to it, both in UDP. The arguments after the image
+name replace the default `--world world --port 8000` and are those of the [server](#server), e.g.
+`--world survival --seed 42 --max-players 8 --op Alice`. A bind mount must be writable by uid
+10001. The logs go to stdout (`docker logs`), and `docker stop` saves the world and exits with
+status 0.
 
 <br>
 

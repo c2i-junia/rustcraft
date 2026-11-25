@@ -1,5 +1,9 @@
 target/
 **/target/
+appdata/
+release/
+website/
+hub/target/
 
 .git
 .gitignore
