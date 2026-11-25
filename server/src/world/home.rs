@@ -157,6 +157,10 @@ pub fn home_system(
         // The night is the first half of a day
         time.0 = time.0 - time.0 % DAY_DURATION_IN_TICKS + DAY_DURATION_IN_TICKS / 2;
         world_map.home.sleeping.clear();
+        // A night slept away is not lived through
+        for player in world_map.players.values_mut() {
+            player.progress.night = None;
+        }
         for &id in lobby.players.keys() {
             server.send_game_message(id, ServerToClientMessage::TimeSet(time.0));
         }
@@ -176,4 +180,43 @@ pub fn home_system(
 
 fn is_night(tick: u64) -> bool {
     tick % DAY_DURATION_IN_TICKS < DAY_DURATION_IN_TICKS / 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::init::LobbyPlayer;
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy_renet::renet::ConnectionConfig;
+    use shared::players::progress::Achievement;
+    use shared::players::Player;
+
+    #[test]
+    fn a_night_slept_away_is_skipped_and_is_not_one_lived_through() {
+        let mut world_map = ServerWorldMap::default();
+        let mut player = Player::new(1, "sleeper".into(), Vec3::ZERO, Transform::default());
+        player.watch_the_night(0);
+        world_map.players.insert(1, player);
+        world_map.home.slept.push((1, IVec3::ZERO));
+        let mut lobby = ServerLobby::default();
+        lobby.players.insert(
+            1,
+            LobbyPlayer {
+                name: "sleeper".into(),
+            },
+        );
+        let mut world = World::new();
+        world.insert_resource(world_map);
+        world.insert_resource(lobby);
+        world.insert_resource(ServerTime(100));
+        world.insert_resource(RenetServer::new(ConnectionConfig::default()));
+        world.run_system_once(home_system).unwrap();
+
+        let dawn = world.resource::<ServerTime>().0;
+        assert_eq!(dawn, DAY_DURATION_IN_TICKS / 2);
+        let mut world_map = world.resource_mut::<ServerWorldMap>();
+        let player = world_map.players.get_mut(&1).unwrap();
+        player.watch_the_night(dawn);
+        assert!(!player.progress.has(Achievement::Night));
+    }
 }
