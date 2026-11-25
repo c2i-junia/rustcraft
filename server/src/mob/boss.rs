@@ -8,7 +8,7 @@
 //! moves her, and puts her back asleep whenever her lair is loaded. Asleep, as in a peaceful
 //! world, where she never wakes, nothing hurts her.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::TAU;
 
 use bevy::math::{ops::atan2, IVec3, Quat, Vec3};
@@ -22,9 +22,10 @@ use shared::world::depths::DepthTier;
 use shared::world::hostiles::{distance_to_box, is_prey};
 use shared::world::lair::{heart, holds, FLOOR, LAKE, REACH};
 use shared::world::{
-    BlockData, BlockDirection, BlockHitbox, BlockId, ChunkMap, MobAction, MobId, MobKind,
-    MobTarget, ServerMob,
+    global_block_to_chunk_pos, BlockData, BlockDirection, BlockHitbox, BlockId, ChunkMap,
+    MobAction, MobId, MobKind, MobTarget, ServerMob,
 };
+use shared::CHUNK_SIZE;
 
 use super::cinder::ember;
 use super::combat::{drop_loot, loot};
@@ -83,6 +84,8 @@ pub struct Boss {
     /// Ticks since she woke.
     clock: u32,
     fires: VecDeque<IVec3>,
+    /// The chunks of the lake whose lava turned to obsidian since she was beaten, or the load.
+    cooled: HashSet<IVec3>,
     /// The bar each player was last told of.
     told: HashMap<PlayerId, BossBar>,
 }
@@ -128,6 +131,7 @@ fn step(
 ) -> Vec<(PlayerId, ServerToClientMessage)> {
     map.boss.lair = Some(centre);
     if map.boss.defeated {
+        cool_lake(map, centre);
         return Vec::new();
     }
     let mut messages = Vec::new();
@@ -228,6 +232,51 @@ fn beaten(map: &mut ServerWorldMap, centre: IVec3, id: MobId, rng: &mut impl Rng
                 if is_lava && holds(centre, cell.as_vec3() + 0.5) {
                     let obsidian = BlockData::new(BlockId::Obsidian, BlockDirection::Front);
                     map.chunks.set_block(cell, obsidian);
+                }
+            }
+        }
+    }
+}
+
+/// Turns to obsidian the lava of the lake in the chunks that were not loaded as she was beaten,
+/// once each is.
+fn cool_lake(map: &mut ServerWorldMap, centre: IVec3) {
+    // The shore wavers
+    let reach = IVec3::new(LAKE + 2, 0, LAKE + 2);
+    let (low, high) = (centre - reach - IVec3::Y * 6, centre + reach);
+    let (first, last) = (
+        global_block_to_chunk_pos(&low),
+        global_block_to_chunk_pos(&high),
+    );
+    for x in first.x..=last.x {
+        for y in first.y..=last.y {
+            for z in first.z..=last.z {
+                let chunk = IVec3::new(x, y, z);
+                if map.chunks.is_chunk_loaded(chunk) && map.boss.cooled.insert(chunk) {
+                    let origin = chunk * CHUNK_SIZE;
+                    turn_to_obsidian(
+                        &mut map.chunks,
+                        low.max(origin),
+                        high.min(origin + CHUNK_SIZE - 1),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Turns the lava from `low` to `high`, included, to obsidian.
+fn turn_to_obsidian(chunks: &mut ChunkMap, low: IVec3, high: IVec3) {
+    for x in low.x..=high.x {
+        for y in low.y..=high.y {
+            for z in low.z..=high.z {
+                let cell = IVec3::new(x, y, z);
+                if chunks
+                    .get_block(cell)
+                    .is_some_and(|b| b.id == BlockId::Lava)
+                {
+                    let obsidian = BlockData::new(BlockId::Obsidian, BlockDirection::Front);
+                    chunks.set_block(cell, obsidian);
                 }
             }
         }
@@ -628,6 +677,24 @@ mod tests {
         assert_eq!(count(&map, MobKind::Cinderling), 0);
         // asleep, the clients are shown no bar
         assert!(map.boss.told.is_empty());
+    }
+
+    #[test]
+    fn the_lava_of_a_chunk_not_loaded_at_her_defeat_turns_once_it_is() {
+        let mut map = lair();
+        let (far, cell) = (IVec3::new(0, 0, -1), IVec3::new(8, FLOOR, -1));
+        let chunk = map.chunks.chunk(far).unwrap().clone();
+        map.chunks.remove_chunk(far);
+        map.boss.defeated = true;
+        run(&mut map, 1);
+        map.chunks.insert_chunk(far, chunk);
+        run(&mut map, 1);
+        assert_eq!(map.chunks.get_block(cell).unwrap().id, BlockId::Obsidian);
+        // Once: what a player puts there later stays
+        let lava = BlockData::new(BlockId::Lava, BlockDirection::Front);
+        map.chunks.set_block(cell, lava);
+        run(&mut map, 1);
+        assert_eq!(map.chunks.get_block(cell).unwrap().id, BlockId::Lava);
     }
 
     #[test]
