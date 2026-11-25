@@ -354,7 +354,7 @@ server's: they are saved with the player, sent in every `PlayerUpdate`, and the 
 them as they come, before it checks its prediction. The simulation reads the mode, which keeps
 a survival player from flying, but changes neither: the server hurts a player that landed
 (`fall_damage`, one point per block beyond 3) or fell below `FALL_LIMIT`, in survival only, and
-gives a living player a point back every `REGENERATION_TICKS` (`world/simulation.rs`). Every hurt
+runs each player's metabolism every `REGENERATION_TICKS` (`metabolism_system`). Every hurt
 goes through `Player::hurt(amount, DamageSource)`, which ignores a hit within
 `INVULNERABILITY_TICKS` of the last one (the void and starvation pierce it) and turns the source
 into the `DeathCause`, a deadly fall within `THROWN_OFF_TICKS` of a mob's hit being that mob's.
@@ -373,6 +373,18 @@ it out; the client draws flames over the bottom of the screen meanwhile (`ui/hud
 Lava first (`bathe_in_lava`): a body in it burns for 300 ticks, which nothing puts out while it
 stays there, and takes 4 damage every 10 ticks; it moves at 0.3 of its speed, and its eyes in
 lava see an orange fog two blocks deep (`eye_liquid`).
+Hunger (`players/hunger.rs`): `food` (0 to 20), `saturation` and `exhaustion` are saved with the
+player, and only the food is sent. The efforts add to the exhaustion on the server only: the
+movement simulation measures a sprint, a swim and a jump in `MovementOutcome.exhaustion`,
+`simulate_player_actions` adds the broken blocks, and the server's input loop hands the sum to
+`Player::exhaust`, as the blows (`mob/combat.rs`), the hits taken (`Player::hurt`) and the
+health regenerated do; the client's prediction drops it. Every 4 of exhaustion take a point of
+saturation, or of food once the saturation is gone. The metabolism (`Player::metabolise`) gives a
+point of health back from 18 food, and starves a player with none. `Player::may_sprint` (more
+than 6 food, or creative) is read by the movement simulation on both sides, the client with the
+food of the last update. Eating (`players/blocks.rs`, `ItemId::food_value`) gives food and
+saturation, refused at full food. The client draws drumsticks over the right of the hotbar
+(`ui/hud/food.rs`), the bubbles above them.
 A dead
 player is not simulated: the server acknowledges its inputs without applying them, and the client
 neither predicts nor sends any, and shows the death screen (`ui/menus/death.rs`) until the

@@ -28,6 +28,7 @@ pub mod chat;
 pub mod chat_completion;
 pub mod corner;
 pub mod debug;
+pub mod food;
 pub mod fps_counter;
 pub mod health;
 pub mod hotbar;
@@ -70,6 +71,7 @@ pub fn hud_plugin(app: &mut App) {
             (
                 setup_inventory,
                 health::spawn_health_bar,
+                food::spawn_food_bar,
                 air::spawn_air_bar,
             )
                 .chain(),
@@ -197,6 +199,7 @@ pub fn hud_plugin(app: &mut App) {
         (
             health::update_health_bar,
             health::raise_item_name_over_the_hearts,
+            food::update_food_bar,
             air::update_air_bar,
             burning::update_burning_flames,
         )

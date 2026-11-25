@@ -256,3 +256,19 @@ halves knock back from any source. 14 health. Drops 1–3 feathers.
   hostile kind will replace by its chase), loot by `combat::loot(&ServerMob, rng)` (add an arm
   per kind), and the client's red flash and `MobHurt` sound, started by any rise of
   `ServerMob::damage` in a `MobUpdate`. A killed mob is removed at once: no flash, no sound.
+- **Lot 6** (plan `2026-11-24-survival-lot-6-hunger.md`, which has the food table).
+  `ItemId::food_health` is now `food_value() -> Option<(u8, f32)>` with Minecraft's food and
+  saturation; main's own foods move to the spec's values (berries 2, roast mushroom 4, bread 5).
+  `Player.food`, `saturation`, `exhaustion` are saved (serde defaults 20, 5, 0, copied by
+  `load_player_data`); only `food` travels, in `PlayerUpdateEvent`, which the client takes
+  before replaying its inputs so that its prediction refuses the sprint at ≤ 6 as the server
+  does. Exhaustion is the server's: `MovementOutcome.exhaustion` (sprint per horizontal block on
+  foot, any move in a liquid, jumps; flight free) plus 0.005 per broken block in
+  `ActionsOutcome.exhaustion`, applied by the server's input loop; blows in `combat::interact`,
+  hits in `Player::hurt`, regeneration in `Player::metabolise`. `regenerate_health_system` became
+  `metabolism_system` (same 80-tick clock for regeneration at ≥ 18 food and starvation at 0);
+  creative keeps main's free regeneration and never tires. `Refusal::NotHurt` is
+  `Refusal::NotHungry`. Hooks: `player.exhaust(amount)` server-side for any new effort (constants
+  in `players::hunger`), an arm in `ItemId::food_value` for a new food (lot 7: carrot 3/3.6,
+  potato 1/0.6, baked potato 5/6.0). HUD: `ui/hud/food.rs` (`FoodBar`, `FOOD_BAND`); `AirBar`
+  sits `FOOD_BAND` higher.

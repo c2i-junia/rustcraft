@@ -1,12 +1,13 @@
-//! The air of the local player in survival: ten bubbles over the right of the hotbar, mirroring
-//! the hearts, shown while the air is not full. They go from the left, the last one bursting
-//! before it goes. The textures are Pixel Perfection's `gui/sprites/hud/air*.png`.
+//! The air of the local player in survival: ten bubbles over the right of the hotbar, above the
+//! drumsticks, mirroring the hearts, shown while the air is not full. They go from the left, the
+//! last one bursting before it goes. The textures are Pixel Perfection's `gui/sprites/hud/air*.png`.
 
 use bevy::prelude::*;
 use shared::players::air::{bubble, Bubble, BUBBLES, MAX_AIR};
 use shared::players::Player;
 
 use crate::player::CurrentPlayerMarker;
+use crate::ui::hud::food::FOOD_BAND;
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::InventoryRoot;
 use crate::ui::theme::SPACE_XS;
@@ -17,7 +18,7 @@ pub const AIR_BURSTING_PATH: &str = "./graphics/hud/air_bursting.png";
 /// The side of a bubble on screen, in logical px: twice its texture, like the hearts.
 const BUBBLE_SIZE: f32 = 18.0;
 
-/// The row of bubbles. Lot 6's food row goes under it: its bottom margin then grows.
+/// The row of bubbles, above the food row.
 #[derive(Component)]
 pub struct AirBar;
 
@@ -54,7 +55,7 @@ pub fn spawn_air_bar(
                 position_type: PositionType::Absolute,
                 right: px(0.),
                 bottom: percent(100.),
-                margin: UiRect::bottom(px(SPACE_XS)),
+                margin: UiRect::bottom(px(FOOD_BAND + SPACE_XS)),
                 // The first bubble on the right
                 flex_direction: FlexDirection::RowReverse,
                 ..default()

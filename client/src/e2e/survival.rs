@@ -1,12 +1,13 @@
 //! Survival in the game, through the integrated server: the hearts, a deadly fall, the death
 //! screen and the respawn. And the stances: sprinting widens the view, sneaking lowers the eyes.
 //! And the zoom, which narrows the view and slows the mouse. And what drowns and burns: water,
-//! fire and lava.
+//! fire and lava. And hunger: the drumsticks, the sprint refused, and eating.
 
 use bevy::input::mouse::MouseMotion;
 use bevy::prelude::*;
 use shared::players::air::MAX_AIR;
 use shared::players::game_mode::{GameMode, MAX_HEALTH};
+use shared::players::hunger::MAX_FOOD;
 use shared::players::{Player, PLAYER_HEIGHT};
 use shared::world::{BlockId, ItemId, SEA_LEVEL};
 use shared::CHUNK_SIZE;
@@ -19,6 +20,7 @@ use crate::camera::{CameraController, FOV_DEGREES, LAVA_FOG_COLOR, ZOOM_SCALE};
 use crate::player::{CurrentPlayerMarker, HurtVignette, PlayerBody, SNEAK_BODY_SCALE};
 use crate::ui::hud::air::{air_label, AirBar};
 use crate::ui::hud::burning::BurningFlames;
+use crate::ui::hud::food::{food_label, FoodBar};
 use crate::ui::hud::health::{health_label, HealthBar};
 use crate::ui::hud::hotbar::Hotbar;
 use crate::ui::hud::{HudBottom, InventoryRoot};
@@ -45,6 +47,15 @@ impl Harness {
     /// The label the hearts give the accessibility tree.
     fn health_label(&mut self) -> String {
         let bar = self.get(&L::marker::<HealthBar>());
+        self.world()
+            .get::<AccessibleLabel>(bar)
+            .map(|label| label.0.clone())
+            .unwrap_or_default()
+    }
+
+    /// The label the drumsticks give the accessibility tree.
+    fn food_label(&mut self) -> String {
+        let bar = self.get(&L::marker::<FoodBar>());
         self.world()
             .get::<AccessibleLabel>(bar)
             .map(|label| label.0.clone())
@@ -394,4 +405,56 @@ fn a_fire_lit_at_the_feet_burns_the_player_who_sees_its_flames() {
         player(w).health < MAX_HEALTH
     });
     h.snapshot("burning");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_hungry_player_cannot_sprint_until_it_eats_and_its_drumsticks_fill() {
+    let folder = GameFolder::new()
+        .with_world("Hungry")
+        .with_player("Hungry", "Tester", |player| {
+            player.food = 4;
+            player.saturation = 0.0;
+            let item_id = ItemId::RoastBeef;
+            player.inventory.inner.insert(
+                0,
+                shared::world::ItemStack {
+                    item_id,
+                    item_type: item_id.get_default_type(),
+                    nb: 2,
+                },
+            );
+        });
+    let mut h = enter_world(folder, "Hungry");
+    h.wait_until("the saved food", SERVER, |w| player(w).food == 4);
+    h.wait_until("the player on the ground", SERVER, |w| player(w).on_ground);
+    h.wait_for(&L::marker::<FoodBar>(), SCREEN);
+    h.frames(2);
+    assert_eq!(h.food_label(), food_label(4));
+
+    // With 2 drumsticks, the sprint key only walks
+    h.key_down(KeyCode::KeyW);
+    h.key_down(KeyCode::ControlLeft);
+    h.frames(20);
+    assert!(!player(h.world()).is_sprinting);
+    h.key_up(KeyCode::ControlLeft);
+    h.key_up(KeyCode::KeyW);
+    h.frames(5);
+
+    // A roast beef: 8 more food, 6 drumsticks
+    hold_click(&mut h, &L::marker::<Hotbar>(), MouseButton::Right, 1);
+    h.wait_until("the beef eaten", SERVER, |w| {
+        player(w).food == 12 && slot(w, 0) == Some((ItemId::RoastBeef, 1))
+    });
+    h.frames(2);
+    assert_eq!(h.food_label(), food_label(12));
+    h.snapshot("drumsticks");
+
+    // Fed, it sprints
+    h.key_down(KeyCode::KeyW);
+    h.key_down(KeyCode::ControlLeft);
+    h.wait_until("the sprint", SCREEN, |w| player(w).is_sprinting);
+    h.key_up(KeyCode::ControlLeft);
+    h.key_up(KeyCode::KeyW);
+    assert!(player(h.world()).food < MAX_FOOD);
 }
