@@ -9,10 +9,11 @@ use bevy_ecs::system::{Res, ResMut};
 use rand::Rng;
 use shared::messages::PlayerId;
 use shared::players::Player;
+use shared::world::depths::{strength, strengthened, DepthTier};
 use shared::world::hostiles::{line_of_sight, may_spawn_at};
 use shared::world::{BlockId, ChunkMap, MobKind, ServerMob};
 
-use super::spawning::{PLAYER_CAP, PLAYER_CAP_DISTANCE, SPAWN_INTERVAL_TICKS, WORLD_CAP};
+use super::spawning::{player_cap, PLAYER_CAP_DISTANCE, SPAWN_INTERVAL_TICKS, WORLD_CAP};
 use crate::init::ServerTime;
 use crate::world::data::ServerWorldMap;
 use crate::world::generation::dungeon::{region_of, DungeonKind, DungeonPlan};
@@ -22,9 +23,9 @@ use crate::world::simulation::LoadedGenerator;
 const WAKE_DISTANCE: f32 = 36.0;
 /// No guard appears closer than this to a player, nor in its sight.
 const GUARD_DISTANCE: f32 = 8.0;
-/// The odds of a guard at each spawn interval.
+/// The odds of a guard at each spawn interval, times the strength of its depth tier.
 const GUARD_ODDS: (u32, u32) = (1, 4);
-/// Most hostiles in a dungeon, its guards or not, and how far around it they count.
+/// Most hostiles in a dungeon, its guards or not, times the strength of its depth tier, and how far around it they count.
 const MOST_GUARDS: usize = 5;
 const GUARD_MARGIN: f32 = 6.0;
 /// A light this close to a place keeps the guards from it, in cells along each axis.
@@ -64,7 +65,9 @@ pub fn dungeon_guards_system(
     }
     let mut rng = rand::thread_rng();
     for plan in near.into_values() {
-        if !rng.gen_ratio(GUARD_ODDS.0, GUARD_ODDS.1) {
+        let place = plan.guards[rng.gen_range(0..plan.guards.len())];
+        let tier = DepthTier::of(&world_map.chunks, place.0);
+        if !rng.gen_ratio(GUARD_ODDS.0 * strength(tier), GUARD_ODDS.1 * 100) {
             continue;
         }
         let ServerWorldMap {
@@ -79,7 +82,6 @@ pub fn dungeon_guards_system(
             .filter(|mob| mob.kind.is_hostile())
             .map(|mob| mob.position)
             .collect();
-        let place = plan.guards[rng.gen_range(0..plan.guards.len())];
         if let Some(mob) = guard(&plan, place, chunks, players, &hostiles) {
             super::add_mob(mobs, changed_mobs, mob);
         }
@@ -105,7 +107,9 @@ fn guard(
         .iter()
         .filter(|at| distance_to(plan, **at) <= GUARD_MARGIN)
         .count();
-    if in_dungeon >= MOST_GUARDS.min(plan.guards.len()) || hostiles.len() >= WORLD_CAP {
+    let tier = DepthTier::of(chunks, feet);
+    let most = strengthened(MOST_GUARDS.min(plan.guards.len()) as u32, tier) as usize;
+    if in_dungeon >= most || hostiles.len() >= WORLD_CAP {
         return None;
     }
     may_spawn_at(chunks, feet)?;
@@ -121,13 +125,13 @@ fn guard(
             .count();
         if distance < GUARD_DISTANCE
             || (distance <= PLAYER_CAP_DISTANCE
-                && (around >= PLAYER_CAP || line_of_sight(chunks, player.position, centre)))
+                && (around >= player_cap(tier) || line_of_sight(chunks, player.position, centre)))
         {
             return None;
         }
     }
     let at = ServerMob::standing_at(kind, centre.x, feet.y as f32, centre.z);
-    Some(ServerMob::new(kind, at))
+    Some(ServerMob::new(kind, at).in_tier(tier))
 }
 
 fn lit(chunks: &ChunkMap, feet: IVec3) -> bool {

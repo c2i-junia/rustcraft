@@ -17,6 +17,7 @@ use shared::{
     messages::PlayerId,
     players::{game_mode::DamageSource, Player},
     world::{
+        depths::strengthened,
         hostiles::{distance_to_box, is_prey, line_of_sight, Difficulty, Hunt, Strike},
         BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobAction, MobKind, MobTarget,
         ServerMob,
@@ -91,7 +92,7 @@ pub fn act(
     let (Some(hunt), Some(mut strike)) = (mob.kind.hunt(), mob.kind.strike()) else {
         return None;
     };
-    strike.damage = difficulty.strike_damage(strike.damage);
+    strike.damage = difficulty.strike_damage(strengthened(strike.damage, mob.tier));
     if mob.action == MobAction::Burrow {
         burrow(mob);
         return None;
@@ -233,7 +234,8 @@ fn hover_and_throw(
     if throws {
         mob.attack_wait = strike.cooldown;
         (mob.action, mob.action_ticks) = (MobAction::Attack, ATTACK_SHOW_TICKS);
-        return Some(super::cinder::ember(mob.position, player.position));
+        let ember = super::cinder::ember(mob.position, player.position);
+        return Some(ember.in_tier(mob.tier));
     }
     if mob.action == MobAction::Attack && mob.action_ticks > 1 {
         mob.action_ticks -= 1;

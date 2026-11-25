@@ -1,8 +1,10 @@
-//! The experience: the bar over the hotbar shows the saved levels, and the orbs show.
+//! The experience: the bar over the hotbar shows the saved levels, and the orbs show; and the announcement of
+//! the depth tiers.
 
 use bevy::prelude::*;
 use shared::messages::{DroppedItemState, DroppedItemsUpdate};
 use shared::players::armour::ArmourPiece;
+use shared::world::depths::DepthTier;
 use shared::world::{DroppedItem, ItemId, ItemStack};
 
 use super::game::enter_world;
@@ -10,6 +12,7 @@ use super::harness::{SCREEN, SERVER};
 use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::player::CurrentPlayerMarker;
+use crate::ui::hud::depths::DepthBanner;
 use crate::ui::hud::experience::{experience_label, ExperienceBar};
 use crate::ui::hud::health::HealthBar;
 use shared::players::Player;
@@ -78,4 +81,26 @@ fn the_bar_shows_the_saved_levels_under_the_hearts() {
     });
     h.frames(5);
     h.snapshot("experience");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn a_tier_is_announced_the_first_time_only() {
+    // Buried: the player is pushed nowhere, and underground at once
+    let reached = vec![DepthTier::Caves];
+    let folder = GameFolder::new()
+        .with_world("Deep")
+        .with_player("Deep", "Tester", |player| {
+            player.position.y = 16.0;
+            player.depths_reached = reached;
+        });
+    let mut h = enter_world(folder, "Deep");
+    h.wait_for(&L::marker::<DepthBanner>(), SERVER);
+    assert!(h.is_visible(&L::text("The Depths")));
+    h.frames(20);
+    h.snapshot("depths");
+    h.wait_until("the banner gone", SERVER, |w| {
+        let mut banners = w.try_query::<&DepthBanner>().unwrap();
+        banners.iter(w).count() == 0
+    });
 }

@@ -5,6 +5,7 @@ mod caves;
 pub mod chunk_files;
 pub mod container_files;
 pub(crate) mod data;
+pub mod depths;
 pub mod dropped_items;
 pub mod flow;
 pub mod format;

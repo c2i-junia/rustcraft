@@ -9,12 +9,11 @@
 
 use bevy::prelude::*;
 use noise::{NoiseFn, SuperSimplex};
+pub use shared::world::depths::LAVA_LEVEL;
 use shared::{world::splitmix64, CHUNK_SIZE};
 
 /// Nothing is carved below this height, so that the bottom of the world stays whole.
 pub const CAVE_FLOOR: i32 = 6;
-/// The caves are flooded with lava sources up to this height: lava lakes lie at their bottom.
-pub const LAVA_LEVEL: i32 = 10;
 
 /// The floors: `sin(2π (y + LEVEL_SHIFT × noise) / LEVEL_SPACING)` is zero on them, the noise
 /// having the wavelengths below. `LEVEL_SHIFT` sets how steep a floor gets; the noise changes

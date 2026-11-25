@@ -13,8 +13,8 @@ use shared::{
         Player,
     },
     world::{
-        liquid::eye_in_liquid, BlockId, Chunk, ChunkMap, ChunkReach, ServerMob, WeatherKind,
-        WorldSeed,
+        depths::DepthTier, liquid::eye_in_liquid, BlockId, Chunk, ChunkMap, ChunkReach, ServerMob,
+        WeatherKind, WorldSeed,
     },
 };
 use std::collections::HashSet;
@@ -391,12 +391,11 @@ pub fn handle_player_inputs_system(
         for stack in outcome.thrown {
             dropped_items.throw_from_player(stack, player);
         }
-        born.extend(
-            outcome
-                .spawned
-                .iter()
-                .map(|mob| ServerMob::new(mob.kind, mob.position)),
-        );
+        for mob in &outcome.spawned {
+            let tier = DepthTier::of(chunks, mob.position.floor().as_ivec3())
+                .filter(|_| mob.kind.is_hostile());
+            born.push(ServerMob::new(mob.kind, mob.position).in_tier(tier));
+        }
         portal_shots.extend(
             outcome
                 .shots

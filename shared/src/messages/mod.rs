@@ -4,7 +4,7 @@ pub mod mob;
 pub mod player;
 mod world;
 
-use crate::world::{MobId, Portal, PortalColor, WeatherKind};
+use crate::world::{depths::DepthTier, MobId, Portal, PortalColor, WeatherKind};
 pub use auth::*;
 use bevy::math::{IVec3, Vec3};
 pub use chat::*;
@@ -71,6 +71,8 @@ pub enum ServerToClientMessage {
     /// by an operator, or refused when it asked to join (banned, not on the whitelist). The
     /// server disconnects it a moment later.
     Dismissed(String),
+    /// The player of this client reached this depth tier for the first time.
+    DepthReached(DepthTier),
 }
 
 #[cfg(test)]
@@ -160,6 +162,7 @@ mod tests {
                 growing: 0,
                 in_love: 0,
                 owner: None,
+                tier: None,
                 breed_wait: 0,
                 portal_rest: None,
                 hurt_ticks: 0,
@@ -224,6 +227,7 @@ mod tests {
                 14,
             ),
             (ServerToClientMessage::Dismissed(String::new()), 15),
+            (ServerToClientMessage::DepthReached(DepthTier::Caves), 16),
         ] {
             assert_eq!(variant_index(&message), expected, "{ENCODING_WARNING}");
         }

@@ -14,6 +14,7 @@ use shared::{
     messages::PlayerId,
     players::Player,
     world::{
+        depths::{strengthened, DepthTier},
         hostiles::{
             is_dark, is_night, may_spawn_at, pack_size, spawn_kind, surroundings, SpawnPlace,
         },
@@ -22,6 +23,7 @@ use shared::{
     },
 };
 
+use super::combat::tier_times;
 use super::hostile::BURROW_TICKS;
 
 use crate::init::ServerTime;
@@ -36,7 +38,8 @@ pub const SPAWN_RING: Range<f32> = 24.0..64.0;
 const SPAWN_HEIGHT: i32 = 24;
 /// How many cells an attempt scans down from where it starts for a floor.
 const FLOOR_SCAN: i32 = 24;
-/// Most hostiles within `PLAYER_CAP_DISTANCE` of a player for it to get one more.
+/// Most hostiles within `PLAYER_CAP_DISTANCE` of a player for it to get one more; in the deep
+/// tiers, times their strength (`player_cap`).
 pub const PLAYER_CAP: usize = 10;
 pub const PLAYER_CAP_DISTANCE: f32 = 64.0;
 /// Most hostiles in the world.
@@ -44,9 +47,15 @@ pub const WORLD_CAP: usize = 40;
 /// A hostile this far from every player goes, in blocks.
 pub const DESPAWN_DISTANCE: f32 = 96.0;
 
+/// `PLAYER_CAP` for a player in `tier`.
+pub fn player_cap(tier: Option<DepthTier>) -> usize {
+    strengthened(PLAYER_CAP as u32, tier) as usize
+}
+
 /// Removes every hostile of a peaceful world, and the embers they threw, at once; otherwise sends the Stumplings into the
 /// ground by day (`burrow_at_dawn`) and, every `SPAWN_INTERVAL_TICKS`, despawns the hostiles
-/// far from every player and gives each player a spawn attempt.
+/// far from every player and gives each player a spawn attempt, up to
+/// twice as many in the deep tiers.
 pub fn hostile_spawning_system(mut world_map: ResMut<ServerWorldMap>, time: Res<ServerTime>) {
     spawning_tick(&mut world_map, time.0, &mut rand::thread_rng());
 }
@@ -75,8 +84,15 @@ fn spawning_tick(world_map: &mut ServerWorldMap, tick: u64, rng: &mut impl Rng) 
     // In a fixed order, so that a seeded `rng` gives the same world
     ids.sort_unstable();
     for id in ids {
-        for mob in spawn_attempt(chunks, players, mobs, id, night, rng) {
-            super::add_mob(mobs, changed_mobs, mob);
+        // More attempts for a player deep underground
+        let tier = players
+            .get(&id)
+            .and_then(|player| DepthTier::of_player(chunks, player));
+        let attempts = tier.map_or(1, |tier| tier_times(tier, rng));
+        for _ in 0..attempts {
+            for mob in spawn_attempt(chunks, players, mobs, id, night, rng) {
+                super::add_mob(mobs, changed_mobs, mob);
+            }
         }
     }
 }
@@ -206,7 +222,7 @@ fn spawn_attempt(
         .count();
     let room = WORLD_CAP
         .saturating_sub(in_world)
-        .min(PLAYER_CAP.saturating_sub(near));
+        .min(player_cap(DepthTier::of_player(chunks, player)).saturating_sub(near));
     if room == 0 {
         return Vec::new();
     }
@@ -225,6 +241,9 @@ fn spawn_attempt(
     } else {
         Vec::new()
     };
+    for mob in &mut pack {
+        mob.tier = DepthTier::of(chunks, mob.position.floor().as_ivec3());
+    }
     // A spot at the edge of the ring, or above or below the feet, may be past the cap's
     // distance: a hostile there would not count against the cap it spawned for
     pack.retain(|mob| mob.position.distance(player.position) <= PLAYER_CAP_DISTANCE);
@@ -503,7 +522,7 @@ mod tests {
             .values()
             .filter(|mob| mob.kind.is_hostile())
             .count();
-        assert_eq!(hostiles, PLAYER_CAP);
+        assert_eq!(hostiles, player_cap(Some(DepthTier::Furnace)));
         assert!(count(&map, MobKind::Gnawer) > 0);
         for mob in map.mobs.values().filter(|mob| mob.kind.is_hostile()) {
             let away = mob.position.with_y(0.0).distance(Vec3::new(0.5, 0.0, 0.5));

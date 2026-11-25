@@ -29,6 +29,7 @@ pub mod chat;
 pub mod chat_completion;
 pub mod corner;
 pub mod debug;
+pub mod depths;
 pub mod experience;
 pub mod food;
 pub mod fps_counter;
@@ -212,6 +213,12 @@ pub fn hud_plugin(app: &mut App) {
         )
             .chain()
             .after(GameSet::Reconciliation)
+            .run_if(in_state(GameState::Game)),
+    );
+    app.init_resource::<depths::DepthReached>().add_systems(
+        Update,
+        (depths::announce_depth, depths::fade_depth_banner)
+            .chain()
             .run_if(in_state(GameState::Game)),
     );
     pause_plugin(app);

@@ -14,6 +14,7 @@ use shared::{
     messages::PlayerId,
     players::{game_mode::DamageSource, movement::is_terrain_loaded, Player},
     world::{
+        depths::{strengthened, DepthTier},
         fire::flammability,
         hostiles::{is_prey, Difficulty},
         ticks::sees_sky,
@@ -131,7 +132,7 @@ fn fly(
             is_prey(player) && body.intersects(&Aabb3d::new(player.position, half))
         });
         if let Some(player) = struck {
-            hit(player, difficulty);
+            hit(player, ember.tier, difficulty);
             return false;
         }
         if let Some(block) = chunks.get_block(at.floor().as_ivec3()).copied() {
@@ -151,13 +152,13 @@ fn fly(
     true
 }
 
-/// An ember hits `player`: the Cinderling's damage, and burning for `EMBER_BURNING_TICKS` at
+/// An ember hits `player`: the damage of a Cinderling of `tier`, and burning for `EMBER_BURNING_TICKS` at
 /// least.
-fn hit(player: &mut Player, difficulty: Difficulty) {
+fn hit(player: &mut Player, tier: Option<DepthTier>, difficulty: Difficulty) {
     let damage = MobKind::Cinderling
         .strike()
         .map_or(1, |strike| strike.damage);
-    let damage = difficulty.strike_damage(damage);
+    let damage = difficulty.strike_damage(strengthened(damage, tier));
     player.hurt(damage, DamageSource::Mob(MobKind::Cinderling));
     player.burning_ticks = player.burning_ticks.max(EMBER_BURNING_TICKS);
 }

@@ -210,7 +210,7 @@ fn fly(
                     if wound(mob, flight.shooter, flight.shot.damage, push) {
                         let (drops, position) = (loot(mob, rng), mob.position);
                         drop_loot(&mut map.dropped_items, drops, position);
-                        let points = mob.kind.experience();
+                        let points = mob.experience();
                         map.dropped_items.drop_orb(points, position, rng);
                         map.mobs.remove(id);
                         map.changed_mobs.remove(id);

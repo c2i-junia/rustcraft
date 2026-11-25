@@ -131,6 +131,7 @@ pub fn register_systems(app: &mut App) {
             // After every source of damage of the tick, the mobs' included
             drop_on_death_system,
             pickup_dropped_items_system,
+            world::depths::announce_depths_system,
             world::home::home_system,
             // Fires, lava, plants, cisterns and campfires; before the flow, which washes the
             // fires away and fills what they burnt

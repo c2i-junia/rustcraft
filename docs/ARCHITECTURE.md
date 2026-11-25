@@ -588,7 +588,7 @@ breed, the hostiles hunt and strike, `push_mobs`), `cinder_system` (the embers f
 invulnerability and the memory of the last mob hit count down), `handle_player_inputs_system`
 (movement, blocks, blows, eating; a fall hurts here), `breathe_system`, `burn_system` (lava
 first, then fire), `tick_furnaces_system`, `metabolism_system` (every 80 ticks: regeneration or
-starvation), `drop_on_death_system`, `pickup_dropped_items_system`, `home_system` (bedrolls and
+starvation), `drop_on_death_system`, `pickup_dropped_items_system`, `announce_depths_system`, `home_system` (bedrolls and
 signs), `block_ticks_system` (the one random tick, above), `liquid_flow_system`,
 `weather_system`, `remove_unfit_portals_system`. Every source of damage of a tick, the mobs'
 included, comes before `drop_on_death_system`, and the pickups after it.
@@ -649,7 +649,7 @@ enough from every player, dark ((night and open sky) or covered, and no light em
 the caves below y = 50, a Cinderling 1 in 3 below y = 20, Rollers above y = 100, a Gust Owl 1 in 2
 at night under the sky above y = 110, Stumplings on night grass and Brambles or Stumplings in
 the woods, a Drowner in water 3 deep or more (1 in 4 by day, 1 in 2 at night, no darkness
-needed). Caps: 10 hostiles per player within 64 blocks (a spawned hostile is always within
+needed). Caps (more in the deep tiers, below): 10 hostiles per player within 64 blocks (a spawned hostile is always within
 them), 40 in the world; the embers do not count. At dawn the Stumplings burrow into the ground
 and go.
 
@@ -712,6 +712,20 @@ and, at the player, from the stacks taken out of a furnace (`InventoryActionOutc
 `smelting_experience` in hundredths of a point). Death takes all the experience and leaves an orb of
 half of it, 400 points at most (`Experience::lose_at_death`). The bar (`ui/hud/experience.rs`) sits
 right over the hotbar, under the hearts and the drumsticks.
+
+### The depth tiers
+
+`world/depths.rs` (shared) is their one definition: `DepthTier` is the caves (y 50 to 20), the depths
+(20 to 12) and the furnace (below 12: the shores of the lava lakes, `LAVA_LEVEL` 10, and all that is
+lower). `DepthTier::of` gives that of a cell, none unless ground is above it: air, liquids, leaves
+and decorations are not ground, so a valley or a sea floor is in no tier. `strength` is 100, 150
+and 200 %. A hostile takes the tier of where it appears (`ServerMob::tier`, saved; guards and spawn
+eggs too), which multiplies its health (`max_health`), its damage before the difficulty, its
+experience and the rolls of its loot, a treasure added in the two lower tiers (`combat::loot`). The
+tier of a player multiplies its spawn attempts and its cap (`player_cap`), that of a guard's place
+the odds and the number of the guards; the world's cap stays at 40. `announce_depths_system` tells
+a player (`DepthReached`) the first time it is in each tier, kept in `Player::depths_reached` in
+its save; the client shows `ui/hud/depths.rs`.
 
 ## One client frame
 

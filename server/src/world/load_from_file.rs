@@ -320,6 +320,7 @@ pub fn load_player_data(
             player.saturation = saved.saturation;
             player.exhaustion = saved.exhaustion;
             player.experience = saved.experience;
+            player.depths_reached = saved.depths_reached;
             player.inventory = saved.inventory;
             // A table, a chest or a furnace is used only while the player is there
             player.inventory.open_table = None;
@@ -431,6 +432,7 @@ mod tests {
         saved.saturation = 1.5;
         saved.exhaustion = 2.25;
         saved.experience.gain(30);
+        saved.depths_reached = vec![shared::world::depths::DepthTier::Depths];
         save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
 
         let loaded =
@@ -443,6 +445,7 @@ mod tests {
             (3, 1.5, 2.25)
         );
         assert_eq!(loaded.experience, saved.experience);
+        assert_eq!(loaded.depths_reached, saved.depths_reached);
 
         // A save from before the game modes is a survival player in full health
         let old = "(id: 7, name: \"old\", position: (1.0, 2.0, 3.0), camera_transform: (translation: (0.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0)), velocity: (0.0, 0.0, 0.0), on_ground: true, is_flying: true, inventory: (inner: {}), height: 1.8, width: 0.8, last_input_processed: 0)";

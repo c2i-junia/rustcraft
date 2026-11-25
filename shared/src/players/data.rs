@@ -19,7 +19,7 @@ use super::hunger::{
 use super::skin::PlayerSkin;
 use crate::{
     messages::PlayerId,
-    world::{ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
+    world::{depths::DepthTier, ItemId, ItemStack, ItemType, MobKind, Passer, PortalRest},
     HOTBAR_SLOTS, MAX_INVENTORY_SLOTS,
 };
 
@@ -227,6 +227,9 @@ pub struct Player {
     /// The levels of the player. Only the server changes them. Saves from before them have none.
     #[serde(default)]
     pub experience: Experience,
+    /// The depth tiers the player was in, each announced the first time. The server's only.
+    #[serde(default)]
+    pub depths_reached: Vec<DepthTier>,
     pub inventory: Inventory,
     pub height: f32,
     pub width: f32,
@@ -473,6 +476,7 @@ impl Player {
             saturation: RESPAWN_SATURATION,
             exhaustion: 0.0,
             experience: Experience::default(),
+            depths_reached: Vec::new(),
             inventory: Inventory::new(),
             height: PLAYER_HEIGHT,
             width: PLAYER_WIDTH,

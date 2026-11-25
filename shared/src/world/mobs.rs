@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::messages::PlayerId;
 use crate::players::bow::BowShot;
+use crate::world::depths::{strengthened, DepthTier};
 use crate::world::{ItemId, PortalRest, ToolKind};
 use crate::TICKS_PER_SECOND;
 
@@ -316,6 +317,10 @@ pub struct ServerMob {
     /// The name of the player who tamed the animal, which follows that player.
     #[serde(default)]
     pub owner: Option<String>,
+    /// How deep underground a hostile appeared, which sets its strength (`DepthTier`). Saves
+    /// from before it read none.
+    #[serde(default)]
+    pub tier: Option<DepthTier>,
     /// Ticks left before the animal may want a mate again (`BREED_WAIT_TICKS`). Neither saved
     /// nor sent.
     #[serde(skip)]
@@ -358,6 +363,7 @@ impl ServerMob {
             growing: 0,
             in_love: 0,
             owner: None,
+            tier: None,
             breed_wait: 0,
             portal_rest: None,
             hurt_ticks: 0,
@@ -377,6 +383,21 @@ impl ServerMob {
             growing: GROW_TICKS,
             ..Self::new(kind, position)
         }
+    }
+
+    /// The mob, its strength that of a hostile appeared in `tier`.
+    pub fn in_tier(self, tier: Option<DepthTier>) -> Self {
+        Self { tier, ..self }
+    }
+
+    /// The points of health of the mob unhurt: those of its kind, more in the deep tiers.
+    pub fn max_health(&self) -> u32 {
+        strengthened(self.kind.health(), self.tier)
+    }
+
+    /// The points of the orb the mob leaves when a player kills it.
+    pub fn experience(&self) -> u32 {
+        strengthened(self.kind.experience(), self.tier)
     }
 
     /// Whether the mob is a young animal, not grown up yet.

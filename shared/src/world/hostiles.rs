@@ -6,6 +6,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::players::Player;
+pub use crate::world::depths::{CAVE_HEIGHT, CINDER_HEIGHT};
 use crate::world::{BlockHitbox, BlockId, BlockTransparency, ChunkMap, MobKind};
 use crate::DAY_DURATION_IN_TICKS;
 
@@ -289,10 +290,6 @@ pub const DROWNER_ODDS: (u32, u32) = (1, 4);
 pub const OWL_HEIGHT: i32 = 110;
 /// Above this height, the mountains: the Rollers' home.
 pub const MOUNTAIN_HEIGHT: i32 = 100;
-/// Below this height and under a block, the deep caves: the Cinderlings' home.
-pub const CINDER_HEIGHT: i32 = 20;
-/// Below this height and under a block, the caves.
-pub const CAVE_HEIGHT: i32 = 50;
 
 /// The kind of hostile a dark `place` gets, if any: on the peaks at night under the sky Gust
 /// Owls (1 in 2); on grass at night Stumplings, or in the

@@ -10,6 +10,7 @@ use shared::messages::{
 
 use crate::mob::ClientMobs;
 use crate::portal::shot::ShotFired;
+use crate::ui::hud::depths::DepthReached;
 use shared::players::blocks::PortalShot;
 use shared::world::SIX_OFFSETS;
 use shared::{payload_to_game_message, STC_CHUNK_DATA_CHANNEL, STC_STANDARD_CHANNEL};
@@ -171,6 +172,9 @@ pub fn update_world_from_network(
             // on the authentication channel, which this does not read
             ServerToClientMessage::AuthRegisterResponse(_)
             | ServerToClientMessage::Dismissed(_) => {}
+            ServerToClientMessage::DepthReached(tier) => {
+                commands.insert_resource(DepthReached(Some(tier)));
+            }
             ServerToClientMessage::DroppedItems(update) => {
                 ev_dropped_items.write(update);
             }

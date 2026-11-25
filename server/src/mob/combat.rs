@@ -11,8 +11,8 @@ use shared::{
         Player, ViewMode,
     },
     world::{
-        aabb_ray_hit, DroppedItem, FaceDirectionExt, ItemId, ItemStack, MobAction, MobId, MobKind,
-        MobTarget, ServerMob,
+        aabb_ray_hit, depths::DepthTier, DroppedItem, FaceDirectionExt, ItemId, ItemStack,
+        MobAction, MobId, MobKind, MobTarget, ServerMob,
     },
 };
 use std::collections::{HashMap, HashSet};
@@ -150,7 +150,7 @@ pub fn interact(
                 }
                 if dies {
                     drops.extend(loot(mob, rng));
-                    let points = mob.kind.experience();
+                    let points = mob.experience();
                     world.items.drop_orb(points, position, rng);
                     // The clients are told by the next broadcast, which no longer finds it
                     world.mobs.remove(&id);
@@ -178,7 +178,7 @@ pub fn wound(mob: &mut ServerMob, striker: PlayerId, damage: u32, push: Vec3) ->
         mob.action_ticks = FLEE_TICKS;
         mob.target = MobTarget::Player(striker);
     }
-    mob.damage >= mob.kind.health()
+    mob.damage >= mob.max_health()
 }
 
 /// Drops `drops` where a mob was.
@@ -193,9 +193,46 @@ pub fn drop_loot(items: &mut DroppedItems, drops: Vec<(ItemId, u32)>, position: 
     }
 }
 
-/// What `mob` drops when it dies: its meat, and its wool, leather or feathers. Counts of zero
-/// are left out.
+/// What `mob` drops when it dies: the loot of its kind (`kind_loot`), as many times as the strength
+/// of its depth tier, the rest of which is a chance of one time more; and in the deep tiers
+/// sometimes a treasure.
 pub fn loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
+    let mut drops = kind_loot(mob, rng);
+    let Some(tier) = mob.tier else {
+        return drops;
+    };
+    for _ in 1..tier_times(tier, rng) {
+        drops.extend(kind_loot(mob, rng));
+    }
+    match tier {
+        DepthTier::Caves => {}
+        DepthTier::Depths => {
+            if rng.gen_ratio(1, 8) {
+                drops.push((ItemId::IronIngot, 1));
+            }
+        }
+        DepthTier::Furnace => {
+            if rng.gen_ratio(1, 6) {
+                drops.push((ItemId::GoldIngot, 1));
+            }
+            if rng.gen_ratio(1, 20) {
+                drops.push((ItemId::Diamond, 1));
+            }
+        }
+    }
+    drops
+}
+
+/// How many times what happens once in the caves happens in `tier`: once per 100 % of its
+/// strength, the rest being the chance of one time more.
+pub fn tier_times(tier: DepthTier, rng: &mut impl Rng) -> u32 {
+    let strength = tier.strength();
+    strength / 100 + u32::from(rng.gen_range(0..100) < strength % 100)
+}
+
+/// What a mob of the kind of `mob` drops: its meat, and its wool, leather or feathers. Counts of zero
+/// are left out.
+fn kind_loot(mob: &ServerMob, rng: &mut impl Rng) -> Vec<(ItemId, u32)> {
     // A young animal leaves nothing
     if mob.is_young() {
         return vec![];
@@ -612,5 +649,21 @@ mod tests {
         assert!(loot(&sheared, &mut rng)
             .iter()
             .all(|&(item, _)| item == RawMutton));
+    }
+
+    #[test]
+    fn a_hostile_of_the_furnace_is_twice_as_sturdy_and_leaves_twice_as_much() {
+        let mob = ServerMob::new(MobKind::Roller, AHEAD).in_tier(Some(DepthTier::Furnace));
+        assert_eq!(mob.max_health(), 2 * MobKind::Roller.health());
+        assert_eq!(mob.experience(), 2 * MobKind::Roller.experience());
+        let mut rng = StdRng::seed_from_u64(5);
+        let mut gold = 0;
+        for _ in 0..50 {
+            let drops = loot(&mob, &mut rng);
+            let nb = |id| -> u32 { drops.iter().filter(|d| d.0 == id).map(|d| d.1).sum() };
+            assert!((2..=4).contains(&nb(ItemId::Cobblestone)));
+            gold += nb(ItemId::GoldIngot);
+        }
+        assert!(gold > 0);
     }
 }

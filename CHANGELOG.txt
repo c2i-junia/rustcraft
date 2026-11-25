@@ -95,6 +95,7 @@ Date: 11.10.2026
     - A new world starts in the morning, in full daylight, instead of at sunset.
     - Added the bow and arrows: hold the right button to draw, slower on foot, and release to shoot, harder the longer it was drawn. The arrow falls as it flies, hurts mobs and other players, sticks in blocks and can be picked up again. A bow takes five sticks and a rope, four arrows a flint, a stick and a feather; the dungeons hold some, and pieces of armour.
     - Added experience: hostile mobs killed by the players, coal and diamond ore, and what is taken out of furnaces give orbs, which fly to the players and fill the level bar over the hotbar. Each level costs more than the one before. A dead player loses its levels and leaves half of their points where it died, up to 400.
+    - Underground, hostile mobs are harder, more numerous and more rewarding the deeper they appear: the caves, the depths below y = 20 and the furnace around the lava lakes, where they are twice as strong. A message names each the first time a player reaches it.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    

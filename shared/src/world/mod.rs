@@ -5,6 +5,7 @@ pub mod chunk_map;
 pub mod container;
 pub mod crafting;
 pub mod data;
+pub mod depths;
 pub mod dropped_items;
 pub mod fire;
 pub mod furnace;
