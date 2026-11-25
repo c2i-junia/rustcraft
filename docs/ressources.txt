@@ -108,6 +108,7 @@ https://github.com/NovaWostra/Pixel-Perfection-Chorus-Eddit
 -> Also drawn for Rustcraft: AcaciaSapling, Barrel, BarrelTop, Bedroll, Berries, BerryBush, BrickStairs, Campfire, CampfireFlame, Door, DoorTop, Fence, FullRainCisternTop, GlassPane, HewnStoneStairs, JungleSapling, Ladder, OakSapling, RainCistern, RainCisternTop, RawMutton, RipeBerryBush, RipeRye, RoastMutton, Rye, RyeBread, RyeSprout, Sign, Spear, SpruceSapling, TilledSoil, WillowSapling, WoodenStairs, Wool, YoungRye.
 -> DepthsCompass*, EmberHeart: drawn for Rustcraft by scripts/generate_boss.py; the model of the Ember Mother by scripts/generate_hostiles.py.
 -> The armour (items/{Leather,Bronze,Iron,Diamond}{Helmet,Chestplate,Leggings,Boots}.png, data/graphics/armour/, hud/armour_*.png, hud/slot_*.png): drawn for Rustcraft by scripts/generate_armour.py.
+-> The engraving table (blocks/EngravingTable.png, EngravingTableTop.png): drawn for Rustcraft by scripts/generate_engraving_table.py.
 
 ---- SOUNDS AND MUSIC ----
 All the sounds and the music are original, synthesised by our own scripts (MIT, like the code):

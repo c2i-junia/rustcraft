@@ -322,10 +322,8 @@ pub fn load_player_data(
             player.experience = saved.experience;
             player.depths_reached = saved.depths_reached;
             player.inventory = saved.inventory;
-            // A table, a chest or a furnace is used only while the player is there
-            player.inventory.open_table = None;
-            player.inventory.open_chest = None;
-            player.inventory.open_furnace = None;
+            // A block is used only while the player is there
+            player.inventory.close_blocks();
         }
         Err(err) => {
             let mut corrupt_path = path.as_os_str().to_owned();
@@ -455,6 +453,35 @@ mod tests {
         assert_eq!(loaded.game_mode, GameMode::Survival);
         assert_eq!(loaded.health, MAX_HEALTH);
         assert_eq!(loaded.food, shared::players::hunger::MAX_FOOD);
+    }
+
+    #[test]
+    fn a_saved_player_keeps_its_enchantments_and_their_wear() {
+        use shared::world::{Enchantment, ItemId, ItemStack, ItemType};
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths(&tmp);
+        let axe = ItemStack {
+            item_id: ItemId::IronAxe,
+            item_type: ItemType::Tool { wear: 12 },
+            nb: 1,
+        };
+        let axe = axe.enchanted(Enchantment::Sharpness).unwrap();
+        let axe = axe.enchanted(Enchantment::Sharpness).unwrap();
+        let mut saved = Player::new(7, "engraver".into(), Vec3::ZERO, Transform::default());
+        saved.inventory.inner.insert(3, axe);
+        save_player_data(&saved, &player_file(&tmp, 7)).unwrap();
+
+        let loaded = load_player_data(
+            WORLD,
+            &7,
+            "engraver",
+            Vec3::ZERO,
+            GameMode::Survival,
+            &paths,
+        )
+        .unwrap();
+
+        assert_eq!(loaded.inventory.inner[&3], axe);
     }
 
     #[test]

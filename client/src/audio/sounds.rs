@@ -101,7 +101,8 @@ impl SoundMaterial {
             | BlockId::BrickSlab
             | BlockId::Lantern
             | BlockId::Obsidian
-            | BlockId::EmberHeart => Self::Stone,
+            | BlockId::EmberHeart
+            | BlockId::EngravingTable => Self::Stone,
             BlockId::OakLog
             | BlockId::OakPlanks
             | BlockId::SpruceLog

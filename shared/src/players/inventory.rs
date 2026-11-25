@@ -17,8 +17,8 @@ use crate::{
     },
     world::{
         fuel_ticks, grid_slot, lacking_cells, match_recipe, plan_fill, recipes, smelting_result,
-        BlockId, ChunkMap, Container, CraftingGrid, FillPlan, Furnace, ItemId, ItemStack, ItemType,
-        RecipeView, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
+        BlockId, ChunkMap, Container, CraftingGrid, Enchantment, FillPlan, Furnace, ItemId,
+        ItemStack, ItemType, RecipeView, CHEST_SLOTS, CRAFTING_GRID_SIZE, CRAFTING_GRID_START,
     },
     HALF_BLOCK, HOTBAR_SLOTS, MAX_INVENTORY_ACTIONS_PER_INPUT, MAX_INVENTORY_SLOTS,
 };
@@ -54,6 +54,10 @@ pub const ARMOUR_SLOT_START: u32 = FURNACE_OUTPUT_SLOT + 1;
 pub fn armour_slots() -> Range<u32> {
     ARMOUR_SLOT_START..ARMOUR_SLOT_START + ArmourPiece::ALL.len() as u32
 }
+
+/// The slot of the engraving table follows those of the armour. As the crafting grid, what it
+/// holds is in the inventory under this number, and goes back into it at the close.
+pub const ENGRAVING_SLOT: u32 = ARMOUR_SLOT_START + ArmourPiece::ALL.len() as u32;
 
 /// Append only, like `NetworkAction`: the position of the variant is what an input carries on
 /// the network. Bump `PROTOCOL_ID` with any change.
@@ -133,6 +137,12 @@ pub enum InventoryAction {
     /// A notch of the wheel over a slot, with an empty cursor: one item of its stack goes where
     /// a shift-click would send the stack.
     QuickMoveOne(u32),
+    /// Right click on the engraving table at this position: its slot can be used while it stays
+    /// within reach.
+    OpenEngravingTable(IVec3),
+    /// Raises this enchantment by a level on the item of the engraving slot, for its cost in
+    /// levels of experience. Only the server does it.
+    Enchant(Enchantment),
 }
 
 /// Why an inventory action changed nothing.
@@ -162,6 +172,12 @@ pub enum InventoryRefusal {
     GridNotEmptied,
     /// There is no furnace, lit or out, within reach at this position.
     NoFurnace(IVec3),
+    /// There is no engraving table within reach at this position, or none open.
+    NoEngravingTable,
+    /// The engraving slot holds nothing that takes the enchantment, or takes it further.
+    NothingToEnchant,
+    /// The player has fewer levels of experience than these.
+    NotEnoughLevels(u32),
     /// The slot does not take the item held: the fuel slot of a furnace takes only a fuel, its
     /// output nothing, an armour slot only its piece.
     NotTaken(u32),
@@ -276,6 +292,11 @@ pub fn simulate_inventory_actions(
             inventory.open_furnace = None;
         }
     }
+    if let Some(engraver) = inventory.open_engraver {
+        if !block_in_reach(world_map, position, engraver, BlockId::EngravingTable) {
+            inventory.open_engraver = None;
+        }
+    }
     let creative = player.game_mode.is_creative();
     let actions = input.inventory_actions.iter();
     let mut outcomes = Vec::new();
@@ -312,13 +333,23 @@ pub fn simulate_inventory_actions(
             (None, Some((_, furnace))) => Some(OpenContents::Furnace(furnace)),
             (None, None) => None,
         };
-        let applied = apply_inventory_action(
-            &mut player.inventory,
-            action,
-            |pos, id| block_in_reach(world_map, position, pos, id),
-            contents,
-            creative,
-        );
+        let in_reach = |pos, id| block_in_reach(world_map, position, pos, id);
+        let applied = match action {
+            InventoryAction::Enchant(enchantment) => {
+                let table = player.inventory.open_engraver;
+                if !table.is_some_and(|pos| in_reach(pos, BlockId::EngravingTable)) {
+                    Err(InventoryRefusal::NoEngravingTable)
+                } else if matches!(caller_type, CallerType::Client) {
+                    // The next update of the player shows it
+                    player.enchanting_cost(enchantment).map(|_| None)
+                } else {
+                    player.enchant(enchantment).map(|()| None)
+                }
+            }
+            _ => {
+                apply_inventory_action(&mut player.inventory, action, in_reach, contents, creative)
+            }
+        };
         // The output only gives
         let smelted = output_before.and_then(|before| {
             let left = output(&furnace).map_or(0, |stack| stack.nb);
@@ -486,13 +517,11 @@ fn apply_action(
             swap_with_hotbar(inventory, slot, hotbar, size, floating, lent)
         }
         InventoryAction::Close => {
-            inventory.open_table = None;
-            inventory.open_chest = None;
-            inventory.open_furnace = None;
+            inventory.close_blocks();
             if let Some(stack) = floating {
                 floating = put_back(inventory, stack);
             }
-            for slot in grid_slots(CRAFTING_GRID_SIZE) {
+            for slot in grid_slots(CRAFTING_GRID_SIZE).chain([ENGRAVING_SLOT]) {
                 if let Some(stack) = inventory.inner.remove(&slot) {
                     if let Some(kept) = put_back(inventory, stack) {
                         inventory.inner.insert(slot, kept);
@@ -504,9 +533,8 @@ fn apply_action(
         InventoryAction::TakeCraftResult => take_craft_result(inventory, &mut floating, size),
         InventoryAction::OpenCraftingTable(table) => {
             if in_reach(table, BlockId::CraftingTable) {
+                inventory.close_blocks();
                 inventory.open_table = Some(table);
-                inventory.open_chest = None;
-                inventory.open_furnace = None;
                 Ok(())
             } else {
                 Err(InventoryRefusal::NoTable(table))
@@ -514,9 +542,8 @@ fn apply_action(
         }
         InventoryAction::OpenChest(chest) => {
             if container_in_reach(in_reach, chest) {
+                inventory.close_blocks();
                 inventory.open_chest = Some(chest);
-                inventory.open_table = None;
-                inventory.open_furnace = None;
                 Ok(())
             } else {
                 Err(InventoryRefusal::NoChest(chest))
@@ -524,14 +551,24 @@ fn apply_action(
         }
         InventoryAction::OpenFurnace(furnace) => {
             if furnace_in_reach(&in_reach, furnace) {
+                inventory.close_blocks();
                 inventory.open_furnace = Some(furnace);
-                inventory.open_table = None;
-                inventory.open_chest = None;
                 Ok(())
             } else {
                 Err(InventoryRefusal::NoFurnace(furnace))
             }
         }
+        InventoryAction::OpenEngravingTable(table) => {
+            if in_reach(table, BlockId::EngravingTable) {
+                inventory.close_blocks();
+                inventory.open_engraver = Some(table);
+                Ok(())
+            } else {
+                Err(InventoryRefusal::NoEngravingTable)
+            }
+        }
+        // `simulate_inventory_actions` applies it: it spends the levels of the player
+        InventoryAction::Enchant(_) => Err(InventoryRefusal::NoEngravingTable),
         InventoryAction::TakeFromCatalog {
             item,
             count,
@@ -773,7 +810,8 @@ fn put_back(inventory: &mut Inventory, stack: ItemStack) -> Option<ItemStack> {
     (kept > 0).then_some(ItemStack { nb: kept, ..stack })
 }
 
-/// Shift+click on `slot`: puts a piece of armour on, when its slot is free and nothing is open;
+/// Shift+click on `slot`: at an engraving table, puts what may be enchanted in its slot; puts a
+/// piece of armour on, when its slot is free and nothing is open;
 /// takes off one that is worn, into the inventory; else moves `nb` items of its stack at most, the whole stack with
 /// `u32::MAX`, from the hotbar to the backpack or the other way round, and from a crafting grid
 /// cell into the whole inventory. With a chest open, it moves them from the inventory to the
@@ -804,6 +842,11 @@ fn quick_move_slot(inventory: &mut Inventory, slot: u32, nb: u32, lent: Lent) ->
             }
             // Neither smelts nor burns: it stays
             Lent::Furnace => Some(slot..slot),
+            Lent::Nothing
+                if inventory.open_engraver.is_some() && stack.item_id.is_enchantable() =>
+            {
+                Some(ENGRAVING_SLOT..ENGRAVING_SLOT + 1)
+            }
             // A piece of armour is put on, if none is worn in its slot
             Lent::Nothing => stack
                 .item_id
@@ -902,6 +945,8 @@ fn zone_of(slot: u32, lent: Lent) -> Vec<u32> {
         furnace_slots().collect()
     } else if armour_slots().contains(&slot) {
         armour_slots().collect()
+    } else if slot == ENGRAVING_SLOT {
+        vec![ENGRAVING_SLOT]
     } else if lent != Lent::Nothing {
         (0..MAX_INVENTORY_SLOTS).collect()
     } else if slot < HOTBAR_SLOTS {
@@ -952,6 +997,7 @@ fn swap_with_hotbar(
         && !armour_slots().contains(&slot)
         && !grid_slots(size).any(|cell| cell == slot)
         && !is_lent(slot, lent)
+        && !is_open_engraver(inventory, slot)
     {
         return Err(InventoryRefusal::InvalidSlot(slot));
     }
@@ -1094,12 +1140,19 @@ fn is_lent(slot: u32, lent: Lent) -> bool {
     }
 }
 
+/// Whether `slot` is that of the engraving table the player has open.
+fn is_open_engraver(inventory: &Inventory, slot: u32) -> bool {
+    slot == ENGRAVING_SLOT && inventory.open_engraver.is_some()
+}
+
 /// Whether `item` may be put into `slot`: the output of a furnace takes nothing, its fuel slot
-/// only a fuel, an armour slot only its piece, every other slot anything.
+/// only a fuel, an armour slot only its piece, the engraving slot only what may be enchanted,
+/// every other slot anything.
 fn takes(slot: u32, item: ItemId) -> bool {
     match slot {
         FURNACE_OUTPUT_SLOT => false,
         FURNACE_FUEL_SLOT => fuel_ticks(item).is_some(),
+        ENGRAVING_SLOT => item.is_enchantable(),
         _ if armour_slots().contains(&slot) => item
             .armour()
             .is_some_and(|armour| armour.piece.slot() == slot),
@@ -1116,13 +1169,14 @@ fn check_slot(
     floating: Option<ItemStack>,
     lent: Lent,
 ) -> Result<(), InventoryRefusal> {
-    let takes_a_leftover =
-        is_beyond_the_grid(slot, size) && floating.is_none() && inventory.inner.contains_key(&slot);
+    let may_be_left = is_beyond_the_grid(slot, size) || slot == ENGRAVING_SLOT;
+    let takes_a_leftover = may_be_left && floating.is_none() && inventory.inner.contains_key(&slot);
     if slot < MAX_INVENTORY_SLOTS
         || armour_slots().contains(&slot)
         || grid_slots(size).any(|cell| cell == slot)
         || takes_a_leftover
         || is_lent(slot, lent)
+        || is_open_engraver(inventory, slot)
     {
         Ok(())
     } else {

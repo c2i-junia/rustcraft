@@ -140,6 +140,8 @@ pub enum BlockId {
     RipePotatoes,
     /// The trophy of the Ember Mother: it glows.
     EmberHeart,
+    /// Enchants, for levels of experience: see `players::enchanting`.
+    EngravingTable,
 }
 
 /// Append only, for the same reason as `BlockId`: the position of the variant is what is stored
@@ -353,7 +355,7 @@ pub enum BlockHitbox {
 
 impl BlockId {
     /// Every block, in the order of their encoding.
-    pub const ALL: [BlockId; 108] = [
+    pub const ALL: [BlockId; 109] = [
         BlockId::Dirt,
         BlockId::Debug,
         BlockId::Grass,
@@ -462,6 +464,7 @@ impl BlockId {
         BlockId::TallPotatoes,
         BlockId::RipePotatoes,
         BlockId::EmberHeart,
+        BlockId::EngravingTable,
     ];
 
     pub fn is_stairs(&self) -> bool {
@@ -665,7 +668,7 @@ impl BlockId {
             Self::SpruceLog => 10,
             Self::CraftingTable => 10,
             Self::SprucePlanks => 10,
-            Self::Furnace | Self::LitFurnace => 15,
+            Self::Furnace | Self::LitFurnace | Self::EngravingTable => 15,
             Self::Chest => 10,
             Self::CoalOre => 12,
             Self::IronOre => 15,
@@ -792,6 +795,7 @@ impl BlockId {
                     | Self::HangingLantern
                     | Self::RainCistern
                     | Self::FullRainCistern
+                    | Self::EngravingTable
             ),
             ToolKind::Axe => matches!(
                 *self,
@@ -866,7 +870,8 @@ impl BlockId {
             | Self::HewnStoneSlab
             | Self::BrickSlab
             | Self::HewnStoneStairs
-            | Self::BrickStairs => 0,
+            | Self::BrickStairs
+            | Self::EngravingTable => 0,
             Self::IronOre | Self::IronBlock | Self::TinOre | Self::TinBlock | Self::BronzeBlock => {
                 1
             }
@@ -1015,6 +1020,7 @@ impl BlockId {
             BlockId::Sign => vec![(1, ItemId::Sign, 1)],
             BlockId::Obsidian => vec![(1, ItemId::Obsidian, 1)],
             BlockId::EmberHeart => vec![(1, ItemId::EmberHeart, 1)],
+            BlockId::EngravingTable => vec![(1, ItemId::EngravingTable, 1)],
             _ => vec![],
         }
     }
@@ -1025,6 +1031,7 @@ impl BlockId {
         matches!(
             *self,
             Self::CraftingTable
+                | Self::EngravingTable
                 | Self::Chest
                 | Self::Barrel
                 | Self::Sign
@@ -1150,7 +1157,7 @@ mod tests {
     use super::*;
     use crate::world::ItemType;
 
-    const ALL_BLOCKS: [BlockId; 108] = BlockId::ALL;
+    const ALL_BLOCKS: [BlockId; 109] = BlockId::ALL;
 
     /// Blocks that cannot be broken by hand.
     const UNBREAKABLE_BLOCKS: [BlockId; 3] = [BlockId::Bedrock, BlockId::Water, BlockId::Lava];
@@ -1265,7 +1272,8 @@ mod tests {
             | BlockId::YoungPotatoes
             | BlockId::TallPotatoes
             | BlockId::RipePotatoes
-            | BlockId::EmberHeart => {}
+            | BlockId::EmberHeart
+            | BlockId::EngravingTable => {}
         }
     }
 
@@ -1421,6 +1429,7 @@ mod tests {
                 BlockId::TallPotatoes => 105,
                 BlockId::RipePotatoes => 106,
                 BlockId::EmberHeart => 107,
+                BlockId::EngravingTable => 108,
             };
             assert_eq!(encoded(&id), [expected], "{id:?}: {ENCODING_WARNING}");
         }
@@ -1921,7 +1930,8 @@ mod tests {
                 | BlockId::HewnStoneSlab
                 | BlockId::BrickSlab
                 | BlockId::HewnStoneStairs
-                | BlockId::BrickStairs => Some(0),
+                | BlockId::BrickStairs
+                | BlockId::EngravingTable => Some(0),
                 BlockId::IronOre
                 | BlockId::IronBlock
                 | BlockId::TinOre

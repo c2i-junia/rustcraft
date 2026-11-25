@@ -1,5 +1,7 @@
 use super::gestures::{planned_drag, CellGestures};
-use super::{item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, FURNACE_TITLE, INVENTORY_TITLE};
+use super::{
+    item_name, CHEST_TITLE, CRAFTING_TABLE_TITLE, ENGRAVING_TITLE, FURNACE_TITLE, INVENTORY_TITLE,
+};
 use crate::constants::MAX_HOTBAR_SLOTS;
 use crate::input::data::GameAction;
 use crate::input::keyboard::is_action_just_pressed;
@@ -9,13 +11,14 @@ use crate::state::KeyMap;
 use crate::ui::hud::hotbar::{hotbar_key_index, Hotbar};
 use crate::ui::hud::item_browser::ItemBrowser;
 use crate::ui::hud::{
-    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, FloatingStack, FurnaceRow,
-    InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, OpenTrade, TradeGrid, UIMode,
+    ChestGrid, CraftResultCell, CraftingGridCell, CraftingRow, EngravingRow, FloatingStack,
+    FurnaceRow, InventoryCell, InventoryDialog, InventoryRoot, InventoryTitle, OpenTrade,
+    TradeGrid, UIMode,
 };
 use crate::ui::theme::{ACCENT, BEVEL_HI, BEVEL_LO, PANEL, TEXT};
 use crate::ui::widgets::slot::{
-    count_label, durability_bar, tool_wear, Slot, SlotCount, SlotDurability, SlotIcon,
-    SlotSelected, ICON_SIZE, SLOT_SIZE,
+    count_label, durability_bar, tool_wear, Slot, SlotCount, SlotDurability, SlotGem, SlotIcon,
+    SlotSelected, ENCHANTED_TINT, ICON_SIZE, SLOT_SIZE,
 };
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::ClientWorldMap;
@@ -27,8 +30,8 @@ use bevy::ui::UiGlobalTransform;
 use bevy::window::PrimaryWindow;
 use shared::players::armour::ABSORBED_PER_POINT;
 use shared::players::inventory::{
-    chest_slots, craft_result, InventoryAction, CHEST_SLOT_START, FURNACE_FUEL_SLOT,
-    FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT, INVENTORY_GRID_SIZE,
+    chest_slots, craft_result, InventoryAction, CHEST_SLOT_START, ENGRAVING_SLOT,
+    FURNACE_FUEL_SLOT, FURNACE_INPUT_SLOT, FURNACE_OUTPUT_SLOT, INVENTORY_GRID_SIZE,
 };
 use shared::players::Inventory;
 use shared::world::{fuel_ticks, grid_slot, smelting_result, ItemStack, CRAFTING_GRID_SIZE};
@@ -42,10 +45,11 @@ pub const HINT_TO_ARMOUR: &str = "Shift+click: put on";
 pub const HINT_BACKPACK: &str = "Shift+click: move to the hotbar";
 pub const HINT_GRID: &str = "Shift+click: move to the inventory";
 pub const HINT_TO_CHEST: &str = "Shift+click: move to the chest";
+pub const HINT_TO_ENGRAVER: &str = "Shift+click: put in the engraving table";
 pub const HINT_TO_FURNACE: &str = "Shift+click: move to the furnace";
 pub const HINT_RESULT: &str = "Shift+click: craft all  1-9: to the hotbar";
 
-/// The durability bars of the slots, which `show_stack` sizes and colours.
+/// The durability bars of the slots, which `show_stack` sizes and colours, and their gems.
 type DurabilityBars<'w, 's> = Query<
     'w,
     's,
@@ -53,9 +57,10 @@ type DurabilityBars<'w, 's> = Query<
         &'static mut Node,
         &'static mut BackgroundColor,
         &'static mut Visibility,
+        Has<SlotGem>,
     ),
     (
-        With<SlotDurability>,
+        Or<(With<SlotDurability>, With<SlotGem>)>,
         Without<SlotIcon>,
         Without<InventoryRoot>,
         Without<FloatingStack>,
@@ -64,6 +69,7 @@ type DurabilityBars<'w, 's> = Query<
         Without<CraftingRow>,
         Without<FurnaceRow>,
         Without<TradeGrid>,
+        Without<EngravingRow>,
     ),
 >;
 
@@ -385,7 +391,13 @@ pub fn display_inventory_system(
             Some(*stack)
         });
         let stack = planned.or_else(|| stack_in(cell.id, &inventory, &world_map));
-        let hint = if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
+        let takes_enchantments = stack.is_some_and(|stack| stack.item_id.is_enchantable());
+        let hint = if inventory.open_engraver.is_some()
+            && cell.id < MAX_INVENTORY_SLOTS
+            && takes_enchantments
+        {
+            HINT_TO_ENGRAVER
+        } else if inventory.open_chest.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             HINT_TO_CHEST
         } else if inventory.open_furnace.is_some() && cell.id < MAX_INVENTORY_SLOTS {
             // A shift-click leaves what neither smelts nor burns
@@ -445,6 +457,12 @@ pub(crate) fn stack_in(
     }
 }
 
+/// Whether the panel shows the engraving table's section: while one is open, or while its slot
+/// still holds what found no room in the inventory.
+pub fn is_engraving_shown(inventory: &Inventory) -> bool {
+    inventory.open_engraver.is_some() || inventory.inner.contains_key(&ENGRAVING_SLOT)
+}
+
 /// The width and height of the crafting grid in use: 3 at a crafting table, 2 in the inventory
 /// alone and beside a chest. The server checks that the table is still within reach; the panel
 /// follows its updates.
@@ -494,12 +512,19 @@ pub fn display_crafting_system(
     inventory_root: Query<&Visibility, With<InventoryRoot>>,
     mut grid_cells: Query<(&CraftingGridCell, &mut Node)>,
     mut rows: Query<
-        (&mut Node, Has<ChestGrid>, Has<FurnaceRow>, Has<TradeGrid>),
+        (
+            &mut Node,
+            Has<ChestGrid>,
+            Has<FurnaceRow>,
+            Has<EngravingRow>,
+            Has<TradeGrid>,
+        ),
         (
             Or<(
                 With<ChestGrid>,
                 With<CraftingRow>,
                 With<FurnaceRow>,
+                With<EngravingRow>,
                 With<TradeGrid>,
             )>,
             Without<CraftingGridCell>,
@@ -522,6 +547,7 @@ pub fn display_crafting_system(
         (Some(_), _, _) => CHEST_TITLE,
         (None, Some(_), _) => FURNACE_TITLE,
         (None, None, Some(_)) => CRAFTING_TABLE_TITLE,
+        (None, None, None) if is_engraving_shown(&inventory) => ENGRAVING_TITLE,
         (None, None, None) => INVENTORY_TITLE,
     };
     let customer_of = trade.as_ref().and_then(|trade| trade.0.as_ref());
@@ -534,15 +560,18 @@ pub fn display_crafting_system(
     }
     let chest_open = inventory.open_chest.is_some();
     let furnace_open = inventory.open_furnace.is_some();
-    for (mut node, is_chest, is_furnace, is_trade) in &mut rows {
+    let engraving = is_engraving_shown(&inventory) && !chest_open && !furnace_open && !trade_open;
+    for (mut node, is_chest, is_furnace, is_engraving, is_trade) in &mut rows {
         let shown = if is_trade {
             trade_open
         } else if is_chest {
             chest_open && !trade_open
         } else if is_furnace {
             furnace_open && !trade_open
+        } else if is_engraving {
+            engraving
         } else {
-            !chest_open && !furnace_open && !trade_open
+            !chest_open && !furnace_open && !engraving && !trade_open
         };
         let display = match (shown, is_chest || is_trade) {
             (true, true) => Display::Grid,
@@ -599,11 +628,7 @@ fn tooltip_of(
                 Some((wear, durability)) => durability_detail(wear, durability),
                 None => count_detail(stack.nb),
             },
-            note: stack
-                .item_id
-                .armour()
-                .map(|armour| armour_note(armour.points()))
-                .unwrap_or_default(),
+            note: notes(&stack),
             hint: hint.to_string(),
         },
         _ => Tooltip::default(),
@@ -616,6 +641,21 @@ fn can_wear(stack: &ItemStack, inventory: &Inventory) -> bool {
         .item_id
         .armour()
         .is_some_and(|armour| !inventory.inner.contains_key(&armour.piece.slot()))
+}
+
+/// What a piece of armour does, then a line per enchantment of the stack.
+fn notes(stack: &ItemStack) -> String {
+    let armour = stack.item_id.armour();
+    let armour = armour.map(|armour| armour_note(armour.points()));
+    let enchantments = stack.enchantments().map(|(enchantment, level)| {
+        format!(
+            "{}: {}",
+            enchantment.title(level),
+            enchantment.effect(level)
+        )
+    });
+    let lines: Vec<String> = armour.into_iter().chain(enchantments).collect();
+    lines.join("\n")
 }
 
 /// What a piece of armour of `points` does, in words.
@@ -651,6 +691,7 @@ fn show_stack(
     pictures: &SlotPictures,
 ) {
     let bar = stack.as_ref().and_then(durability_bar);
+    let enchanted = stack.is_some_and(|stack| stack.is_enchanted());
     let count = stack.map(|stack| count_label(stack.nb)).unwrap_or_default();
     let sprite = stack.and_then(|stack| pictures.sprite(stack.item_id));
 
@@ -672,8 +713,23 @@ fn show_stack(
             if sprite.is_some() && image.texture_atlas != sprite {
                 image.texture_atlas.clone_from(&sprite);
             }
+            let tint = if enchanted {
+                ENCHANTED_TINT
+            } else {
+                Color::WHITE
+            };
+            if image.color != tint {
+                image.color = tint;
+            }
         }
-        if let Ok((mut node, mut color, mut visibility)) = bars.get_mut(child) {
+        if let Ok((mut node, mut color, mut visibility, is_gem)) = bars.get_mut(child) {
+            if is_gem {
+                visibility.set_if_neq(match enchanted {
+                    true => Visibility::Inherited,
+                    false => Visibility::Hidden,
+                });
+                continue;
+            }
             let Some((left, bar_color)) = bar else {
                 visibility.set_if_neq(Visibility::Hidden);
                 continue;
@@ -2038,10 +2094,10 @@ mod tests {
 
         let mut cells = world.query::<&InventoryCell>();
         // The slots of the inventory, then the 3x3 crafting grid, the slots of a chest, those of
-        // a furnace and those of the armour
+        // a furnace those of the armour and that of an engraving table
         assert_eq!(
             cells.iter(world).count() as u32,
-            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3 + 4
+            MAX_INVENTORY_SLOTS + 9 + shared::world::CHEST_SLOTS + 3 + 4 + 1
         );
 
         // What the cell of `slot` shows: its count, and the atlas index of its visible icon

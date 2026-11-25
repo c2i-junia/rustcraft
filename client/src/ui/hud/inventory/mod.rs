@@ -6,6 +6,7 @@ use shared::world::ItemId;
 mod armour;
 mod display;
 mod drop;
+mod engraving;
 mod feedback;
 mod furnace;
 mod gestures;
@@ -18,6 +19,7 @@ mod trade;
 pub use armour::*;
 pub use display::*;
 pub use drop::*;
+pub use engraving::*;
 pub use feedback::*;
 pub use furnace::*;
 pub use gestures::*;
@@ -67,9 +69,14 @@ pub struct CraftingGridCell {
     pub col: u32,
 }
 
-/// The crafting grid, its arrow and its result: hidden while a chest, a furnace or a trade is open.
+/// The crafting grid, its arrow and its result: hidden while a chest, a furnace, an
+/// engraving table or a trade is open.
 #[derive(Component)]
 pub struct CraftingRow;
+
+/// The slot and the enchantments of the open engraving table: shown while one is open.
+#[derive(Component)]
+pub struct EngravingRow;
 
 /// The offers of the open trade: shown while one is open.
 #[derive(Component)]

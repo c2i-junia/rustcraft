@@ -128,6 +128,7 @@ pub fn hud_plugin(app: &mut App) {
                     clear_grid_ghost,
                     show_grid_ghost,
                     display_furnace_system,
+                    display_engraving,
                     style_inventory_panel,
                 )
                     .chain()

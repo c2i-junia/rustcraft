@@ -6,12 +6,14 @@ use serde::{Deserialize, Serialize};
 use super::game_mode::DamageSource;
 use super::inventory::ARMOUR_SLOT_START;
 use super::{Inventory, Player};
-use crate::world::ItemId;
+use crate::world::{Enchantment, ItemId, PROTECTION_PER_LEVEL};
 
 /// The percentage of a hit a point of armour absorbs.
 pub const ABSORBED_PER_POINT: u32 = 4;
 /// The points of the armour bar when it is full, and the most that count: 80 % of a hit.
 pub const MAX_ARMOUR_POINTS: u32 = 20;
+/// The most armour absorbs of a hit, its enchantments included, in percent.
+const MAX_ABSORBED: u32 = 90;
 /// The wear a hit adds to each piece worn.
 const WEAR_PER_HIT: u32 = 1;
 
@@ -151,6 +153,18 @@ impl Inventory {
         points.min(MAX_ARMOUR_POINTS)
     }
 
+    /// The percentage of a hit the armour worn absorbs, its enchantments included.
+    fn absorbed_percent(&self) -> u32 {
+        let protection: u32 = ArmourPiece::ALL
+            .iter()
+            .filter_map(|piece| self.inner.get(&piece.slot()))
+            .map(|stack| stack.enchantment_level(Enchantment::Protection))
+            .sum();
+        let absorbed =
+            self.armour_points() * ABSORBED_PER_POINT + protection * PROTECTION_PER_LEVEL;
+        absorbed.min(MAX_ABSORBED)
+    }
+
     /// Adds `wear` to every piece worn: those worn out break.
     fn wear_armour(&mut self, wear: u32) {
         for piece in ArmourPiece::ALL {
@@ -165,7 +179,7 @@ impl Player {
     /// is counted in hundredths and the rest is kept for the next hit (`armour_carry`): some
     /// hits take nothing, but over a fight the armour absorbs its exact share.
     pub(super) fn absorb(&mut self, amount: u32, source: DamageSource) -> u32 {
-        let absorbed = self.inventory.armour_points() * ABSORBED_PER_POINT;
+        let absorbed = self.inventory.absorbed_percent();
         if absorbed == 0 || !source.is_absorbed_by_armour() {
             return amount;
         }

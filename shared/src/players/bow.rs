@@ -40,16 +40,10 @@ impl BowShot {
         let damage = ARROW_DAMAGE.0 + (ARROW_DAMAGE.1 - ARROW_DAMAGE.0) * power;
         Self {
             power,
-            damage: damage.round() as u32 + bonus_damage(bow),
+            damage: damage.round() as u32 + bow.bonus_arrow_damage(),
             recoverable,
         }
     }
-}
-
-/// The points of health the arrows of `bow` take on top of what the draw gives: none. The hook
-/// of an enchantment.
-fn bonus_damage(_bow: &ItemStack) -> u32 {
-    0
 }
 
 /// How far a bow drawn for `draw_ms` is, from 0 to 1: slow at first, then quicker.

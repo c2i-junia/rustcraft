@@ -14,9 +14,10 @@ use bevy::{
 
 use super::focus::FocusRing;
 use crate::ui::theme::{
-    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, FONT_S, MUTED, OK, RAISE_HOVER, SLOT, TEXT,
+    ACCENT, BEVEL_HI, BEVEL_LO, BEVEL_WIDTH, DANGER, EXPERIENCE_HI, EXPERIENCE_LO, FONT_S, MUTED,
+    OK, RAISE_HOVER, SLOT, TEXT,
 };
-use shared::world::{ItemStack, ItemType};
+use shared::world::ItemStack;
 
 /// The side of a slot, in logical px.
 pub const SLOT_SIZE: f32 = 50.0;
@@ -44,6 +45,15 @@ pub struct SlotCount;
 /// The bar under the icon of a worn tool, as long as what is left of the tool.
 #[derive(Component)]
 pub struct SlotDurability;
+
+/// The gem in the top-right corner of a slot whose item is enchanted.
+#[derive(Component)]
+pub struct SlotGem;
+
+/// The side of the gem, in logical px.
+const GEM_SIZE: f32 = 7.0;
+/// What tints the icon of an enchanted item.
+pub const ENCHANTED_TINT: Color = Color::srgb(0.66, 0.97, 0.94);
 
 /// Height of the durability bar, in logical px.
 const DURABILITY_BAR_HEIGHT: f32 = 3.0;
@@ -118,13 +128,30 @@ pub fn slot_durability() -> impl Bundle {
     )
 }
 
+/// The gem of a slot, hidden until an enchanted item shows in it.
+pub fn slot_gem() -> impl Bundle {
+    (
+        SlotGem,
+        Node {
+            position_type: PositionType::Absolute,
+            right: px(BEVEL_WIDTH + 2.0),
+            top: px(BEVEL_WIDTH + 2.0),
+            width: px(GEM_SIZE),
+            height: px(GEM_SIZE),
+            border: UiRect::all(px(1.0)),
+            ..default()
+        },
+        BackgroundColor(EXPERIENCE_HI),
+        BorderColor::all(EXPERIENCE_LO),
+        UiTransform::from_rotation(Rot2::degrees(45.0)),
+        Visibility::Hidden,
+        Pickable::IGNORE,
+    )
+}
+
 /// The wear and the durability of a tool stack, `None` for any other item.
 pub fn tool_wear(stack: &ItemStack) -> Option<(u32, u32)> {
-    let durability = stack.item_id.durability()?;
-    let ItemType::Tool { wear } = stack.item_type else {
-        return None;
-    };
-    Some((wear, durability))
+    Some((stack.item_type.wear()?, stack.durability()?))
 }
 
 /// The share of its durability a worn tool has left, from 0 to 1, and the colour of its bar:
@@ -190,6 +217,7 @@ pub fn slot(label: &str, number: Option<u32>, icon: ImageNode, font: Handle<Font
         Children::spawn((
             Spawn(slot_icon(icon)),
             Spawn(slot_durability()),
+            Spawn(slot_gem()),
             Spawn(slot_count(font)),
             SpawnIter(number.into_iter()),
         )),
@@ -317,6 +345,7 @@ pub(crate) fn style_slots(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::world::ItemType;
 
     #[test]
     fn a_count_shows_from_two_items() {

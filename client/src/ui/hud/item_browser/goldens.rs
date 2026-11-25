@@ -64,6 +64,7 @@ fn show_frames(golden: &mut UiGolden) {
         golden.run_system(show_armour_outlines);
         golden.run_system(show_grid_ghost);
         golden.run_system(display_furnace_system);
+        golden.run_system(crate::ui::hud::display_engraving);
         golden.run_system(display_trade);
         golden.run_system(style_inventory_panel);
         golden.run_system(layout_item_browser);

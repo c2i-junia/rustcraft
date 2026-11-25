@@ -17,10 +17,11 @@ use crate::ui::widgets::slot::ActionRefused;
 
 /// Whether `inventory` fills the grid of `grid_size` with `recipe` now: one round of it is there
 /// once the grid is back in the inventory, as `FillCraftingGrid` plans it (`plan_grid_fill`),
-/// and no chest nor furnace takes the place of the grid in the panel.
+/// and no other block takes the place of the grid in the panel.
 pub fn fills_now(inventory: &Inventory, recipe: &RecipeView, grid_size: u32) -> bool {
     inventory.open_chest.is_none()
         && inventory.open_furnace.is_none()
+        && inventory.open_engraver.is_none()
         && plan_grid_fill(inventory, recipe.index, 1, grid_size)
             .is_ok_and(|fill| fill.plan.is_some())
 }

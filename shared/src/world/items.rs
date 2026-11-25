@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Serialize};
 
-use super::{BlockId, GameElementId, MobKind};
+use super::{BlockId, Enchantments, GameElementId, MobKind};
 
 /// Append only: never reorder or remove a variant. Player files store items by name (RON), but
 /// network messages carry the position of the variant (bincode), so another order breaks the
@@ -224,11 +224,12 @@ pub enum ItemId {
     DepthsCompass,
     /// The trophy of the Ember Mother.
     EmberHeart,
+    EngravingTable,
 }
 
 impl ItemId {
     /// Every item, in the order of the variants.
-    pub const ALL: [ItemId; 193] = [
+    pub const ALL: [ItemId; 194] = [
         Self::Dirt,
         Self::Grass,
         Self::Stone,
@@ -422,6 +423,7 @@ impl ItemId {
         Self::CartographerSpawnEgg,
         Self::DepthsCompass,
         Self::EmberHeart,
+        Self::EngravingTable,
     ];
 
     /// The name of the item in the commands, like in Minecraft: `oak_log`.
@@ -716,6 +718,7 @@ impl ItemId {
             | Self::Potato
             | Self::BakedPotato => ItemCategory::Materials,
             Self::CraftingTable
+            | Self::EngravingTable
             | Self::Furnace
             | Self::Chest
             | Self::Bedroll
@@ -885,6 +888,7 @@ impl ItemId {
             Self::Sign => ItemType::Block(BlockId::Sign),
             Self::Obsidian => ItemType::Block(BlockId::Obsidian),
             Self::EmberHeart => ItemType::Block(BlockId::EmberHeart),
+            Self::EngravingTable => ItemType::Block(BlockId::EngravingTable),
             Self::Rye => ItemType::Block(BlockId::RyeSprout),
             Self::Carrot => ItemType::Block(BlockId::CarrotSprout),
             Self::Potato => ItemType::Block(BlockId::PotatoSprout),
@@ -1128,6 +1132,11 @@ pub enum ItemType {
     Tool {
         wear: u32,
     },
+    /// A tool, a weapon or a piece of armour with enchantments, and its wear.
+    Enchanted {
+        wear: u32,
+        enchantments: Enchantments,
+    },
 }
 
 impl Default for ItemType {
@@ -1337,6 +1346,7 @@ mod tests {
             (ItemId::CartographerSpawnEgg, 190),
             (ItemId::DepthsCompass, 191),
             (ItemId::EmberHeart, 192),
+            (ItemId::EngravingTable, 193),
         ];
         // Fails to compile when a variant is added without a line in the table
         for (id, _) in table {
@@ -1533,7 +1543,8 @@ mod tests {
                 | ItemId::Bow
                 | ItemId::Arrow
                 | ItemId::DepthsCompass
-                | ItemId::EmberHeart => {}
+                | ItemId::EmberHeart
+                | ItemId::EngravingTable => {}
             }
         }
         for (id, expected) in table {
@@ -1619,6 +1630,14 @@ mod tests {
         assert_eq!(encoded(ItemType::Generic), [0]);
         assert_eq!(encoded(ItemType::Block(BlockId::Stone)), [1, 3]);
         assert_eq!(encoded(ItemType::Tool { wear: 5 }), [2, 5]);
+        let enchantments = Enchantments::default();
+        assert_eq!(
+            encoded(ItemType::Enchanted {
+                wear: 5,
+                enchantments
+            }),
+            [3, 5, 0]
+        );
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use super::armour::spawn_armour_slots;
+use super::engraving::spawn_engraving_row;
 use super::furnace::spawn_furnace_row;
 use super::ghost::{ghost_icon, ghost_tint};
 use super::trade::spawn_trade_grid;
@@ -15,7 +16,7 @@ use crate::ui::theme::{
 };
 use crate::ui::widgets::focus::ArrowNav;
 use crate::ui::widgets::slot::{
-    slot, slot_count, slot_durability, slot_icon, slot_node, SLOT_SIZE,
+    slot, slot_count, slot_durability, slot_gem, slot_icon, slot_node, SLOT_SIZE,
 };
 use crate::ui::widgets::tooltip::Tooltip;
 use crate::world::{AtlasWrapper, MaterialResource};
@@ -130,6 +131,7 @@ pub fn setup_inventory(
                             spawn_crafting_row(inventory, atlas, &font, &asset_server);
                             spawn_chest_grid(inventory, atlas, &font);
                             spawn_furnace_row(inventory, atlas, &font, &asset_server);
+                            spawn_engraving_row(inventory, atlas, &font);
                             spawn_trade_grid(inventory, atlas, &font, &asset_server);
                             spawn_backpack(inventory, atlas, &font);
                         });
@@ -150,7 +152,12 @@ pub fn setup_inventory(
         },
         GlobalZIndex(3),
         Pickable::IGNORE,
-        children![slot_icon(icon(atlas)), slot_durability(), slot_count(font)],
+        children![
+            slot_icon(icon(atlas)),
+            slot_durability(),
+            slot_gem(),
+            slot_count(font)
+        ],
     ));
 }
 

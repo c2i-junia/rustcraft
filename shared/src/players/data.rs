@@ -39,6 +39,9 @@ pub struct Inventory {
     /// or a chest.
     #[serde(default)]
     pub open_furnace: Option<IVec3>,
+    /// The engraving table the player is using, if any. Never at the same time as another block.
+    #[serde(default)]
+    pub open_engraver: Option<IVec3>,
 }
 
 impl Default for Inventory {
@@ -55,7 +58,16 @@ impl Inventory {
             open_table: None,
             open_chest: None,
             open_furnace: None,
+            open_engraver: None,
         }
+    }
+
+    /// Closes the table, the chest, the furnace or the engraving table the player is using.
+    pub fn close_blocks(&mut self) {
+        self.open_table = None;
+        self.open_chest = None;
+        self.open_furnace = None;
+        self.open_engraver = None;
     }
 
     /// The item a player holds in its hand with the hotbar slot `slot` selected: the item of
@@ -143,14 +155,12 @@ impl Inventory {
         let Some(stack) = self.inner.get_mut(&slot) else {
             return false;
         };
-        let (Some(durability), ItemType::Tool { wear: worn }) =
-            (stack.item_id.durability(), stack.item_type)
-        else {
+        let (Some(durability), Some(worn)) = (stack.durability(), stack.item_type.wear()) else {
             return false;
         };
         let worn = worn.saturating_add(wear);
         if worn < durability {
-            stack.item_type = ItemType::Tool { wear: worn };
+            stack.item_type = stack.item_type.with_wear(worn);
             return false;
         }
         self.inner.remove(&slot);

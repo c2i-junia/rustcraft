@@ -331,6 +331,11 @@ mod tests {
             ),
             (InventoryAction::DropFloating { all: false }, 18),
             (InventoryAction::QuickMoveOne(0), 19),
+            (InventoryAction::OpenEngravingTable(IVec3::ZERO), 20),
+            (
+                InventoryAction::Enchant(crate::world::Enchantment::Efficiency),
+                21,
+            ),
         ] {
             assert_eq!(variant_index(&action), expected, "{ENCODING_WARNING}");
         }

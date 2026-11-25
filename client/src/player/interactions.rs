@@ -202,6 +202,7 @@ fn opened(
     }
     match block {
         Some(BlockId::CraftingTable) => Some(InventoryAction::OpenCraftingTable(position)),
+        Some(BlockId::EngravingTable) => Some(InventoryAction::OpenEngravingTable(position)),
         Some(BlockId::Chest | BlockId::Barrel) => Some(InventoryAction::OpenChest(position)),
         Some(BlockId::Furnace | BlockId::LitFurnace) => {
             Some(InventoryAction::OpenFurnace(position))

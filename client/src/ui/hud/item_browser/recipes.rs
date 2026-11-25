@@ -115,6 +115,9 @@ pub fn recipe_problem(
     if inventory.open_chest.is_some() {
         return Some(NOT_BESIDE_A_CHEST.to_string());
     }
+    if inventory.open_engraver.is_some() {
+        return Some(NOT_BESIDE_AN_ENGRAVING_TABLE.to_string());
+    }
     inventory
         .open_furnace
         .is_some()
@@ -142,10 +145,13 @@ pub fn fill_button(
     let only_missing = !missing(inventory, recipe).is_empty()
         && recipe.fits(grid_size)
         && inventory.open_chest.is_none()
-        && inventory.open_furnace.is_none();
+        && inventory.open_furnace.is_none()
+        && inventory.open_engraver.is_none();
     only_missing.then_some(FillButton::Ghost)
 }
 
+/// Why a recipe cannot fill the grid while an engraving table is open.
+pub const NOT_BESIDE_AN_ENGRAVING_TABLE: &str = "Not beside an engraving table";
 /// Why a recipe cannot fill the grid while a chest is open.
 pub const NOT_BESIDE_A_CHEST: &str = "Not beside a chest";
 /// Why a recipe cannot fill the grid while a furnace is open.

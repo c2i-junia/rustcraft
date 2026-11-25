@@ -38,6 +38,8 @@ pub fn refused_targets(action: InventoryAction) -> Vec<RefusedTarget> {
         | InventoryAction::OpenCraftingTable(_)
         | InventoryAction::OpenChest(_)
         | InventoryAction::OpenFurnace(_)
+        | InventoryAction::OpenEngravingTable(_)
+        | InventoryAction::Enchant(_)
         | InventoryAction::TakeFromCatalog { .. }
         | InventoryAction::DestroyFloating
         | InventoryAction::FillCraftingGrid { .. }

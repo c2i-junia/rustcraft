@@ -38,6 +38,8 @@ pub fn inventory_sound(outcome: &InventoryActionOutcome) -> Option<Sound> {
         | InventoryAction::OpenCraftingTable(_)
         | InventoryAction::OpenChest(_)
         | InventoryAction::OpenFurnace(_)
+        | InventoryAction::OpenEngravingTable(_)
+        | InventoryAction::Enchant(_)
         | InventoryAction::QuickMoveSlot(_)
         | InventoryAction::QuickMoveOne(_)
         | InventoryAction::SwapWithHotbar { .. }

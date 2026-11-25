@@ -196,9 +196,7 @@ impl DroppedItems {
             .chain(inventory.floating.take())
             .filter(|stack| stack.nb > 0)
             .collect();
-        inventory.open_table = None;
-        inventory.open_chest = None;
-        inventory.open_furnace = None;
+        inventory.close_blocks();
         for &stack in &stacks {
             self.spawn(DroppedItem::new(stack, player.position, pop_velocity(rng)));
         }

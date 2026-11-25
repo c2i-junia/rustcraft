@@ -153,7 +153,10 @@ pub fn interact(
                     .with_y(0.0)
                     .try_normalize()
                     .unwrap_or_else(|| input.camera.forward().with_y(0.0).normalize_or_zero());
-                let damage = mob.kind.blow_damage(held);
+                let weapon = player.inventory.inner.get(&input.hotbar_slot);
+                let sharpness = weapon.filter(|_| held.is_some());
+                let damage = mob.kind.blow_damage(held)
+                    + sharpness.map_or(0, |weapon| weapon.bonus_blow_damage());
                 let dies = wound(mob, player.id, damage, away * KNOCK_BACK_SPEED);
                 world.changed.insert(id);
                 if let Some(item) = held {

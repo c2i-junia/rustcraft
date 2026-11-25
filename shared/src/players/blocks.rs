@@ -438,6 +438,12 @@ fn held_tool(player: &Player, action: &PlayerFrameInput) -> Option<Tool> {
     held_item(player, action)?.tool()
 }
 
+/// The speed of the `tool` in the selected hotbar slot, its enchantments included.
+fn held_speed(player: &Player, action: &PlayerFrameInput, tool: Tool) -> u8 {
+    let stack = player.inventory.inner.get(&action.hotbar_slot);
+    stack.map_or(tool.speed, |stack| stack.mining_speed(tool.speed))
+}
+
 /// `hits` hits on the aimed block: it breaks once it took as many hits as its break time, and is
 /// returned then. A held tool made for the block counts each hit as its speed, and wears out by
 /// breaking blocks. The hits left over by a broken block are lost, and never reach the block
@@ -463,7 +469,7 @@ fn break_block(
     let tool = held_tool(player, action);
     let speed = tool
         .filter(|tool| block.id.is_mined_faster_by(tool.kind))
-        .map_or(1, |tool| tool.speed);
+        .map_or(1, |tool| held_speed(player, action, tool));
     block.breaking_progress = block
         .breaking_progress
         .saturating_add(hits.saturating_mul(speed));

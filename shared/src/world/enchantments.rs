@@ -1,0 +1,250 @@
+//! The enchantments: what a piece of equipment may carry, how far, for how many levels of
+//! experience, and what it does. They are part of the type of the stack (`ItemType::Enchanted`),
+//! with its wear, so that they follow it wherever it goes. The engraving table puts them there
+//! (`players::enchanting`); only the server does.
+
+use serde::{Deserialize, Serialize};
+
+use super::{ItemId, ItemStack, ItemType, ToolKind};
+
+/// The levels each enchantment has.
+pub const MAX_ENCHANTMENT_LEVEL: u32 = 3;
+/// What efficiency adds to the speed of a tool at each level, in percent.
+const EFFICIENCY_PER_LEVEL: u32 = 50;
+/// What durability adds to the durability of an item at each level, in percent.
+const DURABILITY_PER_LEVEL: u32 = 50;
+/// The points of health sharpness and bow power add to a hit at each level.
+const DAMAGE_PER_LEVEL: u32 = 1;
+/// The percentage of a hit each level of protection of a piece worn absorbs.
+pub const PROTECTION_PER_LEVEL: u32 = 1;
+
+/// Append only, at most 8: stacks and inputs store the position of the variant. Bump
+/// `PROTOCOL_ID` with any change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Enchantment {
+    Efficiency,
+    Durability,
+    Sharpness,
+    Protection,
+    BowPower,
+}
+
+impl Enchantment {
+    pub const ALL: [Enchantment; 5] = [
+        Self::Efficiency,
+        Self::Sharpness,
+        Self::BowPower,
+        Self::Protection,
+        Self::Durability,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Efficiency => "Efficiency",
+            Self::Durability => "Durability",
+            Self::Sharpness => "Sharpness",
+            Self::Protection => "Protection",
+            Self::BowPower => "Bow Power",
+        }
+    }
+
+    /// Its name and its level, as a player reads them: "Efficiency II".
+    pub fn title(self, level: u32) -> String {
+        let numeral = ["", " I", " II", " III"];
+        let numeral = numeral.get(level as usize).copied().unwrap_or_default();
+        format!("{}{numeral}", self.name())
+    }
+
+    /// What it does at `level`, in a few words.
+    pub fn effect(self, level: u32) -> String {
+        match self {
+            Self::Efficiency => format!("+{} % mining speed", level * EFFICIENCY_PER_LEVEL),
+            Self::Durability => format!("+{} % durability", level * DURABILITY_PER_LEVEL),
+            Self::Sharpness => format!("+{} damage", level * DAMAGE_PER_LEVEL),
+            Self::Protection => format!("+{} % absorbed", level * PROTECTION_PER_LEVEL),
+            Self::BowPower => format!("+{} arrow damage", level * DAMAGE_PER_LEVEL),
+        }
+    }
+
+    /// Whether `item` may carry it.
+    pub fn fits(self, item: ItemId) -> bool {
+        let tool = item.tool().map(|tool| tool.kind);
+        match self {
+            Self::Efficiency => matches!(
+                tool,
+                Some(ToolKind::Pickaxe | ToolKind::Axe | ToolKind::Shovel | ToolKind::Hoe)
+            ),
+            Self::Durability => item.durability().is_some(),
+            Self::Sharpness => {
+                item == ItemId::Spear || matches!(tool, Some(ToolKind::Sword | ToolKind::Axe))
+            }
+            Self::Protection => item.armour().is_some(),
+            Self::BowPower => item == ItemId::Bow,
+        }
+    }
+}
+
+/// The levels of experience it takes to bring an enchantment to `level`.
+pub fn enchantment_cost(level: u32) -> u32 {
+    match level {
+        0 => 0,
+        1 => 3,
+        2 => 5,
+        _ => 8,
+    }
+}
+
+/// The level of each enchantment of an item, 2 bits each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Enchantments(u16);
+
+impl Enchantments {
+    pub fn level(self, enchantment: Enchantment) -> u32 {
+        u32::from(self.0 >> (2 * enchantment as u16)) & MAX_ENCHANTMENT_LEVEL
+    }
+
+    /// These, with `enchantment` at `level`.
+    fn with(self, enchantment: Enchantment, level: u32) -> Self {
+        let shift = 2 * enchantment as u16;
+        let level = level.min(MAX_ENCHANTMENT_LEVEL) as u16;
+        Self(self.0 & !(3 << shift) | level << shift)
+    }
+}
+
+impl ItemId {
+    /// The enchantments the item may carry, in the order they are listed.
+    pub fn enchantments(self) -> impl Iterator<Item = Enchantment> {
+        Enchantment::ALL
+            .into_iter()
+            .filter(move |enchantment| enchantment.fits(self))
+    }
+
+    pub fn is_enchantable(self) -> bool {
+        self.enchantments().next().is_some()
+    }
+}
+
+impl ItemType {
+    /// The wear of an item that wears.
+    pub fn wear(self) -> Option<u32> {
+        match self {
+            Self::Tool { wear } | Self::Enchanted { wear, .. } => Some(wear),
+            Self::Generic | Self::Block(_) => None,
+        }
+    }
+
+    /// The same item, worn by `wear`.
+    pub fn with_wear(self, wear: u32) -> Self {
+        match self {
+            Self::Enchanted { enchantments, .. } => Self::Enchanted { wear, enchantments },
+            Self::Tool { .. } => Self::Tool { wear },
+            other => other,
+        }
+    }
+}
+
+/// `value` with `percent` per level added.
+fn raised(value: u32, percent: u32, level: u32) -> u32 {
+    value * (100 + percent * level) / 100
+}
+
+impl ItemStack {
+    /// The level of `enchantment` the stack carries, 0 for none.
+    pub fn enchantment_level(&self, enchantment: Enchantment) -> u32 {
+        match self.item_type {
+            ItemType::Enchanted { enchantments, .. } if enchantment.fits(self.item_id) => {
+                enchantments.level(enchantment)
+            }
+            _ => 0,
+        }
+    }
+
+    /// The enchantments the stack carries, with their levels.
+    pub fn enchantments(&self) -> impl Iterator<Item = (Enchantment, u32)> + '_ {
+        self.item_id
+            .enchantments()
+            .map(|enchantment| (enchantment, self.enchantment_level(enchantment)))
+            .filter(|&(_, level)| level > 0)
+    }
+
+    pub fn is_enchanted(&self) -> bool {
+        self.enchantments().next().is_some()
+    }
+
+    /// The stack with `enchantment` one level higher, its wear kept: `None` when it does not
+    /// take it, or no further.
+    pub fn enchanted(&self, enchantment: Enchantment) -> Option<ItemStack> {
+        let level = self.enchantment_level(enchantment) + 1;
+        if !enchantment.fits(self.item_id) || level > MAX_ENCHANTMENT_LEVEL {
+            return None;
+        }
+        let carried = match self.item_type {
+            ItemType::Enchanted { enchantments, .. } => enchantments,
+            _ => Enchantments::default(),
+        };
+        Some(ItemStack {
+            item_type: ItemType::Enchanted {
+                wear: self.item_type.wear().unwrap_or(0),
+                enchantments: carried.with(enchantment, level),
+            },
+            ..*self
+        })
+    }
+
+    /// The wear at which this very item breaks: `ItemId::durability`, raised by its enchantment.
+    pub fn durability(&self) -> Option<u32> {
+        let level = self.enchantment_level(Enchantment::Durability);
+        let durability = self.item_id.durability()?;
+        Some(raised(durability, DURABILITY_PER_LEVEL, level))
+    }
+
+    /// The mining hits a hit of this very tool counts for, `speed` without its enchantment.
+    pub fn mining_speed(&self, speed: u8) -> u8 {
+        let level = self.enchantment_level(Enchantment::Efficiency);
+        let speed = raised(u32::from(speed), EFFICIENCY_PER_LEVEL, level);
+        u8::try_from(speed).unwrap_or(u8::MAX)
+    }
+
+    /// The points of health its enchantments add to a blow.
+    pub fn bonus_blow_damage(&self) -> u32 {
+        self.enchantment_level(Enchantment::Sharpness) * DAMAGE_PER_LEVEL
+    }
+
+    /// The points of health its enchantments add to an arrow it shoots.
+    pub fn bonus_arrow_damage(&self) -> u32 {
+        self.enchantment_level(Enchantment::BowPower) * DAMAGE_PER_LEVEL
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_enchantment_rises_to_its_last_level_on_what_takes_it_and_keeps_the_wear() {
+        let mut axe = ItemStack {
+            item_id: ItemId::IronAxe,
+            item_type: ItemType::Tool { wear: 40 },
+            nb: 1,
+        };
+        assert_eq!(axe.enchanted(Enchantment::Protection), None);
+        for level in 1..=MAX_ENCHANTMENT_LEVEL {
+            axe = axe.enchanted(Enchantment::Efficiency).unwrap();
+            axe = axe.enchanted(Enchantment::Durability).unwrap();
+            assert_eq!(axe.enchantment_level(Enchantment::Efficiency), level);
+        }
+        assert_eq!(axe.enchanted(Enchantment::Efficiency), None);
+        assert_eq!(axe.enchantment_level(Enchantment::Sharpness), 0);
+        assert_eq!(axe.item_type.wear(), Some(40));
+        assert_eq!(axe.durability(), Some(625));
+        assert_eq!(axe.mining_speed(6), 15);
+        // As a save holds it, in RON, and a chest file, in bincode
+        let text = ron::to_string(&axe).unwrap();
+        assert_eq!(ron::from_str::<ItemStack>(&text).unwrap(), axe);
+        let bytes = crate::game_message_to_payload(axe);
+        assert_eq!(
+            crate::payload_to_game_message::<ItemStack>(&bytes).unwrap(),
+            axe
+        );
+    }
+}

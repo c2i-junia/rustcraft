@@ -195,3 +195,52 @@ fn an_open_trade_shows_the_offers_above_the_backpack() {
     golden.run_system(style_buttons);
     golden.assert_matches("trade");
 }
+
+/// An enchanted, worn axe in an engraving table: an enchantment complete, one too dear to
+/// raise, one to begin; and another enchanted item in the hotbar.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn an_open_engraving_table_shows_the_enchantments_of_the_item() {
+    use crate::player::CurrentPlayerMarker;
+    use shared::players::inventory::ENGRAVING_SLOT;
+    use shared::players::Player;
+    use shared::world::{Enchantment, ItemType};
+
+    let enchanted = |mut stack: ItemStack, enchantment, levels| {
+        for _ in 0..levels {
+            stack = stack.enchanted(enchantment).unwrap();
+        }
+        stack
+    };
+    let mut inventory = Inventory::new();
+    inventory.open_engraver = Some(IVec3::ZERO);
+    let worn = ItemStack {
+        item_type: ItemType::Tool { wear: 90 },
+        ..stack(ItemId::IronAxe, 1)
+    };
+    let axe = enchanted(worn, Enchantment::Efficiency, 3);
+    let axe = enchanted(axe, Enchantment::Sharpness, 1);
+    inventory.inner.insert(ENGRAVING_SLOT, axe);
+    let sword = enchanted(stack(ItemId::DiamondSword, 1), Enchantment::Sharpness, 2);
+    inventory.inner.insert(0, sword);
+    inventory.inner.insert(1, stack(ItemId::DiamondSword, 1));
+    let bow = enchanted(stack(ItemId::Bow, 1), Enchantment::BowPower, 1);
+    inventory.inner.insert(2, bow);
+    let helmet = enchanted(stack(ItemId::IronHelmet, 1), Enchantment::Protection, 1);
+    inventory.inner.insert(MAX_HOTBAR_SLOTS, helmet);
+    inventory
+        .inner
+        .insert(MAX_HOTBAR_SLOTS + 1, stack(ItemId::EngravingTable, 2));
+    let mut golden = UiGolden::new();
+    let mut player = Player::new(1, "engraver".into(), Vec3::ZERO, Transform::default());
+    player.experience.level = 4;
+    player.game_mode = shared::players::game_mode::GameMode::Survival;
+    golden.world_mut().spawn((player, CurrentPlayerMarker {}));
+    golden.world_mut().insert_resource(inventory);
+    golden
+        .world_mut()
+        .insert_resource(ClientWorldMap::default());
+    show_open_inventory(&mut golden, true);
+    golden.run_system(style_buttons);
+    golden.assert_matches("engraving_table");
+}

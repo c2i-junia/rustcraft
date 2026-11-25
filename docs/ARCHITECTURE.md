@@ -616,8 +616,8 @@ point of armour absorbs 4 % (a suit is 7 points in leather, 11 in bronze, 15 in 
 20 at most count) and each piece worn wears by one, then breaks. Health going by whole points, what
 is left is counted in hundredths and the rest carried to the next hit (`armour_carry`).
 `DamageSource::is_absorbed_by_armour` says which hits it stops: the mobs', embers included, the arrows, fire and
-lava; not drowning, hunger, the void nor falls (armour does not soften a landing). An enchantment
-would add to `absorb` or to the wear there. `PlayerUpdateEvent::worn` (`Inventory::worn`) tells the
+lava; not drowning, hunger, the void nor falls (armour does not soften a landing). Protection
+(Enchantments, below) adds to what `absorb` takes, 90 % at most. `PlayerUpdateEvent::worn` (`Inventory::worn`) tells the
 others what a player wears, and the client's `player/armour.rs` puts it on the model: boxes around
 the parts of the body, children of them, cut from `graphics/armour/<material>.png`, laid out as a
 skin with the leggings in the second layer. `scripts/generate_armour.py` draws every texture of the
@@ -708,7 +708,7 @@ without loot.
 `simulate_player_movement` so that a client replays it, counts `MovementState::bow_draw_ms`,
 which slows the player, stops its sprint and, being sent, shows the others the draw. `shoot_bow`,
 at the release, spends an arrow of the 36 slots and wears the bow (not in creative), and returns
-a `BowShot`: its power, its damage (`bonus_damage` is the hook of an enchantment) and whether the
+a `BowShot`: its power, its damage (bow power adds to it) and whether the
 arrow may be picked up. Only the server turns it into a mob, `MobKind::Arrow`, a projectile as the
 ember, with its `ArrowFlight` (neither sent nor saved). `arrow_system` (`mob/arrow.rs`) flies it
 in a curve, tested every tenth of a block: it hits the players in survival
@@ -722,7 +722,7 @@ a player with room who touches it, or after 3 minutes. The pictures of the drawn
 
 `players/experience.rs` (shared) holds `Player::experience`, an `Experience`: a level and the points
 toward the next, which costs `level_cost(level)`, 8 points and 3 more per level. Only the server
-changes it; every `PlayerUpdateEvent` sends it and the save of the player keeps it. An enchanting
+changes it; every `PlayerUpdateEvent` sends it and the save of the player keeps it. The engraving
 table asks `Player::has_levels` and takes `Player::spend_levels`. An orb is a `DroppedItem` whose
 `experience` is above 0 (its stack means nothing): it moves, lasts, is saved and sent as an item,
 merges with any orb within 1 block, flies to the nearest living player within 6
@@ -733,6 +733,23 @@ and, at the player, from the stacks taken out of a furnace (`InventoryActionOutc
 `smelting_experience` in hundredths of a point). Death takes all the experience and leaves an orb of
 half of it, 400 points at most (`Experience::lose_at_death`). The bar (`ui/hud/experience.rs`) sits
 right over the hotbar, under the hearts and the drumsticks.
+
+### Enchantments
+
+`world/enchantments.rs` (shared) is their one table: what takes each `Enchantment`, its three levels,
+their cost (3, 5 then 8 levels of experience) and what they do: efficiency +50 % mining speed a level,
+durability +50 % durability, sharpness and bow power +1 damage, protection +1 % absorbed by the piece.
+They are part of the type of the stack, `ItemType::Enchanted`, as its wear: what moves, saves, drops or
+sends a stack keeps them, and older saves and chest files, which hold the other variants, load as they
+are. What carries them stacks to 1, so nothing merges. Read the wear and the durability of a stack with
+`ItemType::wear` and `ItemStack::durability`, not by matching `Tool`.
+
+The engraving table (`BlockId::EngravingTable`) opens the inventory panel with a slot,
+`ENGRAVING_SLOT`, kept in the inventory as the crafting grid and given back at the close.
+`InventoryAction::Enchant` raises an enchantment of the item there (`players/enchanting.rs`): the
+server alone applies it, free in creative, and the next `PlayerUpdate` shows it. The client lists the
+enchantments in `ui/hud/inventory/engraving.rs`; an enchanted item shows a tinted icon, a gem in its
+slot (`SlotGem`) and a line each in its tooltip.
 
 ### The depth tiers
 
