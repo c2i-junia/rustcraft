@@ -10,7 +10,8 @@ use crate::identity::SignedCertificate;
 /// The version of the API the well-known document announces.
 pub const API_VERSION: u32 = 1;
 
-/// The machine-readable reason of an error, serialized in snake_case.
+/// The machine-readable reason of an error, serialized in snake_case. A code a client does not
+/// know reads as `Unknown`, and the message of the [`ErrorBody`] still tells what happened.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
@@ -28,6 +29,8 @@ pub enum ErrorCode {
     NoFreeSlot,
     InvalidRequest,
     Internal,
+    #[serde(other)]
+    Unknown,
 }
 
 /// The body of every error response.
@@ -259,6 +262,9 @@ pub struct Realm {
     pub members: Vec<RealmMember>,
 }
 
+/// The answer to `GET /v1/realms`: the worlds owned or joined, as a bare JSON array.
+pub type RealmList = Vec<Realm>;
+
 /// The answer to `POST /v1/realms/{id}/start`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartRealmResponse {
@@ -315,6 +321,19 @@ mod tests {
             serde_json::to_value(ErrorCode::SignupsClosed).unwrap(),
             "signups_closed"
         );
+    }
+
+    #[test]
+    fn an_unknown_error_code_still_reads_with_its_message() {
+        let body: ErrorBody =
+            serde_json::from_value(json!({"error": "from_the_future", "message": "Hi."})).unwrap();
+        assert_eq!(body.error, ErrorCode::Unknown);
+        assert_eq!(body.message, "Hi.");
+    }
+
+    #[test]
+    fn a_realm_list_is_a_bare_json_array() {
+        assert_eq!(round_trip(&RealmList::new()), json!([]));
     }
 
     #[test]

@@ -1,10 +1,10 @@
 # Architecture
 
-Rustcraft is a workspace of three crates. This page says what each one holds, how a client and
+Rustcraft is a workspace of four crates. This page says what each one holds, how a client and
 a server talk, and in which order things happen. The details live in the doc comments of the
 files named here.
 
-## The three crates
+## The crates
 
 | Crate | Role | Depends on |
 |-------|------|------------|
@@ -86,17 +86,17 @@ dedicated server answers (`server/src/network/status.rs`); the integrated server
 none. The status is not on the game socket because `NetcodeServerTransport` reads that socket
 itself and drops whatever is not netcode: a second reader would race it for packets.
 
-A request and a reply are both `STATUS_PACKET_LEN` = 32 bytes (`crates/protocol/src/status.rs`, re-exported as `shared::status`): the
-magic `RCST`, `STATUS_FORMAT`, the kind and a nonce, and in a reply the server's `PROTOCOL_ID`,
-its players and its maximum. A reply is never larger than its request, so the port cannot
-amplify a spoofed request, and the server drops anything but a well-formed request of exactly
-32 bytes. The client (`client/src/network/status.rs`) asks from a connected socket, sends a new
-nonce every 500 ms, takes only a reply that carries one of them, measures the latency from the
-send of that nonce, and says "Offline" after 2 s, or at once when the port is refused. The
-exchange is versioned by its own `STATUS_FORMAT`, not by `PROTOCOL_ID`, which it leaves
-unchanged: a reply whose protocol differs from the client's makes the server "Incompatible",
-and the client never joins it. Format 1 never changes; a new layout gets a new format, and
-servers keep answering the older ones.
+A request and a reply are both `STATUS_PACKET_LEN` = 32 bytes (`crates/protocol/src/status.rs`,
+re-exported as `shared::status`): the magic `RCST`, `STATUS_FORMAT`, the kind and a nonce, and
+in a reply the server's `PROTOCOL_ID`, its players and its maximum. A reply is never larger than
+its request, so the port cannot amplify a spoofed request, and the server drops anything but a
+well-formed request of exactly 32 bytes. The client (`client/src/network/status.rs`) asks from a
+connected socket, sends a new nonce every 500 ms, takes only a reply that carries one of them,
+measures the latency from the send of that nonce, and says "Offline" after 2 s, or at once when
+the port is refused. The exchange is versioned by its own `STATUS_FORMAT`, not by `PROTOCOL_ID`,
+which it leaves unchanged: a reply whose protocol differs from the client's makes the server
+"Incompatible", and the client never joins it. Format 1 never changes; a new layout gets a new
+format, and servers keep answering the older ones.
 
 A session (`client/src/network/session.rs`) goes from the Singleplayer or Multiplayer screen to
 the game and back. `SessionOrigin` says where it was started from: a world, or a server with

@@ -80,6 +80,8 @@ pub fn sign(cert: &Certificate, key: &SigningKey) -> SignedCertificate {
 impl SignedCertificate {
     /// Checks the key id, the signature, then decodes the bytes and checks the dates against
     /// `now` (Unix seconds). `keys` are the accepted hub keys with their ids.
+    ///
+    /// It does not check `cert.hub`: callers must pass only the keys of the hub they trust.
     pub fn verify(
         &self,
         keys: &[(u8, VerifyingKey)],
@@ -92,8 +94,11 @@ impl SignedCertificate {
             .ok_or(CertificateError::UnknownKey)?;
         key.verify_strict(&self.bytes, &Signature::from_bytes(&self.signature))
             .map_err(|_| CertificateError::BadSignature)?;
-        let cert: Certificate =
-            postcard::from_bytes(&self.bytes).map_err(|_| CertificateError::Malformed)?;
+        let (cert, rest) = postcard::take_from_bytes::<Certificate>(&self.bytes)
+            .map_err(|_| CertificateError::Malformed)?;
+        if !rest.is_empty() {
+            return Err(CertificateError::Malformed);
+        }
         if cert.version != CERTIFICATE_VERSION || cert.hub_key_id != key_id {
             return Err(CertificateError::Malformed);
         }
@@ -258,6 +263,27 @@ mod tests {
             bytes: Vec::new(),
             signature: [0; 64],
         };
+        assert_eq!(
+            signed.verify(&keys(&hub), NOW),
+            Err(CertificateError::Malformed)
+        );
+    }
+
+    #[test]
+    fn signed_trailing_bytes_or_garbage_are_malformed() {
+        let (hub, device) = (key(), key());
+        let mut bytes = postcard::to_allocvec(&certificate(&device)).unwrap();
+        // The extra byte is the key id, so only the trailing data is wrong.
+        bytes.push(1);
+        let signature = hub.sign(&bytes).to_bytes();
+        let signed = SignedCertificate { bytes, signature };
+        assert_eq!(
+            signed.verify(&keys(&hub), NOW),
+            Err(CertificateError::Malformed)
+        );
+        let bytes = vec![1u8, 2, 3, 1];
+        let signature = hub.sign(&bytes).to_bytes();
+        let signed = SignedCertificate { bytes, signature };
         assert_eq!(
             signed.verify(&keys(&hub), NOW),
             Err(CertificateError::Malformed)
