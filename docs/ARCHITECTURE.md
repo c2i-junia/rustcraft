@@ -911,7 +911,16 @@ The client has one plugin per domain, registered by `game_plugin`: `camera`, `in
 (`ui::menus::menu_plugin`), and so do the sounds (`audio::audio_plugin`), heard in the menus
 too. The gameplay sends messages (`BlockChanged`, `LocalPlayerMoved`, `PortalOpened`) that
 `audio` turns into sounds, a portal that opens and a passing through one included, from files
-of other sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. The sheep
+of other sounds; the sound files in `data/sounds/` are made by `scripts/generate_sounds.py`. Each
+creature has its voice (`audio/creatures.rs`): a `CreatureVoice` on each mob drawn times its
+cries, and follows the actions the server sends: a hostile that starts to `Chase` is heard
+approaching, again every few seconds while it hunts, and one that starts to `Attack` strikes;
+`MobHurt` carries the kind, for its own hurt. The music (`audio/music.rs`) is made by
+`scripts/generate_music.py` into `data/music/`: a `MusicScheduler` plays one piece at a time,
+with minutes of silence between them, chosen for the mood of the moment it starts in (the title
+in the menus, the day, the night, the underground below y 50). It fades a piece out early only
+when the kind of moment changes: leaving the menus, or a boss fight, which later code asks for
+with `MusicMoodOverride(Some(MusicMood::Boss))`. It plays on the Music volume. The sheep
 model, `data/models/animated/Sheep.glb`, is built in Blender by `scripts/generate_sheep.py`, and
 those of the other animals by `scripts/generate_animals.py`. `GameState`
 goes from `Menu` to `PreGameLoading` (connection and textures) to `Game`.

@@ -83,6 +83,7 @@ Date: 11.10.2026
     - Added villages to new worlds: a square around a well, gravel streets lit by lanterns, houses, forges, granaries, fields of rye and pens of animals, built of the wood and earth of their biome (plains and forests, savanna, desert, ice plains). Their chests and barrels hold food, ingots and tools. /locate village tells the nearest one. Worlds created before keep their land as it is.
     - Players have a body: a head, a torso, arms and legs cut from a skin, which walk and run, crouch, swim lying flat, strike with the right arm and turn the head where the player looks. Seen in third person and by the other players.
     - Added skins: twelve characters ship with the game, chosen on the new Skin screen of the main menu, where a model wearing the chosen one slowly turns. Drop a 64x64 PNG (or an old 64x32 one) on the window to add your own, kept in the skins folder of the game folder. The other players see your skin.
+    - Every creature has a voice of its own: animals cry now and then, hostiles are heard approaching and striking, and each kind has its own hurt. Original music plays now and then, different by day, by night, underground and in the menus, with a Music volume in Settings > Audio.
 
 ----------------------------------------------------------------------------------------------------
 Version: 0.8    
