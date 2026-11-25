@@ -10,7 +10,7 @@ Names are those under `data/graphics/`, without `base_textures/` and `.png`. Of 
 | A. Identical to Pixel Perfection CE | 61 | Verified: CC BY-SA 4.0 by that repository |
 | B. Identical to Nova_Wostra's pack only | 71 | **Uncertain: to be cleared** |
 | C. Derived from a pack (`blocks/Cactus`, `colormap/grass`, ...) | 8 | **Uncertain: as their pack** |
-| D. Identical to a file of Minecraft | 3 | **To be replaced** |
+| D. Were identical to a file of Minecraft | 3 | Replaced, drawn by `scripts/generate_default.py`, MIT |
 | E. Drawn by scripts of this repository | 86 | Claimed by scripts and commits, MIT |
 | F. Said to be drawn for Rustcraft, no script | 82 | Claimed by commits, MIT |
 | G. Lettered faces (`Back`, `Front`, ...) | 12 | No source given; plain letters |
@@ -92,10 +92,9 @@ pack by `docs/ressources.txt`: the chest cut from its sheet, the colour maps smo
 blocks/Cactus, blocks/CactusTop, blocks/Chest, blocks/ChestTop, colormap/foliage, colormap/grass,
 hud/furnace_arrow_empty, hud/furnace_flame_empty
 
-## D. Identical to Minecraft's `debug.png` (3)
+## D. Were identical to Minecraft's `debug.png` (3)
 
-The same pixels are in Minecraft 1.21.1 and in both packs. Shown when a texture is missing; replace
-them with a drawing of our own before the release.
+Shown when a texture is missing; drawn again by `scripts/generate_default.py`.
 
 blocks/_Default, custom_textures/blocks/_Default, custom_textures/items/_Default
 
