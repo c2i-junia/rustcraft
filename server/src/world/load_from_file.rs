@@ -4,7 +4,7 @@ use serde::Deserialize;
 use shared::messages::PlayerId;
 use shared::players::{game_mode::GameMode, Player};
 use shared::world::data::WorldSeed;
-use shared::GameFolderPaths;
+use shared::{GameFolderPaths, NEW_WORLD_TIME};
 use std::fs;
 use std::path::Path;
 
@@ -78,6 +78,7 @@ pub fn open_world(
         return Ok(WorldData {
             name: file_name.to_string(),
             seed,
+            time: NEW_WORLD_TIME,
             ..default()
         });
     }

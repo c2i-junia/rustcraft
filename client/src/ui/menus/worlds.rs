@@ -19,7 +19,7 @@ use super::MenuState;
 use crate::network::session::SessionOrigin;
 use crate::state::GameState;
 use crate::ui::theme::{RAISE, THUMBNAIL_COLORS};
-use shared::DAY_DURATION_IN_TICKS;
+use shared::{DAY_DURATION_IN_TICKS, NEW_WORLD_TIME};
 
 /// What the menus show of a saved world.
 #[derive(Clone, Debug)]
@@ -254,7 +254,12 @@ pub fn create_world(
         generation: options.generation,
         game_mode: options.game_mode,
         difficulty: options.difficulty,
-        ..WorldMeta::new(name.to_string(), WorldSeed(seed), 0, HashMap::new())
+        ..WorldMeta::new(
+            name.to_string(),
+            WorldSeed(seed),
+            NEW_WORLD_TIME,
+            HashMap::new(),
+        )
     };
     write_meta(&folder, &meta).map_err(|err| {
         let _ = fs::remove_dir_all(&folder);

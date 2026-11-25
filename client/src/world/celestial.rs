@@ -449,6 +449,14 @@ mod tests {
     }
 
     #[test]
+    fn a_new_world_starts_in_full_daylight_soon_after_sunrise() {
+        let (_, illuminance, _) = sky_light_at(shared::NEW_WORLD_TIME, true);
+        assert_eq!(illuminance, SUN_ILLUMINANCE);
+        assert!(sun_height(shared::NEW_WORLD_TIME) > 0.3);
+        assert_eq!(crate::ui::menus::worlds::day_of(shared::NEW_WORLD_TIME), 1);
+    }
+
+    #[test]
     fn the_clouds_of_the_rain_dim_the_sun_and_the_moon() {
         for tick in [NOON_IN_DAY, MIDNIGHT_IN_DAY] {
             let (_, clear, _) = sky_light_at(tick, true);

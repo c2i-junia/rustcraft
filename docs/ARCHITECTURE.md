@@ -888,7 +888,7 @@ only the nearest face of a cloud is coloured and its opacity is the same from be
 and inside. The player chooses Fancy, Fast (one flat layer) or Off in the Video tab
 (`CloudStyle`, saved in `video.ron` with the render distance).
 
-A day lasts 20 minutes. The sun and the moon go round on a path that leans 30° from the
+A day lasts 20 minutes; a new world starts 75 s after sunrise (`NEW_WORLD_TIME`). The sun and the moon go round on a path that leans 30° from the
 vertical, so they are never right overhead; `celestial.rs` draws them, and the stars, with
 `CelestialMaterial` (`celestial.wgsl`) on the far plane: a square sun reddening near the
 horizon, a square moon of 16 × 16 pixels that waxes and wanes over 8 days, and stars that turn

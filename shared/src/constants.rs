@@ -15,6 +15,9 @@ pub const DAY_DURATION_IN_TICKS: u64 = TICKS_PER_SECOND * 60 * 20;
 pub const NOON_IN_DAY: u64 = DAY_DURATION_IN_TICKS * 3 / 4;
 /// When the moon is at its highest, counted from the start of a cycle.
 pub const MIDNIGHT_IN_DAY: u64 = DAY_DURATION_IN_TICKS / 4;
+/// The clock of a new world: 75 seconds after sunrise, the sun already high enough (22°) for full
+/// daylight. Worlds already saved keep theirs.
+pub const NEW_WORLD_TIME: u64 = DAY_DURATION_IN_TICKS * 9 / 16;
 pub const CHUNK_SIZE: i32 = 16;
 /// The chunks within a player's render distance (`chunk_distance`) are generated and sent to
 /// its client. Each player asks for its own, which the server keeps between
