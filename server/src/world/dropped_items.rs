@@ -146,6 +146,37 @@ impl DroppedItems {
         });
     }
 
+    /// Drops all that dead `player` held where it died, each stack popping in a random
+    /// direction, unless its game mode keeps the inventory (creative never drops): its slots,
+    /// its crafting grid and the stack of its cursor. The inventory is closed. Returns how many
+    /// stacks fell.
+    pub fn drop_on_death(&mut self, player: &mut Player, rng: &mut impl Rng) -> usize {
+        if !player.is_dead() || !player.game_mode.takes_damage() {
+            return 0;
+        }
+        let inventory = &mut player.inventory;
+        let mut slots: Vec<_> = inventory.inner.drain().collect();
+        slots.sort_unstable_by_key(|&(slot, _)| slot);
+        let stacks: Vec<_> = slots
+            .into_iter()
+            .map(|(_, stack)| stack)
+            .chain(inventory.floating.take())
+            .filter(|stack| stack.nb > 0)
+            .collect();
+        inventory.open_table = None;
+        inventory.open_chest = None;
+        inventory.open_furnace = None;
+        for &stack in &stacks {
+            let velocity = Vec3::new(
+                rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
+                POP_UPWARD_SPEED,
+                rng.gen_range(-POP_HORIZONTAL_SPEED..=POP_HORIZONTAL_SPEED),
+            );
+            self.spawn(DroppedItem::new(stack, player.position, velocity));
+        }
+        stacks.len()
+    }
+
     /// One fixed step of every item: it ages, moves, and vanishes once too old or out of the
     /// world. Every `MERGE_INTERVAL_TICKS` steps, the items lying together merge.
     pub fn step(&mut self, chunks: &ChunkMap, delta: f32) {
@@ -222,7 +253,10 @@ impl DroppedItems {
             for player_id in &player_ids {
                 let item = &self.items[&id];
                 let player = players.get_mut(player_id).expect("listed above");
-                if !item.can_be_picked_up() || !within_reach(player, item.position) {
+                if player.is_dead()
+                    || !item.can_be_picked_up()
+                    || !within_reach(player, item.position)
+                {
                     continue;
                 }
                 let left = player.inventory.add_item_to_inventory(item.stack);
@@ -308,6 +342,22 @@ pub fn dropped_items_physics_system(mut world_map: ResMut<ServerWorldMap>, time:
         .step(&world_map.chunks, time.delta_secs());
 }
 
+/// Drops the inventory of each player who died in this tick, before anyone picks it up.
+pub fn drop_on_death_system(mut world_map: ResMut<ServerWorldMap>) {
+    let ServerWorldMap {
+        players,
+        dropped_items,
+        ..
+    } = world_map.as_mut();
+    let mut rng = rand::thread_rng();
+    for player in players.values_mut() {
+        let dropped = dropped_items.drop_on_death(player, &mut rng);
+        if dropped > 0 {
+            info!("{} died and dropped {dropped} stacks", player.name);
+        }
+    }
+}
+
 /// Gives the items lying near the players to them, after the inputs of the tick moved them.
 pub fn pickup_dropped_items_system(mut world_map: ResMut<ServerWorldMap>) {
     let world_map = world_map.as_mut();
@@ -334,9 +384,12 @@ mod tests {
     use super::*;
     use rand::{rngs::StdRng, SeedableRng};
     use shared::{
-        players::PLAYER_HEIGHT,
+        players::{
+            game_mode::{DamageSource, GameMode},
+            PLAYER_HEIGHT,
+        },
         world::{
-            global_block_to_chunk_pos, BlockId, ItemId, PICKUP_DELAY_TICKS,
+            global_block_to_chunk_pos, BlockId, ItemId, CRAFTING_GRID_START, PICKUP_DELAY_TICKS,
             THROWN_PICKUP_DELAY_TICKS,
         },
         MAX_INVENTORY_SLOTS,
@@ -827,5 +880,102 @@ mod tests {
         let saved = items.to_saved();
         let loaded = DroppedItems::from_saved(saved.clone());
         assert_eq!(loaded.to_saved(), saved);
+    }
+
+    /// A survival player at `ON_FLOOR` holding a hotbar stack, a main stack, a cell of the
+    /// crafting grid and a cursor stack, with a crafting table open.
+    fn laden(game_mode: GameMode) -> Player {
+        let mut player = Player::new(1, "p".into(), ON_FLOOR + Vec3::Y, Transform::default());
+        player.game_mode = game_mode;
+        let inventory = &mut player.inventory;
+        inventory.inner.insert(0, stack(ItemId::IronSword, 1));
+        inventory.inner.insert(20, stack(ItemId::Dirt, 40));
+        inventory
+            .inner
+            .insert(CRAFTING_GRID_START, stack(ItemId::Stick, 2));
+        inventory.floating = Some(stack(ItemId::Cobblestone, 5));
+        inventory.open_table = Some(IVec3::new(3, 64, 0));
+        player
+    }
+
+    #[test]
+    fn a_dead_survival_player_drops_its_whole_inventory_scattered_where_it_died() {
+        let mut items = DroppedItems::default();
+        let mut player = laden(GameMode::Survival);
+        let mut rng = StdRng::seed_from_u64(3);
+        // Alive, it keeps everything
+        assert_eq!(items.drop_on_death(&mut player, &mut rng), 0);
+        assert!(player.hurt(100, DamageSource::Fall));
+
+        assert_eq!(items.drop_on_death(&mut player, &mut rng), 4);
+
+        assert!(player.inventory.inner.is_empty());
+        assert_eq!(player.inventory.floating, None);
+        assert_eq!(player.inventory.open_table, None);
+        let mut dropped: Vec<_> = items.items.values().map(|item| item.stack).collect();
+        dropped.sort_by_key(|stack| stack.item_id as u32);
+        let mut held = vec![
+            stack(ItemId::IronSword, 1),
+            stack(ItemId::Dirt, 40),
+            stack(ItemId::Stick, 2),
+            stack(ItemId::Cobblestone, 5),
+        ];
+        held.sort_by_key(|stack| stack.item_id as u32);
+        assert_eq!(dropped, held);
+        for item in items.items.values() {
+            assert_eq!(item.position, player.position);
+            assert!(item.velocity.y > 0.0);
+        }
+        let directions: HashSet<_> = items
+            .items
+            .values()
+            .map(|item| (item.velocity.x.to_bits(), item.velocity.z.to_bits()))
+            .collect();
+        assert_eq!(directions.len(), 4, "scattered");
+        // Nothing is left to drop twice
+        assert_eq!(items.drop_on_death(&mut player, &mut rng), 0);
+        assert_eq!(items.len(), 4);
+    }
+
+    #[test]
+    fn creative_never_drops_its_inventory() {
+        let mut items = DroppedItems::default();
+        let mut player = laden(GameMode::Creative);
+        player.health = 0;
+        assert_eq!(
+            items.drop_on_death(&mut player, &mut StdRng::seed_from_u64(3)),
+            0
+        );
+        assert!(items.is_empty());
+        assert_eq!(player.inventory.inner.len(), 3);
+    }
+
+    #[test]
+    fn a_dead_player_does_not_pick_its_items_back_up_and_its_respawned_self_does() {
+        let world = floor();
+        let mut items = DroppedItems::default();
+        let mut players = player_at(1, ON_FLOOR + Vec3::Y * PLAYER_HEIGHT / 2.0);
+        let player = players.get_mut(&1).unwrap();
+        player.inventory.inner.insert(0, stack(ItemId::Dirt, 3));
+        player.hurt(100, DamageSource::Lava);
+        items.drop_on_death(player, &mut StdRng::seed_from_u64(1));
+        let died_at = player.position;
+        for _ in 0..40 {
+            items.step(&world, DELTA);
+            items.pick_up(&mut players);
+        }
+        assert_eq!(items.len(), 1, "still lying there");
+        let item = items.items.values().next().unwrap();
+        assert!(item.position.with_y(0.0).distance(died_at.with_y(0.0)) < 2.0);
+
+        players.get_mut(&1).unwrap().respawn(item.position);
+        items.pick_up(&mut players);
+        assert!(items.is_empty());
+        assert_eq!(players[&1].inventory.inner[&0], stack(ItemId::Dirt, 3));
+    }
+
+    #[test]
+    fn a_dropped_item_lies_five_minutes() {
+        assert_eq!(LIFETIME_TICKS as f32 * DELTA, 300.0);
     }
 }

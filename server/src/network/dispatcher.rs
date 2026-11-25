@@ -5,7 +5,9 @@ use crate::network::broadcast_chat::*;
 use crate::world;
 use crate::world::broadcast_world::broadcast_world_state;
 use crate::world::data::ServerWorldMap;
-use crate::world::dropped_items::{dropped_items_physics_system, pickup_dropped_items_system};
+use crate::world::dropped_items::{
+    drop_on_death_system, dropped_items_physics_system, pickup_dropped_items_system,
+};
 use crate::world::generation::WorldGeneration;
 use crate::world::locate::Locator;
 use crate::world::save::SaveRequestEvent;
@@ -122,6 +124,8 @@ pub fn register_systems(app: &mut App) {
             burn_system,
             world::furnaces::tick_furnaces_system,
             metabolism_system,
+            // After every source of damage of the tick, the mobs' included
+            drop_on_death_system,
             pickup_dropped_items_system,
             world::home::home_system,
             // Fires, lava, plants, cisterns and campfires; before the flow, which washes the

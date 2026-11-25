@@ -323,3 +323,63 @@ pub(super) fn save_world_request(
         ev_save_request.write(SaveRequestEvent::Player(client_id));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::players::game_mode::{DamageSource, MAX_HEALTH};
+    use shared::players::{air::MAX_AIR, hunger::MAX_FOOD};
+    use shared::world::{BlockData, BlockDirection, BlockId, ChunkMap};
+
+    /// A world whose spawn is at (0, 10, 0), with a bedroll at (20, 1, 0) for the player
+    /// "sleeper", who died there starving, out of air and burning.
+    fn world_with_a_bedroll() -> ServerWorldMap {
+        let bedroll = IVec3::new(20, 1, 0);
+        let mut chunks =
+            ChunkMap::with_loaded_region(IVec3::new(0, 0, -16), IVec3::new(31, 15, 15));
+        chunks.set_block(
+            bedroll,
+            BlockData::new(BlockId::Bedroll, BlockDirection::Front),
+        );
+        let mut world_map = ServerWorldMap {
+            chunks,
+            spawn: Vec3::new(0.5, 10.0, 0.5),
+            ..Default::default()
+        };
+        world_map.places.bedrolls.insert("sleeper".into(), bedroll);
+        let mut player = Player::new(1, "sleeper".into(), Vec3::new(5.0, 2.0, 5.0), default());
+        player.food = 0;
+        player.air = 0;
+        player.burning_ticks = 50;
+        player.hurt(100, DamageSource::Starvation);
+        world_map.players.insert(1, player);
+        world_map
+    }
+
+    #[test]
+    fn a_dead_player_respawns_on_its_bedroll_fed_breathing_and_put_out() {
+        let mut world_map = world_with_a_bedroll();
+        respawn(1, &mut world_map);
+        let player = &world_map.players[&1];
+        assert!(!player.is_dead());
+        assert_eq!(player.health, MAX_HEALTH);
+        assert_eq!(player.food, MAX_FOOD);
+        assert_eq!(player.air, MAX_AIR);
+        assert!(!player.is_burning());
+        assert_eq!(player.death_cause, None);
+        let on_bedroll = Vec3::new(20.5, 1.25 + player.height / 2.0, 0.5);
+        assert!(
+            player.position.distance(on_bedroll) < 1e-5,
+            "{}",
+            player.position
+        );
+    }
+
+    #[test]
+    fn without_its_bedroll_a_dead_player_respawns_at_the_spawn() {
+        let mut world_map = world_with_a_bedroll();
+        world_map.chunks.remove_block(IVec3::new(20, 1, 0));
+        respawn(1, &mut world_map);
+        assert_eq!(world_map.players[&1].position, world_map.spawn);
+    }
+}
