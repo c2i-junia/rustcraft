@@ -98,10 +98,6 @@ const GAME_MODES: [(&str, GameMode); 2] = [
     ("Creative", GameMode::Creative),
 ];
 
-/// The game mode checked when the New world dialog opens. A world made otherwise, as by a
-/// dedicated server, is in `GameMode::default`.
-const PRESELECTED_GAME_MODE: GameMode = GameMode::Creative;
-
 /// The difficulties the New world dialog offers, by their caption.
 const DIFFICULTIES: [(&str, Difficulty); 4] = [
     ("Peaceful", Difficulty::Peaceful),
@@ -111,17 +107,8 @@ const DIFFICULTIES: [(&str, Difficulty); 4] = [
 ];
 
 /// What is checked in the controls of the New world dialog, on its root.
-#[derive(Component)]
+#[derive(Component, Default)]
 struct NewWorldChoices(NewWorldOptions);
-
-impl Default for NewWorldChoices {
-    fn default() -> Self {
-        Self(NewWorldOptions {
-            game_mode: PRESELECTED_GAME_MODE,
-            ..Default::default()
-        })
-    }
-}
 
 /// The width of the labels of the choices, beside their controls: above them, the dialog would be
 /// taller than the smallest window (`MIN_LOGICAL_HEIGHT`).
@@ -279,18 +266,10 @@ pub fn open_new_world_dialog(
     );
     let root = parts.root;
     if let Some(form) = parts.form {
-        let preselected = GAME_MODES
-            .iter()
-            .position(|&(_, mode)| mode == PRESELECTED_GAME_MODE)
-            .unwrap_or_default();
         spawn_world_choice(
             commands,
             (root, form),
-            (
-                "Game mode",
-                &GAME_MODES.map(|(caption, _)| caption),
-                preselected,
-            ),
+            ("Game mode", &GAME_MODES.map(|(caption, _)| caption), 0),
             &font,
             |options, index| options.game_mode = GAME_MODES[index].1,
         );
