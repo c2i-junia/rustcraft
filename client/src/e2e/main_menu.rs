@@ -13,13 +13,14 @@ use super::locator::Locator as L;
 use super::seed::GameFolder;
 use crate::constants::PLAYER_NAME_PATH;
 use crate::network::{hash_string_to_u64, CurrentPlayerProfile};
+use crate::player::skin::built_in_skin_path;
 use crate::state::GameState;
 use crate::ui::assets::TITLE_IMAGE_PATH;
 use crate::ui::menus::multi::SERVERS_TITLE;
 use crate::ui::menus::player_name::{
     PlayerNameInput, CHOOSE_NAME_TITLE, DEFAULT_PLAYER_NAME, PLAYER_NAME_TITLE,
 };
-use crate::ui::menus::skins::{IMPORT_NOTE, SKINS_TITLE};
+use crate::ui::menus::skins::{SkinPreview, IMPORT_NOTE, SKINS_TITLE};
 use crate::ui::menus::solo::{SelectedWorld, WORLDS_TITLE};
 use crate::ui::menus::MenuState;
 use crate::ui::menus::{ContinueCard, QUIT_TITLE};
@@ -56,6 +57,70 @@ fn skin_opens_the_skin_screen() {
     h.click(&L::role(Role::Button, "Back"));
     h.wait_for(&L::text("Singleplayer"), SCREEN);
     assert_eq!(h.menu_state(), MenuState::Main);
+}
+
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "needs lavapipe")]
+fn the_skin_shows_over_its_button_and_fits_every_window() {
+    let folder = GameFolder::new()
+        .with_played_world("Recent", 0, 2 * HOUR)
+        .with_file("skin.ron", "(skin: BuiltIn(\"Sailor\"))");
+    let mut h = main_menu_with(folder);
+    h.wait_for(&L::marker::<ContinueCard>(), SCREEN);
+    h.wait_for_ui_images();
+    for (width, height) in [(800, 600), (1280, 720), (1920, 1080)] {
+        h.resize(width, height);
+        h.frames(5);
+        h.snapshot("home");
+        let window = Rect::from_corners(Vec2::ZERO, Vec2::new(width as f32, height as f32));
+        let preview = h.rect_of(&L::marker::<SkinPreview>());
+        let skin = h.rect_of(&L::role(Role::Button, SKINS_TITLE));
+        let card = h.rect_of(&L::marker::<ContinueCard>());
+        let button = h.rect_of(&L::role(Role::Button, "Singleplayer"));
+        let hints = h.rect_of(&L::marker::<HintBar>());
+        let name = h.rect_of(&L::role(Role::Button, "Tester"));
+        assert!(window.contains(preview.min) && window.contains(skin.max));
+        assert!(button.max.x < card.min.x && card.max.x < preview.min.x);
+        assert!(name.max.y <= preview.min.y && preview.max.y <= skin.min.y);
+        assert!(skin.max.y < hints.min.y, "{skin:?} and {hints:?}");
+    }
+    // without a world, the skin keeps its place: only the card is missing
+    let mut h = main_menu();
+    let skin = h.rect_of(&L::role(Role::Button, SKINS_TITLE));
+    assert!(skin.min.x > 1280.0 / 2.0, "{skin:?}");
+    h.wait_for_ui_images();
+    h.frames(5);
+    h.snapshot("home_without_a_world");
+
+    // Tab reaches the button, and the preview follows a change of skin
+    while h.focus_label().as_deref() != Some(SKINS_TITLE) {
+        h.press(KeyCode::Tab);
+    }
+    h.press(KeyCode::Enter);
+    h.wait_for(&L::text(IMPORT_NOTE), SCREEN);
+    h.click(&L::text("Miner"));
+    h.frames(2);
+    h.press(KeyCode::Escape);
+    h.wait_for(&L::text("Singleplayer"), SCREEN);
+    h.wait_for_ui_images();
+    h.frames(5);
+    h.snapshot("home_as_a_miner");
+    let world = h.world_mut();
+    let miner: Handle<Image> = world
+        .resource::<AssetServer>()
+        .load(built_in_skin_path("Miner"));
+    let worn = world
+        .query_filtered::<&MeshMaterial3d<StandardMaterial>, With<Mesh3d>>()
+        .iter(world)
+        .next()
+        .expect("the model")
+        .0
+        .clone();
+    let worn = world
+        .resource::<Assets<StandardMaterial>>()
+        .get(&worn)
+        .unwrap();
+    assert_eq!(worn.base_color_texture.as_ref(), Some(&miner));
 }
 
 #[test]
@@ -147,8 +212,14 @@ fn the_keyboard_alone_opens_a_screen() {
 
     h.press(KeyCode::ArrowDown);
     assert_eq!(h.focus_label().as_deref(), Some("Multiplayer"));
-    h.press(KeyCode::Tab);
+    h.press(KeyCode::ArrowRight);
     assert_eq!(h.focus_label().as_deref(), Some(SKINS_TITLE));
+    h.press(KeyCode::ArrowLeft);
+    h.key_down(KeyCode::ShiftLeft);
+    while h.focus_label().as_deref() != Some("Multiplayer") {
+        h.press(KeyCode::Tab);
+    }
+    h.key_up(KeyCode::ShiftLeft);
     h.press(KeyCode::Tab);
     assert_eq!(h.focus_label().as_deref(), Some("Settings"));
     assert_eq!(ring(&mut h, "Settings"), ACCENT);

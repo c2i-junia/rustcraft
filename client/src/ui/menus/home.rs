@@ -1,5 +1,5 @@
 //! The main menu: the logo, the buttons to the other screens, the card of the last world played,
-//! the player's name, and a confirmation before quitting.
+//! the model wearing the chosen skin over the Skin button, the player's name, and a confirmation before quitting.
 
 use bevy::{
     input_focus::{tab_navigation::TabGroup, AutoFocus, InputFocus, InputFocusVisible},
@@ -11,7 +11,7 @@ use shared::GameFolderPaths;
 
 use super::background::menu_background;
 use super::player_name::{change_name_on_activate, PlayerNameButton};
-use super::skins::SKINS_TITLE;
+use super::skins::{spawn_home_preview, HomePreview, SKINS_TITLE};
 use super::solo::SelectedWorld;
 use super::worlds::{
     elapsed_since, last_played_world, played_ago, start_world, thumbnail_color, WorldSummary,
@@ -41,7 +41,7 @@ pub enum MainMenuButton {
     Quit,
 }
 
-/// The card of the last world played, on the right of the main menu: its Play button, and
+/// The card of the last world played, beside the skin on the main menu: its Play button, and
 /// Ctrl+Enter, play `world`.
 #[derive(Component)]
 pub struct ContinueCard {
@@ -92,6 +92,7 @@ pub fn home_setup(
     asset_server: Res<AssetServer>,
     paths: Res<GameFolderPaths>,
     profile: Res<CurrentPlayerProfile>,
+    mut preview: HomePreview,
 ) {
     let font = load_font(&asset_server);
     let glyph_font = asset_server.load(MONO_FONT_PATH);
@@ -126,11 +127,13 @@ pub fn home_setup(
         },
         ChildOf(content),
     ));
-    // the buttons on the left, the card of the last world on the right
+    // the buttons on the left; on the right the card of the last world, then the skin. The
+    // buttons and the card narrow in the smallest window
     let row = commands
         .spawn((
+            ArrowNav,
             Node {
-                justify_content: JustifyContent::SpaceBetween,
+                column_gap: px(SPACE_L),
                 align_items: AlignItems::FlexStart,
                 ..default()
             },
@@ -139,7 +142,6 @@ pub fn home_setup(
         .id();
     let column = commands
         .spawn((
-            ArrowNav,
             Node {
                 flex_direction: FlexDirection::Column,
                 row_gap: px(SPACE_S),
@@ -152,7 +154,6 @@ pub fn home_setup(
     let buttons = [
         (MainMenuButton::Singleplayer, "Singleplayer"),
         (MainMenuButton::Multiplayer, "Multiplayer"),
-        (MainMenuButton::Skin, SKINS_TITLE),
         (MainMenuButton::Settings, "Settings"),
     ];
     for (index, (action, label)) in buttons.into_iter().enumerate() {
@@ -181,6 +182,28 @@ pub fn home_setup(
         }
         None => &MAIN_HINTS,
     };
+    let skin = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(SPACE_S),
+                flex_shrink: 0.0,
+                // beside the card, which is pushed to the right itself
+                margin: match &last_world {
+                    Some(_) => UiRect::DEFAULT,
+                    None => UiRect::left(auto()),
+                },
+                ..default()
+            },
+            ChildOf(row),
+        ))
+        .id();
+    spawn_home_preview(&mut commands, skin, &asset_server, &mut preview);
+    commands.spawn((
+        button(SKINS_TITLE, ButtonVariant::Default, font.clone()),
+        MainMenuButton::Skin,
+        ChildOf(skin),
+    ));
     // the version, and under it the player's name, whose text lines up with it
     let corner = commands
         .spawn((
@@ -273,7 +296,6 @@ fn continue_card(world: &WorldSummary, font: &Handle<Font>) -> impl Bundle {
     );
     let panel = (
         Node {
-            width: px(CARD_WIDTH),
             flex_direction: FlexDirection::Column,
             row_gap: px(SPACE_L),
             padding: UiRect::all(px(SPACE_L)),
@@ -300,6 +322,8 @@ fn continue_card(world: &WorldSummary, font: &Handle<Font>) -> impl Bundle {
             world: world.name.clone(),
         },
         Node {
+            width: px(CARD_WIDTH),
+            margin: UiRect::left(auto()),
             flex_direction: FlexDirection::Column,
             row_gap: px(SPACE_S),
             ..default()

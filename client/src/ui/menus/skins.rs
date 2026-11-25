@@ -4,11 +4,14 @@
 //!
 //! A PNG dropped on the window while the screen is open is imported: copied to the `skins/`
 //! folder of the game folder and chosen, or refused with the reason under the preview.
+//!
+//! The main menu shows the same model (`spawn_home_preview`).
 
 use accesskit::Role;
 use bevy::{
     a11y::AccessibilityNode,
     camera::{visibility::RenderLayers, RenderTarget},
+    ecs::system::SystemParam,
     input_focus::tab_navigation::{TabGroup, TabIndex},
     prelude::*,
     render::render_resource::TextureFormat,
@@ -37,7 +40,7 @@ use crate::ui::widgets::hints::{Hint, HINT_BAR_HEIGHT};
 use crate::ui::widgets::list::{spawn_list_card, spawn_scroll_list, CardSelected, WheelStep};
 use crate::ui::widgets::{raised_bevel, sunken_bevel};
 
-/// The title of the screen, and the label of the button of the main menu that opens it.
+/// The title of the screen, and the label of the button, under the preview of the main menu, that opens it.
 pub const SKINS_TITLE: &str = "Skin";
 
 /// What the screen says of the import, under the preview.
@@ -48,6 +51,8 @@ pub const PREVIEW_LAYER: usize = 30;
 
 /// The side of the preview, in pixels.
 const PREVIEW_SIZE: u32 = 240;
+/// The largest size of the preview of the main menu, in pixels.
+const HOME_PREVIEW_SIZE: UVec2 = UVec2::new(300, 400);
 /// How fast the model of the preview turns, in radians a second: a turn in about 12 s.
 const PREVIEW_TURN_SPEED: f32 = 0.5;
 /// The width of the pane of the preview.
@@ -130,12 +135,12 @@ pub fn skins_plugin(app: &mut App) {
     app.add_systems(OnEnter(MenuState::Skins), skins_setup)
         .add_systems(
             Update,
-            (
-                follow_focus_with_hints::<SkinsHints>,
-                turn_skin_preview,
-                import_dropped_skins,
-            )
+            (follow_focus_with_hints::<SkinsHints>, import_dropped_skins)
                 .run_if(in_state(MenuState::Skins)),
+        )
+        .add_systems(
+            Update,
+            turn_skin_preview.run_if(in_state(MenuState::Skins).or_else(in_state(MenuState::Main))),
         )
         .add_systems(OnExit(MenuState::Skins), |mut commands: Commands| {
             commands.remove_resource::<PreviewMaterial>();
@@ -215,7 +220,13 @@ fn skins_setup(
         &mut images,
     )));
     commands.insert_resource(PreviewMaterial(material.clone()));
-    spawn_preview_scene(&mut commands, &mut meshes, material, picture.clone());
+    spawn_preview_scene(
+        &mut commands,
+        &mut meshes,
+        material,
+        picture.clone(),
+        MenuState::Skins,
+    );
 
     let pane = commands
         .spawn((
@@ -284,13 +295,62 @@ fn skins_setup(
     commands.trigger(SkinsChanged { error: None });
 }
 
+/// What the main menu needs to show the model wearing the chosen skin.
+#[derive(SystemParam)]
+pub struct HomePreview<'w> {
+    chosen: Res<'w, ChosenSkin>,
+    images: ResMut<'w, Assets<Image>>,
+    meshes: ResMut<'w, Assets<Mesh>>,
+    materials: ResMut<'w, Assets<StandardMaterial>>,
+}
+
+/// Spawns under `parent` the model wearing the chosen skin, which slowly turns on the main menu:
+/// as wide as 30% of the height of the window and as high as 40%, up to `HOME_PREVIEW_SIZE`.
+pub fn spawn_home_preview(
+    commands: &mut Commands,
+    parent: Entity,
+    assets: &AssetServer,
+    preview: &mut HomePreview,
+) {
+    let size = HOME_PREVIEW_SIZE;
+    let picture = preview.images.add(Image::new_target_texture(
+        size.x,
+        size.y,
+        TextureFormat::Rgba8UnormSrgb,
+        None,
+    ));
+    let texture = skin_texture(&preview.chosen.skin, assets, &mut preview.images);
+    let material = preview.materials.add(skin_material(texture));
+    spawn_preview_scene(
+        commands,
+        &mut preview.meshes,
+        material,
+        picture.clone(),
+        MenuState::Main,
+    );
+    commands.spawn((
+        SkinPreview,
+        ImageNode::new(picture),
+        Node {
+            width: vh(30),
+            height: vh(40),
+            max_width: px(size.x as f32),
+            max_height: px(size.y as f32),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        ChildOf(parent),
+    ));
+}
+
 /// Spawns the model of the preview in `material`, its light and the camera that draws them into
-/// `picture`, all on `PREVIEW_LAYER`.
+/// `picture`, all on `PREVIEW_LAYER`, for as long as `screen` shows.
 fn spawn_preview_scene(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     material: Handle<StandardMaterial>,
     picture: Handle<Image>,
+    screen: MenuState,
 ) {
     let layers = RenderLayers::layer(PREVIEW_LAYER);
     let middle = Vec3::Y * PLAYER_HEIGHT / 2.0;
@@ -306,7 +366,7 @@ fn spawn_preview_scene(
         RenderTarget::Image(picture.into()),
         Transform::from_xyz(0.0, middle.y + 0.3, -2.7).looking_at(middle, Vec3::Y),
         layers.clone(),
-        DespawnOnExit(MenuState::Skins),
+        DespawnOnExit(screen),
     ));
     commands.spawn((
         DirectionalLight {
@@ -315,7 +375,7 @@ fn spawn_preview_scene(
         },
         Transform::from_xyz(1.0, 2.0, -2.0).looking_at(Vec3::ZERO, Vec3::Y),
         layers.clone(),
-        DespawnOnExit(MenuState::Skins),
+        DespawnOnExit(screen),
     ));
     commands
         .spawn((
@@ -323,7 +383,7 @@ fn spawn_preview_scene(
             Transform::from_translation(middle),
             Visibility::default(),
             layers.clone(),
-            DespawnOnExit(MenuState::Skins),
+            DespawnOnExit(screen),
         ))
         .with_children(|body| {
             spawn_player_model(body, meshes, material, PLAYER_HEIGHT, layers);

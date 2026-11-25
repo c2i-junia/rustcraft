@@ -218,6 +218,7 @@ mod tests {
     use crate::e2e::harness::{Harness, Options, STARTUP};
     use crate::e2e::locator::Locator as L;
     use crate::e2e::seed::GameFolder;
+    use crate::ui::menus::skins::SkinPreviewModel;
     use crate::ui::menus::MenuState;
     use crate::ui::widgets::focus::FocusRing;
 
@@ -229,6 +230,12 @@ mod tests {
         let folder = GameFolder::new().with_played_world("Survie", 0, played_ago);
         let mut h = Harness::start(folder, Options::default());
         h.wait_for(&L::text("Multiplayer"), STARTUP);
+        // the model of the skin faces the player, rather than however far it turned
+        let world = h.world_mut();
+        let mut models = world.query_filtered::<(Entity, &mut Transform), With<SkinPreviewModel>>();
+        let (model, mut transform) = models.single_mut(world).expect("the model of the skin");
+        transform.rotation = Quat::IDENTITY;
+        world.entity_mut(model).remove::<SkinPreviewModel>();
         h.assert_screenshot("menu_main");
     }
 

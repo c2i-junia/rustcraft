@@ -1045,7 +1045,8 @@ open. The Skin screen (`ui/menus/skins.rs`) lists the skins of the game
 the `skins/` folder of the game folder, where a file dropped on the window is copied
 (`FileDragAndDrop`); a 64x32 skin is widened to 64x64 by mirroring its right arm and leg
 (`player/skin.rs`). Its preview is the player's model (`spawn_player_model`) on a layer of its own
-(`PREVIEW_LAYER`), drawn by a `Camera3d` into an image the screen shows. The choice is saved in
+(`PREVIEW_LAYER`), drawn by a `Camera3d` into an image the screen shows; the main menu shows it too, over the Skin
+button (`spawn_home_preview`). The choice is saved in
 `skin.ron`; `ChosenSkin` holds it with the `PlayerSkin` sent in `AuthRegisterRequest`: a name, or
 the 16 KiB of RGBA of an imported skin. The server keeps the validated skin on the `Player` (not
 saved) and every `PlayerSpawnEvent` carries it, so a client builds the model of each player from
